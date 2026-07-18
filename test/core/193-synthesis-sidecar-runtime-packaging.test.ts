@@ -192,6 +192,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/apps/synthesis-service/src/conceptKbApplicationNode.js",
       "service/apps/synthesis-service/src/topicGraphApplicationNode.js",
       "service/apps/synthesis-service/src/knowledgeCheckpointApplicationNode.js",
+      "service/apps/synthesis-service/src/durableBundleApplicationNode.js",
       "service/packages/synthesis-engine/src/index.js",
       "service/packages/synthesis-engine/src/citationGraphBuild.js",
       "service/packages/synthesis-engine/src/citationGraphBuildTransfer.js",
@@ -210,6 +211,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/packages/synthesis-contracts/src/conceptKbApplication.js",
       "service/packages/synthesis-contracts/src/conceptKbCore.js",
       "service/packages/synthesis-contracts/src/knowledgeCheckpoint.js",
+      "service/packages/synthesis-contracts/src/durableBundle.js",
       "service/packages/synthesis-contracts/src/topicGraphApplication.js",
       "service/packages/synthesis-contracts/src/topicGraphCore.js",
       "service/packages/synthesis-contracts/src/workbench.js",
@@ -226,6 +228,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/packages/synthesis-application/src/conceptKbApplication.js",
       "service/packages/synthesis-application/src/topicGraphApplication.js",
       "service/packages/synthesis-application/src/knowledgeCheckpointApplication.js",
+      "service/packages/synthesis-application/src/durableBundleApplication.js",
       "service/packages/synthesis-application/src/knowledgeCheckpointCompatibility.js",
       "service/packages/synthesis-repository/src/index.js",
       "service/packages/synthesis-repository/src/citationGraph.js",
@@ -235,6 +238,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/packages/synthesis-repository/src/conceptKb.js",
       "service/packages/synthesis-repository/src/topicGraph.js",
       "service/packages/synthesis-repository/src/knowledgeCheckpoint.js",
+      "service/packages/synthesis-repository/src/durableBundle.js",
       "service/node_modules/d3-force/LICENSE",
       "service/node_modules/d3-force/src/index.js",
       "service/node_modules/d3-dispatch/LICENSE",
@@ -524,6 +528,10 @@ describe("Synthesis sidecar runtime packaging", function () {
     );
     assert.include(
       first.inputs,
+      "apps/synthesis-service/src/durableBundleApplicationNode.ts",
+    );
+    assert.include(
+      first.inputs,
       "apps/synthesis-service/src/referenceMatchingReviewApplicationNode.ts",
     );
     assert.include(
@@ -552,6 +560,10 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(
       first.inputs,
       "packages/synthesis-repository/src/knowledgeCheckpoint.ts",
+    );
+    assert.include(
+      first.inputs,
+      "packages/synthesis-repository/src/durableBundle.ts",
     );
     assert.include(first.inputs, "packages/synthesis-repository/package.json");
     assert.include(first.inputs, "packages/synthesis-application/src/index.ts");
@@ -583,6 +595,10 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(
       first.inputs,
       "packages/synthesis-application/src/knowledgeCheckpointApplication.ts",
+    );
+    assert.include(
+      first.inputs,
+      "packages/synthesis-application/src/durableBundleApplication.ts",
     );
     assert.include(
       first.inputs,
@@ -640,6 +656,10 @@ describe("Synthesis sidecar runtime packaging", function () {
       first.inputs,
       "packages/synthesis-contracts/src/knowledgeCheckpoint.ts",
     );
+    assert.include(
+      first.inputs,
+      "packages/synthesis-contracts/src/durableBundle.ts",
+    );
     assert.include(first.inputs, "package-lock.json");
     assert.deepEqual(SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES, [
       "d3-dispatch",
@@ -686,6 +706,7 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(xpiCheck, "tagVocabularyCore.js");
     assert.include(xpiCheck, "conceptKbApplicationNode.js");
     assert.include(xpiCheck, "knowledgeCheckpointApplicationNode.js");
+    assert.include(xpiCheck, "durableBundleApplicationNode.js");
     assert.include(xpiCheck, "conceptKbIndex.js");
     assert.include(xpiCheck, "conceptKbCore.js");
     assert.include(xpiCheck, "packages/synthesis-repository/src/index.js");
@@ -710,7 +731,19 @@ describe("Synthesis sidecar runtime packaging", function () {
       xpiCheck,
       "packages/synthesis-repository/src/knowledgeCheckpoint.js",
     );
+    assert.include(
+      xpiCheck,
+      "packages/synthesis-repository/src/durableBundle.js",
+    );
     assert.include(xpiCheck, "packages/synthesis-application/src/index.js");
+    assert.include(
+      xpiCheck,
+      "packages/synthesis-application/src/durableBundleApplication.js",
+    );
+    assert.include(
+      xpiCheck,
+      "packages/synthesis-contracts/src/durableBundle.js",
+    );
     assert.include(
       xpiCheck,
       "packages/synthesis-application/src/topicCanonical.js",

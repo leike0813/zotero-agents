@@ -14,7 +14,7 @@ Files are explicit artifacts, exports, checkpoints, or debug dumps; they are not
 | Deleted topic artifact archive | `data/synthesis/deleted/**` | Removed topic artifact trees kept for explicit recovery/inspection, not active Workbench data |
 | WebDAV durable exchange store | Remote WebDAV collection plus `runtime/synthesis/webdav-sync/**` staging | Deterministic durable-state assets used for cross-device sync and recovery; see [WebDAV Durable Sync](./webdav-durable-sync.md) |
 | Product-owned sidecar runtime | `runtime/synthesis/service-runtime/**` | Verified immutable Node/service versions plus strict active/previous pointers. This is executable packaging state, not Synthesis domain state or a Workbench data source. |
-| Service isolated repository | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-repository/<dataRootId>/synthesis.db` | Persistent WS5 shadow containing foundation plus seven private Topic, Reference Refresh, Reference Matching/Review, Citation Graph, Tag Vocabulary, Concept KB, and Topic Graph application table families. A private knowledge checkpoint coordinator captures and replaces the active Tag, Concept, and Topic Graph aggregates in one transaction. It is not a production mirror, production Workbench source, public route, or production mutation owner. |
+| Service isolated repository | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-repository/<dataRootId>/synthesis.db` | Persistent WS5 shadow containing foundation plus seven private Topic, Reference Refresh, Reference Matching/Review, Citation Graph, Tag Vocabulary, Concept KB, and Topic Graph application table families. A private knowledge checkpoint coordinator captures and replaces three knowledge aggregates; a private durable exporter captures every currently available durable row and Topic registry basis in one read transaction. It is not a production mirror, production Workbench source, public route, or production mutation owner. |
 | Service Topic canonical shadow | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-canonical/<dataRootId>/topics/<pathId>/current/**` | Persistent WS5 shadow of complete Topic current snapshots. The main process uses identity binding, canonical validation, expected-basis CAS, durable staging, one transaction journal, rollback, and restart recovery. Authenticated inspect returns hashes and descriptors only; this tree is not the production Topic SSOT or an apply route. |
 | Zotero Library | Zotero DB/API | SSOT for item existence, metadata, tags, collections, notes, attachments, and native relations |
 | Source artifact notes | Zotero notes/items | SSOT for literature workflow artifacts consumed by Synthesis; excludes applied Topic canonical current files |
@@ -117,6 +117,16 @@ indexes retain their payloads and become stale. Restart, discard, admission
 stop, or any apply attempt invalidates the receipt. The coordinator has no
 public route and does not replace production checkpoint files, durable bundles,
 or WebDAV synchronization.
+
+The private durable bundle exporter is a portable-output boundary, not another
+SSOT or cache. It recognizes the complete 23-kind durable contract, emits only
+deterministic v2 bundles, and verifies both v2 and strict legacy v1 inputs. It
+captures SQLite rows and Topic registry bases first, reads only validated
+canonical `current` JSON/Markdown source assets, then recaptures the repository
+and canonical hashes. A missing, damaged, or changed basis fails the whole
+export. Sinks receive path-sorted bundles before the manifest commit marker, so
+a partial write is never a newly verifiable complete export. This foundation
+does not import, mutate a domain, maintain a sync index, or contact WebDAV.
 
 The sibling Topic canonical shadow uses the same opaque profile/data-root
 identity but never receives a caller-supplied canonical path. Complete snapshots
@@ -312,7 +322,7 @@ The Workbench Review & Overrides view should aggregate bounded DTOs:
 
 ## Import and Export
 
-Export/checkpoint should render from DB and topic artifacts into a portable bundle. Import should validate and write through repository APIs. It should not copy arbitrary file trees back into runtime state.
+Export/checkpoint renders from DB and canonical Topic artifacts into a portable bundle. The private sidecar exporter performs only this read path; production import continues to validate and write through repository/domain APIs. Neither path copies arbitrary file trees back into runtime state.
 
 WebDAV Sync uses this rule as a hard contract:
 

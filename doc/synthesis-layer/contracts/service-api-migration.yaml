@@ -126,6 +126,21 @@ isolated_knowledge_checkpoint_application:
   production_database_owner: plugin_composition
   production_mutation_enabled: false
 
+isolated_durable_bundle_export_application:
+  mode: isolated_shadow
+  package: packages/synthesis-application
+  use_cases: [build_export, read_and_verify]
+  format: v2_only_export
+  legacy_read: v1
+  source_port: environment_neutral
+  sink_port: environment_neutral_manifest_last
+  remote_capability: false
+  production_route: false
+  automatic_invocation: false
+  production_database_owner: plugin_composition
+  production_canonical_file_owner: plugin_composition
+  production_mutation_enabled: false
+
 application_canaries:
   - id: workbench_chrome_operational
     package: packages/synthesis-application

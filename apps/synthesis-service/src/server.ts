@@ -75,6 +75,7 @@ import { createSynthesisSidecarTagVocabularyApplication } from "./tagVocabularyA
 import { createSynthesisSidecarConceptKbApplication } from "./conceptKbApplicationNode.js";
 import { createSynthesisSidecarTopicGraphApplication } from "./topicGraphApplicationNode.js";
 import { createSynthesisSidecarKnowledgeCheckpointApplication } from "./knowledgeCheckpointApplicationNode.js";
+import { createSynthesisSidecarDurableBundleApplication } from "./durableBundleApplicationNode.js";
 import {
   rebuildSynthesisTopicCanonicalInspectRequest,
   rebuildSynthesisTopicCanonicalInspectResult,
@@ -338,6 +339,12 @@ export async function startSynthesisSidecarServer(
     createSynthesisSidecarKnowledgeCheckpointApplication({
       repository: repository.store,
     });
+  const durableBundleApplication =
+    createSynthesisSidecarDurableBundleApplication({
+      repository: repository.store,
+      canonicalStore,
+      producerVersion: config.serviceVersion,
+    });
   const transferExecutor =
     options.transferExecutor ??
     createCitationGraphBuildTransferExecutor({
@@ -351,6 +358,7 @@ export async function startSynthesisSidecarServer(
     }
     shutdownStarted = true;
     lifecycleState = "stopping";
+    durableBundleApplication.stopAdmission();
     knowledgeCheckpointApplication.stopAdmission();
     topicApplication.stopAdmission();
     citationGraphApplication.stopAdmission();
@@ -366,6 +374,7 @@ export async function startSynthesisSidecarServer(
       serviceInstanceId,
     });
     void (async () => {
+      await durableBundleApplication.shutdown();
       await knowledgeCheckpointApplication.shutdown();
       await referenceRefreshApplication.shutdown();
       await referenceMatchingReviewApplication.shutdown();
@@ -373,6 +382,7 @@ export async function startSynthesisSidecarServer(
       await conceptKbApplication.shutdown();
       await topicGraphApplication.shutdown();
       await citationGraphApplication.shutdown();
+      canonicalStore.close();
       repository.close();
       await Promise.allSettled([
         computePool.shutdown(),
@@ -823,6 +833,7 @@ export async function startSynthesisSidecarServer(
     });
   } catch (error) {
     transferExecutor.shutdown();
+    await durableBundleApplication.shutdown();
     await knowledgeCheckpointApplication.shutdown();
     await referenceRefreshApplication.shutdown();
     await referenceMatchingReviewApplication.shutdown();

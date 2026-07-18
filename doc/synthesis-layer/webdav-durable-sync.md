@@ -12,6 +12,8 @@ The remote collection contains immutable snapshots and one mutable `HEAD.json` p
 
 New manifests advertise `webdav-sync.v1`. Readers validate schema, paths, hashes, and asset contents without using the capability string as an import gate, so an existing valid durable bundle remains readable.
 
+The production codec delegates its v2 canonical envelope, bundle, chunk, manifest, and strict v1/v2 verification rules to the shared durable-bundle foundation. Existing remote paths, canonical text length fields, hashes, progress, preview/apply ordering, sync index, HEAD/ETag, retry, conflict, preferences, credentials, and Host port remain production-owned and unchanged. The sidecar's private durable export application does not read or write this remote collection and exposes no sync or import operation.
+
 Durable bundles include user-owned and non-rebuildable Synthesis facts. They exclude:
 
 - `synthesis.db`, WAL, and SHM files;

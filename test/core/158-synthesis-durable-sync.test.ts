@@ -4,6 +4,7 @@ import os from "os";
 import path from "path";
 import {
   buildSynthesisStoragePaths,
+  canonicalizeJson,
   hashCanonicalJson,
 } from "../../src/modules/synthesis/foundation";
 import {
@@ -249,11 +250,24 @@ describe("Synthesis durable sync exchange", function () {
     });
 
     assert.equal(first.manifest.manifest_hash, second.manifest.manifest_hash);
+    assert.deepEqual(first.manifest.required_capabilities, [
+      "durable-state.v1",
+      "durable-bundles.v2",
+      "webdav-sync.v1",
+    ]);
     assert.include(first.manifest.required_capabilities, "webdav-sync.v1");
     assert.notInclude(first.manifest.required_capabilities, "git-sync.v1");
     assert.deepEqual(
       first.manifest.assets.map((asset) => [asset.path, asset.hash]),
       second.manifest.assets.map((asset) => [asset.path, asset.hash]),
+    );
+    assert.deepEqual(
+      first.assets.map((asset) => [asset.relativePath, asset.text]),
+      second.assets.map((asset) => [asset.relativePath, asset.text]),
+    );
+    assert.equal(
+      await readRuntimeTextFile(path.join(exportRoot, "manifest.json")),
+      `${JSON.stringify(JSON.parse(canonicalizeJson(first.manifest)), null, 2)}\n`,
     );
     assert.isTrue(
       await runtimePathExists(path.join(exportRoot, "manifest.json")),

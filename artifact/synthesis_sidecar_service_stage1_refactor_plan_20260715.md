@@ -1,6 +1,6 @@
 # Stage 1 Detailed Refactor Plan: Synthesis Sidecar Service
 
-> 状态：实施中；WS5 已建立隔离 repository、Topic canonical shadow、七个私有领域 application foundation 与 knowledge checkpoint coordinator，尚未进入生产持久化切换
+> 状态：实施中；WS5 已建立隔离 repository、Topic canonical shadow、七个私有领域 application foundation、knowledge checkpoint coordinator 与 durable bundle export foundation，尚未进入生产持久化切换
 >
 > 日期：2026-07-15
 >
@@ -1185,7 +1185,16 @@ graph layout 作为第一条 process canary，因为：
   覆盖；apply 要求 checkpoint hash、单次 receipt 和显式 full-replacement 确认，在一个 repository
   transaction 内执行三 basis CAS。Tag staged/audit/pending effect 保持，三个 last-good index payload
   保持但统一标记 stale。该 coordinator 没有 HTTP/RPC、worker operation、public capability 或
-  production route；durable bundle、WebDAV 与生产 checkpoint/import composition 仍由后续切片负责。
+  production route；生产 checkpoint/import composition 仍由后续切片负责。
+- `add-synthesis-sidecar-durable-bundle-export-foundation` 已完成拆分优先级第 7 项的
+  第二个闭合切片：shared contract 覆盖现有 23 类 durable entity，严格验证 exact fields、schema、
+  path、identity、count、canonical-text length 与 hash，builder 只生成确定性 v2 bundle/manifest，
+  reader 同时接受严格 legacy v1。私有 application 在一个事务内捕获全部当前可用 SQLite facts
+  与 Topic registry bases，读取 canonical current 后同时 recapture repository 与 canonical hashes，
+  任一缺失、损坏或 supersession 都整体失败；sink 始终先写排序稳定的 bundles、最后写 manifest。
+  production durable sync 复用 shared codec，但原有 DTO、paths、progress、preview/apply、sync index、
+  conflict、WebDAV HEAD/ETag/retry/credentials/Host port 行为保持不变。该 foundation 没有公开 route、
+  worker operation、import/apply 或 remote transport；剩余 priority-7 切片是 durable import 与 WebDAV。
 - 此切片不是 production repository mirror 或 route。WS6 仍需完成 shadow parity，
   WS7 仍需一次性切换 DB/canonical single writer；当前 service 不接触生产
   `synthesis.db`、production canonical files、Host capability 或公开 `SynthesisClient`。
@@ -1215,7 +1224,7 @@ graph layout 作为第一条 process canary，因为：
 4. graph read/layout/rebuild；
 5. reference sidecar/matching/review；
 6. tags/concepts/topic graph；
-7. knowledge checkpoint（SQLite-only foundation 已完成）、durable bundle、WebDAV sync/import/export；
+7. knowledge checkpoint 与 durable bundle export foundation 已完成；继续 durable import 与 WebDAV sync；
 8. debug/maintenance。
 
 这里的优先级用于实现和测试，不代表生产逐表切换。

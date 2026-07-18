@@ -20,6 +20,7 @@ import {
   createSynthesisRepository,
   type SynthesisRepository,
 } from "./repository";
+import { createSynthesisDurableBundleCodec } from "../../../packages/synthesis-contracts/src/durableBundle";
 
 export const SYNTHESIS_DURABLE_LEGACY_MANIFEST_SCHEMA_VERSION = "1.0.0";
 export const SYNTHESIS_DURABLE_MANIFEST_SCHEMA_VERSION = "2.0.0";
@@ -28,7 +29,6 @@ export const SYNTHESIS_DURABLE_BUNDLE_SCHEMA_ID =
   "synthesis.durable_asset_bundle";
 export const SYNTHESIS_DURABLE_BUNDLE_SCHEMA_VERSION = "2.0.0";
 export const SYNTHESIS_DURABLE_SYNC_INDEX_SCHEMA_VERSION = "1.0.0";
-const MAX_DURABLE_BUNDLE_BYTES = 4 * 1024 * 1024;
 
 export type SynthesisDurableExportProgress = {
   phase: "repository" | "topics" | "bundle" | "write" | "manifest";
@@ -210,6 +210,18 @@ function canonicalJsonText(value: unknown) {
   return `${JSON.stringify(JSON.parse(canonicalizeJson(value)), null, 2)}\n`;
 }
 
+const sharedDurableBundleCodec = createSynthesisDurableBundleCodec({
+  canonicalizeJson,
+  hashCanonicalJson,
+  validatePath(path) {
+    const result = validateManagedRelativePath(path);
+    if (!result.ok) {
+      throw new Error(result.diagnostics[0]?.code || "managed_path_invalid");
+    }
+    return result.normalizedPath;
+  },
+});
+
 function safeAssetName(prefix: string, id: unknown) {
   return canonicalAssetFileName(prefix, cleanString(id) || prefix);
 }
@@ -276,26 +288,6 @@ function entityKey(kind: SynthesisDurableEntityKind, id: string) {
   return `${kind}:${id}`;
 }
 
-function entryText(envelope: SynthesisDurableAssetEnvelope) {
-  return canonicalJsonText(envelope);
-}
-
-function envelopeContentHash(args: {
-  schemaId: string;
-  schemaVersion: string;
-  entityKind: SynthesisDurableEntityKind;
-  entityId: string;
-  data: unknown;
-}) {
-  return hashCanonicalJson({
-    schema_id: args.schemaId,
-    schema_version: args.schemaVersion,
-    entity_kind: args.entityKind,
-    entity_id: args.entityId,
-    data: args.data,
-  });
-}
-
 export function createSynthesisDurableEnvelope<T>(args: {
   schemaId: string;
   schemaVersion?: string;
@@ -305,26 +297,15 @@ export function createSynthesisDurableEnvelope<T>(args: {
   baseHash?: string;
   updatedAt?: string;
 }): SynthesisDurableAssetEnvelope<T> {
-  const schemaVersion =
-    args.schemaVersion || SYNTHESIS_DURABLE_ASSET_SCHEMA_VERSION;
-  const entityId = cleanString(args.entityId);
-  const contentHash = envelopeContentHash({
+  return sharedDurableBundleCodec.createEnvelope({
     schemaId: args.schemaId,
-    schemaVersion,
+    schemaVersion: args.schemaVersion || SYNTHESIS_DURABLE_ASSET_SCHEMA_VERSION,
     entityKind: args.entityKind,
-    entityId,
+    entityId: args.entityId,
     data: args.data,
-  });
-  return {
-    schema_id: args.schemaId,
-    schema_version: schemaVersion,
-    entity_kind: args.entityKind,
-    entity_id: entityId,
-    base_hash: cleanString(args.baseHash),
-    content_hash: contentHash,
-    updated_at: cleanString(args.updatedAt) || nowIso(),
-    data: args.data,
-  };
+    baseHash: args.baseHash,
+    updatedAt: args.updatedAt || nowIso(),
+  }) as SynthesisDurableAssetEnvelope<T>;
 }
 
 function assertSafeSyncPath(path: string) {
@@ -333,23 +314,6 @@ function assertSafeSyncPath(path: string) {
     throw new Error(result.diagnostics[0]?.code || "managed_path_invalid");
   }
   return result.normalizedPath;
-}
-
-function assetFromDraft(
-  draft: DurableAssetDraft,
-  baseHash = "",
-  fallbackUpdatedAt = "",
-) {
-  const relativePath = assertSafeSyncPath(draft.path);
-  const envelope = createSynthesisDurableEnvelope({
-    schemaId: draft.schemaId,
-    entityKind: draft.entityKind,
-    entityId: draft.entityId,
-    data: draft.data,
-    baseHash,
-    updatedAt: draft.updatedAt || fallbackUpdatedAt,
-  });
-  return { relativePath, envelope, text: canonicalJsonText(envelope) };
 }
 
 function manifestHashBase(
@@ -372,34 +336,7 @@ export function createSynthesisDurableManifest(args: {
   generatedAt: string;
   producerVersion?: string;
 }) {
-  const base = manifestHashBase({
-    manifest_schema_version: SYNTHESIS_DURABLE_MANIFEST_SCHEMA_VERSION,
-    producer_version: args.producerVersion || "zotero-skills",
-    min_reader_version: "1.0.0",
-    required_capabilities: [
-      "durable-state.v1",
-      "durable-bundles.v2",
-      "webdav-sync.v1",
-    ],
-    domain_versions: {
-      concept: "1.0.0",
-      discovery: "1.0.0",
-      reference: "1.0.0",
-      review: "1.0.0",
-      tag: "1.0.0",
-      topic: "1.0.0",
-      topic_graph: "1.0.0",
-    },
-    generated_at: args.generatedAt,
-    asset_count: args.assets.length,
-    assets: [...args.assets].sort((left, right) =>
-      left.path.localeCompare(right.path),
-    ),
-  });
-  return {
-    ...base,
-    manifest_hash: hashCanonicalJson(base),
-  };
+  return sharedDurableBundleCodec.createManifest(args);
 }
 
 function isLegacyManifest(manifest: SynthesisDurableSyncManifest) {
@@ -820,132 +757,6 @@ async function topicAssetDrafts(
   return drafts;
 }
 
-function bundleKindFor(envelope: SynthesisDurableAssetEnvelope) {
-  switch (envelope.entity_kind) {
-    case "concept":
-    case "concept_sense":
-    case "concept_alias":
-    case "concept_relation":
-    case "concept_review_item":
-      return "concepts";
-    case "canonical_reference":
-    case "canonical_reference_redirect":
-    case "reference_binding":
-    case "reference_match_proposal":
-      return "references";
-    case "topic_current_asset":
-    case "topic_concept_links":
-      return "topics";
-    case "topic_graph_node":
-    case "topic_graph_edge":
-    case "topic_graph_review_item":
-      return "topic-graph";
-    case "review_item":
-      return "reviews";
-    case "topic_interest_metadata":
-    case "topic_discovery_hint":
-      return "discovery";
-    case "tag_vocabulary":
-    case "tag_aliases":
-    case "tag_abbrev":
-    case "tag_protocol":
-      return "tags";
-    case "related_items_sync_effect":
-      return "related-items";
-    case "tombstone":
-      return "tombstones";
-    default:
-      return "misc";
-  }
-}
-
-function topicBundleId(envelope: SynthesisDurableAssetEnvelope) {
-  const data = isRecord(envelope.data) ? envelope.data : {};
-  const topicId =
-    cleanString(data.topic_id) ||
-    cleanString(data.topicId) ||
-    cleanString(envelope.entity_id).split(":")[1] ||
-    "topic";
-  return canonicalAssetFileName("topic", topicId).replace(/\.json$/i, "");
-}
-
-function bundleBasePathFor(envelope: SynthesisDurableAssetEnvelope) {
-  const bundleKind = bundleKindFor(envelope);
-  if (bundleKind === "topics") {
-    return `bundles/topics/${topicBundleId(envelope)}.json`;
-  }
-  return `bundles/${bundleKind}.json`;
-}
-
-function createBundle(
-  bundleKind: string,
-  entries: SynthesisDurableAssetEnvelope[],
-): SynthesisDurableAssetBundle {
-  return {
-    schema_id: SYNTHESIS_DURABLE_BUNDLE_SCHEMA_ID,
-    schema_version: SYNTHESIS_DURABLE_BUNDLE_SCHEMA_VERSION,
-    bundle_kind: bundleKind,
-    entries: [...entries].sort((left, right) => {
-      const leftKey = entityKey(left.entity_kind, left.entity_id);
-      const rightKey = entityKey(right.entity_kind, right.entity_id);
-      return leftKey.localeCompare(rightKey);
-    }),
-  };
-}
-
-function chunkPath(basePath: string, index: number) {
-  if (index === 0) {
-    return basePath;
-  }
-  return basePath.replace(
-    /\.json$/i,
-    `.part-${String(index + 1).padStart(4, "0")}.json`,
-  );
-}
-
-function manifestEntity(
-  path: string,
-  envelope: SynthesisDurableAssetEnvelope,
-): SynthesisDurableManifestEntity {
-  const text = entryText(envelope);
-  return {
-    path,
-    entity_kind: envelope.entity_kind,
-    entity_id: envelope.entity_id,
-    schema_id: envelope.schema_id,
-    schema_version: envelope.schema_version,
-    hash: envelope.content_hash,
-    content_hash: envelope.content_hash,
-    bytes: text.length,
-  };
-}
-
-function bundleFile(
-  basePath: string,
-  entries: SynthesisDurableAssetEnvelope[],
-) {
-  const bundle = createBundle(bundleKindFor(entries[0]), entries);
-  const relativePath = assertSafeSyncPath(basePath);
-  const text = canonicalJsonText(bundle);
-  return {
-    relativePath,
-    bundle,
-    text,
-    manifestAsset: {
-      path: relativePath,
-      schema_id: SYNTHESIS_DURABLE_BUNDLE_SCHEMA_ID,
-      schema_version: SYNTHESIS_DURABLE_BUNDLE_SCHEMA_VERSION,
-      hash: hashCanonicalJson(text),
-      bytes: text.length,
-      bundle_kind: bundle.bundle_kind,
-      entry_count: bundle.entries.length,
-      entries: bundle.entries.map((entry) =>
-        manifestEntity(relativePath, entry),
-      ),
-    } satisfies SynthesisDurableManifestAsset,
-  };
-}
-
 function resolveDurableRepository(args: {
   root: string;
   repository?: SynthesisRepository;
@@ -958,74 +769,6 @@ function resolveDurableRepository(args: {
     return createSynthesisRepository({ runtimeRoot: args.root });
   }
   throw new Error("synthesis_durable_repository_required");
-}
-
-function oversizedBundleFiles(
-  basePath: string,
-  entries: SynthesisDurableAssetEnvelope[],
-  chunkIndex: { value: number },
-): Array<{
-  relativePath: string;
-  bundle: SynthesisDurableAssetBundle;
-  text: string;
-  manifestAsset: SynthesisDurableManifestAsset;
-}> {
-  const file = bundleFile(chunkPath(basePath, chunkIndex.value), entries);
-  if (file.text.length <= MAX_DURABLE_BUNDLE_BYTES || entries.length <= 1) {
-    chunkIndex.value += 1;
-    return [file];
-  }
-  const splitAt = Math.max(1, Math.floor(entries.length / 2));
-  return [
-    ...oversizedBundleFiles(basePath, entries.slice(0, splitAt), chunkIndex),
-    ...oversizedBundleFiles(basePath, entries.slice(splitAt), chunkIndex),
-  ];
-}
-
-async function buildBundleFiles(
-  envelopes: SynthesisDurableAssetEnvelope[],
-  options: DurableExportProgressOptions = {},
-) {
-  const grouped = new Map<string, SynthesisDurableAssetEnvelope[]>();
-  for (const envelope of envelopes) {
-    const basePath = bundleBasePathFor(envelope);
-    grouped.set(basePath, [...(grouped.get(basePath) || []), envelope]);
-  }
-  const files: Array<{
-    relativePath: string;
-    bundle: SynthesisDurableAssetBundle;
-    text: string;
-    manifestAsset: SynthesisDurableManifestAsset;
-  }> = [];
-  const groups = [...grouped.entries()].sort((left, right) =>
-    left[0].localeCompare(right[0]),
-  );
-  let processedGroups = 0;
-  for (const [basePath, entries] of groups) {
-    const sorted = [...entries].sort((left, right) =>
-      entityKey(left.entity_kind, left.entity_id).localeCompare(
-        entityKey(right.entity_kind, right.entity_id),
-      ),
-    );
-    const chunkIndex = { value: 0 };
-    files.push(...oversizedBundleFiles(basePath, sorted, chunkIndex));
-    processedGroups += 1;
-    await reportDurableExportProgress(options, {
-      phase: "bundle",
-      phase_label: "Bundle files",
-      processed_count: processedGroups,
-      total_count: groups.length,
-      message: `Packed ${basePath}.`,
-      details: {
-        bundle_group: basePath,
-        entry_count: sorted.length,
-        chunk_count: chunkIndex.value,
-      },
-    });
-  }
-  return files.sort((left, right) =>
-    left.relativePath.localeCompare(right.relativePath),
-  );
 }
 
 export async function buildSynthesisDurableExportSnapshot(args: {
@@ -1053,57 +796,46 @@ export async function buildSynthesisDurableExportSnapshot(args: {
     message: "Building durable bundle envelopes.",
     details: { draft_count: drafts.length },
   });
-  const seen = new Set<string>();
-  const envelopes = drafts
-    .map((draft) => assetFromDraft(draft, "", timestamp))
-    .filter((asset) => {
-      const key = entityKey(
-        asset.envelope.entity_kind,
-        asset.envelope.entity_id,
-      );
-      if (seen.has(key)) {
-        return false;
-      }
-      seen.add(key);
-      return true;
-    })
-    .map((asset) => asset.envelope)
-    .sort((left, right) =>
-      entityKey(left.entity_kind, left.entity_id).localeCompare(
-        entityKey(right.entity_kind, right.entity_id),
-      ),
-    );
+  const shared = sharedDurableBundleCodec.buildExport({
+    drafts: drafts.map((draft) => ({
+      entityKind: draft.entityKind,
+      entityId: draft.entityId,
+      schemaId: draft.schemaId,
+      data: draft.data,
+      ...(draft.updatedAt ? { updatedAt: draft.updatedAt } : {}),
+    })),
+    generatedAt: timestamp,
+    producerVersion: args.producerVersion,
+  });
   await reportDurableExportProgress(args, {
     phase: "bundle",
     phase_label: "Bundle files",
-    processed_count: envelopes.length,
+    processed_count: shared.entries.length,
     total_count: drafts.length,
     message: "Packing durable entries into bundle files.",
-    details: { entry_count: envelopes.length },
+    details: { entry_count: shared.entries.length },
   });
-  const assets = await buildBundleFiles(envelopes, args);
-  const manifestAssets = assets.map((asset) => asset.manifestAsset);
-  const entityEntries = manifestAssets.flatMap((asset) => asset.entries || []);
   await reportDurableExportProgress(args, {
     phase: "manifest",
     phase_label: "Manifest",
-    processed_count: assets.length,
-    total_count: assets.length,
+    processed_count: shared.assets.length,
+    total_count: shared.assets.length,
     message: "Creating durable sync manifest.",
-    details: { bundle_count: assets.length, entry_count: entityEntries.length },
+    details: {
+      bundle_count: shared.assets.length,
+      entry_count: shared.entries.length,
+    },
   });
   return {
-    manifest: createSynthesisDurableManifest({
-      assets: manifestAssets,
-      generatedAt: timestamp,
-      producerVersion: args.producerVersion,
-    }),
-    assets: assets.map(({ relativePath, bundle, text }) => ({
-      relativePath,
+    manifest: shared.manifest,
+    assets: shared.assets.map(({ path, bundle, text }) => ({
+      relativePath: path,
       bundle,
       text,
     })),
-    entityEntries,
+    entityEntries: shared.manifest.assets.flatMap(
+      (asset) => asset.entries || [],
+    ),
   };
 }
 
@@ -1162,23 +894,6 @@ export async function writeSynthesisDurableExportSnapshot(args: {
     },
   });
   return snapshot;
-}
-
-function parseEnvelope(input: unknown): SynthesisDurableAssetEnvelope | null {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return null;
-  }
-  const record = input as Record<string, unknown>;
-  const entityKind = cleanString(
-    record.entity_kind,
-  ) as SynthesisDurableEntityKind;
-  const entityId = cleanString(record.entity_id);
-  const schemaId = cleanString(record.schema_id);
-  const schemaVersion = cleanString(record.schema_version);
-  if (!entityKind || !entityId || !schemaId || !schemaVersion) {
-    return null;
-  }
-  return record as SynthesisDurableAssetEnvelope;
 }
 
 async function readJson(path: string) {
@@ -1243,269 +958,34 @@ function validateManifestShape(
   return !diagnostics.some((entry) => entry.severity === "error");
 }
 
-function parseBundle(input: unknown): SynthesisDurableAssetBundle | null {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return null;
-  }
-  const record = input as Record<string, unknown>;
-  if (
-    record.schema_id !== SYNTHESIS_DURABLE_BUNDLE_SCHEMA_ID ||
-    record.schema_version !== SYNTHESIS_DURABLE_BUNDLE_SCHEMA_VERSION ||
-    !Array.isArray(record.entries)
-  ) {
-    return null;
-  }
-  return record as SynthesisDurableAssetBundle;
-}
-
-async function readLegacyRemoteAssets(
-  root: string,
-  manifest: SynthesisDurableSyncManifest,
-) {
-  const diagnostics: SynthesisDurableSyncDiagnostic[] = [];
-  const assets = new Map<string, SynthesisDurableAssetEnvelope>();
-  const paths = new Set<string>();
-  for (const asset of manifest.assets) {
-    const safe = validateManagedRelativePath(asset.path);
-    if (!safe.ok) {
-      diagnostics.push({
-        code: "durable_asset_path_invalid",
-        severity: "error",
-        message: "Durable asset path violates managed path policy.",
-        path: asset.path,
-      });
-      continue;
-    }
-    if (paths.has(safe.normalizedPath)) {
-      diagnostics.push({
-        code: "durable_duplicate_asset_path",
-        severity: "error",
-        message: "Durable manifest contains duplicate asset paths.",
-        path: safe.normalizedPath,
-      });
-      continue;
-    }
-    paths.add(safe.normalizedPath);
-    const fullPath = joinPath(root, safe.normalizedPath);
-    if (!(await runtimePathExists(fullPath))) {
-      diagnostics.push({
-        code: "durable_asset_missing",
-        severity: "error",
-        message: "Durable manifest declares a missing asset.",
-        path: safe.normalizedPath,
-      });
-      continue;
-    }
-    const text = await readRuntimeTextFile(fullPath);
-    if (hashCanonicalJson(text) !== asset.hash) {
-      diagnostics.push({
-        code: "durable_asset_hash_mismatch",
-        severity: "error",
-        message: "Durable asset hash does not match manifest.",
-        path: safe.normalizedPath,
-      });
-      continue;
-    }
-    const envelope = parseEnvelope(JSON.parse(text));
-    if (!envelope) {
-      diagnostics.push({
-        code: "durable_asset_invalid_envelope",
-        severity: "error",
-        message: "Durable asset envelope is invalid.",
-        path: safe.normalizedPath,
-      });
-      continue;
-    }
-    if (
-      envelope.content_hash !==
-      envelopeContentHash({
-        schemaId: envelope.schema_id,
-        schemaVersion: envelope.schema_version,
-        entityKind: envelope.entity_kind,
-        entityId: envelope.entity_id,
-        data: envelope.data,
-      })
-    ) {
-      diagnostics.push({
-        code: "durable_asset_content_hash_mismatch",
-        severity: "error",
-        message: "Durable asset content hash does not match envelope.",
-        path: safe.normalizedPath,
-      });
-      continue;
-    }
-    const key = entityKey(envelope.entity_kind, envelope.entity_id);
-    if (assets.has(key)) {
-      diagnostics.push({
-        code: "durable_duplicate_entity",
-        severity: "error",
-        message: "Durable manifest contains duplicate entity ids.",
-        path: safe.normalizedPath,
-      });
-      continue;
-    }
-    assets.set(key, envelope);
-  }
-  return { assets, diagnostics };
-}
-
 async function readRemoteAssets(
   root: string,
   manifest: SynthesisDurableSyncManifest,
 ) {
-  if (isLegacyManifest(manifest)) {
-    return readLegacyRemoteAssets(root, manifest);
-  }
-  const diagnostics: SynthesisDurableSyncDiagnostic[] = [];
+  const verified = await sharedDurableBundleCodec.readAndVerify({
+    readManifestText: () => canonicalJsonText(manifest),
+    async readAssetText(relativePath) {
+      const fullPath = joinPath(root, relativePath);
+      return (await runtimePathExists(fullPath))
+        ? readRuntimeTextFile(fullPath)
+        : null;
+    },
+  });
   const assets = new Map<string, SynthesisDurableAssetEnvelope>();
-  const paths = new Set<string>();
-  for (const asset of manifest.assets) {
-    const safe = validateManagedRelativePath(asset.path);
-    if (!safe.ok) {
-      diagnostics.push({
-        code: "durable_asset_path_invalid",
-        severity: "error",
-        message: "Durable asset path violates managed path policy.",
-        path: asset.path,
-      });
-      continue;
-    }
-    if (paths.has(safe.normalizedPath)) {
-      diagnostics.push({
-        code: "durable_duplicate_bundle_path",
-        severity: "error",
-        message: "Durable manifest contains duplicate bundle paths.",
-        path: safe.normalizedPath,
-      });
-      continue;
-    }
-    paths.add(safe.normalizedPath);
-    const fullPath = joinPath(root, safe.normalizedPath);
-    if (!(await runtimePathExists(fullPath))) {
-      diagnostics.push({
-        code: "durable_bundle_missing",
-        severity: "error",
-        message: "Durable manifest declares a missing bundle.",
-        path: safe.normalizedPath,
-      });
-      continue;
-    }
-    const text = await readRuntimeTextFile(fullPath);
-    if (hashCanonicalJson(text) !== asset.hash) {
-      diagnostics.push({
-        code: "durable_bundle_hash_mismatch",
-        severity: "error",
-        message: "Durable bundle hash does not match manifest.",
-        path: safe.normalizedPath,
-      });
-      continue;
-    }
-    const bundle = parseBundle(JSON.parse(text));
-    if (!bundle) {
-      diagnostics.push({
-        code: "durable_bundle_invalid",
-        severity: "error",
-        message: "Durable bundle is invalid.",
-        path: safe.normalizedPath,
-      });
-      continue;
-    }
-    if (bundle.bundle_kind !== asset.bundle_kind) {
-      diagnostics.push({
-        code: "durable_bundle_kind_mismatch",
-        severity: "error",
-        message: "Durable bundle kind does not match manifest.",
-        path: safe.normalizedPath,
-      });
-      continue;
-    }
-    if (bundle.entries.length !== asset.entry_count) {
-      diagnostics.push({
-        code: "durable_bundle_entry_count_mismatch",
-        severity: "error",
-        message: "Durable bundle entry count does not match manifest.",
-        path: safe.normalizedPath,
-      });
-      continue;
-    }
-    if ((asset.entries || []).length !== asset.entry_count) {
-      diagnostics.push({
-        code: "durable_manifest_entry_index_count_mismatch",
-        severity: "error",
-        message:
-          "Durable manifest entity index count does not match bundle entry count.",
-        path: safe.normalizedPath,
-      });
-      continue;
-    }
-    const manifestEntries = new Map(
-      (asset.entries || []).map((entry) => [
-        entityKey(entry.entity_kind, entry.entity_id),
-        entry,
-      ]),
-    );
-    for (const envelope of bundle.entries) {
-      const parsed = parseEnvelope(envelope);
-      if (!parsed) {
-        diagnostics.push({
-          code: "durable_asset_invalid_envelope",
-          severity: "error",
-          message: "Durable bundle entry envelope is invalid.",
-          path: safe.normalizedPath,
-        });
-        continue;
-      }
-      const key = entityKey(parsed.entity_kind, parsed.entity_id);
-      const manifestEntry = manifestEntries.get(key);
-      if (!manifestEntry) {
-        diagnostics.push({
-          code: "durable_asset_missing_from_manifest_index",
-          severity: "error",
-          message:
-            "Durable bundle entry is missing from manifest entity index.",
-          path: safe.normalizedPath,
-        });
-        continue;
-      }
-      if (parsed.content_hash !== manifestEntry.hash) {
-        diagnostics.push({
-          code: "durable_asset_hash_mismatch",
-          severity: "error",
-          message: "Durable bundle entry content hash does not match manifest.",
-          path: safe.normalizedPath,
-        });
-        continue;
-      }
-      if (
-        parsed.content_hash !==
-        envelopeContentHash({
-          schemaId: parsed.schema_id,
-          schemaVersion: parsed.schema_version,
-          entityKind: parsed.entity_kind,
-          entityId: parsed.entity_id,
-          data: parsed.data,
-        })
-      ) {
-        diagnostics.push({
-          code: "durable_asset_content_hash_mismatch",
-          severity: "error",
-          message: "Durable asset content hash does not match envelope.",
-          path: safe.normalizedPath,
-        });
-        continue;
-      }
-      if (assets.has(key)) {
-        diagnostics.push({
-          code: "durable_duplicate_entity",
-          severity: "error",
-          message: "Durable manifest contains duplicate entity ids.",
-          path: safe.normalizedPath,
-        });
-        continue;
-      }
-      assets.set(key, parsed);
-    }
+  for (const envelope of verified.value?.entries || []) {
+    assets.set(entityKey(envelope.entity_kind, envelope.entity_id), envelope);
   }
+  const diagnostics = verified.diagnostics.map(
+    (diagnostic): SynthesisDurableSyncDiagnostic => ({
+      code: diagnostic.code,
+      severity: diagnostic.severity,
+      message: diagnostic.code,
+      ...(diagnostic.path ? { path: diagnostic.path } : {}),
+      ...(diagnostic.location
+        ? { details: { location: diagnostic.location } }
+        : {}),
+    }),
+  );
   return { assets, diagnostics };
 }
 

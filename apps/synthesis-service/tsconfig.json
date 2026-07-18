@@ -17,6 +17,7 @@
     "src/**/*.ts",
     "../../packages/synthesis-contracts/src/common.ts",
     "../../packages/synthesis-contracts/src/citationGraphApplication.ts",
+    "../../packages/synthesis-contracts/src/durableBundle.ts",
     "../../packages/synthesis-contracts/src/hostRead.ts",
     "../../packages/synthesis-contracts/src/referenceRefreshApplication.ts",
     "../../packages/synthesis-contracts/src/referenceMatchingReviewApplication.ts",
@@ -27,6 +28,7 @@
     "../../packages/synthesis-contracts/src/workbench.ts",
     "../../packages/synthesis-application/src/index.ts",
     "../../packages/synthesis-application/src/citationGraphApplication.ts",
+    "../../packages/synthesis-application/src/durableBundleApplication.ts",
     "../../packages/synthesis-application/src/citationGraphProjection.ts",
     "../../packages/synthesis-application/src/referenceProjection.ts",
     "../../packages/synthesis-application/src/referenceRefreshApplication.ts",
@@ -39,6 +41,7 @@
     "../../packages/synthesis-engine/src/topicStructuredArtifact.ts",
     "../../packages/synthesis-repository/src/index.ts",
     "../../packages/synthesis-repository/src/citationGraph.ts",
+    "../../packages/synthesis-repository/src/durableBundle.ts",
     "../../packages/synthesis-repository/src/referenceRefresh.ts",
     "../../packages/synthesis-repository/src/referenceMatchingReview.ts"
   ]

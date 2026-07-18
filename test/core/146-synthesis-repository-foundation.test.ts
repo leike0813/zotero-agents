@@ -32,6 +32,7 @@ import {
   SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION,
   SYNTHESIS_REPOSITORY_FOUNDATION_TABLES,
 } from "../../packages/synthesis-repository/src/index";
+import { openSynthesisSidecarIsolatedRepository } from "../../apps/synthesis-service/src/isolatedRepository";
 
 function createSynthesisBusyError() {
   const error = new Error("database is locked: SQLITE_BUSY");
@@ -57,6 +58,27 @@ describe("Synthesis repository foundation", function () {
       getSynthesisRepositoryDatabasePath("C:/runtime").replace(/\\/g, "/"),
       /C:\/runtime\/state\/synthesis\.db$/,
     );
+  });
+
+  it("captures an empty durable sidecar corpus and stable aggregate basis transactionally", async function () {
+    const root = await fs.mkdtemp(
+      path.join(os.tmpdir(), "synthesis-durable-foundation-"),
+    );
+    const repository = openSynthesisSidecarIsolatedRepository({
+      profileRuntimeRoot: root,
+      profileId: "9".repeat(64),
+      dataRootId: "c".repeat(64),
+    });
+    try {
+      const first = repository.store.captureDurableBundleState();
+      const second = repository.store.captureDurableBundleState();
+      assert.deepEqual(first, second);
+      assert.deepEqual(first.drafts, []);
+      assert.deepEqual(first.topicBases, []);
+    } finally {
+      repository.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("binds the default service repository to the persistence root, not data root", async function () {

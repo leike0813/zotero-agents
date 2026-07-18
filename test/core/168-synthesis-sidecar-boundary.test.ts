@@ -175,6 +175,21 @@ describe("Synthesis sidecar migration boundary", function () {
         production_database_owner: string;
         production_mutation_enabled: boolean;
       };
+      isolated_durable_bundle_export_application: {
+        mode: string;
+        package: string;
+        use_cases: string[];
+        format: string;
+        legacy_read: string;
+        source_port: string;
+        sink_port: string;
+        remote_capability: boolean;
+        production_route: boolean;
+        automatic_invocation: boolean;
+        production_database_owner: string;
+        production_canonical_file_owner: string;
+        production_mutation_enabled: boolean;
+      };
     };
     assert.notInclude(
       rawInventory.method_groups.map((group) => group.id),
@@ -311,6 +326,21 @@ describe("Synthesis sidecar migration boundary", function () {
       production_route: false,
       automatic_invocation: false,
       production_database_owner: "plugin_composition",
+      production_mutation_enabled: false,
+    });
+    assert.deepEqual(rawInventory.isolated_durable_bundle_export_application, {
+      mode: "isolated_shadow",
+      package: "packages/synthesis-application",
+      use_cases: ["build_export", "read_and_verify"],
+      format: "v2_only_export",
+      legacy_read: "v1",
+      source_port: "environment_neutral",
+      sink_port: "environment_neutral_manifest_last",
+      remote_capability: false,
+      production_route: false,
+      automatic_invocation: false,
+      production_database_owner: "plugin_composition",
+      production_canonical_file_owner: "plugin_composition",
       production_mutation_enabled: false,
     });
     assert.deepEqual(rawInventory.isolated_topic_canonical_store, {
@@ -536,6 +566,14 @@ describe("Synthesis sidecar migration boundary", function () {
         fs.readFileSync(path.join(sidecarAppRoot, "src", entry), "utf8"),
       )
       .join("\n");
+    const sidecarServer = fs.readFileSync(
+      path.join(sidecarAppRoot, "src/server.ts"),
+      "utf8",
+    );
+    const sidecarSystemContract = fs.readFileSync(
+      path.join(ROOT_DIR, "packages/synthesis-contracts/src/sidecarSystem.ts"),
+      "utf8",
+    );
     const runtimeInstaller = fs.readFileSync(
       path.join(ROOT_DIR, "src/modules/synthesisSidecarRuntimeInstaller.ts"),
       "utf8",
@@ -756,12 +794,22 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(contractIndex, 'export * from "./sidecarLifecycle"');
     assert.include(contractIndex, 'export * from "./sidecarCanonicalStore"');
     assert.include(contractIndex, 'export * from "./topicApplication"');
+    assert.include(contractIndex, 'export * from "./durableBundle"');
     assert.isTrue(fs.existsSync(path.join(sidecarAppRoot, "package.json")));
     assert.notMatch(
       sidecarAppSource,
       /(?:src\/modules\/synthesis|synthesis\/service|hostEffect|webDavSync|globalThis\.Zotero|zotero-plugin)/i,
     );
     assert.notInclude(sidecarAppSource, "node:child_process");
+    assert.include(
+      sidecarServer,
+      "createSynthesisSidecarDurableBundleApplication",
+    );
+    assert.notInclude(sidecarSystemContract, "durable_bundle");
+    assert.match(
+      sidecarServer,
+      /await durableBundleApplication\.shutdown\(\);[\s\S]*canonicalStore\.close\(\);[\s\S]*repository\.close\(\);/,
+    );
     const sqliteUsers = fs
       .readdirSync(path.join(sidecarAppRoot, "src"))
       .filter(
