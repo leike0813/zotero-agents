@@ -94,7 +94,22 @@ jobs:
           fs.writeFileSync("archive.sha256", `${actual}\n`);
           NODE
           mkdir extracted
+
+      - name: Extract tarball Node release
+        if: ${{ !startsWith(matrix.target, 'win32-') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd .scaffold/node-release
           tar -xf "${{ matrix.archive }}" -C extracted
+
+      - name: Extract Windows Node release
+        if: startsWith(matrix.target, 'win32-')
+        shell: pwsh
+        run: |
+          Expand-Archive `
+            -LiteralPath ".scaffold/node-release/${{ matrix.archive }}" `
+            -DestinationPath ".scaffold/node-release/extracted"
 
       - name: Verify macOS runtime code signature
         if: startsWith(matrix.target, 'darwin-')
