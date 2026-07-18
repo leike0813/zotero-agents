@@ -60,6 +60,39 @@ describe("Host Bridge agent surface contract", function () {
         .filter(Boolean),
       "workflow agent-apply-status",
     );
+    for (const command of ["workflow submit", "workflow agent-run"]) {
+      assert.deepInclude(
+        commands
+          .get(command)!
+          .handleTransitions.find((entry) => entry.handle === "itemRef")!,
+        {
+          direction: "consume",
+          required: false,
+          lifetime: "caller-owned",
+        },
+        command,
+      );
+    }
+    assert.deepInclude(
+      commands
+        .get("workflow agent-apply")!
+        .handleTransitions.find((entry) => entry.handle === "agentRunId")!,
+      {
+        direction: "consume",
+        required: true,
+        lifetime: "one-shot",
+      },
+    );
+    assert.deepInclude(
+      commands
+        .get("workflow agent-apply-status")!
+        .handleTransitions.find((entry) => entry.handle === "agentRunId")!,
+      {
+        direction: "consume",
+        required: true,
+        lifetime: "caller-owned",
+      },
+    );
     assert.strictEqual(
       commands.get("library items list")!.pagination,
       "cursor",
@@ -185,6 +218,8 @@ describe("Host Bridge agent surface contract", function () {
     for (const [command, expected] of [
       ["mutation preview", ["none", false, "none"]],
       ["debug synthesis snapshot", ["none", false, "none"]],
+      ["workflow submit", ["zotero-ui-required", true, "review"]],
+      ["run cancel", ["zotero-ui-required", true, "review"]],
       ["synthesis cache invalidate", ["zotero-ui-required", true, "review"]],
       ["run notification ack", ["none", true, "review"]],
       ["run skill reply", ["none", true, "review"]],

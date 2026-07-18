@@ -688,12 +688,12 @@ The startup CLI prompt SHALL evaluate only the prefs-managed CLI install target 
 The `zotero-bridge` CLI SHALL expose semantic commands for workflow cancel intent, active task listing, and explicit skill-run interaction.
 
 #### Scenario: CLI cancels a workflow run
-- **WHEN** a caller runs `zotero-bridge workflow cancel <workflowRunId>`
+- **WHEN** a caller runs `zotero-bridge run cancel <workflowRunId>`
 - **THEN** the CLI SHALL post workflow cancel intent to Host Bridge
 - **AND** stdout SHALL preserve the standard single JSON result contract.
 
 #### Scenario: CLI lists active tasks
-- **WHEN** a caller runs `zotero-bridge task active`
+- **WHEN** a caller runs `zotero-bridge run active`
 - **THEN** the CLI SHALL call the lightweight active tasks endpoint.
 
 #### Scenario: CLI interacts with a skill run
@@ -818,8 +818,8 @@ entire output-contract toolkit.
   output-contract instructions for final bundle creation
 - **AND** it SHALL direct apply-back through
   `workflow agent-apply <agentRunId> --result <agentRequestId>=<bundlePath>`
-- **AND** it SHALL state that `agentRunId` is not monitored through run control
-  or `run-watch`.
+- **AND** it SHALL state that `agentRunId` does not enter the Host-owned
+  `run get`, `run active`, or notification control plane.
 
 ### Requirement: CLI exposes canonical safe mutation commands
 

@@ -32,6 +32,7 @@ export type HostBridgeCliMapping = {
   command: string;
   target: string;
   kind: "capability" | "endpoint" | "service";
+  approval?: "none" | "zotero-ui-required";
   dangerous?: boolean;
   cacheView?: boolean;
 };
@@ -477,7 +478,13 @@ function synthesisCliMappings(): HostBridgeCliMapping[] {
 }
 
 function endpointMappings(): HostBridgeCliMapping[] {
-  return [
+  const mappings: Array<
+    readonly [
+      command: string,
+      target: string,
+      approval?: HostBridgeCliMapping["approval"],
+    ]
+  > = [
     ["bridge status", "GET /bridge/v1/health"],
     ["bridge manifest", "GET /bridge/v1/manifest"],
     ["bridge profile inspect", "GET /bridge/v1/diagnostics/profile"],
@@ -497,7 +504,11 @@ function endpointMappings(): HostBridgeCliMapping[] {
     ["workflow describe", "POST /bridge/v1/workflows/describe"],
     ["workflow validate", "POST /bridge/v1/workflows/validate"],
     ["workflow requirements", "POST /bridge/v1/workflows/requirements"],
-    ["workflow submit", "POST /bridge/v1/workflows/submit"],
+    [
+      "workflow submit",
+      "POST /bridge/v1/workflows/submit",
+      "zotero-ui-required",
+    ],
     ["workflow agent-run", "POST /bridge/v1/workflows/agent-run"],
     [
       "workflow agent-apply",
@@ -508,7 +519,11 @@ function endpointMappings(): HostBridgeCliMapping[] {
       "GET /bridge/v1/workflows/agent-runs/{agentRunId}/apply",
     ],
     ["run get", "GET /bridge/v1/workflows/runs/{workflowRunId}"],
-    ["run cancel", "POST /bridge/v1/workflows/runs/{workflowRunId}/cancel"],
+    [
+      "run cancel",
+      "POST /bridge/v1/workflows/runs/{workflowRunId}/cancel",
+      "zotero-ui-required",
+    ],
     ["run list", "GET /bridge/v1/tasks"],
     ["run active", "GET /bridge/v1/tasks/active"],
     ["run recent", "GET /bridge/v1/tasks/recent"],
@@ -527,14 +542,17 @@ function endpointMappings(): HostBridgeCliMapping[] {
     [
       "synthesis cache invalidate",
       "POST /bridge/v1/synthesis/cache/invalidate",
+      "zotero-ui-required",
     ],
     ["synthesis index status", "GET /bridge/v1/synthesis/index/status"],
     ["file download", "GET /bridge/v1/files/{fileId}"],
     ["file upload", "POST /bridge/v1/files/upload"],
-  ].map(([command, target]) => ({
+  ];
+  return mappings.map(([command, target, approval]) => ({
     command,
     target,
     kind: "endpoint" as const,
+    ...(approval ? { approval } : {}),
   }));
 }
 

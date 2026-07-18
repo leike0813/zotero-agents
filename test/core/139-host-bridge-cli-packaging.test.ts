@@ -1806,6 +1806,13 @@ describe("host bridge cli packaging and install", function () {
         "utf8",
       ),
     );
+    const cliRelease = JSON.parse(
+      await fs.readFile("cli/zotero-bridge/release.json", "utf8"),
+    );
+    const cliMajorMinor = String(cliRelease.version)
+      .split(".")
+      .slice(0, 2)
+      .join(".");
     const skill = await fs.readFile(
       "skills_builtin/zotero-library-agent/SKILL.md",
       "utf8",
@@ -1831,8 +1838,9 @@ describe("host bridge cli packaging and install", function () {
       versionSource.schema,
       "zotero-library-agent.bundle.version.v1",
     );
-    assert.strictEqual(versionSource.cliMajorMinor, "0.2");
-    assert.strictEqual(versionSource.patch, 1);
+    assert.strictEqual(versionSource.cliMajorMinor, cliMajorMinor);
+    assert.isTrue(Number.isInteger(versionSource.patch));
+    assert.isAtLeast(versionSource.patch, 0);
     assert.include(skill, "references/task-routing.md");
     assert.include(skill, "references/workflow-execution.md");
     assert.include(skill, "references/evidence-handoff.md");

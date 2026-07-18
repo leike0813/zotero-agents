@@ -156,46 +156,90 @@ const STATE_CHANGING_COMMANDS = new Set([
   "mutation note upsert-payload",
 ]);
 
-const COMMAND_HANDLES: Record<
-  string,
-  { consumes?: string[]; returns?: string[] }
-> = {
-  "context selection get": { returns: ["itemRef"] },
-  "context selection open": { consumes: ["itemRef"] },
-  "context item open": { consumes: ["itemRef"] },
-  "context note open": { consumes: ["noteRef"] },
-  "context collection open": { consumes: ["collectionKey"] },
-  "workflow submit": { consumes: ["itemRef"], returns: ["workflowRunId"] },
-  "workflow agent-run": {
-    consumes: ["itemRef"],
-    returns: ["agentRunId", "agentRequestId", "fileId"],
-  },
-  "workflow agent-apply": {
-    consumes: ["agentRunId", "agentRequestId"],
-    returns: ["applyReceipt"],
-  },
-  "workflow agent-apply-status": {
-    consumes: ["agentRunId"],
-    returns: ["applyReceipt"],
-  },
-  "run get": { consumes: ["workflowRunId"], returns: ["skillRunId"] },
-  "run cancel": { consumes: ["workflowRunId"] },
-  "run permission get": { consumes: ["permissionRequestId"] },
-  "run skill get": { consumes: ["skillRunId"] },
-  "run skill reply": { consumes: ["skillRunId"] },
-  "run skill connect": { consumes: ["skillRunId"] },
-  "run notification ack": { consumes: ["eventId"] },
-  "file upload": { returns: ["fileId"] },
-  "file download": { consumes: ["fileId"] },
-  "mutation item attach-file": { consumes: ["itemRef", "fileId"] },
-  "product get": { consumes: ["productId"], returns: ["productId"] },
-  "product download": { consumes: ["productId"], returns: ["fileId"] },
-  "product remove": { consumes: ["productId"] },
-};
+function consumeHandle(
+  handle: string,
+  options: Partial<
+    Pick<HostBridgeAgentHandleTransition, "required" | "condition" | "lifetime">
+  > = {},
+): HostBridgeAgentHandleTransition {
+  return {
+    handle,
+    direction: "consume",
+    required: options.required ?? true,
+    condition: options.condition || "Required by the command invocation.",
+    lifetime: options.lifetime || "caller-owned",
+  };
+}
 
-const ENDPOINT_APPROVAL = new Map<string, HostBridgeAgentCommand["approval"]>([
-  ["synthesis cache invalidate", "zotero-ui-required"],
-]);
+function produceHandle(
+  handle: string,
+  lifetime: HostBridgeAgentHandleTransition["lifetime"] = "response",
+): HostBridgeAgentHandleTransition {
+  return {
+    handle,
+    direction: "produce",
+    required: false,
+    condition: "Returned when the corresponding operation succeeds.",
+    lifetime,
+  };
+}
+
+const OPTIONAL_SELECTION_HANDLE = {
+  required: false,
+  condition:
+    "Required only for an explicit --selection input; --none carries no itemRef.",
+} as const;
+
+const COMMAND_HANDLE_TRANSITIONS: Record<
+  string,
+  HostBridgeAgentHandleTransition[]
+> = {
+  "context selection get": [produceHandle("itemRef")],
+  "context selection open": [consumeHandle("itemRef")],
+  "context item open": [consumeHandle("itemRef")],
+  "context note open": [consumeHandle("noteRef")],
+  "context collection open": [consumeHandle("collectionKey")],
+  "workflow submit": [
+    consumeHandle("itemRef", OPTIONAL_SELECTION_HANDLE),
+    produceHandle("workflowRunId"),
+  ],
+  "workflow agent-run": [
+    consumeHandle("itemRef", OPTIONAL_SELECTION_HANDLE),
+    produceHandle("agentRunId", "one-shot"),
+    produceHandle("agentRequestId"),
+    produceHandle("fileId", "short-lived"),
+  ],
+  "workflow agent-apply": [
+    consumeHandle("agentRunId", { lifetime: "one-shot" }),
+    consumeHandle("agentRequestId"),
+    produceHandle("applyReceipt"),
+  ],
+  "workflow agent-apply-status": [
+    consumeHandle("agentRunId", {
+      condition: "Required to read persisted apply status; the read does not consume it.",
+    }),
+    produceHandle("applyReceipt"),
+  ],
+  "run get": [consumeHandle("workflowRunId"), produceHandle("skillRunId")],
+  "run cancel": [consumeHandle("workflowRunId")],
+  "run permission get": [consumeHandle("permissionRequestId")],
+  "run skill get": [consumeHandle("skillRunId")],
+  "run skill reply": [consumeHandle("skillRunId")],
+  "run skill connect": [consumeHandle("skillRunId")],
+  "run notification ack": [consumeHandle("eventId")],
+  "file upload": [produceHandle("fileId", "short-lived")],
+  "file download": [consumeHandle("fileId")],
+  "mutation item attach-file": [
+    consumeHandle("itemRef"),
+    consumeHandle("fileId"),
+  ],
+  "product get": [consumeHandle("productId"), produceHandle("productId")],
+  "product download": [
+    consumeHandle("productId"),
+    produceHandle("fileId", "short-lived"),
+  ],
+  "product remove": [consumeHandle("productId")],
+};
 
 const CURSOR_ENDPOINTS = new Set([
   "library items list",
@@ -635,32 +679,6 @@ function effectsFor(
   ];
 }
 
-function handleTransitions(handles: {
-  consumes?: string[];
-  returns?: string[];
-}) {
-  return [
-    ...(handles.consumes || []).map(
-      (handle): HostBridgeAgentHandleTransition => ({
-        handle,
-        direction: "consume",
-        required: true,
-        condition: "Required by the command invocation.",
-        lifetime: handle === "agentRunId" ? "one-shot" : "caller-owned",
-      }),
-    ),
-    ...(handles.returns || []).map(
-      (handle): HostBridgeAgentHandleTransition => ({
-        handle,
-        direction: "produce",
-        required: false,
-        condition: "Returned when the corresponding operation succeeds.",
-        lifetime: handle === "fileId" ? "short-lived" : "response",
-      }),
-    ),
-  ];
-}
-
 function recoveryFor(
   command: string,
   category: HostBridgeAgentCommand["category"],
@@ -824,10 +842,12 @@ export function buildHostBridgeAgentSurfaceDescriptor(
             Boolean(entry),
         );
       const approval =
-        ENDPOINT_APPROVAL.get(inventory.command) ||
-        (capabilities.some((entry) => entry?.approval === "zotero-ui-required")
+        mappings.some(
+          (mapping) => mapping.approval === "zotero-ui-required",
+        ) ||
+        capabilities.some((entry) => entry?.approval === "zotero-ui-required")
           ? "zotero-ui-required"
-          : "none");
+          : "none";
       const category = categoryFor(inventory.command);
       const family = commandFamily(inventory.command);
       const siblingCommands = catalog.commandInventory
@@ -839,7 +859,16 @@ export function buildHostBridgeAgentSurfaceDescriptor(
         inventory,
         siblingCommands,
       );
-      const handles = COMMAND_HANDLES[inventory.command] || {};
+      const handleTransitions =
+        COMMAND_HANDLE_TRANSITIONS[inventory.command] || [];
+      const handles = {
+        consumes: handleTransitions
+          .filter((transition) => transition.direction === "consume")
+          .map((transition) => transition.handle),
+        returns: handleTransitions
+          .filter((transition) => transition.direction === "produce")
+          .map((transition) => transition.handle),
+      };
       const pagination = paginationFor(inventory.command, catalog);
       const effects = effectsFor(inventory.command, category);
       const stateChanged = effects.some((effect) => effect.stateChanged);
@@ -882,7 +911,7 @@ export function buildHostBridgeAgentSurfaceDescriptor(
                 ? "Zotero UI approval for the described Host-owned effect."
                 : "No Host Bridge UI approval; provider runtimes may still request their own permission.",
         },
-        handleTransitions: handleTransitions(handles),
+        handleTransitions,
         recovery: recoveryFor(inventory.command, category, handles),
         targets: mappings.map((mapping) => ({
           kind: mapping.kind,
