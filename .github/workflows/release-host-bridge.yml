@@ -164,8 +164,8 @@ jobs:
           git -C "$store" config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git -C "$store" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           if git ls-remote --exit-code origin "refs/heads/${PREBUILD_BRANCH}" >/dev/null 2>&1; then
-            git -C "$store" fetch --depth=1 origin "$PREBUILD_BRANCH"
-            git -C "$store" checkout -B "$PREBUILD_BRANCH" FETCH_HEAD
+            git -C "$store" fetch --depth=1 origin "refs/heads/${PREBUILD_BRANCH}:refs/remotes/origin/${PREBUILD_BRANCH}"
+            git -C "$store" checkout -B "$PREBUILD_BRANCH" "origin/$PREBUILD_BRANCH"
           else
             git -C "$store" checkout --orphan "$PREBUILD_BRANCH"
           fi
@@ -180,7 +180,7 @@ jobs:
           if ! git -C "$store" diff --cached --quiet; then
             git -C "$store" commit -m "Store Host Bridge CLI prebuild $aggregate"
           fi
-          git -C "$store" push origin "HEAD:$PREBUILD_BRANCH"
+          git -C "$store" push origin "HEAD:refs/heads/${PREBUILD_BRANCH}"
           git -C "$store" rev-parse HEAD > host-bridge-artifacts/prebuild.commit
       - name: Bind and verify the materialized release set
         shell: bash

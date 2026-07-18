@@ -1841,6 +1841,18 @@ describe("host bridge cli packaging and install", function () {
     assert.include(workflow, "request_id:");
     assert.include(workflow, "host-bridge-cli-prebuilds");
     assert.include(workflow, "sets/$aggregate");
+    assert.include(
+      workflow,
+      'fetch --depth=1 origin "refs/heads/${PREBUILD_BRANCH}:refs/remotes/origin/${PREBUILD_BRANCH}"',
+    );
+    assert.include(
+      workflow,
+      'checkout -B "$PREBUILD_BRANCH" "origin/$PREBUILD_BRANCH"',
+    );
+    assert.include(
+      workflow,
+      'push origin "HEAD:refs/heads/${PREBUILD_BRANCH}"',
+    );
     assert.notInclude(workflow, "gh release create");
     assert.notInclude(workflow, "gh release download");
     assert.include(workflow, "needs.build.result == 'skipped'");
