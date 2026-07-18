@@ -24,6 +24,7 @@ export const EXPECTED_PREBUILDS = [
 const BUILD_INPUT_EXACT_PATHS = new Set([
   ".github/workflows/release-host-bridge.yml",
   "scripts/build-zotero-bridge-cli.mjs",
+  "scripts/check-zotero-bridge-cli-binary-identity.mjs",
   "scripts/package-zotero-bridge-cli.mjs",
   "scripts/host-bridge-cli-release-governance.mjs",
   CARGO_TOML_PATH,

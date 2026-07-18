@@ -117,6 +117,7 @@ export function classifyHostBridgeReleaseChanges(
       path === "cli/zotero-bridge/Cargo.toml" ||
       path === "cli/zotero-bridge/Cargo.lock" ||
       path === "scripts/build-zotero-bridge-cli.mjs" ||
+      path === "scripts/check-zotero-bridge-cli-binary-identity.mjs" ||
       path === "scripts/package-zotero-bridge-cli.mjs" ||
       path === "scripts/host-bridge-cli-release-governance.mjs" ||
       path === ".github/workflows/release-host-bridge.yml",

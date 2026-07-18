@@ -72,6 +72,11 @@ async function createFreshnessFixture() {
   );
   await writeTextFile(
     root,
+    "scripts/check-zotero-bridge-cli-binary-identity.mjs",
+    "console.log('identity');\n",
+  );
+  await writeTextFile(
+    root,
     "scripts/package-zotero-bridge-cli.mjs",
     "console.log('package');\n",
   );
@@ -1650,6 +1655,12 @@ describe("host bridge cli packaging and install", function () {
     }
     assert.include(workflow, "cargo install cargo-zigbuild --locked --version");
     assert.include(workflow, "goto-bus-stop/setup-zig@v2");
+    assert.include(
+      workflow,
+      "node scripts/check-zotero-bridge-cli-binary-identity.mjs",
+    );
+    assert.include(workflow, "runtimeIdentity: false");
+    assert.include(workflow, "if: matrix.runtimeIdentity");
     assert.include(workflow, "group: host-bridge-release");
     assert.include(workflow, "npm run --silent release:host-bridge:plan");
     assert.include(workflow, "record-binaries --write");
@@ -1788,6 +1799,68 @@ describe("host bridge cli packaging and install", function () {
     );
     assert.strictEqual(profileTemplate.connectionMode, "local");
     assert.strictEqual(profileTemplate.auth.tokenEnv, "ZOTERO_BRIDGE_TOKEN");
+  });
+
+  it("checks cross-compiled CLI identity without executing the target binary", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-identity-"));
+    try {
+      const version = "0.3.0";
+      const buildFingerprint = "a".repeat(64);
+      const commandCatalogChecksum = "b".repeat(64);
+      const binary = "zotero-bridge";
+      await writeTextFile(
+        root,
+        "cli/zotero-bridge/release.json",
+        `${JSON.stringify({ version, buildFingerprint })}\n`,
+      );
+      await writeTextFile(
+        root,
+        "cli/zotero-bridge/src/agent-surface.json",
+        `${JSON.stringify({
+          protocol: "host-bridge.v1",
+          cliSchema: "zotero-bridge.cli.v2",
+          commandCatalogChecksum,
+        })}\n`,
+      );
+      await writeBinaryFixture(
+        root,
+        `addon/bin/linux-arm64/${binary}`,
+        encodeText(
+          [
+            version,
+            buildFingerprint,
+            commandCatalogChecksum,
+            "host-bridge.v1",
+            "zotero-bridge.cli.v2",
+          ].join("\0"),
+        ),
+      );
+      const identity = await import(
+        "../../scripts/check-zotero-bridge-cli-binary-identity.mjs"
+      );
+      const current = await identity.checkHostBridgeCliBinaryIdentity({
+        root,
+        platform: "linux-arm64",
+        binary,
+      });
+      assert.isTrue(current.ok);
+
+      await writeBinaryFixture(
+        root,
+        `addon/bin/linux-arm64/${binary}`,
+        encodeText("wrong binary"),
+      );
+      const stale = await identity.checkHostBridgeCliBinaryIdentity({
+        root,
+        platform: "linux-arm64",
+        binary,
+      });
+      assert.isFalse(stale.ok);
+      assert.include(stale.missing, buildFingerprint);
+      assert.include(stale.missing, commandCatalogChecksum);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("declares the standalone Zotero Library Agent bundle surface", async function () {
