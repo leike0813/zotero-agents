@@ -44,7 +44,6 @@ function render() {
   return `${JSON.stringify(
     buildHostBridgeReleaseSet({
       sourceCommit: sourceCommit(),
-      workflowRun: process.env.GITHUB_RUN_ID || undefined,
       protocol: descriptor.protocol,
       cliSchema: descriptor.cliSchema,
       cli: {

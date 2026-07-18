@@ -26,7 +26,6 @@ export type HostBridgeCliIdentity = {
 
 export type HostBridgeReleaseSetInput = {
   sourceCommit: string;
-  workflowRun?: string;
   protocol: string;
   cliSchema: string;
   cli: {
@@ -217,7 +216,6 @@ export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
     source: {
       repository: "leike0813/zotero-agents",
       commit: input.sourceCommit,
-      ...(input.workflowRun ? { workflowRun: input.workflowRun } : {}),
     },
     protocol: input.protocol,
     cliSchema: input.cliSchema,

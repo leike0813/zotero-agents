@@ -131,6 +131,25 @@ describe("Host Bridge release coordinator", function () {
     assert.notInclude(pushPaths, "cli/zotero-bridge/**");
   });
 
+  it("keeps prepared release sets independent of ambient workflow run identity", function () {
+    const releaseSet = JSON.parse(
+      readFileSync("host-bridge/release-set.json", "utf8"),
+    );
+    execFileSync(
+      "npx",
+      ["tsx", "scripts/render-host-bridge-release-set.ts", "--check"],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          HOST_BRIDGE_SOURCE_COMMIT: releaseSet.source.commit,
+          GITHUB_RUN_ID: "ambient-ci-run-must-not-change-prepared-identity",
+        },
+        stdio: "pipe",
+      },
+    );
+  });
+
   it("classifies release inputs independently from generated drift", function () {
     const plan = classifyHostBridgeReleaseChanges([
       "cli/zotero-bridge/src/commands.rs",

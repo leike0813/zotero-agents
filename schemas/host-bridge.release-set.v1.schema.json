@@ -22,8 +22,7 @@
       "required": ["repository", "commit"],
       "properties": {
         "repository": { "type": "string" },
-        "commit": { "type": "string" },
-        "workflowRun": { "type": "string" }
+        "commit": { "type": "string" }
       },
       "additionalProperties": false
     },
