@@ -21,6 +21,7 @@
 11. Host workflow 由 `main` push 隐式触发，Agent 需要猜测和轮询 run；receipt 与七平台文件又需手工同步回 `main`。
 12. Host CLI 预构建被创建为 GitHub Release，既污染用户可见 Releases，又把构建缓存、恢复源和正式发布面混为一体。
 13. Content package 在 Host receipt 完成前发布，且目标从 `0.4.x` 改为 `0.5.0`，导致额外 bump、提交和 dispatch。
+14. 插件发布恢复 Host Bridge CLI 预构建时递归替换 `addon/bin/<platform>`，误删同目录中独立归 ACP WebSocket bridge 所有的 Windows 二进制及 sidecar；发布门禁只校验 Host Bridge 文件，最终 v0.7.0 XPI 缺失 ACP bridge。
 
 ## 根因
 
@@ -32,6 +33,7 @@
 - 复杂 workflow 依赖隐含的 Actions skip 传播语义，缺少针对 build-skipped 路径的契约测试。
 - 发布脚本缺少精确 target、correlation ID、complete receipt 基线和自动 source finalization。
 - 预构建没有独立的内容寻址存储协议。
+- 原生二进制同步以共享平台目录作为所有权边界，没有按 manifest 声明的精确文件更新；测试还把删除同目录无关文件当成正确行为，最终 XPI 也没有独立资产门禁。
 
 ## Host Bridge 重试时间线
 
@@ -56,6 +58,13 @@
 - Content package dispatch 要求当前 Host release set 已有匹配 complete receipt，并精确跟踪本次 request ID 的 Actions run。
 
 ## 已落实的流程设计
+
+### 插件原生资产门禁
+
+- Host Bridge CLI 同步只更新 release manifest 声明的 binary 与 sidecar，不删除共享平台目录。
+- Windows ACP WebSocket bridge 与 Host Bridge CLI 可以共存于 `addon/bin/win32-x64`，任一组件的同步不得改写另一组件资产。
+- 生产构建在 XPI pack 完成后直接验证七个平台 Host Bridge 文件及 Windows ACP bridge；缺失条目、无效 sidecar、字节数或 SHA-256 不一致都会在上传前阻断构建。
+- 最终 XPI 是发布资产完整性的事实源；源码树或 build 前目录检查只能作为更早的诊断门禁。
 
 ### 正式发布主线
 

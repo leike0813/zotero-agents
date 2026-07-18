@@ -138,12 +138,28 @@ async function createFreshnessFixture() {
 }
 
 describe("host bridge cli packaging and install", function () {
-  it("replaces packaged prebuilds only after a complete staged set verifies", async function () {
+  it("replaces only managed prebuild files after a complete staged set verifies", async function () {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-sync-"));
     const sourceRoot = path.join(root, "source");
     const targetRoot = path.join(root, "target");
     const staleMarker = path.join(targetRoot, "linux-x64", "stale");
+    const acpBridge = path.join(
+      targetRoot,
+      "win32-x64",
+      "zotero-acp-bridge.exe",
+    );
+    const acpBridgeSidecar = `${acpBridge}.sha256`;
     await writeTextFile(targetRoot, "linux-x64/stale", "preserve-on-error");
+    await writeTextFile(
+      targetRoot,
+      "win32-x64/zotero-acp-bridge.exe",
+      "preserve-acp-binary",
+    );
+    await writeTextFile(
+      targetRoot,
+      "win32-x64/zotero-acp-bridge.exe.sha256",
+      "preserve-acp-sidecar",
+    );
 
     let missingError: unknown;
     try {
@@ -176,11 +192,17 @@ describe("host bridge cli packaging and install", function () {
       sourceRoot,
       targetRoot,
     );
-    assert.isFalse(
-      await fs
-        .stat(staleMarker)
-        .then(() => true)
-        .catch(() => false),
+    assert.strictEqual(
+      await fs.readFile(staleMarker, "utf8"),
+      "preserve-on-error",
+    );
+    assert.strictEqual(
+      await fs.readFile(acpBridge, "utf8"),
+      "preserve-acp-binary",
+    );
+    assert.strictEqual(
+      await fs.readFile(acpBridgeSidecar, "utf8"),
+      "preserve-acp-sidecar",
     );
     for (const {
       platform,

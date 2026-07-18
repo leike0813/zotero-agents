@@ -1,11 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmod, cp, mkdir, readFile, rm, stat } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readFile, rm, stat } from "node:fs/promises";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path, { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
-import zlib from "node:zlib";
 import { readHostBridgeCliBuildRecipe } from "./host-bridge-cli-release-governance.mjs";
+import { readZipArchiveEntries } from "./zip-archive";
 
 const PREBUILD_BRANCH = "host-bridge-cli-prebuilds";
 const DOWNLOAD_DIR = path.join(".scaffold", "host-bridge-cli-prebuilds-sync");
@@ -70,66 +70,21 @@ function extractZipWithNode(
   expectedPlatform: string,
   expectedBinary: string,
 ) {
-  const buffer = readFileSync(archive);
-  let eocdOffset = -1;
-  for (let index = buffer.length - 22; index >= 0; index -= 1) {
-    if (buffer.readUInt32LE(index) === 0x06054b50) {
-      eocdOffset = index;
-      break;
+  const allowedEntries = new Set([
+    `${expectedPlatform}/`,
+    `${expectedPlatform}/${expectedBinary}`,
+    `${expectedPlatform}/${expectedBinary}.sha256`,
+  ]);
+  const archiveEntries = readZipArchiveEntries(archive);
+  for (const entryName of archiveEntries.entryNames) {
+    if (!allowedEntries.has(entryName)) {
+      throw new Error(`Unexpected ZIP entry: ${entryName}`);
     }
   }
-  if (eocdOffset === -1) throw new Error(`Invalid ZIP archive: ${archive}`);
-  const totalEntries = buffer.readUInt16LE(eocdOffset + 10);
-  let cursor = buffer.readUInt32LE(eocdOffset + 16);
-  for (let index = 0; index < totalEntries; index += 1) {
-    if (buffer.readUInt32LE(cursor) !== 0x02014b50) {
-      throw new Error(`Invalid central directory entry ${index}`);
-    }
-    const method = buffer.readUInt16LE(cursor + 10);
-    const compressedSize = buffer.readUInt32LE(cursor + 20);
-    const uncompressedSize = buffer.readUInt32LE(cursor + 24);
-    const fileNameLength = buffer.readUInt16LE(cursor + 28);
-    const extraLength = buffer.readUInt16LE(cursor + 30);
-    const commentLength = buffer.readUInt16LE(cursor + 32);
-    const localOffset = buffer.readUInt32LE(cursor + 42);
-    const fileName = buffer
-      .subarray(cursor + 46, cursor + 46 + fileNameLength)
-      .toString("utf8");
-    const normalizedName = fileName.replace(/\\/g, "/");
-    const allowedEntries = new Set([
-      `${expectedPlatform}/`,
-      `${expectedPlatform}/${expectedBinary}`,
-      `${expectedPlatform}/${expectedBinary}.sha256`,
-    ]);
-    if (
-      normalizedName.startsWith("/") ||
-      normalizedName.split("/").includes("..") ||
-      !allowedEntries.has(normalizedName)
-    ) {
-      throw new Error(`Unexpected ZIP entry: ${fileName}`);
-    }
-    cursor += 46 + fileNameLength + extraLength + commentLength;
-    const localNameLength = buffer.readUInt16LE(localOffset + 26);
-    const localExtraLength = buffer.readUInt16LE(localOffset + 28);
-    const dataStart = localOffset + 30 + localNameLength + localExtraLength;
-    const compressed = buffer.subarray(dataStart, dataStart + compressedSize);
-    const target = path.join(destination, fileName);
-    if (fileName.endsWith("/")) {
-      mkdirSync(target, { recursive: true });
-      continue;
-    }
+  for (const [entryName, bytes] of archiveEntries.selectedEntries) {
+    const target = path.join(destination, entryName);
     mkdirSync(dirname(target), { recursive: true });
-    const data =
-      method === 8
-        ? zlib.inflateRawSync(compressed)
-        : method === 0
-          ? compressed
-          : null;
-    if (!data) throw new Error(`Unsupported ZIP method ${method}: ${fileName}`);
-    if (data.length !== uncompressedSize) {
-      throw new Error(`Size mismatch for ${fileName}`);
-    }
-    writeFileSync(target, data);
+    writeFileSync(target, bytes);
   }
 }
 
@@ -176,12 +131,16 @@ async function replacePrebuilds(
   targetRoot = PREBUILD_ROOT,
 ) {
   await verifyPrebuilds(sourceRoot);
-  for (const { platform } of EXPECTED_PLATFORMS) {
-    const source = path.join(sourceRoot, platform);
-    const target = path.join(targetRoot, platform);
-    await rm(target, { recursive: true, force: true });
-    await mkdir(dirname(target), { recursive: true });
-    await cp(source, target, { recursive: true });
+  for (const { platform, binary } of EXPECTED_PLATFORMS) {
+    const sourceDirectory = path.join(sourceRoot, platform);
+    const targetDirectory = path.join(targetRoot, platform);
+    await mkdir(targetDirectory, { recursive: true });
+    for (const file of [binary, `${binary}.sha256`]) {
+      await copyFile(
+        path.join(sourceDirectory, file),
+        path.join(targetDirectory, file),
+      );
+    }
   }
   await verifyPrebuilds(targetRoot);
 }

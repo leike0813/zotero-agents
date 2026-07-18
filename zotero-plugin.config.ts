@@ -1,5 +1,7 @@
 import { defineConfig } from "zotero-plugin-scaffold";
+import path from "node:path";
 import pkg from "./package.json";
+import { assertPluginNativeAssets } from "./scripts/check-plugin-native-assets";
 import { patchGeneratedZoteroTestRunner } from "./scripts/patch-zotero-test-runner";
 import { runtimeDiagnosticsSideEffectsPlugin } from "./scripts/runtime-diagnostics-esbuild";
 import {
@@ -109,6 +111,18 @@ export default defineConfig({
   },
 
   build: {
+    hooks: {
+      "build:pack": (ctx) => {
+        assertPluginNativeAssets({
+          xpiPath: path.join(ctx.dist, `${ctx.xpiName}.xpi`),
+          hostBridgeReleasePath: path.join(
+            "cli",
+            "zotero-bridge",
+            "release.json",
+          ),
+        });
+      },
+    },
     assets: ["addon/**/*.*", "addon/bin/**/*", "addon/bin/**/zotero-bridge"],
     define: {
       ...pkg.config,
