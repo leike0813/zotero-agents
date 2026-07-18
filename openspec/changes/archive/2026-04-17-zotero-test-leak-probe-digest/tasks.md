@@ -1,7 +1,0 @@
-- [x] Create the `zotero-test-leak-probe-digest` change artifacts and delta specs
-- [x] Add an opt-in leak probe digest orchestrator with phased snapshot capture and JSON flush
-- [x] Export read-only runtime snapshots from the current high-risk SkillRunner and runtime modules
-- [x] Add temp artifact probe registration for zip bundle extraction and tag-regulator valid-tags YAML materialization
-- [x] Attach leak probe capture to the shared Zotero diagnostic lifecycle without changing failure-report ordering
-- [x] Add Node regression coverage for probe enablement, summary generation, temp artifact tracking, and digest output
-- [x] Update governance docs to require phase-based probe digests before timeout or ordering work when full-tail degradation appears

@@ -1,8 +1,0 @@
-- [x] Add OpenSpec delta specs for real Zotero object cleanup governance
-- [x] Add shared `ZOTERO_KEEP_TEST_OBJECTS` helper and install a global object cleanup harness
-- [x] Wrap `handlers` create/remove entry points to track and untrack real Zotero objects
-- [x] Attach object cleanup to shared Zotero teardown after background cleanup
-- [x] Update direct-object handler tests to use the shared keep flag and explicit registration where needed
-- [x] Add Node regression coverage for tracking, untracking, cleanup order, keep-object mode, and shared teardown order
-- [x] Update governance docs with the real-object cleanup contract
-- [x] Split remaining heavy single-`it` real-host workflow cases so shared cleanup can run between full-only scenarios
