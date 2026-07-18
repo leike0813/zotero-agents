@@ -1,6 +1,0 @@
-- [x] Add change artifacts for Zotero runtime package module loader
-- [x] Upgrade loader to use package-aware real-module loading in Zotero runtime
-- [x] Migrate builtin workflow-package hooks/lib from `.js` to `.mjs`
-- [x] Update builtin manifests and package-local imports for `.mjs`
-- [x] Add Zotero runtime loader simulation tests and `.mjs` governance checks
-- [x] Run type-check and targeted loader / workflow regressions

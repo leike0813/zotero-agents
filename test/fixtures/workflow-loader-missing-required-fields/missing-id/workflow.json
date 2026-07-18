@@ -1,5 +1,0 @@
-{
-  "label": "Missing Id",
-  "request": { "kind": "skillrunner.job.v1" },
-  "hooks": { "applyResult": "hooks/applyResult.js" }
-}

@@ -1,5 +1,0 @@
-- [x] 实现旧 backend 通用一次性迁移（id -> displayName + new internal id）
-- [x] 实现 `skillrunner-local` -> `local-skillrunner-backend` 专门迁移
-- [x] 实现持久化引用同步迁移（workflow settings / dashboard history）
-- [x] 完成迁移与幂等测试
-- [x] 清理一次性迁移逻辑（迁移完成后再做）
