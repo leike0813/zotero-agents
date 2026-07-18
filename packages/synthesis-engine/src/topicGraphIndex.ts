@@ -17,9 +17,9 @@ import {
   type SynthesisTopicGraphIndexRelation,
   type SynthesisTopicGraphIndexRequest,
   type SynthesisTopicGraphIndexResult,
-} from "../../synthesis-contracts/src/topicGraphCore.js";
+} from "../../synthesis-contracts/src/topicGraphCore.ts";
 
-export * from "../../synthesis-contracts/src/topicGraphCore.js";
+export * from "../../synthesis-contracts/src/topicGraphCore.ts";
 
 export class SynthesisTopicGraphIndexContractError extends Error {
   readonly code = "invalid_request";

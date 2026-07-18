@@ -1,6 +1,7 @@
 import { assert } from "chai";
 import fs from "fs/promises";
 import path from "path";
+import { Worker } from "node:worker_threads";
 import {
   SYNTHESIS_TOPIC_GRAPH_INDEX_ALGORITHM_VERSION,
   SYNTHESIS_TOPIC_GRAPH_INDEX_CHECKPOINT_INTERVAL,
@@ -227,6 +228,31 @@ describe("Synthesis Topic Graph index engine", function () {
     assert.include(checkpoints, "start:0");
     assert.include(checkpoints, "nodes:1");
     assert.notInclude(checkpoints, "complete:7");
+  });
+
+  it("returns the same canonical result through the Node worker canary", async function () {
+    const request = rebuildSynthesisTopicGraphIndexRequest(
+      JSON.parse(JSON.stringify(indexRequest())),
+    );
+    const expected =
+      await createInProcessSynthesisTopicGraphIndexEngine().buildIndex(request);
+    const worker = new Worker(
+      new URL(
+        "../fixtures/synthesis-topic-graph-index-engine-worker.ts",
+        import.meta.url,
+      ),
+      { execArgv: ["--import", "tsx"] },
+    );
+    try {
+      const actual = await new Promise<unknown>((resolve, reject) => {
+        worker.once("message", resolve);
+        worker.once("error", reject);
+        worker.postMessage(request);
+      });
+      assert.deepEqual(actual, expected);
+    } finally {
+      await worker.terminate();
+    }
   });
 
   it("keeps the engine source environment-neutral", async function () {
