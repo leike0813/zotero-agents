@@ -1835,7 +1835,11 @@ describe("host bridge cli packaging and install", function () {
     );
     assert.include(
       workflow,
-      'elif [ "${{ needs.plan.outputs.needs_build }}" != "true" ]',
+      'aggregate="${{ needs.plan.outputs.cli_aggregate }}"',
+    );
+    assert.include(
+      workflow,
+      '[ "${{ needs.plan.outputs.resume_prebuild }}" != "true" ] && [ "${{ needs.plan.outputs.needs_build }}" != "true" ]',
     );
     assert.include(workflow, "host-bridge.release-receipt.v1");
     assert.notInclude(workflow, "bump-patch --write");

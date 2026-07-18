@@ -184,12 +184,15 @@ jobs:
             git -C "$store" checkout --orphan "$PREBUILD_BRANCH"
           fi
 
-          aggregate="$(jq -r .binaryAggregateSha256 cli/zotero-bridge/release.json)"
           if [ "${{ needs.plan.outputs.resume_prebuild }}" = "true" ]; then
+            aggregate="${{ needs.plan.outputs.cli_aggregate }}"
             test -f "$store/sets/$aggregate/manifest.json"
             npm run sync:host-bridge-cli-prebuilds -- --aggregate="$aggregate" --branch="$PREBUILD_BRANCH"
             node scripts/host-bridge-cli-release-governance.mjs record-binaries --write --dispatch-reason=resume
-          elif [ "${{ needs.plan.outputs.needs_build }}" != "true" ] && [ -f "$store/sets/$aggregate/manifest.json" ]; then
+          else
+            aggregate="$(jq -r .binaryAggregateSha256 cli/zotero-bridge/release.json)"
+          fi
+          if [ "${{ needs.plan.outputs.resume_prebuild }}" != "true" ] && [ "${{ needs.plan.outputs.needs_build }}" != "true" ] && [ -f "$store/sets/$aggregate/manifest.json" ]; then
             npm run sync:host-bridge-cli-prebuilds -- --aggregate="$aggregate" --branch="$PREBUILD_BRANCH"
           fi
           npm run check:host-bridge-cli-prebuild-freshness
