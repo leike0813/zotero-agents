@@ -818,6 +818,121 @@ export function openSynthesisSidecarTopicCanonicalStore(options: {
     throw new Error("canonical_store_orphan_transaction_state");
   }
 
+  const promote = (
+    args: Parameters<SynthesisTopicCanonicalStore["promote"]>[0],
+    importReceiptId?: string,
+  ): ReturnType<SynthesisTopicCanonicalStore["promote"]> => {
+    const snapshot = rebuildSynthesisTopicCanonicalSnapshot(args.snapshot);
+    if (state !== "ready") return { status: "repair_required" };
+    if (busy) return { status: "canonical_store_busy" };
+    const importBatchStaged = fs.existsSync(paths.importBatchPath);
+    if (importBatchStaged && importReceiptId === undefined) {
+      return { status: "canonical_store_busy" };
+    }
+    if (importReceiptId !== undefined) {
+      if (!importBatchStaged) {
+        state = "repair_required";
+        return { status: "repair_required" };
+      }
+      try {
+        if (readImportBatch(paths).receiptId !== importReceiptId) {
+          state = "repair_required";
+          return { status: "repair_required" };
+        }
+      } catch {
+        state = "repair_required";
+        return { status: "repair_required" };
+      }
+    }
+    busy = true;
+    try {
+      options.fault?.("lock_acquired");
+      const current = inspectCurrent(paths, { topicId: snapshot.topicId });
+      const currentRead =
+        current.status === "ready"
+          ? readCurrent(paths, { topicId: snapshot.topicId })
+          : null;
+      const currentFullHash =
+        currentRead?.status === "ready" ? currentRead.currentHash : undefined;
+      const basisMatches =
+        args.expectedBasis === null
+          ? current.status === "absent"
+          : current.status === "ready" &&
+            current.manifestHash === args.expectedBasis.manifestHash &&
+            current.artifactHash === args.expectedBasis.artifactHash &&
+            (args.expectedBasis.currentHash === undefined ||
+              currentFullHash === args.expectedBasis.currentHash);
+      if (!basisMatches) return { status: "basis_mismatch" };
+      const target = topicPaths(paths, snapshot.pathId);
+      const hashes = computeSynthesisTopicCurrentHashes(snapshot);
+      const journal: TransactionJournal = {
+        schema: JOURNAL_SCHEMA,
+        transactionId: crypto.randomUUID(),
+        topicId: snapshot.topicId,
+        pathId: snapshot.pathId,
+        hadCurrent: current.status === "ready",
+        phase: "staged",
+        manifestHash: hashes.manifestHash,
+        artifactHash: hashes.artifactHash,
+      };
+      ensureDirectory(paths.topicsRoot);
+      writeStaging(paths, snapshot);
+      options.fault?.("staging_written");
+      writeJsonAtomically(paths.journalPath, journal);
+      options.fault?.("journal_written");
+      ensureDirectory(target.topicRoot);
+      if (journal.hadCurrent) {
+        ensureDirectory(paths.backupRoot);
+        fs.renameSync(target.currentRoot, paths.backupCurrent);
+        fsyncDirectory(target.topicRoot);
+        journal.phase = "backed_up";
+        writeJsonAtomically(paths.journalPath, journal);
+        options.fault?.("current_backed_up");
+      }
+      fs.renameSync(paths.stagingCurrent, target.currentRoot);
+      fsyncDirectory(target.topicRoot);
+      journal.phase = "promoted";
+      writeJsonAtomically(paths.journalPath, journal);
+      options.fault?.("current_promoted");
+      const receipt: TransactionReceipt = {
+        schema: RECEIPT_SCHEMA,
+        transactionId: journal.transactionId,
+        topicId: journal.topicId,
+        pathId: journal.pathId,
+        manifestHash: journal.manifestHash,
+        artifactHash: journal.artifactHash,
+      };
+      options.fault?.("receipt_written");
+      writeJsonAtomically(paths.receiptPath, receipt);
+      journal.phase = "committed";
+      writeJsonAtomically(paths.journalPath, journal);
+      recoverTransaction({ paths, journal, fault: options.fault });
+      return { status: "promoted" };
+    } catch (error) {
+      if (error instanceof SynthesisTopicCanonicalStoreInterruption) {
+        throw error;
+      }
+      try {
+        if (fs.existsSync(paths.journalPath)) {
+          recoverTransaction({
+            paths,
+            journal: strictJournal(readJson(paths.journalPath)),
+            fault: options.fault,
+          });
+        } else {
+          removeTree(paths.stagingRoot);
+          removeTree(paths.backupRoot);
+        }
+        return { status: "failed_recovered" };
+      } catch {
+        state = "repair_required";
+        return { status: "repair_required" };
+      }
+    } finally {
+      busy = false;
+    }
+  };
+
   const owner: SynthesisTopicCanonicalStore & { paths: StorePaths } = {
     paths,
     inspect(request) {
@@ -827,96 +942,7 @@ export function openSynthesisSidecarTopicCanonicalStore(options: {
       return readCurrent(paths, request);
     },
     promote(args) {
-      const snapshot = rebuildSynthesisTopicCanonicalSnapshot(args.snapshot);
-      if (state !== "ready") return { status: "repair_required" };
-      if (busy) return { status: "canonical_store_busy" };
-      busy = true;
-      try {
-        options.fault?.("lock_acquired");
-        const current = inspectCurrent(paths, { topicId: snapshot.topicId });
-        const currentRead =
-          current.status === "ready"
-            ? readCurrent(paths, { topicId: snapshot.topicId })
-            : null;
-        const currentFullHash =
-          currentRead?.status === "ready" ? currentRead.currentHash : undefined;
-        const basisMatches =
-          args.expectedBasis === null
-            ? current.status === "absent"
-            : current.status === "ready" &&
-              current.manifestHash === args.expectedBasis.manifestHash &&
-              current.artifactHash === args.expectedBasis.artifactHash &&
-              (args.expectedBasis.currentHash === undefined ||
-                currentFullHash === args.expectedBasis.currentHash);
-        if (!basisMatches) return { status: "basis_mismatch" };
-        const target = topicPaths(paths, snapshot.pathId);
-        const hashes = computeSynthesisTopicCurrentHashes(snapshot);
-        const journal: TransactionJournal = {
-          schema: JOURNAL_SCHEMA,
-          transactionId: crypto.randomUUID(),
-          topicId: snapshot.topicId,
-          pathId: snapshot.pathId,
-          hadCurrent: current.status === "ready",
-          phase: "staged",
-          manifestHash: hashes.manifestHash,
-          artifactHash: hashes.artifactHash,
-        };
-        ensureDirectory(paths.topicsRoot);
-        writeStaging(paths, snapshot);
-        options.fault?.("staging_written");
-        writeJsonAtomically(paths.journalPath, journal);
-        options.fault?.("journal_written");
-        ensureDirectory(target.topicRoot);
-        if (journal.hadCurrent) {
-          ensureDirectory(paths.backupRoot);
-          fs.renameSync(target.currentRoot, paths.backupCurrent);
-          fsyncDirectory(target.topicRoot);
-          journal.phase = "backed_up";
-          writeJsonAtomically(paths.journalPath, journal);
-          options.fault?.("current_backed_up");
-        }
-        fs.renameSync(paths.stagingCurrent, target.currentRoot);
-        fsyncDirectory(target.topicRoot);
-        journal.phase = "promoted";
-        writeJsonAtomically(paths.journalPath, journal);
-        options.fault?.("current_promoted");
-        const receipt: TransactionReceipt = {
-          schema: RECEIPT_SCHEMA,
-          transactionId: journal.transactionId,
-          topicId: journal.topicId,
-          pathId: journal.pathId,
-          manifestHash: journal.manifestHash,
-          artifactHash: journal.artifactHash,
-        };
-        options.fault?.("receipt_written");
-        writeJsonAtomically(paths.receiptPath, receipt);
-        journal.phase = "committed";
-        writeJsonAtomically(paths.journalPath, journal);
-        recoverTransaction({ paths, journal, fault: options.fault });
-        return { status: "promoted" };
-      } catch (error) {
-        if (error instanceof SynthesisTopicCanonicalStoreInterruption) {
-          throw error;
-        }
-        try {
-          if (fs.existsSync(paths.journalPath)) {
-            recoverTransaction({
-              paths,
-              journal: strictJournal(readJson(paths.journalPath)),
-              fault: options.fault,
-            });
-          } else {
-            removeTree(paths.stagingRoot);
-            removeTree(paths.backupRoot);
-          }
-          return { status: "failed_recovered" };
-        } catch {
-          state = "repair_required";
-          return { status: "repair_required" };
-        }
-      } finally {
-        busy = false;
-      }
+      return promote(args);
     },
     stageImportBatch(args) {
       if (state !== "ready") throw new Error("repair_required");
@@ -1003,7 +1029,7 @@ export function openSynthesisSidecarTopicCanonicalStore(options: {
           ) {
             continue;
           }
-          const promoted = owner.promote(item);
+          const promoted = promote(item, batch.receiptId);
           if (promoted.status !== "promoted") return promoted;
         }
         fs.unlinkSync(paths.importBatchPath);

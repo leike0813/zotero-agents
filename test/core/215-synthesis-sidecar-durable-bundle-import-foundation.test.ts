@@ -554,6 +554,60 @@ describe("Synthesis sidecar durable bundle import foundation", function () {
     store.close();
   });
 
+  it("reserves canonical writer admission while a durable import batch is staged", function () {
+    const root = fs.mkdtempSync(
+      path.join(os.tmpdir(), "synt-import-writer-window-"),
+    );
+    roots.push(root);
+    const store = openSynthesisSidecarTopicCanonicalStore({
+      profileRuntimeRoot: root,
+      profileId: "b".repeat(64),
+      dataRootId: "c".repeat(64),
+    });
+    const staged = topicSnapshot("topic:writer-window", {
+      "brief.md": "Staged import\n",
+    });
+    const competing = topicSnapshot(staged.topicId, {
+      "brief.md": "Competing writer\n",
+    });
+    store.stageImportBatch?.({
+      receiptId: "receipt:writer-window",
+      manifestHash: HASH_A,
+      items: [{ expectedBasis: null, snapshot: staged }],
+    });
+
+    assert.equal(
+      store.promote({ expectedBasis: null, snapshot: competing }).status,
+      "canonical_store_busy",
+    );
+    assert.equal(store.inspect({ topicId: staged.topicId }).status, "absent");
+    assert.equal(
+      store.commitImportBatch?.("receipt:writer-window").status,
+      "promoted",
+    );
+    const committed = store.readCurrent({ topicId: staged.topicId });
+    assert.equal(committed.status, "ready");
+    assert.deepEqual(committed.snapshot?.markdown, staged.markdown);
+
+    const committedHashes = computeSynthesisTopicCurrentHashes(staged);
+    assert.equal(
+      store.promote({
+        expectedBasis: {
+          manifestHash: committedHashes.manifestHash,
+          artifactHash: committedHashes.artifactHash,
+          currentHash: committed.currentHash!,
+        },
+        snapshot: competing,
+      }).status,
+      "promoted",
+    );
+    assert.deepEqual(
+      store.readCurrent({ topicId: staged.topicId }).snapshot?.markdown,
+      competing.markdown,
+    );
+    store.close();
+  });
+
   it("recovers a matching canonical batch forward and discards an uncommitted batch", function () {
     const root = fs.mkdtempSync(
       path.join(os.tmpdir(), "synt-import-recovery-"),
