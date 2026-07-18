@@ -282,9 +282,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git -C .publish/cli push origin HEAD:host-bridge/zotero-bridge-cli-bundle
-          git -C .publish/library push origin HEAD:main
-          git -C .publish/profile push origin HEAD:main
+          advance_mutable_pointer() {
+            work="$1"; branch="$2"
+            remote_ref="refs/heads/$branch"
+            if expected="$(git -C "$work" ls-remote --exit-code origin "$remote_ref" | awk '{print $1}')"; then
+              git -C "$work" push --force-with-lease="$remote_ref:$expected" origin "HEAD:$remote_ref"
+            else
+              git -C "$work" push origin "HEAD:$remote_ref"
+            fi
+          }
+          advance_mutable_pointer .publish/cli host-bridge/zotero-bridge-cli-bundle
+          advance_mutable_pointer .publish/library main
+          advance_mutable_pointer .publish/profile main
       - name: Write complete release receipt
         shell: bash
         run: |

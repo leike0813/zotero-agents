@@ -1820,6 +1820,12 @@ describe("host bridge cli packaging and install", function () {
       workflow,
       "Advance mutable pointers after all immutable surfaces verify",
     );
+    assert.include(workflow, "advance_mutable_pointer()");
+    assert.include(workflow, 'push --force-with-lease="$remote_ref:$expected"');
+    assert.include(
+      workflow,
+      "advance_mutable_pointer .publish/cli host-bridge/zotero-bridge-cli-bundle",
+    );
     assert.include(workflow, "host-bridge.release-receipt.v1");
     assert.notInclude(workflow, "bump-patch --write");
     assert.isBelow(
