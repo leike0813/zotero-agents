@@ -145,7 +145,7 @@ live | boundary | silent
 | R6 | P1 | 大附件整文件读取、哈希与重复复制 | 已治理；Zotero 9.0.4 机制通过，Zotero 7 待补 | 多个大 PDF、下载 |
 | R7 | P1 | library 分页实际重复全库扫描和排序 | 已治理；Zotero 9.0.4 机制通过，Zotero 7 待补 | 大型 Zotero 库、多页读取 |
 | R8 | P1 | runtime log 全量 clone/stringify | 已证实 | 高频日志、diagnostic 模式 |
-| R9 | P1 | transcript/audit 同步 XPCOM append 与索引恢复 | 已证实 Zotero fallback | 高频 transcript、长历史、索引失效 |
+| R9 | P1 | transcript/audit 同步 XPCOM append 与索引恢复 | 已治理并经 Zotero 9.0.4 验收 | 高频 transcript、长历史、索引失效 |
 | R10 | P1 | 逐 item `saveTx()` 与 Notifier 风暴 | 已证实事务粒度，影响待实测 | 批量标签/collection mutation |
 | R11 | P2 | Host Bridge 大响应多重 stringify/copy | 已证实 | 大 synthesis 结果、大二进制 |
 | R12 | P2 | workspace/skill/result 递归 scan/stat/copy | 已证实 | 海量小文件、深层目录 |
@@ -645,38 +645,54 @@ ACP Skills update listener 在 `src/modules/acpSkillRunnerOrchestrator.ts:4615` 
 
 即使不开 debug，每个 run 仍写 README/run.json、有限大小的 prompt、stderr、runtime logs 和 final state，见 `src/modules/acpSkillRunAuditTrail.ts:336-366,579-683`。
 
-### 11.3 Zotero runtime 的同步 append fallback
+### 11.3 Zotero runtime 的异步 append/range 治理
 
-`src/modules/runtimePersistence.ts:771-780` 只在 `globalThis.process` 存在且可导入 `fs/promises` 时走 Node 分支。
+R9 已由 `govern-acp-runtime-async-file-io` 治理：
 
-标准 Zotero chrome/plugin runtime 通常没有 Node `process`。常规 read/write/stat/list 可以优先走异步 IOUtils，但：
+- Zotero append 使用按路径串行、surrogate-safe 的 256 Ki code-unit
+  `IOUtils.writeUTF8(..., { mode: "appendOrCreate" })` true append；
+- indexed range read 使用独立打包的 ChromeWorker，每个有界物理批次只打开一次文件；
+- worker 将同批 range 打包为一个 transferable buffer 和长度表，不再为每个 event
+  建立一个跨线程 buffer；
+- 同步 XPCOM converter、seek/readByteArray 和整文件 read/rewrite/slice fallback
+  均已删除；能力缺失时返回结构化 runtime file I/O 错误。
 
-- `appendRuntimeTextFile()` 没有 IOUtils append 分支；无 Node 时走同步 XPCOM converter `writeString`，见 `src/modules/runtimePersistence.ts:1337-1369`；
-- `readRuntimeTextRanges()` 无 Node random access 时走同步 seek/readByteArray，见 `src/modules/runtimePersistence.ts:1195-1288`。
+append primitive 的治理同时覆盖 transcript、ACP Skills/Chat debug audit、output
+revision 和 semantic trace。worker 在 ACP 与 runtime-log drain 之后统一 shutdown。
 
-这意味着 transcript/audit buffered append 到达时间或大小阈值时，可能形成周期性的主线程批量写。
+### 11.4 Transcript index 线性恢复
 
-### 11.4 Transcript index
+missing/invalid/v1/oversized index 与 stale v2 tail 现在共享同一条路径：
 
-`src/modules/acpSkillRunTranscriptStore.ts:24-29,705-777` 每约 1 MiB 或 30 秒 checkpoint 完整 index。
+1. 以 256 KiB 原始字节块扫描 JSONL；
+2. 按字节换行符拼接跨块行，保留精确 UTF-8 offset/length；
+3. 每个有效 event 只应用一次到有序 mutable Map；
+4. finalize 时才生成一次 immutable items/itemIds/root preview；
+5. invalid line 仍推进 `sourceByteLength`，避免反复扫描同一损坏尾部。
 
-索引缺失或失效时，`src/modules/acpSkillRunTranscriptStore.ts:187-209,656-703` 会：
+正常 append、tail recovery 和 full rebuild 不再逐事件复制完整 index。
+`readAcpSkillRunTranscriptItems()` 也改为沿 index 分页 hydrate，不再维护第二套整文件
+fold 实现。
 
-- 全量读取 transcript；
-- regex 切行；
-- 逐行 JSON parse；
-- 重建 index。
+### 11.5 Zotero 9.0.4 证据与 R8 待采样项
 
-这类恢复路径不是每次运行都发生，但长 transcript 或异常退出后可能产生明显长任务。
+真实宿主修复前探针中，1,415,918 字节、4002 个有效 event 的现有恢复路径耗时
+约 1148.9ms，主线程最大计时器间隙约 1147.7ms。分块扫描与线性 builder 原型结果
+一致，耗时约 23.1ms，最大间隙约 7.6ms。
 
-### 11.5 待采样指标
+最终 packed worker 方案对 600 个 indexed event、280,742 字节连续运行五次，结果和
+顺序全部一致；每次总耗时约 32.9-40.1ms，主线程最大间隙约 4.2-6.1ms。正式
+core-lite 用例从 `chrome://zotero-skills/` 加载打包 worker，覆盖 Unicode append、
+EOF range、600-event rebuild 和 200-item page hydrate，Zotero 9.0.4 实际执行
+1 passed（两次执行为 44ms、46ms）。未设置固定耗时门禁。
+
+R8 仍需继续采样：
 
 - 每秒 runtime log 数；
 - 每次完整日志 snapshot clone/stringify 的耗时与字节数；
 - debug on/off 对照；
-- buffered append 批次字节数与同步写时长；
-- index checkpoint/rebuild 次数和耗时；
-- 实际 runtime 分支：Node、IOUtils、Components。
+- runtime log document rewrite 的 stringify、写入与 heap 峰值；
+- audit sanitize/serialize 的逐 update 成本与队列峰值。
 
 ## 12. R10：批量 Zotero mutation 的事务与 Notifier 放大
 
@@ -1685,47 +1701,18 @@ Zotero 7 可执行文件，因此 Zotero 7 未运行，不能据此声明双版�
 
 治理效果门：慢分片不再产生单次近 500ms 的同步 socket read。
 
-### 18.9 阶段 7：统一 async runtime file primitive（R9 前置）
+### 18.9 阶段 7：统一 async runtime file primitive（R9，已完成）
 
-先在 Zotero 7/9 运行时探测：
+已落地的唯一端口由 `runtimePersistence`、`runtimeFileRangeReader`、共享 range
+protocol 和独立 worker 组成。Zotero 9.0.4 已确认：
 
-- `IOUtils.writeUTF8/write` 是否支持 append；
-- `IOUtils.read` 是否支持 offset/maxBytes；
-- `OS.File.open` append/random access 是否可用；
-- 当前实际命中 Node、IOUtils、OS.File、Components 哪个分支。
+- `IOUtils.writeUTF8` 支持 `appendOrCreate`；
+- `IOUtils.read` 支持 offset/maxBytes 分块扫描；
+- worker-only `IOUtils.openFileForSyncReading` 支持单开文件批量随机读取；
+- packed transfer、错误后 worker 复用、受控 shutdown 与 UTF-8 byte offset 均正确。
 
-定义唯一端口：
-
-```ts
-interface RuntimeAppendSink {
-  appendText(path: string, text: string): Promise<void>;
-}
-
-interface RuntimeRangeReader {
-  readRanges(
-    path: string,
-    ranges: Array<{ offset: number; length: number }>,
-  ): Promise<string[]>;
-}
-```
-
-修改：
-
-- `src/modules/runtimePersistence.ts`
-- `src/modules/acpSkillRunTranscriptStore.ts`
-- `src/modules/acpSkillRunAuditTrail.ts`
-- `src/modules/bufferedWriteCoordinator.ts`
-
-迁移后：
-
-- Zotero runtime 只走跨 Zotero 7/9 已验证的 async backend；
-- 删除同步 XPCOM converter append；
-- 删除同步 seek/readByteArray range 热路径；
-- 若所需 async API 不存在，显式报告 runtime capability error，不能静默回退主线程同步实现；
-- transcript NDJSON、index 格式和 page API 不变；
-- index rebuild 使用固定块增量读取、partial-line buffer 和逐行 parse；删除 full read+regex split。
-
-扩展 `test/core/108-runtime-persistence-governance.test.ts` 和 transcript store 测试。性能阈值由 backend kind、batch bytes、append/range/rebuild 基线决定。
+Node 108/171/186 聚焦回归共 46 passed，TypeScript 与生产 worker build 通过。
+本机没有 Zotero 7，因此 Zotero 7 真宿主验收仍待补，不能据此声明双版本实测完成。
 
 ### 18.10 阶段 8：streaming file transfer 与单次 response serialization（R6/R11）
 

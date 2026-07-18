@@ -5,6 +5,8 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
+  RUNTIME_APPEND_CHUNK_CODE_UNITS,
+  appendRuntimeTextFile,
   cleanupRuntimePersistenceRetention,
   cleanupRuntimePersistenceCategory,
   getRuntimePersistencePaths,
@@ -14,6 +16,7 @@ import {
   validateManagedRelativePathSet,
 } from "../../src/modules/runtimePersistence";
 import { getTaskHistoryRetentionConfig } from "../../src/modules/taskRetentionPolicy";
+import { RuntimeFileIoError } from "../../src/modules/runtimeFileRangeReader";
 import {
   getAcpSkillRunRecord,
   resetAcpSkillRunsForTests,
@@ -99,6 +102,140 @@ describe("runtime persistence governance", function () {
       process.env.ZOTERO_SKILLS_RUNTIME_ROOT = previousRoot;
     }
     await fs.rm(tempRoot, { recursive: true, force: true });
+  });
+
+  it("serializes chunked Zotero IOUtils appends without splitting Unicode", async function () {
+    const runtime = globalThis as any;
+    const processDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "process",
+    );
+    const ioUtilsDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "IOUtils",
+    );
+    const writes: Array<{ content: string; options: unknown }> = [];
+    let releaseFirst!: () => void;
+    let markFirstStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+    const firstRelease = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let writeCalls = 0;
+    try {
+      Object.defineProperty(globalThis, "process", {
+        configurable: true,
+        writable: true,
+        value: undefined,
+      });
+      Object.defineProperty(globalThis, "IOUtils", {
+        configurable: true,
+        writable: true,
+        value: {
+          makeDirectory: async () => undefined,
+          stat: async () => ({ type: "directory", size: 0 }),
+          writeUTF8: async (
+            _path: string,
+            content: string,
+            options: unknown,
+          ) => {
+            writeCalls += 1;
+            if (writeCalls === 1) {
+              markFirstStarted();
+              await firstRelease;
+            }
+            writes.push({ content, options });
+          },
+        },
+      });
+      const prefix = "a".repeat(RUNTIME_APPEND_CHUNK_CODE_UNITS - 1);
+      const first = `${prefix}😀tail`;
+      const firstAppend = appendRuntimeTextFile(
+        path.join(tempRoot, "runtime", "ordered.ndjson"),
+        first,
+      );
+      await firstStarted;
+      const secondAppend = appendRuntimeTextFile(
+        path.join(tempRoot, "runtime", "ordered.ndjson"),
+        "second",
+      );
+      releaseFirst();
+      await Promise.all([firstAppend, secondAppend]);
+
+      assert.equal(
+        writes.map((entry) => entry.content).join(""),
+        `${first}second`,
+      );
+      assert.isAtLeast(writes.length, 3);
+      for (const entry of writes) {
+        assert.deepEqual(entry.options, { mode: "appendOrCreate" });
+        assert.notMatch(entry.content, /^\uDE00/);
+        assert.notMatch(entry.content, /\uD83D$/);
+      }
+    } finally {
+      releaseFirst?.();
+      if (processDescriptor) {
+        Object.defineProperty(globalThis, "process", processDescriptor);
+      }
+      if (ioUtilsDescriptor) {
+        Object.defineProperty(globalThis, "IOUtils", ioUtilsDescriptor);
+      } else {
+        delete runtime.IOUtils;
+      }
+    }
+  });
+
+  it("fails structurally when Zotero async append is unavailable", async function () {
+    const runtime = globalThis as any;
+    const processDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "process",
+    );
+    const ioUtilsDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "IOUtils",
+    );
+    try {
+      Object.defineProperty(globalThis, "process", {
+        configurable: true,
+        writable: true,
+        value: undefined,
+      });
+      Object.defineProperty(globalThis, "IOUtils", {
+        configurable: true,
+        writable: true,
+        value: {
+          makeDirectory: async () => undefined,
+          stat: async () => ({ type: "directory", size: 0 }),
+        },
+      });
+      let failure: unknown;
+      try {
+        await appendRuntimeTextFile(
+          path.join(tempRoot, "runtime", "unavailable.ndjson"),
+          "entry\n",
+        );
+      } catch (error) {
+        failure = error;
+      }
+      assert.instanceOf(failure, RuntimeFileIoError);
+      assert.equal(
+        (failure as RuntimeFileIoError).code,
+        "runtime_async_file_io_unavailable",
+      );
+      assert.equal((failure as RuntimeFileIoError).operation, "append");
+    } finally {
+      if (processDescriptor) {
+        Object.defineProperty(globalThis, "process", processDescriptor);
+      }
+      if (ioUtilsDescriptor) {
+        Object.defineProperty(globalThis, "IOUtils", ioUtilsDescriptor);
+      } else {
+        delete runtime.IOUtils;
+      }
+    }
   });
 
   it("resolves a managed root with semantic subdirectories", function () {

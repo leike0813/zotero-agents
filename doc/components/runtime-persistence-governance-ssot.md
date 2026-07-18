@@ -38,3 +38,23 @@ Migration is conservative. Existing runtime state may be copied into the new roo
 Any new persistent runtime content that can grow over time must register a semantic path/category through the runtime persistence module and appear in preferences usage monitoring.
 
 `workspace` is reserved for directories where an agent process actually runs. Plugin-private persistence directories such as ACP Chat `conversations/` and `runtime/` must not be described as workspaces in user-facing UI.
+
+## Async Runtime File I/O
+
+Runtime text append and indexed text range reads have one runtime-owned I/O
+boundary:
+
+- Node uses `fs/promises` behind the same ordered append contract.
+- Zotero append uses per-path serialized, surrogate-safe chunks with
+  `IOUtils.writeUTF8(..., { mode: "appendOrCreate" })`.
+- Zotero indexed ranges use the packaged runtime file range worker. One bounded
+  physical batch opens the source once and returns one packed transferable byte
+  buffer plus a length vector.
+- Complete and stale-tail transcript index recovery scans UTF-8 bytes in fixed
+  chunks and applies valid events to one ordered builder.
+
+Runtime persistence must not restore synchronous Components streams or
+whole-file read/rewrite and byte-offset/string-offset fallbacks. Missing worker
+or asynchronous I/O capabilities are structured runtime errors. The worker is
+terminated only after ACP and runtime-log persistence drains during controlled
+plugin shutdown.

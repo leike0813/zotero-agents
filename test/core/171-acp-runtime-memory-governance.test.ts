@@ -44,10 +44,14 @@ import {
   appendAcpSkillRunTranscriptEvent,
   enqueueAcpSkillRunTranscriptEvents,
   flushAcpSkillRunTranscriptWrites,
+  getAcpTranscriptIndexDiagnosticsForTests,
   readAcpSkillRunTranscriptPage as readTranscriptRuntimePage,
+  readAcpSkillRunTranscriptItems,
   rebuildAcpSkillRunTranscriptIndex,
+  resetAcpTranscriptIndexDiagnosticsForTests,
   resetAcpTranscriptWritesForTests,
 } from "../../src/modules/acpSkillRunTranscriptStore";
+import { RUNTIME_TEXT_SCAN_CHUNK_BYTES } from "../../src/modules/runtimePersistence";
 import {
   discardBufferedWriteKey,
   enqueueBufferedWrite,
@@ -943,6 +947,10 @@ describe("ACP runtime memory governance", function () {
       const rebuilt = await rebuildAcpSkillRunTranscriptIndex({ runtimeDir });
       assert.equal(rebuilt?.itemCount, 204);
       assert.equal(rebuilt?.preview, "message 204 tail");
+      assert.equal(
+        rebuilt?.sourceByteLength,
+        Buffer.byteLength(await fs.readFile(transcriptPath, "utf8")),
+      );
       const rebuiltTail = await readTranscriptRuntimePage({
         runtimeDir,
         limit: 5,
@@ -1087,6 +1095,70 @@ describe("ACP runtime memory governance", function () {
         Buffer.byteLength(await fs.readFile(transcriptPath, "utf8")),
       );
     } finally {
+      resetAcpTranscriptWritesForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("scans long UTF-8 transcripts in bounded chunks and hydrates full mirrors from the index", async function () {
+    const root = await mkTempRoot();
+    const runtimeDir = path.join(root, ".acp");
+    const transcriptPath = path.join(runtimeDir, "transcript.jsonl");
+    const indexPath = path.join(runtimeDir, "transcript.index.json");
+    const eventCount = 700;
+    try {
+      await fs.mkdir(runtimeDir, { recursive: true });
+      const lines = Array.from({ length: eventCount }, (_, index) =>
+        JSON.stringify({
+          schema: "zotero-skills.acp.skill-run.transcript.v1",
+          seq: index + 1,
+          op: "upsert_item",
+          itemId: `bounded-${index}`,
+          item: {
+            id: `bounded-${index}`,
+            kind: "message",
+            role: "assistant",
+            text: `消息-${index}-😀-${"x".repeat(700)}`,
+            createdAt: new Date(index).toISOString(),
+          },
+          createdAt: new Date(index).toISOString(),
+        }),
+      );
+      await fs.writeFile(
+        transcriptPath,
+        `${lines.slice(0, 350).join("\n")}\n{bad json}\n${lines
+          .slice(350)
+          .join("\n")}`,
+        "utf8",
+      );
+      await fs.rm(indexPath, { force: true });
+      resetAcpTranscriptWritesForTests();
+      resetAcpTranscriptIndexDiagnosticsForTests();
+
+      const rebuilt = await rebuildAcpSkillRunTranscriptIndex({ runtimeDir });
+      const full = await readAcpSkillRunTranscriptItems({ runtimeDir });
+      const diagnostics = getAcpTranscriptIndexDiagnosticsForTests();
+
+      assert.equal(rebuilt?.itemCount, eventCount);
+      assert.equal(full.total, eventCount);
+      assert.deepEqual(
+        full.items.slice(0, 2).map((item) => item.id),
+        ["bounded-0", "bounded-1"],
+      );
+      assert.equal(full.items.at(-1)?.id, `bounded-${eventCount - 1}`);
+      assert.equal(diagnostics.appliedEvents, eventCount);
+      assert.isAbove(diagnostics.scanReadCalls, 1);
+      assert.isAtMost(
+        diagnostics.maxScanReadBytes,
+        RUNTIME_TEXT_SCAN_CHUNK_BYTES,
+      );
+      assert.isAtLeast(diagnostics.fullMirrorIndexedPages, 4);
+      assert.equal(
+        rebuilt?.sourceByteLength,
+        (await fs.stat(transcriptPath)).size,
+      );
+    } finally {
+      resetAcpTranscriptIndexDiagnosticsForTests();
       resetAcpTranscriptWritesForTests();
       await fs.rm(root, { recursive: true, force: true });
     }

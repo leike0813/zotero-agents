@@ -1,6 +1,10 @@
 import { joinPath } from "../utils/path";
 import { isNonNativeAbsolutePath } from "../platform/path";
 import { getTaskHistoryRetentionConfig } from "./taskRetentionPolicy";
+import {
+  RuntimeFileIoError,
+  readRuntimeFileRangesWithWorker,
+} from "./runtimeFileRangeReader";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -164,6 +168,10 @@ const LEGACY_SQLITE_FILE_NAME = "zotero-skills.db";
 const RUNTIME_LOG_FILE_NAME = "runtime-logs.json";
 const PLUGIN_PREFS_PREFIX = "extensions.zotero.zotero-skills";
 const DAY_MS = 24 * 60 * 60 * 1000;
+export const RUNTIME_APPEND_CHUNK_CODE_UNITS = 256 * 1024;
+export const RUNTIME_TEXT_SCAN_CHUNK_BYTES = 256 * 1024;
+
+const runtimeAppendQueues = new Map<string, Promise<void>>();
 
 export type RuntimeExpiredAssetOwner = "tmp" | "cache" | "logs";
 
@@ -1226,23 +1234,6 @@ export async function readRuntimeTextFile(pathRaw: string) {
   return "";
 }
 
-function runtimeFileFromPath(path: string, runtime: any) {
-  const existing = runtime.Zotero?.File?.pathToFile?.(path);
-  if (existing) {
-    return existing;
-  }
-  const localFileFactory =
-    runtime.Components?.classes?.["@mozilla.org/file/local;1"];
-  const localFile = localFileFactory?.createInstance?.(
-    runtime.Components?.interfaces?.nsIFile,
-  );
-  if (localFile && typeof localFile.initWithPath === "function") {
-    localFile.initWithPath(path);
-    return localFile;
-  }
-  return null;
-}
-
 export async function readRuntimeTextRange(
   pathRaw: string,
   offsetRaw: number,
@@ -1287,63 +1278,154 @@ export async function readRuntimeTextRanges(
       await handle.close().catch(() => undefined);
     }
   }
-  const runtime = globalThis as any;
-  const classes = runtime.Components?.classes;
-  const interfaces = runtime.Components?.interfaces;
-  const file = runtimeFileFromPath(path, runtime);
-  const inputStream = classes?.[
-    "@mozilla.org/network/file-input-stream;1"
-  ]?.createInstance?.(interfaces?.nsIFileInputStream);
-  const binaryStream = classes?.[
-    "@mozilla.org/binaryinputstream;1"
-  ]?.createInstance?.(interfaces?.nsIBinaryInputStream);
-  if (file && inputStream && binaryStream) {
-    try {
-      inputStream.init(file, 0x01, 0o444, 0);
-      const seekable =
-        typeof inputStream.QueryInterface === "function"
-          ? inputStream.QueryInterface(interfaces?.nsISeekableStream)
-          : inputStream;
-      binaryStream.setInputStream(inputStream);
-      const output: string[] = [];
-      for (const range of ranges) {
-        if (range.length <= 0) {
-          output.push("");
+  const bytes = await readRuntimeFileRangesWithWorker(path, ranges);
+  return bytes.map((entry) => decoder.decode(entry));
+}
+
+export type RuntimeUtf8Line = {
+  text: string;
+  offset: number;
+  length: number;
+};
+
+export type RuntimeUtf8LineScanResult = {
+  startOffset: number;
+  endOffset: number;
+  bytesRead: number;
+  readCalls: number;
+  maxReadBytes: number;
+};
+
+function combineByteFragments(fragments: Uint8Array[], length: number) {
+  if (fragments.length === 1) {
+    return fragments[0];
+  }
+  const output = new Uint8Array(length);
+  let cursor = 0;
+  for (const fragment of fragments) {
+    output.set(fragment, cursor);
+    cursor += fragment.length;
+  }
+  return output;
+}
+
+export async function scanRuntimeUtf8Lines(args: {
+  path: string;
+  offset?: number;
+  length?: number;
+  onLine: (line: RuntimeUtf8Line) => void | Promise<void>;
+}): Promise<RuntimeUtf8LineScanResult> {
+  const path = normalizeString(args.path);
+  const startOffset = Math.max(0, Math.floor(Number(args.offset || 0) || 0));
+  const stat = path ? await statRuntimePath(path) : null;
+  if (!path || !stat?.exists || stat.isDir || startOffset >= stat.size) {
+    return {
+      startOffset,
+      endOffset: Math.min(startOffset, stat?.size || startOffset),
+      bytesRead: 0,
+      readCalls: 0,
+      maxReadBytes: 0,
+    };
+  }
+  assertNativeRuntimeFsPath(path, "scan runtime UTF-8 lines");
+  const requestedLength =
+    typeof args.length === "number" && Number.isFinite(args.length)
+      ? Math.max(0, Math.floor(args.length))
+      : stat.size - startOffset;
+  const endOffset = Math.min(stat.size, startOffset + requestedLength);
+  const decoder = new TextDecoder("utf-8");
+  const fragments: Uint8Array[] = [];
+  let fragmentBytes = 0;
+  let lineOffset = startOffset;
+  let cursor = startOffset;
+  let readCalls = 0;
+  let maxReadBytes = 0;
+  const fs = await tryNodeFs();
+  const handle = fs?.open ? await fs.open(path, "r") : null;
+  const runtime = globalThis as {
+    IOUtils?: {
+      read?: (
+        path: string,
+        options: { offset: number; maxBytes: number },
+      ) => Promise<Uint8Array>;
+    };
+  };
+  if (!handle && typeof runtime.IOUtils?.read !== "function") {
+    throw new RuntimeFileIoError({
+      code: "runtime_async_file_io_unavailable",
+      operation: "range-read",
+      message: "No asynchronous byte scanner is available",
+    });
+  }
+  try {
+    while (cursor < endOffset) {
+      const requestedBytes = Math.min(
+        RUNTIME_TEXT_SCAN_CHUNK_BYTES,
+        endOffset - cursor,
+      );
+      let chunk: Uint8Array;
+      if (handle) {
+        const buffer = new Uint8Array(requestedBytes);
+        const result = await handle.read(buffer, 0, requestedBytes, cursor);
+        chunk = buffer.subarray(0, result.bytesRead);
+      } else {
+        chunk = await runtime.IOUtils!.read!(path, {
+          offset: cursor,
+          maxBytes: requestedBytes,
+        });
+      }
+      readCalls += 1;
+      maxReadBytes = Math.max(maxReadBytes, chunk.length);
+      if (chunk.length <= 0) {
+        break;
+      }
+      let segmentStart = 0;
+      for (let index = 0; index < chunk.length; index += 1) {
+        if (chunk[index] !== 0x0a) {
           continue;
         }
-        if (seekable && typeof seekable.seek === "function") {
-          seekable.seek(
-            interfaces?.nsISeekableStream?.NS_SEEK_SET ?? 0,
-            range.offset,
-          );
-        }
-        const available =
-          typeof binaryStream.available === "function"
-            ? Math.min(range.length, Math.max(0, binaryStream.available()))
-            : range.length;
-        const bytes = binaryStream.readByteArray(available);
-        output.push(decoder.decode(new Uint8Array(bytes)));
+        const segment = chunk.subarray(segmentStart, index + 1);
+        fragments.push(segment);
+        fragmentBytes += segment.length;
+        const lineBytes = combineByteFragments(fragments, fragmentBytes);
+        await args.onLine({
+          text: decoder.decode(lineBytes),
+          offset: lineOffset,
+          length: fragmentBytes,
+        });
+        lineOffset += fragmentBytes;
+        fragments.length = 0;
+        fragmentBytes = 0;
+        segmentStart = index + 1;
       }
-      return output;
-    } finally {
-      try {
-        binaryStream.close?.();
-      } catch {
-        // ignore cleanup failure
+      if (segmentStart < chunk.length) {
+        const remainder = chunk.subarray(segmentStart);
+        fragments.push(remainder);
+        fragmentBytes += remainder.length;
       }
-      try {
-        inputStream.close?.();
-      } catch {
-        // ignore cleanup failure
+      cursor += chunk.length;
+      if (chunk.length < requestedBytes) {
+        break;
       }
     }
+    if (fragmentBytes > 0) {
+      const lineBytes = combineByteFragments(fragments, fragmentBytes);
+      await args.onLine({
+        text: decoder.decode(lineBytes),
+        offset: lineOffset,
+        length: fragmentBytes,
+      });
+    }
+  } finally {
+    await handle?.close().catch(() => undefined);
   }
-  const text = await readRuntimeTextFile(path);
-  return ranges.map((range) =>
-    range.length > 0
-      ? text.slice(range.offset, range.offset + range.length)
-      : "",
-  );
+  return {
+    startOffset,
+    endOffset: cursor,
+    bytesRead: Math.max(0, cursor - startOffset),
+    readCalls,
+    maxReadBytes,
+  };
 }
 
 export async function writeRuntimeTextFile(pathRaw: string, content: string) {
@@ -1391,33 +1473,62 @@ export async function appendRuntimeTextFile(pathRaw: string, content: string) {
     return;
   }
   assertNativeRuntimeFsPath(path, "append text runtime file");
-  await ensureRuntimeDirectory(parentPath(path));
-  const fs = await tryNodeFs();
-  if (fs?.appendFile) {
-    await fs.appendFile(path, content, "utf8");
-    return;
+  const previous = runtimeAppendQueues.get(path) || Promise.resolve();
+  const append = previous
+    .catch(() => undefined)
+    .then(async () => {
+      await ensureRuntimeDirectory(parentPath(path));
+      const fs = await tryNodeFs();
+      if (fs?.appendFile) {
+        await fs.appendFile(path, content, "utf8");
+        return;
+      }
+      const runtime = globalThis as {
+        IOUtils?: {
+          writeUTF8?: (
+            path: string,
+            content: string,
+            options: { mode: "appendOrCreate" },
+          ) => Promise<unknown>;
+        };
+      };
+      if (typeof runtime.IOUtils?.writeUTF8 !== "function") {
+        throw new RuntimeFileIoError({
+          code: "runtime_async_file_io_unavailable",
+          operation: "append",
+          message: "No asynchronous runtime text append API is available",
+        });
+      }
+      let offset = 0;
+      while (offset < content.length) {
+        let end = Math.min(
+          content.length,
+          offset + RUNTIME_APPEND_CHUNK_CODE_UNITS,
+        );
+        if (
+          end < content.length &&
+          end > offset &&
+          content.charCodeAt(end - 1) >= 0xd800 &&
+          content.charCodeAt(end - 1) <= 0xdbff &&
+          content.charCodeAt(end) >= 0xdc00 &&
+          content.charCodeAt(end) <= 0xdfff
+        ) {
+          end -= 1;
+        }
+        await runtime.IOUtils.writeUTF8(path, content.slice(offset, end), {
+          mode: "appendOrCreate",
+        });
+        offset = end;
+      }
+    });
+  runtimeAppendQueues.set(path, append);
+  try {
+    await append;
+  } finally {
+    if (runtimeAppendQueues.get(path) === append) {
+      runtimeAppendQueues.delete(path);
+    }
   }
-  const runtime = globalThis as any;
-  const classes = runtime.Components?.classes;
-  const interfaces = runtime.Components?.interfaces;
-  const file = runtimeFileFromPath(path, runtime);
-  const outputStream = classes?.[
-    "@mozilla.org/network/file-output-stream;1"
-  ]?.createInstance?.(interfaces?.nsIFileOutputStream);
-  const converter = classes?.[
-    "@mozilla.org/intl/converter-output-stream;1"
-  ]?.createInstance?.(interfaces?.nsIConverterOutputStream);
-  if (file && outputStream && converter) {
-    outputStream.init(file, 0x02 | 0x08 | 0x10, 0o644, 0);
-    converter.init(outputStream, "UTF-8", 0, 0);
-    converter.writeString(content);
-    converter.close();
-    return;
-  }
-  await writeRuntimeTextFile(
-    path,
-    `${await readRuntimeTextFile(path)}${content}`,
-  );
 }
 
 export async function statRuntimePath(pathRaw: string): Promise<{

@@ -4,6 +4,7 @@ import {
   appendRuntimeTextFile,
   readRuntimeTextFile,
   readRuntimeTextRanges,
+  scanRuntimeUtf8Lines,
   statRuntimePath,
   writeRuntimeTextFile,
 } from "./runtimePersistence";
@@ -72,6 +73,31 @@ type TranscriptIndexState = {
 
 const transcriptIndexStates = new Map<string, TranscriptIndexState>();
 const transcriptWriteKeys = new Set<string>();
+const TRANSCRIPT_COOPERATIVE_EVENT_BATCH = 64;
+
+let transcriptIndexDiagnostics = {
+  appliedEvents: 0,
+  scanReadCalls: 0,
+  maxScanReadBytes: 0,
+  fullMirrorIndexedPages: 0,
+};
+
+export function getAcpTranscriptIndexDiagnosticsForTests() {
+  return { ...transcriptIndexDiagnostics };
+}
+
+export function resetAcpTranscriptIndexDiagnosticsForTests() {
+  transcriptIndexDiagnostics = {
+    appliedEvents: 0,
+    scanReadCalls: 0,
+    maxScanReadBytes: 0,
+    fullMirrorIndexedPages: 0,
+  };
+}
+
+function yieldTranscriptWork() {
+  return new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
 
 export type AcpSkillRunTranscriptMetadata = {
   transcriptPath: string;
@@ -182,62 +208,6 @@ function eventLine(event: AcpSkillRunTranscriptEvent) {
 
 function eventLineWithNewline(event: AcpSkillRunTranscriptEvent) {
   return `${eventLine(event)}\n`;
-}
-
-async function readTranscriptEventsWithOffsets(transcriptPath: string) {
-  const text: string = await readRuntimeTextFile(transcriptPath);
-  const chunks = text.match(/[^\n]*(?:\n|$)/g) || [];
-  const events: Array<{
-    event: AcpSkillRunTranscriptEvent;
-    offset: number;
-    length: number;
-  }> = [];
-  let offset = 0;
-  for (const chunk of chunks) {
-    if (!chunk) {
-      continue;
-    }
-    const length = utf8ByteLength(chunk);
-    const line = chunk.replace(/\r?\n$/, "").trim();
-    const event = line ? parseTranscriptEvent(line) : null;
-    if (event) {
-      events.push({ event, offset, length });
-    }
-    offset += length;
-  }
-  return events;
-}
-
-async function readTranscriptTailEventsWithOffsets(
-  transcriptPath: string,
-  offset: number,
-  length: number,
-) {
-  if (length <= 0) {
-    return [];
-  }
-  const [text = ""] = await readRuntimeTextRanges(transcriptPath, [
-    { offset, length },
-  ]);
-  const chunks = text.match(/[^\n]*(?:\n|$)/g) || [];
-  const entries: Array<{
-    event: AcpSkillRunTranscriptEvent;
-    offset: number;
-    length: number;
-  }> = [];
-  let nextOffset = offset;
-  for (const chunk of chunks) {
-    if (!chunk) {
-      continue;
-    }
-    const chunkLength = utf8ByteLength(chunk);
-    const event = parseTranscriptEvent(chunk.replace(/\r?\n$/, "").trim());
-    if (event) {
-      entries.push({ event, offset: nextOffset, length: chunkLength });
-    }
-    nextOffset += chunkLength;
-  }
-  return entries;
 }
 
 function foldTranscriptEvents(events: AcpSkillRunTranscriptEvent[]) {
@@ -478,123 +448,144 @@ async function readTranscriptIndex(
   return text ? parseTranscriptIndex(text, paths) : null;
 }
 
-function emptyTranscriptIndex(
-  paths: ReturnType<typeof resolveAcpSkillRunTranscriptPaths>,
-  updatedAt: string,
-): AcpSkillRunTranscriptIndex {
-  return {
-    schema: ACP_SKILL_RUN_TRANSCRIPT_INDEX_SCHEMA,
-    transcriptPath: paths.transcriptPath,
-    items: [],
-    itemIds: [],
-    itemCount: 0,
-    eventSeq: 0,
-    preview: undefined,
-    sourceByteLength: 0,
-    checkpointedAt: updatedAt,
-    updatedAt,
-  };
-}
+class TranscriptIndexBuilder {
+  private readonly entries = new Map<string, AcpSkillRunTranscriptIndexItem>();
 
-function indexFromEvents(
-  paths: ReturnType<typeof resolveAcpSkillRunTranscriptPaths>,
-  entries: Array<{
+  private sourceByteLength: number;
+
+  private eventSeq: number;
+
+  private updatedAt: string;
+
+  private readonly checkpointedAt: string;
+
+  constructor(
+    private readonly paths: ReturnType<
+      typeof resolveAcpSkillRunTranscriptPaths
+    >,
+    updatedAt: string,
+    base?: AcpSkillRunTranscriptIndex,
+  ) {
+    for (const entry of base?.items || []) {
+      this.entries.set(entry.itemId, {
+        itemId: entry.itemId,
+        eventOffsets: [...entry.eventOffsets],
+        eventLengths: [...entry.eventLengths],
+        preview: entry.preview,
+      });
+    }
+    this.sourceByteLength = base?.sourceByteLength || 0;
+    this.eventSeq = base?.eventSeq || 0;
+    this.updatedAt = base?.updatedAt || updatedAt;
+    this.checkpointedAt = base?.checkpointedAt || updatedAt;
+  }
+
+  get currentEventSeq() {
+    return this.eventSeq;
+  }
+
+  apply(args: {
     event: AcpSkillRunTranscriptEvent;
     offset: number;
     length: number;
-  }>,
-  updatedAt: string,
-): AcpSkillRunTranscriptIndex {
-  let index = emptyTranscriptIndex(paths, updatedAt);
-  for (const entry of entries) {
-    index = applyEventToIndex({
-      index,
-      event: entry.event,
-      offset: entry.offset,
-      length: entry.length,
-      updatedAt,
-    });
+    updatedAt: string;
+  }) {
+    transcriptIndexDiagnostics.appliedEvents += 1;
+    this.eventSeq = Math.max(this.eventSeq, args.event.seq);
+    this.sourceByteLength = Math.max(
+      this.sourceByteLength,
+      args.offset + args.length,
+    );
+    this.updatedAt = args.updatedAt;
+    const existing = this.entries.get(args.event.itemId);
+    if (args.event.op === "delete" || args.event.op === "delete_item") {
+      this.entries.delete(args.event.itemId);
+      return;
+    }
+    if (existing) {
+      existing.eventOffsets.push(args.offset);
+      existing.eventLengths.push(args.length);
+      if (args.event.op === "append_text") {
+        existing.preview = appendPreview(existing.preview, args.event.text);
+      } else if (args.event.op === "patch_item") {
+        existing.preview = previewFromPatch(args.event.patch, existing.preview);
+      } else if (args.event.item) {
+        existing.preview = previewFromItem(args.event.item);
+      }
+      return;
+    }
+    if (args.event.op === "upsert" || args.event.op === "upsert_item") {
+      this.entries.set(args.event.itemId, {
+        itemId: args.event.itemId,
+        eventOffsets: [args.offset],
+        eventLengths: [args.length],
+        preview: previewFromItem(args.event.item),
+      });
+    }
   }
-  const lastEntry = entries[entries.length - 1];
-  return {
-    ...index,
-    sourceByteLength: lastEntry ? lastEntry.offset + lastEntry.length : 0,
-    checkpointedAt: updatedAt,
-  };
-}
 
-function applyEventToIndex(args: {
-  index: AcpSkillRunTranscriptIndex;
-  event: AcpSkillRunTranscriptEvent;
-  offset: number;
-  length: number;
-  updatedAt: string;
-}): AcpSkillRunTranscriptIndex {
-  const items = args.index.items.map((entry) => ({
-    itemId: entry.itemId,
-    eventOffsets: [...entry.eventOffsets],
-    eventLengths: [...entry.eventLengths],
-    preview: entry.preview,
-  }));
-  const existingIndex = items.findIndex(
-    (entry) => entry.itemId === args.event.itemId,
-  );
-  if (args.event.op === "delete" || args.event.op === "delete_item") {
-    if (existingIndex >= 0) {
-      items.splice(existingIndex, 1);
-    }
-  } else if (existingIndex >= 0) {
-    items[existingIndex].eventOffsets.push(args.offset);
-    items[existingIndex].eventLengths.push(args.length);
-    if (args.event.op === "append_text") {
-      items[existingIndex].preview = appendPreview(
-        items[existingIndex].preview,
-        args.event.text,
-      );
-    } else if (args.event.op === "patch_item") {
-      items[existingIndex].preview = previewFromPatch(
-        args.event.patch,
-        items[existingIndex].preview,
-      );
-    } else if (args.event.item) {
-      items[existingIndex].preview = previewFromItem(args.event.item);
-    }
-  } else if (args.event.op === "upsert" || args.event.op === "upsert_item") {
-    items.push({
-      itemId: args.event.itemId,
-      eventOffsets: [args.offset],
-      eventLengths: [args.length],
-      preview: previewFromItem(args.event.item),
-    });
+  setSourceByteLength(value: number) {
+    this.sourceByteLength = Math.max(
+      this.sourceByteLength,
+      Math.max(0, Math.floor(Number(value || 0) || 0)),
+    );
   }
-  return {
-    schema: ACP_SKILL_RUN_TRANSCRIPT_INDEX_SCHEMA,
-    transcriptPath: args.index.transcriptPath,
-    items,
-    itemIds: items.map((entry) => entry.itemId),
-    itemCount: items.length,
-    eventSeq: Math.max(args.index.eventSeq, args.event.seq),
-    preview: previewFromIndex({
+
+  finalize(options: { checkpointedAt?: string } = {}) {
+    const items = Array.from(this.entries.values());
+    const index: AcpSkillRunTranscriptIndex = {
       schema: ACP_SKILL_RUN_TRANSCRIPT_INDEX_SCHEMA,
-      transcriptPath: args.index.transcriptPath,
+      transcriptPath: this.paths.transcriptPath,
       items,
       itemIds: items.map((entry) => entry.itemId),
       itemCount: items.length,
-      eventSeq: Math.max(args.index.eventSeq, args.event.seq),
-      sourceByteLength: Math.max(
-        args.index.sourceByteLength,
-        args.offset + args.length,
-      ),
-      checkpointedAt: args.index.checkpointedAt,
-      updatedAt: args.updatedAt,
-    }),
-    sourceByteLength: Math.max(
-      args.index.sourceByteLength,
-      args.offset + args.length,
-    ),
-    checkpointedAt: args.index.checkpointedAt,
-    updatedAt: args.updatedAt,
-  };
+      eventSeq: this.eventSeq,
+      preview: undefined,
+      sourceByteLength: this.sourceByteLength,
+      checkpointedAt: options.checkpointedAt || this.checkpointedAt,
+      updatedAt: this.updatedAt,
+    };
+    index.preview = previewFromIndex(index);
+    return index;
+  }
+}
+
+async function scanTranscriptIndex(args: {
+  paths: ReturnType<typeof resolveAcpSkillRunTranscriptPaths>;
+  builder: TranscriptIndexBuilder;
+  offset?: number;
+  length?: number;
+}) {
+  let scannedLines = 0;
+  const result = await scanRuntimeUtf8Lines({
+    path: args.paths.transcriptPath,
+    offset: args.offset,
+    length: args.length,
+    onLine: async (line) => {
+      const event = parseTranscriptEvent(
+        line.text.replace(/\r?\n$/, "").trim(),
+      );
+      if (event) {
+        args.builder.apply({
+          event,
+          offset: line.offset,
+          length: line.length,
+          updatedAt: event.createdAt,
+        });
+      }
+      scannedLines += 1;
+      if (scannedLines % TRANSCRIPT_COOPERATIVE_EVENT_BATCH === 0) {
+        await yieldTranscriptWork();
+      }
+    },
+  });
+  transcriptIndexDiagnostics.scanReadCalls += result.readCalls;
+  transcriptIndexDiagnostics.maxScanReadBytes = Math.max(
+    transcriptIndexDiagnostics.maxScanReadBytes,
+    result.maxReadBytes,
+  );
+  args.builder.setSourceByteLength(result.endOffset);
+  return result;
 }
 
 async function readIndexedItems(
@@ -614,13 +605,17 @@ async function readIndexedItems(
   });
   const lines = await readRuntimeTextRanges(paths.transcriptPath, ranges);
   const eventsByEntry = entries.map(() => [] as AcpSkillRunTranscriptEvent[]);
-  lines.forEach((line, index) => {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
     const owner = owners[index];
     const event = parseTranscriptEvent(String(line || "").trim());
     if (event) {
       eventsByEntry[owner]?.push(event);
     }
-  });
+    if ((index + 1) % TRANSCRIPT_COOPERATIVE_EVENT_BATCH === 0) {
+      await yieldTranscriptWork();
+    }
+  }
   return entries
     .map((entry, index) =>
       foldTranscriptEvents(eventsByEntry[index] || []).items.find(
@@ -668,27 +663,22 @@ async function loadTranscriptIndexState(
 
   if (!index || index.sourceByteLength > sourceByteLength) {
     const updatedAt = new Date().toISOString();
-    const entries = await readTranscriptEventsWithOffsets(paths.transcriptPath);
-    index = indexFromEvents(paths, entries, updatedAt);
+    const builder = new TranscriptIndexBuilder(paths, updatedAt);
+    await scanTranscriptIndex({ paths, builder });
+    index = builder.finalize({ checkpointedAt: updatedAt });
     dirty = true;
     checkpointSourceByteLength = 0;
     checkpointedAtMs = 0;
   } else if (index.sourceByteLength < sourceByteLength) {
-    const entries = await readTranscriptTailEventsWithOffsets(
-      paths.transcriptPath,
-      index.sourceByteLength,
-      sourceByteLength - index.sourceByteLength,
-    );
-    for (const entry of entries) {
-      index = applyEventToIndex({
-        index,
-        event: entry.event,
-        offset: entry.offset,
-        length: entry.length,
-        updatedAt: entry.event.createdAt,
-      });
-    }
-    index = { ...index, sourceByteLength };
+    const builder = new TranscriptIndexBuilder(paths, index.updatedAt, index);
+    await scanTranscriptIndex({
+      paths,
+      builder,
+      offset: index.sourceByteLength,
+      length: sourceByteLength - index.sourceByteLength,
+    });
+    builder.setSourceByteLength(sourceByteLength);
+    index = builder.finalize();
     dirty = true;
   }
 
@@ -738,8 +728,12 @@ async function persistTranscriptBatch(
     return;
   }
   const state = await loadTranscriptIndexState(paths);
-  let nextIndex = state.index;
-  let offset = nextIndex.sourceByteLength;
+  const builder = new TranscriptIndexBuilder(
+    paths,
+    state.index.updatedAt,
+    state.index,
+  );
+  let offset = state.index.sourceByteLength;
   const lines: string[] = [];
   for (const input of pending) {
     const event: AcpSkillRunTranscriptEvent = {
@@ -747,7 +741,7 @@ async function persistTranscriptBatch(
       seq:
         typeof input.seq === "number" && Number.isFinite(input.seq)
           ? Math.max(0, Math.floor(input.seq))
-          : nextIndex.eventSeq + 1,
+          : builder.currentEventSeq + 1,
       op: input.op,
       itemId: input.itemId,
       item: input.item,
@@ -758,8 +752,7 @@ async function persistTranscriptBatch(
     const line = eventLineWithNewline(event);
     const length = utf8ByteLength(line);
     lines.push(line);
-    nextIndex = applyEventToIndex({
-      index: nextIndex,
+    builder.apply({
       event,
       offset,
       length,
@@ -768,7 +761,8 @@ async function persistTranscriptBatch(
     offset += length;
   }
   await appendRuntimeTextFile(paths.transcriptPath, lines.join(""));
-  state.index = nextIndex;
+  builder.setSourceByteLength(offset);
+  state.index = builder.finalize();
   state.dirty = true;
   try {
     await checkpointTranscriptIndex(paths, state, false);
@@ -937,12 +931,26 @@ export async function readAcpSkillRunTranscriptItems(args: {
     return { items: [], eventSeq: 0, total: 0 };
   }
   await flushAcpSkillRunTranscriptWrites(args.runtimeDir);
-  const entries = await readTranscriptEventsWithOffsets(paths.transcriptPath);
-  const folded = foldTranscriptEvents(entries.map((entry) => entry.event));
+  const index = (await loadTranscriptIndexState(paths)).index;
+  const items: AcpSkillRunTranscriptItem[] = [];
+  for (
+    let offset = 0;
+    offset < index.items.length;
+    offset += TRANSCRIPT_PAGE_MAX_LIMIT
+  ) {
+    transcriptIndexDiagnostics.fullMirrorIndexedPages += 1;
+    items.push(
+      ...(await readIndexedItems(
+        paths,
+        index.items.slice(offset, offset + TRANSCRIPT_PAGE_MAX_LIMIT),
+      )),
+    );
+    await yieldTranscriptWork();
+  }
   return {
-    items: folded.items,
-    eventSeq: folded.eventSeq,
-    total: folded.items.length,
+    items,
+    eventSeq: index.eventSeq,
+    total: index.itemCount,
   };
 }
 
@@ -958,8 +966,9 @@ export async function rebuildAcpSkillRunTranscriptIndex(
     return null;
   }
   const updatedAt = new Date().toISOString();
-  const entries = await readTranscriptEventsWithOffsets(paths.transcriptPath);
-  const index = indexFromEvents(paths, entries, updatedAt);
+  const builder = new TranscriptIndexBuilder(paths, updatedAt);
+  await scanTranscriptIndex({ paths, builder });
+  const index = builder.finalize({ checkpointedAt: updatedAt });
   await writeRuntimeTextFile(paths.transcriptIndexPath, JSON.stringify(index));
   transcriptIndexStates.set(paths.transcriptPath, {
     index,

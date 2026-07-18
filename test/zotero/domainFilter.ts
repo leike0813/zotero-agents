@@ -24,6 +24,7 @@ const ZOTERO_LITE_ALLOWLIST: Record<Exclude<TestDomain, "all">, RegExp[]> = {
     /(^|\/)test\/core\/104-acp-zotero-opencode\.integration\.test\.ts$/,
     /(^|\/)test\/core\/165-runtime-platform-services\.zotero\.test\.ts$/,
     /(^|\/)test\/core\/185-zotero-library-page-query\.zotero\.test\.ts$/,
+    /(^|\/)test\/core\/186-acp-runtime-file-io\.zotero\.test\.ts$/,
   ],
   ui: [
     /(^|\/)test\/ui\/01-startup-workflow-menu-init\.test\.ts$/,
@@ -85,6 +86,7 @@ const ZOTERO_LITE_TITLE_ALLOWLIST: Record<
     "real OpenCode ACP against Zotero MCP server in Zotero runtime ",
     "runtime platform services in Zotero ",
     "zotero library page query in Zotero runtime ",
+    "ACP runtime file I/O in Zotero ",
   ],
   ui: [
     "startup workflow scan + menu init ",

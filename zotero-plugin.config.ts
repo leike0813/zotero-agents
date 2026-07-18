@@ -158,6 +158,13 @@ export default defineConfig({
         target: "firefox115",
         outfile: ".scaffold/build/addon/content/workspace/app.bundle.js",
       },
+      {
+        entryPoints: ["src/workers/runtimeFileRangeWorker.ts"],
+        bundle: true,
+        target: "firefox115",
+        outfile:
+          ".scaffold/build/addon/content/workers/runtime-file-range-worker.js",
+      },
     ],
   },
 

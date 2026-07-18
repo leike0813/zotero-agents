@@ -119,6 +119,7 @@ import {
   scanRuntimePersistenceUsage,
   type RuntimePersistenceCategory,
 } from "./modules/runtimePersistence";
+import { shutdownRuntimeFileRangeReader } from "./modules/runtimeFileRangeReader";
 import {
   cleanupPersistenceIssues,
   scanPersistenceIntegrity,
@@ -1153,6 +1154,9 @@ async function onShutdown(): Promise<void> {
     "runtime-log-flush",
     flushRuntimeLogsPersistence,
   );
+  await runShutdownStepWithTimeout("runtime-file-range-reader-shutdown", () => {
+    shutdownRuntimeFileRangeReader();
+  });
   for (const win of Zotero.getMainWindows?.() || []) {
     removeDashboardToolbarButton(win);
     removeAssistantWorkspaceSidebarShell(win);
