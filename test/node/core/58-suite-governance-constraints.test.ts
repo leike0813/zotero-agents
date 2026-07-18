@@ -1,6 +1,7 @@
 import { assert } from "chai";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { dirname, extname, join, resolve } from "path";
+import ts from "typescript";
 import packageJson from "../../../package.json";
 
 type ScriptsMap = Record<string, string>;
@@ -71,7 +72,54 @@ function extractModuleSpecifiers(source: string) {
   return specifiers;
 }
 
+function findBareRuntimeGlobals(source: string) {
+  const sourceFile = ts.createSourceFile(
+    "workflow-package.mjs",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.JS,
+  );
+  const found = new Set<string>();
+  const visit = (node: ts.Node) => {
+    const directRuntimeGlobal =
+      (ts.isPropertyAccessExpression(node) ||
+        ts.isElementAccessExpression(node)) &&
+      ts.isIdentifier(node.expression)
+        ? node.expression.text
+        : ts.isTypeOfExpression(node) && ts.isIdentifier(node.expression)
+          ? node.expression.text
+          : "";
+    if (directRuntimeGlobal === "Zotero" || directRuntimeGlobal === "addon") {
+      found.add(directRuntimeGlobal);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found;
+}
+
 describe("suite governance constraints", function () {
+  it("classifies executable bare runtime globals without matching prose", function () {
+    const found = findBareRuntimeGlobals(`
+      Zotero.Items.get(1);
+      Zotero["Items"].get(1);
+      addon.data.config;
+      typeof addon;
+      "Zotero. This sentence is localized prose.";
+      globalThis.Zotero.Items.get(1);
+      globalThis.addon.data.config;
+    `);
+    assert.deepEqual([...found].sort(), ["Zotero", "addon"]);
+    assert.isEmpty(
+      findBareRuntimeGlobals(`
+        "Zotero. This sentence is localized prose.";
+        globalThis.Zotero.Items.get(1);
+        globalThis.addon.data.config;
+      `),
+    );
+  });
+
   it("Risk: builtin workflow code allows same-package imports but blocks cross-package imports and tag-vocab core bridges", function () {
     const builtinRoot = join(process.cwd(), "workflows_builtin");
     const checkedFiles = collectJavaScriptFiles(builtinRoot);
@@ -101,14 +149,13 @@ describe("suite governance constraints", function () {
           ".mjs",
           `workflow-package hook/lib files must use .mjs: ${filePath}`,
         );
-        assert.notMatch(
-          source,
-          /(^|[^\w$.])Zotero\./m,
+        const bareRuntimeGlobals = findBareRuntimeGlobals(source);
+        assert.isFalse(
+          bareRuntimeGlobals.has("Zotero"),
           `workflow-package hook/lib files must not use bare Zotero globals in ESM scope: ${filePath}`,
         );
-        assert.notMatch(
-          source,
-          /typeof\s+addon\b|(^|[^\w$.])addon(?:\?\.|\.)/m,
+        assert.isFalse(
+          bareRuntimeGlobals.has("addon"),
           `workflow-package hook/lib files must not use bare addon globals in ESM scope: ${filePath}`,
         );
       }

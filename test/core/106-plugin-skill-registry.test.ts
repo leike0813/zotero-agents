@@ -252,8 +252,9 @@ describe("plugin skill registry", function () {
       entry.sourceDir.replace(/\\/g, "/"),
       "skills_builtin/zotero-bridge-cli",
     );
-    assert.include(entry.description, "ZoteroBridge CLI");
-    assert.include(entry.description, "Zotero library");
+    assert.include(entry.description, "Zotero Bridge CLI");
+    assert.include(entry.description, "surface identity");
+    assert.include(entry.description, "command contract");
     assert.match(entry.checksum, /^sha256:/);
   });
 

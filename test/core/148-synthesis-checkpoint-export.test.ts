@@ -13,6 +13,9 @@ import {
   runtimePathExists,
   writeRuntimeTextFile,
 } from "../../src/modules/runtimePersistence";
+import { BUILTIN_STATUS_POLICY } from "../../src/modules/synthesis/builtinTagPolicy";
+
+const BUILTIN_STATUS_TAGS = BUILTIN_STATUS_POLICY.map((entry) => entry.tag);
 
 async function makeRuntimeRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-checkpoint-export-"));
@@ -145,7 +148,7 @@ describe("Synthesis checkpoint export", function () {
     assert.equal(conceptManifest.data.concept_count, 1);
     assert.deepEqual(
       vocabulary.data.tags.map((entry: { tag: string }) => entry.tag),
-      ["field:cv"],
+      ["field:cv", ...BUILTIN_STATUS_TAGS].sort(),
     );
     assert.isFalse(
       await runtimePathExists(
@@ -161,7 +164,10 @@ describe("Synthesis checkpoint export", function () {
     assert.isTrue(verified.ok);
     assert.equal(verified.domains.topicGraph.db.counts.nodes, 1);
     assert.equal(verified.domains.conceptKb.db.counts.concepts, 1);
-    assert.equal(verified.domains.tagVocabulary.db.counts.entries, 1);
+    assert.equal(
+      verified.domains.tagVocabulary.db.counts.entries,
+      BUILTIN_STATUS_TAGS.length + 1,
+    );
 
     const vocabularyPath = path.join(paths.tagsRoot, "vocabulary.json");
     const envelope = JSON.parse(await readRuntimeTextFile(vocabularyPath));
@@ -174,9 +180,18 @@ describe("Synthesis checkpoint export", function () {
     const failed = await service.verifySynthesisCheckpoint();
 
     assert.isFalse(failed.ok);
-    assert.equal(repository.countRows("synt_tag_vocabulary_entry"), 1);
-    assert.equal(failed.domains.tagVocabulary.db.counts.entries, 1);
-    assert.equal(failed.domains.tagVocabulary.checkpoint.counts.entries, 2);
+    assert.equal(
+      repository.countRows("synt_tag_vocabulary_entry"),
+      BUILTIN_STATUS_TAGS.length + 1,
+    );
+    assert.equal(
+      failed.domains.tagVocabulary.db.counts.entries,
+      BUILTIN_STATUS_TAGS.length + 1,
+    );
+    assert.equal(
+      failed.domains.tagVocabulary.checkpoint.counts.entries,
+      BUILTIN_STATUS_TAGS.length + 2,
+    );
     assert.isTrue(
       failed.domains.tagVocabulary.diagnostics.some(
         (diagnostic) => diagnostic.code === "checkpoint_count_mismatch",

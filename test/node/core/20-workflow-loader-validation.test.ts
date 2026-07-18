@@ -21,6 +21,7 @@ import {
   localizeWorkflowLabel,
 } from "../../../src/workflows/localization";
 import { clearPackageHookBundleCacheForTests } from "../../../src/workflows/packageHookBundler";
+import { WORKFLOW_HOST_API_VERSION } from "../../../src/workflows/hostApi";
 import {
   fixturePath,
   joinPath,
@@ -694,7 +695,7 @@ describe("workflow loader validation", function () {
       });
       assert.deepInclude(result as Record<string, unknown>, {
         hasHostApi: true,
-        hostApiVersion: 8,
+        hostApiVersion: WORKFLOW_HOST_API_VERSION,
       });
       assert.equal((result as Record<string, unknown>).consoleState, "ok");
       const bundleLog = listRuntimeLogs().find(

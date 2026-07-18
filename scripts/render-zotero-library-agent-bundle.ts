@@ -10,6 +10,7 @@ import {
 
 const ROOT = process.cwd();
 const SOURCE_ROOT = "skills_src/zotero-library-agent/semantic";
+const RUNTIME_SOURCE_ROOT = "skills_src/zotero-library-agent";
 const TARGET_ROOT = "skills_builtin/zotero-library-agent";
 const SHARED_TERMINOLOGY = "skills_src/host-bridge-shared/terminology.md";
 const SHARED_CONTROL = "skills_src/host-bridge-shared/control-invariants.md";
@@ -44,6 +45,11 @@ export const ZOTERO_LIBRARY_AGENT_SEMANTIC_FILES = [
   "assets/evidence-bundle.schema.json",
   "assets/evidence-input.example.json",
   "scripts/zotero_library_agent.py",
+] as const;
+
+export const ZOTERO_LIBRARY_AGENT_RUNTIME_FILES = [
+  { source: "runner.json", target: "assets/runner.json" },
+  { source: "output.schema.json", target: "assets/output.schema.json" },
 ] as const;
 
 function read(path: string) {
@@ -82,6 +88,9 @@ function renderManifestSource() {
   const semanticSources = ZOTERO_LIBRARY_AGENT_SEMANTIC_FILES.map((path) =>
     join(SOURCE_ROOT, path).replace(/\\/g, "/"),
   );
+  const runtimeSources = ZOTERO_LIBRARY_AGENT_RUNTIME_FILES.map(({ source }) =>
+    join(RUNTIME_SOURCE_ROOT, source).replace(/\\/g, "/"),
+  );
   const sharedSources = [
     SHARED_TERMINOLOGY,
     SHARED_CONTROL,
@@ -96,6 +105,7 @@ function renderManifestSource() {
       sourceFiles: {
         version: ZOTERO_LIBRARY_AGENT_BUNDLE_VERSION_SOURCE_PATH,
         semantic: semanticSources,
+        runtime: runtimeSources,
         shared: sharedSources,
         cliRelease: "cli/zotero-bridge/release.json",
         releaseSet: "host-bridge/release-set.json",
@@ -117,7 +127,7 @@ function renderManifestSource() {
         },
         binaryAggregateSha256: release.binaryAggregateSha256,
         semanticChecksum: sha256(
-          [...semanticSources, ...sharedSources]
+          [...semanticSources, ...runtimeSources, ...sharedSources]
             .map((path) => read(path))
             .join("\n---\n"),
         ),
@@ -137,6 +147,14 @@ export function renderZoteroLibraryAgentBundle(
     writeOrCheck(
       join(TARGET_ROOT, path),
       read(join(SOURCE_ROOT, path)),
+      check,
+      diffs,
+    );
+  }
+  for (const { source, target } of ZOTERO_LIBRARY_AGENT_RUNTIME_FILES) {
+    writeOrCheck(
+      join(TARGET_ROOT, target),
+      read(join(RUNTIME_SOURCE_ROOT, source)),
       check,
       diffs,
     );

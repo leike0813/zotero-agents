@@ -45,6 +45,13 @@ Use Host Bridge to inspect Zotero first, keep object and run handles explicit, a
 - Do not make scheduled or unattended writes. A current user request and Host Bridge approval still govern every mutation or apply-back.
 - Do not treat cache entries, generated references, or evidence bundles as live Zotero truth; confirm current facts through Host Bridge when freshness matters.
 
+## Direct Skill Invocation
+
+- Return one final result with `status`, `summary`, optional `evidence_file`, and optional structured `diagnostics` when this Skill is invoked through the plugin Skill registry.
+- Set `evidence_file` only to a helper-built, validated evidence bundle that another agent or task can consume. Keep concise task-local findings in `summary` when no portable evidence file is needed.
+- Use `canceled` when authority, input, or user intent is missing, and `failed` when execution cannot complete. Do not fabricate evidence for either state.
+- In interactive mode, use the runner's pending envelope only when a user decision is actually required; the final business result still follows `assets/output.schema.json`.
+
 ## Failure Handling
 
 - Preserve structured error codes and handle fields when reporting a failure.

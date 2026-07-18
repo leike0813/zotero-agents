@@ -25,7 +25,7 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 | `literature-deep-reading` | Literature Deep Reading | skillrunner | attachment per_parent | target_language, mode | yes |
 | `literature-explainer` | Literature Explainer | skillrunner | attachment per_parent | language | yes |
 | `literature-metadata-curator` | Literature Metadata Curator | skillrunner | parent | skip_identifier_fast_path | yes |
-| `literature-search-ingest` | Literature Search Ingest | skillrunner | workflow | query, searchMode, targetCollection | yes |
+| `literature-search-ingest` | Literature Search Ingest | skillrunner | workflow | query, searchMode, searchBreadth, languageHints, targetCollection | yes |
 | `literature-translator` | Literature Translator | skillrunner | attachment per_parent | target_language, mode | yes |
 | `manuscript-literature-framing` | Manuscript Literature Framing | skillrunner | workflow | paperTitle, language, targetVenue, articleType, stylePreference | yes |
 | `mineru` | MinerU | generic-http | attachment | none | yes |
@@ -160,6 +160,8 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 - Parameters:
   - `query`: string; required=false; default="" — Optional search query or seed. Leave blank with auto mode to start a guided search-planning conversation.
   - `searchMode`: string; required=false; default="auto"; enum=auto, guided, topic_expansion, paper_seed_expansion, targeted_ingest — Choose auto detection, guided search planning, topic expansion, paper seed expansion, or exact targeted ingest.
+  - `searchBreadth`: string; required=false; default="broad"; enum=broad, balanced, quick — Choose broad multi-lane discovery, balanced coverage, or a quick first pass.
+  - `languageHints`: array; required=false; default=[] — Optional BCP 47 language hints such as en, zh-CN, ja, or de. They expand queries and sources but never filter other languages.
   - `targetCollection`: string; required=false; default="" — Optional Zotero collection for created or existing items.
 - Selection rule: choose this workflow only when its label, declared inputs, parameters, and result evidence match the requested outcome; confirm live `workflow describe` before execution.
 
