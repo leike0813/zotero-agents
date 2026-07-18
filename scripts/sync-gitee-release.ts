@@ -293,29 +293,38 @@ async function uploadAttachment(args: {
 }): Promise<void> {
   const bytes = await fs.readFile(args.filePath);
   const fileName = path.basename(args.filePath);
-  const form = new FormData();
-  form.append("file", new Blob([bytes]), fileName);
-  try {
-    await requestJson(
-      `/repos/${args.owner}/${args.repo}/releases/${args.releaseId}/attach_files`,
-      args.token,
-      {
-        method: "POST",
-        body: form,
-        signal: AbortSignal.timeout(120_000),
-      },
-    );
-  } catch (error) {
-    const attachments = await listAttachments(args);
-    const uploaded = attachments.some(
-      (attachment) => (attachment.name || attachment.filename) === fileName,
-    );
-    if (!uploaded) {
-      throw error;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const form = new FormData();
+    form.append("file", new Blob([bytes]), fileName);
+    try {
+      await requestJson(
+        `/repos/${args.owner}/${args.repo}/releases/${args.releaseId}/attach_files`,
+        args.token,
+        {
+          method: "POST",
+          body: form,
+          signal: AbortSignal.timeout(120_000),
+        },
+      );
+      return;
+    } catch (error) {
+      const attachments = await listAttachments(args);
+      const uploaded = attachments.some(
+        (attachment) => (attachment.name || attachment.filename) === fileName,
+      );
+      if (uploaded) {
+        console.warn(
+          `[gitee-release] upload response failed after Gitee accepted ${fileName}`,
+        );
+        return;
+      }
+      if (attempt === 3) {
+        throw error;
+      }
+      console.warn(
+        `[gitee-release] retrying ${fileName} after upload attempt ${attempt}`,
+      );
     }
-    console.warn(
-      `[gitee-release] upload response failed after Gitee accepted ${fileName}`,
-    );
   }
 }
 

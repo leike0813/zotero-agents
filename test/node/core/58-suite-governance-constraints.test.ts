@@ -400,6 +400,35 @@ describe("suite governance constraints", function () {
         missingAttachmentError = error;
       }
       assert.match(String(missingAttachmentError), /timed out/);
+
+      let uploadAttempts = 0;
+      globalThis.fetch = (async (
+        _input: string | URL | Request,
+        init?: RequestInit,
+      ) => {
+        if (init?.method === "POST") {
+          uploadAttempts += 1;
+          if (uploadAttempts === 1) {
+            throw new DOMException("timed out", "TimeoutError");
+          }
+          return new Response("{}", {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response("[]", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }) as typeof fetch;
+      await syncGiteeReleaseInternalsForTests.uploadAttachment({
+        owner: "owner",
+        repo: "repo",
+        releaseId: 1,
+        filePath: asset,
+        token: "token",
+      });
+      assert.strictEqual(uploadAttempts, 2);
     } finally {
       globalThis.fetch = originalFetch;
     }
