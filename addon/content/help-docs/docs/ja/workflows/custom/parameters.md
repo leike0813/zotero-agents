@@ -44,6 +44,22 @@ Workflow は設定可能なパラメータを定義でき、実行前にユー�
 | `number` | 数値 | 数値入力（min/max 制約をサポート） |
 | `boolean` | ブール値 | トグル / チェックボックス |
 
+## 必須パラメータ
+
+パラメータなしでは workflow を実行できない場合に `required: true` を設定します：
+
+```json
+{
+  "collectionScope": {
+    "type": "string",
+    "required": true,
+    "title": "Collection Scope"
+  }
+}
+```
+
+必須文字列は非空白でなければならず、必須数値は有限でなければならず、必須布尔値の `true` と `false` の両方が有効です。必須値が欠落している場合、provider dispatch 前に拒否されます。`required` が `false` または省略されている場合、パラメータはオプションのままです。
+
 ## Enum 値とカスタム値
 
 ```json

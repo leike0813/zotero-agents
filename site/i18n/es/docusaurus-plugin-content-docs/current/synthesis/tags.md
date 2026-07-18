@@ -32,6 +32,8 @@ En la página Synthesis Workbench → Tags → Vocabulary, puedes:
 - **Import JSON**: Importar un vocabulario de etiquetas desde un archivo JSON (admite vista previa antes de confirmar)
 - **Export JSON**: Exportar el vocabulario actual a un archivo JSON
 
+Los cinco estados de workflow integrados se inicializan cuando el plugin arranca. Su tag, faceta, fuente, estado de obsolescencia y reemplazo no pueden modificarse ni eliminarse; las notas siguen siendo editables y los alias continúan usando la vía de gobierno normal. Las entradas personalizadas `status:*` conservan los mismos controles de gestión que las demás entradas personalizadas del vocabulario. Las importaciones pueden actualizar notas y alias integrados, pero omitir un integrado o cambiar su identidad protegida no puede eliminarlo ni reemplazarlo.
+
 ![Página de etiquetas de Synthesis](/img/docs/synthesis/tags.png)
 
 Estados de etiqueta:
@@ -61,4 +63,23 @@ El vocabulario de etiquetas admite importación/exportación en formato JSON (fo
 
 ## Workflow relacionado
 
-`status` representa tareas pendientes de workflows, no el progreso de lectura. Un elemento puede tener cero o varios estados. Las cinco definiciones integradas (`need-metadata-curation`, `need-fulltext`, `need-markdown`, `need-analysis`, `need-deep-reading`) se crean al iniciar el plugin. Tag Bootstrapper y [Tag Regulator](../workflows/tag-regulator) no pueden crearlas, modificarlas ni añadirlas o quitarlas de documentos. Se permiten estados personalizados. Adjuntar un PDF manualmente no elimina `status:need-fulltext`.
+`status` representa tareas pendientes de workflows, no el progreso de lectura. Un elemento puede tener cero o varios estados. Las cinco definiciones integradas:
+
+- `status:need-metadata-curation`
+- `status:need-fulltext`
+- `status:need-markdown`
+- `status:need-analysis`
+- `status:need-deep-reading`
+
+No es necesario ejecutar Tag Bootstrapper para crearlas. Tag Bootstrapper solo añade entradas personalizadas al vocabulario, mientras que [Tag Regulator](../workflows/tag-regulator) puede auditar etiquetas controladas ordinarias pero no puede añadir ni eliminar estados de workflow integrados en elementos de literatura. Ninguno de los dos workflows puede inferir un estado integrado a partir del tema, idioma, metadatos o texto completo de un artículo.
+
+| Evento | Añadir al elemento | Eliminar del elemento |
+|--------|--------------------|-----------------------|
+| Search crea un elemento | Markdown, análisis y deep reading; metadatos/fulltext cuando el resultado los requiere | — |
+| Search reutiliza un elemento | Solo metadatos/fulltext explícitamente requeridos por este resultado | — |
+| Metadata Curator tiene éxito o verifica que no hay cambios | — | Metadata curation |
+| MinerU escribe y adjunta Markdown | — | Markdown y fulltext |
+| Literature Analysis escribe artefactos formales | — | Análisis |
+| Literature Deep Reading escribe y adjunta HTML | — | Deep reading |
+
+Las ejecuciones fallidas, omitidas, canceladas o no aplicadas no borran el estado. Si un artefacto tiene éxito pero la limpieza de estado falla, el artefacto se conserva y la ejecución reporta una advertencia parcial. Adjuntar un PDF manualmente no elimina `status:need-fulltext` automáticamente.

@@ -19,6 +19,7 @@ const sidebars: SidebarsConfig = {
         "backends/hermes-profiles",
         "backends/mcp-server",
         "backends/generic-http",
+        "backends/zotero-library-agent",
       ],
     },
     {

@@ -32,6 +32,8 @@ Nella pagina Synthesis Workbench → Tags → Vocabulary, è possibile:
 - **Importare JSON**: Importare un vocabolario di tag da un file JSON (supporta l'anteprima prima della conferma)
 - **Esportare JSON**: Esportare il vocabolario corrente in un file JSON
 
+I cinque stati workflow integrati vengono inizializzati all'avvio del plugin. Il loro tag, facet, fonte, stato di deprecazione e sostituzione non possono essere modificati o eliminati; le note rimangono modificabili e gli alias continuano a utilizzare il percorso di governance normale. Le voci personalizzate `status:*` mantengono gli stessi controlli di gestione delle altre voci personalizzate del vocabolario. Le importazioni possono aggiornare note e alias integrati, ma l'omissione di un integrato o la modifica della sua identità protetta non può rimuoverlo o sostituirlo.
+
 ![Pagina Tag di Synthesis](/img/docs/synthesis/tags.png)
 
 Stati dei tag:
@@ -61,4 +63,23 @@ Il vocabolario dei tag supporta l'importazione/esportazione in formato JSON (for
 
 ## Workflow correlato
 
-`status` indica attività workflow in sospeso, non l'avanzamento della lettura. Un elemento può avere zero o più stati. Le cinque definizioni integrate (`need-metadata-curation`, `need-fulltext`, `need-markdown`, `need-analysis`, `need-deep-reading`) vengono create all'avvio del plugin. Tag Bootstrapper e [Tag Regulator](../workflows/tag-regulator) non possono crearle, modificarle, aggiungerle o rimuoverle dai documenti. Gli stati personalizzati restano consentiti. Allegare manualmente un PDF non rimuove `status:need-fulltext`.
+`status` indica attività workflow in sospeso, non l'avanzamento della lettura. Un elemento può avere zero o più stati. Le cinque definizioni integrate:
+
+- `status:need-metadata-curation`
+- `status:need-fulltext`
+- `status:need-markdown`
+- `status:need-analysis`
+- `status:need-deep-reading`
+
+Non è necessario eseguire Tag Bootstrapper per crearle. Tag Bootstrapper aggiunge solo voci di vocabolario personalizzate, mentre [Tag Regulator](../workflows/tag-regulator) può verificare tag controllati ordinari ma non può aggiungere o rimuovere stati workflow integrati sugli elementi di letteratura. Nessuno dei due workflow può inferire uno stato integrato dall'argomento, dalla lingua, dai metadati o dal testo completo di un articolo.
+
+| Evento | Aggiungere all'elemento | Rimuovere dall'elemento |
+|--------|-------------------------|-------------------------|
+| Search crea un elemento | Markdown, analisi e deep reading; metadati/fulltext quando il risultato li richiede | — |
+| Search riutilizza un elemento | Solo metadati/fulltext esplicitamente richiesti da questo risultato | — |
+| Metadata Curator riesce o verifica che non ci sono cambiamenti | — | Metadata curation |
+| MinerU scrive e allega Markdown | — | Markdown e fulltext |
+| Literature Analysis scrive artefatti formali | — | Analisi |
+| Literature Deep Reading scrive e allega HTML | — | Deep reading |
+
+Le esecuzioni fallite, saltate, annullate o non applicate non cancellano lo stato. Se un artefatto riesce ma la pulizia dello stato fallisce, l'artefatto viene mantenuto e l'esecuzione segnala un avviso parziale. Allegare manualmente un PDF non rimuove automaticamente `status:need-fulltext`.

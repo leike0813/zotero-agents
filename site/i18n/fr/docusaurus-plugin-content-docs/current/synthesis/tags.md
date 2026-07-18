@@ -32,6 +32,8 @@ Dans la page Synthesis Workbench → Balises → Vocabulaire, vous pouvez :
 - **Importer JSON** : Importer un vocabulaire de balises depuis un fichier JSON (supporte l'aperçu avant confirmation)
 - **Exporter JSON** : Exporter le vocabulaire actuel vers un fichier JSON
 
+Les cinq statuts de workflow intégrés sont initialisés au démarrage du plugin. Leur tag, facette, source, état de dépréciation et remplacement ne peuvent être modifiés ni supprimés ; les notes restent éditables et les alias continuent d'utiliser le chemin de gouvernance normal. Les entrées `status:*` personnalisées conservent les mêmes contrôles de gestion que les autres entrées personnalisées du vocabulaire. Les importations peuvent mettre à jour les notes et alias intégrés, mais l'omission d'un intégré ou la modification de son identité protégée ne peut ni le supprimer ni le remplacer.
+
 ![Synthesis Tags Page](/img/docs/synthesis/tags.png)
 
 États des balises :
@@ -61,4 +63,23 @@ Le vocabulaire de balises supporte l'import/export au format JSON (format TagVoc
 
 ## Workflow associé
 
-`status` représente les tâches de workflow en attente, et non la progression de lecture. Un élément peut avoir zéro ou plusieurs statuts. Les cinq définitions intégrées (`need-metadata-curation`, `need-fulltext`, `need-markdown`, `need-analysis`, `need-deep-reading`) sont créées au démarrage du plugin. Tag Bootstrapper et [Tag Regulator](../workflows/tag-regulator) ne peuvent ni les créer ou les modifier, ni les ajouter ou les retirer des documents. Les statuts personnalisés restent autorisés. L'ajout manuel d'un PDF ne supprime pas `status:need-fulltext`.
+`status` représente les tâches de workflow en attente, et non la progression de lecture. Un élément peut avoir zéro ou plusieurs statuts. Les cinq définitions intégrées :
+
+- `status:need-metadata-curation`
+- `status:need-fulltext`
+- `status:need-markdown`
+- `status:need-analysis`
+- `status:need-deep-reading`
+
+Il n'est pas nécessaire d'exécuter Tag Bootstrapper pour les créer. Tag Bootstrapper ajoute uniquement des entrées de vocabulaire personnalisées, tandis que [Tag Regulator](../workflows/tag-regulator) peut auditer les balises contrôlées ordinaires mais ne peut ni ajouter ni supprimer des statuts de workflow intégrés sur les éléments de littérature. Aucun des deux workflows ne peut inférer un statut intégré à partir du sujet, de la langue, des métadonnées ou du texte complet d'un article.
+
+| Événement | Ajouter à l'élément | Retirer de l'élément |
+|-----------|---------------------|----------------------|
+| Search crée un élément | Markdown, analyse et deep reading ; métadonnées/fulltext lorsque le résultat les requiert | — |
+| Search réutilise un élément | Uniquement les métadonnées/fulltext explicitement requis par ce résultat | — |
+| Metadata Curator réussit ou vérifie qu'aucun changement n'est nécessaire | — | Metadata curation |
+| MinerU écrit et attache le Markdown | — | Markdown et fulltext |
+| Literature Analysis écrit des artefacts formels | — | Analyse |
+| Literature Deep Reading écrit et attache le HTML | — | Deep reading |
+
+Les exécutions échouées, ignorées, annulées ou non appliquées n'effacent pas le statut. Si un artefact réussit mais que le nettoyage du statut échoue, l'artefact est conservé et l'exécution signale un avertissement partiel. L'ajout manuel d'un PDF ne supprime pas automatiquement `status:need-fulltext`.
