@@ -55,7 +55,11 @@ logic because they can materialize durable facts and review items.
 Index and query computation is capped at 25,000 concepts, 100,000 senses,
 250,000 aliases, 256 aliases per concept, 100 query labels, and 4,096 code
 units per string. Engine failure, cancellation, bounds rejection, or malformed
-output cannot advance projection registry state or modify Concept KB rows.
+output cannot advance projection registry state or modify Concept KB rows. The
+private sidecar application persists a separate manifest-CAS shadow aggregate,
+promotes only a captured-basis index, and never writes repository state during
+candidate query. This shadow has no public route and does not own production
+canonical files or checkpoint import/export.
 
 ## Overlay Context
 

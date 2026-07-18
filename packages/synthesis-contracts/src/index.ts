@@ -2,6 +2,8 @@ export * from "./client";
 export * from "./citationGraphApplication";
 export * from "./common";
 export * from "./concepts";
+export * from "./conceptKbApplication";
+export * from "./conceptKbCore";
 export * from "./debug";
 export * from "./exportDelivery";
 export * from "./graph";

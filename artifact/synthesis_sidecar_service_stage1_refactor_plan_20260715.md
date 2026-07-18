@@ -1,6 +1,6 @@
 # Stage 1 Detailed Refactor Plan: Synthesis Sidecar Service
 
-> 状态：实施中；WS5 已建立隔离 repository、Topic canonical shadow 与五个私有领域 application foundation，尚未进入生产持久化切换
+> 状态：实施中；WS5 已建立隔离 repository、Topic canonical shadow 与六个私有领域 application foundation，尚未进入生产持久化切换
 >
 > 日期：2026-07-15
 >
@@ -1162,6 +1162,13 @@ graph layout 作为第一条 process canary，因为：
   staged/effect，再投递 Host，失败只保留 pending effect，不回滚已提交词表。legacy numeric parent
   binding 在 promotion 前经既有 migration port 升级为 stable ref。当前没有 authenticated RPC、
   public capability、production `SynthesisClient` route、WebDAV、checkpoint 或 import preview/apply。
+- `add-synthesis-sidecar-concept-kb-application-foundation` 已完成拆分优先级第 6 项的
+  Concept KB application foundation：六类 row、manifest/revision、last-good index 与 stale state
+  收敛到 shared contracts/repository/application；proposal create/exact merge、ambiguous/low
+  confidence review、approve/merge/reject、display update 与 delete cascade 通过 expected-manifest
+  CAS 原子提升。index 与只读 query 使用两个内部 bounded worker operation；失败、malformed
+  result 或 basis supersession 不替换 last-good index。当前没有 checkpoint/import/export、canonical
+  asset delivery、WebDAV、authenticated RPC、public capability 或 production route。
 - 此切片不是 production repository mirror 或 route。WS6 仍需完成 shadow parity，
   WS7 仍需一次性切换 DB/canonical single writer；当前 service 不接触生产
   `synthesis.db`、production canonical files、Host capability 或公开 `SynthesisClient`。

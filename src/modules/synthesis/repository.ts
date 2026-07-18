@@ -54,6 +54,11 @@ import {
   type SynthesisArtifactSidecarRecord,
   type SynthesisCanonicalReferenceRecord,
   type SynthesisCanonicalReferenceRedirectRecord,
+  type SynthesisConceptAliasRecord,
+  type SynthesisConceptRecord,
+  type SynthesisConceptRelationRecord,
+  type SynthesisConceptReviewItemRecord,
+  type SynthesisConceptSenseRecord,
   type SynthesisRawReferenceRecord,
   type SynthesisRawReferenceStaleResult,
   type SynthesisReferenceBindingRecord,
@@ -63,6 +68,7 @@ import {
   type SynthesisTagAbbrevRecord,
   type SynthesisTagAliasRecord,
   type SynthesisTagVocabularyEntryRecord,
+  type SynthesisTopicConceptLinkRecord,
 } from "../../../packages/synthesis-repository/src/index";
 
 export type {
@@ -85,9 +91,15 @@ export type {
   SynthesisArtifactSidecarRecord,
   SynthesisCanonicalReferenceRecord,
   SynthesisCanonicalReferenceRedirectRecord,
+  SynthesisConceptAliasRecord,
+  SynthesisConceptRecord,
+  SynthesisConceptRelationRecord,
+  SynthesisConceptReviewItemRecord,
+  SynthesisConceptSenseRecord,
   SynthesisRawReferenceRecord,
   SynthesisRawReferenceStaleResult,
   SynthesisReferenceBindingRecord,
+  SynthesisTopicConceptLinkRecord,
   SynthesisReferenceMatchProposalKind,
   SynthesisReferenceMatchProposalRecord,
   SynthesisReferenceMatchProposalStatus,
@@ -294,91 +306,6 @@ export type SynthesisTopicGraphReviewItemRecord = {
   createdAt?: string;
   updatedAt?: string;
   resolvedAt?: string;
-};
-
-export type SynthesisConceptRecord = {
-  conceptId: string;
-  label: string;
-  aliasesJson?: string;
-  conceptType: string;
-  domain: string;
-  status: string;
-  shortDefinition?: string;
-  definition?: string;
-  usageNote?: string;
-  editorialNote?: string;
-  senseIdsJson?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisConceptSenseRecord = {
-  senseId: string;
-  conceptId: string;
-  label: string;
-  aliasesJson?: string;
-  domain: string;
-  shortDefinition?: string;
-  definition?: string;
-  disambiguation?: string;
-  topicRelevance?: string;
-  confidence: string;
-  sourceTopicIdsJson?: string;
-  evidenceJson?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisConceptAliasRecord = {
-  aliasId: string;
-  alias: string;
-  normalized: string;
-  conceptId: string;
-  senseId?: string;
-  status: string;
-  confidence: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisConceptRelationRecord = {
-  relationId: string;
-  sourceConceptId: string;
-  targetConceptId: string;
-  relation: string;
-  status: string;
-  confidence: string;
-  provenanceJson?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisConceptReviewItemRecord = {
-  reviewId: string;
-  status: string;
-  reason: string;
-  topicId: string;
-  topicPathId: string;
-  label: string;
-  confidence: string;
-  candidateConceptIdsJson?: string;
-  proposalJson?: string;
-  targetConceptId?: string;
-  createdAt?: string;
-  updatedAt?: string;
-  resolvedAt?: string;
-};
-
-export type SynthesisTopicConceptLinkRecord = {
-  topicId: string;
-  conceptId: string;
-  senseId: string;
-  label: string;
-  relevance?: string;
-  confidence: string;
-  source: string;
-  createdAt?: string;
-  updatedAt?: string;
 };
 
 export type SynthesisTagProtocolRecord = {

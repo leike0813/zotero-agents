@@ -1,4 +1,14 @@
 import {
+  rebuildSynthesisConceptKbIndexRequest,
+  rebuildSynthesisConceptKbIndexResult,
+  rebuildSynthesisConceptKbQueryRequest,
+  rebuildSynthesisConceptKbQueryResult,
+  type SynthesisConceptKbIndexRequest,
+  type SynthesisConceptKbIndexResult,
+  type SynthesisConceptKbQueryRequest,
+  type SynthesisConceptKbQueryResult,
+} from "../../../packages/synthesis-engine/src/conceptKbIndex.js";
+import {
   MessageChannel,
   Worker,
   type MessagePort,
@@ -26,6 +36,8 @@ import type {
 } from "../../../packages/synthesis-contracts/src/sidecarSystem.js";
 import {
   SYNTHESIS_SIDECAR_COMPUTE_OPERATION,
+  SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION,
+  SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION,
   SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION,
   SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION,
   SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION,
@@ -105,6 +117,8 @@ type Task = {
     | typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION
     | typeof SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION
     | typeof SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION
+    | typeof SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION
+    | typeof SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION
     | typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION;
   request:
     | SynthesisCitationGraphLayoutRequest
@@ -112,6 +126,8 @@ type Task = {
     | SynthesisCitationGraphBuildRequest
     | SynthesisTagVocabularyValidationRequest
     | SynthesisTagVocabularyIndexRequest
+    | SynthesisConceptKbIndexRequest
+    | SynthesisConceptKbQueryRequest
     | SynthesisSidecarGraphBuildTransferRun;
   cancellation: Int32Array;
   resolve(
@@ -121,6 +137,8 @@ type Task = {
       | SynthesisCitationGraphBuildResult
       | SynthesisTagVocabularyValidationResult
       | SynthesisTagVocabularyIndexResult
+      | SynthesisConceptKbIndexResult
+      | SynthesisConceptKbQueryResult
       | void,
   ): void;
   reject(error: unknown): void;
@@ -155,6 +173,14 @@ export type SynthesisSidecarComputeWorkerPool = {
     request: SynthesisTagVocabularyIndexRequest,
     options?: { signal?: AbortSignal },
   ): Promise<SynthesisTagVocabularyIndexResult>;
+  runConceptKbIndex(
+    request: SynthesisConceptKbIndexRequest,
+    options?: { signal?: AbortSignal },
+  ): Promise<SynthesisConceptKbIndexResult>;
+  runConceptKbQuery(
+    request: SynthesisConceptKbQueryRequest,
+    options?: { signal?: AbortSignal },
+  ): Promise<SynthesisConceptKbQueryResult>;
   runCitationGraphBuildTransfer(
     run: SynthesisSidecarGraphBuildTransferRun,
     options?: { signal?: AbortSignal },
@@ -574,7 +600,9 @@ export function createSynthesisSidecarComputeWorkerPool(
           | SynthesisCitationGraphMetricsResult
           | SynthesisCitationGraphBuildResult
           | SynthesisTagVocabularyValidationResult
-          | SynthesisTagVocabularyIndexResult;
+          | SynthesisTagVocabularyIndexResult
+          | SynthesisConceptKbIndexResult
+          | SynthesisConceptKbQueryResult;
         try {
           switch (task.operation) {
             case SYNTHESIS_SIDECAR_COMPUTE_OPERATION:
@@ -605,6 +633,18 @@ export function createSynthesisSidecarComputeWorkerPool(
               result = rebuildSynthesisTagVocabularyIndexResult(
                 response.result,
                 task.request as SynthesisTagVocabularyIndexRequest,
+              );
+              break;
+            case SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION:
+              result = rebuildSynthesisConceptKbIndexResult(
+                response.result,
+                task.request as SynthesisConceptKbIndexRequest,
+              );
+              break;
+            case SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION:
+              result = rebuildSynthesisConceptKbQueryResult(
+                response.result,
+                task.request as SynthesisConceptKbQueryRequest,
               );
               break;
           }
@@ -714,6 +754,24 @@ export function createSynthesisSidecarComputeWorkerPool(
           cancellation,
         };
         break;
+      case SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION:
+        message = {
+          type: "run",
+          taskId: task.id,
+          operation: SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION,
+          payload: task.request as SynthesisConceptKbIndexRequest,
+          cancellation,
+        };
+        break;
+      case SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION:
+        message = {
+          type: "run",
+          taskId: task.id,
+          operation: SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION,
+          payload: task.request as SynthesisConceptKbQueryRequest,
+          cancellation,
+        };
+        break;
     }
     target.postMessage(message);
   };
@@ -724,13 +782,17 @@ export function createSynthesisSidecarComputeWorkerPool(
       | SynthesisCitationGraphMetricsRequest
       | SynthesisCitationGraphBuildRequest
       | SynthesisTagVocabularyValidationRequest
-      | SynthesisTagVocabularyIndexRequest,
+      | SynthesisTagVocabularyIndexRequest
+      | SynthesisConceptKbIndexRequest
+      | SynthesisConceptKbQueryRequest,
     Result extends
       | SynthesisCitationGraphLayoutResult
       | SynthesisCitationGraphMetricsResult
       | SynthesisCitationGraphBuildResult
       | SynthesisTagVocabularyValidationResult
-      | SynthesisTagVocabularyIndexResult,
+      | SynthesisTagVocabularyIndexResult
+      | SynthesisConceptKbIndexResult
+      | SynthesisConceptKbQueryResult,
   >(
     operation: Task["operation"],
     request: Request,
@@ -834,6 +896,22 @@ export function createSynthesisSidecarComputeWorkerPool(
         runOptions,
       );
 
+  const runConceptKbIndex: SynthesisSidecarComputeWorkerPool["runConceptKbIndex"] =
+    (requestInput, runOptions = {}) =>
+      enqueue<SynthesisConceptKbIndexRequest, SynthesisConceptKbIndexResult>(
+        SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION,
+        rebuildSynthesisConceptKbIndexRequest(requestInput),
+        runOptions,
+      );
+
+  const runConceptKbQuery: SynthesisSidecarComputeWorkerPool["runConceptKbQuery"] =
+    (requestInput, runOptions = {}) =>
+      enqueue<SynthesisConceptKbQueryRequest, SynthesisConceptKbQueryResult>(
+        SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION,
+        rebuildSynthesisConceptKbQueryRequest(requestInput),
+        runOptions,
+      );
+
   const runCitationGraphBuildTransfer: SynthesisSidecarComputeWorkerPool["runCitationGraphBuildTransfer"] =
     (run, runOptions = {}) => {
       if (stopping || degraded) {
@@ -920,6 +998,8 @@ export function createSynthesisSidecarComputeWorkerPool(
     runCitationGraphBuild,
     runTagVocabularyValidation,
     runTagVocabularyIndex,
+    runConceptKbIndex,
+    runConceptKbQuery,
     runCitationGraphBuildTransfer,
     snapshot,
     shutdown,

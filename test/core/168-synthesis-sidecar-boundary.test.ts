@@ -60,6 +60,7 @@ describe("Synthesis sidecar migration boundary", function () {
         reference_refresh_application_schema_version: string;
         reference_matching_review_application_schema_version: string;
         tag_vocabulary_application_schema_version: string;
+        concept_kb_application_schema_version: string;
         table_families: string[];
         production_database_owner: string;
         production_canonical_file_owner: string;
@@ -137,6 +138,18 @@ describe("Synthesis sidecar migration boundary", function () {
         production_database_owner: string;
         production_mutation_enabled: boolean;
       };
+      isolated_concept_kb_application: {
+        mode: string;
+        package: string;
+        use_cases: string[];
+        compute_owner: string;
+        remote_capability: boolean;
+        production_route: boolean;
+        automatic_invocation: boolean;
+        checkpoint_import_export: boolean;
+        production_database_owner: string;
+        production_mutation_enabled: boolean;
+      };
     };
     assert.notInclude(
       rawInventory.method_groups.map((group) => group.id),
@@ -154,6 +167,8 @@ describe("Synthesis sidecar migration boundary", function () {
         "synthesis-reference-matching-review-repository.v1",
       tag_vocabulary_application_schema_version:
         "synthesis-tag-vocabulary-application-repository.v1",
+      concept_kb_application_schema_version:
+        "synthesis-concept-kb-application-repository.v1",
       table_families: [
         "schema_meta",
         "cache_basis",
@@ -188,11 +203,41 @@ describe("Synthesis sidecar migration boundary", function () {
         "tag_staged_suggestion",
         "tag_audit",
         "tag_effect",
+        "concept_application_state",
+        "concept",
+        "concept_sense",
+        "concept_alias",
+        "concept_relation",
+        "concept_review_item",
+        "topic_concept_link",
       ],
       production_database_owner: "plugin_composition",
       production_canonical_file_owner: "plugin_composition",
       production_mutation_enabled: false,
       remote_capability: false,
+    });
+    assert.deepEqual(rawInventory.isolated_concept_kb_application, {
+      mode: "isolated_shadow",
+      package: "packages/synthesis-application",
+      use_cases: [
+        "inspect",
+        "load",
+        "replace_snapshot",
+        "ingest_proposals",
+        "review",
+        "update_display_text",
+        "delete_concepts",
+        "rebuild_index",
+        "read_index",
+        "query",
+      ],
+      compute_owner: "sidecar_worker",
+      remote_capability: false,
+      production_route: false,
+      automatic_invocation: false,
+      checkpoint_import_export: false,
+      production_database_owner: "plugin_composition",
+      production_mutation_enabled: false,
     });
     assert.deepEqual(rawInventory.isolated_topic_canonical_store, {
       mode: "isolated_shadow",

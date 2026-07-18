@@ -11,7 +11,8 @@ isolated_repository:
   reference_refresh_application_schema_version: synthesis-reference-refresh-repository.v1
   reference_matching_review_application_schema_version: synthesis-reference-matching-review-repository.v1
   tag_vocabulary_application_schema_version: synthesis-tag-vocabulary-application-repository.v1
-  table_families: [schema_meta, cache_basis, operation, topic_application_state, topic_application_projection, citation_graph_application_state, citation_node, citation_edge, citation_source_ownership, citation_incoming_group, citation_metrics_light, citation_metrics_complex, citation_layout_state, reference_application_state, reference_source, reference_artifact, reference_raw, reference_canonical, reference_redirect, reference_binding, reference_revision_review, reference_match_proposal, reference_matching_state, reference_matching_preparation, tag_application_state, tag_vocabulary_entry, tag_alias, tag_abbrev, tag_protocol, tag_validation_warning, tag_staged_suggestion, tag_audit, tag_effect]
+  concept_kb_application_schema_version: synthesis-concept-kb-application-repository.v1
+  table_families: [schema_meta, cache_basis, operation, topic_application_state, topic_application_projection, citation_graph_application_state, citation_node, citation_edge, citation_source_ownership, citation_incoming_group, citation_metrics_light, citation_metrics_complex, citation_layout_state, reference_application_state, reference_source, reference_artifact, reference_raw, reference_canonical, reference_redirect, reference_binding, reference_revision_review, reference_match_proposal, reference_matching_state, reference_matching_preparation, tag_application_state, tag_vocabulary_entry, tag_alias, tag_abbrev, tag_protocol, tag_validation_warning, tag_staged_suggestion, tag_audit, tag_effect, concept_application_state, concept, concept_sense, concept_alias, concept_relation, concept_review_item, topic_concept_link]
   production_database_owner: plugin_composition
   production_canonical_file_owner: plugin_composition
   production_mutation_enabled: false
@@ -81,6 +82,18 @@ isolated_tag_vocabulary_application:
   use_cases: [load, validate, list_staged, save, stage, update_staged, update_entry, delete_entry, promote, discard, clear_staged, rebuild_index, export_regulator_tags, replace_audit, clear_audit]
   compute_owner: sidecar_worker
   host_effect_default: unavailable
+  remote_capability: false
+  production_route: false
+  automatic_invocation: false
+  checkpoint_import_export: false
+  production_database_owner: plugin_composition
+  production_mutation_enabled: false
+
+isolated_concept_kb_application:
+  mode: isolated_shadow
+  package: packages/synthesis-application
+  use_cases: [inspect, load, replace_snapshot, ingest_proposals, review, update_display_text, delete_concepts, rebuild_index, read_index, query]
+  compute_owner: sidecar_worker
   remote_capability: false
   production_route: false
   automatic_invocation: false

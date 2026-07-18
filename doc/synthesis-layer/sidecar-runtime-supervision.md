@@ -8,7 +8,9 @@ system Node, PATH, npm, a login shell, or the ACP process-control registry.
 The service is still mutation-disabled. It does not open production
 `synthesis.db`, Topic canonical files, or Host capabilities. Before listen and
 discovery it opens only an identity-bound persistent shadow repository under
-the profile runtime root, establishes foundation plus private Topic/Reference Refresh/Citation Graph application schemas, and
+the profile runtime root, establishes foundation plus private Topic, Reference Refresh,
+Reference Matching/Review, Citation Graph, Tag Vocabulary, and Concept KB
+application schemas, and
 reconciles interrupted shadow operations. It then initializes isolated Topic
 application state and composes a private list/detail/apply application after
 repository and canonical recovery. It also opens an identity-bound Topic
@@ -16,8 +18,15 @@ canonical shadow under the same profile root and recovers only its one global
 transaction journal; it does not scan Topics during startup. Identity, schema,
 or malformed-journal corruption aborts startup. Health and handshake return
 path-free O(1) repository and canonical-store snapshots; `mutationEnabled:
-false` continues to describe production authority. No Topic, Reference Refresh, or Citation Graph application method
-is admitted by the HTTP router. Reference Refresh owns a single preparation/apply lease, discards preparation and drains apply before repository close, and never calls Host or graph effects. The private Citation Graph application uses the same single compute worker but owns an immediate-fail mutation lease and persists only graph-basis-guarded shadow projections.
+false` continues to describe production authority. None of the private domain
+application methods is admitted by the HTTP router. Concept KB stops admission
+and drains index/query work before repository and worker closure; its isolated
+manifest and last-good index never become a production fallback. Reference
+Refresh owns a single preparation/apply lease, discards preparation and drains
+apply before repository close, and never calls Host or graph effects. The
+private Citation Graph application uses the same single compute worker but owns
+an immediate-fail mutation lease and persists only graph-basis-guarded shadow
+projections.
 The default
 production `SynthesisClient` routes Citation Graph layout and metrics computation
 through its authenticated service-owned worker. The plugin still owns graph

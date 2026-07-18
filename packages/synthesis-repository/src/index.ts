@@ -8,9 +8,23 @@ export const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_SCHEMA_META_KEY =
   "topic_application_schema_version" as const;
 
 export * from "./citationGraph.js";
+export * from "./conceptKb.js";
 export * from "./referenceMatchingReview.js";
 export * from "./referenceRefresh.js";
 export * from "./tagVocabulary.js";
+import {
+  ensureSynthesisConceptKbApplicationRepositorySchema,
+  getSynthesisConceptApplicationState,
+  listSynthesisConceptAliases,
+  listSynthesisConceptRelations,
+  listSynthesisConceptReviewItems,
+  listSynthesisConceptSenses,
+  listSynthesisConcepts,
+  listSynthesisTopicConceptLinks,
+  promoteSynthesisConceptKbIndex,
+  replaceSynthesisConceptKbState,
+  type SynthesisConceptKbStateRecords,
+} from "./conceptKb.js";
 import {
   ensureSynthesisCitationGraphApplicationRepositorySchema,
   getSynthesisCitationGraphApplicationState,
@@ -889,6 +903,7 @@ export function createSynthesisRepositoryFoundationStore(options: {
   let referenceRefreshApplicationInitialized = false;
   let referenceMatchingReviewApplicationInitialized = false;
   let tagVocabularyApplicationInitialized = false;
+  let conceptKbApplicationInitialized = false;
   const initialize = () => {
     if (initialized) return;
     ensureSynthesisRepositoryFoundationSchema(db);
@@ -927,6 +942,12 @@ export function createSynthesisRepositoryFoundationStore(options: {
     if (tagVocabularyApplicationInitialized) return;
     ensureSynthesisTagVocabularyApplicationRepositorySchema(db);
     tagVocabularyApplicationInitialized = true;
+  };
+  const initializeConceptKbApplication = () => {
+    initialize();
+    if (conceptKbApplicationInitialized) return;
+    ensureSynthesisConceptKbApplicationRepositorySchema(db);
+    conceptKbApplicationInitialized = true;
   };
   return {
     initialize,
@@ -995,6 +1016,53 @@ export function createSynthesisRepositoryFoundationStore(options: {
     initializeReferenceMatchingReviewApplication,
     reconcileReferenceMatchingPreparations,
     initializeTagVocabularyApplication,
+    initializeConceptKbApplication,
+    getConceptApplicationState() {
+      initializeConceptKbApplication();
+      return getSynthesisConceptApplicationState(db);
+    },
+    listConcepts() {
+      initializeConceptKbApplication();
+      return listSynthesisConcepts(db);
+    },
+    listConceptSenses() {
+      initializeConceptKbApplication();
+      return listSynthesisConceptSenses(db);
+    },
+    listConceptAliases() {
+      initializeConceptKbApplication();
+      return listSynthesisConceptAliases(db);
+    },
+    listConceptRelations() {
+      initializeConceptKbApplication();
+      return listSynthesisConceptRelations(db);
+    },
+    listConceptReviewItems() {
+      initializeConceptKbApplication();
+      return listSynthesisConceptReviewItems(db);
+    },
+    listTopicConceptLinks() {
+      initializeConceptKbApplication();
+      return listSynthesisTopicConceptLinks(db);
+    },
+    replaceConceptKbApplicationState(args: {
+      expectedManifestHash: string | null;
+      manifestHash: string;
+      state: SynthesisConceptKbStateRecords;
+      now: string;
+    }) {
+      initializeConceptKbApplication();
+      return replaceSynthesisConceptKbState(db, args);
+    },
+    promoteConceptKbIndex(args: {
+      expectedManifestHash: string;
+      indexHash: string;
+      indexJson: string;
+      now: string;
+    }) {
+      initializeConceptKbApplication();
+      return promoteSynthesisConceptKbIndex(db, args);
+    },
     getTagApplicationState() {
       initializeTagVocabularyApplication();
       return getSynthesisTagApplicationState(db);

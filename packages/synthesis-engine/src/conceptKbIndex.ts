@@ -14,106 +14,10 @@ export const SYNTHESIS_CONCEPT_KB_QUERY_LABEL_MAX = 100;
 export const SYNTHESIS_CONCEPT_KB_STRING_MAX = 4096;
 export const SYNTHESIS_CONCEPT_KB_CHECKPOINT_INTERVAL = 256;
 
-export type SynthesisConceptKbConceptStatus =
-  | "active"
-  | "review"
-  | "deprecated";
-export type SynthesisConceptKbConfidence = "high" | "medium" | "low";
-
-export type SynthesisConceptKbIndexConcept = {
-  conceptId: string;
-  label: string;
-  aliases: string[];
-  conceptType: string;
-  domain: string;
-  status: SynthesisConceptKbConceptStatus;
-  shortDefinition?: string;
-  definition?: string;
-};
-
-export type SynthesisConceptKbIndexSense = {
-  senseId: string;
-  conceptId: string;
-  label: string;
-  shortDefinition?: string;
-  definition?: string;
-  confidence: SynthesisConceptKbConfidence;
-};
-
-export type SynthesisConceptKbIndexAlias = {
-  aliasId: string;
-  alias: string;
-  normalized: string;
-  conceptId: string;
-  senseId?: string;
-  status: SynthesisConceptKbConceptStatus;
-  confidence: SynthesisConceptKbConfidence;
-};
-
 type SynthesisConceptKbSource = {
   concepts: SynthesisConceptKbIndexConcept[];
   senses: SynthesisConceptKbIndexSense[];
   aliases: SynthesisConceptKbIndexAlias[];
-};
-
-export type SynthesisConceptKbIndexRequest = SynthesisConceptKbSource & {
-  contractVersion: typeof SYNTHESIS_CONCEPT_KB_CONTRACT_VERSION;
-  algorithmVersion: typeof SYNTHESIS_CONCEPT_KB_INDEX_VERSION;
-  sourceManifestHash: string;
-  rebuiltAt: string;
-};
-
-export type SynthesisConceptKbIndexSearchRow = {
-  conceptId: string;
-  label: string;
-  normalized: string;
-  conceptType: string;
-  domain: string;
-};
-
-export type SynthesisConceptKbOverlayEntry = {
-  conceptId: string;
-  senseId?: string;
-  alias: string;
-  label: string;
-  shortDefinition?: string;
-  definition?: string;
-  confidence: SynthesisConceptKbConfidence;
-};
-
-export type SynthesisConceptKbIndexResult = {
-  contractVersion: typeof SYNTHESIS_CONCEPT_KB_CONTRACT_VERSION;
-  algorithmVersion: typeof SYNTHESIS_CONCEPT_KB_INDEX_VERSION;
-  schemaVersion: typeof SYNTHESIS_CONCEPT_KB_INDEX_SCHEMA_VERSION;
-  sourceManifestHash: string;
-  rebuiltAt: string;
-  search: SynthesisConceptKbIndexSearchRow[];
-  overlayEntries: SynthesisConceptKbOverlayEntry[];
-};
-
-export type SynthesisConceptKbQueryRequest = SynthesisConceptKbSource & {
-  contractVersion: typeof SYNTHESIS_CONCEPT_KB_CONTRACT_VERSION;
-  algorithmVersion: typeof SYNTHESIS_CONCEPT_KB_QUERY_VERSION;
-  labels: string[];
-};
-
-export type SynthesisConceptKbQueryAliasMatch = {
-  aliasId: string;
-  conceptId: string;
-};
-
-export type SynthesisConceptKbQueryMatch = {
-  label: string;
-  exactConceptIds: string[];
-  aliasMatches: SynthesisConceptKbQueryAliasMatch[];
-  senseIds: string[];
-  ambiguous: boolean;
-};
-
-export type SynthesisConceptKbQueryResult = {
-  contractVersion: typeof SYNTHESIS_CONCEPT_KB_CONTRACT_VERSION;
-  algorithmVersion: typeof SYNTHESIS_CONCEPT_KB_QUERY_VERSION;
-  matches: SynthesisConceptKbQueryMatch[];
 };
 
 export type SynthesisConceptKbIndexCheckpoint = {
@@ -957,3 +861,34 @@ export function createInProcessSynthesisConceptKbIndexEngine(
     },
   };
 }
+import type {
+  SynthesisConceptKbConceptStatus,
+  SynthesisConceptKbConfidence,
+  SynthesisConceptKbIndexAlias,
+  SynthesisConceptKbIndexConcept,
+  SynthesisConceptKbIndexRequest,
+  SynthesisConceptKbIndexResult,
+  SynthesisConceptKbIndexSearchRow,
+  SynthesisConceptKbIndexSense,
+  SynthesisConceptKbOverlayEntry,
+  SynthesisConceptKbQueryAliasMatch,
+  SynthesisConceptKbQueryMatch,
+  SynthesisConceptKbQueryRequest,
+  SynthesisConceptKbQueryResult,
+} from "../../synthesis-contracts/src/conceptKbCore.js";
+
+export type {
+  SynthesisConceptKbConceptStatus,
+  SynthesisConceptKbConfidence,
+  SynthesisConceptKbIndexAlias,
+  SynthesisConceptKbIndexConcept,
+  SynthesisConceptKbIndexRequest,
+  SynthesisConceptKbIndexResult,
+  SynthesisConceptKbIndexSearchRow,
+  SynthesisConceptKbIndexSense,
+  SynthesisConceptKbOverlayEntry,
+  SynthesisConceptKbQueryAliasMatch,
+  SynthesisConceptKbQueryMatch,
+  SynthesisConceptKbQueryRequest,
+  SynthesisConceptKbQueryResult,
+};

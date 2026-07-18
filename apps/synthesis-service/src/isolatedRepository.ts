@@ -137,6 +137,7 @@ export function openSynthesisSidecarIsolatedRepository(options: {
     store.initializeReferenceRefreshApplication();
     store.initializeReferenceMatchingReviewApplication();
     store.initializeTagVocabularyApplication();
+    store.initializeConceptKbApplication();
     store.reconcileReferenceMatchingPreparations();
     store.reconcileRunningOperations();
   } catch (error) {

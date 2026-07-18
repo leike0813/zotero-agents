@@ -1,5 +1,12 @@
 import { parentPort } from "node:worker_threads";
 import {
+  createInProcessSynthesisConceptKbIndexEngine,
+  rebuildSynthesisConceptKbIndexRequest,
+  rebuildSynthesisConceptKbIndexResult,
+  rebuildSynthesisConceptKbQueryRequest,
+  rebuildSynthesisConceptKbQueryResult,
+} from "../../../packages/synthesis-engine/src/conceptKbIndex.js";
+import {
   canonicalizeSynthesisEngineJson,
   createSynthesisCitationGraphBuildPackedAccumulator,
   createInProcessSynthesisCitationGraphLayoutEngine,
@@ -26,6 +33,8 @@ import {
 } from "../../../packages/synthesis-engine/src/tagVocabulary.js";
 import {
   SYNTHESIS_SIDECAR_COMPUTE_OPERATION,
+  SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION,
+  SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION,
   SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION,
   SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION,
   SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION,
@@ -258,6 +267,32 @@ parentPort.on(
           type: "result",
           taskId,
           result: rebuildSynthesisTagVocabularyIndexResult(result, request),
+        });
+        return;
+      }
+      if (message.operation === SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION) {
+        const request = rebuildSynthesisConceptKbIndexRequest(message.payload);
+        const result = await createInProcessSynthesisConceptKbIndexEngine({
+          checkpoint: () => checkpoint(),
+        }).buildIndex(request);
+        checkpoint();
+        post({
+          type: "result",
+          taskId,
+          result: rebuildSynthesisConceptKbIndexResult(result, request),
+        });
+        return;
+      }
+      if (message.operation === SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION) {
+        const request = rebuildSynthesisConceptKbQueryRequest(message.payload);
+        const result = await createInProcessSynthesisConceptKbIndexEngine({
+          checkpoint: () => checkpoint(),
+        }).query(request);
+        checkpoint();
+        post({
+          type: "result",
+          taskId,
+          result: rebuildSynthesisConceptKbQueryResult(result, request),
         });
         return;
       }

@@ -3,6 +3,11 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { Worker, type WorkerOptions } from "node:worker_threads";
 import {
+  createInProcessSynthesisConceptKbIndexEngine,
+  rebuildSynthesisConceptKbIndexRequest,
+  rebuildSynthesisConceptKbQueryRequest,
+} from "../../packages/synthesis-engine/src/conceptKbIndex";
+import {
   canonicalizeSynthesisEngineJson,
   createInProcessSynthesisCitationGraphLayoutEngine,
   createInProcessSynthesisCitationGraphMetricsEngine,
@@ -128,6 +133,51 @@ function tagIndexRequest() {
     algorithmVersion: "tag-vocabulary-index.v1",
     sourceManifestHash: `sha256:${"a".repeat(64)}`,
     rebuiltAt: "2026-07-18T00:00:00.000Z",
+  });
+}
+
+function conceptSource() {
+  return {
+    concepts: [
+      {
+        conceptId: "concept:vision",
+        label: "Vision",
+        aliases: ["CV"],
+        conceptType: "method",
+        domain: "research",
+        status: "active" as const,
+      },
+    ],
+    senses: [],
+    aliases: [
+      {
+        aliasId: "alias:cv",
+        alias: "CV",
+        normalized: "cv",
+        conceptId: "concept:vision",
+        status: "active" as const,
+        confidence: "high" as const,
+      },
+    ],
+  };
+}
+
+function conceptIndexRequest() {
+  return rebuildSynthesisConceptKbIndexRequest({
+    contractVersion: "synthesis-concept-kb-index.v1",
+    algorithmVersion: "concept-kb-index.v1",
+    ...conceptSource(),
+    sourceManifestHash: `sha256:${"b".repeat(64)}`,
+    rebuiltAt: "2026-07-18T00:00:00.000Z",
+  });
+}
+
+function conceptQueryRequest() {
+  return rebuildSynthesisConceptKbQueryRequest({
+    contractVersion: "synthesis-concept-kb-index.v1",
+    algorithmVersion: "concept-kb-query.v1",
+    ...conceptSource(),
+    labels: ["CV"],
   });
 }
 
@@ -257,6 +307,8 @@ describe("Synthesis sidecar compute worker pool", function () {
       const graphBuildInput = graphBuildRequest();
       const tagValidationInput = tagValidationRequest();
       const tagIndexInput = tagIndexRequest();
+      const conceptIndexInput = conceptIndexRequest();
+      const conceptQueryInput = conceptQueryRequest();
       const [
         workerResult,
         directResult,
@@ -290,6 +342,15 @@ describe("Synthesis sidecar compute worker pool", function () {
         createInProcessSynthesisTagVocabularyEngine().buildIndex(tagIndexInput);
       assert.deepEqual(workerTagValidation, directTagValidation);
       assert.deepEqual(workerTagIndex, directTagIndex);
+      const conceptEngine = createInProcessSynthesisConceptKbIndexEngine();
+      assert.deepEqual(
+        await pool.runConceptKbIndex(conceptIndexInput),
+        await conceptEngine.buildIndex(conceptIndexInput),
+      );
+      assert.deepEqual(
+        await pool.runConceptKbQuery(conceptQueryInput),
+        await conceptEngine.query(conceptQueryInput),
+      );
       assert.equal(spawns, 1);
       assert.deepEqual(options?.resourceLimits, {
         maxOldGenerationSizeMb: 256,

@@ -18,7 +18,7 @@ Core modules implementing this subsystem are:
 | Topic Graph | `src/modules/synthesis/topicGraph.ts` | SQLite, canonical, relation, review, proposal, mutation, and projection orchestration |
 | Topic Graph Index Engine | `packages/synthesis-engine/src/topicGraphIndex.ts` | Bounded environment-neutral root and unplaced-topic derivation |
 | Topic Structured Artifact Engine | `packages/synthesis-engine/src/topicStructuredArtifact.ts` | Bounded environment-neutral manifest validation, artifact assembly/validation, and section-patch computation |
-| Concept KB | `src/modules/synthesis/conceptKb.ts` | SQLite, canonical, proposal, review, mutation, projection, and public query orchestration |
+| Concept KB | `packages/synthesis-application/src/conceptKbApplication.ts`, `packages/synthesis-repository/src/conceptKb.ts`, `src/modules/synthesis/conceptKb.ts` | Shared isolated aggregate/policy plus production canonical, projection, diagnostics, import/export, and public query composition |
 | Concept KB Index Engine | `packages/synthesis-engine/src/conceptKbIndex.ts` | Bounded environment-neutral search, overlay, and exact concept/alias query computation |
 | Tag Vocabulary | `packages/synthesis-application/src/tagVocabularyApplication.ts`, `packages/synthesis-repository/src/tagVocabulary.ts`, `src/modules/synthesis/tagVocabulary.ts` | Shared isolated application/repository rules plus production plugin import, checkpoint, WebDAV, Host-effect, and projection compatibility composition |
 | Tag Vocabulary Engine | `packages/synthesis-engine/src/tagVocabulary.ts` | Bounded environment-neutral TagVocab v1 validation and index construction |
@@ -263,7 +263,7 @@ aliases, 256 aliases per concept, 100 query labels, and 4,096 code units per
 string. The application continues to own SQLite reads and writes, manifest
 basis, relations and review rows, projection registry promotion, diagnostics,
 public snake_case DTO assembly, and all proposal merge/create/review decisions.
-The production engine remains in-process; the Node worker is test-only.
+The production engine remains in-process. The private sidecar application uses internal worker index/query operations, promotes only against a captured manifest, and keeps query repository-read-only.
 
 ### Tag Vocabulary Facets
 
