@@ -413,4 +413,61 @@ describe("Synthesis sidecar Topic application foundation", function () {
     owner.canonicalStore.close();
     owner.repository.close();
   });
+
+  it("stops admission and drains every admitted apply before shutdown", async function () {
+    const runtimeRoot = root();
+    const owner = owners(runtimeRoot);
+    let startedCount = 0;
+    let resolveBothStarted!: () => void;
+    const bothStarted = new Promise<void>((resolve) => {
+      resolveBothStarted = resolve;
+    });
+    const releases = new Map<string, () => void>();
+    const drainingEngine: SynthesisTopicStructuredArtifactEngine = {
+      ...engine,
+      async validateManifest(request) {
+        const topicId = String(request.manifest.topic_id);
+        startedCount += 1;
+        if (startedCount === 2) resolveBothStarted();
+        await new Promise<void>((resolve) => releases.set(topicId, resolve));
+        return engine.validateManifest(request);
+      },
+    };
+    const application = createSynthesisTopicApplication({
+      canonicalStore: owner.canonicalStore,
+      repository: owner.repository.store,
+      engine: drainingEngine,
+      now: () => "2026-07-17T12:00:00.000Z",
+    });
+    let shutdownComplete = false;
+    try {
+      const first = application.apply(createRequest("topic-first"));
+      const second = application.apply(createRequest("topic-second"));
+      await bothStarted;
+
+      const shutdown = application.shutdown().then(() => {
+        shutdownComplete = true;
+      });
+      assert.equal(
+        (await application.apply(createRequest("topic-rejected"))).status,
+        "repair_required",
+      );
+      await Promise.resolve();
+      assert.isFalse(shutdownComplete);
+
+      releases.get("topic-first")?.();
+      assert.equal((await first).status, "persisted");
+      await Promise.resolve();
+      assert.isFalse(shutdownComplete);
+
+      releases.get("topic-second")?.();
+      assert.equal((await second).status, "persisted");
+      await shutdown;
+      assert.isTrue(shutdownComplete);
+    } finally {
+      for (const release of releases.values()) release();
+      owner.canonicalStore.close();
+      owner.repository.close();
+    }
+  });
 });

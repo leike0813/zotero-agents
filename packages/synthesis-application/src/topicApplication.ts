@@ -75,6 +75,7 @@ export type SynthesisTopicApplication = {
       };
   apply(request: unknown): Promise<SynthesisTopicApplicationApplyResult>;
   stopAdmission(): void;
+  shutdown(): Promise<void>;
 };
 
 type Options = {
@@ -457,6 +458,10 @@ export function createSynthesisTopicApplication(
   const now = options.now ?? (() => new Date().toISOString());
   let sequence = 0;
   let accepting = true;
+  const activeApplies = new Set<
+    Promise<SynthesisTopicApplicationApplyResult>
+  >();
+  let shutdownPromise: Promise<void> | null = null;
   options.repository.initializeTopicApplication();
   const updateOperation = (
     operationId: string,
@@ -470,7 +475,7 @@ export function createSynthesisTopicApplication(
       phase,
       diagnosticsJson: JSON.stringify(diagnostics),
     });
-  return {
+  const application: Omit<SynthesisTopicApplication, "shutdown"> = {
     list(request = {}) {
       return projectList(options.repository, request);
     },
@@ -777,4 +782,24 @@ export function createSynthesisTopicApplication(
       accepting = false;
     },
   };
+  const apply = application.apply;
+  const trackedApply = (request: unknown) => {
+    if (!accepting) return apply(request);
+    const active = apply(request);
+    activeApplies.add(active);
+    void active.then(
+      () => activeApplies.delete(active),
+      () => activeApplies.delete(active),
+    );
+    return active;
+  };
+  const shutdown = () => {
+    if (shutdownPromise) return shutdownPromise;
+    application.stopAdmission();
+    shutdownPromise = Promise.allSettled([...activeApplies]).then(
+      () => undefined,
+    );
+    return shutdownPromise;
+  };
+  return { ...application, apply: trackedApply, shutdown };
 }

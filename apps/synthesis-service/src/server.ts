@@ -381,59 +381,178 @@ export async function startSynthesisSidecarServer(
       pool: computePool,
     });
 
+  type CleanupPhase = "runtime_shutdown" | "listen_rollback";
+  const recordCleanupFailure = (
+    phase: CleanupPhase,
+    owner: string,
+    error: unknown,
+  ) => {
+    const errorType =
+      error instanceof Error && error.name.trim()
+        ? error.name.trim()
+        : typeof error;
+    try {
+      writeServiceLog("service_cleanup_failed", {
+        serviceInstanceId,
+        phase,
+        owner,
+        errorType,
+      });
+    } catch {
+      // A logging failure must not interrupt owner cleanup.
+    }
+  };
+  const attemptCleanup = async (
+    phase: CleanupPhase,
+    owner: string,
+    cleanup: () => void | Promise<void>,
+  ) => {
+    try {
+      await cleanup();
+    } catch (error) {
+      recordCleanupFailure(phase, owner, error);
+    }
+  };
+  const applicationOwners = [
+    {
+      owner: "debug_maintenance_application",
+      stopAdmission: () => debugMaintenanceApplication.stopAdmission(),
+      shutdown: () => debugMaintenanceApplication.shutdown(),
+    },
+    {
+      owner: "web_dav_sync_application",
+      stopAdmission: () => webDavSyncApplication.stopAdmission(),
+      shutdown: () => webDavSyncApplication.shutdown(),
+    },
+    {
+      owner: "durable_bundle_application",
+      stopAdmission: () => durableBundleApplication.stopAdmission(),
+      shutdown: () => durableBundleApplication.shutdown(),
+    },
+    {
+      owner: "knowledge_checkpoint_application",
+      stopAdmission: () => knowledgeCheckpointApplication.stopAdmission(),
+      shutdown: () => knowledgeCheckpointApplication.shutdown(),
+    },
+    {
+      owner: "topic_application",
+      stopAdmission: () => topicApplication.stopAdmission(),
+      shutdown: () => topicApplication.shutdown(),
+    },
+    {
+      owner: "reference_refresh_application",
+      stopAdmission: () => referenceRefreshApplication.stopAdmission(),
+      shutdown: () => referenceRefreshApplication.shutdown(),
+    },
+    {
+      owner: "reference_matching_review_application",
+      stopAdmission: () => referenceMatchingReviewApplication.stopAdmission(),
+      shutdown: () => referenceMatchingReviewApplication.shutdown(),
+    },
+    {
+      owner: "tag_vocabulary_application",
+      stopAdmission: () => tagVocabularyApplication.stopAdmission(),
+      shutdown: () => tagVocabularyApplication.shutdown(),
+    },
+    {
+      owner: "concept_kb_application",
+      stopAdmission: () => conceptKbApplication.stopAdmission(),
+      shutdown: () => conceptKbApplication.shutdown(),
+    },
+    {
+      owner: "topic_graph_application",
+      stopAdmission: () => topicGraphApplication.stopAdmission(),
+      shutdown: () => topicGraphApplication.shutdown(),
+    },
+    {
+      owner: "citation_graph_application",
+      stopAdmission: () => citationGraphApplication.stopAdmission(),
+      shutdown: () => citationGraphApplication.shutdown(),
+    },
+  ] satisfies ReadonlyArray<{
+    owner: string;
+    stopAdmission: () => void;
+    shutdown: () => Promise<void>;
+  }>;
+  const stopAdmissions = (phase: CleanupPhase) => [
+    ...applicationOwners.map(({ owner, stopAdmission }) =>
+      attemptCleanup(phase, owner, stopAdmission),
+    ),
+    attemptCleanup(phase, "canonical_store", () =>
+      canonicalStore.stopAdmission(),
+    ),
+    attemptCleanup(phase, "transfer_executor", () =>
+      transferExecutor.shutdown(),
+    ),
+  ];
+  const cleanupOwners = async (
+    phase: CleanupPhase,
+    admissionStops = stopAdmissions(phase),
+  ) => {
+    await Promise.all(admissionStops);
+    for (const { owner, shutdown } of applicationOwners) {
+      await attemptCleanup(phase, owner, shutdown);
+    }
+    await attemptCleanup(phase, "canonical_store", () =>
+      canonicalStore.close(),
+    );
+    await attemptCleanup(phase, "repository", () => repository.close());
+    await Promise.all([
+      attemptCleanup(phase, "compute_pool", () => computePool.shutdown()),
+      attemptCleanup(phase, "transfer_owner", () => transferOwner.shutdown()),
+    ]);
+  };
+  const closeHttpServer = (phase: CleanupPhase) =>
+    new Promise<void>((resolve) => {
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(forceTimer);
+        resolve();
+      };
+      const forceTimer = setTimeout(() => {
+        for (const socket of sockets) socket.destroy();
+        server.closeAllConnections?.();
+        finish();
+      }, SHUTDOWN_GRACE_MS);
+      forceTimer.unref();
+      try {
+        server.close(finish);
+        server.closeIdleConnections?.();
+      } catch (error) {
+        recordCleanupFailure(phase, "http_server", error);
+        for (const socket of sockets) socket.destroy();
+        server.closeAllConnections?.();
+        finish();
+      }
+    });
+
   const beginShutdown = (reason: string) => {
     if (shutdownStarted) {
       return;
     }
     shutdownStarted = true;
     lifecycleState = "stopping";
-    webDavSyncApplication.stopAdmission();
-    debugMaintenanceApplication.stopAdmission();
-    durableBundleApplication.stopAdmission();
-    knowledgeCheckpointApplication.stopAdmission();
-    topicApplication.stopAdmission();
-    citationGraphApplication.stopAdmission();
-    referenceRefreshApplication.stopAdmission();
-    referenceMatchingReviewApplication.stopAdmission();
-    tagVocabularyApplication.stopAdmission();
-    conceptKbApplication.stopAdmission();
-    topicGraphApplication.stopAdmission();
-    canonicalStore.stopAdmission();
-    transferExecutor.shutdown();
+    const admissionStops = stopAdmissions("runtime_shutdown");
     writeServiceLog("service_stopping", {
       reason,
       serviceInstanceId,
     });
     void (async () => {
-      await debugMaintenanceApplication.shutdown();
-      await webDavSyncApplication.shutdown();
-      await durableBundleApplication.shutdown();
-      await knowledgeCheckpointApplication.shutdown();
-      await referenceRefreshApplication.shutdown();
-      await referenceMatchingReviewApplication.shutdown();
-      await tagVocabularyApplication.shutdown();
-      await conceptKbApplication.shutdown();
-      await topicGraphApplication.shutdown();
-      await citationGraphApplication.shutdown();
-      canonicalStore.close();
-      repository.close();
-      await Promise.allSettled([
-        computePool.shutdown(),
-        transferOwner.shutdown(),
-      ]);
-      const forceTimer = setTimeout(() => {
-        for (const socket of sockets) {
-          socket.destroy();
+      try {
+        await cleanupOwners("runtime_shutdown", admissionStops);
+        await closeHttpServer("runtime_shutdown");
+      } catch (error) {
+        recordCleanupFailure("runtime_shutdown", "cleanup_coordinator", error);
+        await closeHttpServer("runtime_shutdown");
+      } finally {
+        try {
+          writeServiceLog("service_stopped", { serviceInstanceId });
+        } finally {
+          resolveStopped();
         }
-        server.closeAllConnections?.();
-      }, SHUTDOWN_GRACE_MS);
-      forceTimer.unref();
-      server.close(() => {
-        clearTimeout(forceTimer);
-        writeServiceLog("service_stopped", { serviceInstanceId });
-        resolveStopped();
-      });
-      server.closeIdleConnections?.();
+      }
     })();
   };
 
@@ -865,24 +984,7 @@ export async function startSynthesisSidecarServer(
       });
     });
   } catch (error) {
-    transferExecutor.shutdown();
-    debugMaintenanceApplication.stopAdmission();
-    await debugMaintenanceApplication.shutdown();
-    await webDavSyncApplication.shutdown();
-    await durableBundleApplication.shutdown();
-    await knowledgeCheckpointApplication.shutdown();
-    await referenceRefreshApplication.shutdown();
-    await referenceMatchingReviewApplication.shutdown();
-    await tagVocabularyApplication.shutdown();
-    await conceptKbApplication.shutdown();
-    await topicGraphApplication.shutdown();
-    await citationGraphApplication.shutdown();
-    canonicalStore.close();
-    repository.close();
-    await Promise.allSettled([
-      computePool.shutdown(),
-      transferOwner.shutdown(),
-    ]);
+    await cleanupOwners("listen_rollback");
     throw error;
   }
   lifecycleState = "ready";

@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import fs from "node:fs";
+import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -10,6 +11,7 @@ import {
   rebuildSynthesisTopicCanonicalInspectResult,
   rebuildSynthesisTopicCanonicalSnapshot,
   canonicalSynthesisTopicPathId,
+  type SynthesisTopicCanonicalStore,
   type SynthesisTopicCanonicalSnapshot,
 } from "../../packages/synthesis-application/src/topicCanonical";
 import {
@@ -23,6 +25,7 @@ import {
 import { startSynthesisSidecarServer } from "../../apps/synthesis-service/src/server";
 import type { SynthesisSidecarRuntimeConfig } from "../../apps/synthesis-service/src/runtimeConfig";
 import type { SynthesisSidecarComputeWorkerPool } from "../../apps/synthesis-service/src/computeWorkerPool";
+import { openSynthesisSidecarIsolatedRepository } from "../../apps/synthesis-service/src/isolatedRepository";
 
 const PROFILE_ID = "1".repeat(64);
 const DATA_ROOT_ID = "2".repeat(64);
@@ -49,6 +52,45 @@ function runtimeConfig(
     mutationEnabled: false,
     port: 0,
   };
+}
+
+function idleComputePool(): SynthesisSidecarComputeWorkerPool {
+  return {
+    async runCitationGraphLayout() {
+      throw new Error("unexpected compute");
+    },
+    async runCitationGraphMetrics() {
+      throw new Error("unexpected compute");
+    },
+    async runCitationGraphBuild() {
+      throw new Error("unexpected compute");
+    },
+    snapshot: () => ({
+      state: "idle",
+      active: 0,
+      queued: 0,
+      restartCount: 0,
+      failureCount: 0,
+    }),
+    async shutdown() {},
+  };
+}
+
+async function within<T>(promise: Promise<T>, timeoutMs = 2_000) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("deadline_exceeded")),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function snapshot(
@@ -693,5 +735,100 @@ describe("Synthesis sidecar Topic canonical store foundation", function () {
       runtime.beginShutdown("test-repair");
       await runtime.stopped;
     }
+  });
+
+  it("continues owner cleanup and resolves stopped after one close fails", async function () {
+    const profileRuntimeRoot = root();
+    const canonicalOwner = openSynthesisSidecarTopicCanonicalStore({
+      profileRuntimeRoot,
+      profileId: PROFILE_ID,
+      dataRootId: DATA_ROOT_ID,
+    });
+    const repositoryOwner = openSynthesisSidecarIsolatedRepository({
+      profileRuntimeRoot,
+      profileId: PROFILE_ID,
+      dataRootId: DATA_ROOT_ID,
+    });
+    let repositoryClosed = false;
+    const canonicalStore: SynthesisTopicCanonicalStore = {
+      ...canonicalOwner,
+      close() {
+        canonicalOwner.close();
+        throw new TypeError("sensitive canonical close failure");
+      },
+    };
+    const repository = {
+      ...repositoryOwner,
+      close() {
+        repositoryClosed = true;
+        repositoryOwner.close();
+      },
+    };
+    const runtime = await startSynthesisSidecarServer(
+      runtimeConfig(profileRuntimeRoot),
+      "cleanup-continuation-service",
+      { canonicalStore, repository, computePool: idleComputePool() },
+    );
+    try {
+      runtime.beginShutdown("cleanup-continuation");
+      await within(runtime.stopped);
+      assert.isTrue(repositoryClosed);
+    } finally {
+      if (!repositoryClosed) repositoryOwner.close();
+    }
+  });
+
+  it("preserves the listen error when rollback cleanup also fails", async function () {
+    const blocker = createServer();
+    await new Promise<void>((resolve, reject) => {
+      blocker.once("error", reject);
+      blocker.listen(0, "127.0.0.1", resolve);
+    });
+    const address = blocker.address();
+    assert.isNotNull(address);
+    assert.isNotString(address);
+    if (!address || typeof address === "string") return;
+
+    const profileRuntimeRoot = root();
+    const canonicalOwner = openSynthesisSidecarTopicCanonicalStore({
+      profileRuntimeRoot,
+      profileId: PROFILE_ID,
+      dataRootId: DATA_ROOT_ID,
+    });
+    const repositoryOwner = openSynthesisSidecarIsolatedRepository({
+      profileRuntimeRoot,
+      profileId: PROFILE_ID,
+      dataRootId: DATA_ROOT_ID,
+    });
+    let repositoryClosed = false;
+    const canonicalStore: SynthesisTopicCanonicalStore = {
+      ...canonicalOwner,
+      close() {
+        canonicalOwner.close();
+        throw new TypeError("sensitive rollback close failure");
+      },
+    };
+    const repository = {
+      ...repositoryOwner,
+      close() {
+        repositoryClosed = true;
+        repositoryOwner.close();
+      },
+    };
+    let startupError: unknown;
+    try {
+      await startSynthesisSidecarServer(
+        { ...runtimeConfig(profileRuntimeRoot), port: address.port },
+        "listen-rollback-service",
+        { canonicalStore, repository, computePool: idleComputePool() },
+      );
+    } catch (error) {
+      startupError = error;
+    } finally {
+      if (!repositoryClosed) repositoryOwner.close();
+      await new Promise<void>((resolve) => blocker.close(() => resolve()));
+    }
+    assert.equal((startupError as NodeJS.ErrnoException)?.code, "EADDRINUSE");
+    assert.isTrue(repositoryClosed);
   });
 });
