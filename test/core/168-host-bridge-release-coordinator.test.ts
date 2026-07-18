@@ -24,7 +24,10 @@ import {
 } from "../../scripts/host-bridge-release-plan";
 import { materializeHostBridgeSurfaces } from "../../scripts/materialize-host-bridge-surfaces";
 import { resolveExactCliReleaseIntent } from "../../scripts/host-bridge-version-intent";
-import { selectDispatchedHostBridgeRun } from "../../scripts/dispatch-host-bridge-release";
+import {
+  readImmutablePublicationSource,
+  selectDispatchedHostBridgeRun,
+} from "../../scripts/dispatch-host-bridge-release";
 
 describe("Host Bridge release coordinator", function () {
   this.timeout(30_000);
@@ -110,29 +113,53 @@ describe("Host Bridge release coordinator", function () {
     assert.isFalse(existsSync(`${output}.tmp`));
   });
 
-  it("correlates a manual Host Bridge dispatch by request, release set, and source", function () {
+  it("correlates a manual Host Bridge dispatch by request, release set, and workflow revision", function () {
     const selected = selectDispatchedHostBridgeRun(
       [
         {
           databaseId: 1,
           displayTitle: "Host Bridge hbrs-target (request-old)",
-          headSha: "source",
+          headSha: "workflow",
           url: "old",
         },
         {
           databaseId: 2,
           displayTitle: "Host Bridge hbrs-target (request-new)",
-          headSha: "source",
+          headSha: "workflow",
           url: "new",
         },
       ],
       {
         releaseSetId: "hbrs-target",
         requestId: "request-new",
-        sourceSha: "source",
+        workflowSha: "workflow",
       },
     );
     assert.strictEqual(selected?.databaseId, 2);
+  });
+
+  it("uses an existing immutable manifest's historical source for a release-set resume", function () {
+    assert.strictEqual(
+      readImmutablePublicationSource(
+        JSON.stringify({
+          releaseSetId: "hbrs-target",
+          sourceCommit: "a".repeat(40),
+        }),
+        "hbrs-target",
+      ),
+      "a".repeat(40),
+    );
+    assert.throws(
+      () =>
+        readImmutablePublicationSource(
+          JSON.stringify({
+            releaseSetId: "hbrs-other",
+            sourceCommit: "a".repeat(40),
+          }),
+          "hbrs-target",
+        ),
+      /invalid manifest/i,
+    );
   });
 
   it("plans one explicit minor release without writing version state", function () {

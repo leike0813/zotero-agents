@@ -1826,6 +1826,17 @@ describe("host bridge cli packaging and install", function () {
       workflow,
       "advance_mutable_pointer .publish/cli host-bridge/zotero-bridge-cli-bundle",
     );
+    assert.include(workflow, "resume_prebuild");
+    assert.include(workflow, "needs.plan.outputs.resume_prebuild != 'true'");
+    assert.include(workflow, "needs_build=false");
+    assert.include(
+      workflow,
+      "record-binaries --write --dispatch-reason=resume",
+    );
+    assert.include(
+      workflow,
+      'elif [ "${{ needs.plan.outputs.needs_build }}" != "true" ]',
+    );
     assert.include(workflow, "host-bridge.release-receipt.v1");
     assert.notInclude(workflow, "bump-patch --write");
     assert.isBelow(

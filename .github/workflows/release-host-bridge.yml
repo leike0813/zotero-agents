@@ -34,6 +34,7 @@ jobs:
       release_set_id: ${{ steps.plan.outputs.release_set_id }}
       needs_build: ${{ steps.plan.outputs.needs_build }}
       cli_aggregate: ${{ steps.plan.outputs.cli_aggregate }}
+      resume_prebuild: ${{ steps.plan.outputs.resume_prebuild }}
       build_matrix: ${{ steps.recipe.outputs.build_matrix }}
       rust_toolchain: ${{ steps.recipe.outputs.rust_toolchain }}
       zig_version: ${{ steps.recipe.outputs.zig_version }}
@@ -71,9 +72,22 @@ jobs:
           test "$release_set_id" = "${{ inputs.release_set_id }}"
           needs_build="$(jq -r .prebuildRequired .host-bridge-plan.json)"
           cli_aggregate="$(jq -r .cli.binaryAggregateSha256 host-bridge/release-set.json)"
+          tag="host-bridge/$release_set_id"
+          resume_prebuild=false
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            git fetch origin "refs/tags/$tag:refs/tags/$tag"
+            test "$(git show "$tag:manifest.json" | jq -r .releaseSetId)" = "$release_set_id"
+            test "$(git show "$tag:cli-release.json" | jq -r .buildFingerprint)" = "$(jq -r .buildFingerprint cli/zotero-bridge/release.json)"
+            cli_aggregate="$(git show "$tag:cli-release.json" | jq -r .binaryAggregateSha256)"
+            test "$cli_aggregate" != null
+            test "${#cli_aggregate}" = 64
+            needs_build=false
+            resume_prebuild=true
+          fi
           echo "release_set_id=$release_set_id" >> "$GITHUB_OUTPUT"
           echo "needs_build=$needs_build" >> "$GITHUB_OUTPUT"
           echo "cli_aggregate=$cli_aggregate" >> "$GITHUB_OUTPUT"
+          echo "resume_prebuild=$resume_prebuild" >> "$GITHUB_OUTPUT"
       - name: Check prepared surfaces against their recorded source
         shell: bash
         run: |
@@ -82,7 +96,7 @@ jobs:
 
   build:
     needs: plan
-    if: needs.plan.outputs.needs_build == 'true'
+    if: needs.plan.outputs.needs_build == 'true' && needs.plan.outputs.resume_prebuild != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -137,12 +151,12 @@ jobs:
           node-version: ${{ needs.plan.outputs.node_version }}
           cache: npm
       - run: npm ci
-      - if: needs.plan.outputs.needs_build == 'true'
+      - if: needs.plan.outputs.needs_build == 'true' && needs.plan.outputs.resume_prebuild != 'true'
         uses: actions/download-artifact@v4
         with:
           pattern: zotero-bridge-*
           path: host-bridge-artifacts/prebuild-downloads
-      - if: needs.plan.outputs.needs_build == 'true'
+      - if: needs.plan.outputs.needs_build == 'true' && needs.plan.outputs.resume_prebuild != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -171,7 +185,11 @@ jobs:
           fi
 
           aggregate="$(jq -r .binaryAggregateSha256 cli/zotero-bridge/release.json)"
-          if [ "${{ needs.plan.outputs.needs_build }}" != "true" ] && [ -f "$store/sets/$aggregate/manifest.json" ]; then
+          if [ "${{ needs.plan.outputs.resume_prebuild }}" = "true" ]; then
+            test -f "$store/sets/$aggregate/manifest.json"
+            npm run sync:host-bridge-cli-prebuilds -- --aggregate="$aggregate" --branch="$PREBUILD_BRANCH"
+            node scripts/host-bridge-cli-release-governance.mjs record-binaries --write --dispatch-reason=resume
+          elif [ "${{ needs.plan.outputs.needs_build }}" != "true" ] && [ -f "$store/sets/$aggregate/manifest.json" ]; then
             npm run sync:host-bridge-cli-prebuilds -- --aggregate="$aggregate" --branch="$PREBUILD_BRANCH"
           fi
           npm run check:host-bridge-cli-prebuild-freshness

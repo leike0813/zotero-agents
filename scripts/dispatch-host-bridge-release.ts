@@ -38,17 +38,34 @@ export function selectDispatchedHostBridgeRun(
     headSha: string;
     url: string;
   }>,
-  args: { releaseSetId: string; requestId: string; sourceSha: string },
+  args: { releaseSetId: string; requestId: string; workflowSha: string },
 ) {
   const title = `Host Bridge ${args.releaseSetId} (${args.requestId})`;
   return runs.find(
-    (run) => run.displayTitle === title && run.headSha === args.sourceSha,
+    (run) => run.displayTitle === title && run.headSha === args.workflowSha,
   );
+}
+
+export function readImmutablePublicationSource(
+  manifestText: string,
+  releaseSetId: string,
+) {
+  const manifest = JSON.parse(manifestText);
+  const sourceSha = String(manifest.sourceCommit || "");
+  if (
+    manifest.releaseSetId !== releaseSetId ||
+    !/^[a-f0-9]{40}$/i.test(sourceSha)
+  ) {
+    throw new Error(
+      `Immutable Host Bridge release ${releaseSetId} has an invalid manifest`,
+    );
+  }
+  return sourceSha;
 }
 
 async function assertDispatchPreconditions(args: {
   commandRunner: CommandRunner;
-  sourceSha: string;
+  workflowSha: string;
 }) {
   const branch = await args.commandRunner("git", ["branch", "--show-current"]);
   if (branch.stdout.trim() !== "main") {
@@ -60,9 +77,52 @@ async function assertDispatchPreconditions(args: {
   }
   await args.commandRunner("git", ["fetch", "origin", "main"]);
   const remote = await args.commandRunner("git", ["rev-parse", "origin/main"]);
-  if (remote.stdout.trim() !== args.sourceSha) {
+  if (remote.stdout.trim() !== args.workflowSha) {
     throw new Error(
       "Push the exact prepared HEAD to origin/main before dispatching",
+    );
+  }
+}
+
+async function resolvePublicationSource(args: {
+  commandRunner: CommandRunner;
+  releaseSetId: string;
+  workflowSha: string;
+}) {
+  const tag = `host-bridge/${args.releaseSetId}`;
+  const remoteTag = await args.commandRunner("git", [
+    "ls-remote",
+    "--tags",
+    "origin",
+    `refs/tags/${tag}`,
+  ]);
+  if (!remoteTag.stdout.trim()) return args.workflowSha;
+  await args.commandRunner("git", [
+    "fetch",
+    "origin",
+    `refs/tags/${tag}:refs/tags/${tag}`,
+  ]);
+  const manifest = await args.commandRunner("git", [
+    "show",
+    `${tag}:manifest.json`,
+  ]);
+  return readImmutablePublicationSource(manifest.stdout, args.releaseSetId);
+}
+
+async function assertPublicationSourceIsReachable(args: {
+  commandRunner: CommandRunner;
+  publicationSourceSha: string;
+}) {
+  try {
+    await args.commandRunner("git", [
+      "merge-base",
+      "--is-ancestor",
+      args.publicationSourceSha,
+      "origin/main",
+    ]);
+  } catch {
+    throw new Error(
+      "Immutable Host Bridge publication source must be an ancestor of origin/main",
     );
   }
 }
@@ -133,10 +193,19 @@ export async function dispatchHostBridgeRelease(args: {
     );
   }
   const head = await commandRunner("git", ["rev-parse", "HEAD"]);
-  const sourceSha = head.stdout.trim();
+  const workflowSha = head.stdout.trim();
   await assertDispatchPreconditions({
     commandRunner,
-    sourceSha,
+    workflowSha,
+  });
+  const publicationSourceSha = await resolvePublicationSource({
+    commandRunner,
+    releaseSetId: args.releaseSetId,
+    workflowSha,
+  });
+  await assertPublicationSourceIsReachable({
+    commandRunner,
+    publicationSourceSha,
   });
   if (args.runLocalChecks !== false) {
     await runLocalGates(
@@ -159,7 +228,7 @@ export async function dispatchHostBridgeRelease(args: {
     "-f",
     `release_set_id=${args.releaseSetId}`,
     "-f",
-    `source_sha=${sourceSha}`,
+    `source_sha=${publicationSourceSha}`,
     "-f",
     `request_id=${requestId}`,
   ]);
@@ -183,7 +252,7 @@ export async function dispatchHostBridgeRelease(args: {
     selected = selectDispatchedHostBridgeRun(JSON.parse(runs.stdout), {
       releaseSetId: args.releaseSetId,
       requestId,
-      sourceSha,
+      workflowSha,
     });
     if (!selected && attempt < 14) await delay(2_000);
   }
@@ -204,12 +273,13 @@ export async function dispatchHostBridgeRelease(args: {
   }
   const finalizedHead = args.watch
     ? (await commandRunner("git", ["rev-parse", "HEAD"])).stdout.trim()
-    : sourceSha;
+    : workflowSha;
   return {
     schema: "host-bridge.dispatch-result.v1",
     releaseSetId: args.releaseSetId,
     requestId,
-    sourceSha,
+    sourceSha: publicationSourceSha,
+    workflowSha,
     runId: selected.databaseId,
     runUrl: selected.url,
     finalizedSourceSha: finalizedHead,
