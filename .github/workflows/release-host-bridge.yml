@@ -165,6 +165,7 @@ jobs:
           name: host-bridge-release-${{ needs.plan.outputs.release_set_id }}
           path: .host-bridge-surfaces
           if-no-files-found: error
+          include-hidden-files: true
 
   publish:
     needs: [plan, materialize]

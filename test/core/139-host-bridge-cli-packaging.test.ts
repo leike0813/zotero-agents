@@ -1672,6 +1672,7 @@ describe("host bridge cli packaging and install", function () {
     );
     assert.include(workflow, "npm run check:host-bridge-surface");
     assert.include(workflow, "materialize-host-bridge-surfaces.ts");
+    assert.include(workflow, "include-hidden-files: true");
     assert.include(workflow, "actions/attest-build-provenance@v2");
     assert.include(workflow, "Publish immutable commits and tags");
     assert.include(workflow, "Verify immutable manifests");
