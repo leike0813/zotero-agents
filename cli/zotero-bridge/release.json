@@ -1,7 +1,7 @@
 {
   "schema": "zotero-bridge-cli-release.v1",
   "version": "0.3.0",
-  "buildFingerprint": "4080d6de2b029db60d57a7635b73c96a7dda40f6b689ec830e02821e897b5de4",
+  "buildFingerprint": "d057b5a74074a28d7746ecb67936b8299748e3070e644dd01b123e617774455d",
   "binariesBuildFingerprint": "7de2f185e0bc25cee73f882c20a71762ae9b8e737cdd12709f847b95ed5be314",
   "fingerprintInputs": [
     ".github/workflows/release-host-bridge.yml",
@@ -17,6 +17,7 @@
     "cli/zotero-bridge/src/output.rs",
     "cli/zotero-bridge/src/surface.rs",
     "scripts/build-zotero-bridge-cli.mjs",
+    "scripts/check-zotero-bridge-cli-binary-identity.mjs",
     "scripts/host-bridge-cli-release-governance.mjs",
     "scripts/package-zotero-bridge-cli.mjs"
   ],

@@ -50,7 +50,7 @@
       "protocol": "host-bridge.v1",
       "cliSchema": "zotero-bridge.cli.v2",
       "version": "0.3.0",
-      "buildFingerprint": "4080d6de2b029db60d57a7635b73c96a7dda40f6b689ec830e02821e897b5de4",
+      "buildFingerprint": "d057b5a74074a28d7746ecb67936b8299748e3070e644dd01b123e617774455d",
       "commandCatalogChecksum": "9f3f82cc60299963ed2660e1c08a9de46db277ef57e199cbad04dd7e14227b40"
     },
     "binaryAggregateSha256": "",
