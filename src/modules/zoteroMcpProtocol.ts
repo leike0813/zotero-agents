@@ -3854,8 +3854,8 @@ export async function handleZoteroMcpJsonRpc(
                 error instanceof ZoteroLibraryCursorError
                   ? error.details
                   : error instanceof Error && "ref" in error
-                  ? (error as { ref?: unknown }).ref
-                  : undefined,
+                    ? (error as { ref?: unknown }).ref
+                    : undefined,
             }),
           };
         }

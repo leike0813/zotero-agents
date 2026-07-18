@@ -61,14 +61,17 @@ Then verify:
 
 ```powershell
 npm run check:content-package-release
-npm run check:content-package-mirror
 ```
 
 Rerun the gate with content package evidence only when verification passes:
 
 ```powershell
-npm exec -- tsx scripts/release-coordinator-gate.ts --target vX.Y.Z --content-package-release-verified --content-package-mirror-verified
+npm exec -- tsx scripts/release-coordinator-gate.ts --target vX.Y.Z --content-package-release-verified
 ```
+
+The content publication workflow creates immutable GitHub release assets. A
+rerun may reuse an asset only when its SHA-256 matches; different bytes require
+a new content package version. Gitee availability is outside this stage.
 
 ## Stage 5: Local Gates
 
@@ -118,18 +121,27 @@ This command is allowed only after the gate confirms:
 - target tag is not present locally or on GitHub
 - `HEAD` is synced to GitHub `main`
 
-## Stage 8: Gitee Mirror
+## Stage 8: Optional Manual Gitee Synchronization
 
-After the plugin release succeeds, ask before publishing the Gitee mirror:
+Canonical publication is complete without Gitee. Report this optional command
+to the user after the plugin and content package releases are verified:
 
 ```powershell
-npm run sync:gitee-plugin-release -- --target vX.Y.Z
+npm run sync:gitee-release
 ```
 
-This command reads `GITEE_TOKEN` from the repository `.env`, syncs the plugin
-release and update metadata to Gitee, then attempts to sync the official
-workflow package release and `content-feed` branch. It is safe to run again for
-the same target when GitHub is the source of truth.
+The defaults come from `package.json` and `content-package.version.json`.
+Historical or explicitly selected releases can be synchronized with:
+
+```powershell
+npm run sync:gitee-release -- --plugin-version vX.Y.Z --content-version X.Y.Z
+```
+
+The command reads `GITEE_TOKEN` from the repository `.env`, downloads plugin
+and content release assets from GitHub, synchronizes the existing Gitee
+branches/tags/releases, and verifies refs and asset hashes. It is blocking and
+safe to rerun. The agent must not execute or watch it unless the user separately
+requests Gitee synchronization.
 
 ## Stage 9: Post-release Verification
 
@@ -139,8 +151,11 @@ Verify:
 gh release view vX.Y.Z --repo leike0813/zotero-agents
 gh release view release --repo leike0813/zotero-agents
 git ls-remote --tags origin refs/tags/vX.Y.Z
-git ls-remote --tags gitee refs/tags/vX.Y.Z
 gh release view official-workflows-vCONTENT_PACKAGE_VERSION --repo leike0813/zotero-agents-workflows
 npm run check:content-package-release
-npm run check:content-package-mirror
 ```
+
+If the user separately ran the optional Gitee command, its successful blocking
+exit is the mirror verification result. `npm run check:content-package-mirror`
+may be used for an additional read-only content mirror audit, but it is not a
+canonical release gate.

@@ -1,6 +1,6 @@
 ---
 name: zotero-agents-release-coordinator
-description: Coordinate the zotero-agents project release workflow. Use when preparing, auditing, executing, recovering, or verifying a Zotero Agents release, including SkillRunner runtime feed checks, content package version/feed publishing, Host Bridge release-set requirements, local test/lint gates, GitHub/Gitee main synchronization, zotero-plugin release execution, tag/release failure recovery, and post-release verification.
+description: Coordinate the zotero-agents project release workflow. Use when preparing, auditing, executing, recovering, or verifying a Zotero Agents release, including SkillRunner runtime feed checks, content package version/feed publishing, Host Bridge release-set requirements, local test/lint gates, GitHub main synchronization, zotero-plugin release execution, tag/release failure recovery, post-release verification, and separately requested Gitee synchronization.
 ---
 
 # Zotero Agents Release Coordinator
@@ -8,9 +8,10 @@ description: Coordinate the zotero-agents project release workflow. Use when pre
 Use this skill from the repository root.
 
 This skill is the release gatekeeper for Zotero Agents. It coordinates local
-checks, content feed publication, Host Bridge release-set publication, GitHub/Gitee
-synchronization, plugin release execution, Gitee mirror publication, and
-failed-release recovery.
+checks, content feed publication, Host Bridge release-set publication, GitHub
+synchronization, plugin release execution, and failed-release recovery. Gitee
+publication is a separate, user-run synchronization command and is never a
+canonical release gate.
 
 ## Runtime Model
 
@@ -81,10 +82,9 @@ deletes a release, reverts a version bump, or reruns a failed release target:
 
 - `git push origin main`
 - `npm run release -- vX.Y.Z`
-- `npm run sync:gitee-plugin-release -- --target vX.Y.Z`
+- `npm run sync:gitee-release -- --plugin-version vX.Y.Z --content-version X.Y.Z`
 - `git tag -d vX.Y.Z`
 - `git push origin :refs/tags/vX.Y.Z`
-- `git push gitee :refs/tags/vX.Y.Z`
 - `gh release delete vX.Y.Z`
 - any command that changes `package.json`, `package-lock.json`, or
   `content-package.version.json`
@@ -99,10 +99,15 @@ deletes a release, reverts a version bump, or reruns a failed release target:
 - Explain blockers, recovery paths, and risk to the user.
 - Decide whether content changes are semantically release-worthy.
 - Request confirmation before state-changing release operations.
-- After a successful plugin release, ask whether to publish the Gitee mirror and
-  run `npm run sync:gitee-plugin-release -- --target vX.Y.Z` only after
-  confirmation. This command reads `GITEE_TOKEN` from the repository `.env`,
-  syncs the plugin release, then attempts the official workflow package mirror.
+- Treat GitHub releases, GitHub tags, GitHub `main`, and the GitHub content feed
+  as the publication source of truth.
+- After canonical publication succeeds, report the optional manual Gitee
+  command. Do not run or watch it unless the user separately and explicitly
+  requests that command in the current task.
+- When separately requested, use `npm run sync:gitee-release`. It reads
+  `GITEE_TOKEN` from the repository `.env`, copies the selected plugin and
+  content package releases from GitHub, syncs the existing Gitee refs/feed, and
+  blocks until verification succeeds or the command fails.
 
 ### Must Be Done By Scripts
 
@@ -120,6 +125,10 @@ deletes a release, reverts a version bump, or reruns a failed release target:
 - Do not mark evidence flags passed unless the command passed or the user
   explicitly supplied that evidence.
 - Do not use a temporary script to decide semantic release scope.
+- Do not inspect Gitee or wait for Gitee while deciding whether the canonical
+  release is complete.
+- Do not rebuild packages or plugin assets for Gitee; copy immutable GitHub
+  release assets.
 
 ## Completion Report
 
@@ -130,8 +139,9 @@ When finished, report:
 - whether Host Bridge publication was required, its `releaseSetId`, and its
   release receipt status
 - local validation commands and results
-- GitHub/Gitee main and tag status
+- GitHub main and tag status
 - release command result
-- Gitee mirror command result, including official workflow package sync status
+- optional Gitee synchronization status (`not requested`, `pending manual
+  command`, or the separately requested command result)
 - post-release verification result
 - remaining risks or manual follow-up

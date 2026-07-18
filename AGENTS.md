@@ -153,3 +153,9 @@
 - ACP transcript message coalescing 必须是协议/语义级通用逻辑，不得按 backend id、provider id、agent family、命令名或具体后端产品字符串做特判。
 - ACP Chat 与 ACP Skills 共享同一类 transcript boundary 分类；新增或修改 session update kind 时必须同步审查两条路径的 message coalescing 行为。
 
+# 发布流程硬约束
+
+- GitHub `main`、GitHub tag/release 与 GitHub content feed 是正式发布的唯一事实源；正式发布门禁和 Host Bridge release receipt 不得依赖 Gitee 状态。
+- Gitee 发布只能通过独立的 `npm run sync:gitee-release` 命令执行。除非用户在当前任务中单独明确要求，Agent 不得自动执行、轮询或等待该命令。
+- Gitee 同步必须复用 GitHub 已发布的插件和 content package 原始字节，不得为 Gitee 重新构建产物、修改版本、创建修复提交或重新触发正式发布流程。
+- content package 的 GitHub release asset 是不可变产物：同名同版本仅允许复用 SHA-256 一致的文件；内容不同必须提升 content package 版本。

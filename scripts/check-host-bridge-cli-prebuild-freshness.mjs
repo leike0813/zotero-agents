@@ -94,8 +94,7 @@ export async function checkHostBridgeCliPrebuildFreshness(options = {}) {
   if (
     addonManifest.version !== manifest.version ||
     addonManifest.buildFingerprint !== manifest.buildFingerprint ||
-    addonManifest.binariesBuildFingerprint !==
-      manifest.binariesBuildFingerprint
+    addonManifest.binariesBuildFingerprint !== manifest.binariesBuildFingerprint
   ) {
     return createFailure(
       "host_bridge_cli_addon_manifest_stale",
@@ -107,8 +106,7 @@ export async function checkHostBridgeCliPrebuildFreshness(options = {}) {
         buildFingerprint: addonManifest.buildFingerprint,
         expectedBuildFingerprint: manifest.buildFingerprint,
         binariesBuildFingerprint: addonManifest.binariesBuildFingerprint,
-        expectedBinariesBuildFingerprint:
-          manifest.binariesBuildFingerprint,
+        expectedBinariesBuildFingerprint: manifest.binariesBuildFingerprint,
       },
     );
   }

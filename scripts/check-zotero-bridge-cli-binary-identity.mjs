@@ -5,7 +5,11 @@ import { pathToFileURL } from "node:url";
 
 function argValue(name) {
   const prefix = `--${name}=`;
-  return process.argv.find((entry) => entry.startsWith(prefix))?.slice(prefix.length) || "";
+  return (
+    process.argv
+      .find((entry) => entry.startsWith(prefix))
+      ?.slice(prefix.length) || ""
+  );
 }
 
 async function readJson(root, relativePath) {

@@ -11,7 +11,10 @@ import {
 import {
   isTrackedContentSourceFile,
   normalizeContentPackageFileBytes,
+  resolveContentPackageGeneratedAt,
 } from "../../../scripts/build-content-package-feed";
+import { parseGithubContentPublicationArgs } from "../../../scripts/publish-content-package-github";
+import { parseGiteePublicationArgs } from "../../../scripts/sync-gitee-publication";
 import { verifyContentPackageRelease } from "../../../scripts/check-content-package-release";
 import {
   parseContentPackageReleaseArgs,
@@ -123,6 +126,61 @@ describe("content package release scripts", function () {
 
   beforeEach(async function () {
     tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "zs-release-scripts-"));
+  });
+
+  it("uses a stable commit timestamp for repeat builds", async function () {
+    const runCommand = async () => ({
+      stdout: "2026-07-18T10:41:14+00:00\n",
+      stderr: "",
+    });
+
+    assert.equal(
+      await resolveContentPackageGeneratedAt({ runCommand }),
+      "2026-07-18T10:41:14.000Z",
+    );
+    assert.equal(
+      await resolveContentPackageGeneratedAt({ runCommand }),
+      "2026-07-18T10:41:14.000Z",
+    );
+  });
+
+  it("parses the single manual Gitee publication command", function () {
+    assert.deepEqual(
+      parseGiteePublicationArgs([], {
+        pluginVersion: "0.7.0",
+        contentVersion: "0.5.0",
+      }),
+      { pluginVersion: "v0.7.0", contentVersion: "0.5.0" },
+    );
+    assert.deepEqual(
+      parseGiteePublicationArgs(
+        ["--plugin-version", "v0.8.0", "--content-version=0.6.0"],
+        { pluginVersion: "0.7.0", contentVersion: "0.5.0" },
+      ),
+      { pluginVersion: "v0.8.0", contentVersion: "0.6.0" },
+    );
+  });
+
+  it("requires explicit immutable GitHub content release assets", function () {
+    assert.deepEqual(
+      parseGithubContentPublicationArgs([
+        "--repo",
+        "owner/repo",
+        "--tag",
+        "official-workflows-v0.5.0",
+        "--title",
+        "Official workflows v0.5.0",
+        "stable.zip",
+        "stable.zip.sha256",
+      ]),
+      {
+        repo: "owner/repo",
+        tag: "official-workflows-v0.5.0",
+        title: "Official workflows v0.5.0",
+        notes: "",
+        files: ["stable.zip", "stable.zip.sha256"],
+      },
+    );
   });
 
   afterEach(async function () {

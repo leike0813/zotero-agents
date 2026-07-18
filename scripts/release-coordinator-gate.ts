@@ -32,7 +32,7 @@ export type ReleaseGateCommandRunner = (
 ) => Promise<ReleaseGateCommandResult>;
 
 export type ReleaseGateRemoteState = {
-  name: "origin" | "gitee";
+  name: "origin";
   main: {
     status: "synced" | "local_ahead" | "local_behind" | "diverged" | "unknown";
     ahead: number;
@@ -47,7 +47,7 @@ export type ReleaseGateRemoteState = {
 };
 
 export type ReleaseGateReport = {
-  schema: "zotero-agents.release-gate.v1";
+  schema: "zotero-agents.release-gate.v2";
   generated_at: string;
   branch: string;
   head: string;
@@ -62,7 +62,6 @@ export type ReleaseGateReport = {
   content_package: {
     candidate: boolean;
     release_verified: boolean;
-    mirror_verified: boolean;
     matched_files: string[];
   };
   local_gates: {
@@ -95,12 +94,11 @@ export type ReleaseGateArgs = {
   testNodeFullPassed?: boolean;
   lintCheckPassed?: boolean;
   contentPackageReleaseVerified?: boolean;
-  contentPackageMirrorVerified?: boolean;
   repo?: string;
 };
 
 const execFileAsync = promisify(execFile);
-const RELEASE_GATE_SCHEMA = "zotero-agents.release-gate.v1" as const;
+const RELEASE_GATE_SCHEMA = "zotero-agents.release-gate.v2" as const;
 const DEFAULT_REPO = "leike0813/zotero-agents";
 
 const HOST_BRIDGE_PREFIXES = [
@@ -155,6 +153,7 @@ const CONTENT_PACKAGE_EXACT_FILES = new Set([
   "scripts/bump-content-package-version.ts",
   "scripts/prepare-content-package-release.ts",
   "scripts/check-content-package-release.ts",
+  "scripts/publish-content-package-github.ts",
 ]);
 
 async function defaultRunCommand(command: string, args: string[]) {
@@ -312,7 +311,7 @@ function parseTagState(result: Awaited<ReturnType<typeof runOptional>>) {
 }
 
 async function inspectRemote(args: {
-  name: "origin" | "gitee";
+  name: "origin";
   targetVersion: string;
   commandRunner: ReleaseGateCommandRunner;
 }): Promise<ReleaseGateRemoteState> {
@@ -399,7 +398,6 @@ function suggestedCommands(args: {
         "npm run release:content-package -- <patch|minor|major|version>",
         "npm run release:content-package -- --dispatch --watch",
         "npm run check:content-package-release",
-        "npm run check:content-package-mirror",
       ];
     case "run_local_gates":
       return ["npm run test:node:full", "npm run lint:check"];
@@ -450,11 +448,9 @@ export async function analyzeReleaseGate(
   const contentPackageMatchedFiles = changedFiles.filter(
     isContentPackageCandidateFile,
   );
-  const remotes = await Promise.all(
-    (["origin", "gitee"] as const).map((name) =>
-      inspectRemote({ name, targetVersion, commandRunner }),
-    ),
-  );
+  const remotes = [
+    await inspectRemote({ name: "origin", targetVersion, commandRunner }),
+  ];
   const localTag = targetVersion
     ? parseTagState(
         await runOptional(commandRunner, "git", [
@@ -638,7 +634,6 @@ export async function analyzeReleaseGate(
     content_package: {
       candidate: contentPackageMatchedFiles.length > 0,
       release_verified: args.contentPackageReleaseVerified === true,
-      mirror_verified: args.contentPackageMirrorVerified === true,
       matched_files: contentPackageMatchedFiles,
     },
     local_gates: {
@@ -696,11 +691,6 @@ export function parseReleaseGateCliArgs(argv: string[]): ReleaseGateArgs {
     }
     if (entry === "--content-package-release-verified") {
       args.contentPackageReleaseVerified = true;
-      index += 1;
-      continue;
-    }
-    if (entry === "--content-package-mirror-verified") {
-      args.contentPackageMirrorVerified = true;
       index += 1;
       continue;
     }

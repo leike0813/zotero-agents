@@ -1,7 +1,8 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { config as loadEnv } from "dotenv";
 
@@ -12,9 +13,8 @@ type GitHubReleaseMetadata = {
 };
 
 type CliOptions = {
-  target: string;
-  workflowVersion: string;
-  skipWorkflows: boolean;
+  pluginVersion: string;
+  contentVersion: string;
 };
 
 const PLUGIN_REPO = "leike0813/zotero-agents";
@@ -23,12 +23,11 @@ const WORK_DIR = path.join(".scaffold", "gitee-release-sync");
 
 function usage() {
   return [
-    "Usage: tsx scripts/sync-gitee-plugin-release.ts [--target vX.Y.Z] [options]",
+    "Usage: npm run sync:gitee-release -- [options]",
     "",
     "Options:",
-    "  --target <tag>              Plugin release tag. Defaults to package.json version.",
-    "  --workflow-version <ver>    Official workflow package version. Defaults to content-package.version.json.",
-    "  --skip-workflows            Only sync the plugin release.",
+    "  --plugin-version <tag>      Plugin release tag. Defaults to package.json version.",
+    "  --content-version <ver>     Content package version. Defaults to content-package.version.json.",
     "",
     "Reads GITEE_TOKEN from the repository .env file or process environment.",
   ].join("\n");
@@ -38,13 +37,24 @@ function readJsonFile<T>(filePath: string): T {
   return JSON.parse(readFileSync(filePath, "utf8")) as T;
 }
 
-function parseArgs(argv: string[]): CliOptions {
-  const packageJson = readJsonFile<{ version?: string }>("package.json");
-  const version = String(packageJson.version || "").trim();
+export function parseGiteePublicationArgs(
+  argv: string[],
+  providedDefaults?: { pluginVersion: string; contentVersion: string },
+): CliOptions {
+  const packageJson = providedDefaults
+    ? { version: providedDefaults.pluginVersion }
+    : readJsonFile<{ version?: string }>("package.json");
+  const contentDescriptor = providedDefaults
+    ? { version: providedDefaults.contentVersion }
+    : readJsonFile<{ version?: string }>("content-package.version.json");
+  const version = String(packageJson.version || "")
+    .trim()
+    .replace(/^v/i, "");
   const defaults: CliOptions = {
-    target: version ? `v${version}` : "",
-    workflowVersion: "",
-    skipWorkflows: false,
+    pluginVersion: version ? `v${version}` : "",
+    contentVersion: String(contentDescriptor.version || "")
+      .trim()
+      .replace(/^v/i, ""),
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -61,24 +71,29 @@ function parseArgs(argv: string[]): CliOptions {
     if (entry === "--help" || entry === "-h") {
       console.log(usage());
       process.exit(0);
-    } else if (entry === "--target") {
-      defaults.target = readValue();
-    } else if (entry.startsWith("--target=")) {
-      defaults.target = entry.slice("--target=".length);
-    } else if (entry === "--workflow-version") {
-      defaults.workflowVersion = readValue();
-    } else if (entry.startsWith("--workflow-version=")) {
-      defaults.workflowVersion = entry.slice("--workflow-version=".length);
-    } else if (entry === "--skip-workflows") {
-      defaults.skipWorkflows = true;
+    } else if (entry === "--plugin-version") {
+      defaults.pluginVersion = readValue();
+    } else if (entry.startsWith("--plugin-version=")) {
+      defaults.pluginVersion = entry.slice("--plugin-version=".length);
+    } else if (entry === "--content-version") {
+      defaults.contentVersion = readValue();
+    } else if (entry.startsWith("--content-version=")) {
+      defaults.contentVersion = entry.slice("--content-version=".length);
     } else {
       throw new Error(`Unknown option: ${entry}`);
     }
   }
 
-  defaults.target = defaults.target.trim();
-  if (!/^v\d+\.\d+\.\d+(?:[-+].+)?$/.test(defaults.target)) {
-    throw new Error("--target must be a v-prefixed semver tag");
+  defaults.pluginVersion = defaults.pluginVersion.trim();
+  if (!defaults.pluginVersion.startsWith("v")) {
+    defaults.pluginVersion = `v${defaults.pluginVersion}`;
+  }
+  defaults.contentVersion = defaults.contentVersion.trim().replace(/^v/i, "");
+  if (!/^v\d+\.\d+\.\d+(?:[-+].+)?$/.test(defaults.pluginVersion)) {
+    throw new Error("--plugin-version must be a v-prefixed semver tag");
+  }
+  if (!/^\d+\.\d+\.\d+(?:[-+].+)?$/.test(defaults.contentVersion)) {
+    throw new Error("--content-version must be semver");
   }
   return defaults;
 }
@@ -139,6 +154,25 @@ function readGiteeToken() {
 
 function giteeUrl(repo: string, token: string) {
   return `https://oauth2:${encodeURIComponent(token)}@gitee.com/${repo}.git`;
+}
+
+function assertRemoteRef(args: {
+  repo: string;
+  ref: string;
+  expectedCommit: string;
+}) {
+  const actual = capture("git", [
+    "ls-remote",
+    `https://gitee.com/${args.repo}.git`,
+    args.ref,
+  ])
+    .trim()
+    .split(/\s+/)[0];
+  if (!actual || actual !== args.expectedCommit) {
+    throw new Error(
+      `Gitee ${args.repo} ${args.ref} does not match GitHub source`,
+    );
+  }
 }
 
 async function cleanDir(dir: string) {
@@ -225,6 +259,8 @@ function runGiteeReleaseSync(args: {
       String(args.metadata.isPrerelease === true),
       "--target",
       args.target,
+      "--replace-existing",
+      "true",
       ...args.files,
     ],
     { env: { ...process.env, GITEE_TOKEN: args.token } },
@@ -236,12 +272,13 @@ function pushPluginRefsToGitee(args: { target: string; token: string }) {
     "fetch",
     "--force",
     "origin",
+    "refs/heads/main:refs/remotes/origin/main",
     `refs/tags/${args.target}:refs/tags/${args.target}`,
   ]);
   run("git", [
     "push",
     giteeUrl(PLUGIN_REPO, args.token),
-    "HEAD:refs/heads/main",
+    "+refs/remotes/origin/main:refs/heads/main",
     `refs/tags/${args.target}:refs/tags/${args.target}`,
   ]);
 }
@@ -252,6 +289,19 @@ async function syncPluginRelease(args: { target: string; token: string }) {
 
   pushPluginRefsToGitee(args);
   const targetCommit = tagCommit(args.target);
+  assertRemoteRef({
+    repo: PLUGIN_REPO,
+    ref: "refs/heads/main",
+    expectedCommit: capture("git", ["rev-parse", "origin/main"]).trim(),
+  });
+  assertRemoteRef({
+    repo: PLUGIN_REPO,
+    ref: `refs/tags/${args.target}`,
+    expectedCommit: capture("git", [
+      "rev-parse",
+      `refs/tags/${args.target}`,
+    ]).trim(),
+  });
 
   await downloadReleaseAssets({
     repo: PLUGIN_REPO,
@@ -296,23 +346,6 @@ async function syncPluginRelease(args: { target: string; token: string }) {
   });
 }
 
-function readWorkflowVersion(explicit: string) {
-  if (explicit.trim()) {
-    return explicit.trim().replace(/^v/i, "");
-  }
-  if (!existsSync("content-package.version.json")) {
-    throw new Error("content-package.version.json is missing");
-  }
-  const versionFile = readJsonFile<{ version?: string }>(
-    "content-package.version.json",
-  );
-  const version = String(versionFile.version || "").trim();
-  if (!version) {
-    throw new Error("content-package.version.json does not contain version");
-  }
-  return version;
-}
-
 function pushWorkflowFeedBranchToGitee(args: { token: string }) {
   const dir = path.join(WORK_DIR, "workflow-content-feed");
   return cleanDir(dir).then(() => {
@@ -334,6 +367,11 @@ function pushWorkflowFeedBranchToGitee(args: { token: string }) {
       giteeUrl(WORKFLOW_REPO, args.token),
       "+HEAD:refs/heads/content-feed",
     ]);
+    assertRemoteRef({
+      repo: WORKFLOW_REPO,
+      ref: "refs/heads/content-feed",
+      expectedCommit: capture("git", ["-C", dir, "rev-parse", "HEAD"]).trim(),
+    });
   });
 }
 
@@ -353,9 +391,15 @@ async function syncWorkflowPackage(args: {
     dir,
     (name) => name.endsWith(".zip") || name.endsWith(".zip.sha256"),
   );
-  if (!files.length) {
+  const expectedNames = ["stable", "beta", "dev"].flatMap((channel) => {
+    const base = `zotero-agents-official-workflows-${args.workflowVersion}-${channel}.zip`;
+    return [base, `${base}.sha256`];
+  });
+  const actualNames = new Set(files.map((file) => path.basename(file)));
+  const missing = expectedNames.filter((name) => !actualNames.has(name));
+  if (missing.length > 0 || files.length !== expectedNames.length) {
     throw new Error(
-      `No workflow package assets found in ${WORKFLOW_REPO}@${tag}`,
+      `Incomplete workflow package assets in ${WORKFLOW_REPO}@${tag}: ${missing.join(", ") || "unexpected files"}`,
     );
   }
   runGiteeReleaseSync({
@@ -369,37 +413,32 @@ async function syncWorkflowPackage(args: {
   await pushWorkflowFeedBranchToGitee({ token: args.token });
 }
 
-async function main() {
-  const options = parseArgs(process.argv.slice(2));
+export async function syncGiteePublication(options: CliOptions) {
   requireCommand("git");
   requireCommand("gh");
+  requireCommand("curl");
   const token = readGiteeToken();
 
-  await syncPluginRelease({ target: options.target, token });
+  await syncPluginRelease({ target: options.pluginVersion, token });
   console.log(
-    `[gitee-sync] plugin release synced: ${PLUGIN_REPO}@${options.target}`,
+    `[gitee-sync] plugin release synced: ${PLUGIN_REPO}@${options.pluginVersion}`,
   );
 
-  if (options.skipWorkflows) {
-    return;
-  }
-
-  try {
-    const workflowVersion = readWorkflowVersion(options.workflowVersion);
-    await syncWorkflowPackage({ workflowVersion, token });
-    console.log(
-      `[gitee-sync] workflow package synced: ${WORKFLOW_REPO}@official-workflows-v${workflowVersion}`,
-    );
-  } catch (error) {
-    console.warn(
-      `[gitee-sync] workflow package sync skipped: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-  }
+  await syncWorkflowPackage({ workflowVersion: options.contentVersion, token });
+  console.log(
+    `[gitee-sync] workflow package synced: ${WORKFLOW_REPO}@official-workflows-v${options.contentVersion}`,
+  );
 }
 
-void main().catch((error) => {
-  console.error(error instanceof Error ? error.stack || error.message : error);
-  process.exitCode = 1;
-});
+async function main() {
+  await syncGiteePublication(parseGiteePublicationArgs(process.argv.slice(2)));
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {
+  void main().catch((error) => {
+    console.error(
+      error instanceof Error ? error.stack || error.message : error,
+    );
+    process.exitCode = 1;
+  });
+}

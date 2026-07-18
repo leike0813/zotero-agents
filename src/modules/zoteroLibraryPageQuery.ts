@@ -1,7 +1,4 @@
-import {
-  decodeBase64Utf8,
-  encodeBase64Utf8,
-} from "./notePayloadCodec";
+import { decodeBase64Utf8, encodeBase64Utf8 } from "./notePayloadCodec";
 import { resolveRuntimeZotero } from "../utils/runtimeBridge";
 import { sha256Hex } from "../utils/sha256";
 
@@ -219,7 +216,10 @@ function parseCursor(value: unknown, expectedCriteriaHash: string) {
 }
 
 function escapeLikeLiteral(value: string) {
-  return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
+  return value
+    .replaceAll("\\", "\\\\")
+    .replaceAll("%", "\\%")
+    .replaceAll("_", "\\_");
 }
 
 function buildPredicate(criteria: ZoteroLibraryPageQueryCriteria) {
@@ -314,7 +314,9 @@ function rowNumber(row: unknown, keys: string[]) {
 
 function defaultAdapter(): ZoteroLibraryPageQueryAdapter {
   const zotero = resolveZotero() as typeof Zotero & {
-    DB?: { queryAsync?: (sql: string, params?: QueryParam[]) => Promise<unknown> };
+    DB?: {
+      queryAsync?: (sql: string, params?: QueryParam[]) => Promise<unknown>;
+    };
   };
   if (typeof zotero.DB?.queryAsync !== "function") {
     throw new Error("Zotero.DB.queryAsync() is unavailable");
@@ -357,7 +359,8 @@ export async function queryZoteroLibraryPage(
   const predicate = buildPredicate(criteria);
   const countSql = `SELECT COUNT(*) AS total${predicate.sql}`;
   const pageSql = `SELECT i.itemID AS itemID${predicate.sql} AND i.itemID > ?\nORDER BY i.itemID ASC\nLIMIT ?`;
-  const adapter = options.adapter || adapterOverrideForTests || defaultAdapter();
+  const adapter =
+    options.adapter || adapterOverrideForTests || defaultAdapter();
 
   const [countRows, pageRows] = await Promise.all([
     adapter.queryAsync(countSql, predicate.params, {
@@ -366,16 +369,12 @@ export async function queryZoteroLibraryPage(
       afterItemId: 0,
       limitPlusOne: 0,
     }),
-    adapter.queryAsync(
-      pageSql,
-      [...predicate.params, afterItemId, limit + 1],
-      {
-        kind: "page",
-        criteria,
-        afterItemId,
-        limitPlusOne: limit + 1,
-      },
-    ),
+    adapter.queryAsync(pageSql, [...predicate.params, afterItemId, limit + 1], {
+      kind: "page",
+      criteria,
+      afterItemId,
+      limitPlusOne: limit + 1,
+    }),
   ]);
   const totalScanned = Math.max(
     0,

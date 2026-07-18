@@ -26,7 +26,9 @@ function fakeItem(id: number, key = `ITEM${id}`) {
 }
 
 function includesNoCase(value: unknown, query: string) {
-  return String(value || "").toLowerCase().includes(query.toLowerCase());
+  return String(value || "")
+    .toLowerCase()
+    .includes(query.toLowerCase());
 }
 
 function createAdapter(records: FakeRecord[]) {
@@ -121,9 +123,18 @@ describe("zotero library page query", function () {
       { adapter: harness.adapter },
     );
 
-    assert.deepEqual(first.items.map((item) => item.id), [1, 2]);
-    assert.deepEqual(second.items.map((item) => item.id), [3, 4]);
-    assert.deepEqual(third.items.map((item) => item.id), [5]);
+    assert.deepEqual(
+      first.items.map((item) => item.id),
+      [1, 2],
+    );
+    assert.deepEqual(
+      second.items.map((item) => item.id),
+      [3, 4],
+    );
+    assert.deepEqual(
+      third.items.map((item) => item.id),
+      [5],
+    );
     assert.strictEqual(first.totalScanned, 5);
     assert.isTrue(first.hasMore);
     assert.isFalse(third.hasMore);
@@ -171,7 +182,10 @@ describe("zotero library page query", function () {
       { adapter: harness.adapter },
     );
 
-    assert.deepEqual(result.items.map((item) => item.id), [11]);
+    assert.deepEqual(
+      result.items.map((item) => item.id),
+      [11],
+    );
     const count = harness.queries.find(
       (query) => query.context.kind === "count",
     )!;
@@ -183,7 +197,10 @@ describe("zotero library page query", function () {
     assert.include(page.params, "%100\\%\\_literal%");
     assert.strictEqual(
       page.sql.slice(0, page.sql.indexOf(" AND i.itemID > ?")),
-      count.sql.replace("SELECT COUNT(*) AS total", "SELECT i.itemID AS itemID"),
+      count.sql.replace(
+        "SELECT COUNT(*) AS total",
+        "SELECT i.itemID AS itemID",
+      ),
     );
   });
 
@@ -254,7 +271,13 @@ describe("zotero library page query", function () {
       { adapter: harness.adapter },
     );
 
-    assert.deepEqual(first.items.map((item) => item.id), [1, 2]);
-    assert.deepEqual(second.items.map((item) => item.id), [3, 4]);
+    assert.deepEqual(
+      first.items.map((item) => item.id),
+      [1, 2],
+    );
+    assert.deepEqual(
+      second.items.map((item) => item.id),
+      [3, 4],
+    );
   });
 });

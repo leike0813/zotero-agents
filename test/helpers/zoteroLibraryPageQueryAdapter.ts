@@ -55,9 +55,7 @@ function matches(item: Zotero.Item, criteria: ZoteroLibraryPageQueryCriteria) {
   const fields = itemFields(item);
   if (
     criteria.tag &&
-    !fields.tags.some(
-      (tag) => tag.toLowerCase() === criteria.tag.toLowerCase(),
-    )
+    !fields.tags.some((tag) => tag.toLowerCase() === criteria.tag.toLowerCase())
   ) {
     return false;
   }

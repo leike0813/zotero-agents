@@ -131,7 +131,10 @@ export function protectBuiltinStatusProtocol<T extends PolicyProtocol>(
   protocol: T,
 ): T {
   const facets = Array.from(
-    new Set([...(Array.isArray(protocol.facets) ? protocol.facets : []), BUILTIN_STATUS_FACET]),
+    new Set([
+      ...(Array.isArray(protocol.facets) ? protocol.facets : []),
+      BUILTIN_STATUS_FACET,
+    ]),
   );
   return { ...protocol, facets };
 }

@@ -216,7 +216,8 @@ const COMMAND_HANDLE_TRANSITIONS: Record<
   ],
   "workflow agent-apply-status": [
     consumeHandle("agentRunId", {
-      condition: "Required to read persisted apply status; the read does not consume it.",
+      condition:
+        "Required to read persisted apply status; the read does not consume it.",
     }),
     produceHandle("applyReceipt"),
   ],
@@ -842,9 +843,7 @@ export function buildHostBridgeAgentSurfaceDescriptor(
             Boolean(entry),
         );
       const approval =
-        mappings.some(
-          (mapping) => mapping.approval === "zotero-ui-required",
-        ) ||
+        mappings.some((mapping) => mapping.approval === "zotero-ui-required") ||
         capabilities.some((entry) => entry?.approval === "zotero-ui-required")
           ? "zotero-ui-required"
           : "none";

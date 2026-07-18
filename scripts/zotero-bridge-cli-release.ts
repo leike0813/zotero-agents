@@ -27,9 +27,7 @@ export function readZoteroBridgeCliRelease(
     schema: String(release.schema || ""),
     version,
     buildFingerprint: String(release.buildFingerprint || ""),
-    binariesBuildFingerprint: String(
-      release.binariesBuildFingerprint || "",
-    ),
+    binariesBuildFingerprint: String(release.binariesBuildFingerprint || ""),
     binaryAggregateSha256: String(release.binaryAggregateSha256 || ""),
   };
 }

@@ -66,7 +66,7 @@
     "bump:zotero-bridge-cli": "node scripts/host-bridge-cli-release-governance.mjs bump-patch --write",
     "record:zotero-bridge-cli-binaries": "node scripts/host-bridge-cli-release-governance.mjs record-binaries --write",
     "sync:host-bridge-cli-prebuilds": "tsx scripts/sync-host-bridge-cli-prebuilds.ts",
-    "sync:gitee-plugin-release": "tsx scripts/sync-gitee-plugin-release.ts",
+    "sync:gitee-release": "tsx scripts/sync-gitee-publication.ts",
     "package:acp-ws-bridge": "node scripts/package-acp-ws-bridge.mjs",
     "prebuild:acp-ws-bridge": "node scripts/build-acp-ws-bridge.mjs",
     "lint:check": "prettier --check . && eslint .",

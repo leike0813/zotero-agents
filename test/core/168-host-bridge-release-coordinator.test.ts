@@ -122,6 +122,8 @@ describe("Host Bridge release coordinator", function () {
       ".github/workflows/release-host-bridge.yml",
       "utf8",
     );
+    assert.notMatch(workflow, /GITEE_TOKEN|gitee\.com/i);
+    assert.include(workflow, "host-bridge.release-receipt.v1");
     const pushPaths = workflow.slice(
       workflow.indexOf("  push:"),
       workflow.indexOf("  workflow_dispatch:"),

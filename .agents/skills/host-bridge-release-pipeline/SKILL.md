@@ -68,10 +68,19 @@ gh workflow run release-host-bridge.yml --ref main -f release_set_id=<releaseSet
 
 The workflow validates the committed plan, builds or restores one immutable CLI prebuild set, materializes all three surfaces, publishes immutable tags, re-reads their remote manifests, advances mutable branches only after all tags verify, and emits `release-receipt.json`. Recovery reuses verified tags for the same `releaseSetId`; never use a no-bump rebuild to replace different bytes under an existing version.
 
+This pipeline publishes and verifies its GitHub surfaces only. Gitee is not a
+Host Bridge release target and must not affect the release receipt or completion
+decision. Do not add Gitee upload, synchronization, polling, or recovery steps
+to `release-host-bridge.yml`.
+
 Publication is complete only when the receipt uses
 `host-bridge.release-receipt.v1`, names the prepared `releaseSetId`, reports
 `status: complete`, and records verified immutable targets plus advanced mutable
 pointers.
+
+After reporting completion, leave any optional project-level Gitee
+synchronization to the independent `npm run sync:gitee-release` command. The
+Host Bridge pipeline never runs or watches that command.
 
 ## Report
 

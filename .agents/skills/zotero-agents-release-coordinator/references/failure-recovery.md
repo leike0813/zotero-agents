@@ -90,14 +90,16 @@ Recommended action:
 
 - Verify GitHub release and `release` update manifest first.
 - Confirm `GITEE_TOKEN` is present in the repository `.env`.
-- Rerun the mirror command after approval:
+- Rerun the independent synchronization command:
 
 ```powershell
-npm run sync:gitee-plugin-release -- --target vX.Y.Z
+npm run sync:gitee-release -- --plugin-version vX.Y.Z --content-version X.Y.Z
 ```
 
-- Use `--skip-workflows` only when the plugin mirror should be repaired without
-  attempting the official workflow package mirror.
+The command resumes from GitHub source assets, reuses matching Gitee assets, and
+repairs only mismatched or missing state. Do not bump a version, create a repair
+commit, redispatch the canonical workflow, or rebuild assets solely to recover
+Gitee. A Gitee failure does not invalidate a verified canonical release.
 
 ## Do Not Attempt
 
@@ -107,3 +109,5 @@ npm run sync:gitee-plugin-release -- --target vX.Y.Z
   GitHub release is valid.
 - Do not edit version files manually unless the user explicitly chooses a
   version correction path.
+- Do not overwrite GitHub content release assets. Different bytes require a new
+  content package version.

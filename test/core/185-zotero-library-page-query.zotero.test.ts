@@ -159,12 +159,18 @@ describeZotero("zotero library page query in Zotero runtime", function () {
       });
       assert.deepEqual(deletedMatch.items, []);
 
-      assert.deepEqual(first.items.map((item) => item.id), [pagedItems[0].id]);
+      assert.deepEqual(
+        first.items.map((item) => item.id),
+        [pagedItems[0].id],
+      );
       assert.deepEqual(
         second.items.map((item) => item.id),
         pagedItems.slice(1).map((item) => item.id),
       );
-      assert.deepEqual(literal.items.map((item) => item.id), [pagedItems[0].id]);
+      assert.deepEqual(
+        literal.items.map((item) => item.id),
+        [pagedItems[0].id],
+      );
       assert.deepEqual(hydrated.slice(0, 2), [
         [pagedItems[0].id],
         pagedItems.slice(1).map((item) => item.id),
