@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - dev
+      - dev-refactor
     paths:
       - "apps/synthesis-service/**"
       - "packages/synthesis-contracts/src/sidecarSystem.ts"
