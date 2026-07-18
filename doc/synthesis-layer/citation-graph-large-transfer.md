@@ -1,9 +1,9 @@
 # Citation Graph Build Large Transfer
 
 Citation Graph Build has an authenticated sidecar transfer capability for data
-sets that do not fit one compute request or response. Sealed input can now run
-through an explicit packed streaming-worker canary, but this is not a
-production compute route. Production graph build remains in plugin
+sets that do not fit one compute request or response. Sealed input runs through
+an explicit packed streaming-worker canary; this capability is not a production
+compute route. Production graph build runs in plugin
 composition, which still owns Host capture, the durable-fact basis, basis
 recapture, `synthesis.db` promotion, canonical files, and last-good state.
 
@@ -40,8 +40,8 @@ every descriptor and the ordered root match.
 | Streaming worker active deadline | 30 seconds |
 | Unacknowledged pages per direction | 1 |
 
-The existing 8 MiB / 250,000-node compute request and 8 MiB / 50,000-node
-response limits remain unchanged. Aggregate staging may exceed one envelope,
+Compute requests are limited to 8 MiB / 250,000 nodes and compute responses to
+8 MiB / 50,000 nodes. Aggregate staging may exceed one envelope,
 but every action and returned page remains independently bounded.
 
 Sessions live only below the current profile/supervisor runtime session. The
@@ -53,22 +53,24 @@ service restart. Health and handshake report only in-memory state, session
 count, and staged bytes.
 
 The owner retains only descriptor/path/byte-range metadata after atomic upload.
-Each admitted page is rebuilt once into a canonical UTF-8 artifact whose bytes,
-byte length, and SHA-256 are reused for staging and transfer. During an attempt,
-the service main thread hash-checks and reads one canonical row frame, transfers
+The service, pool, and worker share one canonical page-frame carrier. Each
+admitted page is rebuilt once into a canonical UTF-8 artifact whose bytes, byte
+length, and SHA-256 are reused for staging and transfer. During an attempt, the
+service main thread hash-checks and reads one canonical input frame, transfers
 it through a task-scoped `MessagePort`, and waits for worker acknowledgement
 before reading another. The worker strictly rebuilds every input frame, packs
 validated rows into a string table and typed columns, computes through the
-shared graph-build kernel, and paginates the result directly into canonical
-output frames. The owner is the single output trust boundary: it strictly
-rebuilds each returned frame, compares its canonical bytes and descriptor, and
-only then stages it atomically. It never receives a staging path or database,
-canonical-file, Host, Zotero-global, or subprocess authority.
+shared graph-build kernel, and iterates the engine-normalized result directly
+into canonical output page artifacts. The owner is the only output validation
+and staging boundary: it strictly rebuilds each returned frame, compares its
+canonical bytes and descriptor, and only then stages it atomically. The worker
+never receives a staging path or database, canonical-file, Host, Zotero-global,
+or subprocess authority.
 
 Output pages are written below an attempt directory and become addressable only
 after the service rebuilds the final manifest and atomically commits it. Failure
 returns the session to `input_sealed` with a structured error and permits an
 explicit retry; session `cancel` still destroys all state. Core 202 hard-gates
 the 2,000-source/100,000-reference normal profile under the 256 MiB worker old
-generation limit. Target/stress remain report-only. Production routing, basis
-recapture, and repository promotion remain a separate change.
+generation limit. Target/stress profiles are report-only. Production routing,
+basis recapture, and repository promotion are outside this capability.

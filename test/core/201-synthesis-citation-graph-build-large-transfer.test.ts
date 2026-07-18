@@ -10,7 +10,9 @@ import {
 import {
   buildSynthesisCitationGraphBuildTransferManifest,
   buildSynthesisCitationGraphBuildTransferPage,
+  buildSynthesisCitationGraphBuildTransferPageArtifact,
   rebuildSynthesisCitationGraphBuildTransferPage,
+  type SynthesisCitationGraphBuildTransferPage,
 } from "../../packages/synthesis-engine/src/citationGraphBuildTransfer";
 import { canonicalizeSynthesisEngineJson } from "../../packages/synthesis-engine/src/canonicalJson";
 import {
@@ -92,6 +94,18 @@ function inputManifest(request = graphBuildRequest()) {
     },
     pages: pages.map((page) => page.descriptor),
   });
+}
+
+function transferPageFrame(page: SynthesisCitationGraphBuildTransferPage) {
+  const artifact = buildSynthesisCitationGraphBuildTransferPageArtifact(
+    page.descriptor.kind,
+    page.descriptor.pageIndex,
+    page.rows,
+  );
+  return {
+    descriptor: artifact.page.descriptor,
+    bytes: artifact.bytes.buffer as ArrayBuffer,
+  };
 }
 
 function runtimeConfig(
@@ -315,9 +329,15 @@ describe("Synthesis Citation Graph Build large transfer", function () {
         },
         pages: [outputPage.descriptor],
       });
-      owner.beginOutput(first.sessionId, outputManifest);
-      owner.putOutputPage(first.sessionId, outputPage);
-      owner.sealOutput(first.sessionId);
+      const queued = owner.queueExecution(first.sessionId);
+      owner.startExecution(first.sessionId, queued.attempt);
+      owner.startOutput(first.sessionId, queued.attempt);
+      owner.stageAttemptOutputFrame(
+        first.sessionId,
+        queued.attempt,
+        transferPageFrame(outputPage),
+      );
+      owner.commitOutput(first.sessionId, queued.attempt, outputManifest);
       assert.deepEqual(
         owner.getOutputManifest(first.sessionId),
         outputManifest,
@@ -400,7 +420,11 @@ describe("Synthesis Citation Graph Build large transfer", function () {
         0,
         result.nodes,
       );
-      owner.putAttemptOutputPage(begun.sessionId, first.attempt, outputPage);
+      owner.stageAttemptOutputFrame(
+        begun.sessionId,
+        first.attempt,
+        transferPageFrame(outputPage),
+      );
       const failed = owner.failExecution(begun.sessionId, first.attempt, {
         code: "worker_timeout",
         retryable: true,
@@ -417,16 +441,22 @@ describe("Synthesis Citation Graph Build large transfer", function () {
           .catch(errorCode),
         "transfer_output_not_ready",
       );
-      assert.deepEqual(
-        owner.getInputPage(begun.sessionId, "references", 0),
-        inputPages()[1],
+      assert.equal(
+        new TextDecoder().decode(
+          owner.readInputFrame(begun.sessionId, "references", 0).bytes,
+        ),
+        canonicalizeSynthesisEngineJson(inputPages()[1].rows),
       );
 
       const second = owner.queueExecution(begun.sessionId);
       assert.equal(second.attempt, 2);
       owner.startExecution(begun.sessionId, second.attempt);
       owner.startOutput(begun.sessionId, second.attempt);
-      owner.putAttemptOutputPage(begun.sessionId, second.attempt, outputPage);
+      owner.stageAttemptOutputFrame(
+        begun.sessionId,
+        second.attempt,
+        transferPageFrame(outputPage),
+      );
       const outputManifest = buildSynthesisCitationGraphBuildTransferManifest({
         direction: "output",
         header: {
@@ -461,11 +491,7 @@ describe("Synthesis Citation Graph Build large transfer", function () {
       }
       owner.sealInput(begun.sessionId);
 
-      const inputFrame = owner.getInputPageFrame(
-        begun.sessionId,
-        "references",
-        0,
-      );
+      const inputFrame = owner.readInputFrame(begun.sessionId, "references", 0);
       assert.equal(
         new TextDecoder().decode(inputFrame.bytes),
         canonicalizeSynthesisEngineJson(inputPages()[1].rows),
@@ -491,7 +517,7 @@ describe("Synthesis Citation Graph Build large transfer", function () {
       assert.equal(
         await Promise.resolve()
           .then(() =>
-            owner.putAttemptOutputPageFrame(begun.sessionId, queued.attempt, {
+            owner.stageAttemptOutputFrame(begun.sessionId, queued.attempt, {
               descriptor: page.descriptor,
               bytes: malformed.buffer as ArrayBuffer,
             }),
@@ -502,10 +528,10 @@ describe("Synthesis Citation Graph Build large transfer", function () {
       );
 
       assert.deepEqual(
-        owner.putAttemptOutputPageFrame(begun.sessionId, queued.attempt, {
+        owner.stageAttemptOutputFrame(begun.sessionId, queued.attempt, {
           descriptor: page.descriptor,
           bytes: canonicalRows.buffer as ArrayBuffer,
-        }).descriptor,
+        }),
         page.descriptor,
       );
     } finally {
@@ -578,9 +604,15 @@ describe("Synthesis Citation Graph Build large transfer", function () {
           },
           pages: [page.descriptor],
         });
-      owner.beginOutput(begun.sessionId, manifest);
-      owner.putOutputPage(begun.sessionId, page);
-      owner.sealOutput(begun.sessionId);
+      const queued = owner.queueExecution(begun.sessionId);
+      owner.startExecution(begun.sessionId, queued.attempt);
+      owner.startOutput(begun.sessionId, queued.attempt);
+      owner.stageAttemptOutputFrame(
+        begun.sessionId,
+        queued.attempt,
+        transferPageFrame(page),
+      );
+      owner.commitOutput(begun.sessionId, queued.attempt, manifest);
       assert.deepEqual(
         await client.getOutputManifest(connection, begun.sessionId),
         manifest,

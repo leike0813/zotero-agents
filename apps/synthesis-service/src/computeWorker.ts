@@ -10,7 +10,7 @@ import {
   createSynthesisCitationGraphBuildPackedAccumulator,
   createInProcessSynthesisCitationGraphLayoutEngine,
   createInProcessSynthesisCitationGraphMetricsEngine,
-  iterateSynthesisCitationGraphBuildResultPageArtifacts,
+  iterateRebuiltSynthesisCitationGraphBuildResultPageArtifacts,
   rebuildSynthesisCitationGraphLayoutRequest,
   rebuildSynthesisCitationGraphLayoutResult,
   rebuildSynthesisCitationGraphMetricsRequest,
@@ -129,7 +129,7 @@ async function runGraphBuildTransfer(
     const result = accumulator.finish({ checkpoint });
     checkpoint();
     port.postMessage({ type: "output_started" });
-    for (const artifact of iterateSynthesisCitationGraphBuildResultPageArtifacts(
+    for (const artifact of iterateRebuiltSynthesisCitationGraphBuildResultPageArtifacts(
       result,
       {
         pageBytes: SYNTHESIS_SIDECAR_TRANSFER_LIMITS.pageBytes,

@@ -9,7 +9,7 @@ import type {
 } from "../../../packages/synthesis-contracts/src/sidecarTransfer.js";
 import {
   CitationGraphTransferError,
-  type CitationGraphTransferOwner,
+  type CitationGraphTransferExecutionOwner,
 } from "./citationGraphTransferOwner.js";
 import {
   ComputeWorkerPoolError,
@@ -44,7 +44,7 @@ function executionFailure(error: unknown): {
 }
 
 export function createCitationGraphBuildTransferExecutor(options: {
-  owner: CitationGraphTransferOwner;
+  owner: CitationGraphTransferExecutionOwner;
   pool: SynthesisSidecarComputeWorkerPool;
 }): CitationGraphBuildTransferExecutor {
   const active = new Map<
@@ -90,7 +90,7 @@ export function createCitationGraphBuildTransferExecutor(options: {
           async *inputPages() {
             options.owner.startExecution(sessionId, queued.attempt);
             for (const descriptor of manifest.pages) {
-              const frame = options.owner.getInputPageFrame(
+              const frame = options.owner.readInputFrame(
                 sessionId,
                 descriptor.kind,
                 descriptor.pageIndex,
@@ -106,13 +106,12 @@ export function createCitationGraphBuildTransferExecutor(options: {
             options.owner.startOutput(sessionId, queued.attempt);
           },
           outputPage(frame) {
-            const stored = options.owner.putAttemptOutputPageFrame(
-              sessionId,
-              queued.attempt,
-              frame,
-            );
             descriptors.push(
-              stored.descriptor as SynthesisCitationGraphBuildTransferPageDescriptor,
+              options.owner.stageAttemptOutputFrame(
+                sessionId,
+                queued.attempt,
+                frame,
+              ),
             );
           },
           outputComplete(header) {

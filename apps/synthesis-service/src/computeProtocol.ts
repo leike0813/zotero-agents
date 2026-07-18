@@ -93,12 +93,13 @@ export type SynthesisSidecarComputeRunMessage =
       port: unknown;
     });
 
+export type SynthesisSidecarGraphBuildTransferPageFrame = {
+  descriptor: SynthesisCitationGraphBuildTransferPageDescriptor;
+  bytes: ArrayBuffer;
+};
+
 export type SynthesisSidecarTransferPortInputMessage =
-  | {
-      type: "input_page";
-      descriptor: SynthesisCitationGraphBuildTransferPageDescriptor;
-      bytes: ArrayBuffer;
-    }
+  | ({ type: "input_page" } & SynthesisSidecarGraphBuildTransferPageFrame)
   | { type: "input_complete" };
 
 export type SynthesisSidecarTransferPortWorkerMessage =
@@ -108,11 +109,7 @@ export type SynthesisSidecarTransferPortWorkerMessage =
       pageIndex: number;
     }
   | { type: "output_started" }
-  | {
-      type: "output_page";
-      descriptor: SynthesisCitationGraphBuildTransferPageDescriptor;
-      bytes: ArrayBuffer;
-    }
+  | ({ type: "output_page" } & SynthesisSidecarGraphBuildTransferPageFrame)
   | {
       type: "output_complete";
       header: Record<string, unknown>;

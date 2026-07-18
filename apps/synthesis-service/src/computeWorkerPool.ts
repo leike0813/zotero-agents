@@ -45,9 +45,9 @@ import {
   SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION,
   SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION,
   type SynthesisSidecarComputeRunMessage,
+  type SynthesisSidecarGraphBuildTransferPageFrame,
   type SynthesisSidecarTransferPortWorkerMessage,
 } from "./computeProtocol.js";
-import type { SynthesisCitationGraphBuildTransferPageDescriptor } from "../../../packages/synthesis-engine/src/citationGraphBuildTransfer.js";
 import {
   rebuildSynthesisTagVocabularyIndexRequest,
   rebuildSynthesisTagVocabularyIndexResult,
@@ -78,11 +78,6 @@ export const SYNTHESIS_SIDECAR_COMPUTE_LIMITS = Object.freeze({
   }),
 });
 export const SYNTHESIS_SIDECAR_TRANSFER_EXECUTION_TIMEOUT_MS = 30_000;
-
-export type SynthesisSidecarGraphBuildTransferPageFrame = {
-  descriptor: SynthesisCitationGraphBuildTransferPageDescriptor;
-  bytes: ArrayBuffer;
-};
 
 export type SynthesisSidecarGraphBuildTransferRun = {
   header: Record<string, unknown>;
