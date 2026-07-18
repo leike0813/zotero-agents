@@ -95,6 +95,7 @@ jobs:
             --name "Official Workflow Package ${VERSION}" \
             --body "Official Zotero Agents Workflow package ${VERSION}." \
             --target content-feed \
+            --replace-existing true \
             artifact/content-packages/*/packages/*.zip \
             artifact/content-packages/*/packages/*.zip.sha256
 

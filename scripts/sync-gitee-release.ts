@@ -9,6 +9,7 @@ type CliOptions = {
   body: string;
   prerelease: boolean;
   target: string;
+  replaceExisting: boolean;
   files: string[];
 };
 
@@ -41,6 +42,7 @@ function usage(): string {
     "  --body <body>             Release body",
     "  --prerelease <bool>       Mark release as prerelease",
     "  --target <branch-or-sha>  Target commitish",
+    "  --replace-existing <bool> Replace same-name assets for release recovery",
     "  --file <path>             Add one file; can be repeated",
     "",
     "Requires GITEE_TOKEN in the environment.",
@@ -59,6 +61,7 @@ function parseArgs(argv: string[]): CliOptions {
     body: "",
     prerelease: false,
     target: "",
+    replaceExisting: false,
     files: [],
   };
 
@@ -90,6 +93,8 @@ function parseArgs(argv: string[]): CliOptions {
       options.prerelease = parseBoolean(readValue());
     } else if (entry === "--target") {
       options.target = readValue();
+    } else if (entry === "--replace-existing") {
+      options.replaceExisting = parseBoolean(readValue());
     } else if (entry === "--file") {
       options.files.push(readValue());
     } else if (entry.startsWith("--")) {
@@ -265,6 +270,20 @@ async function listAttachments(args: {
   return Array.isArray(attachments) ? attachments : [];
 }
 
+async function deleteAttachment(args: {
+  owner: string;
+  repo: string;
+  releaseId: number | string;
+  attachmentId: number | string;
+  token: string;
+}): Promise<void> {
+  await requestJson(
+    `/repos/${args.owner}/${args.repo}/releases/${args.releaseId}/attach_files/${args.attachmentId}`,
+    args.token,
+    { method: "DELETE" },
+  );
+}
+
 async function uploadAttachment(args: {
   owner: string;
   repo: string;
@@ -366,9 +385,20 @@ async function main() {
     const existing = attachments.filter(
       (attachment) => (attachment.name || attachment.filename) === fileName,
     );
-    if (existing.length > 0) {
+    if (existing.length > 0 && !options.replaceExisting) {
       console.log(`[gitee-release] reused existing asset ${fileName}`);
       continue;
+    }
+    for (const attachment of existing) {
+      if (attachment.id === undefined || attachment.id === null) continue;
+      await deleteAttachment({
+        owner,
+        repo,
+        releaseId,
+        attachmentId: attachment.id,
+        token,
+      });
+      console.log(`[gitee-release] deleted existing asset ${fileName}`);
     }
     await uploadAttachment({ owner, repo, releaseId, filePath, token });
     console.log(`[gitee-release] uploaded ${fileName}`);

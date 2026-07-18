@@ -336,6 +336,10 @@ describe("suite governance constraints", function () {
     );
     assert.match(
       workflowSource,
+      /name: Publish Gitee release assets[\s\S]*?--replace-existing true/,
+    );
+    assert.match(
+      workflowSource,
       /name: Publish content-feed branch to Gitee mirror[\s\S]*?continue-on-error: true/,
     );
     assert.match(
