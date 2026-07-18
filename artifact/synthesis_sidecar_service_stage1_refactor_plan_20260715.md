@@ -1,6 +1,6 @@
 # Stage 1 Detailed Refactor Plan: Synthesis Sidecar Service
 
-> 状态：实施中；WS5 已完成隔离 application/repository/canonical/debug-maintenance foundation 与六项退出门禁，下一阶段为 WS6 shadow verification；尚未进入生产持久化切换
+> 状态：实施中；当前里程碑为 `Stage 1 / WS5 — Private Isolated Synthesis Foundation Complete`，下一阶段为 WS6 shadow verification；这不表示 Stage 1、生产切换、生产就绪或真实机器验收已经完成
 >
 > 日期：2026-07-15
 >
@@ -1038,6 +1038,10 @@ graph layout 作为第一条 process canary，因为：
 
 #### 任务
 
+以下清单是 WS4 已交付的 runtime foundation。remote-capable client、process event
+parity 和 production cutover 不属于本工作流的完成语义，分别由 WS6、WS7 承接；跨平台
+release asset 闭环由 WS9 承接。
+
 - 独立 package/build/entrypoint；
 - 将 matching platform/architecture 的 Node executable、service bundle 和必要原生组件作为插件资产直接分发；
 - launcher 只执行 product-owned runtime 的绝对受控路径，禁止 PATH search、系统 Node、npm 或用户 shell；
@@ -1056,10 +1060,7 @@ graph layout 作为第一条 process canary，因为：
 - `proc.wait()` crash detection、有限退避 restart 和 crash-loop fuse；
 - fail-fast unhandled exception/rejection policy；
 - 有界 worker pool、resource limits、cancel/terminate/replacement；
-- event-loop lag、worker state/restart count、RSS/heap telemetry；
-- remote `SynthesisClient`；
-- SSE/polling operation events；
-- 打包后的 cross-platform launcher contract。
+- event-loop lag、worker state/restart count、RSS/heap telemetry。
 
 #### 测试先行
 
@@ -1077,9 +1078,8 @@ graph layout 作为第一条 process canary，因为：
 - crash-loop fuse；
 - stdout/stderr backpressure；
 - worker hang/crash/OOM simulation 和 bounded replacement；
-- 长计算期间 health/cancel/SSE/shutdown 响应；
-- log redaction；
-- client timeout/abort。
+- 长计算期间 health/cancel/shutdown 响应；
+- log redaction。
 
 #### 退出门禁
 
@@ -1091,11 +1091,13 @@ graph layout 作为第一条 process canary，因为：
 - supervisor 能阻止双实例、孤儿进程和无限 crash restart；
 - 主事件循环不直接执行 CPU 密集 kernel。
 
-### WS5：移植 application、repository 和 canonical files
+### WS5：Private isolated application、repository 和 canonical foundation（已完成）
 
 #### 目标
 
-让完整 Synthesis application 能在 Node service 内对隔离 fixture 运行。
+完成 `Stage 1 / WS5 — Private Isolated Synthesis Foundation Complete`：让 Stage 1
+所需的环境中立 application、repository、canonical 和 debug/maintenance foundation
+在 Node service 内对隔离 DB/root 运行，但不注册生产 route、不接管生产数据或 Host effect。
 
 #### 当前进度
 
@@ -1225,20 +1227,21 @@ graph layout 作为第一条 process canary，因为：
 
 #### 任务
 
-- 拆分 repository table families；
-- 实现 Node SQLite adapter；
-- 移植 schema/migrations；
-- 实现 service-owned canonical file adapter；
-- 移植 workflow apply；
-- 移植 Workbench queries；
-- 移植 explicit operations；
-- 移植 topics/references/graph/knowledge/sync；
-- 移植 debug/maintenance，但保持受限 API；
-- service 创建所有 domain composition；
-- service 主进程保持 DB/canonical/Host effect 唯一所有权，compute workers 只返回待验证结果；
-- 删除 application 对 plugin runtime persistence/log/prefs 的依赖；
-- credentials/prefs 通过受控 config/secret port 解决；
-- Host Bridge export file registry 改成 service asset registry + plugin delivery proxy。
+- 将 repository table families、schema 和严格 row rebuild 收敛到环境中立 SSOT，
+  并提供只打开隔离数据库的 Node SQLite adapter；
+- 在 identity-bound shadow root 中实现 service-owned canonical adapter、journal、CAS、
+  rollback 和 restart recovery；
+- 在 private Node composition 中承接 Workbench chrome、explicit operations、Topic、
+  Reference、Graph、Knowledge、durable sync 和 debug/maintenance foundation；
+- service 主进程只拥有隔离 DB/canonical commit，compute workers 只返回待验证结果；
+- 删除 environment-neutral application 对 plugin runtime persistence、logging 和 prefs
+  的依赖；
+- WebDAV application 只依赖 secret-free `SynthesisHostWebDavSyncPort`；production
+  plugin adapter 继续独占 prefs、credentials、URL resolution 和 HTTP；
+- remote export application 只通过 `SynthesisHostExportDeliveryPort` 提供有界 canonical
+  text entries；production plugin Host adapter 继续独占临时 ZIP、integrity metadata、
+  opaque Host Bridge registration、delivery 和 cleanup；
+- private foundation 不注册 production RPC、`SynthesisClient` route 或自动调用。
 
 #### 拆分优先级
 
@@ -1271,13 +1274,27 @@ graph layout 作为第一条 process canary，因为：
 - canonical topic lifecycle 在 Node 环境通过；
 - repository transaction 不包含 host/file/network 长 IO；
 - repository transaction 和 canonical commit 不运行在 compute worker；
-- 所有生产 consumer 所需 capabilities 已实现或明确从 Stage 1 删除。
+- 所有生产 capability 均已记录为 private foundation、保留的 plugin owner、WS6 parity、
+  WS7 cutover 或明确从 Stage 1 删除，不把尚未路由的生产 consumer 计为已实现。
 
 ### WS6：Shadow verification 和 process canary
 
 #### 目标
 
 在不写生产状态的前提下验证远程实现。
+
+#### 任务
+
+- 为代表性 private application capability 增加 authenticated remote route 和
+  remote-capable `SynthesisClient` transport，默认 production client 保持不变；
+- 为 explicit operations 增加有界 SSE/polling event、timeout、abort 和 cancellation
+  parity；
+- 通过 reverse Host canary 验证 secret-free WebDAV port 与有界
+  `SynthesisHostExportDeliveryPort`，不得把 credentials、prefs、本地路径或 service-owned
+  asset registry 引入 wire contract；
+- 对固定 fixture 或 production input 的只读、脱敏、有界 snapshot 执行语义、资源和
+  failure parity，结果只写独立 shadow DB/root；
+- 在 production copy 上演练 cutover runbook，但不改变 production owner。
 
 #### 允许的 shadow
 
@@ -1338,6 +1355,16 @@ graph layout 作为第一条 process canary，因为：
 #### 目标
 
 一次切换 production DB 和 canonical root 所有权。
+
+#### 任务
+
+- 为全部 production use case 完成 service capability 和 remote-capable client routing；
+- 将 WebDAV、export delivery、library/artifact read 与 Zotero effect 等受限 Host port 接入
+  production reverse-host transport，同时保持 secrets 和临时资产由 plugin adapter 持有；
+- 将所有 production consumers 从 in-process implementation 迁移到同一 grouped client
+  contract，并在切换前保持唯一 plugin writer；
+- 按 runbook 原子转移 production DB/canonical ownership，将 remote client 设为唯一
+  implementation，且不保留自动 in-process fallback。
 
 #### 前置条件
 
