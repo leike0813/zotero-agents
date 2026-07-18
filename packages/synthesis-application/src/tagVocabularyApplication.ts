@@ -148,8 +148,16 @@ type Options = {
 
 const clean = (value: unknown) => String(value ?? "").trim();
 
-function applicationCandidate(
-  repository: SynthesisTagVocabularyApplicationRepository,
+export type SynthesisTagVocabularyApplicationCandidateRepository = Pick<
+  SynthesisTagVocabularyApplicationRepository,
+  | "getTagProtocol"
+  | "listTagVocabularyEntries"
+  | "listTagAliases"
+  | "listTagAbbrevs"
+>;
+
+export function readSynthesisTagVocabularyApplicationCandidate(
+  repository: SynthesisTagVocabularyApplicationCandidateRepository,
 ): SynthesisTagVocabularyApplicationCandidate {
   const protocol = repository.getTagProtocol();
   return rebuildSynthesisTagVocabularyApplicationCandidate({
@@ -218,10 +226,10 @@ function validationRequest(
   };
 }
 
-function stateRecords(
+export function synthesisTagVocabularyStateRecordsFromCandidate(
   candidate: SynthesisTagVocabularyApplicationCandidate,
-  validation: SynthesisTagVocabularyValidationResult,
   timestamp: string,
+  warnings: SynthesisTagVocabularyValidationResult["warnings"] = [],
 ): SynthesisTagVocabularyStateRecords {
   return {
     entries: candidate.entries.map((row) => ({
@@ -258,7 +266,7 @@ function stateRecords(
       facetsJson: JSON.stringify(candidate.protocol.facets),
       updatedAt: timestamp,
     },
-    warnings: validation.warnings.map((warning) => ({
+    warnings: warnings.map((warning) => ({
       warningId: hashSynthesisEngineCanonicalJson({
         code: warning.code,
         tag: warning.tag || "",
@@ -271,6 +279,18 @@ function stateRecords(
       updatedAt: timestamp,
     })),
   };
+}
+
+function stateRecords(
+  candidate: SynthesisTagVocabularyApplicationCandidate,
+  validation: SynthesisTagVocabularyValidationResult,
+  timestamp: string,
+) {
+  return synthesisTagVocabularyStateRecordsFromCandidate(
+    candidate,
+    timestamp,
+    validation.warnings,
+  );
 }
 
 function stagedFromRecord(
@@ -393,7 +413,8 @@ export function createSynthesisTagVocabularyApplication(options: Options) {
 
   const loadVocabulary = (): SynthesisTagVocabularyApplicationSnapshot => {
     const current = state();
-    const candidate = applicationCandidate(repository);
+    const candidate =
+      readSynthesisTagVocabularyApplicationCandidate(repository);
     return {
       ...inspect(),
       ...candidate,
@@ -507,7 +528,7 @@ export function createSynthesisTagVocabularyApplication(options: Options) {
     try {
       const candidate =
         input === undefined
-          ? applicationCandidate(repository)
+          ? readSynthesisTagVocabularyApplicationCandidate(repository)
           : rebuildSynthesisTagVocabularyApplicationCandidate(input);
       return await validateCandidate(candidate);
     } catch {
@@ -638,7 +659,7 @@ export function createSynthesisTagVocabularyApplication(options: Options) {
     } catch {
       return emptyResult("invalid_request", state());
     }
-    const current = applicationCandidate(repository);
+    const current = readSynthesisTagVocabularyApplicationCandidate(repository);
     const original = current.entries.find(
       (row) => row.tag === request.originalTag,
     );
@@ -687,7 +708,7 @@ export function createSynthesisTagVocabularyApplication(options: Options) {
     } catch {
       return emptyResult("invalid_request", state());
     }
-    const current = applicationCandidate(repository);
+    const current = readSynthesisTagVocabularyApplicationCandidate(repository);
     if (!current.entries.some((row) => row.tag === request.originalTag))
       return emptyResult("unchanged", state());
     const entries = current.entries
@@ -865,7 +886,8 @@ export function createSynthesisTagVocabularyApplication(options: Options) {
         const chosen = staged.filter((row) =>
           selected.has(row.tag.toLowerCase()),
         );
-        const candidate = applicationCandidate(repository);
+        const candidate =
+          readSynthesisTagVocabularyApplicationCandidate(repository);
         const existing = new Set(
           candidate.entries.map((row) => row.tag.toLowerCase()),
         );
@@ -1016,7 +1038,8 @@ export function createSynthesisTagVocabularyApplication(options: Options) {
         const current = state();
         if (current?.vocabularyHash !== request.expectedVocabularyHash)
           return emptyResult("basis_mismatch", current);
-        const candidate = applicationCandidate(repository);
+        const candidate =
+          readSynthesisTagVocabularyApplicationCandidate(repository);
         const indexRequest: SynthesisTagVocabularyIndexRequest = {
           ...validationRequest(candidate),
           algorithmVersion: SYNTHESIS_TAG_VOCABULARY_INDEX_VERSION,
@@ -1051,7 +1074,7 @@ export function createSynthesisTagVocabularyApplication(options: Options) {
   };
 
   const exportRegulatorTags = () =>
-    applicationCandidate(repository)
+    readSynthesisTagVocabularyApplicationCandidate(repository)
       .entries.filter((row) => !row.deprecated)
       .map((row) => row.tag)
       .sort();

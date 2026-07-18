@@ -2,7 +2,11 @@ import { assert } from "chai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { buildSynthesisKnowledgeGraphPaths } from "../../src/modules/synthesis/foundation";
+import {
+  buildSynthesisKnowledgeGraphPaths,
+  hashCanonicalJson,
+} from "../../src/modules/synthesis/foundation";
+import { buildSynthesisKnowledgeSignature } from "../../packages/synthesis-application/src/knowledgeCheckpointCompatibility";
 import { createSynthesisConceptKbService } from "../../src/modules/synthesis/conceptKb";
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
@@ -162,6 +166,22 @@ describe("Synthesis checkpoint export", function () {
     assert.equal(verified.domains.topicGraph.db.counts.nodes, 1);
     assert.equal(verified.domains.conceptKb.db.counts.concepts, 1);
     assert.equal(verified.domains.tagVocabulary.db.counts.entries, 1);
+    const compatibilitySignature = buildSynthesisKnowledgeSignature(
+      { review_items: 0, nodes: 1, edges: 0 },
+      { nodes: [{ topic_id: "topic-checkpoint" }], edges: [] },
+    );
+    assert.deepEqual(compatibilitySignature.counts, {
+      edges: 0,
+      nodes: 1,
+      review_items: 0,
+    });
+    assert.equal(
+      compatibilitySignature.hash,
+      hashCanonicalJson({
+        nodes: [{ topic_id: "topic-checkpoint" }],
+        edges: [],
+      }),
+    );
 
     const vocabularyPath = path.join(paths.tagsRoot, "vocabulary.json");
     const envelope = JSON.parse(await readRuntimeTextFile(vocabularyPath));

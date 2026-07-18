@@ -191,6 +191,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/apps/synthesis-service/src/tagVocabularyApplicationNode.js",
       "service/apps/synthesis-service/src/conceptKbApplicationNode.js",
       "service/apps/synthesis-service/src/topicGraphApplicationNode.js",
+      "service/apps/synthesis-service/src/knowledgeCheckpointApplicationNode.js",
       "service/packages/synthesis-engine/src/index.js",
       "service/packages/synthesis-engine/src/citationGraphBuild.js",
       "service/packages/synthesis-engine/src/citationGraphBuildTransfer.js",
@@ -208,6 +209,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/packages/synthesis-contracts/src/tagVocabularyCore.js",
       "service/packages/synthesis-contracts/src/conceptKbApplication.js",
       "service/packages/synthesis-contracts/src/conceptKbCore.js",
+      "service/packages/synthesis-contracts/src/knowledgeCheckpoint.js",
       "service/packages/synthesis-contracts/src/topicGraphApplication.js",
       "service/packages/synthesis-contracts/src/topicGraphCore.js",
       "service/packages/synthesis-contracts/src/workbench.js",
@@ -223,6 +225,8 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/packages/synthesis-application/src/tagVocabularyApplication.js",
       "service/packages/synthesis-application/src/conceptKbApplication.js",
       "service/packages/synthesis-application/src/topicGraphApplication.js",
+      "service/packages/synthesis-application/src/knowledgeCheckpointApplication.js",
+      "service/packages/synthesis-application/src/knowledgeCheckpointCompatibility.js",
       "service/packages/synthesis-repository/src/index.js",
       "service/packages/synthesis-repository/src/citationGraph.js",
       "service/packages/synthesis-repository/src/referenceRefresh.js",
@@ -230,6 +234,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/packages/synthesis-repository/src/tagVocabulary.js",
       "service/packages/synthesis-repository/src/conceptKb.js",
       "service/packages/synthesis-repository/src/topicGraph.js",
+      "service/packages/synthesis-repository/src/knowledgeCheckpoint.js",
       "service/node_modules/d3-force/LICENSE",
       "service/node_modules/d3-force/src/index.js",
       "service/node_modules/d3-dispatch/LICENSE",
@@ -515,6 +520,10 @@ describe("Synthesis sidecar runtime packaging", function () {
     );
     assert.include(
       first.inputs,
+      "apps/synthesis-service/src/knowledgeCheckpointApplicationNode.ts",
+    );
+    assert.include(
+      first.inputs,
       "apps/synthesis-service/src/referenceMatchingReviewApplicationNode.ts",
     );
     assert.include(
@@ -539,6 +548,10 @@ describe("Synthesis sidecar runtime packaging", function () {
       first.inputs,
       "packages/synthesis-repository/src/tagVocabulary.ts",
       "packages/synthesis-repository/src/conceptKb.ts",
+    );
+    assert.include(
+      first.inputs,
+      "packages/synthesis-repository/src/knowledgeCheckpoint.ts",
     );
     assert.include(first.inputs, "packages/synthesis-repository/package.json");
     assert.include(first.inputs, "packages/synthesis-application/src/index.ts");
@@ -566,6 +579,14 @@ describe("Synthesis sidecar runtime packaging", function () {
       first.inputs,
       "packages/synthesis-application/src/tagVocabularyApplication.ts",
       "packages/synthesis-application/src/conceptKbApplication.ts",
+    );
+    assert.include(
+      first.inputs,
+      "packages/synthesis-application/src/knowledgeCheckpointApplication.ts",
+    );
+    assert.include(
+      first.inputs,
+      "packages/synthesis-application/src/knowledgeCheckpointCompatibility.ts",
     );
     assert.include(
       first.inputs,
@@ -615,6 +636,10 @@ describe("Synthesis sidecar runtime packaging", function () {
       first.inputs,
       "packages/synthesis-contracts/src/workbench.ts",
     );
+    assert.include(
+      first.inputs,
+      "packages/synthesis-contracts/src/knowledgeCheckpoint.ts",
+    );
     assert.include(first.inputs, "package-lock.json");
     assert.deepEqual(SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES, [
       "d3-dispatch",
@@ -660,6 +685,7 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(xpiCheck, "tagVocabularyApplicationNode.js");
     assert.include(xpiCheck, "tagVocabularyCore.js");
     assert.include(xpiCheck, "conceptKbApplicationNode.js");
+    assert.include(xpiCheck, "knowledgeCheckpointApplicationNode.js");
     assert.include(xpiCheck, "conceptKbIndex.js");
     assert.include(xpiCheck, "conceptKbCore.js");
     assert.include(xpiCheck, "packages/synthesis-repository/src/index.js");
@@ -679,6 +705,10 @@ describe("Synthesis sidecar runtime packaging", function () {
       xpiCheck,
       "packages/synthesis-repository/src/tagVocabulary.js",
       "packages/synthesis-repository/src/conceptKb.js",
+    );
+    assert.include(
+      xpiCheck,
+      "packages/synthesis-repository/src/knowledgeCheckpoint.js",
     );
     assert.include(xpiCheck, "packages/synthesis-application/src/index.js");
     assert.include(
@@ -716,6 +746,14 @@ describe("Synthesis sidecar runtime packaging", function () {
     );
     assert.include(
       xpiCheck,
+      "packages/synthesis-application/src/knowledgeCheckpointApplication.js",
+    );
+    assert.include(
+      xpiCheck,
+      "packages/synthesis-application/src/knowledgeCheckpointCompatibility.js",
+    );
+    assert.include(
+      xpiCheck,
       "packages/synthesis-contracts/src/topicApplication.js",
     );
     assert.include(
@@ -738,6 +776,10 @@ describe("Synthesis sidecar runtime packaging", function () {
       "packages/synthesis-contracts/src/conceptKbCore.js",
     );
     assert.include(xpiCheck, "packages/synthesis-contracts/src/workbench.js");
+    assert.include(
+      xpiCheck,
+      "packages/synthesis-contracts/src/knowledgeCheckpoint.js",
+    );
     assert.include(xpiCheck, "node_modules/d3-force/LICENSE");
     assert.equal(runtimeArchiveName("win32-x64"), "node-v24.18.0-win-x64.zip");
     assert.equal(

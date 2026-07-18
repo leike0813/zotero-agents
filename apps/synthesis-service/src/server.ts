@@ -74,6 +74,7 @@ import { createSynthesisSidecarReferenceMatchingReviewApplication } from "./refe
 import { createSynthesisSidecarTagVocabularyApplication } from "./tagVocabularyApplicationNode.js";
 import { createSynthesisSidecarConceptKbApplication } from "./conceptKbApplicationNode.js";
 import { createSynthesisSidecarTopicGraphApplication } from "./topicGraphApplicationNode.js";
+import { createSynthesisSidecarKnowledgeCheckpointApplication } from "./knowledgeCheckpointApplicationNode.js";
 import {
   rebuildSynthesisTopicCanonicalInspectRequest,
   rebuildSynthesisTopicCanonicalInspectResult,
@@ -333,6 +334,10 @@ export async function startSynthesisSidecarServer(
     repository: repository.store,
     computePool,
   });
+  const knowledgeCheckpointApplication =
+    createSynthesisSidecarKnowledgeCheckpointApplication({
+      repository: repository.store,
+    });
   const transferExecutor =
     options.transferExecutor ??
     createCitationGraphBuildTransferExecutor({
@@ -346,6 +351,7 @@ export async function startSynthesisSidecarServer(
     }
     shutdownStarted = true;
     lifecycleState = "stopping";
+    knowledgeCheckpointApplication.stopAdmission();
     topicApplication.stopAdmission();
     citationGraphApplication.stopAdmission();
     referenceRefreshApplication.stopAdmission();
@@ -360,6 +366,7 @@ export async function startSynthesisSidecarServer(
       serviceInstanceId,
     });
     void (async () => {
+      await knowledgeCheckpointApplication.shutdown();
       await referenceRefreshApplication.shutdown();
       await referenceMatchingReviewApplication.shutdown();
       await tagVocabularyApplication.shutdown();
@@ -816,6 +823,7 @@ export async function startSynthesisSidecarServer(
     });
   } catch (error) {
     transferExecutor.shutdown();
+    await knowledgeCheckpointApplication.shutdown();
     await referenceRefreshApplication.shutdown();
     await referenceMatchingReviewApplication.shutdown();
     await tagVocabularyApplication.shutdown();

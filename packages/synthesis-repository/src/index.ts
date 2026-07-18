@@ -9,6 +9,7 @@ export const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_SCHEMA_META_KEY =
 
 export * from "./citationGraph.js";
 export * from "./conceptKb.js";
+export * from "./knowledgeCheckpoint.js";
 export * from "./referenceMatchingReview.js";
 export * from "./referenceRefresh.js";
 export * from "./tagVocabulary.js";
@@ -26,6 +27,11 @@ import {
   replaceSynthesisConceptKbState,
   type SynthesisConceptKbStateRecords,
 } from "./conceptKb.js";
+import {
+  captureSynthesisKnowledgeCheckpointRepositoryState,
+  replaceSynthesisKnowledgeCheckpointRepositoryState,
+  type SynthesisKnowledgeCheckpointRepositoryReplacement,
+} from "./knowledgeCheckpoint.js";
 import {
   ensureSynthesisCitationGraphApplicationRepositorySchema,
   getSynthesisCitationGraphApplicationState,
@@ -1036,6 +1042,20 @@ export function createSynthesisRepositoryFoundationStore(options: {
     initializeTagVocabularyApplication,
     initializeConceptKbApplication,
     initializeTopicGraphApplication,
+    captureKnowledgeCheckpointState() {
+      initializeTagVocabularyApplication();
+      initializeConceptKbApplication();
+      initializeTopicGraphApplication();
+      return captureSynthesisKnowledgeCheckpointRepositoryState(db);
+    },
+    replaceKnowledgeCheckpointState(
+      args: SynthesisKnowledgeCheckpointRepositoryReplacement,
+    ) {
+      initializeTagVocabularyApplication();
+      initializeConceptKbApplication();
+      initializeTopicGraphApplication();
+      return replaceSynthesisKnowledgeCheckpointRepositoryState(db, args);
+    },
     getTopicGraphApplicationState() {
       initializeTopicGraphApplication();
       return getSynthesisTopicGraphApplicationState(db);

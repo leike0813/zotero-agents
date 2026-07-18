@@ -18,6 +18,7 @@ import {
   runtimePathExists,
 } from "../runtimePersistence";
 import { joinPath } from "../../utils/path";
+import { buildSynthesisKnowledgeSignature } from "../../../packages/synthesis-application/src/knowledgeCheckpointCompatibility";
 
 type ServiceOptions = {
   root: string;
@@ -67,19 +68,6 @@ async function readCheckpointAssets(directory: string) {
   return assets;
 }
 
-function countObject(values: Record<string, number>) {
-  return Object.fromEntries(
-    Object.entries(values).sort(([left], [right]) => left.localeCompare(right)),
-  ) as Record<string, number>;
-}
-
-function signature(counts: Record<string, number>, records: unknown) {
-  return {
-    counts: countObject(counts),
-    hash: hashCanonicalJson(records),
-  };
-}
-
 type VerifyDomain = {
   ok: boolean;
   db: { counts: Record<string, number>; hash: string };
@@ -94,8 +82,8 @@ type VerifyDomain = {
 
 function verifyDomain(args: {
   domain: string;
-  db: ReturnType<typeof signature>;
-  checkpoint: ReturnType<typeof signature>;
+  db: ReturnType<typeof buildSynthesisKnowledgeSignature>;
+  checkpoint: ReturnType<typeof buildSynthesisKnowledgeSignature>;
 }): VerifyDomain {
   const diagnostics: VerifyDomain["diagnostics"] = [];
   const keys = new Set([
@@ -391,7 +379,7 @@ export function createSynthesisCheckpointExportService(
     const domains = {
       topicGraph: verifyDomain({
         domain: "topicGraph",
-        db: signature(
+        db: buildSynthesisKnowledgeSignature(
           {
             nodes: topicDbRecords.nodes.length,
             edges: topicDbRecords.edges.length,
@@ -399,7 +387,7 @@ export function createSynthesisCheckpointExportService(
           },
           topicDbRecords,
         ),
-        checkpoint: signature(
+        checkpoint: buildSynthesisKnowledgeSignature(
           {
             nodes: topicCheckpointRecords.nodes.length,
             edges: topicCheckpointRecords.edges.length,
@@ -410,7 +398,7 @@ export function createSynthesisCheckpointExportService(
       }),
       conceptKb: verifyDomain({
         domain: "conceptKb",
-        db: signature(
+        db: buildSynthesisKnowledgeSignature(
           {
             concepts: conceptDbRecords.concepts.length,
             senses: conceptDbRecords.senses.length,
@@ -421,7 +409,7 @@ export function createSynthesisCheckpointExportService(
           },
           conceptDbRecords,
         ),
-        checkpoint: signature(
+        checkpoint: buildSynthesisKnowledgeSignature(
           {
             concepts: conceptCheckpointRecords.concepts.length,
             senses: conceptCheckpointRecords.senses.length,
@@ -435,7 +423,7 @@ export function createSynthesisCheckpointExportService(
       }),
       tagVocabulary: verifyDomain({
         domain: "tagVocabulary",
-        db: signature(
+        db: buildSynthesisKnowledgeSignature(
           {
             entries: tagDbRecords.entries.length,
             aliases: Object.keys(tagDbRecords.aliases).length,
@@ -444,7 +432,7 @@ export function createSynthesisCheckpointExportService(
           },
           tagDbRecords,
         ),
-        checkpoint: signature(
+        checkpoint: buildSynthesisKnowledgeSignature(
           {
             entries: tagCheckpointRecords.entries.length,
             aliases: Object.keys(tagCheckpointRecords.aliases).length,

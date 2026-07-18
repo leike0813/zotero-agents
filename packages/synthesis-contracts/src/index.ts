@@ -9,6 +9,7 @@ export * from "./exportDelivery";
 export * from "./graph";
 export * from "./hostRead";
 export * from "./itemRef";
+export * from "./knowledgeCheckpoint";
 export * from "./libraryIndex";
 export * from "./lifecycle";
 export * from "./references";

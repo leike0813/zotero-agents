@@ -22,6 +22,7 @@ Core modules implementing this subsystem are:
 | Concept KB Index Engine | `packages/synthesis-engine/src/conceptKbIndex.ts` | Bounded environment-neutral search, overlay, and exact concept/alias query computation |
 | Tag Vocabulary | `packages/synthesis-application/src/tagVocabularyApplication.ts`, `packages/synthesis-repository/src/tagVocabulary.ts`, `src/modules/synthesis/tagVocabulary.ts` | Shared isolated application/repository rules plus production plugin import, checkpoint, WebDAV, Host-effect, and projection compatibility composition |
 | Tag Vocabulary Engine | `packages/synthesis-engine/src/tagVocabulary.ts` | Bounded environment-neutral TagVocab v1 validation and index construction |
+| Knowledge Checkpoint | `packages/synthesis-contracts/src/knowledgeCheckpoint.ts`, `packages/synthesis-application/src/knowledgeCheckpointApplication.ts`, `packages/synthesis-repository/src/knowledgeCheckpoint.ts` | Strict private SQLite-only checkpoint capture, verification, preview, and atomic full replacement across active Tag Vocabulary, Concept KB, and Topic Graph aggregates |
 | Reference Matcher Engine | `packages/synthesis-engine/src/referenceMatcher.ts` | Bounded environment-neutral reference binding and clustered canonical deduplication |
 | Registry | `src/modules/synthesis/registry.ts` | Reference sidecar registry index rows |
 
@@ -214,6 +215,7 @@ Each knowledge domain follows a similar service pattern:
 | Topic artifact lifecycle | `SynthesisTopicStructuredArtifactEngine` plus application adapter | Four strict asynchronous compute methods; application-owned workspace reads, digest checks, hashes, canonical promotion, metadata/index, proposal ingestion, discovery, and autosync |
 | Concept KB | `createSynthesisConceptKbService()` | ingestCardProposals, applyReviewAction, deleteEntries, exportCheckpoint, rebuildIndex |
 | Tag Vocabulary | `SynthesisTagVocabularyEngine` plus shared/private and production application adapters | Strict bounded `validate()` and `buildIndex()` computation. The private sidecar application owns isolated CAS transactions, staged suggestions, audits, index promotion, and durable pending Host effects; production plugin composition retains import/checkpoint, manifests, WebDAV, progress, projection registration, and Host adapters. |
+| Knowledge Checkpoint | `createSynthesisKnowledgeCheckpointApplication()` | Builds and verifies deterministic active-knowledge checkpoints, previews complete replacement, and applies one acknowledged receipt under a shared three-domain CAS transaction. It excludes runtime and rebuildable rows, remains private to the isolated sidecar, and does not replace production checkpoint or WebDAV composition. |
 | Reference Matcher | `SynthesisReferenceMatcherEngine` plus application adapter | Strict `matchBindings()` and `dedupeCanonicals()` contracts; five binding policies and bounded cluster-first dedupe share normalization and hashing primitives |
 | Registry | `buildReferenceSidecarIndexRow()` | Scan note payloads, compute 5 facets (identity/metadata/artifact/reference/topic_usage) |
 

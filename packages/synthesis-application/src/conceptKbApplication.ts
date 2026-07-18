@@ -155,8 +155,18 @@ export function hashSynthesisConceptKbSnapshot(
   );
 }
 
-function fromRecords(
-  repository: SynthesisConceptKbApplicationRepository,
+export type SynthesisConceptKbApplicationSnapshotRepository = Pick<
+  SynthesisConceptKbApplicationRepository,
+  | "listConcepts"
+  | "listConceptSenses"
+  | "listConceptAliases"
+  | "listConceptRelations"
+  | "listConceptReviewItems"
+  | "listTopicConceptLinks"
+>;
+
+export function readSynthesisConceptKbApplicationSnapshot(
+  repository: SynthesisConceptKbApplicationSnapshotRepository,
 ): SynthesisConceptKbApplicationSnapshot {
   return rebuildSynthesisConceptKbApplicationSnapshot({
     concepts: repository.listConcepts().map((row) => ({
@@ -224,7 +234,7 @@ function fromRecords(
   });
 }
 
-function toRecords(
+export function synthesisConceptKbStateRecordsFromSnapshot(
   snapshot: SynthesisConceptKbApplicationSnapshot,
 ): SynthesisConceptKbStateRecords {
   return {
@@ -540,7 +550,9 @@ export function createSynthesisConceptKbApplication(options: Options) {
     const current = state();
     return {
       state: inspect(),
-      snapshot: current ? fromRecords(repository) : emptySnapshot(),
+      snapshot: current
+        ? readSynthesisConceptKbApplicationSnapshot(repository)
+        : emptySnapshot(),
       index:
         current?.indexJson && current.indexJson !== "{}"
           ? (JSON.parse(current.indexJson) as SynthesisConceptKbIndexResult)
@@ -581,7 +593,7 @@ export function createSynthesisConceptKbApplication(options: Options) {
     const revision = repository.replaceConceptKbApplicationState({
       expectedManifestHash,
       manifestHash,
-      state: toRecords(snapshot),
+      state: synthesisConceptKbStateRecordsFromSnapshot(snapshot),
       now: now(),
     });
     if (revision === null) return emptyResult("basis_mismatch", state());
@@ -616,7 +628,9 @@ export function createSynthesisConceptKbApplication(options: Options) {
         const current = state();
         if ((current?.manifestHash ?? null) !== request.expectedManifestHash)
           return emptyResult("basis_mismatch", current);
-        const snapshot = current ? fromRecords(repository) : emptySnapshot();
+        const snapshot = current
+          ? readSynthesisConceptKbApplicationSnapshot(repository)
+          : emptySnapshot();
         const changed: string[] = [];
         const reviews: string[] = [];
         const timestamp = now();
@@ -678,7 +692,7 @@ export function createSynthesisConceptKbApplication(options: Options) {
         if ((current?.manifestHash ?? null) !== request.expectedManifestHash)
           return emptyResult("basis_mismatch", current);
         if (!current) return emptyResult("not_found", current);
-        const snapshot = fromRecords(repository);
+        const snapshot = readSynthesisConceptKbApplicationSnapshot(repository);
         const item = snapshot.reviewItems.find(
           (row) => row.reviewId === request.reviewId && row.status === "open",
         );
@@ -735,7 +749,7 @@ export function createSynthesisConceptKbApplication(options: Options) {
         if ((current?.manifestHash ?? null) !== request.expectedManifestHash)
           return emptyResult("basis_mismatch", current);
         if (!current) return emptyResult("not_found", current);
-        const snapshot = fromRecords(repository);
+        const snapshot = readSynthesisConceptKbApplicationSnapshot(repository);
         const concept = snapshot.concepts.find(
           (row) => row.conceptId === request.conceptId,
         );
@@ -765,7 +779,7 @@ export function createSynthesisConceptKbApplication(options: Options) {
         if ((current?.manifestHash ?? null) !== request.expectedManifestHash)
           return emptyResult("basis_mismatch", current);
         if (!current) return emptyResult("not_found", current);
-        const snapshot = fromRecords(repository);
+        const snapshot = readSynthesisConceptKbApplicationSnapshot(repository);
         const deleted = new Set(
           request.conceptIds.filter((id) =>
             snapshot.concepts.some((row) => row.conceptId === id),
@@ -823,7 +837,7 @@ export function createSynthesisConceptKbApplication(options: Options) {
         const indexRequest: SynthesisConceptKbIndexRequest = {
           contractVersion: SYNTHESIS_CONCEPT_KB_CONTRACT_VERSION,
           algorithmVersion: SYNTHESIS_CONCEPT_KB_INDEX_VERSION,
-          ...source(fromRecords(repository)),
+          ...source(readSynthesisConceptKbApplicationSnapshot(repository)),
           sourceManifestHash: current.manifestHash,
           rebuiltAt: now(),
         };
@@ -869,7 +883,9 @@ export function createSynthesisConceptKbApplication(options: Options) {
     const request = rebuildSynthesisConceptKbApplicationQueryRequest(input);
     if (stopping)
       throw Object.assign(new Error("stopping"), { code: "stopping" });
-    const snapshot = state() ? fromRecords(repository) : emptySnapshot();
+    const snapshot = state()
+      ? readSynthesisConceptKbApplicationSnapshot(repository)
+      : emptySnapshot();
     const queryRequest: SynthesisConceptKbQueryRequest = {
       contractVersion: SYNTHESIS_CONCEPT_KB_CONTRACT_VERSION,
       algorithmVersion: SYNTHESIS_CONCEPT_KB_QUERY_VERSION,

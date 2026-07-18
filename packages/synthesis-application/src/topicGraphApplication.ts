@@ -120,8 +120,13 @@ export function hashSynthesisTopicGraphSnapshot(
   );
 }
 
-function fromRecords(
-  repository: SynthesisTopicGraphApplicationRepository,
+export type SynthesisTopicGraphApplicationSnapshotRepository = Pick<
+  SynthesisTopicGraphApplicationRepository,
+  "listTopicGraphNodes" | "listTopicGraphEdges" | "listTopicGraphReviewItems"
+>;
+
+export function readSynthesisTopicGraphApplicationSnapshot(
+  repository: SynthesisTopicGraphApplicationSnapshotRepository,
 ): SynthesisTopicGraphApplicationSnapshot {
   return rebuildSynthesisTopicGraphApplicationSnapshot({
     nodes: repository.listTopicGraphNodes().map((row) => ({
@@ -171,7 +176,7 @@ function fromRecords(
     })),
   });
 }
-function toRecords(
+export function synthesisTopicGraphStateRecordsFromSnapshot(
   snapshot: SynthesisTopicGraphApplicationSnapshot,
 ): SynthesisTopicGraphStateRecords {
   return {
@@ -378,7 +383,9 @@ export function createSynthesisTopicGraphApplication(options: Options) {
   };
   const load = (): SynthesisTopicGraphApplicationLoaded => ({
     state: inspect(),
-    snapshot: state() ? fromRecords(repository) : emptySnapshot(),
+    snapshot: state()
+      ? readSynthesisTopicGraphApplicationSnapshot(repository)
+      : emptySnapshot(),
   });
   const readIndex = () => {
     const current = state();
@@ -423,7 +430,7 @@ export function createSynthesisTopicGraphApplication(options: Options) {
     const revision = repository.replaceTopicGraphApplicationState({
       expectedManifestHash,
       manifestHash,
-      state: toRecords(snapshot),
+      state: synthesisTopicGraphStateRecordsFromSnapshot(snapshot),
       now: now(),
     });
     if (revision === null) return emptyResult("basis_mismatch", state());
@@ -461,7 +468,9 @@ export function createSynthesisTopicGraphApplication(options: Options) {
         if ((current?.manifestHash ?? null) !== request.expectedManifestHash) {
           return emptyResult("basis_mismatch", current);
         }
-        const snapshot = current ? fromRecords(repository) : emptySnapshot();
+        const snapshot = current
+          ? readSynthesisTopicGraphApplicationSnapshot(repository)
+          : emptySnapshot();
         const nodes = new Map(snapshot.nodes.map((row) => [row.topicId, row]));
         const edges = new Map(snapshot.edges.map((row) => [row.edgeId, row]));
         for (const row of request.nodes) nodes.set(row.topicId, row);
@@ -496,7 +505,9 @@ export function createSynthesisTopicGraphApplication(options: Options) {
         if ((current?.manifestHash ?? null) !== request.expectedManifestHash) {
           return emptyResult("basis_mismatch", current);
         }
-        const snapshot = current ? fromRecords(repository) : emptySnapshot();
+        const snapshot = current
+          ? readSynthesisTopicGraphApplicationSnapshot(repository)
+          : emptySnapshot();
         const previous = snapshot.nodes.find(
           (row) => row.topicId === request.topicId,
         );
@@ -538,7 +549,9 @@ export function createSynthesisTopicGraphApplication(options: Options) {
         if ((current?.manifestHash ?? null) !== request.expectedManifestHash) {
           return emptyResult("basis_mismatch", current);
         }
-        const snapshot = current ? fromRecords(repository) : emptySnapshot();
+        const snapshot = current
+          ? readSynthesisTopicGraphApplicationSnapshot(repository)
+          : emptySnapshot();
         const nodes = new Map(snapshot.nodes.map((row) => [row.topicId, row]));
         const edges = new Map(snapshot.edges.map((row) => [row.edgeId, row]));
         const reviews = new Map(
@@ -703,7 +716,7 @@ export function createSynthesisTopicGraphApplication(options: Options) {
           return emptyResult("basis_mismatch", current);
         }
         if (!current) return emptyResult("not_found", current);
-        const snapshot = fromRecords(repository);
+        const snapshot = readSynthesisTopicGraphApplicationSnapshot(repository);
         const edge = snapshot.edges.find(
           (row) => row.edgeId === request.edgeId,
         );
@@ -732,7 +745,7 @@ export function createSynthesisTopicGraphApplication(options: Options) {
           return emptyResult("basis_mismatch", current);
         }
         if (!current) return emptyResult("not_found", current);
-        const snapshot = fromRecords(repository);
+        const snapshot = readSynthesisTopicGraphApplicationSnapshot(repository);
         const review = snapshot.reviewItems.find(
           (row) => row.reviewId === request.reviewId && row.status === "open",
         );
@@ -802,7 +815,7 @@ export function createSynthesisTopicGraphApplication(options: Options) {
           return emptyResult("basis_mismatch", current);
         }
         if (!current) return emptyResult("not_found", current);
-        const snapshot = fromRecords(repository);
+        const snapshot = readSynthesisTopicGraphApplicationSnapshot(repository);
         const timestamp = now();
         const changedEdges: string[] = [];
         const reviews: string[] = [];
@@ -851,7 +864,7 @@ export function createSynthesisTopicGraphApplication(options: Options) {
           return emptyResult("basis_mismatch", current);
         }
         if (!current) return emptyResult("not_found", current);
-        const snapshot = fromRecords(repository);
+        const snapshot = readSynthesisTopicGraphApplicationSnapshot(repository);
         const ids = new Set(request.topicIds);
         const changedNodes = snapshot.nodes
           .filter(
@@ -906,7 +919,9 @@ export function createSynthesisTopicGraphApplication(options: Options) {
           algorithmVersion: SYNTHESIS_TOPIC_GRAPH_INDEX_ALGORITHM_VERSION,
           sourceManifestHash: current.manifestHash,
           rebuiltAt: now(),
-          ...engineSource(fromRecords(repository)),
+          ...engineSource(
+            readSynthesisTopicGraphApplicationSnapshot(repository),
+          ),
         };
         try {
           const result = rebuildSynthesisTopicGraphIndexResult(

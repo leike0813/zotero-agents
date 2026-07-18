@@ -13,7 +13,9 @@ Reference Matching/Review, Citation Graph, Tag Vocabulary, Concept KB, and Topic
 application schemas, and
 reconciles interrupted shadow operations. It then initializes isolated Topic
 application state and composes a private list/detail/apply application after
-repository and canonical recovery. It also opens an identity-bound Topic
+repository and canonical recovery. After repository recovery it also composes a
+private Tag/Concept/Topic Graph knowledge checkpoint coordinator with one
+process-local receipt and no HTTP or worker route. It also opens an identity-bound Topic
 canonical shadow under the same profile root and recovers only its one global
 transaction journal; it does not scan Topics during startup. Identity, schema,
 or malformed-journal corruption aborts startup. Health and handshake return
@@ -130,9 +132,11 @@ Owner conflicts, unsupported or corrupt runtimes, private-file failures, and
 identity incompatibility require explicit recovery.
 
 stdout and stderr are continuously drained with bounded retained tails and do
-not drive per-chunk state updates. Controlled shutdown stops compute, Topic
-Topic/Citation Graph application and canonical-write admission, cancels queued and active tasks,
-awaits active graph compute, then marks the repository and canonical shadow stopping and closes SQLite,
+not drive per-chunk state updates. Controlled shutdown first stops knowledge
+checkpoint admission, clears its receipt, and drains its active operation. It
+then stops compute, Topic/Citation Graph application and canonical-write
+admission, cancels queued and active tasks, awaits active graph compute, marks
+the repository and canonical shadow stopping, and closes SQLite,
 and terminates the worker within one 500 ms service budget before closing the
 server. The plugin then waits within its own shutdown
 budget and directly kills the service process if required; terminating that Node

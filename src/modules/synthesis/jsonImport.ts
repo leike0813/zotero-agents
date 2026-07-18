@@ -49,6 +49,7 @@ import {
   type SynthesisTopicGraphNode,
   type SynthesisTopicGraphReviewItem,
 } from "./topicGraph";
+import { normalizeSynthesisKnowledgeCounts } from "../../../packages/synthesis-application/src/knowledgeCheckpointCompatibility";
 
 export type SynthesisJsonImportDiagnostic = {
   code: string;
@@ -452,7 +453,11 @@ function domainReport(
   counts: Record<string, number>,
   diagnostics: SynthesisJsonImportDiagnostic[],
 ): SynthesisJsonImportDomainReport {
-  return { source, counts, diagnostics };
+  return {
+    source,
+    counts: normalizeSynthesisKnowledgeCounts(counts),
+    diagnostics,
+  };
 }
 
 function reportFor(

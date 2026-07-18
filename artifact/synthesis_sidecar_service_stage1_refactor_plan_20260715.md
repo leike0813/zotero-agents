@@ -1,6 +1,6 @@
 # Stage 1 Detailed Refactor Plan: Synthesis Sidecar Service
 
-> 状态：实施中；WS5 已建立隔离 repository、Topic canonical shadow 与六个私有领域 application foundation，尚未进入生产持久化切换
+> 状态：实施中；WS5 已建立隔离 repository、Topic canonical shadow、七个私有领域 application foundation 与 knowledge checkpoint coordinator，尚未进入生产持久化切换
 >
 > 日期：2026-07-15
 >
@@ -1178,6 +1178,14 @@ graph layout 作为第一条 process canary，因为：
   manifest 仍 active 时提升；失败、malformed result 或 supersession 保留 last-good index。当前没有
   checkpoint/import/export、canonical asset delivery、discovery cascade、authenticated RPC、public
   capability 或 production route。
+- `add-synthesis-sidecar-knowledge-checkpoint-application-foundation` 已完成拆分优先级第 7 项的
+  SQLite-only 首个闭合切片：严格、版本化、有界的 checkpoint 覆盖 active Tag Vocabulary、
+  Concept KB 六类 row 与 Topic Graph 三类 row，hash 绑定规范化 payload、三个 domain basis 与
+  contract version。preview 最多保留一个进程内 receipt，并报告完整 replacement diff 与用户决定
+  覆盖；apply 要求 checkpoint hash、单次 receipt 和显式 full-replacement 确认，在一个 repository
+  transaction 内执行三 basis CAS。Tag staged/audit/pending effect 保持，三个 last-good index payload
+  保持但统一标记 stale。该 coordinator 没有 HTTP/RPC、worker operation、public capability 或
+  production route；durable bundle、WebDAV 与生产 checkpoint/import composition 仍由后续切片负责。
 - 此切片不是 production repository mirror 或 route。WS6 仍需完成 shadow parity，
   WS7 仍需一次性切换 DB/canonical single writer；当前 service 不接触生产
   `synthesis.db`、production canonical files、Host capability 或公开 `SynthesisClient`。
@@ -1207,7 +1215,7 @@ graph layout 作为第一条 process canary，因为：
 4. graph read/layout/rebuild；
 5. reference sidecar/matching/review；
 6. tags/concepts/topic graph；
-7. sync/import/export；
+7. knowledge checkpoint（SQLite-only foundation 已完成）、durable bundle、WebDAV sync/import/export；
 8. debug/maintenance。
 
 这里的优先级用于实现和测试，不代表生产逐表切换。

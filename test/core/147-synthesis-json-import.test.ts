@@ -196,15 +196,32 @@ describe("Synthesis JSON import tooling", function () {
     const preview = await service.previewSynthesisJsonImport();
 
     assert.isFalse(preview.applied);
-    assert.equal(preview.domains.topicGraph.counts.nodes, 1);
-    assert.equal(preview.domains.conceptKb.counts.concepts, 1);
-    assert.equal(preview.domains.tagVocabulary.counts.entries, 1);
+    assert.deepEqual(preview.domains.topicGraph.counts, {
+      edges: 0,
+      nodes: 1,
+      reviewItems: 0,
+    });
+    assert.deepEqual(preview.domains.conceptKb.counts, {
+      aliases: 1,
+      concepts: 1,
+      relations: 0,
+      reviewItems: 0,
+      senses: 1,
+      topicLinks: 1,
+    });
+    assert.deepEqual(preview.domains.tagVocabulary.counts, {
+      abbrev: 1,
+      aliases: 1,
+      entries: 1,
+      protocol: 1,
+    });
 
     const applied = await service.applySynthesisJsonImport({
       transactionId: "json-import-test",
     });
 
     assert.isTrue(applied.applied);
+    assert.deepEqual(applied.domains, preview.domains);
     assert.equal(repository.countRows("synt_topic_graph_node"), 1);
     assert.equal(repository.countRows("synt_concept"), 1);
     assert.equal(repository.countRows("synt_topic_concept_link"), 1);

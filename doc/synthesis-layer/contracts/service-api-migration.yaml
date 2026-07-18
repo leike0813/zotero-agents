@@ -114,6 +114,18 @@ isolated_topic_graph_application:
   production_database_owner: plugin_composition
   production_mutation_enabled: false
 
+isolated_knowledge_checkpoint_application:
+  mode: isolated_shadow
+  package: packages/synthesis-application
+  use_cases: [build_checkpoint, verify_checkpoint, preview_import, apply_import, discard_import]
+  replacement_mode: full
+  receipt_scope: in_process_single_use
+  remote_capability: false
+  production_route: false
+  automatic_invocation: false
+  production_database_owner: plugin_composition
+  production_mutation_enabled: false
+
 application_canaries:
   - id: workbench_chrome_operational
     package: packages/synthesis-application

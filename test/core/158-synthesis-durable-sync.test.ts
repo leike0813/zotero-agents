@@ -126,11 +126,11 @@ async function seedDurableFacts(root: string, label = "Alpha concept") {
   });
   repository.upsertReferenceMatchProposal({
     proposalId: "proposal:alpha",
-    proposalKind: "zotero_binding",
+    kind: "zotero_binding",
     status: "open",
-    canonicalReferenceId: "canonical:alpha",
-    libraryId: 1,
-    itemKey: "ITEMALPHA",
+    sourceCanonicalReferenceId: "canonical:alpha",
+    targetLibraryId: 1,
+    targetItemKey: "ITEMALPHA",
     confidence: "medium",
   });
   repository.upsertReviewItem({

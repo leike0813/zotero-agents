@@ -19,7 +19,8 @@ Node executable and license with the compiled service worker, the
 `packages/synthesis-engine` JavaScript graph, the environment-neutral
 `packages/synthesis-repository` foundation plus designated `node:sqlite`
 adapter/owner, the environment-neutral `packages/synthesis-application`
-Workbench operational query and strict Workbench contract, and the exact runtime source and
+Workbench operational query, private knowledge checkpoint coordinator and
+strict contracts, and the exact runtime source and
 licenses for `d3-force`, `d3-dispatch`, `d3-quadtree`, and `d3-timer`.
 
 Each platform directory contains one strict
@@ -73,10 +74,14 @@ The service remains production-mutation-disabled and does not access production
 persistent identity-bound shadow repository and Topic canonical shadow beneath
 the profile runtime root, then composes private Topic, Reference Refresh,
 Reference Matching/Review, Citation Graph, Tag Vocabulary, Concept KB, and Topic Graph applications over
-those isolated owners. The bundle includes the environment-neutral strict
-Topic/Reference/Graph/Tag/Concept contracts, application rules and projections,
+those isolated owners. It also composes a private knowledge checkpoint
+coordinator over the Tag, Concept, and Topic Graph repositories after recovery.
+The bundle includes the environment-neutral strict
+Topic/Reference/Graph/Tag/Concept/checkpoint contracts, application rules and projections,
 repository records/schema, and designated Node adapters. Both reference
 applications, the Tag application, the Concept application, and the Topic Graph application are packaged without a Host or RPC adapter.
+The checkpoint coordinator likewise has no HTTP, RPC, worker operation, or
+advertised capability.
 The Tag application uses two internal bounded worker operations for validation
 and index construction. Concept KB uses two more for index and read-only query;
 Topic Graph uses one for index construction. None is a public service capability.
@@ -97,5 +102,6 @@ asset or license.
 
 Source routing does not regenerate platform prebuilds. Production release
 freshness and XPI checks fail closed until every bundled platform runtime
-matches the current service/worker/engine/repository/Topic-and-Graph-application/canonical-store/D3/package-version/lockfile
-fingerprint produced by the separate release pipeline.
+matches the current service/worker/engine/repository/Topic-and-Graph-application/
+knowledge-checkpoint/canonical-store/D3/package-version/lockfile fingerprint
+produced by the separate release pipeline.

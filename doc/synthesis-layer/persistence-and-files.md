@@ -14,7 +14,7 @@ Files are explicit artifacts, exports, checkpoints, or debug dumps; they are not
 | Deleted topic artifact archive | `data/synthesis/deleted/**` | Removed topic artifact trees kept for explicit recovery/inspection, not active Workbench data |
 | WebDAV durable exchange store | Remote WebDAV collection plus `runtime/synthesis/webdav-sync/**` staging | Deterministic durable-state assets used for cross-device sync and recovery; see [WebDAV Durable Sync](./webdav-durable-sync.md) |
 | Product-owned sidecar runtime | `runtime/synthesis/service-runtime/**` | Verified immutable Node/service versions plus strict active/previous pointers. This is executable packaging state, not Synthesis domain state or a Workbench data source. |
-| Service isolated repository | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-repository/<dataRootId>/synthesis.db` | Persistent WS5 shadow containing foundation plus seven private Topic, Reference Refresh, Reference Matching/Review, Citation Graph, Tag Vocabulary, Concept KB, and Topic Graph application table families. Tag Vocabulary uses revision CAS; Concept KB and Topic Graph use independent manifest CAS and last-good index state. It is not a production mirror, production Workbench source, public route, or production mutation owner. |
+| Service isolated repository | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-repository/<dataRootId>/synthesis.db` | Persistent WS5 shadow containing foundation plus seven private Topic, Reference Refresh, Reference Matching/Review, Citation Graph, Tag Vocabulary, Concept KB, and Topic Graph application table families. A private knowledge checkpoint coordinator captures and replaces the active Tag, Concept, and Topic Graph aggregates in one transaction. It is not a production mirror, production Workbench source, public route, or production mutation owner. |
 | Service Topic canonical shadow | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-canonical/<dataRootId>/topics/<pathId>/current/**` | Persistent WS5 shadow of complete Topic current snapshots. The main process uses identity binding, canonical validation, expected-basis CAS, durable staging, one transaction journal, rollback, and restart recovery. Authenticated inspect returns hashes and descriptors only; this tree is not the production Topic SSOT or an apply route. |
 | Zotero Library | Zotero DB/API | SSOT for item existence, metadata, tags, collections, notes, attachments, and native relations |
 | Source artifact notes | Zotero notes/items | SSOT for literature workflow artifacts consumed by Synthesis; excludes applied Topic canonical current files |
@@ -104,6 +104,19 @@ vocabulary/staging/effect transition atomically. Host delivery occurs only after
 commit, and a missing or failed Host port leaves the effect pending without
 rolling back vocabulary state. This private table family has no public route and
 does not own production import, checkpoint, WebDAV, or projection manifests.
+
+The private knowledge checkpoint coordinator exports a strict, versioned,
+bounded snapshot of active Tag Vocabulary rows, all six Concept KB row
+families, and all three Topic Graph row families. Its hash covers normalized
+payload, domain bases, and contract version, but not generation time. Preview
+holds at most one process-local, single-use receipt bound to the captured Tag
+revision and Concept/Topic manifests. Acknowledged apply performs complete
+three-domain replacement under one SQLite transaction and three-basis CAS.
+Tag staged suggestions, audit rows, and pending effects remain local; last-good
+indexes retain their payloads and become stale. Restart, discard, admission
+stop, or any apply attempt invalidates the receipt. The coordinator has no
+public route and does not replace production checkpoint files, durable bundles,
+or WebDAV synchronization.
 
 The sibling Topic canonical shadow uses the same opaque profile/data-root
 identity but never receives a caller-supplied canonical path. Complete snapshots

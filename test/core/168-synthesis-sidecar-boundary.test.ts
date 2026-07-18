@@ -163,6 +163,18 @@ describe("Synthesis sidecar migration boundary", function () {
         production_database_owner: string;
         production_mutation_enabled: boolean;
       };
+      isolated_knowledge_checkpoint_application: {
+        mode: string;
+        package: string;
+        use_cases: string[];
+        replacement_mode: string;
+        receipt_scope: string;
+        remote_capability: boolean;
+        production_route: boolean;
+        automatic_invocation: boolean;
+        production_database_owner: string;
+        production_mutation_enabled: boolean;
+      };
     };
     assert.notInclude(
       rawInventory.method_groups.map((group) => group.id),
@@ -280,6 +292,24 @@ describe("Synthesis sidecar migration boundary", function () {
       production_route: false,
       automatic_invocation: false,
       checkpoint_import_export: false,
+      production_database_owner: "plugin_composition",
+      production_mutation_enabled: false,
+    });
+    assert.deepEqual(rawInventory.isolated_knowledge_checkpoint_application, {
+      mode: "isolated_shadow",
+      package: "packages/synthesis-application",
+      use_cases: [
+        "build_checkpoint",
+        "verify_checkpoint",
+        "preview_import",
+        "apply_import",
+        "discard_import",
+      ],
+      replacement_mode: "full",
+      receipt_scope: "in_process_single_use",
+      remote_capability: false,
+      production_route: false,
+      automatic_invocation: false,
       production_database_owner: "plugin_composition",
       production_mutation_enabled: false,
     });
