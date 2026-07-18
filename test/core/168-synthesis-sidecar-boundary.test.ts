@@ -195,6 +195,23 @@ describe("Synthesis sidecar migration boundary", function () {
         production_canonical_file_owner: string;
         production_mutation_enabled: boolean;
       };
+      isolated_webdav_sync_application: {
+        mode: string;
+        package: string;
+        use_cases: string[];
+        transport_port: string;
+        state_store: string;
+        remote_layout: string;
+        unbased_update_policy: string;
+        retry_schedule: string;
+        remote_capability: boolean;
+        production_route: boolean;
+        automatic_invocation: boolean;
+        credential_owner: string;
+        production_database_owner: string;
+        production_canonical_file_owner: string;
+        production_mutation_enabled: boolean;
+      };
     };
     assert.notInclude(
       rawInventory.method_groups.map((group) => group.id),
@@ -363,6 +380,32 @@ describe("Synthesis sidecar migration boundary", function () {
       remote_capability: false,
       production_route: false,
       automatic_invocation: false,
+      production_database_owner: "plugin_composition",
+      production_canonical_file_owner: "plugin_composition",
+      production_mutation_enabled: false,
+    });
+    assert.deepEqual(rawInventory.isolated_webdav_sync_application, {
+      mode: "isolated_shadow",
+      package: "packages/synthesis-application",
+      use_cases: [
+        "load_state",
+        "run_sync",
+        "trigger_sync",
+        "trigger_auto_sync",
+        "pause",
+        "resume",
+        "retry",
+        "resolve_conflict",
+      ],
+      transport_port: "synthesis_host_webdav_sync",
+      state_store: "identity_bound_shadow_files",
+      remote_layout: "immutable_snapshots_mutable_head",
+      unbased_update_policy: "explicit_acknowledgement",
+      retry_schedule: "bounded_four_attempts",
+      remote_capability: false,
+      production_route: false,
+      automatic_invocation: false,
+      credential_owner: "plugin_composition",
       production_database_owner: "plugin_composition",
       production_canonical_file_owner: "plugin_composition",
       production_mutation_enabled: false,
@@ -594,6 +637,13 @@ describe("Synthesis sidecar migration boundary", function () {
       path.join(sidecarAppRoot, "src/server.ts"),
       "utf8",
     );
+    const webDavSyncApplicationSource = fs.readFileSync(
+      path.join(
+        ROOT_DIR,
+        "packages/synthesis-application/src/webDavSyncApplication.ts",
+      ),
+      "utf8",
+    );
     const sidecarSystemContract = fs.readFileSync(
       path.join(ROOT_DIR, "packages/synthesis-contracts/src/sidecarSystem.ts"),
       "utf8",
@@ -820,15 +870,20 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(contractIndex, 'export * from "./topicApplication"');
     assert.include(contractIndex, 'export * from "./durableBundle"');
     assert.include(contractIndex, 'export * from "./durableBundleImport"');
+    assert.include(contractIndex, 'export * from "./webDavSync"');
     assert.isTrue(fs.existsSync(path.join(sidecarAppRoot, "package.json")));
     assert.notMatch(
       sidecarAppSource,
-      /(?:src\/modules\/synthesis|synthesis\/service|hostEffect|webDavSync|globalThis\.Zotero|zotero-plugin)/i,
+      /(?:src\/modules\/synthesis|synthesis\/service|hostEffect|globalThis\.Zotero|zotero-plugin)/i,
     );
     assert.notInclude(sidecarAppSource, "node:child_process");
     assert.include(
       sidecarServer,
       "createSynthesisSidecarDurableBundleApplication",
+    );
+    assert.include(
+      sidecarServer,
+      "createSynthesisSidecarWebDavSyncApplication",
     );
     assert.isBelow(
       sidecarServer.indexOf("createSynthesisSidecarDurableBundleApplication({"),
@@ -837,7 +892,7 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.notInclude(sidecarSystemContract, "durable_bundle");
     assert.match(
       sidecarServer,
-      /await durableBundleApplication\.shutdown\(\);[\s\S]*canonicalStore\.close\(\);[\s\S]*repository\.close\(\);/,
+      /await webDavSyncApplication\.shutdown\(\);[\s\S]*await durableBundleApplication\.shutdown\(\);[\s\S]*canonicalStore\.close\(\);[\s\S]*repository\.close\(\);/,
     );
     const sqliteUsers = fs
       .readdirSync(path.join(sidecarAppRoot, "src"))
@@ -1012,8 +1067,9 @@ describe("Synthesis sidecar migration boundary", function () {
     ]) {
       assert.notInclude(webDavSyncSource, forbidden);
     }
-    assert.include(webDavSyncSource, "hostPort.readText");
-    assert.include(webDavSyncSource, "hostPort.writeText");
+    assert.include(webDavSyncSource, "createSynthesisWebDavSyncApplication");
+    assert.include(webDavSyncApplicationSource, "options.hostPort.readText");
+    assert.include(webDavSyncApplicationSource, "options.hostPort.writeText");
     assert.include(webDavSyncAdapter, "webDavCredentialForRequest");
     assert.include(webDavSyncAdapter, "getSynthesisWebDavSyncPrefsConfig");
     assert.include(

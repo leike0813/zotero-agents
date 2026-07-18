@@ -215,9 +215,11 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function canonicalJsonText(value: unknown) {
+export function synthesisDurableCanonicalJsonText(value: unknown) {
   return `${JSON.stringify(JSON.parse(canonicalizeJson(value)), null, 2)}\n`;
 }
+
+const canonicalJsonText = synthesisDurableCanonicalJsonText;
 
 const sharedDurableBundleCodec = createSynthesisDurableBundleCodec({
   canonicalizeJson,

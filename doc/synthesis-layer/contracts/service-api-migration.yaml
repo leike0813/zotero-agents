@@ -146,6 +146,23 @@ isolated_durable_bundle_export_application:
   production_canonical_file_owner: plugin_composition
   production_mutation_enabled: false
 
+isolated_webdav_sync_application:
+  mode: isolated_shadow
+  package: packages/synthesis-application
+  use_cases: [load_state, run_sync, trigger_sync, trigger_auto_sync, pause, resume, retry, resolve_conflict]
+  transport_port: synthesis_host_webdav_sync
+  state_store: identity_bound_shadow_files
+  remote_layout: immutable_snapshots_mutable_head
+  unbased_update_policy: explicit_acknowledgement
+  retry_schedule: bounded_four_attempts
+  remote_capability: false
+  production_route: false
+  automatic_invocation: false
+  credential_owner: plugin_composition
+  production_database_owner: plugin_composition
+  production_canonical_file_owner: plugin_composition
+  production_mutation_enabled: false
+
 application_canaries:
   - id: workbench_chrome_operational
     package: packages/synthesis-application

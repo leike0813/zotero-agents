@@ -112,14 +112,26 @@ describe("Synthesis invariant guards", function () {
   it("keeps the sidecar runtime foundation isolated [inv.runtime.sidecar_foundation_isolated]", function () {
     const appRoot = repoPath("apps/synthesis-service");
     assert.isTrue(fs.existsSync(appRoot));
-    const sources = fs
+    const sourceEntries = fs
       .readdirSync(repoPath("apps/synthesis-service/src"))
-      .filter((entry) => entry.endsWith(".ts"))
+      .filter((entry) => entry.endsWith(".ts"));
+    const sources = sourceEntries
       .map((entry) => readRepoText(`apps/synthesis-service/src/${entry}`))
       .join("\n");
     assert.notMatch(
       sources,
-      /(?:src\/modules\/synthesis|synthesis\/service|hostEffect|webDavSync|node:child_process|globalThis\.Zotero|zotero-plugin)/i,
+      /(?:src\/modules\/synthesis|synthesis\/service|hostEffect|node:child_process|globalThis\.Zotero|zotero-plugin)/i,
+    );
+    assert.deepEqual(
+      sourceEntries.filter(
+        (entry) =>
+          entry !== "server.ts" &&
+          entry !== "webDavSyncApplicationNode.ts" &&
+          /webDavSync/i.test(
+            readRepoText(`apps/synthesis-service/src/${entry}`),
+          ),
+      ),
+      [],
     );
     const sqliteUsers = fs
       .readdirSync(repoPath("apps/synthesis-service/src"))

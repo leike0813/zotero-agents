@@ -16,6 +16,7 @@ Files are explicit artifacts, exports, checkpoints, or debug dumps; they are not
 | Product-owned sidecar runtime | `runtime/synthesis/service-runtime/**` | Verified immutable Node/service versions plus strict active/previous pointers. This is executable packaging state, not Synthesis domain state or a Workbench data source. |
 | Service isolated repository | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-repository/<dataRootId>/synthesis.db` | Persistent WS5 shadow containing foundation plus seven private domain table families, isolated auxiliary durable owners, a strict sync index, and one durable-import commit receipt. A private knowledge checkpoint coordinator replaces three knowledge aggregates; the private durable application captures all available facts and applies verified incremental entries under aggregate/index CAS. It is not a production mirror, Workbench source, public route, or production mutation owner. |
 | Service Topic canonical shadow | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-canonical/<dataRootId>/topics/<pathId>/current/**` | Persistent WS5 shadow of complete Topic current JSON and bounded Markdown. Single-Topic writes use identity binding, canonical validation, expected-basis CAS, durable staging, one transaction journal, rollback, and restart recovery. Durable import adds one strict multi-Topic batch journal; a matching repository receipt rolls it forward, an uncommitted batch is discarded, and mismatched state fails closed. Authenticated inspect still returns hashes and descriptors only. |
+| Service WebDAV sync shadow state | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-webdav-sync/<dataRootId>/**` | Identity-bound, atomically written private queue/conflict/progress state. The default Node Host port is disabled; no credentials, remote content, production paths, or hidden retry timers are persisted here. |
 | Zotero Library | Zotero DB/API | SSOT for item existence, metadata, tags, collections, notes, attachments, and native relations |
 | Source artifact notes | Zotero notes/items | SSOT for literature workflow artifacts consumed by Synthesis; excludes applied Topic canonical current files |
 | Legacy Zotero Topic anchor/shard items | Zotero notes/items | Inert historical data; normal runtime does not discover, read, update, delete, or recover from it |
@@ -56,6 +57,9 @@ zotero-agents/
         transaction.json       # present only during an in-flight commit
         topics/<pathId>/current/{manifest,artifact,metadata}.json
         topics/<pathId>/current/sections/*.json
+      profiles/<profileId>/shadow-webdav-sync/<dataRootId>/
+        identity.json
+        state.json
     acp/**
     cache/**
     logs/**
@@ -133,7 +137,10 @@ index, then commits live facts, stale projection bases, sync metadata, and a
 canonical recovery receipt in one transaction. Topic JSON/Markdown is staged
 before that commit and promoted synchronously afterward; restart either rolls a
 matching batch forward or discards an uncommitted batch. It does not contact
-WebDAV or expose a public capability.
+WebDAV or expose a public capability. The sibling private WebDAV application
+orchestrates that durable port with an injected secret-free Host port. Its Node
+composition persists only strict identity-bound control state, defaults the Host
+port to disabled, is never invoked automatically, and exposes no public route.
 
 The sibling Topic canonical shadow uses the same opaque profile/data-root
 identity but never receives a caller-supplied canonical path. Complete snapshots

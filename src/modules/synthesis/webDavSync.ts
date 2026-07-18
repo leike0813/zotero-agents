@@ -1,17 +1,20 @@
 import { joinPath } from "../../utils/path";
+import { createSynthesisWebDavSyncApplication } from "../../../packages/synthesis-application/src/webDavSyncApplication";
+import type {
+  SynthesisDurableBundleSource,
+  SynthesisDurableSyncManifest,
+} from "../../../packages/synthesis-contracts/src/durableBundle";
+import type {
+  SynthesisWebDavSyncDurablePort,
+  SynthesisWebDavSyncProgressReport,
+  SynthesisWebDavSyncState,
+  SynthesisWebDavSyncStateStore,
+} from "../../../packages/synthesis-contracts/src/webDavSync";
+import type { SynthesisHostWebDavSyncPort } from "../../../packages/synthesis-contracts/src/webDavSyncPort";
 import {
-  rebuildSynthesisHostWebDavSyncDescription,
-  rebuildSynthesisHostWebDavSyncEnsureCollectionResult,
-  rebuildSynthesisHostWebDavSyncReadResult,
-  rebuildSynthesisHostWebDavSyncWriteResult,
-  type SynthesisHostWebDavSyncPort,
-} from "../../../packages/synthesis-contracts/src/index";
-import {
-  collectRuntimeFiles,
   ensureRuntimeDirectory,
   readRuntimeTextFile,
   removeRuntimePath,
-  runtimeRelativePath,
   runtimePathExists,
   validateManagedRelativePath,
   writeRuntimeTextFile,
@@ -20,124 +23,20 @@ import {
   applySynthesisDurableImport,
   previewSynthesisDurableImport,
   readSynthesisDurableManifest,
+  synthesisDurableCanonicalJsonText,
   writeSynthesisDurableExportSnapshot,
   type SynthesisDurableExportProgress,
 } from "./durableSync";
-import {
-  getSynthesisRepositoryDatabasePath,
-  type SynthesisRepository,
-} from "./repository";
-import { sanitizeWebDavUrl } from "./webDavSyncRemote";
-import {
-  type SynthesisWebDavSyncConfigStatus,
-  type SynthesisWebDavSyncDiagnostic,
-} from "./webDavSyncTypes";
+import type { SynthesisRepository } from "./repository";
 
-export type SynthesisWebDavSyncQueueState =
-  | "idle"
-  | "queued"
-  | "syncing"
-  | "blocked_conflict"
-  | "failed_retryable"
-  | "failed_permanent"
-  | "disabled";
-
-export type SynthesisWebDavSnapshotPointer = {
-  schema_id: "synthesis.webdav_sync_head";
-  schema_version: "1.0.0";
-  snapshot_id: string;
-  manifest_hash: string;
-  updated_at: string;
-  producer_version?: string;
-};
-
-export type SynthesisWebDavRemoteHead = {
-  pointer?: SynthesisWebDavSnapshotPointer;
-  etag?: string;
-  missing: boolean;
-};
-
-export type SynthesisWebDavSyncConflictReport = {
-  schema_id: "synthesis.webdav_sync_conflict_report";
-  schema_version: "1.0.0";
-  conflict_id: string;
-  status: "blocked" | "resolved";
-  conflicts: Array<{
-    asset_path: string;
-    reason: string;
-    base_hash?: string;
-    local_hash?: string;
-    remote_hash?: string;
-  }>;
-  diagnostics: SynthesisWebDavSyncDiagnostic[];
-};
-
-export type SynthesisWebDavSyncState = {
-  schema_id: "synthesis.webdav_sync_state";
-  schema_version: "1.0.0";
-  queue_state: SynthesisWebDavSyncQueueState;
-  paused: boolean;
-  adapter_configured: boolean;
-  config_status?: SynthesisWebDavSyncConfigStatus;
-  base_url: string;
-  remote_path: string;
-  username?: string;
-  credential_updated_at?: string;
-  connection_test?: unknown;
-  retry_attempt?: number;
-  next_retry_at?: string;
-  last_run?: {
-    run_id: string;
-    status:
-      | "completed"
-      | "failed_retryable"
-      | "failed_permanent"
-      | "blocked_conflict";
-    started_at: string;
-    completed_at: string;
-    diagnostics: SynthesisWebDavSyncDiagnostic[];
-    snapshot_id?: string;
-    manifest_hash?: string;
-  };
-  conflict_report?: SynthesisWebDavSyncConflictReport;
-  conflict_actions?: string[];
-  diagnostics: SynthesisWebDavSyncDiagnostic[];
-  allowed_actions: string[];
-  last_phase?: string;
-  progress?: {
-    phase?: string;
-    phase_label?: string;
-    message?: string;
-    processed_count?: number;
-    total_count?: number;
-    bundle_count?: number;
-    entry_count?: number;
-    total_bytes?: number;
-    updated_at?: string;
-  };
-  updated_at: string;
-};
-
-export type SynthesisWebDavSyncProgressReport = {
-  jobName: string;
-  runId: string;
-  source: "webdav_sync";
-  label: string;
-  status:
-    | "running"
-    | "queued"
-    | "waiting"
-    | "completed"
-    | "failed_retryable"
-    | "failed_terminal";
-  phase?: string;
-  phaseLabel?: string;
-  message?: string;
-  processedCount?: number;
-  totalCount?: number;
-  progressMode?: "determinate" | "indeterminate";
-  diagnosticsJson?: string;
-};
+export type {
+  SynthesisWebDavRemoteHead,
+  SynthesisWebDavSnapshotPointer,
+  SynthesisWebDavSyncConflictReport,
+  SynthesisWebDavSyncProgressReport,
+  SynthesisWebDavSyncQueueState,
+  SynthesisWebDavSyncState,
+} from "../../../packages/synthesis-contracts/src/webDavSync";
 
 type ServiceOptions = {
   root: string;
@@ -153,32 +52,7 @@ type ServiceOptions = {
 };
 
 function cleanString(value: unknown) {
-  return String(value || "").trim();
-}
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function diagnostic(args: {
-  code: string;
-  severity?: "info" | "warning" | "error";
-  message: unknown;
-  details?: unknown;
-}): SynthesisWebDavSyncDiagnostic {
-  return {
-    code: cleanString(args.code),
-    severity: args.severity || "warning",
-    message: sanitizeWebDavUrl(String(args.message || "")),
-    details:
-      args.details === undefined
-        ? undefined
-        : JSON.parse(
-            JSON.stringify(args.details, (_key, value) =>
-              typeof value === "string" ? sanitizeWebDavUrl(value) : value,
-            ),
-          ),
-  };
+  return String(value ?? "").trim();
 }
 
 function syncPaths(root: string) {
@@ -192,874 +66,277 @@ function syncPaths(root: string) {
   };
 }
 
-const STALE_SYNCING_MS = 5 * 60 * 1000;
-
-function allowedActions(state: SynthesisWebDavSyncState) {
-  if (!state.adapter_configured) {
-    return [] as string[];
-  }
-  if (state.queue_state === "blocked_conflict") {
-    return ["resolveWebDavSyncConflict", "retryWebDavSync", "pauseWebDavSync"];
-  }
-  if (state.paused) {
-    return ["resumeWebDavSync", "syncWebDavNow"];
-  }
-  if (state.queue_state === "syncing") {
-    return ["pauseWebDavSync"];
-  }
-  return ["syncWebDavNow", "pauseWebDavSync"];
-}
-
-function conflictActions(state: SynthesisWebDavSyncState) {
-  return state.queue_state === "blocked_conflict"
-    ? ["keep_local", "save_remote_copy", "clear_after_manual_edit"]
-    : [];
-}
-
-async function readJson<T>(path: string): Promise<T | null> {
-  if (!(await runtimePathExists(path))) {
-    return null;
-  }
-  return JSON.parse(await readRuntimeTextFile(path)) as T;
+async function readJson(path: string) {
+  if (!(await runtimePathExists(path))) return null;
+  return JSON.parse(await readRuntimeTextFile(path)) as unknown;
 }
 
 async function writeJson(path: string, value: unknown) {
   await writeRuntimeTextFile(path, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-function normalizeState(
-  input: Partial<SynthesisWebDavSyncState> | null,
-  fallback: SynthesisWebDavSyncState,
-): SynthesisWebDavSyncState {
-  const state: SynthesisWebDavSyncState = {
-    ...fallback,
-    ...input,
-    diagnostics: Array.isArray(input?.diagnostics)
-      ? input.diagnostics
-      : fallback.diagnostics,
-    allowed_actions: [],
-    conflict_actions: [],
+function productionStateStore(root: string): SynthesisWebDavSyncStateStore {
+  const paths = syncPaths(root);
+  return {
+    async load() {
+      await ensureRuntimeDirectory(paths.syncRoot);
+      return readJson(paths.statePath);
+    },
+    async save(state: SynthesisWebDavSyncState) {
+      await ensureRuntimeDirectory(paths.syncRoot);
+      await writeJson(paths.statePath, state);
+      if (state.conflict_report) {
+        await writeJson(paths.conflictPath, state.conflict_report);
+      } else if (await runtimePathExists(paths.conflictPath)) {
+        await removeRuntimePath(paths.conflictPath);
+      }
+    },
   };
-  delete (state as Record<string, unknown>).credential_masked;
-  state.allowed_actions = allowedActions(state);
-  state.conflict_actions = conflictActions(state);
-  return state;
-}
-
-function staleSyncing(state: SynthesisWebDavSyncState, timestamp: string) {
-  if (state.queue_state !== "syncing") {
-    return false;
-  }
-  const updatedAt = Date.parse(state.progress?.updated_at || state.updated_at);
-  const nowMs = Date.parse(timestamp);
-  return (
-    Number.isFinite(updatedAt) &&
-    Number.isFinite(nowMs) &&
-    nowMs - updatedAt > STALE_SYNCING_MS
-  );
 }
 
 function progressFromDurable(
   progress: SynthesisDurableExportProgress,
-  timestamp: string,
-) {
-  const details =
-    progress.details && typeof progress.details === "object"
-      ? (progress.details as Record<string, unknown>)
-      : {};
+  runId: string,
+): SynthesisWebDavSyncProgressReport {
   return {
+    jobName: "synthesis:webdav-sync",
+    runId,
+    source: "webdav_sync",
+    label: "WebDAV Sync",
+    status: "running",
     phase: `export_${progress.phase}`,
-    phase_label: progress.phase_label,
+    phaseLabel: progress.phase_label,
     message: progress.message,
-    processed_count: progress.processed_count,
-    total_count: progress.total_count,
-    bundle_count: Number(details.bundle_count) || undefined,
-    entry_count:
-      Number(details.entry_count || details.draft_count) || undefined,
-    total_bytes: Number(details.total_bytes) || undefined,
-    updated_at: timestamp,
+    processedCount: progress.processed_count,
+    totalCount: progress.total_count,
+    progressMode:
+      progress.total_count === undefined ? "indeterminate" : "determinate",
+    diagnosticsJson: "[]",
   };
 }
 
-function remotePath(...parts: string[]) {
-  return parts
-    .map((part) => cleanString(part).replace(/^\/+|\/+$/g, ""))
-    .filter(Boolean)
-    .join("/");
-}
-
-function snapshotId(timestamp: string, manifestHash: string) {
-  return `${timestamp.replace(/[^0-9A-Za-z]+/g, "-")}-${manifestHash.slice(-12)}`;
-}
-
-function parseHead(text: string): SynthesisWebDavSnapshotPointer | null {
-  try {
-    const parsed = JSON.parse(text) as SynthesisWebDavSnapshotPointer;
-    if (
-      parsed?.schema_id === "synthesis.webdav_sync_head" &&
-      parsed.schema_version === "1.0.0" &&
-      parsed.snapshot_id &&
-      parsed.manifest_hash
-    ) {
-      return parsed;
-    }
-  } catch {
-    return null;
+async function materializeSource(
+  source: SynthesisDurableBundleSource,
+  targetRoot: string,
+) {
+  await removeRuntimePath(targetRoot);
+  await ensureRuntimeDirectory(targetRoot);
+  const manifestText = await source.readManifestText();
+  if (typeof manifestText !== "string") {
+    throw new Error("durable_manifest_missing");
   }
-  return null;
+  await writeRuntimeTextFile(
+    joinPath(targetRoot, "manifest.json"),
+    manifestText,
+  );
+  let manifest: SynthesisDurableSyncManifest;
+  try {
+    manifest = JSON.parse(manifestText) as SynthesisDurableSyncManifest;
+  } catch {
+    throw new Error("durable_manifest_json_invalid");
+  }
+  if (!Array.isArray(manifest.assets)) {
+    throw new Error("durable_manifest_assets_invalid");
+  }
+  for (const asset of manifest.assets) {
+    const checked = validateManagedRelativePath(asset.path);
+    if (!checked.ok || !checked.normalizedPath.startsWith("bundles/")) {
+      throw new Error("durable_asset_path_invalid");
+    }
+    const text = await source.readAssetText(checked.normalizedPath);
+    if (typeof text !== "string") throw new Error("durable_asset_missing");
+    await writeRuntimeTextFile(
+      joinPath(targetRoot, checked.normalizedPath),
+      text,
+    );
+  }
+  return manifest;
+}
+
+function productionDurablePort(args: {
+  root: string;
+  persistenceRoot: string;
+  repository: SynthesisRepository;
+  now?: () => string;
+  progressReporter?: ServiceOptions["progressReporter"];
+}): SynthesisWebDavSyncDurablePort {
+  const paths = syncPaths(args.persistenceRoot);
+  let receipt:
+    | { receiptId: string; manifestHash: string; sourceRoot: string }
+    | undefined;
+  let receiptSequence = 0;
+  return {
+    async previewImport(source) {
+      receipt = undefined;
+      await materializeSource(source, paths.importRoot);
+      const preview = await previewSynthesisDurableImport({
+        root: args.root,
+        sourceRoot: paths.importRoot,
+        repository: args.repository,
+      });
+      const manifestHash = preview.manifest?.manifest_hash;
+      const receiptId =
+        preview.ok && manifestHash
+          ? `production-webdav-import:${++receiptSequence}`
+          : undefined;
+      if (receiptId && manifestHash) {
+        receipt = {
+          receiptId,
+          manifestHash,
+          sourceRoot: paths.importRoot,
+        };
+      }
+      return {
+        ok: preview.ok,
+        additions: preview.additions,
+        updates: preview.updates,
+        unbasedUpdates: 0,
+        unchanged: preview.unchanged,
+        tombstones: preview.tombstones,
+        conflicts: preview.conflicts
+          .filter((entry) => entry.entity_kind !== "tombstone")
+          .map((entry) => ({
+            entityKind: entry.entity_kind as Exclude<
+              typeof entry.entity_kind,
+              "tombstone"
+            >,
+            entityId: entry.entity_id,
+            path: entry.path,
+            reason: "both_changed" as const,
+            baseHash: entry.base_hash || "",
+            localHash: entry.local_hash || "",
+            remoteHash: entry.remote_hash || "",
+          })),
+        ...(manifestHash ? { manifestHash } : {}),
+        ...(receiptId ? { receiptId } : {}),
+        diagnostics: preview.diagnostics.map((entry) => ({
+          code: entry.code,
+          severity: "error" as const,
+          ...(entry.path ? { path: entry.path } : {}),
+        })),
+      };
+    },
+    async applyImport(request) {
+      const current = receipt;
+      receipt = undefined;
+      if (
+        !current ||
+        current.receiptId !== request.receiptId ||
+        current.manifestHash !== request.manifestHash
+      ) {
+        throw new Error("receipt_invalid");
+      }
+      const applied = await applySynthesisDurableImport({
+        root: args.root,
+        sourceRoot: current.sourceRoot,
+        repository: args.repository,
+        runId: current.receiptId,
+      });
+      if (!applied.applied) throw new Error("durable_import_apply_failed");
+      return {
+        status: "committed" as const,
+        manifestHash: current.manifestHash,
+        imported:
+          applied.preview.additions +
+          applied.preview.updates +
+          applied.preview.unchanged,
+      };
+    },
+    async discardImport(receiptId) {
+      if (
+        !receipt ||
+        (receiptId !== undefined && receipt.receiptId !== receiptId)
+      ) {
+        return false;
+      }
+      receipt = undefined;
+      return true;
+    },
+    async buildExport() {
+      await removeRuntimePath(paths.exportRoot);
+      await ensureRuntimeDirectory(paths.exportRoot);
+      const runId = `webdav-sync-${(args.now?.() || new Date().toISOString()).replace(/[^0-9A-Za-z]+/g, "-")}`;
+      const snapshot = await writeSynthesisDurableExportSnapshot({
+        root: args.root,
+        outputRoot: paths.exportRoot,
+        repository: args.repository,
+        now: args.now,
+        onProgress: async (progress) => {
+          await args.progressReporter?.(progressFromDurable(progress, runId));
+        },
+      });
+      return {
+        manifest: snapshot.manifest as never,
+        manifestText: synthesisDurableCanonicalJsonText(snapshot.manifest),
+        assets: snapshot.assets.map((asset) => ({
+          path: asset.relativePath,
+          text: asset.text,
+          bundle: asset.bundle as never,
+        })),
+        entries: [],
+        summary: {
+          bundleCount: snapshot.assets.length,
+          entityCount: snapshot.entityEntries.length,
+          topicCount: 0,
+          manifestHash: snapshot.manifest.manifest_hash,
+        },
+      };
+    },
+  };
+}
+
+function repositoryRequiredPort(
+  hostPort: SynthesisHostWebDavSyncPort,
+  repository?: SynthesisRepository,
+): SynthesisHostWebDavSyncPort {
+  if (repository) return hostPort;
+  return {
+    ...hostPort,
+    async describe() {
+      const current = await hostPort.describe();
+      return {
+        ...current,
+        status: "unavailable",
+        diagnostics: ["webdav_sync_repository_unavailable"],
+      } as never;
+    },
+  };
 }
 
 export function createSynthesisWebDavSyncService(options: ServiceOptions) {
   const root = cleanString(options.root);
   const persistenceRoot = cleanString(options.persistenceRoot) || root;
-  const now = options.now || nowIso;
-  const hostPort = options.hostPort;
   const repository = options.repository;
-  const retryDelaysMs = (
-    options.retryDelaysMs || [60_000, 300_000, 900_000, 1_800_000]
-  )
-    .slice(0, 4)
-    .map((value) => Math.max(0, Math.floor(Number(value))))
-    .filter((value) => Number.isFinite(value));
-  let triggerGeneration = 0;
-  let retryTimer: ReturnType<typeof setTimeout> | undefined;
-  let aborted = options.abortSignal?.aborted === true;
-
-  function clearRetryTimer() {
-    if (retryTimer) {
-      clearTimeout(retryTimer);
-      retryTimer = undefined;
-    }
-  }
-
-  function cancelTriggerChain() {
-    triggerGeneration += 1;
-    clearRetryTimer();
-  }
-
-  options.abortSignal?.addEventListener(
-    "abort",
-    () => {
-      aborted = true;
-      cancelTriggerChain();
-    },
-    { once: true },
-  );
-
-  async function describeHost() {
-    try {
-      return rebuildSynthesisHostWebDavSyncDescription(
-        await hostPort.describe(),
-      );
-    } catch {
-      return rebuildSynthesisHostWebDavSyncDescription({
-        status: "unavailable",
-        configStatus: "invalid",
-        autoSyncEnabled: false,
-        autoRetryEnabled: false,
-        baseUrl: "",
-        remotePath: "",
-        username: "",
-        diagnostics: ["webdav_sync_host_description_failed"],
-      });
-    }
-  }
-
-  function hostDiagnostic(code: string) {
-    return diagnostic({
-      code,
-      severity: code === "webdav_sync_disabled" ? "info" : "error",
-      message: code,
-    });
-  }
-
-  function hostFailure(diagnostics: string[], fallback: string): never {
-    throw new Error(cleanString(diagnostics[0]) || fallback);
-  }
-
-  async function loadWebDavSyncState() {
-    const timestamp = now();
-    const paths = syncPaths(persistenceRoot);
-    await ensureRuntimeDirectory(paths.syncRoot);
-    const host = await describeHost();
-    const configured =
-      host.status === "available" &&
-      host.configStatus === "configured" &&
-      Boolean(repository);
-    const fallback: SynthesisWebDavSyncState = {
-      schema_id: "synthesis.webdav_sync_state",
-      schema_version: "1.0.0",
-      queue_state: configured ? "idle" : "disabled",
-      paused: false,
-      adapter_configured: configured,
-      config_status: host.configStatus,
-      base_url: sanitizeWebDavUrl(host.baseUrl),
-      remote_path: host.remotePath,
-      username: host.username || undefined,
-      credential_updated_at: host.credentialUpdatedAt,
-      connection_test: host.connectionTest,
-      diagnostics: configured
-        ? []
-        : [
-            ...host.diagnostics.map(hostDiagnostic),
-            ...(repository
-              ? []
-              : [
-                  diagnostic({
-                    code: "webdav_sync_repository_unavailable",
-                    severity: "error",
-                    message:
-                      "WebDAV Sync requires an injected Synthesis repository.",
-                    details: {
-                      expected_db_path:
-                        getSynthesisRepositoryDatabasePath(persistenceRoot),
-                    },
-                  }),
-                ]),
-          ],
-      allowed_actions: [],
-      updated_at: timestamp,
-    };
-    const state = normalizeState(
-      await readJson<Partial<SynthesisWebDavSyncState>>(paths.statePath),
-      fallback,
-    );
-    state.adapter_configured = configured;
-    state.config_status = host.configStatus;
-    state.base_url = sanitizeWebDavUrl(host.baseUrl);
-    state.remote_path = host.remotePath;
-    state.username = host.username || undefined;
-    state.credential_updated_at = host.credentialUpdatedAt;
-    state.connection_test = host.connectionTest;
-    if (!configured) {
-      cancelTriggerChain();
-      state.queue_state = "disabled";
-      state.diagnostics = fallback.diagnostics;
-    } else if (state.queue_state === "disabled") {
-      state.queue_state = "idle";
-      state.diagnostics = [];
-    } else if (staleSyncing(state, timestamp)) {
-      state.queue_state = "failed_retryable";
-      state.diagnostics = [
-        diagnostic({
-          code: "webdav_sync_stale_running_recovered",
-          severity: "warning",
-          message:
-            "Recovered a stale WebDAV Sync run that did not reach a terminal state.",
-          details: {
-            previous_updated_at: state.updated_at,
-            last_phase: state.last_phase,
-          },
-        }),
-      ];
-    }
-    state.allowed_actions = allowedActions(state);
-    state.conflict_actions = conflictActions(state);
-    await writeJson(paths.statePath, state);
-    return state;
-  }
-
-  async function persistState(patch: Partial<SynthesisWebDavSyncState>) {
-    const current = await loadWebDavSyncState();
-    const next = {
-      ...current,
-      ...patch,
-      updated_at: now(),
-    };
-    next.allowed_actions = allowedActions(next);
-    next.conflict_actions = conflictActions(next);
-    await writeJson(syncPaths(persistenceRoot).statePath, next);
-    return next;
-  }
-
-  async function reportPhase(args: {
-    runId: string;
-    phase: string;
-    index: number;
-    total: number;
-    status?:
-      | "running"
-      | "queued"
-      | "waiting"
-      | "completed"
-      | "failed_retryable"
-      | "failed_terminal";
-    message?: string;
-    diagnostics?: SynthesisWebDavSyncDiagnostic[];
-    progress?: SynthesisWebDavSyncState["progress"];
-  }) {
-    const timestamp = now();
-    await options.progressReporter?.({
-      jobName: "synthesis:webdav-sync",
-      runId: args.runId,
-      source: "webdav_sync",
-      label: "WebDAV Sync",
-      status: args.status || "running",
-      phase: args.phase,
-      phaseLabel: args.phase.charAt(0).toUpperCase() + args.phase.slice(1),
-      message: args.message,
-      processedCount: args.index,
-      totalCount: args.total,
-      progressMode: "determinate",
-      diagnosticsJson: args.diagnostics
-        ? JSON.stringify(args.diagnostics)
-        : "[]",
-    });
-    if ((args.status || "running") === "running") {
-      await persistState({
-        queue_state: "syncing",
-        last_phase: args.phase,
-        progress: {
-          phase: args.phase,
-          phase_label: args.phase.charAt(0).toUpperCase() + args.phase.slice(1),
-          message: args.message,
-          processed_count: args.index,
-          total_count: args.total,
-          updated_at: timestamp,
-          ...(args.progress || {}),
-        },
-      });
-    }
-  }
-
-  async function readRemoteHead(): Promise<SynthesisWebDavRemoteHead> {
-    const response = rebuildSynthesisHostWebDavSyncReadResult(
-      await hostPort.readText({ path: "HEAD.json" }),
-    );
-    if (response.status === "missing") {
-      return { missing: true };
-    }
-    if (response.status === "unavailable") {
-      hostFailure(response.diagnostics, "webdav_sync_host_read_failed");
-    }
-    const pointer = parseHead(response.text);
-    if (!pointer) {
-      throw new Error("webdav HEAD is invalid");
-    }
-    return { pointer, etag: response.etag, missing: false };
-  }
-
-  async function downloadSnapshot(pointer: SynthesisWebDavSnapshotPointer) {
-    const paths = syncPaths(persistenceRoot);
-    await removeRuntimePath(paths.importRoot);
-    await ensureRuntimeDirectory(paths.importRoot);
-    const manifestResponse = rebuildSynthesisHostWebDavSyncReadResult(
-      await hostPort.readText({
-        path: remotePath("snapshots", pointer.snapshot_id, "manifest.json"),
-      }),
-    );
-    if (manifestResponse.status !== "available") {
-      hostFailure(
-        manifestResponse.diagnostics,
-        "webdav_sync_manifest_download_failed",
-      );
-    }
-    await writeRuntimeTextFile(
-      joinPath(paths.importRoot, "manifest.json"),
-      manifestResponse.text,
-    );
-    const manifest = await readSynthesisDurableManifest(paths.importRoot);
-    if (!manifest) {
-      throw new Error("webdav durable manifest missing");
-    }
-    for (const asset of manifest.assets) {
-      const safe = validateManagedRelativePath(asset.path);
-      if (!safe.ok || !safe.normalizedPath.startsWith("bundles/")) {
-        throw new Error("webdav durable asset path invalid");
-      }
-      const response = rebuildSynthesisHostWebDavSyncReadResult(
-        await hostPort.readText({
-          path: remotePath(
-            "snapshots",
-            pointer.snapshot_id,
-            safe.normalizedPath,
-          ),
-        }),
-      );
-      if (response.status !== "available") {
-        hostFailure(response.diagnostics, "webdav_sync_bundle_download_failed");
-      }
-      await writeRuntimeTextFile(
-        joinPath(paths.importRoot, safe.normalizedPath),
-        response.text,
-      );
-    }
-    return paths.importRoot;
-  }
-
-  function parentCollections(relativePath: string) {
-    const parts = remotePath(relativePath).split("/").filter(Boolean);
-    const parents: string[] = [];
-    for (let index = 1; index < parts.length; index += 1) {
-      parents.push(parts.slice(0, index).join("/"));
-    }
-    return parents;
-  }
-
-  async function ensureRemoteCollections(relativePaths: string[]) {
-    const collections = Array.from(
-      new Set(
-        relativePaths
-          .flatMap(parentCollections)
-          .sort((left, right) => left.localeCompare(right)),
-      ),
-    );
-    for (const collection of collections) {
-      const result = rebuildSynthesisHostWebDavSyncEnsureCollectionResult(
-        await hostPort.ensureCollection({ path: collection }),
-      );
-      if (result.status !== "ready") {
-        hostFailure(result.diagnostics, "webdav_sync_host_collection_failed");
-      }
-    }
-  }
-
-  async function uploadSnapshot(
-    exportRoot: string,
-    pointer: SynthesisWebDavSnapshotPointer,
-    head: SynthesisWebDavRemoteHead,
-  ) {
-    const beforeHead = await readRemoteHead().catch(
-      () => ({ missing: true }) as SynthesisWebDavRemoteHead,
-    );
-    if (
-      !head.missing &&
-      beforeHead.pointer?.manifest_hash !== head.pointer?.manifest_hash
-    ) {
-      throw new Error("webdav_sync_remote_changed_during_sync");
-    }
-    const uploadFiles: Array<{
-      path: string;
-      relativePath: string;
-    }> = [];
-    for (const file of await collectRuntimeFiles(exportRoot)) {
-      const relativeFile = runtimeRelativePath(exportRoot, file);
-      const safe = validateManagedRelativePath(relativeFile);
-      if (
-        !safe.ok ||
-        (safe.normalizedPath !== "manifest.json" &&
-          !safe.normalizedPath.startsWith("bundles/"))
-      ) {
-        continue;
-      }
-      uploadFiles.push({ path: file, relativePath: safe.normalizedPath });
-    }
-    await ensureRemoteCollections([
-      ...uploadFiles.map((file) =>
-        remotePath("snapshots", pointer.snapshot_id, file.relativePath),
-      ),
-      "HEAD.json",
-    ]);
-    for (const file of uploadFiles) {
-      const uploadResult = rebuildSynthesisHostWebDavSyncWriteResult(
-        await hostPort.writeText({
-          path: remotePath("snapshots", pointer.snapshot_id, file.relativePath),
-          text: await readRuntimeTextFile(file.path),
-        }),
-      );
-      if (uploadResult.status !== "written") {
-        hostFailure(
-          uploadResult.diagnostics,
-          "webdav_sync_snapshot_upload_failed",
-        );
-      }
-    }
-    const headResult = rebuildSynthesisHostWebDavSyncWriteResult(
-      await hostPort.writeText({
-        path: "HEAD.json",
-        text: JSON.stringify(pointer, null, 2),
-        ...(head.etag ? { ifMatch: head.etag } : {}),
-      }),
-    );
-    if (headResult.status === "conflict") {
-      throw new Error("webdav_sync_remote_changed_during_sync");
-    }
-    if (headResult.status !== "written") {
-      hostFailure(headResult.diagnostics, "webdav_sync_head_upload_failed");
-    }
-  }
-
-  async function runSync() {
-    const startedAt = now();
-    const runId = `webdav-sync-${startedAt.replace(/[^0-9A-Za-z]+/g, "-")}`;
-    const phaseTotal = 10;
-    const initialState = await loadWebDavSyncState();
-    if (
-      !initialState.adapter_configured ||
-      initialState.queue_state === "disabled"
-    ) {
-      return initialState;
-    }
-    if (initialState.paused) {
-      return persistState({ queue_state: "queued" });
-    }
-    if (initialState.queue_state === "blocked_conflict") {
-      return initialState;
-    }
-    await persistState({ queue_state: "syncing", diagnostics: [] });
-    const diagnostics: SynthesisWebDavSyncDiagnostic[] = [];
-    try {
-      await reportPhase({
-        runId,
-        phase: "head",
-        index: 1,
-        total: phaseTotal,
-        message: "Reading WebDAV remote HEAD.",
-      });
-      const head = await readRemoteHead().catch((error) => {
-        if (
-          String(error instanceof Error ? error.message : error).includes(
-            "HTTP 404",
-          )
-        ) {
-          return { missing: true } as SynthesisWebDavRemoteHead;
-        }
-        throw error;
-      });
-      if (head.pointer) {
-        await reportPhase({
-          runId,
-          phase: "download",
-          index: 2,
-          total: phaseTotal,
-          message: "Downloading WebDAV durable snapshot.",
-        });
-        const importRoot = await downloadSnapshot(head.pointer);
-        await reportPhase({
-          runId,
-          phase: "preview",
-          index: 3,
-          total: phaseTotal,
-          message: "Validating downloaded durable snapshot.",
-        });
-        const preview = await previewSynthesisDurableImport({
-          root,
-          sourceRoot: importRoot,
-          repository,
-        });
-        diagnostics.push(
-          ...preview.diagnostics.map((entry) =>
-            diagnostic({
-              code: entry.code,
-              severity: entry.severity,
-              message: entry.message,
-              details: entry.details,
-            }),
-          ),
-        );
-        if (preview.conflicts.length) {
-          const report: SynthesisWebDavSyncConflictReport = {
-            schema_id: "synthesis.webdav_sync_conflict_report",
-            schema_version: "1.0.0",
-            conflict_id: runId,
-            status: "blocked",
-            conflicts: preview.conflicts.map((entry) => ({
-              asset_path: entry.path,
-              reason: entry.reason,
-              base_hash: entry.base_hash,
-              local_hash: entry.local_hash,
-              remote_hash: entry.remote_hash,
-            })),
-            diagnostics: [
-              diagnostic({
-                code: "webdav_sync_conflict_blocked",
-                severity: "warning",
-                message: "WebDAV Sync is blocked by durable-state conflicts.",
-              }),
-            ],
-          };
-          await writeJson(syncPaths(persistenceRoot).conflictPath, report);
-          return persistState({
-            queue_state: "blocked_conflict",
-            retry_attempt: undefined,
-            next_retry_at: undefined,
-            conflict_report: report,
-            diagnostics: report.diagnostics,
-            last_run: {
-              run_id: runId,
-              status: "blocked_conflict",
-              started_at: startedAt,
-              completed_at: now(),
-              diagnostics: report.diagnostics,
-            },
-          });
-        }
-        if (!preview.ok) {
-          throw new Error("webdav_sync_snapshot_validation_failed");
-        }
-        await reportPhase({
-          runId,
-          phase: "apply",
-          index: 4,
-          total: phaseTotal,
-          message: "Applying durable snapshot to local Synthesis store.",
-        });
-        await applySynthesisDurableImport({
-          root,
-          sourceRoot: importRoot,
-          repository,
-          runId,
-        });
-      } else {
-        diagnostics.push(
-          diagnostic({
-            code: "webdav_sync_head_missing_initializable",
-            severity: "info",
-            message:
-              "WebDAV Sync remote HEAD is missing and will be initialized.",
-          }),
-        );
-      }
-      const paths = syncPaths(persistenceRoot);
-      await removeRuntimePath(paths.exportRoot);
-      await ensureRuntimeDirectory(paths.exportRoot);
-      await reportPhase({
-        runId,
-        phase: "export",
-        index: 5,
-        total: phaseTotal,
-        message: "Exporting local durable Synthesis state.",
-      });
-      const exported = await writeSynthesisDurableExportSnapshot({
+  const durable = repository
+    ? productionDurablePort({
         root,
-        outputRoot: paths.exportRoot,
+        persistenceRoot,
         repository,
-        now: () => now(),
-        onProgress: async (progress) => {
-          const mapped = progressFromDurable(progress, now());
-          await reportPhase({
-            runId,
-            phase: mapped.phase || "export",
-            index: 5,
-            total: phaseTotal,
-            message: mapped.message || progress.message,
-            progress: mapped,
-          });
+        now: options.now,
+        progressReporter: options.progressReporter,
+      })
+    : ({
+        async buildExport() {
+          throw new Error("webdav_sync_repository_unavailable");
         },
-      });
-      const pointer: SynthesisWebDavSnapshotPointer = {
-        schema_id: "synthesis.webdav_sync_head",
-        schema_version: "1.0.0",
-        snapshot_id: snapshotId(startedAt, exported.manifest.manifest_hash),
-        manifest_hash: exported.manifest.manifest_hash,
-        updated_at: now(),
-        producer_version: exported.manifest.producer_version,
-      };
-      await reportPhase({
-        runId,
-        phase: "upload",
-        index: 8,
-        total: phaseTotal,
-        message: "Uploading WebDAV durable snapshot.",
-        progress: {
-          bundle_count: exported.manifest.assets.length,
-          entry_count: exported.entityEntries.length,
-          total_bytes: exported.manifest.assets.reduce(
-            (sum, asset) => sum + asset.bytes,
-            0,
-          ),
-          updated_at: now(),
+        async previewImport() {
+          throw new Error("webdav_sync_repository_unavailable");
         },
-      });
-      await uploadSnapshot(paths.exportRoot, pointer, head);
-      await reportPhase({
-        runId,
-        phase: "complete",
-        index: phaseTotal,
-        total: phaseTotal,
-        status: "completed",
-        message: "WebDAV Sync completed.",
-        diagnostics,
-      });
-      return persistState({
-        queue_state: "idle",
-        retry_attempt: undefined,
-        next_retry_at: undefined,
-        diagnostics,
-        conflict_report: undefined,
-        last_run: {
-          run_id: runId,
-          status: "completed",
-          started_at: startedAt,
-          completed_at: now(),
-          diagnostics,
-          snapshot_id: pointer.snapshot_id,
-          manifest_hash: pointer.manifest_hash,
+        async applyImport() {
+          throw new Error("webdav_sync_repository_unavailable");
         },
-      });
-    } catch (error) {
-      const message = String(error instanceof Error ? error.message : error);
-      const permanentFailure = [
-        "webdav HEAD is invalid",
-        "webdav durable manifest missing",
-        "webdav durable asset path invalid",
-        "webdav_sync_snapshot_validation_failed",
-      ].some((marker) => message.includes(marker));
-      const code = message.includes("webdav_sync_remote_changed_during_sync")
-        ? "webdav_sync_remote_changed_during_sync"
-        : permanentFailure
-          ? "webdav_sync_terminal_failure"
-          : "webdav_sync_failed";
-      const entry = diagnostic({
-        code,
-        severity: "error",
-        message,
-      });
-      await reportPhase({
-        runId,
-        phase: "failed",
-        index: phaseTotal,
-        total: phaseTotal,
-        status: permanentFailure ? "failed_terminal" : "failed_retryable",
-        message,
-        diagnostics: [entry],
-      });
-      return persistState({
-        queue_state: permanentFailure ? "failed_permanent" : "failed_retryable",
-        retry_attempt: undefined,
-        next_retry_at: undefined,
-        diagnostics: [entry],
-        last_run: {
-          run_id: runId,
-          status: permanentFailure ? "failed_permanent" : "failed_retryable",
-          started_at: startedAt,
-          completed_at: now(),
-          diagnostics: [entry],
+        async discardImport() {
+          return false;
         },
-      });
-    }
-  }
-
-  function retryTimestamp(delayMs: number) {
-    const parsed = Date.parse(now());
-    return new Date(
-      (Number.isFinite(parsed) ? parsed : Date.now()) + delayMs,
-    ).toISOString();
-  }
-
-  async function scheduleRetry(
-    state: SynthesisWebDavSyncState,
-    generation: number,
-    retryIndex: number,
-  ): Promise<SynthesisWebDavSyncState> {
-    if (
-      aborted ||
-      generation !== triggerGeneration ||
-      state.queue_state !== "failed_retryable" ||
-      state.paused ||
-      retryIndex >= retryDelaysMs.length
-    ) {
-      clearRetryTimer();
-      return state;
-    }
-    const host = await describeHost();
-    if (
-      host.status !== "available" ||
-      !host.autoRetryEnabled ||
-      generation !== triggerGeneration ||
-      aborted
-    ) {
-      clearRetryTimer();
-      return state;
-    }
-    const delayMs = retryDelaysMs[retryIndex];
-    const scheduled = await persistState({
-      retry_attempt: retryIndex + 1,
-      next_retry_at: retryTimestamp(delayMs),
-    });
-    clearRetryTimer();
-    retryTimer = setTimeout(() => {
-      retryTimer = undefined;
-      if (aborted || generation !== triggerGeneration) {
-        return;
-      }
-      void runSync()
-        .then((next) => scheduleRetry(next, generation, retryIndex + 1))
-        .catch(() => undefined);
-    }, delayMs);
-    return scheduled;
-  }
-
-  async function triggerWebDavSync() {
-    cancelTriggerChain();
-    const generation = triggerGeneration;
-    const state = await runSync();
-    return scheduleRetry(state, generation, 0);
-  }
-
-  async function triggerWebDavAutoSync() {
-    const host = await describeHost();
-    if (host.status !== "available" || !host.autoSyncEnabled || aborted) {
-      return loadWebDavSyncState();
-    }
-    return triggerWebDavSync();
-  }
-
-  async function isWebDavAutoSyncEnabled() {
-    const host = await describeHost();
-    return host.status === "available" && host.autoSyncEnabled && !aborted;
-  }
-
-  async function pauseWebDavSync() {
-    cancelTriggerChain();
-    return persistState({
-      paused: true,
-      retry_attempt: undefined,
-      next_retry_at: undefined,
-    });
-  }
-
-  async function resumeWebDavSync() {
-    return persistState({ paused: false });
-  }
-
-  async function retryWebDavSync() {
-    await persistState({
-      paused: false,
-      queue_state: "queued",
-      diagnostics: [],
-      conflict_report: undefined,
-      retry_attempt: undefined,
-      next_retry_at: undefined,
-    });
-    return triggerWebDavSync();
-  }
-
-  async function resolveWebDavSyncConflict(args: { action: string }) {
-    cancelTriggerChain();
-    const state = await loadWebDavSyncState();
-    const action = cleanString(args.action) || "keep_local";
-    if (action === "keep_local" && state.conflict_report) {
-      return persistState({
-        queue_state: "queued",
-        conflict_report: { ...state.conflict_report, status: "resolved" },
-        diagnostics: [],
-      });
-    }
-    if (action === "clear_after_manual_edit") {
-      return retryWebDavSync();
-    }
-    return persistState({
-      queue_state: "blocked_conflict",
-      diagnostics: [
-        diagnostic({
-          code: "webdav_sync_conflict_action_unsupported",
-          severity: "warning",
-          message: `WebDAV Sync conflict action is not safely supported in v1: ${action}`,
-        }),
-      ],
-    });
-  }
-
-  return {
-    loadWebDavSyncState,
-    runSync,
-    triggerWebDavSync,
-    triggerWebDavAutoSync,
-    isWebDavAutoSyncEnabled,
-    pauseWebDavSync,
-    resumeWebDavSync,
-    retryWebDavSync,
-    resolveWebDavSyncConflict,
-  };
+      } as SynthesisWebDavSyncDurablePort);
+  return createSynthesisWebDavSyncApplication({
+    hostPort: repositoryRequiredPort(options.hostPort, repository),
+    durable,
+    stateStore: productionStateStore(persistenceRoot),
+    now: options.now,
+    progressReporter: options.progressReporter,
+    retryDelaysMs: options.retryDelaysMs,
+    abortSignal: options.abortSignal,
+    acknowledgeUnbasedUpdates: true,
+  });
 }

@@ -283,6 +283,12 @@ sequenceDiagram
   Note over O,S: Transport or malformed receipts leave the current batch pending and stop later batches
 ```
 
+Constraints:
+
+- Related-items sync never starts from graph refresh automatically.
+- It never deletes user-created Zotero related links.
+- Current Zotero relation state is authoritative.
+
 ## `seq.webdav_sync.export_import`
 
 WebDAV Sync exchanges durable Synthesis state through deterministic bundle assets. It does not synchronize the live SQLite file.
@@ -291,22 +297,29 @@ WebDAV Sync exchanges durable Synthesis state through deterministic bundle asset
 sequenceDiagram
   participant U as User or Autosync
   participant W as WebDAV Sync Service
+  participant H as Secret-free Host Port
   participant S as Sidecar Repository
   participant A as Topic Artifact Root
   participant R as Remote WebDAV Collection
 
   U->>W: request sync
-  W->>R: read HEAD.json and remote snapshot
+  W->>H: read HEAD.json
+  H->>R: read HEAD.json
+  W->>W: strictly rebuild pointer and observed ETag
+  W->>H: lazily read remote manifest and declared assets
+  H->>R: read remote snapshot
   W->>W: validate path, manifest, asset hashes, schema, duplicates
   W->>S: preview durable import
   alt blocking conflict
     W->>W: write conflict report
     W-->>U: blocked_conflict
   else clean preview
+    W->>W: require explicit composition policy for unbased updates
     W->>S: apply durable facts through repository/domain services
     W->>A: restore topic current assets
     W->>S: read current durable facts
-    W->>R: upload snapshot and conditionally update HEAD.json
+    W->>H: upload sorted bundles, manifest, then conditional HEAD.json
+    H->>R: publish immutable snapshot and observed-ETag HEAD
     W->>S: mark rebuildable projections stale
     W-->>U: idle
   end
@@ -316,14 +329,11 @@ Constraints:
 
 - Validation and dry-run happen before any SQLite write.
 - Same-entity local and remote edits block import.
+- Unbased remote updates block unless the composition explicitly acknowledges them.
+- A second HEAD observation or conditional write conflict fails retryably; it never overwrites a changed pointer.
+- The private Node composition uses the same sequence with a disabled Host port, no public route, and no automatic trigger.
 - Projection rows are not imported as durable facts; they become stale after durable import.
 - `zotero-agents.db`, `synthesis.db`, WAL/SHM, operations, logs, locks, credentials, and temp workspaces never enter WebDAV bundles.
-
-Constraints:
-
-- Related-items sync never starts from graph refresh automatically.
-- It never deletes user-created Zotero related links.
-- Current Zotero relation state is authoritative.
 
 ## `seq.import.preview_apply`
 

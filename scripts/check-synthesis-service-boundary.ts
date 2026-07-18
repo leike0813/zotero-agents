@@ -297,13 +297,18 @@ export function findSynthesisSidecarAppBoundaryViolations(): string[] {
     ) {
       violations.push(`${relativePath}: Worker construction is not allowed`);
     }
+    const webDavApplicationOwner =
+      relativePath === "apps/synthesis-service/src/server.ts" ||
+      relativePath ===
+        "apps/synthesis-service/src/webDavSyncApplicationNode.ts";
     for (const forbidden of [
       /node:child_process/,
       /src\/modules\/synthesis/,
       /src\/modules\/synthesis\/repository/,
       /synthesis\/service/,
-      /hostEffect|hostRead|webDavSync/,
+      /hostEffect|hostRead/,
       /globalThis\.Zotero|zotero-plugin/,
+      ...(webDavApplicationOwner ? [] : [/webDavSync/]),
     ]) {
       if (forbidden.test(source)) {
         violations.push(

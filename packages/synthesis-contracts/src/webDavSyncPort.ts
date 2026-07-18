@@ -2,7 +2,7 @@ import {
   SynthesisClientError,
   toSynthesisJsonObject,
   type SynthesisJsonObject,
-} from "./common";
+} from "./common.js";
 
 export const SYNTHESIS_HOST_WEBDAV_SYNC_TEXT_BYTES_MAX = 4 * 1024 * 1024;
 export const SYNTHESIS_HOST_WEBDAV_SYNC_DIAGNOSTICS_MAX = 20 as const;

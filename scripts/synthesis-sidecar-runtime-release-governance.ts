@@ -95,6 +95,8 @@ export async function synthesisSidecarRuntimeFingerprintInputs(
         file.endsWith("/knowledgeCheckpoint.ts") ||
         file.endsWith("/durableBundle.ts") ||
         file.endsWith("/durableBundleImport.ts") ||
+        file.endsWith("/webDavSync.ts") ||
+        file.endsWith("/webDavSyncPort.ts") ||
         file.endsWith("/topicGraphApplication.ts") ||
         file.endsWith("/topicGraphCore.ts") ||
         file.endsWith("/tagVocabularyCore.ts") ||

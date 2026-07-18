@@ -329,13 +329,17 @@ Object: One WebDAV durable-state exchange run.
 ```mermaid
 stateDiagram-v2
   [*] --> idle
+  idle --> queued: paused trigger
   idle --> syncing: manual sync or canonical-write autosync
+  queued --> syncing: resume and explicit retry
   syncing --> validating: fetch/merge completed
   validating --> blocked_conflict: durable conflict gate blocks
+  validating --> blocked_conflict: unbased update is not acknowledged
   validating --> failed_permanent: invalid manifest, path, hash, or schema
   validating --> applying: preview clean
   applying --> idle: import applied and projections marked stale
   syncing --> failed_retryable: adapter or network failure
+  syncing --> failed_retryable: observed HEAD or ETag changed
   failed_retryable --> syncing: retry
   blocked_conflict --> idle: user keeps local or saves remote copy
   blocked_conflict --> syncing: user clears after manual edit
@@ -344,9 +348,11 @@ stateDiagram-v2
 Forbidden transitions:
 
 - `validating -> applying` when durable preview reports conflicts.
+- `validating -> applying` for unbased updates without explicit composition acknowledgement.
 - `applying -> import live SQLite`.
 - `blocked_conflict -> idle` by silently choosing last-writer-wins.
 - Restoring hidden retry timers after process startup.
+- Starting a second active run or admitting work after shutdown begins.
 
 ## State Combination Governance
 

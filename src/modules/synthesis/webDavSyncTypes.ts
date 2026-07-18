@@ -1,15 +1,9 @@
-export type SynthesisWebDavSyncConfigStatus =
-  | "disabled"
-  | "incomplete"
-  | "configured"
-  | "invalid";
+import type { SynthesisWebDavSyncDiagnostic } from "../../../packages/synthesis-contracts/src/webDavSync";
+import type { SynthesisHostWebDavSyncConfigStatus } from "../../../packages/synthesis-contracts/src/webDavSyncPort";
 
-export type SynthesisWebDavSyncDiagnostic = {
-  code: string;
-  severity: "info" | "warning" | "error";
-  message: string;
-  details?: unknown;
-};
+export type SynthesisWebDavSyncConfigStatus =
+  SynthesisHostWebDavSyncConfigStatus;
+export type { SynthesisWebDavSyncDiagnostic };
 
 export type SynthesisWebDavSyncConnectionTestResult = {
   ok: boolean;

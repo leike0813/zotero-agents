@@ -16,6 +16,7 @@ export * from "./topicCanonical.js";
 export * from "./citationGraphApplication.js";
 export * from "./conceptKbApplication.js";
 export * from "./durableBundleApplication.js";
+export * from "./webDavSyncApplication.js";
 export * from "./knowledgeCheckpointApplication.js";
 export * from "./knowledgeCheckpointCompatibility.js";
 export * from "./citationGraphProjection.js";

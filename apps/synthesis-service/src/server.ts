@@ -76,6 +76,7 @@ import { createSynthesisSidecarConceptKbApplication } from "./conceptKbApplicati
 import { createSynthesisSidecarTopicGraphApplication } from "./topicGraphApplicationNode.js";
 import { createSynthesisSidecarKnowledgeCheckpointApplication } from "./knowledgeCheckpointApplicationNode.js";
 import { createSynthesisSidecarDurableBundleApplication } from "./durableBundleApplicationNode.js";
+import { createSynthesisSidecarWebDavSyncApplication } from "./webDavSyncApplicationNode.js";
 import {
   rebuildSynthesisTopicCanonicalInspectRequest,
   rebuildSynthesisTopicCanonicalInspectResult,
@@ -308,12 +309,22 @@ export async function startSynthesisSidecarServer(
   let durableBundleApplication: ReturnType<
     typeof createSynthesisSidecarDurableBundleApplication
   >;
+  let webDavSyncApplication: ReturnType<
+    typeof createSynthesisSidecarWebDavSyncApplication
+  >;
   try {
     durableBundleApplication = createSynthesisSidecarDurableBundleApplication({
       repository: repository.store,
       canonicalStore,
       producerVersion: config.serviceVersion,
     });
+    webDavSyncApplication = createSynthesisSidecarWebDavSyncApplication({
+      profileRuntimeRoot: config.profileRuntimeRoot,
+      profileId: config.profileId,
+      dataRootId: config.dataRootId,
+      durable: durableBundleApplication,
+    });
+    await webDavSyncApplication.loadWebDavSyncState();
   } catch (error) {
     canonicalStore.close();
     repository.close();
@@ -370,6 +381,7 @@ export async function startSynthesisSidecarServer(
     }
     shutdownStarted = true;
     lifecycleState = "stopping";
+    webDavSyncApplication.stopAdmission();
     durableBundleApplication.stopAdmission();
     knowledgeCheckpointApplication.stopAdmission();
     topicApplication.stopAdmission();
@@ -386,6 +398,7 @@ export async function startSynthesisSidecarServer(
       serviceInstanceId,
     });
     void (async () => {
+      await webDavSyncApplication.shutdown();
       await durableBundleApplication.shutdown();
       await knowledgeCheckpointApplication.shutdown();
       await referenceRefreshApplication.shutdown();
@@ -845,6 +858,7 @@ export async function startSynthesisSidecarServer(
     });
   } catch (error) {
     transferExecutor.shutdown();
+    await webDavSyncApplication.shutdown();
     await durableBundleApplication.shutdown();
     await knowledgeCheckpointApplication.shutdown();
     await referenceRefreshApplication.shutdown();
