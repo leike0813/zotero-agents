@@ -72,6 +72,9 @@ function run(command, args, options = {}) {
   }
 }
 
+const governance = await import("./host-bridge-cli-release-governance.mjs");
+const buildIdentity = await governance.computeHostBridgeCliBuildFingerprint();
+
 function ensureCargoZigbuild() {
   const result = spawnSync("cargo", ["zigbuild", "--help"], {
     stdio: "ignore",
@@ -122,7 +125,12 @@ const cargoArgs = [
   "--target",
   target,
 ];
-run("cargo", cargoArgs);
+run("cargo", cargoArgs, {
+  env: {
+    ...process.env,
+    ZOTERO_BRIDGE_BUILD_FINGERPRINT: buildIdentity.fingerprint,
+  },
+});
 
 run("node", [
   "scripts/package-zotero-bridge-cli.mjs",

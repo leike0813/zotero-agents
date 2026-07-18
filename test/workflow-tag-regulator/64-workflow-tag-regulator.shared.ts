@@ -1300,6 +1300,76 @@ function registerTagRegulatorApplyIntakeSegment(
     assert.deepEqual(listTags(parent), ["status:2-to-read", "topic:tunnel"]);
   });
 
+  it("filters builtin status additions and removals while applying ordinary tags", async function () {
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Tag Regulator Builtin Status Guard" },
+    });
+    await handlers.tag.add(parent, ["topic:legacy", "status:need-analysis"]);
+    const workflow = await getTagRegulatorWorkflow();
+    const restoreOpen = installSuggestTagsDialogMock(async () => ({
+      saved: false,
+      reason: "no-suggestions",
+    }));
+    let applied: any;
+    try {
+      applied = await executeApplyResult({
+        workflow,
+        parent,
+        bundleReader: { readText: async () => "" },
+        runResult: {
+          resultJson: {
+            result: {
+              status: "success",
+              data: {
+                remove_tags: ["topic:legacy", "status:need-analysis"],
+                add_tags: ["topic:replacement", "status:need-fulltext"],
+                suggest_tags: [
+                  {
+                    tag: "status:need-deep-reading",
+                    note: "must remain workflow-owned",
+                  },
+                ],
+                warnings: [],
+                error: null,
+              },
+              artifacts: [],
+              validation_warnings: [],
+              error: null,
+            },
+          },
+        },
+      });
+    } finally {
+      restoreOpen();
+    }
+
+    assert.deepEqual(listTags(parent), [
+      "status:need-analysis",
+      "topic:replacement",
+    ]);
+    assert.deepEqual(applied.removed, ["topic:legacy"]);
+    assert.deepEqual(applied.added, ["topic:replacement"]);
+    assert.deepEqual(applied.suggest_tags, []);
+    assert.sameDeepMembers(applied.diagnostics, [
+      {
+        code: "builtin_status_change_ignored",
+        operation: "add",
+        tag: "status:need-fulltext",
+      },
+      {
+        code: "builtin_status_change_ignored",
+        operation: "remove",
+        tag: "status:need-analysis",
+      },
+      {
+        code: "builtin_status_change_ignored",
+        operation: "suggest",
+        tag: "status:need-deep-reading",
+      },
+    ]);
+  });
+
   itZoteroFullOrNode(
     "does not open suggest-tags dialog or write vocabulary when suggest_tags is empty",
     async function () {

@@ -26,7 +26,7 @@ import {
 import { resolveBackendDisplayName } from "../backends/displayName";
 import { getVisibleLoadedWorkflowEntries } from "./workflowVisibility";
 
-type FormSchemaType = "string" | "number" | "boolean";
+type FormSchemaType = "string" | "number" | "boolean" | "array";
 
 const HTML_NS = "http://www.w3.org/1999/xhtml";
 
@@ -315,6 +315,15 @@ function coerceString(value: unknown, fallback: unknown) {
   return "";
 }
 
+function coerceStringArrayText(value: unknown, fallback: unknown) {
+  const raw = Array.isArray(value) ? value : fallback;
+  return Array.isArray(raw)
+    ? raw
+        .filter((entry): entry is string => typeof entry === "string")
+        .join(", ")
+    : "";
+}
+
 function isWarningProviderOptionKey(key: string) {
   return key === "autoApproveAcpPermissions";
 }
@@ -479,6 +488,9 @@ function renderSchemaFields(args: {
         input.type = "number";
         input.step = "any";
         input.value = coerceNumberText(rawValue, defaultValue);
+      } else if (entry.type === "array") {
+        input.type = "text";
+        input.value = coerceStringArrayText(rawValue, defaultValue);
       } else {
         input.type = "text";
         input.value = coerceString(rawValue, defaultValue);

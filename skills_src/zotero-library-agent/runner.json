@@ -1,0 +1,15 @@
+{
+  "id": "zotero-library-agent",
+  "name": "📚 Zotero Library Agent",
+  "description": "Operate a Zotero library and the Zotero Agents plugin through Host Bridge for a bounded current task.",
+  "execution_modes": ["auto", "interactive"],
+  "schemas": {
+    "output": "assets/output.schema.json"
+  },
+  "entrypoint": {
+    "result_json_filename": "zotero-library-agent.result.json",
+    "prompts": {
+      "common": "Treat SKILL.md as the authoritative procedure and use the bundled Zotero Bridge CLI Skill for exact commands. Never expose bearer tokens. For final output, return exactly one JSON object with `__SKILL_DONE__: true` plus `status`, `summary`, optional `evidence_file`, and optional `diagnostics` matching assets/output.schema.json. In interactive mode, return `__SKILL_DONE__: false` with `message` and `ui_hints` only when a user decision is required."
+    }
+  }
+}

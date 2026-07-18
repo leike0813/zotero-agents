@@ -8,17 +8,19 @@ Bibliografische Metadaten für einen ausgewählten Zotero-Übergeordneten Eintra
 
 | Parameter | Erforderlich | Beschreibung |
 | --- | --- | --- |
+| Identifikator-Schnellpfad überspringen | Nein (standardmäßig aus) | Die Zotero-Identifikatorsuche umgehen und `literature-metadata-search` direkt ausführen. |
 
-Keine benutzerkonfigurierbaren Parameter. Wählen Sie genau einen übergeordneten Eintrag in der Zotero-Elementliste aus. Anhänge und mehrere Einträge werden nicht akzeptiert.
+Wählen Sie genau einen übergeordneten Eintrag in der Zotero-Elementliste aus. Anhänge und mehrere Einträge werden nicht akzeptiert.
 
 ## Verhalten
 
-Der Workflow läuft vollständig automatisch ohne Benutzerbestätigung. Er folgt zwei Pfaden:
+Der Workflow läuft vollständig automatisch ohne Benutzerbestätigung. Er verwendet folgende Wege:
 
-1. **Lokaler Schnellpfad**: Wenn der Eintrag einen DOI, ISBN oder eine URL hat, die deterministisch zu einem DOI-, arXiv- oder PubMed-Identifikator auflöst, ruft der Workflow `runtime.hostApi.metadata.translateIdentifier` auf (eine kontrollierte schreibgeschützte Zotero `Translate.Search`-Fassade). Wenn der Kandidaten-Identifikator übereinstimmt und wertvolle bibliografische Informationen enthält, werden die Ergebnisse direkt zurückgeschrieben.
-2. **Skill-Runner-Fallback**: Wenn kein zuverlässiger Identifikator vorhanden ist, die lokale Suche keine Ergebnisse liefert, der Übersetzer fehlschlägt, der Kandidat nicht vertrauenswürdig ist oder der Identifikator nicht übereinstimmt, führt der Workflow den Skill `literature-metadata-search` für eine leichtgewichtige webbasierte Metadatenabfrage aus.
+1. **Lokaler Schnellpfad (Standard)**: Wenn der Eintrag einen DOI, ISBN oder eine URL hat, die deterministisch zu einem DOI-, arXiv- oder PubMed-Identifikator auflöst, ruft der Workflow `runtime.hostApi.metadata.translateIdentifier` auf (eine kontrollierte schreibgeschützte Zotero `Translate.Search`-Fassade). Wenn der Kandidaten-Identifikator übereinstimmt und wertvolle bibliografische Informationen enthält, werden die Ergebnisse direkt zurückgeschrieben.
+2. **Erzwungene Agent-Suche**: Ist **Identifikator-Schnellpfad überspringen** aktiviert, wird die lokale Suche umgangen und `literature-metadata-search` direkt ausgeführt. Der Identifikator bleibt als Suchkontext erhalten.
+3. **Skill-Runner-Fallback**: Ist die Option aus, aber die lokale Suche ergebnislos, fehlerhaft oder nicht vertrauenswürdig, führt der Workflow denselben Skill zur webbasierten Metadatenabfrage aus.
 
-Beide Pfade teilen sich dasselbe kanonische Ergebnisformat und denselben Apply-Handler.
+Alle Wege verwenden dasselbe kanonische Ergebnisformat und denselben Apply-Handler. Liefert der Standardlauf trotz vorhandenem DOI, ISBN oder anderem unterstützten Identifikator falsche Metadaten, kann die Option aktiviert werden, um die Agent-Suche zu erzwingen. Die Anforderungen an Abgleich und Nachweise bleiben unverändert.
 
 ### Rückschreibregeln
 
@@ -28,6 +30,8 @@ Der Workflow aktualisiert die bibliografischen Felder des übergeordneten Eintra
 - Zeitschriften-/Konferenz-/Buch-/Dissertations-/Berichtsfelder (Zeitschriftenname, Band/Ausgabe/Seiten, Verlag, Konferenzname, Schule, Berichtstyp usw.)
 - Ersteller (Autoren, institutionelle Autoren usw.)
 - `itemType`, wenn durch hochvertrauenswürdige Beweise unterstützt (z.B. Zeitschriftenartikel zu Dissertation korrigiert)
+
+Bei einer ursprünglich auf Chinesisch veröffentlichten Arbeit schreibt der Agent chinesische Autorennamen nur zurück, wenn eine autoritative Quelle die vollständige Liste bestätigt. Pinyin, Übersetzungen oder erratene chinesische Zeichen ersetzen die Autoren nicht; ohne vollständige Bestätigung bleiben die vorhandenen Autoren erhalten.
 
 Der Workflow modifiziert **nicht** Anhänge, Notizen, Tags, Sammlungen, verwandte Einträge, PDF-Dateien oder Web-Snapshots.
 
@@ -39,8 +43,8 @@ Metadatenänderungen werden direkt auf den ausgewählten Zotero-Übergeordneten 
 
 ## Modell-Empfehlung
 
-- **Schnellpfad-Treffer** (DOI/ISBN/unterstützter URL-Identifikator vorhanden): Kein Backend-Modell erforderlich.
-- **Fallback auf `literature-metadata-search`**: Ein Modell mit Websuchfähigkeit wird empfohlen. Die Aufgabe ist eine leichtgewichtige Abruf- und Beweisverifizierung — sie erfordert keine Langform-Schreibfähigkeit, muss aber Homonyme, Preprint- vs. veröffentlichte Versionen, Artikel vs. Dissertationen und verschiedene Ausgaben unterscheiden.
+- **Schnellpfad-Treffer** (unterstützter Identifikator vorhanden und Option aus): Kein Backend-Modell erforderlich.
+- **Option aktiviert oder Fallback auf `literature-metadata-search`**: Ein Modell mit Websuchfähigkeit wird empfohlen. Die Aufgabe ist eine leichtgewichtige Abruf- und Beweisverifizierung — sie erfordert keine Langform-Schreibfähigkeit, muss aber Homonyme, Preprint- vs. veröffentlichte Versionen, Artikel vs. Dissertationen und verschiedene Ausgaben unterscheiden.
 
 ## Abhängigkeiten
 

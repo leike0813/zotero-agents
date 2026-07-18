@@ -8,17 +8,19 @@ Interrogare, correggere e completare i metadati bibliografici per un elemento pa
 
 | Parametro | Richiesto | Descrizione |
 | --- | --- | --- |
+| Salta il percorso rapido per identificatore | No (disattivato per impostazione predefinita) | Ignora la ricerca degli identificatori Zotero ed esegue direttamente `literature-metadata-search`. |
 
-Nessun parametro configurabile dall'utente. Selezionare esattamente un elemento padre nell'elenco degli elementi Zotero. Allegati ed elementi multipli non sono accettati.
+Selezionare esattamente un elemento padre nell'elenco degli elementi Zotero. Allegati ed elementi multipli non sono accettati.
 
 ## Comportamento
 
-Il workflow viene eseguito completamente automaticamente senza conferma dell'utente. Segue due percorsi:
+Il workflow viene eseguito completamente automaticamente senza conferma dell'utente. Utilizza questi percorsi:
 
-1. **Percorso veloce locale**: Se l'elemento ha un DOI, ISBN o un URL che si risolve deterministicamente a un identificatore DOI, arXiv o PubMed, il workflow chiama `runtime.hostApi.metadata.translateIdentifier` (una facade controllata di sola lettura Zotero `Translate.Search`). Quando l'identificatore candidato corrisponde e contiene informazioni bibliografiche preziose, i risultati vengono scritti direttamente.
-2. **Fallback a Skill-Runner**: Se non esiste un identificatore affidabile, la ricerca locale non restituisce risultati, il traduttore fallisce, il candidato non è affidabile o l'identificatore non corrisponde, il workflow esegue lo skill `literature-metadata-search` per un recupero di metadati basato sul web leggero.
+1. **Percorso veloce locale (predefinito)**: Se l'elemento ha un DOI, ISBN o un URL che si risolve deterministicamente a un identificatore DOI, arXiv o PubMed, il workflow chiama `runtime.hostApi.metadata.translateIdentifier` (una facade controllata di sola lettura Zotero `Translate.Search`). Quando l'identificatore candidato corrisponde e contiene informazioni bibliografiche preziose, i risultati vengono scritti direttamente.
+2. **Ricerca Agent forzata**: Quando **Salta il percorso rapido per identificatore** è attivo, la ricerca locale viene ignorata e `literature-metadata-search` viene eseguito direttamente. L’identificatore resta disponibile come contesto di ricerca.
+3. **Fallback a Skill-Runner**: Con l’opzione disattivata, anche una ricerca locale senza risultati, errata o non affidabile esegue lo stesso skill per cercare metadati sul web.
 
-Entrambi i percorsi condividono lo stesso formato di risultato canonico e lo stesso gestore di applicazione.
+Tutti i percorsi condividono lo stesso risultato canonico e lo stesso gestore di applicazione. Se un elemento ha già DOI, ISBN o un altro identificatore supportato ma l’esecuzione predefinita restituisce metadati errati, attivare l’opzione per forzare la ricerca Agent. I requisiti di corrispondenza ed evidenza non cambiano.
 
 ### Regole di scrittura
 
@@ -28,6 +30,8 @@ Il workflow aggiorna i campi bibliografici dell'elemento padre:
 - Campi rivista/conferenza/libro/tesi/rapporto (nome rivista, volume/fascicolo/pagine, editore, nome conferenza, scuola, tipo rapporto, ecc.)
 - Creatori (autori, autori istituzionali, ecc.)
 - `itemType` quando supportato da evidenze ad alta confidenza (ad esempio, articolo di rivista corretto in tesi)
+
+Per un lavoro pubblicato originariamente in cinese, l’Agent scrive i nomi degli autori in caratteri cinesi solo quando una fonte autorevole verifica l’elenco completo. Non sostituisce gli autori con pinyin, traduzioni o caratteri cinesi dedotti; senza un elenco completo verificato, gli autori esistenti vengono conservati.
 
 Il workflow **non** modifica allegati, note, tag, raccolte, elementi correlati, file PDF o snapshot web.
 
@@ -39,8 +43,8 @@ Le modifiche ai metadati vengono applicate direttamente all'elemento padre Zoter
 
 ## Raccomandazione del modello
 
-- **Percorso veloce riuscito** (DOI/ISBN/identificatore URL supportato presente): Nessun modello backend necessario.
-- **Fallback a `literature-metadata-search`**: Si raccomanda un modello con capacità di ricerca web. Il compito è un recupero leggero e una verifica delle evidenze — non richiede capacità di scrittura in formato lungo, ma deve distinguere omonimi, versioni preprint vs. pubblicate, articoli vs. tesi e diverse edizioni.
+- **Percorso veloce riuscito** (identificatore supportato presente e opzione disattivata): Nessun modello backend necessario.
+- **Opzione attivata o fallback a `literature-metadata-search`**: Si raccomanda un modello con capacità di ricerca web. Il compito è un recupero leggero e una verifica delle evidenze — non richiede capacità di scrittura in formato lungo, ma deve distinguere omonimi, versioni preprint vs. pubblicate, articoli vs. tesi e diverse edizioni.
 
 ## Dipendenze
 

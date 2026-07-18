@@ -2,7 +2,7 @@
   "id": "literature-metadata-curator",
   "label": "Literature Metadata Curator",
   "provider": "skillrunner",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "display": {
     "core": true,
     "emoji": "📇"
@@ -13,6 +13,14 @@
   },
   "inputs": {
     "unit": "parent"
+  },
+  "parameters": {
+    "skip_identifier_fast_path": {
+      "type": "boolean",
+      "title": "Skip identifier fast path",
+      "description": "Bypass Zotero identifier lookup and run literature-metadata-search directly.",
+      "default": false
+    }
   },
   "validateSelection": {
     "select": {

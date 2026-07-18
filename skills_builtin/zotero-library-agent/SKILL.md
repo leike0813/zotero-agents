@@ -1,0 +1,71 @@
+---
+name: zotero-library-agent
+description: Operate a Zotero library and the Zotero Agents plugin through Host Bridge for on-demand inspection, context retrieval, literature and synthesis reads, workflow execution, approved mutations, file transfer, run interaction, diagnostics, and evidence handoff. Use when an agent needs Zotero facts or plugin actions during a current task without becoming a resident library-maintenance service.
+---
+
+# Zotero Library Agent
+
+Use Host Bridge to inspect Zotero first, keep object and run handles explicit, and apply changes only through reviewed mutation or workflow channels.
+
+## Start Each Task
+
+1. Read `references/control-invariants.md` before using handles, approvals, files, workflows, or writeback.
+2. Read `references/task-routing.md` to choose the smallest command family that satisfies the request.
+3. Read `references/workflow-execution.md` before submitting, interacting with, or applying a workflow.
+4. Read `references/evidence-handoff.md` when the result will be handed to another agent, framework, or later task.
+5. Use `references/terminology.md` when Zotero, Synthesis, artifact, or run terminology is ambiguous.
+6. Read exactly one matching journey below; each journey points to the bundled `zotero-bridge-cli` command card when exact payload or result fields are needed.
+7. Read the bundled `zotero-bridge-cli` Skill before connection setup, identity comparison, command invocation, paging/file delivery, or failure recovery.
+
+## Journey references
+
+- `references/journeys/current-context-and-library-read.md`: deictic selection, search versus list, item detail, notes, and attachment evidence.
+- `references/journeys/notes-attachments-and-readiness.md`: note chunks and payloads, annotations, PDF/Markdown/analysis readiness, and generated attachments.
+- `references/journeys/synthesis-research-context.md`: topics, graph views, indexes, resolvers, artifacts, schemas, and attention queues.
+- `references/journeys/host-owned-workflow.md`: describe, requirements, validate, submit, monitor, permissions, interaction, and Product evidence.
+- `references/journeys/agent-owned-handoff.md`: agent-run bundle execution, result validation, apply-back, and receipt recovery.
+- `references/journeys/concrete-writeback.md`: previewed mutations, semantic write commands, approval, and live verification.
+- `references/journeys/products-and-files.md`: local paths, registered files, Dashboard Products, downloads, and attachment delivery.
+- `references/helper-script-contract.md`: deterministic evidence construction, validation, and workflow-bundle inspection.
+
+## Operating Loop
+
+1. Confirm the loaded CLI and profile when command help or connection state is uncertain.
+2. Resolve phrases such as "this paper" or "the selected collection" through Host Bridge context; never infer Zotero object identifiers from titles alone.
+3. Prefer bounded semantic reads and follow returned cursor or file metadata for larger results.
+4. Separate interpretation from action: decide what the result means before choosing a workflow or mutation.
+5. Preview or describe writes when supported, preserve approval boundaries, and stop on denial or structured errors.
+6. Track only handles needed by the current task. Return or persist portable evidence explicitly when another system needs continuity.
+
+## Authority Boundary
+
+- Treat Host Bridge as the only Zotero and Zotero Agents control path provided by this Skill.
+- Do not read or write Zotero databases, storage directories, plugin internals, or browser state directly.
+- Do not turn this Skill into a background library service. Perform bounded work for the current request and return control when the result or required user decision is available.
+- Do not make scheduled or unattended writes. A current user request and Host Bridge approval still govern every mutation or apply-back.
+- Do not treat cache entries, generated references, or evidence bundles as live Zotero truth; confirm current facts through Host Bridge when freshness matters.
+
+## Direct Skill Invocation
+
+- Return one final result with `status`, `summary`, optional `evidence_file`, and optional structured `diagnostics` when this Skill is invoked through the plugin Skill registry.
+- Set `evidence_file` only to a helper-built, validated evidence bundle that another agent or task can consume. Keep concise task-local findings in `summary` when no portable evidence file is needed.
+- Use `canceled` when authority, input, or user intent is missing, and `failed` when execution cannot complete. Do not fabricate evidence for either state.
+- In interactive mode, use the runner's pending envelope only when a user decision is actually required; the final business result still follows `assets/output.schema.json`.
+
+## Failure Handling
+
+- Preserve structured error codes and handle fields when reporting a failure.
+- Re-discover a command or object only when the error indicates stale syntax or identity; do not guess alternate handles.
+- When an operation returns a file handle or output path, verify the declared file before using it as evidence or apply-back input.
+- When required authority, input, or user intent is missing, stop at the boundary and state the exact missing decision.
+
+## Helper entrypoint
+
+Build and validate a hash-bound evidence record with the packaged helper:
+
+```sh
+python scripts/zotero_library_agent.py evidence build --input evidence-input.json --output evidence.json
+python scripts/zotero_library_agent.py evidence validate --input evidence.json
+```
+
+Read `references/helper-script-contract.md` before using the helper. The script validates deterministic shape, computes artifact digests, and inspects workflow bundles; the agent remains responsible for command choice, interpretation, evidence sufficiency, and whether a reviewed action is authorized.

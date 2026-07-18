@@ -1292,6 +1292,7 @@ synthesis-canonical-unsaved-metadata = 中繼資料草稿有未儲存的變更
 synthesis-canonical-edit-metadata = 編輯外部典範中繼資料
 synthesis-canonical-archive-empty = 封存空典範
 synthesis-tags-management = Synthesis 標籤管理
+synthesis-tags-builtin = 內建
 synthesis-tags-summary-canonical = 典範
 synthesis-tags-summary-staged = 暫存
 synthesis-tags-summary-warnings = 警告

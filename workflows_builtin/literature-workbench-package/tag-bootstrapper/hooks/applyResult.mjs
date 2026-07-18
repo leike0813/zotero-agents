@@ -131,6 +131,13 @@ async function applyResultImpl({ resultContext, runResult, runtime }) {
     throw new Error(`tag-bootstrapper output malformed: ${normalized.reason}`);
   }
   const synthesis = resolveSynthesisVocabularyApi(runtime);
+  const statusPolicy = requireHostApi(runtime)?.statusTags?.getPolicy?.();
+  if (!statusPolicy || typeof statusPolicy !== "object") {
+    throw new Error("tag-bootstrapper builtin status policy API is unavailable");
+  }
+  const builtinLower = new Set(
+    Object.values(statusPolicy).map((tag) => asString(tag).toLowerCase()),
+  );
   const current = await synthesis.loadTagVocabulary();
   const staged = await loadStagedTagSuggestions(synthesis);
   const existingLower = new Set(
@@ -146,8 +153,13 @@ async function applyResultImpl({ resultContext, runResult, runtime }) {
   const additions = [];
   const skippedExisting = [];
   const skippedStaged = [];
+  const skippedBuiltin = [];
   for (const entry of normalized.entries) {
     const lowered = entry.tag.toLowerCase();
+    if (builtinLower.has(lowered)) {
+      skippedBuiltin.push(entry.tag);
+      continue;
+    }
     if (existingLower.has(lowered)) {
       skippedExisting.push(entry.tag);
       continue;
@@ -178,6 +190,7 @@ async function applyResultImpl({ resultContext, runResult, runtime }) {
       added: additions.map((entry) => entry.tag),
       skipped_existing: skippedExisting,
       skipped_staged: skippedStaged,
+      skipped_builtin: skippedBuiltin,
     },
     skillOutputDiagnostics,
   );

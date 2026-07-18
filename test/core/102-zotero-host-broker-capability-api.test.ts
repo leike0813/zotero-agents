@@ -16,6 +16,7 @@ import {
   setZoteroLibraryPageQueryAdapterForTests,
 } from "../../src/modules/zoteroLibraryPageQuery";
 import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
+import { getDefaultSynthesisService } from "../../src/modules/synthesis/service";
 
 const HOST_BRIDGE_CONTEXT_GET_CURRENT_VIEW = "context.get_current_view";
 
@@ -116,12 +117,12 @@ describe("zotero host broker capability api", function () {
     resetZoteroMcpServerForTests();
   });
 
-  it("exposes v8 broker domains without removing legacy APIs", async function () {
+  it("exposes v9 broker domains without removing legacy APIs", async function () {
     const hostApi = createWorkflowHostApi();
     const item = await createParentItem("Broker Legacy Compatibility");
 
     assert.strictEqual(hostApi.version, WORKFLOW_HOST_API_VERSION);
-    assert.strictEqual(WORKFLOW_HOST_API_VERSION, 8);
+    assert.strictEqual(WORKFLOW_HOST_API_VERSION, 9);
     assert.isFunction(hostApi.context.getCurrentView);
     assert.isFunction(hostApi.library.searchItems);
     assert.isFunction(hostApi.mutations.preview);
@@ -138,6 +139,8 @@ describe("zotero host broker capability api", function () {
     assert.isFunction(hostApi.items.exportPortableJson);
     assert.isFunction(hostApi.items.createFromJson);
     assert.isFunction(hostApi.items.remove);
+    assert.isFunction(hostApi.statusTags.getPolicy);
+    assert.isFunction(hostApi.statusTags.transition);
     assert.isFunction(hostApi.attachments.importStoredFromPath);
     assert.strictEqual(hostApi.items.get(item.id), item);
 
@@ -145,6 +148,43 @@ describe("zotero host broker capability api", function () {
       title: "Broker Legacy Updated",
     });
     assert.strictEqual(item.getField("title"), "Broker Legacy Updated");
+  });
+
+  it("transitions builtin workflow status instances idempotently by stable key", async function () {
+    await getDefaultSynthesisService().initializeBuiltinTagPolicy();
+    const hostApi = createWorkflowHostApi();
+    const item = await createParentItem("Broker Status Transition");
+
+    const added = await hostApi.statusTags.transition({
+      item,
+      add: ["need-analysis", "need-fulltext"],
+    });
+    assert.sameMembers(added.added, [
+      "status:need-analysis",
+      "status:need-fulltext",
+    ]);
+    assert.deepEqual(added.warnings, []);
+
+    const idempotent = await hostApi.statusTags.transition({
+      item,
+      add: ["need-analysis"],
+      remove: ["need-fulltext"],
+    });
+    assert.deepEqual(idempotent.added, []);
+    assert.deepEqual(idempotent.removed, ["status:need-fulltext"]);
+    assert.deepEqual(await handlers.tag.list(item), ["status:need-analysis"]);
+
+    for (const request of [
+      { item, add: ["unknown"] },
+      { item, add: ["need-analysis"], remove: ["need-analysis"] },
+    ]) {
+      try {
+        await hostApi.statusTags.transition(request as any);
+        assert.fail("expected invalid status transition to fail");
+      } catch (error) {
+        assert.match(String(error), /status key|added and removed/i);
+      }
+    }
   });
 
   it("projects only a real selected collection into current view", async function () {

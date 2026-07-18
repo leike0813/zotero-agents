@@ -8,15 +8,19 @@ Consultar, corregir y completar metadatos bibliográficos para un elemento princ
 
 | Parámetro | Requerido | Descripción |
 | --- | --- | --- |
+| Omitir vía rápida por identificador | No (desactivado por defecto) | Omite la búsqueda de identificadores de Zotero y ejecuta `literature-metadata-search` directamente. |
 
-No hay parámetros configurables por el usuario. Seleccione exactamente un elemento principal en la lista de elementos de Zotero. No se aceptan adjuntos ni múltiples elementos.
+Seleccione exactamente un elemento principal en la lista de elementos de Zotero. No se aceptan adjuntos ni múltiples elementos.
 
 ## Comportamiento
 
-El flujo de trabajo se ejecuta completamente automáticamente sin confirmación del usuario. Sigue dos caminos:
+El flujo de trabajo se ejecuta completamente automáticamente sin confirmación del usuario. Utiliza estas rutas:
 
-1. **Camino rápido local**: Si el elemento tiene un DOI, ISBN o una URL que se resuelve determinísticamente a un identificador DOI, arXiv o PubMed, el flujo de trabajo llama a `runtime.hostApi.metadata.translateIdentifier` (una fachada controlada de solo lectura Zotero `Translate.Search`). Cuando el identificador candidato coincide y contiene información bibliográfica valiosa, los resultados se escriben directamente.
-2. **Fallback a Skill-Runner**: Si no existe un identificador confiable, la búsqueda local no devuelve resultados, el traductor falla, el candidato no es confiable o el identificador no coincide, el flujo de trabajo ejecuta el skill `literature-metadata-search` para una recuperación de metadatos basada en web ligera.
+1. **Camino rápido local (predeterminado)**: Si el elemento tiene un DOI, ISBN o una URL que se resuelve determinísticamente a un identificador DOI, arXiv o PubMed, el flujo de trabajo llama a `runtime.hostApi.metadata.translateIdentifier` (una fachada controlada de solo lectura Zotero `Translate.Search`). Cuando el identificador candidato coincide y contiene información bibliográfica valiosa, los resultados se escriben directamente.
+2. **Búsqueda forzada con Agent**: Al activar **Omitir vía rápida por identificador**, se omite la búsqueda local y se ejecuta `literature-metadata-search` directamente. El identificador se conserva como contexto de búsqueda.
+3. **Fallback a Skill-Runner**: Con la opción desactivada, una búsqueda local fallida o no fiable también ejecuta el mismo skill para recuperar metadatos en la web.
+
+Todas las rutas comparten el mismo resultado canónico y gestor de aplicación. Si un elemento ya tiene DOI, ISBN u otro identificador compatible pero la ejecución predeterminada devuelve metadatos incorrectos, active la opción para forzar la búsqueda con Agent. Los requisitos de coincidencia y evidencia no cambian.
 
 Ambos caminos comparten el mismo formato de resultado canónico y el mismo manejador de aplicación.
 
@@ -29,6 +33,8 @@ El flujo de trabajo actualiza los campos bibliográficos del elemento principal:
 - Creadores (autores, autores institucionales, etc.)
 - `itemType` cuando se soporta con evidencia de alta confianza (por ejemplo, artículo de revista corregido a tesis)
 
+Para un trabajo publicado originalmente en chino, el Agent solo escribe nombres de autor en caracteres chinos cuando una fuente autorizada verifica la lista completa. No sustituye autores por pinyin, traducciones ni caracteres chinos inferidos; si no puede verificarse la lista completa, se conservan los autores existentes.
+
 El flujo de trabajo **no** modifica adjuntos, notas, etiquetas, colecciones, elementos relacionados, archivos PDF ni instantáneas web.
 
 Sin un identificador estable, el flujo de trabajo solo sobrescribe un título existente o cambia el tipo de elemento cuando: el candidato puede probarse que es la misma obra directa, al menos dos señales bibliográficas independientes coinciden y una página de destino autorizada lo corrobora. Los títulos de contenedor se escriben en el campo de contenedor apropiado en lugar de reemplazar el título de la obra. Los resultados de baja confianza, candidatos conflictivos o resultados solo sospechosos se omiten.
@@ -39,8 +45,8 @@ Los cambios de metadatos se aplican directamente al elemento principal de Zotero
 
 ## Recomendación de modelo
 
-- **Camino rápido exitoso** (DOI/ISBN/identificador URL soportado presente): No se necesita modelo de backend.
-- **Fallback a `literature-metadata-search`**: Se recomienda un modelo con capacidad de búsqueda web. La tarea es una recuperación ligera y verificación de evidencia — no requiere capacidad de escritura de formato largo, pero debe distinguir homónimos, versiones preprint vs. publicadas, artículos vs. tesis y diferentes ediciones.
+- **Camino rápido exitoso** (identificador compatible presente y opción desactivada): No se necesita modelo de backend.
+- **Opción activada o fallback a `literature-metadata-search`**: Se recomienda un modelo con capacidad de búsqueda web. La tarea es una recuperación ligera y verificación de evidencia — no requiere capacidad de escritura de formato largo, pero debe distinguir homónimos, versiones preprint vs. publicadas, artículos vs. tesis y diferentes ediciones.
 
 ## Dependencias
 

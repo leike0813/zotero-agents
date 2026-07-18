@@ -131,6 +131,16 @@ function coerceBySchemaType(type: string, value: unknown) {
     }
     return undefined;
   }
+  if (type === "array") {
+    if (!Array.isArray(value)) {
+      return undefined;
+    }
+    const normalized = value
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    return Array.from(new Set(normalized));
+  }
   return undefined;
 }
 
@@ -206,6 +216,9 @@ function isRequiredWorkflowParameterPresent(type: string, value: unknown) {
   }
   if (type === "boolean") {
     return typeof value === "boolean";
+  }
+  if (type === "array") {
+    return Array.isArray(value) && value.length > 0;
   }
   return typeof value !== "undefined" && value !== null;
 }

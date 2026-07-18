@@ -1,6 +1,6 @@
 {
   "schema": "zotero-agents.help-docs.v1",
-  "generated_at": "2026-07-13T09:27:17.381Z",
+  "generated_at": "2026-07-18T07:03:42.818Z",
   "default_doc": "installation",
   "locales": ["en", "de", "es", "fr", "it", "ja", "ko", "ru", "zh-CN"],
   "docs": [
@@ -51,6 +51,12 @@
       "locale": "de",
       "title": "Skill-Runner-Bereitstellung & -Konfiguration",
       "path": "docs/de/backends/skill-runner.md"
+    },
+    {
+      "id": "backends/zotero-library-agent",
+      "locale": "de",
+      "title": "Zotero Library Agent",
+      "path": "docs/de/backends/zotero-library-agent.md"
     },
     {
       "id": "dashboard",
@@ -389,6 +395,12 @@
       "path": "docs/en/backends/skill-runner.md"
     },
     {
+      "id": "backends/zotero-library-agent",
+      "locale": "en",
+      "title": "Zotero Library Agent",
+      "path": "docs/en/backends/zotero-library-agent.md"
+    },
+    {
       "id": "dashboard",
       "locale": "en",
       "title": "Dashboard",
@@ -723,6 +735,12 @@
       "locale": "es",
       "title": "Despliegue y configuración de Skill-Runner",
       "path": "docs/es/backends/skill-runner.md"
+    },
+    {
+      "id": "backends/zotero-library-agent",
+      "locale": "es",
+      "title": "Zotero Library Agent",
+      "path": "docs/es/backends/zotero-library-agent.md"
     },
     {
       "id": "dashboard",
@@ -1061,6 +1079,12 @@
       "path": "docs/fr/backends/skill-runner.md"
     },
     {
+      "id": "backends/zotero-library-agent",
+      "locale": "fr",
+      "title": "Zotero Library Agent",
+      "path": "docs/fr/backends/zotero-library-agent.md"
+    },
+    {
       "id": "dashboard",
       "locale": "fr",
       "title": "Tableau de bord",
@@ -1395,6 +1419,12 @@
       "locale": "it",
       "title": "Distribuzione e configurazione di Skill-Runner",
       "path": "docs/it/backends/skill-runner.md"
+    },
+    {
+      "id": "backends/zotero-library-agent",
+      "locale": "it",
+      "title": "Zotero Library Agent",
+      "path": "docs/it/backends/zotero-library-agent.md"
     },
     {
       "id": "dashboard",
@@ -1733,6 +1763,12 @@
       "path": "docs/ja/backends/skill-runner.md"
     },
     {
+      "id": "backends/zotero-library-agent",
+      "locale": "ja",
+      "title": "Zotero Library Agent",
+      "path": "docs/ja/backends/zotero-library-agent.md"
+    },
+    {
       "id": "dashboard",
       "locale": "ja",
       "title": "ダッシュボード",
@@ -2067,6 +2103,12 @@
       "locale": "ko",
       "title": "Skill-Runner Deployment & Configuration",
       "path": "docs/ko/backends/skill-runner.md"
+    },
+    {
+      "id": "backends/zotero-library-agent",
+      "locale": "ko",
+      "title": "Zotero Library Agent",
+      "path": "docs/ko/backends/zotero-library-agent.md"
     },
     {
       "id": "dashboard",
@@ -2405,6 +2447,12 @@
       "path": "docs/ru/backends/skill-runner.md"
     },
     {
+      "id": "backends/zotero-library-agent",
+      "locale": "ru",
+      "title": "Zotero Library Agent",
+      "path": "docs/ru/backends/zotero-library-agent.md"
+    },
+    {
       "id": "dashboard",
       "locale": "ru",
       "title": "Панель мониторинга",
@@ -2739,6 +2787,12 @@
       "locale": "zh-CN",
       "title": "Skill-Runner 部署与配置",
       "path": "docs/zh-CN/backends/skill-runner.md"
+    },
+    {
+      "id": "backends/zotero-library-agent",
+      "locale": "zh-CN",
+      "title": "Zotero Library Agent",
+      "path": "docs/zh-CN/backends/zotero-library-agent.md"
     },
     {
       "id": "dashboard",
@@ -3092,6 +3146,11 @@
             "type": "doc",
             "id": "backends/generic-http",
             "label": "Generic HTTP Backend Configuration"
+          },
+          {
+            "type": "doc",
+            "id": "backends/zotero-library-agent",
+            "label": "Zotero Library Agent"
           }
         ]
       },
@@ -3347,6 +3406,11 @@
             "type": "doc",
             "id": "backends/generic-http",
             "label": "Generisches-HTTP-Backend-Konfiguration"
+          },
+          {
+            "type": "doc",
+            "id": "backends/zotero-library-agent",
+            "label": "Zotero Library Agent"
           }
         ]
       },
@@ -3610,6 +3674,11 @@
             "type": "doc",
             "id": "backends/generic-http",
             "label": "Configuración del backend HTTP genérico"
+          },
+          {
+            "type": "doc",
+            "id": "backends/zotero-library-agent",
+            "label": "Zotero Library Agent"
           }
         ]
       },
@@ -3881,6 +3950,11 @@
             "type": "doc",
             "id": "backends/generic-http",
             "label": "Configuration du backend Generic HTTP"
+          },
+          {
+            "type": "doc",
+            "id": "backends/zotero-library-agent",
+            "label": "Zotero Library Agent"
           }
         ]
       },
@@ -4156,6 +4230,11 @@
             "type": "doc",
             "id": "backends/generic-http",
             "label": "Configurazione del backend Generic HTTP"
+          },
+          {
+            "type": "doc",
+            "id": "backends/zotero-library-agent",
+            "label": "Zotero Library Agent"
           }
         ]
       },
@@ -4427,6 +4506,11 @@
             "type": "doc",
             "id": "backends/generic-http",
             "label": "Generic HTTPバックエンド設定"
+          },
+          {
+            "type": "doc",
+            "id": "backends/zotero-library-agent",
+            "label": "Zotero Library Agent"
           }
         ]
       },
@@ -4678,6 +4762,11 @@
             "type": "doc",
             "id": "backends/generic-http",
             "label": "Generic HTTP Backend Configuration"
+          },
+          {
+            "type": "doc",
+            "id": "backends/zotero-library-agent",
+            "label": "Zotero Library Agent"
           }
         ]
       },
@@ -4929,6 +5018,11 @@
             "type": "doc",
             "id": "backends/generic-http",
             "label": "Конфигурация бэкенда Generic HTTP"
+          },
+          {
+            "type": "doc",
+            "id": "backends/zotero-library-agent",
+            "label": "Zotero Library Agent"
           }
         ]
       },
@@ -5180,6 +5274,11 @@
             "type": "doc",
             "id": "backends/generic-http",
             "label": "Generic HTTP 后端配置"
+          },
+          {
+            "type": "doc",
+            "id": "backends/zotero-library-agent",
+            "label": "Zotero Library Agent"
           }
         ]
       },

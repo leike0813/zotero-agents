@@ -1237,6 +1237,7 @@ synthesis-canonical-unsaved-metadata = メタデータドラフトに未保存�
 synthesis-canonical-edit-metadata = 外部正規引用メタデータを編集
 synthesis-canonical-archive-empty = 空の正規引用をアーカイブ
 synthesis-tags-management = Synthesis タグ管理
+synthesis-tags-builtin = 組み込み
 synthesis-tags-summary-canonical = 正規
 synthesis-tags-summary-staged = ステージング
 synthesis-tags-summary-warnings = 警告

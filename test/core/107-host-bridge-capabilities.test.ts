@@ -922,7 +922,10 @@ describe("host bridge capability calls", function () {
       input: {
         operation: "literature.ingest",
         paper: {
-          title: "Bridge Literature Ingest",
+          itemType: "document",
+          fields: { title: "Bridge Literature Ingest" },
+          creators: [],
+          identifiers: {},
           landingUrl: "https://example.test/bridge-literature-ingest",
           attachLandingUrlOnMissingPdf: true,
         },
@@ -1165,8 +1168,13 @@ describe("host bridge capability calls", function () {
       input: {
         operation: "literature.ingest",
         paper: {
-          title: "Bridge Ingest Approval",
-          doi: "10.5555/bridge.approval",
+          itemType: "journalArticle",
+          fields: {
+            title: "Bridge Ingest Approval",
+            DOI: "10.5555/bridge.approval",
+          },
+          creators: [],
+          identifiers: { doi: "10.5555/bridge.approval" },
           landingUrl: "https://example.test/bridge-approval",
           pdfUrl: "https://example.test/bridge.pdf",
           attachLandingUrlOnMissingPdf: true,

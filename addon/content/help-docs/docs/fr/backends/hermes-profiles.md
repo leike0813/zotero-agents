@@ -107,16 +107,9 @@ L'utilitaire principal du profil est `zotero_librarian_index_service.py`. Il mai
 
 ### Gestion de la bibliothèque
 
-**Tri quotidien de la boîte de réception** (`cron/inbox-triage.yaml`)
+**Tri quotidien des statuts de workflow** (`cron/workflow-status-triage.yaml`)
 
-Le cron de tri de la boîte de réception du profil s'exécute quotidiennement et vérifie l'exhaustivité des nouveaux éléments de votre bibliothèque :
-
-- Éléments avec le statut `0-inbox` (non traités)
-- Étiquettes ou affectations de collection manquantes
-- DOI, URL ou fichiers joints manquants
-- Artefacts de résumé ou de digest manquants
-
-Il produit un rapport d'actions suggérées mais n'effectue aucune mutation Zotero sans votre approbation.
+Ce cron en lecture seule recherche `status:need-*` et signale les tâches de workflow en attente. Il n'infère aucun statut, ne modifie aucune balise et ne change pas Zotero.
 
 **Hygiène hebdomadaire de la bibliothèque** (`cron/library-hygiene.yaml`)
 
@@ -227,7 +220,7 @@ Le profil comprend six modèles cron préconfigurés dans le répertoire `cron/`
 | `index-refresh` | Toutes les 6 heures | Parcourt `library snapshot` pour maintenir l'index SQLite local à jour. Signale `[SILENT]` quand aucun changement n'est détecté. |
 | `workflow-catalog-refresh` | Tous les jours à 03:00 | Appelle `workflow list` + `workflow describe` pour mettre à jour le cache du catalogue de workflows. Signale `[SILENT]` en l'absence de changements. |
 | `run-monitor` | Toutes les 5 minutes | Appelle `run-watch` pour vérifier les exécutions enregistrées actives. Signale uniquement les changements d'état, les états terminaux ou les éléments nécessitant une attention. |
-| `inbox-triage` | Tous les jours à 09:00 | Recherche les éléments avec `status:0-inbox`, les étiquettes manquantes, les collections manquantes, les métadonnées manquantes. Génère un rapport en lecture seule. |
+| `workflow-status-triage` | Tous les jours à 09:00 | Recherche `status:need-*` et génère un rapport en lecture seule des workflows en attente. |
 | `library-hygiene` | Tous les lundis | Analyse les entrées en double, les éléments orphelins, les collections vides et les problèmes de qualité des données. |
 | `attention-queue` | Tous les jours à 18:00 | Combine les informations de la file d'attention avec les données de l'index local pour classer les tâches hautement prioritaires. |
 

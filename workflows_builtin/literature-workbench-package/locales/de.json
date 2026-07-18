@@ -39,6 +39,8 @@
   "workflows.literature-search-ingest.skills.literature-search-ingest.name": "🔎 Literatursuche und -import",
   "workflows.literature-search-ingest.taskNameTemplate": "Literatur suchen und importieren: {query}",
   "workflows.literature-metadata-curator.label": "Literaturmetadaten kuratieren",
+  "workflows.literature-metadata-curator.parameters.skip_identifier_fast_path.description": "Die Zotero-Identifikatorsuche umgehen und literature-metadata-search direkt ausführen.",
+  "workflows.literature-metadata-curator.parameters.skip_identifier_fast_path.title": "Identifikator-Schnellpfad überspringen",
   "workflows.literature-metadata-curator.skills.literature-metadata-search.name": "📇 Literaturmetadaten suchen",
   "workflows.literature-metadata-curator.taskNameTemplate": "Literaturmetadaten kuratieren",
   "workflows.literature-translator.label": "Literaturübersetzung",

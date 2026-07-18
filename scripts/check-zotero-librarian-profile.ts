@@ -4,7 +4,6 @@ import {
   buildHostBridgeSurfaceCatalog,
   validateHostBridgeSurfaceCatalog,
 } from "./host-bridge-surface-catalog";
-import { readZoteroBridgeCliRelease } from "./zotero-bridge-cli-release";
 import {
   inspectZoteroLibrarianProfileVersion,
   ZOTERO_LIBRARIAN_PROFILE_VERSION_SOURCE_PATH,
@@ -33,9 +32,11 @@ const REQUIRED_FILES = [
   "skills/zotero-librarian/references/workflows.md",
   "skills/zotero-librarian/references/operating-principles.md",
   "skills/zotero-librarian/references/terminology.md",
+  "skills/zotero-librarian/references/control-invariants.md",
   "skills/zotero-librarian/references/library-maintenance.md",
   "skills/zotero-librarian/references/workflow-execution-policy.md",
   "skills/zotero-librarian/references/common-tasks.md",
+  "skills/zotero-librarian/references/library-maintenance.md",
   "skills/zotero-workflow-agent-runner/SKILL.md",
   "skills/zotero-workflow-agent-runner/references/agent-run-playbook.md",
   "scripts/zotero_librarian_index_service.py",
@@ -46,31 +47,37 @@ const REQUIRED_FILES = [
   "cron/workflow-catalog-refresh.yaml",
   "cron/run-monitor.yaml",
   "cron/notification-sync.yaml",
-  "cron/inbox-triage.yaml",
+  "cron/workflow-status-triage.yaml",
   "cron/library-hygiene.yaml",
   "cron/attention-queue.yaml",
   "assets/host-bridge/profile.example.json",
   "assets/profile-manifest-source.json",
 ];
 const SEMANTIC_SOURCE_FILES = [
+  "README.md",
   "SOUL.md",
   "skills/zotero-librarian/SKILL.md",
   "skills/zotero-librarian/references/operating-principles.md",
   "skills/zotero-librarian/references/workflow-execution-policy.md",
   "skills/zotero-librarian/references/common-tasks.md",
+  "skills/zotero-librarian/references/library-maintenance.md",
   "skills/zotero-workflow-agent-runner/SKILL.md",
   "skills/zotero-workflow-agent-runner/references/agent-run-playbook.md",
 ];
 const SHARED_TERMINOLOGY_SOURCE =
   "skills_src/host-bridge-shared/terminology.md";
+const SHARED_CONTROL_INVARIANTS_SOURCE =
+  "skills_src/host-bridge-shared/control-invariants.md";
 const CANONICAL_TOP_LEVEL_COMMANDS = new Set([
   "bridge",
+  "context",
   "library",
   "synthesis",
   "workflow",
   "run",
   "mutation",
   "file",
+  "product",
   "debug",
   "call",
 ]);
@@ -167,6 +174,19 @@ function checkTerminologyReference(errors: string[]) {
   }
 }
 
+function checkControlInvariantsReference(errors: string[]) {
+  const rendered = readProfile(
+    "skills/zotero-librarian/references/control-invariants.md",
+  );
+  const source = read(SHARED_CONTROL_INVARIANTS_SOURCE);
+  if (rendered !== source) {
+    fail(
+      errors,
+      "profile control invariants differ from shared control source",
+    );
+  }
+}
+
 function checkProfileVersion(errors: string[]) {
   const inspected = inspectZoteroLibrarianProfileVersion(ROOT);
   const distribution = readProfile("distribution.yaml");
@@ -230,7 +250,6 @@ function checkSecrets(errors: string[]) {
 
 function checkHostBridgeSurface(errors: string[]) {
   const catalog = buildHostBridgeSurfaceCatalog(ROOT);
-  const release = readZoteroBridgeCliRelease(ROOT);
   errors.push(...validateHostBridgeSurfaceCatalog(catalog));
   const capabilityNames = new Set(
     catalog.capabilities.map((entry) => entry.name),
@@ -284,7 +303,8 @@ function checkHostBridgeSurface(errors: string[]) {
     "zotero-bridge workflow agent-apply",
     "nextCursor",
     "collectionKey",
-    `zotero-bridge\` CLI version \`${release.version}\``,
+    "zotero-bridge surface identity --json",
+    "SemVer alone is not compatibility evidence",
   ]) {
     assertIncludes(errors, hostReference, snippet, "host-bridge reference");
   }
@@ -298,7 +318,7 @@ function checkHostBridgeSurface(errors: string[]) {
     "$zotero-workflow-agent-runner",
     "workflow agent-apply",
     "agentRunId",
-    "zotero-bridge --version",
+    "zotero-bridge surface identity --json",
   ]) {
     assertIncludes(errors, skill, snippet, "zotero-librarian skill");
   }
@@ -427,7 +447,11 @@ function checkCronAndScripts(errors: string[]) {
       "zotero_librarian_notification_service.py",
       "sync",
     ],
-    "cron/inbox-triage.yaml": ['time: "09:00"', "[SILENT]", "status:0-inbox"],
+    "cron/workflow-status-triage.yaml": [
+      'time: "09:00"',
+      "[SILENT]",
+      "status:need-",
+    ],
     "cron/library-hygiene.yaml": [
       "weekly: monday",
       "[SILENT]",
@@ -592,6 +616,7 @@ function checkBinaries(errors: string[]) {
 const errors: string[] = [];
 checkStructure(errors);
 checkTerminologyReference(errors);
+checkControlInvariantsReference(errors);
 checkProfileVersion(errors);
 checkSecrets(errors);
 checkHostBridgeSurface(errors);

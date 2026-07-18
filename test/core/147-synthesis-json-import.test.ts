@@ -28,6 +28,9 @@ import {
   runtimePathExists,
   writeRuntimeTextFile,
 } from "../../src/modules/runtimePersistence";
+import { BUILTIN_STATUS_POLICY } from "../../src/modules/synthesis/builtinTagPolicy";
+
+const BUILTIN_STATUS_TAGS = BUILTIN_STATUS_POLICY.map((entry) => entry.tag);
 
 async function makeRuntimeRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-json-import-"));
@@ -208,7 +211,10 @@ describe("Synthesis JSON import tooling", function () {
     assert.equal(repository.countRows("synt_topic_graph_node"), 1);
     assert.equal(repository.countRows("synt_concept"), 1);
     assert.equal(repository.countRows("synt_topic_concept_link"), 1);
-    assert.equal(repository.countRows("synt_tag_vocabulary_entry"), 1);
+    assert.equal(
+      repository.countRows("synt_tag_vocabulary_entry"),
+      BUILTIN_STATUS_TAGS.length + 1,
+    );
     assert.isTrue(
       await runtimePathExists(
         path.join(
@@ -258,7 +264,10 @@ describe("Synthesis JSON import tooling", function () {
     assert.equal(applied.domains.topicGraph.source, "projection");
     assert.equal(applied.domains.tagVocabulary.source, "projection");
     assert.equal(repository.countRows("synt_topic_graph_node"), 1);
-    assert.equal(repository.countRows("synt_tag_vocabulary_entry"), 1);
+    assert.equal(
+      repository.countRows("synt_tag_vocabulary_entry"),
+      BUILTIN_STATUS_TAGS.length + 1,
+    );
     assert.include(
       await readRuntimeTextFile(path.join(paths.sidecarRoot, "tag-index.json")),
       "field:computer_vision",
@@ -306,6 +315,17 @@ describe("Synthesis JSON import tooling", function () {
     assert.equal(preview.domains.topicGraph.counts.nodes, 1);
     assert.equal(preview.domains.tagVocabulary.counts.entries, 1);
     assert.equal(repository.countRows("synt_topic_graph_node"), 0);
-    assert.equal(repository.countRows("synt_tag_vocabulary_entry"), 0);
+    assert.equal(
+      repository.countRows("synt_tag_vocabulary_entry"),
+      BUILTIN_STATUS_TAGS.length,
+    );
+    assert.sameMembers(
+      repository.listTagVocabularyEntries().map((entry) => entry.tag),
+      BUILTIN_STATUS_TAGS,
+    );
+    assert.notInclude(
+      repository.listTagVocabularyEntries().map((entry) => entry.tag),
+      "field:startup",
+    );
   });
 });

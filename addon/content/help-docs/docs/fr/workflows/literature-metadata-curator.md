@@ -8,17 +8,19 @@ Interroger, corriger et compléter les métadonnées bibliographiques pour une n
 
 | Paramètre | Requis | Description |
 | --- | --- | --- |
+| Ignorer la voie rapide par identifiant | Non (désactivé par défaut) | Contourner la recherche d’identifiant Zotero et exécuter directement `literature-metadata-search`. |
 
-Aucun paramètre configurable par l'utilisateur. Sélectionnez exactement une notice parente dans la liste des éléments Zotero. Les pièces jointes et les notices multiples ne sont pas acceptées.
+Sélectionnez exactement une notice parente dans la liste des éléments Zotero. Les pièces jointes et les notices multiples ne sont pas acceptées.
 
 ## Comportement
 
-Le workflow s'exécute entièrement automatiquement sans confirmation de l'utilisateur. Il suit deux chemins :
+Le workflow s'exécute entièrement automatiquement sans confirmation de l'utilisateur. Il utilise les voies suivantes :
 
-1. **Chemin rapide local** : Si la notice a un DOI, un ISBN ou une URL qui se résout de manière déterministe vers un identifiant DOI, arXiv ou PubMed, le workflow appelle `runtime.hostApi.metadata.translateIdentifier` (une façade contrôlée en lecture seule Zotero `Translate.Search`). Lorsque l'identifiant candidat correspond et contient des informations bibliographiques précieuses, les résultats sont écrits directement.
-2. **Repli Skill-Runner** : Si aucun identifiant fiable n'existe, la recherche locale ne retourne aucun résultat, le traducteur échoue, le candidat n'est pas fiable ou l'identifiant ne correspond pas, le workflow exécute le skill `literature-metadata-search` pour une récupération de métadonnées basée sur le web légère.
+1. **Chemin rapide local (par défaut)** : Si la notice a un DOI, un ISBN ou une URL qui se résout de manière déterministe vers un identifiant DOI, arXiv ou PubMed, le workflow appelle `runtime.hostApi.metadata.translateIdentifier` (une façade contrôlée en lecture seule Zotero `Translate.Search`). Lorsque l'identifiant candidat correspond et contient des informations bibliographiques précieuses, les résultats sont écrits directement.
+2. **Recherche Agent forcée** : Lorsque **Ignorer la voie rapide par identifiant** est activé, la recherche locale est contournée et `literature-metadata-search` est exécuté directement. L’identifiant reste disponible comme contexte de recherche.
+3. **Repli Skill-Runner** : Lorsque l’option est désactivée, une recherche locale infructueuse ou non fiable exécute également le même skill pour rechercher les métadonnées sur le web.
 
-Les deux chemins partagent le même format de résultat canonique et le même gestionnaire d'application.
+Toutes les voies partagent le même résultat canonique et le même gestionnaire d’application. Si une notice possède déjà un DOI, un ISBN ou un autre identifiant pris en charge mais que l’exécution par défaut renvoie des métadonnées incorrectes, activez l’option pour forcer la recherche Agent. Les exigences de correspondance et de preuve restent inchangées.
 
 ### Règles d'écriture
 
@@ -28,6 +30,8 @@ Le workflow met à jour les champs bibliographiques de la notice parente :
 - Champs de revue/conférence/livre/thèse/rapport (nom de revue, volume/numéro/pages, éditeur, nom de conférence, école, type de rapport, etc.)
 - Créateurs (auteurs, auteurs institutionnels, etc.)
 - `itemType` lorsqu'il est supporté par des preuves de haute confiance (par exemple, article de revue corrigé en thèse)
+
+Pour un travail publié à l’origine en chinois, l’Agent n’écrit les noms d’auteurs en caractères chinois que lorsqu’une source autorisée confirme la liste complète. Il ne remplace pas les auteurs par du pinyin, des traductions ou des caractères chinois supposés ; sans liste complète vérifiée, les auteurs existants sont conservés.
 
 Le workflow ne modifie **pas** les pièces jointes, notes, balises, collections, notices liées, fichiers PDF ou instantanés web.
 
@@ -39,8 +43,8 @@ Les modifications de métadonnées sont appliquées directement à la notice par
 
 ## Recommandation de modèle
 
-- **Chemin rapide réussi** (DOI/ISBN/identifiant URL supporté présent) : Aucun modèle backend nécessaire.
-- **Repli sur `literature-metadata-search`** : Un modèle avec capacité de recherche web est recommandé. La tâche est une récupération légère et une vérification de preuves — elle ne nécessite pas de capacité d'écriture longue, mais doit distinguer les homonymes, les versions prépublication vs. publiées, les articles vs. les thèses et les différentes éditions.
+- **Chemin rapide réussi** (identifiant pris en charge présent et option désactivée) : Aucun modèle backend nécessaire.
+- **Option activée ou repli sur `literature-metadata-search`** : Un modèle avec capacité de recherche web est recommandé. La tâche est une récupération légère et une vérification de preuves — elle ne nécessite pas de capacité d'écriture longue, mais doit distinguer les homonymes, les versions prépublication vs. publiées, les articles vs. les thèses et les différentes éditions.
 
 ## Dépendances
 

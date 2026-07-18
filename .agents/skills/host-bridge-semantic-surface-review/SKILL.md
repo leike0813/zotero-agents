@@ -1,11 +1,11 @@
 ---
 name: host-bridge-semantic-surface-review
-description: Review Host Bridge capability, CLI, workflow control, wrapper semantic source, Zotero Librarian profile semantic source, and release-render changes before running the Host Bridge release pipeline renderer.
+description: Review Host Bridge capability, Agent Control Contract, CLI identity and errors, workflow execution modes and apply receipts, shared protocol facts, CLI wrapper, Zotero Library Agent, Zotero Librarian profile, and release identity/render changes before running the Host Bridge release pipeline renderer.
 ---
 
 # Host Bridge Semantic Surface Review
 
-Use this skill before `npm run render:host-bridge-surface` when Host Bridge capability, REST endpoint, CLI, workflow control, workflow catalog, OpenSpec Host Bridge spec, wrapper semantic source, or Zotero Librarian profile semantic source files changed.
+Use this skill before `npm run render:host-bridge-surface` when Host Bridge capability, REST endpoint, Agent Control Contract, CLI identity/error surface, workflow control or execution modes, apply receipts, workflow catalog, OpenSpec Host Bridge specs, release identity, shared protocol facts, CLI wrapper, Zotero Library Agent, or Zotero Librarian profile semantic sources changed.
 
 ## First Action
 
@@ -21,9 +21,11 @@ Use the returned JSON to decide review focus. The script classifies changed file
 
 1. Read `references/surface-map.md` to identify the relevant spec layer, semantic sources, and generated targets.
 2. Read `references/review-playbook.md` and inspect the changed spec-layer files plus the semantic source files it names.
-3. If the current semantic sources already explain the changed control surface accurately, report that no semantic-source edit is needed.
-4. If the semantic sources are incomplete or misleading, update only the semantic sources.
-5. Do not edit generated output as the source of truth. After semantic review completes, return control to `$host-bridge-release-pipeline` so it can run the renderer and checks.
+3. Confirm that machine descriptors and semantic guidance agree on command identity, typed handles, approvals, execution ownership, retryability, state change, and safe recovery.
+4. Confirm that the CLI wrapper, on-demand Zotero Library Agent, and resident Zotero Librarian profile each explain the changed control surface accurately without sharing task policy.
+5. If the current semantic sources already explain the changed control surface accurately, report that no semantic-source edit is needed.
+6. If the semantic sources are incomplete or misleading, update only the semantic sources.
+7. Do not edit generated output as the source of truth. After semantic review completes, return control to the caller so feature work can run the content-only renderer and checks; full release rendering remains part of later release preparation.
 
 ## LLM And Script Boundary
 
@@ -44,6 +46,9 @@ Return these fields to the release pipeline:
 - semantic review ran: yes/no
 - context collector result: review required yes/no
 - semantic source edits: list of files or none
+- surface boundary result: independent or blocked
+- agent control contract result: aligned or blocked
+- release identity result: aligned or blocked
 - alignment result: aligned or edits applied
 - next commands: render and checks to run
 

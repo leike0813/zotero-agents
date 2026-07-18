@@ -257,7 +257,7 @@ child 的 request、runResult、resultContext、bundleReader 和 preflight conte
 
 典型用法：
 
-- metadata curator：preflight 先用 Zotero 本地 API 查询确定标识符；命中高价值 metadata 时返回 `short-circuit-apply`，否则 `continue` 到轻量 SkillRunner 搜索。
+- metadata curator：preflight 默认先用 Zotero 本地 API 查询确定标识符；命中高价值 metadata 时返回 `short-circuit-apply`，未命中或显式启用 `skip_identifier_fast_path` 时 `continue` 到轻量 SkillRunner 搜索。
 - MinerU 长 PDF：preflight 根据页数与 outline 生成多个带 `page_ranges` 的 replacement units，并用 aggregate single-apply 合并多个结果包。
 
 ### workflow-package.json（Workflow Package 索引）

@@ -11,36 +11,51 @@ import { buildWorkflowSettingsUiDescriptor } from "../../src/modules/workflowSet
 import { resolveWorkflowParameterOptionsSource } from "../../src/modules/workflowParameterOptions";
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
+import { applyResult } from "../../workflows_builtin/literature-workbench-package/literature-search-ingest/hooks/applyResult.mjs";
 
 function completedPayload(searchMode = "topic_expansion") {
   return {
     __SKILL_DONE__: true,
     kind: "literature_search_ingest",
+    status: "completed",
     query: "foundation models for visual inspection",
     search_mode: searchMode,
-    ingested_references: [
+    searchSummary: {
+      breadth: "broad",
+      languages: ["en"],
+      queryLaneCount: 3,
+      sourceLaneCount: 5,
+      uniqueCandidateCount: 1,
+      selectedCount: 1,
+      stopReason: "all_applicable_lanes_completed",
+    },
+    outcomes: [
       {
-        index: 1,
+        candidateId: "doi:10.5555/example",
         title: "A Survey of Visual Inspection Foundation Models",
-        status: "created",
-        doi: "10.5555/example",
-        landingUrl: "https://doi.org/10.5555/example",
-      },
-    ],
-    missing_pdf_references: [
-      {
-        index: 1,
-        title: "A Survey of Visual Inspection Foundation Models",
-        status: "created",
-        doi: "10.5555/example",
+        candidateTier: "needs_curation",
+        discoverySources: [
+          {
+            source: "OpenAlex",
+            url: "https://example.test/openalex/example",
+            queryLane: "core",
+          },
+        ],
+        identifiers: { doi: "10.5555/example" },
+        decision: "approved",
+        ingestStatus: "created",
+        pdfStatus: "missing",
+        needsCuration: true,
+        itemRef: { id: 101, key: "ITEM101", libraryId: 1 },
         landingUrl: "https://doi.org/10.5555/example",
         manualSearchLinks: [
           "https://doi.org/10.5555/example",
           "https://scholar.google.com/scholar?q=%22A%20Survey%20of%20Visual%20Inspection%20Foundation%20Models%22",
         ],
-        reason: "no_public_pdf_url",
+        reasonCode: "no_public_pdf_url",
       },
     ],
+    searchLedgerPath: "result/search-ledger.json",
   };
 }
 
@@ -102,7 +117,13 @@ describe("Literature Search Ingest workflow contract", function () {
       "targeted_ingest",
     ]);
     assert.equal(workflow.parameters?.searchMode?.default, "auto");
-    assert.isUndefined(workflow.parameters?.language);
+    assert.equal(workflow.parameters?.searchBreadth?.default, "broad");
+    assert.deepEqual(workflow.parameters?.searchBreadth?.enum, [
+      "broad",
+      "balanced",
+      "quick",
+    ]);
+    assert.equal(workflow.parameters?.languageHints?.type, "array");
     assert.equal(workflow.parameters?.targetCollection?.type, "string");
     assert.isFalse(workflow.parameters?.targetCollection?.allowCustom);
     assert.equal(
@@ -417,6 +438,8 @@ describe("Literature Search Ingest workflow contract", function () {
         workflowParams: {
           query: "retrieval augmented generation evaluation",
           searchMode: "targeted_ingest",
+          searchBreadth: "balanced",
+          languageHints: ["en", "zh-CN"],
           targetCollection: "RAG",
         },
         runOptions: {
@@ -441,6 +464,8 @@ describe("Literature Search Ingest workflow contract", function () {
       "retrieval augmented generation evaluation",
     );
     assert.equal(requests[0].parameter?.searchMode, "targeted_ingest");
+    assert.equal(requests[0].parameter?.searchBreadth, "balanced");
+    assert.deepEqual(requests[0].parameter?.languageHints, ["en", "zh-CN"]);
     assert.isUndefined(requests[0].parameter?.autoApproveZoteroWrites);
     assert.isUndefined(
       (requests[0] as any).runtime_options?.zotero_host_access,
@@ -620,6 +645,96 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.isTrue(guided.ok, guided.errors.join("; "));
   });
 
+  it("adds the governed metadata-curation tag after final outcomes are known", async function () {
+    const transitions: any[] = [];
+    const result = (await applyResult({
+      runResult: { resultJson: completedPayload() },
+      runtime: {
+        hostApiVersion: 9,
+        hostApi: {
+          statusTags: {
+            async transition(value: unknown) {
+              transitions.push(value);
+              return { added: [], removed: [], warnings: [] };
+            },
+          },
+        },
+      },
+    } as any)) as any;
+
+    assert.deepEqual(transitions, [
+      {
+        item: 101,
+        add: [
+          "need-markdown",
+          "need-analysis",
+          "need-deep-reading",
+          "need-metadata-curation",
+          "need-fulltext",
+        ],
+      },
+    ]);
+    assert.isTrue(result.applied);
+    assert.deepEqual(result.taggedItemIds, [101]);
+  });
+
+  it("does not requeue existing items and omits fulltext when this search attached a PDF", async function () {
+    const existing = completedPayload();
+    existing.outcomes[0].ingestStatus = "existing";
+    const createdWithPdf = completedPayload();
+    createdWithPdf.outcomes[0].pdfStatus = "attached";
+    createdWithPdf.outcomes[0].needsCuration = false;
+
+    const calls: unknown[] = [];
+    const runtime = {
+      hostApiVersion: 9,
+      hostApi: {
+        statusTags: {
+          async transition(value: unknown) {
+            calls.push(value);
+            return { added: [], removed: [], warnings: [] };
+          },
+        },
+      },
+    };
+    await applyResult({ runResult: { resultJson: existing }, runtime } as any);
+    await applyResult({
+      runResult: { resultJson: createdWithPdf },
+      runtime,
+    } as any);
+
+    assert.deepEqual(calls, [
+      {
+        item: 101,
+        add: ["need-metadata-curation", "need-fulltext"],
+      },
+      {
+        item: 101,
+        add: ["need-markdown", "need-analysis", "need-deep-reading"],
+      },
+    ]);
+  });
+
+  it("does not mutate vocabulary or tags without eligible outcomes", async function () {
+    let calls = 0;
+    const result = (await applyResult({
+      runResult: { resultJson: canceledPayload() },
+      runtime: {
+        hostApi: {
+          statusTags: {
+            transition() {
+              calls += 1;
+            },
+          },
+        },
+      },
+    } as any)) as any;
+
+    assert.equal(calls, 0);
+    assert.isFalse(result.applied);
+    assert.isTrue(result.skipped);
+  });
+
   it("keeps detailed skill rules while delegating runner behavior", async function () {
     const skill = await fs.readFile(
       "skills_builtin/literature-search-ingest/SKILL.md",
@@ -652,6 +767,17 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.include(skill, "知网");
     assert.include(skill, "万方");
     assert.include(skill, "PDC");
+    assert.include(skill, "Airiti");
+    assert.include(skill, "TSSCI");
+    assert.include(skill, "core lane");
+    assert.include(skill, "multilingual lane");
+    assert.include(skill, "seed lane");
+    assert.include(skill, "gap lane");
+    assert.include(skill, "ready");
+    assert.include(skill, "needs_curation");
+    assert.include(skill, "lead_only");
+    assert.include(skill, "先去重");
+    assert.include(skill, "用户选择后");
     assert.include(skill, "filetype:pdf");
     assert.include(skill, "identifier_not_found");
     assert.include(skill, "等待用户确认");
@@ -662,8 +788,11 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.include(skill, "hasPdfAttachment");
     assert.include(skill, "manualSearchLinks");
     assert.include(skill, "不得以仅有标题");
-    assert.include(skill, "`ingested_references`");
-    assert.include(skill, "`missing_pdf_references`");
+    assert.include(skill, "`searchSummary`");
+    assert.include(skill, "`outcomes`");
+    assert.include(skill, "`searchLedgerPath`");
+    assert.notInclude(skill, "`ingested_references`");
+    assert.notInclude(skill, "`missing_pdf_references`");
     assert.include(skill, '"literature_search_ingest"');
     assert.include(skill, '"literature_search_ingest_canceled"');
     assert.include(skill, '"user_cancelled"');

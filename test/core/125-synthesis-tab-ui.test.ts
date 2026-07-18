@@ -1200,6 +1200,53 @@ describe("Synthesis tab UI model", function () {
     );
   });
 
+  it("marks builtin status rows and guards identity and deletion controls", async function () {
+    const snapshot = buildSynthesisUiSnapshot(
+      {
+        libraryId: 1,
+        tags: {
+          entries: [
+            {
+              tag: "status:need-analysis",
+              facet: "status",
+              note: "Editable note",
+              source: "builtin",
+            },
+            {
+              tag: "status:custom-review",
+              facet: "status",
+              note: "Custom status",
+              source: "manual",
+            },
+          ],
+          protocol: { facets: ["status"] },
+        },
+      },
+      createDefaultSynthesisUiState(),
+    );
+
+    assert.isTrue(
+      snapshot.tags.rows.find((row) => row.tag === "status:need-analysis")
+        ?.builtin,
+    );
+    assert.isFalse(
+      snapshot.tags.rows.find((row) => row.tag === "status:custom-review")
+        ?.builtin,
+    );
+    const app = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const tab = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const vocabulary = extractFunctionBlock(app, "renderVocabularySubview");
+    assert.include(vocabulary, 't("synthesis-tags-builtin")');
+    assert.include(vocabulary, "tagInput.disabled = builtin");
+    assert.include(vocabulary, "facetSelect.disabled = builtin");
+    assert.include(vocabulary, "if (!builtin)");
+    assert.include(tab, "Builtin tag identity is protected");
+    assert.include(tab, "Builtin tags cannot be deleted");
+  });
+
   it("refreshes the Tags surface after tag import preview and apply commands", async function () {
     const host = await fs.readFile(
       "src/modules/synthesisWorkbenchTab.ts",

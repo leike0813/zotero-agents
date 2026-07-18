@@ -39,6 +39,8 @@
   "workflows.literature-search-ingest.skills.literature-search-ingest.name": "🔎 Поиск и загрузка литературы",
   "workflows.literature-search-ingest.taskNameTemplate": "Поиск и загрузка литературы: {query}",
   "workflows.literature-metadata-curator.label": "Куратор метаданных литературы",
+  "workflows.literature-metadata-curator.parameters.skip_identifier_fast_path.description": "Пропустить поиск по идентификатору Zotero и сразу запустить literature-metadata-search.",
+  "workflows.literature-metadata-curator.parameters.skip_identifier_fast_path.title": "Пропустить быстрый поиск по идентификатору",
   "workflows.literature-metadata-curator.skills.literature-metadata-search.name": "📇 Поиск метаданных литературы",
   "workflows.literature-metadata-curator.taskNameTemplate": "Курировать метаданные литературы",
   "workflows.literature-translator.label": "Перевод литературы",

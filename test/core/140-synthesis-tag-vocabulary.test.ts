@@ -6,6 +6,10 @@ import { buildSynthesisKnowledgeGraphPaths } from "../../src/modules/synthesis/f
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import { createSynthesisService } from "../../src/modules/synthesis/service";
 import { createSynthesisTagVocabularyService } from "../../src/modules/synthesis/tagVocabulary";
+import {
+  BUILTIN_STATUS_POLICY,
+  getBuiltinStatusPolicy,
+} from "../../src/modules/synthesis/builtinTagPolicy";
 import { createZoteroSynthesisLibraryAdapter } from "../../src/modules/synthesis/libraryAdapter";
 import { handlers } from "../../src/handlers";
 import {
@@ -23,6 +27,12 @@ function canonicalStoreText(root: string, kind: string) {
     .map((row) => row.payloadJson)
     .join("\n");
 }
+
+function customEntries<T extends { source?: string }>(entries: T[]) {
+  return entries.filter((entry) => entry.source !== "builtin");
+}
+
+const builtinTags = Object.values(getBuiltinStatusPolicy());
 
 describe("Synthesis tag vocabulary", function () {
   it("counts Zotero tag usage from current user library top-level non-trashed items", async function () {
@@ -72,8 +82,11 @@ describe("Synthesis tag vocabulary", function () {
     const paths = buildSynthesisKnowledgeGraphPaths(root);
     const repository = createSynthesisRepository({ runtimeRoot: root });
 
-    assert.deepEqual(snapshot.entries, []);
-    assert.equal(repository.countRows("synt_tag_vocabulary_entry"), 0);
+    assert.sameMembers(
+      snapshot.entries.map((entry) => entry.tag),
+      builtinTags,
+    );
+    assert.equal(repository.countRows("synt_tag_vocabulary_entry"), 5);
     assert.equal(repository.countRows("synt_tag_protocol"), 1);
     for (const fileName of [
       "vocabulary.json",
@@ -86,6 +99,107 @@ describe("Synthesis tag vocabulary", function () {
         await runtimePathExists(path.join(paths.tagsRoot, fileName)),
       );
     }
+  });
+
+  it("upgrades and continuously protects builtin definitions while preserving editable metadata", async function () {
+    const root = await makeRuntimeRoot();
+    const service = createSynthesisTagVocabularyService({ root });
+    const protectedTag = "status:need-metadata-curation";
+    await service.saveTagVocabulary({
+      entries: [
+        {
+          tag: protectedTag,
+          facet: "topic",
+          note: "User-maintained note",
+          aliases: ["status:curate-metadata"],
+          source: "import",
+          deprecated: true,
+          replacement: "topic:replacement",
+        },
+        {
+          tag: "status:0-inbox",
+          facet: "status",
+          source: "manual",
+        },
+      ],
+      protocol: {
+        tag_pattern: "^[a-z_]+:[a-zA-Z0-9/_.-]+$",
+        max_tag_length: 120,
+        facets: ["field", "topic"],
+      },
+    });
+
+    let snapshot = await service.loadTagVocabulary();
+    const builtin = snapshot.entries.find(
+      (entry) => entry.tag === protectedTag,
+    );
+    assert.deepInclude(builtin, {
+      tag: protectedTag,
+      facet: "status",
+      note: "User-maintained note",
+      source: "builtin",
+      deprecated: false,
+    });
+    assert.deepEqual(builtin?.aliases, ["status:curate-metadata"]);
+    assert.isUndefined(builtin?.replacement);
+    assert.include(snapshot.protocol.facets, "status");
+    assert.include(
+      snapshot.entries.map((entry) => entry.tag),
+      "status:0-inbox",
+    );
+
+    await service.saveTagVocabulary({ entries: [] });
+    snapshot = await service.loadTagVocabulary();
+    assert.equal(
+      snapshot.entries.find((entry) => entry.tag === protectedTag)?.note,
+      "User-maintained note",
+    );
+    assert.notInclude(
+      snapshot.entries.map((entry) => entry.tag),
+      "status:0-inbox",
+    );
+    assert.sameMembers(
+      snapshot.entries.map((entry) => entry.tag),
+      builtinTags,
+    );
+  });
+
+  it("normalizes builtin fields at repository sync upsert boundaries", async function () {
+    const root = await makeRuntimeRoot();
+    const repository = createSynthesisRepository({ runtimeRoot: root });
+    const definition = BUILTIN_STATUS_POLICY[0];
+    repository.upsertTagVocabularyEntry({
+      tag: definition.tag,
+      facet: "topic",
+      note: "Synced note",
+      source: "remote",
+      deprecated: true,
+      replacement: "topic:replacement",
+      aliasesJson: '["status:remote-alias"]',
+    });
+    repository.upsertTagProtocol({
+      protocolId: "default",
+      version: "1.0.0",
+      tagPattern: "^[a-z_]+:[a-zA-Z0-9/_.-]+$",
+      maxTagLength: 120,
+      facetsJson: '["field"]',
+    });
+
+    const record = repository.listTagVocabularyEntries({
+      tags: [definition.tag],
+    })[0];
+    assert.deepInclude(record, {
+      tag: definition.tag,
+      facet: "status",
+      note: "Synced note",
+      source: "builtin",
+      deprecated: false,
+    });
+    assert.isUndefined(record.replacement);
+    assert.include(
+      JSON.parse(repository.getTagProtocol()?.facetsJson || "[]"),
+      "status",
+    );
   });
 
   it("writes, reads, validates, and exports active vocabulary from SQLite", async function () {
@@ -118,21 +232,24 @@ describe("Synthesis tag vocabulary", function () {
 
     const snapshot = await service.loadTagVocabulary();
     assert.deepEqual(
-      snapshot.entries.map((entry) => entry.tag),
+      customEntries(snapshot.entries).map((entry) => entry.tag),
       ["field:object_detection", "status:deprecated_sample"],
     );
     assert.deepEqual(await service.validateTagVocabulary(), []);
-    assert.deepEqual(await service.exportTagVocabularyForRegulator(), [
+    assert.sameMembers(await service.exportTagVocabularyForRegulator(), [
       "field:object_detection",
+      ...builtinTags,
     ]);
     assert.deepEqual(snapshot.abbrev, { od: "OD" });
 
     const repository = createSynthesisRepository({ runtimeRoot: root });
-    assert.equal(repository.countRows("synt_tag_vocabulary_entry"), 2);
+    assert.equal(repository.countRows("synt_tag_vocabulary_entry"), 7);
     assert.equal(repository.countRows("synt_tag_alias"), 1);
     assert.equal(repository.countRows("synt_tag_abbrev"), 1);
     assert.deepEqual(
-      repository.listTagVocabularyEntries().map((entry) => entry.tag),
+      customEntries(repository.listTagVocabularyEntries()).map(
+        (entry) => entry.tag,
+      ),
       ["field:object_detection", "status:deprecated_sample"],
     );
     assert.isFalse(
@@ -193,10 +310,12 @@ describe("Synthesis tag vocabulary", function () {
 
     assert.deepEqual(promoted.promoted, ["topic:suggested"]);
     assert.deepEqual(await service.listStagedTagSuggestions(), []);
-    assert.deepEqual(await service.exportTagVocabularyForRegulator(), [
-      "topic:existing",
-      "topic:suggested",
-    ]);
+    assert.deepEqual(
+      (await service.exportTagVocabularyForRegulator()).filter(
+        (tag) => !tag.startsWith("status:need-"),
+      ),
+      ["topic:existing", "topic:suggested"],
+    );
   });
 
   it("promotes staged suggestions through Synthesis service and applies bound parent tags", async function () {
@@ -278,7 +397,7 @@ describe("Synthesis tag vocabulary", function () {
       envelope.data.tags.map(
         (entry: { tag: string; facet: string }) => entry.tag,
       ),
-      ["ai_task:NER"],
+      ["ai_task:NER", ...builtinTags].sort(),
     );
     assert.deepEqual(envelope.data.abbrevs, { ner: "NER" });
     assert.isTrue(
@@ -340,7 +459,7 @@ describe("Synthesis tag vocabulary", function () {
 
     const snapshot = await service.loadTagVocabulary();
     assert.deepEqual(
-      snapshot.entries.map((entry) => entry.tag),
+      customEntries(snapshot.entries).map((entry) => entry.tag),
       ["topic:detr"],
     );
     const diagnostics = canonicalStoreText(root, "diagnostic");
@@ -410,7 +529,10 @@ describe("Synthesis tag vocabulary", function () {
     });
 
     const snapshot = await service.loadTagVocabulary();
-    assert.equal(snapshot.entries.length, tagVocabPayload.tags.length);
+    assert.equal(
+      snapshot.entries.length,
+      tagVocabPayload.tags.length + builtinTags.length,
+    );
     assert.equal(snapshot.abbrev.lidar, "LiDAR");
     assert.equal(snapshot.abbrev.cnn, "CNN");
     assert.include(

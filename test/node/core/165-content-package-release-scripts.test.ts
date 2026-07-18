@@ -572,13 +572,18 @@ describe("content package release scripts", function () {
     );
   });
 
-  it("keeps submodule tracked files eligible while excluding local git metadata", function () {
+  it("keeps tracked skill files eligible while excluding local git metadata", function () {
     const trackedFiles = new Set([
       "skills_builtin/literature-analysis/SKILL.md",
       "skills_builtin/literature-analysis/assets/runner.json",
       "skills_builtin/literature-metadata-search/assets/input.schema.json",
       "skills_builtin/literature-metadata-search/assets/output.schema.json",
       "skills_builtin/literature-metadata-search/assets/runner.json",
+      "skills_builtin/tag-regulator/SKILL.md",
+      "skills_builtin/tag-regulator/references/tag_standard.md",
+      "skills_builtin/tag-regulator/scripts/normalize_output.py",
+      "skills_builtin/tag-regulator/assets/output.schema.json",
+      "skills_builtin/tag-regulator/assets/runner.json",
     ]);
 
     assert.isTrue(
@@ -639,6 +644,25 @@ describe("content package release scripts", function () {
         trackedFiles,
       }),
     );
+    for (const relativePath of [
+      "SKILL.md",
+      "references/tag_standard.md",
+      "scripts/normalize_output.py",
+      "assets/output.schema.json",
+      "assets/runner.json",
+    ]) {
+      assert.isTrue(
+        isTrackedContentSourceFile({
+          filePath: path.join(
+            process.cwd(),
+            "skills_builtin",
+            "tag-regulator",
+            ...relativePath.split("/"),
+          ),
+          trackedFiles,
+        }),
+      );
+    }
   });
 
   it("normalizes text package file line endings without rewriting binary files", function () {

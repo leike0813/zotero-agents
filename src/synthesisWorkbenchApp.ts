@@ -235,6 +235,7 @@ type Snapshot = {
     };
     manifest: Record<string, unknown>;
     importPreview?: {
+      builtins?: Array<Record<string, unknown>>;
       additions?: Array<Record<string, unknown>>;
       unchanged?: Array<Record<string, unknown>>;
       conflicts?: Array<Record<string, unknown>>;
@@ -11984,12 +11985,15 @@ function renderVocabularySubview(snapshot: Snapshot) {
             checkbox.checked,
           ),
         );
-        const statusBadge = tagWarningsFor(row).length
-          ? badge("warning", "warn")
-          : badge(
-              row.deprecated ? "deprecated" : "active",
-              row.deprecated ? "danger" : "ok",
-            );
+        const builtin = Boolean(row.builtin);
+        const statusBadge = builtin
+          ? badge(t("synthesis-tags-builtin"), "info")
+          : tagWarningsFor(row).length
+            ? badge("warning", "warn")
+            : badge(
+                row.deprecated ? "deprecated" : "active",
+                row.deprecated ? "danger" : "ok",
+              );
         const warnings = tagWarningsFor(row);
         const key = expandedRowKey("vocabulary", tag);
         const editing = vocabularyEditingState(snapshot)?.originalTag === tag;
@@ -12005,6 +12009,7 @@ function renderVocabularySubview(snapshot: Snapshot) {
         if (editing) {
           const tagInput = el("input");
           tagInput.value = draft.tag;
+          tagInput.disabled = builtin;
           tagInput.dataset.synthesisControlKey = `tags.vocabulary.${tag}.tag`;
           const facetSelect = renderTagFacetSelect({
             snapshot,
@@ -12020,6 +12025,7 @@ function renderVocabularySubview(snapshot: Snapshot) {
               }),
           });
           const noteInput = el("input");
+          facetSelect.disabled = builtin;
           noteInput.value = draft.note;
           noteInput.dataset.synthesisControlKey = `tags.vocabulary.${tag}.note`;
           tagInput.addEventListener("change", () =>
@@ -12069,17 +12075,19 @@ function renderVocabularySubview(snapshot: Snapshot) {
             ),
           );
         }
-        actions.appendChild(
-          makeLocalButton(t("synthesis-action-delete"), () => {
-            if (!window.confirm(`Delete vocabulary tag "${tag}"?`)) {
-              return;
-            }
-            sendAction("hostCommand", {
-              command: "deleteTagVocabularyEntry",
-              args: { originalTag: tag, tag },
-            });
-          }),
-        );
+        if (!builtin) {
+          actions.appendChild(
+            makeLocalButton(t("synthesis-action-delete"), () => {
+              if (!window.confirm(`Delete vocabulary tag "${tag}"?`)) {
+                return;
+              }
+              sendAction("hostCommand", {
+                command: "deleteTagVocabularyEntry",
+                args: { originalTag: tag, tag },
+              });
+            }),
+          );
+        }
         actions.appendChild(renderRowExpandButton(snapshot, key));
         return [
           checkbox,
@@ -12591,6 +12599,7 @@ function tagImportPreviewSignature(snapshot: Snapshot) {
   return [
     snapshot.tags.importDraft?.length || 0,
     preview.additions?.length || 0,
+    preview.builtins?.length || 0,
     preview.conflicts?.length || 0,
     preview.unchanged?.length || 0,
     preview.warnings?.length || 0,
@@ -12704,6 +12713,7 @@ function renderTagImportPanel(snapshot: Snapshot) {
         : t("synthesis-tags-import-body"),
       details: preview
         ? [
+            ["builtins", preview.builtins],
             ["additions", preview.additions],
             ["conflicts", preview.conflicts],
             ["unchanged", preview.unchanged],
@@ -14887,6 +14897,7 @@ function snapshotContentSignature(snapshot: Snapshot | null) {
       selected: snapshot.tags.selected,
       importPreview: [
         snapshot.tags.importPreview?.additions?.length || 0,
+        snapshot.tags.importPreview?.builtins?.length || 0,
         snapshot.tags.importPreview?.unchanged?.length || 0,
         snapshot.tags.importPreview?.conflicts?.length || 0,
         snapshot.tags.importPreview?.warnings?.length || 0,

@@ -177,6 +177,13 @@ describe("workflow settings dialog model", function () {
         },
         { value: "" },
       ),
+      makeControl(
+        {
+          "data-zs-option-key": "languageHints",
+          "data-zs-option-type": "array",
+        },
+        { value: "zh-CN, en\n日本語, zh-CN" },
+      ),
     ];
 
     const result = collectSchemaValues(makeContainer(controls));
@@ -186,6 +193,7 @@ describe("workflow settings dialog model", function () {
       enabled: true,
       engine: "openai",
       emptyValue: "",
+      languageHints: ["zh-CN", "en", "日本語"],
     });
   });
 

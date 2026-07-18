@@ -62,7 +62,7 @@ import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { ZipBundleReader } from "../../src/workflows/zipBundleReader";
 import type { LoadedWorkflow } from "../../src/workflows/types";
 import type { JobRecord } from "../../src/jobQueue/manager";
-import { setPref } from "../../src/utils/prefs";
+import { getPref, setPref } from "../../src/utils/prefs";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 
 function parseRawHttpResponse(raw: string) {
@@ -604,6 +604,134 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(second.json.error.code, "agent_run_already_consumed");
   });
 
+  it("preflights every agent-run bundle before approval or handle consumption", async function () {
+    const entry = workflow("bridge-workflow");
+    let applyCalls = 0;
+    let approvalCalls = 0;
+    entry.hooks.applyResult = async () => {
+      applyCalls += 1;
+    };
+    installWorkflowRegistryForTests([entry]);
+    const token = configureHostBridgeServerForTests({
+      token: "preflight-token",
+    });
+    configureHostBridgeGlobalApprovalHandlerForTests((request) => {
+      approvalCalls += 1;
+      return {
+        outcome: "approved",
+        requestId: request.requestId,
+        channel: "global",
+      };
+    });
+    const parent = new Zotero.Item("journalArticle");
+    parent.setField("title", "Preflight Parent");
+    await parent.saveTx();
+    const handoff = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/agent-run",
+      body: {
+        workflowId: "bridge-workflow",
+        selection: { items: [{ id: parent.id }] },
+      },
+    });
+    const request = handoff.json.result.requests[0];
+    const invalid = await bridgeRequest({
+      token,
+      method: "POST",
+      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
+      body: {
+        results: [
+          {
+            agentRequestId: request.agentRequestId,
+            bundle: {
+              kind: "local_path",
+              path: path.join(os.tmpdir(), "missing-agent-bundle"),
+            },
+          },
+        ],
+      },
+    });
+    assert.strictEqual(invalid.status, 422);
+    assert.strictEqual(invalid.json.error.code, "invalid_bundle");
+    assert.strictEqual(approvalCalls, 0);
+    assert.strictEqual(applyCalls, 0);
+
+    const receipt = await bridgeRequest({
+      token,
+      method: "GET",
+      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
+    });
+    assert.strictEqual(receipt.status, 200);
+    assert.isFalse(receipt.json.result.handleConsumed);
+    assert.isTrue(receipt.json.result.recoverable);
+
+    const retry = await bridgeRequest({
+      token,
+      method: "POST",
+      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
+      body: createAgentRunApplyBody(request),
+    });
+    assert.strictEqual(retry.status, 200);
+    assert.strictEqual(applyCalls, 1);
+  });
+
+  it("keeps a queryable partial receipt when one preflighted apply result fails", async function () {
+    const entry = workflow("bridge-workflow");
+    let applyCalls = 0;
+    entry.hooks.applyResult = async () => {
+      applyCalls += 1;
+      if (applyCalls === 2) throw new Error("second apply failed");
+    };
+    installWorkflowRegistryForTests([entry]);
+    const token = configureHostBridgeServerForTests({ token: "receipt-token" });
+    configureHostBridgeGlobalApprovalHandlerForTests((request) => ({
+      outcome: "approved",
+      requestId: request.requestId,
+      channel: "global",
+    }));
+    const parents = [];
+    for (const title of ["Receipt One", "Receipt Two"]) {
+      const item = new Zotero.Item("journalArticle");
+      item.setField("title", title);
+      await item.saveTx();
+      parents.push(item);
+    }
+    const handoff = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/agent-run",
+      body: {
+        workflowId: "bridge-workflow",
+        selection: { items: parents.map((item) => ({ id: item.id })) },
+      },
+    });
+    assert.lengthOf(handoff.json.result.requests, 2);
+    const bodies = handoff.json.result.requests.map(createAgentRunApplyBody);
+    const applied = await bridgeRequest({
+      token,
+      method: "POST",
+      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
+      body: { results: bodies.flatMap((body: any) => body.results) },
+    });
+    assert.strictEqual(applied.status, 200);
+    assert.deepEqual(applied.json.result.summary, {
+      total: 2,
+      succeeded: 1,
+      failed: 1,
+    });
+
+    const receipt = await bridgeRequest({
+      token,
+      method: "GET",
+      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
+    });
+    assert.strictEqual(receipt.json.result.status, "partial");
+    assert.isTrue(receipt.json.result.stateChanged);
+    assert.isTrue(receipt.json.result.handleConsumed);
+    assert.isFalse(receipt.json.result.recoverable);
+  });
+
   it("can disable workflow agent-run apply approval from the Host Bridge preference switch", async function () {
     const entry = workflow("bridge-workflow");
     let applyCalls = 0;
@@ -923,6 +1051,18 @@ describe("host bridge workflow control", function () {
       parsed.json.result.providerProfile.requiresBackendProfile,
       false,
     );
+    assert.deepInclude(parsed.json.result.executionModes.hostOwned, {
+      supported: true,
+      acceptsWorkflowOptions: true,
+      monitorable: true,
+      requiresApplyBack: false,
+    });
+    assert.deepInclude(parsed.json.result.executionModes.agentOwned, {
+      supported: true,
+      acceptsWorkflowOptions: false,
+      monitorable: false,
+      requiresApplyBack: true,
+    });
   });
 
   it("validates workflow input and reports requirements without starting a run", async function () {
@@ -998,6 +1138,13 @@ describe("host bridge workflow control", function () {
     });
     assert.strictEqual(requirements.status, 200);
     assert.isTrue(requirements.json.result.workflowOptions.schema[0].required);
+    assert.isFalse(
+      requirements.json.result.executionModes.agentOwned.supported,
+    );
+    assert.deepEqual(
+      requirements.json.result.executionModes.agentOwned.requiredParameters,
+      ["scope"],
+    );
 
     const validate = await bridgeRequest({
       token,
@@ -1017,6 +1164,63 @@ describe("host bridge workflow control", function () {
       "missing_required_workflow_parameter",
     );
     assert.deepEqual(validate.json.error.details.requiredFields, ["scope"]);
+  });
+
+  it("accepts ACP permission auto-approval in an ACP provider profile", async function () {
+    const previousBackends = getPref("backendsConfigJson");
+    try {
+      setPref(
+        "backendsConfigJson",
+        JSON.stringify({
+          schemaVersion: 2,
+          backends: [
+            {
+              id: "acp-opencode",
+              displayName: "OpenCode ACP",
+              type: "acp",
+              baseUrl: "local://acp-opencode",
+              command: "opencode",
+              args: ["acp"],
+              auth: { kind: "none" },
+            },
+          ],
+        }),
+      );
+      const entry = workflow("acp-bridge-workflow");
+      entry.manifest.provider = "skillrunner";
+      entry.manifest.request = { kind: "skillrunner.job.v1" };
+      installWorkflowRegistryForTests([entry]);
+      const token = configureHostBridgeServerForTests({
+        token: "workflow-token",
+      });
+
+      const parsed = await bridgeRequest({
+        token,
+        method: "POST",
+        path: "/bridge/v1/workflows/describe",
+        body: {
+          workflowId: "acp-bridge-workflow",
+          providerProfile: {
+            backendId: "acp-opencode",
+            providerOptions: { autoApproveAcpPermissions: true },
+          },
+        },
+      });
+
+      assert.strictEqual(parsed.status, 200);
+      assert.strictEqual(parsed.json.status, "ok");
+      assert.strictEqual(parsed.json.result.providerId, "acp");
+      assert.strictEqual(
+        parsed.json.result.providerProfile.selectedBackendId,
+        "acp-opencode",
+      );
+      assert.deepEqual(
+        parsed.json.result.providerProfile.normalizedProviderOptions,
+        { autoApproveAcpPermissions: true },
+      );
+    } finally {
+      setPref("backendsConfigJson", previousBackends);
+    }
   });
 
   it("rejects unsafe provider profile fields before workflow describe", async function () {

@@ -1292,6 +1292,7 @@ synthesis-canonical-unsaved-metadata = Проект метаданных име�
 synthesis-canonical-edit-metadata = Редактировать метаданные внешней канонической
 synthesis-canonical-archive-empty = Архивировать пустую каноническую
 synthesis-tags-management = Управление тегами Synthesis
+synthesis-tags-builtin = Встроенный
 synthesis-tags-summary-canonical = Канонические
 synthesis-tags-summary-staged = Промежуточные
 synthesis-tags-summary-warnings = Предупреждения

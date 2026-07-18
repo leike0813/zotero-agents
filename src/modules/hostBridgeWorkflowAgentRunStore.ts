@@ -24,6 +24,23 @@ export type HostBridgeAgentRunRecord = {
   sealedAt?: string;
   outcome?: "succeeded" | "failed";
   error?: string;
+  applyReceipt?: HostBridgeAgentRunApplyReceipt;
+};
+
+export type HostBridgeAgentRunApplyReceipt = {
+  schema: "host-bridge.agent-apply-receipt.v1";
+  agentRunId: string;
+  workflowId: string;
+  status: "preflight" | "applying" | "succeeded" | "partial" | "failed";
+  updatedAt: string;
+  stateChanged: boolean;
+  handleConsumed: boolean;
+  recoverable: boolean;
+  results: Array<{
+    agentRequestId: string;
+    succeeded: boolean;
+    error?: string;
+  }>;
 };
 
 const records = new Map<string, HostBridgeAgentRunRecord>();
@@ -116,6 +133,38 @@ export function finishHostBridgeAgentRunRecord(args: {
   record.outcome = args.outcome;
   record.error = args.error;
   return record;
+}
+
+export function recordHostBridgeAgentRunApplyReceipt(
+  agentRunId: string,
+  receipt: Omit<HostBridgeAgentRunApplyReceipt, "schema" | "updatedAt">,
+) {
+  const record = records.get(agentRunId);
+  if (!record) return null;
+  record.applyReceipt = {
+    schema: "host-bridge.agent-apply-receipt.v1",
+    ...receipt,
+    updatedAt: nowIso(),
+  };
+  return record.applyReceipt;
+}
+
+export function getHostBridgeAgentRunApplyReceipt(agentRunId: string) {
+  const record = getHostBridgeAgentRunRecord(agentRunId);
+  if (!record) return null;
+  return (
+    record.applyReceipt || {
+      schema: "host-bridge.agent-apply-receipt.v1",
+      agentRunId: record.agentRunId,
+      workflowId: record.workflowId,
+      status: "preflight",
+      updatedAt: record.createdAt,
+      stateChanged: false,
+      handleConsumed: Boolean(record.sealedAt),
+      recoverable: !record.sealedAt,
+      results: [],
+    }
+  );
 }
 
 export function resetHostBridgeAgentRunStoreForTests() {

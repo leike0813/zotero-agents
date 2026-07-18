@@ -383,47 +383,85 @@ fn bridge_error_from_json(status: u16, body: &[u8]) -> CliError {
 }
 
 fn bridge_error_from_value(status: u16, json: Value) -> CliError {
-    let code = json
-        .pointer("/error/code")
+    let bridge_error = json.get("error").unwrap_or(&Value::Null);
+    let code = bridge_error
+        .get("code")
         .and_then(Value::as_str)
         .unwrap_or("bridge_error");
-    let category = match code {
-        "capability_not_found" | "capability_failed" => crate::error::ErrorCategory::Capability,
-        "workflow_not_found"
-        | "workflow_run_not_found"
-        | "workflow_submit_failed"
-        | "backend_not_found"
-        | "skill_run_not_found"
-        | "skill_run_not_waiting"
-        | "skill_run_not_recoverable"
-        | "unsupported_interaction_backend" => crate::error::ErrorCategory::Workflow,
-        "workflow_submit_requires_approval"
-        | "approval_required"
-        | "permission_request_not_found"
-        | "permission_denied"
-        | "permission_timeout"
-        | "permission_ui_unavailable" => crate::error::ErrorCategory::Permission,
-        "file_not_found"
-        | "file_handle_expired"
-        | "file_unavailable"
-        | "download_failed"
-        | "upload_failed" => crate::error::ErrorCategory::Download,
-        "invalid_capability_input"
-        | "invalid_workflow_agent_run_request"
-        | "invalid_workflow_input"
-        | "invalid_workflow_submit_request"
-        | "invalid_workflow_describe_request"
-        | "invalid_skill_run_id"
-        | "invalid_object_ref"
-        | "invalid_file_id"
-        | "upload_empty"
-        | "upload_too_large"
-        | "unsupported_cache_scope"
-        | "bad_request" => crate::error::ErrorCategory::Validation,
-        _ => crate::error::ErrorCategory::Protocol,
+    let category = match bridge_error.get("category").and_then(Value::as_str) {
+        Some("usage") => crate::error::ErrorCategory::Usage,
+        Some("config") => crate::error::ErrorCategory::Config,
+        Some("connection") => crate::error::ErrorCategory::Connection,
+        Some("auth") => crate::error::ErrorCategory::Auth,
+        Some("permission") => crate::error::ErrorCategory::Permission,
+        Some("validation") => crate::error::ErrorCategory::Validation,
+        Some("capability") => crate::error::ErrorCategory::Capability,
+        Some("workflow") => crate::error::ErrorCategory::Workflow,
+        Some("download") => crate::error::ErrorCategory::Download,
+        Some("internal") => crate::error::ErrorCategory::Internal,
+        Some("protocol") => crate::error::ErrorCategory::Protocol,
+        _ => match code {
+            "capability_not_found" | "capability_failed" => crate::error::ErrorCategory::Capability,
+            "workflow_not_found"
+            | "workflow_run_not_found"
+            | "workflow_submit_failed"
+            | "backend_not_found"
+            | "skill_run_not_found"
+            | "skill_run_not_waiting"
+            | "skill_run_not_recoverable"
+            | "unsupported_interaction_backend" => crate::error::ErrorCategory::Workflow,
+            "workflow_submit_requires_approval"
+            | "approval_required"
+            | "permission_request_not_found"
+            | "permission_denied"
+            | "permission_timeout"
+            | "permission_ui_unavailable" => crate::error::ErrorCategory::Permission,
+            "file_not_found"
+            | "file_handle_expired"
+            | "file_unavailable"
+            | "download_failed"
+            | "upload_failed" => crate::error::ErrorCategory::Download,
+            "invalid_capability_input"
+            | "invalid_workflow_agent_run_request"
+            | "invalid_workflow_input"
+            | "invalid_workflow_submit_request"
+            | "invalid_workflow_describe_request"
+            | "invalid_skill_run_id"
+            | "invalid_object_ref"
+            | "invalid_file_id"
+            | "upload_empty"
+            | "upload_too_large"
+            | "unsupported_cache_scope"
+            | "bad_request" => crate::error::ErrorCategory::Validation,
+            _ => crate::error::ErrorCategory::Protocol,
+        },
     };
-    CliError::new(code, category, "Host Bridge returned an error")
+    let message = bridge_error
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("Host Bridge returned an error");
+    let safe_next_actions = bridge_error
+        .get("safeNextActions")
+        .and_then(Value::as_array)
+        .map(|actions| {
+            actions
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        });
+    let mut error = CliError::new(code, category, message)
         .with_details(json!({ "status": status, "bridge": json }))
+        .with_control(
+            bridge_error.get("retryable").and_then(Value::as_bool),
+            bridge_error.get("stateChanged").and_then(Value::as_bool),
+            bridge_error.get("handleConsumed").and_then(Value::as_bool),
+            safe_next_actions,
+        );
+    if let Some(next_command) = bridge_error.get("nextCommand").and_then(Value::as_str) {
+        error = error.with_next_command(next_command);
+    }
+    error
 }
 
 fn check_protocol(result: Value) -> Result<Value, CliError> {
@@ -737,6 +775,40 @@ mod tests {
             assert_eq!(error.code, code);
             assert_eq!(error.category, category, "{code}");
         }
+    }
+
+    #[test]
+    fn preserves_host_bridge_error_control_envelope() {
+        let error = bridge_error_from_value(
+            409,
+            json!({
+                "status": "error",
+                "error": {
+                    "code": "agent_run_already_consumed",
+                    "category": "workflow",
+                    "message": "Agent run was already consumed",
+                    "retryable": false,
+                    "stateChanged": true,
+                    "handleConsumed": true,
+                    "safeNextActions": ["workflow agent-apply-status"],
+                    "nextCommand": "workflow agent-apply-status agent-1"
+                }
+            }),
+        );
+        let payload = error.to_payload();
+        assert_eq!(payload.category, crate::error::ErrorCategory::Workflow);
+        assert_eq!(payload.message, "Agent run was already consumed");
+        assert!(!payload.retryable);
+        assert!(payload.state_changed);
+        assert!(payload.handle_consumed);
+        assert_eq!(
+            payload.safe_next_actions,
+            vec!["workflow agent-apply-status".to_string()]
+        );
+        assert_eq!(
+            payload.next_command.as_deref(),
+            Some("workflow agent-apply-status agent-1")
+        );
     }
 
     fn download_config(port: u16) -> BridgeConfig {

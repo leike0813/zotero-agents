@@ -1237,6 +1237,7 @@ synthesis-canonical-unsaved-metadata = Le brouillon de métadonnées a des modif
 synthesis-canonical-edit-metadata = Modifier les métadonnées canoniques externes
 synthesis-canonical-archive-empty = Archiver le canonique vide
 synthesis-tags-management = Gestion des étiquettes de synthèse
+synthesis-tags-builtin = Intégré
 synthesis-tags-summary-canonical = Canonique
 synthesis-tags-summary-staged = Mis en scène
 synthesis-tags-summary-warnings = Avertissements

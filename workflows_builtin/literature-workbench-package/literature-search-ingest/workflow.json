@@ -34,6 +34,26 @@
         "targeted_ingest"
       ]
     },
+    "searchBreadth": {
+      "type": "string",
+      "title": "Search Breadth",
+      "description": "Choose broad multi-lane discovery, balanced coverage, or a quick first pass.",
+      "default": "broad",
+      "enum": [
+        "broad",
+        "balanced",
+        "quick"
+      ]
+    },
+    "languageHints": {
+      "type": "array",
+      "title": "Language Hints",
+      "description": "Optional BCP 47 language hints such as en, zh-CN, ja, or de. They expand queries and sources but never filter other languages.",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
     "targetCollection": {
       "type": "string",
       "title": "Target Collection",

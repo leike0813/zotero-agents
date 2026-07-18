@@ -107,16 +107,9 @@ python scripts/zotero_librarian_index_service.py search "machine learning"
 
 ### ライブラリ管理
 
-**毎日の受信トレイトリアージ**（`cron/inbox-triage.yaml`）
+**毎日の Workflow ステータストリアージ**（`cron/workflow-status-triage.yaml`）
 
-プロファイルの受信トレイトリアージ cron は毎日実行され、ライブラリ内の新規アイテムの完全性をチェックします：
-
-- ステータスが `0-inbox`（未処理）のアイテム
-- 欠落しているタグやコレクション割り当て
-- 欠落している DOI、URL、添付ファイル
-- 欠落しているサマリーやダイジェスト成果物
-
-提案アクションのレポートを生成しますが、承認なしに Zotero の変更は行いません。
+この読み取り専用 cron は `status:need-*` を検索し、未完了の Workflow タスクを報告します。ステータスを推論せず、タグや Zotero を変更しません。
 
 **毎週のライブラリ健全性チェック**（`cron/library-hygiene.yaml`）
 
@@ -227,7 +220,7 @@ zotero-bridge workflow submit \
 | `index-refresh` | 6 時間ごと | `library snapshot` をページングしてローカル SQLite インデックスを最新に保つ。変更がない場合は `[SILENT]` を返す |
 | `workflow-catalog-refresh` | 毎日 03:00 | `workflow list` + `workflow describe` を呼び出してワークフローカタログキャッシュを更新。変更がない場合は `[SILENT]` を返す |
 | `run-monitor` | 5 分ごと | `run-watch` を呼び出してアクティブな登録済み実行をチェック。状態変更、終了状態、注意が必要な項目のみを報告 |
-| `inbox-triage` | 毎日 09:00 | `status:0-inbox` のアイテム、欠落タグ、欠落コレクション、欠落メタデータを検索。読み取り専用レポートを生成 |
+| `workflow-status-triage` | 毎日 09:00 | `status:need-*` を検索し、Workflow 待ちの読み取り専用レポートを生成 |
 | `library-hygiene` | 毎週月曜 | 重複エントリ、孤立アイテム、空のコレクション、データ品質問題をスキャン |
 | `attention-queue` | 毎日 18:00 | 注目キューインサイトとローカルインデックスデータを組み合わせて高優先度タスクをランク付け |
 

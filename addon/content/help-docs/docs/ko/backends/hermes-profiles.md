@@ -107,16 +107,9 @@ python scripts/zotero_librarian_index_service.py search "machine learning"
 
 ### 라이브러리 관리
 
-**일일 수신함 분류** (`cron/inbox-triage.yaml`)
+**일일 Workflow 상태 분류** (`cron/workflow-status-triage.yaml`)
 
-프로필의 수신함 분류 cron은 매일 실행되어 라이브러리의 새 항목 완전성을 확인합니다:
-
-- `0-inbox`(미처리) 상태의 항목
-- 누락된 태그 또는 컬렉션 할당
-- 누락된 DOI, URL 또는 첨부 파일
-- 누락된 요약 또는 다이제스트 아티팩트
-
-제안된 조치 보고서를 생성하지만 승인 없이는 Zotero 변경을 수행하지 않습니다.
+이 읽기 전용 cron은 `status:need-*`를 검색하고 대기 중인 Workflow 작업을 보고합니다. 상태를 추론하거나 태그 또는 Zotero를 변경하지 않습니다.
 
 **주간 라이브러리 위생** (`cron/library-hygiene.yaml`)
 
@@ -227,7 +220,7 @@ zotero-bridge workflow submit \
 | `index-refresh` | 6시간마다 | `library snapshot`을 페이지 단위로 가져와 로컬 SQLite 인덱스를 최신 상태로 유지. 변경 사항이 없으면 `[SILENT]` 보고 |
 | `workflow-catalog-refresh` | 매일 03:00 | `workflow list` + `workflow describe`를 호출하여 워크플로 카탈로그 캐시 갱신. 변경 사항이 없으면 `[SILENT]` 보고 |
 | `run-monitor` | 5분마다 | `run-watch`를 호출하여 활성 등록된 실행 확인. 상태 변경, 종료 상태 또는 주의가 필요한 항목만 보고 |
-| `inbox-triage` | 매일 09:00 | `status:0-inbox` 항목, 누락된 태그, 누락된 컬렉션, 누락된 메타데이터 검색. 읽기 전용 보고서 생성 |
+| `workflow-status-triage` | 매일 09:00 | `status:need-*`를 검색하고 읽기 전용 Workflow 대기 보고서를 생성 |
 | `library-hygiene` | 매주 월요일 | 중복 항목, 분리된 항목, 빈 컬렉션 및 데이터 품질 문제 스캔 |
 | `attention-queue` | 매일 18:00 | 주의 대기열 인사이트와 로컬 인덱스 데이터를 결합하여 높은 우선순위 작업 순위 지정 |
 

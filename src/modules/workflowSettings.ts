@@ -78,7 +78,7 @@ type WorkflowExecutionContext = {
 
 type WorkflowSettingsSchemaEntry = {
   key: string;
-  type: "string" | "number" | "boolean";
+  type: "string" | "number" | "boolean" | "array";
   title?: string;
   description?: string;
   placeholder?: string;

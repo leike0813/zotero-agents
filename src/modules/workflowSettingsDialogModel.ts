@@ -11,7 +11,7 @@ import type {
   WorkflowSettingsDialogInitialState,
 } from "./workflowSettingsDomain";
 
-export type FormSchemaType = "string" | "number" | "boolean";
+export type FormSchemaType = "string" | "number" | "boolean" | "array";
 
 export type FormSchemaEntry = {
   key: string;
@@ -115,6 +115,17 @@ function getElementValue(control: Element) {
   return String(
     (control as HTMLInputElement | HTMLSelectElement).value || "",
   ).trim();
+}
+
+function parseStringArray(value: string) {
+  return Array.from(
+    new Set(
+      value
+        .split(/[\n,]/)
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+    ),
+  );
 }
 
 export function resolveProviderSchemaEntries(args: {
@@ -250,6 +261,8 @@ export function collectSchemaValues(container: HTMLElement) {
         result[key] = null;
       } else if (type === "string") {
         result[key] = "";
+      } else if (type === "array") {
+        result[key] = [];
       }
       continue;
     }
@@ -258,6 +271,10 @@ export function collectSchemaValues(container: HTMLElement) {
       if (Number.isFinite(parsed)) {
         result[key] = parsed;
       }
+      continue;
+    }
+    if (type === "array") {
+      result[key] = parseStringArray(raw);
       continue;
     }
     result[key] = raw;

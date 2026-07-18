@@ -13,7 +13,10 @@ import {
   installRuntimeBridgeOverrideForTests,
   resetRuntimeBridgeOverrideForTests,
 } from "../../src/utils/runtimeBridge";
-import { resetWorkflowHostApiForTests } from "../../src/workflows/hostApi";
+import {
+  resetWorkflowHostApiForTests,
+  WORKFLOW_HOST_API_VERSION,
+} from "../../src/workflows/hostApi";
 import { buildSelectionContext } from "../../src/modules/selectionContext";
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import { executeApplyResult } from "../../src/workflows/runtime";
@@ -333,7 +336,7 @@ describe("workflow debug probe", function () {
       prefs: true,
       editor: true,
     });
-    assert.equal(checks[0].hostApiVersion, 8);
+    assert.equal(checks[0].hostApiVersion, WORKFLOW_HOST_API_VERSION);
     assert.equal(checks[0].compiledHookSource, "scan-time-precompile");
   });
 

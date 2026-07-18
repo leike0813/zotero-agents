@@ -137,11 +137,17 @@ function isMainModule() {
 if (isMainModule()) {
   const root = process.cwd();
   const inspected = inspectZoteroLibrarianProfileVersion(root);
-  if (process.argv.includes("--bump")) {
-    const source = bumpZoteroLibrarianProfileVersionSource({
-      cliVersion: inspected.resolved.cliVersion,
-      source: inspected.source,
-    });
+  if (process.argv.includes("--bump") || process.argv.includes("--align-cli")) {
+    const source = process.argv.includes("--align-cli")
+      ? {
+          schema: ZOTERO_LIBRARIAN_PROFILE_VERSION_SCHEMA,
+          cliMajorMinor: inspected.resolved.cliMajorMinor,
+          patch: 0,
+        }
+      : bumpZoteroLibrarianProfileVersionSource({
+          cliVersion: inspected.resolved.cliVersion,
+          source: inspected.source,
+        });
     writeZoteroLibrarianProfileVersionSource({ root, source });
     process.stdout.write(
       `${JSON.stringify(

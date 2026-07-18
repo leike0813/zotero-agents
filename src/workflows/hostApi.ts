@@ -39,8 +39,15 @@ import type {
   WorkflowPreparedNoteImage,
 } from "./types";
 import { createWorkflowArchiveApi } from "./archive";
+import {
+  getBuiltinStatusPolicy,
+  getBuiltinStatusTag,
+  isBuiltinStatusKey,
+  type BuiltinStatusKey,
+  type BuiltinStatusTag,
+} from "../modules/synthesis/builtinTagPolicy";
 
-export const WORKFLOW_HOST_API_VERSION = 8;
+export const WORKFLOW_HOST_API_VERSION = 9;
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -180,6 +187,83 @@ function assertHostItem(ref: Zotero.Item | number | string) {
     throw new Error(`Item not found: ${String(ref)}`);
   }
   return item;
+}
+
+function normalizeBuiltinStatusKeys(values: unknown): BuiltinStatusKey[] {
+  const keys = Array.from(
+    new Set(
+      (Array.isArray(values) ? values : [])
+        .map((entry) => String(entry || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  const unknown = keys.filter((key) => !isBuiltinStatusKey(key));
+  if (unknown.length) {
+    throw new Error(`Unknown builtin status key: ${unknown.join(", ")}`);
+  }
+  return keys as BuiltinStatusKey[];
+}
+
+async function transitionBuiltinStatusTags(args: {
+  item: Zotero.Item | number | string;
+  add?: BuiltinStatusKey[];
+  remove?: BuiltinStatusKey[];
+}) {
+  const addKeys = normalizeBuiltinStatusKeys(args?.add);
+  const removeKeys = normalizeBuiltinStatusKeys(args?.remove);
+  const removeSet = new Set(removeKeys);
+  const overlapping = addKeys.filter((key) => removeSet.has(key));
+  if (overlapping.length) {
+    throw new Error(
+      `Builtin status keys cannot be added and removed together: ${overlapping.join(", ")}`,
+    );
+  }
+  if (!getDefaultSynthesisService().isBuiltinTagPolicyInitialized()) {
+    throw new Error("Builtin status tag policy is not initialized");
+  }
+  const item = assertHostItem(args.item);
+  const current = new Set(await handlers.tag.list(item));
+  const addTags = addKeys
+    .map(getBuiltinStatusTag)
+    .filter((tag) => !current.has(tag));
+  const removeTags = removeKeys
+    .map(getBuiltinStatusTag)
+    .filter((tag) => current.has(tag));
+  const added: BuiltinStatusTag[] = [];
+  const removed: BuiltinStatusTag[] = [];
+  const warnings: Array<{
+    code: string;
+    operation: "add" | "remove";
+    tags: BuiltinStatusTag[];
+    message: string;
+  }> = [];
+  if (addTags.length) {
+    try {
+      await handlers.tag.add(item, addTags);
+      added.push(...addTags);
+    } catch (error) {
+      warnings.push({
+        code: "builtin_status_add_failed",
+        operation: "add",
+        tags: addTags,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  if (removeTags.length) {
+    try {
+      await handlers.tag.remove(item, removeTags);
+      removed.push(...removeTags);
+    } catch (error) {
+      warnings.push({
+        code: "builtin_status_remove_failed",
+        operation: "remove",
+        tags: removeTags,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return { added, removed, warnings };
 }
 
 function resolveIOUtils() {
@@ -928,6 +1012,10 @@ export function createWorkflowHostApi(): WorkflowHostApi {
       },
     },
     tags: handlers.tag,
+    statusTags: {
+      getPolicy: getBuiltinStatusPolicy,
+      transition: transitionBuiltinStatusTags,
+    },
     collections: handlers.collection,
     command: handlers.command,
     editor: {
@@ -1025,6 +1113,7 @@ export function summarizeWorkflowHostApiCapabilities(
     notes: !!hostApi?.notes,
     attachments: !!hostApi?.attachments,
     tags: !!hostApi?.tags,
+    statusTags: !!hostApi?.statusTags,
     collections: !!hostApi?.collections,
     editor: !!hostApi?.editor,
     notifications: !!hostApi?.notifications,

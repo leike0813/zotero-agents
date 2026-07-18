@@ -1,0 +1,31 @@
+{
+  "schema": "host-bridge.semantic-guidance.v2",
+  "domains": [
+    "connectivity-context.json",
+    "library.json",
+    "workflow-run.json",
+    "mutation-file-product.json",
+    "synthesis.json",
+    "diagnostics.json"
+  ],
+  "journeys": [
+    {
+      "id": "attach-generated-file",
+      "intent": "Attach a generated local artifact to a Zotero item",
+      "commands": ["context selection get", "file upload", "mutation item attach-file", "library item attachments"],
+      "evidence": ["itemRef", "fileId and checksum", "approval result", "current attachment record"]
+    },
+    {
+      "id": "agent-owned-workflow",
+      "intent": "Execute and apply an agent-owned workflow",
+      "commands": ["workflow describe", "workflow agent-run", "workflow agent-apply", "workflow agent-apply-status"],
+      "evidence": ["executionModes", "agentRunId and agentRequestIds", "result bundles", "apply receipt"]
+    },
+    {
+      "id": "diagnose-bridge",
+      "intent": "Diagnose connection or backend failure before debug escalation",
+      "commands": ["surface identity", "bridge status", "bridge profile diagnose", "bridge backend status", "debug status"],
+      "evidence": ["exact CLI identity", "health", "profile diagnosis", "backend state", "bounded debug snapshot when still necessary"]
+    }
+  ]
+}

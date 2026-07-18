@@ -48,6 +48,10 @@ import {
   type SynthesisWorkbenchSurfaceName,
 } from "./synthesis/uiModel";
 import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
+import {
+  BUILTIN_STATUS_FACET,
+  isBuiltinStatusTag,
+} from "./synthesis/builtinTagPolicy";
 
 type SynthesisBridgeMessageType =
   | "synthesis:init"
@@ -2792,6 +2796,19 @@ function handleAction(
         "updateTagVocabularyEntry",
         { originalTag },
         async () => {
+          const requestedFacet = String(
+            commandArgs.facet || tag.split(":")[0] || "topic",
+          );
+          if (
+            (isBuiltinStatusTag(originalTag) &&
+              (tag !== originalTag ||
+                requestedFacet !== BUILTIN_STATUS_FACET ||
+                commandArgs.deprecated === true ||
+                String(commandArgs.replacement || "").trim())) ||
+            (!isBuiltinStatusTag(originalTag) && isBuiltinStatusTag(tag))
+          ) {
+            throw new Error("Builtin tag identity is protected");
+          }
           const service = getDefaultSynthesisService();
           const snapshot = await service.loadTagVocabulary();
           const nextEntries = snapshot.entries.map((entry) =>
@@ -2799,9 +2816,7 @@ function handleAction(
               ? {
                   ...entry,
                   tag,
-                  facet: String(
-                    commandArgs.facet || tag.split(":")[0] || entry.facet,
-                  ),
+                  facet: requestedFacet || entry.facet,
                   note: String(commandArgs.note || ""),
                 }
               : entry,
@@ -2838,6 +2853,9 @@ function handleAction(
         "deleteTagVocabularyEntry",
         { originalTag },
         async () => {
+          if (isBuiltinStatusTag(originalTag)) {
+            throw new Error("Builtin tags cannot be deleted");
+          }
           const service = getDefaultSynthesisService();
           const snapshot = await service.loadTagVocabulary();
           return service.saveTagVocabulary({

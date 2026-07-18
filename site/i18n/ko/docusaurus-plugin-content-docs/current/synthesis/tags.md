@@ -17,7 +17,7 @@
 | `ai_task` | AI 작업 유형 | `ai_task:text_summarization` |
 | `data` | 데이터셋 | `data:imagenet` |
 | `tool` | 도구 | `tool:python` |
-| `status` | 상태 마커 | `status:to_read` |
+| `status` | Workflow 대기 작업 | `status:need-analysis` |
 
 태그 형식: `^[a-z_]+:[a-zA-Z0-9/_.-]+$`, 최대 120자.
 
@@ -31,6 +31,8 @@ Synthesis Workbench → Tags → Vocabulary 페이지에서 다음 작업을 수
 - **사용 중단**: 태그를 사용 중단으로 표시하고, 선택적으로 대체 태그 지정
 - **JSON 가져오기**: JSON 파일에서 태그 어휘 가져오기 (확인 전 미리보기 지원)
 - **JSON 내보내기**: 현재 어휘를 JSON 파일로 내보내기
+
+다섯 개의 내장 Workflow 상태는 플러그인 시작 시 초기화됩니다. 해당 tag, facet, source, 사용 중단 상태 및 replacement는 변경하거나 삭제할 수 없습니다. note는 계속 편집 가능하며 aliases는 일반 거버넌스 경로를 계속 사용합니다. 사용자 정의 `status:*` 항목은 다른 사용자 정의 어휘 항목과 동일한 관리 컨트롤을 유지합니다. 가져오기는 내장 note와 aliases를 업데이트할 수 있지만, 내장을 누락시키거나 보호된 ID를 변경해도 제거하거나 대체할 수 없습니다.
 
 ![Synthesis Tags Page](/img/docs/synthesis/tags.png)
 
@@ -61,4 +63,23 @@ Synthesis Workbench → Tags → Vocabulary 페이지에서 다음 작업을 수
 
 ## 관련 Workflow
 
-태그 표준화 및 자동 추론은 [Tag Regulator](../workflows/tag-regulator) Workflow에 의해 구동됩니다. 이 Workflow를 실행하면 제어된 어휘를 기반으로 태그를 자동으로 정리하고 보완할 수 있습니다.
+`status`는 읽기 진행률이 아니라 Workflow 대기 작업을 나타냅니다. 항목에는 0개 이상의 status가 있을 수 있습니다. 다섯 가지 내장 정의:
+
+- `status:need-metadata-curation`
+- `status:need-fulltext`
+- `status:need-markdown`
+- `status:need-analysis`
+- `status:need-deep-reading`
+
+이를 생성하기 위해 Tag Bootstrapper를 실행할 필요가 없습니다. Tag Bootstrapper는 사용자 정의 어휘 항목만 추가하며, [Tag Regulator](../workflows/tag-regulator)는 일반 제어 태그를 감사할 수 있지만 문헌 항목에 내장 Workflow 상태를 추가하거나 제거할 수 없습니다. 두 Workflow 모두 논문의 주제, 언어, 메타데이터 또는 전문에서 내장 상태를 추론할 수 없습니다.
+
+| 이벤트 | 항목에 추가 | 항목에서 제거 |
+|--------|-------------|---------------|
+| Search가 항목 생성 | Markdown, analysis, deep reading; 결과에 필요한 경우 metadata/fulltext | — |
+| Search가 항목 재사용 | 이 결과에서 명시적으로 필요한 metadata/fulltext만 | — |
+| Metadata Curator 성공 또는 변경 없음 확인 | — | Metadata curation |
+| MinerU가 Markdown을 작성하고 첨부 | — | Markdown 및 fulltext |
+| Literature Analysis가 공식 산출물 작성 | — | Analysis |
+| Literature Deep Reading이 HTML을 작성하고 첨부 | — | Deep reading |
+
+실패, 건너뛰기, 취소 또는 미적용 실행은 상태를 지우지 않습니다. 산출물이 성공해도 상태 정리가 실패하면 산출물은 유지되고 실행이 부분 경고를 보고합니다. PDF를 수동으로 첨부해도 `status:need-fulltext`는 자동 제거되지 않습니다.

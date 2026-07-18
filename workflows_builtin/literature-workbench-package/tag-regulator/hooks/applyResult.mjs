@@ -2403,6 +2403,26 @@ async function applyTagMutations(item, removeTags, addTags) {
 
 async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
   const parentItem = runtime.helpers.resolveItemRef(parent);
+  const statusPolicy = requireHostApi(runtime)?.statusTags?.getPolicy?.();
+  if (!statusPolicy || typeof statusPolicy !== "object") {
+    throw new Error("tag-regulator builtin status policy API is unavailable");
+  }
+  const builtinStatusTags = new Set(
+    Object.values(statusPolicy).map((tag) => asString(tag).toLowerCase()),
+  );
+  const builtinStatusDiagnostics = [];
+  const filterBuiltinStatusChanges = (tags, operation) =>
+    tags.filter((tag) => {
+      if (!builtinStatusTags.has(asString(tag).toLowerCase())) {
+        return true;
+      }
+      builtinStatusDiagnostics.push({
+        code: "builtin_status_change_ignored",
+        operation,
+        tag,
+      });
+      return false;
+    });
   const output = await measureWorkflowTestSpan(
     "executeApplyResult:tagRegulator:resolveOutput",
     {},
@@ -2504,16 +2524,23 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
         parentItem,
       }),
   );
-  const reclassifiedAddTags = collectUniqueSuggestTagNames(
-    reconciledSuggest.nowControlled,
+  const reclassifiedAddTags = filterBuiltinStatusChanges(
+    collectUniqueSuggestTagNames(reconciledSuggest.nowControlled),
+    "add",
   );
   const reclassifiedStaged = collectUniqueSuggestTagNames(
     reconciledSuggest.nowStaged,
   );
-  const remainingSuggest = reconciledSuggest.remainingSuggest;
+  const remainingSuggest = reconciledSuggest.remainingSuggest.filter((entry) =>
+    filterBuiltinStatusChanges([entry.tag], "suggest").length > 0,
+  );
   const effectiveAddTags = mergeUniqueStringArrays(
-    addTags.values,
+    filterBuiltinStatusChanges(addTags.values, "add"),
     reclassifiedAddTags,
+  );
+  const effectiveRemoveTags = filterBuiltinStatusChanges(
+    removeTags.values,
+    "remove",
   );
   await measureWorkflowTestSpan(
     "executeApplyResult:tagRegulator:appendRuntimeLog",
@@ -2538,10 +2565,10 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
   const mutation = await measureWorkflowTestSpan(
     "executeApplyResult:tagRegulator:applyTagMutations",
     {
-      removeCount: removeTags.values.length,
+      removeCount: effectiveRemoveTags.length,
       addCount: effectiveAddTags.length,
     },
-    () => applyTagMutations(parentItem, removeTags.values, effectiveAddTags),
+    () => applyTagMutations(parentItem, effectiveRemoveTags, effectiveAddTags),
   );
 
   const suggestIntake = await measureWorkflowTestSpan(
@@ -2588,6 +2615,7 @@ async function applyResultImpl({ parent, resultContext, runResult, runtime }) {
       suggest_tags: stripSuggestDialogMetadata(remainingSuggest),
       reclassified_add_tags: reclassifiedAddTags,
       reclassified_staged: reclassifiedStaged,
+      diagnostics: builtinStatusDiagnostics,
       suggest_intake: suggestIntake,
       warnings,
       before_tags: mutation.current,

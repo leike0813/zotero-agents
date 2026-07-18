@@ -3187,6 +3187,43 @@ const TOOL_REGISTRY: ToolDefinition[] = [
       {
         paper: {
           type: "object",
+          properties: {
+            itemType: { type: "string" },
+            fields: {
+              type: "object",
+              additionalProperties: {
+                type: ["string", "number", "boolean", "null"],
+              },
+            },
+            creators: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  name: { type: "string" },
+                  firstName: { type: "string" },
+                  lastName: { type: "string" },
+                  creatorType: { type: "string" },
+                },
+                additionalProperties: false,
+              },
+            },
+            identifiers: {
+              type: "object",
+              properties: {
+                doi: { type: "string" },
+                arxiv: { type: "string" },
+                pmid: { type: "string" },
+                isbn: { type: "string" },
+              },
+              additionalProperties: false,
+            },
+            landingUrl: { type: "string" },
+            pdfUrl: { type: "string" },
+            attachLandingUrlOnMissingPdf: { type: "boolean" },
+          },
+          required: ["itemType", "fields", "creators", "identifiers"],
+          additionalProperties: false,
         },
         collection: {
           description: "Optional target collection reference.",

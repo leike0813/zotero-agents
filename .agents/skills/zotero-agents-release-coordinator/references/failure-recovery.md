@@ -24,6 +24,14 @@ gh release view vX.Y.Z --repo leike0813/zotero-agents
 
 ## Recovery Cases
 
+### Host Bridge Release Set Is Incomplete
+
+Use `$host-bridge-release-pipeline` with the prepared `releaseSetId`. Resume the
+same release set and reuse any verified immutable surface tags. Do not rebuild
+different bytes under an existing version or advance mutable pointers while any
+surface is incomplete. Keep `--host-bridge-done` unset until the release receipt
+for that release set reports `status: complete`.
+
 ### Version Bump Exists But Tag Is Missing
 
 Use when `package.json` or `package-lock.json` already contains the target

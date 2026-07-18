@@ -114,3 +114,26 @@ The Synthesis Workbench tags page SHALL expose tag bootstrapping only when the f
 - **AND** current filters hide all visible rows
 - **WHEN** the tags page renders the vocabulary subview
 - **THEN** the empty state SHALL NOT show the bootstrap action
+
+### Requirement: Tag Bootstrapper SHALL manage only custom controlled vocabulary entries
+Bootstrapper MUST accept builtin status definitions in existing vocabulary as read-only reserved entries, MUST NOT emit them in `add_tags`, and MAY suggest custom `status:*` only for explicit durable workflow semantics.
+
+#### Scenario: Bootstrapper receives initialized builtin vocabulary
+- **WHEN** a generation request includes the five builtin definitions in `existing_tags`
+- **THEN** the skill SHALL treat them as already present and reserved
+- **AND** SHALL NOT output them as additions
+
+### Requirement: Tag Standard SHALL describe only runtime-supported facets and current workflow status semantics
+The standard MUST list `field`, `topic`, `method`, `model`, `ai_task`, `data`, `tool`, and `status`; MUST NOT define `match_status` or `matching_status`; and MUST describe status as a zero-or-many workflow pending facet rather than a single reading progress axis.
+
+#### Scenario: Status cannot be inferred from literature content
+- **WHEN** Bootstrapper evaluates a paper's topic, language, metadata, or body
+- **THEN** it SHALL NOT infer builtin workflow status definitions or item status instances
+
+### Requirement: Bootstrapper and Regulator SHALL share one upstream-based Tag Standard
+The Tag Bootstrapper and Tag Regulator skill packages MUST carry byte-identical `references/tag_standard.md` files derived from the Tag Regulator upstream standard, preserving its unaffected structure and domain guidance while applying the builtin workflow status policy.
+
+#### Scenario: Either packaged Tag Standard is reviewed or consumed
+- **WHEN** the Bootstrapper or Regulator reads its packaged Tag Standard
+- **THEN** both skills SHALL expose the same facet, naming, field hierarchy, vocabulary governance, and workflow status rules
+- **AND** changes unrelated to workflow status SHALL retain the upstream document structure and guidance

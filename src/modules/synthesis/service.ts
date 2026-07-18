@@ -18180,6 +18180,14 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return tagVocabulary.loadTagVocabulary();
   }
 
+  async function initializeBuiltinTagPolicy() {
+    return tagVocabulary.initializeBuiltinTagPolicy();
+  }
+
+  function isBuiltinTagPolicyInitialized() {
+    return tagVocabulary.isBuiltinTagPolicyInitialized();
+  }
+
   async function saveTagVocabulary(
     args: Parameters<typeof tagVocabulary.saveTagVocabulary>[0],
   ) {
@@ -21012,6 +21020,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     getPaperArtifactManifest,
     readPaperArtifacts,
     exportFilteredPaperArtifacts,
+    initializeBuiltinTagPolicy,
+    isBuiltinTagPolicyInitialized,
     loadTagVocabulary,
     saveTagVocabulary,
     exportTagVocabularyCheckpoint,

@@ -30,7 +30,7 @@ const REQUIRED_PROFILE_FILES = [
   "cron/workflow-catalog-refresh.yaml",
   "cron/run-monitor.yaml",
   "cron/notification-sync.yaml",
-  "cron/inbox-triage.yaml",
+  "cron/workflow-status-triage.yaml",
   "cron/library-hygiene.yaml",
   "cron/attention-queue.yaml",
   "assets/host-bridge/profile.example.json",
@@ -100,8 +100,16 @@ describe("zotero-librarian Hermes profile distribution", function () {
 
   it("documents the standalone repository install path", async function () {
     const readme = await readProfile("README.md");
+    const sourceReadme = await fs.readFile(
+      path.join(
+        process.cwd(),
+        "profiles_src/hermes/zotero-librarian/README.md",
+      ),
+      "utf8",
+    );
     const distribution = await readProfile("distribution.yaml");
 
+    assert.strictEqual(readme, sourceReadme);
     assert.include(readme, "https://github.com/leike0813/zotero-agents");
     assert.include(
       readme,
@@ -229,7 +237,10 @@ describe("zotero-librarian Hermes profile distribution", function () {
         "cron/notification-sync.yaml",
         ["every: 5m", "zotero_librarian_notification_service.py", "sync"],
       ],
-      ["cron/inbox-triage.yaml", ['time: "09:00"', "status:0-inbox", "no tag"]],
+      [
+        "cron/workflow-status-triage.yaml",
+        ['time: "09:00"', "status:need-", "workflow-pending"],
+      ],
       [
         "cron/library-hygiene.yaml",
         ["weekly: monday", "duplicate DOI", "empty collection"],
@@ -262,7 +273,11 @@ describe("zotero-librarian Hermes profile distribution", function () {
     );
     assert.strictEqual(
       packageJson.scripts["check:host-bridge-surface"],
-      "tsx scripts/render-host-bridge-surface.ts --check && tsx scripts/render-zotero-librarian-profile.ts --check",
+      "npm run check:host-bridge-content && tsx scripts/render-zotero-library-agent-bundle.ts --check && tsx scripts/render-zotero-librarian-profile.ts --check && tsx scripts/render-host-bridge-release-set.ts --check",
+    );
+    assert.include(
+      packageJson.scripts["check:host-bridge-content"],
+      "--content-only",
     );
     assert.include(
       packageJson.scripts["inspect:zotero-librarian-profile-version"],
@@ -299,8 +314,12 @@ describe("zotero-librarian Hermes profile distribution", function () {
     assert.include(publishScript, "addon/bin");
     assert.include(publishScript, "assets/zotero-bridge/bin");
     assert.include(publishScript, "manifest.json");
+    const materializer = await fs.readFile(
+      "scripts/materialize-host-bridge-surfaces.ts",
+      "utf8",
+    );
+    assert.include(materializer, "releaseSet.cli.binaries");
     for (const platform of EXPECTED_PLATFORMS) {
-      assert.include(publishScript, platform);
       const stat = await fs.stat(path.join("addon", "bin", platform));
       assert.isTrue(stat.isDirectory(), platform);
     }

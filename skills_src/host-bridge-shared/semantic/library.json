@@ -1,0 +1,29 @@
+{
+  "schema": "host-bridge.semantic-domain.v2",
+  "domain": "library",
+  "families": {
+    "library": {
+      "domain": "library",
+      "intents": ["read current Zotero library facts", "inspect notes, attachments, annotations, or readiness"],
+      "useWhen": ["The task needs authoritative bibliographic or item-owned data from Zotero."],
+      "avoidWhen": ["Do not treat a snapshot page as a complete or permanently current library mirror."],
+      "evidence": ["stable item or note refs, current metadata, and cursor metadata"],
+      "followups": ["file download", "workflow describe"]
+    }
+  },
+  "commands": {
+    "library item search": {
+      "intents": ["find literature", "search library", "resolve a bibliographic candidate"],
+      "avoidWhen": ["Use items list for deterministic collection or tag paging rather than relevance search."],
+      "preconditions": ["The CLI `--query` JSON uses `text`; the CLI validates it and maps that value to backend payload field `query`."],
+      "example": "zotero-bridge library item search --query '{\"text\":\"graph retrieval\",\"limit\":10}'"
+    },
+    "library items list": {
+      "example": "zotero-bridge library items list --query '{\"collectionKey\":\"COLL_A\",\"limit\":50,\"cursor\":null}'"
+    },
+    "library note payload": {
+      "intents": ["read one structured note payload"],
+      "avoidWhen": ["Use note get for the note object and payloads to enumerate payload ids before selecting one."]
+    }
+  }
+}

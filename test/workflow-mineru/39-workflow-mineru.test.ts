@@ -4,6 +4,7 @@ import { buildSelectionContext } from "../../src/modules/selectionContext";
 import { createHookHelpers } from "../../src/workflows/helpers";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { evaluateWorkflowSelection } from "../../src/workflows/workflowSelectionValidation";
+import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 import {
   executeApplyResult,
   executeBuildRequests,
@@ -654,7 +655,8 @@ describe("workflow: mineru", function () {
     await writeUtf8(joinPath(bundleDir, "images", "figure-1.png"), "png-1");
     await writeUtf8(joinPath(bundleDir, "images", "figure-2.png"), "png-2");
 
-    await executeApplyResult({
+    const statusTransitions: unknown[] = [];
+    const applied = (await executeApplyResult({
       workflow,
       parent,
       bundleReader: {
@@ -663,7 +665,19 @@ describe("workflow: mineru", function () {
       },
       request: await buildMineruRequest(source.attachment, source.pdfPath),
       runResult: {},
-    });
+      runtime: {
+        hostApi: {
+          ...createWorkflowHostApi(),
+          statusTags: {
+            getPolicy: () => ({}),
+            transition: async (args: unknown) => {
+              statusTransitions.push(args);
+              return { added: [], removed: [], warnings: [] };
+            },
+          },
+        } as any,
+      },
+    })) as { partial?: boolean };
 
     const targetMdPath = joinPath(tempDir, "paper.md");
     const targetImages = joinPath(tempDir, `Images_${source.attachment.key}`);
@@ -680,6 +694,13 @@ describe("workflow: mineru", function () {
       ),
       `expected linked markdown attachment=${targetMdPath}, got=${attachmentPaths.join(",")}`,
     );
+    assert.deepEqual(statusTransitions, [
+      {
+        item: parent,
+        remove: ["need-fulltext", "need-markdown"],
+      },
+    ]);
+    assert.isFalse(applied.partial);
   });
 
   it("merges aggregate child bundles in order with one blank line", async function () {
