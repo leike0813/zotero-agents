@@ -6,9 +6,14 @@ on:
     branches:
       - dev-refactor
     paths:
+      - "package.json"
+      - "package-lock.json"
       - "apps/synthesis-service/**"
-      - "packages/synthesis-contracts/src/sidecarSystem.ts"
-      - "packages/synthesis-contracts/src/sidecarRuntimeBundle.ts"
+      - "packages/synthesis-engine/**"
+      - "packages/synthesis-contracts/**"
+      - "packages/synthesis-repository/**"
+      - "packages/synthesis-application/**"
+      - "scripts/check-synthesis-sidecar-runtime-freshness.ts"
       - "scripts/package-synthesis-sidecar-runtime.ts"
       - "scripts/synthesis-sidecar-runtime-release-governance.ts"
       - ".github/workflows/build-synthesis-sidecar-runtime.yml"
