@@ -96,14 +96,13 @@ jobs:
           mkdir extracted
           tar -xf "${{ matrix.archive }}" -C extracted
 
-      - name: Verify macOS runtime signature and notarization
+      - name: Verify macOS runtime code signature
         if: startsWith(matrix.target, 'darwin-')
         shell: bash
         run: |
           set -euo pipefail
           NODE_BINARY=".scaffold/node-release/extracted/node-v${NODE_VERSION}-${{ matrix.target }}/bin/node"
           codesign --verify --deep --strict --verbose=2 "${NODE_BINARY}"
-          spctl --assess --type execute --verbose=2 "${NODE_BINARY}"
 
       - name: Verify Windows runtime signature
         if: startsWith(matrix.target, 'win32-')

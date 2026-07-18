@@ -14,8 +14,8 @@ The current target matrix is:
 
 Prebuild CI verifies the Node release's signed SHASUMS with the official Node
 release keyring, checks the selected archive hash, and validates Authenticode
-or macOS signing/notarization where applicable. It then combines the minimal
-Node executable and license with the compiled service worker, the
+or the macOS runtime's code signature where applicable. It then combines the
+minimal Node executable and license with the compiled service worker, the
 `packages/synthesis-engine` JavaScript graph, the environment-neutral
 `packages/synthesis-repository` foundation plus designated `node:sqlite`
 adapter/owner, the environment-neutral `packages/synthesis-application`
