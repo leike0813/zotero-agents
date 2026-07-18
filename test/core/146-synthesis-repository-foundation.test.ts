@@ -41,16 +41,16 @@ function createSynthesisBusyError() {
 }
 
 describe("Synthesis repository foundation", function () {
-  beforeEach(function () {
+  beforeEach(async function () {
     resetPluginStateStoreForTests();
     resetGuardedSqliteForTests();
-    resetDefaultLegacySynthesisServiceForTests();
+    await resetDefaultLegacySynthesisServiceForTests();
   });
 
-  afterEach(function () {
+  afterEach(async function () {
     resetPluginStateStoreForTests();
     resetGuardedSqliteForTests();
-    resetDefaultLegacySynthesisServiceForTests();
+    await resetDefaultLegacySynthesisServiceForTests();
   });
 
   it("uses the dedicated Synthesis state database path", function () {
@@ -133,7 +133,7 @@ describe("Synthesis repository foundation", function () {
         zotero.File.pathToFile = previousPathToFile;
       }
       (globalThis as { Services?: unknown }).Services = previousServices;
-      resetDefaultLegacySynthesisServiceForTests();
+      await resetDefaultLegacySynthesisServiceForTests();
     }
   });
 

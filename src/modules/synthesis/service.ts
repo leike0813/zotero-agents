@@ -553,6 +553,15 @@ export type SynthesisServiceOptions = {
   writeLock?: LibraryWriteLock;
 };
 
+const synthesisServiceDisposers = new WeakMap<object, () => Promise<void>>();
+
+export function disposeSynthesisService(service: object) {
+  const disposalHandle = (service as { syncWebDavNow?: unknown }).syncWebDavNow;
+  return typeof disposalHandle === "function"
+    ? synthesisServiceDisposers.get(disposalHandle)?.() || Promise.resolve()
+    : Promise.resolve();
+}
+
 type SynthesisRuntimeLogAppender = (input: RuntimeLogInput) => unknown;
 
 type SynthesisSidecarReferenceInput = Record<string, unknown>;
@@ -6246,6 +6255,8 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   let canonicalMaintenanceDirty = false;
   let pendingCanonicalMaintenanceSync = false;
   let canonicalMaintenanceSyncTimer: ReturnType<typeof setTimeout> | undefined;
+  let serviceLifecycleStopped = false;
+  let serviceDisposal: Promise<void> | undefined;
   let referenceSidecarRefreshRunning = false;
   let advancedReferenceMatchingRunning = false;
   const readHints: SynthesisReadHint[] = [];
@@ -6472,6 +6483,36 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     }
   }
 
+  function stopServiceLifecycle() {
+    if (serviceLifecycleStopped) {
+      return;
+    }
+    serviceLifecycleStopped = true;
+    pendingCanonicalMaintenanceSync = false;
+    canonicalMaintenanceDirty = false;
+    clearCanonicalMaintenanceSyncTimer();
+    webDavSync.stopAdmission();
+    options.runtimeAbortSignal?.removeEventListener("abort", onRuntimeAbort);
+  }
+
+  function disposeService() {
+    stopServiceLifecycle();
+    serviceDisposal ||= webDavSync.shutdown();
+    return serviceDisposal;
+  }
+
+  function onRuntimeAbort() {
+    void disposeService();
+  }
+
+  if (options.runtimeAbortSignal?.aborted) {
+    onRuntimeAbort();
+  } else {
+    options.runtimeAbortSignal?.addEventListener("abort", onRuntimeAbort, {
+      once: true,
+    });
+  }
+
   function canonicalMaintenanceStatus() {
     return {
       active_worker_count: activeCanonicalMaintenanceWorkers,
@@ -6484,6 +6525,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
 
   function scheduleCanonicalMaintenanceWebDavSync() {
     if (
+      serviceLifecycleStopped ||
       !pendingCanonicalMaintenanceSync ||
       activeCanonicalMaintenanceWorkers > 0
     ) {
@@ -6492,6 +6534,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     clearCanonicalMaintenanceSyncTimer();
     canonicalMaintenanceSyncTimer = setTimeout(() => {
       canonicalMaintenanceSyncTimer = undefined;
+      if (serviceLifecycleStopped) {
+        pendingCanonicalMaintenanceSync = false;
+        return;
+      }
       if (activeCanonicalMaintenanceWorkers > 0) {
         scheduleCanonicalMaintenanceWebDavSync();
         return;
@@ -6502,7 +6548,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   }
 
   async function queueCanonicalMaintenanceWebDavSync() {
-    if (!(await webDavSync.isWebDavAutoSyncEnabled())) {
+    if (
+      serviceLifecycleStopped ||
+      !(await webDavSync.isWebDavAutoSyncEnabled()) ||
+      serviceLifecycleStopped
+    ) {
       return;
     }
     pendingCanonicalMaintenanceSync = true;
@@ -6519,6 +6569,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     let mutated = false;
     return {
       markCanonicalMutation() {
+        if (serviceLifecycleStopped) {
+          return;
+        }
         mutated = true;
         canonicalMaintenanceDirty = true;
       },
@@ -6535,6 +6588,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           ];
         }
         if (
+          !serviceLifecycleStopped &&
           mutated &&
           canonicalMaintenanceDirty &&
           activeCanonicalMaintenanceWorkers === 0
@@ -7084,6 +7138,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   }
 
   async function notifyWebDavSyncAfterCanonicalWrite() {
+    if (serviceLifecycleStopped) {
+      return;
+    }
     try {
       await webDavSync.triggerWebDavAutoSync();
     } catch {
@@ -20691,6 +20748,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     };
   }
 
+  synthesisServiceDisposers.set(syncWebDavNow, disposeService);
   return {
     resetSynthesisDatabase,
     reconcileSynthesisRuntimeWorkStateOnStartup,

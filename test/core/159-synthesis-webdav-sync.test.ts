@@ -2,7 +2,10 @@ import { assert } from "chai";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
-import { createSynthesisService } from "../../src/modules/synthesis/service";
+import {
+  createSynthesisService,
+  disposeSynthesisService,
+} from "../../src/modules/synthesis/service";
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import { createPrefsConfiguredSynthesisWebDavSyncPort } from "../../src/modules/synthesis/webDavSyncAdapter";
 import {
@@ -118,6 +121,26 @@ class MemoryWebDavClient implements SynthesisWebDavHttpClient {
       return { status: 201, ok: true, text: "" };
     }
     return { status: 201, ok: true, text: "" };
+  }
+}
+
+class BlockingWebDavClient extends MemoryWebDavClient {
+  blocked = false;
+  private releaseRequest: (() => void) | undefined;
+
+  release() {
+    this.releaseRequest?.();
+    this.releaseRequest = undefined;
+  }
+
+  override async request(request: SynthesisWebDavHttpRequest) {
+    if (!this.blocked) {
+      this.blocked = true;
+      await new Promise<void>((resolve) => {
+        this.releaseRequest = resolve;
+      });
+    }
+    return super.request(request);
   }
 }
 
@@ -249,6 +272,70 @@ describe("Synthesis WebDAV sync", function () {
       ).length,
       1,
     );
+  });
+
+  it("cancels pending canonical-write autosync on runtime abort", async function () {
+    const root = await makeRuntimeRoot();
+    const client = new MemoryWebDavClient();
+    const abortController = new AbortController();
+    saveWebDavSyncPrefs({
+      enabled: true,
+      baseUrl: "https://dav.example.test/root",
+      remotePath: "zotero-agents",
+      autoSyncEnabled: true,
+    });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort({
+        client,
+      }),
+      webDavSyncDebounceMs: 40,
+      runtimeAbortSignal: abortController.signal,
+    });
+
+    await service.saveTagVocabulary({
+      transactionId: "webdav-autosync-abort",
+      entries: [{ tag: "field:webdav", facet: "field", source: "manual" }],
+    });
+    abortController.abort();
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    assert.isFalse(
+      client.requests.some(
+        (entry) => entry.method === "PUT" && entry.url.endsWith("/HEAD.json"),
+      ),
+    );
+  });
+
+  it("waits for active WebDAV application work during service disposal", async function () {
+    const root = await makeRuntimeRoot();
+    const client = new BlockingWebDavClient();
+    saveWebDavSyncPrefs({
+      enabled: true,
+      baseUrl: "https://dav.example.test/root",
+      remotePath: "zotero-agents",
+    });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort({
+        client,
+      }),
+    });
+    const syncing = service.syncWebDavNow();
+    await waitFor(() => client.blocked);
+    let disposed = false;
+
+    const disposing = disposeSynthesisService(service).then(() => {
+      disposed = true;
+    });
+    await Promise.resolve();
+    assert.isFalse(disposed);
+
+    client.release();
+    await Promise.all([syncing, disposing]);
+    assert.isTrue(disposed);
   });
 
   it("bounds automatic retries to four delays per trigger", async function () {

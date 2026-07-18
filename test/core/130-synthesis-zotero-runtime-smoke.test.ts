@@ -66,11 +66,11 @@ async function makeRoot() {
 }
 
 describe("Synthesis Zotero runtime smoke", function () {
-  beforeEach(function () {
+  beforeEach(async function () {
     if (!hasZoteroItemRuntime()) {
       this.skip();
     }
-    resetDefaultLegacySynthesisServiceForTests();
+    await resetDefaultLegacySynthesisServiceForTests();
     resetWorkflowHostApiForTests();
   });
 

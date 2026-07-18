@@ -1,4 +1,7 @@
-import type { SynthesisClient } from "../../../packages/synthesis-contracts/src/index";
+import {
+  SynthesisClientError,
+  type SynthesisClient,
+} from "../../../packages/synthesis-contracts/src/index";
 import {
   createInProcessSynthesisConceptKbIndexEngine,
   createInProcessSynthesisReferenceMatcherEngine,
@@ -28,8 +31,19 @@ type LegacyServiceInstance = ReturnType<
   (typeof import("../synthesis/service"))["createSynthesisService"]
 >;
 
-let defaultLegacyService: LegacyServiceInstance | undefined;
-let defaultLegacyServiceAbortController: AbortController | undefined;
+type LegacyServiceModule = typeof import("../synthesis/service");
+
+type LegacyCompositionOwner = {
+  sequence: number;
+  legacy: LegacyServiceModule;
+  service?: LegacyServiceInstance;
+  abortController?: AbortController;
+  disposed: boolean;
+  disposal?: Promise<void>;
+};
+
+let nextOwnerSequence = 0;
+let defaultLegacyOwner: LegacyCompositionOwner | undefined;
 
 function configuredLibraryId() {
   const value = Number(
@@ -38,17 +52,42 @@ function configuredLibraryId() {
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : 1;
 }
 
-function createDefaultLegacyService(
-  legacy: typeof import("../synthesis/service"),
+function createLegacyOwner(
+  legacy: LegacyServiceModule,
+  sequence = ++nextOwnerSequence,
 ) {
-  if (defaultLegacyService) {
-    return defaultLegacyService;
+  return {
+    sequence,
+    legacy,
+    disposed: false,
+  } satisfies LegacyCompositionOwner;
+}
+
+function claimDefaultLegacyOwner(owner: LegacyCompositionOwner) {
+  if (
+    !defaultLegacyOwner ||
+    defaultLegacyOwner.disposed ||
+    owner.sequence > defaultLegacyOwner.sequence
+  ) {
+    defaultLegacyOwner = owner;
+  }
+}
+
+function createDefaultLegacyService(owner: LegacyCompositionOwner) {
+  if (owner.disposed) {
+    throw new SynthesisClientError(
+      "unavailable",
+      "The Synthesis client composition is no longer available",
+    );
+  }
+  if (owner.service) {
+    return owner.service;
   }
   const libraryId = configuredLibraryId();
   const paths = getRuntimePersistencePaths();
   const abortController = new AbortController();
-  defaultLegacyServiceAbortController = abortController;
-  defaultLegacyService = legacy.createSynthesisService({
+  owner.abortController = abortController;
+  owner.service = owner.legacy.createSynthesisService({
     root: paths.dataDir,
     runtimeRoot: paths.root,
     libraryId,
@@ -86,7 +125,25 @@ function createDefaultLegacyService(
     hostWebDavSyncPort: createPrefsConfiguredSynthesisWebDavSyncPort(),
     runtimeAbortSignal: abortController.signal,
   });
-  return defaultLegacyService;
+  return owner.service;
+}
+
+function disposeLegacyOwner(owner: LegacyCompositionOwner) {
+  if (owner.disposal) {
+    return owner.disposal;
+  }
+  owner.disposed = true;
+  owner.abortController?.abort();
+  owner.abortController = undefined;
+  if (defaultLegacyOwner === owner) {
+    defaultLegacyOwner = undefined;
+  }
+  const service = owner.service;
+  owner.service = undefined;
+  owner.disposal = service
+    ? owner.legacy.disposeSynthesisService(service)
+    : Promise.resolve();
+  return owner.disposal;
 }
 
 function createLegacyPort(
@@ -386,20 +443,31 @@ function createLegacyPort(
 }
 
 export function invalidateDefaultLegacySynthesisService() {
-  defaultLegacyServiceAbortController?.abort();
-  defaultLegacyServiceAbortController = undefined;
-  defaultLegacyService = undefined;
+  const owner = defaultLegacyOwner;
+  if (!owner) {
+    return Promise.resolve();
+  }
+  return disposeLegacyOwner(owner);
 }
 
 export async function createDefaultLegacySynthesisClientComposition(): Promise<{
   client: SynthesisClient;
   invalidate: () => void;
+  dispose: () => Promise<void>;
 }> {
+  const sequence = ++nextOwnerSequence;
   const legacy = await import("../synthesis/service");
-  const resolveService = () => createDefaultLegacyService(legacy);
+  const owner = createLegacyOwner(legacy, sequence);
+  claimDefaultLegacyOwner(owner);
+  const resolveService = () => createDefaultLegacyService(owner);
   return {
     client: createInProcessSynthesisClient(createLegacyPort(resolveService)),
-    invalidate: invalidateDefaultLegacySynthesisService,
+    invalidate() {
+      void disposeLegacyOwner(owner);
+    },
+    dispose() {
+      return disposeLegacyOwner(owner);
+    },
   };
 }
 
@@ -413,9 +481,14 @@ export async function createLegacyInProcessSynthesisClient(
 
 export async function getDefaultLegacySynthesisServiceForTests() {
   const legacy = await import("../synthesis/service");
-  return createDefaultLegacyService(legacy);
+  const owner =
+    defaultLegacyOwner && !defaultLegacyOwner.disposed
+      ? defaultLegacyOwner
+      : createLegacyOwner(legacy);
+  claimDefaultLegacyOwner(owner);
+  return createDefaultLegacyService(owner);
 }
 
-export function resetDefaultLegacySynthesisServiceForTests() {
-  invalidateDefaultLegacySynthesisService();
+export async function resetDefaultLegacySynthesisServiceForTests() {
+  await invalidateDefaultLegacySynthesisService();
 }

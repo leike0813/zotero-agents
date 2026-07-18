@@ -146,8 +146,14 @@ describe("hooks startup template cleanup", function () {
       "utf8",
     );
     assert.include(source, "startSynthesisSidecarRuntimeSupervisor()");
+    assert.include(source, "shutdownDefaultSynthesisClient");
+    assert.include(source, '"synthesis-client-dispose"');
     assert.include(source, '"synthesis-sidecar-supervisor-stop"');
     assert.include(source, "stopSynthesisSidecarRuntimeSupervisor");
+    assert.isBelow(
+      source.indexOf('"synthesis-client-dispose"'),
+      source.indexOf('"synthesis-sidecar-supervisor-stop"'),
+    );
   });
 
   it("enables runtime diagnostic log mode on startup when hardcoded debug mode is on", async function () {

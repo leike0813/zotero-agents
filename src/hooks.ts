@@ -150,6 +150,7 @@ import { delay } from "./utils/runtimeCompatibility";
 import {
   getDefaultSynthesisClient,
   invalidateDefaultSynthesisClient,
+  shutdownDefaultSynthesisClient,
 } from "./modules/synthesisClient/defaultClient";
 import { cleanupRetiredSynthesisGitSyncRuntime } from "./modules/synthesis/syncRuntimeCleanup";
 import {
@@ -1099,6 +1100,10 @@ async function runShutdownStepWithTimeout(
 }
 
 async function onShutdown(): Promise<void> {
+  await runShutdownStepWithTimeout(
+    "synthesis-client-dispose",
+    shutdownDefaultSynthesisClient,
+  );
   await runShutdownStepWithTimeout(
     "synthesis-sidecar-supervisor-stop",
     stopSynthesisSidecarRuntimeSupervisor,

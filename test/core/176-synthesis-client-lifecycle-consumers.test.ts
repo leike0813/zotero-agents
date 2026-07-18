@@ -1,11 +1,14 @@
 import { assert } from "chai";
 import fs from "fs";
 import path from "path";
+import { SynthesisClientError } from "../../packages/synthesis-contracts/src/index";
 import { createInProcessSynthesisClient } from "../../src/modules/synthesisClient/inProcessClient";
 import {
   getFreshDefaultSynthesisClient,
   getDefaultSynthesisClient,
   invalidateDefaultSynthesisClient,
+  resetDefaultSynthesisClientForTests,
+  shutdownDefaultSynthesisClient,
 } from "../../src/modules/synthesisClient/defaultClient";
 import {
   getDefaultLegacySynthesisServiceForTests,
@@ -15,6 +18,10 @@ import {
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
 describe("Synthesis lifecycle client consumers", function () {
+  afterEach(async function () {
+    await resetDefaultSynthesisClientForTests();
+  });
+
   it("adapts lifecycle and protected maintenance commands", async function () {
     const client = createInProcessSynthesisClient({
       async listWorkflowTopicOptions() {
@@ -83,6 +90,90 @@ describe("Synthesis lifecycle client consumers", function () {
 
     assert.notStrictEqual(second, first);
     invalidateDefaultSynthesisClient();
+  });
+
+  it("shares one default client across concurrent acquisition", async function () {
+    const [first, second, third] = await Promise.all([
+      getDefaultSynthesisClient(),
+      getDefaultSynthesisClient(),
+      getDefaultSynthesisClient(),
+    ]);
+
+    assert.strictEqual(second, first);
+    assert.strictEqual(third, first);
+  });
+
+  it("fails an acquisition whose initialization generation was invalidated", async function () {
+    const staleAcquisition = getDefaultSynthesisClient();
+    invalidateDefaultSynthesisClient();
+
+    let failure: unknown;
+    try {
+      await staleAcquisition;
+    } catch (error) {
+      failure = error;
+    }
+
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.equal((failure as SynthesisClientError).code, "unavailable");
+    const current = await getDefaultSynthesisClient();
+    assert.isObject(current);
+  });
+
+  it("keeps invalidated clients from recreating the legacy service", async function () {
+    const client = await getDefaultSynthesisClient();
+    const service = await getDefaultLegacySynthesisServiceForTests();
+    invalidateDefaultSynthesisClient();
+
+    let failure: unknown;
+    try {
+      await client.system.reconcileRuntimeWorkOnStartup();
+    } catch (error) {
+      failure = error;
+    }
+
+    assert.instanceOf(failure, SynthesisClientError);
+    assert.equal((failure as SynthesisClientError).code, "unavailable");
+    const replacement = await getDefaultLegacySynthesisServiceForTests();
+    assert.notStrictEqual(replacement, service);
+  });
+
+  it("shuts down idempotently and reopens only through the test reset", async function () {
+    const client = await getDefaultSynthesisClient();
+    await Promise.all([
+      shutdownDefaultSynthesisClient(),
+      shutdownDefaultSynthesisClient(),
+    ]);
+
+    let shutdownFailure: unknown;
+    try {
+      await getDefaultSynthesisClient();
+    } catch (error) {
+      shutdownFailure = error;
+    }
+    assert.instanceOf(shutdownFailure, SynthesisClientError);
+    assert.equal((shutdownFailure as SynthesisClientError).code, "unavailable");
+
+    await resetDefaultSynthesisClientForTests();
+    const reopened = await getDefaultSynthesisClient();
+    assert.notStrictEqual(reopened, client);
+  });
+
+  it("waits for an initializing generation during shutdown", async function () {
+    const acquisition = getDefaultSynthesisClient();
+    const shutdown = shutdownDefaultSynthesisClient();
+
+    const [acquisitionResult, shutdownResult] = await Promise.allSettled([
+      acquisition,
+      shutdown,
+    ]);
+
+    assert.equal(acquisitionResult.status, "rejected");
+    if (acquisitionResult.status === "rejected") {
+      assert.instanceOf(acquisitionResult.reason, SynthesisClientError);
+      assert.equal(acquisitionResult.reason.code, "unavailable");
+    }
+    assert.equal(shutdownResult.status, "fulfilled");
   });
 
   it("fresh acquisition rebuilds a cached client and legacy service", async function () {
@@ -187,10 +278,7 @@ describe("Synthesis lifecycle client consumers", function () {
     );
     assert.include(legacyComposition, "hostWebDavSyncPort");
     assert.include(legacyComposition, "new AbortController()");
-    assert.include(
-      legacyComposition,
-      "defaultLegacyServiceAbortController?.abort()",
-    );
+    assert.include(legacyComposition, "owner.abortController?.abort()");
     assert.include(legacyComposition, "runtimeAbortSignal");
     assert.notInclude(legacyComposition, "onConfigurationChanged");
     assert.include(
