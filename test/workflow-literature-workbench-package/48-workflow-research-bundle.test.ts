@@ -16,6 +16,7 @@ import {
   resolveResearchBundleReadmeLocale,
 } from "../../workflows_builtin/literature-workbench-package/lib/researchBundleReadme.mjs";
 import { createWorkflowArchiveApi } from "../../src/workflows/archive";
+import { applyResult as applyResearchBundleResult } from "../../workflows_builtin/literature-workbench-package/export-research-bundle/hooks/applyResult.mjs";
 
 describe("export research bundle workflow", function () {
   it("loads as a core automatic no-selection workflow without language", async function () {
@@ -324,6 +325,9 @@ describe("export research bundle workflow", function () {
           },
           file: {
             exists: async (target: string) => {
+              if (target.endsWith("missing.png")) {
+                throw new Error("NS_ERROR_FILE_UNRECOGNIZED_PATH");
+              }
               try {
                 await fs.stat(target);
                 return true;
@@ -397,11 +401,88 @@ describe("export research bundle workflow", function () {
         result.manifest.warnings.map((warning) => warning.code),
         ["markdown_image_outside_source_tree", "markdown_image_missing"],
       );
+      assert.deepInclude(result.manifest.warnings, {
+        code: "markdown_image_missing",
+        path: path.join(root, "missing.png"),
+        reason: "probe_failed",
+        paper_ref: "1:AAAA1111",
+      });
       assert.notProperty(result.manifest.files, "manifest.json");
       assert.equal(result.manifest.papers[0].role, "core");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
       await fs.rm(outsideImagePath, { force: true });
     }
+  });
+
+  it("returns apply diagnostics derived from Product manifest warnings", async function () {
+    const selection = {
+      schema_id: "research_bundle.selection",
+      intent: {
+        paper_title: "Diagnostics",
+        article_type: "original research",
+        research_content: "Warning propagation",
+      },
+      topics: [],
+      papers: [
+        {
+          paper_ref: "1:AAAA1111",
+          semantic_relevance: 1,
+          role: "core",
+        },
+      ],
+    };
+    let registration: any;
+    const result = await applyResearchBundleResult({
+      runResult: { status: "succeeded" },
+      resultContext: {
+        resultJson: { selection_manifest_path: "result/selection.json" },
+        async readArtifactText() {
+          return { text: JSON.stringify(selection) };
+        },
+      },
+      runtime: {
+        helpers: {
+          isMarkdownAttachment: () => false,
+          isPdfAttachment: () => false,
+        },
+        hostApi: {
+          items: {
+            getByLibraryAndKey: () => ({
+              id: 1,
+              key: "AAAA1111",
+              getNotes: () => [],
+            }),
+            get: () => null,
+            exportPortableJson: () => ({
+              itemType: "journalArticle",
+              key: "AAAA1111",
+            }),
+          },
+          library: { getItemAttachments: async () => [] },
+          file: {
+            exists: async () => false,
+            readText: async () => "",
+          },
+          archive: createWorkflowArchiveApi(),
+        },
+      },
+      productStorage: {
+        async registerProduct(input: any) {
+          registration = input;
+          return { productId: "diagnostics-product", assets: input.assets };
+        },
+      },
+    });
+
+    const manifestAsset = registration.assets.find(
+      (entry: any) => entry.productAssetPath === "manifest.json",
+    );
+    const manifest = JSON.parse(manifestAsset.source.text);
+    assert.notProperty(result, "warningCount");
+    assert.deepEqual(result.applyDiagnostics, {
+      warningCount: manifest.warnings.length,
+      warningCodeCounts: { core_source_missing: 1 },
+    });
   });
 });

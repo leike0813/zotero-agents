@@ -2170,6 +2170,7 @@ describe("workflow execution seams", function () {
 
   it("applies preflight short-circuit records through the apply seam", async function () {
     let captured: any;
+    const runtimeLogs: any[] = [];
     const summary = await runWorkflowApplySeam(
       {
         runState: {
@@ -2217,10 +2218,18 @@ describe("workflow execution seams", function () {
         messageFormatter: createLocalizedMessageFormatter(),
       },
       {
-        appendRuntimeLog: () => undefined as any,
+        appendRuntimeLog: (entry) => {
+          runtimeLogs.push(entry);
+        },
         executeApplyResult: async (args) => {
           captured = args;
-          return { ok: true };
+          return {
+            ok: true,
+            applyDiagnostics: {
+              warningCount: 1,
+              warningCodeCounts: { markdown_image_missing: 1 },
+            },
+          };
         },
       },
     );
@@ -2234,11 +2243,17 @@ describe("workflow execution seams", function () {
     assert.deepEqual(captured.resultContext.preflight.context, {
       source: "local",
     });
+    const successLog = runtimeLogs.find(
+      (entry) => entry.stage === "apply-succeeded-preflight-short-circuit",
+    );
+    assert.equal(successLog?.level, "warn");
+    assert.equal(successLog?.details?.applyDiagnostics?.warningCount, 1);
   });
 
   it("applies preflight aggregate children once in unit order", async function () {
     let applyCalls = 0;
     let capturedAggregate: any;
+    const runtimeLogs: any[] = [];
     const jobs: Record<string, any> = {
       "job-1": {
         id: "job-1",
@@ -2318,11 +2333,19 @@ describe("workflow execution seams", function () {
         messageFormatter: createLocalizedMessageFormatter(),
       },
       {
-        appendRuntimeLog: () => undefined as any,
+        appendRuntimeLog: (entry) => {
+          runtimeLogs.push(entry);
+        },
         executeApplyResult: async (args) => {
           applyCalls += 1;
           capturedAggregate = args.resultContext?.aggregate;
-          return { ok: true };
+          return {
+            ok: true,
+            applyDiagnostics: {
+              warningCount: 2,
+              warningCodeCounts: { paper_missing: 2 },
+            },
+          };
         },
       },
     );
@@ -2336,6 +2359,11 @@ describe("workflow execution seams", function () {
     assert.deepEqual(capturedAggregate.children[0].resultContext.resultJson, {
       part: 1,
     });
+    const successLog = runtimeLogs.find(
+      (entry) => entry.stage === "apply-succeeded-preflight-aggregate",
+    );
+    assert.equal(successLog?.level, "warn");
+    assert.equal(successLog?.details?.applyDiagnostics?.warningCount, 2);
   });
 
   it("projects SkillRunner sequence steps as independent task rows", async function () {

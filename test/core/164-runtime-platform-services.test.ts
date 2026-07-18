@@ -92,6 +92,17 @@ describe("runtime platform services", function () {
       normalizeNativeLocalPath("C:/Users/leike/Zotero/runtime/result.json"),
       "C:\\Users\\leike\\Zotero\\runtime\\result.json",
     );
+    assert.equal(
+      normalizeNativeLocalPath(
+        "file:///E:/research/images/a%20b.jpg?preview=1#page",
+      ),
+      "E:\\research\\images\\a b.jpg",
+    );
+    assert.equal(
+      normalizeNativeLocalPath("file:///tmp/research/a%20b.jpg"),
+      "/tmp/research/a b.jpg",
+    );
+    assert.equal(normalizeNativeLocalPath("file:///%"), "");
     assert.isTrue(isAbsolutePathLike("C:\\Users\\leike\\Zotero"));
     assert.isTrue(isAbsolutePathLike("/home/leike/zotero"));
     assert.isFalse(isAbsolutePathLike("C:relative"));

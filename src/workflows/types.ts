@@ -678,6 +678,15 @@ export type BuildRequestHook = (args: {
   runtime: WorkflowRuntimeContext;
 }) => unknown | Promise<unknown>;
 
+export type WorkflowApplyDiagnostics = {
+  warningCount?: number;
+  warningCodeCounts?: Record<string, number>;
+};
+
+export type WorkflowApplyResult = Record<string, unknown> & {
+  applyDiagnostics?: WorkflowApplyDiagnostics;
+};
+
 export type ApplyResultHook = (args: {
   parent: Zotero.Item | number | string | null;
   bundleReader: {
@@ -698,7 +707,7 @@ export type ApplyResultHook = (args: {
   };
   manifest: WorkflowManifest;
   runtime: WorkflowRuntimeContext;
-}) => unknown | Promise<unknown>;
+}) => WorkflowApplyResult | void | Promise<WorkflowApplyResult | void>;
 
 export type NormalizeWorkflowSettingsHook = (
   args:

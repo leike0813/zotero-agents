@@ -207,7 +207,7 @@ describe("workflow product storage", function () {
           assetId: "pdf",
           productAssetPath: "papers/paper.pdf",
           contentType: "application/pdf",
-          source: { kind: "local-file", path: pdfPath },
+          source: { kind: "local-file", path: pathToFileURL(pdfPath).href },
         },
         {
           assetId: "png",
@@ -309,6 +309,42 @@ describe("workflow product storage", function () {
       );
       assert.isNull(getWorkflowProduct(`${requestId}:${productKey}`));
     }
+  });
+
+  it("keeps declared missing local assets fatal for atomic products", async function () {
+    const requestId = `req-product-missing-local-${Date.now()}`;
+    const api = createProductStorageApi({
+      manifest: { id: "wf-missing-local", label: "Missing Local" },
+      resultContext: {
+        async resolveArtifactBytes() {
+          throw new Error("not used");
+        },
+      } as any,
+      runResult: { requestId },
+    });
+    const missingPath = path.join(tempRoot, "missing-image.png");
+
+    let error: unknown;
+    try {
+      await api.registerProduct({
+        productKey: "missing-local",
+        kind: "atomic.test",
+        title: "Missing Local",
+        failurePolicy: "atomic",
+        assets: [
+          {
+            assetId: "image",
+            productAssetPath: "images/missing.png",
+            source: { kind: "local-file", path: missingPath },
+          },
+        ],
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    assert.match(String(error), /local product asset does not exist/i);
+    assert.isNull(getWorkflowProduct(`${requestId}:missing-local`));
   });
 
   it("detects duplicates from the final resolved product target", async function () {

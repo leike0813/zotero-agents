@@ -150,6 +150,60 @@ describe("zotero host broker capability api", function () {
     assert.strictEqual(item.getField("title"), "Broker Legacy Updated");
   });
 
+  it("normalizes Host file paths and keeps exists a total boolean probe", async function () {
+    const runtime = globalThis as {
+      IOUtils?: {
+        exists?: (path: string) => Promise<boolean>;
+        readUTF8?: (path: string) => Promise<string>;
+      };
+    };
+    const previousIOUtils = runtime.IOUtils;
+    const probed: string[] = [];
+    const read: string[] = [];
+    runtime.IOUtils = {
+      async exists(target) {
+        probed.push(target);
+        if (target.includes("broken")) {
+          throw new Error("NS_ERROR_FILE_UNRECOGNIZED_PATH");
+        }
+        return true;
+      },
+      async readUTF8(target) {
+        read.push(target);
+        return "content";
+      },
+    };
+    resetWorkflowHostApiForTests();
+    try {
+      const hostApi = createWorkflowHostApi();
+      assert.isTrue(await hostApi.file.exists("E:/research/a b.md"));
+      assert.isFalse(await hostApi.file.exists("E:/research/broken.md"));
+      assert.isFalse(await hostApi.file.exists("file:///%"));
+      try {
+        await hostApi.file.readText("file:///%");
+        assert.fail("expected malformed strict file read to fail");
+      } catch (error) {
+        assert.instanceOf(error, TypeError);
+      }
+      assert.equal(
+        await hostApi.file.readText("file:///E:/research/a%20b.md"),
+        "content",
+      );
+      assert.deepEqual(probed, [
+        "E:\\research\\a b.md",
+        "E:\\research\\broken.md",
+      ]);
+      assert.deepEqual(read, ["E:\\research\\a b.md"]);
+    } finally {
+      if (previousIOUtils === undefined) {
+        delete runtime.IOUtils;
+      } else {
+        runtime.IOUtils = previousIOUtils;
+      }
+      resetWorkflowHostApiForTests();
+    }
+  });
+
   it("transitions builtin workflow status instances idempotently by stable key", async function () {
     await getDefaultSynthesisService().initializeBuiltinTagPolicy();
     const hostApi = createWorkflowHostApi();
