@@ -2,6 +2,8 @@ import { assert } from "chai";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { dirname, extname, join, resolve } from "path";
 import packageJson from "../../../package.json";
+import { getCiGateStages } from "../../../scripts/ci-gate-plan";
+import { resolveSynthesisSidecarStage1Suite } from "../../../scripts/synthesis-sidecar-stage1-node-suite";
 
 type ScriptsMap = Record<string, string>;
 
@@ -221,6 +223,80 @@ describe("suite governance constraints", function () {
     assert.match(
       scripts["test:gate:release"] || "",
       /run-ci-gate\.ts\s+release/i,
+    );
+  });
+
+  it("Risk: the Synthesis Stage 1 milestone inventory stays complete and fail-closed", function () {
+    const files = readdirSync(join(process.cwd(), "test", "core"), {
+      withFileTypes: true,
+    })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".test.ts"))
+      .map((entry) => `test/core/${entry.name}`);
+    const suite = resolveSynthesisSidecarStage1Suite(files);
+
+    assert.equal(suite.files.length, 43);
+    assert.equal(
+      suite.files[0],
+      "test/core/175-synthesis-client-foundation.test.ts",
+    );
+    assert.equal(
+      suite.files.at(-1),
+      "test/core/217-synthesis-sidecar-debug-maintenance-application-foundation.test.ts",
+    );
+    assert.deepEqual(
+      suite.segments.map((segment) => segment.files.length),
+      [27, 1, 15],
+    );
+    assert.deepEqual(suite.segments[1].files, [
+      "test/core/202-synthesis-citation-graph-build-streaming-worker.test.ts",
+    ]);
+
+    assert.throws(() =>
+      resolveSynthesisSidecarStage1Suite(
+        files.filter((filePath) => !filePath.includes("/175-")),
+      ),
+    );
+    assert.throws(() =>
+      resolveSynthesisSidecarStage1Suite([
+        ...files,
+        "test/core/175-synthesis-duplicate.test.ts",
+      ]),
+    );
+    assert.throws(() =>
+      resolveSynthesisSidecarStage1Suite(
+        files.map((filePath) =>
+          filePath.includes("/175-")
+            ? "test/core/175-unrelated-foundation.test.ts"
+            : filePath,
+        ),
+      ),
+    );
+  });
+
+  it("Risk: PR and release gates share one blocking Synthesis Stage 1 Node milestone", function () {
+    const scripts = getScripts();
+
+    assert.match(
+      scripts["test:node:synthesis-sidecar:stage1"] || "",
+      /run-node-test-shards\.ts\s+--suite\s+synthesis-sidecar-stage1/i,
+    );
+    assert.deepEqual(
+      getCiGateStages("pr").map((stage) => stage.script),
+      [
+        "check:localization-governance",
+        "check:ssot-invariants",
+        "test:node:synthesis-sidecar:stage1",
+        "test:lite",
+      ],
+    );
+    assert.deepEqual(
+      getCiGateStages("release").map((stage) => stage.script),
+      [
+        "check:localization-governance",
+        "check:ssot-invariants",
+        "test:node:synthesis-sidecar:stage1",
+        "test:full",
+      ],
     );
   });
 

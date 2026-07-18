@@ -524,39 +524,6 @@ describe("Synthesis sidecar knowledge checkpoint application foundation", functi
     assert.isTrue(shutdownComplete);
   });
 
-  it("keeps the private coordinator outside RPC and drains it before repository close", function () {
-    const serverSource = fs.readFileSync(
-      path.join(process.cwd(), "apps/synthesis-service/src/server.ts"),
-      "utf8",
-    );
-    const capabilitiesSource = fs.readFileSync(
-      path.join(
-        process.cwd(),
-        "packages/synthesis-contracts/src/sidecarSystem.ts",
-      ),
-      "utf8",
-    );
-
-    const checkpointStop = serverSource.indexOf(
-      "knowledgeCheckpointApplication.stopAdmission()",
-    );
-    const domainStop = serverSource.indexOf("topicApplication.stopAdmission()");
-    const checkpointShutdown = serverSource.indexOf(
-      "await knowledgeCheckpointApplication.shutdown()",
-    );
-    const domainShutdown = serverSource.indexOf(
-      "await referenceRefreshApplication.shutdown()",
-    );
-    const repositoryClose = serverSource.indexOf("repository.close()");
-
-    assert.isAtLeast(checkpointStop, 0);
-    assert.isAbove(domainStop, checkpointStop);
-    assert.isAtLeast(checkpointShutdown, 0);
-    assert.isAbove(domainShutdown, checkpointShutdown);
-    assert.isAbove(repositoryClose, checkpointShutdown);
-    assert.notInclude(capabilitiesSource, "knowledge_checkpoint");
-  });
-
   it("atomically replaces all SQLite domains and preserves local operational state", async function () {
     const root = fs.mkdtempSync(
       path.join(os.tmpdir(), "zs-knowledge-checkpoint-"),

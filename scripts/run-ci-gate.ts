@@ -1,6 +1,6 @@
 import { spawn } from "child_process";
-
-type GateName = "pr" | "release";
+import { pathToFileURL } from "node:url";
+import { getCiGateStages, type CiGateName } from "./ci-gate-plan";
 
 function spawnNpm(args: string[]) {
   if (process.platform === "win32") {
@@ -12,57 +12,47 @@ function spawnNpm(args: string[]) {
   return spawn("npm", args, { stdio: "inherit" });
 }
 
-function normalizeGateName(value: string): GateName {
+function normalizeGateName(value: string): CiGateName {
   return value.trim().toLowerCase() === "release" ? "release" : "pr";
-}
-
-function getSuiteCommand(gate: GateName) {
-  if (gate === "release") {
-    return "test:full";
-  }
-  return "test:lite";
 }
 
 async function runNpmScript(scriptName: string) {
   const child = spawnNpm(["run", scriptName]);
   return await new Promise<number>((resolve) => {
+    child.on("error", () => resolve(1));
     child.on("exit", (code) => {
       resolve(typeof code === "number" ? code : 1);
     });
   });
 }
 
-async function main() {
-  const gate = normalizeGateName(process.argv[2] || "pr");
-  const suiteCommand = getSuiteCommand(gate);
+async function main(gateInput = process.argv[2] || "pr") {
+  const gate = normalizeGateName(gateInput);
+  const stages = getCiGateStages(gate);
   console.log(
-    `[ci-gate] gate=${gate} suite=${suiteCommand} blocking=true start=${new Date().toISOString()}`,
+    `[ci-gate] gate=${gate} stages=${stages.length} blocking=true start=${new Date().toISOString()}`,
   );
-  const governanceCode = await runNpmScript("check:localization-governance");
-  if (governanceCode !== 0) {
-    console.error(
-      `[ci-gate] gate=${gate} result=failed stage=check-localization-governance exitCode=${governanceCode} blocking=true`,
+  for (const stage of stages) {
+    console.log(
+      `[ci-gate] gate=${gate} stage=${stage.id} script=${stage.script} start=true`,
     );
-    process.exit(governanceCode);
-    return;
-  }
-  const ssotInvariantCode = await runNpmScript("check:ssot-invariants");
-  if (ssotInvariantCode !== 0) {
-    console.error(
-      `[ci-gate] gate=${gate} result=failed stage=check-ssot-invariants exitCode=${ssotInvariantCode} blocking=true`,
-    );
-    process.exit(ssotInvariantCode);
-    return;
-  }
-  const exitCode = await runNpmScript(suiteCommand);
-  if (exitCode !== 0) {
-    console.error(
-      `[ci-gate] gate=${gate} result=failed exitCode=${exitCode} blocking=true`,
-    );
-    process.exit(exitCode);
-    return;
+    const exitCode = await runNpmScript(stage.script);
+    if (exitCode !== 0) {
+      console.error(
+        `[ci-gate] gate=${gate} result=failed stage=${stage.id} exitCode=${exitCode} blocking=true`,
+      );
+      return exitCode;
+    }
   }
   console.log(`[ci-gate] gate=${gate} result=passed blocking=true`);
+  return 0;
 }
 
-void main();
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  void main().then((exitCode) => {
+    process.exit(exitCode);
+  });
+}

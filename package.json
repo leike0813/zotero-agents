@@ -100,6 +100,7 @@
     "test:node": "tsx scripts/run-zotero-test-with-mock.ts test:node:raw lite",
     "test:node:lite": "tsx scripts/run-zotero-test-with-mock.ts test:node:raw lite",
     "test:node:full": "tsx scripts/run-zotero-test-with-mock.ts test:node:raw:sharded full",
+    "test:node:synthesis-sidecar:stage1": "tsx scripts/run-node-test-shards.ts --suite synthesis-sidecar-stage1",
     "test:node:core": "tsx scripts/run-zotero-test-with-mock.ts test:node:raw:core lite core",
     "test:node:core:full": "tsx scripts/run-zotero-test-with-mock.ts test:node:raw:core full core",
     "test:node:ui": "tsx scripts/run-zotero-test-with-mock.ts test:node:raw:ui lite ui",

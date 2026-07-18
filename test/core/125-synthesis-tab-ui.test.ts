@@ -4366,10 +4366,6 @@ describe("Synthesis tab UI model", function () {
       "src/modules/synthesis/service.ts",
       "utf8",
     );
-    const repository = await fs.readFile(
-      "src/modules/synthesis/repository.ts",
-      "utf8",
-    );
     const workbenchTab = await fs.readFile(
       "src/modules/synthesisWorkbenchTab.ts",
       "utf8",
@@ -4427,8 +4423,6 @@ describe("Synthesis tab UI model", function () {
       "currentPaperNode || (data.importanceHalo && searchMatch)",
     );
     assert.include(source, '"incoming citations"');
-    assert.include(source, '"authors"');
-    assert.include(source, "node?.authors?.length");
     assert.include(source, "if (!state.standaloneExport) {\n      fields.push");
     assert.include(source, "CITATION_GRAPH_EDGE_SIZE");
     assert.include(source, "CITATION_GRAPH_INCOMING_EDGE_COLOR");
@@ -4437,25 +4431,8 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "synthesis-graph-legend-node-size");
     assert.include(source, "synthesis-graph-legend-halo");
     assert.include(uiModel, "metrics?: {");
-    assert.include(uiModel, "authors?: string[]");
-    assert.include(uiModel, "authors: normalizeStringList(node.authors)");
-    assert.include(repository, "authorsJson?: string");
-    assert.include(repository, "authors_json TEXT NOT NULL DEFAULT '[]'");
-    assert.include(repository, "authorsJson: cleanString(row.authors_json)");
-    assert.include(repository, "authors_json: cleanString(record.authorsJson)");
     assert.include(service, "CITATION_GRAPH_CACHE_POLICY_VERSION");
     assert.include(service, "citation_graph_cache_policy_changed");
-    assert.include(service, "authorsForSourceRef");
-    assert.include(service, "authorsJson: JSON.stringify(authorsForSourceRef");
-    assert.include(
-      service,
-      "authors: normalizeStringListInput(parseJsonArray(args.node.authorsJson))",
-    );
-    assert.include(service, "authors: normalizeStringListInput(node.authors)");
-    assert.include(
-      service,
-      "authors: normalizeStringListInput(args.node.authors)",
-    );
     assert.include(
       workbenchTab,
       "TOPIC_DETAIL_HTML_EXPORT_RENDERER_VERSION = 7",

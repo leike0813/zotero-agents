@@ -226,6 +226,10 @@ describe("Synthesis sidecar Citation Graph application foundation", function () 
       ["paper:a", "paper:b"],
     );
     assert.deepEqual(
+      slice.nodes.map((node) => JSON.parse(node.authorsJson || "[]")),
+      [["A"], ["B"]],
+    );
+    assert.deepEqual(
       slice.edges.map((edge) => edge.edgeId),
       ["edge:1"],
     );
@@ -256,6 +260,12 @@ describe("Synthesis sidecar Citation Graph application foundation", function () 
     assert.equal(reopened.readMetrics({ limit: 100 }).total, 2);
     assert.deepEqual(reopened.readMetrics({ limit: 1 }), metrics);
     assert.isTrue(reopened.readLayout({ preset: "force" }).ready);
+    assert.deepEqual(
+      reopened
+        .readSlice({ rootNodeId: "paper:a" })
+        .nodes.map((node) => JSON.parse(node.authorsJson || "[]")),
+      [["A"], ["B"]],
+    );
     second.close();
   });
 
