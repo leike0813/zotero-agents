@@ -646,43 +646,73 @@ describe("Literature Search Ingest workflow contract", function () {
   });
 
   it("adds the governed metadata-curation tag after final outcomes are known", async function () {
-    const calls: string[] = [];
-    const savedVocabularies: any[] = [];
+    const transitions: any[] = [];
     const result = (await applyResult({
       runResult: { resultJson: completedPayload() },
       runtime: {
-        hostApiVersion: 8,
+        hostApiVersion: 9,
         hostApi: {
-          synthesis: {
-            async loadTagVocabulary() {
-              calls.push("load-vocabulary");
-              return { entries: [], aliases: {}, abbrev: {}, protocol: {} };
-            },
-            async saveTagVocabulary(value: unknown) {
-              calls.push("save-vocabulary");
-              savedVocabularies.push(value);
-            },
-          },
-        },
-        handlers: {
-          tag: {
-            async add(item: number, tags: string[]) {
-              calls.push(`tag-${item}`);
-              assert.deepEqual(tags, ["status:need-metadata-curation"]);
+          statusTags: {
+            async transition(value: unknown) {
+              transitions.push(value);
+              return { added: [], removed: [], warnings: [] };
             },
           },
         },
       },
     } as any)) as any;
 
-    assert.deepEqual(calls, ["load-vocabulary", "save-vocabulary", "tag-101"]);
-    assert.deepInclude(savedVocabularies[0].entries[0], {
-      tag: "status:need-metadata-curation",
-      facet: "status",
-      source: "literature-search-ingest",
-    });
+    assert.deepEqual(transitions, [
+      {
+        item: 101,
+        add: [
+          "need-markdown",
+          "need-analysis",
+          "need-deep-reading",
+          "need-metadata-curation",
+          "need-fulltext",
+        ],
+      },
+    ]);
     assert.isTrue(result.applied);
     assert.deepEqual(result.taggedItemIds, [101]);
+  });
+
+  it("does not requeue existing items and omits fulltext when this search attached a PDF", async function () {
+    const existing = completedPayload();
+    existing.outcomes[0].ingestStatus = "existing";
+    const createdWithPdf = completedPayload();
+    createdWithPdf.outcomes[0].pdfStatus = "attached";
+    createdWithPdf.outcomes[0].needsCuration = false;
+
+    const calls: unknown[] = [];
+    const runtime = {
+      hostApiVersion: 9,
+      hostApi: {
+        statusTags: {
+          async transition(value: unknown) {
+            calls.push(value);
+            return { added: [], removed: [], warnings: [] };
+          },
+        },
+      },
+    };
+    await applyResult({ runResult: { resultJson: existing }, runtime } as any);
+    await applyResult({
+      runResult: { resultJson: createdWithPdf },
+      runtime,
+    } as any);
+
+    assert.deepEqual(calls, [
+      {
+        item: 101,
+        add: ["need-metadata-curation", "need-fulltext"],
+      },
+      {
+        item: 101,
+        add: ["need-markdown", "need-analysis", "need-deep-reading"],
+      },
+    ]);
   });
 
   it("does not mutate vocabulary or tags without eligible outcomes", async function () {
@@ -691,15 +721,8 @@ describe("Literature Search Ingest workflow contract", function () {
       runResult: { resultJson: canceledPayload() },
       runtime: {
         hostApi: {
-          synthesis: {
-            loadTagVocabulary() {
-              calls += 1;
-            },
-          },
-        },
-        handlers: {
-          tag: {
-            add() {
+          statusTags: {
+            transition() {
               calls += 1;
             },
           },

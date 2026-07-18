@@ -17,7 +17,7 @@ Cada etiqueta pertenece a una faceta (dimensión). Actualmente se admiten las si
 | `ai_task` | Tipo de tarea de IA | `ai_task:text_summarization` |
 | `data` | Conjunto de datos | `data:imagenet` |
 | `tool` | Herramienta | `tool:python` |
-| `status` | Marcador de estado | `status:to_read` |
+| `status` | Tarea pendiente del workflow | `status:need-analysis` |
 
 Formato de etiqueta: `^[a-z_]+:[a-zA-Z0-9/_.-]+$`, máximo 120 caracteres.
 
@@ -61,4 +61,4 @@ El vocabulario de etiquetas admite importación/exportación en formato JSON (fo
 
 ## Workflow relacionado
 
-La estandarización de etiquetas y la inferencia automática son impulsadas por el workflow [Tag Regulator](#doc/workflows%2Ftag-regulator). Ejecutar este workflow puede limpiar y complementar automáticamente las etiquetas basándose en el vocabulario controlado.
+`status` representa tareas pendientes de workflows, no el progreso de lectura. Un elemento puede tener cero o varios estados. Las cinco definiciones integradas (`need-metadata-curation`, `need-fulltext`, `need-markdown`, `need-analysis`, `need-deep-reading`) se crean al iniciar el plugin. Tag Bootstrapper y [Tag Regulator](#doc/workflows%2Ftag-regulator) no pueden crearlas, modificarlas ni añadirlas o quitarlas de documentos. Se permiten estados personalizados. Adjuntar un PDF manualmente no elimina `status:need-fulltext`.

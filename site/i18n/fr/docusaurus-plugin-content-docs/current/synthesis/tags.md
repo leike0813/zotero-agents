@@ -17,7 +17,7 @@ Chaque balise appartient à une facette (dimension). Les facettes suivantes sont
 | `ai_task` | Type de tâche IA | `ai_task:text_summarization` |
 | `data` | Jeu de données | `data:imagenet` |
 | `tool` | Outil | `tool:python` |
-| `status` | Marqueur d'état | `status:to_read` |
+| `status` | Tâche de workflow en attente | `status:need-analysis` |
 
 Format des balises : `^[a-z_]+:[a-zA-Z0-9/_.-]+$`, maximum 120 caractères.
 
@@ -61,4 +61,4 @@ Le vocabulaire de balises supporte l'import/export au format JSON (format TagVoc
 
 ## Workflow associé
 
-La normalisation et l'inférence automatique des balises sont pilotées par le workflow [Tag Regulator](../workflows/tag-regulator). L'exécution de ce workflow peut automatiquement nettoyer et compléter les balises en fonction du vocabulaire contrôlé.
+`status` représente les tâches de workflow en attente, et non la progression de lecture. Un élément peut avoir zéro ou plusieurs statuts. Les cinq définitions intégrées (`need-metadata-curation`, `need-fulltext`, `need-markdown`, `need-analysis`, `need-deep-reading`) sont créées au démarrage du plugin. Tag Bootstrapper et [Tag Regulator](../workflows/tag-regulator) ne peuvent ni les créer ou les modifier, ni les ajouter ou les retirer des documents. Les statuts personnalisés restent autorisés. L'ajout manuel d'un PDF ne supprime pas `status:need-fulltext`.

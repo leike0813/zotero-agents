@@ -18,6 +18,6 @@ cron:
   - cron/index-refresh.yaml
   - cron/workflow-catalog-refresh.yaml
   - cron/run-monitor.yaml
-  - cron/inbox-triage.yaml
+  - cron/workflow-status-triage.yaml
   - cron/library-hygiene.yaml
   - cron/attention-queue.yaml

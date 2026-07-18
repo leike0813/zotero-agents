@@ -307,6 +307,7 @@ export type SynthesisUiTagRow = {
   usage_count: number;
   last_synced_at?: string;
   validation_warnings: SynthesisUiTagValidationWarning[];
+  builtin: boolean;
 };
 
 export type SynthesisUiStagedTagRow = {
@@ -321,6 +322,11 @@ export type SynthesisUiStagedTagRow = {
 };
 
 export type SynthesisUiTagImportPreview = {
+  builtins: Array<{
+    tag: string;
+    local: SynthesisUiTagRow;
+    imported: SynthesisUiTagRow;
+  }>;
   additions: SynthesisUiTagRow[];
   unchanged: SynthesisUiTagRow[];
   conflicts: Array<{
@@ -2512,6 +2518,7 @@ function normalizeTagRows(
         usage_count: Math.max(0, Math.floor(cleanNumber(row.usage_count, 0))),
         last_synced_at: cleanString(row.last_synced_at) || undefined,
         validation_warnings: warningsByTag.get(tag) || [],
+        builtin: isBuiltinStatusTag(tag),
       };
     })
     .filter((row) => row.tag)
@@ -2571,6 +2578,15 @@ function normalizeTagImportPreview(
   }
   const row = preview as SynthesisUiTagImportPreview;
   return {
+    builtins: Array.isArray(row.builtins)
+      ? row.builtins
+          .map((entry) => ({
+            tag: cleanString(entry?.tag),
+            local: normalizeTagRows([entry?.local], warnings)[0],
+            imported: normalizeTagRows([entry?.imported], warnings)[0],
+          }))
+          .filter((entry) => entry.tag && entry.local && entry.imported)
+      : [],
     additions: normalizeTagRows(row.additions, warnings),
     unchanged: normalizeTagRows(row.unchanged, warnings),
     conflicts: Array.isArray(row.conflicts)
@@ -4714,3 +4730,4 @@ export function applySynthesisUiAction(
 
   return { handled: false, state: next, reason: "unknown_action" };
 }
+import { isBuiltinStatusTag } from "./builtinTagPolicy";

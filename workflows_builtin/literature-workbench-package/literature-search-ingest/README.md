@@ -25,7 +25,9 @@
 
 - `result/search-ledger.json`：查询、来源、去重、分层、用户决策和入库回执的完整账本。
 - 最终结果：`searchSummary` 与逐候选 `outcomes`。
-- 成功入库但仍需整理元数据的条目会收到 `status:need-metadata-curation`；workflow 会先确保该标签已进入受控词表。
+- 新建条目固定加入 `status:need-markdown`、`status:need-analysis`、`status:need-deep-reading`；只有本次结果明确需要整理元数据或未取得 PDF 时，才分别加入 `status:need-metadata-curation`、`status:need-fulltext`。
+- 复用已有条目时不会重新排入完整处理流程，只会根据本次明确结果补充 metadata/fulltext 待办。
+- 这些内建状态的词表定义由插件启动初始化；Search workflow 只增删条目上的标签实例，不创建或修改词表定义。状态变更失败会作为部分成功警告返回，不回滚已入库条目。
 
 ## 依赖
 

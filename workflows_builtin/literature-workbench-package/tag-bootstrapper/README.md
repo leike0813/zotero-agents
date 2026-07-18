@@ -2,13 +2,15 @@
 
 ## 这个 Workflow 做什么？
 
-与 AI 交互式地**创建或扩展**你的研究领域受控标签词表。AI 会根据你描述的研究方向，提议一套标签分类体系，你可以审核、调整，确认后写入 Synthesis 系统。
+与 AI 交互式地**创建或扩展用户自定义**的研究领域受控标签词表。AI 会根据你描述的研究方向，提议一套标签分类体系，你可以审核、调整，确认后写入 Synthesis 系统。
 
 建议在首次执行 [Literature Analysis](../literature-analysis/README.md) 之前运行，为后续的自动标签规范化建立基础。
 
 ## 前置准备
 
 无硬性前置条件。但如果你已经有库内文献可作参考，标签体系会更贴合实际需求。
+
+插件启动时已经初始化五个 `status:need-*` 内建 workflow 状态，无需运行本 workflow。它们是只读保留项，不会进入 `add_tags`，也不能由 Bootstrapper 创建、修改、弃用或删除。Bootstrapper 不根据论文主题、语言或正文推断 workflow 状态；用户仍可定义有持久业务语义的其他 `status:*` 标签。
 
 ## 怎么输入？
 
@@ -33,7 +35,7 @@
 
 ## 产出什么？
 
-受控标签词表写入 Synthesis 系统。可在 **Synthesis Workbench → Tags** 页面查看和管理。词表中的标签会被 [Tag Regulator](../tag-regulator/README.md) 用于规范化和自动打标。
+用户自定义受控标签词表写入 Synthesis 系统。可在 **Synthesis Workbench → Tags** 页面查看和管理。词表中的普通标签会被 [Tag Regulator](../tag-regulator/README.md) 用于规范化和自动打标；内建 workflow 状态不属于 Bootstrapper 的输出。
 
 ## 参数说明
 

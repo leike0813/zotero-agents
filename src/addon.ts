@@ -17,6 +17,12 @@ class Addon {
     // Env type, see build.js
     env: "development" | "production";
     initialized?: boolean;
+    startupError?: {
+      stage: string;
+      code: string;
+      message: string;
+      occurredAt: string;
+    };
     ztoolkit: ZToolkit;
     locale?: {
       current: any;

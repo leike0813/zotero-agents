@@ -17,7 +17,7 @@ Tag Vocabulary（受控标签词表）是一个规范化的标签体系，用于
 | `ai_task` | AI 任务类型 | `ai_task:text_summarization` |
 | `data` | 数据集 | `data:imagenet` |
 | `tool` | 工具 | `tool:python` |
-| `status` | 状态标记 | `status:to_read` |
+| `status` | Workflow 待办 | `status:need-analysis` |
 
 标签格式：`^[a-z_]+:[a-zA-Z0-9/_.-]+$`，最长 120 字符。
 
@@ -31,6 +31,8 @@ Tag Vocabulary（受控标签词表）是一个规范化的标签体系，用于
 - **弃用**：将标签标记为已弃用，可指定替代标签
 - **导入 JSON**：从 JSON 文件导入标签词表（支持预览后再确认）
 - **导出 JSON**：将当前词表导出为 JSON 文件
+
+五个内建 workflow 状态会在插件启动时自动初始化。其 tag、facet、source、弃用状态和 replacement 不可修改或删除；note 仍可编辑，aliases 继续通过现有治理入口维护。自定义 `status:*` 与其他自定义词表项一样可完整管理。导入可以更新内建项的 note 和 aliases，但不能通过遗漏或身份改写移除、替换内建项。
 
 <figure class="zs-doc-figure"><img src="chrome://zotero-skills/content/help-docs/assets/img/docs/synthesis/tags.webp" alt="Synthesis Tags 页面" title="Synthesis Tags 页面" loading="lazy" /><figcaption>Synthesis Tags 页面</figcaption></figure>
 
@@ -61,4 +63,23 @@ Tag Vocabulary（受控标签词表）是一个规范化的标签体系，用于
 
 ## 相关 Workflow
 
-标签的规范化和自动推断由 [标签规范化](#doc/workflows%2Ftag-regulator) workflow 驱动。运行该 workflow 可以基于受控词表自动清理和补充标签。
+`status` 是 workflow 待办 facet，不是阅读进度主轴；一篇文献可以有零个或多个状态。插件拥有以下定义：
+
+- `status:need-metadata-curation`
+- `status:need-fulltext`
+- `status:need-markdown`
+- `status:need-analysis`
+- `status:need-deep-reading`
+
+用户不需要运行 Tag Bootstrapper 来创建它们。Tag Bootstrapper 只新增自定义词表项；[标签规范化](#doc/workflows%2Ftag-regulator) 可以审计普通受控标签，但不能在文献条目上添加或删除内建 workflow 状态。两者都不得根据论文主题、语言、元数据或正文推断内建状态。
+
+| 事件 | 添加到条目 | 从条目清除 |
+|------|------------|------------|
+| Search 新建条目 | 固定加入 Markdown、Analysis、Deep Reading；按结果加入 Metadata/Fulltext | — |
+| Search 复用条目 | 只加入本次结果明确需要的 Metadata/Fulltext | — |
+| Metadata Curator 成功或确认无需修改 | — | Metadata Curator |
+| MinerU 写入并附加 Markdown | — | Markdown、Fulltext |
+| Literature Analysis 写入正式产物 | — | Analysis |
+| Literature Deep Reading 写入并附加 HTML | — | Deep Reading |
+
+失败、跳过、取消或尚未正式 apply 的运行不会清除状态。产物成功但状态清理失败时保留产物，并返回部分成功警告。用户手工添加 PDF 不会自动清除 `status:need-fulltext`。

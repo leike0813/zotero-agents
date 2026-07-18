@@ -17,7 +17,7 @@
 | `ai_task` | Тип задачи ИИ | `ai_task:text_summarization` |
 | `data` | Набор данных | `data:imagenet` |
 | `tool` | Инструмент | `tool:python` |
-| `status` | Маркер статуса | `status:to_read` |
+| `status` | Ожидающая задача workflow | `status:need-analysis` |
 
 Формат тега: `^[a-z_]+:[a-zA-Z0-9/_.-]+$`, максимум 120 символов.
 
@@ -61,4 +61,4 @@ Skill **tag-regulator** автоматически анализирует мет
 
 ## Связанный Workflow
 
-Стандартизация тегов и автоматический вывод управляются Workflow [Tag Regulator](#doc/workflows%2Ftag-regulator). Запуск этого Workflow может автоматически очищать и дополнять теги на основе контролируемого словаря.
+`status` обозначает ожидающие задачи workflow, а не прогресс чтения. У элемента может быть ноль или несколько статусов. Пять встроенных определений (`need-metadata-curation`, `need-fulltext`, `need-markdown`, `need-analysis`, `need-deep-reading`) создаются при запуске плагина. Tag Bootstrapper и [Tag Regulator](#doc/workflows%2Ftag-regulator) не могут создавать или изменять их, а также добавлять или удалять их у документов. Пользовательские статусы разрешены. Ручное добавление PDF не удаляет `status:need-fulltext` автоматически.

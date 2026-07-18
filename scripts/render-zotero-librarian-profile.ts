@@ -126,7 +126,7 @@ const PROFILE_CRON_SOURCES = [
   "profiles/hermes/zotero-librarian/cron/workflow-catalog-refresh.yaml",
   "profiles/hermes/zotero-librarian/cron/run-monitor.yaml",
   "profiles/hermes/zotero-librarian/cron/notification-sync.yaml",
-  "profiles/hermes/zotero-librarian/cron/inbox-triage.yaml",
+  "profiles/hermes/zotero-librarian/cron/workflow-status-triage.yaml",
   "profiles/hermes/zotero-librarian/cron/library-hygiene.yaml",
   "profiles/hermes/zotero-librarian/cron/attention-queue.yaml",
 ];

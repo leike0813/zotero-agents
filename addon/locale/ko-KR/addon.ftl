@@ -611,6 +611,7 @@ skillrunner-backend-auto-disabled-toast = 백엔드 { $backend }가 6시간 동�
 # 어시스턴트 패널 공유 UI
 assistant-panel-action-send = 보내기
 assistant-panel-action-cancel = 취소
+assistant-panel-action-cancelling = 취소 중…
 assistant-panel-action-cancel-run = 작업 취소
 assistant-panel-action-archive = 보관
 assistant-panel-action-close = 닫기
@@ -1247,6 +1248,7 @@ synthesis-canonical-unsaved-metadata = 메타데이터 초안에 저장되지 �
 synthesis-canonical-edit-metadata = 외부 캐노니컬 메타데이터 편집
 synthesis-canonical-archive-empty = 빈 캐노니컬 보관
 synthesis-tags-management = Synthesis 태그 관리
+synthesis-tags-builtin = 기본 제공
 synthesis-tags-summary-canonical = 캐노니컬
 synthesis-tags-summary-staged = 단계별
 synthesis-tags-summary-warnings = 경고

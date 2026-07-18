@@ -1,8 +1,5 @@
 import { requireHostApi, withPackageRuntimeScope } from "../../lib/runtime.mjs";
 
-const METADATA_CURATION_TAG = "status:need-metadata-curation";
-const SOURCE = "literature-search-ingest";
-
 function isObject(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -27,7 +24,7 @@ function resolveOutput(args) {
   );
 }
 
-function eligibleItemIds(output) {
+function eligibleTransitions(output) {
   if (
     output?.kind !== "literature_search_ingest" ||
     output?.status !== "completed" ||
@@ -35,104 +32,92 @@ function eligibleItemIds(output) {
   ) {
     return [];
   }
-  return Array.from(
-    new Set(
-      output.outcomes
-        .filter(
-          (outcome) =>
-            isObject(outcome) &&
-            outcome.needsCuration === true &&
-            (outcome.ingestStatus === "created" ||
-              outcome.ingestStatus === "existing") &&
-            Number.isInteger(outcome.itemRef?.id) &&
-            outcome.itemRef.id > 0,
-        )
-        .map((outcome) => outcome.itemRef.id),
-    ),
+  const byItemId = new Map();
+  for (const outcome of output.outcomes) {
+    const itemId = Number(outcome?.itemRef?.id || 0);
+    const ingestStatus = String(outcome?.ingestStatus || "").trim();
+    if (
+      !isObject(outcome) ||
+      !Number.isInteger(itemId) ||
+      itemId <= 0 ||
+      (ingestStatus !== "created" && ingestStatus !== "existing")
+    ) {
+      continue;
+    }
+    const add = new Set(byItemId.get(itemId)?.add || []);
+    if (ingestStatus === "created") {
+      add.add("need-markdown");
+      add.add("need-analysis");
+      add.add("need-deep-reading");
+    }
+    if (outcome.needsCuration === true) {
+      add.add("need-metadata-curation");
+    }
+    if (String(outcome.pdfStatus || "").trim() !== "attached") {
+      add.add("need-fulltext");
+    }
+    byItemId.set(itemId, { itemId, add: Array.from(add) });
+  }
+  return Array.from(byItemId.values()).sort(
+    (left, right) => left.itemId - right.itemId,
   );
 }
 
-function requireVocabularyApi(runtime) {
-  const synthesis = requireHostApi(runtime)?.synthesis;
-  if (!synthesis || typeof synthesis.loadTagVocabulary !== "function") {
-    throw new Error("literature-search-ingest tag vocabulary load API is unavailable");
-  }
-  if (typeof synthesis.saveTagVocabulary !== "function") {
-    throw new Error("literature-search-ingest tag vocabulary save API is unavailable");
-  }
-  return synthesis;
-}
-
-async function ensureMetadataCurationTag(runtime) {
-  const synthesis = requireVocabularyApi(runtime);
-  const current = await synthesis.loadTagVocabulary();
-  const entries = Array.isArray(current?.entries) ? current.entries : [];
-  const exists = entries.some(
-    (entry) =>
-      String(entry?.tag || "").trim().toLowerCase() ===
-      METADATA_CURATION_TAG,
-  );
-  if (exists) {
-    return false;
-  }
-  await synthesis.saveTagVocabulary({
-    entries: [
-      ...entries,
-      {
-        tag: METADATA_CURATION_TAG,
-        facet: "status",
-        note: "Bibliographic metadata requires curation.",
-        source: SOURCE,
-        deprecated: false,
-      },
-    ],
-    aliases: current?.aliases || {},
-    abbrev: current?.abbrev || {},
-    protocol: current?.protocol,
-    transactionId: `${SOURCE}-${Date.now()}`,
-  });
-  return true;
+function eligibleItemIds(output) {
+  return eligibleTransitions(output).map((entry) => entry.itemId);
 }
 
 async function applyResultImpl(args) {
   const output = resolveOutput(args);
-  const itemIds = eligibleItemIds(output);
-  if (!itemIds.length) {
+  const transitions = eligibleTransitions(output);
+  if (!transitions.length) {
     return {
       ok: true,
       applied: false,
       skipped: true,
+      partial: false,
       taggedItemIds: [],
       tagFailures: [],
+      statusWarnings: [],
     };
   }
 
-  const tagAdd = args?.runtime?.handlers?.tag?.add;
-  if (typeof tagAdd !== "function") {
-    throw new Error("literature-search-ingest tag add handler is unavailable");
-  }
-
-  const vocabularyAdded = await ensureMetadataCurationTag(args.runtime);
+  const statusTags = requireHostApi(args.runtime)?.statusTags;
   const taggedItemIds = [];
-  const tagFailures = [];
-  for (const itemId of itemIds) {
+  const statusWarnings = [];
+  for (const transition of transitions) {
     try {
-      await tagAdd(itemId, [METADATA_CURATION_TAG]);
-      taggedItemIds.push(itemId);
+      if (typeof statusTags?.transition !== "function") {
+        throw new Error("literature-search-ingest statusTags API is unavailable");
+      }
+      const result = await statusTags.transition({
+        item: transition.itemId,
+        add: transition.add,
+      });
+      taggedItemIds.push(transition.itemId);
+      for (const warning of result?.warnings || []) {
+        statusWarnings.push({
+          code: "search_status_transition_failed",
+          itemId: transition.itemId,
+          ...warning,
+        });
+      }
     } catch (error) {
-      tagFailures.push({
-        itemId,
-        error: error instanceof Error ? error.message : String(error),
+      statusWarnings.push({
+        code: "search_status_transition_failed",
+        itemId: transition.itemId,
+        message: error instanceof Error ? error.message : String(error),
       });
     }
   }
   return {
-    ok: tagFailures.length === 0,
+    ok: true,
     applied: taggedItemIds.length > 0,
     skipped: false,
-    vocabularyAdded,
+    partial: statusWarnings.length > 0,
     taggedItemIds,
-    tagFailures,
+    tagFailures: statusWarnings,
+    statusWarnings,
   };
 }
 
@@ -145,5 +130,6 @@ export async function applyResult(args) {
 export const __literatureSearchIngestApplyResultTestOnly = {
   applyResultImpl,
   eligibleItemIds,
+  eligibleTransitions,
   resolveOutput,
 };

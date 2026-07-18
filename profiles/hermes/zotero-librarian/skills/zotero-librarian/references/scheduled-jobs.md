@@ -8,7 +8,7 @@ Scheduled jobs perform one bounded pass and return. They never long-poll and are
 | workflow-catalog-refresh | 03:00 | index service `workflow-refresh` | new workflow, schema hash change, or error | none |
 | notification-sync | every 5m | notification service `sync` | new actionable lifecycle event or error | none |
 | run-monitor | every 5m | index service `run-watch` | waiting, succeeded, failed, or canceled transition | none |
-| inbox-triage | 09:00 | index search `status:0-inbox` | actionable triage candidates | never |
+| workflow-status-triage | 09:00 | index search `status:need-` | actionable workflow-pending candidates | never |
 | library-hygiene | Monday 09:30 | index service `stats` | duplicates, suspicious metadata, orphan or structure candidates | never |
 | attention-queue | 18:00 | `synthesis insight attention-queue` | high-priority reading, metadata, or analysis candidates | none |
 

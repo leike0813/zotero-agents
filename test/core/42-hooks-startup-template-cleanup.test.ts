@@ -1,6 +1,8 @@
 import { assert } from "chai";
 import { config } from "../../package.json";
-import hooks from "../../src/hooks";
+import hooks, {
+  initializeSynthesisBuiltinTagsOnStartup,
+} from "../../src/hooks";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { getSkillRunnerBackendReachabilityCoordinatorRuntimeForTests } from "../../src/modules/skillRunnerBackendReachabilityCoordinator";
 import {
@@ -11,6 +13,8 @@ import {
   setRuntimeLogDiagnosticMode,
 } from "../../src/modules/runtimeLogManager";
 import { cleanupBackgroundRuntimeForZoteroTests } from "../../src/modules/testRuntimeCleanup";
+import { getDefaultSynthesisService } from "../../src/modules/synthesis/service";
+import { getBuiltinStatusPolicy } from "../../src/modules/synthesis/builtinTagPolicy";
 
 type LocalizationRequest = {
   id: string;
@@ -108,6 +112,38 @@ describe("hooks startup template cleanup", function () {
       assert.notInclude(JSON.stringify(entry.details || {}), "OPENAI_API_KEY");
       assert.notInclude(JSON.stringify(entry.details || {}), "PATH=");
     }
+  });
+
+  it("initializes builtin status vocabulary before startup completes", async function () {
+    await hooks.onStartup();
+
+    assert.isTrue(Boolean((globalThis as any).addon?.data?.initialized));
+    const snapshot = await getDefaultSynthesisService().loadTagVocabulary();
+    assert.includeMembers(
+      snapshot.entries.map((entry) => entry.tag),
+      Object.values(getBuiltinStatusPolicy()),
+    );
+  });
+
+  it("keeps startup incomplete with a structured error when builtin policy initialization fails", async function () {
+    (globalThis as any).addon.data.initialized = true;
+    try {
+      await initializeSynthesisBuiltinTagsOnStartup({
+        async initializeBuiltinTagPolicy() {
+          throw new Error("synthetic repository failure");
+        },
+      } as any);
+      assert.fail("expected startup initialization failure");
+    } catch (error) {
+      assert.match(String(error), /synthetic repository failure/);
+    }
+
+    assert.isFalse((globalThis as any).addon.data.initialized);
+    assert.deepInclude((globalThis as any).addon.data.startupError, {
+      stage: "synthesis-builtin-tag-policy",
+      code: "builtin_tag_policy_initialization_failed",
+      message: "synthetic repository failure",
+    });
   });
 
   it("registers preferences pane on startup", async function () {

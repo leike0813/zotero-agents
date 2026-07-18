@@ -47,7 +47,7 @@ const REQUIRED_FILES = [
   "cron/workflow-catalog-refresh.yaml",
   "cron/run-monitor.yaml",
   "cron/notification-sync.yaml",
-  "cron/inbox-triage.yaml",
+  "cron/workflow-status-triage.yaml",
   "cron/library-hygiene.yaml",
   "cron/attention-queue.yaml",
   "assets/host-bridge/profile.example.json",
@@ -447,7 +447,11 @@ function checkCronAndScripts(errors: string[]) {
       "zotero_librarian_notification_service.py",
       "sync",
     ],
-    "cron/inbox-triage.yaml": ['time: "09:00"', "[SILENT]", "status:0-inbox"],
+    "cron/workflow-status-triage.yaml": [
+      'time: "09:00"',
+      "[SILENT]",
+      "status:need-",
+    ],
     "cron/library-hygiene.yaml": [
       "weekly: monday",
       "[SILENT]",

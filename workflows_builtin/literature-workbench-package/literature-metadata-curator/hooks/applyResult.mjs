@@ -7,7 +7,7 @@ import {
   protectOriginalScriptMetadata,
   resolveCanonicalResult,
 } from "../../lib/metadataCurator.mjs";
-import { withPackageRuntimeScope } from "../../lib/runtime.mjs";
+import { requireHostApi, withPackageRuntimeScope } from "../../lib/runtime.mjs";
 
 const BLOCKED_FIELD_KEYS = new Set([
   "itemType",
@@ -18,8 +18,6 @@ const BLOCKED_FIELD_KEYS = new Set([
   "seeAlso",
   "relatedItems",
 ]);
-
-const METADATA_CURATION_TAG = "status:need-metadata-curation";
 
 function normalizeApplyPayload(output, parent) {
   if (!isObject(output) || output.kind !== METADATA_CURATION_KIND) {
@@ -100,18 +98,30 @@ function normalizeApplyPayload(output, parent) {
 }
 
 async function removeCurationTag(runtime, parent) {
-  const remove = runtime?.handlers?.tag?.remove;
-  if (typeof remove !== "function") {
-    throw new Error("handlers.tag.remove is unavailable");
+  const transition = requireHostApi(runtime)?.statusTags?.transition;
+  if (typeof transition !== "function") {
+    throw new Error("statusTags.transition is unavailable");
   }
   const itemRef = Number(parent?.id || 0) || parent;
-  await remove(itemRef, [METADATA_CURATION_TAG]);
+  return transition({
+    item: itemRef,
+    remove: ["need-metadata-curation"],
+  });
 }
 
 async function cleanupResult(runtime, parent) {
   try {
-    await removeCurationTag(runtime, parent);
-    return { curationTagRemoved: true, partial: false, cleanupWarnings: [] };
+    const transition = await removeCurationTag(runtime, parent);
+    const cleanupWarnings = (transition?.warnings || []).map((warning) => ({
+      code: "metadata_curation_tag_cleanup_failed",
+      ...warning,
+    }));
+    return {
+      curationTagRemoved: cleanupWarnings.length === 0,
+      partial: cleanupWarnings.length > 0,
+      cleanupWarnings,
+      statusTransition: transition,
+    };
   } catch (error) {
     return {
       curationTagRemoved: false,

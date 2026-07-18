@@ -17,7 +17,7 @@
 | `ai_task` | AI タスクタイプ | `ai_task:text_summarization` |
 | `data` | データセット | `data:imagenet` |
 | `tool` | ツール | `tool:python` |
-| `status` | 状態マーカー | `status:to_read` |
+| `status` | Workflow の未完了タスク | `status:need-analysis` |
 
 タグフォーマット：`^[a-z_]+:[a-zA-Z0-9/_.-]+$`、最大 120 文字。
 
@@ -61,4 +61,4 @@ Synthesis Workbench → Tags → Vocabulary ページでは以下の操作がで
 
 ## 関連 Workflow
 
-タグの標準化と自動推論は [Tag Regulator](../workflows/tag-regulator) Workflow によって駆動される。この Workflow を実行すると、統制語彙に基づいてタグの自動クリーニングと補完が行われる。
+`status` は読書進捗ではなく Workflow の未完了タスクを表します。項目には 0 個以上の status を付けられます。5 つの組み込み定義（`need-metadata-curation`、`need-fulltext`、`need-markdown`、`need-analysis`、`need-deep-reading`）はプラグイン起動時に作成されます。Tag Bootstrapper と [Tag Regulator](../workflows/tag-regulator) はこれらを作成・変更できず、文献への追加・削除もできません。独自の status は追加できます。PDF を手動添付しても `status:need-fulltext` は自動削除されません。

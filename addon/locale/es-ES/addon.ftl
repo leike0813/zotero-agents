@@ -611,6 +611,7 @@ skillrunner-backend-auto-disabled-toast = El backend { $backend } se desactivó 
 # Interfaz compartida del panel del asistente
 assistant-panel-action-send = Enviar
 assistant-panel-action-cancel = Cancelar
+assistant-panel-action-cancelling = Cancelando…
 assistant-panel-action-cancel-run = Cancelar tarea
 assistant-panel-action-archive = Archivar
 assistant-panel-action-close = Cerrar
@@ -1247,6 +1248,7 @@ synthesis-canonical-unsaved-metadata = El borrador de metadatos tiene cambios si
 synthesis-canonical-edit-metadata = Editar metadatos canónicos externos
 synthesis-canonical-archive-empty = Archivar canónico vacío
 synthesis-tags-management = Gestión de etiquetas de Synthesis
+synthesis-tags-builtin = Integrado
 synthesis-tags-summary-canonical = Canónico
 synthesis-tags-summary-staged = En espera
 synthesis-tags-summary-warnings = Advertencias

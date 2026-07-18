@@ -829,6 +829,7 @@ async function onStartup() {
   const runtimeRootURI = resolveRuntimeRootURI();
   setPluginSkillRegistryRuntimeRootURI(runtimeRootURI);
   await ensureStartupRuntimePreflight();
+  await initializeSynthesisBuiltinTagsOnStartup();
 
   await ensureDefaultWorkflowDirExistsOnStartup();
   await rescanWorkflowRegistry();
@@ -869,6 +870,27 @@ async function onStartup() {
   prewarmSynthesisWorkbenchAfterStartup();
   scheduleOfficialWorkflowPackageUpdateCheck();
   scheduleHostBridgeCliInstallPrompt();
+}
+
+export async function initializeSynthesisBuiltinTagsOnStartup(
+  service: Pick<
+    ReturnType<typeof getDefaultSynthesisService>,
+    "initializeBuiltinTagPolicy"
+  > = getDefaultSynthesisService(),
+) {
+  addon.data.startupError = undefined;
+  try {
+    await service.initializeBuiltinTagPolicy();
+  } catch (error) {
+    addon.data.initialized = false;
+    addon.data.startupError = {
+      stage: "synthesis-builtin-tag-policy",
+      code: "builtin_tag_policy_initialization_failed",
+      message: error instanceof Error ? error.message : String(error),
+      occurredAt: new Date().toISOString(),
+    };
+    throw error;
+  }
 }
 
 async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {

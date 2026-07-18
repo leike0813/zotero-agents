@@ -108,7 +108,7 @@ typed payload 示例：
 - 完成分支必须包含 `kind: "literature_search_ingest"`、`status: "completed"`、`searchSummary`、`outcomes`、`searchLedgerPath`。
 - `searchSummary` 汇总 breadth、实际语言、query/source lane 数量、唯一候选数、选择数和 `stopReason`。
 - `outcomes` 对每个已展示的重要候选记录 candidate id、原文题名、tier、发现来源、identifier、用户 decision、ingest/PDF 状态、itemRef、landing/manual links、reasonCode 与 `needsCuration`。
-- 对成功 `created` 或 `existing` 且信息仍需整理的条目设置 `needsCuration: true`；运行结束后 workflow 会确保受控词表包含 `status:need-metadata-curation` 并添加该 tag。
+- 对成功 `created` 或 `existing` 且信息仍需整理的条目设置 `needsCuration: true`；运行结束后 workflow 会通过插件已初始化的内建 policy，在对应文献上添加 `status:need-metadata-curation` 标签实例。
 - `searchLedgerPath` 固定为 `result/search-ledger.json`。
 
 完成分支示例：

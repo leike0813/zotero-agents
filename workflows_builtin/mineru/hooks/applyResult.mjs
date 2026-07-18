@@ -639,11 +639,39 @@ export async function applyResult({
     }
 
     stage = "materialize-parts";
-    return await materializeParts({
+    const materialized = await materializeParts({
       source,
       parts,
       runtime,
     });
+    const statusWarnings = [];
+    let statusTransition;
+    try {
+      if (typeof runtime?.hostApi?.statusTags?.transition !== "function") {
+        throw new Error("mineru statusTags API is unavailable");
+      }
+      statusTransition = await runtime.hostApi.statusTags.transition({
+        item: source.parentItem,
+        remove: ["need-fulltext", "need-markdown"],
+      });
+      statusWarnings.push(
+        ...(statusTransition?.warnings || []).map((warning) => ({
+          code: "mineru_status_transition_failed",
+          ...warning,
+        })),
+      );
+    } catch (error) {
+      statusWarnings.push({
+        code: "mineru_status_transition_failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return {
+      ...materialized,
+      partial: statusWarnings.length > 0,
+      statusTransition,
+      statusWarnings,
+    };
   } catch (error) {
     throw new Error(
       `mineru applyResult failed at ${stage}: ${stringifyUnknownError(error)}`,

@@ -107,16 +107,9 @@ L'utilità principale del profilo è `zotero_librarian_index_service.py`. Mantie
 
 ### Gestione della libreria
 
-**Triage giornaliero della posta in arrivo** (`cron/inbox-triage.yaml`)
+**Triage giornaliero degli stati workflow** (`cron/workflow-status-triage.yaml`)
 
-Il cron di triage della posta in arrivo del profilo viene eseguito quotidianamente e verifica la completezza dei nuovi elementi nella tua libreria:
-
-- Elementi con stato `0-inbox` (non elaborati)
-- Tag o assegnazioni di collezione mancanti
-- DOI, URL o file allegati mancanti
-- Artefatti di riepilogo o digest mancanti
-
-Produce un rapporto di azioni suggerite ma non effettua alcuna modifica a Zotero senza la tua approvazione.
+Questo cron di sola lettura cerca `status:need-*` e segnala le attività workflow in sospeso. Non deduce stati, non modifica tag e non cambia Zotero.
 
 **Igiene settimanale della libreria** (`cron/library-hygiene.yaml`)
 
@@ -227,7 +220,7 @@ Il profilo include sei modelli cron preconfigurati nella directory `cron/`:
 | `index-refresh` | Ogni 6 ore | Scorre `library snapshot` per mantenere aggiornato l'indice SQLite locale. Riporta `[SILENT]` quando non vengono rilevate modifiche. |
 | `workflow-catalog-refresh` | Ogni giorno alle 03:00 | Chiama `workflow list` + `workflow describe` per aggiornare la cache del catalogo workflow. Riporta `[SILENT]` in assenza di modifiche. |
 | `run-monitor` | Ogni 5 minuti | Chiama `run-watch` per controllare le esecuzioni registrate attive. Riporta solo cambi di stato, stati terminali o elementi che richiedono attenzione. |
-| `inbox-triage` | Ogni giorno alle 09:00 | Cerca elementi con `status:0-inbox`, tag mancanti, collezioni mancanti, metadati mancanti. Genera un rapporto in sola lettura. |
+| `workflow-status-triage` | Ogni giorno alle 09:00 | Cerca `status:need-*` e genera un rapporto di sola lettura sui workflow in sospeso. |
 | `library-hygiene` | Settimanalmente il lunedì | Analizza voci duplicate, elementi orfani, collezioni vuote e problemi di qualità dei dati. |
 | `attention-queue` | Ogni giorno alle 18:00 | Combina le informazioni della coda di attenzione con i dati dell'indice locale per classificare le attività ad alta priorità. |
 

@@ -9,9 +9,9 @@ Use the resident local index as the first pass for repeated library inspection. 
 - `item` returns one indexed record by key or numeric id.
 - `stats` reports live, deleted, tag, collection, and workflow catalog counts.
 
-## Triage
+## Workflow Status Triage
 
-Daily inbox triage reports items with `status:0-inbox`, missing tags, missing collections, missing DOI or URL, missing attachments, or missing summary artifacts. It suggests workflows and does not write to Zotero.
+Daily workflow status triage reports items carrying `status:need-*` tags and suggests the workflow that owns each pending artifact. It does not infer statuses, change tags, or write to Zotero.
 
 ## Hygiene
 

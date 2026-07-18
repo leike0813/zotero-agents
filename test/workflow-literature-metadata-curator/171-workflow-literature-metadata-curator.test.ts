@@ -1152,7 +1152,21 @@ describe("workflow: literature-metadata-curator", function () {
           metadata: { fields: { title: "After tagged metadata" } },
         },
       },
-      runtime: { zotero: Zotero, handlers: runtimeHandlers },
+      runtime: {
+        zotero: Zotero,
+        handlers: runtimeHandlers,
+        hostApiVersion: 9,
+        hostApi: {
+          statusTags: {
+            async transition({ item, remove }: any) {
+              await runtimeHandlers.tag.remove(item, [
+                "status:need-metadata-curation",
+              ]);
+              return { added: [], removed: remove, warnings: [] };
+            },
+          },
+        },
+      },
     } as any)) as any;
 
     assert.isTrue(result.applied);
@@ -1210,12 +1224,25 @@ describe("workflow: literature-metadata-curator", function () {
       },
       runtime: {
         zotero: Zotero,
+        hostApiVersion: 9,
+        hostApi: {
+          statusTags: {
+            async transition({ item, remove }: any) {
+              removals.push({
+                item,
+                tags: ["status:need-metadata-curation"],
+              });
+              return { added: [], removed: remove, warnings: [] };
+            },
+          },
+        },
         handlers: {
           ...handlers,
           tag: {
             ...handlers.tag,
             async remove(item: unknown, tags: string[]) {
-              removals.push({ item, tags });
+              void item;
+              void tags;
             },
           },
         },
@@ -1244,6 +1271,14 @@ describe("workflow: literature-metadata-curator", function () {
       },
       runtime: {
         zotero: Zotero,
+        hostApiVersion: 9,
+        hostApi: {
+          statusTags: {
+            async transition() {
+              throw new Error("tag store unavailable");
+            },
+          },
+        },
         handlers: {
           ...handlers,
           tag: {

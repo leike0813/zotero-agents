@@ -23,6 +23,10 @@ import type {
 import type { WorkflowResultContext } from "../modules/workflowExecution/resultContext";
 import type { ProductStorageApi } from "../modules/workflowProductStore";
 import type { SynthesisService } from "../modules/synthesis/service";
+import type {
+  BuiltinStatusKey,
+  BuiltinStatusTag,
+} from "../modules/synthesis/builtinTagPolicy";
 export type { WorkflowResultContext } from "../modules/workflowExecution/resultContext";
 
 export type WorkflowParameterType =
@@ -438,6 +442,23 @@ export type WorkflowHostApi = {
     }) => Promise<Zotero.Item>;
   };
   tags: typeof import("../handlers").handlers.tag;
+  statusTags: {
+    getPolicy: () => Readonly<Record<BuiltinStatusKey, BuiltinStatusTag>>;
+    transition: (args: {
+      item: Zotero.Item | number | string;
+      add?: BuiltinStatusKey[];
+      remove?: BuiltinStatusKey[];
+    }) => Promise<{
+      added: BuiltinStatusTag[];
+      removed: BuiltinStatusTag[];
+      warnings: Array<{
+        code: string;
+        operation: "add" | "remove";
+        tags: BuiltinStatusTag[];
+        message: string;
+      }>;
+    }>;
+  };
   collections: typeof import("../handlers").handlers.collection;
   command: typeof import("../handlers").handlers.command;
   editor: {

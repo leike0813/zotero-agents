@@ -728,18 +728,31 @@ describe("workflow: literature-deep-reading", function () {
       },
     };
     const html = "<!doctype html><html><body>Deep reading result</body></html>";
+    const statusTransitions: unknown[] = [];
 
     const applied = (await executeApplyResult({
       workflow,
       parent,
       request,
       bundleReader: createDeepReadingResultBundleReader(html) as any,
-      runtime: { hostApi: createWorkflowHostApi() },
+      runtime: {
+        hostApi: {
+          ...createWorkflowHostApi(),
+          statusTags: {
+            getPolicy: () => ({}),
+            transition: async (args: unknown) => {
+              statusTransitions.push(args);
+              return { added: [], removed: [], warnings: [] };
+            },
+          },
+        } as any,
+      },
     })) as {
       ok: boolean;
       attachmentId: number;
       attachmentKey: string;
       htmlPath: string;
+      partial?: boolean;
     };
 
     const expectedHtmlPath = joinPath(tempDir, "paper.html");
@@ -753,6 +766,10 @@ describe("workflow: literature-deep-reading", function () {
     assert.equal(attached.parentID, parent.id);
     assert.equal(attached.getField("title"), "paper.html");
     assert.equal(await countAttachmentsByPath(parent, expectedHtmlPath), 1);
+    assert.deepEqual(statusTransitions, [
+      { item: parent, remove: ["need-deep-reading"] },
+    ]);
+    assert.isFalse(applied.partial);
   });
 
   it("attaches valid HTML when output status is failed-like diagnostic", async function () {
@@ -798,11 +815,23 @@ describe("workflow: literature-deep-reading", function () {
           throw new Error(`missing bundle entry: ${entryPath}`);
         },
       } as any,
-      runtime: { hostApi: createWorkflowHostApi() },
+      runtime: {
+        hostApi: {
+          ...createWorkflowHostApi(),
+          statusTags: {
+            getPolicy: () => ({}),
+            transition: async () => {
+              throw new Error("status storage unavailable");
+            },
+          },
+        } as any,
+      },
     })) as {
       ok?: boolean;
       htmlPath?: string;
       warnings?: string[];
+      partial?: boolean;
+      statusWarnings?: Array<{ code?: string }>;
       skill_diagnostics?: {
         kind?: string;
         status?: string;
@@ -823,6 +852,11 @@ describe("workflow: literature-deep-reading", function () {
     assert.equal(
       applied.skill_diagnostics?.error?.message,
       "renderer reported partial completion",
+    );
+    assert.isTrue(applied.partial);
+    assert.equal(
+      applied.statusWarnings?.[0]?.code,
+      "literature_deep_reading_status_transition_failed",
     );
   });
 

@@ -582,11 +582,24 @@ describe("workflow: literature-analysis", function () {
     );
     assert.isOk(workflow, "missing literature-analysis workflow");
 
+    const statusTransitions: unknown[] = [];
     const applied = (await executeApplyResult({
       workflow: workflow!,
       parent,
       bundleReader: bundle,
-    })) as { notes: Zotero.Item[] };
+      runtime: {
+        hostApi: {
+          ...createWorkflowHostApi(),
+          statusTags: {
+            getPolicy: () => ({}),
+            transition: async (args: unknown) => {
+              statusTransitions.push(args);
+              return { added: [], removed: [], warnings: [] };
+            },
+          },
+        } as any,
+      },
+    })) as { notes: Zotero.Item[]; partial?: boolean };
 
     assert.lengthOf(applied.notes, 3);
     const firstNote = Zotero.Items.get(applied.notes[0].id)!;
@@ -608,6 +621,10 @@ describe("workflow: literature-analysis", function () {
     assert.include(parentNotes, firstNote.id);
     assert.include(parentNotes, secondNote.id);
     assert.include(parentNotes, thirdNote.id);
+    assert.deepEqual(statusTransitions, [
+      { item: parent, remove: ["need-analysis"] },
+    ]);
+    assert.isFalse(applied.partial);
   });
 
   it("applies valid artifacts when skill output includes a non-null error diagnostic", async function () {
@@ -649,9 +666,22 @@ describe("workflow: literature-analysis", function () {
           throw new Error(`missing bundle entry: ${entryPath}`);
         },
       },
+      runtime: {
+        hostApi: {
+          ...createWorkflowHostApi(),
+          statusTags: {
+            getPolicy: () => ({}),
+            transition: async () => {
+              throw new Error("status storage unavailable");
+            },
+          },
+        } as any,
+      },
     })) as {
       notes?: Zotero.Item[];
       warnings?: string[];
+      partial?: boolean;
+      status_warnings?: Array<{ code?: string }>;
       skill_diagnostics?: {
         status?: string;
         error?: { message?: string };
@@ -664,6 +694,11 @@ describe("workflow: literature-analysis", function () {
     assert.equal(
       applied.skill_diagnostics?.error?.message,
       "agent reported a recoverable issue",
+    );
+    assert.isTrue(applied.partial);
+    assert.equal(
+      applied.status_warnings?.[0]?.code,
+      "literature_analysis_status_transition_failed",
     );
   });
 

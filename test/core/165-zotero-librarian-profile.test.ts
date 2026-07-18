@@ -30,7 +30,7 @@ const REQUIRED_PROFILE_FILES = [
   "cron/workflow-catalog-refresh.yaml",
   "cron/run-monitor.yaml",
   "cron/notification-sync.yaml",
-  "cron/inbox-triage.yaml",
+  "cron/workflow-status-triage.yaml",
   "cron/library-hygiene.yaml",
   "cron/attention-queue.yaml",
   "assets/host-bridge/profile.example.json",
@@ -237,7 +237,10 @@ describe("zotero-librarian Hermes profile distribution", function () {
         "cron/notification-sync.yaml",
         ["every: 5m", "zotero_librarian_notification_service.py", "sync"],
       ],
-      ["cron/inbox-triage.yaml", ['time: "09:00"', "status:0-inbox", "no tag"]],
+      [
+        "cron/workflow-status-triage.yaml",
+        ['time: "09:00"', "status:need-", "workflow-pending"],
+      ],
       [
         "cron/library-hygiene.yaml",
         ["weekly: monday", "duplicate DOI", "empty collection"],

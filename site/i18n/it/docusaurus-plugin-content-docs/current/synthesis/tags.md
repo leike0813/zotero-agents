@@ -17,7 +17,7 @@ Ogni tag appartiene a un Facet (dimensione). I seguenti facet sono attualmente s
 | `ai_task` | Tipo di compito AI | `ai_task:text_summarization` |
 | `data` | Dataset | `data:imagenet` |
 | `tool` | Strumento | `tool:python` |
-| `status` | Marcatore di stato | `status:to_read` |
+| `status` | Attività workflow in sospeso | `status:need-analysis` |
 
 Formato dei tag: `^[a-z_]+:[a-zA-Z0-9/_.-]+$`, massimo 120 caratteri.
 
@@ -61,4 +61,4 @@ Il vocabolario dei tag supporta l'importazione/esportazione in formato JSON (for
 
 ## Workflow correlato
 
-La standardizzazione e l'inferenza automatica dei tag sono gestite dal workflow [Tag Regulator](../workflows/tag-regulator). Eseguendo questo workflow è possibile pulire e integrare automaticamente i tag in base al vocabolario controllato.
+`status` indica attività workflow in sospeso, non l'avanzamento della lettura. Un elemento può avere zero o più stati. Le cinque definizioni integrate (`need-metadata-curation`, `need-fulltext`, `need-markdown`, `need-analysis`, `need-deep-reading`) vengono create all'avvio del plugin. Tag Bootstrapper e [Tag Regulator](../workflows/tag-regulator) non possono crearle, modificarle, aggiungerle o rimuoverle dai documenti. Gli stati personalizzati restano consentiti. Allegare manualmente un PDF non rimuove `status:need-fulltext`.
