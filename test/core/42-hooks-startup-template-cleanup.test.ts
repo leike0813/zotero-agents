@@ -8,10 +8,13 @@ import { getSkillRunnerBackendReachabilityCoordinatorRuntimeForTests } from "../
 import {
   clearRuntimeLogs,
   getRuntimeLogDiagnosticMode,
+  getRuntimeLogPersistenceStateForTests,
   listRuntimeLogs,
+  resetRuntimeLogHydrationForTests,
   resetRuntimeLogAllowedLevels,
   setRuntimeLogDiagnosticMode,
 } from "../../src/modules/runtimeLogManager";
+import { writeRuntimeTextFile } from "../../src/modules/runtimePersistence";
 import { cleanupBackgroundRuntimeForZoteroTests } from "../../src/modules/testRuntimeCleanup";
 import { getDefaultSynthesisService } from "../../src/modules/synthesis/service";
 import { getBuiltinStatusPolicy } from "../../src/modules/synthesis/builtinTagPolicy";
@@ -92,7 +95,7 @@ describe("hooks startup template cleanup", function () {
   });
 
   it("emits runtime startup preflight info logs", async function () {
-    clearRuntimeLogs();
+    await clearRuntimeLogs();
 
     await hooks.onStartup();
 
@@ -112,6 +115,35 @@ describe("hooks startup template cleanup", function () {
       assert.notInclude(JSON.stringify(entry.details || {}), "OPENAI_API_KEY");
       assert.notInclude(JSON.stringify(entry.details || {}), "PATH=");
     }
+  });
+
+  it("initializes runtime log persistence before startup log producers", async function () {
+    await clearRuntimeLogs();
+    resetRuntimeLogHydrationForTests();
+    await writeRuntimeTextFile(
+      getRuntimeLogPersistenceStateForTests().path,
+      JSON.stringify({
+        entries: [
+          {
+            id: "log-before-startup",
+            ts: new Date().toISOString(),
+            level: "info",
+            scope: "system",
+            schemaVersion: 1,
+            diagnosticMode: false,
+            stage: "before-startup",
+            message: "hydrate before startup producers",
+          },
+        ],
+      }),
+    );
+
+    await hooks.onStartup();
+
+    assert.equal(
+      listRuntimeLogs().find((entry) => entry.stage === "before-startup")?.id,
+      "log-before-startup",
+    );
   });
 
   it("initializes builtin status vocabulary before startup completes", async function () {
@@ -181,5 +213,38 @@ describe("hooks startup template cleanup", function () {
     await hooks.onStartup();
 
     assert.isTrue(getRuntimeLogDiagnosticMode());
+  });
+
+  it("completes debug startup when the privileged host has no performance global", async function () {
+    const performanceDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "performance",
+    );
+    setDebugModeOverrideForTests(true);
+    setRuntimeLogDiagnosticMode(false);
+    if (usedAddonObject?.data) {
+      (usedAddonObject.data as { initialized?: boolean }).initialized = false;
+    }
+    Object.defineProperty(globalThis, "performance", {
+      configurable: true,
+      writable: true,
+      value: undefined,
+    });
+
+    try {
+      await hooks.onStartup();
+
+      assert.isTrue(
+        (usedAddonObject?.data as { initialized?: boolean } | undefined)
+          ?.initialized,
+      );
+      assert.isTrue(getRuntimeLogDiagnosticMode());
+    } finally {
+      if (performanceDescriptor) {
+        Object.defineProperty(globalThis, "performance", performanceDescriptor);
+      } else {
+        delete (globalThis as { performance?: unknown }).performance;
+      }
+    }
   });
 });

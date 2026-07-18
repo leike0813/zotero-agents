@@ -32,6 +32,8 @@ Synthesis Workbench → Tags → Vocabulary ページでは以下の操作がで
 - **JSON インポート**: JSON ファイルからタグ語彙をインポート（確認前のプレビューをサポート）
 - **JSON エクスポート**: 現在の語彙を JSON ファイルにエクスポート
 
+5 つの組み込み Workflow ステータスはプラグイン起動時に初期化されます。それらの tag、facet、source、非推奨状態、replacement は変更または削除できません。note は引き続き編集可能で、aliases は通常のガバナンスパスを使用します。カスタム `status:*` エントリは他のカスタム語彙エントリと同じ管理コントロールを保持します。インポートは組み込みの note と aliases を更新できますが、組み込みを省略したり保護された ID を変更したりしても、削除や置換はできません。
+
 <figure class="zs-doc-figure"><img src="chrome://zotero-skills/content/help-docs/assets/img/docs/synthesis/tags.webp" alt="Synthesis Tags ページ" title="Synthesis Tags ページ" loading="lazy" /><figcaption>Synthesis Tags ページ</figcaption></figure>
 
 タグのステータス：
@@ -61,4 +63,23 @@ Synthesis Workbench → Tags → Vocabulary ページでは以下の操作がで
 
 ## 関連 Workflow
 
-`status` は読書進捗ではなく Workflow の未完了タスクを表します。項目には 0 個以上の status を付けられます。5 つの組み込み定義（`need-metadata-curation`、`need-fulltext`、`need-markdown`、`need-analysis`、`need-deep-reading`）はプラグイン起動時に作成されます。Tag Bootstrapper と [Tag Regulator](#doc/workflows%2Ftag-regulator) はこれらを作成・変更できず、文献への追加・削除もできません。独自の status は追加できます。PDF を手動添付しても `status:need-fulltext` は自動削除されません。
+`status` は読書進捗ではなく Workflow の未完了タスクを表します。項目には 0 個以上の status を付けられます。5 つの組み込み定義：
+
+- `status:need-metadata-curation`
+- `status:need-fulltext`
+- `status:need-markdown`
+- `status:need-analysis`
+- `status:need-deep-reading`
+
+これらを作成するために Tag Bootstrapper を実行する必要はありません。Tag Bootstrapper はカスタム語彙エントリのみを追加し、[Tag Regulator](#doc/workflows%2Ftag-regulator) は通常の統制タグを監査できますが、文献項目に組み込み Workflow ステータスを追加または削除することはできません。どちらの Workflow も論文のトピック、言語、メタデータ、または全文から組み込みステータスを推論することはできません。
+
+| イベント | 項目に追加 | 項目から削除 |
+|----------|------------|--------------|
+| Search が項目を作成 | Markdown、analysis、deep reading。結果が必要とする場合の metadata/fulltext | — |
+| Search が項目を再利用 | この結果で明示的に必要な metadata/fulltext のみ | — |
+| Metadata Curator が成功または変更なしを確認 | — | Metadata curation |
+| MinerU が Markdown を書き込んで添付 | — | Markdown と fulltext |
+| Literature Analysis が正式な成果物を書き込み | — | Analysis |
+| Literature Deep Reading が HTML を書き込んで添付 | — | Deep reading |
+
+失敗、スキップ、キャンセル、または未適用の実行はステータスをクリアしません。成果物が成功してもステータスクリーンアップが失敗した場合、成果物は保持され、実行は部分的な警告を報告します。PDF を手動添付しても `status:need-fulltext` は自動削除されません。

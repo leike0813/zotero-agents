@@ -7,4 +7,3 @@ The Zotero Bridge CLI SHALL continue to pass the JSON supplied by `workflow subm
 
 - **WHEN** an external agent invokes `workflow submit` with a provider-profile JSON containing `autoApproveAcpPermissions: true`
 - **THEN** the request body preserves that boolean at `providerProfile.providerOptions`
-

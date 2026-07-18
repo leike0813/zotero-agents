@@ -12,12 +12,10 @@ import {
 
 export type AcpExecutionProgressState = AssistantMessageCountsSnapshot & {
   openSegment: Exclude<AssistantMessageCountKind, "tool"> | null;
-  terminalCandidateChunks: string[];
 };
 
 export type AcpExecutionProgressChange = {
   countChanged: boolean;
-  candidateChanged: boolean;
   segmentClosed: boolean;
 };
 
@@ -34,7 +32,6 @@ const states = new Map<string, AcpExecutionProgressState>();
 function emptyChange(): AcpExecutionProgressChange {
   return {
     countChanged: false,
-    candidateChanged: false,
     segmentClosed: false,
   };
 }
@@ -43,7 +40,6 @@ function createState(scopeKey: string): AcpExecutionProgressState {
   return {
     ...createAssistantMessageCounts(scopeKey),
     openSegment: null,
-    terminalCandidateChunks: [],
   };
 }
 
@@ -57,15 +53,9 @@ function getOrCreateState(scopeKeyRaw: string) {
   return state;
 }
 
-function closeSegment(
-  state: AcpExecutionProgressState,
-  discardCandidate: boolean,
-) {
+function closeSegment(state: AcpExecutionProgressState) {
   const wasOpen = state.openSegment !== null;
   state.openSegment = null;
-  if (discardCandidate) {
-    state.terminalCandidateChunks = [];
-  }
   return wasOpen;
 }
 
@@ -77,7 +67,6 @@ export function resetAcpExecutionProgress(
   const state = getOrCreateState(scopeKey);
   beginAssistantMessageCountExecution(state, "", options);
   state.openSegment = null;
-  state.terminalCandidateChunks = [];
   states.set(scopeKey, state);
   return snapshotAcpExecutionProgress(scopeKey)!;
 }
@@ -96,7 +85,6 @@ export function restoreAcpExecutionProgress(
         options.missingCompleteness || "unavailable",
       )),
     openSegment: null,
-    terminalCandidateChunks: [],
   };
   states.set(scopeKey, state);
   return snapshotAcpExecutionProgress(scopeKey)!;
@@ -107,7 +95,7 @@ export function finishAcpExecutionProgress(scopeKeyRaw: string) {
   if (!state) {
     return undefined;
   }
-  closeSegment(state, false);
+  closeSegment(state);
   finishAssistantMessageCountExecution(state);
   return snapshotAcpExecutionProgress(state.scopeKey);
 }
@@ -131,8 +119,7 @@ export function updateAcpExecutionProgress(
       return semanticKind === "assistant-thought"
         ? {
             countChanged: false,
-            candidateChanged: false,
-            segmentClosed: closeSegment(state, true),
+            segmentClosed: closeSegment(state),
           }
         : emptyChange();
     }
@@ -141,8 +128,7 @@ export function updateAcpExecutionProgress(
       return semanticKind === "assistant-thought"
         ? {
             countChanged: false,
-            candidateChanged: false,
-            segmentClosed: closeSegment(state, true),
+            segmentClosed: closeSegment(state),
           }
         : emptyChange();
     }
@@ -153,18 +139,9 @@ export function updateAcpExecutionProgress(
     if (countChanged) {
       state.openSegment = segmentKind;
       incrementAssistantMessageCount(state, segmentKind);
-      if (segmentKind === "assistant") {
-        state.terminalCandidateChunks = [];
-      } else {
-        state.terminalCandidateChunks = [];
-      }
-    }
-    if (segmentKind === "assistant") {
-      state.terminalCandidateChunks.push(chunk);
     }
     return {
       countChanged,
-      candidateChanged: segmentKind === "assistant",
       segmentClosed: previousSegment !== null && countChanged,
     };
   }
@@ -174,44 +151,21 @@ export function updateAcpExecutionProgress(
   if (semanticKind === "terminal-boundary") {
     return {
       countChanged: false,
-      candidateChanged: false,
-      segmentClosed: closeSegment(state, false),
+      segmentClosed: closeSegment(state),
     };
   }
-  const segmentClosed = closeSegment(state, true);
+  const segmentClosed = closeSegment(state);
   if (semanticKind === "tool-boundary") {
     incrementAssistantMessageCount(state, "tool");
     return {
       countChanged: true,
-      candidateChanged: false,
       segmentClosed,
     };
   }
   return {
     countChanged: false,
-    candidateChanged: false,
     segmentClosed,
   };
-}
-
-export function takeAcpExecutionProgressTerminalCandidate(scopeKeyRaw: string) {
-  const state = states.get(String(scopeKeyRaw || ""));
-  if (!state) {
-    return "";
-  }
-  const candidate = state.terminalCandidateChunks.join("");
-  state.terminalCandidateChunks = [];
-  state.openSegment = null;
-  return candidate;
-}
-
-export function discardAcpExecutionProgressCandidate(scopeKeyRaw: string) {
-  const state = states.get(String(scopeKeyRaw || ""));
-  if (!state) {
-    return;
-  }
-  state.terminalCandidateChunks = [];
-  state.openSegment = null;
 }
 
 export function snapshotAcpExecutionProgress(scopeKeyRaw: string) {
@@ -220,7 +174,6 @@ export function snapshotAcpExecutionProgress(scopeKeyRaw: string) {
     ? {
         ...cloneAssistantMessageCounts(state),
         openSegment: state.openSegment,
-        terminalCandidateChunks: [...state.terminalCandidateChunks],
       }
     : undefined;
 }

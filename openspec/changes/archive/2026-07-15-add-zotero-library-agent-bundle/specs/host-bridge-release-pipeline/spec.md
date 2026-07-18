@@ -28,4 +28,3 @@ Both Host Bridge release workflows SHALL verify the committed Zotero Library Age
 #### Scenario: Agent bundle source is not rendered
 - **WHEN** semantic, shared, schema, helper, or version sources do not match generated bundle files
 - **THEN** publication SHALL fail before any external surface is updated.
-

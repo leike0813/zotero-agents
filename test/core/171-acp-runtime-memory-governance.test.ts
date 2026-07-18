@@ -3,22 +3,24 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
+  buildAcpSkillRunPanelSnapshot,
+  prepareAcpSkillRunPanelSnapshot,
+  subscribeAcpSkillRunSnapshots,
+} from "../helpers/acpSkillRunWorkspaceHarness";
+import {
   flushAcpSkillRunRuntimeFileWritesForTests,
   appendAcpSkillRunUserReply,
-  buildAcpSkillRunPanelSnapshot,
   getAcpSkillRunSummaryDiagnosticsForTests,
   getAcpSkillRunRecord,
   hasAcpSkillRunController,
   detachAcpSkillRunControllerAfterApplyResult,
   markAcpSkillRunApplyResult,
-  prepareAcpSkillRunPanelSnapshot,
   projectAcpSkillRunOutputEnvelopeToTranscript,
   recordAcpSkillRunSessionUpdate,
   registerAcpSkillRunController,
   resetAcpSkillRunSummaryDiagnosticsForTests,
   resetAcpSkillRunsForTests,
   shutdownAcpSkillRunConversations,
-  subscribeAcpSkillRunSnapshots,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import {
@@ -42,16 +44,32 @@ import {
   appendAcpSkillRunTranscriptEvent,
   enqueueAcpSkillRunTranscriptEvents,
   flushAcpSkillRunTranscriptWrites,
+  getAcpTranscriptIndexDiagnosticsForTests,
   readAcpSkillRunTranscriptPage as readTranscriptRuntimePage,
+  readAcpSkillRunTranscriptItems,
   rebuildAcpSkillRunTranscriptIndex,
+  resetAcpTranscriptIndexDiagnosticsForTests,
   resetAcpTranscriptWritesForTests,
 } from "../../src/modules/acpSkillRunTranscriptStore";
+import { RUNTIME_TEXT_SCAN_CHUNK_BYTES } from "../../src/modules/runtimePersistence";
 import {
   discardBufferedWriteKey,
   enqueueBufferedWrite,
   flushBufferedWriteKey,
   getBufferedWriteDiagnosticsForTests,
 } from "../../src/modules/bufferedWriteCoordinator";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import {
+  enableAcpRuntimePerformanceProfiler,
+  resetAcpRuntimePerformanceProfilerForTests,
+  snapshotAcpRuntimeProfiles,
+  startAcpRuntimeProfile,
+} from "../../src/modules/acpRuntimePerformanceProfiler";
+import { recordAcpRuntimeDiagnostic } from "../../src/modules/acpDiagnosticRouter";
+import {
+  clearRuntimeLogs,
+  listRuntimeLogs,
+} from "../../src/modules/runtimeLogManager";
 
 async function mkTempRoot() {
   return fs.mkdtemp(path.join(os.tmpdir(), "zs-acp-runtime-memory-"));
@@ -75,8 +93,58 @@ async function waitForTextFile(filePath: string, pattern?: RegExp) {
 
 describe("ACP runtime memory governance", function () {
   beforeEach(function () {
+    setDebugModeOverrideForTests();
+    resetAcpRuntimePerformanceProfilerForTests();
     resetPluginStateStoreForTests();
     resetAcpSkillRunsForTests();
+  });
+
+  it("profiles buffered write batches without retaining individual entries", async function () {
+    setDebugModeOverrideForTests(true);
+    enableAcpRuntimePerformanceProfiler();
+    startAcpRuntimeProfile({
+      requestId: "buffered-profile",
+      displayMode: "silent",
+      transport: "stdio",
+      zoteroMajor: 9,
+    });
+    const key = `profiled-coordinator:${Date.now()}`;
+    const written: string[] = [];
+    try {
+      for (const entry of ["one", "two", "three"]) {
+        enqueueBufferedWrite({
+          key,
+          owner: "owner",
+          entry,
+          bytes: entry.length,
+          sink: async (entries) => written.push(...entries),
+          performanceProfileRequestId: "buffered-profile",
+          performanceChannel: "transcript",
+        });
+      }
+      await flushBufferedWriteKey(key);
+
+      assert.deepEqual(written, ["one", "two", "three"]);
+      const metrics = snapshotAcpRuntimeProfiles()?.active[0].metrics;
+      assert.equal(
+        metrics?.find((entry) => entry.name === "buffered_write_batch")?.counter
+          ?.total,
+        1,
+      );
+      assert.equal(
+        metrics?.find((entry) => entry.name === "buffered_write_bytes")?.counter
+          ?.total,
+        11,
+      );
+      assert.equal(
+        metrics?.find((entry) => entry.name === "buffered_write_duration")
+          ?.duration?.count,
+        1,
+      );
+      assert.notProperty(snapshotAcpRuntimeProfiles() || {}, "samples");
+    } finally {
+      discardBufferedWriteKey(key);
+    }
   });
 
   it("serializes entries arriving during a drain and retains failed batches for retry", async function () {
@@ -141,10 +209,114 @@ describe("ACP runtime memory governance", function () {
     }
   });
 
+  it("bounds only explicitly configured pending writes and reports dropped audit evidence", async function () {
+    const boundedKey = `bounded-coordinator:${Date.now()}`;
+    const defaultKey = `default-coordinator:${Date.now()}`;
+    const boundedWritten: number[] = [];
+    const defaultWritten: number[] = [];
+    const overflows: Array<{
+      droppedEntries: number;
+      droppedBytes: number;
+      overflowEpisode: number;
+    }> = [];
+    try {
+      for (let entry = 1; entry <= 5; entry += 1) {
+        enqueueBufferedWrite({
+          key: boundedKey,
+          owner: "audit-owner",
+          entry,
+          bytes: 2,
+          sink: async (entries) => boundedWritten.push(...entries),
+          hardPendingLimit: {
+            maxEntries: 3,
+            maxBytes: 6,
+            overflow: "drop-oldest",
+            onOverflow: (event) => overflows.push(event),
+          },
+        });
+        enqueueBufferedWrite({
+          key: defaultKey,
+          owner: "business-owner",
+          entry,
+          bytes: 2,
+          sink: async (entries) => defaultWritten.push(...entries),
+        });
+      }
+
+      const bounded = getBufferedWriteDiagnosticsForTests().find(
+        (entry) => entry.key === boundedKey,
+      );
+      const unbounded = getBufferedWriteDiagnosticsForTests().find(
+        (entry) => entry.key === defaultKey,
+      );
+      assert.equal(bounded?.pendingEntries, 3);
+      assert.equal(bounded?.pendingBytes, 6);
+      assert.equal(bounded?.droppedEntries, 2);
+      assert.equal(bounded?.droppedBytes, 4);
+      assert.equal(bounded?.overflowEpisodes, 1);
+      assert.equal(unbounded?.pendingEntries, 5);
+      assert.equal(unbounded?.droppedEntries, 0);
+      assert.lengthOf(overflows, 1);
+
+      await flushBufferedWriteKey(boundedKey);
+      await flushBufferedWriteKey(defaultKey);
+      assert.deepEqual(boundedWritten, [3, 4, 5]);
+      assert.deepEqual(defaultWritten, [1, 2, 3, 4, 5]);
+    } finally {
+      discardBufferedWriteKey(boundedKey);
+      discardBufferedWriteKey(defaultKey);
+    }
+  });
+
+  it("routes only sanitized diagnostic evidence to debug audit and release warning logs", function () {
+    setDebugModeOverrideForTests(true);
+    clearRuntimeLogs();
+    const auditEntries: Array<Record<string, unknown>> = [];
+    try {
+      recordAcpRuntimeDiagnostic({
+        surface: "acp-skills",
+        ownerKey: "diagnostic-owner",
+        requestId: "diagnostic-router-test",
+        backendId: "backend-acp",
+        entry: {
+          id: "diagnostic-1",
+          ts: "2026-07-17T00:00:00.000Z",
+          kind: "provider_warning",
+          level: "warn",
+          message: "Bearer secret-token",
+          detail: "password=secret-value cookie=session-secret",
+          stage: "prompt",
+          errorName: "ProviderError",
+          code: "WARN",
+          data: { token: "must-not-persist" },
+          raw: { authorization: "must-not-persist" },
+        },
+        debugAuditSink: (entry) => auditEntries.push(entry),
+      });
+
+      assert.lengthOf(auditEntries, 1);
+      assert.notProperty(auditEntries[0], "raw");
+      assert.notProperty(auditEntries[0], "data");
+      assert.notInclude(String(auditEntries[0].message), "secret-token");
+      assert.notInclude(String(auditEntries[0].detail), "secret-value");
+      const logs = listRuntimeLogs({
+        requestId: "diagnostic-router-test",
+        levels: ["warn"],
+      });
+      assert.lengthOf(logs, 1);
+      assert.equal(logs[0].stage, "prompt");
+      assert.notInclude(JSON.stringify(logs[0]), "must-not-persist");
+    } finally {
+      clearRuntimeLogs();
+    }
+  });
+
   afterEach(async function () {
     await flushAcpSkillRunRuntimeFileWritesForTests();
     resetAcpSkillRunsForTests();
     resetPluginStateStoreForTests();
+    resetAcpRuntimePerformanceProfilerForTests();
+    setDebugModeOverrideForTests();
   });
 
   it("persists ACP chat conversations as metadata-only while storing transcript text in JSONL", async function () {
@@ -379,7 +551,7 @@ describe("ACP runtime memory governance", function () {
         selectedRequestId: "req-runtime-memory",
       }) as any;
       assert.notProperty(snapshot.selectedRun || {}, "transcriptItems");
-      assert.isArray(snapshot.selectedTranscriptPage?.items);
+      assert.isArray(snapshot.transcriptRegion.page?.items);
       assert.notProperty(snapshot.selectedRun || {}, "outputRevisions");
       assert.notProperty(snapshot.selectedRun || {}, "requestPayload");
       assert.notProperty(snapshot.selectedRun || {}, "runnerJson");
@@ -392,12 +564,12 @@ describe("ACP runtime memory governance", function () {
       const prepared = await prepareAcpSkillRunPanelSnapshot({
         selectedRequestId: "req-runtime-memory",
       });
-      const items = prepared.selectedTranscriptPage?.items || [];
+      const items = prepared.transcriptRegion.page?.items || [];
       assert.isAtLeast(items.length, 1);
       assert.isTrue(
         items.some(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             String(item.text || "").includes("Need input"),
         ),
       );
@@ -491,9 +663,9 @@ describe("ACP runtime memory governance", function () {
       });
       assert.notProperty(snapshot.selectedRun || {}, "transcriptItems");
       assert.isTrue(
-        (snapshot.selectedTranscriptPage?.items || []).some(
+        (snapshot.transcriptRegion.page?.items || []).some(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             String(item.text || "").includes("Small pending"),
         ),
       );
@@ -530,11 +702,11 @@ describe("ACP runtime memory governance", function () {
         selectedRequestId: "req-runtime-long-transcript",
       });
       assert.notProperty(tail.selectedRun || {}, "transcriptItems");
-      assert.isAtMost(tail.selectedTranscriptPage?.items.length || 0, 80);
-      assert.equal(tail.selectedTranscriptPage?.total, 210);
-      assert.equal(tail.selectedTranscriptPage?.cursor, 130);
+      assert.isAtMost(tail.transcriptRegion.page?.items.length || 0, 80);
+      assert.equal(tail.transcriptRegion.page?.totalVisibleItemCount, 210);
+      assert.equal(tail.transcriptRegion.page?.startCursor, 130);
       assert.isTrue(
-        (tail.selectedTranscriptPage?.items || []).some((item) =>
+        (tail.transcriptRegion.page?.items || []).some((item) =>
           String(item.text || "").includes("message-209"),
         ),
       );
@@ -547,11 +719,11 @@ describe("ACP runtime memory governance", function () {
           limit: 80,
         },
       });
-      assert.equal(firstPage.selectedTranscriptPage?.cursor, 0);
-      assert.equal(firstPage.selectedTranscriptPage?.nextCursor, 80);
-      assert.isUndefined(firstPage.selectedTranscriptPage?.prevCursor);
+      assert.equal(firstPage.transcriptRegion.page?.startCursor, 0);
+      assert.equal(firstPage.transcriptRegion.page?.nextCursor, 80);
+      assert.isNull(firstPage.transcriptRegion.page?.previousCursor);
       assert.isTrue(
-        (firstPage.selectedTranscriptPage?.items || []).some((item) =>
+        (firstPage.transcriptRegion.page?.items || []).some((item) =>
           String(item.text || "").includes("message-000"),
         ),
       );
@@ -775,6 +947,10 @@ describe("ACP runtime memory governance", function () {
       const rebuilt = await rebuildAcpSkillRunTranscriptIndex({ runtimeDir });
       assert.equal(rebuilt?.itemCount, 204);
       assert.equal(rebuilt?.preview, "message 204 tail");
+      assert.equal(
+        rebuilt?.sourceByteLength,
+        Buffer.byteLength(await fs.readFile(transcriptPath, "utf8")),
+      );
       const rebuiltTail = await readTranscriptRuntimePage({
         runtimeDir,
         limit: 5,
@@ -919,6 +1095,70 @@ describe("ACP runtime memory governance", function () {
         Buffer.byteLength(await fs.readFile(transcriptPath, "utf8")),
       );
     } finally {
+      resetAcpTranscriptWritesForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("scans long UTF-8 transcripts in bounded chunks and hydrates full mirrors from the index", async function () {
+    const root = await mkTempRoot();
+    const runtimeDir = path.join(root, ".acp");
+    const transcriptPath = path.join(runtimeDir, "transcript.jsonl");
+    const indexPath = path.join(runtimeDir, "transcript.index.json");
+    const eventCount = 700;
+    try {
+      await fs.mkdir(runtimeDir, { recursive: true });
+      const lines = Array.from({ length: eventCount }, (_, index) =>
+        JSON.stringify({
+          schema: "zotero-skills.acp.skill-run.transcript.v1",
+          seq: index + 1,
+          op: "upsert_item",
+          itemId: `bounded-${index}`,
+          item: {
+            id: `bounded-${index}`,
+            kind: "message",
+            role: "assistant",
+            text: `消息-${index}-😀-${"x".repeat(700)}`,
+            createdAt: new Date(index).toISOString(),
+          },
+          createdAt: new Date(index).toISOString(),
+        }),
+      );
+      await fs.writeFile(
+        transcriptPath,
+        `${lines.slice(0, 350).join("\n")}\n{bad json}\n${lines
+          .slice(350)
+          .join("\n")}`,
+        "utf8",
+      );
+      await fs.rm(indexPath, { force: true });
+      resetAcpTranscriptWritesForTests();
+      resetAcpTranscriptIndexDiagnosticsForTests();
+
+      const rebuilt = await rebuildAcpSkillRunTranscriptIndex({ runtimeDir });
+      const full = await readAcpSkillRunTranscriptItems({ runtimeDir });
+      const diagnostics = getAcpTranscriptIndexDiagnosticsForTests();
+
+      assert.equal(rebuilt?.itemCount, eventCount);
+      assert.equal(full.total, eventCount);
+      assert.deepEqual(
+        full.items.slice(0, 2).map((item) => item.id),
+        ["bounded-0", "bounded-1"],
+      );
+      assert.equal(full.items.at(-1)?.id, `bounded-${eventCount - 1}`);
+      assert.equal(diagnostics.appliedEvents, eventCount);
+      assert.isAbove(diagnostics.scanReadCalls, 1);
+      assert.isAtMost(
+        diagnostics.maxScanReadBytes,
+        RUNTIME_TEXT_SCAN_CHUNK_BYTES,
+      );
+      assert.isAtLeast(diagnostics.fullMirrorIndexedPages, 4);
+      assert.equal(
+        rebuilt?.sourceByteLength,
+        (await fs.stat(transcriptPath)).size,
+      );
+    } finally {
+      resetAcpTranscriptIndexDiagnosticsForTests();
       resetAcpTranscriptWritesForTests();
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -1070,7 +1310,7 @@ describe("ACP runtime memory governance", function () {
     assert.include(stages, "apply-result-detach-error");
   });
 
-  it("builds ACP Skills panel recent runs from a bounded index", async function () {
+  it("builds bounded ACP Skills summaries without a panel-specific index", async function () {
     for (let index = 1; index <= 125; index += 1) {
       const padded = String(index).padStart(3, "0");
       upsertAcpSkillRun({
@@ -1105,9 +1345,10 @@ describe("ACP runtime memory governance", function () {
     });
     const diagnostics = getAcpSkillRunSummaryDiagnosticsForTests();
 
-    assert.equal(diagnostics.fullRunRecordScanCount, 0);
-    assert.equal(diagnostics.recentIndexScanCount, 1);
-    assert.isAtMost(diagnostics.runCandidateReadCount, 101);
+    assert.equal(diagnostics.fullRunRecordScanCount, 1);
+    assert.isAtLeast(diagnostics.summaryQueryCount, 1);
+    assert.notProperty(diagnostics, "recentIndexScanCount");
+    assert.isAtMost(diagnostics.runCandidateReadCount, 129);
     assert.lengthOf(snapshot.runs, 100);
     assert.equal(snapshot.runs[0].requestId, "req-panel-125");
     assert.equal(snapshot.runs[99].requestId, "req-panel-026");
@@ -1128,9 +1369,10 @@ describe("ACP runtime memory governance", function () {
     });
     const selectedDiagnostics = getAcpSkillRunSummaryDiagnosticsForTests();
 
-    assert.equal(selectedDiagnostics.fullRunRecordScanCount, 0);
-    assert.equal(selectedDiagnostics.recentIndexScanCount, 1);
-    assert.isAtMost(selectedDiagnostics.runCandidateReadCount, 101);
+    assert.equal(selectedDiagnostics.fullRunRecordScanCount, 1);
+    assert.isAtLeast(selectedDiagnostics.summaryQueryCount, 1);
+    assert.notProperty(selectedDiagnostics, "recentIndexScanCount");
+    assert.isAtMost(selectedDiagnostics.runCandidateReadCount, 129);
     assert.equal(selectedOld.selectedRun?.requestId, "req-panel-001");
     assert.equal(selectedOld.runs[0].requestId, "req-panel-001");
     assert.lengthOf(selectedOld.runs, 100);

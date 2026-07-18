@@ -1,6 +1,25 @@
 (function () {
   "use strict";
 
+  const transcriptNodeMaps = new WeakMap();
+
+  function transcriptNodeMap(container, provided) {
+    if (
+      provided &&
+      typeof provided.get === "function" &&
+      typeof provided.set === "function"
+    ) {
+      return provided;
+    }
+    if (!container) return null;
+    let nodes = transcriptNodeMaps.get(container);
+    if (!nodes) {
+      nodes = new Map();
+      transcriptNodeMaps.set(container, nodes);
+    }
+    return nodes;
+  }
+
   function el(tag, className, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -53,7 +72,7 @@
     let state = virtualTranscriptStates.get(container);
     if (!state) {
       state = {
-        pageKey: "",
+        ownerKey: "",
         pages: new Map(),
         loadingCursors: new Set(),
         renderScheduled: false,
@@ -63,11 +82,59 @@
         lastAnchor: null,
         pendingMeasureRender: false,
         rowHeights: new Map(),
+        itemLocations: new Map(),
         virtualSourceMode: "page",
       };
       virtualTranscriptStates.set(container, state);
     }
     return state;
+  }
+
+  function cloneVirtualTranscriptState(source) {
+    const pages = new Map();
+    source.pages.forEach(function (page, cursor) {
+      pages.set(
+        cursor,
+        Object.assign({}, page, {
+          items: Array.isArray(page.items) ? page.items.slice() : [],
+        }),
+      );
+    });
+    const itemLocations = new Map();
+    pages.forEach(function (page) {
+      page.items.forEach(function (item, index) {
+        const itemId = String(item && item.itemId ? item.itemId : "").trim();
+        if (itemId) itemLocations.set(itemId, { page, index });
+      });
+    });
+    return {
+      ownerKey: source.ownerKey,
+      pages,
+      loadingCursors: new Set(source.loadingCursors),
+      renderScheduled: source.renderScheduled,
+      scrollInstalled: source.scrollInstalled,
+      latestOptions: source.latestOptions,
+      lastVirtual: source.lastVirtual,
+      lastAnchor: source.lastAnchor,
+      pendingMeasureRender: source.pendingMeasureRender,
+      rowHeights: new Map(source.rowHeights),
+      itemLocations,
+      virtualSourceMode: source.virtualSourceMode,
+    };
+  }
+
+  function commitVirtualTranscriptState(target, source) {
+    target.ownerKey = source.ownerKey;
+    target.pages = source.pages;
+    target.loadingCursors = source.loadingCursors;
+    target.renderScheduled = source.renderScheduled;
+    target.latestOptions = source.latestOptions;
+    target.lastVirtual = source.lastVirtual;
+    target.lastAnchor = source.lastAnchor;
+    target.pendingMeasureRender = source.pendingMeasureRender;
+    target.rowHeights = source.rowHeights;
+    target.itemLocations = source.itemLocations;
+    target.virtualSourceMode = source.virtualSourceMode;
   }
 
   function resetTranscriptScrollState(container) {
@@ -78,8 +145,8 @@
     container.setAttribute("data-assistant-transcript-last-scroll-top", "0");
   }
 
-  function resetVirtualTranscriptState(state, pageKey) {
-    state.pageKey = pageKey || "";
+  function resetVirtualTranscriptState(state, ownerKey) {
+    state.ownerKey = ownerKey || "";
     state.pages = new Map();
     state.loadingCursors = new Set();
     state.renderScheduled = false;
@@ -88,83 +155,116 @@
     state.lastVirtual = null;
     state.lastAnchor = null;
     state.rowHeights = new Map();
+    state.itemLocations = new Map();
     state.virtualSourceMode = "page";
   }
 
-  function resetAssistantTranscriptVirtualState(container, pageKey) {
+  function resetAssistantTranscriptVirtualState(container, ownerKey) {
     if (!container) return;
     const state = getVirtualTranscriptState(container);
-    const normalizedPageKey = String(pageKey || "").trim();
-    resetVirtualTranscriptState(state, normalizedPageKey);
+    const normalizedOwnerKey = String(ownerKey || "").trim();
+    resetVirtualTranscriptState(state, normalizedOwnerKey);
     resetTranscriptScrollState(container);
     container.setAttribute(
-      "data-assistant-transcript-page-key",
-      normalizedPageKey,
+      "data-assistant-transcript-owner-key",
+      normalizedOwnerKey,
     );
   }
 
-  function normalizeVirtualTranscriptPage(page, pageKey, fallbackLimit) {
+  function normalizeVirtualTranscriptPage(page, ownerKey, fallbackLimit) {
     if (!page || typeof page !== "object" || !Array.isArray(page.items)) {
       return null;
     }
-    const requestId = String(page.requestId || "").trim();
-    if (requestId && pageKey && requestId !== pageKey) {
+    const pageOwnerKey = String(page.ownerKey || "").trim();
+    if (pageOwnerKey && ownerKey && pageOwnerKey !== ownerKey) {
       return null;
     }
-    const cursor = nonNegativeInteger(page.cursor, 0);
+    const pageKey = String(page.pageKey || "").trim();
+    if (!pageOwnerKey || !pageKey.startsWith(pageOwnerKey + "\n")) {
+      return null;
+    }
+    const startCursor = nonNegativeInteger(page.startCursor, 0);
     return {
-      requestId,
-      cursor,
+      ownerKey: pageOwnerKey,
+      pageKey,
+      startCursor,
       items: page.items.slice(),
-      prevCursor:
-        typeof page.prevCursor === "number"
-          ? nonNegativeInteger(page.prevCursor, 0)
-          : undefined,
+      previousCursor:
+        typeof page.previousCursor === "number"
+          ? nonNegativeInteger(page.previousCursor, 0)
+          : null,
       nextCursor:
         typeof page.nextCursor === "number"
           ? nonNegativeInteger(page.nextCursor, 0)
-          : undefined,
-      total: nonNegativeInteger(page.total, page.items.length),
-      eventSeq: nonNegativeInteger(page.eventSeq, 0),
+          : null,
+      totalVisibleItemCount: nonNegativeInteger(
+        page.totalVisibleItemCount,
+        page.items.length,
+      ),
+      sourceEventSeq: nonNegativeInteger(page.sourceEventSeq, 0),
       transcriptRevision: nonNegativeInteger(page.transcriptRevision, 0),
       limit: positiveInteger(page.limit, fallbackLimit),
     };
   }
 
   function mergeVirtualTranscriptPage(state, page, options) {
-    const pageKey =
-      String(options.pageKey || "").trim() ||
-      String(page && page.requestId ? page.requestId : "").trim();
-    if (state.pageKey !== pageKey || state.virtualSourceMode !== "page") {
-      resetVirtualTranscriptState(state, pageKey);
+    const ownerKey =
+      String(options.ownerKey || "").trim() ||
+      String(page && page.ownerKey ? page.ownerKey : "").trim();
+    if (state.ownerKey !== ownerKey || state.virtualSourceMode !== "page") {
+      resetVirtualTranscriptState(state, ownerKey);
     }
     state.virtualSourceMode = "page";
     const normalized = normalizeVirtualTranscriptPage(
       page,
-      state.pageKey,
+      state.ownerKey,
       positiveInteger(options.pageSize, VIRTUAL_PAGE_SIZE),
     );
     if (!normalized) return null;
-    state.loadingCursors.delete(normalized.cursor);
-    state.pages.set(normalized.cursor, normalized);
+    state.loadingCursors.delete(normalized.startCursor);
+    if (/\ntail:\d+$/.test(normalized.pageKey)) {
+      state.pages.clear();
+      state.itemLocations.clear();
+    }
+    const previousPage = state.pages.get(normalized.startCursor);
+    if (previousPage) {
+      previousPage.items.forEach(function (item) {
+        const itemId = String(item && item.itemId ? item.itemId : "").trim();
+        const location = itemId ? state.itemLocations.get(itemId) : null;
+        if (location && location.page === previousPage) {
+          state.itemLocations.delete(itemId);
+        }
+      });
+    }
+    state.pages.set(normalized.startCursor, normalized);
+    normalized.items.forEach(function (item, index) {
+      const itemId = String(item && item.itemId ? item.itemId : "").trim();
+      if (itemId) {
+        state.itemLocations.set(itemId, { page: normalized, index });
+      }
+    });
     trimVirtualTranscriptPages(state, options);
+    if (/\ntail:\d+$/.test(normalized.pageKey)) {
+      pruneVirtualTranscriptRowHeights(state);
+    }
     return normalized;
   }
 
   function setVirtualTranscriptItemsSource(state, items, options) {
-    const pageKey = String(options.pageKey || "").trim();
-    if (state.pageKey !== pageKey || state.virtualSourceMode !== "items") {
-      resetVirtualTranscriptState(state, pageKey);
+    const ownerKey = String(options.ownerKey || "").trim();
+    if (state.ownerKey !== ownerKey || state.virtualSourceMode !== "items") {
+      resetVirtualTranscriptState(state, ownerKey);
     }
     state.virtualSourceMode = "items";
     const sourceItems = Array.isArray(items) ? items.slice() : [];
     state.loadingCursors.clear();
     state.pages.set(0, {
-      requestId: pageKey,
-      cursor: 0,
+      ownerKey,
+      pageKey: ownerKey ? ownerKey + "\ntail:" + sourceItems.length : "",
+      startCursor: 0,
       items: sourceItems,
-      total: sourceItems.length,
-      eventSeq: nonNegativeInteger(options.transcriptRevision, 0),
+      totalVisibleItemCount: sourceItems.length,
+      sourceEventSeq: nonNegativeInteger(options.transcriptRevision, 0),
       transcriptRevision: nonNegativeInteger(options.transcriptRevision, 0),
       limit: Math.max(1, sourceItems.length || 1),
     });
@@ -200,12 +300,12 @@
 
   function virtualTranscriptEntryKey(entry) {
     const source = (entry && entry.item) || {};
-    const id = String(source.id || "").trim();
-    if (id) return "id:" + id;
+    const itemId = String(source.itemId || "").trim();
+    if (itemId) return "item:" + itemId;
     return [
       "index",
       String(nonNegativeInteger(entry && entry.index, 0)),
-      String(source.kind || ""),
+      String(source.itemKind || ""),
       String(source.role || ""),
     ].join(":");
   }
@@ -221,12 +321,12 @@
     ) {
       return virtual.rowKeys[index];
     }
-    const id = String(source.id || "").trim();
-    if (id) return "id:" + id;
+    const rowKey = String(source.rowKey || "").trim();
+    if (rowKey) return rowKey;
     return [
       "rendered",
       String(nonNegativeInteger(index, 0)),
-      String(source.kind || ""),
+      String(source.rowKind || ""),
       String(source.role || ""),
     ].join(":");
   }
@@ -365,12 +465,12 @@
     const sentinelHeight = Math.min(estimatedHeight, 96);
     const topGapHeight = Math.max(0, finiteNumber(firstPosition.top, 0));
     if (
-      typeof cache.prevCursor === "number" &&
+      typeof cache.previousCursor === "number" &&
       topGapHeight > 0 &&
       viewportTop < topGapHeight &&
       viewportBottom > 0
     ) {
-      requestVirtualTranscriptPage(state, options, cache.prevCursor);
+      requestVirtualTranscriptPage(state, options, cache.previousCursor);
       const height = Math.min(sentinelHeight, topGapHeight);
       const top = Math.max(
         0,
@@ -378,7 +478,7 @@
       );
       return {
         placement: "top",
-        cursor: cache.prevCursor,
+        cursor: cache.previousCursor,
         before: top,
         height,
         after: Math.max(0, topGapHeight - top - height),
@@ -508,19 +608,22 @@
 
   function virtualTranscriptCacheEntries(state) {
     const pages = Array.from(state.pages.values()).sort(function (a, b) {
-      return a.cursor - b.cursor;
+      return a.startCursor - b.startCursor;
     });
     const byIndex = new Map();
-    let total = 0;
+    let totalVisibleItemCount = 0;
     let revision = 0;
     pages.forEach(function (page) {
-      total = Math.max(total, nonNegativeInteger(page.total, 0));
+      totalVisibleItemCount = Math.max(
+        totalVisibleItemCount,
+        nonNegativeInteger(page.totalVisibleItemCount, 0),
+      );
       revision = Math.max(
         revision,
-        nonNegativeInteger(page.transcriptRevision || page.eventSeq, 0),
+        nonNegativeInteger(page.transcriptRevision || page.sourceEventSeq, 0),
       );
       page.items.forEach(function (item, offset) {
-        byIndex.set(page.cursor + offset, item);
+        byIndex.set(page.startCursor + offset, item);
       });
     });
     const entries = Array.from(byIndex.entries())
@@ -534,16 +637,16 @@
     const lastPage = pages[pages.length - 1] || null;
     return {
       entries,
-      total: Math.max(total, entries.length),
+      totalVisibleItemCount: Math.max(totalVisibleItemCount, entries.length),
       revision,
-      prevCursor:
-        firstPage && typeof firstPage.prevCursor === "number"
-          ? firstPage.prevCursor
-          : undefined,
+      previousCursor:
+        firstPage && typeof firstPage.previousCursor === "number"
+          ? firstPage.previousCursor
+          : null,
       nextCursor:
         lastPage && typeof lastPage.nextCursor === "number"
           ? lastPage.nextCursor
-          : undefined,
+          : null,
     };
   }
 
@@ -557,7 +660,7 @@
         endIndex: 0,
         cachedStartIndex: 0,
         cachedEndIndex: 0,
-        total: 0,
+        totalRowCount: 0,
         totalHeight: 0,
         topSpacerHeight: 0,
         bottomSpacerHeight: 0,
@@ -581,7 +684,10 @@
       entries,
       state,
       options,
-      Math.max(cache.total, entries[entries.length - 1].index + 1),
+      Math.max(
+        cache.totalVisibleItemCount,
+        entries[entries.length - 1].index + 1,
+      ),
     );
     const scrollTop = finiteNumber(container.scrollTop, 0);
     const viewportHeight = Math.max(1, finiteNumber(container.clientHeight, 0));
@@ -658,7 +764,7 @@
       endIndex,
       cachedStartIndex: entries[0].index,
       cachedEndIndex: entries[entries.length - 1].index + 1,
-      total: layout.rowCount,
+      totalRowCount: layout.rowCount,
       totalHeight: layout.totalHeight,
       topSpacerHeight: firstPosition.top,
       bottomSpacerHeight: Math.max(0, layout.totalHeight - lastPosition.bottom),
@@ -667,14 +773,13 @@
         layout.positions[layout.positions.length - 1].bottom,
       positions: layout.positions,
       revision: cache.revision,
-      prevCursor: cache.prevCursor,
+      previousCursor: cache.previousCursor,
       nextCursor: cache.nextCursor,
       loadingGap,
       signature: [
         startIndex,
         endIndex,
-        cache.total,
-        cache.revision,
+        cache.totalVisibleItemCount,
         Math.round(firstPosition.top),
         Math.round(layout.totalHeight - lastPosition.bottom),
         loadingGap
@@ -693,8 +798,8 @@
               position.key,
               Math.round(position.height),
               String(
-                position.entry.item && position.entry.item.id
-                  ? position.entry.item.id
+                position.entry.item && position.entry.item.itemId
+                  ? position.entry.item.itemId
                   : "",
               ),
             ].join(":");
@@ -714,7 +819,7 @@
       return;
     }
     const cursorKey = nonNegativeInteger(cursor, 0);
-    if (!state.pageKey || isVirtualPageCachedOrLoading(state, cursorKey)) {
+    if (!state.ownerKey || isVirtualPageCachedOrLoading(state, cursorKey)) {
       return;
     }
     if (typeof options.onRequestPage !== "function") {
@@ -722,7 +827,7 @@
     }
     state.loadingCursors.add(cursorKey);
     options.onRequestPage({
-      pageKey: state.pageKey,
+      ownerKey: state.ownerKey,
       cursor: cursorKey,
       limit: positiveInteger(options.pageSize, VIRTUAL_PAGE_SIZE),
     });
@@ -745,10 +850,10 @@
     const topBoundary = finiteNumber(virtual.cachedTopBoundary, 0);
     const bottomBoundary = finiteNumber(virtual.cachedBottomBoundary, 0);
     if (
-      typeof virtual.prevCursor === "number" &&
+      typeof virtual.previousCursor === "number" &&
       finiteNumber(container.scrollTop, 0) - topBoundary < threshold
     ) {
-      requestVirtualTranscriptPage(state, options, virtual.prevCursor);
+      requestVirtualTranscriptPage(state, options, virtual.previousCursor);
     }
     if (
       typeof virtual.nextCursor === "number" &&
@@ -845,7 +950,12 @@
     return fallback;
   }
 
-  function measureVirtualTranscriptRows(container, state, options) {
+  function measureVirtualTranscriptRows(
+    container,
+    state,
+    options,
+    dirtyRowKeys,
+  ) {
     if (!container || !state || !state.rowHeights) return false;
     const estimatedHeight = positiveInteger(
       options.estimatedRowHeight,
@@ -863,6 +973,7 @@
           : "",
       ).trim();
       if (!key) return;
+      if (dirtyRowKeys && !dirtyRowKeys.has(key)) return;
       const height = positiveInteger(
         measuredElementHeight(row, estimatedHeight),
         estimatedHeight,
@@ -882,12 +993,12 @@
     if (state.renderScheduled || !state.latestOptions) return;
     state.renderScheduled = true;
     if (reason === "measure") state.pendingMeasureRender = true;
-    const scheduledPageKey = state.pageKey;
+    const scheduledOwnerKey = state.ownerKey;
     transcriptAnimationFrame(function () {
       state.renderScheduled = false;
       state.pendingMeasureRender = false;
       if (!state.latestOptions) return;
-      if (scheduledPageKey !== state.pageKey) return;
+      if (scheduledOwnerKey !== state.ownerKey) return;
       renderAssistantTranscript(
         Object.assign({}, state.latestOptions, {
           _virtualScrollRender: true,
@@ -1261,142 +1372,63 @@
     }
   }
 
-  function toolStateRank(state) {
-    switch (normalizeStatusToken(state)) {
-      case "failed":
-        return 4;
-      case "completed":
-      case "succeeded":
-        return 3;
-      case "in_progress":
-      case "running":
-        return 2;
-      case "pending":
-      default:
-        return 1;
-    }
-  }
-
-  function toolEventTime(item) {
-    const parsed = Date.parse(
-      String((item && (item.updatedAt || item.createdAt)) || ""),
-    );
-    return Number.isNaN(parsed) ? 0 : parsed;
-  }
-
-  function isPreferredToolEvent(candidate, current) {
-    const candidateRank = toolStateRank(candidate && candidate.state);
-    const currentRank = toolStateRank(current && current.state);
-    if (candidateRank !== currentRank) return candidateRank > currentRank;
-    return toolEventTime(candidate) >= toolEventTime(current);
-  }
-
-  function sanitizeToolGroupKey(key) {
-    const text = String(key || "unknown");
-    let hash = 0;
-    for (let index = 0; index < text.length; index += 1) {
-      hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
-    }
-    const slug =
-      text.replace(/[^A-Za-z0-9_-]+/g, "_").slice(0, 48) || "unknown";
-    return slug + "-" + hash.toString(36);
-  }
-
-  function createCanonicalToolItem(key, group) {
-    const items = group.items || [];
-    const first = items[0] || {};
-    const selected = items.reduce(function (current, candidate) {
-      return isPreferredToolEvent(candidate, current) ? candidate : current;
-    }, first);
-    const latestSummary =
-      items
-        .slice()
-        .reverse()
-        .find(function (tool) {
-          return String(tool.summary || "").trim();
-        }) || {};
-    const firstInputSummary =
-      items.find(function (tool) {
-        return !isGenericToolText(tool.inputSummary);
-      }) || {};
-    const latestResultSummary =
-      items
-        .slice()
-        .reverse()
-        .find(function (tool) {
-          return !isGenericToolText(tool.resultSummary);
-        }) || {};
-    const latestToolName =
-      items
-        .slice()
-        .reverse()
-        .find(function (tool) {
-          return !isGenericToolText(tool.toolName);
-        }) || {};
-    return {
-      id: "assistant-tool-" + sanitizeToolGroupKey(key),
-      kind: "tool",
-      toolCallId: String(selected.toolCallId || first.toolCallId || key || ""),
-      title: String(selected.title || first.title || "Tool"),
-      toolKind:
-        String(selected.toolKind || first.toolKind || "").trim() || undefined,
-      toolName:
-        String(
-          latestToolName.toolName || selected.toolName || first.toolName || "",
-        ).trim() || undefined,
-      inputSummary:
-        String(
-          firstInputSummary.inputSummary || selected.inputSummary || "",
-        ).trim() || undefined,
-      resultSummary:
-        String(
-          latestResultSummary.resultSummary || selected.resultSummary || "",
-        ).trim() || undefined,
-      state: selected.state || first.state || "pending",
-      summary:
-        String(selected.summary || latestSummary.summary || "").trim() ||
-        undefined,
-      createdAt: first.createdAt,
-      updatedAt: selected.updatedAt || selected.createdAt || first.updatedAt,
-    };
-  }
-
-  function buildCanonicalTranscriptItems(items) {
-    const entries = [];
-    const toolGroups = new Map();
-    (Array.isArray(items) ? items : []).forEach(function (item) {
-      if (!item || item.kind === "plan") return;
-      if (item.kind !== "tool_call" && item.kind !== "tool") {
-        entries.push({ index: entries.length, item });
-        return;
+  function adaptLegacyTranscriptItem(item) {
+    const source = item && typeof item === "object" ? item : {};
+    if (source.itemId && source.itemKind) return source;
+    const itemId = String(source.id || "").trim();
+    const legacyKind = String(source.kind || "").trim();
+    const itemKind =
+      legacyKind === "tool" || legacyKind === "tool_call"
+        ? "tool-call"
+        : legacyKind === "process"
+          ? "thought"
+          : legacyKind;
+    if (!itemId || !itemKind) return null;
+    const adapted = {};
+    Object.keys(source).forEach(function (key) {
+      if (key !== "id" && key !== "kind" && key !== "state") {
+        adapted[key] = source[key];
       }
-      const key = String(item.toolCallId || item.id || "").trim();
-      const groupKey = key || String(item.id || entries.length);
-      let group = toolGroups.get(groupKey);
-      if (!group) {
-        group = { index: entries.length, items: [] };
-        toolGroups.set(groupKey, group);
-        entries.push({ index: group.index, toolGroupKey: groupKey });
-      }
-      group.items.push(item);
     });
-    return entries
-      .map(function (entry) {
-        if (entry.toolGroupKey) {
-          return createCanonicalToolItem(
-            entry.toolGroupKey,
-            toolGroups.get(entry.toolGroupKey) || {},
-          );
-        }
-        return entry.item;
+    adapted.itemId = itemId;
+    adapted.itemKind = itemKind;
+    adapted.status =
+      source.state === "in_progress" ? "in-progress" : source.state;
+    if (source.revision && typeof source.revision === "object") {
+      adapted.revision = {
+        count: Number(source.revision.count) || 0,
+        status: source.revision.status || source.revision.latestStatus || "",
+        repairRound:
+          Number(
+            source.revision.repairRound || source.revision.latestRepairRound,
+          ) || 0,
+      };
+    }
+    return adapted;
+  }
+
+  function createItemPresentationRow(item) {
+    if (!item || !item.itemId || !item.itemKind) return null;
+    return Object.assign({}, item, {
+      rowKey: "item:" + String(item.itemId),
+      itemIds: [String(item.itemId)],
+      rowKind: String(item.itemKind),
+    });
+  }
+
+  function buildPresentationItemRows(items) {
+    return (Array.isArray(items) ? items : [])
+      .filter(function (item) {
+        return item && item.itemKind !== "plan";
       })
+      .map(createItemPresentationRow)
       .filter(Boolean);
   }
 
   function toolActivitySummaryState(items) {
     const tools = Array.isArray(items) ? items : [];
     const states = tools.map(function (tool) {
-      return normalizeStatusToken(tool && tool.state);
+      return normalizeStatusToken(tool && tool.status);
     });
     const completedCount = states.filter(function (state) {
       return state === "completed" || state === "succeeded";
@@ -1416,37 +1448,36 @@
 
   function stableToolActivityGroupKey(run, fallbackIndex) {
     const first = run[0] || {};
-    const key =
-      String(first.toolCallId || "").trim() ||
-      String(first.id || "").trim() ||
-      String(first.createdAt || "").trim() ||
-      "run-" + String(fallbackIndex || 0);
-    return sanitizeToolGroupKey(key);
+    return (
+      String(first.itemId || "").trim() ||
+      "unknown-" + String(fallbackIndex || 0)
+    );
   }
 
   function createToolActivityGroup(run, expandedIds, fallbackIndex) {
     const first = run[0] || {};
     const last = run[run.length - 1] || first;
-    const id =
-      "assistant-tool-activity-" +
-      stableToolActivityGroupKey(run, fallbackIndex);
+    const rowKey = "tool-run:" + stableToolActivityGroupKey(run, fallbackIndex);
     return {
-      id,
-      kind: "tool_activity_group",
+      rowKey,
+      itemIds: run.map(function (item) {
+        return String(item.itemId);
+      }),
+      rowKind: "tool-activity-group",
       items: run,
       createdAt: first.createdAt,
       updatedAt: last.updatedAt || last.createdAt,
-      state: last.state,
+      status: last.status,
       expanded:
         expandedIds &&
         typeof expandedIds.has === "function" &&
-        expandedIds.has(id),
+        expandedIds.has(rowKey),
     };
   }
 
   function buildTranscriptRenderItems(items, mode, expandedIds) {
-    const canonicalItems = buildCanonicalTranscriptItems(items);
-    if (mode !== "bubble") return canonicalItems;
+    const presentationRows = buildPresentationItemRows(items);
+    if (mode !== "bubble") return presentationRows;
     const entries = [];
     let toolRun = [];
     function flush() {
@@ -1457,8 +1488,8 @@
         );
       toolRun = [];
     }
-    canonicalItems.forEach(function (item) {
-      if (item.kind === "tool_call" || item.kind === "tool") {
+    presentationRows.forEach(function (item) {
+      if (item.rowKind === "tool-call") {
         toolRun.push(item);
         return;
       }
@@ -1470,22 +1501,28 @@
   }
 
   function itemRole(item) {
-    if (item.kind === "message") return String(item.role || "assistant");
+    if (item.rowKind === "message") return String(item.role || "assistant");
     if (
-      item.kind === "tool" ||
-      item.kind === "tool_call" ||
-      item.kind === "tool_activity_group"
+      item.rowKind === "tool-call" ||
+      item.rowKind === "tool-activity-group"
     ) {
       return "tool";
     }
-    if (item.kind === "permission") return "permission";
-    if (item.kind === "process" || item.kind === "thought") return "process";
-    return String(item.kind || "status");
+    if (item.rowKind === "permission") return "permission";
+    if (item.rowKind === "thought") return "process";
+    return String(item.rowKind || "status");
   }
 
   function createTranscriptNode(item) {
     const row = el("article", "assistant-transcript-row");
-    row.setAttribute("data-assistant-item-id", String(item.id || ""));
+    row.setAttribute("data-assistant-row-key", String(item.rowKey || ""));
+    row.setAttribute(
+      "data-assistant-item-ids",
+      (Array.isArray(item.itemIds) ? item.itemIds : []).join("\u001f"),
+    );
+    if (item.itemIds && item.itemIds.length === 1) {
+      row.setAttribute("data-assistant-item-id", String(item.itemIds[0]));
+    }
     const meta = el("div", "assistant-transcript-meta");
     const body = el("div", "assistant-transcript-body");
     body.setAttribute("data-assistant-transcript-body", "true");
@@ -1495,7 +1532,7 @@
   }
 
   function updateTranscriptClasses(row, item, options) {
-    const kind = String(item.kind || "status");
+    const kind = String(item.rowKind || "status");
     const role = itemRole(item);
     const variant = String((options && options.variant) || "acp-chat");
     row.className = "assistant-transcript-row";
@@ -1529,13 +1566,13 @@
     );
     row.classList.toggle(
       "is-streaming",
-      String(item.state || "").trim() === "streaming",
+      String(item.status || "").trim() === "streaming",
     );
     row.classList.toggle(
       "is-error",
-      String(item.state || "").trim() === "error",
+      String(item.status || "").trim() === "error",
     );
-    if (item.kind === "tool_activity_group") {
+    if (item.rowKind === "tool-activity-group") {
       row.classList.add("is-tool-activity-group");
       row.classList.toggle("is-expanded", item.expanded === true);
       row.classList.toggle("is-collapsed", item.expanded !== true);
@@ -1601,13 +1638,13 @@
     badge.title =
       transcriptLabel(options, "latestRevision") +
       ": " +
-      String(revision.latestStatus || "") +
+      String(revision.status || "") +
       ", repair round " +
-      String(Number(revision.latestRepairRound || 0));
+      String(Number(revision.repairRound || 0));
     parent.appendChild(badge);
   }
 
-  function renderCanonicalItem(row, item, options) {
+  function renderPresentationRow(row, item, options) {
     const renderMarkdown =
       options.renderMarkdown ||
       function (value) {
@@ -1619,6 +1656,21 @@
         : function (value) {
             return String(value || "");
           };
+    const formattedTime = function (value) {
+      try {
+        return formatTime(value);
+      } catch (_error) {
+        return String(value || "");
+      }
+    };
+    const renderMarkdownBody = function (target, value) {
+      try {
+        target.innerHTML = renderMarkdown(String(value || ""));
+        decorateMarkdownCodeBlocks(target, options);
+      } catch (_error) {
+        target.textContent = String(value || "");
+      }
+    };
     const meta = row.querySelector(".assistant-transcript-meta");
     const body = row.querySelector("[data-assistant-transcript-body]");
     updateTranscriptClasses(row, item, options);
@@ -1628,7 +1680,7 @@
     body.className = "assistant-transcript-body";
     row.onclick = null;
     row.onkeydown = null;
-    if (item.kind === "message") {
+    if (item.rowKind === "message") {
       meta.appendChild(
         el(
           "span",
@@ -1642,31 +1694,29 @@
       );
       renderRevisionBadge(meta, item.revision, undefined, options);
       meta.appendChild(
-        el("span", "assistant-transcript-time", formatTime(item.createdAt)),
+        el("span", "assistant-transcript-time", formattedTime(item.createdAt)),
       );
-      if (String(item.state || "").trim() === "streaming") {
+      if (String(item.status || "").trim() === "streaming") {
         body.textContent = String(item.text || "");
         return;
       }
       body.classList.add("assistant-transcript-markdown-body");
-      body.innerHTML = renderMarkdown(String(item.text || ""));
-      decorateMarkdownCodeBlocks(body, options);
+      renderMarkdownBody(body, item.text);
       return;
     }
-    if (item.kind === "process" || item.kind === "thought") {
+    if (item.rowKind === "thought") {
       meta.textContent = String(
         item.label || transcriptLabel(options, "thinking"),
       );
-      if (String(item.state || "").trim() === "streaming") {
+      if (String(item.status || "").trim() === "streaming") {
         body.textContent = String(item.text || "");
         return;
       }
       body.classList.add("assistant-transcript-markdown-body");
-      body.innerHTML = renderMarkdown(String(item.text || ""));
-      decorateMarkdownCodeBlocks(body, options);
+      renderMarkdownBody(body, item.text);
       return;
     }
-    if (item.kind === "permission") {
+    if (item.rowKind === "permission") {
       meta.textContent = transcriptLabel(options, "permission");
       const led = el(
         "span",
@@ -1690,18 +1740,18 @@
       );
       return;
     }
-    if (item.kind === "tool" || item.kind === "tool_call") {
+    if (item.rowKind === "tool-call") {
       meta.textContent = transcriptLabel(options, "tool");
       const led = el(
         "span",
-        "assistant-transcript-tool-led " + toolToneClass(item.state),
+        "assistant-transcript-tool-led " + toolToneClass(item.status),
       );
       led.setAttribute("aria-hidden", "true");
       body.appendChild(led);
       appendToolDisplay(body, item);
       return;
     }
-    if (item.kind === "tool_activity_group") {
+    if (item.rowKind === "tool-activity-group") {
       const summaryState = toolActivitySummaryState(item.items);
       const summary = el(
         "button",
@@ -1755,7 +1805,7 @@
       if (typeof options.onToggleExpanded === "function") {
         summary.addEventListener("click", function (event) {
           event.stopPropagation();
-          options.onToggleExpanded(item.id);
+          options.onToggleExpanded(item.rowKey);
         });
       }
       body.appendChild(summary);
@@ -1765,12 +1815,12 @@
           const entry = el(
             "div",
             "assistant-transcript-tool-activity-item " +
-              toolToneClass(tool.state),
+              toolToneClass(tool.status),
           );
           setAssistantTooltip(entry, assistantToolCommandTooltip(tool));
           const toolLed = el(
             "span",
-            "assistant-transcript-tool-led " + toolToneClass(tool.state),
+            "assistant-transcript-tool-led " + toolToneClass(tool.status),
           );
           toolLed.setAttribute("aria-hidden", "true");
           entry.appendChild(toolLed);
@@ -1781,7 +1831,7 @@
       }
       return;
     }
-    if (item.kind === "status" && item.label === "workspace-activity") {
+    if (item.rowKind === "status" && item.label === "workspace-activity") {
       meta.textContent = transcriptLabel(options, "workspace");
       const relativePath =
         item.details &&
@@ -1811,14 +1861,14 @@
   function toolGroupSummaryText(items, options) {
     const tools = Array.isArray(items) ? items : [];
     const failedCount = tools.filter(function (tool) {
-      return normalizeStatusToken(tool.state) === "failed";
+      return normalizeStatusToken(tool.status) === "failed";
     }).length;
     const runningCount = tools.filter(function (tool) {
-      const status = normalizeStatusToken(tool.state);
+      const status = normalizeStatusToken(tool.status);
       return status === "in_progress" || status === "running";
     }).length;
     const pendingCount = tools.filter(function (tool) {
-      return normalizeStatusToken(tool.state) === "pending";
+      return normalizeStatusToken(tool.status) === "pending";
     }).length;
     return [
       String(tools.length) + " " + transcriptLabel(options, "tools"),
@@ -1844,7 +1894,7 @@
   }
 
   function renderAssistantTranscriptItem(row, item, options) {
-    renderCanonicalItem(row, item || {}, options || {});
+    renderPresentationRow(row, item || {}, options || {});
   }
 
   function createRow(item, options) {
@@ -1854,16 +1904,16 @@
   function transcriptItemSignature(item, options) {
     const source = item || {};
     const expanded =
-      source.kind === "tool_activity_group" && source.expanded === true
+      source.rowKind === "tool-activity-group" && source.expanded === true
         ? "expanded"
         : "collapsed";
     return [
       options && options.variant,
       options && options.mode,
-      source.id,
-      source.kind,
+      source.rowKey,
+      source.itemIds && source.itemIds.join(","),
+      source.rowKind,
       source.role,
-      source.state,
       source.status,
       source.label,
       source.text,
@@ -1877,13 +1927,13 @@
       source.resultSummary,
       expanded,
       source.revision && source.revision.count,
-      source.revision && source.revision.latestStatus,
+      source.revision && source.revision.status,
       Array.isArray(source.items)
         ? source.items
             .map(function (entry) {
               return [
-                entry && entry.id,
-                entry && entry.state,
+                entry && entry.itemId,
+                entry && entry.status,
                 entry && entry.toolName,
                 entry && entry.summary,
                 entry && entry.resultSummary,
@@ -1899,9 +1949,303 @@
     if (row.getAttribute("data-assistant-render-signature") === signature) {
       return false;
     }
+    const kind = String((item && item.rowKind) || "");
+    const state = String((item && item.status) || "");
+    const nextText = String((item && item.text) || "");
+    const previousText = row.getAttribute("data-assistant-stream-text");
+    const body = row.querySelector("[data-assistant-transcript-body]");
+    if (
+      (kind === "message" || kind === "thought") &&
+      state === "streaming" &&
+      previousText !== null &&
+      nextText.startsWith(previousText) &&
+      body
+    ) {
+      const suffix = nextText.slice(previousText.length);
+      const textNode = body.firstChild;
+      if (
+        suffix &&
+        textNode &&
+        textNode === body.lastChild &&
+        typeof textNode.appendData === "function"
+      ) {
+        textNode.appendData(suffix);
+      } else if (suffix) {
+        body.textContent = nextText;
+      }
+      updateTranscriptClasses(row, item, options || {});
+      row.setAttribute("data-assistant-stream-text", nextText);
+      row.setAttribute("data-assistant-render-signature", signature);
+      return true;
+    }
     renderAssistantTranscriptItem(row, item, options);
+    if (state === "streaming" && (kind === "message" || kind === "thought")) {
+      row.setAttribute("data-assistant-stream-text", nextText);
+    } else {
+      row.removeAttribute("data-assistant-stream-text");
+    }
     row.setAttribute("data-assistant-render-signature", signature);
     return true;
+  }
+
+  function applyAssistantTranscriptEffectsUnsafe(options) {
+    const opts = options || {};
+    const effect = opts.effect || {};
+    const container = opts.container;
+    const nodeMap = transcriptNodeMap(container, opts.nodeMap);
+    if (
+      effect.kind !== "mutations" ||
+      effect.onSelectedPage !== true ||
+      !container ||
+      !nodeMap
+    ) {
+      return effect.kind === "mutations" && effect.onSelectedPage !== true;
+    }
+    const affected = new Map();
+    (Array.isArray(opts.affectedItems) ? opts.affectedItems : []).forEach(
+      function (item) {
+        const itemId = String(item && item.itemId ? item.itemId : "").trim();
+        if (itemId) affected.set(itemId, item);
+      },
+    );
+    const operations = new Map();
+    (Array.isArray(effect.mutations) ? effect.mutations : []).forEach(
+      function (mutation) {
+        const id = String(
+          mutation && mutation.op === "upsert_item"
+            ? mutation.item && mutation.item.itemId
+            : mutation && mutation.itemId,
+        ).trim();
+        if (id) operations.set(id, mutation.op);
+      },
+    );
+    const structural = Array.from(operations.values()).some(function (op) {
+      return op === "upsert_item" || op === "delete_item";
+    });
+    const pageItems = Array.isArray(effect.pageItems) ? effect.pageItems : null;
+    if (structural && !pageItems) return false;
+    let virtualState = null;
+    let virtual = null;
+    let rawItems = pageItems;
+    if (opts.virtualized) {
+      if (!opts.page || !Array.isArray(opts.page.items)) return false;
+      virtualState = opts.virtualState || getVirtualTranscriptState(container);
+      const merged = mergeVirtualTranscriptPage(virtualState, opts.page, opts);
+      if (!merged) return false;
+      const latestOptions = Object.assign({}, opts);
+      virtualState.latestOptions = latestOptions;
+      virtual = buildVirtualTranscriptWindow(container, virtualState, opts);
+      rawItems = virtual.items;
+    }
+    if (!rawItems) {
+      operations.forEach(function (operation, itemId) {
+        if (operation === "delete_item") return;
+        const item = affected.get(itemId);
+        const row = nodeMap.get("item:" + itemId);
+        const presentation = createItemPresentationRow(item);
+        if (!row || !presentation) return;
+        renderAssistantTranscriptItemIfChanged(row, presentation, opts);
+      });
+      return true;
+    }
+    const rows = buildTranscriptRenderItems(
+      rawItems,
+      opts.mode === "bubble" ? "bubble" : "plain",
+      opts.expandedIds,
+    );
+    const desiredKeys = new Set(
+      rows.map(function (row) {
+        return row.rowKey;
+      }),
+    );
+    const changedItemIds = new Set(operations.keys());
+    (Array.isArray(effect.evictedItemIds) ? effect.evictedItemIds : []).forEach(
+      function (itemId) {
+        changedItemIds.add(String(itemId));
+      },
+    );
+    const dirtyRowKeys = new Set();
+    let removedRows = 0;
+    nodeMap.forEach(function (row, rowKey) {
+      if (desiredKeys.has(String(rowKey))) return;
+      if (row && row.parentNode === container) container.removeChild(row);
+      nodeMap.delete(rowKey);
+      dirtyRowKeys.add(String(rowKey));
+      removedRows += 1;
+    });
+    let insertedRows = 0;
+    let updatedRows = 0;
+    rows.forEach(function (presentation, index) {
+      const rowKey = String(presentation.rowKey);
+      let row = nodeMap.get(rowKey);
+      const representedItemIds = presentation.itemIds.join("\u001f");
+      const membershipChanged =
+        !!row &&
+        row.getAttribute("data-assistant-item-ids") !== representedItemIds;
+      const touchesChangedItem = presentation.itemIds.some(function (itemId) {
+        return changedItemIds.has(itemId);
+      });
+      if (!row) {
+        row = createRow(presentation, { variant: opts.variant });
+        nodeMap.set(rowKey, row);
+        dirtyRowKeys.add(rowKey);
+        insertedRows += 1;
+      } else if (membershipChanged || touchesChangedItem) {
+        dirtyRowKeys.add(rowKey);
+      }
+      row.setAttribute("data-assistant-item-ids", representedItemIds);
+      applyVirtualTranscriptRowMetadata(row, presentation, index, virtual);
+      if (
+        dirtyRowKeys.has(rowKey) &&
+        renderAssistantTranscriptItemIfChanged(row, presentation, opts)
+      ) {
+        updatedRows += 1;
+      }
+    });
+    const children = Array.from(container.children || []);
+    let anchor =
+      children.length &&
+      children[children.length - 1].classList &&
+      children[children.length - 1].classList.contains(
+        "assistant-transcript-virtual-spacer",
+      )
+        ? children[children.length - 1]
+        : null;
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      const row = nodeMap.get(String(rows[index].rowKey));
+      if (!row) return false;
+      const currentChildren = Array.from(container.children || []);
+      const rowIndex = currentChildren.indexOf(row);
+      const next = rowIndex >= 0 ? currentChildren[rowIndex + 1] || null : null;
+      if (rowIndex < 0 || next !== anchor) container.insertBefore(row, anchor);
+      anchor = row;
+    }
+    const measuredChanged =
+      virtualState && opts.virtualized
+        ? measureVirtualTranscriptRows(
+            container,
+            virtualState,
+            opts,
+            dirtyRowKeys,
+          )
+        : false;
+    if (measuredChanged && virtualState.lastVirtual) {
+      virtualState.lastAnchor = captureVirtualScrollAnchor(
+        container,
+        virtualState.lastVirtual,
+      );
+    }
+    if (virtualState && virtual) virtualState.lastVirtual = virtual;
+    if (shouldStickAssistantTranscript(container, opts.stickThreshold)) {
+      stickAssistantTranscriptToBottom(container);
+    }
+    if (typeof opts.onEffectRendered === "function") {
+      opts.onEffectRendered({
+        renderPath: "incremental",
+        insertedRows,
+        updatedRows,
+        removedRows,
+        measuredRows: dirtyRowKeys.size,
+      });
+    }
+    return true;
+  }
+
+  function applyAssistantTranscriptEffectsExact(options) {
+    const opts = options || {};
+    const effect = opts.effect || {};
+    if (effect.kind !== "mutations" || effect.onSelectedPage !== true) {
+      return {
+        ok: effect.kind === "mutations" && effect.onSelectedPage !== true,
+        renderPath: "incremental",
+        failure:
+          effect.kind === "mutations" && effect.onSelectedPage !== true
+            ? null
+            : { stage: "transcript", code: "effect-invalid" },
+      };
+    }
+    if (!opts.container) {
+      return {
+        ok: false,
+        renderPath: "incremental",
+        failure: { stage: "transcript", code: "container-missing" },
+      };
+    }
+    const liveNodeMap = transcriptNodeMap(opts.container, opts.nodeMap);
+    if (!liveNodeMap) {
+      return {
+        ok: false,
+        renderPath: "incremental",
+        failure: { stage: "transcript", code: "node-map-missing" },
+      };
+    }
+    const structural = (
+      Array.isArray(effect.mutations) ? effect.mutations : []
+    ).some(function (mutation) {
+      return (
+        mutation &&
+        (mutation.op === "upsert_item" || mutation.op === "delete_item")
+      );
+    });
+    if (structural && !Array.isArray(effect.pageItems)) {
+      return {
+        ok: false,
+        renderPath: "incremental",
+        failure: { stage: "transcript", code: "page-items-missing" },
+      };
+    }
+    if (opts.virtualized && (!opts.page || !Array.isArray(opts.page.items))) {
+      return {
+        ok: false,
+        renderPath: "incremental",
+        failure: { stage: "transcript", code: "page-invalid" },
+      };
+    }
+    const stagedNodeMap = new Map(liveNodeMap);
+    const liveVirtualState = opts.virtualized
+      ? getVirtualTranscriptState(opts.container)
+      : null;
+    const stagedVirtualState = liveVirtualState
+      ? cloneVirtualTranscriptState(liveVirtualState)
+      : null;
+    try {
+      const rendered = applyAssistantTranscriptEffectsUnsafe(
+        Object.assign({}, opts, {
+          nodeMap: stagedNodeMap,
+          virtualState: stagedVirtualState,
+        }),
+      );
+      if (rendered === false) {
+        return {
+          ok: false,
+          renderPath: "incremental",
+          failure: {
+            stage: "transcript",
+            code: opts.virtualized
+              ? "virtual-reconcile-failed"
+              : "row-reconcile-failed",
+          },
+        };
+      }
+      liveNodeMap.clear();
+      stagedNodeMap.forEach(function (row, rowKey) {
+        liveNodeMap.set(rowKey, row);
+      });
+      if (liveVirtualState && stagedVirtualState) {
+        commitVirtualTranscriptState(liveVirtualState, stagedVirtualState);
+      }
+      return { ok: true, renderPath: "incremental", failure: null };
+    } catch (_error) {
+      return {
+        ok: false,
+        renderPath: "incremental",
+        failure: { stage: "transcript", code: "dom-commit-failed" },
+      };
+    }
+  }
+
+  function applyAssistantTranscriptEffects(options) {
+    return applyAssistantTranscriptEffectsExact(options).ok;
   }
 
   function renderAssistantTranscript(options) {
@@ -1916,14 +2260,14 @@
     let previousVirtual = null;
     let rawItems = opts.items || [];
     if (virtualized) {
-      const nextPageKey =
-        String(opts.pageKey || "").trim() ||
+      const nextOwnerKey =
+        String(opts.ownerKey || "").trim() ||
         String(
-          opts.page && opts.page.requestId ? opts.page.requestId : "",
+          opts.page && opts.page.ownerKey ? opts.page.ownerKey : "",
         ).trim();
       virtualState = getVirtualTranscriptState(container);
-      if (virtualState.pageKey !== nextPageKey) {
-        resetAssistantTranscriptVirtualState(container, nextPageKey);
+      if (virtualState.ownerKey !== nextOwnerKey) {
+        resetAssistantTranscriptVirtualState(container, nextOwnerKey);
         virtualState = getVirtualTranscriptState(container);
       }
       previousVirtual = virtualState.lastVirtual;
@@ -1940,7 +2284,7 @@
         : null;
       const pageRejected = hasIncomingPage && !mergedPage;
       if (pageRejected) {
-        resetAssistantTranscriptVirtualState(container, opts.pageKey);
+        resetAssistantTranscriptVirtualState(container, opts.ownerKey);
         virtualState = getVirtualTranscriptState(container);
         rawItems = [];
       } else {
@@ -1988,8 +2332,8 @@
     }
     if (items.length === 0) {
       clearNode(container);
-      if (opts.nodeMap && typeof opts.nodeMap.clear === "function")
-        opts.nodeMap.clear();
+      const emptyNodeMap = transcriptNodeMap(container, opts.nodeMap);
+      if (emptyNodeMap) emptyNodeMap.clear();
       container.appendChild(
         el(
           "div",
@@ -2001,20 +2345,39 @@
     }
     const itemOrderKey = items
       .map(function (item) {
-        return String(item.kind || "") + ":" + String(item.id || "");
+        return String(item.rowKind || "") + ":" + String(item.rowKey || "");
       })
       .join("|");
-    const orderKey =
-      virtualized && virtual
-        ? ["virtual", virtual.signature, itemOrderKey].join("|")
-        : itemOrderKey;
-    const nodeMap = opts.nodeMap;
+    const contextKey = [
+      virtualized ? "virtual" : "items",
+      variant,
+      mode,
+      virtualized ? String(opts.ownerKey || "") : "",
+    ].join("|");
+    const orderKey = contextKey + "\u001e" + itemOrderKey;
+    const nodeMap = transcriptNodeMap(container, opts.nodeMap);
     const canDiff =
       nodeMap &&
       typeof nodeMap.get === "function" &&
       typeof nodeMap.set === "function";
+    const previousOrder = String(
+      opts.orderKey ||
+        container.getAttribute("data-assistant-transcript-order-key") ||
+        "",
+    );
+    const previousSeparator = previousOrder.indexOf("\u001e");
+    const previousContext =
+      previousSeparator >= 0 ? previousOrder.slice(0, previousSeparator) : "";
+    const previousItemOrder =
+      previousSeparator >= 0 ? previousOrder.slice(previousSeparator + 1) : "";
     const needsFullRender =
-      opts.orderKey !== orderKey || opts.modeKey !== mode || !canDiff;
+      previousContext !== contextKey ||
+      String(
+        opts.modeKey ||
+          container.getAttribute("data-assistant-transcript-mode-key") ||
+          "",
+      ) !== mode ||
+      !canDiff;
     if (needsFullRender) {
       clearNode(container);
       if (canDiff) nodeMap.clear();
@@ -2024,7 +2387,7 @@
       items.forEach(function (item, index) {
         const row = createRow(item, { variant });
         applyVirtualTranscriptRowMetadata(row, item, index, virtual);
-        if (canDiff) nodeMap.set(String(item.id || ""), row);
+        if (canDiff) nodeMap.set(String(item.rowKey || ""), row);
         renderAssistantTranscriptItemIfChanged(row, item, opts);
         container.appendChild(row);
       });
@@ -2032,17 +2395,39 @@
         appendVirtualTranscriptBottomSpacer(container, virtual, opts);
       }
     } else {
+      const desiredIds = new Set(
+        items.map(function (item) {
+          return String(item.rowKey || "");
+        }),
+      );
+      nodeMap.forEach(function (row, id) {
+        if (desiredIds.has(String(id))) return;
+        if (row && row.parentNode === container) container.removeChild(row);
+        nodeMap.delete(id);
+      });
       items.forEach(function (item, index) {
-        const id = String(item.id || "");
-        let row = nodeMap.get(id);
+        const rowKey = String(item.rowKey || "");
+        let row = nodeMap.get(rowKey);
         if (!row) {
           row = createRow(item, { variant });
-          nodeMap.set(id, row);
+          nodeMap.set(rowKey, row);
           container.appendChild(row);
         }
         applyVirtualTranscriptRowMetadata(row, item, index, virtual);
         renderAssistantTranscriptItemIfChanged(row, item, opts);
       });
+      if (previousItemOrder !== itemOrderKey) {
+        let anchor = null;
+        for (let index = items.length - 1; index >= 0; index -= 1) {
+          const row = nodeMap.get(String(items[index].rowKey || ""));
+          if (!row) continue;
+          const children = Array.from(container.children || []);
+          const rowIndex = children.indexOf(row);
+          const next = rowIndex >= 0 ? children[rowIndex + 1] || null : null;
+          if (next !== anchor) container.insertBefore(row, anchor);
+          anchor = row;
+        }
+      }
     }
     const measuredChanged =
       virtualized && virtualState && virtual
@@ -2084,9 +2469,14 @@
     if (typeof opts.onRendered === "function") {
       opts.onRendered({ orderKey, modeKey: mode, items, virtual });
     }
+    container.setAttribute("data-assistant-transcript-order-key", orderKey);
+    container.setAttribute("data-assistant-transcript-mode-key", mode);
   }
 
   window.AssistantTranscriptRenderer = {
+    adaptLegacyTranscriptItem,
+    applyAssistantTranscriptEffects,
+    applyAssistantTranscriptEffectsExact,
     buildTranscriptRenderItems,
     compactAssistantToolName,
     compactAssistantToolSummary,

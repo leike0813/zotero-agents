@@ -211,6 +211,7 @@ Dashboard 当前不支持：
 - Transport：`doc/components/transport.md`
 - Local Cache（占位设计）：`doc/components/local-cache.md`
 - UI Shell：`doc/components/ui-shell.md`
+- Assistant Workspace ACP Surface SSOT：`doc/components/assistant-workspace-acp-surface-ssot.md`
 - Mock：`doc/components/zotero-mock.md`
 - 测试：`doc/testing-framework.md`
 - SkillRunner 状态机 SSOT：`doc/components/skillrunner-provider-state-machine-ssot.md`

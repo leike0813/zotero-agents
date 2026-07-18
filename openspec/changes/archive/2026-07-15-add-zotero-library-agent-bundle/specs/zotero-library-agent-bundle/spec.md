@@ -68,4 +68,3 @@ The release renderer SHALL assemble the generated bundle and publish it to `leik
 - **WHEN** the standalone publisher runs with complete Host Bridge CLI prebuilds
 - **THEN** the repository SHALL contain both Skills, schemas, helpers, installers, profile template, all supported binaries, and a release manifest
 - **AND** every binary checksum SHALL match the recorded CLI release manifest.
-

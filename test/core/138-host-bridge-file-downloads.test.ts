@@ -174,6 +174,56 @@ describe("host bridge file downloads", function () {
     }
   });
 
+  it("rejects a registered file that is truncated before download", async function () {
+    const token = configureHostBridgeServerForTests({ token: "file-token" });
+    const { root, filePath } = await writeTempFile(
+      "changing.txt",
+      "registered file content",
+    );
+    try {
+      const descriptor = await registerHostBridgeExportFile({
+        localPath: filePath,
+      });
+      await fs.truncate(filePath, 3);
+
+      const parsed = await bridgeRequest({
+        token,
+        method: "GET",
+        path: `/bridge/v1/files/${descriptor.fileId}`,
+      });
+
+      assert.strictEqual(parsed.status, 404);
+      assert.strictEqual(parsed.json.error.code, "file_unavailable");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a same-size registered file mutation before download", async function () {
+    const token = configureHostBridgeServerForTests({ token: "file-token" });
+    const original = new TextEncoder().encode("registered bytes");
+    const changed = new TextEncoder().encode("changed content!");
+    assert.strictEqual(changed.byteLength, original.byteLength);
+    const { root, filePath } = await writeTempBytes("changing.bin", original);
+    try {
+      const descriptor = await registerHostBridgeExportFile({
+        localPath: filePath,
+      });
+      await fs.writeFile(filePath, changed);
+
+      const parsed = await bridgeRequest({
+        token,
+        method: "GET",
+        path: `/bridge/v1/files/${descriptor.fileId}`,
+      });
+
+      assert.strictEqual(parsed.status, 404);
+      assert.strictEqual(parsed.json.error.code, "file_unavailable");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("encodes non-ASCII download filenames as RFC 5987 header values", async function () {
     const token = configureHostBridgeServerForTests({ token: "file-token" });
     const { root, filePath } = await writeTempFile(

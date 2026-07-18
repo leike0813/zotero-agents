@@ -94,6 +94,66 @@ describe("domain filter path inference", function () {
     );
   });
 
+  it("allows the deterministic ACP fixture loaded by the Zotero core suite", function () {
+    assert.equal(
+      isZoteroRoutineAllowedFile(
+        "test/core/104-acp-zotero-opencode.integration.test.ts",
+        "lite",
+      ),
+      true,
+    );
+    assert.equal(
+      isZoteroRoutineAllowedTitle({
+        selectedDomain: "core",
+        testDomain: "core",
+        fullTitle:
+          "deterministic ACP integration fixture in Zotero runtime initializes through the Zotero core suite entrypoint",
+        mode: "lite",
+      }),
+      true,
+    );
+  });
+
+  it("allows the fragmented Host Bridge socket fixture in Zotero lite", function () {
+    assert.equal(
+      isZoteroRoutineAllowedFile(
+        "test/core/182-host-bridge-socket.integration.test.ts",
+        "lite",
+      ),
+      true,
+    );
+    assert.equal(
+      isZoteroRoutineAllowedTitle({
+        selectedDomain: "core",
+        testDomain: "core",
+        fullTitle:
+          "host bridge socket integration in Zotero runtime keeps heartbeat alive across fragmented health, upload, and MCP requests",
+        mode: "lite",
+      }),
+      true,
+    );
+  });
+
+  it("allows the ACP Replay nested-frame regression in Zotero UI lite", function () {
+    assert.equal(
+      isZoteroRoutineAllowedFile(
+        "test/ui/183-acp-runtime-replay-publication-zotero-runtime.test.ts",
+        "lite",
+      ),
+      true,
+    );
+    assert.equal(
+      isZoteroRoutineAllowedTitle({
+        selectedDomain: "ui",
+        testDomain: "ui",
+        fullTitle:
+          "ACP Replay publication in the Zotero runtime confirms ACP Chat and ACP Skills snapshots through the real nested Workspace frames",
+        mode: "lite",
+      }),
+      true,
+    );
+  });
+
   it("allows full-only core parity files only in Zotero full", function () {
     assert.equal(
       isZoteroRoutineAllowedFile(

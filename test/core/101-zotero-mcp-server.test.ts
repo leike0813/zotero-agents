@@ -23,6 +23,13 @@ import {
   ZOTERO_MCP_TOOL_RESOLVERS_RESOLVE,
   ZOTERO_MCP_TOOL_TOPICS_LIST,
 } from "../../src/modules/zoteroMcpProtocol";
+import { runtimeHttpResponseInternalsForTests } from "../../src/modules/runtimeHttpResponse";
+import {
+  getRuntimePersistencePaths,
+  removeRuntimePath,
+  writeRuntimeBytes,
+} from "../../src/modules/runtimePersistence";
+import { joinPath } from "../../src/utils/path";
 
 const ZOTERO_MCP_TOOL_GET_CURRENT_VIEW = "context.get_current_view";
 const ZOTERO_MCP_TOOL_GET_SELECTED_ITEMS = "context.get_selected_items";
@@ -162,9 +169,14 @@ async function createMcpSdkClient(args: {
 }
 
 describe("embedded Zotero MCP server protocol", function () {
-  afterEach(function () {
+  const temporaryRuntimeFiles: string[] = [];
+
+  afterEach(async function () {
     resetZoteroMcpServerForTests();
     clearRuntimeLogs();
+    await Promise.all(
+      temporaryRuntimeFiles.splice(0).map((path) => removeRuntimePath(path)),
+    );
   });
 
   it("responds to initialize with tool capability", async function () {
@@ -208,6 +220,7 @@ describe("embedded Zotero MCP server protocol", function () {
 
   it("records initialize response shape for diagnostics", async function () {
     const token = configureZoteroMcpServerForTests();
+    runtimeHttpResponseInternalsForTests.resetMetrics();
     await handleZoteroMcpHttpRequestForTests({
       method: "POST",
       path: "/mcp",
@@ -237,6 +250,11 @@ describe("embedded Zotero MCP server protocol", function () {
       "application/json; charset=utf-8",
     );
     assert.isAbove(entry.responseBodyLength, 0);
+    assert.deepEqual(runtimeHttpResponseInternalsForTests.getMetrics(), {
+      jsonSerializations: 1,
+      bodyEncodes: 1,
+      maxWriteChunkBytes: 0,
+    });
   });
 
   it("derives host-side MCP health from server and client activity", async function () {
@@ -1046,6 +1064,23 @@ describe("embedded Zotero MCP server protocol", function () {
   });
 
   it("returns remote-compatible attachment access metadata without file content", async function () {
+    const attachmentRoot = getRuntimePersistencePaths().tmpDir;
+    const attachmentSuffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const markdownPath = joinPath(
+      attachmentRoot,
+      `mcp-attachment-${attachmentSuffix}.md`,
+    );
+    const pdfPath = joinPath(
+      attachmentRoot,
+      `mcp-attachment-${attachmentSuffix}.pdf`,
+    );
+    temporaryRuntimeFiles.push(markdownPath, pdfPath);
+    await writeRuntimeBytes(markdownPath, new TextEncoder().encode("# paper"), {
+      overwrite: true,
+    });
+    await writeRuntimeBytes(pdfPath, new Uint8Array([0x25, 0x50, 0x44, 0x46]), {
+      overwrite: true,
+    });
     const response = await handleZoteroMcpRequestForTests(
       {
         jsonrpc: "2.0",
@@ -1069,7 +1104,7 @@ describe("embedded Zotero MCP server protocol", function () {
                   libraryId: 1,
                   title: "paper.md",
                   contentType: "text/markdown",
-                  path: "C:\\Users\\leike\\Zotero\\storage\\ATTACHMD\\paper.md",
+                  path: markdownPath,
                   filename: "paper.md",
                 },
                 {
@@ -1078,7 +1113,7 @@ describe("embedded Zotero MCP server protocol", function () {
                   libraryId: 1,
                   title: "paper.pdf",
                   contentType: "application/pdf",
-                  path: "C:\\Users\\leike\\Zotero\\storage\\ATTACH1\\paper.pdf",
+                  path: pdfPath,
                   filename: "paper.pdf",
                 },
                 {
@@ -1156,6 +1191,38 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.strictEqual(
       result.structuredContent.tool,
       ZOTERO_MCP_TOOL_GET_ITEM_NOTES,
+    );
+  });
+
+  it("publishes string library cursors and returns non-retryable cursor errors", async function () {
+    const listed = await handleZoteroMcpRequestForTests({
+      jsonrpc: "2.0",
+      id: "cursor-tools",
+      method: "tools/list",
+      params: {},
+    });
+    const tool = (listed as any).result.tools.find(
+      (entry: any) => entry.name === ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS,
+    );
+    assert.deepEqual(tool.inputSchema.properties.cursor, { type: "string" });
+
+    const called = await handleZoteroMcpRequestForTests({
+      jsonrpc: "2.0",
+      id: "bad-library-cursor",
+      method: "tools/call",
+      params: {
+        name: ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS,
+        arguments: { cursor: "damaged!", limit: 1 },
+      },
+    });
+    assert.strictEqual((called as any).result.isError, true);
+    assert.strictEqual(
+      (called as any).result.structuredContent.error_code,
+      "invalid_library_cursor",
+    );
+    assert.strictEqual(
+      (called as any).result.structuredContent.retryable,
+      false,
     );
   });
 

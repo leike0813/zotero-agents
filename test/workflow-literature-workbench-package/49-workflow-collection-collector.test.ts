@@ -201,6 +201,51 @@ describe("collection collector workflow", function () {
     ]);
   });
 
+  it("omits the first cursor and passes through opaque membership cursors", async function () {
+    const calls: any[] = [];
+    const opaqueCursor = "eyJ2ZXJzaW9uIjoxfQ";
+    const applied = await applyResult({
+      request: {
+        parameter: {
+          collection: "1:COLL1234",
+          collectionScope: "scope",
+        },
+      },
+      resultContext: {
+        resultJson: successResult([selectedItem("1:EXIST123")]),
+      },
+      runtime: {
+        hostApiVersion: 8,
+        hostApi: {
+          library: {
+            async listItems(args: unknown) {
+              calls.push(args);
+              return calls.length === 1
+                ? { items: [], hasMore: true, nextCursor: opaqueCursor }
+                : {
+                    items: [{ libraryId: 1, key: "EXIST123" }],
+                    hasMore: false,
+                    nextCursor: "",
+                  };
+            },
+            async getItemDetail() {
+              throw new Error("existing item must not be hydrated");
+            },
+          },
+          mutations: {
+            async execute() {
+              throw new Error("existing item must not be added");
+            },
+          },
+        },
+      },
+    } as any);
+
+    assert.strictEqual(applied.status, "noop");
+    assert.notProperty(calls[0], "cursor");
+    assert.strictEqual(calls[1].cursor, opaqueCursor);
+  });
+
   it("rejects cross-library results before mutation", async function () {
     let mutationCount = 0;
     let error: unknown;

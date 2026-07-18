@@ -37,13 +37,17 @@ import {
 import { projectDashboardActiveTasks } from "./dashboardActiveTasks";
 import { mapAcpSkillRunSummaryToWorkflowTask } from "./acpSkillRunTaskProjection";
 import { buildSkillRunnerManagementUiUrl } from "./skillRunnerManagementDialog";
-import { isDebugModeEnabled } from "./debugMode";
 import {
-  getSkillRunnerConnectionGovernorSnapshot,
-  type SkillRunnerConnectionGovernorSnapshot,
-} from "./skillRunnerConnectionGovernor";
+  isAcpRuntimeReplayProfilerAvailable,
+  isAcpRuntimeSemanticTraceRecorderAvailable,
+  isDebugModeEnabled,
+  isSkillRunnerConnectionAuditAvailable,
+} from "./debugMode";
+import type { AcpRuntimeSemanticTraceRecorderView } from "./acpRuntimeSemanticTraceRecorder";
+import type { AcpRuntimeReplayControllerView } from "./acpRuntimeReplayController";
+import type { SkillRunnerConnectionGovernorSnapshot } from "./skillRunnerConnectionAudit";
 import { refreshSkillRunnerModelCacheForBackend } from "../providers/skillrunner/modelCache";
-import { config } from "../../package.json";
+import { config, version } from "../../package.json";
 import { resolveAddonRef } from "../utils/runtimeBridge";
 import { buildSkillRunnerManagementClient } from "./skillRunnerManagementClientFactory";
 import { isSkillRunnerRunTerminalClientError } from "../providers/skillrunner/errors";
@@ -78,11 +82,10 @@ import {
 import { stopSessionSync } from "./skillRunnerSessionSyncManager";
 import { getVisibleLoadedWorkflowEntries } from "./workflowVisibility";
 import {
-  buildAcpSkillRunPanelSnapshot,
   cancelAcpSkillRun,
   listAcpSkillRunSummaries,
   selectAcpSkillRun,
-  subscribeAcpSkillRunSnapshots,
+  subscribeAcpSkillRunWorkspaceChanges,
 } from "./acpSkillRunStore";
 import { openAssistantWorkspaceSidebar } from "./assistantWorkspaceSidebar";
 import {
@@ -97,6 +100,7 @@ import {
   type WorkflowProductPreview,
 } from "./workflowProductStore";
 import { openFolderInSystemFileManager } from "../utils/fileSystem";
+import { openRuntimeFilePicker } from "../platform/filePicker";
 import {
   recordBackgroundRefreshRead,
   registerBackgroundRefreshTimer,
@@ -238,7 +242,6 @@ type DashboardSnapshot = {
     quickRunEnabled: boolean;
     quickRunDisabledReason?: string;
   }>;
-  acpSkillRunsView?: ReturnType<typeof buildAcpSkillRunPanelSnapshot>;
   productStorageView?: {
     section: "products" | "feedback";
     products: ReturnType<typeof listWorkflowProducts>;
@@ -315,6 +318,8 @@ type DashboardSnapshot = {
     generatedAt: string;
     governor: SkillRunnerConnectionGovernorSnapshot;
   };
+  acpTraceRecorderView?: AcpRuntimeSemanticTraceRecorderView;
+  acpReplayProfilerView?: AcpRuntimeReplayControllerView;
   surfaceSignatures?: {
     chrome: string;
     selectedSurface: string;
@@ -389,6 +394,13 @@ function dashboardSelectedSurfaceSignatureInput(snapshot: DashboardSnapshot) {
     return {
       surfaceKey,
       governor: snapshot.skillRunnerConnectionAuditView?.governor,
+    };
+  }
+  if (surfaceKey === "acp-trace-replay") {
+    return {
+      surfaceKey,
+      acpTraceRecorderView: snapshot.acpTraceRecorderView,
+      acpReplayProfilerView: snapshot.acpReplayProfilerView,
     };
   }
   if (surfaceKey === "backend") {
@@ -758,6 +770,20 @@ function compactError(error: unknown) {
     return "unknown error";
   }
   return text.length > 220 ? `${text.slice(0, 220)}...` : text;
+}
+
+function resolveAcpRuntimeCaptureEnvironment() {
+  const zoteroVersion = String(Zotero?.version || "unknown").trim();
+  const parsedMajor = Number.parseInt(zoteroVersion, 10);
+  const zoteroMajor =
+    parsedMajor === 7 || parsedMajor === 9 ? parsedMajor : "unknown";
+  const platform = Zotero?.isWin ? "win32" : Zotero?.isMac ? "darwin" : "linux";
+  return {
+    pluginVersion: version,
+    zoteroVersion,
+    zoteroMajor,
+    platform,
+  } as const;
 }
 
 function applyDashboardManagementStatus(args: {
@@ -1385,10 +1411,21 @@ async function buildDashboardSnapshot(args: {
   const summary =
     args.historySummary || summarizeTaskDashboardHistory(args.history);
   const debugModeEnabled = isDebugModeEnabled();
+  const skillRunnerConnectionAuditEnabled =
+    __skillrunner_connection_audit_enabled__ &&
+    debugModeEnabled &&
+    isSkillRunnerConnectionAuditAvailable();
+  const acpTraceRecorderEnabled =
+    debugModeEnabled && isAcpRuntimeSemanticTraceRecorderAvailable();
+  const acpReplayProfilerEnabled =
+    debugModeEnabled && isAcpRuntimeReplayProfilerAvailable();
   let selectedTabKey = normalizeDashboardTabKey({
     requestedTabKey: args.state.selectedTabKey,
     backends: args.backends,
     debugModeEnabled,
+    skillRunnerConnectionAuditEnabled,
+    acpTraceRecorderEnabled,
+    acpReplayProfilerEnabled,
   });
   args.state.selectedTabKey = selectedTabKey;
 
@@ -1467,6 +1504,144 @@ async function buildDashboardSnapshot(args: {
     ),
     tabProducts: localize("task-dashboard-tab-products", "Products"),
     tabBackends: localize("task-dashboard-tab-backends", "Backends"),
+    acpTraceReplayTabTitle: localize(
+      "task-dashboard-acp-trace-replay-tab-title",
+      "ACP Trace & Replay",
+    ),
+    acpReplayProfilerTracePlaceholder: localize(
+      "task-dashboard-acp-replay-profiler-trace-placeholder",
+      "Local complete .ndjson trace path",
+    ),
+    acpTraceRecorderStepTitle: localize(
+      "task-dashboard-acp-trace-recorder-step-title",
+      "1. ACP Trace Recorder",
+    ),
+    acpReplayProfilerStepTitle: localize(
+      "task-dashboard-acp-replay-profiler-step-title",
+      "2. ACP Replay Profiler",
+    ),
+    acpTraceSensitiveWarning: localize(
+      "task-dashboard-acp-trace-sensitive-warning",
+      "Trace files contain complete prompts, assistant text, tool arguments, and outputs. They remain local and may contain sensitive data.",
+    ),
+    acpTraceType: localize("task-dashboard-acp-trace-type", "Trace type"),
+    acpTraceChatSource: localize(
+      "task-dashboard-acp-trace-chat-source",
+      "ACP Chat conversation",
+    ),
+    acpTraceWorkflowSource: localize(
+      "task-dashboard-acp-trace-workflow-source",
+      "ACP Workflow execution",
+    ),
+    acpTraceMaxBytes: localize(
+      "task-dashboard-acp-trace-max-bytes",
+      "Maximum bytes",
+    ),
+    acpTraceMaxEvents: localize(
+      "task-dashboard-acp-trace-max-events",
+      "Maximum events",
+    ),
+    acpTraceMaxEventBytes: localize(
+      "task-dashboard-acp-trace-max-event-bytes",
+      "Maximum bytes per event",
+    ),
+    acpTraceAdvancedLimits: localize(
+      "task-dashboard-acp-trace-advanced-limits",
+      "Advanced capture limits",
+    ),
+    acpTraceArm: localize("task-dashboard-acp-trace-arm", "Arm Recorder"),
+    acpTraceFinish: localize(
+      "task-dashboard-acp-trace-finish",
+      "Finish Recording",
+    ),
+    acpTraceFinishAfterTurn: localize(
+      "task-dashboard-acp-trace-finish-after-turn",
+      "Finish after Current Turn",
+    ),
+    acpTraceWaitingExplicitConnection: localize(
+      "task-dashboard-acp-trace-waiting-explicit-connection",
+      "Waiting for an explicit connection",
+    ),
+    acpTraceConnecting: localize(
+      "task-dashboard-acp-trace-connecting",
+      "Connecting",
+    ),
+    acpTraceBound: localize(
+      "task-dashboard-acp-trace-bound",
+      "Recording bound target",
+    ),
+    acpTraceStopping: localize(
+      "task-dashboard-acp-trace-stopping",
+      "Waiting for active work to finish",
+    ),
+    acpTraceSessionReplaced: localize(
+      "task-dashboard-acp-trace-session-replaced",
+      "A replacement remote session is not being recorded.",
+    ),
+    acpTraceCancel: localize(
+      "task-dashboard-acp-trace-cancel",
+      "Cancel Recording",
+    ),
+    acpTraceSave: localize(
+      "task-dashboard-acp-trace-save",
+      "Save & Use for Replay",
+    ),
+    acpTraceOpenFolder: localize(
+      "task-dashboard-acp-trace-open-folder",
+      "Open Folder",
+    ),
+    acpTraceNewRecording: localize(
+      "task-dashboard-acp-trace-new-recording",
+      "New Recording",
+    ),
+    acpReplayCompleteTrace: localize(
+      "task-dashboard-acp-replay-complete-trace",
+      "Complete local trace",
+    ),
+    acpReplayBrowse: localize("task-dashboard-acp-replay-browse", "Browse…"),
+    acpReplayPhase: localize("task-dashboard-acp-replay-phase", "Phase"),
+    acpReplayPhasePlaceholder: localize(
+      "task-dashboard-acp-replay-phase-placeholder",
+      "e.g. governance round 2",
+    ),
+    acpReplayPhaseInvalid: localize(
+      "task-dashboard-acp-replay-phase-invalid",
+      "Enter a valid stage (1–80 characters).",
+    ),
+    acpReplaySample: localize("task-dashboard-acp-replay-sample", "Sample"),
+    acpReplayProgress: localize(
+      "task-dashboard-acp-replay-progress",
+      "Progress",
+    ),
+    acpReplayEvidenceDetails: localize(
+      "task-dashboard-acp-replay-evidence-details",
+      "Trace and run evidence",
+    ),
+    acpReplayCadence: localize("task-dashboard-acp-replay-cadence", "Cadence"),
+    acpReplayCadenceRecorded: localize(
+      "task-dashboard-acp-replay-cadence-recorded",
+      "Recorded time",
+    ),
+    acpReplayCadenceLogical: localize(
+      "task-dashboard-acp-replay-cadence-logical",
+      "Logical time",
+    ),
+    acpReplayCadenceBurst: localize(
+      "task-dashboard-acp-replay-cadence-burst",
+      "Burst",
+    ),
+    acpReplayRun: localize(
+      "task-dashboard-acp-replay-run",
+      "Run Nine-Replay Matrix",
+    ),
+    acpReplayCancel: localize(
+      "task-dashboard-acp-replay-cancel",
+      "Cancel Replay",
+    ),
+    acpReplayOpenResultFolder: localize(
+      "task-dashboard-acp-replay-open-result-folder",
+      "Open Result Folder",
+    ),
     loadingDashboard: localize(
       "task-dashboard-loading",
       "Loading dashboard...",
@@ -1864,11 +2039,19 @@ async function buildDashboardSnapshot(args: {
       key: "runtime-logs",
       label: labels.runtimeLogsTabTitle,
     },
-    ...(debugModeEnabled
+    ...(skillRunnerConnectionAuditEnabled
       ? [
           {
             key: "skillrunner-connection-audit",
             label: labels.skillRunnerConnectionAuditTabTitle,
+          },
+        ]
+      : []),
+    ...(acpTraceRecorderEnabled || acpReplayProfilerEnabled
+      ? [
+          {
+            key: "acp-trace-replay",
+            label: labels.acpTraceReplayTabTitle,
           },
         ]
       : []),
@@ -2022,10 +2205,10 @@ async function buildDashboardSnapshot(args: {
   }
 
   if (resolvedSelectedTabKey === "runtime-logs") {
-    const { getRuntimeLogDiagnosticMode, snapshotRuntimeLogs } =
+    const { getRuntimeLogDiagnosticMode, getRuntimeLogSummary } =
       await import("./runtimeLogManager");
     const diagnosticMode = getRuntimeLogDiagnosticMode();
-    const logSnapshot = snapshotRuntimeLogs();
+    const logSummary = getRuntimeLogSummary();
     const runtimeLogFilters = normalizeRuntimeLogFilters(
       args.state.runtimeLogFilters,
     );
@@ -2035,50 +2218,39 @@ async function buildDashboardSnapshot(args: {
       order: "desc",
       limit: 300,
     });
-    const uniqueBackends = new Set<string>();
-    const uniqueWorkflows = new Set<string>();
-    for (const entry of logSnapshot.entries) {
-      if (entry.backendId) uniqueBackends.add(entry.backendId);
-      if (entry.workflowId) uniqueWorkflows.add(entry.workflowId);
-    }
-
     const { getVisibleLoadedWorkflowEntries } =
       await import("./workflowVisibility");
     const loadedWorkflows = getVisibleLoadedWorkflowEntries();
 
-    const mappedBackends = Array.from(uniqueBackends)
-      .sort()
-      .map((bId) => {
-        const foundBackend = args.backends.find((b) => b.id === bId);
-        return {
-          value: bId,
-          label: foundBackend
-            ? resolveBackendDisplayName(bId, foundBackend.displayName)
-            : bId,
-        };
-      });
+    const mappedBackends = logSummary.facets.backendIds.sort().map((bId) => {
+      const foundBackend = args.backends.find((b) => b.id === bId);
+      return {
+        value: bId,
+        label: foundBackend
+          ? resolveBackendDisplayName(bId, foundBackend.displayName)
+          : bId,
+      };
+    });
 
-    const mappedWorkflows = Array.from(uniqueWorkflows)
-      .sort()
-      .map((wId) => {
-        const match = loadedWorkflows.find((w) => w.manifest.id === wId);
-        return {
-          value: wId,
-          label: match ? localizeWorkflowLabel(match) : wId,
-        };
-      });
+    const mappedWorkflows = logSummary.facets.workflowIds.sort().map((wId) => {
+      const match = loadedWorkflows.find((w) => w.manifest.id === wId);
+      return {
+        value: wId,
+        label: match ? localizeWorkflowLabel(match) : wId,
+      };
+    });
 
     snapshot.runtimeLogsView = {
       filters: runtimeLogFilters,
       diagnosticMode,
-      totalEntries: logSnapshot.entries.length,
+      totalEntries: logSummary.entryCount,
       budget: {
-        maxEntries: logSnapshot.maxEntries,
-        maxBytes: logSnapshot.maxBytes,
-        estimatedBytes: logSnapshot.estimatedBytes,
-        droppedEntries: logSnapshot.droppedEntries,
-        droppedByReason: logSnapshot.droppedByReason,
-        retentionMode: logSnapshot.retentionMode,
+        maxEntries: logSummary.maxEntries,
+        maxBytes: logSummary.maxBytes,
+        estimatedBytes: logSummary.estimatedBytes,
+        droppedEntries: logSummary.droppedEntries,
+        droppedByReason: logSummary.droppedByReason,
+        retentionMode: logSummary.retentionMode,
       },
       logs: rawLogs.map((entry) => mapLogRow(entry)),
       selectedEntryIds: Array.from(args.state.runtimeLogSelectedIdSet),
@@ -2091,13 +2263,41 @@ async function buildDashboardSnapshot(args: {
   }
 
   if (
-    debugModeEnabled &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) &&
+    __skillrunner_connection_audit_enabled__ &&
+    skillRunnerConnectionAuditEnabled &&
     resolvedSelectedTabKey === "skillrunner-connection-audit"
   ) {
+    const { getSkillRunnerConnectionGovernorSnapshot } =
+      await import("./skillRunnerConnectionAudit");
     snapshot.skillRunnerConnectionAuditView = {
       generatedAt: new Date().toISOString(),
       governor: getSkillRunnerConnectionGovernorSnapshot(),
     };
+    return finalizeDashboardSnapshot(snapshot);
+  }
+
+  if (
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) &&
+    resolvedSelectedTabKey === "acp-trace-replay"
+  ) {
+    if (
+      __acp_runtime_semantic_trace_recorder_enabled__ &&
+      acpTraceRecorderEnabled
+    ) {
+      const { getAcpRuntimeSemanticTraceRecorderView } =
+        await import("./acpRuntimeSemanticTraceRecorder");
+      snapshot.acpTraceRecorderView = getAcpRuntimeSemanticTraceRecorderView();
+    }
+    if (__acp_runtime_replay_profiler_enabled__ && acpReplayProfilerEnabled) {
+      const { getAcpRuntimeReplayControllerView } =
+        await import("./acpRuntimeReplayController");
+      snapshot.acpReplayProfilerView = getAcpRuntimeReplayControllerView();
+    }
     return finalizeDashboardSnapshot(snapshot);
   }
 
@@ -2262,6 +2462,7 @@ type RefreshReason =
   | "task-update"
   | "backend-health"
   | "backend-load"
+  | "diagnostic-update"
   | "save-state";
 
 const DASHBOARD_BACKEND_PERIODIC_REFRESH_MIN_INTERVAL_MS = 5000;
@@ -2659,10 +2860,21 @@ export async function openTaskManagerDialog(args?: {
           Date.now() - lastBackendRegistryReadAt > 30000),
     );
     const debugModeEnabled = isDebugModeEnabled();
+    const skillRunnerConnectionAuditEnabled =
+      __skillrunner_connection_audit_enabled__ &&
+      debugModeEnabled &&
+      isSkillRunnerConnectionAuditAvailable();
+    const acpTraceRecorderEnabled =
+      debugModeEnabled && isAcpRuntimeSemanticTraceRecorderAvailable();
+    const acpReplayProfilerEnabled =
+      debugModeEnabled && isAcpRuntimeReplayProfilerAvailable();
     state.selectedTabKey = normalizeDashboardTabKey({
       requestedTabKey: state.selectedTabKey,
       backends: state.backends,
       debugModeEnabled,
+      skillRunnerConnectionAuditEnabled,
+      acpTraceRecorderEnabled,
+      acpReplayProfilerEnabled,
     });
     const selectedBackendId = fromBackendTabKey(state.selectedTabKey);
     const taskReadScope = selectedBackendId
@@ -2774,8 +2986,8 @@ export async function openTaskManagerDialog(args?: {
     return (
       state.selectedTabKey === "workflow-options" ||
       state.selectedTabKey === "products" ||
-      state.selectedTabKey === "runtime-logs" ||
-      state.selectedTabKey === "skillrunner-connection-audit"
+      state.selectedTabKey === "skillrunner-connection-audit" ||
+      state.selectedTabKey === "acp-trace-replay"
     );
   };
   const enqueueRefresh = (
@@ -2891,6 +3103,137 @@ export async function openTaskManagerDialog(args?: {
       state.selectedTabKey = requestedTabKey;
       if (state.selectedTabKey !== "home") {
         state.homeWorkflowDocWorkflowId = "";
+      }
+      refresh("user-action");
+      return;
+    }
+    if (
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__) &&
+      __acp_runtime_semantic_trace_recorder_enabled__ &&
+      action.startsWith("acp-trace-recorder-")
+    ) {
+      try {
+        const recorder = await import("./acpRuntimeSemanticTraceRecorder");
+        if (action === "acp-trace-recorder-start") {
+          await recorder.armAcpRuntimeSemanticTraceRecorder({
+            sourceKind:
+              payload.sourceKind === "acp-workflow-execution"
+                ? "acp-workflow-execution"
+                : "acp-chat-conversation",
+            limits: {
+              maxBytes: Number(payload.maxBytes || 0) || undefined,
+              maxEvents: Number(payload.maxEvents || 0) || undefined,
+              maxEventBytes: Number(payload.maxEventBytes || 0) || undefined,
+            },
+          });
+        } else if (action === "acp-trace-recorder-finish") {
+          await recorder.finishAcpRuntimeSemanticTraceRoot();
+        } else if (action === "acp-trace-recorder-cancel") {
+          await recorder.cancelAcpRuntimeSemanticTraceRecorder();
+        } else if (action === "acp-trace-recorder-reset") {
+          await recorder.resetAcpRuntimeSemanticTraceRecorder();
+        } else if (action === "acp-trace-recorder-save") {
+          const saved = await recorder.saveFrozenAcpRuntimeSemanticTrace();
+          if (__acp_runtime_replay_profiler_enabled__) {
+            const replay = await import("./acpRuntimeReplayController");
+            await replay.preflightAcpRuntimeReplayTrace({
+              tracePath: saved.path,
+            });
+          }
+        } else if (action === "acp-trace-recorder-open-folder") {
+          const folder =
+            recorder.getAcpRuntimeSemanticTraceRecorderView().folder;
+          if (!folder) throw new Error("ACP trace folder is unavailable");
+          openFolderInSystemFileManager(folder, { label: "ACP trace folder" });
+        }
+      } catch (error) {
+        alertRuntimeWindow(
+          `ACP Trace Recorder action failed: ${compactError(error)}`,
+        );
+      }
+      refresh("user-action");
+      return;
+    }
+    if (
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__) &&
+      __acp_runtime_replay_profiler_enabled__ &&
+      (action.startsWith("acp-replay-profiler-") ||
+        action.startsWith("acp-replay-trace-"))
+    ) {
+      try {
+        const replay = await import("./acpRuntimeReplayController");
+        if (action === "acp-replay-trace-browse") {
+          replay.setAcpRuntimeReplayDraft({
+            phase: String(payload.phase || ""),
+            cadence: replay.parseAcpRuntimeReplayCadence(payload.cadence),
+          });
+          const selected = await openRuntimeFilePicker({
+            title: localize(
+              "task-dashboard-acp-replay-select-file-title",
+              "Select ACP semantic trace",
+            ),
+            mode: "open",
+            filters: [
+              [
+                localize(
+                  "task-dashboard-acp-replay-trace-filter",
+                  "ACP semantic trace",
+                ),
+                "*.ndjson",
+              ],
+            ],
+          });
+          if (typeof selected === "string") {
+            await replay.preflightAcpRuntimeReplayTrace({
+              tracePath: selected,
+            });
+          }
+        } else if (action === "acp-replay-trace-preflight") {
+          replay.setAcpRuntimeReplayDraft({
+            phase: String(payload.phase || ""),
+            cadence: replay.parseAcpRuntimeReplayCadence(payload.cadence),
+          });
+          await replay.preflightAcpRuntimeReplayTrace({
+            tracePath: String(payload.tracePath || ""),
+          });
+        } else if (action === "acp-replay-profiler-set-draft") {
+          replay.setAcpRuntimeReplayDraft({
+            phase: String(payload.phase || ""),
+            cadence: replay.parseAcpRuntimeReplayCadence(payload.cadence),
+          });
+        } else if (action === "acp-replay-profiler-start") {
+          const environment = resolveAcpRuntimeCaptureEnvironment();
+          await replay.startAcpRuntimeReplayController({
+            tracePath: String(payload.tracePath || ""),
+            phase: String(payload.phase || ""),
+            cadence: replay.parseAcpRuntimeReplayCadence(payload.cadence),
+            environment: {
+              pluginVersion: environment.pluginVersion,
+              zoteroVersion: environment.zoteroVersion,
+              platform: environment.platform,
+            },
+            onViewChange: () =>
+              enqueueRefresh("dashboard:snapshot", "diagnostic-update"),
+          });
+        } else if (action === "acp-replay-profiler-cancel") {
+          replay.cancelAcpRuntimeReplayController();
+        } else if (action === "acp-replay-profiler-open-folder") {
+          const folder =
+            replay.getAcpRuntimeReplayControllerView().resultFolder;
+          if (!folder)
+            throw new Error("ACP replay result folder is unavailable");
+          openFolderInSystemFileManager(folder, {
+            label: "ACP replay result folder",
+          });
+        }
+      } catch (error) {
+        alertRuntimeWindow(
+          `ACP Replay Profiler action failed: ${compactError(error)}`,
+        );
       }
       refresh("user-action");
       return;
@@ -3645,7 +3988,7 @@ export async function openTaskManagerDialog(args?: {
     }
     if (action === "runtime-logs-clear") {
       const { clearRuntimeLogs } = await import("./runtimeLogManager");
-      clearRuntimeLogs();
+      await clearRuntimeLogs();
       state.runtimeLogSelectedIdSet.clear();
       refresh("user-action");
       return;
@@ -4024,7 +4367,7 @@ export async function openTaskManagerDialog(args?: {
       activeRowsRevision += 1;
       refresh("backend-health");
     });
-    unsubscribeAcpSkillRuns = subscribeAcpSkillRunSnapshots(() => {
+    unsubscribeAcpSkillRuns = subscribeAcpSkillRunWorkspaceChanges(() => {
       markTaskSummaryDirty();
       refresh("task-update");
     });

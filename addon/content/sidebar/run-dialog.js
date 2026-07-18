@@ -26,8 +26,6 @@
 
   const SIDEBAR_ACTION_BRIDGE_KEY = "__zsSkillRunnerSidebarBridge";
   const runRootEl = document.getElementById("run-root");
-  const mainEl = document.getElementById("skillrunner-main");
-  const emptyEl = document.getElementById("skillrunner-empty");
   const transcriptEl = document.getElementById("chat-panel");
   const plainModeEl = document.getElementById("chat-mode-plain");
   const bubbleModeEl = document.getElementById("chat-mode-bubble");
@@ -598,10 +596,15 @@
   function projectAssistantPanelSnapshot(envelope) {
     const helper = assistantPanelModel();
     const source = envelope || state.workspaceEnvelope || {};
-    const session =
-      source.session && typeof source.session === "object"
+    const hasSessionField = Object.prototype.hasOwnProperty.call(
+      source,
+      "session",
+    );
+    const session = hasSessionField
+      ? source.session && typeof source.session === "object"
         ? source.session
-        : source;
+        : {}
+      : source;
     const base =
       helper && typeof helper.projectSkillRunnerPanelSnapshot === "function"
         ? helper.projectSkillRunnerPanelSnapshot(source)
@@ -905,6 +908,8 @@
       panelSnapshot.conversation &&
       Array.isArray(panelSnapshot.conversation.items)
         ? panelSnapshot.conversation.items
+            .map(renderer.adaptLegacyTranscriptItem)
+            .filter(Boolean)
         : [];
     const raw =
       panelSnapshot && panelSnapshot.raw
@@ -916,7 +921,7 @@
       container: transcriptEl,
       items,
       virtualized,
-      pageKey: virtualized ? state.transcriptContextKey : undefined,
+      ownerKey: virtualized ? state.transcriptContextKey : undefined,
       transcriptRevision: Number(raw && raw.transcriptRevision) || 0,
       mode: state.chatDisplayMode,
       variant: "skillrunner",
@@ -926,6 +931,7 @@
         panelSnapshot.labels?.transcript ||
         {},
       emptyText:
+        (!state.snapshot && safeText(panelSnapshot.labels?.emptyTasks)) ||
         panelSnapshot.labels?.assistantPanel?.transcript?.empty ||
         panelSnapshot.labels?.transcript?.empty ||
         "No chat events yet.",
@@ -1006,9 +1012,6 @@
     document.title =
       panelSnapshot.context.title ||
       safeText(panelSnapshot.labels && panelSnapshot.labels.title);
-    const hasSession = !!state.snapshot;
-    emptyEl.classList.toggle("hidden", hasSession);
-    mainEl.classList.toggle("hidden", !hasSession);
     if (plainModeEl)
       plainModeEl.setAttribute(
         "aria-pressed",
@@ -1086,6 +1089,10 @@
   window.addEventListener("message", function (event) {
     const data = event.data;
     if (!data || typeof data !== "object") return;
+    if (data.type === "assistant-workspace:child-ready-request") {
+      sendAction("ready", {});
+      return;
+    }
     if (data.type === "assistant-panel:close-drawers") {
       closeAllDrawers();
       return;

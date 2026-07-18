@@ -2,7 +2,7 @@
   "schema": "host-bridge.agent-surface.v2",
   "protocol": "host-bridge.v1",
   "cliSchema": "zotero-bridge.cli.v2",
-  "commandCatalogChecksum": "e2ecb3b0621933390edd81eb1df68bbbb8be1436eb3b93fa271490b001b4cb60",
+  "commandCatalogChecksum": "b8ee450e7a4e2ac71481a89c71764717c4771b6e1960a1d5aa1b52904c273ac3",
   "commands": [
     {
       "command": "bridge backend list",
@@ -4621,10 +4621,7 @@
             "minimum": 1
           },
           "cursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": "string"
           }
         },
         "required": [],
@@ -5435,10 +5432,7 @@
             "minimum": 1
           },
           "cursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": "string"
           },
           "checks": {},
           "missingOnly": {
@@ -5632,10 +5626,7 @@
             "minimum": 1
           },
           "cursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": "string"
           },
           "checks": {},
           "missingOnly": {
@@ -5829,10 +5820,7 @@
             "minimum": 1
           },
           "cursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": "string"
           },
           "checks": {},
           "missingOnly": {
@@ -6026,10 +6014,7 @@
             "minimum": 1
           },
           "cursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": "string"
           },
           "checks": {},
           "missingOnly": {
@@ -6222,10 +6207,7 @@
             "minimum": 1
           },
           "cursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": "string"
           }
         },
         "required": [],

@@ -1113,6 +1113,17 @@ to raw-only capabilities or diagnostics.
 - **AND** it SHALL not be directed to bypass semantic argument validation with
   raw `call`.
 
+### Requirement: CLI guidance treats library cursors as opaque
+
+The generated Host Bridge CLI guidance SHALL instruct agents to omit the cursor for a first library page and pass through only a returned cursor for subsequent pages.
+
+#### Scenario: Agent starts and continues library pagination
+
+- **WHEN** an agent follows generated guidance for library list, snapshot, or readiness commands
+- **THEN** the first request SHALL omit `cursor`
+- **AND** each later request SHALL use the exact `nextCursor` returned by the preceding page
+- **AND** the guidance MUST NOT construct or increment numeric offsets.
+
 ### Requirement: Inline ACP auto-approval provider option
 The Zotero Bridge CLI SHALL continue to pass the JSON supplied by `workflow submit --provider-profile` to Host Bridge, including `providerOptions.autoApproveAcpPermissions`. The CLI SHALL NOT add a separate approval command or a persisted provider-profile management surface for this option.
 

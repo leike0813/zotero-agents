@@ -1388,13 +1388,13 @@ ACP Skills SHALL record workflow apply-result state independently from local con
 
 ### Requirement: Plugin-owned ACP audit streams are physically batched
 
-Debug-only plugin-owned `timeline.ndjson`, `acp-updates.ndjson`, and `transport.ndjson` streams SHALL retain every sanitized logical record while using bounded low-frequency true append operations.
+Debug-only plugin-owned `timeline.ndjson`, `acp-updates.ndjson`, and `transport.ndjson` streams SHALL preserve ordered sanitized logical records during normal operation while using bounded low-frequency true append operations. Under sustained sink failure or backpressure beyond the audit-only hard limit, the plugin MAY drop the oldest pending audit records with observable drop counters; this policy MUST NOT apply to transcript or other business persistence channels.
 
 #### Scenario: Audit burst appends one batch without whole-file rewrite
 
 - **GIVEN** ACP debug mode is enabled
 - **WHEN** many audit records are emitted for one owner and file before a forced boundary
-- **THEN** every logical record SHALL remain independently readable in order
+- **THEN** every retained logical record SHALL remain independently readable in order
 - **AND** the plugin SHALL append the pending batch without reading and rewriting the existing complete file
 - **AND** physical writes SHALL be bounded by the configured time, byte, entry, and durability thresholds.
 
@@ -1402,14 +1402,41 @@ Debug-only plugin-owned `timeline.ndjson`, `acp-updates.ndjson`, and `transport.
 
 - **WHEN** an adapter session update or transport callback enqueues an audit record
 - **THEN** the callback SHALL be able to continue without waiting for the trailing flush timer
-- **AND** the record SHALL remain pending until a threshold or audit boundary drains it.
+- **AND** the record SHALL remain pending until a threshold, audit boundary, or audit-only hard limit processes it.
 
-#### Scenario: Audit failure is best-effort and retryable
+#### Scenario: Audit failure is best-effort and bounded
 
 - **WHEN** one physical audit append fails
 - **THEN** the run SHALL continue
 - **AND** one structured audit failure SHALL be recorded for that attempt
-- **AND** the pending logical records SHALL remain available for retry at the next boundary.
+- **AND** pending logical records SHALL remain available for retry only within the configured audit hard limits
+- **AND** overflow SHALL be represented by dropped-entry, dropped-byte, and overflow-episode diagnostics.
+
+### Requirement: ACP adapter diagnostics are observational rather than canonical run lifecycle
+
+ACP Skills SHALL route adapter diagnostics to bounded runtime evidence without using them as canonical run events, transcript events, or lifecycle state transitions.
+
+#### Scenario: Information diagnostic does not mutate canonical state
+- **WHEN** an active or recovered ACP Skills run observes any number of info or JSON-RPC trace diagnostics
+- **THEN** the diagnostics MUST NOT modify run status, `updatedAt`, event history, transcript, result, permission, or recovery state
+- **AND** they MUST NOT write a canonical run row or run-event row
+- **AND** they MUST NOT publish run, transcript, progress, or other business Workspace changes.
+
+#### Scenario: Warning and error diagnostics remain available without becoming business state
+- **WHEN** an adapter emits a warning or error diagnostic
+- **THEN** sanitized evidence MAY be written to the bounded request-scoped runtime log
+- **AND** debug mode MAY additionally enqueue sanitized audit evidence
+- **AND** neither sink may alter or block ACP run execution state.
+
+#### Scenario: Business boundaries retain their explicit persistence owners
+- **WHEN** prompt failure, permission, authentication, connection close, cancellation, interruption, apply, result, or terminal state occurs
+- **THEN** the existing explicit business handler MUST persist that state independently of any adapter diagnostic
+- **AND** removing diagnostic persistence MUST NOT suppress the business transition.
+
+#### Scenario: Historical diagnostic events remain readable
+- **WHEN** a stored run predating this requirement contains adapter diagnostic events
+- **THEN** the reader MUST tolerate and expose the stored history without migration
+- **AND** newly observed adapter diagnostics MUST NOT be appended to that history.
 
 ### Requirement: ACP audit durability follows diagnostic boundaries
 
@@ -1517,3 +1544,44 @@ ACP Skills and the SkillRunner-compatible runner SHALL use the shared transport 
 
 - **WHEN** an ACP Skills diagnostic uses an adapter session or a raw transport probe
 - **THEN** both paths SHALL enter the shared controller boundary.
+
+### Requirement: ACP Skills trace context is transient and identity-neutral
+
+ACP Skills ordinary requests and sequence steps SHALL carry transient debug-only parent workflow recording context separately from `AcpSkillRunRecord.runId`, `requestId`, sequence composite identity, and Host Bridge run identity. The context SHALL authorize activity publication only while its matching recorder round and claimed root remain live, and SHALL never be persisted or exposed through provider or Host Bridge protocols.
+
+#### Scenario: Ordinary ACP request is recorded
+- **WHEN** a concrete request starts under a claimed top-level workflow execution
+- **THEN** its start, semantic events, and terminal SHALL be recorded under that execution root
+- **AND** its public and persistent run identities SHALL remain unchanged.
+
+#### Scenario: Stale request terminal arrives
+- **WHEN** a terminal from an invalidated recording round or a different root arrives
+- **THEN** it SHALL not close current activity or append to the current trace.
+
+#### Scenario: Concrete terminal settles
+- **WHEN** a registered request becomes terminal through success, failure, cancellation, or forced cleanup
+- **THEN** exactly one matching request end SHALL close that activity before workflow-root completion.
+
+### Requirement: ACP transcript range batches SHALL use bounded packed worker transfer
+
+ACP Chat and ACP Skills indexed transcript reads in Zotero SHALL send bounded
+range batches to one reusable privileged worker. Each physical batch SHALL open
+the source once and return one packed transferable byte buffer plus range
+length metadata instead of one main-thread file operation or transferable
+object per event.
+
+#### Scenario: Event-heavy page is hydrated
+- **WHEN** one selected transcript page requires many indexed event ranges
+- **THEN** the ranges SHALL be partitioned by fixed entry and byte budgets
+- **AND** each batch SHALL open and close the source once
+- **AND** the folded page items SHALL preserve index item and event order.
+
+#### Scenario: Range reaches or exceeds EOF
+- **WHEN** a normalized indexed range overlaps or begins beyond the observed file size
+- **THEN** the worker SHALL return the available short read or an empty result in the corresponding output position
+- **AND** it SHALL NOT read outside the file.
+
+#### Scenario: Worker generation fails
+- **WHEN** the worker errors, times out, or is stopped during pending reads
+- **THEN** every request owned by that generation SHALL settle with a structured failure
+- **AND** a later request MAY lazily create a fresh generation unless controlled shutdown has begun.

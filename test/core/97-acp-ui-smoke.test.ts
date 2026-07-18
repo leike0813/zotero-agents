@@ -1,274 +1,222 @@
 import { assert } from "chai";
-import { buildAcpSidebarViewSnapshot } from "../../src/modules/acpSidebarModel";
-import { createEmptyAcpConversationSnapshot } from "../../src/modules/acpTypes";
-import { buildSkillRunnerSidebarSections } from "../../src/modules/skillRunnerSidebarModel";
+import { access, readFile } from "node:fs/promises";
+import path from "node:path";
+import vm from "node:vm";
+import { ASSISTANT_WORKSPACE_ACTION_REGISTRY } from "../../src/modules/assistantWorkspacePublication";
 
-function isRealZoteroRuntime() {
-  const runtime = globalThis as {
-    Zotero?: {
-      __parity?: {
-        runtime?: string;
-      };
-    };
-  };
-  return !!runtime.Zotero && runtime.Zotero.__parity?.runtime !== "node-mock";
-}
-
-const dynamicImport = new Function("specifier", "return import(specifier)") as <
-  T = any,
->(
-  specifier: string,
-) => Promise<T>;
+const root = path.resolve(import.meta.dirname, "../..");
 
 async function readProjectFile(relativePath: string) {
-  if (isRealZoteroRuntime()) {
-    throw new Error("readProjectFile is only available in Node tests");
-  }
-  const [{ readFile }, path] = await Promise.all([
-    dynamicImport<typeof import("fs/promises")>("fs/promises"),
-    dynamicImport<typeof import("path")>("path"),
-  ]);
-  const absolutePath = path.join(process.cwd(), relativePath);
-  return readFile(absolutePath, "utf8");
+  return readFile(path.join(root, relativePath), "utf8");
 }
 
-function createAssistantWorkspaceShellDocument(options: any = {}) {
-  const listeners = new Map<string, any[]>();
-  const windowListeners = new Map<string, any[]>();
-  const fallbackMessages: any[] = [];
-
-  function createClassList(initial: string[] = []): any {
-    const entries = new Set(initial);
-    return {
-      toggle(name: string, force?: boolean) {
-        const enabled = force === undefined ? !entries.has(name) : force;
-        if (enabled) entries.add(name);
-        else entries.delete(name);
-        return enabled;
-      },
-      contains(name: string) {
-        return entries.has(name);
-      },
-      toString() {
-        return Array.from(entries).join(" ");
-      },
-    };
-  }
-
-  function createElement(id: string, initialClasses: string[] = []): any {
-    const elementListeners = new Map<string, any[]>();
-    return {
-      id,
-      classList: createClassList(initialClasses),
-      attributes: new Map<string, string>(),
-      addEventListener(type: string, callback: any) {
-        const list = elementListeners.get(type) || [];
-        list.push(callback);
-        elementListeners.set(type, list);
-      },
-      dispatch(type: string, event: any = {}) {
-        for (const callback of elementListeners.get(type) || []) {
-          callback(event);
-        }
-      },
-      setAttribute(name: string, value: string) {
-        this.attributes.set(name, value);
-      },
-      getAttribute(name: string) {
-        return this.attributes.get(name) || null;
-      },
-    };
-  }
-
-  function createChildWindow(tab: string): any {
-    const messages: any[] = [];
-    return {
-      tab,
-      messages,
-      wrappedJSObject: {},
-      postMessage(message: any) {
-        messages.push(message);
-      },
-    };
-  }
-
-  const elements = new Map<string, any>();
-  elements.set("assistant-workspace-loading", createElement("loading"));
-  for (const tab of ["acp-chat", "acp-skills", "skillrunner"]) {
-    elements.set("assistant-tab-" + tab, createElement("button-" + tab));
-    const frame = createElement(
-      "assistant-frame-" + tab,
-      [tab === "acp-chat" ? "" : "hidden"].filter(Boolean),
-    );
-    frame.contentWindow =
-      options.childWindows &&
-      Object.prototype.hasOwnProperty.call(options.childWindows, tab)
-        ? options.childWindows[tab]
-        : createChildWindow(tab);
-    elements.set("assistant-frame-" + tab, frame);
-  }
-  elements.set("assistant-workspace-close", createElement("close"));
-
-  const fakeDocument = {
-    getElementById(id: string) {
-      return elements.get(id) || null;
-    },
-    addEventListener(type: string, callback: any) {
-      const list = listeners.get(type) || [];
-      list.push(callback);
-      listeners.set(type, list);
-    },
-  };
-
-  const fakeWindow: any = {
-    wrappedJSObject: {},
-    parent: {
-      postMessage(message: any) {
-        fallbackMessages.push(message);
-      },
-    },
-    top: null,
-    opener: null,
-    addEventListener(type: string, callback: any) {
-      const list = windowListeners.get(type) || [];
-      list.push(callback);
-      windowListeners.set(type, list);
-    },
-  };
-  fakeWindow.top = fakeWindow.parent;
-  if (options.hostBridge) {
-    fakeWindow.__zsAssistantWorkspaceBridge = options.hostBridge;
-    fakeWindow.wrappedJSObject.__zsAssistantWorkspaceBridge =
-      options.hostBridge;
-  }
-
-  return {
-    childWindow: createChildWindow,
-    document: fakeDocument,
-    elements,
-    fallbackMessages,
-    window: fakeWindow,
-    dispatchDocument(type: string) {
-      for (const callback of listeners.get(type) || []) callback();
-    },
-    dispatchWindowMessage(type: string, payload: Record<string, unknown>) {
-      for (const callback of windowListeners.get("message") || []) {
-        callback({ data: { type, payload } });
-      }
-    },
-    setHostBridge(bridge: any) {
-      fakeWindow.__zsAssistantWorkspaceBridge = bridge;
-      fakeWindow.wrappedJSObject.__zsAssistantWorkspaceBridge = bridge;
-    },
-    setChildWindow(tab: string, childWindow: any) {
-      elements.get("assistant-frame-" + tab).contentWindow = childWindow;
-    },
-    trace() {
-      return fakeWindow.__zsAssistantWorkspaceActionTrace || [];
-    },
-  };
-}
-
-async function loadAssistantWorkspaceShellForSmoke(options: any = {}) {
-  const vm = await dynamicImport<typeof import("vm")>("vm");
-  const code = await readProjectFile(
-    "addon/content/sidebar/assistant-workspace.js",
-  );
-  const harness = createAssistantWorkspaceShellDocument(options);
-  vm.runInNewContext(code, {
-    window: harness.window,
-    document: harness.document,
-    setTimeout: options.setTimeout || setTimeout,
-    clearTimeout: options.clearTimeout || clearTimeout,
-  });
-  return harness;
-}
-
-function createManualTimers() {
-  let nextId = 1;
-  const timers = new Map<number, () => void>();
-  return {
-    setTimeout(callback: () => void) {
-      const id = nextId;
-      nextId += 1;
-      timers.set(id, callback);
-      return id;
-    },
-    clearTimeout(id: number) {
-      timers.delete(id);
-    },
-    runAll() {
-      const pending = Array.from(timers.entries());
-      timers.clear();
-      for (const [, callback] of pending) {
-        callback();
-      }
-    },
-    size() {
-      return timers.size;
-    },
-  };
-}
-
-async function flushMicrotasks() {
-  for (let index = 0; index < 6; index += 1) {
-    await Promise.resolve();
-  }
-}
-
-async function loadAssistantConversationViewForSmoke() {
-  const vm = await dynamicImport<typeof import("vm")>("vm");
-  const code = await readProjectFile(
-    "addon/content/shared/assistant/assistant-conversation-view.js",
-  );
-  const context = {
-    window: {},
-  };
-  vm.runInNewContext(code, context);
-  return (context.window as any).AssistantConversationView;
-}
-
-async function loadAssistantPanelModelForSmoke(options: any = {}) {
-  const vm = await dynamicImport<typeof import("vm")>("vm");
+async function loadPanelModel() {
   const code = await readProjectFile(
     "addon/content/shared/assistant/assistant-panel-model.js",
   );
-  const context = {
-    window: {
-      AssistantConversationView: options.conversationView || {
-        projectAcpChatConversationView: (source: any = {}) => ({
-          items: [],
-          plan: { entries: [], activeEntries: [], active: false },
-          interaction:
-            source.busy === true || source.status === "prompting"
-              ? { kind: "running", message: "Agent is working..." }
-              : { kind: "hidden" },
-          usage: source.usage || null,
-        }),
-        projectAcpSkillRunConversationView: (source: any = {}) => ({
-          items: [],
-          plan: { entries: [], activeEntries: [], active: false },
-          interaction: { kind: "hidden" },
-          usage: source.usage || null,
-        }),
-      },
-    },
-  };
+  const context = { window: {} as Record<string, unknown> };
   vm.runInNewContext(code, context);
   return (context.window as any).AssistantPanelModel;
 }
 
-async function loadAssistantPanelRendererForSmoke(document: any) {
-  const vm = await dynamicImport<typeof import("vm")>("vm");
+async function loadWorkspaceChild() {
+  const code = await readProjectFile(
+    "addon/content/shared/assistant/assistant-workspace-acp-child.js",
+  );
+  const context = { window: {} as Record<string, unknown> };
+  vm.runInNewContext(code, context);
+  return (context.window as any).AssistantWorkspaceAcpChild;
+}
+
+class FakeElement {
+  parentNode: FakeElement | null = null;
+  children: FakeElement[] = [];
+  attributes = new Map<string, string>();
+  className = "";
+  textContent = "";
+  disabled = false;
+  type = "";
+  onclick: ((event: any) => void) | null = null;
+  listeners = new Map<string, Array<(event: any) => void>>();
+  failNextInsertBefore = false;
+  style = { setProperty() {} };
+  classList = {
+    add: (...names: string[]) => {
+      const values = new Set(this.className.split(/\s+/).filter(Boolean));
+      names.forEach((name) => values.add(name));
+      this.className = [...values].join(" ");
+    },
+    remove: (...names: string[]) => {
+      const values = new Set(this.className.split(/\s+/).filter(Boolean));
+      names.forEach((name) => values.delete(name));
+      this.className = [...values].join(" ");
+    },
+    toggle: (name: string, force?: boolean) => {
+      const values = new Set(this.className.split(/\s+/).filter(Boolean));
+      const enabled = typeof force === "boolean" ? force : !values.has(name);
+      if (enabled) values.add(name);
+      else values.delete(name);
+      this.className = [...values].join(" ");
+    },
+    contains: (name: string) => this.className.split(/\s+/).includes(name),
+  };
+
+  constructor(
+    public readonly tagName: string,
+    public readonly ownerDocument: FakeDocument,
+  ) {}
+
+  get firstChild() {
+    return this.children[0] || null;
+  }
+
+  get firstElementChild() {
+    return this.firstChild;
+  }
+
+  appendChild(child: FakeElement) {
+    this.detach(child);
+    child.parentNode = this;
+    this.children.push(child);
+    return child;
+  }
+
+  insertBefore(child: FakeElement, before: FakeElement | null) {
+    if (this.failNextInsertBefore) {
+      this.failNextInsertBefore = false;
+      throw new Error("synthetic-dom-failure");
+    }
+    if (child === before) return child;
+    this.detach(child);
+    child.parentNode = this;
+    const index = before ? this.children.indexOf(before) : -1;
+    if (index < 0) this.children.push(child);
+    else this.children.splice(index, 0, child);
+    return child;
+  }
+
+  replaceChild(next: FakeElement, previous: FakeElement) {
+    const index = this.children.indexOf(previous);
+    if (index < 0) return previous;
+    this.detach(next);
+    next.parentNode = this;
+    previous.parentNode = null;
+    this.children[index] = next;
+    return previous;
+  }
+
+  removeChild(child: FakeElement) {
+    const index = this.children.indexOf(child);
+    if (index >= 0) this.children.splice(index, 1);
+    child.parentNode = null;
+    return child;
+  }
+
+  private detach(child: FakeElement) {
+    if (child.parentNode) child.parentNode.removeChild(child);
+  }
+
+  setAttribute(name: string, value: string) {
+    this.attributes.set(name, String(value));
+  }
+
+  getAttribute(name: string) {
+    return this.attributes.has(name) ? this.attributes.get(name) || "" : null;
+  }
+
+  removeAttribute(name: string) {
+    this.attributes.delete(name);
+  }
+
+  addEventListener(type: string, listener: (event: any) => void) {
+    const listeners = this.listeners.get(type) || [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  contains(node: FakeElement): boolean {
+    return node === this || this.children.some((child) => child.contains(node));
+  }
+
+  querySelector(selector: string) {
+    return this.querySelectorAll(selector)[0] || null;
+  }
+
+  querySelectorAll(selector: string) {
+    const directClass = /^:scope > \.([A-Za-z0-9_-]+)$/.exec(selector);
+    if (directClass) {
+      return this.children.filter((child) =>
+        child.classList.contains(directClass[1]),
+      );
+    }
+    const className = /^\.([A-Za-z0-9_-]+)$/.exec(selector);
+    if (className) {
+      return this.descendants().filter((child) =>
+        child.classList.contains(className[1]),
+      );
+    }
+    const attribute = /^\[([A-Za-z0-9_-]+)\]$/.exec(selector);
+    if (attribute) {
+      return this.descendants().filter(
+        (child) => child.getAttribute(attribute[1]) !== null,
+      );
+    }
+    return [];
+  }
+
+  private descendants(): FakeElement[] {
+    return this.children.flatMap((child) => [child, ...child.descendants()]);
+  }
+}
+
+class FakeDocument {
+  activeElement: FakeElement | null = null;
+
+  createElement(tagName: string) {
+    return new FakeElement(tagName.toUpperCase(), this);
+  }
+
+  createElementNS(_namespace: string, tagName: string) {
+    return this.createElement(tagName);
+  }
+}
+
+async function loadPanelRenderer(document: FakeDocument) {
+  const context = await loadAssistantRendererContext(document);
+  return (context.window as any).AssistantPanelRenderer;
+}
+
+async function loadTranscriptRenderer(document: FakeDocument) {
+  const context = await loadAssistantRendererContext(document);
+  return (context.window as any).AssistantTranscriptRenderer;
+}
+
+function createPanelManagedRegions(document: FakeDocument) {
+  const root = document.createElement("div");
+  const regions = {
+    toolbar: document.createElement("div"),
+    banner: document.createElement("div"),
+    messageCounter: document.createElement("div"),
+    plan: document.createElement("div"),
+    hint: document.createElement("div"),
+    reply: document.createElement("div"),
+    drawer: document.createElement("div"),
+    details: document.createElement("div"),
+  };
+  Object.values(regions).forEach((region) => root.appendChild(region));
+  return { root, regions };
+}
+
+async function loadAssistantRendererContext(document: FakeDocument) {
   const transcriptCode = await readProjectFile(
     "addon/content/shared/assistant/assistant-transcript-renderer.js",
   );
-  const panelCode = await readProjectFile(
+  const rendererCode = await readProjectFile(
     "addon/content/shared/assistant/assistant-panel-renderer.js",
   );
   const context = {
     window: {
-      requestAnimationFrame(callback: any) {
+      requestAnimationFrame(callback: () => void) {
         callback();
         return 0;
       },
@@ -278,7816 +226,546 @@ async function loadAssistantPanelRendererForSmoke(document: any) {
     clearTimeout,
   };
   vm.runInNewContext(transcriptCode, context);
-  vm.runInNewContext(panelCode, context);
+  vm.runInNewContext(rendererCode, context);
+  return context;
+}
+
+function owner(source: "acp-chat" | "acp-skills", key: string) {
+  return source === "acp-chat"
+    ? {
+        source,
+        ownerKey: key,
+        backendId: key.split("\n")[0],
+        conversationId: key.split("\n")[1],
+      }
+    : { source, ownerKey: key, requestId: key };
+}
+
+function canonicalState(source: "acp-chat" | "acp-skills") {
+  const selected =
+    source === "acp-chat"
+      ? owner(source, "backend-a\nconversation-a")
+      : owner(source, "request-a");
   return {
-    ...(context.window as any).AssistantPanelRenderer,
-    ...(context.window as any).AssistantTranscriptRenderer,
-  };
-}
-
-async function loadAcpSkillRunSidebarForSmoke(
-  document: any,
-  options: {
-    panelModel?: any;
-    panelRenderer?: any;
-    useActualTranscriptRenderer?: boolean;
-  } = {},
-) {
-  const vm = await dynamicImport<typeof import("vm")>("vm");
-  const code = await readProjectFile("addon/content/sidebar/acp-skill-run.js");
-  const transcriptCode = options.useActualTranscriptRenderer
-    ? await readProjectFile(
-        "addon/content/shared/assistant/assistant-transcript-renderer.js",
-      )
-    : "";
-  const listeners = new Map<string, any[]>();
-  const actions: Array<{ action: string; payload: Record<string, unknown> }> =
-    [];
-  if (typeof document.addEventListener !== "function") {
-    document.addEventListener = () => undefined;
-  }
-  const bridgeKey = "__zsAcpSkillRunSidebarBridge";
-  const windowRef: any = {
-    parent: null,
-    top: null,
-    opener: null,
-    wrappedJSObject: null,
-    requestAnimationFrame(callback: any) {
-      callback();
-      return 0;
-    },
-    addEventListener(type: string, handler: any) {
-      const entries = listeners.get(type) || [];
-      entries.push(handler);
-      listeners.set(type, entries);
-    },
-    AssistantPanelModel: options.panelModel || {
-      projectAcpSkillRunPanelSnapshot(snapshot: any = {}) {
-        return {
-          kind: "acp-skill",
-          labels: snapshot.labels || {},
-          context: {},
-          drawers: {},
-          reply: {},
-          raw: snapshot,
-        };
-      },
-    },
-    AssistantPanelRenderer: options.panelRenderer || {
-      renderAssistantPanelSnapshot() {
-        return undefined;
-      },
-    },
-  };
-  windowRef[bridgeKey] = {
-    sendAction(action: string, payload: Record<string, unknown>) {
-      actions.push({ action, payload });
-    },
-  };
-  if (!options.useActualTranscriptRenderer) {
-    windowRef.AssistantTranscriptRenderer = {
-      renderAssistantTranscript(options: any = {}) {
-        const container = options.container;
-        while (container && container.firstChild) {
-          container.removeChild(container.firstChild);
-        }
-        for (const item of Array.isArray(options.items) ? options.items : []) {
-          const row = document.createElement("div");
-          row.className = "assistant-transcript-row";
-          row.textContent = String(item.text || item.label || item.id || "");
-          container.appendChild(row);
-        }
-        if (typeof options.onRendered === "function") {
-          options.onRendered({ orderKey: "stable", modeKey: "plain" });
-        }
-      },
-    };
-  }
-  const context = {
-    window: windowRef,
-    document,
-    setTimeout,
-    clearTimeout,
-  };
-  if (transcriptCode) {
-    vm.runInNewContext(transcriptCode, context);
-  }
-  vm.runInNewContext(code, context);
-  return {
-    actions,
-    postSnapshot(snapshot: Record<string, unknown>) {
-      for (const handler of listeners.get("message") || []) {
-        handler({
-          data: {
-            type: "acp-skill-run:snapshot",
-            payload: snapshot,
-          },
-        });
-      }
-    },
-  };
-}
-
-async function loadAcpChatSidebarForSmoke(document: any) {
-  const vm = await dynamicImport<typeof import("vm")>("vm");
-  const code = await readProjectFile("addon/content/sidebar/acp-chat.js");
-  const listeners = new Map<string, any[]>();
-  const actions: Array<{ action: string; payload: Record<string, unknown> }> =
-    [];
-  const transcriptRenderCalls: any[] = [];
-  const panelRenderCalls: any[] = [];
-  const counterRenderCalls: any[] = [];
-  const panelActionHooks: Array<(action: string, payload: any) => void> = [];
-  const resetCalls: string[] = [];
-  if (typeof document.addEventListener !== "function") {
-    document.addEventListener = () => undefined;
-  }
-  const bridgeKey = "__zsAcpSidebarBridge";
-  const windowRef: any = {
-    parent: null,
-    top: null,
-    opener: null,
-    wrappedJSObject: null,
-    requestAnimationFrame(callback: any) {
-      callback();
-      return 0;
-    },
-    addEventListener(type: string, handler: any) {
-      const entries = listeners.get(type) || [];
-      entries.push(handler);
-      listeners.set(type, entries);
-    },
-    AssistantConversationView: {
-      projectAcpChatConversationView(source: any = {}) {
-        return {
-          items: (Array.isArray(source.items) ? source.items : []).filter(
-            (entry: any) => entry && entry.kind !== "plan",
-          ),
-          plan: { entries: [], activeEntries: [], active: false },
-          interaction: { kind: "hidden" },
-          usage: source.usage || null,
-        };
-      },
-    },
-    AssistantPanelModel: {
-      projectAcpChatPanelSnapshot(snapshot: any = {}) {
-        return {
-          kind: "acp-chat",
-          labels: snapshot.labels || {},
-          context: {},
-          drawers: {},
-          reply: {},
-          conversation: { items: snapshot.items || [] },
-          raw: snapshot,
-        };
-      },
-    },
-    AssistantPanelRenderer: {
-      renderAssistantPanelSnapshot(panelSnapshot: any, options: any = {}) {
-        const managedRegions = options.managedRegions || {};
-        const counterOnly =
-          managedRegions.messageCounter === true &&
-          Object.keys(managedRegions).length === 1;
-        if (counterOnly) counterRenderCalls.push(panelSnapshot);
-        else panelRenderCalls.push(panelSnapshot);
-        if (typeof options.onAction === "function") {
-          panelActionHooks.push(options.onAction);
-        }
-        return undefined;
-      },
-    },
-    AssistantTranscriptRenderer: {
-      resetAssistantTranscriptVirtualState(_container: any, pageKey: string) {
-        resetCalls.push(String(pageKey || ""));
-      },
-      renderAssistantTranscript(options: any = {}) {
-        transcriptRenderCalls.push(options);
-        const container = options.container;
-        while (container && container.firstChild) {
-          container.removeChild(container.firstChild);
-        }
-        for (const item of Array.isArray(options.items) ? options.items : []) {
-          const row = document.createElement("div");
-          row.className = "assistant-transcript-row";
-          row.textContent = String(item.text || item.label || item.id || "");
-          container.appendChild(row);
-        }
-        if (typeof options.onRendered === "function") {
-          options.onRendered({
-            orderKey: "stable",
-            modeKey: options.mode || "plain",
-          });
-        }
-      },
-    },
-  };
-  windowRef[bridgeKey] = {
-    sendAction(action: string, payload: Record<string, unknown>) {
-      actions.push({ action, payload });
-    },
-  };
-  const context = {
-    window: windowRef,
-    document,
-    setTimeout,
-    clearTimeout,
-  };
-  vm.runInNewContext(code, context);
-  return {
-    actions,
-    panelActionHooks,
-    panelRenderCalls,
-    counterRenderCalls,
-    resetCalls,
-    transcriptRenderCalls,
-    postSnapshot(snapshot: Record<string, unknown>) {
-      for (const handler of listeners.get("message") || []) {
-        handler({
-          data: {
-            type: "acp:snapshot",
-            payload: snapshot,
-          },
-        });
-      }
-    },
-  };
-}
-
-function collectFakeText(node: any): string {
-  if (!node) return "";
-  return (
-    String(node.textContent || "") +
-    String(node.innerHTML || "") +
-    (Array.isArray(node.children)
-      ? node.children.map((child: any) => collectFakeText(child)).join("")
-      : "")
-  );
-}
-
-function createFakeDocumentForAssistantPanel() {
-  const documentRef: any = {
-    activeElement: null,
-    measurementHeights: new Map<string, number>(),
-    createElement(tag: string) {
-      return new FakeElement(tag, documentRef);
-    },
-    createElementNS(_namespace: string, tag: string) {
-      return new FakeElement(tag, documentRef);
-    },
-  };
-
-  class FakeElement {
-    tagName: string;
-    ownerDocument: any;
-    parentNode: FakeElement | null = null;
-    children: FakeElement[] = [];
-    attributes = new Map<string, string>();
-    className = "";
-    textContent = "";
-    value = "";
-    disabled = false;
-    selectionStart: number | null = 0;
-    selectionEnd: number | null = 0;
-    scrollTop = 0;
-    scrollHeight = 0;
-    clientHeight = 0;
-    type = "";
-    onclick: any = null;
-    listeners = new Map<string, any[]>();
-    style: any = {
-      setProperty: (_name: string, _value: string) => undefined,
-    };
-    classList = {
-      add: (...names: string[]) => {
-        const current = new Set(this.className.split(/\s+/).filter(Boolean));
-        names.forEach((name) => current.add(name));
-        this.className = Array.from(current).join(" ");
-      },
-      remove: (...names: string[]) => {
-        const current = new Set(this.className.split(/\s+/).filter(Boolean));
-        names.forEach((name) => current.delete(name));
-        this.className = Array.from(current).join(" ");
-      },
-      toggle: (name: string, force?: boolean) => {
-        const current = new Set(this.className.split(/\s+/).filter(Boolean));
-        const shouldAdd =
-          typeof force === "boolean" ? force : !current.has(name);
-        if (shouldAdd) current.add(name);
-        else current.delete(name);
-        this.className = Array.from(current).join(" ");
-      },
-      contains: (name: string) => this.className.split(/\s+/).includes(name),
-    };
-
-    constructor(tagName: string, ownerDocument: any) {
-      this.tagName = tagName.toUpperCase();
-      this.ownerDocument = ownerDocument;
-    }
-
-    get offsetHeight() {
-      return this.measuredHeight();
-    }
-
-    getBoundingClientRect() {
-      const height = this.measuredHeight();
-      return {
-        bottom: height,
-        height,
-        left: 0,
-        right: 0,
-        top: 0,
-        width: 0,
-      };
-    }
-
-    private measuredHeight() {
-      const id = this.getAttribute("data-assistant-item-id") || "";
-      const rowKey = this.getAttribute("data-assistant-virtual-row-key") || "";
-      const explicit =
-        this.ownerDocument.measurementHeights.get(id) ??
-        this.ownerDocument.measurementHeights.get(rowKey);
-      if (typeof explicit === "number" && Number.isFinite(explicit)) {
-        return explicit;
-      }
-      const textLength = collectFakeText(this).length;
-      if (textLength > 0) {
-        return Math.max(24, Math.ceil(textLength / 48) * 22);
-      }
-      return 0;
-    }
-
-    get firstChild() {
-      return this.children[0] || null;
-    }
-
-    get lastChild() {
-      return this.children[this.children.length - 1] || null;
-    }
-
-    appendChild(child: FakeElement) {
-      child.parentNode = this;
-      this.children.push(child);
-      return child;
-    }
-
-    insertBefore(child: FakeElement, before: FakeElement | null) {
-      child.parentNode = this;
-      if (!before) {
-        this.children.push(child);
-        return child;
-      }
-      const index = this.children.indexOf(before);
-      if (index < 0) {
-        this.children.push(child);
-      } else {
-        this.children.splice(index, 0, child);
-      }
-      return child;
-    }
-
-    removeChild(child: FakeElement) {
-      this.children = this.children.filter((entry) => entry !== child);
-      child.parentNode = null;
-      return child;
-    }
-
-    setAttribute(name: string, value: string) {
-      this.attributes.set(name, String(value));
-    }
-
-    getAttribute(name: string) {
-      return this.attributes.has(name) ? this.attributes.get(name) || "" : null;
-    }
-
-    removeAttribute(name: string) {
-      this.attributes.delete(name);
-    }
-
-    addEventListener(type: string, handler: any) {
-      const entries = this.listeners.get(type) || [];
-      entries.push(handler);
-      this.listeners.set(type, entries);
-    }
-
-    dispatchEventType(type: string, init: Record<string, unknown> = {}) {
-      const event = {
-        preventDefault: () => undefined,
-        stopPropagation: () => undefined,
-        target: this,
-        currentTarget: this,
-        ...init,
-      };
-      for (const handler of this.listeners.get(type) || []) {
-        handler(event);
-      }
-    }
-
-    click() {
-      const event = {
-        preventDefault: () => undefined,
-        stopPropagation: () => undefined,
-        target: this,
-        currentTarget: this,
-      };
-      if (typeof this.onclick === "function") {
-        this.onclick(event);
-      }
-      for (const handler of this.listeners.get("click") || []) {
-        handler(event);
-      }
-    }
-
-    focus() {
-      this.ownerDocument.activeElement = this;
-    }
-
-    setSelectionRange(start: number, end: number) {
-      this.selectionStart = start;
-      this.selectionEnd = end;
-    }
-
-    contains(target: FakeElement) {
-      if (target === this) return true;
-      return this.children.some((child) => child.contains(target));
-    }
-
-    querySelector(selector: string): FakeElement | null {
-      return this.querySelectorAll(selector)[0] || null;
-    }
-
-    querySelectorAll(selector: string): FakeElement[] {
-      const directClass = selector.match(/^:scope > \.([A-Za-z0-9_-]+)$/);
-      if (directClass) {
-        return this.children.filter((child) =>
-          child.className.split(/\s+/).includes(directClass[1]),
-        );
-      }
-      const classMatch = selector.match(/^\.([A-Za-z0-9_-]+)$/);
-      if (classMatch) {
-        return this.descendants().filter((child) =>
-          child.className.split(/\s+/).includes(classMatch[1]),
-        );
-      }
-      const attrMatch = selector.match(/^\[([A-Za-z0-9_-]+)\]$/);
-      if (attrMatch) {
-        return this.descendants().filter(
-          (child) => child.getAttribute(attrMatch[1]) !== null,
-        );
-      }
-      return [];
-    }
-
-    private descendants(): FakeElement[] {
-      return this.children.flatMap((child) => [child, ...child.descendants()]);
-    }
-  }
-
-  return documentRef;
-}
-
-function createAcpSkillRunSidebarHarnessDocument() {
-  const fakeDocument = createFakeDocumentForAssistantPanel();
-  const elements = new Map<string, any>();
-  const shell = fakeDocument.createElement("div");
-  shell.className = "acp-skill-run-shell";
-  for (const id of [
-    "acp-skill-run-transcript",
-    "acp-skill-chat-mode-plain",
-    "acp-skill-chat-mode-bubble",
-    "acp-skill-run-drawer",
-    "acp-skill-run-details",
-    "acp-skill-run-empty",
-    "acp-skill-run-main",
-    "acp-skill-run-toolbar",
-    "acp-skill-run-banner",
-    "acp-skill-run-message-counter",
-    "acp-skill-conversation-window",
-    "acp-skill-run-plan-panel",
-    "acp-skill-run-interaction",
-    "acp-skill-run-reply-form",
-  ]) {
-    const node = fakeDocument.createElement("div");
-    elements.set(id, node);
-    shell.appendChild(node);
-  }
-  fakeDocument.getElementById = (id: string) => elements.get(id) || null;
-  fakeDocument.querySelector = (selector: string) =>
-    selector === ".acp-skill-run-shell" ? shell : null;
-  return { document: fakeDocument, elements, shell };
-}
-
-function createAcpChatSidebarHarnessDocument() {
-  const fakeDocument = createFakeDocumentForAssistantPanel();
-  const elements = new Map<string, any>();
-  const shell = fakeDocument.createElement("div");
-  shell.className = "acp-chat-shell";
-  for (const id of [
-    "acp-chat-toolbar",
-    "acp-chat-banner",
-    "acp-chat-message-counter",
-    "acp-chat-drawer",
-    "acp-chat-main",
-    "acp-chat-conversation-window",
-    "acp-transcript",
-    "acp-chat-mode-plain",
-    "acp-chat-mode-bubble",
-    "acp-chat-plan-panel",
-    "acp-chat-interaction",
-    "acp-chat-reply",
-    "acp-chat-details",
-  ]) {
-    const node = fakeDocument.createElement("div");
-    elements.set(id, node);
-    shell.appendChild(node);
-  }
-  fakeDocument.getElementById = (id: string) => elements.get(id) || null;
-  fakeDocument.querySelector = (selector: string) =>
-    selector === ".acp-chat-shell" ? shell : null;
-  return {
-    fakeDocument,
-    elements,
-    transcript: elements.get("acp-transcript"),
-  };
-}
-
-describe("acp ui smoke", function () {
-  beforeEach(function () {
-    if (isRealZoteroRuntime()) {
-      this.skip();
-    }
-  });
-
-  it("renders ACP Chat through the managed Assistant panel runtime", async function () {
-    const html = await readProjectFile("addon/content/sidebar/acp-chat.html");
-    const js = await readProjectFile("addon/content/sidebar/acp-chat.js");
-    const css = await readProjectFile("addon/content/sidebar/acp-chat.css");
-
-    assert.include(html, 'id="acp-chat-toolbar"');
-    assert.include(html, 'id="acp-chat-banner"');
-    assert.include(html, 'id="acp-chat-drawer"');
-    assert.include(html, 'id="acp-chat-main"');
-    assert.include(html, 'id="acp-chat-conversation-window"');
-    assert.include(html, 'id="acp-transcript"');
-    assert.include(html, 'id="acp-chat-mode-plain"');
-    assert.include(html, 'id="acp-chat-mode-bubble"');
-    assert.include(html, 'id="acp-chat-plan-panel"');
-    assert.include(html, 'id="acp-chat-interaction"');
-    assert.include(html, 'id="acp-chat-reply"');
-    assert.include(html, 'id="acp-chat-details"');
-    assert.include(html, "../shared/vendor/katex/katex.min.css");
-    assert.include(html, "../shared/vendor/katex/katex.min.js");
-    assert.include(html, "../shared/vendor/markdown-it/markdown-it.min.js");
-    assert.include(html, "../shared/vendor/markdown-it-texmath/texmath.min.js");
-    assert.notInclude(html, "../shared/markdown-renderer.js");
-    assert.notInclude(html, 'id="acp-status-summary"');
-    assert.notInclude(html, 'id="acp-mode-select"');
-    assert.notInclude(html, 'id="acp-model-select"');
-    assert.notInclude(html, 'id="acp-reasoning-select"');
-    assert.notInclude(html, 'id="acp-composer-form"');
-    assert.notInclude(html, 'id="acp-session-drawer"');
-    assert.notInclude(html, 'id="acp-permission-drawer"');
-    assert.notInclude(html, 'id="acp-close-btn"');
-    assert.include(js, 'type: "acp:action"');
-    assert.include(js, "__zsAcpSidebarBridge");
-    assert.include(js, "window.wrappedJSObject");
-    assert.include(js, 'sendAction("send-prompt"');
-    assert.include(js, 'sendAction("new-conversation"');
-    assert.include(js, 'sendAction("set-active-conversation"');
-    assert.notInclude(js, 'sendAction("delete-conversation"');
-    assert.include(js, 'action === "set-mode"');
-    assert.include(js, 'action === "set-model"');
-    assert.include(js, 'action === "set-reasoning-effort"');
-    assert.include(js, 'action === "set-active-backend"');
-    assert.include(js, "sendAction(action, data)");
-    assert.include(js, "transcriptNodeMap");
-    assert.include(js, "toolActivityExpandedIds");
-    assert.include(js, "sessionDrawerOpen");
-    assert.include(js, "detailsDrawerOpen");
-    assert.include(js, "renderer.renderAssistantPanelSnapshot");
-    assert.include(js, "reply: true");
-    assert.notInclude(js, "function renderPickers");
-    assert.notInclude(js, "function renderSessionDrawer");
-    assert.notInclude(js, "function renderInteractionZone");
-    assert.notInclude(js, "function renderPlanPanel");
-    assert.notInclude(js, "function renderStatusDetails");
-    assert.notInclude(js, "function renderDiagnostics");
-    assert.include(js, "sendAction(action, data)");
-    assert.include(js, "markdownParser");
-    assert.include(js, "function ensureMarkdownParser()");
-    assert.include(js, "function renderMarkdown(text)");
-    assert.notInclude(js, "ZoteroSkillsMarkdownRenderer");
-    assert.include(js, "html: false");
-    assert.include(js, "breaks: true");
-    assert.include(js, "linkify: false");
-    assert.include(js, "highlight: null");
-    assert.include(js, 'delimiters: "dollars"');
-    assert.include(js, "state.toolActivityExpandedIds.has(id)");
-    assert.include(js, "resolveSidebarActionBridge");
-    assert.include(js, "target.postMessage");
-    assert.include(html, 'class="acp-chat-shell asst-panel-shell"');
-    assert.notInclude(css, "position: fixed;");
-    assert.notInclude(css, "inset: 0;");
-    assert.notInclude(css, "grid-template-rows: auto auto minmax(0, 1fr);");
-    assert.notInclude(
-      css,
-      "grid-template-rows: minmax(0, 1fr) auto auto auto;",
-    );
-    assert.notInclude(css, ".acp-chat-toolbar {\n  display: flex;");
-    assert.notInclude(css, ".acp-interaction-notices {");
-    assert.notInclude(css, ".acp-plan-panel {");
-    assert.include(css, ".acp-transcript");
-    assert.notInclude(css, ".acp-message");
-    assert.notInclude(css, ".acp-tool-led");
-    assert.notInclude(css, ".acp-tool-kind-badge");
-    assert.notInclude(css, ".acp-diagnostics-panel {");
-    assert.notInclude(css, "\n.btn {");
-    assert.notInclude(css, ".acp-picker");
-  });
-
-  it("projects SkillRunner tool-like process messages as shared tool transcript items", async function () {
-    const model = await loadAssistantPanelModelForSmoke();
-    const panel = model.projectSkillRunnerPanelSnapshot({
-      session: {
-        id: "run-tool-projection",
-        title: "Tool Projection",
-        status: "running",
-        messages: [
-          {
-            seq: 1,
-            kind: "assistant_process",
-            role: "assistant",
-            text: "Planning the next step",
-            correlation: { process_type: "reasoning" },
-          },
-          {
-            seq: 2,
-            kind: "assistant_process",
-            role: "assistant",
-            text: "Calling Zotero lookup",
-            correlation: {
-              process_type: "tool_call",
-              tool_name: "read",
-              status: "completed",
-              details: { path: "artifact/todo_memo.md" },
-            },
-          },
-          {
-            seq: 3,
-            kind: "assistant_process",
-            role: "assistant",
-            text: "Running local command",
-            correlation: {
-              process_type: "command_execution",
-              tool_name: "glob",
-              details: { pattern: "**/*.md" },
-            },
-          },
-          {
-            seq: 4,
-            kind: "assistant_process",
-            role: "assistant",
-            text: "Fallback display text",
-            correlation: {
-              process_type: "tool_call",
-              details: { name: "search" },
-            },
-          },
-        ],
-      },
-    });
-
-    const items = panel.conversation.items;
-    assert.lengthOf(items, 4);
-    assert.equal(items[0].kind, "process");
-    assert.equal(items[1].kind, "tool");
-    assert.equal(items[1].toolName, "read");
-    assert.include(items[1].inputSummary, "artifact/todo_memo.md");
-    assert.equal(items[1].state, "completed");
-    assert.equal(items[2].kind, "tool");
-    assert.equal(items[2].toolName, "glob");
-    assert.include(items[2].inputSummary, "**/*.md");
-    assert.equal(items[2].state, "completed");
-    assert.equal(items[3].toolName, "search");
-    assert.equal(items[3].summary, "Fallback display text");
-    assert.notEqual(items[3].toolName, "Tool Call");
-    assert.notInclude(items[0].text, "Tool Call:");
-  });
-
-  it("projects SkillRunner history hydration as transcript status only", async function () {
-    const model = await loadAssistantPanelModelForSmoke();
-    const panel = model.projectSkillRunnerPanelSnapshot({
-      session: {
-        id: "run-history-loading",
-        title: "History Loading",
-        status: "completed",
-        historyLoading: true,
-        messages: [],
-      },
-    });
-
-    const items = panel.conversation.items;
-    const loadingItem = items.find(
-      (item: any) => item.id === "skillrunner-history-loading",
-    );
-    assert.equal(loadingItem.kind, "status");
-    assert.equal(loadingItem.state, "loading");
-    assert.equal(panel.reply.inputEnabled, false);
-    assert.notEqual(panel.reply.action, "cancel-run");
-  });
-
-  it("keeps inputless SkillRunner auth composer visible but disabled", async function () {
-    const model = await loadAssistantPanelModelForSmoke();
-    const panel = model.projectSkillRunnerPanelSnapshot({
-      session: {
-        requestId: "skillrunner-auth-inputless",
-        status: "waiting_auth",
-        authPhase: "challenge_active",
-        authSessionId: "secret-session",
-        authEngine: "engine-secret",
-        authProviderId: "provider-secret",
-        authAcceptsChatInput: false,
-        authInputKind: "",
-        authUrl: "https://auth.example/device",
-        authUserCode: "ABCDE",
-        authLastError: "pending approval",
-      },
-    });
-
-    assert.equal(panel.interaction.kind, "auth");
-    assert.deepInclude(panel.interaction.auth, {
-      authUrl: "https://auth.example/device",
-      userCode: "ABCDE",
-      lastError: "pending approval",
-      acceptsChatInput: false,
-    });
-    assert.notProperty(panel.reply, "visible");
-    assert.isFalse(panel.reply.enabled);
-    assert.isFalse(panel.reply.inputEnabled);
-    assert.equal(panel.reply.placeholder, "Awaiting auth state update...");
-    assert.equal(panel.reply.submitLabel, "Awaiting");
-  });
-
-  it("normalizes SkillRunner auth methods into canonical selection actions", async function () {
-    const model = await loadAssistantPanelModelForSmoke();
-    const panel = model.projectSkillRunnerPanelSnapshot({
-      session: {
-        requestId: "skillrunner-auth-method",
-        status: "waiting_auth",
-        authPhase: "method_selection",
-        authAvailableMethods: ["oauth", "api_key"],
-        authAskUser: {
-          hint: "Choose one method",
-          options: [{ label: "Browser", value: "oauth" }],
-        },
-      },
-    });
-
-    assert.lengthOf(panel.interaction.actions, 1);
-    assert.deepEqual(panel.interaction.actions[0].payload, {
-      mode: "auth",
-      selection: { kind: "auth_method", value: "oauth" },
-    });
-    assert.notProperty(panel.reply, "visible");
-    assert.isFalse(panel.reply.enabled);
-    assert.isFalse(panel.reply.inputEnabled);
-    assert.equal(panel.interaction.auth.hint, "Choose one method");
-    const pendingPanel = model.projectSkillRunnerPanelSnapshot({
-      session: {
-        requestId: "skillrunner-auth-method",
-        status: "waiting_auth",
-        authPhase: "method_selection",
-        authControlPending: true,
-        authControlAction: "method",
-        authAskUser: {
-          options: [{ label: "Browser", value: "oauth" }],
-        },
-      },
-    });
-    assert.isFalse(pendingPanel.interaction.actions[0].enabled);
-  });
-
-  it("uses challenge-specific SkillRunner auth reply labels", async function () {
-    const model = await loadAssistantPanelModelForSmoke();
-    const panel = model.projectSkillRunnerPanelSnapshot({
-      labels: {
-        authPasteApiKey: "Paste API key",
-        authSubmitApiKey: "Submit API Key",
-      },
-      session: {
-        requestId: "skillrunner-auth-api-key",
-        status: "waiting_auth",
-        authPhase: "challenge_active",
-        authAcceptsChatInput: true,
-        authInputKind: "api_key",
-        authUiHints: { hint: "Use a scoped key" },
-      },
-    });
-
-    assert.isTrue(panel.reply.enabled);
-    assert.isTrue(panel.reply.inputEnabled);
-    assert.equal(panel.reply.placeholder, "Use a scoped key");
-    assert.equal(panel.reply.submitLabel, "Submit API Key");
-  });
-
-  it("renders auth diagnostics without rebuilding unrelated managed regions", async function () {
-    const model = await loadAssistantPanelModelForSmoke();
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const actions: Array<{ action: string; data: Record<string, unknown> }> =
-      [];
-    const regions = {
-      banner: fakeDocument.createElement("div"),
-      hint: fakeDocument.createElement("div"),
-      reply: fakeDocument.createElement("div"),
-      details: fakeDocument.createElement("div"),
-    };
-    const snapshot = {
-      session: {
-        requestId: "skillrunner-auth-regions",
-        status: "waiting_auth",
-        title: "Auth run",
-        authPhase: "challenge_active",
-        authSessionId: "secret-session",
-        authEngine: "engine-secret",
-        authProviderId: "provider-secret",
-        authAcceptsChatInput: false,
-        authInputKind: "",
-        authUrl: "https://auth.example/device",
-        authUserCode: "ABCDE",
-        authLastError: "pending approval",
-      },
-    };
-    const firstPanel = model.projectSkillRunnerPanelSnapshot(snapshot);
-    assert.equal(firstPanel.interaction.message, "");
-    assert.equal(
-      model.projectSkillRunnerPanelSnapshot({
-        session: {
-          ...snapshot.session,
-          authPrompt: "Complete sign-in in your browser",
-        },
-      }).interaction.message,
-      "Complete sign-in in your browser",
-    );
-    const renderOptions = {
-      managed: true,
-      managedRegions: {
-        banner: true,
-        hint: true,
-        reply: true,
-        details: true,
-      },
-      regions,
-      onAction: (action: string, data: Record<string, unknown>) => {
-        actions.push({ action, data });
-      },
-    };
-
-    renderer.renderAssistantPanelSnapshot(firstPanel, renderOptions);
-    assert.lengthOf(
-      regions.hint.querySelectorAll(".assistant-panel-permission-summary-text"),
-      0,
-    );
-    assert.include(
-      collectFakeText(regions.hint),
-      "https://auth.example/device",
-    );
-    assert.include(collectFakeText(regions.hint), "ABCDE");
-    assert.include(collectFakeText(regions.hint), "pending approval");
-    assert.notInclude(collectFakeText(regions.hint), "secret-session");
-    assert.notInclude(collectFakeText(regions.hint), "engine-secret");
-    assert.notInclude(collectFakeText(regions.hint), "provider-secret");
-    const authLink = regions.hint.querySelector(
-      ".assistant-panel-auth-link",
-    ) as any;
-    assert.ok(authLink);
-    authLink.click();
-    assert.deepEqual(actions, [
-      {
-        action: "open-auth-url",
-        data: { url: "https://auth.example/device" },
-      },
-    ]);
-    assert.isFalse(regions.reply.classList.contains("hidden"));
-    assert.isTrue(
-      regions.reply.querySelector(".assistant-panel-reply-input").disabled,
-    );
-    assert.isTrue(
-      regions.reply.querySelector(".assistant-panel-reply-submit").disabled,
-    );
-    const firstBanner = regions.banner.querySelector(
-      ".assistant-panel-managed-banner",
-    );
-    const firstReply = regions.reply.querySelector(
-      ".assistant-panel-managed-reply",
-    );
-    const firstDetails = regions.details.querySelector(
-      ".assistant-panel-managed-details",
-    );
-
-    renderer.renderAssistantPanelSnapshot(
-      model.projectSkillRunnerPanelSnapshot({
-        session: {
-          ...snapshot.session,
-          authLastError: "still pending",
-        },
-      }),
-      renderOptions,
-    );
-
-    assert.strictEqual(
-      regions.banner.querySelector(".assistant-panel-managed-banner"),
-      firstBanner,
-    );
-    assert.strictEqual(
-      regions.reply.querySelector(".assistant-panel-managed-reply"),
-      firstReply,
-    );
-    assert.strictEqual(
-      regions.details.querySelector(".assistant-panel-managed-details"),
-      firstDetails,
-    );
-    assert.include(collectFakeText(regions.hint), "still pending");
-  });
-
-  it("renders complete auth import controls while keeping reply disabled", async function () {
-    const model = await loadAssistantPanelModelForSmoke();
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const hintRegion = fakeDocument.createElement("div");
-    const replyRegion = fakeDocument.createElement("div");
-    const panel = model.projectSkillRunnerPanelSnapshot({
-      labels: {
-        authImportSubmit: "Import and Continue",
-        authImportHintDefault: "Upload required auth files and continue.",
-        authImportRiskNotice: "Review files before importing.",
-        authImportRequired: "Required",
-        authImportOptional: "Optional",
-      },
-      session: {
-        requestId: "skillrunner-auth-import",
-        status: "waiting_auth",
-        authPhase: "challenge_active",
-        authChallengeKind: "import_files",
-        authAcceptsChatInput: false,
-        authInputKind: "import_files",
-        authAskUser: {
-          kind: "upload_files",
-          hint: "Choose credentials",
-          files: [
-            {
-              name: "oauth.json",
-              required: true,
-              accept: ".json",
-              hint: "OAuth export",
-            },
-            { name: "optional.txt", required: false },
-          ],
-          ui_hints: { risk_notice_required: true },
-        },
-      },
-    });
-
-    renderer.renderAssistantPanelSnapshot(panel, {
-      managed: true,
-      managedRegions: { hint: true, reply: true },
-      regions: { hint: hintRegion, reply: replyRegion },
-    });
-
-    assert.include(collectFakeText(hintRegion), "Choose credentials");
-    assert.include(
-      collectFakeText(hintRegion),
-      "Review files before importing.",
-    );
-    assert.include(collectFakeText(hintRegion), "oauth.json");
-    assert.include(collectFakeText(hintRegion), "Required");
-    assert.include(collectFakeText(hintRegion), "Optional");
-    assert.include(collectFakeText(hintRegion), "OAuth export");
-    const inputs = hintRegion.querySelectorAll(
-      ".assistant-panel-auth-import-input",
-    ) as any[];
-    assert.lengthOf(inputs, 2);
-    assert.isTrue(inputs[0].required);
-    assert.equal(inputs[0].accept, ".json");
-    inputs[0].files = [{ name: "oauth.json" }];
-    renderer.renderAssistantPanelSnapshot(panel, {
-      managed: true,
-      managedRegions: { hint: true, reply: true },
-      regions: { hint: hintRegion, reply: replyRegion },
-    });
-    assert.strictEqual(
-      hintRegion.querySelector(".assistant-panel-auth-import-input"),
-      inputs[0],
-    );
-    assert.equal(
-      hintRegion.querySelector(".assistant-panel-auth-import-input").files[0]
-        .name,
-      "oauth.json",
-    );
-    assert.isTrue(
-      replyRegion.querySelector(".assistant-panel-reply-input").disabled,
-    );
-    assert.isTrue(
-      replyRegion.querySelector(".assistant-panel-reply-submit").disabled,
-    );
-  });
-
-  it("projects SkillRunner pending permissions as shared permission interactions", async function () {
-    const model = await loadAssistantPanelModelForSmoke();
-    const panel = model.projectSkillRunnerPanelSnapshot({
-      session: {
-        requestId: "skillrunner-run-1",
-        status: "running",
-        pendingPermission: {
-          requestId: "permission-1",
-          sessionId: "host-bridge",
-          toolCallId: "permission-1",
-          toolTitle: "Run Zotero write",
-          source: "host-bridge-cli",
-          summary: "SkillRunner requests Zotero write access",
-          requestedAt: "2026-06-17T00:00:00.000Z",
-          options: [
-            {
-              optionId: "approve_once",
-              kind: "allow_once",
-              name: "Approve once",
-            },
-            {
-              optionId: "deny",
-              kind: "reject",
-              name: "Deny",
-            },
-          ],
-        },
-      },
-    });
-
-    assert.equal(panel.interaction.kind, "permission");
-    assert.equal(panel.interaction.permission.requestId, "permission-1");
-    assert.deepInclude(panel.interaction.actions[0].payload, {
-      requestId: "skillrunner-run-1",
-      permissionRequestId: "permission-1",
-      outcome: "selected",
-      optionId: "approve_once",
-    });
-    assert.isFalse(panel.reply.enabled);
-    assert.isFalse(panel.reply.inputEnabled);
-  });
-
-  it("projects the SkillRunner banner subtitle from the executed skill name", async function () {
-    const model = await loadAssistantPanelModelForSmoke();
-    const panel = model.projectSkillRunnerPanelSnapshot({
-      session: {
-        requestId: "skillrunner-request-1",
-        title: "Selected paper task",
-        status: "running",
-        workflowLabel: "Debug: Host Bridge Connectivity Probe",
-      },
-      workspace: {
-        selectedTaskKey: "local-skillrunner-backend:skillrunner-request-1",
-        groups: [
-          {
-            backendId: "local-skillrunner-backend",
-            backendDisplayName: "Local SkillRunner",
-            activeTasks: [
-              {
-                key: "local-skillrunner-backend:skillrunner-request-1",
-                requestId: "skillrunner-request-1",
-                title: "Selected paper task",
-                workflowLabel: "Debug: Host Bridge Connectivity Probe",
-                skillName: "Host Bridge Probe",
-                skillId: "debug-host-bridge-connectivity-probe",
-                status: "running",
-              },
-            ],
-            finishedTasks: [],
-          },
-        ],
-      },
-      drawer: {
-        sections: [
-          {
-            id: "running",
-            groups: [
-              {
-                backendId: "local-skillrunner-backend",
-                backendDisplayName: "Local SkillRunner",
-                activeTasks: [
-                  {
-                    key: "local-skillrunner-backend:skillrunner-request-1",
-                    requestId: "skillrunner-request-1",
-                    title: "Selected paper task",
-                    workflowLabel: "Debug: Host Bridge Connectivity Probe",
-                    skillName: "Host Bridge Probe",
-                    skillId: "debug-host-bridge-connectivity-probe",
-                    status: "running",
-                  },
-                ],
-                finishedTasks: [],
-              },
-            ],
-          },
-        ],
-      },
-    });
-
-    assert.equal(panel.context.title, "Selected paper task");
-    assert.equal(panel.context.subtitle, "Host Bridge Probe");
-    assert.equal(
-      panel.drawers.skillrunnerSections[0].groups[0].activeTasks[0]
-        .workflowLabel,
-      "Host Bridge Probe",
-    );
-    assert.notEqual(panel.context.subtitle, "skillrunner-request-1");
-    assert.notEqual(
-      panel.context.subtitle,
-      "Debug: Host Bridge Connectivity Probe",
-    );
-  });
-
-  it("falls back to skill id when a SkillRunner skill name is unavailable", async function () {
-    const model = await loadAssistantPanelModelForSmoke();
-    const panel = model.projectSkillRunnerPanelSnapshot({
-      session: {
-        requestId: "skillrunner-request-1",
-        title: "Selected paper task",
-        status: "running",
-        workflowLabel: "Debug Workflow",
-      },
-      workspace: {
-        selectedTaskKey: "local-skillrunner-backend:skillrunner-request-1",
-        groups: [
-          {
-            backendId: "local-skillrunner-backend",
-            backendDisplayName: "Local SkillRunner",
-            activeTasks: [
-              {
-                key: "local-skillrunner-backend:skillrunner-request-1",
-                requestId: "skillrunner-request-1",
-                title: "Selected paper task",
-                workflowLabel: "Debug Workflow",
-                skillId: "debug-host-bridge-connectivity-probe",
-                status: "running",
-              },
-            ],
-            finishedTasks: [],
-          },
-        ],
-      },
-    });
-
-    assert.equal(
-      panel.context.subtitle,
-      "debug-host-bridge-connectivity-probe",
-    );
-  });
-
-  it("projects SkillRunner sequence secondary labels with step and workflow", async function () {
-    const model = await loadAssistantPanelModelForSmoke();
-    const panel = model.projectSkillRunnerPanelSnapshot({
-      session: {
-        requestId: "skillrunner-sequence-request-1",
-        title: "Sequence step task",
-        status: "running",
-        workflowId: "debug-sequence-workflow",
-        workflowLabel: "Debug Sequence",
-      },
-      workspace: {
-        selectedTaskKey:
-          "local-skillrunner-backend:skillrunner-sequence-request-1",
-        groups: [
-          {
-            backendId: "local-skillrunner-backend",
-            backendDisplayName: "Local SkillRunner",
-            activeTasks: [
-              {
-                key: "local-skillrunner-backend:skillrunner-sequence-request-1",
-                requestId: "skillrunner-sequence-request-1",
-                title: "Sequence step task",
-                role: "sequence_step",
-                sequenceStepId: "step-1",
-                sequenceStepIndex: 0,
-                workflowId: "debug-sequence-workflow",
-                workflowLabel: "Debug Sequence",
-                skillName: "Step Skill",
-                skillId: "step-skill",
-                status: "running",
-              },
-            ],
-            finishedTasks: [],
-          },
-        ],
-      },
-      drawer: {
-        sections: [
-          {
-            id: "running",
-            groups: [
-              {
-                backendId: "local-skillrunner-backend",
-                backendDisplayName: "Local SkillRunner",
-                activeTasks: [
-                  {
-                    key: "local-skillrunner-backend:skillrunner-sequence-request-1",
-                    requestId: "skillrunner-sequence-request-1",
-                    title: "Sequence step task",
-                    role: "sequence_step",
-                    sequenceStepId: "step-1",
-                    sequenceStepIndex: 0,
-                    workflowId: "debug-sequence-workflow",
-                    workflowLabel: "Debug Sequence",
-                    skillName: "Step Skill",
-                    skillId: "step-skill",
-                    status: "running",
-                  },
-                ],
-                finishedTasks: [],
-              },
-            ],
-          },
-        ],
-      },
-    });
-
-    assert.equal(panel.context.subtitle, "1️⃣ Step Skill/Debug Sequence");
-    assert.equal(
-      panel.drawers.skillrunnerSections[0].groups[0].activeTasks[0]
-        .workflowLabel,
-      "1️⃣ Step Skill/Debug Sequence",
-    );
-  });
-
-  it("projects SkillRunner control state into the banner", async function () {
-    const model = await loadAssistantPanelModelForSmoke();
-    const labels = {
-      fields: { control: "交互" },
-      status: {
-        controlPreparing: "准备中",
-        controlInput: "需输入",
-        controlLive: "接收中",
-        controlReadOnly: "只读",
-      },
-    };
-    const makePanel = (overrides: any) =>
-      model.projectSkillRunnerPanelSnapshot({
-        labels,
-        session: {
-          requestId: "skillrunner-request-control",
-          title: "Selected control task",
+    source,
+    navigation: {
+      selectedOwner: selected,
+      selectedGroupId: "backend-a",
+      groups: [
+        { groupId: "backend-a", label: "Backend A", status: "connected" },
+        { groupId: "backend-b", label: "Backend B", status: "idle" },
+      ],
+      entries: [
+        {
+          owner: selected,
+          groupId: "backend-a",
+          label: source === "acp-chat" ? "Research session" : "Task Alpha",
+          subtitle: source === "acp-chat" ? "Backend A" : "Skill Alpha",
+          description: null,
+          groupLabel: "Backend A",
           status: "running",
-          ...overrides.session,
+          backendStatus: "connected",
+          applyState: source === "acp-skills" ? "pending" : null,
+          attention: null,
+          updatedAt: "2026-07-16T00:00:00.000Z",
+          messageCount: 3,
         },
-        workspace: {
-          selectedTaskKey:
-            "local-skillrunner-backend:skillrunner-request-control",
-          groups: [
-            {
-              backendId: "local-skillrunner-backend",
-              backendDisplayName: "Local SkillRunner",
-              activeTasks: [
-                {
-                  key: "local-skillrunner-backend:skillrunner-request-control",
-                  requestId: "skillrunner-request-control",
-                  title: "Selected control task",
-                  status: "running",
-                  backendInteractive: true,
-                  ...overrides.task,
-                },
-              ],
-              finishedTasks: [],
-            },
-          ],
+      ],
+      canCreateOwner: source === "acp-chat",
+    },
+    services: {
+      items: [
+        {
+          serviceId: "host-bridge",
+          label: "Host Bridge",
+          status: "running",
+          available: true,
+          message: null,
         },
+      ],
+    },
+    selection: {
+      owner: selected,
+      phase: "ready",
+      control: {
+        status: "running",
+        busy: true,
+        hint: { kind: "running", message: null },
+        connection: {
+          status: "connected",
+          sessionAvailable: true,
+          connected: true,
+          canConnect: false,
+          canDisconnect: true,
+        },
+        execution: { canCancel: true, canInterrupt: true },
+        authentication: {
+          required: false,
+          canAuthenticate: false,
+          methodId: null,
+        },
+        permissionPolicy: {
+          autoApprove: false,
+          canSetAutoApprove: source === "acp-chat",
+        },
+      },
+      messageCounts: null,
+      transcript: {
+        owner: selected,
+        status: "loading",
+        error: null,
+        page: null,
+        transcriptRevision: 0,
+      },
+      plan: { items: [] },
+      permission: { request: null },
+      composer: {
+        reply: { status: "enabled" },
+        runtimeOptions: {
+          mode: { selectedOptionId: null, options: [], enabled: false },
+          model: { selectedOptionId: null, options: [], enabled: false },
+          reasoningEffort: {
+            selectedOptionId: null,
+            options: [],
+            enabled: false,
+          },
+        },
+      },
+      presentation: {
+        title: source === "acp-chat" ? "Research session" : "Task Alpha",
+        subtitle: source === "acp-chat" ? "Agent A" : "Skill Alpha",
+        description: null,
+        notice: null,
+        metadata: [{ fieldId: "workflow", value: "Literature" }],
+        usage: { used: 4, limit: 10, costText: null },
+      },
+      details: {
+        status: "ready",
+        title: source === "acp-chat" ? "Research session" : "Task Alpha",
+        subtitle: selected.ownerKey,
+        sections: [
+          {
+            sectionId: source === "acp-chat" ? "paths" : "run-paths",
+            collapsed: false,
+            items: [
+              { fieldId: "workspace", value: "/tmp/run", format: "path" },
+            ],
+          },
+        ],
+        actions: ["copy-diagnostics", "open-workspace"],
+        error: null,
+      },
+    },
+  };
+}
+
+function emptyWorkspaceState(source: "acp-chat" | "acp-skills") {
+  const state = canonicalState(source) as any;
+  state.navigation.selectedOwner = null;
+  state.selection = {
+    owner: null,
+    phase: "empty",
+    control: null,
+    presentation: null,
+    composer: null,
+    permission: { request: null },
+    transcript: {
+      owner: null,
+      status: "idle",
+      error: null,
+      page: null,
+      transcriptRevision: 0,
+    },
+  };
+  return state;
+}
+
+function emptyPanelLabels(source: "acp-chat" | "acp-skills") {
+  return {
+    title: source === "acp-chat" ? "ACP Chat" : "ACP Skill Run",
+    assistantPanel: {
+      emptyState: {
+        noConversation: "No conversation",
+        noTask: "No task",
+      },
+    },
+  };
+}
+
+function skillRunnerEnvelope(session: Record<string, unknown> | null) {
+  return {
+    title: "SkillRunner Workspace",
+    labels: {
+      emptyTasks: "No SkillRunner tasks.",
+      assistantPanel: {
+        emptyState: { noTask: "No task" },
+      },
+    },
+    workspace: { selectedTaskKey: session ? "task-a" : null, groups: [] },
+    drawer: { sections: [] },
+    session,
+  };
+}
+
+describe("Assistant Workspace ACP UI v1", function () {
+  it("loads both ACP documents through one shared child and identical roles", async function () {
+    const [chat, skills] = await Promise.all([
+      readProjectFile("addon/content/sidebar/acp-chat.html"),
+      readProjectFile("addon/content/sidebar/acp-skill-run.html"),
+    ]);
+    for (const html of [chat, skills]) {
+      for (const role of [
+        "root",
+        "toolbar",
+        "banner",
+        "message-counts",
+        "context-drawer",
+        "main",
+        "transcript",
+        "plan",
+        "interaction",
+        "composer",
+        "details-drawer",
+      ]) {
+        assert.include(html, `data-role="${role}"`);
+      }
+      assert.include(
+        html,
+        "../shared/assistant/assistant-workspace-acp-child.js",
+      );
+      assert.include(
+        html,
+        "../shared/assistant/assistant-workspace-acp-child.css",
+      );
+      assert.notMatch(html, /data-role="main"[^>]*class="[^"]*\bhidden\b/);
+      assert.match(
+        html,
+        /data-role="conversation"[\s\S]*data-role="empty"[\s\S]*data-role="transcript"/,
+      );
+      assert.notMatch(html, /aria-label="[^"]*[A-Za-z][^"]*"/);
+    }
+    await Promise.all(
+      [
+        "addon/content/sidebar/acp-chat.js",
+        "addon/content/sidebar/acp-skill-run.js",
+        "addon/content/sidebar/acp-chat.css",
+        "addon/content/sidebar/acp-skill-run.css",
+        "addon/content/shared/assistant/assistant-conversation-view.js",
+      ].map(async (relativePath) => {
+        let exists = true;
+        try {
+          await access(path.join(root, relativePath));
+        } catch {
+          exists = false;
+        }
+        assert.isFalse(exists, relativePath);
+      }),
+    );
+  });
+
+  it("keeps one strict bridge path without ACP postMessage fallback", async function () {
+    const [child, shell] = await Promise.all([
+      readProjectFile(
+        "addon/content/shared/assistant/assistant-workspace-acp-child.js",
+      ),
+      readProjectFile("addon/content/sidebar/assistant-workspace.js"),
+    ]);
+    assert.include(
+      child,
+      'const BRIDGE_KEY = "__zsAssistantWorkspaceAcpBridge"',
+    );
+    assert.include(child, "bridge.sendAction(envelope)");
+    assert.notInclude(child, 'type: "acp:action"');
+    assert.notInclude(child, 'type: "acp-skill-run:action"');
+    assert.notInclude(shell, "post-to-host-fallback");
+    assert.include(shell, "post-to-host-bridge-missing");
+  });
+
+  it("projects Chat catalog, session semantics, and shared services exactly", async function () {
+    const model = await loadPanelModel();
+    const panel = model.projectAssistantWorkspacePanel(
+      canonicalState("acp-chat"),
+      { executionDisplayMode: "live" },
+      {
+        title: "ACP Chat",
+        subtitle: "Chat with your Zotero library.",
+      },
+    );
+    assert.isTrue(panel.exact);
+    assert.equal(panel.context.title, "ACP Chat");
+    assert.equal(panel.context.subtitle, "Chat with your Zotero library.");
+    assert.deepEqual(
+      panel.context.selectors.map((selector: any) => selector.id),
+      ["backend", "owner"],
+    );
+    assert.deepEqual(
+      panel.context.indicators.map((indicator: any) => indicator.label),
+      ["Connection", "Host Bridge"],
+    );
+    assert.deepEqual(panel.usage, {
+      used: 4,
+      limit: 10,
+      costText: null,
+    });
+    assert.isTrue(panel.reply.showUsageGauge);
+    assert.equal(
+      panel.context.selectors[1].options[0].label,
+      "Research session",
+    );
+    const withoutUsage = canonicalState("acp-chat");
+    withoutUsage.selection.presentation.usage = null;
+    const noUsagePanel = model.projectAssistantWorkspacePanel(
+      withoutUsage,
+      { executionDisplayMode: "live" },
+      {},
+    );
+    assert.isTrue(noUsagePanel.reply.showUsageGauge);
+    assert.isNull(noUsagePanel.usage);
+    const document = new FakeDocument();
+    const renderer = await loadPanelRenderer(document);
+    const reply = document.createElement("div");
+    renderer.renderAssistantReply(reply, noUsagePanel);
+    assert.equal(
+      reply.querySelector(".assistant-panel-usage-label")?.textContent,
+      "N/A",
+    );
+  });
+
+  for (const source of ["acp-chat", "acp-skills"] as const) {
+    it(`keeps ${source} empty chrome resident and unavailable`, async function () {
+      const model = await loadPanelModel();
+      const panel = model.projectAssistantWorkspacePanel(
+        emptyWorkspaceState(source),
+        { executionDisplayMode: "live" },
+        emptyPanelLabels(source),
+      );
+
+      assert.equal(
+        panel.context.subtitle,
+        source === "acp-chat" ? "No conversation" : "No task",
+      );
+      assert.deepInclude(panel.context, {
+        status: "unavailable",
+        statusLabel: "Unavailable",
+        statusTone: "muted",
       });
+      assert.deepEqual(
+        panel.context.metadata.map((entry: any) => [entry.itemId, entry.value]),
+        source === "acp-chat"
+          ? [
+              ["backend", ""],
+              ["conversation", ""],
+              ["workspace", ""],
+            ]
+          : [
+              ["backend", ""],
+              ["workspace", ""],
+            ],
+      );
+      assert.deepEqual(
+        panel.context.indicators.map((entry: any) => [entry.id, entry.tone]),
+        [
+          ["acp-connection", "muted"],
+          ["host-bridge", "success"],
+        ],
+      );
+      assert.deepEqual(
+        panel.context.actions.map((entry: any) => [
+          entry.action,
+          entry.enabled,
+        ]),
+        source === "acp-chat"
+          ? [
+              ["new-conversation", false],
+              ["connect", false],
+              ["disconnect", false],
+              ["authenticate", false],
+              ["set-auto-approve-permissions", false],
+            ]
+          : [
+              ["connect-run", false],
+              ["disconnect-run", false],
+              ["cancel-run", false],
+            ],
+      );
+      assert.deepEqual(
+        panel.actions.toolbar.map((entry: any) => entry.enabled),
+        [true, false, true, true],
+      );
+      assert.isFalse(panel.reply.enabled);
+      assert.isFalse(panel.reply.inputEnabled);
+      assert.deepEqual(
+        panel.reply.controls.map((entry: any) => [
+          entry.id,
+          entry.value,
+          entry.disabled,
+        ]),
+        [
+          ["mode", "", true],
+          ["model", "", true],
+          ["reasoning", "", true],
+        ],
+      );
+      assert.isTrue(panel.reply.showUsageGauge);
 
-    const live = makePanel({ session: {}, task: {} });
-    assert.deepInclude(live.context.indicators[0], {
+      if (source === "acp-chat") {
+        assert.deepEqual(
+          panel.context.selectors.map((entry: any) => [
+            entry.id,
+            entry.value,
+            entry.disabled,
+          ]),
+          [
+            ["backend", "", true],
+            ["owner", "", true],
+          ],
+        );
+      }
+
+      const document = new FakeDocument();
+      const renderer = await loadPanelRenderer(document);
+      const banner = document.createElement("div");
+      renderer.renderAssistantBanner(banner, panel, { onAction() {} });
+      assert.deepEqual(
+        banner
+          .querySelectorAll(".assistant-panel-meta-pill")
+          .map((entry) => entry.children[1].textContent),
+        panel.context.metadata.map(() => "-"),
+      );
+    });
+  }
+
+  it("projects SkillRunner null session as fixed unavailable chrome", async function () {
+    const model = await loadPanelModel();
+    const panel = model.projectSkillRunnerPanelSnapshot(
+      skillRunnerEnvelope(null),
+    );
+
+    assert.deepInclude(panel.context, {
+      title: "SkillRunner Workspace",
+      subtitle: "No task",
+      status: "unavailable",
+      statusLabel: "Unavailable",
+      statusTone: "muted",
+    });
+    assert.deepEqual(
+      panel.context.metadata.map((entry: any) => [entry.key, entry.value]),
+      [
+        ["backend", ""],
+        ["engine", ""],
+        ["model", ""],
+        ["updatedAt", ""],
+      ],
+    );
+    assert.deepInclude(panel.context.indicators[0], {
       id: "skillrunner-control",
-      label: "交互",
-      value: "接收中",
-      tone: "success",
+      value: "Unavailable",
+      tone: "muted",
     });
+    assert.lengthOf(panel.context.indicators, 1);
+    assert.deepInclude(panel.context.actions[0], {
+      action: "cancel-run",
+      enabled: false,
+    });
+    assert.deepEqual(
+      panel.actions.toolbar.map((entry: any) => entry.enabled),
+      [true, false, true, true],
+    );
+    assert.isFalse(panel.reply.enabled);
+    assert.isFalse(panel.reply.inputEnabled);
+  });
 
-    const input = makePanel({
-      session: { status: "waiting_user" },
-      task: { status: "waiting_user", canReply: true },
-    });
-    assert.deepInclude(input.context.indicators[0], {
-      id: "skillrunner-control",
-      value: "需输入",
-      tone: "warning",
-    });
-
-    const preparing = makePanel({
-      session: { requestId: "", status: "request_creating" },
-      task: {
-        requestId: "",
+  it("keeps a selected SkillRunner session without requestId in preparing state", async function () {
+    const model = await loadPanelModel();
+    const panel = model.projectSkillRunnerPanelSnapshot(
+      skillRunnerEnvelope({
+        title: "Task Alpha",
+        status: "idle",
         requestAssigned: false,
         backendInteractive: false,
-        status: "request_creating",
-      },
-    });
-    assert.deepInclude(preparing.context.indicators[0], {
+      }),
+    );
+
+    assert.equal(panel.context.title, "Task Alpha");
+    assert.equal(panel.context.status, "idle");
+    assert.notEqual(panel.context.subtitle, "No task");
+    assert.deepInclude(panel.context.indicators[0], {
       id: "skillrunner-control",
-      value: "准备中",
+      value: "Preparing",
       tone: "accent",
     });
-
-    const readOnly = makePanel({
-      session: { status: "succeeded" },
-      task: { status: "succeeded", terminal: true },
-    });
-    assert.deepInclude(readOnly.context.indicators[0], {
-      id: "skillrunner-control",
-      value: "只读",
-      tone: "muted",
-    });
   });
 
-  it("projects SkillRunner auto reply observer state into the banner", async function () {
-    const model = await loadAssistantPanelModelForSmoke();
-    const labels = {
-      fields: { control: "交互", autoReply: "自动回复" },
-      status: {
-        controlInput: "需输入",
-        autoReplyActive: "已启动",
-        autoReplyInactive: "未启动",
-      },
-      indicatorTitles: {
-        skillRunnerAutoReplyActive: "自动回复观察器已启动。",
-        skillRunnerAutoReplyInactive: "自动回复已启用；观察器未启动。",
-      },
-    };
-    const makePanel = (task: any) =>
-      model.projectSkillRunnerPanelSnapshot({
-        labels,
-        session: {
-          requestId: "skillrunner-request-auto-reply",
-          title: "Selected auto reply task",
-          status: "waiting_user",
-          ...task,
+  it("renders SkillRunner message counts without rebuilding other managed regions", async function () {
+    const document = new FakeDocument();
+    const model = await loadPanelModel();
+    const renderer = await loadPanelRenderer(document);
+    const { root, regions } = createPanelManagedRegions(document);
+    const render = (assistant: number, cumulativeAssistant: number) => {
+      const messageCounts = {
+        scopeKey: "skillrunner-task-a",
+        executionKey: "execution-a",
+        active: false,
+        current: { assistant, thought: 2, tool: 3 },
+        cumulative: {
+          assistant: cumulativeAssistant,
+          thought: 5,
+          tool: 6,
         },
-        workspace: {
-          selectedTaskKey:
-            "local-skillrunner-backend:skillrunner-request-auto-reply",
-          groups: [
-            {
-              backendId: "local-skillrunner-backend",
-              backendDisplayName: "Local SkillRunner",
-              activeTasks: [
-                {
-                  key: "local-skillrunner-backend:skillrunner-request-auto-reply",
-                  requestId: "skillrunner-request-auto-reply",
-                  title: "Selected auto reply task",
-                  status: "waiting_user",
-                  backendInteractive: true,
-                  canReply: true,
-                  ...task,
-                },
-              ],
-              finishedTasks: [],
+        completeness: "complete",
+        revision: assistant,
+      };
+      const envelope = {
+        ...skillRunnerEnvelope({
+          title: "Task Alpha",
+          status: "completed",
+          requestId: "req-a",
+        }),
+        labels: {
+          assistantPanel: {
+            emptyState: { noTask: "No task" },
+            transcript: {
+              assistant: "助手",
+              thinking: "思考",
+              tool: "工具",
             },
-          ],
-        },
-      });
-
-    const inactive = makePanel({
-      autoReplyEnabled: true,
-      autoReplyObserverActive: false,
-    });
-    assert.deepInclude(inactive.context.indicators[1], {
-      id: "skillrunner-auto-reply",
-      label: "自动回复",
-      value: "未启动",
-      tone: "muted",
-    });
-
-    const countdown = makePanel({
-      autoReplyEnabled: true,
-      autoReplyObserverActive: true,
-      autoReplyObserverStartedAt: new Date(Date.now() - 2_000).toISOString(),
-      autoReplyObserverDeadlineAt: new Date(Date.now() + 8_000).toISOString(),
-      autoReplyObserverShowTimer: true,
-      autoReplyObserverRemainingSeconds: 8,
-    });
-    assert.deepInclude(countdown.context.indicators[1], {
-      id: "skillrunner-auto-reply",
-      value: "已启动",
-      extraValue: "8s",
-      tone: "success",
-      valueVisible: true,
-    });
-    assert.isNumber(countdown.context.indicators[1].progressPercent);
-
-    const recovery = makePanel({
-      autoReplyEnabled: true,
-      autoReplyObserverActive: true,
-      autoReplyObserverShowTimer: false,
-    });
-    assert.deepInclude(recovery.context.indicators[1], {
-      id: "skillrunner-auto-reply",
-      value: "已启动",
-      tone: "success",
-    });
-
-    const normalInteractive = makePanel({
-      autoReplyEnabled: false,
-    });
-    assert.isUndefined(normalInteractive.context.indicators[1]);
-  });
-
-  it("keeps apply state in SkillRunner drawer tasks without using it as the banner indicator", async function () {
-    const model = await loadAssistantPanelModelForSmoke();
-    const labels = {
-      fields: {
-        deferredApply: "延迟应用",
-        control: "交互",
-        status: "状态",
-        updated: "更新时间",
-        error: "错误",
-      },
-      status: {
-        applyRunning: "应用中",
-        applyFailed: "应用失败",
-        applyRetryScheduled: "等待重试",
-        controlReadOnly: "只读",
-      },
-    };
-    const panel = model.projectSkillRunnerPanelSnapshot({
-      labels,
-      session: {
-        requestId: "skillrunner-request-apply",
-        title: "Selected apply task",
-        status: "succeeded",
-        applyState: "failed",
-        applyAttempt: 2,
-        applyMaxAttempt: 3,
-        applyNextRetryAt: "2026-01-01T00:10:00.000Z",
-        applyError: "apply target missing",
-      },
-      workspace: {
-        selectedTaskKey: "local-skillrunner-backend:skillrunner-request-apply",
-      },
-      drawer: {
-        sections: [
-          {
-            id: "running",
-            groups: [
-              {
-                backendId: "local-skillrunner-backend",
-                backendDisplayName: "Local SkillRunner",
-                activeTasks: [
-                  {
-                    key: "local-skillrunner-backend:skillrunner-request-apply",
-                    requestId: "skillrunner-request-apply",
-                    title: "Selected apply task",
-                    workflowLabel: "Debug Workflow",
-                    skillName: "Debug Apply",
-                    status: "succeeded",
-                    terminal: true,
-                    applyState: "failed",
-                    applyAttempt: 2,
-                    applyMaxAttempt: 3,
-                    applyNextRetryAt: "2026-01-01T00:10:00.000Z",
-                    applyError: "apply target missing",
-                  },
-                ],
-                finishedTasks: [],
-              },
-            ],
-          },
-        ],
-      },
-    });
-
-    const controlIndicator = panel.context.indicators.find(
-      (entry: any) => entry.id === "skillrunner-control",
-    );
-    assert.deepInclude(controlIndicator, {
-      label: "交互",
-      value: "只读",
-      tone: "muted",
-    });
-    assert.isUndefined(
-      panel.context.indicators.find(
-        (entry: any) => entry.id === "deferred-apply",
-      ),
-    );
-    assert.equal(panel.lifecycle.applyState, "failed");
-    const task = panel.drawers.skillrunnerSections[0].groups[0].activeTasks[0];
-    assert.equal(task.applyState, "failed");
-    assert.equal(task.applyStateLabel, "等待重试");
-    assert.equal(task.applyTone, "error");
-    assert.equal(task.mainStatus, "failed");
-    assert.equal(task.backendStatus, "succeeded");
-    assert.equal(task.applyStatus, "failed");
-    assert.isTrue(
-      panel.drawers.details.some(
-        (section: any) => section.title === "延迟应用",
-      ),
-    );
-  });
-
-  it("keeps terminal SkillRunner runs with pending deferred apply visible in Running", function () {
-    const sections = buildSkillRunnerSidebarSections({
-      groups: [
-        {
-          backendId: "local-skillrunner-backend",
-          backendDisplayName: "Local SkillRunner",
-          disabled: false,
-          collapsed: false,
-          finishedCollapsed: true,
-          latestUpdatedAt: "2026-01-01T00:00:00.000Z",
-          activeTasks: [],
-          finishedTasks: [
-            {
-              key: "local-skillrunner-backend:skillrunner-request-apply",
-              backendId: "local-skillrunner-backend",
-              backendDisplayName: "Local SkillRunner",
-              requestId: "skillrunner-request-apply",
-              workflowLabel: "Debug Workflow",
-              status: "succeeded",
-              stateLabel: "Succeeded",
-              applyState: "running",
-              updatedAt: "2026-01-01T00:00:00.000Z",
-              title: "Selected apply task",
-              selectable: true,
-              terminal: true,
-            },
-          ],
-        },
-      ],
-      completedCollapsed: true,
-    });
-
-    assert.equal(sections[0].id, "running");
-    assert.equal(
-      sections[0].groups[0].activeTasks[0].requestId,
-      "skillrunner-request-apply",
-    );
-    assert.lengthOf(sections[1].groups, 0);
-  });
-
-  it("keeps terminal SkillRunner runs with failed foreground apply visible in Completed", function () {
-    const sections = buildSkillRunnerSidebarSections({
-      groups: [
-        {
-          backendId: "local-skillrunner-backend",
-          backendDisplayName: "Local SkillRunner",
-          disabled: false,
-          collapsed: false,
-          finishedCollapsed: true,
-          latestUpdatedAt: "2026-01-01T00:00:00.000Z",
-          activeTasks: [],
-          finishedTasks: [
-            {
-              key: "local-skillrunner-backend:skillrunner-request-apply",
-              backendId: "local-skillrunner-backend",
-              backendDisplayName: "Local SkillRunner",
-              requestId: "skillrunner-request-apply",
-              workflowLabel: "Debug Workflow",
-              status: "succeeded",
-              stateLabel: "Succeeded",
-              applyState: "failed",
-              updatedAt: "2026-01-01T00:00:00.000Z",
-              title: "Selected apply task",
-              selectable: true,
-              terminal: true,
-            },
-          ],
-        },
-      ],
-      completedCollapsed: true,
-    });
-
-    assert.lengthOf(sections[0].groups, 0);
-    assert.lengthOf(sections[1].groups, 1);
-    assert.equal(
-      sections[1].groups[0].finishedTasks[0].requestId,
-      "skillrunner-request-apply",
-    );
-  });
-
-  it("exposes copy-friendly assistant transcript and reply history affordances", async function () {
-    const transcriptRendererJs = await readProjectFile(
-      "addon/content/shared/assistant/assistant-transcript-renderer.js",
-    );
-    const panelRendererJs = await readProjectFile(
-      "addon/content/shared/assistant/assistant-panel-renderer.js",
-    );
-    const sharedPanelCss = await readProjectFile(
-      "addon/content/shared/assistant/assistant-panel-shared.css",
-    );
-
-    assert.include(transcriptRendererJs, "function decorateMarkdownCodeBlocks");
-    assert.include(transcriptRendererJs, 'querySelectorAll("pre > code")');
-    assert.include(
-      transcriptRendererJs,
-      'copyTextToClipboard(code.textContent || "")',
-    );
-    assert.include(transcriptRendererJs, "assistant-code-copy-button");
-    assert.include(
-      transcriptRendererJs,
-      "decorateMarkdownCodeBlocks(body, options);",
-    );
-    assert.include(transcriptRendererJs, "decorateMarkdownCodeBlocks,");
-    assert.include(transcriptRendererJs, "copyTextToClipboard,");
-    assert.include(
-      transcriptRendererJs,
-      "function assistantToolCommandTooltip",
-    );
-    assert.include(transcriptRendererJs, "function setAssistantTooltip");
-    assert.include(transcriptRendererJs, "node.title = value");
-    assert.include(
-      transcriptRendererJs,
-      'node.setAttribute("aria-label", value)',
-    );
-    assert.include(transcriptRendererJs, "setAssistantTooltip(badge, tooltip)");
-    assert.include(
-      transcriptRendererJs,
-      "setAssistantTooltip(summaryNode, tooltip)",
-    );
-    assert.include(transcriptRendererJs, "function toolActivityTooltipText");
-    assert.include(transcriptRendererJs, ".map(assistantToolCommandTooltip)");
-    assert.include(transcriptRendererJs, 'join("\\n")');
-
-    assert.include(panelRendererJs, "replyHistoryByKey");
-    assert.include(panelRendererJs, "replyHistoryLimit = 50");
-    assert.include(panelRendererJs, "function navigateReplyHistory");
-    assert.include(panelRendererJs, 'event.key === "ArrowUp"');
-    assert.include(panelRendererJs, 'event.key === "ArrowDown"');
-    assert.include(panelRendererJs, "isCaretOnFirstTextareaLine(input)");
-    assert.include(panelRendererJs, "isCaretOnLastTextareaLine(input)");
-    assert.include(panelRendererJs, "state.draft = input.value");
-    assert.include(
-      panelRendererJs,
-      "rememberReplyHistory(historyKey, input.value)",
-    );
-
-    assert.include(sharedPanelCss, "user-select: text;");
-    assert.include(sharedPanelCss, ".assistant-transcript-markdown-body pre");
-    assert.include(
-      sharedPanelCss,
-      ".assistant-panel-permission-drawer-command",
-    );
-    assert.include(sharedPanelCss, ".assistant-panel-details-value");
-    assert.include(sharedPanelCss, ".asst-code-surface");
-    assert.include(sharedPanelCss, ".assistant-code-copy-button");
-    assert.include(
-      sharedPanelCss,
-      '.assistant-code-copy-button[data-assistant-copy-state="copied"]',
-    );
-    assert.include(sharedPanelCss, "pre.assistant-code-block-with-copy");
-  });
-
-  it("projects governed details drawers without backend actions or raw SkillRunner history", async function () {
-    const model = await loadAssistantPanelModelForSmoke();
-    const acpChat = model.projectAcpChatPanelSnapshot({
-      labels: { manageBackends: "Manage", copyDiagnostics: "Copy Diagnostics" },
-      agentWorkspaceDir: "D:/tmp/acp-workspace",
-      diagnostics: [{ kind: "info", message: "ready" }],
-      chatSessions: [],
-    });
-    const toolbarActions = acpChat.actions.toolbar.map(
-      (entry: any) => entry.action,
-    );
-    const detailActions = acpChat.actions.details.map(
-      (entry: any) => entry.action,
-    );
-    assert.include(toolbarActions, "open-backend-manager");
-    assert.notInclude(detailActions, "open-backend-manager");
-    assert.include(detailActions, "copy-diagnostics");
-    assert.include(detailActions, "open-workspace");
-    const acpChatWorkspaceAction = acpChat.actions.details.find(
-      (entry: any) => entry.action === "open-workspace",
-    );
-    assert.isTrue(acpChatWorkspaceAction.enabled);
-    assert.deepEqual(acpChatWorkspaceAction.payload, {
-      workspaceDir: "D:/tmp/acp-workspace",
-    });
-    assert.isTrue(
-      acpChat.drawers.details.some(
-        (section: any) =>
-          section.kind === "diagnostics" &&
-          section.collapsible === true &&
-          section.defaultCollapsed === true,
-      ),
-    );
-
-    const skillRunner = model.projectSkillRunnerPanelSnapshot({
-      session: {
-        requestId: "req-details",
-        title: "Digest run",
-        status: "succeeded",
-        backendTitle: "Local",
-        engine: "skillrunner",
-        model: "gpt-test",
-        updatedAt: "2026-05-08T00:00:00Z",
-        messages: [
-          { kind: "assistant_message", text: "normal message" },
-          { kind: "assistant_revision", text: "candidate" },
-        ],
-      },
-      workspace: { selectedTaskKey: "task-1" },
-    });
-    const titles = skillRunner.drawers.details.map(
-      (section: any) => section.title,
-    );
-    assert.include(titles, "Run");
-    assert.include(titles, "Conversation Summary");
-    assert.include(titles, "Revision Summary");
-    assert.notInclude(titles, "Raw Snapshot");
-    assert.notInclude(
-      JSON.stringify(skillRunner.drawers.details),
-      "normal message",
-    );
-    assert.include(
-      skillRunner.actions.toolbar.map((entry: any) => entry.action),
-      "open-backend-manager",
-    );
-    assert.include(
-      skillRunner.actions.details.map((entry: any) => entry.action),
-      "copy-request-id",
-    );
-
-    const acpSkill = model.projectAcpSkillRunPanelSnapshot({
-      selectedRun: { requestId: "skill-details", status: "running" },
-    });
-    assert.include(
-      acpSkill.actions.toolbar.map((entry: any) => entry.action),
-      "open-backend-manager",
-    );
-  });
-
-  it("adds dashboard entry points and hook wiring for opening the ACP sidebar", async function () {
-    const dialog = await readProjectFile("src/modules/taskManagerDialog.ts");
-    const activeTasks = await readProjectFile(
-      "src/modules/dashboardActiveTasks.ts",
-    );
-    const acpProjection = await readProjectFile(
-      "src/modules/acpSkillRunTaskProjection.ts",
-    );
-    const app = await readProjectFile("addon/content/dashboard/app.js");
-    const hooks = await readProjectFile("src/hooks.ts");
-    const assistantHtml = await readProjectFile(
-      "addon/content/sidebar/assistant-workspace.html",
-    );
-    const assistantJs = await readProjectFile(
-      "addon/content/sidebar/assistant-workspace.js",
-    );
-    const assistantCss = await readProjectFile(
-      "addon/content/sidebar/assistant-workspace.css",
-    );
-    const sharedPanelCss = await readProjectFile(
-      "addon/content/shared/assistant/assistant-panel-shared.css",
-    );
-    const sharedIconsCss = await readProjectFile(
-      "addon/content/shared/icons.css",
-    );
-    const editDocumentIconSvg = await readProjectFile(
-      "addon/content/icons/material-symbols/edit_document.svg",
-    );
-    const sharedThemeCss = await readProjectFile(
-      "addon/content/shared/theme.css",
-    );
-    const sharedThemeJs = await readProjectFile(
-      "addon/content/shared/theme.js",
-    );
-    const assistantConversationViewJs = await readProjectFile(
-      "addon/content/shared/assistant/assistant-conversation-view.js",
-    );
-    const assistantTranscriptRendererJs = await readProjectFile(
-      "addon/content/shared/assistant/assistant-transcript-renderer.js",
-    );
-    const assistantPanelModelJs = await readProjectFile(
-      "addon/content/shared/assistant/assistant-panel-model.js",
-    );
-    const assistantPanelRendererJs = await readProjectFile(
-      "addon/content/shared/assistant/assistant-panel-renderer.js",
-    );
-    const assistantSidebar = await readProjectFile(
-      "src/modules/assistantWorkspaceSidebar.ts",
-    );
-    const openAssistantWorkspaceSidebarBlock = assistantSidebar.slice(
-      assistantSidebar.indexOf(
-        "export async function openAssistantWorkspaceSidebar",
-      ),
-      assistantSidebar.indexOf(
-        "export function closeAssistantWorkspaceSidebar",
-      ),
-    );
-    const acpSkillRunStoreTs = await readProjectFile(
-      "src/modules/acpSkillRunStore.ts",
-    );
-    const acpChatHtml = await readProjectFile(
-      "addon/content/sidebar/acp-chat.html",
-    );
-    const acpChatJs = await readProjectFile(
-      "addon/content/sidebar/acp-chat.js",
-    );
-    const acpChatCss = await readProjectFile(
-      "addon/content/sidebar/acp-chat.css",
-    );
-    const acpSkillRunHtml = await readProjectFile(
-      "addon/content/sidebar/acp-skill-run.html",
-    );
-    const acpSkillRunJs = await readProjectFile(
-      "addon/content/sidebar/acp-skill-run.js",
-    );
-    const acpSkillRunCss = await readProjectFile(
-      "addon/content/sidebar/acp-skill-run.css",
-    );
-    const runDialogHtml = await readProjectFile(
-      "addon/content/sidebar/run-dialog.html",
-    );
-    const runDialogJs = await readProjectFile(
-      "addon/content/sidebar/run-dialog.js",
-    );
-    const skillRunnerRunDialogTs = await readProjectFile(
-      "src/modules/skillRunnerRunDialog.ts",
-    );
-    const runDialogCss = await readProjectFile(
-      "addon/content/sidebar/run-dialog.css",
-    );
-    const acpSkillRunStore = await readProjectFile(
-      "src/modules/acpSkillRunStore.ts",
-    );
-    const acpSkillRunner = await readProjectFile(
-      "src/modules/acpSkillRunnerOrchestrator.ts",
-    );
-    const sidebarModel = await readProjectFile(
-      "src/modules/acpSidebarModel.ts",
-    );
-    const sidebarTypes = await readProjectFile("src/modules/acpTypes.ts");
-    const sharedHost = await readProjectFile(
-      "src/modules/sidebarBrowserHost.ts",
-    );
-    const workspaceTab = await readProjectFile("src/modules/workspaceTab.ts");
-
-    assert.notInclude(dialog, "open-acp-sidebar");
-    assert.include(dialog, "open-acp-skill-runs");
-    assert.include(dialog, "DOMParser");
-    assert.notInclude(dialog, "javascript:[^");
-    assert.include(dialog, "openAssistantWorkspaceSidebar");
-    assert.include(dialog, "buildAcpSkillRunPanelSnapshot");
-    assert.include(dialog, "listAcpSkillRunSummaries");
-    assert.include(dialog, "mergeAcpBackendTaskRows");
-    assert.include(dialog, "mapAcpSkillRunSummaryToWorkflowTask");
-    assert.include(activeTasks, "projectDashboardActiveTasks");
-    assert.include(activeTasks, "mapAcpSkillRunSummaryToWorkflowTask");
-    assert.include(acpProjection, "resolveAcpSkillRunWorkflowTaskState");
-    assert.include(dialog, "!run.removedAt && !run.archivedAt");
-    assert.include(dialog, "subscribeAcpSkillRunSnapshots");
-    assert.include(dialog, "isAcpSkillRunnerTask");
-    assert.notInclude(dialog, "homeAcpEntry");
-    assert.notInclude(dialog, "homeAcpSkillRunsEntry");
-    assert.notInclude(app, "homeAcpEntry");
-    assert.notInclude(app, "homeAcpSkillRunsEntry");
-    assert.notInclude(app, 'sendAction("open-acp-sidebar"');
-    assert.include(app, 'sendAction("open-acp-skill-runs"');
-    assert.include(app, "function labelText(labels, key, fallback)");
-    assert.include(app, 'labelText(labels, "tabProducts")');
-    assert.include(app, '"productsEmpty"');
-    assert.include(app, "renderAcpSkillRunnerBackend");
-    assert.include(app, "row.requestKind");
-    assert.include(app, 'snapshot.backendView.backendType === "acp"');
-    assert.include(hooks, "installAssistantWorkspaceSidebarShell");
-    assert.include(hooks, "removeAssistantWorkspaceSidebarShell");
-    assert.include(hooks, "openAssistantWorkspaceSidebar");
-    assert.include(hooks, "toggleAssistantWorkspaceSidebar");
-    assert.include(workspaceTab, "isAssistantWorkspaceSidebarOpen");
-    assert.include(
-      workspaceTab,
-      "const reopenAssistantSidebar = isAssistantWorkspaceSidebarOpen",
-    );
-    assert.include(workspaceTab, 'target: "reader"');
-    assert.notInclude(hooks, "installAcpSidebarShell(win)");
-    assert.notInclude(hooks, "installAcpSkillRunnerSidebarShell(win)");
-    assert.include(assistantHtml, "assistant-tab-skillrunner");
-    assert.include(assistantHtml, "assistant-tab-acp-chat");
-    assert.include(assistantHtml, "assistant-tab-acp-skills");
-    assert.isBelow(
-      assistantHtml.indexOf("assistant-tab-acp-chat"),
-      assistantHtml.indexOf("assistant-tab-acp-skills"),
-      "ACP Chat tab should appear before ACP Skills",
-    );
-    assert.isBelow(
-      assistantHtml.indexOf("assistant-tab-acp-skills"),
-      assistantHtml.indexOf("assistant-tab-skillrunner"),
-      "ACP Skills tab should appear before SkillRunner",
-    );
-    assert.include(assistantHtml, "assistant-frame-skillrunner");
-    assert.include(assistantHtml, "assistant-frame-acp-chat");
-    assert.include(assistantHtml, "assistant-frame-acp-skills");
-    assert.isBelow(
-      assistantHtml.indexOf("assistant-frame-acp-chat"),
-      assistantHtml.indexOf("assistant-frame-acp-skills"),
-      "ACP Chat frame should appear before ACP Skills",
-    );
-    assert.isBelow(
-      assistantHtml.indexOf("assistant-frame-acp-skills"),
-      assistantHtml.indexOf("assistant-frame-skillrunner"),
-      "ACP Skills frame should appear before SkillRunner",
-    );
-    assert.include(assistantHtml, "assistant-workspace-tabbar");
-    assert.include(assistantHtml, "../shared/theme.js");
-    assert.include(assistantHtml, "../shared/theme.css");
-    assert.include(
-      sharedThemeCss,
-      "--zs-selection-bg: rgba(37, 99, 235, 0.26);",
-    );
-    assert.include(sharedThemeCss, "--zs-selection-text: var(--zs-text);");
-    assert.include(sharedThemeCss, "background: var(--zs-selection-bg);");
-    assert.include(sharedThemeCss, "::-moz-selection");
-    assert.include(assistantHtml, "assistant-workspace-loading");
-    assert.include(assistantHtml, "assistant-workspace-loading-spinner");
-    assert.include(assistantHtml, 'src="./run-dialog.html"');
-    assert.notInclude(assistantHtml, "assistant-workspace-title");
-    assert.notInclude(assistantHtml, "assistant-workspace-subtitle");
-    assert.include(assistantHtml, "assistant-workspace-close");
-    assert.include(assistantJs, "assistant-workspace:child-action");
-    assert.include(
-      assistantJs,
-      'const tabs = ["acp-chat", "acp-skills", "skillrunner"]',
-    );
-    assert.include(assistantJs, "__zsAssistantWorkspaceBridge");
-    assert.include(assistantJs, "function hostBridge()");
-    assert.include(assistantJs, "direct.postMessage(type, payload || {})");
-    assert.include(assistantJs, "__zsAcpSidebarBridge");
-    assert.include(assistantJs, "__zsAcpSkillRunSidebarBridge");
-    assert.include(assistantJs, "__zsSkillRunnerSidebarBridge");
-    assert.include(assistantJs, "latestChildPayloads");
-    assert.include(assistantJs, "latestChildRevisions");
-    assert.include(assistantJs, "childPayloadGeneration");
-    assert.include(assistantJs, "deliveredChildPayloads");
-    assert.include(assistantJs, "pendingReplayTabs");
-    assert.include(assistantJs, "scopeKey");
-    assert.include(assistantJs, "loadedFrames");
-    assert.include(assistantJs, "function updateLoadingState()");
-    assert.include(
-      assistantJs,
-      "const isLoading = !state.loadedFrames.has(state.activeTab)",
-    );
-    assert.include(
-      assistantJs,
-      "function cacheChildPayload(tab, phase, payload)",
-    );
-    assert.include(assistantJs, "function childPayloadRevision(tab, payload)");
-    assert.include(assistantJs, "function syncScopeKeyFromPayload(payload)");
-    assert.include(assistantJs, "revision < latestRevision");
-    assert.include(
-      assistantJs,
-      "function normalizeSkillRunnerSidebarPayload(payload)",
-    );
-    assert.include(
-      assistantJs,
-      'Object.assign({}, source, { hostMode: "sidebar" })',
-    );
-    assert.include(assistantJs, "const normalizedPayload =");
-    assert.include(assistantJs, "function normalizeTab(tab, fallback)");
-    assert.include(assistantJs, "function closeDrawersForTab(tab)");
-    assert.include(
-      assistantJs,
-      "function closeInactiveChildDrawers(activeTab)",
-    );
-    assert.include(assistantJs, '"assistant-panel:close-drawers"');
-    assert.include(assistantJs, "fallback: state.activeTab");
-    assert.include(assistantJs, "actionTrace");
-    assert.include(assistantJs, "function traceAction(stage, details)");
-    assert.include(assistantJs, "function nextActionId(tab, action)");
-    assert.notInclude(assistantJs, 'data.type === "run-dialog:action"');
-    assert.include(assistantJs, "function replayCachedChildPayload(tab)");
-    assert.include(assistantJs, "function replayPendingChildPayloads(reason)");
-    assert.include(assistantJs, "function queueChildReplay(tab, reason)");
-    assert.include(assistantJs, "post-to-child-skip-delivered");
-    assert.include(assistantJs, "child-replay-pending-result");
-    assert.include(assistantJs, "function scheduleChildReplay(reason)");
-    assert.include(assistantJs, "function ensureHostReady(reason)");
-    assert.include(assistantJs, "host-ready-result");
-    assert.include(assistantJs, "child-replay-tick");
-    assert.include(assistantJs, "function acceptChildReady(tab, payload)");
-    assert.include(assistantJs, "function handleFrameLoad(tab)");
-    assert.include(assistantJs, "state.loadedFrames.add(normalizedTab)");
-    assert.notInclude(assistantJs, "function initializeFrame(tab)");
-    assert.notInclude(assistantJs, "acceptChildReady(tab, {})");
-    assert.include(assistantJs, 'if (data.action === "ready")');
-    assert.include(
-      assistantJs,
-      'acceptChildReady("acp-chat", data.payload || {})',
-    );
-    assert.include(
-      assistantJs,
-      'acceptChildReady("acp-skills", data.payload || {})',
-    );
-    assert.include(
-      assistantJs,
-      'acceptChildReady("skillrunner", data.payload || {})',
-    );
-    assert.notInclude(assistantJs, 'data.type === "skillrunner-sidebar:init"');
-    assert.notInclude(
-      assistantJs,
-      'data.type === "skillrunner-sidebar:snapshot"',
-    );
-    assert.notInclude(
-      assistantJs,
-      'cacheChildPayload("skillrunner", "init", payload)',
-    );
-    assert.notInclude(
-      assistantJs,
-      'cacheChildPayload("skillrunner", "snapshot", payload)',
-    );
-    assert.notInclude(
-      assistantJs,
-      'postToChild("skillrunner", "init", payload)',
-    );
-    assert.notInclude(
-      assistantJs,
-      'postToChild("skillrunner", "snapshot", payload)',
-    );
-    assert.include(
-      assistantJs,
-      'data.type === "assistant-workspace:child-snapshot"',
-    );
-    assert.include(assistantJs, "replayCachedChildPayload(tab)");
-    assert.include(
-      assistantJs,
-      'queueChildReplay(tab, "child-snapshot:" + tab)',
-    );
-    assert.include(assistantJs, "if (normalizedSnapshot)");
-    assert.include(assistantJs, "assistant-workspace-close");
-    assert.include(assistantCss, ".assistant-workspace-tabbar");
-    assert.include(assistantCss, ".assistant-workspace-tabs");
-    assert.include(assistantCss, ".assistant-frame");
-    assert.include(assistantCss, "min-height: 0");
-    assert.include(assistantCss, "width: 100%");
-    assert.include(assistantCss, "flex: 1 1 0");
-    assert.include(assistantCss, ".assistant-tab.is-active");
-    assert.notInclude(assistantCss, "color-scheme: light;");
-    assert.notInclude(assistantCss, ".assistant-workspace-title");
-    assert.include(assistantCss, ".assistant-workspace-loading");
-    assert.include(assistantCss, ".assistant-workspace-loading-spinner");
-    assert.include(assistantCss, "@keyframes assistant-workspace-spin");
-    assert.include(assistantCss, "prefers-reduced-motion: reduce");
-    assert.include(assistantCss, ".assistant-workspace-close");
-    assert.include(acpChatHtml, "../shared/theme.js");
-    assert.include(acpChatHtml, "../shared/theme.css");
-    assert.include(acpChatHtml, "../shared/icons.css?ui=20260614-icons-v1");
-    assert.include(
-      acpChatHtml,
-      "../shared/assistant/assistant-panel-shared.css",
-    );
-    assert.include(acpChatJs, '"assistant-panel:close-drawers"');
-    assert.include(acpChatJs, "function closeAllDrawers()");
-    assert.include(acpSkillRunJs, '"assistant-panel:close-drawers"');
-    assert.include(acpSkillRunJs, "function closeAllDrawers()");
-    assert.include(runDialogJs, '"assistant-panel:close-drawers"');
-    assert.include(runDialogJs, "function closeAllDrawers()");
-    assert.include(runDialogJs, "function withOptimisticSelectedTask");
-    assert.include(runDialogJs, "function scheduleTranscriptRender");
-    assert.include(runDialogJs, "function scheduleTranscriptMicrotask");
-    assert.include(runDialogJs, "window.queueMicrotask");
-    assert.include(runDialogJs, "window.Promise.resolve().then(callback)");
-    assert.include(runDialogJs, "state.transcriptRenderToken");
-    assert.include(
-      acpSkillRunHtml,
-      "../shared/assistant/assistant-panel-shared.css",
-    );
-    assert.include(acpSkillRunHtml, "../shared/theme.js");
-    assert.include(acpSkillRunHtml, "../shared/theme.css");
-    assert.include(acpSkillRunHtml, "../shared/icons.css?ui=20260614-icons-v1");
-    assert.notInclude(acpSkillRunHtml, "../shared/markdown-renderer.js");
-    assert.notInclude(acpSkillRunJs, "ZoteroSkillsMarkdownRenderer");
-    assert.include(
-      runDialogHtml,
-      "../shared/assistant/assistant-panel-shared.css",
-    );
-    assert.include(runDialogHtml, "../shared/theme.js");
-    assert.include(runDialogHtml, "../shared/theme.css");
-    assert.include(runDialogHtml, "../shared/icons.css?ui=20260614-icons-v1");
-    assert.notInclude(runDialogHtml, "../shared/markdown-renderer.js");
-    assert.notInclude(runDialogJs, "ZoteroSkillsMarkdownRenderer");
-    assert.notInclude(acpChatCss, "color-scheme: light;");
-    assert.notInclude(acpSkillRunCss, "color-scheme: light;");
-    assert.notInclude(runDialogCss, "color-scheme: light;");
-    assert.isBelow(
-      acpChatHtml.indexOf("../shared/assistant/assistant-panel-shared.css"),
-      acpChatHtml.indexOf("./acp-chat.css"),
-      "ACP Chat should load shared foundation before page CSS",
-    );
-    assert.isBelow(
-      acpSkillRunHtml.indexOf("../shared/assistant/assistant-panel-shared.css"),
-      acpSkillRunHtml.indexOf("./acp-skill-run.css"),
-      "ACP Skills should load shared foundation before page CSS",
-    );
-    assert.include(runDialogHtml, "./run-dialog.css");
-    assert.isBelow(
-      runDialogHtml.indexOf("../shared/assistant/assistant-panel-shared.css"),
-      runDialogHtml.indexOf("./run-dialog.css"),
-      "SkillRunner should load shared foundation before page CSS",
-    );
-    assert.include(sharedPanelCss, "--asst-bg");
-    assert.include(sharedPanelCss, "--asst-bg: var(--zs-bg)");
-    assert.include(sharedPanelCss, "--asst-surface");
-    assert.include(sharedPanelCss, "--asst-surface: var(--zs-panel)");
-    assert.include(sharedPanelCss, "--asst-accent");
-    assert.include(sharedPanelCss, ':root[data-zs-theme="dark"]');
-    assert.include(sharedThemeCss, "--zs-bg-gradient");
-    assert.include(sharedThemeCss, ':root[data-zs-theme="dark"]');
-    assert.include(sharedThemeCss, "@media (prefers-color-scheme: dark)");
-    assert.include(sharedThemeJs, "ZoteroSkillsTheme");
-    assert.include(sharedThemeJs, "zotero-skills.theme");
-    assert.include(sharedPanelCss, "@keyframes asst-spin");
-    assert.include(sharedPanelCss, "@keyframes asst-pulse");
-    assert.include(sharedPanelCss, ".asst-shell-toolbar");
-    assert.include(sharedPanelCss, ".asst-panel-shell");
-    assert.include(sharedPanelCss, ".asst-panel-main");
-    assert.include(
-      sharedPanelCss,
-      "grid-template-rows: auto auto auto minmax(0, 1fr);",
-    );
-    assert.include(
-      sharedPanelCss,
-      "grid-template-rows: minmax(0, 1fr) auto auto auto;",
-    );
-    assert.include(
-      sharedPanelCss,
-      ".asst-shell-toolbar .assistant-panel-managed-view",
-    );
-    assert.include(sharedPanelCss, "border-radius: var(--asst-radius-md);");
-    assert.include(sharedPanelCss, "box-shadow: var(--asst-shadow-subtle);");
-    assert.include(sharedPanelCss, ".asst-context-selector");
-    assert.include(sharedPanelCss, ".asst-context-actions");
-    assert.include(sharedPanelCss, ".asst-conversation-surface");
-    assert.include(
-      sharedPanelCss,
-      ".asst-banner .assistant-panel-managed-view",
-    );
-    assert.include(sharedPanelCss, ".asst-conversation-overlay-menu");
-    assert.include(sharedPanelCss, ".asst-hint-surface");
-    assert.include(sharedPanelCss, ".asst-reply-surface");
-    assert.include(sharedPanelCss, ".asst-led");
-    assert.include(sharedPanelCss, ".asst-spinner");
-    assert.include(sharedPanelCss, ".asst-code-surface");
-    assert.include(sharedPanelCss, ".asst-drawer-panel");
-    assert.include(sharedPanelCss, ".asst-panel-drawer-overlay");
-    assert.include(sharedPanelCss, ".asst-panel-details-overlay");
-    assert.include(sharedPanelCss, ".asst-empty-state");
-    assert.include(sharedPanelCss, "--asst-context-drawer-width");
-    assert.include(sharedPanelCss, "--asst-details-drawer-width");
-    assert.include(sharedPanelCss, ".assistant-panel-root");
-    assert.include(sharedPanelCss, ".assistant-panel-toolbar");
-    assert.include(sharedPanelCss, ".assistant-panel-banner");
-    assert.include(sharedPanelCss, ".assistant-panel-conversation");
-    assert.include(sharedPanelCss, ".assistant-panel-plan");
-    assert.include(sharedPanelCss, "max-height: min(18vh, 140px);");
-    assert.include(sharedPanelCss, ".assistant-panel-hint");
-    assert.include(sharedPanelCss, ".assistant-panel-reply");
-    assert.include(sharedPanelCss, ".assistant-panel-context-drawer");
-    assert.include(sharedPanelCss, ".assistant-transcript");
-    assert.include(sharedPanelCss, ".assistant-transcript-row");
-    assert.include(sharedPanelCss, ".assistant-transcript-meta");
-    assert.include(sharedPanelCss, ".assistant-transcript-body");
-    assert.include(sharedPanelCss, ".assistant-transcript-tool-led");
-    assert.include(sharedPanelCss, ".assistant-transcript-revision-badge");
-    assert.include(sharedPanelCss, ".assistant-transcript-markdown-body p");
-    assert.include(sharedPanelCss, "margin: 0 0 0.35em;");
-    assert.include(
-      sharedPanelCss,
-      ".assistant-transcript.plain-mode .assistant-transcript-row",
-    );
-    assert.include(
-      sharedPanelCss,
-      ".assistant-transcript.bubble-mode .assistant-transcript-row",
-    );
-    assert.include(
-      sharedPanelCss,
-      ".assistant-transcript.plain-mode .assistant-transcript-row.is-tool",
-    );
-    assert.match(
-      sharedPanelCss,
-      /\.assistant-transcript\.plain-mode\s+\.assistant-transcript-row\.is-workspace-activity/,
-    );
-    assert.match(
-      sharedPanelCss,
-      /\.assistant-transcript\.plain-mode\s+\.assistant-transcript-row\.is-tool\s+\.assistant-transcript-meta/,
-    );
-    assert.match(
-      sharedPanelCss,
-      /\.assistant-transcript\.plain-mode\s+\.assistant-transcript-row\.is-workspace-activity\s+\.assistant-transcript-meta/,
-    );
-    assert.include(sharedPanelCss, "border-left-width: 0;");
-    assert.include(sharedPanelCss, "display: none;");
-    assert.include(sharedPanelCss, ".assistant-transcript-workspace-file-icon");
-    assert.include(sharedPanelCss, "--zs-icon-size: 16px;");
-    assert.include(sharedIconsCss, ".zs-icon-edit-document");
-    assert.include(
-      sharedIconsCss,
-      "../icons/material-symbols/edit_document.svg",
-    );
-    assert.include(editDocumentIconSvg, "<svg");
-    assert.include(editDocumentIconSvg, "<path");
-    assert.include(
-      assistantTranscriptRendererJs,
-      "assistant-transcript-workspace-file-icon zs-icon zs-icon-sm zs-icon-edit-document",
-    );
-    assert.notInclude(sharedPanelCss, ".assistant-transcript-workspace-badge");
-    assert.notInclude(
-      assistantTranscriptRendererJs,
-      'transcriptLabel(options, "workspaceActivity")',
-    );
-    assert.notInclude(
-      assistantTranscriptRendererJs,
-      "assistant-transcript-workspace-badge",
-    );
-    assert.notInclude(
-      assistantTranscriptRendererJs,
-      'assistant-transcript-workspace-file-icon", "▣"',
-    );
-    assert.notInclude(sharedPanelCss, ".acp-");
-    assert.notInclude(sharedPanelCss, ".workspace-");
-    assert.notInclude(sharedPanelCss, ".btn");
-    assert.include(acpChatHtml, "acp-chat-banner");
-    assert.include(acpChatHtml, "asst-panel-main");
-    assert.include(acpChatHtml, "asst-panel-drawer-overlay");
-    assert.include(acpChatHtml, "asst-panel-details-overlay");
-    assert.notInclude(acpChatHtml, "asst-context-selector");
-    assert.notInclude(acpChatHtml, "asst-context-actions");
-    assert.include(acpChatHtml, "acp-conversation-window");
-    assert.include(acpChatHtml, "acp-conversation-overlay-menu");
-    assert.include(
-      acpChatHtml,
-      "../shared/assistant/assistant-conversation-view.js",
-    );
-    assert.include(
-      acpChatHtml,
-      "../shared/assistant/assistant-transcript-renderer.js",
-    );
-    assert.include(acpChatHtml, "../shared/assistant/assistant-panel-model.js");
-    assert.include(
-      acpChatHtml,
-      "../shared/assistant/assistant-panel-renderer.js",
-    );
-    assert.isBelow(
-      acpChatHtml.indexOf("../shared/assistant/assistant-conversation-view.js"),
-      acpChatHtml.indexOf(
-        "../shared/assistant/assistant-transcript-renderer.js",
-      ),
-      "ACP Chat should load conversation view before transcript renderer",
-    );
-    assert.isBelow(
-      acpChatHtml.indexOf(
-        "../shared/assistant/assistant-transcript-renderer.js",
-      ),
-      acpChatHtml.indexOf("../shared/assistant/assistant-panel-model.js"),
-      "ACP Chat should load transcript renderer before panel model",
-    );
-    assert.isBelow(
-      acpChatHtml.indexOf("../shared/assistant/assistant-panel-model.js"),
-      acpChatHtml.indexOf("../shared/assistant/assistant-panel-renderer.js"),
-      "ACP Chat should load panel model before panel renderer",
-    );
-    assert.isBelow(
-      acpChatHtml.indexOf("../shared/assistant/assistant-panel-renderer.js"),
-      acpChatHtml.indexOf("./acp-chat.js"),
-      "ACP Chat should load shared panel renderer before page JS",
-    );
-    assert.include(
-      acpSkillRunHtml,
-      "../shared/assistant/assistant-conversation-view.js",
-    );
-    assert.include(
-      acpSkillRunHtml,
-      "../shared/assistant/assistant-transcript-renderer.js",
-    );
-    assert.include(
-      acpSkillRunHtml,
-      "../shared/assistant/assistant-panel-model.js",
-    );
-    assert.include(
-      acpSkillRunHtml,
-      "../shared/assistant/assistant-panel-renderer.js",
-    );
-    assert.isBelow(
-      acpSkillRunHtml.indexOf(
-        "../shared/assistant/assistant-conversation-view.js",
-      ),
-      acpSkillRunHtml.indexOf(
-        "../shared/assistant/assistant-transcript-renderer.js",
-      ),
-      "ACP Skills should load conversation view before transcript renderer",
-    );
-    assert.isBelow(
-      acpSkillRunHtml.indexOf(
-        "../shared/assistant/assistant-transcript-renderer.js",
-      ),
-      acpSkillRunHtml.indexOf("../shared/assistant/assistant-panel-model.js"),
-      "ACP Skills should load transcript renderer before panel model",
-    );
-    assert.isBelow(
-      acpSkillRunHtml.indexOf("../shared/assistant/assistant-panel-model.js"),
-      acpSkillRunHtml.indexOf(
-        "../shared/assistant/assistant-panel-renderer.js",
-      ),
-      "ACP Skills should load panel model before panel renderer",
-    );
-    assert.isBelow(
-      acpSkillRunHtml.indexOf(
-        "../shared/assistant/assistant-panel-renderer.js",
-      ),
-      acpSkillRunHtml.indexOf("./acp-skill-run.js"),
-      "ACP Skills should load shared panel renderer before page JS",
-    );
-    assert.include(
-      runDialogHtml,
-      "../shared/assistant/assistant-conversation-view.js",
-    );
-    assert.include(
-      runDialogHtml,
-      "../shared/assistant/assistant-transcript-renderer.js",
-    );
-    assert.include(
-      runDialogHtml,
-      "../shared/assistant/assistant-panel-model.js",
-    );
-    assert.include(
-      runDialogHtml,
-      "../shared/assistant/assistant-panel-renderer.js",
-    );
-    assert.isBelow(
-      runDialogHtml.indexOf("../shared/assistant/assistant-panel-renderer.js"),
-      runDialogHtml.indexOf("./run-dialog.js"),
-      "SkillRunner should load shared panel renderer before page JS",
-    );
-    assert.include(
-      assistantConversationViewJs,
-      "window.AssistantConversationView",
-    );
-    assert.include(
-      assistantConversationViewJs,
-      "projectAcpChatConversationView",
-    );
-    assert.include(
-      assistantConversationViewJs,
-      "projectAcpSkillRunConversationView",
-    );
-    assert.include(assistantConversationViewJs, "normalizeAssistantPlanEntry");
-    assert.include(assistantConversationViewJs, "normalizeAssistantToolItem");
-    assert.include(assistantConversationViewJs, "resolveAssistantInteraction");
-    assert.include(assistantConversationViewJs, 'kind: "process"');
-    assert.include(assistantConversationViewJs, 'kind: "tool"');
-    assert.include(
-      assistantTranscriptRendererJs,
-      "window.AssistantTranscriptRenderer",
-    );
-    assert.include(assistantTranscriptRendererJs, "renderAssistantTranscript");
-    assert.include(
-      assistantTranscriptRendererJs,
-      "renderAssistantTranscriptItem",
-    );
-    assert.include(
-      assistantTranscriptRendererJs,
-      "isAssistantTranscriptNearBottom",
-    );
-    assert.include(assistantTranscriptRendererJs, "buildTranscriptRenderItems");
-    assert.include(
-      assistantTranscriptRendererJs,
-      "assistant-transcript-revision-badge",
-    );
-    assert.include(assistantTranscriptRendererJs, "tool_activity_group");
-    assert.include(assistantTranscriptRendererJs, "stableToolActivityGroupKey");
-    assert.include(assistantTranscriptRendererJs, '"aria-expanded"');
-    assert.include(
-      assistantTranscriptRendererJs,
-      "assistant-transcript-tool-activity-summary",
-    );
-    assert.include(assistantTranscriptRendererJs, "assistant-transcript-row");
-    assert.include(assistantTranscriptRendererJs, "data-assistant-panel-kind");
-    assert.include(
-      assistantTranscriptRendererJs,
-      "function transcriptLabel(options, key, fallback)",
-    );
-    assert.include(assistantTranscriptRendererJs, "data-assistant-item-kind");
-    assert.include(assistantTranscriptRendererJs, "data-assistant-role");
-    assert.include(
-      assistantTranscriptRendererJs,
-      'item.kind === "process" || item.kind === "thought"',
-    );
-    assert.include(
-      assistantTranscriptRendererJs,
-      'transcriptLabel(options, "thinking")',
-    );
-    assert.notInclude(assistantTranscriptRendererJs, "acp-message");
-    assert.notInclude(assistantTranscriptRendererJs, "transcript-row kind-");
-    assert.include(assistantPanelModelJs, "window.AssistantPanelModel");
-    assert.include(assistantPanelModelJs, "AssistantPanelKind");
-    assert.include(assistantPanelModelJs, "normalizeAssistantPanelSnapshot");
-    assert.include(assistantPanelModelJs, "projectAcpChatPanelSnapshot");
-    assert.include(assistantPanelModelJs, "projectAcpSkillRunPanelSnapshot");
-    assert.include(assistantPanelModelJs, "projectSkillRunnerPanelSnapshot");
-    assert.include(assistantPanelModelJs, "mapAssistantPanelAction");
-    assert.include(assistantPanelModelJs, "contextSelector");
-    assert.include(assistantPanelModelJs, "contextAction");
-    assert.include(assistantPanelModelJs, "buildSessionPickerOptions");
-    assert.include(assistantPanelModelJs, "SESSION_PICKER_SHOW_MORE_VALUE");
-    assert.include(
-      assistantPanelModelJs,
-      "function labelFrom(source, path, fallback)",
-    );
-    assert.include(assistantPanelModelJs, "labels: snap.labels || {}");
-    assert.include(assistantPanelRendererJs, "window.AssistantPanelRenderer");
-    assert.include(
-      assistantPanelRendererJs,
-      "function labelOf(panel, path, fallback)",
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      "function withDefaultPanel(source)",
-    );
-    assert.include(assistantPanelRendererJs, "context: Object.assign");
-    assert.include(assistantPanelRendererJs, "reply: Object.assign");
-    assert.include(assistantPanelRendererJs, "drawers: Object.assign");
-    assert.include(assistantPanelRendererJs, "actions: Object.assign");
-    assert.include(assistantPanelRendererJs, "renderAssistantPanelSnapshot");
-    assert.include(assistantPanelRendererJs, "renderToolbar");
-    assert.include(assistantPanelRendererJs, "renderContextSelectors");
-    assert.include(assistantPanelRendererJs, "renderContextActions");
-    assert.include(assistantPanelRendererJs, "renderAssistantBanner");
-    assert.include(assistantPanelRendererJs, "renderBannerStatusBadge");
-    assert.include(assistantPanelRendererJs, "assistant-panel-banner-status");
-    assert.include(assistantPanelRendererJs, "renderBannerIndicators");
-    assert.include(assistantPanelRendererJs, "assistant-panel-indicator");
-    assert.include(assistantPanelRendererJs, "assistant-panel-indicator-extra");
-    assert.include(
-      assistantPanelRendererJs,
-      "assistant-panel-indicator-progress",
-    );
-    assert.include(assistantPanelRendererJs, "renderAssistantPlan");
-    assert.include(
-      assistantPanelRendererJs,
-      'completedCount + "/" + totalCount',
-    );
-    assert.include(assistantPanelRendererJs, "assistant-panel-plan-spinner");
-    assert.include(
-      assistantPanelRendererJs,
-      "function isAssistantPlanWorking(panel)",
-    );
-    assert.match(
-      assistantPanelRendererJs,
-      /container\.setAttribute\(\s*"data-assistant-plan-working"/,
-    );
-    assert.match(
-      assistantPanelRendererJs,
-      /toneClass === "is-running" && planWorking/,
-    );
-    assert.match(
-      sharedPanelCss,
-      /\.assistant-panel-plan\[data-assistant-plan-working="false"\]\s+\.assistant-panel-plan-spinner/,
-    );
-    assert.match(
-      assistantPanelRendererJs,
-      /toneClass === "is-completed"\s*\?\s*"✓"\s*:\s*"•"/,
-    );
-    assert.include(assistantPanelRendererJs, "renderAssistantHint");
-    assert.include(
-      assistantPanelRendererJs,
-      "assistant-panel-permission-summary",
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      'labelOf(panel, "permission.viewFullRequest", "View details")',
-    );
-    assert.include(assistantPanelRendererJs, "open-permission-request");
-    assert.include(assistantPanelRendererJs, "buildPermissionRequestDto");
-    assert.notInclude(
-      assistantPanelRendererJs,
-      "assistant-panel-permission-detail-code",
-    );
-    assert.include(assistantPanelRendererJs, "renderAssistantReply");
-    assert.include(
-      assistantPanelRendererJs,
-      "function replyStructuralSignature",
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      "function updateAssistantReplyLiveFields",
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      "data-assistant-reply-structure-signature",
-    );
-    assert.notInclude(assistantPanelRendererJs, "reply: panel.reply,");
-    assert.include(assistantPanelRendererJs, "renderPermissionRequestDrawer");
-    assert.include(
-      assistantPanelRendererJs,
-      "assistant-panel-permission-drawer-overlay",
-    );
-    assert.include(assistantPanelRendererJs, "close-permission-request");
-    assert.include(assistantPanelRendererJs, "renderUsageGauge");
-    assert.include(assistantPanelRendererJs, "assistant-panel-usage-gauge");
-    assert.include(assistantPanelRendererJs, "assistant-panel-usage-ring");
-    assert.include(assistantPanelRendererJs, "assistant-panel-usage-label");
-    assert.include(
-      assistantPanelRendererJs,
-      'label.setAttribute("data-assistant-selector-id"',
-    );
-    assert.include(assistantPanelRendererJs, "renderReplyZone");
-    assert.include(assistantPanelRendererJs, "renderAssistantContextDrawer");
-    assert.include(assistantPanelRendererJs, "renderDetailsDrawer");
-    assert.include(assistantPanelRendererJs, "function installOverlayDismiss");
-    assert.include(
-      assistantPanelRendererJs,
-      'installOverlayDismiss(container, "close-context-drawer"',
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      'installOverlayDismiss(container, "close-details-drawer"',
-    );
-    assert.include(assistantPanelRendererJs, "panel.contains(target)");
-    assert.include(assistantPanelRendererJs, "function renderDetailsSection");
-    assert.include(
-      assistantPanelRendererJs,
-      '"assistant-panel-details-section-summary"',
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      '"assistant-panel-details-section-body"',
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      "section.defaultCollapsed !== true",
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      "entry.title || entry.text || entry.label || entry.content",
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      "const payloadKey = safeText(selector.payloadKey)",
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      "payload[payloadKey] = select.value",
-    );
-    assert.include(assistantPanelRendererJs, "managedRegions");
-    assert.match(
-      assistantPanelRendererJs,
-      /markRegion\(\s*regions\.conversation,\s*"assistant-panel-conversation",\s*"conversation",/,
-    );
-    assert.include(assistantPanelRendererJs, "managed: false");
-    assert.include(
-      assistantPanelRendererJs,
-      'node.classList.remove("is-assistant-managed")',
-    );
-    assert.include(
-      assistantPanelModelJs,
-      "function selectorPayloadKey(id, action)",
-    );
-    assert.include(assistantPanelModelJs, 'return "modeId"');
-    assert.include(assistantPanelModelJs, 'return "modelId"');
-    assert.include(assistantPanelModelJs, 'return "effortId"');
-    assert.include(assistantPanelModelJs, 'return "backendId"');
-    assert.include(assistantPanelModelJs, 'return "conversationId"');
-    assert.include(
-      sharedPanelCss,
-      ".assistant-panel-region.is-assistant-managed",
-    );
-    assert.include(sharedPanelCss, ".assistant-panel-managed-view");
-    assert.include(sharedPanelCss, ".assistant-panel-reply-footer");
-    assert.include(sharedPanelCss, ".assistant-panel-reply-primary");
-    assert.include(sharedPanelCss, ".assistant-panel-permission-summary");
-    assert.include(sharedPanelCss, ".assistant-panel-permission-actions");
-    assert.include(
-      sharedPanelCss,
-      ".assistant-panel-permission-view-full-request",
-    );
-    assert.include(
-      sharedPanelCss,
-      ".assistant-panel-permission-drawer-overlay",
-    );
-    assert.include(sharedPanelCss, ".assistant-panel-permission-drawer-panel");
-    assert.notInclude(
-      sharedPanelCss,
-      ".assistant-panel-permission-details summary",
-    );
-    assert.include(sharedPanelCss, ".assistant-panel-reply-controls");
-    assert.include(sharedPanelCss, ".assistant-panel-select:disabled");
-    assert.include(sharedPanelCss, 'data-assistant-disabled="true"');
-    assert.include(sharedPanelCss, 'data-assistant-switch-pending="true"');
-    assert.include(sharedPanelCss, ".assistant-panel-reply-secondary");
-    assert.include(sharedPanelCss, ".assistant-panel-usage-gauge");
-    assert.include(sharedPanelCss, ".assistant-panel-usage-ring");
-    assert.include(sharedPanelCss, ".assistant-panel-usage-label");
-    assert.match(sharedPanelCss, /radial-gradient\(\s*circle at center/);
-    assert.include(
-      sharedPanelCss,
-      ".assistant-panel-usage-gauge.is-unavailable",
-    );
-    assert.include(sharedPanelCss, ".assistant-panel-indicators");
-    assert.include(sharedPanelCss, ".assistant-panel-banner-status-row");
-    assert.include(sharedPanelCss, ".assistant-panel-banner-status");
-    assert.include(sharedPanelCss, ".assistant-panel-indicator");
-    assert.include(sharedPanelCss, ".assistant-panel-indicator-extra");
-    assert.include(sharedPanelCss, ".assistant-panel-indicator-progress");
-    assert.include(
-      sharedPanelCss,
-      ".asst-panel-details-overlay .asst-drawer-panel",
-    );
-    assert.include(sharedPanelCss, "grid-template-rows: auto minmax(0, 1fr);");
-    assert.include(sharedPanelCss, ".assistant-panel-details-section-summary");
-    assert.include(sharedPanelCss, ".assistant-panel-details-section-body");
-    assert.include(
-      sharedPanelCss,
-      "details.assistant-panel-details-section[open]",
-    );
-    assert.include(
-      sharedPanelCss,
-      '.assistant-panel-details-row[data-assistant-details-entry-kind="code"]',
-    );
-    assert.include(sharedPanelCss, "max-height: min(42vh, 360px);");
-    assert.include(sharedPanelCss, "flex-direction: column;");
-    assert.include(sharedPanelCss, "overflow: auto;");
-    assert.include(sharedPanelCss, "overscroll-behavior: contain;");
-    assert.include(sharedPanelCss, ".assistant-panel-details-value");
-    assert.include(sharedPanelCss, "white-space: pre-wrap;");
-    assert.include(sharedPanelCss, "word-break: break-word;");
-    assert.include(sharedPanelCss, "line-height: 1.55;");
-    assert.include(sharedPanelCss, "max-height: none;");
-    assert.include(
-      assistantPanelRendererJs,
-      '"div", "asst-code-surface assistant-panel-details-value"',
-    );
-    assert.include(sharedPanelCss, "background: transparent;");
-    assert.include(sharedPanelCss, "box-shadow: none;");
-    assert.include(
-      assistantPanelRendererJs,
-      'const footer = el("div", "assistant-panel-reply-footer")',
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      'const primary = el("div", "assistant-panel-reply-primary")',
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      'const controls = el("div", "assistant-panel-reply-controls")',
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      'const secondary = el("div", "assistant-panel-reply-secondary")',
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      "renderUsageGauge(secondary, panel.usage, panel)",
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      'labelOf(panel, "usage.unavailable", "N/A")',
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      'return String(rounded).replace(/\\.0$/, "") + "k";',
-    );
-    assert.match(
-      assistantPanelRendererJs,
-      /source\.used \|\|\s*source\.totalTokens/,
-    );
-    assert.match(
-      assistantPanelRendererJs,
-      /source\.size \|\|\s*source\.contextWindow/,
-    );
-    assert.match(
-      assistantPanelRendererJs,
-      /const centerLabel = unavailable\s*\?\s*labelOf\(panel, "usage\.unavailable", "N\/A"\)/,
-    );
-    assert.match(
-      assistantPanelRendererJs,
-      /ring\.appendChild\(\s*el\("span", "assistant-panel-usage-label", centerLabel\),?\s*\);/,
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      "panel.reply.showUsageGauge === true",
-    );
-    assert.notInclude(
-      assistantPanelRendererJs,
-      "renderUsageGauge(actions, panel.usage)",
-    );
-    assert.notInclude(
-      assistantPanelRendererJs,
-      "renderUsageGauge(controls, panel.usage)",
-    );
-    assert.notInclude(sharedPanelCss, ".assistant-panel-reply-actions");
-    assert.include(
-      sharedPanelCss,
-      ".asst-banner .assistant-panel-context-selectors",
-    );
-    assert.include(sharedPanelCss, ".assistant-panel-reply-footer");
-    assert.include(
-      sharedPanelCss,
-      ".assistant-panel-reply-footer .assistant-panel-selector",
-    );
-    assert.isBelow(
-      assistantPanelRendererJs.indexOf("target.appendChild(input);"),
-      assistantPanelRendererJs.indexOf("target.appendChild(footer);"),
-      "Managed reply zone should render textarea before footer controls",
-    );
-    assert.isBelow(
-      assistantPanelRendererJs.indexOf("footer.appendChild(primary);"),
-      assistantPanelRendererJs.indexOf("footer.appendChild(controls);"),
-      "Send/Cancel primary button should be left of managed selectors",
-    );
-    assert.isBelow(
-      assistantPanelRendererJs.indexOf("footer.appendChild(primary);"),
-      assistantPanelRendererJs.indexOf("footer.appendChild(secondary);"),
-      "Send/Cancel primary button should be left of hint and usage gauge",
-    );
-    assert.include(assistantPanelModelJs, "showUsageGauge: true");
-    assert.include(
-      assistantPanelModelJs,
-      "conversation.usage || (run && run.usage) || null",
-    );
-    assert.include(assistantPanelModelJs, 'kind: "acp-skills"');
-    assert.include(assistantPanelModelJs, 'hint: "",');
-    assert.isBelow(
-      acpChatHtml.indexOf('id="acp-transcript"'),
-      acpChatHtml.indexOf('id="acp-chat-mode-plain"'),
-      "Plain/Bubble controls should be inside the conversation overlay, not the top control bar",
-    );
-    assert.include(acpChatHtml, "acp-chat-banner asst-banner");
-    assert.include(
-      acpChatHtml,
-      "acp-conversation-window asst-conversation-surface",
-    );
-    assert.notInclude(acpChatCss, ".acp-chat-banner {");
-    assert.notInclude(acpChatCss, ".acp-conversation-window {");
-    assert.include(sharedPanelCss, ".asst-conversation-overlay-menu");
-    assert.include(acpChatHtml, 'class="asst-button-compact"');
-    assert.include(acpChatHtml, 'data-assistant-view-mode="plain"');
-    assert.include(acpChatHtml, 'data-assistant-view-mode="bubble"');
-    assert.include(acpChatHtml, "zs-icon-subject");
-    assert.include(acpChatHtml, "zs-icon-forum");
-    assert.include(acpChatHtml, "asst-view-mode-label");
-    assert.include(
-      sharedPanelCss,
-      ".asst-conversation-overlay-menu:not(:hover):not(:focus-within)",
-    );
-    assert.include(
-      sharedPanelCss,
-      '.asst-button-compact[aria-pressed="false"]',
-    );
-    assert.include(sharedPanelCss, ".asst-view-mode-label");
-    assert.include(sharedPanelCss, ".asst-view-mode-icon");
-    assert.include(sharedPanelCss, "clip-path: inset(50%);");
-    assert.notInclude(sharedPanelCss, 'data-assistant-view-mode="plain"');
-    assert.notInclude(sharedPanelCss, 'data-assistant-view-mode="bubble"');
-    assert.notInclude(
-      sharedPanelCss,
-      "linear-gradient(currentColor, currentColor) 0 1px / 15px 2px no-repeat",
-    );
-    assert.notInclude(sharedPanelCss, "transform: translate(-62%, -62%);");
-    assert.notInclude(sharedPanelCss, "transform: translate(-38%, -38%);");
-    assert.notInclude(
-      acpChatCss,
-      ".acp-conversation-overlay-menu .asst-button-compact",
-    );
-    assert.include(acpChatJs, 'const SHOW_MORE_VALUE = "__show_more__"');
-    assert.include(acpChatJs, 'option.sentinel === "show-more"');
-    assert.include(acpChatJs, 'sendAction("new-conversation",');
-    assert.include(acpChatJs, "function projectConversationView(snapshot)");
-    assert.include(acpChatJs, "projectAcpChatConversationView(snapshot || {})");
-    assert.include(acpChatJs, "Array.isArray(snapshot && snapshot.items)");
-    assert.include(acpChatJs, "selectedTranscriptPageForConversation");
-    assert.include(
-      acpChatJs,
-      "snapshotTranscriptPaginationVirtualizationEnabled",
-    );
-    assert.include(acpChatJs, "const view = page");
-    assert.include(acpChatJs, "projectConversationView(snapshot || {})");
-    assert.include(acpChatJs, "snapshot.transcriptState");
-    assert.include(acpChatJs, "acp-chat-transcript-loading");
-    assert.include(
-      acpChatJs,
-      'transcriptEl.appendChild(el("div", "acp-chat-transcript-loading"))',
-    );
-    assert.notInclude(acpChatJs, "pendingAction");
-    assert.include(acpChatJs, "state.sessionDrawerOpen = false");
-    assert.include(acpChatJs, "function compactPanelRenderKey(snapshot)");
-    assert.include(acpChatJs, "assistantTranscriptRenderer()");
-    assert.include(acpChatJs, "renderer.renderAssistantTranscript");
-    assert.include(acpChatJs, "virtualized: !!page");
-    assert.include(acpChatJs, "pageKey: page ? pageKey : undefined");
-    assert.include(acpChatJs, 'sendAction("load-transcript-page"');
-    assert.include(acpChatJs, 'variant: "acp-chat"');
-    assert.include(acpChatJs, "pendingTranscriptOwnerKey");
-    assert.include(acpChatJs, "pendingTranscriptBackendId");
-    assert.include(acpChatJs, "shouldAcceptSnapshot");
-    assert.include(acpChatJs, "function assistantPanelModel()");
-    assert.include(acpChatJs, "function assistantPanelRenderer()");
-    assert.include(acpChatJs, "function projectPanelSnapshot(snapshot)");
-    assert.include(acpChatJs, "projectAcpChatPanelSnapshot(snapshot || {})");
-    assert.include(acpChatJs, "function renderPanel(snapshot)");
-    assert.include(
-      acpChatJs,
-      "renderer.renderAssistantPanelSnapshot(panelSnapshot",
-    );
-    assert.include(acpChatJs, "state.panelRenderKey === renderKey");
-    assert.include(acpChatJs, "function handlePanelAction(action, payload)");
-    assert.include(acpChatJs, "managed: true");
-    assert.include(acpChatJs, "managedRegions");
-    assert.include(acpChatJs, "toolbar: true");
-    assert.include(acpChatJs, "plan: true");
-    assert.include(acpChatJs, "hint: true");
-    assert.include(acpChatJs, "reply: true");
-    assert.include(acpChatJs, "details: true");
-    assert.include(acpChatJs, 'action === "set-active-backend"');
-    assert.include(acpChatJs, 'action === "set-active-conversation"');
-    assert.include(acpChatJs, 'action === "send-prompt"');
-    assert.include(acpChatJs, 'action === "set-reasoning-effort"');
-    assert.include(acpChatJs, 'sendAction("set-chat-display-mode"');
-    assert.notInclude(acpChatHtml, 'id="acp-close-btn"');
-    assert.include(assistantPanelModelJs, "buildAcpChatDetails");
-    assert.include(assistantPanelModelJs, 'kind: "diagnostics"');
-    assert.include(assistantPanelModelJs, "defaultCollapsed: true");
-    assert.include(assistantPanelModelJs, "buildAcpPermissionInteraction");
-    assert.include(acpSkillRunJs, "function projectAcpSkillRunView(run)");
-    assert.include(acpSkillRunJs, "assistantTranscriptRenderer()");
-    assert.include(acpSkillRunJs, "renderer.renderAssistantTranscript");
-    assert.include(acpSkillRunJs, "const virtualized =");
-    assert.include(acpSkillRunJs, "pageKey: requestId");
-    assert.include(acpSkillRunJs, "onRequestPage: function (request)");
-    assert.include(acpSkillRunJs, 'variant: "skillrunner"');
-    assert.include(acpSkillRunJs, "parser.render(safeText(value))");
-    assert.include(acpSkillRunJs, "function assistantPanelModel()");
-    assert.include(acpSkillRunJs, "function assistantPanelRenderer()");
-    assert.include(
-      acpSkillRunJs,
-      "function projectAssistantPanelSnapshot(snapshot)",
-    );
-    assert.include(
-      acpSkillRunJs,
-      "projectAcpSkillRunPanelSnapshot(snapshot || {})",
-    );
-    assert.include(
-      acpSkillRunJs,
-      "function renderAssistantPanelRuntime(snapshot)",
-    );
-    assert.include(acpSkillRunJs, "function buildPanelRenderKey(snapshot)");
-    assert.include(acpSkillRunJs, "state.panelRenderKey === renderKey");
-    assert.include(acpSkillRunJs, "safeText(run.acpModeId)");
-    assert.include(acpSkillRunJs, "safeText(run.acpModelId)");
-    assert.include(acpSkillRunJs, "safeText(run.acpRawModelId)");
-    assert.include(acpSkillRunJs, "safeText(run.acpReasoningEffort)");
-    assert.include(acpSkillRunJs, "function compactRuntimeOptionsKey(options)");
-    assert.include(acpSkillRunJs, "runtimeOptions.currentMode.id");
-    assert.include(acpSkillRunJs, "runtimeOptions.currentDisplayModel.id");
-    assert.include(acpSkillRunJs, "runtimeOptions.currentModel.id");
-    assert.include(acpSkillRunJs, "runtimeOptions.currentReasoningEffort.id");
-    assert.include(acpSkillRunJs, "selectedRuntimeOptions:");
-    assert.include(acpSkillRunJs, "executionDisplayMode:");
-    assert.include(acpSkillRunJs, "state.snapshot.selectedTranscript");
-    assert.include(acpSkillRunJs, "acp-skill-transcript-loading");
-    assert.include(
-      acpSkillRunJs,
-      "const panelSnapshot = projectAssistantPanelSnapshot(snapshot || {})",
-    );
-    assert.include(acpSkillRunStoreTs, "completedTasksTitle");
-    assert.include(
-      assistantPanelModelJs,
-      "panel.labels && panel.labels.completedTasksTitle",
-    );
-    assert.include(
-      acpSkillRunJs,
-      "renderer.renderAssistantPanelSnapshot(panelSnapshot",
-    );
-    assert.include(acpSkillRunJs, 'action === "toggle-drawer-section"');
-    assert.include(acpSkillRunJs, "state.drawerCompletedCollapsed");
-    assert.include(
-      acpSkillRunJs,
-      "function handleAssistantPanelAction(action, payload)",
-    );
-    assert.include(acpSkillRunJs, 'action === "open-backend-manager"');
-    assert.include(acpSkillRunJs, "managed: true");
-    assert.include(acpSkillRunJs, "managedRegions");
-    assert.include(acpSkillRunJs, "toolbar: true");
-    assert.include(acpSkillRunJs, "plan: true");
-    assert.include(hooks, "runShutdownStepWithTimeout(");
-    assert.include(hooks, "shutdownAcpWebSocketBridgeService");
-    assert.include(hooks, '"acp-websocket-bridge-shutdown"');
-    assert.include(acpSkillRunJs, "hint: true");
-    assert.include(acpSkillRunJs, "details: true");
-    assert.include(acpSkillRunJs, 'action === "select-run"');
-    assert.include(
-      acpSkillRunJs,
-      'action === "reply" || action === "reply-run"',
-    );
-    assert.include(acpSkillRunJs, 'action === "connect-run"');
-    assert.include(assistantPanelModelJs, "buildAcpSkillDetails");
-    assert.notInclude(acpSkillRunJs, "renderBannerMetadata(run);");
-    assert.notInclude(acpSkillRunJs, "renderPlan(run);");
-    assert.notInclude(acpSkillRunJs, "renderHintWidget(run);");
-    assert.notInclude(acpSkillRunJs, "renderReplyComposer(run);");
-    assert.notInclude(acpSkillRunJs, "renderDetails(snapshot, run);");
-    assert.notInclude(acpSkillRunJs, '} else if (item.kind === "thought")');
-    assert.include(runDialogJs, "function assistantPanelModel()");
-    assert.include(runDialogJs, "function assistantPanelRenderer()");
-    assert.include(
-      runDialogJs,
-      "function projectAssistantPanelSnapshot(envelope)",
-    );
-    assert.include(runDialogJs, "projectSkillRunnerPanelSnapshot(source)");
-    assert.include(
-      runDialogJs,
-      "renderer.renderAssistantPanelSnapshot(panelSnapshot",
-    );
-    assert.include(runDialogJs, 'action === "open-backend-manager"');
-    assert.include(
-      runDialogJs,
-      'action === "copy-request-id" || action === "copy-diagnostics"',
-    );
-    assert.include(runDialogJs, "managed: true");
-    assert.include(runDialogJs, 'variant: "skillrunner"');
-    assert.include(runDialogJs, "toolActivityExpandedIds: new Set()");
-    assert.include(runDialogJs, "expandedIds: state.toolActivityExpandedIds");
-    assert.include(runDialogJs, "onToggleExpanded: function (id)");
-    assert.include(runDialogJs, "assistant_revision");
-    assert.include(runDialogJs, "transcriptPaginationVirtualizationEnabled");
-    assert.include(runDialogJs, "resetAssistantTranscriptVirtualState");
-    assert.include(runDialogJs, "virtualized,");
-    assert.include(
-      runDialogJs,
-      "pageKey: virtualized ? state.transcriptContextKey : undefined",
-    );
-    assert.notInclude(runDialogJs, 'sendAction("load-transcript-page"');
-    assert.include(
-      skillRunnerRunDialogTs,
-      "transcriptPaginationVirtualizationEnabled?: boolean",
-    );
-    assert.include(
-      skillRunnerRunDialogTs,
-      "isAssistantTranscriptPaginationVirtualizationEnabled()",
-    );
-    assert.include(runDialogHtml, 'id="skillrunner-toolbar"');
-    assert.include(runDialogHtml, 'id="skillrunner-banner"');
-    assert.include(runDialogHtml, 'id="skillrunner-conversation-window"');
-    assert.include(runDialogHtml, 'id="skillrunner-hint"');
-    assert.include(runDialogHtml, 'id="skillrunner-details"');
-    assert.notInclude(runDialogHtml, 'id="prompt-card"');
-    assert.notInclude(runDialogHtml, 'id="auth-card"');
-    assert.notInclude(runDialogHtml, 'id="reply-composer"');
-    assert.notInclude(runDialogJs, "function renderRevisionEntry");
-    assert.include(assistantSidebar, "installAssistantWorkspaceSidebarShell");
-    assert.include(assistantSidebar, "openAssistantWorkspaceSidebar");
-    assert.include(assistantSidebar, "isAssistantWorkspaceSidebarOpen");
-    assert.include(assistantSidebar, "__zsAssistantWorkspaceBridge");
-    assert.include(assistantSidebar, "function installShellBridge(");
-    assert.include(
-      assistantSidebar,
-      "function handleAssistantWorkspaceMessage(",
-    );
-    assert.include(assistantSidebar, "MountedSidebarDock");
-    assert.include(assistantSidebar, "shell:");
-    assert.include(assistantSidebar, "activeTarget: host.activeTarget");
-    assert.include(assistantSidebar, "scopeKey: host.scopeKey");
-    assert.include(assistantSidebar, "AssistantWorkspaceBridgeResult");
-    assert.include(assistantSidebar, "logAssistantShellAction");
-    assert.include(assistantSidebar, "resolveAssistantWorkspaceActionLogTab");
-    assert.include(
-      assistantSidebar,
-      'return tabText ? normalizeTab(tabText) : "shell";',
-    );
-    assert.include(
-      assistantSidebar,
-      'operation: args.tab === "shell" ? "shell-action" : "child-action"',
-    );
-    assert.include(assistantSidebar, 'component: "assistant-shell"');
-    assert.include(
-      assistantSidebar,
-      "return { ok: false, actionId, error: message }",
-    );
-    assert.include(assistantSidebar, "clearShellBridge(host.shell)");
-    assert.include(assistantSidebar, "attachSkillRunnerSidebarHost");
-    assert.include(assistantSidebar, "publishSnapshot");
-    assert.include(assistantSidebar, "buildDecoratedSkillRunnerSnapshot");
-    assert.include(assistantSidebar, "createSkillRunnerHostActionHandler");
-    assert.include(assistantSidebar, "selectedIndex > 0");
-    assert.include(assistantSidebar, "selectedTabUsesPluginOnlyContextPane");
-    assert.include(assistantSidebar, "contextPane.collapsed = true");
-    assert.include(assistantSidebar, "drawerOpen: false");
-    assert.include(assistantSidebar, "drawerCompletedCollapsed: true");
-    assert.include(assistantSidebar, "open: host.drawerOpen");
-    assert.include(assistantSidebar, 'action === "close-drawer"');
-    assert.include(assistantSidebar, 'action === "toggle-drawer"');
-    assert.include(assistantSidebar, 'action === "open-workspace"');
-    assert.include(
-      assistantSidebar,
-      'openFolderInSystemFileManager(String(payload.workspaceDir || "").trim())',
-    );
-    assert.include(
-      assistantSidebar,
-      "await startNewAcpConversation({ backendId });",
-    );
-    const acpChatPanelReadModel = await readProjectFile(
-      "src/modules/acpChatPanelReadModel.ts",
-    );
-    assert.include(assistantSidebar, "prepareAcpChatPanelSnapshot");
-    assert.include(acpChatPanelReadModel, "buildAcpSidebarViewSnapshot");
-    assert.include(assistantSidebar, "prepareAcpSkillRunPanelSnapshot");
-    assert.include(assistantSidebar, "replyAcpSkillRun");
-    assert.include(assistantSidebar, "connectAcpSkillRun");
-    assert.include(assistantSidebar, "disconnectAcpSkillRun");
-    assert.include(assistantSidebar, "endAcpSkillRunSession");
-    assert.notInclude(
-      assistantSidebar,
-      "Interactive ACP skill runs are not enabled yet.",
-    );
-    assert.include(assistantSidebar, "assistant-workspace.html");
-    assert.include(acpSkillRunHtml, "acp-skill-run-drawer");
-    assert.include(acpSkillRunHtml, "acp-skill-run-toolbar");
-    assert.include(acpSkillRunHtml, "acp-skill-toolbar");
-    assert.include(acpSkillRunHtml, "acp-skill-banner");
-    assert.include(acpSkillRunHtml, "acp-skill-conversation-window");
-    assert.include(acpSkillRunHtml, "acp-skill-plan-region");
-    assert.include(acpSkillRunHtml, "acp-skill-hint-region");
-    assert.include(acpSkillRunHtml, "acp-skill-reply-zone");
-    assert.include(acpSkillRunHtml, "acp-skill-run-transcript");
-    assert.include(acpSkillRunHtml, "acp-skill-chat-mode-plain");
-    assert.include(acpSkillRunHtml, "acp-skill-chat-mode-bubble");
-    assert.include(acpSkillRunHtml, 'data-assistant-view-mode="plain"');
-    assert.include(acpSkillRunHtml, 'data-assistant-view-mode="bubble"');
-    assert.include(acpSkillRunHtml, "zs-icon-subject");
-    assert.include(acpSkillRunHtml, "zs-icon-forum");
-    assert.include(acpSkillRunHtml, "asst-conversation-overlay-menu");
-    assert.include(acpSkillRunHtml, "acp-skill-run-plan-panel");
-    assert.include(acpSkillRunHtml, "acp-skill-run-interaction");
-    assert.include(acpSkillRunHtml, "acp-skill-run-details");
-    assert.include(acpSkillRunHtml, "acp-skill-run-reply-form");
-    assert.notInclude(acpSkillRunHtml, "acp-skill-run-title");
-    assert.notInclude(acpSkillRunHtml, "acp-skill-run-summary");
-    assert.notInclude(acpSkillRunHtml, "acp-skill-run-banner-meta");
-    assert.notInclude(acpSkillRunHtml, "acp-skill-run-context-actions");
-    assert.notInclude(acpSkillRunHtml, "acp-skill-run-plan-list");
-    assert.notInclude(acpSkillRunHtml, "acp-skill-run-permission");
-    assert.notInclude(acpSkillRunHtml, "acp-skill-run-permission-actions");
-    assert.notInclude(acpSkillRunHtml, "acp-skill-run-workspace");
-    assert.notInclude(acpSkillRunHtml, "acp-skill-run-runner");
-    assert.notInclude(acpSkillRunHtml, "acp-skill-run-validation");
-    assert.notInclude(acpSkillRunHtml, "acp-skill-run-deps");
-    assert.notInclude(acpSkillRunHtml, "acp-skill-run-logs");
-    assert.notInclude(acpSkillRunHtml, "acp-skill-run-statusbar");
-    assert.notInclude(acpSkillRunHtml, "acp-skill-run-close-btn");
-    assert.notInclude(acpSkillRunHtml, "title-stack");
-    assert.notInclude(acpSkillRunHtml, "header-actions");
-    assert.notInclude(acpSkillRunHtml, "detail-grid");
-    assert.include(acpSkillRunJs, 'type: "acp-skill-run:action"');
-    assert.include(acpSkillRunJs, "__zsAcpSkillRunSidebarBridge");
-    assert.include(acpSkillRunJs, "renderTranscript");
-    assert.include(acpSkillRunJs, "chatDisplayMode");
-    assert.include(acpSkillRunJs, 'action === "set-chat-display-mode"');
-    assert.include(acpSkillRunJs, "renderChatDisplayMode()");
-    assert.include(
-      assistantTranscriptRendererJs,
-      "function isAssistantTranscriptNearBottom(element, threshold)",
-    );
-    assert.include(
-      assistantTranscriptRendererJs,
-      "function installAssistantTranscriptStickiness(container, threshold)",
-    );
-    assert.include(
-      assistantTranscriptRendererJs,
-      "function shouldStickAssistantTranscript(container, threshold)",
-    );
-    assert.include(
-      assistantTranscriptRendererJs,
-      "function stickAssistantTranscriptToBottom(container)",
-    );
-    assert.include(
-      assistantTranscriptRendererJs,
-      "data-assistant-transcript-programmatic-scroll",
-    );
-    assert.include(
-      assistantTranscriptRendererJs,
-      "const shouldStick = shouldStickAssistantTranscript",
-    );
-    assert.include(
-      assistantTranscriptRendererJs,
-      "if (shouldStick) stickAssistantTranscriptToBottom(container)",
-    );
-    assert.include(acpChatJs, "renderer.renderAssistantTranscript");
-    assert.notInclude(acpSkillRunJs, "function renderPlan");
-    assert.notInclude(acpSkillRunJs, "function renderHintWidget");
-    assert.notInclude(acpSkillRunJs, "function renderBannerMetadata");
-    assert.notInclude(acpSkillRunJs, "function renderContextActions");
-    assert.notInclude(acpSkillRunJs, "function renderDetailsActions");
-    assert.notInclude(acpSkillRunJs, "function renderReplyComposer");
-    assert.notInclude(acpSkillRunJs, "function renderDetails");
-    assert.notInclude(acpSkillRunJs, "renderStatusBar");
-    assert.notInclude(acpSkillRunJs, '$("acp-skill-run-close-btn")');
-    assert.notInclude(acpSkillRunJs, "function renderPendingInteractionBanner");
-    assert.notInclude(acpSkillRunJs, "function normalizeUiHintOptions");
-    assert.include(acpSkillRunJs, 'sendAction("reply-run"');
-    assert.notInclude(
-      acpSkillRunJs,
-      "(run.pendingInteraction && run.pendingInteraction.message) ||",
-    );
-    assert.include(acpSkillRunJs, "runDrawerOpen");
-    assert.include(acpSkillRunJs, "detailsOpen");
-    assert.include(acpChatJs, "permissionRequestDetails");
-    assert.include(acpSkillRunJs, "permissionRequestDetails");
-    assert.include(acpChatJs, "permissionRequestDrawerOpen");
-    assert.include(acpSkillRunJs, "permissionRequestDrawerOpen");
-    assert.include(acpChatJs, 'action === "open-permission-request"');
-    assert.include(acpSkillRunJs, 'action === "open-permission-request"');
-    assert.include(acpChatJs, 'action === "close-permission-request"');
-    assert.include(acpSkillRunJs, 'action === "close-permission-request"');
-    assert.notInclude(acpChatJs, "permissionRequestDetailsSection");
-    assert.notInclude(acpSkillRunJs, "permissionRequestDetailsSection");
-    assert.include(
-      acpSkillRunJs,
-      "function renderPanelRuntimeFailure(message)",
-    );
-    assert.include(acpSkillRunJs, "panelRendererFailed");
-    assert.include(acpSkillRunJs, "data-assistant-interaction");
-    assert.include(acpSkillRunJs, "transcriptNodeMap: new Map()");
-    assert.include(acpSkillRunJs, "transcriptOrderKey");
-    assert.include(acpSkillRunJs, "transcriptMode");
-    assert.include(acpSkillRunJs, "toolActivityExpandedIds");
-    assert.include(acpSkillRunJs, "nodeMap: state.transcriptNodeMap");
-    assert.include(acpSkillRunJs, "orderKey: state.transcriptOrderKey");
-    assert.include(acpSkillRunJs, "modeKey: state.transcriptMode");
-    assert.include(acpSkillRunJs, "onRendered: function (result)");
-    assert.include(acpSkillRunJs, "syncTranscriptRun(run, transcript);");
-    assert.include(acpSkillRunJs, "selectedTranscriptPage");
-    assert.include(acpSkillRunJs, "selectedTranscriptPageForRun");
-    assert.include(acpSkillRunJs, "load-transcript-page");
-    assert.include(acpSkillRunJs, "transcriptPaginationVirtualizationEnabled");
-    assert.include(acpSkillRunJs, "resetTranscriptVirtualState");
-    assert.include(acpSkillRunJs, "resetAssistantTranscriptVirtualState");
-    assert.include(acpSkillRunJs, "pendingSelectedRequestId");
-    assert.include(acpSkillRunJs, "function shouldAcceptSnapshot(snapshot)");
-    assert.include(acpSkillRunJs, "snapshotSidebarRevision");
-    assert.include(acpSkillRunJs, "snapshotSelectedRequestId");
-    assert.include(
-      acpSkillRunJs,
-      "snapshotTranscriptPaginationVirtualizationEnabled",
-    );
-    assert.include(
-      acpSkillRunJs,
-      "state.transcriptPaginationVirtualizationEnabled !== false",
-    );
-    assert.include(acpSkillRunJs, "if (!virtualized)");
-    assert.notInclude(acpSkillRunJs, "TRANSCRIPT_RENDER_WINDOW_LIMIT");
-    assert.notInclude(acpSkillRunJs, "__virtualTranscriptItems");
-    assert.notInclude(acpSkillRunJs, "virtualTranscriptWindow");
-    assert.notInclude(acpSkillRunJs, "installTranscriptVirtualSpacers");
-    assert.notInclude(acpSkillRunJs, "installTranscriptScrollHandler");
-    assert.include(assistantTranscriptRendererJs, "virtualTranscriptStates");
-    assert.include(assistantTranscriptRendererJs, "virtualized");
-    assert.include(assistantTranscriptRendererJs, "onRequestPage");
-    assert.include(assistantTranscriptRendererJs, "virtualSourceMode");
-    assert.include(
-      assistantTranscriptRendererJs,
-      "setVirtualTranscriptItemsSource",
-    );
-    assert.include(
-      assistantTranscriptRendererJs,
-      'state.virtualSourceMode === "items"',
-    );
-    assert.include(assistantTranscriptRendererJs, "rowHeights: new Map()");
-    assert.include(assistantTranscriptRendererJs, "captureVirtualScrollAnchor");
-    assert.include(assistantTranscriptRendererJs, "restoreVirtualScrollAnchor");
-    assert.include(
-      assistantTranscriptRendererJs,
-      "measureVirtualTranscriptRows",
-    );
-    assert.include(
-      assistantTranscriptRendererJs,
-      "buildVirtualTranscriptLayout",
-    );
-    assert.include(assistantTranscriptRendererJs, "topSpacerHeight");
-    assert.include(assistantTranscriptRendererJs, "cachedTopBoundary");
-    assert.include(
-      assistantTranscriptRendererJs,
-      "resetAssistantTranscriptVirtualState",
-    );
-    assert.include(assistantTranscriptRendererJs, "pageRejected");
-    assert.include(assistantPanelModelJs, "acpSkillTranscriptItemsFromPanel");
-    assert.include(assistantPanelModelJs, "selectedTranscriptPage");
-    assert.notInclude(
-      acpSkillRunJs,
-      "Array.isArray(run && run.transcriptItems) ? run.transcriptItems : []",
-    );
-    assert.include(acpSkillRunJs, "resetTranscriptRenderState");
-    assert.include(acpSkillRunJs, "function formatTime(value)");
-    assert.include(acpSkillRunJs, "formatTime,");
-    assert.include(acpSkillRunJs, "ACP Skills transcript renderer failed:");
-    assert.include(
-      assistantTranscriptRendererJs,
-      'typeof options.formatTime === "function"',
-    );
-    assert.include(acpSkillRunJs, 'sendAction("select-run"');
-    const selectRunBlock = acpSkillRunJs.slice(
-      acpSkillRunJs.indexOf('action === "select-run"'),
-      acpSkillRunJs.indexOf(
-        'action === "reply"',
-        acpSkillRunJs.indexOf('action === "select-run"'),
-      ),
-    );
-    assert.notInclude(selectRunBlock, "render(state.snapshot || {})");
-    assert.include(acpSkillRunJs, 'action === "connect-run"');
-    assert.include(acpSkillRunJs, 'action === "disconnect-run"');
-    assert.include(acpSkillRunJs, 'action === "cancel-run"');
-    assert.include(acpSkillRunJs, 'sendAction("reply-run"');
-    assert.notInclude(acpSkillRunJs, "function submitReply()");
-    assert.notInclude(acpSkillRunJs, ".requestSubmit()");
-    assert.include(assistantPanelModelJs, '"copy-diagnostics"');
-    assert.include(assistantPanelModelJs, '"open-backend-manager"');
-    assert.include(assistantPanelModelJs, '"copy-request-id"');
-    assert.include(acpSkillRunCss, "--asst-context-drawer-width");
-    assert.include(acpSkillRunCss, "--asst-details-drawer-width");
-    assert.notInclude(
-      acpSkillRunCss,
-      "grid-template-rows: auto auto minmax(0, 1fr);",
-    );
-    assert.notInclude(
-      acpSkillRunCss,
-      "grid-template-rows: minmax(0, 1fr) auto auto auto;",
-    );
-    assert.notInclude(acpSkillRunCss, ".acp-skill-toolbar {");
-    assert.notInclude(
-      acpSkillRunCss,
-      ".acp-skill-banner .assistant-panel-managed-view",
-    );
-    assert.notInclude(acpSkillRunCss, ".acp-skill-plan-region {");
-    assert.notInclude(acpSkillRunCss, ".acp-skill-hint-region {");
-    assert.include(acpSkillRunCss, ".run-transcript");
-    assert.notInclude(acpSkillRunCss, ".run-transcript.plain-mode");
-    assert.notInclude(acpSkillRunCss, ".run-transcript.bubble-mode");
-    assert.notInclude(acpSkillRunCss, ".transcript-row");
-    assert.notInclude(acpSkillRunCss, ".assistant-panel-reply-input");
-    assert.notInclude(acpSkillRunCss, ".run-drawer .asst-drawer-panel");
-    assert.notInclude(acpSkillRunCss, ".details-drawer .asst-drawer-panel");
-    assert.notInclude(acpSkillRunCss, ".assistant-panel-context-list");
-    assert.notInclude(acpSkillRunCss, ".assistant-panel-details-list");
-    assert.notInclude(acpSkillRunCss, ".assistant-panel-context-entry");
-    assert.notInclude(acpSkillRunCss, ".empty-state");
-    assert.notInclude(acpSkillRunCss, ".acp-skill-run-header");
-    assert.notInclude(acpSkillRunCss, ".title-stack");
-    assert.notInclude(acpSkillRunCss, ".header-actions");
-    assert.notInclude(acpSkillRunCss, ".run-statusbar");
-    assert.include(acpSkillRunHtml, "asst-panel-main");
-    assert.include(acpSkillRunHtml, "asst-panel-drawer-overlay");
-    assert.include(acpSkillRunHtml, "asst-panel-details-overlay");
-    assert.include(acpSkillRunHtml, "asst-empty-state");
-    assert.notInclude(acpSkillRunCss, ".revision-badge");
-    assert.notInclude(acpSkillRunCss, "\n.btn {");
-    assert.notInclude(acpSkillRunCss, ".btn.primary");
-    assert.notInclude(acpSkillRunCss, ".btn.danger");
-    assert.include(assistantSidebar, "prepareAcpSkillRunPanelSnapshot");
-    assert.include(assistantSidebar, "cancelAcpSkillRun");
-    assert.include(assistantSidebar, "replyAcpSkillRun");
-    assert.include(assistantSidebar, "connectAcpSkillRun");
-    assert.include(assistantSidebar, "disconnectAcpSkillRun");
-    assert.include(assistantSidebar, "endAcpSkillRunSession");
-    assert.include(assistantSidebar, "resolveAcpSkillRunPermissionRequest");
-    assert.include(assistantSidebar, "selectAcpSkillRun");
-    assert.include(assistantSidebar, "postAcpSkillRunSnapshot");
-    assert.include(assistantSidebar, "subscribeAcpSkillRunSnapshots");
-    assert.include(assistantSidebar, "lastAcpSkillRunSnapshotSignature");
-    assert.include(assistantSidebar, "acpSkillRunSnapshotBuildSeq");
-    assert.include(
-      assistantSidebar,
-      "const buildSeq = host.acpSkillRunSnapshotBuildSeq",
-    );
-    assert.include(
-      assistantSidebar,
-      "host.acpSkillRunSnapshotBuildSeq !== buildSeq",
-    );
-    assert.include(
-      assistantSidebar,
-      "const currentSelectedRequestId = getSelectedAcpSkillRunRequestId()",
-    );
-    assert.include(assistantSidebar, "snapshot.selectedRequestId ||");
-    assert.include(
-      assistantSidebar,
-      "isAssistantTranscriptPaginationVirtualizationEnabled",
-    );
-    assert.include(
-      assistantSidebar,
-      "transcriptPaginationVirtualizationEnabled",
-    );
-    assert.include(
-      assistantSidebar,
-      "shouldRefreshAcpSkillRunSnapshotForChange",
-    );
-    assert.include(assistantSidebar, "load-transcript-page");
-    assert.include(assistantSidebar, "getSelectedAcpSkillRunRequestId()");
-    const loadTranscriptPageBlock = assistantSidebar.slice(
-      assistantSidebar.indexOf('action === "load-transcript-page"'),
-      assistantSidebar.indexOf(
-        "await handleAcpSkillRunAction",
-        assistantSidebar.indexOf('action === "load-transcript-page"'),
-      ),
-    );
-    assert.include(
-      loadTranscriptPageBlock,
-      "!requestId || requestId !== selectedRequestId",
-    );
-    assert.notInclude(loadTranscriptPageBlock, "selectedRequestId: requestId");
-    assert.include(
-      assistantSidebar,
-      "setAcpConversationAutoApprovePermissions",
-    );
-    assert.include(assistantSidebar, '"set-auto-approve-permissions"');
-    assert.include(acpChatJs, '"set-auto-approve-permissions"');
-    assert.include(acpChatJs, "autoApproveAcpPermissions");
-    assert.include(assistantSidebar, '"acp-skills"');
-    assert.include(assistantSidebar, "openAssistantWorkspaceSidebar");
-    assert.include(assistantSidebar, "installAssistantWorkspaceSidebarShell");
-    assert.include(acpSkillRunStore, "AcpSkillRunRecord");
-    assert.include(acpSkillRunStore, "AcpSkillRunPanelSnapshot");
-    assert.include(acpSkillRunStore, "AcpSkillRunTranscriptItem");
-    assert.include(acpSkillRunStore, 'kind: "permission"');
-    assert.notInclude(acpSkillRunStore, '"acp-prompt-finished",');
-    assert.notInclude(acpSkillRunStore, '"output-validation-succeeded",');
-    assert.include(acpSkillRunStore, "recordAcpSkillRunSessionUpdate");
-    assert.include(
-      acpSkillRunStore,
-      "projectAcpSkillRunOutputEnvelopeToTranscript",
-    );
-    assert.include(acpSkillRunStore, "recordAcpSkillRunOutputRevision");
-    assert.include(acpSkillRunStore, "prepareAcpSkillRunPanelSnapshot");
-    assert.include(acpSkillRunStore, "transcriptItemCount");
-    assert.include(acpSkillRunStore, "outputRevisionCount");
-    assert.include(acpSkillRunStore, "delete persisted.transcriptItems");
-    assert.include(acpSkillRunStore, "delete persisted.outputRevisions");
-    assert.include(acpSkillRunStore, "replacementReason");
-    assert.include(acpSkillRunStore, "function replaceLatestAssistantMessage");
-    assert.include(acpSkillRunStore, "function formatFinalEnvelopeMarkdown");
-    assert.include(acpSkillRunStore, "planEntries");
-    assert.include(acpSkillRunStore, 'upsertPluginRunStoreEntry("acp"');
-    assert.notInclude(acpSkillRunStore, "projectedEntries");
-    assert.notInclude(acpSkillRunStore, "projectionWarnings");
-    assert.include(acpSkillRunStore, "registerAcpSkillRunController");
-    assert.include(acpSkillRunStore, "replyAcpSkillRun");
-    assert.include(acpSkillRunStore, "connectAcpSkillRun");
-    assert.include(acpSkillRunStore, "disconnectAcpSkillRun");
-    assert.include(acpSkillRunStore, "endAcpSkillRunSession");
-    assert.include(acpSkillRunStore, "markAcpSkillRunApplyResult");
-    assert.include(acpSkillRunStore, "conversationState");
-    assert.include(acpSkillRunStore, "conversationRecoveryState");
-    assert.include(acpSkillRunStore, "reply-submitted");
-    assert.include(acpSkillRunStore, "applyResultState");
-    assert.notInclude(acpSkillRunHtml, "acp-skill-run-revisions");
-    assert.include(assistantPanelModelJs, "Output Revisions");
-    assert.include(
-      assistantTranscriptRendererJs,
-      "assistant-transcript-revision-badge",
-    );
-    assert.notInclude(acpSkillRunJs, "outputRevisions");
-    assert.notInclude(acpChatJs, "outputRevisions");
-    assert.include(acpSkillRunStore, "setAcpSkillRunPermissionRequest");
-    assert.include(acpSkillRunStore, "resolveAcpSkillRunPermissionRequest");
-    assert.include(acpSkillRunner, "recoverAcpSkillRunConversation");
-    assert.include(acpSkillRunner, "recordAcpSkillRunOutputRevision");
-    assert.include(acpSkillRunner, "resumeSession");
-    assert.include(acpSkillRunner, "loadSession");
-    assert.include(acpSkillRunner, "createAssistantTurnAccumulator");
-    assert.notInclude(acpSkillRunner, ".assistant.txt");
-    assert.notInclude(acpSkillRunner, "acp-skill-turns");
-    assert.notInclude(acpSkillRunner, "currentTurnAssistantText");
-    assert.include(assistantSidebar, "__zsAssistantWorkspaceBridge");
-    assert.include(assistantSidebar, "wrappedJSObject");
-    assert.include(assistantSidebar, "installShellBridge");
-    assert.include(assistantSidebar, "buildAcpDiagnosticsBundle");
-    assert.include(assistantSidebar, "copyText");
-    assert.include(assistantSidebar, "schedulePostSnapshot");
-    assert.include(assistantSidebar, "postAcpChatPanelSnapshot");
-    assert.include(assistantSidebar, "readyTabs");
-    assert.include(assistantSidebar, "scheduleShellHandshake");
-    assert.include(assistantSidebar, "clearShellHandshake");
-    assert.include(assistantSidebar, "shell-handshake-tick");
-    assert.include(assistantSidebar, "shell-ready-duplicate");
-    assert.include(assistantSidebar, "postInitialSnapshotsForAllTabs");
-    assert.include(assistantSidebar, "scheduleAcpChatBackendRefreshBoundary");
-    assert.include(assistantSidebar, "preloadAcpChatBackendsForWorkspaceInit");
-    assert.include(assistantSidebar, 'stage: "pre-init"');
-    assert.include(assistantSidebar, "backendRefreshBoundaryChange");
-    assert.include(assistantSidebar, "host.acpChatBackendRefreshInFlight");
-    assert.include(assistantSidebar, 'host.activeTarget = "library";');
-    assert.include(
-      assistantSidebar,
-      'await preloadAcpChatBackendsForWorkspaceInit(host, "library");',
-    );
-    assert.include(
-      assistantSidebar,
-      'commitAssistantWorkspaceTarget(host, "library");',
-    );
-    assert.include(assistantSidebar, 'host.activeTarget = "reader";');
-    assert.include(
-      assistantSidebar,
-      'await preloadAcpChatBackendsForWorkspaceInit(host, "reader");',
-    );
-    assert.include(
-      assistantSidebar,
-      'commitAssistantWorkspaceTarget(host, "reader");',
-    );
-    assert.include(assistantSidebar, "subscribeAcpChatPanelSnapshots");
-    assert.include(assistantSidebar, "shouldRefreshAcpChatSnapshotForChange");
-    assert.include(
-      assistantSidebar,
-      "void postAcpChatLoadingFirstSnapshot(host, target, phase);",
-    );
-    assert.notInclude(assistantSidebar, "refreshAndPostAcpChatPanelSnapshot");
-    assert.notInclude(assistantSidebar, "if (tab !== host.activeTab)");
-    assert.notInclude(assistantSidebar, "postFreshAcpChatSnapshot");
-    assert.include(openAssistantWorkspaceSidebarBlock, "if (hasExplicitTab) {");
-    assert.notInclude(
-      openAssistantWorkspaceSidebarBlock,
-      "hasExplicitTab || !host.activeTarget",
-    );
-    assert.notInclude(openAssistantWorkspaceSidebarBlock, ": DEFAULT_TAB");
-    assert.include(assistantSidebar, "set-active-backend");
-    assert.include(assistantSidebar, "archive-conversation");
-    assert.include(assistantSidebar, '"connect"');
-    assert.include(assistantSidebar, '"disconnect"');
-    assert.include(
-      assistantSidebar,
-      "await startNewAcpConversation({ backendId });",
-    );
-    assert.include(assistantSidebar, "set-reasoning-effort");
-    assert.include(assistantSidebar, "open-backend-manager");
-    assert.include(assistantSidebar, 'initialProviderType: "acp"');
-    assert.include(assistantSidebar, 'initialProviderType: "skillrunner"');
-    assert.include(assistantSidebar, 'action === "open-workspace"');
-    assert.include(assistantSidebar, "openFolderInSystemFileManager");
-    assert.include(assistantSidebar, "set-chat-display-mode");
-    assert.include(assistantSidebar, "toggle-status-details");
-    assert.include(
-      assistantSidebar,
-      'postShellMessage(host, "assistant-workspace:child-snapshot"',
-    );
-    assert.include(sidebarModel, "chatDisplayMode");
-    assert.include(sidebarModel, "statusExpanded");
-    assert.include(sidebarModel, "agentWorkspaceDir");
-    assert.include(sidebarModel, "conversationStorageDir");
-    assert.include(sidebarModel, "sessionCwd");
-    assert.include(assistantPanelModelJs, "metadataItem(");
-    assert.include(
-      assistantPanelModelJs,
-      'labelFrom(snap, "fields.workspace", labels.workspace || "Workspace")',
-    );
-    assert.include(
-      assistantPanelModelJs,
-      "snap.agentWorkspaceDir || snap.sessionCwd",
-    );
-    assert.include(assistantPanelModelJs, "detailEntry(");
-    assert.notInclude(
-      assistantPanelModelJs,
-      'detailEntry(labels.sessionCwd || "Session cwd", snap.sessionCwd)',
-    );
-    assert.notInclude(
-      assistantPanelModelJs,
-      'detailEntry(labels.runtime || "Runtime", snap.runtimeDir)',
-    );
-    assert.notInclude(
-      assistantPanelModelJs,
-      'metadataItem("Workspace", snap.workspaceDir, "workspace")',
-    );
-    assert.notInclude(
-      assistantPanelModelJs,
-      'detailEntry(labels.workspace || "Workspace", snap.workspaceDir)',
-    );
-    assert.notInclude(
-      assistantPanelModelJs,
-      'metadataItem("Workspace", snap.sessionCwd || snap.workspaceDir',
-    );
-    assert.notInclude(
-      assistantPanelModelJs,
-      'detailEntry(labels.workspace || "Workspace", snap.sessionCwd || snap.workspaceDir)',
-    );
-    assert.include(sidebarModel, "commandLine");
-    assert.include(sidebarModel, "stderrTail");
-    assert.include(sidebarModel, "lastLifecycleEvent");
-    assert.include(sidebarModel, "remoteSessionId");
-    assert.include(sidebarModel, "remoteSessionRestoreStatus");
-    assert.include(sidebarModel, "backendChatSessions");
-    assert.include(assistantPanelModelJs, "snap.backendChatSessions");
-    assert.include(assistantPanelModelJs, "conversationId: safeText(");
-    assert.include(
-      assistantPanelModelJs,
-      "normalized.conversationId || normalized.value",
-    );
-    assert.include(
-      assistantPanelModelJs,
-      "const backendId = safeText(normalized.backendId || normalized.value)",
-    );
-    assert.notInclude(assistantPanelModelJs, "normalized.label +");
-    assert.notInclude(
-      assistantPanelModelJs,
-      'metadataItem(\n            labelFrom(snap, "fields.updated"',
-    );
-    assert.notInclude(
-      assistantPanelModelJs,
-      "(Array.isArray(snap.chatSessions) ? snap.chatSessions : []).forEach",
-    );
-    assert.include(sidebarTypes, "sessionCwd: string");
-    assert.include(sidebarTypes, "remoteSessionId: string");
-    assert.include(sidebarTypes, "remoteSessionRestoreStatus");
-    assert.include(sidebarTypes, "commandLine: string");
-    assert.include(sidebarTypes, "reasoningEffortOptions");
-    assert.include(sidebarTypes, "archivedAt?: string");
-    assert.include(sidebarTypes, "AcpBackendChatSessions");
-    assert.include(sidebarTypes, "transcriptState?:");
-    assert.include(sidebarTypes, "stderrTail: string");
-    assert.include(sidebarTypes, "lastLifecycleEvent: string");
-    assert.include(sidebarTypes, 'AcpChatDisplayMode = "plain" | "bubble"');
-    assert.include(sidebarTypes, "AcpDiagnosticsBundle");
-    assert.include(sidebarTypes, "mcpServer?:");
-    assert.include(sidebarTypes, "mcpHealth?:");
-    assert.include(sidebarTypes, "AcpMcpHealthSnapshot");
-    assert.include(sidebarTypes, "recentRequests");
-    assert.include(sidebarTypes, "jsonrpcToolName");
-    assert.include(sidebarTypes, "responseToolCount");
-    assert.include(sharedHost, "createSidebarFrame");
-    assert.include(sharedHost, "resolveSidebarFrameWindow");
-    assert.include(assistantSidebar, 'from "./sidebarBrowserHost"');
-  });
-
-  it("routes ACP Chat transcript page requests without failed-branch refresh mechanisms", async function () {
-    const assistantSidebar = await readProjectFile(
-      "src/modules/assistantWorkspaceSidebar.ts",
-    );
-    const acpChatPanelReadModel = await readProjectFile(
-      "src/modules/acpChatPanelReadModel.ts",
-    );
-
-    assert.include(
-      acpChatPanelReadModel,
-      "readAcpConversationTranscriptMirrorPage",
-    );
-    assert.include(acpChatPanelReadModel, "readAcpConversationTranscriptPage");
-    assert.include(
-      acpChatPanelReadModel,
-      "selectedAcpChatTranscriptPageReadable",
-    );
-    assert.include(acpChatPanelReadModel, "prepareAcpChatPanelSnapshot");
-    assert.include(acpChatPanelReadModel, "transcriptReadMode");
-    assert.include(acpChatPanelReadModel, "selectedTranscriptPage");
-    assert.include(assistantSidebar, "acpChatSnapshotBuildSeq");
-    assert.include(assistantSidebar, "postAcpChatPanelSnapshot");
-    assert.include(assistantSidebar, "postAcpChatLoadingFirstSnapshot");
-    assert.include(assistantSidebar, "queueAcpChatPageFirstSnapshot");
-    assert.include(assistantSidebar, "subscribeAcpChatPanelSnapshots");
-    assert.include(assistantSidebar, "isPureAcpChatBackgroundChange");
-    assert.notInclude(assistantSidebar, "subscribeAcpConversationSnapshots");
-    assert.notInclude(assistantSidebar, "notifyFrontend: false");
-    assert.notInclude(assistantSidebar, "itemModeListeners");
-    assert.notInclude(assistantSidebar, "sessionIndexCache");
-    assert.notInclude(assistantSidebar, "buildAcpChatSnapshotSignature");
-
-    const handlerStart = assistantSidebar.indexOf(
-      "async function handleChildAction",
-    );
-    const chatBranchStart = assistantSidebar.indexOf(
-      'if (tab === "acp-chat")',
-      handlerStart,
-    );
-    const chatBranchEnd = assistantSidebar.indexOf(
-      "async function handleAcpSkillRunAction",
-      chatBranchStart,
-    );
-    const chatBranch = assistantSidebar.slice(chatBranchStart, chatBranchEnd);
-    assert.include(chatBranch, 'action === "load-transcript-page"');
-    assert.include(chatBranch, "postAcpChatPanelSnapshot");
-    assert.include(chatBranch, "postAcpChatLoadingFirstSnapshot");
-    assert.notInclude(chatBranch, "refreshAcpConversationBackends");
-
-    const ordinaryPostStart = assistantSidebar.indexOf(
-      "function postSnapshotForTab",
-    );
-    const ordinaryPostEnd = assistantSidebar.indexOf(
-      "function canPublishAssistantWorkspaceStatePulse",
-      ordinaryPostStart,
-    );
-    const ordinaryPost = assistantSidebar.slice(
-      ordinaryPostStart,
-      ordinaryPostEnd,
-    );
-    assert.include(ordinaryPost, "postAcpChatPanelSnapshot");
-    assert.include(ordinaryPost, "postAcpChatLoadingFirstSnapshot");
-    assert.notInclude(ordinaryPost, "refreshAcpConversationBackends");
-    assert.notInclude(ordinaryPost, "refreshAndPostAcpChatPanelSnapshot");
-  });
-
-  it("guards Assistant transcript cold page-first and bounded mirror cache policy", async function () {
-    const acpSkillRunStore = await readProjectFile(
-      "src/modules/acpSkillRunStore.ts",
-    );
-    const acpSessionManager = await readProjectFile(
-      "src/modules/acpSessionManager.ts",
-    );
-    const acpChatPanelReadModel = await readProjectFile(
-      "src/modules/acpChatPanelReadModel.ts",
-    );
-    const acpSkillRunTranscriptStore = await readProjectFile(
-      "src/modules/acpSkillRunTranscriptStore.ts",
-    );
-    const runtimePersistence = await readProjectFile(
-      "src/modules/runtimePersistence.ts",
-    );
-    const assistantSidebar = await readProjectFile(
-      "src/modules/assistantWorkspaceSidebar.ts",
-    );
-
-    assert.include(
-      acpSkillRunStore,
-      "ACP_SKILL_RUN_COLD_TRANSCRIPT_MIRROR_CACHE_LIMIT = 10",
-    );
-    assert.include(acpSkillRunStore, "readSelectedTranscriptPageFromStore");
-    assert.include(acpSkillRunStore, "readAcpSkillRunTranscriptPageFromStore");
-    assert.include(runtimePersistence, "readRuntimeTextRanges");
-    assert.include(acpSkillRunTranscriptStore, "readIndexedItems");
-    assert.include(acpSkillRunTranscriptStore, "readRuntimeTextRanges");
-    assert.notInclude(acpSkillRunTranscriptStore, "readEventAtIndexedOffset");
-    assert.notInclude(acpSkillRunTranscriptStore, "readIndexedItem(");
-    assert.include(
-      acpSessionManager,
-      "ACP_CHAT_COLD_TRANSCRIPT_MIRROR_CACHE_LIMIT = 10",
-    );
-    assert.include(acpSessionManager, "touchColdAcpChatTranscriptMirror");
-    assert.include(
-      acpChatPanelReadModel,
-      "readAcpConversationTranscriptPage(requestArgs)",
-    );
-    assert.include(
-      acpChatPanelReadModel,
-      "selectedAcpChatTranscriptPageReadable",
-    );
-    assert.include(
-      acpSkillRunStore,
-      'type AcpSkillRunTranscriptReadMode = "loading-first" | "page-first"',
-    );
-    assert.include(
-      acpChatPanelReadModel,
-      'type AcpChatTranscriptReadMode = "loading-first" | "page-first"',
-    );
-    const selectRunStart = acpSkillRunStore.indexOf(
-      "export async function selectAcpSkillRun",
-    );
-    const selectRunEnd = acpSkillRunStore.indexOf(
-      "export function getSelectedAcpSkillRunRequestId",
-      selectRunStart,
-    );
-    const selectRunBody = acpSkillRunStore.slice(selectRunStart, selectRunEnd);
-    assert.notInclude(selectRunBody, "scheduleAcpSkillRunTranscriptHydrate");
-    assert.include(assistantSidebar, "queueAcpSkillRunPageFirstSnapshot");
-    assert.include(assistantSidebar, "postAcpSkillRunLoadingFirstSnapshot");
-    assert.include(assistantSidebar, "queueAcpChatPageFirstSnapshot");
-    assert.include(assistantSidebar, "postAcpChatLoadingFirstSnapshot");
-    assert.include(assistantSidebar, 'transcriptReadMode: "loading-first"');
-    assert.include(assistantSidebar, 'transcriptReadMode: "page-first"');
-    const setActiveConversationStart = acpSessionManager.indexOf(
-      "export async function setActiveAcpConversation",
-    );
-    const setActiveConversationEnd = acpSessionManager.indexOf(
-      "export async function ensureAcpConversationReady",
-      setActiveConversationStart,
-    );
-    const setActiveConversationBody = acpSessionManager.slice(
-      setActiveConversationStart,
-      setActiveConversationEnd,
-    );
-    assert.notInclude(
-      setActiveConversationBody,
-      "scheduleAcpChatTranscriptHydrate",
-    );
-    const notifyFrontendStart = acpSessionManager.indexOf(
-      "function notifyFrontendListenersNow",
-    );
-    const notifyFrontendEnd = acpSessionManager.indexOf(
-      "function flushPendingPersistence",
-      notifyFrontendStart,
-    );
-    const notifyFrontendBody = acpSessionManager.slice(
-      notifyFrontendStart,
-      notifyFrontendEnd,
-    );
-    assert.include(notifyFrontendBody, 'itemMode: "structural"');
-    assert.notInclude(
-      notifyFrontendBody,
-      "buildFrontendSnapshot({ uiVisible: true });",
-    );
-    const loadingFirstStart = acpChatPanelReadModel.indexOf(
-      'args.transcriptReadMode === "loading-first"',
-    );
-    const loadingFirstEnd = acpChatPanelReadModel.indexOf(
-      "try {",
-      loadingFirstStart,
-    );
-    const loadingFirstBlock = acpChatPanelReadModel.slice(
-      loadingFirstStart,
-      loadingFirstEnd,
-    );
-    assert.notInclude(loadingFirstBlock, "readSelectedAcpChatTranscriptPage");
-    const hostSelectRunStart = assistantSidebar.indexOf(
-      'if (action === "select-run")',
-    );
-    const hostSelectRunEnd = assistantSidebar.indexOf(
-      "await handleAcpSkillRunAction",
-      hostSelectRunStart,
-    );
-    const hostSelectRunBlock = assistantSidebar.slice(
-      hostSelectRunStart,
-      hostSelectRunEnd,
-    );
-    assert.include(hostSelectRunBlock, "await selectAcpSkillRun");
-    assert.include(hostSelectRunBlock, "postAcpSkillRunLoadingFirstSnapshot");
-    const tabPostStart = assistantSidebar.indexOf('if (tab === "acp-skills")');
-    const tabPostEnd = assistantSidebar.indexOf(
-      "postSkillRunnerSnapshot",
-      tabPostStart,
-    );
-    const tabPostBlock = assistantSidebar.slice(tabPostStart, tabPostEnd);
-    assert.include(tabPostBlock, "postAcpSkillRunLoadingFirstSnapshot");
-    const tabPostFunctionStart = assistantSidebar.indexOf(
-      "function postSnapshotForTab",
-    );
-    const tabPostChatStart = assistantSidebar.indexOf(
-      'if (tab === "acp-chat")',
-      tabPostFunctionStart,
-    );
-    const tabPostChatEnd = assistantSidebar.indexOf(
-      'if (tab === "acp-skills")',
-      tabPostChatStart,
-    );
-    const tabPostChatBlock = assistantSidebar.slice(
-      tabPostChatStart,
-      tabPostChatEnd,
-    );
-    assert.include(tabPostChatBlock, "postAcpChatLoadingFirstSnapshot");
-  });
-
-  it("keeps Assistant Workspace call chain idempotent after explicit handshake", async function () {
-    const assistantSidebar = await readProjectFile(
-      "src/modules/assistantWorkspaceSidebar.ts",
-    );
-
-    assert.include(assistantSidebar, "bridgeWindow?: Window | null");
-    assert.include(assistantSidebar, "host.shell.bridgeWindow === frameWindow");
-    assert.include(assistantSidebar, "shell-bridge-installed");
-    assert.include(assistantSidebar, "child-ready-duplicate");
-    assert.include(assistantSidebar, "publishedWorkspaceInitScopeKey");
-    assert.include(assistantSidebar, "publishedChildInitScopeKeys");
-    assert.include(assistantSidebar, "shell-ready-init-skip");
-    assert.include(assistantSidebar, "child-ready-init-skip");
-    assert.include(assistantSidebar, "latestSkillRunnerBaseSnapshot");
-    assert.include(assistantSidebar, "skillRunnerAttachedFrameWindow");
-    assert.include(assistantSidebar, "publishLatestSkillRunnerChromeSnapshot");
-    assert.notInclude(
-      assistantSidebar,
-      "refreshSkillRunnerWorkspacePresentation",
-    );
-
-    const pulseStart = assistantSidebar.indexOf(
-      "function publishAssistantWorkspaceStatePulse",
-    );
-    const pulseEnd = assistantSidebar.indexOf(
-      "function postAllSnapshots",
-      pulseStart,
-    );
-    const pulseBody = assistantSidebar.slice(pulseStart, pulseEnd);
-    assert.notInclude(pulseBody, "installShellBridge(host)");
-
-    const postShellStart = assistantSidebar.indexOf(
-      "function postShellMessage",
-    );
-    const postShellEnd = assistantSidebar.indexOf(
-      "function writeAssistantWorkspaceBridgeTarget",
-      postShellStart,
-    );
-    const postShellBody = assistantSidebar.slice(postShellStart, postShellEnd);
-    assert.notInclude(postShellBody, "scheduleShellHandshake");
-
-    const shellFactoryStart = assistantSidebar.indexOf(
-      "function ensureAssistantWorkspaceShell",
-    );
-    const shellFactoryEnd = assistantSidebar.indexOf(
-      "async function dockAssistantWorkspaceShell",
-      shellFactoryStart,
-    );
-    const shellFactoryBody = assistantSidebar.slice(
-      shellFactoryStart,
-      shellFactoryEnd,
-    );
-    assert.include(shellFactoryBody, "shell-frame-load");
-    assert.include(shellFactoryBody, "installShellBridge(host)");
-    assert.notInclude(shellFactoryBody, "publishAssistantWorkspaceStatePulse");
-    assert.notInclude(shellFactoryBody, '"shell-load"');
-
-    const refreshPredicateStart = assistantSidebar.indexOf(
-      "function shouldRefreshAcpChatBackendsForWorkspacePulse",
-    );
-    const refreshPredicateEnd = assistantSidebar.indexOf(
-      "function postShellInit",
-      refreshPredicateStart,
-    );
-    const refreshPredicate = assistantSidebar.slice(
-      refreshPredicateStart,
-      refreshPredicateEnd,
-    );
-    assert.include(refreshPredicate, 'return reason === "shell-ready";');
-    assert.notInclude(refreshPredicate, "tab-switch");
-    assert.notInclude(refreshPredicate, "shell-load");
-
-    const subscriptionStart = assistantSidebar.indexOf(
-      "host.removeAcpSnapshotSubscription = subscribeAcpFrontendSnapshots",
-    );
-    const subscriptionEnd = assistantSidebar.indexOf(
-      "host.removeAcpChatPanelSubscription",
-      subscriptionStart,
-    );
-    const sharedAcpSubscription = assistantSidebar.slice(
-      subscriptionStart,
-      subscriptionEnd,
-    );
-    assert.include(sharedAcpSubscription, "updateAssistantAttentionIndicator");
-    assert.notInclude(sharedAcpSubscription, "schedulePostSnapshot");
-
-    const streamingSubscriptionStart = assistantSidebar.indexOf(
-      "host.removeStreamingRenderPreferenceSubscription",
-    );
-    const streamingSubscriptionEnd = assistantSidebar.indexOf(
-      "updateAssistantAttentionIndicator(host);",
-      streamingSubscriptionStart,
-    );
-    const streamingSubscription = assistantSidebar.slice(
-      streamingSubscriptionStart,
-      streamingSubscriptionEnd,
-    );
-    assert.include(
-      assistantSidebar,
-      "function setAssistantWorkspaceExecutionDisplayMode",
-    );
-    assert.include(
-      assistantSidebar,
-      "streamingRenderPreferenceLocalWriteDepth",
-    );
-    assert.include(streamingSubscription, "streaming-preference-initial-skip");
-    assert.include(streamingSubscription, "streaming-preference-local-skip");
-    assert.include(streamingSubscription, "schedulePostSnapshot(host)");
-
-    const childActionStart = assistantSidebar.indexOf(
-      "async function handleChildAction",
-    );
-    const childReadyStart = assistantSidebar.indexOf(
-      'if (action === "ready")',
-      childActionStart,
-    );
-    const childReadyEnd = assistantSidebar.indexOf(
-      'if (tab === "skillrunner")',
-      childReadyStart,
-    );
-    const childReadyBranch = assistantSidebar.slice(
-      childReadyStart,
-      childReadyEnd,
-    );
-    assert.include(childReadyBranch, "host.readyTabs.has(tab)");
-    assert.include(childReadyBranch, "hasPublishedChildBaselineInit");
-    assert.include(childReadyBranch, "child-ready-duplicate");
-    assert.include(childReadyBranch, "child-ready-init-skip");
-    assert.include(childReadyBranch, "return;");
-    assert.include(childReadyBranch, "publishAssistantWorkspaceStatePulse");
-
-    const skillrunnerActionEnd = assistantSidebar.indexOf(
-      'if (tab === "acp-skills")',
-      childActionStart,
-    );
-    const skillrunnerActionBranch = assistantSidebar.slice(
-      childReadyEnd,
-      skillrunnerActionEnd,
-    );
-    assert.include(
-      skillrunnerActionBranch,
-      "setAssistantWorkspaceExecutionDisplayMode",
-    );
-    assert.include(
-      skillrunnerActionBranch,
-      "scheduleSkillRunnerSidebarRefresh",
-    );
-    assert.notInclude(skillrunnerActionBranch, "schedulePostSnapshot(host)");
-
-    const acpSkillsActionStart = assistantSidebar.indexOf(
-      "async function handleAcpSkillRunAction",
-    );
-    const acpSkillsActionEnd = assistantSidebar.indexOf(
-      "async function handleAcpChatAction",
-      acpSkillsActionStart,
-    );
-    const acpSkillsActionBody = assistantSidebar.slice(
-      acpSkillsActionStart,
-      acpSkillsActionEnd,
-    );
-    const acpSkillsStreamingBranch = acpSkillsActionBody.slice(
-      acpSkillsActionBody.indexOf(
-        'if (action === "set-execution-display-mode")',
-      ),
-      acpSkillsActionBody.indexOf('if (action === "select-run")'),
-    );
-    assert.include(
-      acpSkillsStreamingBranch,
-      "setAssistantWorkspaceExecutionDisplayMode",
-    );
-    assert.notInclude(acpSkillsStreamingBranch, "schedulePostSnapshot(host)");
-
-    const acpChatActionStart = assistantSidebar.indexOf(
-      "async function handleAcpChatAction",
-    );
-    const acpChatActionEnd = assistantSidebar.indexOf(
-      'if (action === "set-active-backend")',
-      acpChatActionStart,
-    );
-    const acpChatStreamingBranch = assistantSidebar.slice(
-      acpChatActionStart,
-      acpChatActionEnd,
-    );
-    assert.include(
-      acpChatStreamingBranch,
-      "setAssistantWorkspaceExecutionDisplayMode",
-    );
-    assert.notInclude(acpChatStreamingBranch, "schedulePostSnapshot(host)");
-
-    const skillrunnerHandlerStart = assistantSidebar.indexOf(
-      "function createSkillRunnerHostActionHandler",
-    );
-    const skillrunnerHandlerEnd = assistantSidebar.indexOf(
-      "function resolveTargetFromSource",
-      skillrunnerHandlerStart,
-    );
-    const skillrunnerHandler = assistantSidebar.slice(
-      skillrunnerHandlerStart,
-      skillrunnerHandlerEnd,
-    );
-    assert.include(
-      skillrunnerHandler,
-      "publishLatestSkillRunnerChromeSnapshot",
-    );
-    assert.notInclude(
-      skillrunnerHandler,
-      "refreshSkillRunnerWorkspacePresentation",
-    );
-
-    const attachStart = assistantSidebar.indexOf(
-      "function attachSkillRunnerToShell",
-    );
-    const attachEnd = assistantSidebar.indexOf(
-      "function dockForTarget",
-      attachStart,
-    );
-    const attachBody = assistantSidebar.slice(attachStart, attachEnd);
-    assert.include(
-      attachBody,
-      "host.skillRunnerAttachedFrameWindow === frameWindow",
-    );
-    assert.include(attachBody, "host.latestSkillRunnerBaseSnapshot = snapshot");
-    assert.include(
-      attachBody,
-      "host.skillRunnerAttachedFrameWindow = frameWindow",
-    );
-  });
-
-  it("retries Assistant Workspace shell ready until the direct host bridge acknowledges it", async function () {
-    const shell = await loadAssistantWorkspaceShellForSmoke({
-      childWindows: {
-        "acp-chat": null,
-        "acp-skills": null,
-        skillrunner: null,
-      },
-    });
-
-    shell.dispatchDocument("DOMContentLoaded");
-    await flushMicrotasks();
-
-    assert.isTrue(
-      shell.fallbackMessages.some(
-        (entry) =>
-          entry.type === "assistant-workspace:action" &&
-          entry.payload?.action === "ready",
-      ),
-      "initial ready should fall back when direct bridge is missing",
-    );
-    assert.isFalse(
-      shell
-        .trace()
-        .some(
-          (entry: any) => entry.stage === "host-ready-result" && entry.acked,
-        ),
-      "fallback delivery must not be treated as an acknowledgement",
-    );
-
-    const bridgeCalls: any[] = [];
-    shell.setHostBridge({
-      postMessage(type: string, payload: Record<string, unknown>) {
-        bridgeCalls.push({ type, payload });
-        return Promise.resolve({ ok: true });
-      },
-    });
-
-    shell.dispatchWindowMessage("assistant-workspace:init", {
-      activeTab: "acp-chat",
-      scopeKey: "scope-a",
-    });
-    await flushMicrotasks();
-
-    assert.isTrue(
-      bridgeCalls.some(
-        (entry) =>
-          entry.type === "assistant-workspace:action" &&
-          entry.payload?.action === "ready",
-      ),
-      "host init should prompt a direct ready retry",
-    );
-    assert.isTrue(
-      shell
-        .trace()
-        .some(
-          (entry: any) => entry.stage === "host-ready-result" && entry.acked,
-        ),
-      "direct bridge acknowledgement should stop ready retry",
-    );
-  });
-
-  it("replays cached Assistant Workspace child payloads when the child frame becomes available", async function () {
-    const bridgeCalls: any[] = [];
-    const shell = await loadAssistantWorkspaceShellForSmoke({
-      hostBridge: {
-        postMessage(type: string, payload: Record<string, unknown>) {
-          bridgeCalls.push({ type, payload });
-          return Promise.resolve({ ok: true });
-        },
-      },
-      childWindows: {
-        "acp-chat": null,
-        "acp-skills": null,
-        skillrunner: null,
-      },
-    });
-
-    shell.dispatchWindowMessage("assistant-workspace:child-snapshot", {
-      tab: "acp-chat",
-      phase: "init",
-      snapshot: {
-        sidebar: {
-          scopeKey: "scope-a",
-          activeTab: "acp-chat",
-          panes: { "acp-chat": { revision: 1 } },
-        },
-        backendAvailability: "selected",
-        conversationAvailability: "none",
-      },
-    });
-    await flushMicrotasks();
-
-    assert.isTrue(
-      shell
-        .trace()
-        .some((entry: any) => entry.stage === "post-to-child-drop-no-frame"),
-      "early child snapshot should be cached when no child frame exists",
-    );
-    assert.isFalse(
-      bridgeCalls.some(
-        (entry) =>
-          entry.type === "assistant-workspace:child-action" &&
-          entry.payload?.action === "ready",
-      ),
-      "replay must not fabricate child ready",
-    );
-
-    const childWindow = shell.childWindow("acp-chat");
-    shell.setChildWindow("acp-chat", childWindow);
-    shell.dispatchWindowMessage("assistant-workspace:init", {
-      activeTab: "acp-chat",
-      scopeKey: "scope-a",
-    });
-    await flushMicrotasks();
-
-    assert.deepInclude(childWindow.messages, {
-      type: "acp:init",
-      payload: {
-        sidebar: {
-          scopeKey: "scope-a",
-          activeTab: "acp-chat",
-          panes: { "acp-chat": { revision: 1 } },
-        },
-        backendAvailability: "selected",
-        conversationAvailability: "none",
-      },
-    });
-    assert.isTrue(
-      shell.elements
-        .get("assistant-workspace-loading")
-        .classList.contains("hidden"),
-      "successful replay should clear active tab loading",
-    );
-  });
-
-  it("delivers an available SkillRunner child snapshot once per cached generation", async function () {
-    const timers = createManualTimers();
-    const shell = await loadAssistantWorkspaceShellForSmoke({
-      hostBridge: {
-        postMessage() {
-          return Promise.resolve({ ok: true });
-        },
-      },
-      setTimeout: timers.setTimeout,
-      clearTimeout: timers.clearTimeout,
-    });
-    const childWindow = shell.elements.get(
-      "assistant-frame-skillrunner",
-    ).contentWindow;
-
-    shell.dispatchWindowMessage("assistant-workspace:child-snapshot", {
-      tab: "skillrunner",
-      phase: "snapshot",
-      snapshot: {
-        sidebar: {
-          scopeKey: "scope-a",
-          activeTab: "skillrunner",
-          panes: { skillrunner: { revision: 7 } },
-        },
-        session: { requestId: "run-1", status: "succeeded" },
-      },
-    });
-    await flushMicrotasks();
-
-    const skillrunnerSnapshots = () =>
-      childWindow.messages.filter(
-        (entry: any) => entry.type === "skillrunner-sidebar:snapshot",
-      );
-
-    assert.lengthOf(skillrunnerSnapshots(), 1);
-    timers.runAll();
-    shell.dispatchWindowMessage("skillrunner-sidebar:action", {
-      action: "ready",
-    });
-    shell.elements.get("assistant-frame-skillrunner").dispatch("load");
-    shell.dispatchWindowMessage("assistant-workspace:set-tab", {
-      activeTab: "skillrunner",
-    });
-    await flushMicrotasks();
-    timers.runAll();
-    await flushMicrotasks();
-    assert.lengthOf(
-      skillrunnerSnapshots(),
-      1,
-      "successful delivery must not be repeated by retry, ready, load, or tab switch",
-    );
-
-    shell.dispatchWindowMessage("assistant-workspace:child-snapshot", {
-      tab: "skillrunner",
-      phase: "snapshot",
-      snapshot: {
-        sidebar: {
-          scopeKey: "scope-a",
-          activeTab: "skillrunner",
-          panes: { skillrunner: { revision: 7 } },
-        },
-        session: { requestId: "run-2", status: "succeeded" },
-      },
-    });
-    await flushMicrotasks();
-    assert.lengthOf(
-      skillrunnerSnapshots(),
-      2,
-      "a new cached generation should still publish once even when pane revision is unchanged",
-    );
-  });
-
-  it("retries a pending SkillRunner child snapshot without double-delivering it", async function () {
-    const timers = createManualTimers();
-    const shell = await loadAssistantWorkspaceShellForSmoke({
-      hostBridge: {
-        postMessage() {
-          return Promise.resolve({ ok: true });
-        },
-      },
-      childWindows: {
-        skillrunner: null,
-      },
-      setTimeout: timers.setTimeout,
-      clearTimeout: timers.clearTimeout,
-    });
-
-    shell.dispatchWindowMessage("assistant-workspace:child-snapshot", {
-      tab: "skillrunner",
-      phase: "init",
-      snapshot: {
-        sidebar: {
-          scopeKey: "scope-a",
-          activeTab: "skillrunner",
-          panes: { skillrunner: { revision: 1 } },
-        },
-        session: { requestId: "run-1", status: "running" },
-      },
-    });
-    await flushMicrotasks();
-
-    assert.isTrue(
-      shell
-        .trace()
-        .some((entry: any) => entry.stage === "post-to-child-drop-no-frame"),
-      "missing frame should queue retry",
-    );
-    assert.isAbove(timers.size(), 0, "missing frame should schedule retry");
-
-    const childWindow = shell.childWindow("skillrunner");
-    shell.setChildWindow("skillrunner", childWindow);
-    timers.runAll();
-    await flushMicrotasks();
-
-    const skillrunnerInits = () =>
-      childWindow.messages.filter(
-        (entry: any) => entry.type === "skillrunner-sidebar:init",
-      );
-    assert.lengthOf(skillrunnerInits(), 1);
-    timers.runAll();
-    await flushMicrotasks();
-    assert.lengthOf(
-      skillrunnerInits(),
-      1,
-      "settled pending replay must not repost the same cached generation",
-    );
-  });
-
-  it("adds localized ACP labels for dashboard and sidebar actions", async function () {
-    const en = await readProjectFile("addon/locale/en-US/addon.ftl");
-    const zh = await readProjectFile("addon/locale/zh-CN/addon.ftl");
-
-    assert.include(en, "task-dashboard-sidebar-assistant = Assistant");
-    assert.include(en, "task-dashboard-home-acp-title = ACP Chat");
-    assert.include(
-      en,
-      "task-dashboard-acp-subtitle = Chat with your Zotero library.",
-    );
-    assert.include(
-      en,
-      "task-dashboard-home-acp-skill-runs-title = ACP Skill Runs",
-    );
-    assert.include(en, "task-dashboard-acp-backend-title = ACP Backend");
-    assert.include(en, "task-dashboard-acp-manage-backends = Manage Backends");
-    assert.include(en, "task-dashboard-acp-details = Details");
-    assert.include(en, "task-dashboard-acp-reasoning = Reasoning");
-    assert.include(en, "task-dashboard-acp-conversation = Conversation");
-    assert.include(en, "task-dashboard-acp-remote-session = Remote session");
-    assert.include(en, "task-dashboard-acp-remote-restore = Remote restore");
-    assert.include(
-      en,
-      "task-dashboard-acp-new-conversation = New Conversation",
-    );
-    assert.include(
-      en,
-      "task-dashboard-acp-rename-conversation = Rename Conversation",
-    );
-    assert.include(en, "task-dashboard-acp-session-manager = Sessions");
-    assert.include(en, "task-dashboard-acp-session-show-more = Show more...");
-    assert.include(en, "task-dashboard-acp-archive-conversation = Archive");
-    assert.include(en, "task-dashboard-acp-connect = Connect");
-    assert.include(en, "task-dashboard-acp-disconnect = Disconnect");
-    assert.include(zh, "task-dashboard-sidebar-assistant = Assistant");
-    assert.include(zh, "task-dashboard-home-acp-title = ACP 对话");
-    assert.include(zh, "task-dashboard-acp-subtitle = 与你的文献库对话。");
-    assert.include(
-      zh,
-      "task-dashboard-home-acp-skill-runs-title = ACP Skill 运行",
-    );
-    assert.include(zh, "task-dashboard-acp-backend-title = ACP 后端");
-    assert.include(zh, "task-dashboard-acp-manage-backends = 管理后端");
-    assert.include(zh, "task-dashboard-acp-details = 详情");
-    assert.include(zh, "task-dashboard-acp-reasoning = 推理强度");
-    assert.include(zh, "task-dashboard-acp-conversation = 对话");
-    assert.include(zh, "task-dashboard-acp-remote-session = 远端会话");
-    assert.include(zh, "task-dashboard-acp-remote-restore = 远端恢复");
-    assert.include(zh, "task-dashboard-acp-new-conversation = 新建对话");
-    assert.include(zh, "task-dashboard-acp-rename-conversation = 重命名对话");
-    assert.include(zh, "task-dashboard-acp-session-manager = 会话");
-    assert.include(zh, "task-dashboard-acp-session-show-more = 显示更多...");
-    assert.include(zh, "task-dashboard-acp-archive-conversation = 归档");
-    assert.include(zh, "task-dashboard-acp-connect = 连接");
-    assert.include(zh, "task-dashboard-acp-disconnect = 断开");
-  });
-
-  it("defines shared Assistant panel locale keys in all active locales", async function () {
-    const locales = await Promise.all(
-      ["en-US", "zh-CN", "fr-FR", "ja-JP"].map(async (locale) => ({
-        locale,
-        text: await readProjectFile(`addon/locale/${locale}/addon.ftl`),
-      })),
-    );
-    const requiredKeys = [
-      "assistant-panel-action-send",
-      "assistant-panel-action-close",
-      "assistant-panel-action-details",
-      "assistant-panel-action-runs",
-      "assistant-panel-action-archive",
-      "assistant-panel-field-backend",
-      "assistant-panel-field-workspace",
-      "assistant-panel-drawer-running",
-      "assistant-panel-drawer-completed",
-      "assistant-panel-details-title",
-      "assistant-panel-details-no-entries",
-      "assistant-panel-reply-placeholder-acp-skill",
-      "assistant-panel-reply-placeholder-skillrunner",
-      "assistant-panel-reply-placeholder-acp-chat",
-      "assistant-panel-reply-shortcut",
-      "assistant-panel-action-connecting",
-      "assistant-panel-action-disconnecting",
-      "assistant-panel-action-use-method",
-      "assistant-panel-interaction-user-input-required",
-      "assistant-panel-interaction-waiting-reply",
-      "assistant-panel-interaction-authentication-required-title",
-      "assistant-panel-interaction-authentication-required-message",
-      "assistant-panel-interaction-agent-running-title",
-      "assistant-panel-interaction-agent-working-message",
-      "assistant-panel-interaction-agent-repairing-message",
-      "assistant-panel-interaction-run-completed-title",
-      "assistant-panel-interaction-run-result-ready",
-      "assistant-panel-interaction-acp-connection-interrupted",
-      "assistant-panel-interaction-disconnected-recoverable",
-      "assistant-panel-interaction-run-canceled-continue",
-      "assistant-panel-interaction-waiting-request-id",
-      "assistant-panel-interaction-needs-user-interaction",
-      "assistant-panel-interaction-backend-unavailable",
-      "assistant-panel-permission-view-full-request",
-      "assistant-panel-transcript-empty",
-      "assistant-panel-transcript-assistant",
-      "assistant-panel-transcript-thinking",
-      "assistant-panel-transcript-tool",
-      "assistant-panel-usage-unavailable",
-      "assistant-panel-status-failed-retriable",
-      "assistant-panel-status-disconnecting",
-      "assistant-panel-status-auth-required",
-      "assistant-panel-status-permission-required",
-      "assistant-panel-status-backend-unavailable",
-    ];
-    locales.forEach(({ locale, text }) => {
-      requiredKeys.forEach((key) => {
-        assert.include(text, `${key} =`, `${locale} should define ${key}`);
-      });
-    });
-    assert.include(
-      locales.find(({ locale }) => locale === "en-US")?.text || "",
-      "assistant-panel-transcript-thinking = Thought",
-    );
-    assert.include(
-      locales.find(({ locale }) => locale === "en-US")?.text || "",
-      "task-dashboard-run-role-thinking = Thought",
-    );
-    assert.include(
-      locales.find(({ locale }) => locale === "zh-CN")?.text || "",
-      "assistant-panel-transcript-thinking = 思考",
-    );
-    assert.include(
-      locales.find(({ locale }) => locale === "zh-CN")?.text || "",
-      "task-dashboard-run-role-thinking = 思考",
-    );
-    locales
-      .filter(({ locale }) => locale !== "en-US")
-      .forEach(({ locale, text }) => {
-        assert.notInclude(
-          text,
-          "task-dashboard-products-section-feedback = Skill Feedback",
-          `${locale} should localize the feedback section tab`,
-        );
-      });
-  });
-
-  it("projects localized Assistant sidebar hint copy from shared panel labels", async function () {
-    const model = await loadAssistantPanelModelForSmoke();
-    const labels = {
-      actions: {
-        send: "发送",
-        useMethod: "使用此方式",
-      },
-      reply: {
-        placeholderAcpChat: "询问当前 ACP 后端...",
-        shortcut: "快捷发送",
-      },
-      drawer: {
-        emptyTasks: "暂无运行",
-      },
-      interaction: {
-        userInputRequired: "需要用户输入",
-        waitingReply: "正在等待回复",
-        waitingRequestId: "等待请求 ID",
-        needsUserInteraction: "需要交互",
-        backendUnavailable: "后端不可用",
-      },
-      status: {
-        connected: "已连接",
-        running: "运行中",
-        waiting: "等待中",
-      },
-    };
-
-    const skillRunner = model.projectSkillRunnerPanelSnapshot({
-      labels,
-      session: {
-        requestId: "req-localized-hint",
-        status: "waiting_user",
-        pendingInteractionId: 1,
-        pendingKind: "open_text",
-      },
-      drawer: {
-        sections: [
-          {
-            id: "running",
-            groups: [
-              {
-                backendId: "backend-a",
-                activeTasks: [
-                  {
-                    key: "",
-                    status: "waiting_user",
-                    attention: "warning",
-                  },
-                ],
-              },
-            ],
-          },
-        ],
-      },
-    });
-
-    assert.equal(skillRunner.interaction.title, "需要用户输入");
-    assert.equal(
-      skillRunner.interaction.pendingInteraction.uiHints.prompt,
-      "正在等待回复",
-    );
-    assert.equal(skillRunner.reply.hint, "快捷发送");
-    assert.equal(skillRunner.context.statusLabel, "等待中");
-    assert.equal(skillRunner.drawers.labels.waitingRequestId, "等待请求 ID");
-    assert.equal(skillRunner.drawers.labels.needsUserInteraction, "需要交互");
-    assert.equal(skillRunner.drawers.labels.backendUnavailable, "后端不可用");
-
-    const acpChat = model.projectAcpChatPanelSnapshot({
-      labels,
-      status: "connected",
-      backendOptions: [],
-      chatSessions: [],
-    });
-    assert.equal(acpChat.reply.placeholder, "询问当前 ACP 后端...");
-    assert.equal(acpChat.context.statusLabel, "已连接");
-
-    const autoApprovePanel = model.projectAcpChatPanelSnapshot({
-      labels: {
-        assistantPanel: {
-          actions: {
-            autoApproveAcpPermissions: "自动批准",
-            autoApproveAcpPermissionsOn: "自动批准已开启",
-            autoApproveAcpPermissionsOff: "自动批准已关闭",
           },
         },
-      },
-      status: "connected",
-      sessionId: "session-auto-approve",
-      activeBackendId: "acp-test",
-      activeConversationId: "conversation-test",
-      autoApproveAcpPermissions: true,
-      backendOptions: [],
-      chatSessions: [],
-    });
-    const autoApproveAction = autoApprovePanel.context.actions.find(
-      (action: any) => action.action === "set-auto-approve-permissions",
-    );
-    assert.equal(autoApproveAction.kind, "switch");
-    assert.isTrue(autoApproveAction.checked);
-    assert.equal(autoApproveAction.label, "自动批准已开启");
-    assert.deepInclude(autoApproveAction.payload, {
-      enabled: false,
-      backendId: "acp-test",
-      conversationId: "conversation-test",
-    });
-
-    const placeholderAutoApprovePanel = model.projectAcpChatPanelSnapshot({
-      labels: {
-        assistantPanel: {
-          actions: {
-            autoApproveAcpPermissions: "自动批准",
-            autoApproveAcpPermissionsOn: "自动批准已开启",
-            autoApproveAcpPermissionsOff: "自动批准已关闭",
-          },
-        },
-      },
-      status: "idle",
-      activeBackendId: "acp-test",
-      activeConversationId: "",
-      autoApproveAcpPermissions: false,
-      backendOptions: [],
-      chatSessions: [],
-    });
-    const placeholderAutoApproveAction =
-      placeholderAutoApprovePanel.context.actions.find(
-        (action: any) => action.action === "set-auto-approve-permissions",
-      );
-    assert.equal(placeholderAutoApproveAction.kind, "switch");
-    assert.isFalse(placeholderAutoApproveAction.checked);
-    assert.isFalse(placeholderAutoApproveAction.enabled);
-    assert.deepInclude(placeholderAutoApproveAction.payload, {
-      enabled: true,
-      backendId: "acp-test",
-      conversationId: "",
-    });
-
-    const backendlessAutoApprovePanel = model.projectAcpChatPanelSnapshot({
-      labels: placeholderAutoApprovePanel.labels,
-      status: "idle",
-      activeBackendId: "",
-      activeConversationId: "",
-      autoApproveAcpPermissions: false,
-      backendOptions: [],
-      chatSessions: [],
-    });
-    const backendlessAutoApproveAction =
-      backendlessAutoApprovePanel.context.actions.find(
-        (action: any) => action.action === "set-auto-approve-permissions",
-      );
-    assert.isFalse(backendlessAutoApproveAction.enabled);
-  });
-
-  it("projects ACP Chat auto-approval state through the sidebar view snapshot", function () {
-    const snapshot = {
-      ...createEmptyAcpConversationSnapshot(),
-      backendId: "acp-test",
-      conversationId: "conversation-test",
-      autoApproveAcpPermissions: true,
-    };
-
-    const view = buildAcpSidebarViewSnapshot({
-      target: "library",
-      snapshot,
-      frontendSnapshot: {
-        activeBackendId: "acp-test",
-        activeConversationId: "conversation-test",
-        backends: [],
-        backendChatSessions: [],
-        chatSessions: [],
-        connectedCount: 0,
-        errorCount: 0,
-        totalMessageCount: 0,
-      },
-    });
-
-    assert.isTrue(view.autoApproveAcpPermissions);
-  });
-
-  it("wires ACP Chat auto-approval switch state through the child panel", async function () {
-    const [acpChatJs, acpSidebarModel] = await Promise.all([
-      readProjectFile("addon/content/sidebar/acp-chat.js"),
-      readProjectFile("src/modules/acpSidebarModel.ts"),
-    ]);
-
-    assert.include(acpSidebarModel, "autoApproveAcpPermissions");
-    assert.include(acpChatJs, '"set-auto-approve-permissions"');
-    assert.include(acpChatJs, "const enabled = data.enabled === true");
-    assert.include(acpChatJs, 'sendAction("set-auto-approve-permissions"');
-    assert.notInclude(
-      acpChatJs,
-      "snapshot.autoApproveAcpPermissions = enabled",
-    );
-  });
-
-  it("localizes the Assistant interaction status area from the conversation view", async function () {
-    const conversationView = await loadAssistantConversationViewForSmoke();
-    const model = await loadAssistantPanelModelForSmoke({ conversationView });
-    const labels = {
-      interaction: {
-        agentWorkingMessage: "Agent 正在处理",
-        agentRepairingMessage: "Agent 正在修复输出",
-        runResultReady: "结果已就绪",
-        runCanceledContinue: "任务已取消",
-      },
-    };
-
-    const chatPanel = model.projectAcpChatPanelSnapshot({
-      labels,
-      status: "connected",
-      busy: true,
-      sessionId: "session-localized-working",
-      backendOptions: [],
-      chatSessions: [],
-    });
-    assert.equal(chatPanel.interaction.kind, "running");
-    assert.equal(chatPanel.interaction.message, "Agent 正在处理");
-
-    const repairingPanel = model.projectAcpSkillRunPanelSnapshot({
-      labels,
-      selectedRun: {
-        requestId: "repairing-run",
-        status: "repairing",
-      },
-      runs: [{ requestId: "repairing-run", status: "repairing" }],
-    });
-    assert.equal(repairingPanel.interaction.kind, "running");
-    assert.equal(repairingPanel.interaction.message, "Agent 正在修复输出");
-
-    const completedPanel = model.projectAcpSkillRunPanelSnapshot({
-      labels,
-      selectedRun: {
-        requestId: "completed-run",
-        status: "succeeded",
-      },
-      runs: [{ requestId: "completed-run", status: "succeeded" }],
-    });
-    assert.equal(completedPanel.interaction.kind, "completed");
-    assert.equal(completedPanel.interaction.message, "结果已就绪");
-  });
-
-  it("defines Products dashboard locale keys in all active locales", async function () {
-    const locales = await Promise.all(
-      ["en-US", "zh-CN", "fr-FR", "ja-JP"].map(async (locale) => ({
-        locale,
-        text: await readProjectFile(`addon/locale/${locale}/addon.ftl`),
-      })),
-    );
-    const requiredKeys = [
-      "task-dashboard-tab-products",
-      "task-dashboard-products-empty",
-      "task-dashboard-products-open-workspace",
-      "task-dashboard-products-open-run",
-      "task-dashboard-products-remove",
-      "task-dashboard-products-preview-unavailable",
-      "task-dashboard-products-list-title",
-      "task-dashboard-products-list-collapse",
-      "task-dashboard-products-list-expand",
-      "task-dashboard-products-list-rail",
-      "task-dashboard-products-section-feedback",
-      "task-dashboard-products-viewer-wrap",
-      "task-dashboard-products-viewer-copy",
-      "task-dashboard-products-viewer-copied",
-      "task-dashboard-products-viewer-copy-failed",
-      "task-dashboard-feedback-select-all",
-      "task-dashboard-feedback-export-selected",
-      "task-dashboard-feedback-delete-selected",
-      "task-dashboard-feedback-delete-all",
-      "task-dashboard-feedback-delete-selected-confirm",
-      "task-dashboard-feedback-delete-all-confirm",
-    ];
-    locales.forEach(({ locale, text }) => {
-      requiredKeys.forEach((key) => {
-        assert.include(text, `${key} =`, `${locale} should define ${key}`);
-      });
-    });
-  });
-
-  it("uses Assistant workspace status tones for Dashboard badges", async function () {
-    const dashboardApp = await readProjectFile(
-      "addon/content/dashboard/app.js",
-    );
-    const dashboardCss = await readProjectFile(
-      "addon/content/dashboard/styles.css",
-    );
-    const backendManagerCss = await readProjectFile(
-      "addon/content/dashboard/backend-manager.css",
-    );
-    const taskManagerDialogTs = await readProjectFile(
-      "src/modules/taskManagerDialog.ts",
-    );
-    const assistantCss = await readProjectFile(
-      "addon/content/shared/assistant/assistant-panel-shared.css",
-    );
-    const renderLogLevelBadgeBlock = dashboardApp.slice(
-      dashboardApp.indexOf("function renderLogLevelBadge"),
-      dashboardApp.indexOf("function renderTaskTable"),
-    );
-    const sharedStatusColorSnippets = [
-      "background: #eef8fb;",
-      "color: #136f8f;",
-      "background: #fff7e8;",
-      "background: #eef9f5;",
-      "background: #fff1ee;",
-    ];
-
-    assert.include(dashboardApp, "function dashboardStatusTone(stateValue)");
-    assert.include(dashboardApp, '"is-" + dashboardStatusTone(stateValue)');
-    assert.include(dashboardApp, "DASHBOARD_BUSY_STATUS_TOKENS.has(token)");
-    assert.notInclude(renderLogLevelBadgeBlock, "renderStatusBadge(");
-    assert.include(renderLogLevelBadgeBlock, "log-level-badge--");
-    assert.include(dashboardCss, ".log-level-badge");
-    assert.include(dashboardCss, "border-radius: 999px;");
-    assert.include(dashboardCss, "display: inline-flex;");
-    assert.include(
-      taskManagerDialogTs,
-      'const DEFAULT_RUNTIME_LOG_LEVELS = ["info", "warn", "error"];',
-    );
-    assert.include(
-      taskManagerDialogTs,
-      "runtimeLogFilters: createDefaultRuntimeLogFilters()",
-    );
-    assert.include(taskManagerDialogTs, "filters: runtimeLogFilters");
-    assert.include(
-      assistantCss,
-      ".assistant-workspace-drawer-task-main-status.is-accent",
-    );
-    assert.include(dashboardCss, ".status.is-accent");
-    assert.include(dashboardCss, ".status.is-warning");
-    assert.include(dashboardCss, ".status.is-success");
-    assert.include(dashboardCss, ".status.is-error");
-    sharedStatusColorSnippets.forEach((snippet) => {
-      assert.include(assistantCss, snippet);
-      assert.include(dashboardCss, snippet);
-    });
-    assert.include(backendManagerCss, ".backend-status-chip.status-testing");
-    assert.include(backendManagerCss, "background: #eef8fb;");
-    assert.include(backendManagerCss, "border-color: #b9dce7;");
-  });
-
-  it("wires Dashboard Products tree and rich preview assets", async function () {
-    const html = await readProjectFile("addon/content/dashboard/index.html");
-    const app = await readProjectFile("addon/content/dashboard/app.js");
-    const css = await readProjectFile("addon/content/dashboard/styles.css");
-    const iconsCss = await readProjectFile("addon/content/shared/icons.css");
-    const taskManagerDialogTs = await readProjectFile(
-      "src/modules/taskManagerDialog.ts",
-    );
-    const productIconMapper = app.slice(
-      app.indexOf("function productFileTypeIconClass"),
-      app.indexOf("function resolveHighlightLanguage"),
-    );
-
-    assert.include(html, "../shared/vendor/katex/katex.min.css");
-    assert.include(html, "../shared/vendor/markdown-it/markdown-it.min.js");
-    assert.include(html, "../shared/vendor/markdown-it-texmath/texmath.min.js");
-    assert.include(html, "../shared/vendor/highlight/highlight.min.js");
-    assert.include(html, "../shared/vendor/highlight/styles/github.min.css");
-
-    assert.include(app, "productsListCollapsed");
-    assert.include(app, 'labelText(labels, "feedbackSelectAll")');
-    assert.include(app, 'labelText(labels, "feedbackDeleteSelected")');
-    assert.include(app, 'labelText(labels, "feedbackDeleteAll")');
-    assert.include(app, 'sendAction("toggle-all-feedback-products-selected"');
-    assert.include(app, 'sendAction("delete-selected-feedback")');
-    assert.include(app, 'sendAction("delete-all-feedback")');
-    assert.include(app, "selectedVisibleFeedbackCount");
-    assert.include(app, "selectAllCheckbox.indeterminate");
-    assert.include(css, ".feedback-select-all");
-    assert.include(
-      taskManagerDialogTs,
-      'action === "toggle-all-feedback-products-selected"',
-    );
-    assert.include(
-      taskManagerDialogTs,
-      'action === "delete-selected-feedback"',
-    );
-    assert.include(taskManagerDialogTs, 'action === "delete-all-feedback"');
-    assert.include(taskManagerDialogTs, "listSkillRunFeedbackProducts(");
-    assert.include(app, "buildProductAssetTree");
-    assert.include(app, "renderProductTreeNode");
-    assert.include(app, "productExpandedTreePathsById");
-    assert.include(app, "html: false");
-    assert.include(app, "highlightCode");
-    assert.include(app, "window.hljs");
-    assert.include(app, "splitPreviewLines");
-    assert.include(app, "product-code-line-number");
-    assert.include(app, 'wrapButton.setAttribute("aria-pressed"');
-    assert.include(app, "copyTextToClipboard");
-    assert.include(productIconMapper, "zs-icon-product-table");
-    assert.include(productIconMapper, "zs-icon-product-article");
-    assert.include(productIconMapper, "zs-icon-product-data");
-    assert.include(productIconMapper, "zs-icon-product-code");
-    assert.include(productIconMapper, "zs-icon-product-file");
-    assert.notInclude(productIconMapper, "zs-icon-description");
-    assert.notInclude(productIconMapper, "zs-icon-terminal");
-    assert.include(app, "zs-icon-product-folder-open");
-    assert.notInclude(app, "product-tree-expander");
-
-    assert.include(css, ".products-layout-collapsed");
-    assert.include(css, ".product-tree-folder");
-    assert.include(css, ".product-tree-file");
-    assert.include(css, ".product-tree-folder-icon");
-    assert.include(css, ".product-preview-markdown table");
-    assert.include(css, ".product-code-viewer.wrap-lines");
-    assert.include(css, ".product-code-line-number");
-    assert.include(css, "user-select: none;");
-    assert.include(css, "overscroll-behavior: contain;");
-    assert.include(css, "white-space: pre-wrap;");
-    assert.include(iconsCss, ".zs-icon-product-folder");
-    assert.include(iconsCss, ".zs-icon-product-code");
-    assert.include(taskManagerDialogTs, 'product?.cacheDir || ""');
-    assert.notInclude(
-      taskManagerDialogTs,
-      "product?.workspaceDir || product?.cacheDir",
-    );
-  });
-
-  it("governs Dashboard refreshes with surface signatures and stable shell rendering", async function () {
-    const dialog = await readProjectFile("src/modules/taskManagerDialog.ts");
-    const harness = await readProjectFile(
-      "src/modules/harness/dashboardReadonlyModel.ts",
-    );
-    const app = await readProjectFile("addon/content/dashboard/app.js");
-
-    assert.include(dialog, "surfaceSignatures?: {");
-    assert.include(dialog, "function finalizeDashboardSnapshot");
-    assert.include(dialog, "dashboardSelectedSurfaceKey(snapshot)");
-    assert.include(dialog, "lastPostedDashboardSignatures");
-    assert.include(dialog, "isNoisyRefreshReason(reason)");
-    assert.include(dialog, "signatures.selectedSurface ===");
-    assert.include(dialog, 'void enqueueRefresh("dashboard:snapshot", reason)');
-
-    assert.include(harness, "function dashboardSurfaceSignatures");
-    assert.include(harness, "snapshotPayload.surfaceSignatures =");
-
-    assert.include(app, "lastChromeSignature");
-    assert.include(app, "function ensureDashboardShell(app)");
-    assert.include(app, "shouldSkipUnchangedSnapshotRender(nextSnapshot)");
-    assert.include(app, "rememberSnapshotRenderSignature(snapshot)");
-    assert.include(app, 'main.className = "main"');
-    assert.notInclude(app, "clearNode(app);\n    if (!snapshot)");
-  });
-
-  it("keeps managed ACP Chat selectors populated with typed payload keys", async function () {
-    const model = await loadAssistantPanelModelForSmoke();
-    const panel = model.projectAcpChatPanelSnapshot({
-      status: "connected",
-      sessionId: "session-1",
-      activeBackendId: "backend-a",
-      backendOptions: [
-        { backendId: "backend-a", displayName: "Backend A" },
-        { backendId: "backend-b", displayName: "Backend B" },
-      ],
-      activeConversationId: "conversation-a",
-      chatSessions: [
-        {
-          conversationId: "conversation-a",
-          backendId: "backend-a",
-          title: "A",
-        },
-        {
-          conversationId: "conversation-b",
-          backendId: "backend-a",
-          title: "B",
-        },
-      ],
-      modeOptions: [{ id: "bypassPermissions", label: "Bypass permissions" }],
-      currentMode: { id: "bypassPermissions", label: "Bypass permissions" },
-      displayModelOptions: [{ id: "opus", label: "Opus" }],
-      currentDisplayModel: { id: "opus", label: "Opus" },
-      reasoningEffortOptions: [
-        { id: "medium", label: "Medium" },
-        { id: "high", label: "High" },
-      ],
-      currentReasoningEffort: { id: "high", label: "High" },
-      authMethods: [],
-      items: [],
-      labels: {},
-    });
-    const backendSelector = panel.context.selectors.find(
-      (entry: any) => entry.id === "backend",
-    );
-    assert.deepEqual(
-      backendSelector.options.map((entry: any) => [
-        entry.value,
-        entry.backendId,
-      ]),
-      [
-        ["backend-a", "backend-a"],
-        ["backend-b", "backend-b"],
-      ],
-    );
-    assert.equal(backendSelector.options[0].label, "Backend A");
-    assert.equal(backendSelector.options[1].label, "Backend B");
-    const backendStatusPanel = model.projectAcpChatPanelSnapshot({
-      status: "idle",
-      activeBackendId: "backend-a",
-      backendOptions: [
-        {
-          backendId: "backend-a",
-          displayName: "Backend A",
-          statusLabel: "真实状态",
-        },
-      ],
-      activeConversationId: "conversation-a",
-      chatSessions: [],
-      items: [],
-      labels: {},
-    });
-    const backendStatusSelector = backendStatusPanel.context.selectors.find(
-      (entry: any) => entry.id === "backend",
-    );
-    assert.equal(backendStatusSelector.options[0].label, "Backend A");
-    const rawBackendStatusPanel = model.projectAcpChatPanelSnapshot({
-      status: "idle",
-      activeBackendId: "backend-a",
-      backendOptions: [
-        {
-          backendId: "backend-a",
-          displayName: "Backend A",
-          status: "connected",
-        },
-      ],
-      activeConversationId: "conversation-a",
-      chatSessions: [],
-      items: [],
-      labels: {},
-    });
-    const rawBackendStatusSelector =
-      rawBackendStatusPanel.context.selectors.find(
-        (entry: any) => entry.id === "backend",
-      );
-    assert.equal(rawBackendStatusSelector.options[0].label, "Backend A");
-    const conversationSelector = panel.context.selectors.find(
-      (entry: any) => entry.id === "conversation",
-    );
-    assert.deepEqual(
-      conversationSelector.options.map((entry: any) => [
-        entry.value,
-        entry.backendId,
-      ]),
-      [
-        ["conversation-a", "backend-a"],
-        ["conversation-b", "backend-a"],
-      ],
-    );
-    assert.equal(panel.drawers.layout, "workspace-task-drawer");
-    assert.equal(panel.drawers.sections[0].id, "sessions");
-    assert.equal(
-      panel.drawers.sections[0].groups[0].backendDisplayName,
-      "Backend A",
-    );
-    assert.equal(
-      panel.drawers.sections[0].groups[0].activeTasks[0].conversationId,
-      "conversation-a",
-    );
-    assert.equal(
-      panel.drawers.sections[0].groups[0].activeTasks[0].showBackendStatusBadge,
-      false,
-    );
-    assert.equal(
-      panel.drawers.sections[0].groups[0].activeTasks[0].showApplyStatusBadge,
-      false,
-    );
-    assert.equal(
-      panel.drawers.sections[0].groups[0].activeTasks[0].action,
-      "set-active-conversation",
-    );
-    assert.deepEqual(
-      panel.drawers.sections[0].groups[0].activeTasks[0].payload,
-      {
-        conversationId: "conversation-a",
-        backendId: "backend-a",
-      },
-    );
-    assert.deepEqual(
-      panel.drawers.sections[0].groups[0].activeTasks[0].itemActions[0].payload,
-      {
-        conversationId: "conversation-a",
-        backendId: "backend-a",
-      },
-    );
-    assert.equal(
-      panel.drawers.sections[0].groups[0].activeTasks[0].itemActions[0].action,
-      "archive-conversation",
-    );
-    const controls = panel.reply.controls;
-    assert.lengthOf(controls, 3);
-    assert.deepEqual(
-      controls.map((entry: any) => [
-        entry.id,
-        entry.value,
-        entry.payloadKey,
-        entry.options.length,
-      ]),
-      [
-        ["mode", "bypassPermissions", "modeId", 1],
-        ["model", "opus", "modelId", 1],
-        ["reasoning", "high", "effortId", 2],
-      ],
-    );
-    assert.deepEqual(
-      controls.map((entry: any) => [entry.id, entry.disabled]),
-      [
-        ["mode", false],
-        ["model", false],
-        ["reasoning", false],
-      ],
-    );
-
-    const remoteOnlyPanel = model.projectAcpChatPanelSnapshot({
-      status: "idle",
-      sessionId: "",
-      remoteSessionId: "remote-session-1",
-      activeBackendId: "backend-a",
-      backendOptions: [
-        { backendId: "backend-a", displayName: "Backend A", connected: false },
-      ],
-      activeConversationId: "conversation-a",
-      chatSessions: [
-        {
-          conversationId: "conversation-a",
-          backendId: "backend-a",
-          title: "A",
-        },
-      ],
-      authMethods: [{ id: "device", name: "Device login" }],
-      items: [],
-      labels: {},
-    });
-    const remoteActions = Object.fromEntries(
-      remoteOnlyPanel.context.actions.map((entry: any) => [
-        entry.id || entry.action,
-        entry,
-      ]),
-    );
-    assert.equal(remoteActions.connect.enabled, true);
-    assert.equal(remoteActions.disconnect.enabled, false);
-    assert.equal(remoteActions.authenticate.enabled, false);
-    assert.equal(remoteActions.connect.payload.backendId, "backend-a");
-
-    const noBackendPanel = model.projectAcpChatPanelSnapshot({
-      backendAvailability: "none",
-      conversationAvailability: "none",
-      activeBackendId: "",
-      backendOptions: [],
-      activeConversationId: "",
-      chatSessions: [],
-      items: [],
-      labels: {},
-    });
-    const noBackendActions = Object.fromEntries(
-      noBackendPanel.context.actions.map((entry: any) => [
-        entry.id || entry.action,
-        entry,
-      ]),
-    );
-    const noBackendToolbar = Object.fromEntries(
-      noBackendPanel.actions.toolbar.map((entry: any) => [
-        entry.id || entry.action,
-        entry,
-      ]),
-    );
-    assert.equal(noBackendPanel.context.selectors[0].disabled, true);
-    assert.equal(noBackendPanel.context.selectors[1].disabled, true);
-    assert.equal(noBackendActions["new-conversation"].enabled, false);
-    assert.equal(noBackendActions.connect.enabled, false);
-    assert.equal(noBackendActions.disconnect.enabled, false);
-    assert.equal(noBackendActions.authenticate.enabled, false);
-    assert.equal(
-      noBackendActions["set-auto-approve-permissions"].enabled,
-      false,
-    );
-    assert.equal(noBackendToolbar["open-context-drawer"].enabled, true);
-    assert.equal(noBackendToolbar.openDetails.enabled, true);
-    assert.equal(noBackendToolbar["open-backend-manager"].enabled, true);
-    assert.equal(noBackendToolbar["set-execution-display-mode"].enabled, true);
-    assert.equal(noBackendPanel.reply.enabled, false);
-    assert.equal(noBackendPanel.reply.inputEnabled, false);
-    assert.isTrue(
-      noBackendPanel.reply.controls.every((entry: any) => entry.disabled),
-    );
-
-    const emptyConversationPanel = model.projectAcpChatPanelSnapshot({
-      backendAvailability: "selected",
-      conversationAvailability: "none",
-      activeBackendId: "backend-a",
-      backendOptions: [
-        { backendId: "backend-a", displayName: "Backend A", connected: false },
-      ],
-      activeConversationId: "",
-      chatSessions: [],
-      authMethods: [{ id: "device", name: "Device login" }],
-      items: [],
-      labels: {},
-    });
-    const emptyConversationActions = Object.fromEntries(
-      emptyConversationPanel.context.actions.map((entry: any) => [
-        entry.id || entry.action,
-        entry,
-      ]),
-    );
-    assert.equal(emptyConversationPanel.context.selectors[0].disabled, false);
-    assert.equal(emptyConversationPanel.context.selectors[1].disabled, true);
-    assert.equal(emptyConversationActions["new-conversation"].enabled, true);
-    assert.equal(emptyConversationActions.connect.enabled, true);
-    assert.deepEqual(emptyConversationActions.connect.payload, {
-      backendId: "backend-a",
-      conversationId: "",
-    });
-    assert.equal(emptyConversationActions.disconnect.enabled, false);
-    assert.equal(emptyConversationActions.authenticate.enabled, false);
-    assert.equal(
-      emptyConversationActions["set-auto-approve-permissions"].enabled,
-      false,
-    );
-    assert.equal(emptyConversationPanel.reply.enabled, false);
-    assert.equal(emptyConversationPanel.reply.inputEnabled, false);
-
-    const ssotConnectingPanel = model.projectAcpChatPanelSnapshot({
-      status: "initializing",
-      activeBackendId: "backend-a",
-      backendOptions: [{ backendId: "backend-a", displayName: "Backend A" }],
-      activeConversationId: "conversation-a",
-      chatSessions: [
-        {
-          conversationId: "conversation-a",
-          backendId: "backend-a",
-          title: "A",
-        },
-      ],
-      items: [],
-      labels: {
-        actions: { connecting: "连接中..." },
-        status: { connecting: "连接中" },
-      },
-    });
-    const ssotConnectingActions = Object.fromEntries(
-      ssotConnectingPanel.context.actions.map((entry: any) => [
-        entry.id || entry.action,
-        entry,
-      ]),
-    );
-    assert.equal(ssotConnectingPanel.context.status, "initializing");
-    assert.equal(ssotConnectingActions.connect.enabled, false);
-    assert.equal(ssotConnectingActions.connect.label, "连接中...");
-    assert.equal(
-      ssotConnectingPanel.context.selectors[0].options[0].label,
-      "Backend A",
-    );
-
-    const ssotDisconnectingPanel = model.projectAcpChatPanelSnapshot({
-      status: "disconnecting",
-      sessionId: "session-1",
-      activeBackendId: "backend-a",
-      backendOptions: [{ backendId: "backend-a", displayName: "Backend A" }],
-      activeConversationId: "conversation-a",
-      chatSessions: [
-        {
-          conversationId: "conversation-a",
-          backendId: "backend-a",
-          title: "A",
-        },
-      ],
-      items: [],
-      labels: {
-        actions: { disconnecting: "断开中..." },
-        status: { disconnecting: "断开中" },
-      },
-    });
-    const ssotDisconnectingActions = Object.fromEntries(
-      ssotDisconnectingPanel.context.actions.map((entry: any) => [
-        entry.id || entry.action,
-        entry,
-      ]),
-    );
-    assert.equal(ssotDisconnectingPanel.context.status, "disconnecting");
-    assert.equal(ssotDisconnectingActions.disconnect.enabled, false);
-    assert.equal(ssotDisconnectingActions.disconnect.label, "断开中...");
-    assert.equal(
-      ssotDisconnectingPanel.lifecycle.connectionState,
-      "disconnecting",
-    );
-    assert.equal(
-      ssotDisconnectingPanel.context.selectors[0].options[0].label,
-      "Backend A",
-    );
-
-    const authRequiredPanel = model.projectAcpChatPanelSnapshot({
-      status: "auth-required",
-      sessionId: "",
-      activeBackendId: "backend-a",
-      backendOptions: [{ backendId: "backend-a", displayName: "Backend A" }],
-      authMethods: [{ id: "device", name: "Device login" }],
-      items: [],
-      labels: {},
-    });
-    const authActions = Object.fromEntries(
-      authRequiredPanel.context.actions.map((entry: any) => [
-        entry.id || entry.action,
-        entry,
-      ]),
-    );
-    assert.equal(authActions.authenticate.enabled, true);
-    assert.equal(authActions.authenticate.payload.backendId, "backend-a");
-    assert.equal(authActions.authenticate.payload.methodId, "device");
-
-    const connectingPanel = model.projectAcpChatPanelSnapshot({
-      status: "initializing",
-      activeBackendId: "backend-a",
-      backendOptions: [{ backendId: "backend-a", displayName: "Backend A" }],
-      mcpHealth: { state: "listening", severity: "ok", summary: "MCP ready" },
-      hostBridge: {
-        status: "running",
-        endpoint: "http://127.0.0.1:26570/bridge/v1",
-        portMode: "pinned",
-      },
-      items: [],
-      labels: {
-        fields: { connection: "连接", hostBridge: "宿主桥" },
-        status: { connecting: "连接中", ready: "就绪" },
-      },
-    });
-    assert.equal(connectingPanel.interaction.kind, "hidden");
-    assert.deepEqual(
-      connectingPanel.context.indicators.map((entry: any) => [
-        entry.id,
-        entry.label,
-        entry.value,
-        entry.tone,
-      ]),
-      [
-        ["connection", "连接", "连接中", "accent"],
-        ["host-bridge", "宿主桥", "就绪", "success"],
-      ],
-    );
-    assert.notInclude(
-      connectingPanel.context.indicators.map((entry: any) => entry.id),
-      "mcp",
-    );
-
-    const busyPanel = model.projectAcpChatPanelSnapshot({
-      status: "connected",
-      busy: true,
-      sessionId: "session-1",
-      activeBackendId: "backend-a",
-      backendOptions: [{ backendId: "backend-a", displayName: "Backend A" }],
-      modeOptions: [{ id: "plan", label: "Plan" }],
-      currentMode: { id: "plan", label: "Plan" },
-      displayModelOptions: [{ id: "opus", label: "Opus" }],
-      currentDisplayModel: { id: "opus", label: "Opus" },
-      reasoningEffortOptions: [
-        { id: "medium", label: "Medium" },
-        { id: "high", label: "High" },
-      ],
-      currentReasoningEffort: { id: "high", label: "High" },
-      items: [],
-      labels: {},
-    });
-    assert.equal(busyPanel.interaction.kind, "running");
-    assert.equal(busyPanel.reply.enabled, true);
-    assert.equal(busyPanel.reply.inputEnabled, false);
-    assert.equal(busyPanel.reply.action, "cancel");
-    assert.equal(busyPanel.reply.tone, "danger");
-    assert.equal(busyPanel.reply.submitLabel, "Cancel");
-    assert.deepEqual(
-      busyPanel.reply.controls.map((entry: any) => [entry.id, entry.disabled]),
-      [
-        ["mode", true],
-        ["model", true],
-        ["reasoning", true],
-      ],
-    );
-
-    const cancellingPanel = model.projectAcpChatPanelSnapshot({
-      status: "prompting",
-      busy: true,
-      promptInterruptState: "requested",
-      sessionId: "session-1",
-      activeBackendId: "backend-a",
-      backendOptions: [{ backendId: "backend-a", displayName: "Backend A" }],
-      modeOptions: [{ id: "plan", label: "Plan" }],
-      currentMode: { id: "plan", label: "Plan" },
-      displayModelOptions: [{ id: "opus", label: "Opus" }],
-      currentDisplayModel: { id: "opus", label: "Opus" },
-      reasoningEffortOptions: [{ id: "high", label: "High" }],
-      currentReasoningEffort: { id: "high", label: "High" },
-      items: [],
-      labels: { actions: { cancelling: "Stopping..." } },
-    });
-    assert.equal(cancellingPanel.lifecycle.replyState, "cancelling");
-    assert.equal(cancellingPanel.reply.enabled, false);
-    assert.equal(cancellingPanel.reply.inputEnabled, false);
-    assert.equal(cancellingPanel.reply.action, "cancel");
-    assert.equal(cancellingPanel.reply.submitLabel, "Stopping...");
-    assert.deepEqual(
-      cancellingPanel.reply.controls.map((entry: any) => [
-        entry.id,
-        entry.disabled,
-      ]),
-      [
-        ["mode", true],
-        ["model", true],
-        ["reasoning", true],
-      ],
-    );
-
-    const skillPanel = model.projectAcpSkillRunPanelSnapshot({
-      labels: {
-        fields: { connection: "连接", hostBridge: "宿主桥" },
-        status: {
-          connected: "已连接",
-          fallback: "备用端口",
-          running: "运行中",
-        },
-      },
-      mcpHealth: { state: "listening", severity: "ok", summary: "MCP ready" },
-      hostBridge: {
-        status: "running",
-        endpoint: "http://127.0.0.1:26571/bridge/v1",
-        portMode: "fallback",
-        lastRecoveryReason: "Pinned Host Bridge port was unavailable.",
-      },
-      selectedRun: {
-        requestId: "acp-skill-1",
-        status: "running",
-        conversationState: "active",
-        activePrompt: true,
-        sessionId: "session-1",
-        taskName: "Selected Paper Title",
-        workflowLabel: "Digest",
-        skillName: "Literature Analysis",
-        skillId: "literature-analysis",
-        acpModeId: "plan",
-        acpModelId: "opus",
-        acpReasoningEffort: "high",
-        acpRawModelId: "opus@high",
-        transcriptItems: [],
-      },
-      selectedRuntimeOptions: {
-        modeOptions: [{ id: "plan", label: "Plan" }],
-        displayModelOptions: [{ id: "opus", label: "Opus" }],
-        modelOptions: [
-          { id: "opus@medium", label: "Opus Medium" },
-          { id: "opus@high", label: "Opus High" },
-        ],
-        reasoningEffortOptions: [
-          { id: "medium", label: "Medium" },
-          { id: "high", label: "High" },
-        ],
-        currentMode: { id: "plan", label: "Plan" },
-        currentDisplayModel: { id: "opus", label: "Opus" },
-        currentReasoningEffort: { id: "high", label: "High" },
-      },
-      runs: [
-        {
-          requestId: "acp-skill-1",
-          status: "running",
-          taskName: "Selected Paper Title",
-          workflowLabel: "Digest",
-          skillId: "literature-analysis",
-          backendId: "backend-a",
-          backendLabel: "Backend A",
-        },
-        {
-          requestId: "acp-skill-2",
-          status: "succeeded",
-          taskName: "Completed Paper Title",
-          workflowLabel: "Explain",
-          skillId: "literature-explainer",
-          backendId: "backend-a",
-          backendLabel: "Backend A",
-        },
-      ],
-      logs: [],
-    });
-    assert.notInclude(
-      skillPanel.context.metadata.map((entry: any) => entry.key),
-      "mode",
-    );
-    assert.notInclude(
-      skillPanel.context.metadata.map((entry: any) => entry.key),
-      "model",
-    );
-    assert.deepEqual(
-      skillPanel.context.indicators.map((entry: any) => [
-        entry.id,
-        entry.label,
-        entry.value,
-        entry.tone,
-      ]),
-      [
-        ["connection", "连接", "已连接", "success"],
-        ["host-bridge", "宿主桥", "备用端口", "warning"],
-      ],
-    );
-    assert.notInclude(
-      skillPanel.context.indicators.map((entry: any) => entry.id),
-      "mcp",
-    );
-    assert.equal(skillPanel.context.title, "Selected Paper Title");
-    assert.equal(skillPanel.context.statusLabel, "运行中");
-    assert.equal(skillPanel.context.subtitle, "Literature Analysis");
-    assert.equal(skillPanel.drawers.layout, "workspace-task-drawer");
-    assert.equal(skillPanel.drawers.sections[0].id, "running");
-    assert.equal(skillPanel.drawers.sections[1].id, "completed");
-    assert.equal(skillPanel.drawers.sections[1].collapsed, true);
-    assert.equal(
-      skillPanel.drawers.sections[0].groups[0].backendDisplayName,
-      "Backend A",
-    );
-    assert.equal(
-      skillPanel.drawers.sections[0].groups[0].activeTasks[0].requestId,
-      "acp-skill-1",
-    );
-    assert.equal(
-      skillPanel.drawers.sections[0].groups[0].activeTasks[0].title,
-      "Selected Paper Title",
-    );
-    assert.equal(
-      skillPanel.drawers.sections[0].groups[0].activeTasks[0].workflowLabel,
-      "literature-analysis",
-    );
-    assert.equal(
-      skillPanel.drawers.sections[0].groups[0].activeTasks[0].action,
-      "select-run",
-    );
-    assert.equal(
-      skillPanel.drawers.sections[0].groups[0].activeTasks[0].attention,
-      "",
-    );
-    assert.deepEqual(
-      skillPanel.drawers.sections[0].groups[0].activeTasks[0].payload,
-      {
-        requestId: "acp-skill-1",
-      },
-    );
-    assert.isUndefined(
-      skillPanel.drawers.sections[0].groups[0].activeTasks[0].itemActions[0],
-    );
-    assert.equal(
-      skillPanel.drawers.sections[1].groups[0].finishedTasks[0].requestId,
-      "acp-skill-2",
-    );
-    assert.equal(
-      skillPanel.drawers.sections[1].groups[0].finishedTasks[0].title,
-      "Completed Paper Title",
-    );
-    assert.equal(
-      skillPanel.drawers.sections[1].groups[0].finishedTasks[0].workflowLabel,
-      "literature-explainer",
-    );
-    assert.equal(
-      skillPanel.drawers.sections[1].groups[0].finishedTasks[0].itemActions[0]
-        .action,
-      "archive-run",
-    );
-    assert.deepEqual(
-      skillPanel.drawers.sections[1].groups[0].finishedTasks[0].itemActions[0]
-        .payload,
-      {
-        requestId: "acp-skill-2",
-      },
-    );
-    const skillActions = Object.fromEntries(
-      skillPanel.context.actions.map((entry: any) => [
-        entry.id || entry.action,
-        entry,
-      ]),
-    );
-    assert.equal(skillActions["connect-run"].enabled, false);
-    assert.equal(skillActions["disconnect-run"].enabled, true);
-    assert.equal(skillActions["cancel-run"].enabled, true);
-    assert.equal(skillActions["cancel-run"].label, "Cancel Task");
-    assert.notProperty(skillActions, "end-session");
-    assert.equal(skillPanel.reply.enabled, true);
-    assert.equal(skillPanel.reply.inputEnabled, false);
-    assert.equal(skillPanel.reply.action, "interrupt-run-turn");
-    assert.equal(skillPanel.reply.tone, "danger");
-    assert.equal(skillPanel.reply.submitLabel, "Cancel");
-    assert.equal(skillPanel.reply.hint, "");
-    assert.deepEqual(
-      skillPanel.reply.controls.map((entry: any) => [
-        entry.id,
-        entry.value,
-        entry.payloadKey,
-        entry.disabled,
-      ]),
-      [
-        ["mode", "plan", "modeId", false],
-        ["model", "opus", "modelId", true],
-        ["reasoning", "high", "effortId", true],
-      ],
-    );
-
-    const reconnectedWorkingSkillPanel = model.projectAcpSkillRunPanelSnapshot({
-      selectedRun: {
-        requestId: "acp-skill-reconnected",
-        status: "waiting_user",
-        activePrompt: true,
-        conversationRecoveryState: "connected",
-        transcriptItems: [],
-      },
-      runs: [{ requestId: "acp-skill-reconnected", status: "waiting_user" }],
-      logs: [],
-    });
-    assert.equal(reconnectedWorkingSkillPanel.reply.enabled, true);
-    assert.equal(reconnectedWorkingSkillPanel.reply.inputEnabled, false);
-    assert.equal(
-      reconnectedWorkingSkillPanel.reply.action,
-      "interrupt-run-turn",
-    );
-
-    const connectedIdleRunningSkillPanel =
-      model.projectAcpSkillRunPanelSnapshot({
-        selectedRun: {
-          requestId: "acp-skill-connected-idle",
-          status: "running",
-          conversationState: "active",
-          conversationRecoveryState: "connected",
-          activePrompt: false,
-          promptInterruptState: "confirmed",
-          replyState: "idle",
-          sessionId: "session-connected-idle",
-        },
-        selectedTranscriptPage: {
-          requestId: "acp-skill-connected-idle",
-          cursor: 0,
-          total: 1,
-          eventSeq: 1,
-          transcriptRevision: 1,
-          limit: 80,
-          items: [
-            {
-              kind: "status",
-              label: "interrupt-confirmed",
-            },
-          ],
-        },
-        runs: [{ requestId: "acp-skill-connected-idle", status: "running" }],
-        logs: [],
-      });
-    assert.equal(
-      connectedIdleRunningSkillPanel.interaction.kind,
-      "waiting_user",
-    );
-    assert.equal(connectedIdleRunningSkillPanel.reply.enabled, true);
-    assert.equal(connectedIdleRunningSkillPanel.reply.inputEnabled, true);
-    assert.equal(connectedIdleRunningSkillPanel.reply.action, "reply-run");
-
-    const transcriptWaitingSkillPanel = model.projectAcpSkillRunPanelSnapshot({
-      selectedRun: {
-        requestId: "acp-skill-transcript-waiting",
-        status: "running",
-        conversationState: "active",
-        conversationRecoveryState: "connected",
-        activePrompt: false,
-        replyState: "idle",
-        sessionId: "session-transcript-waiting",
-        transcriptItems: [],
-      },
-      runs: [{ requestId: "acp-skill-transcript-waiting", status: "running" }],
-      logs: [],
-    });
-    assert.notEqual(
-      transcriptWaitingSkillPanel.interaction.kind,
-      "waiting_user",
-    );
-    assert.equal(transcriptWaitingSkillPanel.reply.enabled, false);
-    assert.equal(transcriptWaitingSkillPanel.reply.inputEnabled, false);
-
-    const terminalSkillPanel = model.projectAcpSkillRunPanelSnapshot({
-      selectedRun: {
-        requestId: "acp-skill-terminal",
-        status: "succeeded",
-        conversationState: "ended",
-        transcriptItems: [],
-      },
-      runs: [{ requestId: "acp-skill-terminal", status: "succeeded" }],
-      logs: [],
-    });
-    const terminalSkillActions = Object.fromEntries(
-      terminalSkillPanel.context.actions.map((entry: any) => [
-        entry.id || entry.action,
-        entry,
-      ]),
-    );
-    assert.equal(terminalSkillActions["cancel-run"].enabled, false);
-
-    const continuingTerminalSkillPanel = model.projectAcpSkillRunPanelSnapshot({
-      selectedRun: {
-        requestId: "acp-skill-terminal-reply",
-        status: "succeeded",
-        conversationState: "active",
-        activePrompt: true,
-        replyState: "submitted",
-        transcriptItems: [],
-      },
-      runs: [{ requestId: "acp-skill-terminal-reply", status: "succeeded" }],
-      logs: [],
-    });
-    assert.notEqual(continuingTerminalSkillPanel.interaction.kind, "completed");
-
-    const waitingSkillPanel = model.projectAcpSkillRunPanelSnapshot({
-      selectedRun: {
-        requestId: "acp-skill-waiting",
-        status: "waiting_user",
-        conversationState: "active",
-        transcriptItems: [],
-      },
-      runs: [
-        {
-          requestId: "acp-skill-waiting",
-          status: "waiting_user",
-          backendId: "backend-a",
-        },
-      ],
-      logs: [],
-    });
-    assert.equal(
-      waitingSkillPanel.drawers.sections[0].groups[0].activeTasks[0].attention,
-      "warning",
-    );
-    assert.equal(waitingSkillPanel.interaction.kind, "waiting_user");
-    assert.equal(waitingSkillPanel.reply.enabled, true);
-    assert.equal(waitingSkillPanel.reply.inputEnabled, true);
-    assert.equal(waitingSkillPanel.reply.action, "reply-run");
-
-    const pendingRunningSkillPanel = model.projectAcpSkillRunPanelSnapshot({
-      selectedRun: {
-        requestId: "acp-skill-pending-running",
-        status: "running",
-        conversationState: "active",
-        conversationRecoveryState: "connected",
-        activePrompt: false,
-        replyState: "idle",
-        pendingInteraction: {
-          message: "Confirm pending output.",
-          uiHints: { kind: "confirm", prompt: "Confirm?" },
-        },
-        transcriptItems: [],
-      },
-      runs: [
-        {
-          requestId: "acp-skill-pending-running",
-          status: "running",
-          backendId: "backend-a",
-          pendingInteraction: {
-            message: "Confirm pending output.",
-          },
-        },
-      ],
-      logs: [],
-    });
-    assert.equal(pendingRunningSkillPanel.interaction.kind, "waiting_user");
-    assert.equal(pendingRunningSkillPanel.reply.enabled, true);
-    assert.equal(pendingRunningSkillPanel.reply.inputEnabled, true);
-    assert.equal(pendingRunningSkillPanel.reply.action, "reply-run");
-
-    const idleSkillPanel = model.projectAcpSkillRunPanelSnapshot({
-      selectedRun: {
-        requestId: "acp-skill-idle-controls",
-        status: "waiting_user",
-        conversationState: "active",
-        conversationRecoveryState: "connected",
-        sessionId: "session-idle-controls",
-        acpModeId: "code",
-        acpModelId: "opus",
-        acpReasoningEffort: "medium",
-        acpRawModelId: "opus@medium",
-        transcriptItems: [],
-      },
-      selectedRuntimeOptions: {
-        modeOptions: [
-          { id: "plan", label: "Plan" },
-          { id: "code", label: "Code" },
-        ],
-        displayModelOptions: [{ id: "opus", label: "Opus" }],
-        modelOptions: [
-          { id: "opus@medium", label: "Opus Medium" },
-          { id: "opus@high", label: "Opus High" },
-        ],
-        reasoningEffortOptions: [
-          { id: "medium", label: "Medium" },
-          { id: "high", label: "High" },
-        ],
-      },
-      runs: [{ requestId: "acp-skill-idle-controls", status: "waiting_user" }],
-      logs: [],
-    });
-    assert.deepEqual(
-      idleSkillPanel.reply.controls.map((entry: any) => [
-        entry.id,
-        entry.disabled,
-      ]),
-      [
-        ["mode", false],
-        ["model", false],
-        ["reasoning", false],
-      ],
-    );
-
-    const failedConnectedSkillPanel = model.projectAcpSkillRunPanelSnapshot({
-      selectedRun: {
-        requestId: "acp-skill-failed-connected",
-        status: "failed_retriable",
-        conversationState: "closed",
-        conversationRecoveryState: "connected",
-        replyError: "Provider quota exceeded.",
-        transcriptItems: [],
-      },
-      runs: [
-        { requestId: "acp-skill-failed-connected", status: "failed_retriable" },
-      ],
-      logs: [],
-    });
-    assert.notEqual(failedConnectedSkillPanel.interaction.kind, "completed");
-    assert.equal(failedConnectedSkillPanel.reply.enabled, true);
-    assert.equal(failedConnectedSkillPanel.reply.inputEnabled, true);
-    assert.equal(failedConnectedSkillPanel.reply.action, "reply-run");
-
-    const detachedSkillPanel = model.projectAcpSkillRunPanelSnapshot({
-      selectedRun: {
-        requestId: "acp-skill-detached",
-        status: "running",
-        conversationState: "closed",
-        conversationRecoveryState: "available",
-        sessionId: "session-detached",
-        activePrompt: false,
-        transcriptItems: [],
-      },
-      runs: [
-        {
-          requestId: "acp-skill-detached",
-          status: "running",
-          conversationState: "closed",
-          conversationRecoveryState: "available",
-          sessionId: "session-detached",
-          activePrompt: false,
-        },
-      ],
-      logs: [],
-    });
-    const detachedActions = Object.fromEntries(
-      detachedSkillPanel.context.actions.map((entry: any) => [
-        entry.id || entry.action,
-        entry,
-      ]),
-    );
-    assert.equal(detachedActions["connect-run"].enabled, true);
-    assert.equal(detachedActions["disconnect-run"].enabled, false);
-    assert.equal(detachedActions["cancel-run"].enabled, true);
-    assert.equal(
-      detachedSkillPanel.drawers.sections[0].groups[0].activeTasks[0].attention,
-      "warning",
-    );
-    assert.equal(detachedSkillPanel.interaction.kind, "disconnected");
-    assert.equal(detachedSkillPanel.reply.enabled, false);
-    assert.equal(detachedSkillPanel.reply.inputEnabled, false);
-    assert.equal(detachedSkillPanel.reply.action, "reply-run");
-
-    const detachedWaitingSkillPanel = model.projectAcpSkillRunPanelSnapshot({
-      selectedRun: {
-        requestId: "acp-skill-detached-waiting",
-        status: "waiting_user",
-        conversationState: "closed",
-        conversationRecoveryState: "available",
-        sessionId: "session-detached-waiting",
-        activePrompt: false,
-        pendingInteraction: {
-          message: "Need user confirmation.",
-          uiHints: { kind: "confirm" },
-        },
-        transcriptItems: [],
-      },
-      runs: [
-        {
-          requestId: "acp-skill-detached-waiting",
-          status: "waiting_user",
-          conversationState: "closed",
-          conversationRecoveryState: "available",
-          sessionId: "session-detached-waiting",
-          pendingInteraction: {
-            message: "Need user confirmation.",
-          },
-        },
-      ],
-      logs: [],
-    });
-    const detachedWaitingActions = Object.fromEntries(
-      detachedWaitingSkillPanel.context.actions.map((entry: any) => [
-        entry.id || entry.action,
-        entry,
-      ]),
-    );
-    assert.equal(detachedWaitingActions["connect-run"].enabled, true);
-    assert.equal(detachedWaitingSkillPanel.interaction.kind, "waiting_user");
-    assert.equal(detachedWaitingSkillPanel.reply.enabled, false);
-    assert.equal(detachedWaitingSkillPanel.reply.action, "reply-run");
-
-    const primitivePanel = model.projectAcpChatPanelSnapshot({
-      status: "connected",
-      sessionId: "session-2",
-      modeOptions: ["default"],
-      currentMode: "default",
-      displayModelOptions: ["sonnet"],
-      currentDisplayModel: "sonnet",
-      reasoningEffortOptions: ["medium"],
-      currentReasoningEffort: "medium",
-      authMethods: [],
-      items: [],
-      labels: {},
-    });
-    assert.deepEqual(
-      primitivePanel.reply.controls.map((entry: any) => [
-        entry.id,
-        entry.value,
-        entry.options[0]?.value,
-        entry.options[0]?.label,
-      ]),
-      [
-        ["mode", "default", "default", "default"],
-        ["model", "sonnet", "sonnet", "sonnet"],
-        ["reasoning", "medium", "medium", "medium"],
-      ],
-    );
-  });
-
-  it("projects ACP Skills sequence secondary labels with step and workflow", async function () {
-    const model = await loadAssistantPanelModelForSmoke();
-    const panel = model.projectAcpSkillRunPanelSnapshot({
-      selectedRun: {
-        requestId: "acp-sequence-step-2",
-        status: "running",
-        conversationState: "active",
-        activePrompt: true,
-        sessionId: "session-sequence-2",
-        taskName: "Sequence step task",
-        workflowId: "literature-workbench",
-        workflowLabel: "Literature Workbench",
-        sequenceStepId: "step-2",
-        sequenceStepIndex: 1,
-        skillName: "Literature Analysis",
-        skillId: "literature-analysis",
-        transcriptItems: [],
-      },
-      runs: [
-        {
-          requestId: "acp-sequence-step-2",
-          status: "running",
-          taskName: "Sequence step task",
-          workflowId: "literature-workbench",
-          workflowLabel: "Literature Workbench",
-          sequenceStepId: "step-2",
-          sequenceStepIndex: 1,
-          skillName: "Literature Analysis",
-          skillId: "literature-analysis",
-          backendId: "backend-a",
-          backendLabel: "Backend A",
-        },
-      ],
-      logs: [],
-    });
-
-    assert.equal(
-      panel.context.subtitle,
-      "2️⃣ Literature Analysis/Literature Workbench",
-    );
-    assert.equal(
-      panel.drawers.sections[0].groups[0].activeTasks[0].workflowLabel,
-      "2️⃣ Literature Analysis/Literature Workbench",
-    );
-  });
-
-  it("keeps canceled ACP skill runs out of stale close-error interaction states", async function () {
-    const conversationView = await loadAssistantConversationViewForSmoke();
-    const canceledConversation =
-      conversationView.projectAcpSkillRunConversationView({
-        requestId: "acp-skill-canceled",
-        status: "canceled",
-        conversationState: "active",
-        conversationRecoveryState: "connected",
-        error: "File Closed",
-        conversationError: "File Closed",
-        transcriptItems: [],
-      });
-    assert.equal(canceledConversation.interaction.kind, "notice");
-    assert.notInclude(canceledConversation.interaction.message, "File Closed");
-
-    const continuingConversation =
-      conversationView.projectAcpSkillRunConversationView({
-        requestId: "acp-skill-canceled-reply",
-        status: "canceled",
-        conversationState: "active",
-        conversationRecoveryState: "connected",
-        replyState: "submitted",
-        error: "File Closed",
-        conversationError: "File Closed",
-        transcriptItems: [],
-      });
-    assert.equal(continuingConversation.interaction.kind, "notice");
-    assert.notInclude(
-      continuingConversation.interaction.message,
-      "File Closed",
-    );
-
-    const model = await loadAssistantPanelModelForSmoke({ conversationView });
-    const canceledPanel = model.projectAcpSkillRunPanelSnapshot({
-      selectedRun: {
-        requestId: "acp-skill-canceled",
-        status: "canceled",
-        conversationState: "active",
-        conversationRecoveryState: "connected",
-        error: "File Closed",
-        conversationError: "File Closed",
-        transcriptItems: [],
-      },
-      runs: [{ requestId: "acp-skill-canceled", status: "canceled" }],
-      logs: [],
-    });
-    assert.equal(canceledPanel.interaction.kind, "notice");
-    assert.notInclude(canceledPanel.interaction.message, "File Closed");
-    assert.equal(canceledPanel.reply.enabled, false);
-    assert.equal(canceledPanel.reply.inputEnabled, false);
-
-    const continuingPanel = model.projectAcpSkillRunPanelSnapshot({
-      selectedRun: {
-        requestId: "acp-skill-canceled-reply",
-        status: "canceled",
-        conversationState: "active",
-        conversationRecoveryState: "connected",
-        replyState: "submitted",
-        error: "File Closed",
-        conversationError: "File Closed",
-        transcriptItems: [],
-      },
-      runs: [{ requestId: "acp-skill-canceled-reply", status: "canceled" }],
-      logs: [],
-    });
-    assert.equal(continuingPanel.interaction.kind, "notice");
-    assert.equal(continuingPanel.reply.enabled, false);
-    assert.equal(continuingPanel.reply.inputEnabled, false);
-  });
-
-  it("keeps managed context drawers grouped and rectangular-button styled", async function () {
-    const assistantPanelModelJs = await readProjectFile(
-      "addon/content/shared/assistant/assistant-panel-model.js",
-    );
-    const assistantPanelRendererJs = await readProjectFile(
-      "addon/content/shared/assistant/assistant-panel-renderer.js",
-    );
-    const sharedPanelCss = await readProjectFile(
-      "addon/content/shared/assistant/assistant-panel-shared.css",
-    );
-    const acpChatCss = await readProjectFile(
-      "addon/content/sidebar/acp-chat.css",
-    );
-    const acpSkillRunCss = await readProjectFile(
-      "addon/content/sidebar/acp-skill-run.css",
-    );
-    const runDialogCss = await readProjectFile(
-      "addon/content/sidebar/run-dialog.css",
-    );
-
-    assert.include(assistantPanelModelJs, "children,");
-    assert.include(assistantPanelModelJs, "itemActions:");
-    assert.include(assistantPanelModelJs, '"archive-conversation"');
-    assert.include(assistantPanelModelJs, '"archive-run"');
-    assert.include(assistantPanelModelJs, "active: Boolean(");
-    assert.include(
-      assistantPanelModelJs,
-      "requestId && run && requestId === safeText(run.requestId)",
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      "function renderContextEntry(parent, entry, depth)",
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      "function renderAssistantWorkspaceTaskAction",
-    );
-    assert.include(assistantPanelRendererJs, "event.stopPropagation()");
-    assert.include(assistantPanelRendererJs, "data-assistant-button-tone");
-    assert.include(assistantPanelRendererJs, "interrupt-run-turn");
-    assert.include(
-      assistantPanelRendererJs,
-      "assistant-workspace-drawer-task-actions",
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      "assistant-workspace-drawer-task-action",
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      'entry && entry.active ? " is-active" : ""',
-    );
-    assert.include(assistantPanelRendererJs, "--assistant-context-depth");
-    assert.include(
-      assistantPanelRendererJs,
-      "renderAssistantWorkspaceTaskDrawer",
-    );
-    assert.include(assistantPanelRendererJs, "workspaceDrawerStableSignature");
-    assert.include(assistantPanelRendererJs, "safeText(drawers.notice)");
-    assert.notInclude(
-      assistantPanelRendererJs,
-      'sectionId === "running" && noticeText',
-    );
-    assert.include(
-      assistantPanelRendererJs,
-      "assistant-workspace-drawer-history-notice",
-    );
-    assert.include(assistantPanelRendererJs, "updateWorkspaceDrawerLiveFields");
-    assert.include(
-      assistantPanelRendererJs,
-      "data-assistant-workspace-drawer-signature",
-    );
-    assert.include(assistantPanelRendererJs, "data-assistant-task-key");
-    assert.include(
-      assistantPanelModelJs,
-      "panel.labels && panel.labels.runningTasksTitle",
-    );
-    assert.match(
-      assistantPanelRendererJs,
-      /safeText\(panel\.drawers && panel\.drawers\.layout\)\s*===\s*"workspace-task-drawer"/,
-    );
-    assert.include(sharedPanelCss, ".assistant-panel-context-entry.is-group");
-    assert.include(sharedPanelCss, ".assistant-panel-context-entry.is-active");
-    assert.include(sharedPanelCss, ".assistant-workspace-drawer-section");
-    assert.include(
-      sharedPanelCss,
-      ".assistant-workspace-drawer-history-notice",
-    );
-    assert.include(
-      sharedPanelCss,
-      ".assistant-workspace-drawer-section.is-completed",
-    );
-    assert.include(sharedPanelCss, ".assistant-workspace-drawer-task");
-    assert.include(
-      sharedPanelCss,
-      ':root[data-zs-theme="dark"] .assistant-workspace-drawer-task',
-    );
-    assert.include(sharedPanelCss, "color: var(--asst-text);");
-    assert.include(
-      sharedPanelCss,
-      ':root[data-zs-theme="dark"] .assistant-workspace-drawer-task-workflow',
-    );
-    assert.include(sharedPanelCss, "color: var(--asst-muted);");
-    assert.include(
-      sharedPanelCss,
-      ':root:not([data-zs-theme="light"]) .assistant-workspace-drawer-task',
-    );
-    assert.include(
-      sharedPanelCss,
-      ".assistant-workspace-drawer-task-main-status",
-    );
-    assert.include(
-      sharedPanelCss,
-      ".assistant-workspace-drawer-task-status-axis",
-    );
-    assert.include(assistantPanelRendererJs, "zs-icon-archive");
-    assert.notInclude(
-      sharedPanelCss,
-      ".assistant-workspace-drawer-task-action.is-archive::before",
-    );
-    assert.notInclude(
-      sharedPanelCss,
-      ".assistant-workspace-drawer-task-action.is-archive::after",
-    );
-    assert.include(sharedPanelCss, "align-content: start;");
-    assert.include(sharedPanelCss, "height: 34px;");
-    assert.include(sharedPanelCss, "border-radius: var(--asst-radius-sm);");
-    assert.include(
-      sharedPanelCss,
-      '.asst-conversation-overlay-menu .asst-button-compact[aria-pressed="true"]',
-    );
-    assert.include(sharedPanelCss, "border-color: var(--asst-accent);");
-    assert.notInclude(acpChatCss, ".acp-chat-drawer .asst-drawer-panel");
-    assert.include(
-      sharedPanelCss,
-      ".asst-panel-drawer-overlay .asst-drawer-panel",
-    );
-    assert.include(sharedPanelCss, "left: 0;");
-    assert.include(sharedPanelCss, "border-right: 1px solid var(--asst-line);");
-    assert.include(sharedPanelCss, "border-radius: var(--asst-radius-md);");
-    assert.notInclude(
-      sharedPanelCss,
-      ".asst-button,\n.asst-button-compact,\n.asst-icon-button {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  gap: 6px;\n  border: 1px solid var(--asst-line-strong);\n  border-radius: var(--asst-radius-pill);",
-    );
-    assert.notInclude(acpSkillRunCss, ".asst-button {");
-    assert.notInclude(runDialogCss, ".asst-button {");
-  });
-
-  it("renders workspace drawer notice without a running section", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const drawerRegion = fakeDocument.createElement("div");
-
-    renderer.renderAssistantPanelSnapshot(
-      {
-        kind: "acp-skill",
-        drawers: {
-          layout: "workspace-task-drawer",
-          notice: "Showing recent runs only.",
-          sections: [
-            {
-              id: "running",
-              title: "Running",
-              groups: [],
-            },
-            {
-              id: "completed",
-              title: "Completed",
-              groups: [
-                {
-                  backendId: "backend-a",
-                  finishedTasks: [
-                    {
-                      key: "completed-run",
-                      title: "Completed run",
-                      workflowLabel: "ACP Skill",
-                      status: "succeeded",
-                      terminal: true,
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-        },
-      },
-      {
+        messageCounts,
+      };
+      const panel = model.projectSkillRunnerPanelSnapshot(envelope);
+      assert.deepEqual(panel.messageCounts, messageCounts);
+      renderer.renderAssistantPanelSnapshot(panel, {
         managed: true,
-        managedRegions: { drawer: true },
-        regions: { drawer: drawerRegion },
-      },
-    );
-
-    const notice = drawerRegion.querySelector(
-      ".assistant-workspace-drawer-history-notice",
-    );
-    assert.ok(notice);
-    assert.include(notice?.textContent || "", "recent runs");
-  });
-
-  it("renders virtualized assistant transcript pages through the shared renderer", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const transcript = fakeDocument.createElement("div");
-    transcript.clientHeight = 300;
-    transcript.scrollHeight = 1000;
-    transcript.scrollTop = 700;
-
-    renderer.renderAssistantTranscript({
-      container: transcript,
-      virtualized: true,
-      pageKey: "run-virtual",
-      page: {
-        requestId: "run-virtual",
-        cursor: 0,
-        total: 2,
-        transcriptRevision: 1,
-        limit: 80,
-        items: [
-          {
-            id: "message-1",
-            kind: "message",
-            role: "assistant",
-            text: "hello virtual transcript",
-          },
-          {
-            id: "thought-2",
-            kind: "thought",
-            text: "thinking",
-          },
-        ],
-      },
-      mode: "plain",
-      nodeMap: new Map(),
-    });
-
-    assert.lengthOf(
-      transcript.querySelectorAll(".assistant-transcript-row"),
-      2,
-    );
-    assert.lengthOf(
-      transcript.querySelectorAll(".assistant-transcript-virtual-spacer"),
-      2,
-    );
-  });
-
-  it("renders items-only virtual transcripts without requesting pages", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const transcript = fakeDocument.createElement("div");
-    transcript.clientHeight = 240;
-    transcript.scrollHeight = 1000;
-    transcript.scrollTop = 0;
-    const requests: any[] = [];
-
-    renderer.renderAssistantTranscript({
-      container: transcript,
-      virtualized: true,
-      pageKey: "skillrunner-run-a\ntask-a",
-      items: Array.from({ length: 12 }, (_entry, index) => ({
-        id: `skillrunner-a-${index}`,
-        kind: "message",
-        role: "assistant",
-        text: `run A message ${index}`,
-      })),
-      mode: "plain",
-      nodeMap: new Map(),
-      renderWindowLimit: 4,
-      renderBuffer: 0,
-      onRequestPage: (request: any) => requests.push(request),
-    });
-
-    assert.isBelow(
-      transcript.querySelectorAll(".assistant-transcript-row").length,
-      12,
-    );
-    assert.include(collectFakeText(transcript), "run A message 0");
-    assert.notInclude(collectFakeText(transcript), "run A message 11");
-    assert.lengthOf(
-      transcript.querySelectorAll(".assistant-transcript-virtual-spacer"),
-      2,
-    );
-
-    transcript.scrollTop = 760;
-    transcript.dispatchEventType("scroll");
-
-    assert.include(collectFakeText(transcript), "run A message");
-    assert.lengthOf(requests, 0);
-
-    renderer.renderAssistantTranscript({
-      container: transcript,
-      virtualized: true,
-      pageKey: "skillrunner-run-b\ntask-b",
-      items: [
-        {
-          id: "skillrunner-b-1",
-          kind: "message",
-          role: "assistant",
-          text: "run B transcript",
-        },
-      ],
-      mode: "plain",
-      nodeMap: new Map(),
-      onRequestPage: (request: any) => requests.push(request),
-    });
-
-    assert.include(collectFakeText(transcript), "run B transcript");
-    assert.notInclude(collectFakeText(transcript), "run A message");
-    assert.lengthOf(requests, 0);
-  });
-
-  it("does not let ACP Chat ready-without-page snapshots revive a previous page", async function () {
-    const { fakeDocument, transcript } = createAcpChatSidebarHarnessDocument();
-    const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
-
-    sidebar.postSnapshot({
-      activeBackendId: "backend-a",
-      backendId: "backend-a",
-      activeConversationId: "conversation-a",
-      conversationId: "conversation-a",
-      transcriptPaginationVirtualizationEnabled: true,
-      transcriptRevision: 1,
-      transcriptState: {
-        backendId: "backend-a",
-        conversationId: "conversation-a",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "backend-a\nconversation-a",
-        backendId: "backend-a",
-        conversationId: "conversation-a",
-        cursor: 0,
-        total: 1,
-        eventSeq: 1,
-        transcriptRevision: 1,
-        limit: 80,
-        items: [
-          {
-            id: "old-message",
-            kind: "message",
-            role: "assistant",
-            text: "old ACP Chat page",
-          },
-        ],
-      },
-      items: [],
-      labels: {},
-    });
-    assert.include(collectFakeText(transcript), "old ACP Chat page");
-
-    sidebar.postSnapshot({
-      activeBackendId: "backend-b",
-      backendId: "backend-b",
-      activeConversationId: "conversation-b",
-      conversationId: "conversation-b",
-      transcriptPaginationVirtualizationEnabled: true,
-      transcriptRevision: 2,
-      transcriptState: {
-        backendId: "backend-b",
-        conversationId: "conversation-b",
-        state: "ready",
-      },
-      items: [],
-      labels: {},
-    });
-
-    assert.ok(transcript.querySelector(".acp-chat-transcript-loading"));
-    assert.notInclude(collectFakeText(transcript), "old ACP Chat page");
-  });
-
-  it("keeps ACP Chat loading spinner stable for repeated same-conversation snapshots", async function () {
-    const { fakeDocument, transcript } = createAcpChatSidebarHarnessDocument();
-    const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
-
-    const loadingSnapshot = {
-      activeBackendId: "backend-loading",
-      backendId: "backend-loading",
-      activeConversationId: "conversation-loading",
-      conversationId: "conversation-loading",
-      transcriptPaginationVirtualizationEnabled: true,
-      transcriptRevision: 1,
-      transcriptState: {
-        backendId: "backend-loading",
-        conversationId: "conversation-loading",
-        state: "loading",
-      },
-      items: [],
-      labels: {},
+        root,
+        regions,
+        onAction() {},
+      });
     };
 
-    sidebar.postSnapshot(loadingSnapshot);
-    const firstSpinner = transcript.querySelector(
-      ".acp-chat-transcript-loading",
-    );
-    assert.ok(firstSpinner);
-
-    sidebar.postSnapshot({
-      ...loadingSnapshot,
-      transcriptRevision: 2,
-      transcriptItemCount: 42,
-      transcriptPreview: "streaming chunk that must not rebuild loading",
-    });
-    assert.strictEqual(
-      transcript.querySelector(".acp-chat-transcript-loading"),
-      firstSpinner,
-    );
-
-    sidebar.postSnapshot({
-      ...loadingSnapshot,
-      activeConversationId: "conversation-other",
-      conversationId: "conversation-other",
-      transcriptRevision: 1,
-      transcriptState: {
-        backendId: "backend-loading",
-        conversationId: "conversation-other",
-        state: "loading",
-      },
-    });
-    assert.notStrictEqual(
-      transcript.querySelector(".acp-chat-transcript-loading"),
-      firstSpinner,
-    );
-  });
-
-  it("accepts an ACP Chat loading snapshot for a pending selected conversation", async function () {
-    const { fakeDocument, transcript } = createAcpChatSidebarHarnessDocument();
-    const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
-    const conversationAReadySnapshot = {
-      activeBackendId: "backend-pending",
-      backendId: "backend-pending",
-      activeConversationId: "conversation-a",
-      conversationId: "conversation-a",
-      transcriptPaginationVirtualizationEnabled: true,
-      transcriptRevision: 1,
-      transcriptState: {
-        backendId: "backend-pending",
-        conversationId: "conversation-a",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "backend-pending\nconversation-a",
-        backendId: "backend-pending",
-        conversationId: "conversation-a",
-        cursor: 0,
-        total: 1,
-        eventSeq: 1,
-        transcriptRevision: 1,
-        limit: 80,
-        items: [
-          {
-            id: "conversation-a-message",
-            kind: "message",
-            role: "assistant",
-            text: "conversation A visible transcript",
-          },
-        ],
-      },
-      chatSessions: [
-        {
-          backendId: "backend-pending",
-          conversationId: "conversation-a",
-          title: "Conversation A",
-        },
-        {
-          backendId: "backend-pending",
-          conversationId: "conversation-b",
-          title: "Conversation B",
-        },
-      ],
-      items: [],
-      labels: {},
-    };
-
-    sidebar.postSnapshot(conversationAReadySnapshot);
-    assert.include(collectFakeText(transcript), "conversation A visible");
-    sidebar.panelActionHooks.at(-1)?.("set-active-conversation", {
-      backendId: "backend-pending",
-      conversationId: "conversation-b",
-    });
-    assert.deepEqual(sidebar.actions.at(-1), {
-      action: "set-active-conversation",
-      payload: {
-        backendId: "backend-pending",
-        conversationId: "conversation-b",
-      },
-    });
-
-    sidebar.postSnapshot(conversationAReadySnapshot);
-    assert.include(collectFakeText(transcript), "conversation A visible");
-
-    sidebar.postSnapshot({
-      activeBackendId: "backend-pending",
-      backendId: "backend-pending",
-      activeConversationId: "conversation-b",
-      conversationId: "conversation-b",
-      transcriptPaginationVirtualizationEnabled: true,
-      transcriptRevision: 2,
-      transcriptState: {
-        backendId: "backend-pending",
-        conversationId: "conversation-b",
-        state: "loading",
-      },
-      chatSessions: conversationAReadySnapshot.chatSessions,
-      items: [],
-      labels: {},
-    });
-
-    assert.ok(transcript.querySelector(".acp-chat-transcript-loading"));
-    assert.notInclude(collectFakeText(transcript), "conversation A visible");
-  });
-
-  it("renders ACP Chat empty conversation scope without transcript page loading", async function () {
-    const { fakeDocument, transcript } = createAcpChatSidebarHarnessDocument();
-    const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
-
-    sidebar.postSnapshot({
-      activeBackendId: "backend-empty",
-      backendId: "backend-empty",
-      activeConversationId: "",
-      conversationId: "",
-      transcriptPaginationVirtualizationEnabled: true,
-      transcriptRevision: 0,
-      transcriptItemCount: 0,
-      items: [],
-      labels: {},
-    });
-
-    assert.isNull(transcript.querySelector(".acp-chat-transcript-loading"));
-    const renderCall = sidebar.transcriptRenderCalls.at(-1);
-    assert.equal(renderCall?.virtualized, false);
-    assert.isUndefined(renderCall?.pageKey);
-    assert.deepEqual(renderCall?.items || [], []);
-    assert.isFalse(
-      sidebar.actions.some((entry) => entry.action === "load-transcript-page"),
-    );
-  });
-
-  it("renders ACP Chat empty backend scope without transcript page loading or requests", async function () {
-    const { fakeDocument, transcript } = createAcpChatSidebarHarnessDocument();
-    const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
-
-    sidebar.postSnapshot({
-      backendAvailability: "none",
-      conversationAvailability: "none",
-      activeBackendId: "",
-      backendId: "",
-      backendOptions: [],
-      activeConversationId: "",
-      conversationId: "",
-      chatSessions: [],
-      transcriptPaginationVirtualizationEnabled: true,
-      transcriptRevision: 0,
-      transcriptItemCount: 0,
-      transcriptState: {
-        backendId: "",
-        conversationId: "",
-        state: "loading",
-      },
-      items: [],
-      labels: {},
-    });
-
-    assert.isNull(transcript.querySelector(".acp-chat-transcript-loading"));
-    const renderCall = sidebar.transcriptRenderCalls.at(-1);
-    assert.equal(renderCall?.virtualized, false);
-    assert.isUndefined(renderCall?.pageKey);
-    assert.deepEqual(renderCall?.items || [], []);
-    assert.isFalse(
-      sidebar.actions.some((entry) => entry.action === "load-transcript-page"),
-    );
-  });
-
-  it("rerenders ACP Chat panel when backend availability changes without a conversation", async function () {
-    const { fakeDocument } = createAcpChatSidebarHarnessDocument();
-    const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
-
-    sidebar.postSnapshot({
-      backendAvailability: "none",
-      conversationAvailability: "none",
-      activeBackendId: "",
-      backendId: "",
-      backendOptions: [],
-      activeConversationId: "",
-      conversationId: "",
-      chatSessions: [],
-      transcriptPaginationVirtualizationEnabled: true,
-      executionDisplayMode: "boundary",
-      status: "idle",
-      items: [],
-      labels: {},
-    });
-
-    sidebar.postSnapshot({
-      backendAvailability: "selected",
-      conversationAvailability: "none",
-      activeBackendId: "backend-a",
-      backendId: "backend-a",
-      backendOptions: [
-        {
-          backendId: "backend-a",
-          displayName: "Backend A",
-          status: "idle",
-        },
-      ],
-      activeConversationId: "",
-      conversationId: "",
-      chatSessions: [],
-      transcriptPaginationVirtualizationEnabled: true,
-      executionDisplayMode: "live",
-      status: "idle",
-      items: [],
-      labels: {},
-    });
-
-    assert.lengthOf(sidebar.panelRenderCalls, 2);
-    assert.equal(sidebar.panelRenderCalls[0]?.raw?.backendAvailability, "none");
+    render(1, 4);
+    assert.isFalse(regions.messageCounter.classList.contains("hidden"));
     assert.equal(
-      sidebar.panelRenderCalls[1]?.raw?.backendAvailability,
-      "selected",
+      regions.messageCounter.getAttribute("data-message-counter-owner"),
+      "skillrunner-task-a",
     );
-    assert.equal(
-      sidebar.panelRenderCalls[1]?.raw?.activeBackendId,
-      "backend-a",
+    const counterItems = regions.messageCounter.querySelectorAll(
+      ".assistant-message-counter-item",
     );
-    assert.equal(
-      sidebar.panelRenderCalls[1]?.raw?.executionDisplayMode,
-      "live",
-    );
-  });
-
-  it("rejects ACP Chat selected transcript pages for the wrong conversation scope", async function () {
-    const { fakeDocument, transcript } = createAcpChatSidebarHarnessDocument();
-    const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
-
-    sidebar.postSnapshot({
-      activeBackendId: "backend-current",
-      backendId: "backend-current",
-      activeConversationId: "conversation-current",
-      conversationId: "conversation-current",
-      transcriptPaginationVirtualizationEnabled: true,
-      transcriptRevision: 4,
-      transcriptState: {
-        backendId: "backend-current",
-        conversationId: "conversation-current",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "backend-old\nconversation-old",
-        backendId: "backend-old",
-        conversationId: "conversation-old",
-        cursor: 0,
-        total: 1,
-        eventSeq: 4,
-        transcriptRevision: 4,
-        limit: 80,
-        items: [
-          {
-            id: "wrong-message",
-            kind: "message",
-            role: "assistant",
-            text: "wrong ACP Chat page",
-          },
-        ],
-      },
-      items: [],
-      labels: {},
-    });
-
-    assert.ok(transcript.querySelector(".acp-chat-transcript-loading"));
-    assert.notInclude(collectFakeText(transcript), "wrong ACP Chat page");
-  });
-
-  it("renders matching ACP Chat transcript pages and requests more pages with scope", async function () {
-    const { fakeDocument, transcript } = createAcpChatSidebarHarnessDocument();
-    const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
-
-    sidebar.postSnapshot({
-      activeBackendId: "backend-a",
-      backendId: "backend-a",
-      activeConversationId: "conversation-a",
-      conversationId: "conversation-a",
-      transcriptPaginationVirtualizationEnabled: true,
-      transcriptRevision: 8,
-      transcriptState: {
-        backendId: "backend-a",
-        conversationId: "conversation-a",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "backend-a\nconversation-a",
-        backendId: "backend-a",
-        conversationId: "conversation-a",
-        cursor: 80,
-        prevCursor: 0,
-        total: 81,
-        eventSeq: 8,
-        transcriptRevision: 8,
-        limit: 80,
-        items: [
-          {
-            id: "message-a",
-            kind: "message",
-            role: "assistant",
-            text: "matching ACP Chat page",
-          },
-        ],
-      },
-      items: [],
-      labels: {},
-    });
-
-    assert.include(collectFakeText(transcript), "matching ACP Chat page");
-    const renderCall = sidebar.transcriptRenderCalls.at(-1);
-    assert.equal(renderCall?.virtualized, true);
-    assert.equal(renderCall?.pageKey, "backend-a\nconversation-a");
-    assert.equal(renderCall?.page?.requestId, "backend-a\nconversation-a");
-
-    renderCall.onRequestPage({
-      pageKey: "backend-a\nconversation-a",
-      cursor: 0,
-      limit: 80,
-    });
-
-    assert.deepEqual(sidebar.actions.at(-1), {
-      action: "load-transcript-page",
-      payload: {
-        backendId: "backend-a",
-        conversationId: "conversation-a",
-        requestId: "backend-a\nconversation-a",
-        cursor: 0,
-        limit: 80,
-      },
-    });
-  });
-
-  it("preserves the virtual transcript anchor while scrolling through a tall row", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const transcript = fakeDocument.createElement("div");
-    transcript.clientHeight = 300;
-    transcript.scrollHeight = 1400;
-    transcript.scrollTop = 360;
-    fakeDocument.measurementHeights.set("message-0", 50);
-    fakeDocument.measurementHeights.set("message-1", 50);
-    fakeDocument.measurementHeights.set("message-2", 760);
-    fakeDocument.measurementHeights.set("message-3", 50);
-    fakeDocument.measurementHeights.set("message-4", 50);
-    const page = {
-      requestId: "run-variable-height",
-      cursor: 0,
-      total: 5,
-      transcriptRevision: 1,
-      limit: 80,
-      items: Array.from({ length: 5 }, (_entry, index) => ({
-        id: `message-${index}`,
-        kind: "message",
-        role: "assistant",
-        text: index === 2 ? "tall row ".repeat(400) : `short row ${index}`,
-      })),
-    };
-
-    renderer.renderAssistantTranscript({
-      container: transcript,
-      virtualized: true,
-      pageKey: "run-variable-height",
-      page,
-      mode: "plain",
-      nodeMap: new Map(),
-      estimatedRowHeight: 88,
-      renderBuffer: 1,
-      renderWindowLimit: 3,
-    });
-
-    transcript.scrollTop = 420;
-    transcript.dispatchEventType("scroll");
-
-    assert.include(collectFakeText(transcript), "tall row");
-    assert.equal(transcript.scrollTop, 420);
-    assert.notEqual(transcript.scrollTop, transcript.scrollHeight);
-  });
-
-  it("sizes virtual transcript spacers from measured row heights", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const transcript = fakeDocument.createElement("div");
-    transcript.clientHeight = 300;
-    transcript.scrollHeight = 1400;
-    transcript.scrollTop = 100;
-    fakeDocument.measurementHeights.set("message-0", 50);
-    fakeDocument.measurementHeights.set("message-1", 50);
-    fakeDocument.measurementHeights.set("message-2", 760);
-    fakeDocument.measurementHeights.set("message-3", 50);
-    fakeDocument.measurementHeights.set("message-4", 50);
-
-    renderer.renderAssistantTranscript({
-      container: transcript,
-      virtualized: true,
-      pageKey: "run-spacers",
-      page: {
-        requestId: "run-spacers",
-        cursor: 0,
-        total: 5,
-        transcriptRevision: 1,
-        limit: 80,
-        items: Array.from({ length: 5 }, (_entry, index) => ({
-          id: `message-${index}`,
-          kind: "message",
-          role: "assistant",
-          text: index === 2 ? "tall row ".repeat(400) : `short row ${index}`,
-        })),
-      },
-      mode: "plain",
-      nodeMap: new Map(),
-      estimatedRowHeight: 88,
-      renderBuffer: 0,
-      renderWindowLimit: 3,
-    });
-    transcript.scrollTop = 960;
-    transcript.dispatchEventType("scroll");
-
-    const spacers = transcript.querySelectorAll(
-      ".assistant-transcript-virtual-spacer",
-    );
-    assert.lengthOf(spacers, 2);
-    assert.equal(spacers[0].style.height, "860px");
-    assert.notEqual(spacers[0].style.height, "264px");
-  });
-
-  it("lets users scroll away from a virtualized transcript bottom", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const transcript = fakeDocument.createElement("div");
-    transcript.clientHeight = 300;
-    transcript.scrollHeight = 1000;
-    transcript.scrollTop = 700;
-    const basePage = {
-      requestId: "run-scroll",
-      cursor: 0,
-      total: 1,
-      transcriptRevision: 1,
-      limit: 80,
-      items: [
-        {
-          id: "message-1",
-          kind: "message",
-          role: "assistant",
-          text: "first",
-        },
-      ],
-    };
-
-    renderer.renderAssistantTranscript({
-      container: transcript,
-      virtualized: true,
-      pageKey: "run-scroll",
-      page: basePage,
-      mode: "plain",
-      nodeMap: new Map(),
-    });
-    assert.equal(transcript.scrollTop, 1000);
-
-    transcript.scrollTop = 650;
-    transcript.dispatchEventType("scroll");
-    transcript.scrollHeight = 1200;
-    renderer.renderAssistantTranscript({
-      container: transcript,
-      virtualized: true,
-      pageKey: "run-scroll",
-      page: {
-        ...basePage,
-        transcriptRevision: 2,
-        items: [{ ...basePage.items[0], text: "second" }],
-      },
-      mode: "plain",
-      nodeMap: new Map(),
-    });
-
-    assert.notEqual(transcript.scrollTop, 1200);
-  });
-
-  it("keeps sticky virtualized transcripts at the bottom when already sticky", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const transcript = fakeDocument.createElement("div");
-    transcript.clientHeight = 300;
-    transcript.scrollHeight = 1000;
-    transcript.scrollTop = 700;
-    const page = {
-      requestId: "run-sticky",
-      cursor: 0,
-      total: 1,
-      transcriptRevision: 1,
-      limit: 80,
-      items: [
-        {
-          id: "message-1",
-          kind: "message",
-          role: "assistant",
-          text: "first",
-        },
-      ],
-    };
-
-    renderer.renderAssistantTranscript({
-      container: transcript,
-      virtualized: true,
-      pageKey: "run-sticky",
-      page,
-      mode: "plain",
-      nodeMap: new Map(),
-    });
-    transcript.scrollHeight = 1200;
-    renderer.renderAssistantTranscript({
-      container: transcript,
-      virtualized: true,
-      pageKey: "run-sticky",
-      page: {
-        ...page,
-        transcriptRevision: 2,
-        items: [{ ...page.items[0], text: "second" }],
-      },
-      mode: "plain",
-      nodeMap: new Map(),
-    });
-
-    assert.equal(transcript.scrollTop, 1200);
-  });
-
-  it("deduplicates virtualized transcript page requests", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const transcript = fakeDocument.createElement("div");
-    transcript.clientHeight = 300;
-    transcript.scrollHeight = 15000;
-    transcript.scrollTop = 14700;
-    const requests: any[] = [];
-
-    renderer.renderAssistantTranscript({
-      container: transcript,
-      virtualized: true,
-      pageKey: "run-pages",
-      page: {
-        requestId: "run-pages",
-        cursor: 80,
-        prevCursor: 0,
-        total: 160,
-        transcriptRevision: 1,
-        limit: 80,
-        items: Array.from({ length: 80 }, (_entry, index) => ({
-          id: `message-${80 + index}`,
-          kind: "message",
-          role: "assistant",
-          text: `message ${80 + index}`,
-        })),
-      },
-      mode: "plain",
-      nodeMap: new Map(),
-      onRequestPage: (request: any) => requests.push(request),
-    });
-    transcript.scrollTop = 7050;
-    transcript.dispatchEventType("scroll");
-    transcript.dispatchEventType("scroll");
-
-    assert.deepEqual(
-      requests.map((request) => [request.pageKey, request.cursor]),
-      [["run-pages", 0]],
-    );
-  });
-
-  it("preserves scroll position inside an unloaded virtual transcript top spacer", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const transcript = fakeDocument.createElement("div");
-    transcript.clientHeight = 300;
-    transcript.scrollHeight = 15000;
-    transcript.scrollTop = 14700;
-    const requests: any[] = [];
-
-    renderer.renderAssistantTranscript({
-      container: transcript,
-      virtualized: true,
-      pageKey: "run-top-spacer",
-      page: {
-        requestId: "run-top-spacer",
-        cursor: 80,
-        prevCursor: 0,
-        total: 160,
-        transcriptRevision: 1,
-        limit: 80,
-        items: Array.from({ length: 80 }, (_entry, index) => ({
-          id: `message-${80 + index}`,
-          kind: "message",
-          role: "assistant",
-          text: `message ${80 + index}`,
-        })),
-      },
-      mode: "plain",
-      nodeMap: new Map(),
-      estimatedRowHeight: 88,
-      renderBuffer: 1,
-      renderWindowLimit: 6,
-      onRequestPage: (request: any) => requests.push(request),
-    });
-
-    transcript.scrollTop = 6500;
-    transcript.dispatchEventType("scroll");
-    transcript.dispatchEventType("scroll");
-
-    assert.equal(transcript.scrollTop, 6500);
-    assert.ok(
-      transcript.querySelector(".assistant-transcript-virtual-loading"),
+    const counterValues = regions.messageCounter.querySelectorAll(
+      ".assistant-message-counter-value",
     );
     assert.deepEqual(
-      requests.map((request) => [request.pageKey, request.cursor]),
-      [["run-top-spacer", 0]],
-    );
-  });
-
-  it("preserves scroll position inside an unloaded virtual transcript bottom spacer", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const transcript = fakeDocument.createElement("div");
-    transcript.clientHeight = 300;
-    transcript.scrollHeight = 15000;
-    transcript.scrollTop = 0;
-    const requests: any[] = [];
-
-    renderer.renderAssistantTranscript({
-      container: transcript,
-      virtualized: true,
-      pageKey: "run-bottom-spacer",
-      page: {
-        requestId: "run-bottom-spacer",
-        cursor: 0,
-        nextCursor: 80,
-        total: 160,
-        transcriptRevision: 1,
-        limit: 80,
-        items: Array.from({ length: 80 }, (_entry, index) => ({
-          id: `message-${index}`,
-          kind: "message",
-          role: "assistant",
-          text: `message ${index}`,
-        })),
-      },
-      mode: "plain",
-      nodeMap: new Map(),
-      estimatedRowHeight: 88,
-      renderBuffer: 1,
-      renderWindowLimit: 6,
-      onRequestPage: (request: any) => requests.push(request),
-    });
-
-    transcript.scrollTop = 7600;
-    transcript.dispatchEventType("scroll");
-    transcript.dispatchEventType("scroll");
-
-    assert.equal(transcript.scrollTop, 7600);
-    assert.ok(
-      transcript.querySelector(".assistant-transcript-virtual-loading"),
+      regions.messageCounter
+        .querySelectorAll(".assistant-message-counter-label")
+        .map((entry) => entry.textContent),
+      ["助手", "思考", "工具"],
     );
     assert.deepEqual(
-      requests.map((request) => [request.pageKey, request.cursor]),
-      [["run-bottom-spacer", 80]],
+      counterValues.map((entry) => entry.textContent),
+      ["1/4", "2/5", "3/6"],
     );
-  });
-
-  it("does not render mismatched virtual transcript page fallback items", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const transcript = fakeDocument.createElement("div");
-    transcript.clientHeight = 300;
-    transcript.scrollHeight = 1000;
-    transcript.scrollTop = 700;
-    const oldItems = [
-      {
-        id: "message-old",
-        kind: "message",
-        role: "assistant",
-        text: "old run transcript",
-      },
-    ];
-
-    renderer.renderAssistantTranscript({
-      container: transcript,
-      virtualized: true,
-      pageKey: "run-b",
-      page: {
-        requestId: "run-a",
-        cursor: 0,
-        total: 1,
-        transcriptRevision: 1,
-        limit: 80,
-        items: oldItems,
-      },
-      items: oldItems,
-      mode: "plain",
-      nodeMap: new Map(),
-    });
-
-    assert.notInclude(collectFakeText(transcript), "old run transcript");
-    assert.ok(transcript.querySelector(".assistant-transcript-empty"));
-  });
-
-  it("resets virtual transcript state so old scroll renders cannot revive prior pages", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const transcript = fakeDocument.createElement("div");
-    transcript.clientHeight = 300;
-    transcript.scrollHeight = 8000;
-    transcript.scrollTop = 7700;
-
-    renderer.renderAssistantTranscript({
-      container: transcript,
-      virtualized: true,
-      pageKey: "run-a",
-      page: {
-        requestId: "run-a",
-        cursor: 80,
-        total: 81,
-        transcriptRevision: 1,
-        limit: 80,
-        items: [
-          {
-            id: "message-a",
-            kind: "message",
-            role: "assistant",
-            text: "run A transcript",
-          },
-        ],
-      },
-      mode: "plain",
-      nodeMap: new Map(),
-    });
-    assert.include(collectFakeText(transcript), "run A transcript");
-
-    renderer.resetAssistantTranscriptVirtualState(transcript, "run-b");
-    while (transcript.firstChild) transcript.removeChild(transcript.firstChild);
-    const spinner = fakeDocument.createElement("div");
-    spinner.className = "acp-skill-transcript-loading";
-    spinner.textContent = "loading";
-    transcript.appendChild(spinner);
-    transcript.scrollTop = 0;
-    transcript.dispatchEventType("scroll");
-
-    assert.ok(transcript.querySelector(".acp-skill-transcript-loading"));
-    assert.notInclude(collectFakeText(transcript), "run A transcript");
-  });
-
-  it("sticks a new virtual transcript page key to the tail page on first render", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const transcript = fakeDocument.createElement("div");
-    transcript.clientHeight = 300;
-    transcript.scrollHeight = 12000;
-    transcript.scrollTop = 0;
-
-    renderer.renderAssistantTranscript({
-      container: transcript,
-      virtualized: true,
-      pageKey: "run-a",
-      page: {
-        requestId: "run-a",
-        cursor: 0,
-        total: 1,
-        transcriptRevision: 1,
-        limit: 80,
-        items: [
-          {
-            id: "message-a",
-            kind: "message",
-            role: "assistant",
-            text: "run A transcript",
-          },
-        ],
-      },
-      mode: "plain",
-      nodeMap: new Map(),
-    });
-    transcript.scrollTop = 0;
-    transcript.dispatchEventType("scroll");
-    assert.equal(
-      transcript.getAttribute("data-assistant-transcript-stick"),
-      "false",
-    );
-
-    renderer.renderAssistantTranscript({
-      container: transcript,
-      virtualized: true,
-      pageKey: "run-b",
-      page: {
-        requestId: "run-b",
-        cursor: 80,
-        total: 81,
-        transcriptRevision: 1,
-        limit: 80,
-        items: [
-          {
-            id: "message-b",
-            kind: "message",
-            role: "assistant",
-            text: "run B transcript",
-          },
-        ],
-      },
-      mode: "plain",
-      nodeMap: new Map(),
-    });
-
-    assert.include(collectFakeText(transcript), "run B transcript");
-    assert.equal(transcript.scrollTop, 12000);
-  });
-
-  it("does not let ACP Skills loading snapshots revive the previous virtual transcript", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const elements = new Map<string, any>();
-    const shell = fakeDocument.createElement("div");
-    shell.className = "acp-skill-run-shell";
-    for (const id of [
-      "acp-skill-run-transcript",
-      "acp-skill-chat-mode-plain",
-      "acp-skill-chat-mode-bubble",
-      "acp-skill-run-drawer",
-      "acp-skill-run-details",
-      "acp-skill-run-empty",
-      "acp-skill-run-main",
-      "acp-skill-run-toolbar",
-      "acp-skill-run-banner",
-      "acp-skill-conversation-window",
-      "acp-skill-run-plan-panel",
-      "acp-skill-run-interaction",
-      "acp-skill-run-reply-form",
-    ]) {
-      const node = fakeDocument.createElement("div");
-      elements.set(id, node);
-      shell.appendChild(node);
-    }
-    fakeDocument.getElementById = (id: string) => elements.get(id) || null;
-    fakeDocument.querySelector = (selector: string) =>
-      selector === ".acp-skill-run-shell" ? shell : null;
-    const sidebar = await loadAcpSkillRunSidebarForSmoke(fakeDocument, {
-      useActualTranscriptRenderer: true,
-    });
-    const transcript = elements.get("acp-skill-run-transcript");
-    transcript.clientHeight = 300;
-    transcript.scrollHeight = 12000;
-    transcript.scrollTop = 11700;
-
-    sidebar.postSnapshot({
-      selectedRun: {
-        requestId: "run-a",
-        status: "running",
-        transcriptRevision: 1,
-      },
-      selectedTranscript: {
-        requestId: "run-a",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "run-a",
-        cursor: 80,
-        total: 81,
-        eventSeq: 1,
-        transcriptRevision: 1,
-        limit: 80,
-        items: [
-          {
-            id: "message-a",
-            kind: "message",
-            role: "assistant",
-            text: "run A transcript",
-          },
-        ],
-      },
-    });
-    assert.include(collectFakeText(transcript), "run A transcript");
-
-    sidebar.postSnapshot({
-      selectedRun: {
-        requestId: "run-b",
-        status: "running",
-        transcriptRevision: 1,
-      },
-      selectedTranscript: {
-        requestId: "run-b",
-        state: "loading",
-      },
-    });
-    transcript.scrollTop = 0;
-    transcript.dispatchEventType("scroll");
-    assert.ok(transcript.querySelector(".acp-skill-transcript-loading"));
-    assert.notInclude(collectFakeText(transcript), "run A transcript");
-
-    transcript.scrollHeight = 12000;
-    sidebar.postSnapshot({
-      selectedRun: {
-        requestId: "run-b",
-        status: "running",
-        transcriptRevision: 2,
-      },
-      selectedTranscript: {
-        requestId: "run-b",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "run-b",
-        cursor: 80,
-        total: 81,
-        eventSeq: 2,
-        transcriptRevision: 2,
-        limit: 80,
-        items: [
-          {
-            id: "message-b",
-            kind: "message",
-            role: "assistant",
-            text: "run B transcript",
-          },
-        ],
-      },
-    });
-
-    assert.include(collectFakeText(transcript), "run B transcript");
-    assert.notInclude(collectFakeText(transcript), "run A transcript");
-    assert.equal(transcript.scrollTop, 12000);
-  });
-
-  it("keeps ACP Skills loading spinner stable for repeated same-run snapshots", async function () {
-    const harness = createAcpSkillRunSidebarHarnessDocument();
-    const sidebar = await loadAcpSkillRunSidebarForSmoke(harness.document);
-    const transcript = harness.elements.get("acp-skill-run-transcript");
-
-    const loadingSnapshot = {
-      selectedRequestId: "run-loading-stable",
-      selectedRun: {
-        requestId: "run-loading-stable",
-        status: "running",
-        transcriptRevision: 1,
-      },
-      runs: [
-        {
-          requestId: "run-loading-stable",
-          status: "running",
-          transcriptRevision: 1,
-        },
-      ],
-      selectedTranscript: {
-        requestId: "run-loading-stable",
-        state: "loading",
-      },
-    };
-
-    sidebar.postSnapshot(loadingSnapshot);
-    const firstSpinner = transcript.querySelector(
-      ".acp-skill-transcript-loading",
-    );
-    assert.ok(firstSpinner);
-
-    sidebar.postSnapshot({
-      ...loadingSnapshot,
-      selectedRun: {
-        ...loadingSnapshot.selectedRun,
-        transcriptRevision: 2,
-        transcriptEventSeq: 2,
-        transcriptItemCount: 5,
-        transcriptPreview: "chunk",
-      },
-      runs: [
-        {
-          requestId: "run-loading-stable",
-          status: "running",
-          transcriptRevision: 2,
-          transcriptEventSeq: 2,
-          transcriptItemCount: 5,
-          transcriptPreview: "chunk",
-        },
-      ],
-    });
-    assert.strictEqual(
-      transcript.querySelector(".acp-skill-transcript-loading"),
-      firstSpinner,
-    );
-
-    sidebar.postSnapshot({
-      selectedRequestId: "run-loading-other",
-      selectedRun: {
-        requestId: "run-loading-other",
-        status: "running",
-        transcriptRevision: 1,
-      },
-      runs: [
-        {
-          requestId: "run-loading-other",
-          status: "running",
-          transcriptRevision: 1,
-        },
-      ],
-      selectedTranscript: {
-        requestId: "run-loading-other",
-        state: "loading",
-      },
-    });
-    assert.notStrictEqual(
-      transcript.querySelector(".acp-skill-transcript-loading"),
-      firstSpinner,
-    );
-  });
-
-  it("accepts an ACP Skills loading snapshot for a pending selected run", async function () {
-    const harness = createAcpSkillRunSidebarHarnessDocument();
-    const actionHooks: Array<(action: string, payload: any) => void> = [];
-    const sidebar = await loadAcpSkillRunSidebarForSmoke(harness.document, {
-      panelRenderer: {
-        renderAssistantPanelSnapshot(_panel: any, options: any = {}) {
-          if (typeof options.onAction === "function") {
-            actionHooks.push(options.onAction);
-          }
-          return undefined;
-        },
-      },
-    });
-    const transcript = harness.elements.get("acp-skill-run-transcript");
-    const runAReadySnapshot = {
-      selectedRequestId: "run-pending-a",
-      selectedRun: {
-        requestId: "run-pending-a",
-        status: "succeeded",
-        transcriptRevision: 1,
-      },
-      runs: [
-        {
-          requestId: "run-pending-a",
-          status: "succeeded",
-          transcriptRevision: 1,
-        },
-        {
-          requestId: "run-pending-b",
-          status: "succeeded",
-          transcriptRevision: 2,
-        },
-      ],
-      selectedTranscript: {
-        requestId: "run-pending-a",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "run-pending-a",
-        cursor: 0,
-        total: 1,
-        transcriptRevision: 1,
-        limit: 80,
-        items: [
-          {
-            id: "run-pending-a-message",
-            kind: "message",
-            role: "assistant",
-            text: "run A visible transcript",
-          },
-        ],
-      },
-    };
-
-    sidebar.postSnapshot(runAReadySnapshot);
-    assert.include(collectFakeText(transcript), "run A visible transcript");
-    actionHooks.at(-1)?.("select-run", { requestId: "run-pending-b" });
-    assert.deepEqual(sidebar.actions.at(-1), {
-      action: "select-run",
-      payload: { requestId: "run-pending-b" },
-    });
-
-    sidebar.postSnapshot(runAReadySnapshot);
-    assert.include(collectFakeText(transcript), "run A visible transcript");
-
-    sidebar.postSnapshot({
-      selectedRequestId: "run-pending-b",
-      selectedRun: {
-        requestId: "run-pending-b",
-        status: "succeeded",
-        transcriptRevision: 2,
-      },
-      runs: runAReadySnapshot.runs,
-      selectedTranscript: {
-        requestId: "run-pending-b",
-        state: "loading",
-      },
-    });
-
-    assert.ok(transcript.querySelector(".acp-skill-transcript-loading"));
-    assert.notInclude(collectFakeText(transcript), "run A visible transcript");
-  });
-
-  it("keeps a rendered ACP Skills transcript when a stale loading snapshot arrives", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const elements = new Map<string, any>();
-    const shell = fakeDocument.createElement("div");
-    shell.className = "acp-skill-run-shell";
-    for (const id of [
-      "acp-skill-run-transcript",
-      "acp-skill-chat-mode-plain",
-      "acp-skill-chat-mode-bubble",
-      "acp-skill-run-drawer",
-      "acp-skill-run-details",
-      "acp-skill-run-empty",
-      "acp-skill-run-main",
-      "acp-skill-run-toolbar",
-      "acp-skill-run-banner",
-      "acp-skill-conversation-window",
-      "acp-skill-run-plan-panel",
-      "acp-skill-run-interaction",
-      "acp-skill-run-reply-form",
-    ]) {
-      const node = fakeDocument.createElement("div");
-      elements.set(id, node);
-      shell.appendChild(node);
-    }
-    fakeDocument.getElementById = (id: string) => elements.get(id) || null;
-    fakeDocument.querySelector = (selector: string) =>
-      selector === ".acp-skill-run-shell" ? shell : null;
-    const sidebar = await loadAcpSkillRunSidebarForSmoke(fakeDocument);
-    const transcript = elements.get("acp-skill-run-transcript");
-
-    sidebar.postSnapshot({
-      selectedRun: {
-        requestId: "run-spinner-guard",
-        status: "running",
-        transcriptRevision: 7,
-      },
-      selectedTranscript: {
-        requestId: "run-spinner-guard",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "run-spinner-guard",
-        cursor: 0,
-        total: 1,
-        eventSeq: 7,
-        transcriptRevision: 7,
-        limit: 80,
-        items: [
-          {
-            id: "message-1",
-            kind: "message",
-            role: "assistant",
-            text: "ready transcript",
-          },
-        ],
-      },
-    });
-    assert.equal(
-      transcript.querySelector(".assistant-transcript-row")?.textContent,
-      "ready transcript",
-    );
-
-    sidebar.postSnapshot({
-      selectedRun: {
-        requestId: "run-spinner-guard",
-        status: "running",
-        transcriptRevision: 7,
-      },
-      selectedTranscript: {
-        requestId: "run-spinner-guard",
-        state: "loading",
-      },
-    });
-    assert.notOk(transcript.querySelector(".acp-skill-transcript-loading"));
-    assert.equal(
-      transcript.querySelector(".assistant-transcript-row")?.textContent,
-      "ready transcript",
-    );
-
-    sidebar.postSnapshot({
-      selectedRun: {
-        requestId: "run-spinner-first-load",
-        status: "running",
-        transcriptRevision: 1,
-      },
-      selectedTranscript: {
-        requestId: "run-spinner-first-load",
-        state: "loading",
-      },
-    });
-    assert.ok(transcript.querySelector(".acp-skill-transcript-loading"));
-  });
-
-  it("preserves ACP Skills details drawer DOM across transcript-only snapshots", async function () {
-    const harness = createAcpSkillRunSidebarHarnessDocument();
-    const fakeDocument = harness.document;
-    const conversationView = await loadAssistantConversationViewForSmoke();
-    const panelModel = await loadAssistantPanelModelForSmoke({
-      conversationView,
-    });
-    const panelRenderer =
-      await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const sidebar = await loadAcpSkillRunSidebarForSmoke(fakeDocument, {
-      panelModel,
-      panelRenderer,
-    });
-    const transcript = harness.elements.get("acp-skill-run-transcript");
-    const details = harness.elements.get("acp-skill-run-details");
-    const baseRun = {
-      requestId: "run-dom-stability",
-      status: "running",
-      activePrompt: true,
-      transcriptRevision: 1,
-      backendLabel: "ACP Backend",
-      agentFamily: "codex",
-      acpModeId: "mode-a",
-      acpModelId: "model-a",
-      acpRawModelId: "raw-a",
-      acpReasoningEffort: "medium",
-      skillId: "literature-analysis",
-      sessionId: "session-a",
-      events: [
-        {
-          ts: "2026-07-07T00:00:00.000Z",
-          stage: "prompt",
-          level: "info",
-          message: "first chunk",
-        },
-      ],
-    };
-
-    sidebar.postSnapshot({
-      selectedRequestId: "run-dom-stability",
-      selectedRun: baseRun,
-      runs: [baseRun],
-      logs: [{ id: "log-1", message: "first log" }],
-      selectedTranscript: {
-        requestId: "run-dom-stability",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "run-dom-stability",
-        cursor: 0,
-        total: 1,
-        eventSeq: 1,
-        transcriptRevision: 1,
-        limit: 80,
-        items: [
-          {
-            id: "message-1",
-            kind: "message",
-            role: "assistant",
-            text: "first transcript chunk",
-          },
-        ],
-      },
-    });
-
-    const firstMount = details.querySelector(
-      ".assistant-panel-managed-details",
-    );
-    const firstRunnerSection = details
-      .querySelectorAll(".assistant-panel-details-section")
-      .find((section: any) => collectFakeText(section).includes("Runner"));
-    assert.ok(firstMount);
-    assert.ok(firstRunnerSection);
-    assert.include(collectFakeText(transcript), "first transcript chunk");
-
-    sidebar.postSnapshot({
-      selectedRequestId: "run-dom-stability",
-      selectedRun: {
-        ...baseRun,
-        transcriptRevision: 2,
-        events: [
-          ...baseRun.events,
-          {
-            ts: "2026-07-07T00:00:01.000Z",
-            stage: "prompt",
-            level: "info",
-            message: "second chunk",
-          },
-        ],
-      },
-      runs: [{ ...baseRun, transcriptRevision: 2 }],
-      logs: [{ id: "log-2", message: "transcript pulse log" }],
-      selectedTranscript: {
-        requestId: "run-dom-stability",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "run-dom-stability",
-        cursor: 0,
-        total: 1,
-        eventSeq: 2,
-        transcriptRevision: 2,
-        limit: 80,
-        items: [
-          {
-            id: "message-1",
-            kind: "message",
-            role: "assistant",
-            text: "second transcript chunk",
-          },
-        ],
-      },
-    });
-
-    const nextRunnerSection = details
-      .querySelectorAll(".assistant-panel-details-section")
-      .find((section: any) => collectFakeText(section).includes("Runner"));
-    assert.strictEqual(
-      details.querySelector(".assistant-panel-managed-details"),
-      firstMount,
-    );
-    assert.strictEqual(nextRunnerSection, firstRunnerSection);
-    assert.include(collectFakeText(transcript), "second transcript chunk");
-  });
-
-  it("ignores lower-revision ACP Skills snapshots for a previous selected run", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const elements = new Map<string, any>();
-    const shell = fakeDocument.createElement("div");
-    shell.className = "acp-skill-run-shell";
-    for (const id of [
-      "acp-skill-run-transcript",
-      "acp-skill-chat-mode-plain",
-      "acp-skill-chat-mode-bubble",
-      "acp-skill-run-drawer",
-      "acp-skill-run-details",
-      "acp-skill-run-empty",
-      "acp-skill-run-main",
-      "acp-skill-run-toolbar",
-      "acp-skill-run-banner",
-      "acp-skill-conversation-window",
-      "acp-skill-run-plan-panel",
-      "acp-skill-run-interaction",
-      "acp-skill-run-reply-form",
-    ]) {
-      const node = fakeDocument.createElement("div");
-      elements.set(id, node);
-      shell.appendChild(node);
-    }
-    fakeDocument.getElementById = (id: string) => elements.get(id) || null;
-    fakeDocument.querySelector = (selector: string) =>
-      selector === ".acp-skill-run-shell" ? shell : null;
-    const sidebar = await loadAcpSkillRunSidebarForSmoke(fakeDocument);
-    const transcript = elements.get("acp-skill-run-transcript");
-
-    sidebar.postSnapshot({
-      sidebar: {
-        scopeKey: "scope-a",
-        panes: { "acp-skills": { revision: 12 } },
-      },
-      selectedRequestId: "run-current",
-      selectedRun: {
-        requestId: "run-current",
-        status: "running",
-        transcriptRevision: 2,
-      },
-      selectedTranscript: {
-        requestId: "run-current",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "run-current",
-        cursor: 0,
-        total: 1,
-        eventSeq: 2,
-        transcriptRevision: 2,
-        limit: 80,
-        items: [
-          {
-            id: "message-current",
-            kind: "message",
-            role: "assistant",
-            text: "current transcript",
-          },
-        ],
-      },
-    });
-    assert.equal(
-      transcript.querySelector(".assistant-transcript-row")?.textContent,
-      "current transcript",
-    );
-
-    sidebar.postSnapshot({
-      sidebar: {
-        scopeKey: "scope-a",
-        panes: { "acp-skills": { revision: 11 } },
-      },
-      selectedRequestId: "run-previous",
-      selectedRun: {
-        requestId: "run-previous",
-        status: "running",
-        transcriptRevision: 3,
-      },
-      selectedTranscript: {
-        requestId: "run-previous",
-        state: "ready",
-      },
-      selectedTranscriptPage: {
-        requestId: "run-previous",
-        cursor: 0,
-        total: 1,
-        eventSeq: 3,
-        transcriptRevision: 3,
-        limit: 80,
-        items: [
-          {
-            id: "message-previous",
-            kind: "message",
-            role: "assistant",
-            text: "previous transcript",
-          },
-        ],
-      },
-    });
-
-    assert.equal(
-      transcript.querySelector(".assistant-transcript-row")?.textContent,
-      "current transcript",
-    );
-  });
-
-  it("keeps focused reply textarea stable across unrelated managed renders", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const replyRegion = fakeDocument.createElement("div");
-    const basePanel = {
-      kind: "acp-skill",
-      context: { id: "run-a" },
-      lifecycle: { replyState: "waiting" },
-      reply: {
-        enabled: true,
-        inputEnabled: true,
-        action: "reply-run",
-        placeholder: "Reply",
-        hint: "Ctrl+Enter",
-        value: "model echo",
-      },
-    };
-
-    renderer.renderAssistantPanelSnapshot(basePanel, {
-      managed: true,
-      managedRegions: { reply: true },
-      regions: { reply: replyRegion },
-    });
-
-    const input = replyRegion.querySelector(
-      ".assistant-panel-reply-input",
-    ) as any;
-    assert.ok(input);
-    input.value = "local draft";
-    input.focus();
-    input.setSelectionRange(2, 7);
-
-    renderer.renderAssistantPanelSnapshot(
-      {
-        ...basePanel,
-        usage: { used: 100, size: 1000 },
-        reply: {
-          ...basePanel.reply,
-          enabled: false,
-          inputEnabled: false,
-          value: "new model echo",
-          hint: "Still waiting",
-        },
-      },
-      {
-        managed: true,
-        managedRegions: { reply: true },
-        regions: { reply: replyRegion },
-      },
-    );
-
-    const nextInput = replyRegion.querySelector(
-      ".assistant-panel-reply-input",
-    ) as any;
-    assert.strictEqual(nextInput, input);
-    assert.equal(nextInput.value, "local draft");
-    assert.equal(nextInput.selectionStart, 2);
-    assert.equal(nextInput.selectionEnd, 7);
-    assert.strictEqual(fakeDocument.activeElement, input);
-    assert.isTrue(nextInput.disabled);
-    assert.isTrue(
-      replyRegion.querySelector(".assistant-panel-reply-submit").disabled,
-    );
-  });
-
-  it("preserves all managed non-transcript regions across transcript-only snapshots", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const root = fakeDocument.createElement("div");
-    const regions: Record<string, any> = {};
-    for (const name of [
+    const stableRegions = [
       "toolbar",
       "banner",
       "plan",
@@ -8095,1082 +773,513 @@ describe("acp ui smoke", function () {
       "reply",
       "drawer",
       "details",
-    ]) {
-      regions[name] = fakeDocument.createElement("div");
-      root.appendChild(regions[name]);
-    }
-    const panel = {
-      kind: "acp-skill",
-      context: { id: "run-managed-stable", title: "Run", status: "running" },
-      lifecycle: { executionState: "running", replyState: "waiting" },
-      plan: {
-        active: true,
-        entries: [{ id: "plan-1", title: "Plan", status: "active" }],
-      },
-      interaction: { kind: "waiting_user", message: "Need input" },
-      reply: {
-        enabled: true,
-        inputEnabled: true,
-        action: "reply-run",
-        placeholder: "Reply",
-        hint: "Waiting",
-        submitLabel: "Send",
-        value: "",
-      },
-      drawers: {
-        layout: "workspace-task-drawer",
-        contextTitle: "Runs",
-        detailsTitle: "Details",
-        labels: {},
-        selectedTaskKey: "task-a",
-        sections: [
-          {
-            id: "running",
-            title: "Running",
-            groups: [
-              {
-                backendId: "backend-a",
-                activeTasks: [
-                  {
-                    key: "task-a",
-                    title: "Task A",
-                    status: "running",
-                    selectable: true,
-                  },
-                ],
-                finishedTasks: [],
-              },
-            ],
-          },
-        ],
-        details: [
-          {
-            title: "Runner",
-            kind: "runner",
-            entries: [{ label: "Backend", value: "Backend A" }],
-          },
-        ],
-        permissionRequestOpen: true,
-        permissionRequest: {
-          permissionRequestId: "permission-stable",
-          requestId: "permission-stable",
-          toolTitle: "Tool",
-          summary: "Approve tool",
-          commandPreview: "run tool",
-          actions: [{ action: "resolve-permission", label: "Approve" }],
-        },
-      },
-      actions: {
-        toolbar: [{ action: "openDetails", label: "Details" }],
-        details: [{ action: "copy-diagnostics", label: "Copy" }],
-      },
-      conversation: { items: [{ id: "message-1", text: "first" }] },
-      raw: { transcriptRevision: 1 },
-    };
-
-    renderer.renderAssistantPanelSnapshot(panel, {
-      managed: true,
-      managedRegions: {
-        toolbar: true,
-        banner: true,
-        plan: true,
-        hint: true,
-        reply: true,
-        drawer: true,
-        details: true,
-        permission: true,
-      },
-      root,
-      regions,
-    });
-
-    const firstNodes = {
-      toolbar: regions.toolbar.querySelector(
-        ".assistant-panel-managed-toolbar",
-      ),
-      banner: regions.banner.querySelector(".assistant-panel-managed-banner"),
-      plan: regions.plan.querySelector(".assistant-panel-managed-plan"),
-      hint: regions.hint.querySelector(".assistant-panel-managed-hint"),
-      reply: regions.reply.querySelector(".assistant-panel-managed-reply"),
-      replyHint: regions.reply.querySelector(".assistant-panel-reply-hint"),
-      drawer: regions.drawer.querySelector(".assistant-panel-managed-drawer"),
-      drawerTask: regions.drawer.querySelector(
-        ".assistant-workspace-drawer-task",
-      ),
-      details: regions.details.querySelector(
-        ".assistant-panel-managed-details",
-      ),
-      permission: root.querySelector(
-        ".assistant-panel-permission-drawer-panel",
-      ),
-    };
-    Object.values(firstNodes).forEach((node) => assert.ok(node));
-
-    renderer.renderAssistantPanelSnapshot(
-      {
-        ...panel,
-        conversation: { items: [{ id: "message-1", text: "second" }] },
-        raw: {
-          transcriptRevision: 2,
-          selectedTranscriptPage: {
-            requestId: "run-managed-stable",
-            cursor: 80,
-            transcriptRevision: 2,
-            items: [{ id: "message-1", text: "second" }],
-          },
-        },
-      },
-      {
-        managed: true,
-        managedRegions: {
-          toolbar: true,
-          banner: true,
-          plan: true,
-          hint: true,
-          reply: true,
-          drawer: true,
-          details: true,
-          permission: true,
-        },
-        root,
-        regions,
-      },
+    ] as const;
+    const stableIdentities = new Map(
+      stableRegions.map((key) => [key, regions[key].firstChild]),
     );
 
-    assert.strictEqual(
-      regions.toolbar.querySelector(".assistant-panel-managed-toolbar"),
-      firstNodes.toolbar,
-    );
-    assert.strictEqual(
-      regions.banner.querySelector(".assistant-panel-managed-banner"),
-      firstNodes.banner,
-    );
-    assert.strictEqual(
-      regions.plan.querySelector(".assistant-panel-managed-plan"),
-      firstNodes.plan,
-    );
-    assert.strictEqual(
-      regions.hint.querySelector(".assistant-panel-managed-hint"),
-      firstNodes.hint,
-    );
-    assert.strictEqual(
-      regions.reply.querySelector(".assistant-panel-managed-reply"),
-      firstNodes.reply,
-    );
-    assert.strictEqual(
-      regions.reply.querySelector(".assistant-panel-reply-hint"),
-      firstNodes.replyHint,
-    );
-    assert.strictEqual(
-      regions.drawer.querySelector(".assistant-panel-managed-drawer"),
-      firstNodes.drawer,
-    );
-    assert.strictEqual(
-      regions.drawer.querySelector(".assistant-workspace-drawer-task"),
-      firstNodes.drawerTask,
-    );
-    assert.strictEqual(
-      regions.details.querySelector(".assistant-panel-managed-details"),
-      firstNodes.details,
-    );
-    assert.strictEqual(
-      root.querySelector(".assistant-panel-permission-drawer-panel"),
-      firstNodes.permission,
-    );
-
-    renderer.renderAssistantPanelSnapshot(
-      {
-        ...panel,
-        lifecycle: { ...panel.lifecycle, replyState: "cancelling" },
-        reply: {
-          ...panel.reply,
-          enabled: false,
-          inputEnabled: false,
-          action: "interrupt-run-turn",
-          submitLabel: "Cancelling...",
-        },
-      },
-      {
-        managed: true,
-        managedRegions: {
-          toolbar: true,
-          banner: true,
-          plan: true,
-          hint: true,
-          reply: true,
-          drawer: true,
-          details: true,
-          permission: true,
-        },
-        root,
-        regions,
-      },
-    );
-    assert.strictEqual(
-      regions.toolbar.querySelector(".assistant-panel-managed-toolbar"),
-      firstNodes.toolbar,
-    );
-    assert.strictEqual(
-      regions.plan.querySelector(".assistant-panel-managed-plan"),
-      firstNodes.plan,
-    );
-    assert.strictEqual(
-      regions.drawer.querySelector(".assistant-panel-managed-drawer"),
-      firstNodes.drawer,
-    );
-    assert.strictEqual(
-      regions.details.querySelector(".assistant-panel-managed-details"),
-      firstNodes.details,
-    );
-    assert.strictEqual(
-      root.querySelector(".assistant-panel-permission-drawer-panel"),
-      firstNodes.permission,
-    );
-    assert.isTrue(
-      regions.reply.querySelector(".assistant-panel-reply-submit").disabled,
-    );
-  });
-
-  it("updates managed reply live fields only when reply signature changes", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const replyRegion = fakeDocument.createElement("div");
-    const panel = {
-      kind: "acp-skill",
-      context: { id: "run-reply-signature" },
-      lifecycle: { replyState: "waiting" },
-      reply: {
-        enabled: true,
-        inputEnabled: true,
-        action: "reply-run",
-        placeholder: "Reply",
-        hint: "Waiting",
-        submitLabel: "Send",
-      },
-    };
-
-    renderer.renderAssistantPanelSnapshot(panel, {
-      managed: true,
-      managedRegions: { reply: true },
-      regions: { reply: replyRegion },
-    });
-    const firstHint = replyRegion.querySelector(".assistant-panel-reply-hint");
-    assert.ok(firstHint);
-
-    renderer.renderAssistantPanelSnapshot(
-      {
-        ...panel,
-        raw: { transcriptRevision: 2 },
-        conversation: { items: [{ id: "message", text: "new chunk" }] },
-      },
-      {
-        managed: true,
-        managedRegions: { reply: true },
-        regions: { reply: replyRegion },
-      },
-    );
-    assert.strictEqual(
-      replyRegion.querySelector(".assistant-panel-reply-hint"),
-      firstHint,
-    );
-
-    renderer.renderAssistantPanelSnapshot(
-      {
-        ...panel,
-        reply: {
-          ...panel.reply,
-          hint: "Still waiting",
-          submitLabel: "Continue",
-        },
-      },
-      {
-        managed: true,
-        managedRegions: { reply: true },
-        regions: { reply: replyRegion },
-      },
-    );
-    assert.include(collectFakeText(replyRegion), "Still waiting");
-    assert.include(collectFakeText(replyRegion), "Continue");
-  });
-
-  it("keeps managed details drawer DOM stable when its signature is unchanged", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const detailsRegion = fakeDocument.createElement("div");
-    const basePanel = {
-      kind: "acp-skill",
-      context: { title: "Run A" },
-      drawers: {
-        detailsTitle: "Details",
-        details: [
-          {
-            title: "Runner",
-            kind: "runner",
-            entries: [{ label: "Backend", value: "ACP Backend" }],
-          },
-        ],
-      },
-      actions: {
-        details: [{ action: "open-backend-manager", label: "Backend" }],
-      },
-    };
-
-    renderer.renderAssistantPanelSnapshot(basePanel, {
-      managed: true,
-      managedRegions: { details: true },
-      regions: { details: detailsRegion },
-    });
-    const firstMount = detailsRegion.querySelector(
-      ".assistant-panel-managed-details",
-    );
-    const firstSection = detailsRegion.querySelector(
-      ".assistant-panel-details-section",
-    );
-    assert.ok(firstMount);
-    assert.ok(firstSection);
-
-    renderer.renderAssistantPanelSnapshot(
-      {
-        ...basePanel,
-        context: { title: "Run A updated outside details" },
-        usage: { used: 10, size: 100 },
-      },
-      {
-        managed: true,
-        managedRegions: { details: true },
-        regions: { details: detailsRegion },
-      },
-    );
-
-    assert.strictEqual(
-      detailsRegion.querySelector(".assistant-panel-managed-details"),
-      firstMount,
-    );
-    assert.strictEqual(
-      detailsRegion.querySelector(".assistant-panel-details-section"),
-      firstSection,
-    );
-
-    renderer.renderAssistantPanelSnapshot(
-      {
-        ...basePanel,
-        drawers: {
-          ...basePanel.drawers,
-          details: [
-            {
-              title: "Runner",
-              kind: "runner",
-              entries: [{ label: "Backend", value: "Other Backend" }],
-            },
-          ],
-        },
-      },
-      {
-        managed: true,
-        managedRegions: { details: true },
-        regions: { details: detailsRegion },
-      },
-    );
-
-    const changedSection = detailsRegion.querySelector(
-      ".assistant-panel-details-section",
-    );
-    assert.notStrictEqual(changedSection, firstSection);
-    assert.include(collectFakeText(detailsRegion), "Other Backend");
-  });
-
-  it("renders toolbar switch actions and emits the toggled payload", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const toolbarRegion = fakeDocument.createElement("div");
-    const actions: Array<{ action: string; data: Record<string, unknown> }> =
-      [];
-
-    renderer.renderAssistantPanelSnapshot(
-      {
-        kind: "acp-chat",
-        actions: {
-          toolbar: [
-            { action: "openDetails", label: "Details" },
-            {
-              kind: "switch",
-              align: "end",
-              action: "set-streaming-render-enabled",
-              label: "Streaming off",
-              baseLabel: "Streaming",
-              stateLabel: "Streaming off",
-              checked: false,
-              payload: { enabled: true },
-            },
-          ],
-        },
-      },
-      {
-        managed: true,
-        managedRegions: { toolbar: true },
-        regions: { toolbar: toolbarRegion },
-        onAction: (action: string, data: Record<string, unknown>) => {
-          actions.push({ action, data });
-        },
-      },
-    );
-
-    const switchButton = toolbarRegion.querySelector(
-      ".assistant-panel-switch-action",
-    );
-    assert.ok(switchButton);
-    assert.equal(switchButton?.getAttribute("role"), "switch");
-    assert.equal(switchButton?.getAttribute("aria-checked"), "false");
-    assert.equal(switchButton?.getAttribute("aria-label"), "Streaming off");
-    assert.equal(
-      switchButton
-        ?.querySelector(".assistant-panel-switch-label")
-        ?.textContent?.trim(),
-      "Streaming off",
-    );
-    assert.equal(
-      switchButton?.getAttribute("data-assistant-action-align"),
-      "end",
-    );
-    assert.equal(
-      switchButton?.getAttribute("data-assistant-switch-fallback"),
-      "label",
-    );
-    const endGroup = toolbarRegion.querySelector(
-      ".assistant-panel-toolbar-group-end",
-    );
-    assert.ok(endGroup);
-    assert.ok(endGroup?.querySelector(".assistant-panel-switch-action"));
-    switchButton?.click();
-    assert.deepEqual(actions, [
-      {
-        action: "set-streaming-render-enabled",
-        data: { enabled: true },
-      },
-    ]);
-  });
-
-  it("renders banner context switch actions and emits the toggled payload", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const bannerRegion = fakeDocument.createElement("div");
-    const actions: Array<{ action: string; data: Record<string, unknown> }> =
-      [];
-
-    renderer.renderAssistantPanelSnapshot(
-      {
-        kind: "acp-chat",
-        context: {
-          title: "ACP Chat",
-          status: "idle",
-          actions: [
-            {
-              kind: "switch",
-              action: "set-auto-approve-permissions",
-              label: "Auto-approve off",
-              baseLabel: "Auto-approve",
-              stateLabel: "Auto-approve off",
-              checked: false,
-              enabled: true,
-              payload: {
-                enabled: true,
-                backendId: "",
-                conversationId: "",
-              },
-            },
-          ],
-        },
-      },
-      {
-        managed: true,
-        managedRegions: { banner: true },
-        regions: { banner: bannerRegion },
-        onAction: (action: string, data: Record<string, unknown>) => {
-          actions.push({ action, data });
-        },
-      },
-    );
-
-    const switchButton = bannerRegion.querySelector(
-      ".assistant-panel-switch-action",
-    );
-    assert.ok(switchButton);
-    assert.isFalse((switchButton as any).disabled);
-    assert.equal(switchButton?.getAttribute("aria-checked"), "false");
-    switchButton?.click();
-    assert.equal(
-      switchButton?.getAttribute("data-assistant-switch-pending"),
-      "true",
-    );
-    assert.equal(switchButton?.getAttribute("aria-busy"), "true");
-    assert.deepEqual(actions, [
-      {
-        action: "set-auto-approve-permissions",
-        data: { enabled: true, backendId: "", conversationId: "" },
-      },
-    ]);
-  });
-
-  it("projects the global execution display control on SkillRunner panels", async function () {
-    const model = await loadAssistantPanelModelForSmoke();
-    const messageCounts = {
-      scopeKey: "skillrunner-task-a",
-      active: true,
-      current: { assistant: 1, thought: 2, tool: 3 },
-      cumulative: { assistant: 4, thought: 5, tool: 6 },
-      completeness: "complete",
-      revision: 1,
-    };
-    const panel = model.projectSkillRunnerPanelSnapshot({
-      executionDisplayMode: "boundary",
-      messageCounts,
-      session: {
-        requestId: "req-skillrunner-switch",
-        status: "running",
-      },
-      workspace: {
-        selectedTaskKey: "",
-        groups: [],
-      },
-      drawer: {
-        sections: [],
-      },
-    });
-
-    const action = panel.actions.toolbar.find(
-      (entry: any) => entry.action === "set-execution-display-mode",
-    );
-    assert.equal(action?.kind, "display-mode");
-    assert.equal(action?.align, "end");
-    assert.equal(action?.value, "boundary");
+    render(2, 5);
     assert.deepEqual(
-      action?.options.map((entry: any) => entry.value),
-      ["live", "boundary", "silent"],
+      counterValues.map((entry) => entry.textContent),
+      ["2/5", "2/5", "3/6"],
     );
-    assert.deepEqual(panel.raw.messageCounts, messageCounts);
-
-    const enabledPanel = model.projectSkillRunnerPanelSnapshot({
-      executionDisplayMode: "live",
-      session: {
-        requestId: "req-skillrunner-switch-enabled",
-        status: "running",
-      },
-      workspace: {
-        selectedTaskKey: "",
-        groups: [],
-      },
-      drawer: {
-        sections: [],
-      },
+    regions.messageCounter
+      .querySelectorAll(".assistant-message-counter-item")
+      .forEach((entry, index) => {
+        assert.strictEqual(entry, counterItems[index]);
+      });
+    stableRegions.forEach((key) => {
+      assert.strictEqual(
+        regions[key].firstChild,
+        stableIdentities.get(key),
+        key,
+      );
     });
-    const enabledAction = enabledPanel.actions.toolbar.find(
-      (entry: any) => entry.action === "set-execution-display-mode",
-    );
-    assert.equal(enabledAction?.value, "live");
   });
 
-  it("renders an accessible execution display radiogroup with keyboard selection", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const toolbar = fakeDocument.createElement("div");
-    const actions: Array<{ action: string; data: Record<string, unknown> }> =
-      [];
-
-    renderer.renderAssistantPanelSnapshot(
-      {
-        kind: "skillrunner",
-        actions: {
-          toolbar: [
-            {
-              kind: "display-mode",
-              action: "set-execution-display-mode",
-              label: "Display mode",
-              value: "boundary",
-              options: [
-                { value: "live", label: "Live" },
-                { value: "boundary", label: "By message" },
-                { value: "silent", label: "Silent" },
-              ],
-            },
-          ],
-        },
-      },
-      {
-        managed: true,
-        managedRegions: { toolbar: true },
-        regions: { toolbar },
-        onAction: (action: string, data: Record<string, unknown>) => {
-          actions.push({ action, data });
-        },
-      },
-    );
-
-    const group = toolbar.querySelector(".assistant-panel-display-mode");
-    const radios = toolbar.querySelectorAll(
-      ".assistant-panel-display-mode-option",
-    );
-    assert.equal(group?.getAttribute("role"), "radiogroup");
-    assert.lengthOf(radios, 3);
-    assert.equal(radios[1]?.getAttribute("aria-checked"), "true");
-    radios[1]?.dispatchEventType("keydown", { key: "End" });
-    assert.deepEqual(actions, [
-      {
-        action: "set-execution-display-mode",
-        data: { mode: "silent" },
-      },
-    ]);
-  });
-
-  it("renders localized owner-scoped message counts in an independent managed region", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const counter = fakeDocument.createElement("section");
-    const toolbar = fakeDocument.createElement("header");
-    const render = (assistant: number) =>
+  it("preserves SkillRunner managed mounts across empty and selected snapshots", async function () {
+    const document = new FakeDocument();
+    const model = await loadPanelModel();
+    const renderer = await loadPanelRenderer(document);
+    const { root, regions } = createPanelManagedRegions(document);
+    const render = (session: Record<string, unknown> | null) => {
       renderer.renderAssistantPanelSnapshot(
-        {
-          kind: "acp-chat",
-          labels: {
-            transcript: {
-              assistant: "助手",
-              thinking: "思考",
-              tool: "工具",
-            },
-          },
-          actions: { toolbar: [] },
-          raw: {
-            messageCounts: {
-              scopeKey: "owner-a",
-              executionKey: "prompt-a",
-              active: true,
-              current: { assistant, thought: 2, tool: 3 },
-              cumulative: { assistant: 4, thought: 5, tool: 6 },
-              completeness: "complete",
-              revision: assistant,
-            },
-          },
-        },
+        model.projectSkillRunnerPanelSnapshot(skillRunnerEnvelope(session)),
         {
           managed: true,
-          managedRegions: { toolbar: true, messageCounter: true },
-          regions: { toolbar, messageCounter: counter },
+          root,
+          regions,
+          onAction() {},
         },
       );
+    };
 
-    render(1);
-    const toolbarNode = toolbar.firstChild;
-    const labels = counter.querySelectorAll(".assistant-message-counter-label");
-    const values = counter.querySelectorAll(".assistant-message-counter-value");
-    assert.deepEqual(
-      labels.map((entry: any) => entry.textContent),
-      ["助手", "思考", "工具"],
+    render(null);
+    const identities = Object.fromEntries(
+      Object.entries(regions).map(([key, region]) => [key, region.firstChild]),
     );
-    assert.deepEqual(
-      values.map((entry: any) => entry.textContent),
-      ["1/4", "2/5", "3/6"],
-    );
-    render(2);
-    assert.strictEqual(toolbar.firstChild, toolbarNode);
-    assert.equal(counter.getAttribute("data-message-counter-owner"), "owner-a");
-  });
-
-  it("reserves a natural counter row and one flexible content slot in every panel", async function () {
-    const [sharedCss, acpChatHtml, acpSkillRunHtml, runDialogHtml] =
-      await Promise.all([
-        readProjectFile(
-          "addon/content/shared/assistant/assistant-panel-shared.css",
-        ),
-        readProjectFile("addon/content/sidebar/acp-chat.html"),
-        readProjectFile("addon/content/sidebar/acp-skill-run.html"),
-        readProjectFile("addon/content/sidebar/run-dialog.html"),
-      ]);
-
-    assert.match(
-      sharedCss,
-      /grid-template-areas:\s*"toolbar"\s*"banner"\s*"counter"\s*"content"/,
-    );
-    assert.include(sharedCss, "grid-area: counter");
-    assert.include(sharedCss, "grid-area: content");
-    for (const [html, bannerId, counterId, contentId] of [
-      [
-        acpChatHtml,
-        "acp-chat-banner",
-        "acp-chat-message-counter",
-        "acp-chat-main",
-      ],
-      [
-        acpSkillRunHtml,
-        "acp-skill-run-banner",
-        "acp-skill-run-message-counter",
-        "acp-skill-run-main",
-      ],
-      [
-        runDialogHtml,
-        "skillrunner-banner",
-        "skillrunner-message-counter",
-        "skillrunner-main",
-      ],
-    ]) {
-      assert.isBelow(html.indexOf(bannerId), html.indexOf(counterId));
-      assert.isBelow(html.indexOf(counterId), html.indexOf(contentId));
+    render({ title: "Task Alpha", status: "running", requestId: "req-a" });
+    render(null);
+    for (const [key, region] of Object.entries(regions)) {
+      assert.strictEqual(region.firstChild, identities[key], key);
     }
   });
 
-  it("delivers ACP Chat count-only snapshots to the shared region guards", async function () {
-    const { fakeDocument } = createAcpChatSidebarHarnessDocument();
-    const sidebar = await loadAcpChatSidebarForSmoke(fakeDocument);
-    const snapshot = {
-      activeBackendId: "backend-a",
-      backendId: "backend-a",
-      activeConversationId: "conversation-a",
-      conversationId: "conversation-a",
-      status: "prompting",
-      busy: true,
-      items: [],
-      labels: {},
-      messageCounts: {
-        scopeKey: "backend-a\nconversation-a",
-        active: true,
-        current: { assistant: 0, thought: 0, tool: 0 },
-        cumulative: { assistant: 0, thought: 0, tool: 0 },
-        completeness: "complete",
-        revision: 1,
-      },
-    };
-    sidebar.postSnapshot(snapshot);
-    const initialRenderCount = sidebar.counterRenderCalls.length;
-    sidebar.postSnapshot({
-      ...snapshot,
-      messageCounts: {
-        ...snapshot.messageCounts,
-        current: { assistant: 1, thought: 0, tool: 0 },
-        cumulative: { assistant: 1, thought: 0, tool: 0 },
-        revision: 2,
-      },
+  it("projects Skills title, subtitle, banner metadata, and task status axes", async function () {
+    const model = await loadPanelModel();
+    const panel = model.projectAssistantWorkspacePanel(
+      canonicalState("acp-skills"),
+      { executionDisplayMode: "boundary", completedCollapsed: false },
+      {},
+    );
+    assert.equal(panel.context.title, "Task Alpha");
+    assert.equal(panel.context.subtitle, "Skill Alpha");
+    assert.deepInclude(panel.context.metadata, {
+      itemId: "workflow",
+      label: "Workflow",
+      value: "Literature",
     });
-
-    assert.isAbove(sidebar.counterRenderCalls.length, initialRenderCount);
+    const task = panel.drawers.sections[0].groups[0].activeTasks[0];
+    assert.equal(task.workflowLabel, "Skill Alpha");
+    assert.equal(task.backendStatus, "connected");
+    assert.equal(task.applyStatus, "pending");
+    assert.equal(panel.actions.toolbar[3].value, "boundary");
+    assert.equal(panel.actions.toolbar[3].align, "end");
   });
 
-  it("delivers ACP Skills count-only snapshots to the shared region guards", async function () {
-    const harness = createAcpSkillRunSidebarHarnessDocument();
-    const panelRenderCalls: any[] = [];
-    const counterRenderCalls: any[] = [];
-    const sidebar = await loadAcpSkillRunSidebarForSmoke(harness.document, {
-      panelRenderer: {
-        renderAssistantPanelSnapshot(snapshot: any, options: any = {}) {
-          const managedRegions = options.managedRegions || {};
-          if (
-            managedRegions.messageCounter === true &&
-            Object.keys(managedRegions).length === 1
-          ) {
-            counterRenderCalls.push(snapshot);
-          } else {
-            panelRenderCalls.push(snapshot);
-          }
+  it("restores the disconnected Chat banner without treating remote identity as live", async function () {
+    const model = await loadPanelModel();
+    const state = canonicalState("acp-chat");
+    state.selection.control = {
+      ...state.selection.control,
+      status: "idle",
+      busy: false,
+      hint: { kind: "notice", message: "end_turn" },
+      connection: {
+        status: "idle",
+        sessionAvailable: true,
+        connected: false,
+        canConnect: true,
+        canDisconnect: false,
+      },
+      authentication: {
+        required: false,
+        canAuthenticate: false,
+        methodId: null,
+      },
+      permissionPolicy: {
+        autoApprove: true,
+        canSetAutoApprove: true,
+      },
+    };
+    state.selection.presentation.metadata = [
+      { fieldId: "backend", value: "OpenCode ACP" },
+      { fieldId: "workspace", value: "/tmp/chat-workspace" },
+    ];
+    state.selection.composer = {
+      reply: { status: "enabled" },
+      runtimeOptions: {
+        mode: {
+          selectedOptionId: "build",
+          options: [{ optionId: "build", label: "build", description: null }],
+          enabled: false,
+        },
+        model: {
+          selectedOptionId: "model-a",
+          options: [
+            { optionId: "model-a", label: "Model A", description: null },
+          ],
+          enabled: false,
+        },
+        reasoningEffort: {
+          selectedOptionId: "default",
+          options: [{ optionId: "default", label: "默认", description: null }],
+          enabled: false,
         },
       },
-    });
-    const snapshot = {
-      selectedRequestId: "run-a",
-      selectedRun: {
-        requestId: "run-a",
-        status: "running",
-        activePrompt: true,
-      },
-      runs: [],
-      labels: {},
-      messageCounts: {
-        scopeKey: "run-a",
-        active: true,
-        current: { assistant: 0, thought: 0, tool: 0 },
-        cumulative: { assistant: 0, thought: 0, tool: 0 },
-        completeness: "complete",
-        revision: 1,
-      },
     };
-    sidebar.postSnapshot(snapshot);
-    const initialRenderCount = counterRenderCalls.length;
-    sidebar.postSnapshot({
-      ...snapshot,
-      messageCounts: {
-        ...snapshot.messageCounts,
-        current: { assistant: 0, thought: 1, tool: 0 },
-        cumulative: { assistant: 0, thought: 1, tool: 0 },
-        revision: 2,
+    const panel = model.projectAssistantWorkspacePanel(
+      state,
+      { executionDisplayMode: "live" },
+      {
+        assistantPanel: {
+          actions: {
+            autoApproveAcpPermissions: "自动批准",
+            autoApproveAcpPermissionsOn: "自动批准已开启",
+            autoApproveAcpPermissionsOff: "自动批准已关闭",
+          },
+        },
       },
+    );
+    assert.deepEqual(
+      panel.context.metadata.map((entry: any) => entry.itemId),
+      ["backend", "workspace"],
+    );
+    assert.deepEqual(
+      panel.context.indicators.map((entry: any) => entry.valueVisible),
+      [false, false],
+    );
+    assert.deepEqual(
+      panel.context.actions.map((entry: any) => [entry.action, entry.enabled]),
+      [
+        ["new-conversation", true],
+        ["connect", true],
+        ["disconnect", false],
+        ["authenticate", false],
+        ["set-auto-approve-permissions", true],
+      ],
+    );
+    assert.equal(panel.context.actions.at(-1).stateLabel, "自动批准已开启");
+    assert.deepEqual(
+      panel.reply.controls.map((entry: any) => [
+        entry.id,
+        entry.value,
+        entry.disabled,
+      ]),
+      [
+        ["mode", "build", true],
+        ["model", "model-a", true],
+        ["reasoning", "default", true],
+      ],
+    );
+    assert.deepInclude(panel.interaction, {
+      kind: "notice",
+      message: "end_turn",
     });
-
-    assert.isAbove(counterRenderCalls.length, initialRenderCount);
+    assert.equal(panel.reply.hint, "");
   });
 
-  it("renders the Assistant transcript role through shared localization", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const transcript = fakeDocument.createElement("section");
-    renderer.renderAssistantTranscript({
-      container: transcript,
+  it("restores the waiting Skills banner and semantic hint without raw status metadata", async function () {
+    const model = await loadPanelModel();
+    const state = canonicalState("acp-skills");
+    state.selection.control = {
+      ...state.selection.control,
+      status: "waiting_user",
+      busy: false,
+      hint: { kind: "waiting_user", message: null },
+      connection: {
+        status: "idle",
+        sessionAvailable: true,
+        connected: false,
+        canConnect: true,
+        canDisconnect: false,
+      },
+      execution: { canCancel: true, canInterrupt: false },
+    };
+    state.selection.presentation.metadata = [
+      { fieldId: "backend", value: "Kilo ACP (npm)" },
+      { fieldId: "workspace", value: "/tmp/skills-workspace" },
+    ];
+    const labels = {
+      assistantPanel: {
+        interaction: { waitingReply: "Agent 正在等待你的回复。" },
+      },
+    };
+    const panel = model.projectAssistantWorkspacePanel(
+      state,
+      { executionDisplayMode: "live" },
+      labels,
+    );
+    assert.deepEqual(
+      panel.context.metadata.map((entry: any) => entry.itemId),
+      ["backend", "workspace"],
+    );
+    assert.deepEqual(
+      panel.context.actions.map((entry: any) => [entry.action, entry.enabled]),
+      [
+        ["connect-run", true],
+        ["disconnect-run", false],
+        ["cancel-run", true],
+      ],
+    );
+    assert.deepInclude(panel.interaction, {
+      kind: "waiting_user",
+      message: "Agent 正在等待你的回复。",
+    });
+    assert.equal(panel.reply.hint, "");
+  });
+
+  it("bounds the Chat selector to eight recent sessions, retains active, and appends Show more", async function () {
+    const model = await loadPanelModel();
+    const state = canonicalState("acp-chat");
+    const selected = owner("acp-chat", "backend-a\nconversation-10");
+    state.selection.owner = selected;
+    state.navigation.selectedOwner = selected;
+    state.navigation.entries = Array.from({ length: 11 }, (_, index) => ({
+      ...state.navigation.entries[0],
+      owner: owner("acp-chat", `backend-a\nconversation-${index}`),
+      label: `Session ${index}`,
+    }));
+    const panel = model.projectAssistantWorkspacePanel(
+      state,
+      { executionDisplayMode: "live" },
+      {},
+    );
+    const options = panel.context.selectors[1].options;
+    assert.lengthOf(options, 10);
+    assert.isTrue(
+      options.some((entry: any) => entry.value === selected.ownerKey),
+    );
+    assert.deepInclude(options.at(-1), {
+      value: "__show-more__",
+      sentinel: "show-more",
+    });
+  });
+
+  it("projects structured permission options plus canonical Cancel", async function () {
+    const model = await loadPanelModel();
+    const state = canonicalState("acp-skills");
+    state.selection.permission = {
+      request: {
+        requestId: "permission-1",
+        approvalKind: "zotero-write",
+        title: "Update item",
+        summary: "Change title",
+        tool: { title: "Update item", callId: "call-1" },
+        review: {
+          requestedAt: "2026-07-17T00:00:00.000Z",
+          command: null,
+          preview: "title: Revised",
+        },
+        options: [{ optionId: "allow", label: "Allow", description: null }],
+      },
+    };
+    const panel = model.projectAssistantWorkspacePanel(
+      state,
+      { executionDisplayMode: "live", permissionRequestOpen: true },
+      {},
+    );
+    assert.equal(panel.interaction.kind, "permission");
+    assert.equal(panel.interaction.permission.approvalKind, "zotero-write");
+    assert.equal(panel.interaction.permission.review.preview, "title: Revised");
+    assert.deepEqual(
+      panel.interaction.actions.map((entry: any) => entry.payload.outcome),
+      ["selected", "cancelled"],
+    );
+    assert.equal(panel.drawers.permissionRequest.approvalKind, "zotero-write");
+    assert.equal(
+      panel.drawers.permissionRequest.review.preview,
+      "title: Revised",
+    );
+  });
+
+  it("projects Skills plan independently and details from owner-details", async function () {
+    const model = await loadPanelModel();
+    const state = canonicalState("acp-skills");
+    state.selection.plan = {
       items: [
         {
-          id: "assistant-1",
-          kind: "message",
-          role: "assistant",
-          text: "answer",
-          state: "complete",
+          itemId: "plan:0",
+          content: "Read sources",
+          priority: null,
+          status: "running",
         },
       ],
-      labels: { transcript: { assistant: "助手" } },
-      renderMarkdown: (value: string) => value,
-      formatTime: () => "",
-    });
-
-    assert.equal(
-      transcript.querySelector(".assistant-transcript-role")?.textContent,
-      "助手",
+    };
+    const panel = model.projectAssistantWorkspacePanel(
+      state,
+      { executionDisplayMode: "live" },
+      {},
+    );
+    assert.isTrue(panel.plan.active);
+    assert.equal(panel.plan.activeEntries[0].title, "Read sources");
+    assert.equal(panel.drawers.details[0].entries[0].kind, "path");
+    assert.deepEqual(
+      panel.actions.details.map((entry: any) => entry.action),
+      ["copy-diagnostics", "open-workspace"],
     );
   });
 
-  it("gates transcript rendering with revisions in all Assistant Workspace child panels", async function () {
-    const acpChatJs = await readProjectFile(
-      "addon/content/sidebar/acp-chat.js",
+  it("keeps Skills workflow, backend, and apply status axes independent", async function () {
+    const model = await loadPanelModel();
+    const state = canonicalState("acp-skills");
+    state.navigation.entries[0].status = "waiting_user";
+    state.navigation.entries[0].backendStatus = null;
+    state.navigation.entries[0].applyState = "pending";
+    const panel = model.projectAssistantWorkspacePanel(
+      state,
+      { executionDisplayMode: "live" },
+      {},
     );
-    const acpSkillRunJs = await readProjectFile(
-      "addon/content/sidebar/acp-skill-run.js",
-    );
-    const runDialogJs = await readProjectFile(
-      "addon/content/sidebar/run-dialog.js",
-    );
-
-    for (const source of [acpChatJs, acpSkillRunJs, runDialogJs]) {
-      assert.include(source, "transcriptRevision");
-      assert.include(source, "transcriptRenderedMode");
-      assert.include(source, "isStaleTranscriptRevision");
-      assert.include(source, "revision < state.transcriptRevision");
-    }
-    assert.include(acpChatJs, "state.transcriptRevision === revision");
-    assert.include(acpSkillRunJs, "state.transcriptRevision === revision");
-    assert.include(runDialogJs, "state.transcriptRevision === revision");
-    assert.include(acpChatJs, "resetTranscriptRenderState();");
-    assert.include(acpChatJs, "toolActivityExpandedSignature()");
-    assert.include(acpChatJs, "state.toolActivityExpandedSignature");
-    assert.include(
-      acpSkillRunJs,
-      "let revision = incomingTranscriptRevision(run);",
-    );
-    assert.include(acpSkillRunJs, "selectedTranscriptPageSignature(run)");
-    assert.include(acpSkillRunJs, "const virtualized =");
-    assert.include(acpSkillRunJs, "isStaleLoadingTranscriptRevision");
-    assert.include(acpSkillRunJs, "revision <= state.transcriptRevision");
-    const acpSkillRenderTranscript = acpSkillRunJs.slice(
-      acpSkillRunJs.indexOf("function renderTranscript(run)"),
-      acpSkillRunJs.indexOf("function renderSelectedRun(snapshot)"),
-    );
-    assert.isBelow(
-      acpSkillRenderTranscript.indexOf(
-        "if (isStaleTranscriptRevision(revision))",
-      ),
-      acpSkillRenderTranscript.indexOf("selectedTranscriptPageSignature(run)"),
-    );
-    assert.include(acpSkillRunJs, "toolActivityExpandedSignature()");
-    assert.include(acpSkillRunJs, "state.toolActivityExpandedSignature");
-    assert.include(runDialogJs, "syncTranscriptContext();");
+    const task = panel.drawers.sections[0].groups[0].activeTasks[0];
+    assert.equal(task.mainStatus, "waiting_user");
+    assert.equal(task.mainStatusLabel, "Waiting");
+    assert.equal(task.backendStatus, "");
+    assert.isFalse(task.showBackendStatusBadge);
+    assert.equal(task.applyStatus, "pending");
+    assert.isTrue(task.showApplyStatusBadge);
   });
 
-  it("keeps ACP transcript message coalescing backend-agnostic", async function () {
-    const boundary = await readProjectFile(
-      "src/modules/acpTranscriptBoundary.ts",
-    );
-    const acpChatSessionManager = await readProjectFile(
-      "src/modules/acpSessionManager.ts",
-    );
-    const acpSkillRunStore = await readProjectFile(
-      "src/modules/acpSkillRunStore.ts",
-    );
-
-    assert.include(boundary, "classifyAcpTranscriptSessionUpdate");
-    assert.include(boundary, 'case "tool_call_update":');
-    assert.include(boundary, 'return "soft-side-channel";');
-    for (const forbidden of [
-      "CodeBuddy",
-      "codebuddy",
-      "opencode",
-      "kilo",
-      "hermes",
-      "backendId",
-      "providerId",
-    ]) {
-      assert.notInclude(boundary, forbidden);
-    }
-
-    const chatToolUpdateBlock = acpChatSessionManager.slice(
-      acpChatSessionManager.indexOf('case "tool_call_update":'),
-      acpChatSessionManager.indexOf('case "plan":'),
-    );
-    assert.notInclude(
-      chatToolUpdateBlock,
-      "completeActiveStreamingTextItems(sessionRuntime)",
-    );
-
-    const skillToolUpdateBlock = acpSkillRunStore.slice(
-      acpSkillRunStore.indexOf('} else if (kind === "tool_call_update")'),
-      acpSkillRunStore.indexOf('} else if (kind === "plan")'),
-    );
-    assert.notInclude(
-      skillToolUpdateBlock,
-      "completeOpenStreamingTextItems(next, now)",
-    );
-  });
-
-  it("keeps ACP Skills panel chrome render key free of transcript-only signals", async function () {
-    const acpSkillRunJs = await readProjectFile(
-      "addon/content/sidebar/acp-skill-run.js",
-    );
-    const renderKeyStart = acpSkillRunJs.indexOf(
-      "function buildPanelRenderKey(snapshot)",
-    );
-    const renderKeyEnd = acpSkillRunJs.indexOf(
-      "function formatTime(value)",
-      renderKeyStart,
-    );
-    assert.isAtLeast(renderKeyStart, 0);
-    assert.isAbove(renderKeyEnd, renderKeyStart);
-    const renderKeySource = acpSkillRunJs.slice(renderKeyStart, renderKeyEnd);
-
-    for (const forbidden of [
-      "compactEventsKey",
-      "compactLogsKey",
-      "selectedEvents",
-      "selectedTranscript",
-      "selectedTranscriptPage",
-      "transcriptRevision",
-      "transcriptPageSignature",
-      "events.length",
-      "logs:",
-    ]) {
-      assert.notInclude(renderKeySource, forbidden);
-    }
-  });
-
-  it("canonicalizes ACP Skills host snapshot signatures for selected loading isolation", async function () {
-    const assistantSidebar = await readProjectFile(
-      "src/modules/assistantWorkspaceSidebar.ts",
-    );
-    assert.include(
-      assistantSidebar,
-      "function canonicalizeAcpSkillRunSnapshotForSignature",
-    );
-    assert.include(assistantSidebar, "buildAcpSkillRunSnapshotSignature");
-    const canonicalStart = assistantSidebar.indexOf(
-      "function canonicalizeAcpSkillRunSummaryForSignature",
-    );
-    const canonicalEnd = assistantSidebar.indexOf(
-      "function buildAcpSkillRunSnapshotSignature",
-      canonicalStart,
-    );
-    assert.isAtLeast(canonicalStart, 0);
-    assert.isAbove(canonicalEnd, canonicalStart);
-    const canonicalSource = assistantSidebar.slice(
-      canonicalStart,
-      canonicalEnd,
-    );
-    for (const field of [
-      "transcriptRevision",
-      "transcriptEventSeq",
-      "transcriptItemCount",
-      "transcriptPreview",
-    ]) {
-      assert.include(canonicalSource, field);
-    }
-    assert.include(canonicalSource, "selectedTranscript");
-    assert.include(canonicalSource, "selectedTranscriptPage");
-    assert.include(canonicalSource, "selectedTranscriptLoading");
-    assert.match(canonicalSource, /requestId\s*===\s*selectedRequestId/);
-  });
-
-  it("renders waiting_user choice options as clickable reply buttons", async function () {
-    const model = await loadAssistantPanelModelForSmoke();
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const hintRegion = fakeDocument.createElement("div");
-    const actions: Array<{ action: string; data: Record<string, unknown> }> =
-      [];
-    const panel = model.projectSkillRunnerPanelSnapshot({
-      session: {
-        requestId: "req-waiting-options",
-        status: "waiting_user",
-        pendingInteractionId: 77,
-        pendingKind: "choose_one",
-        pendingAskUser: {
-          kind: "choose_one",
-          prompt: "choose one",
-          options: [
-            { label: "Alpha label", value: "alpha_value" },
-            { label: "Beta label", value: "beta_value" },
-          ],
-        },
-      },
-    });
-
-    renderer.renderAssistantPanelSnapshot(panel, {
-      managed: true,
-      managedRegions: { hint: true },
-      regions: { hint: hintRegion },
-      onAction: (action: string, data: Record<string, unknown>) => {
-        actions.push({ action, data });
-      },
-    });
-
-    const buttons = hintRegion.querySelectorAll(".assistant-panel-hint-option");
-    assert.lengthOf(buttons, 2);
-    assert.equal(buttons[0].textContent, "Alpha label");
-    assert.equal(buttons[1].textContent, "Beta label");
-    buttons[1].click();
-    assert.deepEqual(actions, [
+  it("uses injected labels for shared ACP chrome and semantic fields", async function () {
+    const model = await loadPanelModel();
+    const panel = model.projectAssistantWorkspacePanel(
+      canonicalState("acp-skills"),
+      { executionDisplayMode: "boundary", completedCollapsed: false },
       {
-        action: "reply",
-        data: {
-          message: "beta_value",
+        assistantPanel: {
+          actions: {
+            runs: "任务列表",
+            details: "详情",
+            manageBackends: "管理后端",
+            executionDisplayMode: "更新显示",
+            executionDisplayLive: "实时",
+            executionDisplayBoundary: "按消息",
+            executionDisplaySilent: "静默",
+            archive: "归档",
+            copyDiagnostics: "复制诊断",
+            send: "发送",
+            cancel: "取消",
+          },
+          fields: {
+            workflow: "工作流",
+            backend: "后端",
+            session: "会话",
+            model: "模型",
+            reasoning: "推理",
+          },
+          drawer: { running: "运行中", completed: "已完成" },
+          details: { title: "详情" },
+          status: {
+            running: "运行中",
+            waiting: "等待用户",
+            backend: "后端",
+            apply: "应用",
+            pending: "待处理",
+            connected: "已连接",
+          },
+          reply: { placeholderAcpSkill: "回复所选任务……" },
         },
       },
-    ]);
-
-    const runDialogJs = await readProjectFile(
-      "addon/content/sidebar/run-dialog.js",
     );
-    assert.include(
-      runDialogJs,
-      'if (action === "reply" || action === "reply-run")',
-    );
-    assert.include(runDialogJs, "const matchedOption = pendingOptions().find");
-    assert.include(runDialogJs, "responseValue: matchedOption.value");
-    assert.include(runDialogJs, "interactionId");
+    assert.equal(panel.context.metadata[0].label, "工作流");
+    assert.equal(panel.actions.toolbar[0].label, "任务列表");
+    assert.equal(panel.actions.toolbar[3].options[1].label, "按消息");
+    assert.equal(panel.reply.placeholder, "回复所选任务……");
   });
 
-  it("updates workspace drawer active session without reordering unchanged rows", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const drawerRegion = fakeDocument.createElement("div");
+  it("keeps the shared main grid mounted when selection is empty", async function () {
+    const [child, chat, skills] = await Promise.all([
+      readProjectFile(
+        "addon/content/shared/assistant/assistant-workspace-acp-child.js",
+      ),
+      readProjectFile("addon/content/sidebar/acp-chat.html"),
+      readProjectFile("addon/content/sidebar/acp-skill-run.html"),
+    ]);
+    assert.include(child, 'elements.main.classList.remove("hidden")');
+    assert.notInclude(
+      child,
+      'elements.main.classList.toggle("hidden", !owner)',
+    );
+    for (const html of [chat, skills]) {
+      const conversation = html.indexOf('data-role="conversation"');
+      const empty = html.indexOf('data-role="empty"');
+      const transcript = html.indexOf('data-role="transcript"');
+      assert.isAtLeast(conversation, 0);
+      assert.isAbove(empty, conversation);
+      assert.isAbove(transcript, empty);
+    }
+  });
+
+  it("routes clicked owners instead of replacing them with the selected owner", async function () {
+    const child = await loadWorkspaceChild();
+    const chatSelected = owner("acp-chat", "backend-a\nconversation-a");
+    const chatTarget = owner("acp-chat", "backend-b\nconversation-b");
+    const skillSelected = owner("acp-skills", "run-selected");
+    const skillTarget = owner("acp-skills", "run-target");
+    const cases = [
+      {
+        action: "set-active-conversation",
+        data: { option: { owner: chatTarget } },
+        selected: chatSelected,
+        expected: { owner: chatTarget, payload: {} },
+      },
+      {
+        action: "archive-conversation",
+        data: { owner: chatTarget },
+        selected: chatSelected,
+        expected: { owner: chatTarget, payload: {} },
+      },
+      {
+        action: "select-run",
+        data: { owner: skillTarget },
+        selected: skillSelected,
+        expected: { owner: skillTarget, payload: {} },
+      },
+      {
+        action: "archive-run",
+        data: { owner: skillTarget },
+        selected: skillSelected,
+        expected: { owner: skillTarget, payload: {} },
+      },
+      {
+        action: "set-active-backend",
+        data: { option: { value: "backend-b" }, value: "backend-b" },
+        selected: chatSelected,
+        expected: { owner: null, payload: { groupId: "backend-b" } },
+      },
+      {
+        action: "new-conversation",
+        data: { groupId: "backend-a" },
+        selected: chatSelected,
+        expected: { owner: null, payload: { groupId: "backend-a" } },
+      },
+      {
+        action: "reply-run",
+        data: { message: "continue", requestId: "wrong-owner" },
+        selected: skillSelected,
+        expected: {
+          owner: skillSelected,
+          payload: { message: "continue" },
+        },
+      },
+    ];
+    for (const entry of cases) {
+      assert.deepEqual(
+        child.resolvePanelActionEnvelope(
+          entry.action,
+          entry.data,
+          entry.selected,
+          ASSISTANT_WORKSPACE_ACTION_REGISTRY,
+        ),
+        entry.expected,
+        entry.action,
+      );
+    }
+    assert.isNull(
+      child.resolvePanelActionEnvelope(
+        "new-conversation",
+        {},
+        chatSelected,
+        ASSISTANT_WORKSPACE_ACTION_REGISTRY,
+      ),
+    );
+  });
+
+  it("keeps unchanged task cards identical when only selection moves", async function () {
+    const document = new FakeDocument();
+    const renderer = await loadPanelRenderer(document);
+    const drawer = document.createElement("div");
     const sections = [
       {
-        id: "sessions",
-        title: "Sessions",
+        id: "active",
+        title: "Active",
         groups: [
           {
             backendId: "backend-a",
             backendDisplayName: "Backend A",
             activeTasks: [
               {
-                key: "session-a",
-                title: "Session A",
-                workflowLabel: "Backend A",
-                status: "idle",
+                key: "task-a",
+                title: "Task A",
+                workflowLabel: "Skill A",
+                status: "running",
                 selectable: true,
               },
               {
-                key: "session-b",
-                title: "Session B",
-                workflowLabel: "Backend A",
-                status: "idle",
+                key: "task-b",
+                title: "Task B",
+                workflowLabel: "Skill B",
+                status: "running",
                 selectable: true,
               },
             ],
@@ -9179,134 +1288,193 @@ describe("acp ui smoke", function () {
         ],
       },
     ];
-
-    function renderSelected(selectedTaskKey: string) {
-      renderer.renderAssistantContextDrawer(drawerRegion, {
+    const render = (selectedTaskKey: string) => {
+      renderer.renderAssistantContextDrawer(drawer, {
+        exact: true,
         drawers: {
           layout: "workspace-task-drawer",
-          contextTitle: "Sessions",
+          contextTitle: "Runs",
           selectedTaskKey,
           sections,
         },
       });
-      return drawerRegion.querySelectorAll(
-        ".assistant-workspace-drawer-task",
-      ) as any[];
-    }
-
-    let rows = renderSelected("session-a");
-    assert.deepEqual(
-      rows.map((row) => row.getAttribute("data-assistant-task-key")),
-      ["session-a", "session-b"],
-    );
-    assert.include(rows[0].className, "is-active");
-    assert.notInclude(rows[1].className, "is-active");
-
-    rows = renderSelected("session-b");
-    assert.deepEqual(
-      rows.map((row) => row.getAttribute("data-assistant-task-key")),
-      ["session-a", "session-b"],
-    );
-    assert.notInclude(rows[0].className, "is-active");
-    assert.include(rows[1].className, "is-active");
+      return drawer.querySelectorAll("[data-assistant-task-key]");
+    };
+    const first = render("task-a");
+    const second = render("task-b");
+    assert.strictEqual(second[0], first[0]);
+    assert.strictEqual(second[1], first[1]);
+    assert.notInclude(second[0].className, "is-active");
+    assert.include(second[1].className, "is-active");
   });
 
-  it("renders workspace drawer backend groups as collapsible", async function () {
-    const fakeDocument = createFakeDocumentForAssistantPanel();
-    const renderer = await loadAssistantPanelRendererForSmoke(fakeDocument);
-    const drawerRegion = fakeDocument.createElement("div");
-    const actions: Array<{ action: string; data: Record<string, unknown> }> =
-      [];
-    const baseSection = {
-      id: "running",
-      title: "Running",
-      groups: [
-        {
-          backendId: "backend-a",
-          backendDisplayName: "Backend A",
-          collapsed: false,
-          activeTasks: [
-            {
-              key: "task-a",
-              title: "Task A",
-              workflowLabel: "Backend A",
-              status: "running",
-              selectable: true,
-            },
-          ],
-          finishedTasks: [],
-        },
-      ],
+  it("preserves every non-transcript managed region across transcript-only state", async function () {
+    const document = new FakeDocument();
+    const model = await loadPanelModel();
+    const renderer = await loadPanelRenderer(document);
+    const { root, regions } = createPanelManagedRegions(document);
+    const state = canonicalState("acp-skills");
+    const ui = {
+      contextDrawerOpen: false,
+      detailsDrawerOpen: false,
+      permissionRequestOpen: false,
+      replyDraft: "draft",
     };
-
-    renderer.renderAssistantContextDrawer(
-      drawerRegion,
-      {
-        drawers: {
-          layout: "workspace-task-drawer",
-          contextTitle: "Runs",
-          sections: [baseSection],
-        },
-      },
-      {
-        onAction(action: string, data: Record<string, unknown>) {
-          actions.push({ action, data });
-        },
-      },
+    const render = () => {
+      const panel = model.projectAssistantWorkspacePanel(state, ui, {});
+      renderer.renderAssistantPanelSnapshot(panel, {
+        managed: true,
+        root,
+        regions,
+        onAction() {},
+      });
+    };
+    render();
+    const identities = Object.fromEntries(
+      Object.entries(regions).map(([key, region]) => [key, region.firstChild]),
     );
-
-    assert.lengthOf(
-      drawerRegion.querySelectorAll(".assistant-workspace-drawer-task"),
-      1,
-    );
-    const header = drawerRegion.querySelector(
-      ".assistant-workspace-drawer-group-header",
-    );
-    assert.equal(header?.getAttribute("aria-expanded"), "true");
-    header?.click();
-    assert.deepEqual(actions, [
-      {
-        action: "toggle-drawer-group",
-        data: {
-          sectionId: "running",
-          backendId: "backend-a",
-          groupKey: "backend-a",
-          collapsed: false,
-        },
+    state.selection.transcript = {
+      ...state.selection.transcript,
+      status: "ready",
+      transcriptRevision: 1,
+      page: {
+        pageKey: "request-a\ntail:80",
+        startCursor: 0,
+        limit: 80,
+        totalVisibleItemCount: 1,
+        previousCursor: null,
+        nextCursor: null,
+        sourceEventSeq: 1,
+        items: [],
       },
-    ]);
+    };
+    render();
+    for (const [key, region] of Object.entries(regions)) {
+      assert.strictEqual(region.firstChild, identities[key], key);
+    }
+  });
 
-    renderer.renderAssistantContextDrawer(drawerRegion, {
-      drawers: {
-        layout: "workspace-task-drawer",
-        contextTitle: "Runs",
-        sections: [
-          {
-            ...baseSection,
-            groups: [
-              {
-                ...baseSection.groups[0],
-                collapsed: true,
-              },
-            ],
-          },
-        ],
+  it("retries a v1 transcript mutation after a transactional DOM failure", async function () {
+    const fixture = JSON.parse(
+      await readProjectFile(
+        "test/fixtures/assistant-workspace/v1-skills-transcript-mutation.json",
+      ),
+    );
+    const document = new FakeDocument();
+    const renderer = await loadTranscriptRenderer(document);
+    const transcript = document.createElement("div");
+    transcript.failNextInsertBefore = true;
+
+    const render = () =>
+      renderer.applyAssistantTranscriptEffectsExact({
+        container: transcript,
+        effect: fixture.effect,
+        affectedItems: fixture.effect.affectedItems,
+        virtualized: false,
+        ownerKey: fixture.ownerKey,
+        page: fixture.page,
+        mode: "plain",
+        variant: "skillrunner",
+        renderMarkdown: (value: string) => value,
+      });
+
+    assert.deepEqual(render(), {
+      ok: false,
+      renderPath: "incremental",
+      failure: { stage: "transcript", code: "dom-commit-failed" },
+    });
+    assert.deepEqual(render(), {
+      ok: true,
+      renderPath: "incremental",
+      failure: null,
+    });
+    assert.lengthOf(transcript.children, 1);
+    assert.equal(
+      transcript.children[0].getAttribute("data-assistant-item-id"),
+      "assistant-segment-1",
+    );
+  });
+
+  it("commits canonical state only after render success and preserves bounded failure details", async function () {
+    const child = await loadWorkspaceChild();
+    const selectedOwner = owner("acp-skills", "request-a");
+    const initial = canonicalState("acp-skills");
+    const nextPresentation = {
+      ...initial.selection.presentation,
+      title: "Updated Task",
+    };
+    const acknowledgements: any[] = [];
+    let snapshot = initial;
+    let renderAttempts = 0;
+    let recoveries = 0;
+    const client = child.createClient({
+      source: "acp-skills",
+      getSnapshot: () => snapshot,
+      setSnapshot: (next: any) => {
+        snapshot = next;
+      },
+      getOwnerKey: (state: any) => state.selection.owner.ownerKey,
+      render: () => {
+        renderAttempts += 1;
+        return renderAttempts === 1
+          ? {
+              ok: false,
+              renderPath: "incremental",
+              failure: { stage: "transcript", code: "dom-commit-failed" },
+            }
+          : { ok: true, renderPath: "incremental", failure: null };
+      },
+      recoverRenderFailure: () => {
+        recoveries += 1;
+        return true;
+      },
+      ack: (
+        publication: any,
+        stage: string,
+        outcome: string,
+        reason: string | null,
+        failure: unknown,
+      ) => {
+        acknowledgements.push({
+          publicationId: publication.publicationId,
+          stage,
+          outcome,
+          reason,
+          failure,
+        });
       },
     });
+    const publication = (publicationId: string, deliverySequence: number) => ({
+      schema: "zotero-agents.assistant-workspace-publication.v1",
+      publicationId,
+      owner: selectedOwner,
+      publicationKind: "owner-presentation",
+      publicationForm: "region",
+      publicationCause: "steady-state",
+      regionRevision: 1,
+      deliverySequence,
+      payload: nextPresentation,
+    });
 
-    assert.lengthOf(
-      drawerRegion.querySelectorAll(".assistant-workspace-drawer-task"),
-      0,
-    );
-    const collapsedGroup = drawerRegion.querySelector(
-      ".assistant-workspace-drawer-group",
-    );
-    assert.include(collapsedGroup?.className || "", "is-collapsed");
-    assert.equal(
-      drawerRegion
-        .querySelector(".assistant-workspace-drawer-group-header")
-        ?.getAttribute("aria-expanded"),
-      "false",
-    );
+    client.apply(publication("publication-render-fails", 1));
+    assert.equal(snapshot.selection.presentation.title, "Task Alpha");
+    assert.equal(recoveries, 1);
+    assert.deepInclude(acknowledgements[1], {
+      publicationId: "publication-render-fails",
+      stage: "render-complete",
+      outcome: "rejected",
+      reason: "render-failed",
+      failure: { stage: "transcript", code: "dom-commit-failed" },
+    });
+
+    client.apply(publication("publication-render-retry", 2));
+    assert.equal(snapshot.selection.presentation.title, "Updated Task");
+    assert.deepInclude(acknowledgements[3], {
+      publicationId: "publication-render-retry",
+      stage: "render-complete",
+      outcome: "accepted",
+      reason: null,
+      failure: null,
+    });
   });
 });

@@ -10,6 +10,12 @@ import {
 } from "./hostBridgeServer";
 import type { HostBridgeStatusSnapshot } from "./hostBridgeProtocol";
 import {
+  prepareEmptyHttpResponse,
+  prepareJsonHttpResponse,
+  prepareTextHttpResponse,
+  type PreparedMemoryHttpResponse,
+} from "./runtimeHttpResponse";
+import {
   appendRuntimeLog,
   listRuntimeLogs,
   type RuntimeLogLevel,
@@ -175,7 +181,6 @@ type ServerState = {
   port: number;
   endpoint: string;
   token: string;
-  serverSocket: any;
   lastRequestMethod: string;
   lastResponseStatus: number;
   lastError: string;
@@ -204,8 +209,6 @@ type HttpRequest = {
 };
 
 const HOST = "127.0.0.1";
-const PORT_MIN = 26370;
-const PORT_SPAN = 200;
 const MAX_RECENT_REQUESTS = 16;
 const DEFAULT_TOOL_QUEUE_PENDING_LIMIT = 8;
 const DEFAULT_TOOL_QUEUE_TIMEOUT_MS = 30000;
@@ -283,7 +286,6 @@ let activeTool = "";
 let runningStartedAt = "";
 let activeToolTimedOut = false;
 let runningTimedOutAt = "";
-let intentionalShutdown = false;
 let mcpRequestSequence = 0;
 
 class ZoteroMcpToolCallQueue {
@@ -533,7 +535,6 @@ function createEmptyState(status: ZoteroMcpServerStatus): ServerState {
     port: 0,
     endpoint: "",
     token: "",
-    serverSocket: null,
     lastRequestMethod: "",
     lastResponseStatus: 0,
     lastError: "",
@@ -804,108 +805,6 @@ export function subscribeZoteroMcpDiagnostics(
   return addListener(listener);
 }
 
-function getComponents() {
-  return (
-    (globalThis as any).Components ||
-    (globalThis as any).ChromeUtils?.importESModule?.(
-      "resource://gre/modules/Services.sys.mjs",
-    )?.Components
-  );
-}
-
-function createServerSocket(port: number) {
-  const components = getComponents();
-  const classes = components?.classes || (globalThis as any).Cc;
-  const interfaces = components?.interfaces || (globalThis as any).Ci;
-  const factory = classes?.["@mozilla.org/network/server-socket;1"];
-  const nsIServerSocket = interfaces?.nsIServerSocket;
-  if (!factory || !nsIServerSocket) {
-    throw new Error("Zotero nsIServerSocket is unavailable");
-  }
-  const socket = factory.createInstance(nsIServerSocket);
-  socket.init(port, true, -1);
-  return socket;
-}
-
-function pickStartPort() {
-  return PORT_MIN + Math.floor(Math.random() * PORT_SPAN);
-}
-
-function readInputStream(
-  inputStream: any,
-  args: {
-    close?: boolean;
-  } = {},
-) {
-  const components = getComponents();
-  const classes = components?.classes || (globalThis as any).Cc;
-  const interfaces = components?.interfaces || (globalThis as any).Ci;
-  const binaryFactory = classes?.["@mozilla.org/binaryinputstream;1"];
-  const nsIBinaryInputStream = interfaces?.nsIBinaryInputStream;
-  const factory = classes?.["@mozilla.org/scriptableinputstream;1"];
-  const nsIScriptableInputStream = interfaces?.nsIScriptableInputStream;
-  if (!binaryFactory && !factory) {
-    throw new Error("Zotero scriptable input stream is unavailable");
-  }
-  const stream =
-    binaryFactory && nsIBinaryInputStream
-      ? binaryFactory.createInstance(nsIBinaryInputStream)
-      : factory.createInstance(nsIScriptableInputStream);
-  if (binaryFactory && nsIBinaryInputStream) {
-    stream.setInputStream(inputStream);
-  } else {
-    stream.init(inputStream);
-  }
-  const chunks: Uint8Array[] = [];
-  let totalLength = 0;
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 500) {
-    let available = 0;
-    try {
-      available = Number(
-        stream.available?.() || inputStream.available?.() || 0,
-      );
-    } catch (error) {
-      if (isClosedStreamError(error)) {
-        break;
-      }
-      throw error;
-    }
-    if (available <= 0) {
-      const current = concatBytes(chunks, totalLength);
-      if (findHeaderSeparator(current) >= 0) {
-        const parsed = tryParseHeaders(current);
-        if (parsed && parsed.bodyByteLength >= parsed.contentLength) {
-          break;
-        }
-      }
-      continue;
-    }
-    const chunk =
-      binaryFactory && nsIBinaryInputStream
-        ? Uint8Array.from(stream.readByteArray(available) || [])
-        : binaryStringToBytes(stream.read(available));
-    chunks.push(chunk);
-    totalLength += chunk.length;
-    const current = concatBytes(chunks, totalLength);
-    const parsed = tryParseHeaders(current);
-    if (parsed && parsed.bodyByteLength >= parsed.contentLength) {
-      break;
-    }
-  }
-  if (args.close !== false) {
-    stream.close?.();
-  }
-  return concatBytes(chunks, totalLength);
-}
-
-function isClosedStreamError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error || "");
-  return (
-    message.includes("NS_BASE_STREAM_CLOSED") || message.includes("0x80470002")
-  );
-}
-
 function bytesToLatin1String(bytes: Uint8Array) {
   const chunks: string[] = [];
   const chunkSize = 0x8000;
@@ -915,24 +814,6 @@ function bytesToLatin1String(bytes: Uint8Array) {
     );
   }
   return chunks.join("");
-}
-
-function binaryStringToBytes(text: string) {
-  const bytes = new Uint8Array(text.length);
-  for (let index = 0; index < text.length; index += 1) {
-    bytes[index] = text.charCodeAt(index) & 0xff;
-  }
-  return bytes;
-}
-
-function concatBytes(chunks: Uint8Array[], totalLength: number) {
-  const output = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    output.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return output;
 }
 
 function findHeaderSeparator(bytes: Uint8Array) {
@@ -972,19 +853,6 @@ function parseHttpHeaders(headerText: string) {
       .trim();
   }
   return headers;
-}
-
-function tryParseHeaders(bytes: Uint8Array) {
-  const splitIndex = findHeaderSeparator(bytes);
-  if (splitIndex < 0) {
-    return null;
-  }
-  const headerText = bytesToLatin1String(bytes.slice(0, splitIndex));
-  const headers = parseHttpHeaders(headerText);
-  return {
-    bodyByteLength: Math.max(0, bytes.length - splitIndex - 4),
-    contentLength: Number(headers["content-length"] || 0),
-  };
 }
 
 function safeDecodeURIComponent(value: string) {
@@ -1044,33 +912,10 @@ function parseHttpRequestBytes(raw: Uint8Array): HttpRequest {
   };
 }
 
-function parseHttpRequest(raw: string): HttpRequest {
-  return parseHttpRequestBytes(binaryStringToBytes(raw));
-}
-
 function utf8ByteLength(text: string) {
   return typeof TextEncoder === "function"
     ? new TextEncoder().encode(text).length
     : text.length;
-}
-
-function writeOutputStream(outputStream: any, response: string) {
-  const components = getComponents();
-  const classes = components?.classes || (globalThis as any).Cc;
-  const interfaces = components?.interfaces || (globalThis as any).Ci;
-  const converterFactory =
-    classes?.["@mozilla.org/intl/converter-output-stream;1"];
-  const nsIConverterOutputStream = interfaces?.nsIConverterOutputStream;
-  if (converterFactory && nsIConverterOutputStream) {
-    const converter = converterFactory.createInstance(nsIConverterOutputStream);
-    converter.init(outputStream, "UTF-8");
-    converter.writeString(response);
-    converter.close();
-    return "converter-output-stream";
-  }
-  outputStream.write(response, response.length);
-  outputStream.close?.();
-  return "raw-output-stream";
 }
 
 function buildHttpResponse(args: {
@@ -1080,30 +925,29 @@ function buildHttpResponse(args: {
   contentType?: string;
   headers?: Record<string, string>;
 }) {
-  const bodyText =
-    typeof args.body === "string" ? args.body : JSON.stringify(args.body);
-  const bodyLength = utf8ByteLength(bodyText);
-  return [
-    `HTTP/1.1 ${args.status} ${args.reason}`,
-    `Content-Type: ${args.contentType || "application/json"}; charset=utf-8`,
-    `Content-Length: ${bodyLength}`,
-    ...Object.entries(args.headers || {}).map(
-      ([name, value]) => `${name}: ${value}`,
-    ),
-    "Connection: close",
-    "",
-    bodyText,
-  ].join("\r\n");
+  return typeof args.body === "string"
+    ? prepareTextHttpResponse({
+        status: args.status,
+        reason: args.reason,
+        bodyText: args.body,
+        contentType: args.contentType,
+        headers: args.headers,
+      })
+    : prepareJsonHttpResponse({
+        status: args.status,
+        reason: args.reason,
+        body: args.body,
+        contentType: args.contentType,
+        headers: args.headers,
+      });
 }
 
 function buildNoContentResponse(args: { status: number; reason: string }) {
-  return [
-    `HTTP/1.1 ${args.status} ${args.reason}`,
-    "Content-Length: 0",
-    "Connection: close",
-    "",
-    "",
-  ].join("\r\n");
+  return prepareEmptyHttpResponse(args);
+}
+
+function preparedResponseToRawString(response: PreparedMemoryHttpResponse) {
+  return `${response.headers}${new TextDecoder().decode(response.bodyBytes)}`;
 }
 
 async function isAuthorized(request: HttpRequest) {
@@ -1224,7 +1068,7 @@ function payloadSummaryMethod(payload: unknown) {
   return summarizeJsonRpcPayloadValue(payload).method;
 }
 
-function summarizeJsonRpcResponse(body: unknown) {
+function summarizeJsonRpcResponse(body: unknown, preparedBodyLength?: number) {
   if (body === undefined || body === null) {
     return {
       contentType: "",
@@ -1236,7 +1080,6 @@ function summarizeJsonRpcResponse(body: unknown) {
       error: "",
     };
   }
-  const bodyText = typeof body === "string" ? body : JSON.stringify(body);
   let parsed: unknown = body;
   if (typeof body === "string" && body.trim()) {
     try {
@@ -1249,7 +1092,7 @@ function summarizeJsonRpcResponse(body: unknown) {
   if (!entry || typeof entry !== "object") {
     return {
       contentType: "",
-      bodyLength: bodyText.length,
+      bodyLength: Math.max(0, Number(preparedBodyLength || 0) || 0),
       jsonrpc: "",
       id: "",
       protocolVersion: "",
@@ -1270,10 +1113,7 @@ function summarizeJsonRpcResponse(body: unknown) {
   };
   return {
     contentType: "application/json; charset=utf-8",
-    bodyLength:
-      typeof TextEncoder === "function"
-        ? new TextEncoder().encode(bodyText).length
-        : bodyText.length,
+    bodyLength: Math.max(0, Number(preparedBodyLength || 0) || 0),
     jsonrpc: String(response.jsonrpc || ""),
     id: stringifyJsonRpcId(response.id),
     protocolVersion: String(response.result?.protocolVersion || ""),
@@ -1334,19 +1174,11 @@ function requestHeaderFacts(request?: HttpRequest) {
   };
 }
 
-function responseFacts(response: string) {
-  const splitIndex = response.indexOf("\r\n\r\n");
-  const head = splitIndex >= 0 ? response.slice(0, splitIndex) : response;
-  const contentLengthLine = head
-    .split("\r\n")
-    .find((line) => /^content-length\s*:/i.test(line));
-  const contentLength = Number(
-    contentLengthLine?.slice(contentLengthLine.indexOf(":") + 1).trim() || 0,
-  );
+function responseFacts(response: PreparedMemoryHttpResponse) {
   return {
-    responseChars: response.length,
-    responseBytes: utf8ByteLength(response),
-    contentLength,
+    responseChars: response.headers.length + response.bodyCharLength,
+    responseBytes: response.wireByteLength,
+    contentLength: response.bodyByteLength,
   };
 }
 
@@ -1485,6 +1317,7 @@ function recordMcpRequest(args: {
   status: number;
   authorized: boolean;
   responseBody?: unknown;
+  responseBodyLength?: number;
   responseContentType?: string;
   queueDepthAtAccept?: number;
   queuePosition?: number;
@@ -1496,7 +1329,10 @@ function recordMcpRequest(args: {
   error?: string;
 }) {
   const summary = summarizeJsonRpcPayload(args.request.body);
-  const responseSummary = summarizeJsonRpcResponse(args.responseBody);
+  const responseSummary = summarizeJsonRpcResponse(
+    args.responseBody,
+    args.responseBodyLength,
+  );
   const entry: ZoteroMcpRequestLogEntry = {
     ts: nowIso(),
     method: args.request.method,
@@ -1541,6 +1377,37 @@ function recordMcpRequest(args: {
     detail: JSON.stringify(entry),
     raw: entry,
   });
+}
+
+function prepareAndRecordMcpResponse(args: {
+  request: HttpRequest;
+  status: number;
+  reason: string;
+  authorized: boolean;
+  body: unknown;
+  contentType?: string;
+  headers?: Record<string, string>;
+  error?: string;
+  limitReason?: string;
+}) {
+  const response = buildHttpResponse({
+    status: args.status,
+    reason: args.reason,
+    body: args.body,
+    contentType: args.contentType,
+    headers: args.headers,
+  });
+  recordMcpRequest({
+    request: args.request,
+    status: args.status,
+    authorized: args.authorized,
+    responseBody: args.body,
+    responseBodyLength: response.bodyByteLength,
+    responseContentType: response.contentType,
+    error: args.error,
+    limitReason: args.limitReason,
+  });
+  return response;
 }
 
 function payloadContainsToolCall(payload: unknown): boolean {
@@ -2026,23 +1893,19 @@ async function runMcpJsonRpcWithMetrics(
 async function handleHttpRequest(
   request: HttpRequest,
   requestId = createMcpRequestId(),
-): Promise<string> {
+): Promise<PreparedMemoryHttpResponse> {
   if (!isZoteroMcpServerEnabled()) {
     const responseBody = {
       error: "zotero_mcp_disabled",
       message: "Zotero MCP server is disabled by preference",
     };
-    recordMcpRequest({
+    return prepareAndRecordMcpResponse({
       request,
       status: 503,
-      authorized: false,
-      responseBody,
-      error: "zotero_mcp_disabled",
-    });
-    return buildHttpResponse({
-      status: 503,
       reason: "Service Unavailable",
+      authorized: false,
       body: responseBody,
+      error: "zotero_mcp_disabled",
     });
   }
   const authorized = await isAuthorized(request);
@@ -2069,33 +1932,22 @@ async function handleHttpRequest(
       error: "bad_request",
       reason: request.parseError,
     };
-    recordMcpRequest({
+    return prepareAndRecordMcpResponse({
       request,
       status: 400,
-      authorized,
-      responseBody,
-      error: "bad_request",
-    });
-    return buildHttpResponse({
-      status: 400,
       reason: "Bad Request",
+      authorized,
       body: responseBody,
+      error: "bad_request",
     });
   }
 
   if (request.path === "/health" && request.method === "GET") {
-    recordMcpRequest({
+    return prepareAndRecordMcpResponse({
       request,
       status: 200,
-      authorized: true,
-      responseBody: {
-        status: state.status,
-        endpoint: state.endpoint,
-      },
-    });
-    return buildHttpResponse({
-      status: 200,
       reason: "OK",
+      authorized: true,
       body: {
         status: state.status,
         endpoint: state.endpoint,
@@ -2103,94 +1955,68 @@ async function handleHttpRequest(
     });
   }
   if (!isMcpPath(request)) {
-    recordMcpRequest({
+    return prepareAndRecordMcpResponse({
       request,
       status: 404,
+      reason: "Not Found",
       authorized,
-      responseBody: {
+      body: {
         error: "not_found",
       },
       error: "not_found",
     });
-    return buildHttpResponse({
-      status: 404,
-      reason: "Not Found",
-      body: {
-        error: "not_found",
-      },
-    });
   }
   if (!authorized) {
-    recordMcpRequest({
+    return prepareAndRecordMcpResponse({
       request,
       status: 401,
+      reason: "Unauthorized",
       authorized,
-      responseBody: {
+      body: {
         error: "unauthorized",
       },
       error: "unauthorized",
-    });
-    return buildHttpResponse({
-      status: 401,
-      reason: "Unauthorized",
-      body: {
-        error: "unauthorized",
-      },
     });
   }
   if (!isOriginAllowed(request)) {
     const responseBody = {
       error: "origin_not_allowed",
     };
-    recordMcpRequest({
+    return prepareAndRecordMcpResponse({
       request,
       status: 403,
-      authorized,
-      responseBody,
-      error: "origin_not_allowed",
-    });
-    return buildHttpResponse({
-      status: 403,
       reason: "Forbidden",
+      authorized,
       body: responseBody,
+      error: "origin_not_allowed",
     });
   }
   if (request.method === "GET") {
     const responseBody = {
       error: "streamable_http_get_not_supported",
     };
-    recordMcpRequest({
+    return prepareAndRecordMcpResponse({
       request,
       status: 405,
-      authorized,
-      responseBody,
-      error: "streamable_http_get_not_supported",
-    });
-    return buildHttpResponse({
-      status: 405,
       reason: "Method Not Allowed",
+      authorized,
       body: responseBody,
+      error: "streamable_http_get_not_supported",
       headers: {
         Allow: "POST",
       },
     });
   }
   if (request.method !== "POST") {
-    recordMcpRequest({
+    return prepareAndRecordMcpResponse({
       request,
       status: 405,
-      authorized,
-      responseBody: {
-        error: "method_not_allowed",
-      },
-      error: "method_not_allowed",
-    });
-    return buildHttpResponse({
-      status: 405,
       reason: "Method Not Allowed",
+      authorized,
       body: {
         error: "method_not_allowed",
       },
+      error: "method_not_allowed",
     });
   }
   if ((request.bodyByteLength || 0) > MAX_MCP_REQUEST_BODY_BYTES) {
@@ -2198,18 +2024,14 @@ async function handleHttpRequest(
       error: "request_body_too_large",
       maxBytes: MAX_MCP_REQUEST_BODY_BYTES,
     };
-    recordMcpRequest({
+    return prepareAndRecordMcpResponse({
       request,
       status: 413,
+      reason: "Payload Too Large",
       authorized,
-      responseBody,
+      body: responseBody,
       error: "request_body_too_large",
       limitReason: "request_body_too_large",
-    });
-    return buildHttpResponse({
-      status: 413,
-      reason: "Payload Too Large",
-      body: responseBody,
     });
   }
   let payload: unknown;
@@ -2231,31 +2053,21 @@ async function handleHttpRequest(
       request,
       error: new Error("Parse error"),
     });
-    recordMcpRequest({
+    const responseBody = {
+      jsonrpc: "2.0",
+      id: null,
+      error: {
+        code: -32700,
+        message: "Parse error",
+      },
+    };
+    return prepareAndRecordMcpResponse({
       request,
       status: 400,
-      authorized,
-      responseBody: {
-        jsonrpc: "2.0",
-        id: null,
-        error: {
-          code: -32700,
-          message: "Parse error",
-        },
-      },
-      error: "parse_error",
-    });
-    return buildHttpResponse({
-      status: 400,
       reason: "Bad Request",
-      body: {
-        jsonrpc: "2.0",
-        id: null,
-        error: {
-          code: -32700,
-          message: "Parse error",
-        },
-      },
+      authorized,
+      body: responseBody,
+      error: "parse_error",
     });
   }
   const result = await runMcpJsonRpcWithMetrics(payload, requestId);
@@ -2294,7 +2106,7 @@ async function handleHttpRequest(
       request,
       payload,
       status: 202,
-      responseBytes: noContentResponse.length,
+      responseBytes: noContentResponse.wireByteLength,
       details: responseFacts(noContentResponse),
     });
     return noContentResponse;
@@ -2318,6 +2130,7 @@ async function handleHttpRequest(
       status: 200,
       authorized,
       responseBody: response,
+      responseBodyLength: rawResponse.bodyByteLength,
       queueDepthAtAccept: result.queueDepthAtAccept,
       queuePosition: result.queuePosition,
       queueWaitMs: result.queueWaitMs,
@@ -2333,7 +2146,7 @@ async function handleHttpRequest(
       request,
       payload,
       status: 200,
-      responseBytes: rawResponse.length,
+      responseBytes: rawResponse.wireByteLength,
       details: {
         ...responseFacts(rawResponse),
         ...(payloadSummaryMethod(payload) === "tools/list"
@@ -2361,52 +2174,6 @@ async function handleHttpRequest(
   }
 }
 
-function scheduleWatchdogRestart(reason: string) {
-  if (intentionalShutdown || state.status === "starting") {
-    return;
-  }
-  const preferredPort = state.port;
-  const listeners = state.listeners;
-  restartCount += 1;
-  lastRestartAt = nowIso();
-  lastFatalError = reason;
-  updateState({
-    status: "starting",
-    lastError: reason,
-  });
-  try {
-    state.serverSocket?.close?.();
-  } catch {
-    // Best effort.
-  }
-  toolCallQueue.reset();
-  activeTool = "";
-  runningStartedAt = "";
-  activeToolTimedOut = false;
-  runningTimedOutAt = "";
-  emit({
-    kind: "zotero_mcp_error",
-    level: "warn",
-    message: "Zotero MCP watchdog restarting server",
-    detail: reason,
-  });
-  startingPromise = startServer(preferredPort)
-    .catch((error) => {
-      updateState({
-        status: "error",
-        lastError: compactMcpError(error),
-      });
-      return Promise.reject(error);
-    })
-    .finally(() => {
-      startingPromise = null;
-      state.listeners = listeners;
-    });
-  void startingPromise.catch(() => {
-    // Diagnostics already captured; keep the current ACP session alive.
-  });
-}
-
 function buildRequestFailureResponse(rawRequest: string, error: unknown) {
   const message = compactMcpError(error);
   return buildHttpResponse({
@@ -2419,116 +2186,6 @@ function buildRequestFailureResponse(rawRequest: string, error: unknown) {
           message,
         },
   });
-}
-
-function listen(serverSocket: any) {
-  const listener = {
-    onSocketAccepted(_server: unknown, transport: any) {
-      void (async () => {
-        let output: any;
-        let rawRequest = new Uint8Array();
-        try {
-          const input = transport.openInputStream(0, 0, 0);
-          output = transport.openOutputStream(0, 0, 0);
-          rawRequest = readInputStream(input, { close: false });
-          if (!rawRequest.length) {
-            transport.close?.(0);
-            return;
-          }
-          const request = parseHttpRequestBytes(rawRequest);
-          const requestId = createMcpRequestId();
-          const response = await handleHttpRequest(request, requestId);
-          appendMcpRuntimeLog({
-            requestId,
-            stage: "response.write.started",
-            phase: "response",
-            request,
-            responseBytes: response.length,
-            details: responseFacts(response),
-          });
-          try {
-            const writeStartedAt = Date.now();
-            const writerType = writeOutputStream(output, response);
-            appendMcpRuntimeLog({
-              requestId,
-              stage: "response.write.finished",
-              phase: "response",
-              request,
-              responseBytes: response.length,
-              durationMs: Date.now() - writeStartedAt,
-              details: {
-                ...responseFacts(response),
-                writerType,
-                closeOutcome: "closed",
-              },
-            });
-          } catch (error) {
-            appendMcpRuntimeLog({
-              requestId,
-              stage: "response.write.failed",
-              phase: "response",
-              level: "error",
-              request,
-              responseBytes: response.length,
-              details: responseFacts(response),
-              error,
-            });
-            throw error;
-          }
-          transport.close?.(0);
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : String(error || "");
-          lastFatalError = message;
-          updateState({
-            status: state.status === "running" ? "running" : "error",
-            lastError: message,
-          });
-          emit({
-            kind: "zotero_mcp_error",
-            level: "error",
-            message: "Zotero MCP request failed",
-            detail: message,
-          });
-          appendMcpRuntimeLog({
-            requestId: "zotero-mcp-listener",
-            stage: "request.fatal",
-            phase: "request",
-            level: "error",
-            error,
-          });
-          try {
-            if (output) {
-              writeOutputStream(
-                output,
-                buildRequestFailureResponse(
-                  bytesToLatin1String(rawRequest),
-                  error,
-                ),
-              );
-            }
-          } catch {
-            // Fall through to socket close.
-          }
-          scheduleWatchdogRestart(message);
-          try {
-            transport.close?.(0);
-          } catch {
-            // Best effort cleanup.
-          }
-        }
-      })();
-    },
-    onStopListening() {
-      if (state.status === "running") {
-        updateState({
-          status: "stopped",
-        });
-        scheduleWatchdogRestart("server socket stopped");
-      }
-    },
-  };
-  serverSocket.asyncListen(listener);
 }
 
 function buildDescriptor(): ZoteroMcpServerDescriptor {
@@ -2609,7 +2266,7 @@ function endpointFacts(endpoint: string) {
   }
 }
 
-async function startServer(_preferredPort?: number) {
+async function startServer() {
   updateState({
     status: "starting",
     lastError: "",
@@ -2631,7 +2288,6 @@ async function startServer(_preferredPort?: number) {
       port: facts.port,
       endpoint,
       token,
-      serverSocket: null,
       lastError: "",
     });
     if (previousEndpoint && previousEndpoint !== endpoint) {
@@ -2710,7 +2366,6 @@ export async function ensureZoteroMcpServer(
 }
 
 export async function shutdownZoteroMcpServer() {
-  intentionalShutdown = true;
   const listeners = state.listeners;
   state = createEmptyState("stopped");
   state.listeners = listeners;
@@ -2721,7 +2376,6 @@ export async function shutdownZoteroMcpServer() {
   runningTimedOutAt = "";
   descriptorInjected = false;
   descriptorInjectedAt = "";
-  intentionalShutdown = false;
 }
 
 export async function handleZoteroMcpHostAccessRequest(request: HttpRequest) {
@@ -2759,7 +2413,9 @@ export function buildZoteroMcpRequestFailureResponseForTests(
   rawRequest: string,
   error: unknown,
 ) {
-  return buildRequestFailureResponse(rawRequest, error);
+  return preparedResponseToRawString(
+    buildRequestFailureResponse(rawRequest, error),
+  );
 }
 
 export function recordZoteroMcpResponseWriteFailureForTests(error: unknown) {
@@ -2803,9 +2459,9 @@ export function serializeZoteroMcpResponseForTests(response: unknown) {
       phase: "response",
       request,
       status: 200,
-      responseBytes: raw.length,
+      responseBytes: raw.wireByteLength,
     });
-    return raw;
+    return preparedResponseToRawString(raw);
   } catch (error) {
     appendMcpRuntimeLog({
       requestId,
@@ -2816,11 +2472,13 @@ export function serializeZoteroMcpResponseForTests(response: unknown) {
       status: 500,
       error,
     });
-    return buildHttpResponse({
-      status: 200,
-      reason: "OK",
-      body: jsonRpcInternalError(null, error),
-    });
+    return preparedResponseToRawString(
+      buildHttpResponse({
+        status: 200,
+        reason: "OK",
+        body: jsonRpcInternalError(null, error),
+      }),
+    );
   }
 }
 
@@ -2929,14 +2587,14 @@ export async function handleZoteroMcpHttpRequestForTests(args: {
     stage: "response.write.started",
     phase: "response",
     request,
-    responseBytes: response.length,
+    responseBytes: response.wireByteLength,
   });
   appendMcpRuntimeLog({
     requestId,
     stage: "response.write.finished",
     phase: "response",
     request,
-    responseBytes: response.length,
+    responseBytes: response.wireByteLength,
   });
-  return response;
+  return preparedResponseToRawString(response);
 }

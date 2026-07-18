@@ -12,7 +12,7 @@ import {
   writeRuntimeBytes,
   writeRuntimeTextFile,
 } from "./runtimePersistence";
-import { sha256Bytes } from "./hostBridgeFileRegistry";
+import { sha256PrefixedHex } from "../utils/sha256";
 import {
   PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS,
   deletePluginTaskRowEntry,
@@ -743,7 +743,7 @@ export function createProductStorageApi(args: {
       localPath: target.targetPath,
       entryPath: resolved.entryPath,
       size: await statAsset(target.targetPath),
-      sha256: await sha256Bytes(managedBytes),
+      sha256: await sha256PrefixedHex(managedBytes),
     };
   };
 

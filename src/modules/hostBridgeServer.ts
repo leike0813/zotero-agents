@@ -49,6 +49,19 @@ import {
   resolveHostBridgeFileDownload,
 } from "./hostBridgeFileRegistry";
 import {
+  beginRuntimeFileResponseTransfer,
+  collectRuntimeFileSourceBytesForTests,
+  type RuntimeFileResponseTransfer,
+  type RuntimeFileTransferSource,
+} from "./runtimeFileTransfer";
+import {
+  beginRuntimeMemoryResponseTransfer,
+  prepareJsonHttpResponse,
+  prepareTextHttpResponse,
+  type PreparedMemoryHttpResponse,
+  type RuntimeMemoryResponseTransfer,
+} from "./runtimeHttpResponse";
+import {
   HostBridgePermissionError,
   getHostBridgePermissionProjection,
   listHostBridgePendingPermissions,
@@ -61,6 +74,13 @@ import {
   isHostBridgeWriteAutoApprovalScope,
   resetHostBridgeWriteAutoApprovalScopesForTests,
 } from "./hostBridgeWriteAutoApprovalRegistry";
+import { isDebugModeEnabled } from "./debugMode";
+import {
+  incrementAcpRuntimeMetric,
+  observeAcpRuntimeDuration,
+  observeAcpRuntimeGauge,
+  readAcpRuntimePerformanceClockMs,
+} from "./acpRuntimePerformanceProfiler";
 import {
   createZoteroHostCapabilityBrokerApis,
   ZoteroCollectionNotFoundError,
@@ -69,6 +89,7 @@ import {
   ZoteroNavigationUnavailableError,
   ZoteroNoteNotFoundError,
 } from "./zoteroHostCapabilityBroker";
+import { ZoteroLibraryCursorError } from "./zoteroLibraryPageQuery";
 import { resetHostBridgeAgentRunStoreForTests } from "./hostBridgeWorkflowAgentRunStore";
 import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 import {
@@ -92,6 +113,12 @@ import { loadBackendsRegistry } from "../backends/registry";
 import type { BackendInstance } from "../backends/types";
 import { invalidateDefaultSynthesisService } from "./synthesis/service";
 import { getPref, setPref } from "../utils/prefs";
+import {
+  beginHostHttpRequestRead,
+  HostHttpRequestReadError,
+  type HostHttpRequestReadResult,
+  type HostHttpRequestReadStats,
+} from "./hostHttpRequestReader";
 
 export { redactHostBridgeToken };
 
@@ -159,12 +186,29 @@ type HttpResponseArgs = {
 };
 
 type RawHttpResponse =
-  | string
+  | PreparedMemoryHttpResponse
   | {
+      kind: "file";
       headers: string;
-      body: Uint8Array;
-      binary: true;
+      source: RuntimeFileTransferSource;
     };
+
+type AcceptedHostConnection = {
+  generation: number;
+  transport: any;
+  outputStream: any;
+  requestRead: ProfiledHostBridgeRequestReadOperation;
+  responseTransfer?:
+    | RuntimeFileResponseTransfer
+    | RuntimeMemoryResponseTransfer;
+  outputClosed: boolean;
+  transportClosed: boolean;
+};
+
+type ProfiledHostBridgeRequestReadOperation = {
+  completion: Promise<HttpRequest>;
+  abort: () => void;
+};
 
 let supervisorEnabled = false;
 let controlledShutdown = false;
@@ -176,6 +220,10 @@ let state: HostBridgeServerState = createEmptyState("idle");
 let startingPromise: Promise<HostBridgeStatusSnapshot> | null = null;
 let synthesisServiceResolverForTests: (() => SynthesisMcpService) | undefined =
   undefined;
+let serverGeneration = 0;
+const acceptedConnections = new Set<AcceptedHostConnection>();
+const CONNECTION_INITIALIZATION_ERROR_PREFIX =
+  "Host Access connection initialization failed: ";
 
 function nowIso() {
   return new Date().toISOString();
@@ -274,6 +322,12 @@ function updateState(partial: Partial<HostBridgeServerState>) {
     supervised: supervisorEnabled,
     updatedAt: nowIso(),
   };
+}
+
+function clearConnectionInitializationError() {
+  if (state.lastError.startsWith(CONNECTION_INITIALIZATION_ERROR_PREFIX)) {
+    updateState({ lastError: "" });
+  }
 }
 
 function buildEndpoint(host: string, port: number) {
@@ -487,24 +541,6 @@ function bytesToLatin1String(bytes: Uint8Array) {
   return chunks.join("");
 }
 
-function binaryStringToBytes(text: string) {
-  const bytes = new Uint8Array(text.length);
-  for (let index = 0; index < text.length; index += 1) {
-    bytes[index] = text.charCodeAt(index) & 0xff;
-  }
-  return bytes;
-}
-
-function concatBytes(chunks: Uint8Array[], totalLength: number) {
-  const output = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    output.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return output;
-}
-
 function findHeaderSeparator(bytes: Uint8Array) {
   for (let index = 0; index <= bytes.length - 4; index += 1) {
     if (
@@ -577,89 +613,6 @@ function parseHttpRequestBytes(raw: Uint8Array): HttpRequest {
   };
 }
 
-function parseHttpRequest(raw: string): HttpRequest {
-  return parseHttpRequestBytes(binaryStringToBytes(raw));
-}
-
-function tryParseHeaders(bytes: Uint8Array) {
-  const splitIndex = findHeaderSeparator(bytes);
-  if (splitIndex < 0) {
-    return null;
-  }
-  const headerText = bytesToLatin1String(bytes.slice(0, splitIndex));
-  const { headers } = parseHttpHeaders(headerText);
-  return {
-    bodyByteLength: Math.max(0, bytes.length - splitIndex - 4),
-    contentLength: Number(headers["content-length"] || 0),
-  };
-}
-
-function isClosedStreamError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error || "");
-  return (
-    message.includes("NS_BASE_STREAM_CLOSED") || message.includes("0x80470002")
-  );
-}
-
-function readInputStream(inputStream: any) {
-  const components = getComponents();
-  const classes = components?.classes || (globalThis as any).Cc;
-  const interfaces = components?.interfaces || (globalThis as any).Ci;
-  const binaryFactory = classes?.["@mozilla.org/binaryinputstream;1"];
-  const nsIBinaryInputStream = interfaces?.nsIBinaryInputStream;
-  const scriptableFactory = classes?.["@mozilla.org/scriptableinputstream;1"];
-  const nsIScriptableInputStream = interfaces?.nsIScriptableInputStream;
-  if (!binaryFactory && !scriptableFactory) {
-    throw new Error("Zotero scriptable input stream is unavailable");
-  }
-  const stream =
-    binaryFactory && nsIBinaryInputStream
-      ? binaryFactory.createInstance(nsIBinaryInputStream)
-      : scriptableFactory.createInstance(nsIScriptableInputStream);
-  if (binaryFactory && nsIBinaryInputStream) {
-    stream.setInputStream(inputStream);
-  } else {
-    stream.init(inputStream);
-  }
-  const chunks: Uint8Array[] = [];
-  let totalLength = 0;
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < 500) {
-    let available = 0;
-    try {
-      available = Number(
-        stream.available?.() || inputStream.available?.() || 0,
-      );
-    } catch (error) {
-      if (isClosedStreamError(error)) {
-        break;
-      }
-      throw error;
-    }
-    if (available <= 0) {
-      const current = concatBytes(chunks, totalLength);
-      const parsed = tryParseHeaders(current);
-      if (parsed && parsed.bodyByteLength >= parsed.contentLength) {
-        break;
-      }
-      continue;
-    }
-    const chunk =
-      binaryFactory && nsIBinaryInputStream
-        ? Uint8Array.from(stream.readByteArray(available) || [])
-        : binaryStringToBytes(stream.read(available));
-    chunks.push(chunk);
-    totalLength += chunk.length;
-    const current = concatBytes(chunks, totalLength);
-    const parsed = tryParseHeaders(current);
-    if (parsed && parsed.bodyByteLength >= parsed.contentLength) {
-      break;
-    }
-  }
-  stream.close?.();
-  return concatBytes(chunks, totalLength);
-}
-
 function utf8ByteLength(text: string) {
   return typeof TextEncoder === "function"
     ? new TextEncoder().encode(text).length
@@ -717,6 +670,29 @@ function parsePermissionScopeHeader(request: HttpRequest) {
   } catch {
     return null;
   }
+}
+
+function performanceProfileRequestIdForHostRequest(request: HttpRequest) {
+  const scope = parsePermissionScopeHeader(request);
+  const kind = String(scope?.kind || "").trim();
+  if (kind !== "acp-skill-run" && kind !== "acp-run") {
+    return null;
+  }
+  return String(scope?.requestId || scope?.runId || "").trim() || null;
+}
+
+function hostOperationClass(
+  request: HttpRequest,
+): "file" | "library" | "mutation" | "workflow" | "diagnostic" | "other" {
+  const path = request.path;
+  if (path.includes("/files/")) return "file";
+  if (path.includes("/library/")) return "library";
+  if (path.includes("mutation")) return "mutation";
+  if (path.includes("workflow")) return "workflow";
+  if (path.includes("diagnostic") || path.endsWith("/health")) {
+    return "diagnostic";
+  }
+  return "other";
 }
 
 function parseConnectionModeHeader(
@@ -1060,67 +1036,45 @@ function buildCapabilityApprovalPrompt(
   };
 }
 
-function writeOutputStream(outputStream: any, response: RawHttpResponse) {
-  if (typeof response !== "string") {
-    outputStream.write(response.headers, response.headers.length);
-    writeBinaryOutputStream(outputStream, response.body);
-    outputStream.close?.();
+async function writeOutputStream(
+  outputStream: any,
+  response: RawHttpResponse,
+  onTransfer?: (transfer: RuntimeFileResponseTransfer) => void,
+) {
+  if (response.kind === "file") {
+    const transfer = beginRuntimeFileResponseTransfer({
+      headers: response.headers,
+      source: response.source,
+      outputStream,
+    });
+    onTransfer?.(transfer);
+    await transfer.completion;
     return;
   }
-  const components = getComponents();
-  const classes = components?.classes || (globalThis as any).Cc;
-  const interfaces = components?.interfaces || (globalThis as any).Ci;
-  const converterFactory =
-    classes?.["@mozilla.org/intl/converter-output-stream;1"];
-  const nsIConverterOutputStream = interfaces?.nsIConverterOutputStream;
-  if (converterFactory && nsIConverterOutputStream) {
-    const converter = converterFactory.createInstance(nsIConverterOutputStream);
-    converter.init(outputStream, "UTF-8");
-    converter.writeString(response);
-    converter.close();
-    return;
-  }
-  outputStream.write(response, response.length);
-  outputStream.close?.();
-}
-
-function writeBinaryOutputStream(outputStream: any, bytes: Uint8Array) {
-  const components = getComponents();
-  const classes = components?.classes || (globalThis as any).Cc;
-  const interfaces = components?.interfaces || (globalThis as any).Ci;
-  const binaryFactory = classes?.["@mozilla.org/binaryoutputstream;1"];
-  const nsIBinaryOutputStream = interfaces?.nsIBinaryOutputStream;
-  const chunkSize = 0x8000;
-  if (binaryFactory && nsIBinaryOutputStream) {
-    const binary = binaryFactory.createInstance(nsIBinaryOutputStream);
-    binary.setOutputStream(outputStream);
-    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-      const chunk = bytes.slice(offset, offset + chunkSize);
-      binary.writeByteArray(Array.from(chunk), chunk.length);
-    }
-    return;
-  }
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    const chunk = bytes.slice(offset, offset + chunkSize);
-    const text = bytesToBinaryString(chunk);
-    outputStream.write(text, text.length);
-  }
+  const transfer = beginRuntimeMemoryResponseTransfer({
+    response,
+    outputStream,
+  });
+  onTransfer?.(transfer);
+  await transfer.completion;
 }
 
 function buildHttpResponse(args: HttpResponseArgs) {
-  const bodyText =
-    typeof args.body === "string" ? args.body : JSON.stringify(args.body);
-  return [
-    `HTTP/1.1 ${args.status} ${args.reason}`,
-    `Content-Type: ${args.contentType || "application/json"}; charset=utf-8`,
-    `Content-Length: ${utf8ByteLength(bodyText)}`,
-    ...Object.entries(args.headers || {}).map(
-      ([name, value]) => `${name}: ${value}`,
-    ),
-    "Connection: close",
-    "",
-    bodyText,
-  ].join("\r\n");
+  return typeof args.body === "string"
+    ? prepareTextHttpResponse({
+        status: args.status,
+        reason: args.reason,
+        bodyText: args.body,
+        contentType: args.contentType,
+        headers: args.headers,
+      })
+    : prepareJsonHttpResponse({
+        status: args.status,
+        reason: args.reason,
+        body: args.body,
+        contentType: args.contentType,
+        headers: args.headers,
+      });
 }
 
 function bytesToBinaryString(bytes: Uint8Array) {
@@ -1174,13 +1128,13 @@ function contentDispositionHeader(filename: string) {
 function buildFileHttpResponse(args: {
   filename: string;
   contentType: string;
-  bytes: Uint8Array;
+  source: RuntimeFileTransferSource;
   sha256?: string;
 }) {
   const headers = [
     "HTTP/1.1 200 OK",
     `Content-Type: ${args.contentType || "application/octet-stream"}`,
-    `Content-Length: ${args.bytes.byteLength}`,
+    `Content-Length: ${args.source.size}`,
     ...(args.sha256 ? [`X-Zotero-Bridge-Sha256: ${args.sha256}`] : []),
     `Content-Disposition: ${contentDispositionHeader(args.filename)}`,
     "Connection: close",
@@ -1188,9 +1142,9 @@ function buildFileHttpResponse(args: {
     "",
   ].join("\r\n");
   return {
+    kind: "file" as const,
     headers,
-    body: args.bytes,
-    binary: true as const,
+    source: args.source,
   };
 }
 
@@ -1384,6 +1338,18 @@ async function callCapability(request: HttpRequest) {
         404,
         "Not Found",
         hostBridgeError(error.code, error.message, "not_found"),
+        error.code,
+      );
+    }
+    if (error instanceof ZoteroLibraryCursorError) {
+      return response(
+        400,
+        "Bad Request",
+        hostBridgeError(error.code, error.message, "validation", {
+          capability: capability.name,
+          retryable: false,
+          ...(error.details || {}),
+        }),
         error.code,
       );
     }
@@ -2838,7 +2804,7 @@ async function downloadFile(request: HttpRequest): Promise<RawHttpResponse> {
     return buildFileHttpResponse({
       filename: download.descriptor.displayName,
       contentType: download.descriptor.contentType,
-      bytes: download.bytes,
+      source: download.source,
       sha256: download.descriptor.sha256,
     });
   } catch (error) {
@@ -3030,7 +2996,7 @@ async function invalidateSynthesisCache(request: HttpRequest) {
   }
 }
 
-async function handleHttpRequest(request: HttpRequest) {
+async function handleHttpRequestImpl(request: HttpRequest) {
   updateState({
     requestCount: state.requestCount + 1,
     lastRequestMethod: `${request.method} ${request.path}`,
@@ -3282,25 +3248,340 @@ async function handleHttpRequest(request: HttpRequest) {
   );
 }
 
-function listen(serverSocket: any) {
+async function handleHttpRequest(request: HttpRequest) {
+  if (
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+  ) {
+    const requestId = performanceProfileRequestIdForHostRequest(request);
+    const operationClass = hostOperationClass(request);
+    const startedAt = readAcpRuntimePerformanceClockMs();
+    observeAcpRuntimeGauge(
+      requestId,
+      "host_request_inflight",
+      { operationClass },
+      1,
+    );
+    try {
+      const result = await handleHttpRequestImpl(request);
+      const responseBytes =
+        result.kind === "memory"
+          ? result.wireByteLength
+          : utf8ByteLength(result.headers) + result.source.size;
+      incrementAcpRuntimeMetric(
+        requestId,
+        "host_response_bytes",
+        { operationClass },
+        responseBytes,
+      );
+      return result;
+    } finally {
+      observeAcpRuntimeGauge(
+        requestId,
+        "host_request_inflight",
+        { operationClass },
+        0,
+      );
+      observeAcpRuntimeDuration(
+        requestId,
+        "host_request_duration",
+        { operationClass },
+        readAcpRuntimePerformanceClockMs() - startedAt,
+      );
+    }
+  }
+  return handleHttpRequestImpl(request);
+}
+
+function recordHostInputMetrics(
+  input: HostHttpRequestReadStats,
+  request: HttpRequest | null,
+) {
+  if (
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+  ) {
+    const requestId = request
+      ? performanceProfileRequestIdForHostRequest(request)
+      : null;
+    incrementAcpRuntimeMetric(
+      requestId,
+      "host_input_bytes",
+      {},
+      input.inputBytes,
+    );
+    incrementAcpRuntimeMetric(
+      requestId,
+      "host_input_fragment",
+      {},
+      input.fragments,
+    );
+    incrementAcpRuntimeMetric(requestId, "host_input_wait", {}, input.waits);
+    observeAcpRuntimeDuration(
+      requestId,
+      "host_input_duration",
+      {},
+      input.durationMs,
+    );
+    observeAcpRuntimeDuration(
+      requestId,
+      "host_input_callback_max_duration",
+      {},
+      input.maxCallbackDurationMs,
+    );
+  }
+}
+
+function statsForReadResult(
+  input: HostHttpRequestReadResult,
+): HostHttpRequestReadStats {
+  return {
+    inputBytes: input.bytes.byteLength,
+    headerBytes: input.headerBytes,
+    bodyBytes: input.bodyBytes,
+    contentLength: input.contentLength,
+    fragments: input.fragments,
+    waits: input.waits,
+    durationMs: input.durationMs,
+    maxCallbackDurationMs: input.maxCallbackDurationMs,
+  };
+}
+
+function beginProfiledHostBridgeRequestRead(
+  inputStream: any,
+): ProfiledHostBridgeRequestReadOperation {
+  const requestRead = beginHostHttpRequestRead(inputStream);
+  return {
+    abort: requestRead.abort,
+    completion: requestRead.completion.then(
+      (input) => {
+        const request = parseHttpRequestBytes(input.bytes);
+        recordHostInputMetrics(statsForReadResult(input), request);
+        return request;
+      },
+      (error) => {
+        if (error instanceof HostHttpRequestReadError) {
+          recordHostInputMetrics(error.stats, null);
+        }
+        throw error;
+      },
+    ),
+  };
+}
+
+async function readProfiledHostBridgeRequest(inputStream: any) {
+  return beginProfiledHostBridgeRequestRead(inputStream).completion;
+}
+
+function requestReadErrorResponse(error: HostHttpRequestReadError) {
+  const details = { readerCode: error.code };
+  switch (error.code) {
+    case "header_too_large":
+      return response(
+        431,
+        "Request Header Fields Too Large",
+        hostBridgeError("bad_request", error.message, "validation", details),
+      );
+    case "body_too_large":
+      return response(
+        413,
+        "Payload Too Large",
+        hostBridgeError(
+          "request_body_too_large",
+          error.message,
+          "validation",
+          details,
+        ),
+      );
+    case "idle_timeout":
+    case "total_timeout":
+      return response(
+        408,
+        "Request Timeout",
+        hostBridgeError("bad_request", error.message, "connection", details),
+      );
+    case "invalid_content_length":
+    case "transfer_encoding_unsupported":
+    case "invalid_framing":
+    case "early_eof":
+      return response(
+        400,
+        "Bad Request",
+        hostBridgeError("bad_request", error.message, "protocol", details),
+      );
+    case "async_stream_unavailable":
+    case "read_failed":
+      return response(
+        500,
+        "Internal Server Error",
+        hostBridgeError("internal_error", error.message, "internal", details),
+        error.message,
+      );
+    case "aborted":
+      return null;
+  }
+}
+
+function closeOutputOnce(connection: AcceptedHostConnection) {
+  if (connection.outputClosed) return;
+  connection.outputClosed = true;
+  try {
+    connection.outputStream?.close?.();
+  } catch {
+    // Best-effort accepted-connection cleanup.
+  }
+}
+
+function closeTransportOnce(connection: AcceptedHostConnection) {
+  if (connection.transportClosed) return;
+  connection.transportClosed = true;
+  try {
+    connection.transport?.close?.(0);
+  } catch {
+    // Best-effort accepted-connection cleanup.
+  }
+}
+
+function abortAcceptedConnection(connection: AcceptedHostConnection) {
+  connection.requestRead.abort();
+  connection.responseTransfer?.abort();
+  closeOutputOnce(connection);
+  closeTransportOnce(connection);
+  acceptedConnections.delete(connection);
+}
+
+function releaseAcceptedConnection(connection: AcceptedHostConnection) {
+  acceptedConnections.delete(connection);
+}
+
+function closeAllAcceptedConnections() {
+  for (const connection of [...acceptedConnections]) {
+    abortAcceptedConnection(connection);
+  }
+}
+
+async function processAcceptedConnection(connection: AcceptedHostConnection) {
+  let responseWriteStarted = false;
+  try {
+    const request = await connection.requestRead.completion;
+    if (connection.generation !== serverGeneration) {
+      return;
+    }
+    const rawResponse = await handleHttpRequest(request);
+    if (connection.generation !== serverGeneration) {
+      return;
+    }
+    responseWriteStarted = true;
+    await writeOutputStream(
+      connection.outputStream,
+      rawResponse,
+      (transfer) => {
+        connection.responseTransfer = transfer;
+      },
+    );
+    connection.responseTransfer = undefined;
+    connection.outputClosed = true;
+    clearConnectionInitializationError();
+  } catch (error) {
+    if (connection.generation !== serverGeneration || responseWriteStarted) {
+      return;
+    }
+    const rawResponse =
+      error instanceof HostHttpRequestReadError
+        ? requestReadErrorResponse(error)
+        : response(
+            500,
+            "Internal Server Error",
+            hostBridgeError(
+              "internal_error",
+              "Host Access request failed",
+              "internal",
+            ),
+            errorMessage(error),
+          );
+    if (rawResponse) {
+      try {
+        responseWriteStarted = true;
+        await writeOutputStream(connection.outputStream, rawResponse);
+        connection.outputClosed = true;
+      } catch {
+        // The peer may already be closed; cleanup remains local to this request.
+      }
+    }
+  } finally {
+    if (connection.outputClosed) {
+      releaseAcceptedConnection(connection);
+    } else {
+      abortAcceptedConnection(connection);
+    }
+  }
+}
+
+function rejectStaleTransport(transport: any) {
+  try {
+    transport?.close?.(0);
+  } catch {
+    // Best-effort stale transport cleanup.
+  }
+}
+
+function listen(serverSocket: any, generation: number) {
   const listener = {
     onSocketAccepted: (_socket: any, transport: any) => {
-      void (async () => {
-        const inputStream = transport.openInputStream(0, 0, 0);
-        const outputStream = transport.openOutputStream(0, 0, 0);
-        const rawRequest = readInputStream(inputStream);
-        const request = parseHttpRequestBytes(rawRequest);
-        const rawResponse = await handleHttpRequest(request);
-        writeOutputStream(outputStream, rawResponse);
-      })().catch((error) => {
+      if (generation !== serverGeneration) {
+        rejectStaleTransport(transport);
+        return;
+      }
+      let inputStream: any;
+      let outputStream: any;
+      let requestRead: ProfiledHostBridgeRequestReadOperation | undefined;
+      try {
+        outputStream = transport.openOutputStream(0, 0, 0);
+        inputStream = transport.openInputStream(0, 0, 0);
+        requestRead = beginProfiledHostBridgeRequestRead(inputStream);
+        const connection: AcceptedHostConnection = {
+          generation,
+          transport,
+          outputStream,
+          requestRead,
+          outputClosed: false,
+          transportClosed: false,
+        };
+        acceptedConnections.add(connection);
+        void processAcceptedConnection(connection);
+      } catch (error) {
+        requestRead?.abort();
+        if (!requestRead) {
+          try {
+            inputStream?.close?.();
+          } catch {
+            // Best-effort failed-accept cleanup.
+          }
+        }
+        try {
+          outputStream?.close?.();
+        } catch {
+          // Best-effort failed-accept cleanup.
+        }
+        rejectStaleTransport(transport);
         updateState({
-          status: "error",
-          lastError:
-            error instanceof Error ? error.message : String(error || ""),
+          lastError: `${CONNECTION_INITIALIZATION_ERROR_PREFIX}${errorMessage(
+            error,
+          )}`,
         });
-      });
+      }
     },
     onStopListening: () => {
+      if (
+        generation !== serverGeneration ||
+        state.serverSocket !== serverSocket
+      ) {
+        return;
+      }
       if (state.status === "running") {
         const reason =
           "Host Bridge socket stopped unexpectedly; attempting restart.";
@@ -3361,7 +3642,8 @@ async function startServer() {
   const tryBind = async (port: number, mode: HostBridgePortMode) => {
     const serverSocket = createConfiguredServerSocket(port, config.bindMode);
     const token = getHostBridgeToken();
-    listen(serverSocket);
+    const generation = ++serverGeneration;
+    listen(serverSocket, generation);
     updateState({
       status: "running",
       host: config.host,
@@ -3457,11 +3739,13 @@ export async function ensureHostBridgeServer() {
 export async function shutdownHostBridgeServer() {
   controlledShutdown = true;
   clearRecoveryTimer();
+  serverGeneration += 1;
   try {
     state.serverSocket?.close?.();
   } catch {
     // Best-effort shutdown.
   }
+  closeAllAcceptedConnections();
   state = createEmptyState("stopped");
   startingPromise = null;
   controlledShutdown = false;
@@ -3499,11 +3783,13 @@ export async function stopHostBridgeSupervisor() {
   controlledShutdown = true;
   clearRecoveryTimer();
   clearSupervisorTimer();
+  serverGeneration += 1;
   try {
     state.serverSocket?.close?.();
   } catch {
     // Best-effort shutdown.
   }
+  closeAllAcceptedConnections();
   state = createEmptyState("stopped");
   startingPromise = null;
   controlledShutdown = false;
@@ -3617,6 +3903,7 @@ export function resetHostBridgeServerForTests() {
   startingPromise = null;
   serverSocketFactory = createServerSocket;
   synthesisServiceResolverForTests = undefined;
+  acceptedConnections.clear();
   resetHostBridgeWriteAutoApprovalScopesForTests();
   resetHostBridgeAgentRunStoreForTests();
 }
@@ -3661,6 +3948,11 @@ export const hostBridgeServerInternalsForTests = {
     RECOVERY_DELAY_MS,
     SUPERVISOR_INTERVAL_MS,
   },
+  readProfiledHostBridgeRequest,
+  getAcceptedConnectionCount() {
+    return acceptedConnections.size;
+  },
+  parseHttpRequestBytes,
   setServerSocketFactory(
     factory?: (port: number, bindMode: HostBridgeBindMode) => any,
   ) {
@@ -3695,9 +3987,11 @@ export async function handleHostBridgeHttpRequestForTests(args: {
     const raw = await handleHttpRequest(
       parseHttpRequestBytes(args.rawRequestBytes),
     );
-    return typeof raw === "string"
-      ? raw
-      : `${raw.headers}${bytesToBinaryString(raw.body)}`;
+    if (raw.kind === "memory") {
+      return `${raw.headers}${new TextDecoder().decode(raw.bodyBytes)}`;
+    }
+    const bytes = await collectRuntimeFileSourceBytesForTests(raw.source);
+    return `${raw.headers}${bytesToBinaryString(bytes)}`;
   }
   const parsedPath = parseTestPath(args.path || "/");
   const body = args.body || "";
@@ -3712,7 +4006,9 @@ export async function handleHostBridgeHttpRequestForTests(args: {
     parseError: parsedPath.parseError,
   };
   const raw = await handleHttpRequest(request);
-  return typeof raw === "string"
-    ? raw
-    : `${raw.headers}${bytesToBinaryString(raw.body)}`;
+  if (raw.kind === "memory") {
+    return `${raw.headers}${new TextDecoder().decode(raw.bodyBytes)}`;
+  }
+  const bytes = await collectRuntimeFileSourceBytesForTests(raw.source);
+  return `${raw.headers}${bytesToBinaryString(bytes)}`;
 }

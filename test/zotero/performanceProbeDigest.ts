@@ -3,6 +3,11 @@ import {
   resetTestPerformanceProbeHooksForTests,
 } from "../../src/modules/testPerformanceProbeBridge";
 import {
+  enableAcpRuntimePerformanceProfiler,
+  resetAcpRuntimePerformanceProfilerForTests,
+  snapshotAcpRuntimeProfiles,
+} from "../../src/modules/acpRuntimePerformanceProfiler";
+import {
   ensureDiagnosticsDirectory,
   normalizeDiagnosticsString,
   readDiagnosticsEnv,
@@ -493,6 +498,9 @@ export function installZoteroPerformanceProbeDigest() {
   runtime[INSTALL_FLAG] = true;
   const state = getState();
   state.installed = true;
+  if (state.enabled) {
+    enableAcpRuntimePerformanceProfiler();
+  }
   installTestPerformanceProbeHooksForTests({
     enabled: state.enabled,
     recordSpan(args) {
@@ -582,6 +590,7 @@ export async function flushZoteroPerformanceProbeDigest() {
     spans: state.spans,
   });
   const suspicions = buildSuspicions(summary);
+  const runtimePerformanceProfiles = snapshotAcpRuntimeProfiles();
   const payload = {
     meta: {
       generatedAt: new Date().toISOString(),
@@ -594,6 +603,7 @@ export async function flushZoteroPerformanceProbeDigest() {
     spans: state.spans,
     summary,
     suspicions,
+    ...(runtimePerformanceProfiles ? { runtimePerformanceProfiles } : {}),
   };
   const outputPath = state.outputPath;
   const directory = outputPath.replace(/[\\/][^\\/]+$/, "");
@@ -606,6 +616,7 @@ export async function flushZoteroPerformanceProbeDigest() {
 
 export function resetZoteroPerformanceProbeDigestForTests() {
   resetTestPerformanceProbeHooksForTests();
+  resetAcpRuntimePerformanceProfilerForTests();
   const runtime = getRuntime();
   runtime[STATE_KEY] = createDefaultState();
   runtime[INSTALL_FLAG] = false;

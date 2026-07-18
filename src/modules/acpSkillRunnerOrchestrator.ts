@@ -53,9 +53,19 @@ import {
 } from "./acpSkillMaterializer";
 import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 import {
+  getAssistantExecutionDisplayMode,
   isAssistantSilentExecutionMode,
   subscribeAssistantExecutionDisplayMode,
 } from "./assistantExecutionDisplayPolicy";
+import { isDebugModeEnabled } from "./debugMode";
+import {
+  incrementAcpRuntimeMetric,
+  observeAcpRuntimeGauge,
+  startAcpRuntimeProfile,
+} from "./acpRuntimePerformanceProfiler";
+import { recordAcpRuntimeSemanticTraceEvent } from "./acpRuntimeSemanticTraceRecorder";
+import { recordAcpRuntimeDiagnostic } from "./acpDiagnosticRouter";
+import type { AcpDiagnosticsEntry } from "./acpTypes";
 import {
   buildAcpSkillRunPrompt,
   materializeAcpRunExecutionInstructions,
@@ -272,11 +282,54 @@ function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
 
-function createAssistantTurnAccumulator() {
+function recordAcpSkillRunAdapterDiagnostic(args: {
+  requestId: string;
+  runtimeDir?: string;
+  backendId?: string;
+  entry: AcpDiagnosticsEntry;
+}) {
+  recordAcpRuntimeDiagnostic({
+    surface: "acp-skills",
+    ownerKey: args.requestId,
+    requestId: args.requestId,
+    backendId: args.backendId,
+    entry: args.entry,
+    debugAuditSink: (entry) => {
+      void appendAcpSkillRunAuditDiagnostic({
+        requestId: args.requestId,
+        runtimeDir: args.runtimeDir,
+        entry,
+      });
+    },
+  });
+}
+
+function resolveAcpProfileZoteroMajor(): 7 | 9 | "unknown" {
+  const major = Number.parseInt(String(Zotero?.version || ""), 10);
+  return major === 7 || major === 9 ? major : "unknown";
+}
+
+function createAssistantTurnAccumulator(requestId?: string) {
   let chunks: string[] = [];
+  let bytes = 0;
   return {
     async reset() {
       chunks = [];
+      bytes = 0;
+      if (
+        __acp_runtime_performance_profiler_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__)
+      ) {
+        observeAcpRuntimeGauge(
+          requestId,
+          "assistant_accumulator_chunks",
+          {},
+          0,
+        );
+        observeAcpRuntimeGauge(requestId, "assistant_accumulator_bytes", {}, 0);
+      }
     },
     append(text: unknown) {
       const chunk = String(text || "");
@@ -284,6 +337,26 @@ function createAssistantTurnAccumulator() {
         return;
       }
       chunks.push(chunk);
+      if (
+        __acp_runtime_performance_profiler_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__)
+      ) {
+        bytes += new TextEncoder().encode(chunk).byteLength;
+        observeAcpRuntimeGauge(
+          requestId,
+          "assistant_accumulator_chunks",
+          {},
+          chunks.length,
+        );
+        observeAcpRuntimeGauge(
+          requestId,
+          "assistant_accumulator_bytes",
+          {},
+          bytes,
+        );
+      }
     },
     async read() {
       return chunks.join("");
@@ -2266,6 +2339,19 @@ export async function recoverAcpSkillRunConversation(args: {
   if (!record) {
     throw new Error(`ACP skill run not found: ${requestId}`);
   }
+  if (
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+  ) {
+    startAcpRuntimeProfile({
+      requestId,
+      displayMode: getAssistantExecutionDisplayMode(),
+      transport: "unknown",
+      zoteroMajor: resolveAcpProfileZoteroMajor(),
+    });
+  }
   await hydrateAcpSkillRunTranscriptMirror(requestId);
   const recoveredContext = await readAcpSkillRunContextPayload(
     record.runtimeDir,
@@ -2387,6 +2473,7 @@ export async function recoverAcpSkillRunConversation(args: {
     sessionCwd: workspaceDir,
     workspaceDir,
     runtimeDir,
+    performanceProfileRequestId: requestId,
     diagnosticCapture: detailedAuditEnabled
       ? {
           bridgeAuditFile: normalizeString(auditFiles.bridge),
@@ -2418,7 +2505,7 @@ export async function recoverAcpSkillRunConversation(args: {
   let recoveredHardTimeoutMonitor: ReturnType<
     typeof createAcpHardTimeoutMonitor
   > | null = null;
-  const assistantTurnAccumulator = createAssistantTurnAccumulator();
+  const assistantTurnAccumulator = createAssistantTurnAccumulator(requestId);
   const pendingPermissionPauseIds = new Set<string>();
   const detach = async (
     state: "closed" | "ended" | "error" = "closed",
@@ -3105,30 +3192,12 @@ export async function recoverAcpSkillRunConversation(args: {
     }
     recordAcpSkillRunSessionUpdate(requestId, event);
   });
-  unsubscribeDiagnostics = adapter.onDiagnostics(async (entry) => {
-    await appendAcpSkillRunAuditDiagnostic({
+  unsubscribeDiagnostics = adapter.onDiagnostics((entry) => {
+    recordAcpSkillRunAdapterDiagnostic({
       requestId,
       runtimeDir: record.runtimeDir,
+      backendId: backend.id,
       entry,
-    });
-    upsertAcpSkillRun({
-      requestId,
-      event: {
-        stage: `acp-${normalizeString(entry.kind) || "diagnostic"}`,
-        message: normalizeString(entry.message) || "ACP diagnostic",
-        level:
-          entry.level === "error"
-            ? "error"
-            : entry.level === "warn"
-              ? "warn"
-              : "info",
-        details: {
-          detail: normalizeString(entry.detail),
-          stage: entry.stage,
-          errorName: entry.errorName,
-          code: entry.code,
-        },
-      },
     });
   });
   unsubscribeClose = adapter.onClose(async (event) => {
@@ -3517,6 +3586,19 @@ export async function executeAcpSkillRunnerJob(args: {
       },
     },
   });
+  if (
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+  ) {
+    startAcpRuntimeProfile({
+      requestId: workspace.requestId,
+      displayMode: getAssistantExecutionDisplayMode(),
+      transport: "unknown",
+      zoteroMajor: resolveAcpProfileZoteroMajor(),
+    });
+  }
   await appendAcpSkillRunAuditEvent({
     requestId: workspace.requestId,
     runtimeDir: workspace.runtimeDir,
@@ -3561,6 +3643,40 @@ export async function executeAcpSkillRunnerJob(args: {
       workspaceDir: workspace.workspaceDir,
     },
   });
+  const workflowTraceContext =
+    __acp_runtime_semantic_trace_recorder_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+      ? args.orchestrationContext?.semanticTraceContext
+      : undefined;
+  const workflowTraceOwner = workflowTraceContext
+    ? {
+        rootId: workflowTraceContext.rootId,
+        workflowId: workflowId || undefined,
+        workflowRunId:
+          args.orchestrationContext?.parentWorkflowRunId ||
+          workflowTraceContext.rootId,
+        jobId: jobId || undefined,
+        stageId: args.orchestrationContext?.sequenceStepId || undefined,
+        requestId: workspace.requestId,
+      }
+    : undefined;
+  if (
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) &&
+    __acp_runtime_semantic_trace_recorder_enabled__ &&
+    workflowTraceContext &&
+    workflowTraceOwner
+  ) {
+    await recordAcpRuntimeSemanticTraceEvent(workflowTraceContext, {
+      kind: "request-start",
+      sourceKind: "acp-workflow-execution",
+      owner: workflowTraceOwner,
+      payload: { skillId: request.skill_id },
+    });
+  }
 
   await writeAcpSkillRunnerInputManifest({
     workspace,
@@ -3825,6 +3941,23 @@ export async function executeAcpSkillRunnerJob(args: {
       sessionCwd: workspace.workspaceDir,
       workspaceDir: workspace.workspaceDir,
       runtimeDir: workspace.runtimeDir,
+      performanceProfileRequestId: workspace.requestId,
+      ...(__acp_runtime_semantic_trace_recorder_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__) &&
+      workflowTraceContext &&
+      workflowTraceOwner
+        ? {
+            semanticTraceContext: {
+              current: {
+                context: workflowTraceContext,
+                sourceKind: "acp-workflow-execution" as const,
+                owner: workflowTraceOwner,
+              },
+            },
+          }
+        : {}),
       diagnosticCapture: detailedAuditEnabled
         ? {
             bridgeAuditFile,
@@ -3917,7 +4050,9 @@ export async function executeAcpSkillRunnerJob(args: {
     interruptWatchdog?.clear();
     interruptWatchdog = null;
   };
-  const assistantTurnAccumulator = createAssistantTurnAccumulator();
+  const assistantTurnAccumulator = createAssistantTurnAccumulator(
+    workspace.requestId,
+  );
   const cleanupLiveSession = async (options?: {
     closeAdapter?: boolean;
     conversationState?: "ended" | "closed" | "error";
@@ -4638,34 +4773,12 @@ export async function executeAcpSkillRunnerJob(args: {
     }
     recordAcpSkillRunSessionUpdate(workspace.requestId, event);
   });
-  unsubscribeDiagnostics = adapter.onDiagnostics(async (entry) => {
-    await appendAcpSkillRunAuditDiagnostic({
+  unsubscribeDiagnostics = adapter.onDiagnostics((entry) => {
+    recordAcpSkillRunAdapterDiagnostic({
       requestId: workspace.requestId,
       runtimeDir: workspace.runtimeDir,
+      backendId: args.backend.id,
       entry,
-    });
-    upsertAcpSkillRun({
-      requestId: workspace.requestId,
-      event: {
-        stage: `acp-${normalizeString(entry.kind) || "diagnostic"}`,
-        message: normalizeString(entry.message) || "ACP diagnostic",
-        level:
-          entry.level === "error"
-            ? "error"
-            : entry.level === "warn"
-              ? "warn"
-              : "info",
-        details: {
-          detail: normalizeString(entry.detail),
-          stage: entry.stage,
-          errorName: entry.errorName,
-          code: entry.code,
-          commandLine:
-            entry.kind === "spawned"
-              ? normalizeString(entry.detail)
-              : undefined,
-        },
-      },
     });
   });
   unsubscribeClose = adapter.onClose(async (event) => {

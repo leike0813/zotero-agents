@@ -122,6 +122,9 @@ export function normalizeDashboardTabKey(args: {
   requestedTabKey?: string;
   backends: BackendInstance[];
   debugModeEnabled?: boolean;
+  skillRunnerConnectionAuditEnabled?: boolean;
+  acpTraceRecorderEnabled?: boolean;
+  acpReplayProfilerEnabled?: boolean;
 }) {
   const requested = String(args.requestedTabKey || "").trim();
   if (
@@ -134,9 +137,24 @@ export function normalizeDashboardTabKey(args: {
   }
   if (
     args.debugModeEnabled === true &&
+    args.skillRunnerConnectionAuditEnabled === true &&
     requested === "skillrunner-connection-audit"
   ) {
     return requested;
+  }
+  const diagnosticsEnabled =
+    args.debugModeEnabled === true &&
+    (args.acpTraceRecorderEnabled === true ||
+      args.acpReplayProfilerEnabled === true);
+  if (
+    diagnosticsEnabled &&
+    (requested === "acp-trace-replay" ||
+      (requested === "acp-trace-recorder" &&
+        args.acpTraceRecorderEnabled === true) ||
+      (requested === "acp-replay-profiler" &&
+        args.acpReplayProfilerEnabled === true))
+  ) {
+    return "acp-trace-replay";
   }
   if (requested.startsWith("backend:")) {
     const backendId = requested.slice("backend:".length);

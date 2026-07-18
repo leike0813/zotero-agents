@@ -24,6 +24,7 @@ import {
   type LibraryArtifactItem,
 } from "./libraryArtifactReadiness";
 import type { AcpHostContext } from "./acpTypes";
+import { queryZoteroLibraryPage } from "./zoteroLibraryPageQuery";
 
 export type ZoteroHostItemRefInput =
   | Zotero.Item
@@ -173,7 +174,7 @@ export type ZoteroHostLibraryListArgs = {
   itemType?: string;
   query?: string;
   limit?: number | string;
-  cursor?: string | number;
+  cursor?: string;
 };
 
 export type ZoteroHostLibraryReadinessCheck = "pdf" | "markdown" | "analysis";
@@ -1578,18 +1579,6 @@ function isRegularVisibleItem(item: Zotero.Item) {
   return regular && !deleted;
 }
 
-function isTopLevelRegularVisibleItem(item: Zotero.Item) {
-  const topLevel =
-    typeof (item as any).isTopLevelItem === "function"
-      ? (item as any).isTopLevelItem()
-      : !parsePositiveInteger(
-          (item as unknown as { parentItemID?: unknown; parentID?: unknown })
-            .parentItemID ||
-            (item as unknown as { parentID?: unknown }).parentID,
-        );
-  return isRegularVisibleItem(item) && topLevel;
-}
-
 function rejectUnsafeObjectRefString(value: string) {
   const ref = value.trim();
   if (!ref) {
@@ -2889,7 +2878,7 @@ async function executeMutationOrThrow(
       );
       const attachment = await handlers.attachment.createFromPath({
         parent: item,
-        path: uploaded.localPath,
+        path: uploaded.source.path,
         title: request.displayName || uploaded.descriptor.displayName,
         mimeType: request.contentType || uploaded.descriptor.contentType,
       });
@@ -2995,79 +2984,53 @@ async function executeMutationOrThrow(
   }
 }
 
-function searchMatch(item: Zotero.Item, query: string) {
-  const haystack = [
-    getItemTitle(item),
-    getCreators(item).join(" "),
-    readField(item, "date"),
-    readField(item, "publicationTitle"),
-    readField(item, "abstractNote", FIELD_TEXT_LIMIT),
-    getTags(item).join(" "),
-    trimText(item.key),
-  ]
-    .join(" ")
-    .toLowerCase();
-  return haystack.includes(query);
-}
-
 async function selectLibraryItemPage(args: ZoteroHostLibraryListArgs = {}) {
   const limit = Math.min(
     LIBRARY_LIST_LIMIT_MAX,
     Math.max(1, parsePositiveInteger(args.limit) || LIBRARY_LIST_LIMIT_DEFAULT),
   );
-  const cursor = parseNonNegativeInteger(args.cursor);
   const requestedLibraryId = parsePositiveInteger(args.libraryId);
-  const scanLibraryId = normalizeLibraryId(args.libraryId);
   const collection = requireCollectionForList(args);
   const collectionId = collection
     ? parsePositiveInteger((collection as unknown as { id?: unknown }).id)
     : 0;
-  const collectionKey = collection
-    ? trimText((collection as unknown as { key?: unknown }).key)
-    : "";
-  const tag = trimText(args.tag).toLowerCase();
-  const itemType = trimText(args.itemType);
-  const query = trimText(args.query, FIELD_TEXT_LIMIT).toLowerCase();
-  const allItems = await getAllRegularZoteroItems(scanLibraryId);
-  const filtered = allItems
-    .filter(isTopLevelRegularVisibleItem)
-    .filter(
-      (item) => normalizeLibraryId((item as any).libraryID) === scanLibraryId,
-    )
-    .filter((item) => !itemType || trimText(item.itemType) === itemType)
-    .filter((item) => {
-      if (!tag) {
-        return true;
-      }
-      return getTags(item).some((entry) => entry.toLowerCase() === tag);
-    })
-    .filter((item) => {
-      if (!collection) {
-        return true;
-      }
-      const collections = getCollections(item).map((entry) => String(entry));
-      return (
-        (collectionId > 0 && collections.includes(String(collectionId))) ||
-        (!!collectionKey && collections.includes(collectionKey))
-      );
-    })
-    .filter((item) => !query || searchMatch(item, query))
-    .sort((a, b) => parsePositiveInteger(a.id) - parsePositiveInteger(b.id));
-  const page = filtered.slice(cursor, cursor + limit);
-  const nextOffset = cursor + page.length;
-  const hasMore = nextOffset < filtered.length;
+  const collectionLibraryId = collection
+    ? parsePositiveInteger(
+        (collection as unknown as { libraryID?: unknown }).libraryID,
+      )
+    : 0;
+  const scanLibraryId =
+    requestedLibraryId || collectionLibraryId || normalizeLibraryId(undefined);
+  const selection = await queryZoteroLibraryPage(
+    {
+      libraryId: scanLibraryId,
+      collectionId,
+      tag: args.tag,
+      itemType: args.itemType,
+      query: args.query,
+      limit,
+      cursor: args.cursor,
+    },
+    {
+      defaultLibraryId: scanLibraryId,
+      defaultLimit: LIBRARY_LIST_LIMIT_DEFAULT,
+      maxLimit: LIBRARY_LIST_LIMIT_MAX,
+    },
+  );
   return {
-    page,
-    nextCursor: hasMore ? String(nextOffset) : "",
-    totalScanned: filtered.length,
-    returned: page.length,
-    hasMore,
+    page: selection.items,
+    nextCursor: selection.nextCursor,
+    totalScanned: selection.totalScanned,
+    returned: selection.returned,
+    hasMore: selection.hasMore,
+    criteriaHash: selection.criteriaHash,
+    afterItemId: selection.afterItemId,
     filters: {
       libraryId: requestedLibraryId || undefined,
       collection: collection ? serializeCollection(collection) : undefined,
-      tag: tag || undefined,
-      itemType: itemType || undefined,
-      query: query || undefined,
+      tag: selection.criteria.tag || undefined,
+      itemType: selection.criteria.itemType || undefined,
+      query: selection.criteria.query || undefined,
     },
   };
 }
@@ -3088,14 +3051,14 @@ async function syncLibrarySnapshot(
 ): Promise<ZoteroHostLibrarySyncSnapshotResponse> {
   const selection = await selectLibraryItemPage(args);
   const generatedAt = new Date().toISOString();
-  const cursorPart = trimText(args.cursor) || "0";
   return {
     schema: "zotero.library.snapshot.v1",
     generatedAt,
     snapshotId: [
       "zotero-library",
       generatedAt.replace(/[^0-9]/g, ""),
-      cursorPart,
+      selection.criteriaHash.slice(0, 16),
+      selection.afterItemId,
       selection.returned,
       selection.totalScanned,
     ].join("-"),
@@ -3395,7 +3358,7 @@ export function createZoteroHostCapabilityBrokerApis() {
       syncSnapshot: syncLibrarySnapshot,
       readinessAudit,
       async searchItems(args: ZoteroHostItemSearchArgs) {
-        const query = trimText(args?.query, FIELD_TEXT_LIMIT).toLowerCase();
+        const query = trimText(args?.query, FIELD_TEXT_LIMIT);
         if (!query) {
           throw new Error("query must be non-empty");
         }
@@ -3407,15 +3370,19 @@ export function createZoteroHostCapabilityBrokerApis() {
           ),
         );
         const scanLibraryId = normalizeLibraryId(args?.libraryId);
-        const items = await getAllRegularZoteroItems(scanLibraryId);
-        return items
-          .filter(
-            (item) =>
-              normalizeLibraryId((item as any).libraryID) === scanLibraryId,
-          )
-          .filter((item) => searchMatch(item, query))
-          .slice(0, limit)
-          .map(serializeZoteroItemSummary);
+        const selection = await queryZoteroLibraryPage(
+          {
+            libraryId: scanLibraryId,
+            query,
+            limit,
+          },
+          {
+            defaultLibraryId: scanLibraryId,
+            defaultLimit: SEARCH_LIMIT_DEFAULT,
+            maxLimit: SEARCH_LIMIT_MAX,
+          },
+        );
+        return selection.items.map(serializeZoteroItemSummary);
       },
       async getItemDetail(ref: ZoteroHostItemRefInput) {
         const item = resolveItem(ref);

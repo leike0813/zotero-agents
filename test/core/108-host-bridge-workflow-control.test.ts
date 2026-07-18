@@ -478,16 +478,17 @@ describe("host bridge workflow control", function () {
     );
     assert.strictEqual(
       parsed.json.result.bundle.file.size,
-      download.bytes.byteLength,
+      download.source.size,
     );
+    const downloadBytes = await fs.promises.readFile(download.source.path);
     assert.strictEqual(
       parsed.json.result.bundle.file.sha256,
       `sha256:${crypto
         .createHash("sha256")
-        .update(download.bytes)
+        .update(downloadBytes)
         .digest("hex")}`,
     );
-    const reader = new ZipBundleReader(download.localPath);
+    const reader = new ZipBundleReader(download.source.path);
     const workflowJson = JSON.parse(
       await reader.readText("workflow/workflow.json"),
     );

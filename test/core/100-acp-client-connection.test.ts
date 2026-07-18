@@ -8,6 +8,13 @@ import {
   type AcpConnectionUpdate,
 } from "../../src/modules/acpConnectionAdapter";
 import type { BackendInstance } from "../../src/backends/types";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import {
+  enableAcpRuntimePerformanceProfiler,
+  resetAcpRuntimePerformanceProfilerForTests,
+  snapshotAcpRuntimeProfiles,
+  startAcpRuntimeProfile,
+} from "../../src/modules/acpRuntimePerformanceProfiler";
 import {
   ACP_CLIENT_METHODS,
   ACP_PROTOCOL_VERSION,
@@ -16,6 +23,10 @@ import {
   type RequestPermissionRequest,
   type SessionNotification,
 } from "../../src/modules/acpProtocol";
+import {
+  resetRuntimeEnvironmentSnapshotForTests,
+  seedRuntimeEnvironmentSnapshotForTests,
+} from "../../src/platform/env";
 
 function redefineGlobalProperty(key: string, value: unknown) {
   const runtime = globalThis as Record<string, unknown>;
@@ -219,7 +230,117 @@ function createClaudeBackend(
   };
 }
 
+async function createFakeNpxAcpCommand(root: string) {
+  const agentPath = path.join(root, "fake-npx-acp-agent.mjs");
+  const commandPath = path.join(
+    root,
+    process.platform === "win32" ? "npx.cmd" : "npx",
+  );
+  await fs.writeFile(
+    agentPath,
+    [
+      'import fs from "node:fs";',
+      'import readline from "node:readline";',
+      'const cache = process.env.npm_config_cache || process.env.NPM_CONFIG_CACHE || "";',
+      'const mode = process.env.FAKE_NPX_MODE || "rename-once";',
+      'fs.appendFileSync(process.env.FAKE_NPX_LOG, `${cache}\\n`, "utf8");',
+      'if (mode === "auth") {',
+      '  process.stderr.write("npm error code E401\\nnpm error authentication required\\n");',
+      "  process.exit(1);",
+      "}",
+      'if (mode === "silent-exit") {',
+      "  process.exit(23);",
+      "}",
+      'if (mode === "invalid-json") {',
+      '  process.stderr.write("less actionable stderr detail\\n");',
+      '  process.stdout.write("{not-json}\\n");',
+      "}",
+      'if (mode === "eexist-always") {',
+      "  process.stderr.write(`npm error code EEXIST\\nnpm error syscall rename\\nnpm error path ${cache}/_npx/source\\n`);",
+      "  process.exit(217);",
+      "}",
+      'if (mode === "rename-once" && /generation-0(?:[\\\\/]|$)/.test(cache)) {',
+      "  process.stderr.write(`npm error code ENOTEMPTY\\nnpm error syscall rename\\nnpm error path ${cache}/_npx/source\\n`);",
+      "  process.exit(217);",
+      "}",
+      "const rl = readline.createInterface({ input: process.stdin });",
+      'rl.on("line", (line) => {',
+      "  const request = JSON.parse(line);",
+      '  if (request.method === "initialize") {',
+      '    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { protocolVersion: 1, agentInfo: { name: "fake-npx", version: "1" }, agentCapabilities: {}, authMethods: [] } }) + "\\n");',
+      "  }",
+      "});",
+    ].join("\n"),
+    "utf8",
+  );
+  if (process.platform === "win32") {
+    await fs.writeFile(
+      commandPath,
+      `@echo off\r\n"${process.execPath}" "${agentPath}" %*\r\n`,
+      "utf8",
+    );
+  } else {
+    await fs.writeFile(
+      commandPath,
+      `#!/bin/sh\nexec "${process.execPath}" "${agentPath}" "$@"\n`,
+      "utf8",
+    );
+    await fs.chmod(commandPath, 0o755);
+  }
+  return commandPath;
+}
+
 describe("acp client connection", function () {
+  afterEach(function () {
+    resetAcpRuntimePerformanceProfilerForTests();
+    setDebugModeOverrideForTests();
+  });
+
+  it("attributes inbound and outbound JSON-RPC traffic to a performance profile", async function () {
+    setDebugModeOverrideForTests(true);
+    enableAcpRuntimePerformanceProfiler();
+    startAcpRuntimeProfile({
+      requestId: "profiled-connection",
+      displayMode: "silent",
+      transport: "stdio",
+      zoteroMajor: 9,
+    });
+    const harness = createMessageHarness();
+    const connection = new AcpClientConnection(
+      () => ({
+        requestPermission: async () => ({ outcome: "cancelled" }),
+        sessionUpdate: async () => undefined,
+      }),
+      harness.stream,
+      { performanceProfileRequestId: "profiled-connection" },
+    );
+
+    await connection.notifySessionCancel({ sessionId: "session-active" });
+    await harness.nextOutbound();
+    harness.pushInbound({
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: "session-active",
+        update: { sessionUpdate: "usage_update", used: 1, size: 2 },
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const messages = snapshotAcpRuntimeProfiles()?.active[0].metrics.filter(
+      (entry) => entry.name === "jsonrpc_message",
+    );
+    assert.equal(
+      messages?.reduce(
+        (total, entry) => total + (entry.counter?.total || 0),
+        0,
+      ),
+      2,
+    );
+    harness.closeInbound();
+    await connection.close();
+  });
+
   it("sends session/cancel as a notification without a request id", async function () {
     const harness = createMessageHarness();
     const connection = new AcpClientConnection(
@@ -313,6 +434,7 @@ describe("acp client connection", function () {
   });
 
   it("rejects pending requests with the underlying stream read error", async function () {
+    const receiveError = new Error("stdout frame decode failed");
     const connection = new AcpClientConnection(
       () => ({
         requestPermission: async () => ({ outcome: "cancelled" }),
@@ -323,7 +445,7 @@ describe("acp client connection", function () {
           getReader() {
             return {
               async read() {
-                throw new Error("stdout frame decode failed");
+                throw receiveError;
               },
               releaseLock() {
                 return;
@@ -358,7 +480,207 @@ describe("acp client connection", function () {
         /stdout frame decode failed/,
       );
     }
+    const closed = await connection.closed;
+    assert.equal(closed.origin, "receive-error");
+    assert.strictEqual(closed.reason, receiveError);
   });
+
+  it("distinguishes remote EOF from an active local close", async function () {
+    const remoteHarness = createMessageHarness();
+    const remoteConnection = new AcpClientConnection(
+      () => ({
+        requestPermission: async () => ({ outcome: "cancelled" }),
+        sessionUpdate: async () => undefined,
+      }),
+      remoteHarness.stream,
+    );
+    remoteHarness.closeInbound();
+    assert.deepEqual(await remoteConnection.closed, {
+      origin: "remote-eof",
+    });
+
+    const localHarness = createMessageHarness();
+    const localConnection = new AcpClientConnection(
+      () => ({
+        requestPermission: async () => ({ outcome: "cancelled" }),
+        sessionUpdate: async () => undefined,
+      }),
+      localHarness.stream,
+    );
+    await localConnection.close();
+    assert.deepEqual(await localConnection.closed, {
+      origin: "local",
+      reason: "ACP connection closed by client",
+    });
+    localHarness.closeInbound();
+  });
+
+  it("overrides a host-inherited npm cache and retries one managed conflict without publishing the replaced close", async function () {
+    this.timeout(10_000);
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "acp-npx-adapter-"));
+    const command = await createFakeNpxAcpCommand(root);
+    const launchLog = path.join(root, "launches.log");
+    const previousRuntimeRoot = process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+    const previousNpmCache = process.env.npm_config_cache;
+    process.env.ZOTERO_SKILLS_RUNTIME_ROOT = root;
+    process.env.npm_config_cache = path.join(root, "inherited-user-cache");
+    seedRuntimeEnvironmentSnapshotForTests({
+      initialized: true,
+      platform: process.platform,
+      source: "current-process",
+      env: Object.fromEntries(
+        Object.entries(process.env).filter(
+          (entry): entry is [string, string] => typeof entry[1] === "string",
+        ),
+      ),
+      pathKey: process.platform === "win32" ? "Path" : "PATH",
+      pathEntryCount: String(process.env.PATH || "")
+        .split(path.delimiter)
+        .filter(Boolean).length,
+    });
+    const adapter = await createAcpConnectionAdapter({
+      backend: {
+        id: "acp-npx-retry",
+        displayName: "ACP npx retry",
+        type: "acp",
+        baseUrl: "local://acp-npx-retry",
+        command,
+        args: ["fake-agent@1", "acp"],
+        env: {
+          FAKE_NPX_LOG: launchLog,
+          FAKE_NPX_MODE: "rename-once",
+        },
+      },
+      agentWorkspaceDir: root,
+      sessionCwd: root,
+      workspaceDir: root,
+      runtimeDir: path.join(root, "runtime"),
+    });
+    const closeEvents: unknown[] = [];
+    const diagnostics: Array<{ kind?: string; raw?: unknown }> = [];
+    adapter.onClose((event) => {
+      closeEvents.push(event);
+    });
+    adapter.onDiagnostics((entry) => {
+      diagnostics.push(entry);
+    });
+
+    try {
+      const initialized = await adapter.initialize();
+      assert.equal(initialized.agentName, "fake-npx");
+      const launches = (await fs.readFile(launchLog, "utf8"))
+        .trim()
+        .split(/\r?\n/);
+      assert.lengthOf(launches, 2);
+      assert.match(launches[0], /generation-0$/);
+      assert.match(launches[1], /generation-1$/);
+      assert.lengthOf(closeEvents, 0);
+      const retries = diagnostics.filter(
+        (entry) => entry.kind === "npx_cache_retry",
+      );
+      assert.lengthOf(retries, 1);
+      assert.notInclude(JSON.stringify(retries[0]), root);
+      assert.notInclude(JSON.stringify(retries[0]), "FAKE_NPX_LOG");
+      const selections = diagnostics.filter(
+        (entry) => entry.kind === "npx_cache_selected",
+      );
+      assert.lengthOf(selections, 1);
+      assert.notInclude(JSON.stringify(selections[0]), root);
+      assert.notInclude(JSON.stringify(selections[0]), "npm_config_cache");
+    } finally {
+      await adapter.close();
+      resetRuntimeEnvironmentSnapshotForTests();
+      if (previousRuntimeRoot === undefined) {
+        delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+      } else {
+        process.env.ZOTERO_SKILLS_RUNTIME_ROOT = previousRuntimeRoot;
+      }
+      if (previousNpmCache === undefined) {
+        delete process.env.npm_config_cache;
+      } else {
+        process.env.npm_config_cache = previousNpmCache;
+      }
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  for (const testCase of [
+    {
+      title: "limits repeated EEXIST cache conflicts to one retry",
+      mode: "eexist-always",
+      expectedLaunches: 2,
+      expectedError: /EEXIST/,
+    },
+    {
+      title: "does not retry ordinary npm authentication failures",
+      mode: "auth",
+      expectedLaunches: 1,
+      expectedError: /E401|authentication required/,
+    },
+    {
+      title: "prioritizes receive-loop errors over drained stderr",
+      mode: "invalid-json",
+      expectedLaunches: 1,
+      expectedError: /Failed to parse ACP JSON message/,
+    },
+    {
+      title: "reports a nonzero exit when stderr is empty",
+      mode: "silent-exit",
+      expectedLaunches: 1,
+      expectedError: /exited with code 23/,
+    },
+  ]) {
+    it(testCase.title, async function () {
+      this.timeout(10_000);
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), "acp-npx-fail-"));
+      const command = await createFakeNpxAcpCommand(root);
+      const launchLog = path.join(root, "launches.log");
+      const previousRuntimeRoot = process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+      process.env.ZOTERO_SKILLS_RUNTIME_ROOT = root;
+      const adapter = await createAcpConnectionAdapter({
+        backend: {
+          id: `acp-npx-${testCase.mode}`,
+          displayName: "ACP npx failure",
+          type: "acp",
+          baseUrl: `local://acp-npx-${testCase.mode}`,
+          command,
+          args: ["fake-agent@1", "acp"],
+          env: {
+            FAKE_NPX_LOG: launchLog,
+            FAKE_NPX_MODE: testCase.mode,
+          },
+        },
+        agentWorkspaceDir: root,
+        sessionCwd: root,
+        workspaceDir: root,
+        runtimeDir: path.join(root, "runtime"),
+      });
+      try {
+        let failure: unknown;
+        try {
+          await adapter.initialize();
+        } catch (error) {
+          failure = error;
+        }
+        assert.match(
+          String((failure as Error)?.message || failure),
+          testCase.expectedError,
+        );
+        const launches = (await fs.readFile(launchLog, "utf8"))
+          .trim()
+          .split(/\r?\n/);
+        assert.lengthOf(launches, testCase.expectedLaunches);
+      } finally {
+        await adapter.close();
+        if (previousRuntimeRoot === undefined) {
+          delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+        } else {
+          process.env.ZOTERO_SKILLS_RUNTIME_ROOT = previousRuntimeRoot;
+        }
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    });
+  }
 
   it("closes once, publishes EOF, rejects pending requests, and blocks new writes", async function () {
     const harness = createMessageHarness();

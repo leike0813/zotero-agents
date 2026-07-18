@@ -5062,7 +5062,9 @@ describe("Synthesis Layer v2 structured persistence red tests", function () {
       const downloaded = await resolveHostBridgeFileDownload(
         remoteEnvelope.delivery.bundle.fileId,
       );
-      const zipText = Buffer.from(downloaded.bytes).toString("utf8");
+      const zipText = Buffer.from(
+        await fs.readFile(downloaded.source.path),
+      ).toString("utf8");
       assert.include(zipText, "remote-topic-context.semantic.json");
       assert.include(zipText, "DETR introduced a set-prediction framing");
       resetHostBridgeFileRegistryForTests();

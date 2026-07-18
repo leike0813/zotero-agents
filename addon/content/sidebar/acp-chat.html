@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ACP Chat</title>
+    <title></title>
     <script src="../shared/theme.js"></script>
     <link rel="stylesheet" href="../shared/theme.css" />
     <link rel="stylesheet" href="../shared/icons.css?ui=20260614-icons-v1" />
@@ -11,104 +11,86 @@
       rel="stylesheet"
       href="../shared/assistant/assistant-panel-shared.css"
     />
-    <link rel="stylesheet" href="./acp-chat.css" />
+    <link
+      rel="stylesheet"
+      href="../shared/assistant/assistant-workspace-acp-child.css"
+    />
     <link rel="stylesheet" href="../shared/vendor/katex/katex.min.css" />
   </head>
-  <body>
-    <main class="acp-chat-shell asst-panel-shell">
-      <header
-        id="acp-chat-toolbar"
-        class="acp-chat-toolbar asst-shell-toolbar"
-      ></header>
-
+  <body data-source="acp-chat">
+    <main
+      class="assistant-workspace-acp-shell asst-panel-shell"
+      data-role="root"
+    >
+      <header class="asst-shell-toolbar" data-role="toolbar"></header>
+      <section class="asst-banner" data-role="banner"></section>
       <section
-        id="acp-chat-banner"
-        class="acp-chat-banner asst-banner"
-      ></section>
-
-      <section
-        id="acp-chat-message-counter"
         class="assistant-message-counter-region hidden"
+        data-role="message-counts"
       ></section>
-
       <section
-        id="acp-chat-drawer"
-        class="acp-chat-drawer asst-panel-drawer-overlay hidden"
+        class="asst-panel-drawer-overlay hidden"
+        data-role="context-drawer"
       ></section>
-
-      <section id="acp-chat-main" class="acp-chat-main asst-panel-main">
-        <section
-          id="acp-chat-conversation-window"
-          class="acp-conversation-window asst-conversation-surface"
-        >
+      <section class="asst-panel-main" data-role="main">
+        <section class="asst-conversation-surface" data-role="conversation">
           <section
-            id="acp-transcript"
-            class="acp-transcript plain-mode"
+            class="asst-empty-state hidden"
+            data-role="empty"
+            aria-live="polite"
           ></section>
+          <section class="plain-mode" data-role="transcript"></section>
           <div
-            class="asst-conversation-overlay-menu acp-conversation-overlay-menu"
+            class="asst-conversation-overlay-menu"
             role="group"
-            aria-label="Chat view"
+            aria-label=""
           >
             <button
-              id="acp-chat-mode-plain"
               class="asst-button-compact"
               type="button"
               data-assistant-view-mode="plain"
-              aria-label="Plain transcript view"
+              aria-label=""
               aria-pressed="true"
             >
               <span
                 class="zs-icon zs-icon-sm asst-view-mode-icon zs-icon-subject"
                 aria-hidden="true"
               ></span>
-              <span class="asst-view-mode-label">Plain</span>
+              <span class="asst-view-mode-label"></span>
             </button>
             <button
-              id="acp-chat-mode-bubble"
               class="asst-button-compact"
               type="button"
               data-assistant-view-mode="bubble"
-              aria-label="Bubble conversation view"
+              aria-label=""
               aria-pressed="false"
             >
               <span
                 class="zs-icon zs-icon-sm asst-view-mode-icon zs-icon-forum"
                 aria-hidden="true"
               ></span>
-              <span class="asst-view-mode-label">Bubble</span>
+              <span class="asst-view-mode-label"></span>
             </button>
           </div>
         </section>
-
+        <section class="asst-plan-surface hidden" data-role="plan"></section>
         <section
-          id="acp-chat-plan-panel"
-          class="acp-plan-panel asst-plan-surface hidden"
+          class="asst-hint-surface hidden"
+          data-role="interaction"
         ></section>
-
-        <section
-          id="acp-chat-interaction"
-          class="acp-interaction-notices asst-hint-surface hidden"
-        ></section>
-
-        <section
-          id="acp-chat-reply"
-          class="acp-composer asst-reply-surface"
-        ></section>
+        <section class="asst-reply-surface" data-role="composer"></section>
       </section>
-
       <section
-        id="acp-chat-details"
-        class="acp-diagnostics-panel asst-panel-details-overlay hidden"
+        class="asst-panel-details-overlay hidden"
+        data-role="details-drawer"
       ></section>
     </main>
     <script src="../shared/vendor/katex/katex.min.js"></script>
     <script src="../shared/vendor/markdown-it/markdown-it.min.js"></script>
     <script src="../shared/vendor/markdown-it-texmath/texmath.min.js"></script>
-    <script src="../shared/assistant/assistant-conversation-view.js"></script>
     <script src="../shared/assistant/assistant-transcript-renderer.js"></script>
     <script src="../shared/assistant/assistant-panel-model.js"></script>
     <script src="../shared/assistant/assistant-panel-renderer.js"></script>
-    <script src="./acp-chat.js"></script>
+    <script src="../shared/assistant/assistant-workspace-acp-child.js"></script>
   </body>
 </html>

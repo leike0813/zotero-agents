@@ -9,7 +9,10 @@ import {
   resetHostBridgePermissionManagerForTests,
 } from "../../src/modules/hostBridgePermissionManager";
 import { resetHostBridgeWriteAutoApprovalScopesForTests } from "../../src/modules/hostBridgeWriteAutoApprovalRegistry";
-import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import {
+  setDebugModeOverrideForTests,
+  setSkillRunnerConnectionAuditSourceOverrideForTests,
+} from "../../src/modules/debugMode";
 import { listHostBridgeCapabilities } from "../../src/modules/hostBridgeCapabilityRegistry";
 import {
   resetAcpSkillRunsForTests,
@@ -22,6 +25,12 @@ import {
   resetZoteroMcpServerForTests,
 } from "../../src/modules/zoteroMcpServer";
 import { setPref } from "../../src/utils/prefs";
+import {
+  resetZoteroLibraryPageQueryAdapterForTests,
+  setZoteroLibraryPageQueryAdapterForTests,
+} from "../../src/modules/zoteroLibraryPageQuery";
+import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
+import { runtimeHttpResponseInternalsForTests } from "../../src/modules/runtimeHttpResponse";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -159,13 +168,21 @@ async function createNote(parent: Zotero.Item, title: string, html: string) {
 }
 
 describe("host bridge capability calls", function () {
+  beforeEach(function () {
+    setZoteroLibraryPageQueryAdapterForTests(
+      createMockZoteroLibraryPageQueryAdapter(),
+    );
+  });
+
   afterEach(function () {
+    resetZoteroLibraryPageQueryAdapterForTests();
     resetHostBridgeServerForTests();
     resetHostBridgePermissionManagerForTests();
     resetZoteroMcpServerForTests();
     resetHostBridgeWriteAutoApprovalScopesForTests();
     resetAcpSkillRunsForTests();
     setDebugModeOverrideForTests();
+    setSkillRunnerConnectionAuditSourceOverrideForTests();
     setPref("hostBridgeDisableWriteApproval", false);
   });
 
@@ -207,6 +224,32 @@ describe("host bridge capability calls", function () {
     assert.strictEqual(invalidJson.json.error.code, "invalid_capability_input");
   });
 
+  it("publishes string library cursors and maps invalid cursors as validation errors", async function () {
+    for (const name of [
+      "library.list_items",
+      "library.sync_snapshot",
+      "library.readiness_audit",
+    ]) {
+      const capability = listHostBridgeCapabilities().find(
+        (entry) => entry.name === name,
+      );
+      assert.deepEqual(capability?.input.properties?.cursor, {
+        type: "string",
+      });
+    }
+
+    const token = configureHostBridgeServerForTests({ token: "cursor-token" });
+    const parsed = await callBridgeCapability({
+      token,
+      capability: "library.list_items",
+      input: { cursor: "damaged!", limit: 1 },
+    });
+    assert.strictEqual(parsed.status, 400);
+    assert.strictEqual(parsed.json.error.code, "invalid_library_cursor");
+    assert.strictEqual(parsed.json.error.category, "validation");
+    assert.strictEqual(parsed.json.error.details.retryable, false);
+  });
+
   it("routes read-only library capabilities through JSON-safe broker DTOs", async function () {
     const token = configureHostBridgeServerForTests({ token: "read-token" });
     const item = await createParentItem("Bridge Broker DTO Paper");
@@ -234,6 +277,23 @@ describe("host bridge capability calls", function () {
     assert.notProperty(parsed.json.result.data, "saveTx");
     assert.notProperty(parsed.json.result.data, "getField");
     assert.doesNotThrow(() => JSON.stringify(parsed.json.result.data));
+  });
+
+  it("prepares one capability response without a normalization serialization", async function () {
+    const token = configureHostBridgeServerForTests({ token: "once-token" });
+    runtimeHttpResponseInternalsForTests.resetMetrics();
+
+    const parsed = await callBridgeCapability({
+      token,
+      capability: "context.get_current_view",
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.deepEqual(runtimeHttpResponseInternalsForTests.getMetrics(), {
+      jsonSerializations: 1,
+      bodyEncodes: 1,
+      maxWriteChunkBytes: 0,
+    });
   });
 
   it("routes library sync snapshots without write approval", async function () {
@@ -499,6 +559,7 @@ describe("host bridge capability calls", function () {
 
   it("hides debug capabilities when debug mode is disabled", async function () {
     setDebugModeOverrideForTests(false);
+    setSkillRunnerConnectionAuditSourceOverrideForTests(true);
     const token = configureHostBridgeServerForTests({
       token: "debug-off-token",
     });
@@ -528,8 +589,40 @@ describe("host bridge capability calls", function () {
     assert.strictEqual(call.json.error.code, "capability_not_found");
   });
 
+  it("hides SkillRunner connection audit when its source switch is disabled", async function () {
+    setDebugModeOverrideForTests(true);
+    setSkillRunnerConnectionAuditSourceOverrideForTests(false);
+    const token = configureHostBridgeServerForTests({
+      token: "connection-audit-off-token",
+    });
+
+    const manifest = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "GET",
+        path: "/bridge/v1/manifest",
+        headers: {
+          authorization: `Bearer ${token}`,
+        },
+      }),
+    );
+    const names = manifest.json.result.capabilities.map(
+      (capability: { name: string }) => capability.name,
+    );
+    assert.include(names, "debug.status");
+    assert.notInclude(names, "debug.skillrunner.connections.snapshot");
+
+    const call = await callBridgeCapability({
+      token,
+      capability: "debug.skillrunner.connections.snapshot",
+      input: {},
+    });
+    assert.strictEqual(call.status, 404);
+    assert.strictEqual(call.json.error.code, "capability_not_found");
+  });
+
   it("exposes debug capabilities and Synthesis diagnostics when debug mode is enabled", async function () {
     setDebugModeOverrideForTests(true);
+    setSkillRunnerConnectionAuditSourceOverrideForTests(true);
     const token = configureHostBridgeServerForTests({
       token: "debug-on-token",
     });

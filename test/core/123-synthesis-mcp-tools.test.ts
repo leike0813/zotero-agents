@@ -698,7 +698,9 @@ describe("Synthesis MCP tools", function () {
       assert.isString(fileId);
       assert.notInclude(JSON.stringify(remoteResult), runRoot);
       const downloaded = await resolveHostBridgeFileDownload(fileId);
-      const zipText = Buffer.from(downloaded.bytes).toString("utf8");
+      const zipText = Buffer.from(
+        await fs.readFile(downloaded.source.path),
+      ).toString("utf8");
       assert.include(zipText, "runtime/payloads/paper-artifacts-manifest.json");
       assert.include(
         zipText,

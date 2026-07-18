@@ -102,6 +102,10 @@ function stripAcpChatSnapshot(snapshot: Record<string, unknown>) {
     items: [],
     diagnostics: [],
     stderrTail: "",
+    transcriptRegion: undefined,
+    transcriptRevision: undefined,
+    transcriptEventSeq: undefined,
+    transcriptItemCount: undefined,
   };
 }
 

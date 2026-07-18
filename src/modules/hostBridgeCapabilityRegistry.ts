@@ -1,9 +1,14 @@
 import { getHostBridgeApprovalRequirement } from "./hostBridgePermissionManager";
 import {
   registerHostBridgeFileHandle,
+  registerHostBridgeFileHandlesInOrder,
   registerHostBridgeWorkflowArtifactFile,
+  type HostBridgeFileDescriptor,
 } from "./hostBridgeFileRegistry";
-import { isDebugModeEnabled } from "./debugMode";
+import {
+  isDebugModeEnabled,
+  isSkillRunnerConnectionAuditAvailable,
+} from "./debugMode";
 import {
   copyRuntimeFile,
   getRuntimePersistencePaths,
@@ -29,7 +34,6 @@ import {
   listWorkflowTasks,
 } from "./taskRuntime";
 import { listAcpSkillRunSummaries } from "./acpSkillRunStore";
-import { getSkillRunnerConnectionGovernorSnapshot } from "./skillRunnerConnectionGovernor";
 import { reapplyAcpSkillRunResult } from "./acpSkillRunnerOrchestrator";
 import type {
   HostBridgeApprovalRequirement,
@@ -64,10 +68,18 @@ export type ZoteroHostCapabilityBrokerApis = ReturnType<
   typeof createZoteroHostCapabilityBrokerApis
 >;
 
+export type JsonSerializableValue =
+  | null
+  | boolean
+  | number
+  | string
+  | undefined
+  | object;
+
 export type HostBridgeCapabilityHandler = (
   input: unknown,
   context: HostBridgeCapabilityContext,
-) => unknown | Promise<unknown>;
+) => JsonSerializableValue | Promise<JsonSerializableValue>;
 
 export type HostBridgeCapabilityDefinition =
   HostBridgeCapabilityManifestEntry & {
@@ -120,15 +132,9 @@ function libraryListArgsFromInput(input: unknown): ZoteroHostLibraryListArgs {
   return args;
 }
 
-function normalizeJsonSafeValue(value: unknown): unknown {
-  if (value === undefined) {
-    return null;
-  }
-  return JSON.parse(JSON.stringify(value));
-}
-
-async function toBridgeAttachmentDescriptor(
+function toBridgeAttachmentDescriptor(
   attachment: ZoteroHostAttachmentDto,
+  file?: HostBridgeFileDescriptor,
 ) {
   const path = String(attachment.path || "").trim();
   const { path: _path, ...safeAttachment } = attachment;
@@ -141,17 +147,15 @@ async function toBridgeAttachmentDescriptor(
       },
     };
   }
-  const file = await registerHostBridgeFileHandle({
-    localPath: path,
-    sourceKind: "zotero-attachment",
-    displayName: attachment.filename || attachment.title,
-    contentType: attachment.contentType,
-    owner: {
-      capability: "library.get_item_attachments",
-      itemKey: attachment.parent?.key || attachment.key,
-      libraryId: attachment.libraryId,
-    },
-  });
+  if (!file) {
+    return {
+      ...safeAttachment,
+      access: {
+        mode: "unavailable",
+        file: null,
+      },
+    };
+  }
   return {
     ...safeAttachment,
     access: {
@@ -174,7 +178,32 @@ async function toBridgeAttachmentDescriptorsWithContext(
   const attachments = await resolveHostBridgeApis(
     context,
   ).library.getItemAttachments(itemRefFromInput(input));
-  return Promise.all(attachments.map(toBridgeAttachmentDescriptor));
+  const registerable = attachments.filter(
+    (attachment) =>
+      String(attachment.path || "").trim() && !attachment.errors?.length,
+  );
+  const files = await registerHostBridgeFileHandlesInOrder(
+    registerable.map((attachment) => ({
+      localPath: String(attachment.path).trim(),
+      sourceKind: "zotero-attachment" as const,
+      displayName: attachment.filename || attachment.title,
+      contentType: attachment.contentType,
+      owner: {
+        capability: "library.get_item_attachments",
+        itemKey: attachment.parent?.key || attachment.key,
+        libraryId: attachment.libraryId,
+      },
+    })),
+  );
+  let fileIndex = 0;
+  return attachments.map((attachment) => {
+    const canRegister =
+      String(attachment.path || "").trim() && !attachment.errors?.length;
+    return toBridgeAttachmentDescriptor(
+      attachment,
+      canRegister ? files[fileIndex++] : undefined,
+    );
+  });
 }
 
 function capability(
@@ -192,7 +221,7 @@ function capability(
     approval,
     input,
     handler: async (rawInput, context) =>
-      normalizeJsonSafeValue(await handler(rawInput, context)),
+      (await handler(rawInput, context)) ?? null,
   };
 }
 
@@ -825,6 +854,8 @@ async function debugTasksSnapshot(input: unknown) {
 
 async function debugSkillRunnerConnectionsSnapshot(input: unknown) {
   const object = asObject(input);
+  const { getSkillRunnerConnectionGovernorSnapshot } =
+    await import("./skillRunnerConnectionAudit");
   return debugEnvelope(
     "host_bridge.debug.skillrunner.connections.snapshot.v1",
     object,
@@ -932,7 +963,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
         itemType: { type: "string" },
         query: { type: "string" },
         limit: { type: ["number", "string"], minimum: 1 },
-        cursor: { type: ["number", "string"] },
+        cursor: { type: "string" },
       },
     },
     (input, context) =>
@@ -957,7 +988,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
         itemType: { type: "string" },
         query: { type: "string" },
         limit: { type: ["number", "string"], minimum: 1 },
-        cursor: { type: ["number", "string"] },
+        cursor: { type: "string" },
       },
     },
     (input, context) =>
@@ -982,7 +1013,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
         itemType: { type: "string" },
         query: { type: "string" },
         limit: { type: ["number", "string"], minimum: 1 },
-        cursor: { type: ["number", "string"] },
+        cursor: { type: "string" },
         checks: {},
         missingOnly: { type: ["boolean", "string", "number"] },
         missing_only: { type: ["boolean", "string", "number"] },
@@ -1223,11 +1254,16 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "Return debug-only workflow task and ACP run diagnostics.",
     debugTasksSnapshot,
   ),
-  debugCapability(
-    "debug.skillrunner.connections.snapshot",
-    "Return debug-only SkillRunner connection governor diagnostics.",
-    debugSkillRunnerConnectionsSnapshot,
-  ),
+  ...(typeof __debug_mode__ === "undefined" ||
+  (__debug_mode__ && __skillrunner_connection_audit_enabled__)
+    ? [
+        debugCapability(
+          "debug.skillrunner.connections.snapshot",
+          "Return debug-only SkillRunner connection governor diagnostics.",
+          debugSkillRunnerConnectionsSnapshot,
+        ),
+      ]
+    : []),
   debugCapability(
     "debug.acpSkillRun.reapplyResult",
     "Debug-only operation: re-run applyResult for an existing ACP skill run result.",
@@ -1591,7 +1627,10 @@ function withCurrentApproval<T extends HostBridgeCapabilityManifestEntry>(
 
 export function listHostBridgeCapabilities(): HostBridgeCapabilityManifestEntry[] {
   return CAPABILITIES.filter(
-    (entry) => entry.category !== "debug" || isDebugModeEnabled(),
+    (entry) =>
+      (entry.category !== "debug" || isDebugModeEnabled()) &&
+      (entry.name !== "debug.skillrunner.connections.snapshot" ||
+        isSkillRunnerConnectionAuditAvailable()),
   ).map(({ handler: _handler, ...entry }) => ({
     ...withCurrentApproval(entry),
   }));
@@ -1605,6 +1644,12 @@ export function getHostBridgeCapability(
     return null;
   }
   if (capability.category === "debug" && !isDebugModeEnabled()) {
+    return null;
+  }
+  if (
+    capability.name === "debug.skillrunner.connections.snapshot" &&
+    !isSkillRunnerConnectionAuditAvailable()
+  ) {
     return null;
   }
   return withCurrentApproval(capability);

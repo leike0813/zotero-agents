@@ -372,3 +372,272 @@ Assistant message counts SHALL be rendered only by the message-counter managed r
 - **THEN** the snapshot reaches the shared message-counter region guard
 - **AND** unchanged toolbar, banner, transcript, reply, and drawer regions retain DOM identity.
 
+### Requirement: Assistant Workspace publishes owner-scoped managed regions
+
+Assistant Workspace SHALL represent runtime UI work as typed, owner-scoped region publications. A publication SHALL carry only the DTO required by its managed region, and the host SHALL apply source and owner guards before reading transcript pages, building DTOs, or serializing payloads.
+
+Chat owners SHALL be identified by backend plus conversation and Skills owners SHALL be identified by request. A Chat change SHALL NOT publish the active Skills panel, and a Skills change SHALL NOT publish the active Chat panel.
+
+#### Scenario: Inactive source changes
+
+- **GIVEN** Assistant Workspace is closed or a source is not the active target
+- **WHEN** that source emits a runtime change
+- **THEN** the host SHALL drop the publication request before DTO construction
+- **AND** it SHALL NOT build either the matching or opposite tab publication.
+
+#### Scenario: Owner does not match selection
+
+- **WHEN** a runtime change belongs to a conversation or request other than the selected owner
+- **THEN** the host SHALL reject it before transcript page read, DTO construction, or serialization.
+
+### Requirement: Managed regions use independent stable signatures
+
+Toolbar, banner, plan, hint, reply, context drawer, details drawer, permission drawer, transcript, and other managed regions SHALL each use a signature containing only that region's user-visible content and open or collapsed state. Equal owner, kind, and signature SHALL be skipped before post unless the publication is an explicit initialization or activation.
+
+Baseline or chrome DTOs SHALL NOT contain selected transcript pages, transcript revisions, streaming or event counts, message-count revisions, or transcript loading state.
+
+#### Scenario: Transcript-only publication preserves chrome identity
+
+- **WHEN** a selected owner receives a transcript-only or message-count-only change
+- **THEN** toolbar, banner, plan, hint, reply, context drawer, details drawer, permission drawer, and Runner pane DOM identity SHALL remain unchanged.
+
+#### Scenario: Repeated region DTO is skipped
+
+- **GIVEN** a region DTO has already been posted for an owner
+- **WHEN** the host requests an equal owner, kind, and DTO again
+- **THEN** the host SHALL skip the publication before post.
+
+### Requirement: Region publications are acknowledged and stale-safe
+
+The shell SHALL forward typed region publications without combining transcript and chrome state. The child SHALL reject publications for an old owner or a stale same-owner revision, apply only the addressed region, and acknowledge shell receipt, child apply, and render completion with owner, kind, revision, and signature identity.
+
+#### Scenario: Old owner publication arrives after selection
+
+- **GIVEN** the child has switched from owner A to owner B
+- **WHEN** a delayed publication for owner A arrives
+- **THEN** the publication SHALL NOT modify visible DOM
+- **AND** its acknowledgement SHALL identify the rejection rather than successful render completion.
+
+#### Scenario: Successful publication completes acknowledgement chain
+
+- **WHEN** a current-owner publication is posted and applied
+- **THEN** shell receive, child apply, and render completion SHALL be attributable to the same publication identity.
+
+#### Scenario: Multiple full snapshots arrive before one render frame
+
+- **WHEN** multiple identified Chat or Skills snapshots reach a child before its scheduled render frame
+- **THEN** the child SHALL apply and acknowledge them in delivery order
+- **AND** it SHALL NOT silently replace an earlier posted snapshot without a lifecycle terminal state.
+
+#### Scenario: A newer shell cache generation replaces an identified snapshot
+
+- **WHEN** a newer identified snapshot replaces an init or snapshot cache generation before the older publication completes in the child
+- **THEN** the shell SHALL acknowledge the older identity as superseded
+- **AND** the host lifecycle ledger SHALL no longer leave that publication pending.
+
+### Requirement: Region publication preserves transcript loading invariants
+
+Owner switching SHALL remain owner-first, loading-first, and page-first. Indexed page read and full mirror hydrate SHALL NOT block first paint; live or prompting mirrors SHALL remain pinned, and owner-scoped cold full mirror caches SHALL remain optional performance caches rather than visibility requirements.
+
+#### Scenario: Cold owner is selected
+
+- **WHEN** the selected Chat conversation or Skills request changes to a cold owner
+- **THEN** the child SHALL first receive that owner's loading or empty transcript publication
+- **AND** indexed page content MAY render before full mirror hydrate completes.
+
+### Requirement: Transcript region vocabulary is singular
+
+All Assistant Workspace Host read models, initialization snapshots, typed publications, shared browser models, and transcript renderers SHALL use one `AssistantWorkspaceTranscriptRegion`. No surface-specific transcript state or page alias SHALL remain in production Workspace paths.
+
+#### Scenario: Transcript publication applies on either surface
+
+- **WHEN** a snapshot or delta is accepted
+- **THEN** the same receiver updates the same transcript region model
+- **AND** no adapter copies state into a second transcript field.
+
+### Requirement: Transcript updates preserve managed region identity
+
+Transcript-only publication SHALL NOT rebuild toolbar, banner, plan, hint, reply, context drawer, details drawer, permission drawer, or Runner pane. Append SHALL preserve the target row and text-node identity when structure is unchanged.
+
+#### Scenario: Streaming append is applied
+
+- **WHEN** either surface appends text to a visible streaming item
+- **THEN** only the existing target text node changes
+- **AND** all non-transcript managed region identities remain unchanged.
+
+### Requirement: Steady transcript rendering is target-local
+
+Assistant Workspace SHALL represent accepted transcript mutations as target-local render effects. Steady append, patch, upsert, delete, and off-page metadata effects SHALL preserve every unaffected transcript row and every non-transcript managed-region DOM node. Transcript revision changes alone SHALL NOT clear or rebuild the transcript container.
+
+#### Scenario: Streaming text appends
+
+- **WHEN** an accepted delta appends text to a visible item
+- **THEN** the renderer appends to that item's text node
+- **AND** the row, text node, other rows, toolbar, banner, plan, hint, reply, context, details, and permission nodes retain identity.
+
+#### Scenario: Historical page receives an off-page delta
+
+- **WHEN** a selected historical page receives a delta outside its window
+- **THEN** only bounded page metadata changes
+- **AND** no tail item is inserted and scroll position does not jump.
+
+### Requirement: Child initialization is delivery-based and generation-scoped
+
+Assistant Workspace SHALL consider a child initialized only after a publication enters the delivery lifecycle for the current child document generation. Scheduling asynchronous snapshot preparation SHALL NOT suppress a later ready-triggered initialization.
+
+#### Scenario: Child ready races snapshot preparation
+
+- **WHEN** child ready arrives while initial page preparation is pending
+- **THEN** the current generation still receives one ordered owner-first/page-first initialization
+- **AND** duplicate ready messages for that generation do not create duplicate DOM work.
+
+### Requirement: Transcript geometry work is dirty-row scoped
+
+Steady transcript mutation SHALL measure only newly inserted or content-changing rows. Unchanged rows SHALL retain cached height and DOM position. A height change SHALL update scroll geometry or spacers without scheduling another full transcript render.
+
+#### Scenario: One row changes in an 80-item page
+
+- **WHEN** one visible item is patched without changing its neighbors
+- **THEN** only its presentation row is eligible for rerender and measurement
+- **AND** measurement work does not grow with the other 79 items.
+
+### Requirement: Message-count publications render their typed region directly
+
+Chat and Skills children SHALL render `message-counts` directly from the typed count payload. Count-only application SHALL NOT project or normalize a complete panel model and SHALL NOT invoke a full panel/runtime renderer.
+
+#### Scenario: Tool count advances at a transcript boundary
+
+- **WHEN** a selected owner receives a count-only publication
+- **THEN** the shared message-counter renderer updates only the count nodes
+- **AND** transcript, toolbar, banner, plan, hint, reply and drawer nodes retain identity.
+
+### Requirement: Shared child delivery preserves identities while sharing a render frame
+
+Chat and Skills SHALL use the same publication view/controller. Publications delivered before one render frame MAY share that frame, but the controller SHALL apply them in delivery order and SHALL emit a terminal render acknowledgement for every publication identity after its requested DOM work succeeds.
+
+#### Scenario: Transcript and count publications describe one hard boundary
+
+- **WHEN** transcript and message-count publications reach the child before the next render frame
+- **THEN** both region effects complete in delivery order in that frame
+- **AND** neither publication identity is skipped or merged into the other.
+
+### Requirement: ACP Workspace surfaces use one owner-scoped runtime
+
+ACP Chat and ACP Skills SHALL register source adapters with one shared Workspace surface runtime. The runtime SHALL own initialization, owner-scoped scheduling, region signatures, publication lifecycle, rebase, and owner cleanup. Sidebar and source adapters SHALL NOT implement a second publication scheduler or DTO conversion layer.
+
+#### Scenario: Active owner changes
+
+- **WHEN** Chat conversation or Skills run selection changes
+- **THEN** the shared runtime clears the prior owner's pending lanes and publishes the new owner loading-first
+- **AND** no global single-slot timer can overwrite another owner or region.
+
+#### Scenario: Workspace target deactivates
+
+- **WHEN** the active Assistant Workspace target closes or moves to another host target
+- **THEN** the shared runtime terminates every pending publication lifecycle as superseded and clears queued owner work
+- **AND** reopening the same child document continues monotonic region and delivery revisions without inheriting an undeliverable identity.
+
+#### Scenario: An inactive source emits a change
+
+- **WHEN** a producer change targets a hidden or non-selected ACP source
+- **THEN** the runtime drops it before invoking any owner read-model builder.
+
+### Requirement: ACP initialization is typed and region-scoped
+
+ACP Chat and ACP Skills initialization and activation SHALL publish an ordered set of canonical region publications and SHALL NOT build a complete panel or frontend snapshot. Transcript loading SHALL precede its ready indexed page.
+
+#### Scenario: Workspace opens for the first time
+
+- **WHEN** the active ACP child document becomes ready
+- **THEN** it receives owner-first loading state followed by the current typed regions and ready transcript page
+- **AND** transcript visibility does not depend on another session or tab switch.
+
+#### Scenario: Chat backend refresh changes navigation
+
+- **WHEN** refresh completes and selects or updates a session
+- **THEN** the typed navigation change follows normal publication ordering
+- **AND** the selected historical session does not remain permanently empty.
+
+### Requirement: Owner navigation is not lifecycle status
+
+Backend/conversation and run-list/selection changes SHALL use the canonical owner-navigation region. Baseline status SHALL contain only current owner lifecycle status.
+
+#### Scenario: Conversation list changes
+
+- **WHEN** Chat creates, renames, archives, or selects a conversation
+- **THEN** owner navigation updates without rebuilding transcript or masquerading as baseline status.
+
+### Requirement: Managed regions render by their own signatures
+
+The runtime SHALL commit toolbar, banner, plan, hint, reply, context, details,
+and permission signatures only after successful rendering. Transcript, loading,
+streaming, and count-only changes SHALL NOT rebuild unrelated regions.
+
+#### Scenario: A region renderer fails
+
+- **WHEN** a render throws before commit
+- **THEN** the previous signature remains uncommitted
+- **AND** the same publication content can be retried.
+
+### Requirement: Managed regions preserve stable layout identity
+
+The shared child SHALL keep main layout containers mounted while region
+signatures independently govern toolbar, banner, conversation, plan, hint,
+reply, drawer, details, permission, and transcript rendering.
+
+#### Scenario: Owner navigation clears selection
+
+- **WHEN** navigation atomically replaces the old selection with empty loading
+- **THEN** old owner content is invalidated
+- **AND** non-content layout containers retain their DOM identity.
+
+### Requirement: Renderer failure diagnostics are bounded and retryable
+
+Transcript rendering SHALL return a bounded stage, code, and render path.
+Failed effects SHALL not commit signatures or partial renderer state.
+
+#### Scenario: Virtual row reconciliation rejects a delta
+
+- **WHEN** the renderer cannot locate a planned row
+- **THEN** the ACK contains the bounded reconciliation failure
+- **AND** the next valid publication can retry without requiring stale state.
+
+### Requirement: Every shared ACP managed region has an independent signature
+
+The Assistant Workspace SHALL reconcile toolbar, banner, message counts,
+transcript, plan, hint, composer, context drawer, details drawer, and permission
+drawer from an independent signature containing only that region's visible
+content and local open or
+collapsed state. Transcript revision, page signature, streaming chunks, item
+counts, prompting tail, and log tail SHALL NOT enter non-transcript signatures.
+
+#### Scenario: A transcript-only publication is accepted
+
+- **WHEN** a transcript delta, loading state, or streaming chunk changes for the selected owner
+- **THEN** only the transcript region is rendered
+- **AND** toolbar, banner, plan, hint, composer, context, details, permission, and Runner pane nodes retain identity.
+
+### Requirement: Empty and owner-switch states preserve layout geometry
+
+The main grid SHALL remain mounted as transcript, plan, hint, and composer rows
+when no owner is selected, while owner changes SHALL close local context chrome
+and publish the new owner loading state before indexed page or full-mirror work.
+
+#### Scenario: Selection changes from one cold owner to another
+
+- **WHEN** the user selects a different session or run
+- **THEN** the drawer closes synchronously and the new owner empty/loading state paints first
+- **AND** transcript hydration does not block the first owner-specific paint.
+
+### Requirement: Hint has an explicit publication-to-region route
+
+The managed-region registry SHALL include the hint region. Owner-control and
+permission publications SHALL be allowed to update it, while composer and
+transcript publications SHALL NOT rebuild it. Its signature SHALL contain only
+the projected semantic interaction visible to the user.
+
+#### Scenario: Composer options change without interaction change
+
+- **WHEN** mode, model, reasoning, usage, or reply availability changes while the owner hint is unchanged
+- **THEN** only the composer region is reconciled
+- **AND** the hint node retains identity.

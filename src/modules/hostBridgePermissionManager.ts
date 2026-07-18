@@ -440,10 +440,10 @@ async function requestAcpRunScopedPermission(
     };
   }
   const { setAcpSkillRunPermissionRequest } =
-    await import("./acpSkillRunStore");
+    await import("./acpSkillRunPermissionFacade");
   const outcomePromise = new Promise<HostBridgePermissionDecision>(
     (resolve) => {
-      setAcpSkillRunPermissionRequest(runRequestId, {
+      const registered = setAcpSkillRunPermissionRequest(runRequestId, {
         requestId: request.requestId,
         sessionId: "host-bridge",
         toolCallId: request.requestId,
@@ -471,6 +471,15 @@ async function requestAcpRunScopedPermission(
           );
         },
       });
+      if (!registered) {
+        resolve({
+          outcome: "ui_unavailable",
+          requestId: request.requestId,
+          channel: "acp-skill-run",
+          reason:
+            "ACP Skills approval UI is unavailable for this Host Bridge operation.",
+        });
+      }
     },
   );
 

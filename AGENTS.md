@@ -11,87 +11,116 @@
 
 # 目录结构
 
-- 所有的 `.js/.ts` 代码都在 `./src`;
-- 插件配置文件：`./addon/manifest.json`;
-- UI 文件：`./addon/content/*.xhtml`.
-- 区域设置文件：`./addon/locale/**/*.flt`;
-- 首选项文件：`./addon/prefs.js`;
+- 插件 TypeScript 源码：`./src`（入口 `index.ts`，通过 esbuild 构建到 `./addon`）
+- 插件静态资源：`./addon`（manifest.json、bootstrap.js、prefs.js、content、locale、icons）
+- 内置 Skill 定义：`./skills_builtin`、Skill 模板源码：`./skills_src`
+- 内置工作流定义：`./workflows_builtin`
+- OpenSpec 规格与变更记录：`./openspec`
+- 参考文档/子模块：`./reference`
 
 ```shell
 .
-|-- .github/                  # github conf
-|-- .vscode/                  # vscode conf
-|-- addon                     # static files
-|   |-- bootstrap.js
-|   |-- content
-|   |   |-- icons
-|   |   |   |-- favicon.png
-|   |   |   `-- favicon@0.5x.png
-|   |   |-- preferences.xhtml
-|   |   `-- zoteroPane.css
-|   |-- locale
-|   |   |-- en-US
-|   |   |   |-- addon.ftl
-|   |   |   |-- mainWindow.ftl
-|   |   |   `-- preferences.ftl
-|   |   `-- zh-CN
-|   |       |-- addon.ftl
-|   |       |-- mainWindow.ftl
-|   |       `-- preferences.ftl
-|   |-- manifest.json
-|   `-- prefs.js
-|-- build                         # build dir
-|-- node_modules
-|-- doc
-|   |-- architecture-flow.md      # 架构流程设计（初步方案）
-|   |-- dev_guide.md              # 开发指南（初步方案）
-|   |-- README-frFR.md            # zotero-plugin-template项目法语README/说明
-|   |-- README-zhCN.md            # zotero-plugin-template项目中文README/说明
-|   |-- testing-framework.md      # 测试框架/策略说明（初步方案）
-|   `-- components
-|       |-- handlers.md           # handlers组件设计说明（初步方案）
-|       |-- job-queue.md          # 任务队列组件设计说明（初步方案）
-|       |-- local-cache.md        # 本地缓存组件设计说明（初步方案，暂不实现）
-|       |-- selection-context.md  # 选区/上下文组件设计说明（初步方案）
-|       |-- transport.md          # 传输层组件设计说明（初步方案）
-|       |-- ui-shell.md           # UI壳层组件设计说明（初步方案）
-|       `-- workflows.md          # 工作流组件设计说明（初步方案）
-|-- reference
-|   |-- Skill-Runner              # Skill-Runner 后端项目仓库
-|   |-- zotero                    # Zotero 7.0.32版本源码仓库
-|   |-- zotero-plugin-toolkit     # zotero-plugin-toolkit 项目参考文档
-|   |-- zotero-item-typeMap.xml   # Zotero 条目类型映射表
-|   |-- zotero-javascript-api-guide.md # Zotero JS API 指南
-|   |-- zotero-plugin-dev-guide-zh.md  # Zotero 插件开发指南（中文）
-|   `-- zotero-plugin-dev-guide.md     # Zotero 插件开发指南（英文）
-|-- src                           # source code of scripts
-|   |-- addon.ts                  # base class
-|   |-- hooks.ts                  # lifecycle hooks
-|   |-- index.ts                  # main entry
-|   |-- modules                   # sub modules
-|   |   |-- examples.ts
-|   |   `-- preferenceScript.ts
-|   `-- utils                 # utilities
-|       |-- locale.ts
-|       |-- prefs.ts
-|       |-- wait.ts
-|       |-- window.ts
-|       `-- ztoolkit.ts
-|-- typings                   # ts typings
-|   `-- global.d.ts
-
-|-- .env                      # enviroment config (do not check into repo)
-|-- .env.example              # template of enviroment config, https://github.com/northword/zotero-plugin-scaffold
-|-- .gitignore                # git conf
-|-- .gitattributes            # git conf
-|-- .prettierrc               # prettier conf, https://prettier.io/
-|-- eslint.config.mjs         # eslint conf, https://eslint.org/
-|-- LICENSE
-|-- package-lock.json
-|-- package.json
-|-- tsconfig.json             # typescript conf, https://code.visualstudio.com/docs/languages/jsconfig
-|-- README.md
-`-- zotero-plugin.config.ts   # scaffold conf, https://github.com/northword/zotero-plugin-scaffold
+├── .github/                  # GitHub Actions workflows
+├── addon/                    # Zotero 插件静态资源
+│   ├── bootstrap.js          # 插件引导入口
+│   ├── manifest.json         # 插件清单
+│   ├── prefs.js              # 首选项默认值
+│   ├── content/
+│   │   ├── dashboard/        # Dashboard 页面（index.html, app.js, styles.css 等）
+│   │   ├── shared/           # 共享前端组件（assistant panel, markdown renderer, vendor libs）
+│   │   ├── sidebar/          # 侧边栏页面
+│   │   ├── synthesis/        # Synthesis 工作台页面
+│   │   ├── workspace/        # Assistant Workspace 页面
+│   │   ├── harness/          # 只读 Harness 测试页面
+│   │   ├── help-center/      # 帮助中心入口
+│   │   ├── help-docs/        # 内嵌帮助文档（多语言）**自动生成，不要直接修改！**
+│   │   ├── components/       # 可复用 Web 组件
+│   │   ├── acp-runtime-prompts/templates/  # ACP 运行时 prompt 模板
+│   │   ├── acp-skill-patches/templates/    # ACP Skill Patch 模板
+│   │   └── markdown-reader/  # Markdown 附件阅读器
+│   ├── locale/               # 多语言 FTL 文件（11 种语言）
+│   └── bin/                  # Host Bridge CLI 预编译二进制（跨平台）
+├── doc/                      # 架构文档
+│   ├── components/           # 各组件设计文档（~49 篇）
+│   └── synthesis-layer/      # Synthesis 层设计文档
+├── reference/                # 外部参考资料（Skill-Runner, zotero-plugin-toolkit, API 指南等）
+├── src/                      # TypeScript 源码
+│   ├── index.ts              # 插件入口
+│   ├── addon.ts              # 插件基类
+│   ├── hooks.ts              # 生命周期钩子
+│   ├── modules/              # 核心模块（~140 个模块文件）
+│   │   ├── acp*.ts           # ACP 协议相关（connection, transport, session, skill runner, transcript 等）
+│   │   ├── assistant*.ts     # Assistant 面板（model, renderer, view model, transcript）
+│   │   ├── workflow*.ts      # 工作流引擎（execute, runtime, settings, menu, editor 等）
+│   │   ├── skillRunner*.ts   # Skill-Runner 后端集成
+│   │   ├── hostBridge*.ts    # Host Bridge 服务
+│   │   ├── synthesis/        # Synthesis 子模块（~33 个文件）
+│   │   ├── workflowExecution/ # 工作流执行子模块（~18 个文件）
+│   │   ├── harness/          # 只读测试 Harness 子模块
+│   │   └── ...               # 其他模块（backendManager, debugMode, runtimeLog, notificationHub 等）
+│   ├── providers/            # 后端 Provider 实现
+│   │   ├── acp/              # ACP Provider
+│   │   ├── generic-http/     # 通用 HTTP Provider
+│   │   ├── pass-through/     # 透传 Provider
+│   │   └── skillrunner/      # Skill-Runner Provider
+│   ├── backends/             # 后端注册与类型
+│   ├── workflows/            # 工作流引擎核心
+│   ├── utils/                # 工具函数（locale, prefs, path, fileSystem, wait, window, ztoolkit 等）
+│   ├── config/               # 默认配置
+│   ├── handlers/             # Handler 注册
+│   ├── jobQueue/             # 任务队列
+│   ├── platform/             # 平台抽象（command, env, path, subprocess）
+│   ├── schemas/              # JSON Schema 定义
+│   └── shared/               # 共享前端组件（citation graph, topic timeline）
+├── test/                     # 测试
+│   ├── core/                 # 核心功能测试（~100+ 测试文件）
+│   ├── node/core/            # Node.js 环境测试
+│   ├── ui/                   # UI 测试
+│   ├── zotero/               # Zotero 运行时测试基础设施
+│   ├── helpers/              # 测试辅助工具
+│   ├── fixtures/             # 测试 fixtures
+│   ├── setup/                # 测试环境初始化
+│   ├── mock-skillrunner/     # Mock Skill-Runner 服务
+│   └── workflow-*/           # 各工作流的专项测试
+├── scripts/                  # 构建与运维脚本（~50 个 .ts/.mjs）
+├── skills_builtin/           # 内置 Skill 定义（~22 个 skill 目录）
+│   ├── literature-analysis/
+│   ├── literature-deep-reading/
+│   ├── literature-explainer/
+│   ├── literature-translator/
+│   ├── tag-regulator/
+│   ├── topic-synthesis-*/    # topic-synthesis 拆分后的多个 skill
+│   └── ...                   # 其他 skills
+├── skills_src/               # Skill 模板与合约源码
+│   ├── topic-synthesis/      # topic-synthesis 合约、运行时、模板
+│   └── literature-deep-reading/  # literature-deep-reading 合约与渲染器
+├── workflows_builtin/        # 内置工作流包定义
+│   ├── literature-workbench-package/  # 文献工作台工作流
+│   ├── synthesis-layer/      # Synthesis 工作流
+│   ├── mineru/               # MinerU 工作流
+│   └── workflow-debug-probe/ # 调试探针工作流
+├── openspec/                 # OpenSpec 规格与变更管理
+│   ├── config.yaml
+│   ├── specs/                # 规格文件（~228 个 spec）
+│   └── changes/              # 变更记录（含 archive）
+├── profiles/                 # Hermes Profile 发布目录
+├── profiles_src/             # Hermes Profile 源文件
+├── cli/                      # Zotero Bridge CLI（Rust 项目）
+├── native/                   # Native 辅助程序（ACP WebSocket Bridge，Rust）
+├── deprecated/               # 已废弃的旧代码（保留参考）
+├── artifact/                 # 开发过程工件（设计评审、审计报告、playbook 等）
+├── assets/                   # 共享资产（Skill Runner 输出合约 Python 库）
+├── feeds/                    # 内容订阅 feed
+├── site/                     # Docusaurus 用户文档站点
+├── tools/                    # 开发辅助工具
+├── typings/                  # TypeScript 类型声明
+├── non-existing-zotero-data/ # 模拟 Zotero 数据目录（用于测试）
+├── .env / .env.example       # 环境变量
+├── package.json              # Node.js 依赖与脚本
+├── tsconfig.json             # TypeScript 配置
+├── zotero-plugin.config.ts   # 插件构建配置
+├── eslint.config.mjs         # ESLint 配置
+└── README.md                 # 项目说明
 ```
 
 # 注意事项
@@ -123,3 +152,4 @@
 - `tool_call_update`、usage、status、workspace activity 等 side-channel update 不得作为 assistant message 的硬切分边界；新 `tool_call`、用户消息、plan/permission/user interaction、显式 turn boundary、request terminal 才能结束当前 assistant text segment。
 - ACP transcript message coalescing 必须是协议/语义级通用逻辑，不得按 backend id、provider id、agent family、命令名或具体后端产品字符串做特判。
 - ACP Chat 与 ACP Skills 共享同一类 transcript boundary 分类；新增或修改 session update kind 时必须同步审查两条路径的 message coalescing 行为。
+

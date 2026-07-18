@@ -19,3 +19,7 @@ declare const addon: import("../src/addon").default;
 
 declare const __env__: "production" | "development";
 declare const __debug_mode__: boolean;
+declare const __acp_runtime_performance_profiler_enabled__: boolean;
+declare const __acp_runtime_semantic_trace_recorder_enabled__: boolean;
+declare const __acp_runtime_replay_profiler_enabled__: boolean;
+declare const __skillrunner_connection_audit_enabled__: boolean;

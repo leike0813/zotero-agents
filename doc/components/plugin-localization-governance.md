@@ -57,6 +57,10 @@ Governance validator must enforce:
   - local-runtime user-visible stage-message keys used by preferences status renderer
 - cross-file duplicate keys limited to explicit allowlist.
 - managed local backend display/toast code path wired to shared helper.
+- shared ACP child/model/HTML visible fixed text and ARIA labels are supplied by
+  the Host label DTO rather than embedded English.
+- Assistant panel keys used by the shared ACP surface exist in every bundled
+  addon locale.
 
 ## CI Gate Policy
 

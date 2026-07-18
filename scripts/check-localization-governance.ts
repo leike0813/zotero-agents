@@ -168,6 +168,29 @@ function reportDashboardUiHardcodes(file: string, content: string) {
   return errors;
 }
 
+function reportAssistantWorkspaceHtmlHardcodes(file: string, content: string) {
+  const errors: string[] = [];
+  for (const match of content.matchAll(/\baria-label="([^"]+)"/g)) {
+    if (match[1].trim()) {
+      errors.push(
+        `[assistant-workspace-hardcoded-ui] ${file} aria-label: "${match[1]}"`,
+      );
+    }
+  }
+  for (const match of content.matchAll(/>([^<>]+)</g)) {
+    const value = match[1].trim();
+    if (
+      value &&
+      /[A-Za-z\u00c0-\u024f\u3040-\u30ff\u3400-\u9fff]/.test(value)
+    ) {
+      errors.push(
+        `[assistant-workspace-hardcoded-ui] ${file} text-node: "${value}"`,
+      );
+    }
+  }
+  return errors;
+}
+
 function diffKeys(a: Set<string>, b: Set<string>) {
   const onlyInA: string[] = [];
   const onlyInB: string[] = [];
@@ -357,12 +380,33 @@ function main() {
   for (const file of [
     "addon/content/dashboard/app.js",
     "addon/content/dashboard/workflow-settings-dialog.js",
-    "addon/content/sidebar/acp-chat.js",
-    "addon/content/sidebar/acp-skill-run.js",
     "addon/content/sidebar/run-dialog.js",
+    "addon/content/shared/assistant/assistant-workspace-acp-child.js",
     "addon/content/shared/assistant/assistant-transcript-renderer.js",
   ]) {
     errors.push(...reportDashboardUiHardcodes(file, readText(file)));
+  }
+  const assistantPanelModel = readText(
+    "addon/content/shared/assistant/assistant-panel-model.js",
+  );
+  const workspaceProjectorStart = assistantPanelModel.indexOf(
+    "function projectAssistantWorkspacePanel",
+  );
+  const workspaceProjectorEnd = assistantPanelModel.indexOf(
+    "window.AssistantPanelModel",
+    workspaceProjectorStart,
+  );
+  errors.push(
+    ...reportDashboardUiHardcodes(
+      "addon/content/shared/assistant/assistant-panel-model.js#workspace",
+      assistantPanelModel.slice(workspaceProjectorStart, workspaceProjectorEnd),
+    ),
+  );
+  for (const file of [
+    "addon/content/sidebar/acp-chat.html",
+    "addon/content/sidebar/acp-skill-run.html",
+  ]) {
+    errors.push(...reportAssistantWorkspaceHtmlHardcodes(file, readText(file)));
   }
 
   if (errors.length > 0) {

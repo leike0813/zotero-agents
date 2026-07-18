@@ -1,6 +1,24 @@
 import { joinPath } from "../utils/path";
 import { isNonNativeAbsolutePath } from "../platform/path";
 import { getTaskHistoryRetentionConfig } from "./taskRetentionPolicy";
+import {
+  RuntimeFileIoError,
+  readRuntimeFileRangesWithWorker,
+} from "./runtimeFileRangeReader";
+import {
+  RUNTIME_TREE_POLICIES,
+  rebaseRuntimeTreeManifest,
+  scanRuntimeTreeWithIo,
+  type RuntimeTreeManifest,
+  type RuntimeTreeScanPolicy,
+} from "./runtimeTreeManifest";
+
+export {
+  RUNTIME_TREE_POLICIES,
+  type RuntimeTreeEntry,
+  type RuntimeTreeManifest,
+  type RuntimeTreeScanPolicy,
+} from "./runtimeTreeManifest";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -164,6 +182,11 @@ const LEGACY_SQLITE_FILE_NAME = "zotero-skills.db";
 const RUNTIME_LOG_FILE_NAME = "runtime-logs.json";
 const PLUGIN_PREFS_PREFIX = "extensions.zotero.zotero-skills";
 const DAY_MS = 24 * 60 * 60 * 1000;
+export const RUNTIME_APPEND_CHUNK_CODE_UNITS = 256 * 1024;
+export const RUNTIME_TEXT_SCAN_CHUNK_BYTES = 256 * 1024;
+
+const runtimeAppendQueues = new Map<string, Promise<void>>();
+let runtimeAtomicWriteSequence = 0;
 
 export type RuntimeExpiredAssetOwner = "tmp" | "cache" | "logs";
 
@@ -182,7 +205,7 @@ const RUNTIME_EXPIRED_ASSET_TTL_MS: Record<RuntimeExpiredAssetOwner, number> = {
   logs: 30 * DAY_MS,
 };
 
-let runtimeLogClearer: (() => void) | null = null;
+let runtimeLogClearer: (() => void | Promise<void>) | null = null;
 let pluginTaskDomainClearer: ((domain: string) => number) | null = null;
 let pluginTaskDomainExceptRowScopesClearer:
   | ((domain: string, preservedRowScopes: string[]) => number)
@@ -222,7 +245,9 @@ let acpSkillRunsRetentionCleaner:
     })
   | null = null;
 
-export function registerRuntimeLogClearer(clearer: (() => void) | null) {
+export function registerRuntimeLogClearer(
+  clearer: (() => void | Promise<void>) | null,
+) {
   runtimeLogClearer = clearer;
 }
 
@@ -936,51 +961,17 @@ export async function copyRuntimeFile(args: {
       };
     };
   };
-  if (
-    typeof runtime.IOUtils?.read === "function" &&
-    typeof runtime.IOUtils.write === "function"
-  ) {
-    await runtime.IOUtils.write(
-      targetPath,
-      await runtime.IOUtils.read(sourcePath),
-    );
-    return true;
-  }
-  if (
-    typeof runtime.OS?.File?.read === "function" &&
-    typeof runtime.OS.File.writeAtomic === "function"
-  ) {
-    await runtime.OS.File.writeAtomic(
-      targetPath,
-      await runtime.OS.File.read(sourcePath),
-      {
-        tmpPath: `${targetPath}.tmp`,
-      },
-    );
-    return true;
-  }
-  const fs = await tryNodeFs();
-  if (fs) {
-    await fs.copyFile(sourcePath, targetPath);
-    return true;
-  }
-  // Last resort for Zotero runtimes that only expose UTF-8 helpers. Built-in
-  // skills are text-only, so this path is safer than relying on IOUtils.copy.
-  try {
-    await writeRuntimeTextFile(
-      targetPath,
-      await readRuntimeTextFile(sourcePath),
-    );
-    return true;
-  } catch {
-    // Fall back to native copy APIs so non-text callers still get a chance.
-  }
   if (typeof runtime.IOUtils?.copy === "function") {
     await runtime.IOUtils.copy(sourcePath, targetPath);
     return true;
   }
   if (typeof runtime.OS?.File?.copy === "function") {
     await runtime.OS.File.copy(sourcePath, targetPath);
+    return true;
+  }
+  const fs = await tryNodeFs();
+  if (fs) {
+    await fs.copyFile(sourcePath, targetPath);
     return true;
   }
   throw new Error("No binary file copy API is available");
@@ -1226,23 +1217,6 @@ export async function readRuntimeTextFile(pathRaw: string) {
   return "";
 }
 
-function runtimeFileFromPath(path: string, runtime: any) {
-  const existing = runtime.Zotero?.File?.pathToFile?.(path);
-  if (existing) {
-    return existing;
-  }
-  const localFileFactory =
-    runtime.Components?.classes?.["@mozilla.org/file/local;1"];
-  const localFile = localFileFactory?.createInstance?.(
-    runtime.Components?.interfaces?.nsIFile,
-  );
-  if (localFile && typeof localFile.initWithPath === "function") {
-    localFile.initWithPath(path);
-    return localFile;
-  }
-  return null;
-}
-
 export async function readRuntimeTextRange(
   pathRaw: string,
   offsetRaw: number,
@@ -1287,63 +1261,154 @@ export async function readRuntimeTextRanges(
       await handle.close().catch(() => undefined);
     }
   }
-  const runtime = globalThis as any;
-  const classes = runtime.Components?.classes;
-  const interfaces = runtime.Components?.interfaces;
-  const file = runtimeFileFromPath(path, runtime);
-  const inputStream = classes?.[
-    "@mozilla.org/network/file-input-stream;1"
-  ]?.createInstance?.(interfaces?.nsIFileInputStream);
-  const binaryStream = classes?.[
-    "@mozilla.org/binaryinputstream;1"
-  ]?.createInstance?.(interfaces?.nsIBinaryInputStream);
-  if (file && inputStream && binaryStream) {
-    try {
-      inputStream.init(file, 0x01, 0o444, 0);
-      const seekable =
-        typeof inputStream.QueryInterface === "function"
-          ? inputStream.QueryInterface(interfaces?.nsISeekableStream)
-          : inputStream;
-      binaryStream.setInputStream(inputStream);
-      const output: string[] = [];
-      for (const range of ranges) {
-        if (range.length <= 0) {
-          output.push("");
+  const bytes = await readRuntimeFileRangesWithWorker(path, ranges);
+  return bytes.map((entry) => decoder.decode(entry));
+}
+
+export type RuntimeUtf8Line = {
+  text: string;
+  offset: number;
+  length: number;
+};
+
+export type RuntimeUtf8LineScanResult = {
+  startOffset: number;
+  endOffset: number;
+  bytesRead: number;
+  readCalls: number;
+  maxReadBytes: number;
+};
+
+function combineByteFragments(fragments: Uint8Array[], length: number) {
+  if (fragments.length === 1) {
+    return fragments[0];
+  }
+  const output = new Uint8Array(length);
+  let cursor = 0;
+  for (const fragment of fragments) {
+    output.set(fragment, cursor);
+    cursor += fragment.length;
+  }
+  return output;
+}
+
+export async function scanRuntimeUtf8Lines(args: {
+  path: string;
+  offset?: number;
+  length?: number;
+  onLine: (line: RuntimeUtf8Line) => void | Promise<void>;
+}): Promise<RuntimeUtf8LineScanResult> {
+  const path = normalizeString(args.path);
+  const startOffset = Math.max(0, Math.floor(Number(args.offset || 0) || 0));
+  const stat = path ? await statRuntimePath(path) : null;
+  if (!path || !stat?.exists || stat.isDir || startOffset >= stat.size) {
+    return {
+      startOffset,
+      endOffset: Math.min(startOffset, stat?.size || startOffset),
+      bytesRead: 0,
+      readCalls: 0,
+      maxReadBytes: 0,
+    };
+  }
+  assertNativeRuntimeFsPath(path, "scan runtime UTF-8 lines");
+  const requestedLength =
+    typeof args.length === "number" && Number.isFinite(args.length)
+      ? Math.max(0, Math.floor(args.length))
+      : stat.size - startOffset;
+  const endOffset = Math.min(stat.size, startOffset + requestedLength);
+  const decoder = new TextDecoder("utf-8");
+  const fragments: Uint8Array[] = [];
+  let fragmentBytes = 0;
+  let lineOffset = startOffset;
+  let cursor = startOffset;
+  let readCalls = 0;
+  let maxReadBytes = 0;
+  const fs = await tryNodeFs();
+  const handle = fs?.open ? await fs.open(path, "r") : null;
+  const runtime = globalThis as {
+    IOUtils?: {
+      read?: (
+        path: string,
+        options: { offset: number; maxBytes: number },
+      ) => Promise<Uint8Array>;
+    };
+  };
+  if (!handle && typeof runtime.IOUtils?.read !== "function") {
+    throw new RuntimeFileIoError({
+      code: "runtime_async_file_io_unavailable",
+      operation: "range-read",
+      message: "No asynchronous byte scanner is available",
+    });
+  }
+  try {
+    while (cursor < endOffset) {
+      const requestedBytes = Math.min(
+        RUNTIME_TEXT_SCAN_CHUNK_BYTES,
+        endOffset - cursor,
+      );
+      let chunk: Uint8Array;
+      if (handle) {
+        const buffer = new Uint8Array(requestedBytes);
+        const result = await handle.read(buffer, 0, requestedBytes, cursor);
+        chunk = buffer.subarray(0, result.bytesRead);
+      } else {
+        chunk = await runtime.IOUtils!.read!(path, {
+          offset: cursor,
+          maxBytes: requestedBytes,
+        });
+      }
+      readCalls += 1;
+      maxReadBytes = Math.max(maxReadBytes, chunk.length);
+      if (chunk.length <= 0) {
+        break;
+      }
+      let segmentStart = 0;
+      for (let index = 0; index < chunk.length; index += 1) {
+        if (chunk[index] !== 0x0a) {
           continue;
         }
-        if (seekable && typeof seekable.seek === "function") {
-          seekable.seek(
-            interfaces?.nsISeekableStream?.NS_SEEK_SET ?? 0,
-            range.offset,
-          );
-        }
-        const available =
-          typeof binaryStream.available === "function"
-            ? Math.min(range.length, Math.max(0, binaryStream.available()))
-            : range.length;
-        const bytes = binaryStream.readByteArray(available);
-        output.push(decoder.decode(new Uint8Array(bytes)));
+        const segment = chunk.subarray(segmentStart, index + 1);
+        fragments.push(segment);
+        fragmentBytes += segment.length;
+        const lineBytes = combineByteFragments(fragments, fragmentBytes);
+        await args.onLine({
+          text: decoder.decode(lineBytes),
+          offset: lineOffset,
+          length: fragmentBytes,
+        });
+        lineOffset += fragmentBytes;
+        fragments.length = 0;
+        fragmentBytes = 0;
+        segmentStart = index + 1;
       }
-      return output;
-    } finally {
-      try {
-        binaryStream.close?.();
-      } catch {
-        // ignore cleanup failure
+      if (segmentStart < chunk.length) {
+        const remainder = chunk.subarray(segmentStart);
+        fragments.push(remainder);
+        fragmentBytes += remainder.length;
       }
-      try {
-        inputStream.close?.();
-      } catch {
-        // ignore cleanup failure
+      cursor += chunk.length;
+      if (chunk.length < requestedBytes) {
+        break;
       }
     }
+    if (fragmentBytes > 0) {
+      const lineBytes = combineByteFragments(fragments, fragmentBytes);
+      await args.onLine({
+        text: decoder.decode(lineBytes),
+        offset: lineOffset,
+        length: fragmentBytes,
+      });
+    }
+  } finally {
+    await handle?.close().catch(() => undefined);
   }
-  const text = await readRuntimeTextFile(path);
-  return ranges.map((range) =>
-    range.length > 0
-      ? text.slice(range.offset, range.offset + range.length)
-      : "",
-  );
+  return {
+    startOffset,
+    endOffset: cursor,
+    bytesRead: Math.max(0, cursor - startOffset),
+    readCalls,
+    maxReadBytes,
+  };
 }
 
 export async function writeRuntimeTextFile(pathRaw: string, content: string) {
@@ -1391,41 +1456,137 @@ export async function appendRuntimeTextFile(pathRaw: string, content: string) {
     return;
   }
   assertNativeRuntimeFsPath(path, "append text runtime file");
-  await ensureRuntimeDirectory(parentPath(path));
-  const fs = await tryNodeFs();
-  if (fs?.appendFile) {
-    await fs.appendFile(path, content, "utf8");
-    return;
+  const previous = runtimeAppendQueues.get(path) || Promise.resolve();
+  const append = previous
+    .catch(() => undefined)
+    .then(async () => {
+      await ensureRuntimeDirectory(parentPath(path));
+      const fs = await tryNodeFs();
+      if (fs?.appendFile) {
+        await fs.appendFile(path, content, "utf8");
+        return;
+      }
+      const runtime = globalThis as {
+        IOUtils?: {
+          writeUTF8?: (
+            path: string,
+            content: string,
+            options: { mode: "appendOrCreate" },
+          ) => Promise<unknown>;
+        };
+      };
+      if (typeof runtime.IOUtils?.writeUTF8 !== "function") {
+        throw new RuntimeFileIoError({
+          code: "runtime_async_file_io_unavailable",
+          operation: "append",
+          message: "No asynchronous runtime text append API is available",
+        });
+      }
+      let offset = 0;
+      while (offset < content.length) {
+        let end = Math.min(
+          content.length,
+          offset + RUNTIME_APPEND_CHUNK_CODE_UNITS,
+        );
+        if (
+          end < content.length &&
+          end > offset &&
+          content.charCodeAt(end - 1) >= 0xd800 &&
+          content.charCodeAt(end - 1) <= 0xdbff &&
+          content.charCodeAt(end) >= 0xdc00 &&
+          content.charCodeAt(end) <= 0xdfff
+        ) {
+          end -= 1;
+        }
+        await runtime.IOUtils.writeUTF8(path, content.slice(offset, end), {
+          mode: "appendOrCreate",
+        });
+        offset = end;
+      }
+    });
+  runtimeAppendQueues.set(path, append);
+  try {
+    await append;
+  } finally {
+    if (runtimeAppendQueues.get(path) === append) {
+      runtimeAppendQueues.delete(path);
+    }
   }
-  const runtime = globalThis as any;
-  const classes = runtime.Components?.classes;
-  const interfaces = runtime.Components?.interfaces;
-  const file = runtimeFileFromPath(path, runtime);
-  const outputStream = classes?.[
-    "@mozilla.org/network/file-output-stream;1"
-  ]?.createInstance?.(interfaces?.nsIFileOutputStream);
-  const converter = classes?.[
-    "@mozilla.org/intl/converter-output-stream;1"
-  ]?.createInstance?.(interfaces?.nsIConverterOutputStream);
-  if (file && outputStream && converter) {
-    outputStream.init(file, 0x02 | 0x08 | 0x10, 0o644, 0);
-    converter.init(outputStream, "UTF-8", 0, 0);
-    converter.writeString(content);
-    converter.close();
-    return;
-  }
-  await writeRuntimeTextFile(
-    path,
-    `${await readRuntimeTextFile(path)}${content}`,
-  );
 }
 
-export async function statRuntimePath(pathRaw: string): Promise<{
+export async function replaceRuntimeTextFileAtomically(args: {
+  targetPath: string;
+  fragments: Iterable<string>;
+}) {
+  const targetPath = normalizeString(args.targetPath);
+  if (!targetPath) {
+    throw new Error("atomic text replacement target path is missing");
+  }
+  assertNativeRuntimeFsPath(targetPath, "replace runtime text file");
+  const directory = parentPath(targetPath);
+  const tempPath = joinPath(
+    directory,
+    `.${baseName(targetPath)}.${Date.now()}-${++runtimeAtomicWriteSequence}.tmp`,
+  );
+  await ensureRuntimeDirectory(directory);
+  await removeRuntimePath(tempPath).catch(() => undefined);
+  let replaced = false;
+  try {
+    let buffered = "";
+    const flushBounded = async (flushAll: boolean) => {
+      while (
+        buffered.length > RUNTIME_APPEND_CHUNK_CODE_UNITS ||
+        (flushAll && buffered.length > 0)
+      ) {
+        let end = flushAll
+          ? Math.min(buffered.length, RUNTIME_APPEND_CHUNK_CODE_UNITS)
+          : RUNTIME_APPEND_CHUNK_CODE_UNITS;
+        if (
+          end < buffered.length &&
+          end > 0 &&
+          buffered.charCodeAt(end - 1) >= 0xd800 &&
+          buffered.charCodeAt(end - 1) <= 0xdbff &&
+          buffered.charCodeAt(end) >= 0xdc00 &&
+          buffered.charCodeAt(end) <= 0xdfff
+        ) {
+          end -= 1;
+        }
+        await appendRuntimeTextFile(tempPath, buffered.slice(0, end));
+        buffered = buffered.slice(end);
+      }
+    };
+    for (const fragment of args.fragments) {
+      if (!fragment) {
+        continue;
+      }
+      buffered += fragment;
+      await flushBounded(false);
+    }
+    await flushBounded(true);
+    await moveRuntimePath({
+      sourcePath: tempPath,
+      targetPath,
+      overwrite: true,
+    });
+    replaced = true;
+  } finally {
+    if (!replaced) {
+      await removeRuntimePath(tempPath).catch(() => undefined);
+    }
+  }
+}
+
+type RuntimePathStat = {
   exists: boolean;
   isDir: boolean;
   size: number;
   lastModified?: number;
-}> {
+};
+
+async function statRuntimePathInternal(
+  pathRaw: string,
+  surfaceErrors: boolean,
+): Promise<RuntimePathStat> {
   const path = normalizeString(pathRaw);
   if (!path) {
     return { exists: false, isDir: false, size: 0 };
@@ -1453,11 +1614,15 @@ export async function statRuntimePath(pathRaw: string): Promise<{
             Number(stat.lastModified || stat.lastModifiedTime || 0) || 0,
           ) || undefined,
       };
-    } catch {
+    } catch (error) {
+      if (surfaceErrors) throw error;
       return { exists: false, isDir: false, size: 0 };
     }
   }
   if (isNonNativeAbsolutePath(path)) {
+    if (surfaceErrors) {
+      throw new Error("Runtime path cannot be inspected on this platform");
+    }
     return { exists: false, isDir: false, size: 0 };
   }
   const fs = await tryNodeFs();
@@ -1471,14 +1636,25 @@ export async function statRuntimePath(pathRaw: string): Promise<{
         size: Math.max(0, Number(stat.size || 0) || 0),
         lastModified: Math.max(0, Number(stat.mtimeMs || 0) || 0) || undefined,
       };
-    } catch {
+    } catch (error) {
+      if (surfaceErrors) throw error;
       return { exists: false, isDir: false, size: 0 };
     }
+  }
+  if (surfaceErrors) {
+    throw new Error("No runtime path stat API is available");
   }
   return { exists: await runtimePathExists(path), isDir: false, size: 0 };
 }
 
-export async function listRuntimeChildren(pathRaw: string) {
+export function statRuntimePath(pathRaw: string): Promise<RuntimePathStat> {
+  return statRuntimePathInternal(pathRaw, false);
+}
+
+async function listRuntimeChildrenInternal(
+  pathRaw: string,
+  surfaceErrors: boolean,
+) {
   const path = normalizeString(pathRaw);
   const runtime = globalThis as {
     IOUtils?: { getChildren?: (path: string) => Promise<string[]> };
@@ -1486,7 +1662,8 @@ export async function listRuntimeChildren(pathRaw: string) {
   if (typeof runtime.IOUtils?.getChildren === "function") {
     try {
       return await runtime.IOUtils.getChildren(path);
-    } catch {
+    } catch (error) {
+      if (surfaceErrors) throw error;
       return [] as string[];
     }
   }
@@ -1495,11 +1672,19 @@ export async function listRuntimeChildren(pathRaw: string) {
     try {
       const names = await fs.readdir(path);
       return names.map((name: string) => joinPath(path, name));
-    } catch {
+    } catch (error) {
+      if (surfaceErrors) throw error;
       return [] as string[];
     }
   }
+  if (surfaceErrors) {
+    throw new Error("No runtime directory listing API is available");
+  }
   return [] as string[];
+}
+
+export function listRuntimeChildren(pathRaw: string) {
+  return listRuntimeChildrenInternal(pathRaw, false);
 }
 
 export async function listRuntimeChildDirectories(pathRaw: string) {
@@ -1513,40 +1698,49 @@ export async function listRuntimeChildDirectories(pathRaw: string) {
   return directories.sort((left, right) => left.localeCompare(right));
 }
 
+export async function scanRuntimeTree(
+  rootRaw: string,
+  policy: RuntimeTreeScanPolicy = RUNTIME_TREE_POLICIES.general,
+) {
+  const startedAt = Date.now();
+  const manifest = await scanRuntimeTreeWithIo({
+    root: normalizeString(rootRaw),
+    policy,
+    io: {
+      stat: (path) => statRuntimePathInternal(path, true),
+      list: (path) => listRuntimeChildrenInternal(path, true),
+    },
+  });
+  if (manifest.warnings.length) {
+    const { appendRuntimeLog } = await import("./runtimeLogManager");
+    appendRuntimeLog({
+      level: "warn",
+      scope: "system",
+      stage: "observation-budget-exceeded",
+      message: "runtime tree exceeded its observation budget",
+      details: {
+        policy: policy.name,
+        entries: manifest.entries.length,
+        files: manifest.fileCount,
+        directories: manifest.directoryCount,
+        bytes: manifest.totalBytes,
+        maxDepth: manifest.maxDepth,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        dimensions: manifest.warnings.map((warning) => warning.code),
+      },
+    });
+  }
+  return manifest;
+}
+
 export async function collectRuntimeFiles(rootRaw: string) {
-  const root = normalizeString(rootRaw);
-  const files: string[] = [];
-  function shouldSkip(childPath: string) {
-    const normalized = normalizeSlashes(childPath);
-    const name = normalized.split("/").filter(Boolean).pop() || "";
-    return (
-      name === "__pycache__" ||
-      name === ".pytest_cache" ||
-      name === ".mypy_cache" ||
-      name.endsWith(".pyc") ||
-      name.endsWith(".pyo")
-    );
-  }
-  async function visit(dir: string) {
-    for (const child of await listRuntimeChildren(dir)) {
-      if (shouldSkip(child)) {
-        continue;
-      }
-      const stat = await statRuntimePath(child);
-      if (!stat.exists) {
-        continue;
-      }
-      if (stat.isDir) {
-        await visit(child);
-      } else {
-        files.push(child);
-      }
-    }
-  }
-  if ((await statRuntimePath(root)).isDir) {
-    await visit(root);
-  }
-  return files.sort((left, right) => left.localeCompare(right));
+  const manifest = await scanRuntimeTree(
+    rootRaw,
+    RUNTIME_TREE_POLICIES.general,
+  );
+  return manifest.entries
+    .filter((entry) => entry.kind === "file")
+    .map((entry) => entry.absolutePath);
 }
 
 export function runtimeRelativePath(rootRaw: string, targetRaw: string) {
@@ -1674,6 +1868,84 @@ export async function removeRuntimePath(pathRaw: string) {
   return false;
 }
 
+let runtimeTreeCopyTail: Promise<void> = Promise.resolve();
+let runtimeTreeCopySequence = 0;
+
+async function withRuntimeTreeCopySlot<T>(operation: () => Promise<T>) {
+  const previous = runtimeTreeCopyTail;
+  let release!: () => void;
+  runtimeTreeCopyTail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous.catch(() => undefined);
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
+export async function copyRuntimeTree(args: {
+  manifest: RuntimeTreeManifest;
+  targetDir: string;
+}) {
+  const targetDir = normalizeString(args.targetDir);
+  if (!targetDir) return args.manifest;
+  if (args.manifest.issues.length) {
+    throw new Error("Cannot copy an incomplete runtime tree manifest");
+  }
+  return withRuntimeTreeCopySlot(async () => {
+    runtimeTreeCopySequence += 1;
+    const operationSuffix = `${Date.now()}-${runtimeTreeCopySequence}`;
+    const stagingDir = `${targetDir}.tmp-tree-${operationSuffix}`;
+    const backupDir = `${targetDir}.previous-tree-${operationSuffix}`;
+    await removeRuntimePath(stagingDir).catch(() => undefined);
+    await removeRuntimePath(backupDir).catch(() => undefined);
+    await ensureRuntimeDirectory(stagingDir);
+    let targetBackedUp = false;
+    let promoted = false;
+    try {
+      for (const entry of args.manifest.entries) {
+        const targetPath = joinPath(stagingDir, entry.relativePath);
+        if (entry.kind === "directory") {
+          await ensureRuntimeDirectory(targetPath);
+        } else {
+          await copyRuntimeFile({
+            sourcePath: entry.absolutePath,
+            targetPath,
+          });
+        }
+      }
+      if (await runtimePathExists(targetDir)) {
+        await moveRuntimePath({
+          sourcePath: targetDir,
+          targetPath: backupDir,
+        });
+        targetBackedUp = true;
+      }
+      await moveRuntimePath({
+        sourcePath: stagingDir,
+        targetPath: targetDir,
+      });
+      promoted = true;
+      if (targetBackedUp) {
+        await removeRuntimePath(backupDir).catch(() => undefined);
+      }
+      return rebaseRuntimeTreeManifest(args.manifest, targetDir);
+    } catch (error) {
+      await removeRuntimePath(stagingDir).catch(() => undefined);
+      if (targetBackedUp && !promoted) {
+        await removeRuntimePath(targetDir).catch(() => undefined);
+        await moveRuntimePath({
+          sourcePath: backupDir,
+          targetPath: targetDir,
+        });
+      }
+      throw error;
+    }
+  });
+}
+
 export async function copyRuntimeDirectory(args: {
   sourceDir: string;
   targetDir: string;
@@ -1683,20 +1955,11 @@ export async function copyRuntimeDirectory(args: {
   if (!sourceDir || !targetDir) {
     return;
   }
-  await removeRuntimePath(targetDir);
-  await ensureRuntimeDirectory(targetDir);
-  for (const child of await listRuntimeChildren(sourceDir)) {
-    const target = joinPath(targetDir, baseName(child));
-    const stat = await statRuntimePath(child);
-    if (!stat.exists) {
-      continue;
-    }
-    if (stat.isDir) {
-      await copyRuntimeDirectory({ sourceDir: child, targetDir: target });
-    } else {
-      await copyRuntimeFileIfMissing({ sourcePath: child, targetPath: target });
-    }
-  }
+  const manifest = await scanRuntimeTree(
+    sourceDir,
+    RUNTIME_TREE_POLICIES.general,
+  );
+  return copyRuntimeTree({ manifest, targetDir });
 }
 
 export async function scanRuntimePersistenceUsage(
@@ -1862,7 +2125,7 @@ export async function cleanupRuntimePersistenceCategory(
   };
 
   if (category === "logs") {
-    runtimeLogClearer?.();
+    await runtimeLogClearer?.();
     await removeAndTrack(paths.logsDir);
   } else if (category === "skillrunner-ledger") {
     const runRowsDeleted = pluginRunStoreClearer?.("skillrunner") || 0;

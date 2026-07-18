@@ -25,11 +25,14 @@ import {
 import { notifySynthesisWorkbenchSidecarChanged } from "../modules/synthesisWorkbenchInvalidation";
 import {
   resolveRuntimeAddon,
-  resolveRuntimeToolkit,
   resolveRuntimeZotero,
 } from "../utils/runtimeBridge";
 import { joinPath } from "../utils/path";
 import { getParentPath } from "../platform/path";
+import {
+  openRuntimeFilePicker,
+  resolveRuntimeFilePickerParentWindow,
+} from "../platform/filePicker";
 import type {
   WorkflowHostApi,
   WorkflowImagePreparationOptions,
@@ -822,86 +825,6 @@ async function importEmbeddedImage(
   };
 }
 
-type ToolkitFilePickerCtor = new (
-  title: string,
-  mode: string,
-  filters: [string, string][],
-  suggestion: string,
-  window: Window | undefined,
-  filterMask?: string,
-  directory?: string,
-) => {
-  open: () => Promise<unknown> | unknown;
-};
-
-function resolveToolkitFilePicker() {
-  const toolkit = resolveRuntimeToolkit() as
-    | {
-        FilePicker?: ToolkitFilePickerCtor;
-      }
-    | undefined;
-  return typeof toolkit?.FilePicker === "function" ? toolkit.FilePicker : null;
-}
-
-function resolveFilePickerParentWindow() {
-  const runtimeAddon = resolveRuntimeAddon() as
-    | {
-        data?: {
-          dialog?: { window?: Window };
-          prefs?: { window?: Window };
-        };
-      }
-    | undefined;
-  const runtimeZotero = resolveRuntimeZotero() as
-    | {
-        getMainWindow?: () => Window | null | undefined;
-      }
-    | undefined;
-  return (
-    runtimeAddon?.data?.dialog?.window ||
-    runtimeAddon?.data?.prefs?.window ||
-    runtimeZotero?.getMainWindow?.() ||
-    undefined
-  );
-}
-
-async function openToolkitFilePicker(args: {
-  title?: string;
-  mode: "folder" | "open" | "multiple" | "save";
-  filters?: [string, string][];
-  directory?: string;
-  suggestion?: string;
-}): Promise<string | string[] | null> {
-  const FilePicker = resolveToolkitFilePicker();
-  if (!FilePicker) {
-    return null;
-  }
-  const selected = await new FilePicker(
-    String(args.title || "").trim(),
-    args.mode,
-    Array.isArray(args.filters) ? args.filters : [],
-    String(args.suggestion || "").trim(),
-    resolveFilePickerParentWindow(),
-    undefined,
-    String(args.directory || "").trim() || undefined,
-  ).open();
-  if (args.mode === "multiple") {
-    if (Array.isArray(selected)) {
-      const normalized = selected
-        .map((entry) => String(entry || "").trim())
-        .filter(Boolean);
-      return normalized.length > 0 ? normalized : null;
-    }
-    if (typeof selected === "string" && selected.trim()) {
-      return [selected.trim()];
-    }
-    return null;
-  }
-  return typeof selected === "string" && selected.trim()
-    ? selected.trim()
-    : null;
-}
-
 async function openNativeMultiFilePicker(args: {
   title?: string;
   filters?: [string, string][];
@@ -945,7 +868,7 @@ async function openNativeMultiFilePicker(args: {
     }
     const picker = new Picker();
     picker.init(
-      resolveFilePickerParentWindow(),
+      resolveRuntimeFilePickerParentWindow(),
       String(args.title || "").trim(),
       picker.modeOpenMultiple,
     );
@@ -1134,14 +1057,14 @@ export function createWorkflowHostApi(): WorkflowHostApi {
         return String(tempDir?.path || "").trim();
       },
       async pickDirectory(args) {
-        return openToolkitFilePicker({
+        return openRuntimeFilePicker({
           title: args?.title,
           mode: "folder",
           directory: args?.directory,
         }) as Promise<string | null>;
       },
       async pickFile(args) {
-        return openToolkitFilePicker({
+        return openRuntimeFilePicker({
           title: args?.title,
           mode: "open",
           filters: args?.filters,
@@ -1149,7 +1072,7 @@ export function createWorkflowHostApi(): WorkflowHostApi {
         }) as Promise<string | null>;
       },
       async pickSaveFile(args) {
-        return openToolkitFilePicker({
+        return openRuntimeFilePicker({
           title: args?.title,
           mode: "save",
           filters: args?.filters,
@@ -1166,7 +1089,7 @@ export function createWorkflowHostApi(): WorkflowHostApi {
         if (nativePickerResult.supported) {
           return nativePickerResult.selected;
         }
-        return openToolkitFilePicker({
+        return openRuntimeFilePicker({
           title: args?.title,
           mode: "multiple",
           filters: args?.filters,

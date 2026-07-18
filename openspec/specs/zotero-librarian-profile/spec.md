@@ -187,4 +187,3 @@ The Profile SHALL document local-index freshness and atomic refresh, every sched
 #### Scenario: Resident work reaches uncertain or mutable state
 - **WHEN** cached facts may be stale, a schedule proposes a write, or apply-back is interrupted
 - **THEN** the Profile SHALL identify the required live Host Bridge confirmation, approval or review stop, preserved local state, and auditable recovery command.
-

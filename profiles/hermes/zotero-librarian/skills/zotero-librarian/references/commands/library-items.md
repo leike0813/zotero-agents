@@ -313,7 +313,7 @@ Distinguish from:
 - `itemType` (string)
 - `query` (string)
 - `limit` (number | string)
-- `cursor` (number | string)
+- `cursor` (string)
 
 ### Result and evidence
 

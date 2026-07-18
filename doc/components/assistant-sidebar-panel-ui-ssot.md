@@ -3,6 +3,11 @@
 This document is the single source of truth for the shared UI/UX model of the
 Assistant sidebar panels: ACP Chat, ACP Skills, and SkillRunner.
 
+The ACP Chat/ACP Skills Host, publication, browser-state, and rendering runtime
+boundary is defined by `doc/components/assistant-workspace-acp-surface-ssot.md`.
+This document owns visible UI semantics; the ACP surface SSOT owns delivery and
+state ownership.
+
 ## Goals
 
 - Use one visible Assistant sidebar entry for all assistant surfaces.
@@ -53,6 +58,29 @@ SHOULD then own the four body rows: `conversation window`, `plan widget`,
 semantic model; it prevents ACP Chat, ACP Skills, and SkillRunner from drifting
 in body sizing, reply alignment, and plan/hint height behavior.
 
+### Empty-State Chrome
+
+ACP Chat, ACP Skills, and SkillRunner SHALL keep the same toolbar, banner,
+conversation, and reply regions mounted when no conversation, run, or task is
+selected. Empty state is a managed panel projection, not a separate page
+layout. Fixed banner metadata stays visible with empty values rendered as `-`;
+the main status badge and owner-scoped Connection or Interaction LED stay
+visible as muted and unavailable.
+
+Context selectors, lifecycle actions, reply input, Send, and runtime selectors
+stay resident but disabled. ACP Chat uses the short subtitle `No conversation`;
+ACP Skills and SkillRunner use `No task`, through shared localized labels.
+Host Bridge continues to show its real global service state. Sessions/Runs,
+backend management, and execution display mode remain usable so an owner can be
+selected; Details is disabled until an owner exists.
+
+ACP empty state SHALL NOT synthesize owner-control or owner-presentation
+publications. SkillRunner treats an explicit workspace-envelope `session: null`
+as empty, while a selected session without a request id remains a preparing
+task. `run-dialog` SHALL NOT hide or replace its main/reply regions when the
+session is null. Empty/selected transitions and transcript-only updates SHALL
+preserve non-transcript managed-region container identity.
+
 ### Shell Toolbar
 
 The shell toolbar contains shell-level or panel-level controls that are not tied
@@ -86,6 +114,12 @@ Primary information SHOULD include the title and main status. Secondary
 
 The banner SHALL be flexible but height-bounded. Overflow or low-priority
 metadata belongs in a details drawer, not in the main conversation layout.
+
+Only service availability belongs in banner LED indicators. Host Bridge and
+Zotero MCP use the same service-status item projection. Numeric usage belongs
+in the managed gauge; workflow, skill, backend, recovery, connection, session,
+runtime, and workspace values remain labeled metadata or details sections and
+must not be converted into LEDs.
 
 Banner controls are split into:
 
@@ -135,11 +169,14 @@ details drawer body.
 The conversation window is the main scrollable surface and SHALL display only
 conversation or execution-flow messages.
 
-The shared conversation view model is `AssistantConversationView`. It is a UI
-view model, not a persistence model, and it SHALL NOT replace ACP Chat session
-storage, ACP Skills run storage, or SkillRunner run history.
+ACP Chat and ACP Skills SHALL enter the shared panel model only through
+`projectAssistantWorkspacePanel(state, uiState, labels)`. Its exact conversation
+region is a UI projection of canonical `selection.transcript`, not a persistence
+model, and it SHALL NOT replace ACP Chat session storage or ACP Skills run
+storage. SkillRunner SHALL convert its independent transport snapshot at the
+`projectSkillRunnerPanelSnapshot()` boundary before using the same renderer.
 
-`AssistantConversationView` contains:
+The shared panel conversation region contains:
 
 - `items`: conversation and execution-flow rows
 - `interaction`: current hint widget state
@@ -161,10 +198,11 @@ Skills repair or validation process notes map to `process`. SkillRunner
 rendered as reasoning text. UI copy SHOULD use one label such as `Thinking` or
 `思考过程`; separate thought/reasoning visual systems are not allowed.
 
-ACP Chat, ACP Skills, and SkillRunner SHALL be normalized to this view model
-before rendering. SkillRunner may keep SkillRunner-specific revision metadata,
-but it SHALL NOT keep a separate visible transcript layout or duplicate
-conversation control system.
+ACP Chat and ACP Skills SHALL NOT pass through a fallback conversation
+projector or arbitrary snapshot normalizer. SkillRunner may keep
+SkillRunner-specific revision metadata at its isolated projector boundary, but
+it SHALL NOT keep a separate visible transcript layout or duplicate conversation
+control system.
 
 All three panels SHALL use the same transcript renderer DOM vocabulary:
 `assistant-transcript-row`, `assistant-transcript-meta`,
@@ -177,6 +215,11 @@ Conversation rendering preferences, such as ACP Chat `Plain transcript` versus
 `Bubble view`, belong to the conversation window. They SHALL be presented as a
 compact overlay menu in the conversation window's top-right corner, not as a
 dedicated row and not in the shell toolbar or banner.
+
+The main grid and conversation region remain mounted when no owner is selected,
+during loading, and while an owner-first switch is in progress. Empty selection
+is rendered inside the conversation region; it does not replace transcript,
+plan, hint, or reply layout anchors.
 
 ### Plan Widget
 
@@ -313,6 +356,11 @@ ACP Chat session controls have two distinct scopes:
 - the conversation selector only lists conversations for the currently selected
   backend
 
+Session drawer cards and archive actions target the owner represented by the
+clicked card, even when another session is currently selected. Backend
+selection and New conversation use a navigation-group action carrying only
+`groupId`.
+
 When the current backend has too many conversations, the conversation selector
 SHALL show only a bounded recent subset plus `Show more...`. Selecting
 `Show more...` SHALL open the all-session drawer and focus the current backend
@@ -342,6 +390,12 @@ best-effort workspace activity as `status` transcript rows so the panel does not
 look frozen. These rows SHALL be diagnostic UI feedback only; they SHALL NOT be
 treated as agent messages, output candidates, validation input, or workflow
 result content.
+
+ACP Skills task cards use workflow-task state as their main status SSOT. Run
+lifecycle, backend status, apply state, attention, recovery, and connection are
+independent axes. A missing backend/apply value stays absent and is never
+replaced with run status. Selecting or archiving a task targets the clicked run
+owner and preserves unrelated keyed task-card DOM identity.
 
 ### SkillRunner
 

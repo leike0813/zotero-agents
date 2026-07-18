@@ -351,7 +351,8 @@ describe("export research bundle workflow", function () {
       assert.include(productPaths, "topics/topic-001/report.md");
       assert.equal(
         registration.assets.find(
-          (entry: any) => entry.productAssetPath === "topics/topic-001/report.md",
+          (entry: any) =>
+            entry.productAssetPath === "topics/topic-001/report.md",
         ).source.text,
         "# Topic report",
       );

@@ -23,6 +23,12 @@ import {
   resetGuardedSqliteForTests,
 } from "./guardedSqlite";
 import { isDiagnosticVerboseEnabled } from "./diagnosticVerbosity";
+import { isDebugModeEnabled } from "./debugMode";
+import {
+  incrementAcpRuntimeMetric,
+  observeAcpRuntimeDuration,
+  readAcpRuntimePerformanceClockMs,
+} from "./acpRuntimePerformanceProfiler";
 
 type SqlPrimitive = string | number | null;
 type SqlParams = Record<string, SqlPrimitive>;
@@ -1826,6 +1832,14 @@ export function upsertPluginRunStoreEntry(
   }
   const db = getAdapter();
   const tables = runStoreTables(kind);
+  const startedAt =
+    kind === "acp" &&
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+      ? readAcpRuntimePerformanceClockMs()
+      : 0;
   db.run(
     `
       INSERT OR REPLACE INTO ${tables.runs}
@@ -1841,6 +1855,24 @@ export function upsertPluginRunStoreEntry(
       payload_json: ensureJsonPayload(entry.payload),
     },
   );
+  if (
+    kind === "acp" &&
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+  ) {
+    const requestId = normalizeString(entry.requestId);
+    incrementAcpRuntimeMetric(requestId, "state_store_write", {
+      persistenceChannel: "run",
+    });
+    observeAcpRuntimeDuration(
+      requestId,
+      "state_store_write_duration",
+      { persistenceChannel: "run" },
+      readAcpRuntimePerformanceClockMs() - startedAt,
+    );
+  }
 }
 
 export function deletePluginRunStoreEntry(
@@ -2051,6 +2083,14 @@ export function appendPluginRunEventStoreEntry(
   }
   const db = getAdapter();
   const tables = runStoreTables(kind);
+  const startedAt =
+    kind === "acp" &&
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+      ? readAcpRuntimePerformanceClockMs()
+      : 0;
   db.run(
     `
       INSERT OR REPLACE INTO ${tables.events}
@@ -2067,6 +2107,24 @@ export function appendPluginRunEventStoreEntry(
       payload_json: ensureJsonPayload(entry.payload),
     },
   );
+  if (
+    kind === "acp" &&
+    __acp_runtime_performance_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+  ) {
+    const requestId = normalizeString(entry.requestId);
+    incrementAcpRuntimeMetric(requestId, "state_store_write", {
+      persistenceChannel: "event",
+    });
+    observeAcpRuntimeDuration(
+      requestId,
+      "state_store_write_duration",
+      { persistenceChannel: "event" },
+      readAcpRuntimePerformanceClockMs() - startedAt,
+    );
+  }
 }
 
 export function listPluginRunEventStoreEntries(args: {

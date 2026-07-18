@@ -27,7 +27,10 @@ import {
   type SequenceStepFinishedObserver,
 } from "./sequenceRuntime";
 import type { SkillRunnerSequenceRequestV1 } from "../../providers/contracts";
-import type { ProviderProgressEvent } from "../../providers/types";
+import type {
+  ProviderOrchestrationContext,
+  ProviderProgressEvent,
+} from "../../providers/types";
 import { localizeWorkflowLabel } from "../../workflows/localization";
 import type { LoadedWorkflow } from "../../workflows/types";
 import { getLoadedWorkflowEntries } from "../workflowRuntime";
@@ -51,6 +54,13 @@ import {
   settleSkillRunnerRun,
   updateSkillRunnerRunStateByRequest,
 } from "../skillRunnerRunStore";
+import { isDebugModeEnabled } from "../debugMode";
+import {
+  beginAcpRuntimeSemanticTraceClaimAttempt,
+  claimAcpRuntimeSemanticTraceRoot,
+  finishAcpRuntimeSemanticTraceRoot,
+  settleAcpRuntimeSemanticTraceOpenRequests,
+} from "../acpRuntimeSemanticTraceRecorder";
 
 type RunSeamDeps = {
   createQueue: (
@@ -259,9 +269,56 @@ export function runWorkflowExecutionSeam(
     providerId: args.prepared.executionContext.providerId,
     requestCount: args.prepared.requests.length,
   });
+  let workflowTraceClaim:
+    | ReturnType<typeof claimAcpRuntimeSemanticTraceRoot>
+    | undefined;
+  if (
+    __acp_runtime_semantic_trace_recorder_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) &&
+    args.prepared.executionContext.backend.type === ACP_BACKEND_TYPE &&
+    (args.prepared.executionContext.requestKind ===
+      ACP_SKILL_RUN_REQUEST_KIND ||
+      args.prepared.executionContext.requestKind ===
+        SKILLRUNNER_SEQUENCE_REQUEST_KIND) &&
+    args.prepared.requests.length > 0
+  ) {
+    const attempt = beginAcpRuntimeSemanticTraceClaimAttempt(
+      "acp-workflow-execution",
+    );
+    if (attempt) {
+      workflowTraceClaim = claimAcpRuntimeSemanticTraceRoot({
+        attempt,
+        binding: {
+          sourceKind: "acp-workflow-execution",
+          workflowId: args.prepared.workflow.manifest.id,
+          workflowRunId: runId,
+        },
+        owner: {
+          rootId: runId,
+          workflowId: args.prepared.workflow.manifest.id,
+          workflowRunId: runId,
+        },
+        payload: { workflowLabel },
+      });
+    }
+  }
   const queue = resolved.createQueue({
     concurrency: dispatchConcurrency,
-    executeJob: (job, runtime) => {
+    executeJob: async (job, runtime) => {
+      let traceContext: Awaited<
+        ReturnType<typeof claimAcpRuntimeSemanticTraceRoot>
+      >;
+      if (
+        __acp_runtime_semantic_trace_recorder_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__) &&
+        workflowTraceClaim
+      ) {
+        traceContext = await workflowTraceClaim;
+      }
       if (
         args.prepared.executionContext.requestKind ===
         SKILLRUNNER_SEQUENCE_REQUEST_KIND
@@ -329,6 +386,20 @@ export function runWorkflowExecutionSeam(
                 });
               }
             : undefined;
+        const sequenceTraceContext: Pick<
+          ProviderOrchestrationContext,
+          "parentWorkflowRunId" | "semanticTraceContext"
+        > = {};
+        if (
+          __acp_runtime_semantic_trace_recorder_enabled__ &&
+          (typeof __debug_mode__ === "undefined"
+            ? isDebugModeEnabled()
+            : __debug_mode__) &&
+          traceContext
+        ) {
+          sequenceTraceContext.parentWorkflowRunId = runId;
+          sequenceTraceContext.semanticTraceContext = traceContext;
+        }
         return executeSkillRunnerSequence({
           request: job.request as SkillRunnerSequenceRequestV1,
           backend: args.prepared.executionContext.backend,
@@ -342,16 +413,34 @@ export function runWorkflowExecutionSeam(
           applySequenceStepResult,
           appendRuntimeLog: resolved.appendRuntimeLog,
           onSequenceStepFinished,
+          ...sequenceTraceContext,
           onProgress: (event) => {
             runtime.reportProgress(event);
           },
         });
+      }
+      const orchestrationContext: ProviderOrchestrationContext = {
+        workflowId: args.prepared.workflow.manifest.id,
+        workflowLabel,
+        workflowRunId: runId,
+        jobId: job.id,
+      };
+      if (
+        __acp_runtime_semantic_trace_recorder_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__) &&
+        traceContext
+      ) {
+        orchestrationContext.parentWorkflowRunId = runId;
+        orchestrationContext.semanticTraceContext = traceContext;
       }
       return resolved.executeWithProvider({
         requestKind: args.prepared.executionContext.requestKind,
         request: job.request,
         backend: args.prepared.executionContext.backend,
         providerOptions: args.prepared.executionContext.providerOptions,
+        orchestrationContext,
         onProgress: (event) => {
           runtime.reportProgress(event);
         },
@@ -657,6 +746,38 @@ export function runWorkflowExecutionSeam(
     return jobId;
   });
 
+  const queueIdlePromise = queue.waitForIdle();
+  let idlePromise = queueIdlePromise;
+  if (
+    __acp_runtime_semantic_trace_recorder_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__) &&
+    workflowTraceClaim
+  ) {
+    idlePromise = queueIdlePromise.then(async () => {
+      const traceContext = await workflowTraceClaim;
+      if (!traceContext) return;
+      const states = jobIds
+        .map((jobId) => queue.getJob(jobId)?.state)
+        .filter(Boolean);
+      const outcome = states.includes("canceled")
+        ? "canceled"
+        : states.includes("failed")
+          ? "failed"
+          : "succeeded";
+      await settleAcpRuntimeSemanticTraceOpenRequests({
+        context: traceContext,
+        payload: { outcome, forced: true, boundary: "workflow-idle" },
+      });
+      await finishAcpRuntimeSemanticTraceRoot({
+        context: traceContext,
+        payload: { outcome },
+        waitForActivities: true,
+      });
+    });
+  }
+
   return {
     workflow: args.prepared.workflow,
     requests: args.prepared.requests,
@@ -667,6 +788,6 @@ export function runWorkflowExecutionSeam(
     totalJobs:
       jobIds.length +
       (args.prepared.preflight?.shortCircuitApplies.length || 0),
-    idlePromise: queue.waitForIdle(),
+    idlePromise,
   };
 }

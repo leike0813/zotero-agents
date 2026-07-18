@@ -141,6 +141,10 @@ Zotero 环境测试中禁止引入会真实打开以下 UI 的测试：
   - `47-workflow-log-instrumentation`
   - `52-runtime-bridge`
   - `87/88/89` runtime diagnostics / debug probe
+  - `182` Host Bridge socket integration
+  - `185` Zotero library page query
+  - `186` ACP runtime file I/O
+  - `187` runtime log persistence
 - `ui`
   - `01-startup-workflow-menu-init`
   - `35-workflow-settings-execution` 的核心 smoke
@@ -202,6 +206,11 @@ lite 模式下：
   - `test/core/52-runtime-bridge.test.ts`
   - `test/core/87-workflow-package-runtime-diagnostics.test.ts`
   - `test/core/88-workflow-runtime-scope-diagnostics.test.ts`
+  - `test/core/104-acp-zotero-opencode.integration.test.ts`
+  - `test/core/182-host-bridge-socket.integration.test.ts`
+  - `test/core/185-zotero-library-page-query.zotero.test.ts`
+  - `test/core/186-acp-runtime-file-io.zotero.test.ts`
+  - `test/core/187-runtime-log-persistence.zotero.test.ts`
   - `test/ui/35-workflow-settings-execution.test.ts`
   - `test/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts`
   - `test/workflow-mineru/39-workflow-mineru.test.ts`
@@ -227,6 +236,11 @@ lite 模式下：
 - 在 workflow/ui 的高复杂度测试文件内，部分边界/兼容性用例通过 `itFullOnly` 下沉到 `full`
   - 代表性文件：`test/workflow-literature-analysis/21-workflow-literature-analysis.test.ts`、`test/workflow-mineru/39-workflow-mineru.test.ts`、`test/ui/40-gui-preferences-menu-scan.test.ts`
 - `selection-context` 的 lite 子夹具执行后保留重建产物（不清理）
+
+`187-runtime-log-persistence.zotero.test.ts` 是 R8 的真实宿主机制门禁。它通过真实
+`IOUtils` 验证异步 hydration、single-flight true flush，以及分块临时文件完成后再
+替换为可解析 JSON；测试不设置机器相关耗时断言。当前验收环境为 Zotero 9.0.4，
+Zotero 7 仍是明确的后续宿主验证项。
 
 补充治理约定：
 
@@ -374,6 +388,82 @@ Required policy:
   - event-loop lag
   - host resource snapshots
   - raw snapshots plus computed duration/lag/resource summary
+  - bounded ACP runtime performance profiles when the debug-only profiler is
+    explicitly enabled and has data
+
+ACP runtime profiling has two complementary validation layers:
+
+- `test/core/175-acp-runtime-performance-profiler.test.ts` locks activation,
+  lifecycle, aggregation, bounds, drift sampling, immutability, and failure
+  isolation.
+- `test/core/176-acp-silent-runtime-performance-baseline.test.ts` runs a
+  deterministic 1,000-update silent fixture for the ordered `closed`,
+  `open-inactive`, and `acp-active` surface matrix. All cases traverse the same
+  production ACP JSON-RPC, persistence, Host Bridge, and buffered-write seams;
+  the closed case locks zero R3 publication work and both open cases lock their
+  Assistant Workspace surface attribution. It verifies mechanism-level counts,
+  aggregation, and boundedness, not wall-clock speed.
+- `test/core/178-acp-runtime-semantic-trace.test.ts` locks lossless payloads,
+  explicit round/claim authority, session-bound ownership, paired root and
+  activity boundaries, deferred finish, NDJSON sequence/hash/footer integrity,
+  partial recovery, quotas, and incomplete trace rejection.
+- `test/core/96-acp-session-manager-lifecycle.test.ts` locks explicit Chat
+  connection claim eligibility, implicit/existing-session isolation,
+  multi-turn deferred finish, and forced terminal closure.
+- `test/core/48-workflow-execution-seams.test.ts` locks canonical top-level
+  Workflow trace identity across concurrent jobs and completion after request
+  terminals but before apply consumers continue.
+- `test/core/179-acp-runtime-replay-profiler.test.ts` locks recorded/logical/burst
+  scheduling, backend-free target ports, fixed R2 v1 work, three warm-ups plus
+  six formal profiles, interruptible cadence, progress after cleanup, early
+  abort, fresh owners, drain failures, provenance, Workspace restoration,
+  explicit profile aliases, semantic projected/no-op accounting, measured R2,
+  independent execution/measurement completion, formal acceptance, and
+  descriptive report aggregation, Unicode sample/stage identity,
+  collision-safe paired filenames, and current-slot publication before setup.
+- `test/core/180-acp-runtime-replay-controller.test.ts` locks trace preflight
+  metadata, required free-text stage validation, live current/completed
+  nine-record progress, shared surface summaries, canceled matrix persistence,
+  retained options, and retry with fresh owners.
+- `test/core/181-acp-runtime-replay-logical-time.test.ts` locks logical deadline
+  and registration ordering, callback batching, cancellation, tail resumption,
+  synthetic Chat/Skills timer ownership, Workspace fail-closed contamination,
+  and production logical replay without recorded gap sleeps.
+- `test/core/182-acp-runtime-replay-publication-sidecar.test.ts` is a Node-only
+  protocol test for newer-revision/tab filtering, absent/direct/Xray-wrapped
+  publisher sources, render-frame completion, and listener cleanup on timeout,
+  cancellation, unload, or child replacement.
+- `test/ui/183-acp-runtime-replay-publication-zotero-runtime.test.ts` exercises
+  the real privileged host-to-shell-to-child frame chain for rendered ACP Chat
+  and ACP Skills publication in Zotero.
+- `test/core/97-acp-ui-smoke.test.ts` locks the complementary source protocol:
+  ordinary Chat, ACP Skills, and SkillRunner child render paths contain no
+  Replay drain property or acknowledgement action.
+- ACP connection, Host Bridge, runtime diagnostic bundle, and performance
+  digest tests verify request attribution and export through real module entry
+  points.
+- `npm run record:acp-runtime-before-baseline` runs the complete normalized
+  three-surface matrix twice and writes three per-surface JSON records plus one
+  consolidated Markdown report only when both matrices match.
+- `npm run check:runtime-diagnostics-release-elision` and esbuild consume
+  `scripts/runtime-diagnostics-production-manifest.ts`. The check bundles the
+  real plugin entry in debug, non-debug, independently source-disabled ACP
+  modes, and SkillRunner-audit-disabled mode. It requires zero bytes from every
+  exclusive production input, rejects forbidden executable markers, and
+  verifies that the allowlisted static Dashboard route remains packaged.
+  Non-debug Replay on/off equality is auxiliary; inactive production
+  scheduling and normal child rendering must remain independent from Replay.
+
+The automated surface matrix is a mechanism smoke baseline. Comparable
+real-workload evidence comes from complete source-specific replay matrices.
+Manual acceptance captures separate multi-turn Chat and multi-stage Workflow
+traces in Zotero and replays them without a backend. It covers explicit
+new/resume/load binding, same-session reconnect, disconnect recovery, a
+different-session replacement notice, Finish during an active turn, automatic
+multi-stage Workflow completion, cancel, retry, save-to-Replay handoff, and a
+second recording round without restarting Zotero. Unicode artifact names and
+responsive progressive-disclosure layout remain Zotero 7/9 manual checks. CI
+does not lock machine-specific millisecond thresholds.
 
 Diagnosis order:
 

@@ -20,8 +20,12 @@ const ZOTERO_LITE_ALLOWLIST: Record<Exclude<TestDomain, "all">, RegExp[]> = {
     /(^|\/)test\/core\/88-workflow-runtime-scope-diagnostics\.test\.ts$/,
     /(^|\/)test\/core\/89-workflow-debug-probe\.test\.ts$/,
     /(^|\/)test\/core\/102-acp-zotero-mcp-server\.integration\.test\.ts$/,
+    /(^|\/)test\/core\/182-host-bridge-socket\.integration\.test\.ts$/,
     /(^|\/)test\/core\/104-acp-zotero-opencode\.integration\.test\.ts$/,
     /(^|\/)test\/core\/165-runtime-platform-services\.zotero\.test\.ts$/,
+    /(^|\/)test\/core\/185-zotero-library-page-query\.zotero\.test\.ts$/,
+    /(^|\/)test\/core\/186-acp-runtime-file-io\.zotero\.test\.ts$/,
+    /(^|\/)test\/core\/187-runtime-log-persistence\.zotero\.test\.ts$/,
   ],
   ui: [
     /(^|\/)test\/ui\/01-startup-workflow-menu-init\.test\.ts$/,
@@ -29,6 +33,7 @@ const ZOTERO_LITE_ALLOWLIST: Record<Exclude<TestDomain, "all">, RegExp[]> = {
     /(^|\/)test\/ui\/40-gui-preferences-menu-scan\.test\.ts$/,
     /(^|\/)test\/ui\/50-workflow-settings-dialog-model\.test\.ts$/,
     /(^|\/)test\/ui\/99-acp-runtime-dependency-probe\.zotero\.test\.ts$/,
+    /(^|\/)test\/ui\/183-acp-runtime-replay-publication-zotero-runtime\.test\.ts$/,
   ],
   workflow: [
     /(^|\/)test\/workflow-literature-analysis\/21-workflow-literature-analysis\.test\.ts$/,
@@ -77,8 +82,13 @@ const ZOTERO_LITE_TITLE_ALLOWLIST: Record<
     "workflow runtime scope diagnostics ",
     "workflow debug probe ",
     "embedded Zotero MCP server in Zotero runtime ",
+    "host bridge socket integration in Zotero runtime ",
+    "deterministic ACP integration fixture in Zotero runtime ",
     "real OpenCode ACP against Zotero MCP server in Zotero runtime ",
     "runtime platform services in Zotero ",
+    "zotero library page query in Zotero runtime ",
+    "ACP runtime file I/O in Zotero ",
+    "runtime log persistence in Zotero ",
   ],
   ui: [
     "startup workflow scan + menu init ",
@@ -90,6 +100,7 @@ const ZOTERO_LITE_TITLE_ALLOWLIST: Record<
     "workflow settings dialog model keeps provider_id field for provider-scoped qwen engine and hides it for gemini",
     "workflow settings dialog model enables effort choices for codex models that advertise supported_effort",
     "ACP runtime dependency probe in Zotero ",
+    "ACP Replay publication in the Zotero runtime ",
   ],
   workflow: [
     "workflow: literature-analysis builds request from selected markdown attachment",

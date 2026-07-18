@@ -1,7 +1,9 @@
 # acp-skill-run-file-backed-runtime-state Specification
 
 ## Purpose
-TBD
+Define the file-backed ACP Skills runtime, transcript paging, minimal Workspace
+projection, independent UI state axes, and durable owner-scoped persistence
+boundaries.
 ## Requirements
 ### Requirement: ACP Skill runtime state is file-backed
 
@@ -321,3 +323,171 @@ ACP Skills SHALL persist Assistant, Thought, and Tool current/cumulative count m
 - **WHEN** a persisted run lacks complete count metadata
 - **THEN** new current activity may be counted
 - **AND** no cumulative denominator is synthesized from transcript item totals.
+
+### Requirement: Skills uses the shared transcript region and domain mapping
+
+ACP Skills SHALL publish transcript through the shared transcript region, progress as shared message counts, and runtime options as shared reply state. Run, selection, archive, and global changes SHALL use explicit structural mappings. Skills SHALL NOT expose a selected-run-specific transcript lifecycle or page field to Workspace.
+
+#### Scenario: Selected run transcript changes
+
+- **WHEN** the selected request emits a UI-visible transcript mutation
+- **THEN** Skills passes the normalized mutation through the same projection and coordinator as Chat.
+
+### Requirement: Skills Replay releases production hard boundaries
+
+Workflow Replay turn-end, root-end, and request terminal events SHALL invoke the same hard-boundary release seam used by production Skills execution. Text held in boundary mode SHALL become visible exactly once at the semantic boundary.
+
+#### Scenario: Text-only replay turn ends
+
+- **WHEN** a turn contains assistant text chunks and no structural update
+- **THEN** turn-end releases the text into a transcript delta
+- **AND** the rendered Skills transcript remains visible until cleanup.
+
+### Requirement: Skills storage remains unchanged
+
+Publication migration SHALL NOT alter run persistence, transcript JSONL/index, recovery, archive, workflow behavior, or request-id ownership. Store-specific fields SHALL be normalized at the adapter boundary.
+
+#### Scenario: Recovered run is selected
+
+- **WHEN** a persisted run is restored and selected
+- **THEN** its indexed page is normalized to the same shared region used by live execution.
+
+### Requirement: Skills transcript delivery and rendering matches Chat
+
+ACP Skills SHALL use the same generation-scoped Shell retention, shared child FIFO, item mutation model, render effects, terminal acknowledgement, and rebase decisions as ACP Chat. Skills SHALL NOT retain a surface-specific transcript publication or full-page render state machine.
+
+#### Scenario: Equivalent Chat and Skills updates are normalized
+
+- **WHEN** equivalent visible item sequences are applied to Chat and Skills
+- **THEN** their normalized publication form, mutation operation, revision transition, render effect, and acknowledgement decision are identical apart from owner and item content
+- **AND** neither surface rebuilds unaffected rows.
+
+### Requirement: Skills publication count is display-projected
+
+ACP Skills SHALL keep raw run transcript counts inside its domain store and SHALL expose `totalVisibleItemCount` to Workspace only through the selected display projection. Snapshot and delta metadata SHALL use the same projected count.
+
+#### Scenario: Skills holds boundary text
+
+- **WHEN** a Skills assistant chunk is stored but not yet UI-visible
+- **THEN** the Workspace visible count remains unchanged until release.
+
+### Requirement: Skills ordinary progress uses shared message counts
+
+ACP Skills non-silent tool and progress changes SHALL publish the same canonical message-count region semantics as ACP Chat where applicable. Progress SHALL NOT be restricted to the silent-mode path.
+
+#### Scenario: Ordinary tool boundary advances progress
+
+- **WHEN** a non-silent Skills run accepts a tool boundary that changes semantic progress
+- **THEN** the adapter emits transcript and message-count domain changes through the shared runtime
+- **AND** neither change materializes a full run panel.
+
+### Requirement: Skills Workspace reads a minimal owner model
+
+ACP Skills Workspace SHALL read one minimal owner DTO per publication batch and
+SHALL NOT clone complete run events or construct a panel snapshot before
+selecting regions. Diagnostics SHALL use a separate DTO.
+
+#### Scenario: Copy diagnostics is requested
+
+- **WHEN** the user copies run diagnostics
+- **THEN** the store returns the diagnostics DTO
+- **AND** no transcript page or panel presentation is constructed.
+
+### Requirement: Skills presentation preserves owner semantics
+
+Skills title SHALL prefer task name, workflow label, then skill id. Subtitle and
+sequence semantics, owner status fields, banner metadata/usage/recovery/workspace
+details, and diagnostics SHALL remain visible through owner presentation.
+
+#### Scenario: A sequence task is selected
+
+- **WHEN** the selected run has sequence and workflow metadata
+- **THEN** its title/subtitle retain step and workflow meaning
+- **AND** switching tasks preserves unrelated keyed task-card DOM identity.
+
+### Requirement: Skills presentation preserves independent state axes
+
+Skills drawer task state SHALL derive from the workflow-task projection SSOT.
+Selected run lifecycle, backend state, apply state, recovery, and connection
+SHALL remain independent and missing values SHALL remain absent.
+
+#### Scenario: A run waits for permission
+
+- **WHEN** the run has a pending permission request
+- **THEN** the drawer task state is `waiting_user`
+- **AND** missing backend status is not replaced with the run status.
+
+### Requirement: Skills empty selection preserves workspace geometry
+
+An empty Skills selection SHALL use the shared conversation empty state while
+keeping transcript and composer layout containers mounted.
+
+#### Scenario: The final visible task is archived
+
+- **WHEN** no selected run remains
+- **THEN** the empty state is visible in the conversation region
+- **AND** the reply footer and transcript region do not collapse the panel.
+
+### Requirement: Skills publishes plan independently from transcript and chrome
+
+ACP Skills SHALL project active run plan entries from the run/task SSOT into
+the v1 plan region. Plan changes SHALL publish only plan work and SHALL NOT be
+encoded as transcript, presentation, or full-run snapshot changes.
+
+#### Scenario: A running plan entry advances
+
+- **WHEN** a selected run updates an active plan entry without changing transcript content
+- **THEN** only the plan region is published and rendered
+- **AND** transcript, toolbar, banner, hint, composer, and drawer nodes retain identity.
+
+### Requirement: Skills details use a bounded file-backed read model
+
+Skills owner details SHALL read only the selected run's bounded path, runner,
+validation, runtime dependency, output revision, runtime log, and validated
+result sections on demand. Task status, backend status, apply status, attention,
+and title/subtitle SHALL remain derived from the run/task projection SSOT and
+SHALL NOT be inferred from details or transcript presentation.
+
+#### Scenario: A terminal run opens details
+
+- **WHEN** the user opens Details for a terminal run
+- **THEN** the Host reads bounded detail sections and lazily reads validated result JSON
+- **AND** no transcript history or complete run snapshot is materialized.
+
+### Requirement: ACP Skills assistant output accumulation has one business owner
+
+ACP Skills SHALL retain assistant text for validation, repair, recovery, and output convergence only in its prompt-lifetime assistant accumulator. Shared ACP execution progress SHALL retain message counts and semantic segment state without retaining assistant text, and transcript persistence SHALL remain independently owned by the transcript store.
+
+#### Scenario: streamed output is not duplicated by execution progress
+
+- **WHEN** an ACP Skills prompt emits assistant text chunks
+- **THEN** the prompt-lifetime accumulator SHALL remain the sole in-memory full-turn assistant-text source used by output convergence
+- **AND** shared execution progress snapshots SHALL contain no assistant chunk collection or joined assistant body.
+
+#### Scenario: execution mode does not change output convergence
+
+- **WHEN** an ACP Skills prompt runs in live, boundary, or silent display mode
+- **THEN** validation, repair, recovery, and output convergence SHALL consume the same prompt-local assistant text as before this ownership change
+- **AND** transcript persistence behavior for that display mode SHALL remain unchanged.
+
+### Requirement: Transcript index recovery SHALL be byte-bounded and linear
+
+ACP transcript complete and stale-tail index recovery SHALL scan the canonical
+JSONL in bounded byte chunks and apply each valid event once to a shared ordered
+builder. Recovery SHALL NOT materialize the complete transcript text or clone
+the complete derived index once per event.
+
+#### Scenario: Missing or invalid index is rebuilt
+- **WHEN** a current transcript index is missing, malformed, old-version, or longer than its JSONL source
+- **THEN** recovery SHALL scan source bytes incrementally
+- **AND** the resulting items, order, previews, event sequence, byte offsets, and source length SHALL match the canonical JSONL.
+
+#### Scenario: Valid index is behind the JSONL source
+- **WHEN** a current index source length is shorter than the transcript JSONL
+- **THEN** only the unindexed byte tail SHALL be scanned and applied through the same builder
+- **AND** invalid lines SHALL advance the scanned source length without becoming transcript events.
+
+#### Scenario: UTF-8 content crosses a scan boundary
+- **WHEN** a JSONL line or multi-byte character crosses a physical read boundary or the final line has no newline
+- **THEN** recovery SHALL preserve exact UTF-8 byte offsets and parse the complete logical line once.
+
