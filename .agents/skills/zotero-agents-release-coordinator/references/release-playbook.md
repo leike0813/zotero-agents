@@ -32,7 +32,9 @@ gate.
 
 If the gate returns `run_host_bridge_pipeline`, use `$host-bridge-release-pipeline`.
 Record the prepared `releaseSetId`; preparation and local verification do not
-satisfy this gate. Publish or resume that exact release set, then verify its
+satisfy this gate. Explicitly dispatch or resume that exact release set with
+`npm run release:host-bridge:dispatch -- --release-set-id hbrs-... --watch`,
+then verify its
 `host-bridge.release-receipt.v1` has `status: complete` before rerunning:
 
 ```powershell

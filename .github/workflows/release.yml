@@ -11,7 +11,7 @@ permissions:
   pull-requests: write
 
 env:
-  HOST_BRIDGE_CLI_PREBUILD_TAG: host-bridge-cli-prebuilds
+  HOST_BRIDGE_CLI_PREBUILD_BRANCH: host-bridge-cli-prebuilds
 
 jobs:
   create-release:
@@ -26,17 +26,12 @@ jobs:
       - name: Initialize content submodules
         run: git submodule update --init --recursive
 
-      - name: Download Host Bridge CLI prebuilds
+      - name: Restore exact Host Bridge CLI prebuild set
         run: |
-          mkdir -p .scaffold/host-bridge-cli-prebuilds
-          gh release download "${HOST_BRIDGE_CLI_PREBUILD_TAG}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --pattern "zotero-bridge-*.zip" \
-            --dir .scaffold/host-bridge-cli-prebuilds
-          for archive in .scaffold/host-bridge-cli-prebuilds/zotero-bridge-*.zip; do
-            unzip -o "${archive}" -d .
-          done
-          chmod +x addon/bin/darwin-*/zotero-bridge addon/bin/linux-*/zotero-bridge
+          aggregate="$(jq -r .binaryAggregateSha256 cli/zotero-bridge/release.json)"
+          npm run sync:host-bridge-cli-prebuilds -- \
+            --aggregate="$aggregate" \
+            --branch="${HOST_BRIDGE_CLI_PREBUILD_BRANCH}"
 
       - name: Verify Host Bridge CLI prebuilds
         run: |

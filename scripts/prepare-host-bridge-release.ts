@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { createHostBridgeReleasePlan } from "./host-bridge-release-plan";
+import { resolveExactCliReleaseIntent } from "./host-bridge-version-intent";
 
 function run(command: string, args: string[]) {
   const result = spawnSync(command, args, { stdio: "inherit" });
@@ -8,15 +10,45 @@ function run(command: string, args: string[]) {
   }
 }
 
+function option(name: string) {
+  const inline = process.argv.find((entry) => entry.startsWith(`${name}=`));
+  const index = process.argv.indexOf(name);
+  return (
+    inline?.slice(name.length + 1) ||
+    (index >= 0 ? process.argv[index + 1] : "")
+  ).trim();
+}
+
 const intentArg = process.argv.find((entry) => entry.startsWith("--intent="));
 const intentIndex = process.argv.indexOf("--intent");
-const intent = (intentArg?.slice("--intent=".length) ||
+let intent = (intentArg?.slice("--intent=".length) ||
   (intentIndex >= 0 ? process.argv[intentIndex + 1] : "") ||
   "auto") as "auto" | "patch" | "minor";
 if (!(["auto", "patch", "minor"] as const).includes(intent)) {
   throw new Error(`Unsupported Host Bridge release intent: ${intent}`);
 }
+const exactCliVersion = option("--cli-version");
+const currentCliVersion = String(
+  JSON.parse(readFileSync("cli/zotero-bridge/release.json", "utf8")).version,
+);
+if (exactCliVersion) {
+  const exactIntent = resolveExactCliReleaseIntent(
+    currentCliVersion,
+    exactCliVersion,
+  );
+  if (intent !== "auto" && intent !== exactIntent) {
+    throw new Error(
+      `--intent ${intent} conflicts with exact CLI target ${exactCliVersion}`,
+    );
+  }
+  intent = exactIntent;
+}
 const plan = createHostBridgeReleasePlan(process.cwd(), intent);
+if (exactCliVersion === currentCliVersion && plan.versionBumps.cli !== "none") {
+  throw new Error(
+    `CLI inputs require a version bump; exact target ${exactCliVersion} is already current`,
+  );
+}
 const write = process.argv.includes("--write");
 if (!write) {
   process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
@@ -30,6 +62,18 @@ if (plan.versionBumps.cli === "patch" || plan.versionBumps.cli === "minor") {
     "--write",
     "--dispatch-reason=prepare",
   ]);
+  const preparedCliVersion = String(
+    JSON.parse(readFileSync("cli/zotero-bridge/release.json", "utf8")).version,
+  );
+  if (exactCliVersion && preparedCliVersion !== exactCliVersion) {
+    throw new Error(
+      `Prepared CLI version ${preparedCliVersion} does not match exact target ${exactCliVersion}`,
+    );
+  }
+} else if (exactCliVersion && currentCliVersion !== exactCliVersion) {
+  throw new Error(
+    `Release plan did not bump CLI ${currentCliVersion} to ${exactCliVersion}`,
+  );
 }
 if (
   plan.versionBumps.cliBundle === "patch" ||

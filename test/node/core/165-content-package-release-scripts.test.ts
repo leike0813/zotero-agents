@@ -379,7 +379,7 @@ describe("content package release scripts", function () {
     assert.isFalse(result.dispatched);
     assert.includeMembers(result.nextCommands, [
       "git add content-package.version.json",
-      "gh workflow run publish-content-feed.yml --repo leike0813/zotero-agents --ref main",
+      "npm run release:content-package -- --dispatch --watch --repo leike0813/zotero-agents --ref main",
     ]);
   });
 
@@ -419,19 +419,49 @@ describe("content package release scripts", function () {
 
   it("dispatches the content package publish workflow only from a clean tree", async function () {
     const calls: Array<{ command: string; args: string[] }> = [];
+    const releaseSetFile = path.join(tempRoot, "release-set.json");
+    const receiptFile = path.join(tempRoot, "receipt.json");
+    await fs.writeFile(
+      releaseSetFile,
+      JSON.stringify({ releaseSetId: "hbrs-ready" }),
+    );
+    await fs.writeFile(
+      receiptFile,
+      JSON.stringify({ status: "complete", releaseSetId: "hbrs-ready" }),
+    );
 
     const result = await prepareContentPackageRelease({
       dispatch: true,
       watch: true,
       repo: "owner/repo",
       ref: "release-branch",
+      requestId: "content-request-1",
+      hostReleaseSetFile: releaseSetFile,
+      hostReceiptFile: receiptFile,
       runCommand: async (command, args) => {
         calls.push({ command, args });
+        if (command === "git" && args[0] === "rev-parse") {
+          return { stdout: "source-sha\n", stderr: "" };
+        }
+        if (command === "gh" && args[0] === "run" && args[1] === "list") {
+          return {
+            stdout: JSON.stringify([
+              {
+                databaseId: 123,
+                displayTitle: "Content package content-request-1",
+                headSha: "source-sha",
+                url: "https://example.invalid/runs/123",
+              },
+            ]),
+            stderr: "",
+          };
+        }
         return { stdout: "", stderr: "" };
       },
     });
 
     assert.isTrue(result.dispatched);
+    assert.strictEqual(result.runId, 123);
     assert.deepEqual(calls, [
       { command: "git", args: ["status", "--porcelain"] },
       { command: "git", args: ["fetch", "origin", "release-branch"] },
@@ -449,10 +479,66 @@ describe("content package release scripts", function () {
           "owner/repo",
           "--ref",
           "release-branch",
+          "-f",
+          "request_id=content-request-1",
         ],
       },
-      { command: "gh", args: ["run", "watch", "--repo", "owner/repo"] },
+      { command: "git", args: ["rev-parse", "HEAD"] },
+      {
+        command: "gh",
+        args: [
+          "run",
+          "list",
+          "--repo",
+          "owner/repo",
+          "--workflow",
+          "publish-content-feed.yml",
+          "--event",
+          "workflow_dispatch",
+          "--limit",
+          "30",
+          "--json",
+          "databaseId,displayTitle,headSha,url",
+        ],
+      },
+      {
+        command: "gh",
+        args: ["run", "watch", "123", "--repo", "owner/repo", "--exit-status"],
+      },
     ]);
+  });
+
+  it("keeps the Host Bridge receipt gate in the content workflow", async function () {
+    const workflow = await fs.readFile(
+      ".github/workflows/publish-content-feed.yml",
+      "utf8",
+    );
+    assert.include(workflow, "latest-complete-release-receipt.json");
+    assert.include(workflow, 'test "$(jq -r .status');
+    assert.include(workflow, 'test "$(jq -r .releaseSetId');
+  });
+
+  it("rejects content dispatch while the Host Bridge release is pending", async function () {
+    const releaseSetFile = path.join(tempRoot, "pending-release-set.json");
+    const receiptFile = path.join(tempRoot, "stale-receipt.json");
+    await fs.writeFile(
+      releaseSetFile,
+      JSON.stringify({ releaseSetId: "hbrs-pending" }),
+    );
+    await fs.writeFile(
+      receiptFile,
+      JSON.stringify({ status: "complete", releaseSetId: "hbrs-old" }),
+    );
+
+    await expectRejects(
+      prepareContentPackageRelease({
+        dispatch: true,
+        hostReleaseSetFile: releaseSetFile,
+        hostReceiptFile: receiptFile,
+        runCommand: async () => ({ stdout: "", stderr: "" }),
+      }),
+      /Host Bridge.*hbrs-pending.*complete receipt/i,
+    );
   });
 
   it("rejects workflow dispatch when local HEAD has not reached the remote ref", async function () {

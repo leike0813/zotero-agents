@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
@@ -20,6 +22,9 @@ export type ContentPackageReleaseArgs = {
   repo?: string;
   ref?: string;
   runCommand?: RunCommand;
+  requestId?: string;
+  hostReleaseSetFile?: string;
+  hostReceiptFile?: string;
 };
 
 export type ContentPackageReleaseResult = {
@@ -28,6 +33,8 @@ export type ContentPackageReleaseResult = {
     version: string;
   };
   dispatched: boolean;
+  runId?: number;
+  runUrl?: string;
   nextCommands: string[];
 };
 
@@ -37,6 +44,10 @@ const DEFAULT_VERSION_FILE = "content-package.version.json";
 const WORKFLOW_FILE = "publish-content-feed.yml";
 
 const execFileAsync = promisify(execFile);
+
+function delay(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
 
 function usage() {
   return [
@@ -168,7 +179,11 @@ async function assertRemoteRefContainsHead(args: {
   }
 }
 
-function workflowDispatchCommand(args: { repo: string; ref: string }) {
+function workflowDispatchCommand(args: {
+  repo: string;
+  ref: string;
+  requestId?: string;
+}) {
   return [
     "gh",
     "workflow",
@@ -178,22 +193,66 @@ function workflowDispatchCommand(args: { repo: string; ref: string }) {
     args.repo,
     "--ref",
     args.ref,
+    ...(args.requestId ? ["-f", `request_id=${args.requestId}`] : []),
   ];
 }
 
-function workflowWatchCommand(args: { repo: string }) {
-  return ["gh", "run", "watch", "--repo", args.repo];
+function workflowWatchCommand(args: { repo: string; runId: number }) {
+  return [
+    "gh",
+    "run",
+    "watch",
+    String(args.runId),
+    "--repo",
+    args.repo,
+    "--exit-status",
+  ];
 }
 
 function nextCommands(args: { repo: string; ref: string }) {
-  const dispatch = workflowDispatchCommand(args).join(" ");
   return [
     `git add ${DEFAULT_VERSION_FILE}`,
     'git commit -m "chore: bump content package version"',
     `git push origin ${args.ref}`,
-    dispatch,
-    `gh run watch --repo ${args.repo}`,
+    `npm run release:content-package -- --dispatch --watch --repo ${args.repo} --ref ${args.ref}`,
   ];
+}
+
+async function assertHostBridgeReleaseComplete(args: {
+  releaseSetFile: string;
+  receiptFile: string;
+}) {
+  const releaseSet = JSON.parse(await readFile(args.releaseSetFile, "utf8"));
+  let receipt: Record<string, unknown> = {};
+  try {
+    receipt = JSON.parse(await readFile(args.receiptFile, "utf8"));
+  } catch {
+    // Missing receipt is handled by the common mismatch error below.
+  }
+  if (
+    receipt.status !== "complete" ||
+    receipt.releaseSetId !== releaseSet.releaseSetId
+  ) {
+    throw new Error(
+      `Host Bridge ${releaseSet.releaseSetId} has no matching complete receipt; finish that publication before dispatching content packages.`,
+    );
+  }
+}
+
+function selectContentPackageRun(
+  runs: Array<{
+    databaseId: number;
+    displayTitle: string;
+    headSha: string;
+    url: string;
+  }>,
+  args: { requestId: string; headSha: string },
+) {
+  return runs.find(
+    (run) =>
+      run.displayTitle === `Content package ${args.requestId}` &&
+      run.headSha === args.headSha,
+  );
 }
 
 export async function prepareContentPackageRelease(
@@ -227,11 +286,55 @@ export async function prepareContentPackageRelease(
   if (args.dispatch) {
     await assertCleanWorkingTree(commandRunner);
     await assertRemoteRefContainsHead({ commandRunner, ref });
-    const [, ...dispatchArgs] = workflowDispatchCommand({ repo, ref });
+    await assertHostBridgeReleaseComplete({
+      releaseSetFile: args.hostReleaseSetFile || "host-bridge/release-set.json",
+      receiptFile:
+        args.hostReceiptFile ||
+        "host-bridge/latest-complete-release-receipt.json",
+    });
+    const requestId = args.requestId || `content-${randomUUID()}`;
+    const [, ...dispatchArgs] = workflowDispatchCommand({
+      repo,
+      ref,
+      requestId,
+    });
     await commandRunner("gh", dispatchArgs);
     result.dispatched = true;
+    const head = await commandRunner("git", ["rev-parse", "HEAD"]);
+    let selected: ReturnType<typeof selectContentPackageRun> = undefined;
+    for (let attempt = 0; attempt < 15 && !selected; attempt += 1) {
+      const runList = await commandRunner("gh", [
+        "run",
+        "list",
+        "--repo",
+        repo,
+        "--workflow",
+        WORKFLOW_FILE,
+        "--event",
+        "workflow_dispatch",
+        "--limit",
+        "30",
+        "--json",
+        "databaseId,displayTitle,headSha,url",
+      ]);
+      selected = selectContentPackageRun(JSON.parse(runList.stdout), {
+        requestId,
+        headSha: head.stdout.trim(),
+      });
+      if (!selected && attempt < 14) await delay(2_000);
+    }
+    if (!selected) {
+      throw new Error(
+        `Unable to resolve content package workflow run for ${requestId}`,
+      );
+    }
+    result.runId = selected.databaseId;
+    result.runUrl = selected.url;
     if (args.watch) {
-      const [, ...watchArgs] = workflowWatchCommand({ repo });
+      const [, ...watchArgs] = workflowWatchCommand({
+        repo,
+        runId: selected.databaseId,
+      });
       await commandRunner("gh", watchArgs);
     }
   }
@@ -251,7 +354,9 @@ function formatResult(result: ContentPackageReleaseResult) {
     );
   }
   if (result.dispatched) {
-    lines.push(`[content-package] dispatched ${WORKFLOW_FILE}`);
+    lines.push(
+      `[content-package] dispatched ${WORKFLOW_FILE} run ${result.runId}`,
+    );
   }
   if (result.nextCommands.length > 0 && !result.dispatched) {
     lines.push("[content-package] next steps:");

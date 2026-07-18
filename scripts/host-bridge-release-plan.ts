@@ -1,6 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   classifyHostBridgeReleaseChanges,
@@ -27,6 +33,30 @@ function lines(value: string) {
     .filter(Boolean);
 }
 
+function currentCliBuildFingerprint(root: string) {
+  const raw = execFileSync(
+    process.execPath,
+    [
+      resolve(root, "scripts/host-bridge-cli-release-governance.mjs"),
+      "status",
+      "--json",
+    ],
+    {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "inherit"],
+    },
+  );
+  const status = JSON.parse(raw);
+  const fingerprint = String(status.fingerprint || "");
+  if (!/^[a-f0-9]{64}$/.test(fingerprint)) {
+    throw new Error(
+      "Unable to compute current Host Bridge CLI build fingerprint",
+    );
+  }
+  return fingerprint;
+}
+
 export function resolveHostBridgeReleaseBase(root = process.cwd()) {
   const explicit = process.env.HOST_BRIDGE_RELEASE_BASE?.trim();
   if (explicit) return explicit;
@@ -41,17 +71,6 @@ export function resolveHostBridgeReleaseBase(root = process.cwd()) {
       );
     }
     return String(receipt.sourceCommit);
-  }
-  const releaseSetPath = resolve(root, "host-bridge/release-set.json");
-  if (existsSync(releaseSetPath)) {
-    const releaseSet = JSON.parse(readFileSync(releaseSetPath, "utf8"));
-    const completedSource = String(releaseSet?.source?.commit || "").trim();
-    if (
-      completedSource &&
-      git(["rev-parse", "--verify", `${completedSource}^{commit}`], root)
-    ) {
-      return completedSource;
-    }
   }
   for (const ref of ["origin/main", "main"]) {
     const mergeBase = git(["merge-base", "HEAD", ref], root);
@@ -95,22 +114,25 @@ export function createHostBridgeReleasePlan(
   const cliRelease = JSON.parse(
     readFileSync(resolve(root, "cli/zotero-bridge/release.json"), "utf8"),
   );
+  const cliBuildFingerprint = currentCliBuildFingerprint(root);
   return {
     ...classification,
     base: changed.base,
     head: git(["rev-parse", "HEAD"], root),
     previousReleaseSetId: previous?.releaseSetId || "",
     prebuildRequired:
-      cliRelease.binariesBuildFingerprint !== cliRelease.buildFingerprint,
+      cliRelease.binariesBuildFingerprint !== cliBuildFingerprint,
     contentDigests: digests,
     versionBumps: {
       cli:
         intent === "minor"
           ? "minor"
-          : classification.cliBinaryInputs &&
-              previous?.cli?.buildFingerprint !== cliRelease.buildFingerprint
+          : intent === "patch"
             ? "patch"
-            : "none",
+            : classification.cliBinaryInputs &&
+                previous?.cli?.buildFingerprint !== cliBuildFingerprint
+              ? "patch"
+              : "none",
       cliBundle:
         intent === "minor"
           ? "minor"
@@ -138,6 +160,14 @@ export function createHostBridgeReleasePlan(
   };
 }
 
+export function writeHostBridgeReleasePlan(outputPath: string, plan: unknown) {
+  const target = resolve(outputPath);
+  const temporary = `${target}.tmp`;
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(temporary, `${JSON.stringify(plan, null, 2)}\n`, "utf8");
+  renameSync(temporary, target);
+}
+
 function isMainModule() {
   return process.argv[1]
     ? resolve(process.argv[1]) === fileURLToPath(import.meta.url)
@@ -153,7 +183,15 @@ if (isMainModule()) {
   if (!(["auto", "patch", "minor"] as const).includes(intent)) {
     throw new Error(`Unsupported Host Bridge release intent: ${intent}`);
   }
-  process.stdout.write(
-    `${JSON.stringify(createHostBridgeReleasePlan(process.cwd(), intent), null, 2)}\n`,
-  );
+  const plan = createHostBridgeReleasePlan(process.cwd(), intent);
+  const outputArg = process.argv.find((entry) => entry.startsWith("--output="));
+  const outputIndex = process.argv.indexOf("--output");
+  const output =
+    outputArg?.slice("--output=".length) ||
+    (outputIndex >= 0 ? process.argv[outputIndex + 1] : "");
+  if (output) {
+    writeHostBridgeReleasePlan(output, plan);
+  } else {
+    process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
+  }
 }

@@ -21,6 +21,12 @@ const TARGETS = [
 ];
 
 function sourceCommit() {
+  const explicitArg = process.argv.find((entry) =>
+    entry.startsWith("--source-commit="),
+  );
+  if (explicitArg) {
+    return explicitArg.slice("--source-commit=".length).trim();
+  }
   if (process.env.HOST_BRIDGE_SOURCE_COMMIT) {
     return process.env.HOST_BRIDGE_SOURCE_COMMIT.trim();
   }

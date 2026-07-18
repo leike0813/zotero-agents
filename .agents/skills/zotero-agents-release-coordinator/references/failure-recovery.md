@@ -32,6 +32,10 @@ different bytes under an existing version or advance mutable pointers while any
 surface is incomplete. Keep `--host-bridge-done` unset until the release receipt
 for that release set reports `status: complete`.
 
+```powershell
+npm run release:host-bridge:dispatch -- --release-set-id hbrs-... --watch
+```
+
 ### Version Bump Exists But Tag Is Missing
 
 Use when `package.json` or `package-lock.json` already contains the target

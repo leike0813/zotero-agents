@@ -20,8 +20,11 @@ import {
   collectHostBridgeReleaseChangedFiles,
   createHostBridgeReleasePlan,
   resolveHostBridgeReleaseBase,
+  writeHostBridgeReleasePlan,
 } from "../../scripts/host-bridge-release-plan";
 import { materializeHostBridgeSurfaces } from "../../scripts/materialize-host-bridge-surfaces";
+import { resolveExactCliReleaseIntent } from "../../scripts/host-bridge-version-intent";
+import { selectDispatchedHostBridgeRun } from "../../scripts/dispatch-host-bridge-release";
 
 describe("Host Bridge release coordinator", function () {
   this.timeout(30_000);
@@ -58,8 +61,8 @@ describe("Host Bridge release coordinator", function () {
     const released = git("rev-parse", "HEAD");
     mkdirSync(join(root, "host-bridge"));
     writeFileSync(
-      join(root, "host-bridge/release-set.json"),
-      `${JSON.stringify({ source: { commit: released } })}\n`,
+      join(root, "host-bridge/latest-complete-release-receipt.json"),
+      `${JSON.stringify({ status: "complete", sourceCommit: released })}\n`,
     );
     writeFileSync(join(root, "one.txt"), "one\n");
     git("add", ".");
@@ -70,10 +73,66 @@ describe("Host Bridge release coordinator", function () {
 
     assert.strictEqual(resolveHostBridgeReleaseBase(root), released);
     assert.sameMembers(collectHostBridgeReleaseChangedFiles(root).files, [
-      "host-bridge/release-set.json",
+      "host-bridge/latest-complete-release-receipt.json",
       "one.txt",
       "two.txt",
     ]);
+  });
+
+  it("does not treat a planned release set as a completed baseline", function () {
+    const root = mkdtempSync(join(tmpdir(), "host-bridge-planned-base-"));
+    const git = (...args: string[]) =>
+      execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+    git("init", "-b", "main");
+    git("config", "user.name", "Host Bridge Test");
+    git("config", "user.email", "host-bridge@example.invalid");
+    mkdirSync(join(root, "host-bridge"));
+    writeFileSync(join(root, "base.txt"), "base\n");
+    git("add", ".");
+    git("commit", "-m", "base");
+    const base = git("rev-parse", "HEAD");
+    writeFileSync(
+      join(root, "host-bridge/release-set.json"),
+      `${JSON.stringify({ status: "planned", source: { commit: base } })}\n`,
+    );
+    git("add", ".");
+    git("commit", "-m", "prepare release");
+
+    assert.notStrictEqual(resolveHostBridgeReleaseBase(root), base);
+  });
+
+  it("writes release plans atomically to an explicit output file", function () {
+    const root = mkdtempSync(join(tmpdir(), "host-bridge-plan-output-"));
+    const output = join(root, "plan.json");
+    const plan = { schema: "test.plan.v1", prebuildRequired: false };
+    writeHostBridgeReleasePlan(output, plan);
+    assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), plan);
+    assert.isFalse(existsSync(`${output}.tmp`));
+  });
+
+  it("correlates a manual Host Bridge dispatch by request, release set, and source", function () {
+    const selected = selectDispatchedHostBridgeRun(
+      [
+        {
+          databaseId: 1,
+          displayTitle: "Host Bridge hbrs-target (request-old)",
+          headSha: "source",
+          url: "old",
+        },
+        {
+          databaseId: 2,
+          displayTitle: "Host Bridge hbrs-target (request-new)",
+          headSha: "source",
+          url: "new",
+        },
+      ],
+      {
+        releaseSetId: "hbrs-target",
+        requestId: "request-new",
+        sourceSha: "source",
+      },
+    );
+    assert.strictEqual(selected?.databaseId, 2);
   });
 
   it("plans one explicit minor release without writing version state", function () {
@@ -100,6 +159,16 @@ describe("Host Bridge release coordinator", function () {
     assert.deepEqual(after, before);
   });
 
+  it("accepts only an exact current, next-patch, or next-minor CLI target", function () {
+    assert.strictEqual(resolveExactCliReleaseIntent("0.3.0", "0.3.0"), "auto");
+    assert.strictEqual(resolveExactCliReleaseIntent("0.3.0", "0.3.1"), "patch");
+    assert.strictEqual(resolveExactCliReleaseIntent("0.3.9", "0.4.0"), "minor");
+    assert.throws(
+      () => resolveExactCliReleaseIntent("0.3.0", "0.3.2"),
+      /next patch/i,
+    );
+  });
+
   it("keeps content rendering version-neutral and publication release-set-gated", function () {
     const identityPaths = [
       "cli/zotero-bridge/release.json",
@@ -124,13 +193,8 @@ describe("Host Bridge release coordinator", function () {
     );
     assert.notMatch(workflow, /GITEE_TOKEN|gitee\.com/i);
     assert.include(workflow, "host-bridge.release-receipt.v1");
-    const pushPaths = workflow.slice(
-      workflow.indexOf("  push:"),
-      workflow.indexOf("  workflow_dispatch:"),
-    );
-    assert.include(pushPaths, '"host-bridge/release-set.json"');
-    assert.notInclude(pushPaths, "skills_src/");
-    assert.notInclude(pushPaths, "cli/zotero-bridge/**");
+    assert.notInclude(workflow, "  push:");
+    assert.include(workflow, "workflow_dispatch:");
   });
 
   it("keeps prepared release sets independent of ambient workflow run identity", function () {

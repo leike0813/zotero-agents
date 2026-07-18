@@ -27,14 +27,12 @@ catalog, or CLI prebuild inputs change.
 - **AND** its report checklist SHALL include standalone profile repository publication and
   profile binary checksum synchronization.
 
-#### Scenario: Local release instructions avoid duplicate main dispatch
+#### Scenario: Local release instructions use one explicit dispatch
 
-- **WHEN** Host Bridge release changes are published to `main` and match the
-  Host Bridge CLI GitHub workflow paths
-- **THEN** the host bridge release-pipeline skill SHALL instruct agents to use
-  the automatic `push` workflow run as the release run
-- **AND** it SHALL reserve manual `workflow_dispatch` for recovery or explicit
-  republish cases.
+- **WHEN** a prepared Host Bridge release set is committed and pushed to `main`
+- **THEN** the host bridge release-pipeline skill SHALL invoke the repository
+  dispatch command with the exact `releaseSetId`
+- **AND** ordinary pushes and CI SHALL NOT trigger Host Bridge publication.
 
 ### Requirement: CLI Builds Are Fingerprint-Gated
 
@@ -52,6 +50,14 @@ The unified Host Bridge release workflow SHALL run the pinned seven-platform bui
 - **THEN** preparation SHALL record the required CLI version decision and new build fingerprint
 - **AND** the workflow SHALL build all supported platforms before materializing publishable manifests.
 
+#### Scenario: Publication implementation changes
+
+- **WHEN** workflow orchestration, receipt, synchronization, recovery, or pure
+  validation code changes without changing CLI source or its build recipe
+- **THEN** the CLI build fingerprint SHALL remain unchanged
+- **AND** the release pipeline SHALL record those changes as pipeline revision
+  metadata rather than binary compatibility identity.
+
 #### Scenario: Packaged fingerprint is stale
 
 - **WHEN** restored or built binaries do not match the prepared fingerprint and checksum set
@@ -66,6 +72,24 @@ Host Bridge surface publication SHALL restore the immutable CLI prebuild set nam
 - **WHEN** public surface content changes without CLI binary input changes
 - **THEN** the unified workflow SHALL restore the release set's exact CLI version, build fingerprint, command catalog checksum, binary aggregate, and seven binaries
 - **AND** it SHALL publish all three surfaces without running the Rust build matrix.
+
+### Requirement: CLI prebuilds use an append-only branch store
+
+The repository SHALL store complete seven-platform CLI prebuild sets on the
+`host-bridge-cli-prebuilds` branch under
+`sets/<binaryAggregateSha256>`. GitHub Releases SHALL NOT be used as the Host
+Bridge CLI prebuild store.
+
+#### Scenario: Exact aggregate already exists
+
+- **WHEN** publication requests an aggregate already present on the prebuild branch
+- **THEN** all archive and identity hashes SHALL be verified and the set reused
+- **AND** any differing bytes or CLI identity SHALL fail before surface publication.
+
+#### Scenario: Exact aggregate is new
+
+- **WHEN** the seven-platform build or verified repository binaries produce a new aggregate
+- **THEN** the workflow SHALL append one manifest and seven archives without replacing another set.
 
 ### Requirement: Plugin Release Verifies CLI Prebuild Freshness
 
@@ -202,6 +226,12 @@ The release pipeline SHALL publish immutable surface tags first, verify all thre
 - **WHEN** all three immutable manifests match the prepared release set
 - **THEN** the workflow SHALL advance mutable pointers and emit a receipt with `status: complete`.
 
+#### Scenario: Successful publication finalizes source main
+
+- **WHEN** the receipt reports `status: complete` and Host inputs have not changed concurrently
+- **THEN** the workflow SHALL commit the exact CLI binaries, four release-set copies, CLI manifest, and complete receipt to `main`
+- **AND** a concurrent Host input change SHALL preserve a recovery artifact and prevent an unsafe source push.
+
 ### Requirement: Maintainers SHALL prepare releases through one coordinator
 
 The repository SHALL expose a read-only `release:host-bridge:plan` and a single `prepare:host-bridge-release` command. Planning SHALL compare merge-base state and the latest materialized release identity so clean feature checkouts, binary inputs, installers, each public surface, and generated-only drift are classified correctly. Preparation SHALL apply required component bumps once, render all governed targets, materialize the release set, and run unified validation.
@@ -215,6 +245,12 @@ The repository SHALL expose a read-only `release:host-bridge:plan` and a single 
 
 - **WHEN** governed generated files differ from their sources without a public source digest change
 - **THEN** preparation SHALL regenerate and verify them without bumping a component version.
+
+#### Scenario: Exact CLI target is supplied
+
+- **WHEN** preparation receives `--cli-version X.Y.Z`
+- **THEN** it SHALL accept only the current, next patch, or next minor version
+- **AND** it SHALL fail before writing when the requested version conflicts with the required release intent.
 
 #### Scenario: Repository release gate requests Host Bridge completion
 

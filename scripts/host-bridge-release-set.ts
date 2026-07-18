@@ -82,6 +82,19 @@ function isGenerated(path: string) {
   );
 }
 
+const PIPELINE_ONLY_PATHS = new Set([
+  ".github/workflows/release-host-bridge.yml",
+  "scripts/check-zotero-bridge-cli-binary-identity.mjs",
+  "scripts/dispatch-host-bridge-release.ts",
+  "scripts/host-bridge-cli-release-governance.mjs",
+  "scripts/host-bridge-release-plan.ts",
+  "scripts/host-bridge-version-intent.ts",
+  "scripts/prepare-host-bridge-release.ts",
+  "scripts/render-host-bridge-release-set.ts",
+  "scripts/stage-host-bridge-cli-prebuilds.ts",
+  "scripts/sync-host-bridge-cli-prebuilds.ts",
+]);
+
 export function classifyHostBridgeReleaseChanges(
   changedFiles: string[],
 ): HostBridgeReleaseChangePlan {
@@ -108,19 +121,21 @@ export function classifyHostBridgeReleaseChanges(
       "scripts/publish-host-bridge-",
       "scripts/publish-zotero-library-agent-",
       "scripts/publish-zotero-librarian-",
+      "scripts/build-zotero-bridge-cli.mjs",
+      "scripts/package-zotero-bridge-cli.mjs",
     ].some((prefix) => path === prefix || path.startsWith(prefix)),
   );
-  const sourceFiles = files.filter((path) => !isGenerated(path));
-  const cliBinaryInputs = sourceFiles.some(
+  const sourceFiles = files.filter(
+    (path) => !isGenerated(path) && !PIPELINE_ONLY_PATHS.has(path),
+  );
+  const cliBinaryInputs = files.some(
     (path) =>
       path.startsWith("cli/zotero-bridge/src/") ||
       path === "cli/zotero-bridge/Cargo.toml" ||
       path === "cli/zotero-bridge/Cargo.lock" ||
+      path === "host-bridge/cli-build-recipe.json" ||
       path === "scripts/build-zotero-bridge-cli.mjs" ||
-      path === "scripts/check-zotero-bridge-cli-binary-identity.mjs" ||
-      path === "scripts/package-zotero-bridge-cli.mjs" ||
-      path === "scripts/host-bridge-cli-release-governance.mjs" ||
-      path === ".github/workflows/release-host-bridge.yml",
+      path === "scripts/package-zotero-bridge-cli.mjs",
   );
   const installers = sourceFiles.some(
     (path) =>

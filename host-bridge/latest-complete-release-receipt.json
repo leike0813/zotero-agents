@@ -1,0 +1,18 @@
+{
+  "schema": "host-bridge.release-receipt.v1",
+  "status": "complete",
+  "releaseSetId": "hbrs-2a8584bdf69426b8faa9e81f",
+  "sourceCommit": "6630a7b119f12e17797e7edbf586e891b787adf0",
+  "workflowRun": "https://github.com/leike0813/zotero-agents/actions/runs/29639222735",
+  "surfaces": {
+    "cliBundle": {
+      "commit": "aa7ec1007e8dde673a21064b307f2ceb55b28674"
+    },
+    "libraryAgent": {
+      "commit": "7443191dc7e748b8601e0c29e81b893c76f531f2"
+    },
+    "librarianProfile": {
+      "commit": "137031f4eab85e8626aeee97cbc6d29c44b1d77e"
+    }
+  }
+}

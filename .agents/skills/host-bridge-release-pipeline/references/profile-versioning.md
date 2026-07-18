@@ -36,8 +36,8 @@ capabilities, or workflow catalog content changes.
 - Use `render:host-bridge-content` and `check:host-bridge-content` on feature
   changes without changing version metadata.
 - After accumulated changes reach `main`, let
-  `npm run prepare:host-bridge-release -- --intent <patch|minor>` apply each
-  required bump once before release rendering.
+  `npm run prepare:host-bridge-release -- --cli-version X.Y.Z` apply an exact
+  requested CLI target and each dependent bump once before release rendering.
 - Do not bump a component for generated-output drift alone or for another
   component's patch-only release.
 - Use explicit release intent for breaking protocol or schema decisions.

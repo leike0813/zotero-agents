@@ -1,38 +1,51 @@
 import { spawnSync } from "node:child_process";
-import { chmod, cp, mkdir, readdir, rm, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { chmod, cp, mkdir, readFile, rm, stat } from "node:fs/promises";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path, { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import zlib from "node:zlib";
+import { readHostBridgeCliBuildRecipe } from "./host-bridge-cli-release-governance.mjs";
 
-const PREBUILD_TAG = "host-bridge-cli-prebuilds";
+const PREBUILD_BRANCH = "host-bridge-cli-prebuilds";
 const DOWNLOAD_DIR = path.join(".scaffold", "host-bridge-cli-prebuilds-sync");
 const EXTRACT_DIR = path.join(DOWNLOAD_DIR, "extracted");
 const PREBUILD_ROOT = path.join("addon", "bin");
 
-const EXPECTED_PLATFORMS: Array<{ platform: string; binary: string }> = [
-  { platform: "win32-x64", binary: "zotero-bridge.exe" },
-  { platform: "darwin-x64", binary: "zotero-bridge" },
-  { platform: "darwin-arm64", binary: "zotero-bridge" },
-  { platform: "linux-x86", binary: "zotero-bridge" },
-  { platform: "linux-x64", binary: "zotero-bridge" },
-  { platform: "linux-arm", binary: "zotero-bridge" },
-  { platform: "linux-arm64", binary: "zotero-bridge" },
-];
+const EXPECTED_PLATFORMS: Array<{ platform: string; binary: string }> =
+  readHostBridgeCliBuildRecipe().targets.map(
+    ({ platform, binary }: { platform: string; binary: string }) => ({
+      platform,
+      binary,
+    }),
+  );
+
+type PrebuildManifest = {
+  schema: "host-bridge.cli-prebuild-set.v1";
+  binaryAggregateSha256: string;
+  cliVersion: string;
+  buildFingerprint: string;
+  archives: Array<{
+    platform: string;
+    binary: string;
+    file: string;
+    sha256: string;
+  }>;
+};
 
 function argValue(name: string) {
-  const prefix = `--${name}=`;
-  return process.argv
-    .find((arg) => arg.startsWith(prefix))
-    ?.slice(prefix.length);
+  const inline = process.argv.find((arg) => arg.startsWith(`--${name}=`));
+  const index = process.argv.indexOf(`--${name}`);
+  return (
+    inline?.slice(name.length + 3) ||
+    (index >= 0 ? process.argv[index + 1] : "")
+  ).trim();
 }
 
 function packageRepository() {
   const pkg = JSON.parse(readFileSync("package.json", "utf8"));
   const raw = String(pkg.repository?.url || pkg.repository || "").trim();
-  const match =
-    raw.match(/github\.com[:/](.+?\/.+?)(?:\.git)?$/) ||
-    raw.match(/^git\+https:\/\/github\.com\/(.+?\/.+?)(?:\.git)?$/);
+  const match = raw.match(/github\.com[:/](.+?\/.+?)(?:\.git)?$/);
   return match?.[1]?.replace(/\.git$/, "") || "";
 }
 
@@ -45,118 +58,85 @@ function requireCommand(command: string) {
 
 function run(command: string, args: string[]) {
   const result = spawnSync(command, args, { stdio: "inherit" });
-  if (result.error) {
-    throw result.error;
-  }
+  if (result.error) throw result.error;
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(" ")} exited ${result.status}`);
   }
 }
 
-function powershellCommand() {
-  for (const command of ["pwsh", "powershell"]) {
-    const result = spawnSync(
-      command,
-      ["-NoProfile", "-Command", "$PSVersionTable.PSVersion"],
-      {
-        stdio: "ignore",
-      },
-    );
-    if (!result.error && result.status === 0) {
-      return command;
-    }
-  }
-  throw new Error("Missing required command: pwsh or powershell");
-}
-
-function extractArchive(archive: string, destination: string) {
-  if (process.platform === "win32") {
-    run(powershellCommand(), [
-      "-NoProfile",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-Command",
-      `Expand-Archive -LiteralPath '${archive}' -DestinationPath '${destination}' -Force`,
-    ]);
-    return;
-  }
-  extractZipWithNode(archive, destination);
-}
-
-function extractZipWithNode(archive: string, destination: string) {
-  // Pure Node.js ZIP extraction using zlib.inflateRawSync for DEFLATE.
-  // Reads the central directory to locate each entry's data via local headers.
+function extractZipWithNode(
+  archive: string,
+  destination: string,
+  expectedPlatform: string,
+  expectedBinary: string,
+) {
   const buffer = readFileSync(archive);
-
-  // Find End of Central Directory record (signature 0x06054b50)
   let eocdOffset = -1;
-  for (let i = buffer.length - 22; i >= 0; i--) {
-    if (buffer.readUInt32LE(i) === 0x06054b50) {
-      eocdOffset = i;
+  for (let index = buffer.length - 22; index >= 0; index -= 1) {
+    if (buffer.readUInt32LE(index) === 0x06054b50) {
+      eocdOffset = index;
       break;
     }
   }
-  if (eocdOffset === -1) {
-    throw new Error(`Invalid ZIP archive: ${archive}`);
-  }
-
+  if (eocdOffset === -1) throw new Error(`Invalid ZIP archive: ${archive}`);
   const totalEntries = buffer.readUInt16LE(eocdOffset + 10);
-  const cdOffset = buffer.readUInt32LE(eocdOffset + 16);
-
-  let cdPos = cdOffset;
-  for (let i = 0; i < totalEntries; i++) {
-    if (buffer.readUInt32LE(cdPos) !== 0x02014b50) {
-      throw new Error(`Invalid central directory entry ${i}`);
+  let cursor = buffer.readUInt32LE(eocdOffset + 16);
+  for (let index = 0; index < totalEntries; index += 1) {
+    if (buffer.readUInt32LE(cursor) !== 0x02014b50) {
+      throw new Error(`Invalid central directory entry ${index}`);
     }
-    const compressionMethod = buffer.readUInt16LE(cdPos + 10);
-    const compressedSize = buffer.readUInt32LE(cdPos + 20);
-    const uncompressedSize = buffer.readUInt32LE(cdPos + 24);
-    const fileNameLength = buffer.readUInt16LE(cdPos + 28);
-    const extraLength = buffer.readUInt16LE(cdPos + 30);
-    const commentLength = buffer.readUInt16LE(cdPos + 32);
-    const localHeaderOffset = buffer.readUInt32LE(cdPos + 42);
+    const method = buffer.readUInt16LE(cursor + 10);
+    const compressedSize = buffer.readUInt32LE(cursor + 20);
+    const uncompressedSize = buffer.readUInt32LE(cursor + 24);
+    const fileNameLength = buffer.readUInt16LE(cursor + 28);
+    const extraLength = buffer.readUInt16LE(cursor + 30);
+    const commentLength = buffer.readUInt16LE(cursor + 32);
+    const localOffset = buffer.readUInt32LE(cursor + 42);
     const fileName = buffer
-      .subarray(cdPos + 46, cdPos + 46 + fileNameLength)
+      .subarray(cursor + 46, cursor + 46 + fileNameLength)
       .toString("utf8");
-    cdPos += 46 + fileNameLength + extraLength + commentLength;
-
-    // Read local file header to find the start of compressed data
-    const localPos = localHeaderOffset;
-    const localFileNameLength = buffer.readUInt16LE(localPos + 26);
-    const localExtraLength = buffer.readUInt16LE(localPos + 28);
-    const dataStart = localPos + 30 + localFileNameLength + localExtraLength;
-    const compressedData = buffer.subarray(
-      dataStart,
-      dataStart + compressedSize,
-    );
-
-    const targetPath = path.join(destination, fileName);
+    const normalizedName = fileName.replace(/\\/g, "/");
+    const allowedEntries = new Set([
+      `${expectedPlatform}/`,
+      `${expectedPlatform}/${expectedBinary}`,
+      `${expectedPlatform}/${expectedBinary}.sha256`,
+    ]);
+    if (
+      normalizedName.startsWith("/") ||
+      normalizedName.split("/").includes("..") ||
+      !allowedEntries.has(normalizedName)
+    ) {
+      throw new Error(`Unexpected ZIP entry: ${fileName}`);
+    }
+    cursor += 46 + fileNameLength + extraLength + commentLength;
+    const localNameLength = buffer.readUInt16LE(localOffset + 26);
+    const localExtraLength = buffer.readUInt16LE(localOffset + 28);
+    const dataStart = localOffset + 30 + localNameLength + localExtraLength;
+    const compressed = buffer.subarray(dataStart, dataStart + compressedSize);
+    const target = path.join(destination, fileName);
     if (fileName.endsWith("/")) {
-      mkdirSync(targetPath, { recursive: true });
+      mkdirSync(target, { recursive: true });
       continue;
     }
-
-    mkdirSync(dirname(targetPath), { recursive: true });
-
-    let data: Buffer;
-    if (compressionMethod === 8) {
-      data = zlib.inflateRawSync(compressedData);
-    } else if (compressionMethod === 0) {
-      data = compressedData;
-    } else {
-      throw new Error(
-        `Unsupported ZIP compression method ${compressionMethod} for ${fileName}`,
-      );
-    }
-
+    mkdirSync(dirname(target), { recursive: true });
+    const data =
+      method === 8
+        ? zlib.inflateRawSync(compressed)
+        : method === 0
+          ? compressed
+          : null;
+    if (!data) throw new Error(`Unsupported ZIP method ${method}: ${fileName}`);
     if (data.length !== uncompressedSize) {
-      throw new Error(
-        `Size mismatch for ${fileName}: expected ${uncompressedSize}, got ${data.length}`,
-      );
+      throw new Error(`Size mismatch for ${fileName}`);
     }
-
-    writeFileSync(targetPath, data);
+    writeFileSync(target, data);
   }
+}
+
+async function sha256File(file: string) {
+  return createHash("sha256")
+    .update(await readFile(file))
+    .digest("hex");
 }
 
 async function verifyPrebuilds(root = PREBUILD_ROOT) {
@@ -164,9 +144,7 @@ async function verifyPrebuilds(root = PREBUILD_ROOT) {
   for (const { platform, binary } of EXPECTED_PLATFORMS) {
     for (const file of [binary, `${binary}.sha256`]) {
       const target = path.join(root, platform, file);
-      if (!existsSync(target)) {
-        missing.push(target);
-      }
+      if (!existsSync(target)) missing.push(target);
     }
   }
   if (missing.length) {
@@ -175,8 +153,20 @@ async function verifyPrebuilds(root = PREBUILD_ROOT) {
     );
   }
   for (const { platform, binary } of EXPECTED_PLATFORMS) {
+    const binaryPath = path.join(root, platform, binary);
+    const expected = String(await readFile(`${binaryPath}.sha256`, "utf8"))
+      .trim()
+      .split(/\s+/)[0];
+    if (!/^[a-f0-9]{64}$/i.test(expected)) {
+      throw new Error(
+        `Invalid prebuild checksum sidecar: ${platform}/${binary}`,
+      );
+    }
+    if ((await sha256File(binaryPath)) !== expected.toLowerCase()) {
+      throw new Error(`Prebuild checksum mismatch: ${platform}/${binary}`);
+    }
     if (!platform.startsWith("win32")) {
-      await chmod(path.join(root, platform, binary), 0o755);
+      await chmod(binaryPath, 0o755);
     }
   }
 }
@@ -196,57 +186,108 @@ async function replacePrebuilds(
   await verifyPrebuilds(targetRoot);
 }
 
-async function main() {
-  const tag = argValue("tag") || PREBUILD_TAG;
-  const repo =
-    argValue("repo") || process.env.GITHUB_REPOSITORY || packageRepository();
-  if (!repo) {
+async function verifyArchiveSet(
+  setDirectory: string,
+  aggregate: string,
+  expectedIdentity?: { cliVersion: string; buildFingerprint: string },
+) {
+  const manifest = JSON.parse(
+    await readFile(path.join(setDirectory, "manifest.json"), "utf8"),
+  ) as PrebuildManifest;
+  if (
+    manifest.schema !== "host-bridge.cli-prebuild-set.v1" ||
+    manifest.binaryAggregateSha256 !== aggregate
+  ) {
+    throw new Error(`Prebuild manifest does not match aggregate ${aggregate}`);
+  }
+  if (
+    expectedIdentity &&
+    (manifest.cliVersion !== expectedIdentity.cliVersion ||
+      manifest.buildFingerprint !== expectedIdentity.buildFingerprint)
+  ) {
     throw new Error(
-      "Unable to resolve GitHub repository. Pass --repo=owner/name.",
+      `Prebuild aggregate ${aggregate} is already bound to a different CLI identity`,
     );
   }
-
-  requireCommand("gh");
-
-  await rm(DOWNLOAD_DIR, { recursive: true, force: true });
-  await mkdir(DOWNLOAD_DIR, { recursive: true });
-  run("gh", [
-    "release",
-    "download",
-    tag,
-    "--repo",
-    repo,
-    "--pattern",
-    "zotero-bridge-*.zip",
-    "--dir",
-    DOWNLOAD_DIR,
-  ]);
-
-  const archives = (await readdir(DOWNLOAD_DIR))
-    .filter((name) => /^zotero-bridge-.+\.zip$/.test(name))
-    .map((name) => path.join(DOWNLOAD_DIR, name));
-  if (!archives.length) {
-    throw new Error(`No zotero-bridge-*.zip assets found in ${repo}@${tag}`);
+  const expectedPlatforms = new Map(
+    EXPECTED_PLATFORMS.map((entry) => [entry.platform, entry.binary]),
+  );
+  if (manifest.archives.length !== expectedPlatforms.size) {
+    throw new Error("Prebuild manifest must contain exactly seven archives");
   }
+  for (const archive of manifest.archives) {
+    const expectedBinary = expectedPlatforms.get(archive.platform);
+    if (
+      !expectedBinary ||
+      archive.binary !== expectedBinary ||
+      archive.file !== `zotero-bridge-${archive.platform}.zip`
+    ) {
+      throw new Error(`Unexpected or duplicate prebuild: ${archive.platform}`);
+    }
+    expectedPlatforms.delete(archive.platform);
+    const file = path.join(setDirectory, archive.file);
+    if ((await sha256File(file)) !== archive.sha256) {
+      throw new Error(`Prebuild archive checksum mismatch: ${archive.file}`);
+    }
+  }
+  return manifest;
+}
 
+async function main() {
+  const release = JSON.parse(
+    readFileSync("cli/zotero-bridge/release.json", "utf8"),
+  );
+  const aggregate =
+    argValue("aggregate") || String(release.binaryAggregateSha256 || "");
+  if (!/^[a-f0-9]{64}$/.test(aggregate)) {
+    throw new Error(
+      "--aggregate requires a 64-character binary aggregate SHA-256",
+    );
+  }
+  const repo =
+    argValue("repo") || process.env.GITHUB_REPOSITORY || packageRepository();
+  const branch = argValue("branch") || PREBUILD_BRANCH;
+  if (!repo) throw new Error("Pass --repo=owner/name");
+  requireCommand("gh");
+  await rm(DOWNLOAD_DIR, { recursive: true, force: true });
+  await mkdir(dirname(DOWNLOAD_DIR), { recursive: true });
+  run("gh", [
+    "repo",
+    "clone",
+    repo,
+    DOWNLOAD_DIR,
+    "--",
+    "--branch",
+    branch,
+    "--single-branch",
+    "--depth",
+    "1",
+  ]);
+  const setDirectory = path.join(DOWNLOAD_DIR, "sets", aggregate);
+  const manifest = await verifyArchiveSet(setDirectory, aggregate, {
+    cliVersion: String(release.version || ""),
+    buildFingerprint: String(release.buildFingerprint || ""),
+  });
   await rm(EXTRACT_DIR, { recursive: true, force: true });
   await mkdir(EXTRACT_DIR, { recursive: true });
-  for (const archive of archives) {
-    const archiveStat = await stat(archive);
-    if (!archiveStat.isFile()) {
-      continue;
-    }
-    extractArchive(archive, EXTRACT_DIR);
+  for (const archive of manifest.archives) {
+    const archivePath = path.join(setDirectory, archive.file);
+    if (!(await stat(archivePath)).isFile()) continue;
+    extractZipWithNode(
+      archivePath,
+      EXTRACT_DIR,
+      archive.platform,
+      archive.binary,
+    );
   }
-
   await replacePrebuilds(EXTRACT_DIR);
   console.log(
     JSON.stringify({
       ok: true,
       repo,
-      tag,
-      platforms: EXPECTED_PLATFORMS.map((entry) => entry.platform),
-      target: "addon/bin",
+      branch,
+      aggregate,
+      target: PREBUILD_ROOT,
     }),
   );
 }
@@ -254,6 +295,7 @@ async function main() {
 export const syncHostBridgeCliPrebuildInternalsForTests = {
   expectedPlatforms: EXPECTED_PLATFORMS,
   replacePrebuilds,
+  verifyArchiveSet,
 };
 
 const invokedModule = process.argv[1]

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -10,23 +10,61 @@ export const ADDON_RELEASE_MANIFEST_PATH =
   "addon/bin/zotero-bridge-release.json";
 export const CARGO_TOML_PATH = "cli/zotero-bridge/Cargo.toml";
 export const CARGO_LOCK_PATH = "cli/zotero-bridge/Cargo.lock";
+export const BUILD_RECIPE_PATH = "host-bridge/cli-build-recipe.json";
 
-export const EXPECTED_PREBUILDS = [
-  { platform: "win32-x64", binary: "zotero-bridge.exe" },
-  { platform: "darwin-x64", binary: "zotero-bridge" },
-  { platform: "darwin-arm64", binary: "zotero-bridge" },
-  { platform: "linux-x86", binary: "zotero-bridge" },
-  { platform: "linux-x64", binary: "zotero-bridge" },
-  { platform: "linux-arm", binary: "zotero-bridge" },
-  { platform: "linux-arm64", binary: "zotero-bridge" },
-];
+export function readHostBridgeCliBuildRecipe(options = {}) {
+  const root = path.resolve(options.root || process.cwd());
+  const recipe = JSON.parse(
+    readFileSync(repoPath(root, BUILD_RECIPE_PATH), "utf8"),
+  );
+  if (
+    recipe.schema !== "host-bridge.cli-build-recipe.v1" ||
+    !recipe.toolchain ||
+    !Array.isArray(recipe.targets) ||
+    recipe.targets.length !== 7
+  ) {
+    throw new Error(
+      "Host Bridge CLI build recipe must declare exactly seven targets",
+    );
+  }
+  for (const field of ["node", "rust", "zig", "cargoZigbuild"]) {
+    if (!String(recipe.toolchain[field] || "").trim()) {
+      throw new Error(
+        `Host Bridge CLI build recipe is missing toolchain.${field}`,
+      );
+    }
+  }
+  const platforms = new Set();
+  for (const target of recipe.targets) {
+    if (
+      !String(target.runner || "").trim() ||
+      !String(target.platform || "").trim() ||
+      !String(target.target || "").trim() ||
+      !String(target.binary || "").trim() ||
+      typeof target.runtimeIdentity !== "boolean" ||
+      platforms.has(target.platform)
+    ) {
+      throw new Error(
+        "Host Bridge CLI build recipe contains an invalid or duplicate target",
+      );
+    }
+    platforms.add(target.platform);
+  }
+  return recipe;
+}
+
+const MODULE_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
+export const EXPECTED_PREBUILDS = readHostBridgeCliBuildRecipe({
+  root: MODULE_ROOT,
+}).targets.map(({ platform, binary }) => ({ platform, binary }));
 
 const BUILD_INPUT_EXACT_PATHS = new Set([
-  ".github/workflows/release-host-bridge.yml",
+  BUILD_RECIPE_PATH,
   "scripts/build-zotero-bridge-cli.mjs",
-  "scripts/check-zotero-bridge-cli-binary-identity.mjs",
   "scripts/package-zotero-bridge-cli.mjs",
-  "scripts/host-bridge-cli-release-governance.mjs",
   CARGO_TOML_PATH,
   CARGO_LOCK_PATH,
 ]);
@@ -425,6 +463,10 @@ async function main(argv) {
     : "";
   if (command === "fingerprint") {
     printJson(await computeHostBridgeCliBuildFingerprint());
+    return;
+  }
+  if (command === "recipe") {
+    printJson(readHostBridgeCliBuildRecipe());
     return;
   }
   if (command === "status") {

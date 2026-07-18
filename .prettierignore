@@ -17,6 +17,7 @@ pnpm-lock.yaml
 # Generated/bundled files
 addon/content/shared/vendor
 addon/locale
+cli/zotero-bridge/src/agent-surface.json
 skills_builtin
 skills_src
 workflows_builtin
