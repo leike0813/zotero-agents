@@ -3,7 +3,7 @@
   "label": "Collection Collector",
   "provider": "skillrunner",
   "version": "0.1.0",
-  "display": { "core": true, "emoji": "🗂️" },
+  "display": { "core": false, "emoji": "🗂️" },
   "taskNameTemplate": "Collect literature: {collectionScope}",
   "trigger": { "requiresSelection": false },
   "inputs": { "unit": "workflow" },

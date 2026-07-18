@@ -14,7 +14,7 @@
   "workflows.literature-analysis.parameters.language.description": "Lingua utilizzata per il riassunto, l'analisi delle citazioni e il contenuto generato.",
   "workflows.literature-analysis.parameters.language.title": "Lingua di output",
   "workflows.literature-analysis.skills.literature-analysis.name": "📊 Analisi della letteratura",
-  "workflows.literature-analysis.skills.tag-regulator.name": "🏷 Regolazione dei tag",
+  "workflows.literature-analysis.skills.tag-regulator.name": "🏷️ Regolazione dei tag",
   "workflows.literature-analysis.taskNameTemplate": "Analizzare la letteratura",
   "workflows.literature-deep-reading.label": "Lettura approfondita della letteratura",
   "workflows.literature-deep-reading.parameters.mode.description": "Controlla la fase di pre-traduzione: fast utilizza una traduzione rapida a blocchi; high_quality utilizza un allineamento per frasi e controlli di qualità completi.",
@@ -59,7 +59,7 @@
   "workflows.tag-regulator.parameters.infer_tag.title": "Inferisci i tag",
   "workflows.tag-regulator.parameters.tag_note_language.description": "Lingua utilizzata per le descrizioni dei tag e i risultati della normalizzazione.",
   "workflows.tag-regulator.parameters.tag_note_language.title": "Lingua delle note dei tag",
-  "workflows.tag-regulator.skills.tag-regulator.name": "🏷 Regolazione dei tag",
+  "workflows.tag-regulator.skills.tag-regulator.name": "🏷️ Regolazione dei tag",
   "workflows.tag-regulator.taskNameTemplate": "Regolare i tag della letteratura",
   "workflows.export-research-bundle.label": "Esporta pacchetto di ricerca",
   "workflows.export-research-bundle.parameters.paperTitle.title": "Titolo dell'articolo",
@@ -78,7 +78,7 @@
   "workflows.collection-collector.parameters.collection.description": "Collezione Zotero esistente che riceverà la letteratura corrispondente.",
   "workflows.collection-collector.parameters.collectionScope.title": "Ambito della collezione",
   "workflows.collection-collector.parameters.collectionScope.description": "Significato, tema di ricerca o confine bibliografico della collezione.",
-  "workflows.collection-collector.skills.collection-collector.name": "🗂️ Collezionista di raccolte",
+  "workflows.collection-collector.skills.collection-collector.name": "🗂️ Raccoglitore di collezione",
   "workflows.collection-collector.taskNameTemplate": "Raccogliere letteratura: {collectionScope}",
   "workflows.tag-auditor.label": "Verifica dei tag"
 }
