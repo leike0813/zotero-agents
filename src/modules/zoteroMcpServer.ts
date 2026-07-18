@@ -10,6 +10,12 @@ import {
 } from "./hostBridgeServer";
 import type { HostBridgeStatusSnapshot } from "./hostBridgeProtocol";
 import {
+  prepareEmptyHttpResponse,
+  prepareJsonHttpResponse,
+  prepareTextHttpResponse,
+  type PreparedMemoryHttpResponse,
+} from "./runtimeHttpResponse";
+import {
   appendRuntimeLog,
   listRuntimeLogs,
   type RuntimeLogLevel,
@@ -919,30 +925,29 @@ function buildHttpResponse(args: {
   contentType?: string;
   headers?: Record<string, string>;
 }) {
-  const bodyText =
-    typeof args.body === "string" ? args.body : JSON.stringify(args.body);
-  const bodyLength = utf8ByteLength(bodyText);
-  return [
-    `HTTP/1.1 ${args.status} ${args.reason}`,
-    `Content-Type: ${args.contentType || "application/json"}; charset=utf-8`,
-    `Content-Length: ${bodyLength}`,
-    ...Object.entries(args.headers || {}).map(
-      ([name, value]) => `${name}: ${value}`,
-    ),
-    "Connection: close",
-    "",
-    bodyText,
-  ].join("\r\n");
+  return typeof args.body === "string"
+    ? prepareTextHttpResponse({
+        status: args.status,
+        reason: args.reason,
+        bodyText: args.body,
+        contentType: args.contentType,
+        headers: args.headers,
+      })
+    : prepareJsonHttpResponse({
+        status: args.status,
+        reason: args.reason,
+        body: args.body,
+        contentType: args.contentType,
+        headers: args.headers,
+      });
 }
 
 function buildNoContentResponse(args: { status: number; reason: string }) {
-  return [
-    `HTTP/1.1 ${args.status} ${args.reason}`,
-    "Content-Length: 0",
-    "Connection: close",
-    "",
-    "",
-  ].join("\r\n");
+  return prepareEmptyHttpResponse(args);
+}
+
+function preparedResponseToRawString(response: PreparedMemoryHttpResponse) {
+  return `${response.headers}${new TextDecoder().decode(response.bodyBytes)}`;
 }
 
 async function isAuthorized(request: HttpRequest) {
@@ -1063,7 +1068,7 @@ function payloadSummaryMethod(payload: unknown) {
   return summarizeJsonRpcPayloadValue(payload).method;
 }
 
-function summarizeJsonRpcResponse(body: unknown) {
+function summarizeJsonRpcResponse(body: unknown, preparedBodyLength?: number) {
   if (body === undefined || body === null) {
     return {
       contentType: "",
@@ -1075,7 +1080,6 @@ function summarizeJsonRpcResponse(body: unknown) {
       error: "",
     };
   }
-  const bodyText = typeof body === "string" ? body : JSON.stringify(body);
   let parsed: unknown = body;
   if (typeof body === "string" && body.trim()) {
     try {
@@ -1088,7 +1092,7 @@ function summarizeJsonRpcResponse(body: unknown) {
   if (!entry || typeof entry !== "object") {
     return {
       contentType: "",
-      bodyLength: bodyText.length,
+      bodyLength: Math.max(0, Number(preparedBodyLength || 0) || 0),
       jsonrpc: "",
       id: "",
       protocolVersion: "",
@@ -1109,10 +1113,7 @@ function summarizeJsonRpcResponse(body: unknown) {
   };
   return {
     contentType: "application/json; charset=utf-8",
-    bodyLength:
-      typeof TextEncoder === "function"
-        ? new TextEncoder().encode(bodyText).length
-        : bodyText.length,
+    bodyLength: Math.max(0, Number(preparedBodyLength || 0) || 0),
     jsonrpc: String(response.jsonrpc || ""),
     id: stringifyJsonRpcId(response.id),
     protocolVersion: String(response.result?.protocolVersion || ""),
@@ -1173,19 +1174,11 @@ function requestHeaderFacts(request?: HttpRequest) {
   };
 }
 
-function responseFacts(response: string) {
-  const splitIndex = response.indexOf("\r\n\r\n");
-  const head = splitIndex >= 0 ? response.slice(0, splitIndex) : response;
-  const contentLengthLine = head
-    .split("\r\n")
-    .find((line) => /^content-length\s*:/i.test(line));
-  const contentLength = Number(
-    contentLengthLine?.slice(contentLengthLine.indexOf(":") + 1).trim() || 0,
-  );
+function responseFacts(response: PreparedMemoryHttpResponse) {
   return {
-    responseChars: response.length,
-    responseBytes: utf8ByteLength(response),
-    contentLength,
+    responseChars: response.headers.length + response.bodyCharLength,
+    responseBytes: response.wireByteLength,
+    contentLength: response.bodyByteLength,
   };
 }
 
@@ -1324,6 +1317,7 @@ function recordMcpRequest(args: {
   status: number;
   authorized: boolean;
   responseBody?: unknown;
+  responseBodyLength?: number;
   responseContentType?: string;
   queueDepthAtAccept?: number;
   queuePosition?: number;
@@ -1335,7 +1329,10 @@ function recordMcpRequest(args: {
   error?: string;
 }) {
   const summary = summarizeJsonRpcPayload(args.request.body);
-  const responseSummary = summarizeJsonRpcResponse(args.responseBody);
+  const responseSummary = summarizeJsonRpcResponse(
+    args.responseBody,
+    args.responseBodyLength,
+  );
   const entry: ZoteroMcpRequestLogEntry = {
     ts: nowIso(),
     method: args.request.method,
@@ -1380,6 +1377,37 @@ function recordMcpRequest(args: {
     detail: JSON.stringify(entry),
     raw: entry,
   });
+}
+
+function prepareAndRecordMcpResponse(args: {
+  request: HttpRequest;
+  status: number;
+  reason: string;
+  authorized: boolean;
+  body: unknown;
+  contentType?: string;
+  headers?: Record<string, string>;
+  error?: string;
+  limitReason?: string;
+}) {
+  const response = buildHttpResponse({
+    status: args.status,
+    reason: args.reason,
+    body: args.body,
+    contentType: args.contentType,
+    headers: args.headers,
+  });
+  recordMcpRequest({
+    request: args.request,
+    status: args.status,
+    authorized: args.authorized,
+    responseBody: args.body,
+    responseBodyLength: response.bodyByteLength,
+    responseContentType: response.contentType,
+    error: args.error,
+    limitReason: args.limitReason,
+  });
+  return response;
 }
 
 function payloadContainsToolCall(payload: unknown): boolean {
@@ -1865,23 +1893,19 @@ async function runMcpJsonRpcWithMetrics(
 async function handleHttpRequest(
   request: HttpRequest,
   requestId = createMcpRequestId(),
-): Promise<string> {
+): Promise<PreparedMemoryHttpResponse> {
   if (!isZoteroMcpServerEnabled()) {
     const responseBody = {
       error: "zotero_mcp_disabled",
       message: "Zotero MCP server is disabled by preference",
     };
-    recordMcpRequest({
+    return prepareAndRecordMcpResponse({
       request,
       status: 503,
-      authorized: false,
-      responseBody,
-      error: "zotero_mcp_disabled",
-    });
-    return buildHttpResponse({
-      status: 503,
       reason: "Service Unavailable",
+      authorized: false,
       body: responseBody,
+      error: "zotero_mcp_disabled",
     });
   }
   const authorized = await isAuthorized(request);
@@ -1908,33 +1932,22 @@ async function handleHttpRequest(
       error: "bad_request",
       reason: request.parseError,
     };
-    recordMcpRequest({
+    return prepareAndRecordMcpResponse({
       request,
       status: 400,
-      authorized,
-      responseBody,
-      error: "bad_request",
-    });
-    return buildHttpResponse({
-      status: 400,
       reason: "Bad Request",
+      authorized,
       body: responseBody,
+      error: "bad_request",
     });
   }
 
   if (request.path === "/health" && request.method === "GET") {
-    recordMcpRequest({
+    return prepareAndRecordMcpResponse({
       request,
       status: 200,
-      authorized: true,
-      responseBody: {
-        status: state.status,
-        endpoint: state.endpoint,
-      },
-    });
-    return buildHttpResponse({
-      status: 200,
       reason: "OK",
+      authorized: true,
       body: {
         status: state.status,
         endpoint: state.endpoint,
@@ -1942,94 +1955,68 @@ async function handleHttpRequest(
     });
   }
   if (!isMcpPath(request)) {
-    recordMcpRequest({
+    return prepareAndRecordMcpResponse({
       request,
       status: 404,
+      reason: "Not Found",
       authorized,
-      responseBody: {
+      body: {
         error: "not_found",
       },
       error: "not_found",
     });
-    return buildHttpResponse({
-      status: 404,
-      reason: "Not Found",
-      body: {
-        error: "not_found",
-      },
-    });
   }
   if (!authorized) {
-    recordMcpRequest({
+    return prepareAndRecordMcpResponse({
       request,
       status: 401,
+      reason: "Unauthorized",
       authorized,
-      responseBody: {
+      body: {
         error: "unauthorized",
       },
       error: "unauthorized",
-    });
-    return buildHttpResponse({
-      status: 401,
-      reason: "Unauthorized",
-      body: {
-        error: "unauthorized",
-      },
     });
   }
   if (!isOriginAllowed(request)) {
     const responseBody = {
       error: "origin_not_allowed",
     };
-    recordMcpRequest({
+    return prepareAndRecordMcpResponse({
       request,
       status: 403,
-      authorized,
-      responseBody,
-      error: "origin_not_allowed",
-    });
-    return buildHttpResponse({
-      status: 403,
       reason: "Forbidden",
+      authorized,
       body: responseBody,
+      error: "origin_not_allowed",
     });
   }
   if (request.method === "GET") {
     const responseBody = {
       error: "streamable_http_get_not_supported",
     };
-    recordMcpRequest({
+    return prepareAndRecordMcpResponse({
       request,
       status: 405,
-      authorized,
-      responseBody,
-      error: "streamable_http_get_not_supported",
-    });
-    return buildHttpResponse({
-      status: 405,
       reason: "Method Not Allowed",
+      authorized,
       body: responseBody,
+      error: "streamable_http_get_not_supported",
       headers: {
         Allow: "POST",
       },
     });
   }
   if (request.method !== "POST") {
-    recordMcpRequest({
+    return prepareAndRecordMcpResponse({
       request,
       status: 405,
-      authorized,
-      responseBody: {
-        error: "method_not_allowed",
-      },
-      error: "method_not_allowed",
-    });
-    return buildHttpResponse({
-      status: 405,
       reason: "Method Not Allowed",
+      authorized,
       body: {
         error: "method_not_allowed",
       },
+      error: "method_not_allowed",
     });
   }
   if ((request.bodyByteLength || 0) > MAX_MCP_REQUEST_BODY_BYTES) {
@@ -2037,18 +2024,14 @@ async function handleHttpRequest(
       error: "request_body_too_large",
       maxBytes: MAX_MCP_REQUEST_BODY_BYTES,
     };
-    recordMcpRequest({
+    return prepareAndRecordMcpResponse({
       request,
       status: 413,
+      reason: "Payload Too Large",
       authorized,
-      responseBody,
+      body: responseBody,
       error: "request_body_too_large",
       limitReason: "request_body_too_large",
-    });
-    return buildHttpResponse({
-      status: 413,
-      reason: "Payload Too Large",
-      body: responseBody,
     });
   }
   let payload: unknown;
@@ -2070,31 +2053,21 @@ async function handleHttpRequest(
       request,
       error: new Error("Parse error"),
     });
-    recordMcpRequest({
+    const responseBody = {
+      jsonrpc: "2.0",
+      id: null,
+      error: {
+        code: -32700,
+        message: "Parse error",
+      },
+    };
+    return prepareAndRecordMcpResponse({
       request,
       status: 400,
-      authorized,
-      responseBody: {
-        jsonrpc: "2.0",
-        id: null,
-        error: {
-          code: -32700,
-          message: "Parse error",
-        },
-      },
-      error: "parse_error",
-    });
-    return buildHttpResponse({
-      status: 400,
       reason: "Bad Request",
-      body: {
-        jsonrpc: "2.0",
-        id: null,
-        error: {
-          code: -32700,
-          message: "Parse error",
-        },
-      },
+      authorized,
+      body: responseBody,
+      error: "parse_error",
     });
   }
   const result = await runMcpJsonRpcWithMetrics(payload, requestId);
@@ -2133,7 +2106,7 @@ async function handleHttpRequest(
       request,
       payload,
       status: 202,
-      responseBytes: noContentResponse.length,
+      responseBytes: noContentResponse.wireByteLength,
       details: responseFacts(noContentResponse),
     });
     return noContentResponse;
@@ -2157,6 +2130,7 @@ async function handleHttpRequest(
       status: 200,
       authorized,
       responseBody: response,
+      responseBodyLength: rawResponse.bodyByteLength,
       queueDepthAtAccept: result.queueDepthAtAccept,
       queuePosition: result.queuePosition,
       queueWaitMs: result.queueWaitMs,
@@ -2172,7 +2146,7 @@ async function handleHttpRequest(
       request,
       payload,
       status: 200,
-      responseBytes: rawResponse.length,
+      responseBytes: rawResponse.wireByteLength,
       details: {
         ...responseFacts(rawResponse),
         ...(payloadSummaryMethod(payload) === "tools/list"
@@ -2439,7 +2413,9 @@ export function buildZoteroMcpRequestFailureResponseForTests(
   rawRequest: string,
   error: unknown,
 ) {
-  return buildRequestFailureResponse(rawRequest, error);
+  return preparedResponseToRawString(
+    buildRequestFailureResponse(rawRequest, error),
+  );
 }
 
 export function recordZoteroMcpResponseWriteFailureForTests(error: unknown) {
@@ -2483,9 +2459,9 @@ export function serializeZoteroMcpResponseForTests(response: unknown) {
       phase: "response",
       request,
       status: 200,
-      responseBytes: raw.length,
+      responseBytes: raw.wireByteLength,
     });
-    return raw;
+    return preparedResponseToRawString(raw);
   } catch (error) {
     appendMcpRuntimeLog({
       requestId,
@@ -2496,11 +2472,13 @@ export function serializeZoteroMcpResponseForTests(response: unknown) {
       status: 500,
       error,
     });
-    return buildHttpResponse({
-      status: 200,
-      reason: "OK",
-      body: jsonRpcInternalError(null, error),
-    });
+    return preparedResponseToRawString(
+      buildHttpResponse({
+        status: 200,
+        reason: "OK",
+        body: jsonRpcInternalError(null, error),
+      }),
+    );
   }
 }
 
@@ -2609,14 +2587,14 @@ export async function handleZoteroMcpHttpRequestForTests(args: {
     stage: "response.write.started",
     phase: "response",
     request,
-    responseBytes: response.length,
+    responseBytes: response.wireByteLength,
   });
   appendMcpRuntimeLog({
     requestId,
     stage: "response.write.finished",
     phase: "response",
     request,
-    responseBytes: response.length,
+    responseBytes: response.wireByteLength,
   });
-  return response;
+  return preparedResponseToRawString(response);
 }

@@ -54,6 +54,13 @@ import {
   type RuntimeFileTransferSource,
 } from "./runtimeFileTransfer";
 import {
+  beginRuntimeMemoryResponseTransfer,
+  prepareJsonHttpResponse,
+  prepareTextHttpResponse,
+  type PreparedMemoryHttpResponse,
+  type RuntimeMemoryResponseTransfer,
+} from "./runtimeHttpResponse";
+import {
   HostBridgePermissionError,
   getHostBridgePermissionProjection,
   listHostBridgePendingPermissions,
@@ -178,7 +185,7 @@ type HttpResponseArgs = {
 };
 
 type RawHttpResponse =
-  | string
+  | PreparedMemoryHttpResponse
   | {
       kind: "file";
       headers: string;
@@ -190,7 +197,9 @@ type AcceptedHostConnection = {
   transport: any;
   outputStream: any;
   requestRead: ProfiledHostBridgeRequestReadOperation;
-  responseTransfer?: RuntimeFileResponseTransfer;
+  responseTransfer?:
+    | RuntimeFileResponseTransfer
+    | RuntimeMemoryResponseTransfer;
   outputClosed: boolean;
   transportClosed: boolean;
 };
@@ -1018,7 +1027,7 @@ async function writeOutputStream(
   response: RawHttpResponse,
   onTransfer?: (transfer: RuntimeFileResponseTransfer) => void,
 ) {
-  if (typeof response !== "string") {
+  if (response.kind === "file") {
     const transfer = beginRuntimeFileResponseTransfer({
       headers: response.headers,
       source: response.source,
@@ -1028,37 +1037,30 @@ async function writeOutputStream(
     await transfer.completion;
     return;
   }
-  const components = getComponents();
-  const classes = components?.classes || (globalThis as any).Cc;
-  const interfaces = components?.interfaces || (globalThis as any).Ci;
-  const converterFactory =
-    classes?.["@mozilla.org/intl/converter-output-stream;1"];
-  const nsIConverterOutputStream = interfaces?.nsIConverterOutputStream;
-  if (converterFactory && nsIConverterOutputStream) {
-    const converter = converterFactory.createInstance(nsIConverterOutputStream);
-    converter.init(outputStream, "UTF-8");
-    converter.writeString(response);
-    converter.close();
-    return;
-  }
-  outputStream.write(response, response.length);
-  outputStream.close?.();
+  const transfer = beginRuntimeMemoryResponseTransfer({
+    response,
+    outputStream,
+  });
+  onTransfer?.(transfer);
+  await transfer.completion;
 }
 
 function buildHttpResponse(args: HttpResponseArgs) {
-  const bodyText =
-    typeof args.body === "string" ? args.body : JSON.stringify(args.body);
-  return [
-    `HTTP/1.1 ${args.status} ${args.reason}`,
-    `Content-Type: ${args.contentType || "application/json"}; charset=utf-8`,
-    `Content-Length: ${utf8ByteLength(bodyText)}`,
-    ...Object.entries(args.headers || {}).map(
-      ([name, value]) => `${name}: ${value}`,
-    ),
-    "Connection: close",
-    "",
-    bodyText,
-  ].join("\r\n");
+  return typeof args.body === "string"
+    ? prepareTextHttpResponse({
+        status: args.status,
+        reason: args.reason,
+        bodyText: args.body,
+        contentType: args.contentType,
+        headers: args.headers,
+      })
+    : prepareJsonHttpResponse({
+        status: args.status,
+        reason: args.reason,
+        body: args.body,
+        contentType: args.contentType,
+        headers: args.headers,
+      });
 }
 
 function bytesToBinaryString(bytes: Uint8Array) {
@@ -1329,16 +1331,11 @@ async function callCapability(request: HttpRequest) {
       return response(
         400,
         "Bad Request",
-        hostBridgeError(
-          error.code,
-          error.message,
-          "validation",
-          {
-            capability: capability.name,
-            retryable: false,
-            ...(error.details || {}),
-          },
-        ),
+        hostBridgeError(error.code, error.message, "validation", {
+          capability: capability.name,
+          retryable: false,
+          ...(error.details || {}),
+        }),
         error.code,
       );
     }
@@ -3237,8 +3234,8 @@ async function handleHttpRequest(request: HttpRequest) {
     try {
       const result = await handleHttpRequestImpl(request);
       const responseBytes =
-        typeof result === "string"
-          ? utf8ByteLength(result)
+        result.kind === "memory"
+          ? result.wireByteLength
           : utf8ByteLength(result.headers) + result.source.size;
       incrementAcpRuntimeMetric(
         requestId,
@@ -3957,7 +3954,9 @@ export async function handleHostBridgeHttpRequestForTests(args: {
     const raw = await handleHttpRequest(
       parseHttpRequestBytes(args.rawRequestBytes),
     );
-    if (typeof raw === "string") return raw;
+    if (raw.kind === "memory") {
+      return `${raw.headers}${new TextDecoder().decode(raw.bodyBytes)}`;
+    }
     const bytes = await collectRuntimeFileSourceBytesForTests(raw.source);
     return `${raw.headers}${bytesToBinaryString(bytes)}`;
   }
@@ -3974,7 +3973,9 @@ export async function handleHostBridgeHttpRequestForTests(args: {
     parseError: parsedPath.parseError,
   };
   const raw = await handleHttpRequest(request);
-  if (typeof raw === "string") return raw;
+  if (raw.kind === "memory") {
+    return `${raw.headers}${new TextDecoder().decode(raw.bodyBytes)}`;
+  }
   const bytes = await collectRuntimeFileSourceBytesForTests(raw.source);
   return `${raw.headers}${bytesToBinaryString(bytes)}`;
 }

@@ -1,11 +1,11 @@
 import { getBaseName, joinPath } from "../utils/path";
 import type { LoadedWorkflow, WorkflowManifest } from "../workflows/types";
 import {
-  collectRuntimeFiles,
   getRuntimePersistencePaths,
   readRuntimeBytes,
+  RUNTIME_TREE_POLICIES,
   runtimePathExists,
-  runtimeRelativePath,
+  scanRuntimeTree,
   writeRuntimeBytes,
 } from "./runtimePersistence";
 import { registerHostBridgeExportFile } from "./hostBridgeFileRegistry";
@@ -209,11 +209,13 @@ async function addDirectoryEntries(args: {
   if (!(await runtimePathExists(args.rootDir))) {
     return;
   }
-  for (const filePath of await collectRuntimeFiles(args.rootDir)) {
-    const relativePath = runtimeRelativePath(args.rootDir, filePath).replace(
-      /\\/g,
-      "/",
-    );
+  const manifest = await scanRuntimeTree(
+    args.rootDir,
+    RUNTIME_TREE_POLICIES["agent-run-bundle"],
+  );
+  for (const file of manifest.entries) {
+    if (file.kind !== "file") continue;
+    const relativePath = file.relativePath;
     if (isUnsafePackageEntry(relativePath)) {
       continue;
     }
@@ -222,7 +224,7 @@ async function addDirectoryEntries(args: {
     }
     args.entries.push({
       name: `${args.bundlePrefix}/${relativePath}`,
-      bytes: await readRuntimeBytes(filePath),
+      bytes: await readRuntimeBytes(file.absolutePath),
     });
   }
 }

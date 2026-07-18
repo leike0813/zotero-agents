@@ -1,10 +1,9 @@
 import { getBaseName } from "../utils/path";
 import type { AcpSkillOutputValidationResult } from "./acpSkillOutputValidator";
 import {
-  collectRuntimeFiles,
   readRuntimeTextFile,
-  runtimeRelativePath,
-  statRuntimePath,
+  RUNTIME_TREE_POLICIES,
+  scanRuntimeTree,
 } from "./runtimePersistence";
 
 export type AcpSkillResultFileFallbackWarning = {
@@ -51,22 +50,21 @@ async function collectCandidatePaths(args: {
 }) {
   const candidates: Array<{ path: string; relpath: string; mtime: number }> =
     [];
-  for (const path of await collectRuntimeFiles(args.workspaceDir)) {
-    if (getBaseName(path) !== args.filename) {
+  const manifest = await scanRuntimeTree(
+    args.workspaceDir,
+    RUNTIME_TREE_POLICIES["workspace-result"],
+  );
+  for (const entry of manifest.entries) {
+    if (
+      entry.kind !== "file" ||
+      getBaseName(entry.absolutePath) !== args.filename
+    ) {
       continue;
     }
-    const relpath = runtimeRelativePath(args.workspaceDir, path).replace(
-      /\\/g,
-      "/",
-    );
-    if (relpath.startsWith("result/") || relpath.startsWith(".acp/")) {
-      continue;
-    }
-    const stat = await statRuntimePath(path);
     candidates.push({
-      path,
-      relpath,
-      mtime: Number(stat.lastModified || 0) || 0,
+      path: entry.absolutePath,
+      relpath: entry.relativePath,
+      mtime: Number(entry.mtime || 0) || 0,
     });
   }
   return candidates.sort((left, right) => {

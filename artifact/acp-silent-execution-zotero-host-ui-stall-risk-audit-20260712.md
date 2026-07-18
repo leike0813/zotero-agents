@@ -2,7 +2,7 @@
 
 日期：2026-07-12
 
-状态：只读审计已完成；阶段 0 profiler 与自动化机制基线已于 2026-07-13 实现；R3 区域发布治理已于 2026-07-15 完成实现及 Zotero 9 机制验收；R2 事件驱动 reader 的初次实现存在 Zotero 插件沙箱连接生命周期缺陷，`repair-host-bridge-async-socket-lifecycle` 已于 2026-07-17 完成修复，并通过 Zotero 9 原始响应 fixture 及冷重启 CLI 验收，Zotero 7 宿主验收待补；R6 文件传输已于 2026-07-17 完成有界分块、全局单 worker 与异步 socket copy 治理，并通过 Zotero 9.0.4 机制验收，Zotero 7 宿主验收待补；R8 runtime log 已完成单条序列化缓存、single-flight 与有界分块原子替换治理，并通过 Zotero 9.0.4 机制验收，Zotero 7 宿主验收待补；R11 未包含在该治理中
+状态：只读审计已完成；阶段 0 profiler 与自动化机制基线已于 2026-07-13 实现；R3 区域发布治理已于 2026-07-15 完成实现及 Zotero 9 机制验收；R2 事件驱动 reader 的初次实现存在 Zotero 插件沙箱连接生命周期缺陷，`repair-host-bridge-async-socket-lifecycle` 已于 2026-07-17 完成修复，并通过 Zotero 9 原始响应 fixture 及冷重启 CLI 验收，Zotero 7 宿主验收待补；R6 文件传输已于 2026-07-17 完成有界分块、全局单 worker 与异步 socket copy 治理；R11 与 R12 已于 2026-07-18 通过 `govern-host-response-and-runtime-tree-io` 完成联合治理，并通过当前 Zotero 9 宿主机制验收，Zotero 7 宿主验收待补；R8 runtime log 已完成单条序列化缓存、single-flight 与有界分块原子替换治理，并通过 Zotero 9.0.4 机制验收，Zotero 7 宿主验收待补
 
 适用范围：ACP Skills、ACP Chat、Assistant Workspace、Host Bridge、Zotero Host Capability、ACP transcript/run/audit/runtime-log 持久化
 
@@ -147,8 +147,8 @@ live | boundary | silent
 | R8 | P1 | runtime log 全量 clone/stringify | 已治理；Zotero 9.0.4 机制通过，Zotero 7 待补 | 高频日志、diagnostic 模式 |
 | R9 | P1 | transcript/audit 同步 XPCOM append 与索引恢复 | 已治理并经 Zotero 9.0.4 验收 | 高频 transcript、长历史、索引失效 |
 | R10 | P1 | 逐 item `saveTx()` 与 Notifier 风暴 | 已证实事务粒度，影响待实测 | 批量标签/collection mutation |
-| R11 | P2 | Host Bridge 大响应多重 stringify/copy | 已证实 | 大 synthesis 结果、大二进制 |
-| R12 | P2 | workspace/skill/result 递归 scan/stat/copy | 已证实 | 海量小文件、深层目录 |
+| R11 | P2 | Host Bridge 大响应多重 stringify/copy | 已治理；Zotero 9 机制通过，Zotero 7 待补 | 大 synthesis 结果、大二进制 |
+| R12 | P2 | workspace/skill/result 递归 scan/stat/copy | 已治理；Node 机制通过，真实大树性能待测 | 海量小文件、深层目录 |
 
 ## 5. R1：JSON-RPC diagnostic 逐消息持久化与 UI 事件风暴
 
@@ -532,6 +532,33 @@ download fileId
 
 这些结果证明 whole-file JS buffer、无界附件注册并发和同步 socket byte-array 写出已经从 R6 热路径移除；它们不构成真实大型 PDF 工作负载的延迟改善声明。
 
+### 9.0.1 2026-07-18 R11 联合治理状态
+
+change `govern-host-response-and-runtime-tree-io` 在不改变 R6 文件分支的前提下治理
+R11。Host Bridge 与内嵌 MCP 现在共享 `PreparedMemoryHttpResponse`：JSON 在 HTTP
+边界只执行一次 `JSON.stringify` 和一次 UTF-8 encode，`Content-Length`、profiler 与
+MCP request log 复用同一份已准备字节的长度。capability wrapper 不再通过
+`JSON.stringify`/`JSON.parse` 深拷贝结果。
+
+内存响应不再拼接完整 HTTP response string。Zotero 路径写出小型 headers 后，使用
+array-buffer input stream、stream transport 和 `nsIAsyncStreamCopier2` 异步复制已准备
+body；Node 测试后端以 32 KiB 上界分块并在块间让出事件循环。accepted connection
+继续持有 output/transport 所有权，直到异步 copy 成功、失败或 abort 完成。注册文件
+下载仍只走 `RuntimeFileTransferSource` 与 R6 的独立有界 worker，不进入内存响应分支。
+
+机制证据如下：
+
+- Host Bridge/R6/R11 Node 联合组 88 passed，真实 Zotero 专用用例在 Node 下按预期 pending；
+- MCP server 全文件 62 passed，覆盖 Unicode byte length、一次序列化/编码、日志长度复用、serialization failure 和 SDK Streamable HTTP 兼容；
+- 当前 Zotero 9 core 机制套件 28 passed，真实 socket fixture 在 fragmented health、binary upload 与 MCP response 期间持续推进 heartbeat；
+- TypeScript、目标 ESLint、Prettier、生产 build 与 OpenSpec strict validation 通过；CLI Rust 相关 HTTP length/checksum/retry 用例通过，完整 CLI 套件另有 2 个与本轮无关的 Windows 路径 basename 既有失败。
+
+残余边界：JSON 结果仍需在 HTTP 边界形成一份完整 UTF-8 body，单次
+`JSON.stringify`/encode 本身仍是同步 CPU 工作；本轮消除的是重复深拷贝、重复序列化、
+完整 wire string 和同步 socket body 写出，不把 JSON 协议改成流式协议，也不对业务
+响应设置会改变契约的硬大小上限。因此极端单响应仍需结合真实 synthesis payload
+采样峰值内存与单次 prepare 时长。
+
 ### 9.1 附件 handle 注册
 
 以下内容记录治理前根因。`library.get_item_attachments` 在 `src/modules/zoteroHostCapabilityBroker.ts:3492-3520` 获取附件路径。
@@ -723,6 +750,32 @@ single-flight true flush 与分块 JSON 原子替换。当前仅完成 Zotero 9.
 静默模式只影响 Assistant Workspace 展示，不抑制 Zotero 数据库、Notifier 或宿主 UI observer。
 
 ## 13. R12：workspace 与资源目录递归 I/O
+
+### 13.0 2026-07-18 联合治理状态
+
+`runtimeTreeManifest.ts` 现提供唯一的迭代式、确定性 tree walker。一次业务操作生成一份
+按相对路径排序的 manifest，统一携带 file/directory、size、mtime、count、total bytes
+与 max depth。skill registry、共享 catalog、resource manifest、result fallback 与
+workflow agent-run bundle 在操作内复用该 manifest；并发 registry/catalog 冷构建采用
+single-flight，不再对同一棵树重复扫描。
+
+全局精确目录排除为 `.git`、`node_modules`、`.venv`、`__pycache__`、
+`.pytest_cache`、`.mypy_cache`，并排除 `.pyc`/`.pyo` 文件；只匹配完整目录段，类似
+`.github`、`node_modules-src`、`.venv-notes` 的业务目录仍会保留。workspace-result
+策略还按旧语义排除 workspace 根级 `.acp/` 与 `result/` 输出树，不影响更深层同名
+业务目录。
+
+各策略的 depth/entry/byte budget 是 observation budget：超限仍返回完整 eligible tree，
+同时只产生一组结构化 warning，不静默漏文件。stat/list 失败会形成 incomplete manifest，
+copy 拒绝消费 incomplete manifest。tree copy 使用独立于 R6 的全局单 worker、原生异步
+file copy、同级 staging tree 与成功后的原子替换；原生 copy 不可用或中途失败时，不再
+回退 whole-file JavaScript read/write，既有 target 保持不变。
+
+Node 证据包括 registry/catalog/manifest 34 passed，以及 result fallback 与 workflow
+agent-run bundle 的 3 个聚焦用例。残余风险是大量小文件仍会产生与 entry 数量成正比的
+异步 stat/list/copy completion；observation budget 只报警而不截断正确结果。本轮尚未
+用真实超大 workspace 做治理前后耗时与 event-loop drift 矩阵，因此只能声明重复扫描、
+递归实现和 whole-file copy fallback 已移除，不能声明极端目录已无延迟风险。
 
 以下路径会串行递归 scan/stat/copy：
 
@@ -1725,7 +1778,9 @@ Node 108/171/186 聚焦回归共 46 passed，TypeScript 与生产 worker build �
 
 ### 18.10 阶段 8：streaming file transfer 与单次 response serialization（R6/R11）
 
-当前状态：R6 已由 `govern-host-bridge-streaming-file-transfer` 独立完成；R11 仍待后续 change，不能把本阶段的 R6 结果表述为大型 JSON 序列化已经治理。
+当前状态：R6 已由 `govern-host-bridge-streaming-file-transfer` 完成；R11 已由
+`govern-host-response-and-runtime-tree-io` 完成一次准备与异步内存响应交付治理。极端
+单个 JSON body 的同步 prepare 仍是保留的残余风险。
 
 #### DTO 与 SSOT
 
@@ -1784,6 +1839,10 @@ type HostBridgeResolvedFileDownload = {
 锁定字节、长度、checksum、文件名 header、truncate/retry、capability schema；不锁内部 chunk 顺序。大文件峰值缓冲必须不超过 chunk×concurrency 的确定上界。
 
 ### 18.11 阶段 9：一次扫描的 runtime tree manifest（R12）
+
+当前状态：已由 `govern-host-response-and-runtime-tree-io` 完成。当前实现采用
+observation-only budget，不以超限为由截断业务树；只有真实 scan issue 才使 manifest
+incomplete 并阻止 copy。
 
 定义操作内 SSOT：
 

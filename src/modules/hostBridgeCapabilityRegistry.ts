@@ -68,10 +68,18 @@ export type ZoteroHostCapabilityBrokerApis = ReturnType<
   typeof createZoteroHostCapabilityBrokerApis
 >;
 
+export type JsonSerializableValue =
+  | null
+  | boolean
+  | number
+  | string
+  | undefined
+  | object;
+
 export type HostBridgeCapabilityHandler = (
   input: unknown,
   context: HostBridgeCapabilityContext,
-) => unknown | Promise<unknown>;
+) => JsonSerializableValue | Promise<JsonSerializableValue>;
 
 export type HostBridgeCapabilityDefinition =
   HostBridgeCapabilityManifestEntry & {
@@ -122,13 +130,6 @@ function libraryListArgsFromInput(input: unknown): ZoteroHostLibraryListArgs {
     args.limit = 200;
   }
   return args;
-}
-
-function normalizeJsonSafeValue(value: unknown): unknown {
-  if (value === undefined) {
-    return null;
-  }
-  return JSON.parse(JSON.stringify(value));
 }
 
 function toBridgeAttachmentDescriptor(
@@ -220,7 +221,7 @@ function capability(
     approval,
     input,
     handler: async (rawInput, context) =>
-      normalizeJsonSafeValue(await handler(rawInput, context)),
+      (await handler(rawInput, context)) ?? null,
   };
 }
 

@@ -30,6 +30,7 @@ import {
   setZoteroLibraryPageQueryAdapterForTests,
 } from "../../src/modules/zoteroLibraryPageQuery";
 import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
+import { runtimeHttpResponseInternalsForTests } from "../../src/modules/runtimeHttpResponse";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -232,10 +233,9 @@ describe("host bridge capability calls", function () {
       const capability = listHostBridgeCapabilities().find(
         (entry) => entry.name === name,
       );
-      assert.deepEqual(
-        capability?.input.properties?.cursor,
-        { type: "string" },
-      );
+      assert.deepEqual(capability?.input.properties?.cursor, {
+        type: "string",
+      });
     }
 
     const token = configureHostBridgeServerForTests({ token: "cursor-token" });
@@ -277,6 +277,23 @@ describe("host bridge capability calls", function () {
     assert.notProperty(parsed.json.result.data, "saveTx");
     assert.notProperty(parsed.json.result.data, "getField");
     assert.doesNotThrow(() => JSON.stringify(parsed.json.result.data));
+  });
+
+  it("prepares one capability response without a normalization serialization", async function () {
+    const token = configureHostBridgeServerForTests({ token: "once-token" });
+    runtimeHttpResponseInternalsForTests.resetMetrics();
+
+    const parsed = await callBridgeCapability({
+      token,
+      capability: "context.get_current_view",
+    });
+
+    assert.strictEqual(parsed.status, 200);
+    assert.deepEqual(runtimeHttpResponseInternalsForTests.getMetrics(), {
+      jsonSerializations: 1,
+      bodyEncodes: 1,
+      maxWriteChunkBytes: 0,
+    });
   });
 
   it("routes library sync snapshots without write approval", async function () {

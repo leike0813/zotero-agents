@@ -5,6 +5,20 @@ import {
   RuntimeFileIoError,
   readRuntimeFileRangesWithWorker,
 } from "./runtimeFileRangeReader";
+import {
+  RUNTIME_TREE_POLICIES,
+  rebaseRuntimeTreeManifest,
+  scanRuntimeTreeWithIo,
+  type RuntimeTreeManifest,
+  type RuntimeTreeScanPolicy,
+} from "./runtimeTreeManifest";
+
+export {
+  RUNTIME_TREE_POLICIES,
+  type RuntimeTreeEntry,
+  type RuntimeTreeManifest,
+  type RuntimeTreeScanPolicy,
+} from "./runtimeTreeManifest";
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -947,51 +961,17 @@ export async function copyRuntimeFile(args: {
       };
     };
   };
-  if (
-    typeof runtime.IOUtils?.read === "function" &&
-    typeof runtime.IOUtils.write === "function"
-  ) {
-    await runtime.IOUtils.write(
-      targetPath,
-      await runtime.IOUtils.read(sourcePath),
-    );
-    return true;
-  }
-  if (
-    typeof runtime.OS?.File?.read === "function" &&
-    typeof runtime.OS.File.writeAtomic === "function"
-  ) {
-    await runtime.OS.File.writeAtomic(
-      targetPath,
-      await runtime.OS.File.read(sourcePath),
-      {
-        tmpPath: `${targetPath}.tmp`,
-      },
-    );
-    return true;
-  }
-  const fs = await tryNodeFs();
-  if (fs) {
-    await fs.copyFile(sourcePath, targetPath);
-    return true;
-  }
-  // Last resort for Zotero runtimes that only expose UTF-8 helpers. Built-in
-  // skills are text-only, so this path is safer than relying on IOUtils.copy.
-  try {
-    await writeRuntimeTextFile(
-      targetPath,
-      await readRuntimeTextFile(sourcePath),
-    );
-    return true;
-  } catch {
-    // Fall back to native copy APIs so non-text callers still get a chance.
-  }
   if (typeof runtime.IOUtils?.copy === "function") {
     await runtime.IOUtils.copy(sourcePath, targetPath);
     return true;
   }
   if (typeof runtime.OS?.File?.copy === "function") {
     await runtime.OS.File.copy(sourcePath, targetPath);
+    return true;
+  }
+  const fs = await tryNodeFs();
+  if (fs) {
+    await fs.copyFile(sourcePath, targetPath);
     return true;
   }
   throw new Error("No binary file copy API is available");
@@ -1596,12 +1576,17 @@ export async function replaceRuntimeTextFileAtomically(args: {
   }
 }
 
-export async function statRuntimePath(pathRaw: string): Promise<{
+type RuntimePathStat = {
   exists: boolean;
   isDir: boolean;
   size: number;
   lastModified?: number;
-}> {
+};
+
+async function statRuntimePathInternal(
+  pathRaw: string,
+  surfaceErrors: boolean,
+): Promise<RuntimePathStat> {
   const path = normalizeString(pathRaw);
   if (!path) {
     return { exists: false, isDir: false, size: 0 };
@@ -1629,11 +1614,15 @@ export async function statRuntimePath(pathRaw: string): Promise<{
             Number(stat.lastModified || stat.lastModifiedTime || 0) || 0,
           ) || undefined,
       };
-    } catch {
+    } catch (error) {
+      if (surfaceErrors) throw error;
       return { exists: false, isDir: false, size: 0 };
     }
   }
   if (isNonNativeAbsolutePath(path)) {
+    if (surfaceErrors) {
+      throw new Error("Runtime path cannot be inspected on this platform");
+    }
     return { exists: false, isDir: false, size: 0 };
   }
   const fs = await tryNodeFs();
@@ -1647,14 +1636,25 @@ export async function statRuntimePath(pathRaw: string): Promise<{
         size: Math.max(0, Number(stat.size || 0) || 0),
         lastModified: Math.max(0, Number(stat.mtimeMs || 0) || 0) || undefined,
       };
-    } catch {
+    } catch (error) {
+      if (surfaceErrors) throw error;
       return { exists: false, isDir: false, size: 0 };
     }
+  }
+  if (surfaceErrors) {
+    throw new Error("No runtime path stat API is available");
   }
   return { exists: await runtimePathExists(path), isDir: false, size: 0 };
 }
 
-export async function listRuntimeChildren(pathRaw: string) {
+export function statRuntimePath(pathRaw: string): Promise<RuntimePathStat> {
+  return statRuntimePathInternal(pathRaw, false);
+}
+
+async function listRuntimeChildrenInternal(
+  pathRaw: string,
+  surfaceErrors: boolean,
+) {
   const path = normalizeString(pathRaw);
   const runtime = globalThis as {
     IOUtils?: { getChildren?: (path: string) => Promise<string[]> };
@@ -1662,7 +1662,8 @@ export async function listRuntimeChildren(pathRaw: string) {
   if (typeof runtime.IOUtils?.getChildren === "function") {
     try {
       return await runtime.IOUtils.getChildren(path);
-    } catch {
+    } catch (error) {
+      if (surfaceErrors) throw error;
       return [] as string[];
     }
   }
@@ -1671,11 +1672,19 @@ export async function listRuntimeChildren(pathRaw: string) {
     try {
       const names = await fs.readdir(path);
       return names.map((name: string) => joinPath(path, name));
-    } catch {
+    } catch (error) {
+      if (surfaceErrors) throw error;
       return [] as string[];
     }
   }
+  if (surfaceErrors) {
+    throw new Error("No runtime directory listing API is available");
+  }
   return [] as string[];
+}
+
+export function listRuntimeChildren(pathRaw: string) {
+  return listRuntimeChildrenInternal(pathRaw, false);
 }
 
 export async function listRuntimeChildDirectories(pathRaw: string) {
@@ -1689,40 +1698,49 @@ export async function listRuntimeChildDirectories(pathRaw: string) {
   return directories.sort((left, right) => left.localeCompare(right));
 }
 
+export async function scanRuntimeTree(
+  rootRaw: string,
+  policy: RuntimeTreeScanPolicy = RUNTIME_TREE_POLICIES.general,
+) {
+  const startedAt = Date.now();
+  const manifest = await scanRuntimeTreeWithIo({
+    root: normalizeString(rootRaw),
+    policy,
+    io: {
+      stat: (path) => statRuntimePathInternal(path, true),
+      list: (path) => listRuntimeChildrenInternal(path, true),
+    },
+  });
+  if (manifest.warnings.length) {
+    const { appendRuntimeLog } = await import("./runtimeLogManager");
+    appendRuntimeLog({
+      level: "warn",
+      scope: "system",
+      stage: "observation-budget-exceeded",
+      message: "runtime tree exceeded its observation budget",
+      details: {
+        policy: policy.name,
+        entries: manifest.entries.length,
+        files: manifest.fileCount,
+        directories: manifest.directoryCount,
+        bytes: manifest.totalBytes,
+        maxDepth: manifest.maxDepth,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        dimensions: manifest.warnings.map((warning) => warning.code),
+      },
+    });
+  }
+  return manifest;
+}
+
 export async function collectRuntimeFiles(rootRaw: string) {
-  const root = normalizeString(rootRaw);
-  const files: string[] = [];
-  function shouldSkip(childPath: string) {
-    const normalized = normalizeSlashes(childPath);
-    const name = normalized.split("/").filter(Boolean).pop() || "";
-    return (
-      name === "__pycache__" ||
-      name === ".pytest_cache" ||
-      name === ".mypy_cache" ||
-      name.endsWith(".pyc") ||
-      name.endsWith(".pyo")
-    );
-  }
-  async function visit(dir: string) {
-    for (const child of await listRuntimeChildren(dir)) {
-      if (shouldSkip(child)) {
-        continue;
-      }
-      const stat = await statRuntimePath(child);
-      if (!stat.exists) {
-        continue;
-      }
-      if (stat.isDir) {
-        await visit(child);
-      } else {
-        files.push(child);
-      }
-    }
-  }
-  if ((await statRuntimePath(root)).isDir) {
-    await visit(root);
-  }
-  return files.sort((left, right) => left.localeCompare(right));
+  const manifest = await scanRuntimeTree(
+    rootRaw,
+    RUNTIME_TREE_POLICIES.general,
+  );
+  return manifest.entries
+    .filter((entry) => entry.kind === "file")
+    .map((entry) => entry.absolutePath);
 }
 
 export function runtimeRelativePath(rootRaw: string, targetRaw: string) {
@@ -1850,6 +1868,84 @@ export async function removeRuntimePath(pathRaw: string) {
   return false;
 }
 
+let runtimeTreeCopyTail: Promise<void> = Promise.resolve();
+let runtimeTreeCopySequence = 0;
+
+async function withRuntimeTreeCopySlot<T>(operation: () => Promise<T>) {
+  const previous = runtimeTreeCopyTail;
+  let release!: () => void;
+  runtimeTreeCopyTail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous.catch(() => undefined);
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
+export async function copyRuntimeTree(args: {
+  manifest: RuntimeTreeManifest;
+  targetDir: string;
+}) {
+  const targetDir = normalizeString(args.targetDir);
+  if (!targetDir) return args.manifest;
+  if (args.manifest.issues.length) {
+    throw new Error("Cannot copy an incomplete runtime tree manifest");
+  }
+  return withRuntimeTreeCopySlot(async () => {
+    runtimeTreeCopySequence += 1;
+    const operationSuffix = `${Date.now()}-${runtimeTreeCopySequence}`;
+    const stagingDir = `${targetDir}.tmp-tree-${operationSuffix}`;
+    const backupDir = `${targetDir}.previous-tree-${operationSuffix}`;
+    await removeRuntimePath(stagingDir).catch(() => undefined);
+    await removeRuntimePath(backupDir).catch(() => undefined);
+    await ensureRuntimeDirectory(stagingDir);
+    let targetBackedUp = false;
+    let promoted = false;
+    try {
+      for (const entry of args.manifest.entries) {
+        const targetPath = joinPath(stagingDir, entry.relativePath);
+        if (entry.kind === "directory") {
+          await ensureRuntimeDirectory(targetPath);
+        } else {
+          await copyRuntimeFile({
+            sourcePath: entry.absolutePath,
+            targetPath,
+          });
+        }
+      }
+      if (await runtimePathExists(targetDir)) {
+        await moveRuntimePath({
+          sourcePath: targetDir,
+          targetPath: backupDir,
+        });
+        targetBackedUp = true;
+      }
+      await moveRuntimePath({
+        sourcePath: stagingDir,
+        targetPath: targetDir,
+      });
+      promoted = true;
+      if (targetBackedUp) {
+        await removeRuntimePath(backupDir).catch(() => undefined);
+      }
+      return rebaseRuntimeTreeManifest(args.manifest, targetDir);
+    } catch (error) {
+      await removeRuntimePath(stagingDir).catch(() => undefined);
+      if (targetBackedUp && !promoted) {
+        await removeRuntimePath(targetDir).catch(() => undefined);
+        await moveRuntimePath({
+          sourcePath: backupDir,
+          targetPath: targetDir,
+        });
+      }
+      throw error;
+    }
+  });
+}
+
 export async function copyRuntimeDirectory(args: {
   sourceDir: string;
   targetDir: string;
@@ -1859,20 +1955,11 @@ export async function copyRuntimeDirectory(args: {
   if (!sourceDir || !targetDir) {
     return;
   }
-  await removeRuntimePath(targetDir);
-  await ensureRuntimeDirectory(targetDir);
-  for (const child of await listRuntimeChildren(sourceDir)) {
-    const target = joinPath(targetDir, baseName(child));
-    const stat = await statRuntimePath(child);
-    if (!stat.exists) {
-      continue;
-    }
-    if (stat.isDir) {
-      await copyRuntimeDirectory({ sourceDir: child, targetDir: target });
-    } else {
-      await copyRuntimeFileIfMissing({ sourcePath: child, targetPath: target });
-    }
-  }
+  const manifest = await scanRuntimeTree(
+    sourceDir,
+    RUNTIME_TREE_POLICIES.general,
+  );
+  return copyRuntimeTree({ manifest, targetDir });
 }
 
 export async function scanRuntimePersistenceUsage(
