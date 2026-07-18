@@ -316,7 +316,7 @@ export function findSynthesisSidecarAppBoundaryViolations(): string[] {
     const relativePath = normalizedRepoPath(filePath);
     const source = fs.readFileSync(filePath, "utf8");
     if (
-      /node:|globalThis\.Zotero|zotero-plugin|src\/modules\/synthesis|child_process|worker_threads/.test(
+      /\bnode:|globalThis\.Zotero|zotero-plugin|src\/modules\/synthesis|child_process|worker_threads/.test(
         source,
       )
     ) {

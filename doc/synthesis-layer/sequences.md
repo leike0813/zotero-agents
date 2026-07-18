@@ -327,7 +327,9 @@ Constraints:
 
 ## `seq.import.preview_apply`
 
-Import is preview-first and sidecar-scoped.
+Import is preview-first and sidecar-scoped. This sequence describes the private
+isolated-shadow durable application; production WebDAV keeps its existing
+plugin-owned orchestration.
 
 ```mermaid
 sequenceDiagram
@@ -335,17 +337,25 @@ sequenceDiagram
   participant I as Import Service
   participant B as File Bundle
   participant S as Sidecar Repository
+  participant C as Topic Canonical Shadow
 
   U->>I: import preview
   I->>B: read explicit bundle
   I->>S: compare with sidecar state
-  I-->>U: dry-run diff
-  U->>I: apply confirmed import
-  I->>S: validate bundle and write via repository APIs
+  I->>C: validate complete Topic JSON/Markdown snapshots
+  I-->>U: dry-run diff and single-use receipt
+  U->>I: apply receipt and unbased-update acknowledgement
+  I->>S: recapture aggregate and sync-index basis
+  I->>C: stage strict multi-Topic batch
+  I->>S: CAS durable facts, stale bases, index, and commit receipt
+  I->>C: promote batch synchronously
+  I->>S: clear commit receipt
   I-->>U: import result summary
 ```
 
 Constraints:
 
-- Apply requires preview plus explicit confirmation.
-- Import scope must state whether user-approved binding/dedupe decisions are overwritten.
+- Apply consumes the receipt even when acknowledgement or basis checks fail.
+- Conflicts and tombstones never receive an apply receipt.
+- Restart rolls a batch forward only when its manifest/receipt matches SQLite;
+  an uncommitted batch is discarded and a mismatch requires repair.

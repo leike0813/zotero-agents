@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { SYNTHESIS_DURABLE_BUNDLE_LIMITS } from "../../../packages/synthesis-contracts/src/durableBundle.js";
 import {
   SYNTHESIS_TOPIC_CANONICAL_STORE_SCHEMA_VERSION,
   canonicalSynthesisTopicJsonText,
@@ -14,6 +15,8 @@ import {
   type SynthesisTopicCanonicalDiagnostic,
   type SynthesisTopicCanonicalInspectResult,
   type SynthesisTopicCanonicalReadResult,
+  type SynthesisTopicCanonicalImportBatch,
+  type SynthesisTopicCanonicalSnapshot,
   type SynthesisTopicCanonicalStore,
   type SynthesisTopicCanonicalStoreSnapshot,
 } from "../../../packages/synthesis-application/src/topicCanonical.js";
@@ -22,6 +25,8 @@ const IDENTITY_SCHEMA =
   "synthesis-sidecar-topic-canonical-identity.v1" as const;
 const JOURNAL_SCHEMA = "synthesis-sidecar-topic-canonical-journal.v1" as const;
 const RECEIPT_SCHEMA = "synthesis-sidecar-topic-canonical-receipt.v1" as const;
+const IMPORT_BATCH_SCHEMA =
+  "synthesis-sidecar-topic-canonical-import-batch.v1" as const;
 const HASH_ID_PATTERN = /^[a-f0-9]{64}$/;
 
 type FaultPoint =
@@ -73,6 +78,7 @@ type StorePaths = {
   stagingCurrent: string;
   backupRoot: string;
   backupCurrent: string;
+  importBatchPath: string;
 };
 
 export class SynthesisTopicCanonicalStoreInterruption extends Error {
@@ -143,6 +149,7 @@ function storePaths(
     stagingCurrent: path.join(root, "staging", "current"),
     backupRoot: path.join(root, "backup"),
     backupCurrent: path.join(root, "backup", "current"),
+    importBatchPath: path.join(root, "import-batch.json"),
   };
 }
 
@@ -347,6 +354,38 @@ function parseCurrentJson(filePath: string) {
   }
 }
 
+function readMarkdownTree(
+  root: string,
+  relative = "",
+  result: Record<string, string> = {},
+) {
+  const directory = relative ? path.join(root, relative) : root;
+  for (const name of fs.readdirSync(directory).sort()) {
+    if (
+      !relative &&
+      ["manifest.json", "artifact.json", "metadata.json", "sections"].includes(
+        name,
+      )
+    )
+      continue;
+    const next = relative ? `${relative}/${name}` : name;
+    if (next === "assets" || next.startsWith("assets/")) {
+      throw new InspectInvalid("unknown_current_entry");
+    }
+    const fullPath = path.join(root, next);
+    const stat = fs.lstatSync(fullPath);
+    if (stat.isSymbolicLink()) throw new InspectInvalid("symlink_forbidden");
+    if (stat.isDirectory()) {
+      readMarkdownTree(root, next, result);
+    } else if (stat.isFile() && next.endsWith(".md")) {
+      result[next] = fs.readFileSync(fullPath, "utf8");
+    } else {
+      throw new InspectInvalid("unknown_current_entry");
+    }
+  }
+  return result;
+}
+
 function invalidResult(
   topicId: string,
   diagnostic: SynthesisTopicCanonicalDiagnostic,
@@ -409,15 +448,8 @@ function inspectCurrent(
       "metadata.json",
       "sections",
     ];
-    if (
-      rootEntries.length !== expectedRootEntries.length ||
-      rootEntries.some((entry, index) => entry !== expectedRootEntries[index])
-    ) {
-      throw new InspectInvalid(
-        rootEntries.some((entry) => !expectedRootEntries.includes(entry))
-          ? "unknown_current_entry"
-          : "topic_current_missing_file",
-      );
+    if (expectedRootEntries.some((entry) => !rootEntries.includes(entry))) {
+      throw new InspectInvalid("topic_current_missing_file");
     }
     requireDirectory(topic.sectionsRoot);
     const manifest = parseCurrentJson(topic.manifestPath);
@@ -466,6 +498,7 @@ function inspectCurrent(
         ),
       );
     }
+    const markdown = readMarkdownTree(topic.currentRoot);
     let snapshot;
     try {
       snapshot = rebuildSynthesisTopicCanonicalSnapshot({
@@ -475,6 +508,7 @@ function inspectCurrent(
         artifact,
         metadata,
         sections,
+        markdown,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
@@ -533,6 +567,7 @@ function readCurrent(
         ),
       );
     }
+    const markdown = readMarkdownTree(topic.currentRoot);
     const snapshot = rebuildSynthesisTopicCanonicalSnapshot({
       topicId: inspected.topicId,
       pathId: inspected.pathId,
@@ -540,12 +575,14 @@ function readCurrent(
       artifact,
       metadata,
       sections,
+      markdown,
     });
     return {
       status: "ready",
       topicId: inspected.topicId,
       pathId: inspected.pathId,
       snapshot,
+      currentHash: computeSynthesisTopicCurrentHashes(snapshot).currentHash,
       diagnostics: [],
     };
   } catch (error) {
@@ -589,9 +626,75 @@ function writeStaging(
       canonicalSynthesisTopicJsonText(value),
     );
   }
+  for (const [relativePath, content] of Object.entries(snapshot.markdown).sort(
+    ([left], [right]) => left.localeCompare(right),
+  )) {
+    const target = path.join(paths.stagingCurrent, relativePath);
+    ensureDirectory(path.dirname(target));
+    writeDurableFile(target, content);
+  }
   fsyncDirectory(sectionsRoot);
   fsyncDirectory(paths.stagingCurrent);
   fsyncDirectory(paths.stagingRoot);
+}
+
+function readImportBatch(
+  paths: StorePaths,
+): SynthesisTopicCanonicalImportBatch {
+  const row = exactRecord(
+    readJson(paths.importBatchPath),
+    ["schema", "receiptId", "manifestHash", "items"],
+    "canonical_import_batch_invalid",
+  );
+  if (
+    row.schema !== IMPORT_BATCH_SCHEMA ||
+    typeof row.receiptId !== "string" ||
+    !row.receiptId ||
+    row.receiptId.length > SYNTHESIS_DURABLE_BUNDLE_LIMITS.string ||
+    typeof row.manifestHash !== "string" ||
+    !/^sha256:[a-f0-9]{64}$/.test(row.manifestHash) ||
+    !Array.isArray(row.items) ||
+    row.items.length > SYNTHESIS_DURABLE_BUNDLE_LIMITS.entries
+  ) {
+    throw new Error("canonical_import_batch_invalid");
+  }
+  const items = row.items.map((value) => {
+    const item = exactRecord(
+      value,
+      ["expectedBasis", "snapshot"],
+      "canonical_import_batch_invalid",
+    );
+    const expectedBasis = item.expectedBasis;
+    if (
+      expectedBasis !== null &&
+      (!expectedBasis ||
+        typeof expectedBasis !== "object" ||
+        Array.isArray(expectedBasis) ||
+        Object.keys(expectedBasis).sort().join("\0") !==
+          "artifactHash\0currentHash\0manifestHash" ||
+        !/^sha256:[a-f0-9]{64}$/.test(
+          String((expectedBasis as Record<string, unknown>).manifestHash ?? ""),
+        ) ||
+        !/^sha256:[a-f0-9]{64}$/.test(
+          String((expectedBasis as Record<string, unknown>).artifactHash ?? ""),
+        ) ||
+        !/^sha256:[a-f0-9]{64}$/.test(
+          String((expectedBasis as Record<string, unknown>).currentHash ?? ""),
+        ))
+    ) {
+      throw new Error("canonical_import_batch_invalid");
+    }
+    return {
+      expectedBasis:
+        expectedBasis as SynthesisTopicCanonicalImportBatch["items"][number]["expectedBasis"],
+      snapshot: rebuildSynthesisTopicCanonicalSnapshot(item.snapshot),
+    };
+  });
+  return {
+    receiptId: row.receiptId,
+    manifestHash: row.manifestHash,
+    items,
+  };
 }
 
 function recoverTransaction(args: {
@@ -731,12 +834,20 @@ export function openSynthesisSidecarTopicCanonicalStore(options: {
       try {
         options.fault?.("lock_acquired");
         const current = inspectCurrent(paths, { topicId: snapshot.topicId });
+        const currentRead =
+          current.status === "ready"
+            ? readCurrent(paths, { topicId: snapshot.topicId })
+            : null;
+        const currentFullHash =
+          currentRead?.status === "ready" ? currentRead.currentHash : undefined;
         const basisMatches =
           args.expectedBasis === null
             ? current.status === "absent"
             : current.status === "ready" &&
               current.manifestHash === args.expectedBasis.manifestHash &&
-              current.artifactHash === args.expectedBasis.artifactHash;
+              current.artifactHash === args.expectedBasis.artifactHash &&
+              (args.expectedBasis.currentHash === undefined ||
+                currentFullHash === args.expectedBasis.currentHash);
         if (!basisMatches) return { status: "basis_mismatch" };
         const target = topicPaths(paths, snapshot.pathId);
         const hashes = computeSynthesisTopicCurrentHashes(snapshot);
@@ -806,6 +917,134 @@ export function openSynthesisSidecarTopicCanonicalStore(options: {
       } finally {
         busy = false;
       }
+    },
+    stageImportBatch(args) {
+      if (state !== "ready") throw new Error("repair_required");
+      if (busy || fs.existsSync(paths.importBatchPath)) {
+        throw new Error("canonical_store_busy");
+      }
+      if (
+        !args.receiptId ||
+        args.receiptId.length > SYNTHESIS_DURABLE_BUNDLE_LIMITS.string ||
+        !/^sha256:[a-f0-9]{64}$/.test(args.manifestHash) ||
+        args.items.length > SYNTHESIS_DURABLE_BUNDLE_LIMITS.entries
+      ) {
+        throw new Error("canonical_import_batch_invalid");
+      }
+      if (!args.items.length) return;
+      const items = args.items
+        .map((item) => ({
+          expectedBasis: item.expectedBasis,
+          snapshot: rebuildSynthesisTopicCanonicalSnapshot(item.snapshot),
+        }))
+        .sort((left, right) =>
+          left.snapshot.topicId.localeCompare(right.snapshot.topicId),
+        );
+      const ids = new Set(items.map((item) => item.snapshot.topicId));
+      if (ids.size !== items.length) {
+        throw new Error("canonical_import_batch_duplicate_topic");
+      }
+      for (const item of items) {
+        const current = inspectCurrent(paths, {
+          topicId: item.snapshot.topicId,
+        });
+        const currentRead =
+          current.status === "ready"
+            ? readCurrent(paths, { topicId: item.snapshot.topicId })
+            : null;
+        const currentFullHash =
+          currentRead?.status === "ready" ? currentRead.currentHash : undefined;
+        const matches =
+          item.expectedBasis === null
+            ? current.status === "absent"
+            : current.status === "ready" &&
+              current.manifestHash === item.expectedBasis.manifestHash &&
+              current.artifactHash === item.expectedBasis.artifactHash &&
+              currentFullHash === item.expectedBasis.currentHash;
+        if (!matches) throw new Error("basis_mismatch");
+      }
+      writeJsonAtomically(paths.importBatchPath, {
+        schema: IMPORT_BATCH_SCHEMA,
+        receiptId: args.receiptId,
+        manifestHash: args.manifestHash,
+        items,
+      });
+    },
+    commitImportBatch(receiptId) {
+      if (state !== "ready") return { status: "repair_required" };
+      if (!fs.existsSync(paths.importBatchPath)) {
+        return { status: "failed_recovered" };
+      }
+      let batch: SynthesisTopicCanonicalImportBatch;
+      try {
+        batch = readImportBatch(paths);
+        if (batch.receiptId !== receiptId) {
+          state = "repair_required";
+          return { status: "repair_required" };
+        }
+        for (const item of batch.items) {
+          const hashes = computeSynthesisTopicCurrentHashes(item.snapshot);
+          const current = inspectCurrent(paths, {
+            topicId: item.snapshot.topicId,
+          });
+          const currentRead =
+            current.status === "ready"
+              ? readCurrent(paths, { topicId: item.snapshot.topicId })
+              : null;
+          const currentFullHash =
+            currentRead?.status === "ready"
+              ? currentRead.currentHash
+              : undefined;
+          if (
+            current.status === "ready" &&
+            current.manifestHash === hashes.manifestHash &&
+            current.artifactHash === hashes.artifactHash &&
+            currentFullHash === hashes.currentHash
+          ) {
+            continue;
+          }
+          const promoted = owner.promote(item);
+          if (promoted.status !== "promoted") return promoted;
+        }
+        fs.unlinkSync(paths.importBatchPath);
+        fsyncDirectory(paths.root);
+        return { status: "promoted" };
+      } catch {
+        state = "repair_required";
+        return { status: "repair_required" };
+      }
+    },
+    discardImportBatch(receiptId) {
+      if (!fs.existsSync(paths.importBatchPath)) return;
+      const batch = readImportBatch(paths);
+      if (batch.receiptId !== receiptId) {
+        throw new Error("canonical_import_batch_receipt_mismatch");
+      }
+      fs.unlinkSync(paths.importBatchPath);
+      fsyncDirectory(paths.root);
+    },
+    recoverImportBatch(receipt) {
+      if (!fs.existsSync(paths.importBatchPath)) return null;
+      let batch: SynthesisTopicCanonicalImportBatch;
+      try {
+        batch = readImportBatch(paths);
+      } catch {
+        state = "repair_required";
+        return { status: "repair_required" };
+      }
+      if (!receipt) {
+        fs.unlinkSync(paths.importBatchPath);
+        fsyncDirectory(paths.root);
+        return { status: "failed_recovered" };
+      }
+      if (
+        receipt.receiptId !== batch.receiptId ||
+        receipt.manifestHash !== batch.manifestHash
+      ) {
+        state = "repair_required";
+        return { status: "repair_required" };
+      }
+      return owner.commitImportBatch!(batch.receiptId);
     },
     snapshot() {
       return {

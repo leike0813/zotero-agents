@@ -212,6 +212,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/packages/synthesis-contracts/src/conceptKbCore.js",
       "service/packages/synthesis-contracts/src/knowledgeCheckpoint.js",
       "service/packages/synthesis-contracts/src/durableBundle.js",
+      "service/packages/synthesis-contracts/src/durableBundleImport.js",
       "service/packages/synthesis-contracts/src/topicGraphApplication.js",
       "service/packages/synthesis-contracts/src/topicGraphCore.js",
       "service/packages/synthesis-contracts/src/workbench.js",
@@ -239,6 +240,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/packages/synthesis-repository/src/topicGraph.js",
       "service/packages/synthesis-repository/src/knowledgeCheckpoint.js",
       "service/packages/synthesis-repository/src/durableBundle.js",
+      "service/packages/synthesis-repository/src/durableBundleImport.js",
       "service/node_modules/d3-force/LICENSE",
       "service/node_modules/d3-force/src/index.js",
       "service/node_modules/d3-dispatch/LICENSE",
@@ -565,6 +567,10 @@ describe("Synthesis sidecar runtime packaging", function () {
       first.inputs,
       "packages/synthesis-repository/src/durableBundle.ts",
     );
+    assert.include(
+      first.inputs,
+      "packages/synthesis-repository/src/durableBundleImport.ts",
+    );
     assert.include(first.inputs, "packages/synthesis-repository/package.json");
     assert.include(first.inputs, "packages/synthesis-application/src/index.ts");
     assert.include(
@@ -660,6 +666,10 @@ describe("Synthesis sidecar runtime packaging", function () {
       first.inputs,
       "packages/synthesis-contracts/src/durableBundle.ts",
     );
+    assert.include(
+      first.inputs,
+      "packages/synthesis-contracts/src/durableBundleImport.ts",
+    );
     assert.include(first.inputs, "package-lock.json");
     assert.deepEqual(SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES, [
       "d3-dispatch",
@@ -735,6 +745,10 @@ describe("Synthesis sidecar runtime packaging", function () {
       xpiCheck,
       "packages/synthesis-repository/src/durableBundle.js",
     );
+    assert.include(
+      xpiCheck,
+      "packages/synthesis-repository/src/durableBundleImport.js",
+    );
     assert.include(xpiCheck, "packages/synthesis-application/src/index.js");
     assert.include(
       xpiCheck,
@@ -743,6 +757,10 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(
       xpiCheck,
       "packages/synthesis-contracts/src/durableBundle.js",
+    );
+    assert.include(
+      xpiCheck,
+      "packages/synthesis-contracts/src/durableBundleImport.js",
     );
     assert.include(
       xpiCheck,

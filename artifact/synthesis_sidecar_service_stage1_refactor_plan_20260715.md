@@ -1,6 +1,6 @@
 # Stage 1 Detailed Refactor Plan: Synthesis Sidecar Service
 
-> 状态：实施中；WS5 已建立隔离 repository、Topic canonical shadow、七个私有领域 application foundation、knowledge checkpoint coordinator 与 durable bundle export foundation，尚未进入生产持久化切换
+> 状态：实施中；WS5 已建立隔离 repository、Topic canonical shadow、七个私有领域 application foundation、knowledge checkpoint coordinator，以及 durable bundle export/import foundation，尚未进入生产持久化切换
 >
 > 日期：2026-07-15
 >
@@ -1193,8 +1193,16 @@ graph layout 作为第一条 process canary，因为：
   与 Topic registry bases，读取 canonical current 后同时 recapture repository 与 canonical hashes，
   任一缺失、损坏或 supersession 都整体失败；sink 始终先写排序稳定的 bundles、最后写 manifest。
   production durable sync 复用 shared codec，但原有 DTO、paths、progress、preview/apply、sync index、
-  conflict、WebDAV HEAD/ETag/retry/credentials/Host port 行为保持不变。该 foundation 没有公开 route、
-  worker operation、import/apply 或 remote transport；剩余 priority-7 切片是 durable import 与 WebDAV。
+  conflict、WebDAV HEAD/ETag/retry/credentials/Host port 行为保持不变。该 export foundation 没有公开
+  route、worker operation 或 remote transport；import/apply 已由下述 sibling foundation 补齐。
+- `add-synthesis-sidecar-durable-bundle-import-foundation` 已完成拆分优先级第 7 项的
+  第三个闭合切片：shared contract 统一 live identity、严格 sync index 与 base/local/remote classifier；
+  私有 application 以单次 receipt 执行 preview/apply，冲突和 tombstone 阻断 apply，unbased update
+  需要显式确认。repository 在一个 aggregate/index CAS transaction 中增量写入 22 类 live facts、
+  auxiliary owners、stale bases、sync metadata 与 commit receipt；Topic current JSON/Markdown 通过
+  strict multi-Topic batch 在 SQLite commit 后同步提升，restart 按 matching receipt forward recovery，
+  无 receipt 则丢弃 staging，mismatch fail closed。production preview/apply、WebDAV transport、HEAD/ETag、
+  retry、credentials、Host port 与公开 capability 均未迁移；剩余 priority-7 切片是 WebDAV composition。
 - 此切片不是 production repository mirror 或 route。WS6 仍需完成 shadow parity，
   WS7 仍需一次性切换 DB/canonical single writer；当前 service 不接触生产
   `synthesis.db`、production canonical files、Host capability 或公开 `SynthesisClient`。

@@ -18,6 +18,7 @@
     "../../packages/synthesis-contracts/src/common.ts",
     "../../packages/synthesis-contracts/src/citationGraphApplication.ts",
     "../../packages/synthesis-contracts/src/durableBundle.ts",
+    "../../packages/synthesis-contracts/src/durableBundleImport.ts",
     "../../packages/synthesis-contracts/src/hostRead.ts",
     "../../packages/synthesis-contracts/src/referenceRefreshApplication.ts",
     "../../packages/synthesis-contracts/src/referenceMatchingReviewApplication.ts",
@@ -42,6 +43,7 @@
     "../../packages/synthesis-repository/src/index.ts",
     "../../packages/synthesis-repository/src/citationGraph.ts",
     "../../packages/synthesis-repository/src/durableBundle.ts",
+    "../../packages/synthesis-repository/src/durableBundleImport.ts",
     "../../packages/synthesis-repository/src/referenceRefresh.ts",
     "../../packages/synthesis-repository/src/referenceMatchingReview.ts"
   ]

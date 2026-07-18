@@ -62,6 +62,7 @@ describe("Synthesis sidecar migration boundary", function () {
         tag_vocabulary_application_schema_version: string;
         concept_kb_application_schema_version: string;
         topic_graph_application_schema_version: string;
+        durable_import_repository_schema_version: string;
         table_families: string[];
         production_database_owner: string;
         production_canonical_file_owner: string;
@@ -183,6 +184,10 @@ describe("Synthesis sidecar migration boundary", function () {
         legacy_read: string;
         source_port: string;
         sink_port: string;
+        import_mode: string;
+        tombstone_apply: string;
+        receipt_scope: string;
+        recovery: string;
         remote_capability: boolean;
         production_route: boolean;
         automatic_invocation: boolean;
@@ -211,6 +216,8 @@ describe("Synthesis sidecar migration boundary", function () {
         "synthesis-concept-kb-application-repository.v1",
       topic_graph_application_schema_version:
         "synthesis-topic-graph-application-repository.v1",
+      durable_import_repository_schema_version:
+        "synthesis-durable-import-repository.v1",
       table_families: [
         "schema_meta",
         "cache_basis",
@@ -236,6 +243,7 @@ describe("Synthesis sidecar migration boundary", function () {
         "reference_match_proposal",
         "reference_matching_state",
         "reference_matching_preparation",
+        "review_item",
         "tag_application_state",
         "tag_vocabulary_entry",
         "tag_alias",
@@ -256,6 +264,12 @@ describe("Synthesis sidecar migration boundary", function () {
         "topic_graph_node",
         "topic_graph_edge",
         "topic_graph_review_item",
+        "topic_interest_metadata",
+        "topic_discovery_hint",
+        "related_items_sync_effect",
+        "durable_sync_state",
+        "durable_sync_entity",
+        "durable_import_commit",
       ],
       production_database_owner: "plugin_composition",
       production_canonical_file_owner: "plugin_composition",
@@ -331,9 +345,19 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.deepEqual(rawInventory.isolated_durable_bundle_export_application, {
       mode: "isolated_shadow",
       package: "packages/synthesis-application",
-      use_cases: ["build_export", "read_and_verify"],
+      use_cases: [
+        "build_export",
+        "read_and_verify",
+        "preview_import",
+        "apply_import",
+        "discard_import",
+      ],
       format: "v2_only_export",
       legacy_read: "v1",
+      import_mode: "incremental_compare_and_swap",
+      tombstone_apply: "unsupported",
+      receipt_scope: "in_process_single_use",
+      recovery: "repository_receipt_and_canonical_batch",
       source_port: "environment_neutral",
       sink_port: "environment_neutral_manifest_last",
       remote_capability: false,
@@ -795,6 +819,7 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(contractIndex, 'export * from "./sidecarCanonicalStore"');
     assert.include(contractIndex, 'export * from "./topicApplication"');
     assert.include(contractIndex, 'export * from "./durableBundle"');
+    assert.include(contractIndex, 'export * from "./durableBundleImport"');
     assert.isTrue(fs.existsSync(path.join(sidecarAppRoot, "package.json")));
     assert.notMatch(
       sidecarAppSource,
@@ -804,6 +829,10 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.include(
       sidecarServer,
       "createSynthesisSidecarDurableBundleApplication",
+    );
+    assert.isBelow(
+      sidecarServer.indexOf("createSynthesisSidecarDurableBundleApplication({"),
+      sidecarServer.indexOf("server.listen("),
     );
     assert.notInclude(sidecarSystemContract, "durable_bundle");
     assert.match(

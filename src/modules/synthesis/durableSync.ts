@@ -21,6 +21,14 @@ import {
   type SynthesisRepository,
 } from "./repository";
 import { createSynthesisDurableBundleCodec } from "../../../packages/synthesis-contracts/src/durableBundle";
+import {
+  SYNTHESIS_DURABLE_SYNC_INDEX_SCHEMA_VERSION as SHARED_SYNTHESIS_DURABLE_SYNC_INDEX_SCHEMA_VERSION,
+  classifySynthesisDurableImportFacts,
+  normalizeSynthesisDurableImportEntries,
+  rebuildSynthesisDurableSyncIndex,
+  type SynthesisDurableImportFact,
+  type SynthesisDurableSyncIndex as SharedSynthesisDurableSyncIndex,
+} from "../../../packages/synthesis-contracts/src/durableBundleImport";
 
 export const SYNTHESIS_DURABLE_LEGACY_MANIFEST_SCHEMA_VERSION = "1.0.0";
 export const SYNTHESIS_DURABLE_MANIFEST_SCHEMA_VERSION = "2.0.0";
@@ -28,7 +36,8 @@ export const SYNTHESIS_DURABLE_ASSET_SCHEMA_VERSION = "1.0.0";
 export const SYNTHESIS_DURABLE_BUNDLE_SCHEMA_ID =
   "synthesis.durable_asset_bundle";
 export const SYNTHESIS_DURABLE_BUNDLE_SCHEMA_VERSION = "2.0.0";
-export const SYNTHESIS_DURABLE_SYNC_INDEX_SCHEMA_VERSION = "1.0.0";
+export const SYNTHESIS_DURABLE_SYNC_INDEX_SCHEMA_VERSION =
+  SHARED_SYNTHESIS_DURABLE_SYNC_INDEX_SCHEMA_VERSION;
 
 export type SynthesisDurableExportProgress = {
   phase: "repository" | "topics" | "bundle" | "write" | "manifest";
@@ -972,9 +981,6 @@ async function readRemoteAssets(
     },
   });
   const assets = new Map<string, SynthesisDurableAssetEnvelope>();
-  for (const envelope of verified.value?.entries || []) {
-    assets.set(entityKey(envelope.entity_kind, envelope.entity_id), envelope);
-  }
   const diagnostics = verified.diagnostics.map(
     (diagnostic): SynthesisDurableSyncDiagnostic => ({
       code: diagnostic.code,
@@ -986,6 +992,38 @@ async function readRemoteAssets(
         : {}),
     }),
   );
+  if (verified.value) {
+    try {
+      const live = normalizeSynthesisDurableImportEntries(
+        verified.value.entries.filter(
+          (entry) => entry.entity_kind !== "tombstone",
+        ),
+      );
+      for (const envelope of [
+        ...live,
+        ...verified.value.entries.filter(
+          (entry) => entry.entity_kind === "tombstone",
+        ),
+      ]) {
+        assets.set(
+          entityKey(envelope.entity_kind, envelope.entity_id),
+          envelope,
+        );
+      }
+    } catch (error) {
+      diagnostics.push({
+        code:
+          error instanceof Error
+            ? error.message
+            : "durable_import_payload_invalid",
+        severity: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "durable_import_payload_invalid",
+      });
+    }
+  }
   return { assets, diagnostics };
 }
 
@@ -1006,7 +1044,9 @@ export async function readSynthesisDurableSyncIndex(root: string) {
       entities: {},
     };
   }
-  return (await readJson(path)) as SynthesisDurableSyncIndex;
+  return rebuildSynthesisDurableSyncIndex(
+    await readJson(path),
+  ) as SynthesisDurableSyncIndex;
 }
 
 export async function writeSynthesisDurableSyncIndex(args: {
@@ -1085,19 +1125,43 @@ export async function previewSynthesisDurableImport(args: {
   diagnostics.push(...remote.diagnostics);
   const index = await readSynthesisDurableSyncIndex(args.root);
   const localHashes = await localAssetHashByEntity(args);
-  const conflicts: SynthesisDurableConflict[] = [];
-  let additions = 0;
-  let updates = 0;
-  let unchanged = 0;
+  const manifestEntities = listSynthesisDurableManifestEntities(manifest);
+  const liveFacts: SynthesisDurableImportFact[] = manifestEntities
+    .filter((asset) => asset.entity_kind !== "tombstone")
+    .map((asset) => ({
+      entityKind: asset.entity_kind,
+      entityId: asset.entity_id,
+      path: asset.path,
+      hash: asset.hash,
+    }));
+  const classified = classifySynthesisDurableImportFacts({
+    remote: liveFacts,
+    localHashes: Object.fromEntries(localHashes),
+    index: index as unknown as SharedSynthesisDurableSyncIndex,
+  });
+  const conflicts: SynthesisDurableConflict[] = classified.conflicts.map(
+    (conflict) => ({
+      entity_kind: conflict.entityKind,
+      entity_id: conflict.entityId,
+      path: conflict.path,
+      reason: conflict.reason,
+      base_hash: conflict.baseHash,
+      local_hash: conflict.localHash,
+      remote_hash: conflict.remoteHash,
+    }),
+  );
+  let additions = classified.additions;
+  let updates = classified.updates + classified.unbasedUpdates;
+  let unchanged = classified.unchanged;
   let tombstones = 0;
-  for (const asset of listSynthesisDurableManifestEntities(manifest)) {
+  for (const asset of manifestEntities.filter(
+    (entry) => entry.entity_kind === "tombstone",
+  )) {
     const key = entityKey(asset.entity_kind, asset.entity_id);
     const baseHash = index.entities[key]?.last_synced_hash || "";
     const localHash = localHashes.get(key) || "";
     const remoteHash = asset.hash;
-    if (asset.entity_kind === "tombstone") {
-      tombstones += 1;
-    }
+    tombstones += 1;
     if (localHash && localHash === remoteHash) {
       unchanged += 1;
       continue;
@@ -1111,10 +1175,7 @@ export async function previewSynthesisDurableImport(args: {
         entity_kind: asset.entity_kind,
         entity_id: asset.entity_id,
         path: asset.path,
-        reason:
-          asset.entity_kind === "tombstone"
-            ? "update_vs_tombstone"
-            : "both_changed",
+        reason: "update_vs_tombstone",
         base_hash: baseHash,
         local_hash: localHash,
         remote_hash: remoteHash,

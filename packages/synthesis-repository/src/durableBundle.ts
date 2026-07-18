@@ -43,6 +43,14 @@ export type SynthesisDurableBundleRepositoryState = {
 const clean = (value: unknown) => String(value ?? "").trim();
 const optional = (value: unknown) => clean(value) || undefined;
 
+function payloadFromRow(row: SqlRow) {
+  const value = JSON.parse(clean(row.payload_json) || "{}");
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("repository_durable_payload_invalid");
+  }
+  return value as Record<string, unknown>;
+}
+
 function redirectFromRow(row: SqlRow) {
   return {
     fromCanonicalReferenceId: clean(row.from_canonical_reference_id),
@@ -56,12 +64,15 @@ function redirectFromRow(row: SqlRow) {
 
 function reviewFromRow(row: SqlRow) {
   return {
-    reviewId: clean(row.review_id),
-    sourceRef: clean(row.source_ref),
-    canonicalReferenceId: clean(row.canonical_reference_id),
+    reviewItemId: clean(row.review_item_id),
+    reviewKind: clean(row.review_kind),
+    priority: Number(row.priority) || 0,
     status: clean(row.status),
-    reason: clean(row.reason),
+    scopeKind: optional(row.scope_kind),
+    scopeRef: optional(row.scope_ref),
+    blockedByReviewItemId: optional(row.blocked_by_review_item_id),
     payloadJson: clean(row.payload_json) || "{}",
+    diagnosticsJson: clean(row.diagnostics_json) || "[]",
     createdAt: clean(row.created_at),
     updatedAt: clean(row.updated_at),
   };
@@ -178,11 +189,9 @@ export function captureSynthesisDurableBundleRepositoryState(
       );
     }
     for (const row of db
-      .all(
-        "SELECT * FROM synt_reference_revision_review ORDER BY review_id ASC",
-      )
+      .all("SELECT * FROM synt_review_item ORDER BY review_item_id ASC")
       .map(reviewFromRow)) {
-      drafts.push(draft("review_item", row.reviewId, row, row.updatedAt));
+      drafts.push(draft("review_item", row.reviewItemId, row, row.updatedAt));
     }
 
     const tagEntries = listSynthesisTagVocabularyEntries(db);
@@ -206,6 +215,46 @@ export function captureSynthesisDurableBundleRepositoryState(
           tagProtocol.updatedAt,
         ),
       );
+
+    for (const row of db.all(
+      "SELECT * FROM synt_topic_interest_metadata ORDER BY topic_id ASC",
+    )) {
+      const data = payloadFromRow(row);
+      drafts.push(
+        draft(
+          "topic_interest_metadata",
+          clean(data.topicId),
+          data,
+          optional(data.updatedAt),
+        ),
+      );
+    }
+    for (const row of db.all(
+      "SELECT * FROM synt_topic_discovery_hint ORDER BY hint_id ASC",
+    )) {
+      const data = payloadFromRow(row);
+      drafts.push(
+        draft(
+          "topic_discovery_hint",
+          clean(data.hintId),
+          data,
+          optional(data.updatedAt),
+        ),
+      );
+    }
+    for (const row of db.all(
+      "SELECT * FROM synt_related_items_sync_effect ORDER BY effect_id ASC",
+    )) {
+      const data = payloadFromRow(row);
+      drafts.push(
+        draft(
+          "related_items_sync_effect",
+          clean(data.effectId),
+          data,
+          optional(data.updatedAt),
+        ),
+      );
+    }
 
     const topicBases = db
       .all("SELECT * FROM synt_topic_application_state ORDER BY topic_id ASC")

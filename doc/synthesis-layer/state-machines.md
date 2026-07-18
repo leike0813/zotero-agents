@@ -298,11 +298,17 @@ stateDiagram-v2
   validating --> failed: invalid path, hash, schema, or manifest
   previewing --> preview_ready: dry-run diff built
   previewing --> blocked_conflict: conflict gate blocks
+  previewing --> blocked_tombstone: tombstone has no apply semantics
   preview_ready --> applying: user confirms or WebDAV Sync preview is clean
   preview_ready --> cancelled: user cancels
   blocked_conflict --> previewing: manual edit or resolution clears blocker
-  applying --> stale_projection: durable facts committed
-  stale_projection --> applied: rebuildable projections marked stale
+  applying --> basis_superseded: repository or sync-index basis changed
+  applying --> canonical_staged: Topic batch staged
+  canonical_staged --> stale_projection: durable facts and receipt committed
+  stale_projection --> promoting: rebuildable projections marked stale
+  promoting --> applied: canonical batch promoted and receipt cleared
+  promoting --> recovering: promotion interrupted
+  recovering --> applied: matching receipt rolls forward
   applying --> failed: write failure
   failed --> validating: retry preview
 ```
@@ -311,6 +317,7 @@ Forbidden transitions:
 
 - `validating -> applying` without preview result.
 - `blocked_conflict -> applying` without an explicit resolution action.
+- `blocked_tombstone -> applying` while tombstone mutation is unsupported.
 - Importing a file bundle by making it a Workbench hot path.
 
 ## `sm.sync.webdav`

@@ -6,6 +6,7 @@ export * from "./conceptKbApplication";
 export * from "./conceptKbCore";
 export * from "./debug";
 export * from "./durableBundle";
+export * from "./durableBundleImport";
 export * from "./exportDelivery";
 export * from "./graph";
 export * from "./hostRead";

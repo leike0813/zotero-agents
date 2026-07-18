@@ -13,7 +13,8 @@ isolated_repository:
   tag_vocabulary_application_schema_version: synthesis-tag-vocabulary-application-repository.v1
   concept_kb_application_schema_version: synthesis-concept-kb-application-repository.v1
   topic_graph_application_schema_version: synthesis-topic-graph-application-repository.v1
-  table_families: [schema_meta, cache_basis, operation, topic_application_state, topic_application_projection, citation_graph_application_state, citation_node, citation_edge, citation_source_ownership, citation_incoming_group, citation_metrics_light, citation_metrics_complex, citation_layout_state, reference_application_state, reference_source, reference_artifact, reference_raw, reference_canonical, reference_redirect, reference_binding, reference_revision_review, reference_match_proposal, reference_matching_state, reference_matching_preparation, tag_application_state, tag_vocabulary_entry, tag_alias, tag_abbrev, tag_protocol, tag_validation_warning, tag_staged_suggestion, tag_audit, tag_effect, concept_application_state, concept, concept_sense, concept_alias, concept_relation, concept_review_item, topic_concept_link, topic_graph_application_state, topic_graph_node, topic_graph_edge, topic_graph_review_item]
+  durable_import_repository_schema_version: synthesis-durable-import-repository.v1
+  table_families: [schema_meta, cache_basis, operation, topic_application_state, topic_application_projection, citation_graph_application_state, citation_node, citation_edge, citation_source_ownership, citation_incoming_group, citation_metrics_light, citation_metrics_complex, citation_layout_state, reference_application_state, reference_source, reference_artifact, reference_raw, reference_canonical, reference_redirect, reference_binding, reference_revision_review, reference_match_proposal, reference_matching_state, reference_matching_preparation, review_item, tag_application_state, tag_vocabulary_entry, tag_alias, tag_abbrev, tag_protocol, tag_validation_warning, tag_staged_suggestion, tag_audit, tag_effect, concept_application_state, concept, concept_sense, concept_alias, concept_relation, concept_review_item, topic_concept_link, topic_graph_application_state, topic_graph_node, topic_graph_edge, topic_graph_review_item, topic_interest_metadata, topic_discovery_hint, related_items_sync_effect, durable_sync_state, durable_sync_entity, durable_import_commit]
   production_database_owner: plugin_composition
   production_canonical_file_owner: plugin_composition
   production_mutation_enabled: false
@@ -129,9 +130,13 @@ isolated_knowledge_checkpoint_application:
 isolated_durable_bundle_export_application:
   mode: isolated_shadow
   package: packages/synthesis-application
-  use_cases: [build_export, read_and_verify]
+  use_cases: [build_export, read_and_verify, preview_import, apply_import, discard_import]
   format: v2_only_export
   legacy_read: v1
+  import_mode: incremental_compare_and_swap
+  tombstone_apply: unsupported
+  receipt_scope: in_process_single_use
+  recovery: repository_receipt_and_canonical_batch
   source_port: environment_neutral
   sink_port: environment_neutral_manifest_last
   remote_capability: false

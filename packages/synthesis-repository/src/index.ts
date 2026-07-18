@@ -10,6 +10,7 @@ export const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_SCHEMA_META_KEY =
 export * from "./citationGraph.js";
 export * from "./conceptKb.js";
 export * from "./durableBundle.js";
+export * from "./durableBundleImport.js";
 export * from "./knowledgeCheckpoint.js";
 export * from "./referenceMatchingReview.js";
 export * from "./referenceRefresh.js";
@@ -34,6 +35,13 @@ import {
   type SynthesisKnowledgeCheckpointRepositoryReplacement,
 } from "./knowledgeCheckpoint.js";
 import { captureSynthesisDurableBundleRepositoryState } from "./durableBundle.js";
+import {
+  applySynthesisDurableImportRepositoryState,
+  captureSynthesisDurableImportRepositoryState,
+  clearSynthesisDurableImportCommit,
+  ensureSynthesisDurableImportRepositorySchema,
+  type SynthesisDurableImportRepositoryApply,
+} from "./durableBundleImport.js";
 import {
   ensureSynthesisCitationGraphApplicationRepositorySchema,
   getSynthesisCitationGraphApplicationState,
@@ -924,6 +932,7 @@ export function createSynthesisRepositoryFoundationStore(options: {
   let tagVocabularyApplicationInitialized = false;
   let conceptKbApplicationInitialized = false;
   let topicGraphApplicationInitialized = false;
+  let durableImportInitialized = false;
   const initialize = () => {
     if (initialized) return;
     ensureSynthesisRepositoryFoundationSchema(db);
@@ -974,6 +983,17 @@ export function createSynthesisRepositoryFoundationStore(options: {
     if (topicGraphApplicationInitialized) return;
     ensureSynthesisTopicGraphApplicationRepositorySchema(db);
     topicGraphApplicationInitialized = true;
+  };
+  const initializeDurableImport = () => {
+    initializeTopicApplication();
+    initializeReferenceRefreshApplication();
+    initializeReferenceMatchingReviewApplication();
+    initializeTagVocabularyApplication();
+    initializeConceptKbApplication();
+    initializeTopicGraphApplication();
+    if (durableImportInitialized) return;
+    ensureSynthesisDurableImportRepositorySchema(db);
+    durableImportInitialized = true;
   };
   return {
     initialize,
@@ -1051,12 +1071,20 @@ export function createSynthesisRepositoryFoundationStore(options: {
       return captureSynthesisKnowledgeCheckpointRepositoryState(db);
     },
     captureDurableBundleState() {
-      initializeTopicApplication();
-      initializeReferenceMatchingReviewApplication();
-      initializeTagVocabularyApplication();
-      initializeConceptKbApplication();
-      initializeTopicGraphApplication();
+      initializeDurableImport();
       return captureSynthesisDurableBundleRepositoryState(db);
+    },
+    captureDurableImportState() {
+      initializeDurableImport();
+      return captureSynthesisDurableImportRepositoryState(db);
+    },
+    applyDurableImportState(args: SynthesisDurableImportRepositoryApply) {
+      initializeDurableImport();
+      return applySynthesisDurableImportRepositoryState(db, args);
+    },
+    clearDurableImportCommit(receiptId: string) {
+      initializeDurableImport();
+      clearSynthesisDurableImportCommit(db, receiptId);
     },
     replaceKnowledgeCheckpointState(
       args: SynthesisKnowledgeCheckpointRepositoryReplacement,

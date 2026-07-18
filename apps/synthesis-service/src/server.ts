@@ -305,6 +305,24 @@ export async function startSynthesisSidecarServer(
         "citation-graph-transfers",
       ),
     });
+  let durableBundleApplication: ReturnType<
+    typeof createSynthesisSidecarDurableBundleApplication
+  >;
+  try {
+    durableBundleApplication = createSynthesisSidecarDurableBundleApplication({
+      repository: repository.store,
+      canonicalStore,
+      producerVersion: config.serviceVersion,
+    });
+  } catch (error) {
+    canonicalStore.close();
+    repository.close();
+    await Promise.allSettled([
+      computePool.shutdown(),
+      transferOwner.shutdown(),
+    ]);
+    throw error;
+  }
   const topicApplication = createSynthesisSidecarTopicApplication({
     canonicalStore,
     repository: repository.store,
@@ -338,12 +356,6 @@ export async function startSynthesisSidecarServer(
   const knowledgeCheckpointApplication =
     createSynthesisSidecarKnowledgeCheckpointApplication({
       repository: repository.store,
-    });
-  const durableBundleApplication =
-    createSynthesisSidecarDurableBundleApplication({
-      repository: repository.store,
-      canonicalStore,
-      producerVersion: config.serviceVersion,
     });
   const transferExecutor =
     options.transferExecutor ??

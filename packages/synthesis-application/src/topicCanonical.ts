@@ -51,6 +51,7 @@ export type SynthesisTopicCanonicalSnapshot = {
   artifact: SynthesisTopicJsonObject;
   metadata: SynthesisTopicJsonObject;
   sections: Record<string, SynthesisTopicJsonValue>;
+  markdown: Record<string, string>;
 };
 
 export type SynthesisTopicCanonicalHashes = {
@@ -59,6 +60,8 @@ export type SynthesisTopicCanonicalHashes = {
   artifactHash: string;
   metadataHash: string;
   sectionHashes: Record<string, string>;
+  markdownHashes: Record<string, string>;
+  currentHash: string;
 };
 
 export type SynthesisTopicCanonicalSectionDescriptor = {
@@ -89,6 +92,7 @@ export type SynthesisTopicCanonicalReadResult =
       topicId: string;
       pathId: string;
       snapshot: SynthesisTopicCanonicalSnapshot;
+      currentHash?: string;
       diagnostics: [];
     }
   | {
@@ -102,6 +106,7 @@ export type SynthesisTopicCanonicalReadResult =
 export type SynthesisTopicCanonicalBasis = {
   manifestHash: string;
   artifactHash: string;
+  currentHash?: string;
 };
 
 export type SynthesisTopicCanonicalPromoteStatus =
@@ -126,10 +131,32 @@ export interface SynthesisTopicCanonicalStore {
     expectedBasis: SynthesisTopicCanonicalBasis | null;
     snapshot: SynthesisTopicCanonicalSnapshot;
   }): SynthesisTopicCanonicalPromoteResult;
+  stageImportBatch?(args: SynthesisTopicCanonicalImportBatch): void;
+  commitImportBatch?(receiptId: string): SynthesisTopicCanonicalPromoteResult;
+  discardImportBatch?(receiptId: string): void;
+  recoverImportBatch?(
+    receipt: {
+      receiptId: string;
+      manifestHash: string;
+    } | null,
+  ): SynthesisTopicCanonicalPromoteResult | null;
   snapshot(): SynthesisTopicCanonicalStoreSnapshot;
   stopAdmission(): void;
   close(): void;
 }
+
+export type SynthesisTopicCanonicalImportBatchItem = {
+  expectedBasis:
+    | (SynthesisTopicCanonicalBasis & { currentHash: string })
+    | null;
+  snapshot: SynthesisTopicCanonicalSnapshot;
+};
+
+export type SynthesisTopicCanonicalImportBatch = {
+  receiptId: string;
+  manifestHash: string;
+  items: SynthesisTopicCanonicalImportBatchItem[];
+};
 
 export class SynthesisTopicCanonicalContractError extends Error {
   readonly code = "invalid_request";
@@ -230,6 +257,7 @@ export function computeSynthesisTopicCurrentHashes(args: {
   artifact: unknown;
   metadata: unknown;
   sections: Record<string, unknown>;
+  markdown?: Record<string, string>;
 }): SynthesisTopicCanonicalHashes {
   if (!isRecord(args.sections)) invalid("sections must be an object");
   const sectionHashes = Object.fromEntries(
@@ -238,13 +266,53 @@ export function computeSynthesisTopicCurrentHashes(args: {
       .map(([name, value]) => [name, hashSynthesisEngineCanonicalJson(value)]),
   );
   const artifactHash = hashSynthesisEngineCanonicalJson(args.artifact);
+  const markdownHashes = Object.fromEntries(
+    Object.entries(args.markdown ?? {})
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([name, value]) => [name, hashSynthesisEngineCanonicalJson(value)]),
+  );
+  const currentHash = hashSynthesisEngineCanonicalJson({
+    manifest: args.manifest,
+    artifact: args.artifact,
+    metadata: args.metadata,
+    sections: args.sections,
+    markdown: args.markdown ?? {},
+  });
   return {
     manifestHash: hashSynthesisEngineCanonicalJson(args.manifest),
     structuredHash: artifactHash,
     artifactHash,
     metadataHash: hashSynthesisEngineCanonicalJson(args.metadata),
     sectionHashes,
+    markdownHashes,
+    currentHash,
   };
+}
+
+function rebuildMarkdown(value: unknown) {
+  if (value === undefined) return {};
+  if (!isRecord(value)) invalid("markdown must be an object");
+  const result: Record<string, string> = {};
+  for (const [relativePath, content] of Object.entries(value).sort(
+    ([left], [right]) => left.localeCompare(right),
+  )) {
+    if (
+      typeof content !== "string" ||
+      !relativePath.endsWith(".md") ||
+      relativePath.startsWith("/") ||
+      relativePath.includes("\\") ||
+      relativePath
+        .split("/")
+        .some((part) => !part || part === "." || part === "..") ||
+      relativePath.startsWith("assets/") ||
+      relativePath.endsWith(".metadata.json") ||
+      byteLengthSynthesisEngineText(content) > 4 * 1024 * 1024
+    ) {
+      invalid("markdown current asset is invalid");
+    }
+    result[relativePath] = content;
+  }
+  return result;
 }
 
 function rebuildBoundedSnapshotJson(input: Record<string, unknown>) {
@@ -350,11 +418,24 @@ function validateDeclaredHashes(
 export function rebuildSynthesisTopicCanonicalSnapshot(
   value: unknown,
 ): SynthesisTopicCanonicalSnapshot {
-  const input = strictRecord(
-    value,
-    ["topicId", "pathId", "manifest", "artifact", "metadata", "sections"],
-    "topicCanonicalSnapshot",
-  );
+  if (!isRecord(value)) invalid("topicCanonicalSnapshot must be an object");
+  const allowed = [
+    "topicId",
+    "pathId",
+    "manifest",
+    "artifact",
+    "metadata",
+    "sections",
+    "markdown",
+  ];
+  const required = allowed.slice(0, 6);
+  if (
+    Object.keys(value).some((field) => !allowed.includes(field)) ||
+    required.some((field) => !(field in value))
+  ) {
+    invalid("topicCanonicalSnapshot fields are invalid");
+  }
+  const input = value;
   const topicId = strictTopicId(input.topicId);
   const pathId = canonicalSynthesisTopicPathId(topicId);
   if (input.pathId !== pathId) invalid("pathId does not match topicId");
@@ -366,6 +447,7 @@ export function rebuildSynthesisTopicCanonicalSnapshot(
     artifact: canonicalClone(bounded.artifact),
     metadata: canonicalClone(bounded.metadata),
     sections: canonicalClone(bounded.sections),
+    markdown: rebuildMarkdown(input.markdown),
   };
   validateMetadataEnvelope(canonical.metadata, topicId);
   validateSectionIdentity(canonical.manifest, canonical.sections);
