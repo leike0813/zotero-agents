@@ -67,9 +67,9 @@
     "zoteroBridgeCliRelease": {
       "schema": "zotero-bridge-cli-release.v1",
       "version": "0.3.0",
-      "buildFingerprint": "2f4ba35ea3cb3565a0416e352c841ce28d314095a8f9c7c7f54dbc2e409faed0",
+      "buildFingerprint": "7332a3f4c286d5d7c3d4571c5bcfec9cdfd7faee0abec14a98d91947d3944822",
       "binariesBuildFingerprint": "2f4ba35ea3cb3565a0416e352c841ce28d314095a8f9c7c7f54dbc2e409faed0",
-      "binaryAggregateSha256": "c5fe4070640f625f4877b82bcdf57616c51ad258b79db8db7a08ba196a898296"
+      "binaryAggregateSha256": ""
     },
     "profileVersion": "0.3.0",
     "zoteroBridgeCliVersion": "0.3.0",
