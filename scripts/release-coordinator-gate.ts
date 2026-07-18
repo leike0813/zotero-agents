@@ -310,6 +310,21 @@ function parseTagState(result: Awaited<ReturnType<typeof runOptional>>) {
   };
 }
 
+function parseGitHubReleaseState(
+  result: Awaited<ReturnType<typeof runOptional>>,
+) {
+  if (
+    !result.ok &&
+    /release not found|\b404\b.*\bnot found\b/i.test(result.stderr)
+  ) {
+    return {
+      exists: false,
+      status: "missing" as const,
+    };
+  }
+  return parseTagState(result);
+}
+
 async function inspectRemote(args: {
   name: "origin";
   targetVersion: string;
@@ -461,7 +476,7 @@ export async function analyzeReleaseGate(
       )
     : { exists: false, status: "missing" as const };
   const githubRelease = targetVersion
-    ? parseTagState(
+    ? parseGitHubReleaseState(
         await runOptional(commandRunner, "gh", [
           "release",
           "view",

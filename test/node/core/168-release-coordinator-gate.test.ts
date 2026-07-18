@@ -74,6 +74,48 @@ describe("release coordinator gate", function () {
     });
   });
 
+  it("treats a GitHub release not-found response as a missing release", async function () {
+    await withPackageVersion("0.5.4", async (packageJsonPath) => {
+      const report = await analyzeReleaseGate({
+        packageJsonPath,
+        targetVersion: "v0.5.5",
+        commandRunner: commandRunner({
+          "gh release view v0.5.5 --repo leike0813/zotero-agents": new Error(
+            "release not found",
+          ),
+        }),
+        testNodeFullPassed: true,
+        lintCheckPassed: true,
+        contentPackageReleaseVerified: true,
+      });
+
+      assert.equal(report.github_release.status, "missing");
+      assert.notInclude(blockerCodes(report), "target_release_state_unknown");
+      assert.equal(report.next_action, "ready_to_release");
+    });
+  });
+
+  it("keeps unexpected GitHub release lookup failures unknown", async function () {
+    await withPackageVersion("0.5.4", async (packageJsonPath) => {
+      const report = await analyzeReleaseGate({
+        packageJsonPath,
+        targetVersion: "v0.5.5",
+        commandRunner: commandRunner({
+          "gh release view v0.5.5 --repo leike0813/zotero-agents": new Error(
+            "HTTP 401 authentication required",
+          ),
+        }),
+        testNodeFullPassed: true,
+        lintCheckPassed: true,
+        contentPackageReleaseVerified: true,
+      });
+
+      assert.equal(report.github_release.status, "unknown");
+      assert.include(blockerCodes(report), "target_release_state_unknown");
+      assert.equal(report.next_action, "recover_release_state");
+    });
+  });
+
   it("blocks dirty working trees before any release action", async function () {
     await withPackageVersion("0.5.4", async (packageJsonPath) => {
       const report = await analyzeReleaseGate({
