@@ -5,6 +5,7 @@ export * from "./concepts";
 export * from "./conceptKbApplication";
 export * from "./conceptKbCore";
 export * from "./debug";
+export * from "./debugMaintenance";
 export * from "./durableBundle";
 export * from "./durableBundleImport";
 export * from "./webDavSync";

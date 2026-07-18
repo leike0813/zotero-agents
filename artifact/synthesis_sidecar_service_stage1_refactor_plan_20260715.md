@@ -1,6 +1,6 @@
 # Stage 1 Detailed Refactor Plan: Synthesis Sidecar Service
 
-> 状态：实施中；WS5 已建立隔离 repository、Topic canonical shadow、七个私有领域 application foundation、knowledge checkpoint coordinator、durable bundle export/import foundation，以及私有 WebDAV sync application foundation，尚未进入生产持久化切换
+> 状态：实施中；WS5 已完成隔离 application/repository/canonical/debug-maintenance foundation 与六项退出门禁，下一阶段为 WS6 shadow verification；尚未进入生产持久化切换
 >
 > 日期：2026-07-15
 >
@@ -1212,6 +1212,13 @@ graph layout 作为第一条 process canary，因为：
   默认 Host port disabled，无 route、自动触发、credential 或生产 mutation authority。production
   WebDAV 保留公开 DTO、paths、progress、prefs/credentials、HTTP/abort 与 Host wire shape，通过适配器
   复用 shared orchestration。priority-7 至此闭合。
+- `add-synthesis-sidecar-debug-maintenance-application-foundation` 已完成 priority-8 与 WS5 闭合：
+  shared strict contract/repository projection/application 提供有界、JSON-safe 的 status、schema、cache、
+  operation、snapshot、paper/Topic inspect、pure diff 与 optional redacted profiler。SQLite transaction 内
+  捕获 repository basis，transaction 外 inspect canonical descriptor，再 recapture；变化返回
+  `superseded`。所有 read 均零写入，Node profiler 默认 unavailable，checkpoint/durable/protected reset
+  复用既有 owner。私有 composition 无 route/worker/client/Host capability，并在 shutdown 首先 drain。
+  六项 WS5 exit gate 已由 Core、boundary、inventory 与 runtime/XPI 检查锁定；WS6 shadow parity 为下一阶段。
 - 此切片不是 production repository mirror 或 route。WS6 仍需完成 shadow parity，
   WS7 仍需一次性切换 DB/canonical single writer；当前 service 不接触生产
   `synthesis.db`、production canonical files、Host capability 或公开 `SynthesisClient`。
@@ -1242,7 +1249,7 @@ graph layout 作为第一条 process canary，因为：
 5. reference sidecar/matching/review；
 6. tags/concepts/topic graph；
 7. knowledge checkpoint、durable bundle export/import 与 WebDAV sync foundation 已完成；
-8. debug/maintenance。
+8. debug/maintenance（已完成）。
 
 这里的优先级用于实现和测试，不代表生产逐表切换。
 

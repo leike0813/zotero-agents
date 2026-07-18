@@ -140,7 +140,7 @@ describe("Synthesis lifecycle client consumers", function () {
     assert.notInclude(readonlyComposition, "hostExportDeliveryPort");
   });
 
-  it("injects the in-process Citation Graph engines in production composition", function () {
+  it("injects sidecar layout/metrics and in-process build engines in production composition", function () {
     const legacyComposition = fs.readFileSync(
       path.join(ROOT, "src/modules/synthesisClient/legacyComposition.ts"),
       "utf8",
@@ -148,12 +148,12 @@ describe("Synthesis lifecycle client consumers", function () {
 
     assert.include(
       legacyComposition,
-      "createInProcessSynthesisCitationGraphLayoutEngine",
+      "createSynthesisSidecarCitationGraphLayoutEngine",
     );
     assert.include(legacyComposition, "citationGraphLayoutEngine");
     assert.include(
       legacyComposition,
-      "createInProcessSynthesisCitationGraphMetricsEngine",
+      "createSynthesisSidecarCitationGraphMetricsEngine",
     );
     assert.include(legacyComposition, "citationGraphMetricsEngine");
     assert.include(

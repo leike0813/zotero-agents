@@ -995,6 +995,15 @@ export function createSynthesisRepositoryFoundationStore(options: {
     ensureSynthesisDurableImportRepositorySchema(db);
     durableImportInitialized = true;
   };
+  const debugRevision = (value: unknown) => {
+    const text = JSON.stringify(value);
+    let hash = 2166136261;
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `fnv1a32:${(hash >>> 0).toString(16).padStart(8, "0")}:${text.length}`;
+  };
   return {
     initialize,
     getSchemaVersion() {
@@ -1033,6 +1042,35 @@ export function createSynthesisRepositoryFoundationStore(options: {
     }) {
       initialize();
       return listSynthesisOperations(db, args);
+    },
+    captureDebugProjection() {
+      initializeDurableImport();
+      return db.transaction(() => {
+        const durable = captureSynthesisDurableBundleRepositoryState(db);
+        const caches = listSynthesisCacheBasis(db);
+        const operations = listSynthesisOperations(db, {
+          includeCompleted: true,
+          limit: 1_000,
+        });
+        return {
+          basis: {
+            schemaVersion: getSynthesisRepositoryFoundationSchemaVersion(db),
+            revision: debugRevision({
+              aggregateBasis: durable.aggregateBasis,
+              caches,
+              operations,
+            }),
+          },
+          schema: {
+            schemaVersion: getSynthesisRepositoryFoundationSchemaVersion(db),
+            aggregateCount: 10,
+            diagnostics: [],
+          },
+          caches,
+          operations,
+          topicIds: durable.topicBases.map((topic) => topic.topicId),
+        };
+      });
     },
     reconcileRunningOperations() {
       initialize();

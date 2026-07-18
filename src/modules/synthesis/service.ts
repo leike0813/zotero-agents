@@ -32,6 +32,7 @@ import {
   SYNTHESIS_HOST_STAGED_TAG_BINDING_RESOLUTION_ID_MAX,
   SYNTHESIS_HOST_TAG_EFFECT_BATCH_MAX,
   SynthesisClientError,
+  synthesisDebugPageLimit,
   rebuildSynthesisHostExportDeliveryRequest,
   rebuildSynthesisHostExportDeliveryResult,
   rebuildSynthesisHostRepresentativeImageReadResult,
@@ -17285,14 +17286,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   }
 
   function debugLimit(input: Record<string, unknown> = {}, fallback = 100) {
-    return Math.max(
-      1,
-      Math.min(
-        1000,
-        Math.floor(
-          Number(input.limit ?? input.maxRows ?? fallback) || fallback,
-        ),
-      ),
+    return synthesisDebugPageLimit(
+      Number(input.limit ?? input.maxRows ?? fallback) || fallback,
+      true,
     );
   }
 

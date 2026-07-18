@@ -194,6 +194,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/apps/synthesis-service/src/knowledgeCheckpointApplicationNode.js",
       "service/apps/synthesis-service/src/durableBundleApplicationNode.js",
       "service/apps/synthesis-service/src/webDavSyncApplicationNode.js",
+      "service/apps/synthesis-service/src/debugMaintenanceApplicationNode.js",
       "service/packages/synthesis-engine/src/index.js",
       "service/packages/synthesis-engine/src/citationGraphBuild.js",
       "service/packages/synthesis-engine/src/citationGraphBuildTransfer.js",
@@ -216,6 +217,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/packages/synthesis-contracts/src/durableBundleImport.js",
       "service/packages/synthesis-contracts/src/webDavSync.js",
       "service/packages/synthesis-contracts/src/webDavSyncPort.js",
+      "service/packages/synthesis-contracts/src/debugMaintenance.js",
       "service/packages/synthesis-contracts/src/topicGraphApplication.js",
       "service/packages/synthesis-contracts/src/topicGraphCore.js",
       "service/packages/synthesis-contracts/src/workbench.js",
@@ -234,6 +236,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/packages/synthesis-application/src/knowledgeCheckpointApplication.js",
       "service/packages/synthesis-application/src/durableBundleApplication.js",
       "service/packages/synthesis-application/src/webDavSyncApplication.js",
+      "service/packages/synthesis-application/src/debugMaintenanceApplication.js",
       "service/packages/synthesis-application/src/knowledgeCheckpointCompatibility.js",
       "service/packages/synthesis-repository/src/index.js",
       "service/packages/synthesis-repository/src/citationGraph.js",
@@ -539,6 +542,7 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(
       first.inputs,
       "apps/synthesis-service/src/webDavSyncApplicationNode.ts",
+      "apps/synthesis-service/src/debugMaintenanceApplicationNode.ts",
     );
     assert.include(
       first.inputs,
@@ -547,10 +551,12 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(
       first.inputs,
       "packages/synthesis-contracts/src/webDavSyncPort.ts",
+      "packages/synthesis-contracts/src/debugMaintenance.ts",
     );
     assert.include(
       first.inputs,
       "packages/synthesis-application/src/webDavSyncApplication.ts",
+      "packages/synthesis-application/src/debugMaintenanceApplication.ts",
     );
     assert.include(
       first.inputs,

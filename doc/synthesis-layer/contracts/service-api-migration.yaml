@@ -29,6 +29,30 @@ isolated_topic_canonical_store:
   production_canonical_file_owner: plugin_composition
   production_mutation_enabled: false
 
+isolated_debug_maintenance_application:
+  mode: isolated_shadow
+  package: packages/synthesis-application
+  use_cases: [status, schema_summary, cache_page, operation_page, isolated_snapshot, paper_inspect, topic_inspect, snapshot_diff, profiler]
+  ordinary_page_limit: 100
+  debug_page_limit: 1000
+  profiler_default: unavailable
+  maintenance_owners: [knowledge_checkpoint, durable_bundle, protected_repository_reset]
+  retained_production_owners: [legacy_json_import, production_profiler_source, host_paper_details, clean_install_reset]
+  remote_capability: false
+  production_route: false
+  automatic_invocation: false
+  production_database_owner: plugin_composition
+  production_mutation_enabled: false
+
+ws5_exit_gates:
+  isolated_private_use_cases: implemented
+  environment_neutral_packages: enforced
+  long_io_outside_transactions: enforced
+  compute_workers_without_commit_authority: enforced
+  production_capability_disposition: complete
+  runtime_xpi_inventory: complete
+  next_stage: ws6_shadow_parity
+
 isolated_topic_application:
   mode: isolated_shadow
   package: packages/synthesis-application

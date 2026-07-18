@@ -77,6 +77,7 @@ import { createSynthesisSidecarTopicGraphApplication } from "./topicGraphApplica
 import { createSynthesisSidecarKnowledgeCheckpointApplication } from "./knowledgeCheckpointApplicationNode.js";
 import { createSynthesisSidecarDurableBundleApplication } from "./durableBundleApplicationNode.js";
 import { createSynthesisSidecarWebDavSyncApplication } from "./webDavSyncApplicationNode.js";
+import { createSynthesisSidecarDebugMaintenanceApplication } from "./debugMaintenanceApplicationNode.js";
 import {
   rebuildSynthesisTopicCanonicalInspectRequest,
   rebuildSynthesisTopicCanonicalInspectResult,
@@ -368,6 +369,11 @@ export async function startSynthesisSidecarServer(
     createSynthesisSidecarKnowledgeCheckpointApplication({
       repository: repository.store,
     });
+  const debugMaintenanceApplication =
+    createSynthesisSidecarDebugMaintenanceApplication({
+      repository: repository.store,
+      canonicalStore,
+    });
   const transferExecutor =
     options.transferExecutor ??
     createCitationGraphBuildTransferExecutor({
@@ -382,6 +388,7 @@ export async function startSynthesisSidecarServer(
     shutdownStarted = true;
     lifecycleState = "stopping";
     webDavSyncApplication.stopAdmission();
+    debugMaintenanceApplication.stopAdmission();
     durableBundleApplication.stopAdmission();
     knowledgeCheckpointApplication.stopAdmission();
     topicApplication.stopAdmission();
@@ -398,6 +405,7 @@ export async function startSynthesisSidecarServer(
       serviceInstanceId,
     });
     void (async () => {
+      await debugMaintenanceApplication.shutdown();
       await webDavSyncApplication.shutdown();
       await durableBundleApplication.shutdown();
       await knowledgeCheckpointApplication.shutdown();
@@ -858,6 +866,8 @@ export async function startSynthesisSidecarServer(
     });
   } catch (error) {
     transferExecutor.shutdown();
+    debugMaintenanceApplication.stopAdmission();
+    await debugMaintenanceApplication.shutdown();
     await webDavSyncApplication.shutdown();
     await durableBundleApplication.shutdown();
     await knowledgeCheckpointApplication.shutdown();
