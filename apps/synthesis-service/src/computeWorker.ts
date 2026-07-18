@@ -7,15 +7,14 @@ import {
   rebuildSynthesisConceptKbQueryResult,
 } from "../../../packages/synthesis-engine/src/conceptKbIndex.js";
 import {
-  canonicalizeSynthesisEngineJson,
   createSynthesisCitationGraphBuildPackedAccumulator,
   createInProcessSynthesisCitationGraphLayoutEngine,
   createInProcessSynthesisCitationGraphMetricsEngine,
+  iterateSynthesisCitationGraphBuildResultPageArtifacts,
   rebuildSynthesisCitationGraphLayoutRequest,
   rebuildSynthesisCitationGraphLayoutResult,
   rebuildSynthesisCitationGraphMetricsRequest,
   rebuildSynthesisCitationGraphMetricsResult,
-  paginateSynthesisCitationGraphBuildResult,
   rebuildSynthesisCitationGraphBuildTransferPage,
 } from "../../../packages/synthesis-engine/src/index.js";
 import { SYNTHESIS_SIDECAR_TRANSFER_LIMITS } from "../../../packages/synthesis-contracts/src/sidecarTransfer.js";
@@ -128,35 +127,42 @@ async function runGraphBuildTransfer(
       });
     }
     const result = accumulator.finish({ checkpoint });
-    const output = paginateSynthesisCitationGraphBuildResult(result, {
-      pageBytes: SYNTHESIS_SIDECAR_TRANSFER_LIMITS.pageBytes,
-      pageJsonNodes: SYNTHESIS_SIDECAR_TRANSFER_LIMITS.pageJsonNodes,
-    });
     checkpoint();
     port.postMessage({ type: "output_started" });
-    for (const page of output.pages) {
+    for (const artifact of iterateSynthesisCitationGraphBuildResultPageArtifacts(
+      result,
+      {
+        pageBytes: SYNTHESIS_SIDECAR_TRANSFER_LIMITS.pageBytes,
+        pageJsonNodes: SYNTHESIS_SIDECAR_TRANSFER_LIMITS.pageJsonNodes,
+      },
+    )) {
       checkpoint();
-      const encoded = new TextEncoder().encode(
-        canonicalizeSynthesisEngineJson(page.rows),
-      );
-      const bytes = encoded.buffer as ArrayBuffer;
+      const bytes = artifact.bytes.buffer as ArrayBuffer;
       port.postMessage(
-        { type: "output_page", descriptor: page.descriptor, bytes },
+        {
+          type: "output_page",
+          descriptor: artifact.page.descriptor,
+          bytes,
+        },
         [bytes],
       );
       const acknowledgment =
         await nextPortMessage<SynthesisSidecarTransferPortAckMessage>(port);
       if (
         acknowledgment.type !== "output_ack" ||
-        acknowledgment.kind !== page.descriptor.kind ||
-        acknowledgment.pageIndex !== page.descriptor.pageIndex
+        acknowledgment.kind !== artifact.page.descriptor.kind ||
+        acknowledgment.pageIndex !== artifact.page.descriptor.pageIndex
       ) {
         throw new Error("transfer_output_ack_invalid");
       }
     }
     port.postMessage({
       type: "output_complete",
-      header: output.manifest.header,
+      header: {
+        contractVersion: result.contractVersion,
+        scope: result.scope,
+        diagnostics: result.diagnostics,
+      },
     });
   } catch {
     port.postMessage({ type: "stream_error" });

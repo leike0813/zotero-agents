@@ -1,5 +1,6 @@
-export const SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION =
-  "synthesis-repository-foundation.v1" as const;
+import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "../../synthesis-contracts/src/schemaVersion.js";
+
+export { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION };
 export const SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_META_KEY =
   "repository_foundation_schema_version" as const;
 export const SYNTHESIS_TOPIC_APPLICATION_REPOSITORY_SCHEMA_VERSION =

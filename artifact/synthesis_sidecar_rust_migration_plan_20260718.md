@@ -218,14 +218,16 @@ HTTP runtime、SQLite binding、压缩/归档、签名或跨平台辅助 crate �
 
 **目标**：在写 Rust 领域实现前消除语言隐式语义。
 
-**TDD 顺序**：先用现有 TypeScript 行为生成经人工审查的 positive/negative gold corpus；让 TypeScript validator 对 corpus 全绿；再实现 Rust parser/canonicalizer 并要求 byte/hash 等价。
+**状态（2026-07-19）**：已完成。`packages/synthesis-contracts/contract-set/synthesis-cross-language-v1` 已冻结当前 v1 process boundary 的 Draft 2020-12 schema、positive/negative corpus、capability inventory 和可计算 fingerprint；canonical JSON/hash 与 repository foundation schema version 已归 contracts 所有。Node 仍是只读行为 oracle，Rust workspace/executable 尚不存在，生产 owner、Node 路由和 runtime bundle/pointer v1 均未改变。
+
+**TDD 顺序**：先用现有 TypeScript 行为生成经人工审查的 positive/negative gold corpus，再让 strict schema checker 与 TypeScript validator 对 corpus 全绿。任何 Rust slice 必须先消费这套 contract set，并在取得 byte/hash 等价后才能成为该 DTO 的实现。
 
 **退出条件**：
 
 - 所有跨进程 DTO 有版本化 SSOT；
-- TypeScript 与 Rust 对 corpus 的接受/拒绝、canonical bytes 和 hashes 完全一致；
+- TypeScript oracle 对 corpus 的接受/拒绝、canonical bytes 和 hashes 全部通过，Rust 首次消费时必须复用同一 corpus；
 - `synthesis-contracts` 不再 runtime import repository schema constant；
-- CI 能在 contract 漂移时同时阻断两侧。
+- CI 能阻断 schema、inventory、corpus、canonical bytes/hash 或 dependency direction 漂移。
 
 ### R2：Rust workspace、worker framing 与五平台 CI
 
@@ -241,9 +243,13 @@ HTTP runtime、SQLite binding、压缩/归档、签名或跨平台辅助 crate �
 
 **退出条件**：五平台都能运行最小 handshake/worker canary；单平台 runtime 低于 15 MiB，若最小骨架已超预算则立即停止扩展并重新评审依赖/架构。
 
+R2 不单独创建空 workspace change；其最小工具链、worker framing 和 CI 骨架与 R3 合并到下一 change `introduce-synthesis-rust-sidecar-metrics-vertical-slice`，由 Metrics corpus 提供首个真实 consumer。
+
 ### R3：Citation Graph metrics 首个 vertical slice
 
 **目标**：用最小、确定、已生产路由的 capability 贯通协议、worker、engine、HTTP 与插件调用。
+
+**下一 change**：`introduce-synthesis-rust-sidecar-metrics-vertical-slice`。
 
 **TDD 顺序**：固定输入/输出/hash corpus → Node oracle 输出 → Rust engine → Rust worker → Rust HTTP → 插件 candidate route。
 

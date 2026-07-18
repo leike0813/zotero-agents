@@ -1,12 +1,9 @@
 import {
-  canonicalizeSynthesisEngineJson,
   buildSynthesisCitationGraphBuildTransferManifest,
-  rebuildSynthesisCitationGraphBuildTransferPage,
   type SynthesisCitationGraphBuildTransferPageDescriptor,
 } from "../../../packages/synthesis-engine/src/index.js";
 import type {
   SynthesisSidecarTransferManifest,
-  SynthesisSidecarTransferPage,
   SynthesisSidecarTransferExecutionFailureCode,
   SynthesisSidecarTransferStatus,
 } from "../../../packages/synthesis-contracts/src/sidecarTransfer.js";
@@ -93,18 +90,15 @@ export function createCitationGraphBuildTransferExecutor(options: {
           async *inputPages() {
             options.owner.startExecution(sessionId, queued.attempt);
             for (const descriptor of manifest.pages) {
-              const page = options.owner.getInputPage(
+              const frame = options.owner.getInputPageFrame(
                 sessionId,
                 descriptor.kind,
                 descriptor.pageIndex,
               );
-              const encoded = new TextEncoder().encode(
-                canonicalizeSynthesisEngineJson(page.rows),
-              );
               yield {
                 descriptor:
-                  page.descriptor as SynthesisCitationGraphBuildTransferPageDescriptor,
-                bytes: encoded.buffer as ArrayBuffer,
+                  frame.descriptor as SynthesisCitationGraphBuildTransferPageDescriptor,
+                bytes: frame.bytes,
               };
             }
           },
@@ -112,19 +106,14 @@ export function createCitationGraphBuildTransferExecutor(options: {
             options.owner.startOutput(sessionId, queued.attempt);
           },
           outputPage(frame) {
-            const rows = JSON.parse(
-              new TextDecoder().decode(frame.bytes),
-            ) as unknown;
-            const page = rebuildSynthesisCitationGraphBuildTransferPage({
-              descriptor: frame.descriptor,
-              rows,
-            });
-            options.owner.putAttemptOutputPage(
+            const stored = options.owner.putAttemptOutputPageFrame(
               sessionId,
               queued.attempt,
-              page as unknown as SynthesisSidecarTransferPage,
+              frame,
             );
-            descriptors.push(page.descriptor);
+            descriptors.push(
+              stored.descriptor as SynthesisCitationGraphBuildTransferPageDescriptor,
+            );
           },
           outputComplete(header) {
             const outputManifest =

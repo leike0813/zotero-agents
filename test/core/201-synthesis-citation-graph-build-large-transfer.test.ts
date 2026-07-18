@@ -12,6 +12,7 @@ import {
   buildSynthesisCitationGraphBuildTransferPage,
   rebuildSynthesisCitationGraphBuildTransferPage,
 } from "../../packages/synthesis-engine/src/citationGraphBuildTransfer";
+import { canonicalizeSynthesisEngineJson } from "../../packages/synthesis-engine/src/canonicalJson";
 import {
   SYNTHESIS_SIDECAR_TRANSFER_LIMITS,
   rebuildSynthesisSidecarTransferAction,
@@ -443,6 +444,69 @@ describe("Synthesis Citation Graph Build large transfer", function () {
       assert.deepEqual(
         owner.getOutputPage(begun.sessionId, "nodes", 0),
         outputPage,
+      );
+    } finally {
+      await owner.shutdown();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reuses validated canonical frames and rejects worker byte drift", async function () {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-transfer-frame-"));
+    const owner = createCitationGraphTransferOwner({ root });
+    try {
+      const begun = owner.begin("frame", inputManifest());
+      for (const page of inputPages()) {
+        owner.putInputPage(begun.sessionId, page);
+      }
+      owner.sealInput(begun.sessionId);
+
+      const inputFrame = owner.getInputPageFrame(
+        begun.sessionId,
+        "references",
+        0,
+      );
+      assert.equal(
+        new TextDecoder().decode(inputFrame.bytes),
+        canonicalizeSynthesisEngineJson(inputPages()[1].rows),
+      );
+
+      const queued = owner.queueExecution(begun.sessionId);
+      owner.startExecution(begun.sessionId, queued.attempt);
+      owner.startOutput(begun.sessionId, queued.attempt);
+      const result =
+        await createInProcessSynthesisCitationGraphBuildEngine().compute(
+          graphBuildRequest(),
+        );
+      const page = buildSynthesisCitationGraphBuildTransferPage(
+        "nodes",
+        0,
+        result.nodes,
+      );
+      const canonicalRows = new TextEncoder().encode(
+        canonicalizeSynthesisEngineJson(page.rows),
+      );
+      const malformed = canonicalRows.slice();
+      malformed[malformed.byteLength - 1] = "{".charCodeAt(0);
+      assert.equal(
+        await Promise.resolve()
+          .then(() =>
+            owner.putAttemptOutputPageFrame(begun.sessionId, queued.attempt, {
+              descriptor: page.descriptor,
+              bytes: malformed.buffer as ArrayBuffer,
+            }),
+          )
+          .then(() => "success")
+          .catch(errorCode),
+        "transfer_conflict",
+      );
+
+      assert.deepEqual(
+        owner.putAttemptOutputPageFrame(begun.sessionId, queued.attempt, {
+          descriptor: page.descriptor,
+          bytes: canonicalRows.buffer as ArrayBuffer,
+        }).descriptor,
+        page.descriptor,
       );
     } finally {
       await owner.shutdown();

@@ -1,0 +1,729 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zotero-agents.local/synthesis/contracts/v1/compute.schema.json",
+  "title": "Synthesis service and worker compute v1 normalized DTOs",
+  "oneOf": [
+    { "$ref": "#/$defs/layoutRequest" },
+    { "$ref": "#/$defs/layoutResult" },
+    { "$ref": "#/$defs/metricsRequest" },
+    { "$ref": "#/$defs/metricsResult" },
+    { "$ref": "#/$defs/graphBuildRequest" },
+    { "$ref": "#/$defs/graphBuildResult" },
+    { "$ref": "#/$defs/tagVocabularyValidationRequest" },
+    { "$ref": "#/$defs/tagVocabularyValidationResult" },
+    { "$ref": "#/$defs/tagVocabularyIndexRequest" },
+    { "$ref": "#/$defs/tagVocabularyIndexResult" },
+    { "$ref": "#/$defs/conceptKbIndexRequest" },
+    { "$ref": "#/$defs/conceptKbIndexResult" },
+    { "$ref": "#/$defs/conceptKbQueryRequest" },
+    { "$ref": "#/$defs/conceptKbQueryResult" },
+    { "$ref": "#/$defs/topicGraphIndexRequest" },
+    { "$ref": "#/$defs/topicGraphIndexResult" }
+  ],
+  "$defs": {
+    "jsonValue": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "type": "string" },
+        { "type": "array", "items": { "$ref": "#/$defs/jsonValue" } },
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+        }
+      ]
+    },
+    "jsonObject": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "string": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "identifier": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "safeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "nodeKind": {
+      "enum": ["library_paper", "external_reference", "unresolved_reference"]
+    },
+    "layoutRequestNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodeId", "kind", "initialX", "initialY"],
+      "properties": {
+        "nodeId": { "$ref": "#/$defs/identifier" },
+        "kind": { "$ref": "#/$defs/nodeKind" },
+        "title": { "$ref": "#/$defs/string" },
+        "year": { "$ref": "#/$defs/string" },
+        "initialX": { "type": "number" },
+        "initialY": { "type": "number" }
+      }
+    },
+    "layoutRequestEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["edgeId", "source", "target"],
+      "properties": {
+        "edgeId": { "$ref": "#/$defs/identifier" },
+        "source": { "$ref": "#/$defs/identifier" },
+        "target": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "layoutRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["graphHash", "algorithm", "nodes", "edges"],
+      "properties": {
+        "graphHash": { "$ref": "#/$defs/string" },
+        "algorithm": { "enum": ["force", "radial", "components"] },
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5000,
+          "items": { "$ref": "#/$defs/layoutRequestNode" }
+        },
+        "edges": {
+          "type": "array",
+          "maxItems": 20000,
+          "items": { "$ref": "#/$defs/layoutRequestEdge" }
+        }
+      }
+    },
+    "layoutResultNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodeId", "x", "y"],
+      "properties": {
+        "nodeId": { "$ref": "#/$defs/identifier" },
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      }
+    },
+    "layoutResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "graphHash",
+        "algorithm",
+        "layoutEngine",
+        "layoutVersion",
+        "params",
+        "nodes"
+      ],
+      "properties": {
+        "graphHash": { "$ref": "#/$defs/string" },
+        "algorithm": { "enum": ["force", "radial", "components"] },
+        "layoutEngine": { "enum": ["d3-force", "radial", "components"] },
+        "layoutVersion": { "const": 1.2 },
+        "params": { "$ref": "#/$defs/jsonObject" },
+        "nodes": {
+          "type": "array",
+          "maxItems": 5000,
+          "items": { "$ref": "#/$defs/layoutResultNode" }
+        }
+      }
+    },
+    "metricsRequestNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodeId", "kind"],
+      "properties": {
+        "nodeId": { "$ref": "#/$defs/identifier" },
+        "kind": { "$ref": "#/$defs/nodeKind" },
+        "libraryId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "itemKey": { "$ref": "#/$defs/string" },
+        "title": { "$ref": "#/$defs/string" },
+        "year": { "$ref": "#/$defs/string" }
+      }
+    },
+    "metricsRequestEdge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["edgeId", "source", "target", "mentionCount"],
+      "properties": {
+        "edgeId": { "$ref": "#/$defs/identifier" },
+        "source": { "$ref": "#/$defs/identifier" },
+        "target": { "$ref": "#/$defs/identifier" },
+        "mentionCount": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "metricsRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["graphHash", "nodes", "edges"],
+      "properties": {
+        "graphHash": { "$ref": "#/$defs/string" },
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5000,
+          "items": { "$ref": "#/$defs/metricsRequestNode" }
+        },
+        "edges": {
+          "type": "array",
+          "maxItems": 20000,
+          "items": { "$ref": "#/$defs/metricsRequestEdge" }
+        }
+      }
+    },
+    "metricsNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "nodeId",
+        "internalInDegree",
+        "internalOutDegree",
+        "externalReferenceCount",
+        "unresolvedReferenceCount",
+        "internalPagerank",
+        "componentId",
+        "componentSize",
+        "isIsolated",
+        "ageNorm",
+        "recencyNorm",
+        "inDegreeNorm",
+        "outDegreeNorm",
+        "pagerankNorm",
+        "foundationScore",
+        "frontierScore",
+        "synthesisRoleHints"
+      ],
+      "properties": {
+        "nodeId": { "$ref": "#/$defs/identifier" },
+        "paperRef": { "$ref": "#/$defs/string" },
+        "itemKey": { "$ref": "#/$defs/string" },
+        "title": { "$ref": "#/$defs/string" },
+        "year": { "$ref": "#/$defs/string" },
+        "internalInDegree": { "$ref": "#/$defs/safeInteger" },
+        "internalOutDegree": { "$ref": "#/$defs/safeInteger" },
+        "externalReferenceCount": { "$ref": "#/$defs/safeInteger" },
+        "unresolvedReferenceCount": { "$ref": "#/$defs/safeInteger" },
+        "internalPagerank": { "type": "number" },
+        "componentId": { "$ref": "#/$defs/string" },
+        "componentSize": { "$ref": "#/$defs/safeInteger" },
+        "isIsolated": { "type": "boolean" },
+        "ageNorm": { "type": "number" },
+        "recencyNorm": { "type": "number" },
+        "inDegreeNorm": { "type": "number" },
+        "outDegreeNorm": { "type": "number" },
+        "pagerankNorm": { "type": "number" },
+        "foundationScore": { "type": "number" },
+        "frontierScore": { "type": "number" },
+        "synthesisRoleHints": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "core",
+              "external-heavy",
+              "foundation",
+              "frontier",
+              "isolated"
+            ]
+          }
+        }
+      }
+    },
+    "metricsResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "graphHash",
+        "metricsVersion",
+        "params",
+        "graphYear",
+        "libraryNodeMetrics",
+        "diagnostics"
+      ],
+      "properties": {
+        "graphHash": { "$ref": "#/$defs/string" },
+        "metricsVersion": { "const": 2 },
+        "params": { "$ref": "#/$defs/jsonObject" },
+        "graphYear": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "integer", "minimum": 1500, "maximum": 2199 }
+          ]
+        },
+        "libraryNodeMetrics": {
+          "type": "array",
+          "maxItems": 5000,
+          "items": { "$ref": "#/$defs/metricsNode" }
+        },
+        "diagnostics": { "$ref": "#/$defs/jsonObject" }
+      }
+    },
+    "graphBuildScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "sourceIds"],
+      "properties": {
+        "kind": { "enum": ["full", "source_slice"] },
+        "sourceIds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identifier" }
+        }
+      }
+    },
+    "graphBuildLibraryNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodeId", "authors", "aliases"],
+      "properties": {
+        "nodeId": { "$ref": "#/$defs/identifier" },
+        "title": { "$ref": "#/$defs/string" },
+        "year": { "$ref": "#/$defs/string" },
+        "authors": { "type": "array", "items": { "$ref": "#/$defs/string" } },
+        "aliases": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/string" }
+        }
+      }
+    },
+    "graphBuildReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "referenceId",
+        "edgeId",
+        "sourceId",
+        "targetId",
+        "targetKind",
+        "targetAuthors",
+        "targetAliases",
+        "roles",
+        "weight"
+      ],
+      "properties": {
+        "referenceId": { "$ref": "#/$defs/identifier" },
+        "edgeId": { "$ref": "#/$defs/identifier" },
+        "sourceId": { "$ref": "#/$defs/identifier" },
+        "sourceRef": { "$ref": "#/$defs/string" },
+        "targetId": { "$ref": "#/$defs/identifier" },
+        "targetKind": { "$ref": "#/$defs/nodeKind" },
+        "targetTitle": { "$ref": "#/$defs/string" },
+        "targetYear": { "$ref": "#/$defs/string" },
+        "targetAuthors": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/string" }
+        },
+        "targetAliases": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/string" }
+        },
+        "roles": { "type": "array", "items": { "$ref": "#/$defs/string" } },
+        "weight": { "type": "number" }
+      }
+    },
+    "graphBuildRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "scope",
+        "rolePriority",
+        "libraryNodes",
+        "references"
+      ],
+      "properties": {
+        "contractVersion": { "const": "synthesis-citation-graph-build.v1" },
+        "scope": { "$ref": "#/$defs/graphBuildScope" },
+        "rolePriority": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/string" }
+        },
+        "libraryNodes": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/graphBuildLibraryNode" }
+        },
+        "references": {
+          "type": "array",
+          "maxItems": 1250000,
+          "items": { "$ref": "#/$defs/graphBuildReference" }
+        }
+      }
+    },
+    "graphBuildResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "scope",
+        "nodes",
+        "resolvedEdges",
+        "aggregateEdges",
+        "sourceOwnership",
+        "incomingGroups",
+        "lightMetrics",
+        "diagnostics"
+      ],
+      "properties": {
+        "contractVersion": { "const": "synthesis-citation-graph-build.v1" },
+        "scope": { "$ref": "#/$defs/graphBuildScope" },
+        "nodes": { "type": "array", "items": { "$ref": "#/$defs/jsonObject" } },
+        "resolvedEdges": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/jsonObject" }
+        },
+        "aggregateEdges": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/jsonObject" }
+        },
+        "sourceOwnership": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/jsonObject" }
+        },
+        "incomingGroups": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/jsonObject" }
+        },
+        "lightMetrics": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/jsonObject" }
+        },
+        "diagnostics": { "$ref": "#/$defs/jsonObject" }
+      }
+    },
+    "tagVocabularyValidationRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/versionedDomainRequest" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contractVersion",
+            "algorithmVersion",
+            "entries",
+            "aliases",
+            "abbrev",
+            "protocol"
+          ],
+          "properties": {
+            "contractVersion": { "const": "synthesis-tag-vocabulary.v1" },
+            "algorithmVersion": { "const": "tag-vocabulary-validation.v1" },
+            "entries": {
+              "type": "array",
+              "maxItems": 25000,
+              "items": { "$ref": "#/$defs/jsonObject" }
+            },
+            "aliases": { "$ref": "#/$defs/jsonObject" },
+            "abbrev": { "$ref": "#/$defs/jsonObject" },
+            "protocol": { "$ref": "#/$defs/jsonObject" }
+          }
+        }
+      ]
+    },
+    "tagVocabularyValidationResult": {
+      "allOf": [
+        { "$ref": "#/$defs/versionedDomainResult" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["contractVersion", "algorithmVersion", "warnings"],
+          "properties": {
+            "contractVersion": { "const": "synthesis-tag-vocabulary.v1" },
+            "algorithmVersion": { "const": "tag-vocabulary-validation.v1" },
+            "warnings": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/jsonObject" }
+            }
+          }
+        }
+      ]
+    },
+    "tagVocabularyIndexRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/versionedDomainRequest" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contractVersion",
+            "algorithmVersion",
+            "entries",
+            "aliases",
+            "abbrev",
+            "protocol",
+            "sourceManifestHash",
+            "rebuiltAt"
+          ],
+          "properties": {
+            "contractVersion": { "const": "synthesis-tag-vocabulary.v1" },
+            "algorithmVersion": { "const": "tag-vocabulary-index.v1" },
+            "entries": {
+              "type": "array",
+              "maxItems": 25000,
+              "items": { "$ref": "#/$defs/jsonObject" }
+            },
+            "aliases": { "$ref": "#/$defs/jsonObject" },
+            "abbrev": { "$ref": "#/$defs/jsonObject" },
+            "protocol": { "$ref": "#/$defs/jsonObject" },
+            "sourceManifestHash": { "$ref": "#/$defs/string" },
+            "rebuiltAt": { "$ref": "#/$defs/string" }
+          }
+        }
+      ]
+    },
+    "tagVocabularyIndexResult": {
+      "allOf": [
+        { "$ref": "#/$defs/versionedDomainResult" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contractVersion",
+            "algorithmVersion",
+            "schemaVersion",
+            "sourceManifestHash",
+            "rebuiltAt",
+            "tags",
+            "aliases",
+            "abbrev",
+            "search",
+            "validationWarnings"
+          ],
+          "properties": {
+            "contractVersion": { "const": "synthesis-tag-vocabulary.v1" },
+            "algorithmVersion": { "const": "tag-vocabulary-index.v1" },
+            "schemaVersion": { "const": "1.0.0" },
+            "sourceManifestHash": { "$ref": "#/$defs/string" },
+            "rebuiltAt": { "$ref": "#/$defs/string" },
+            "tags": { "type": "array", "items": { "$ref": "#/$defs/string" } },
+            "aliases": { "$ref": "#/$defs/jsonObject" },
+            "abbrev": { "$ref": "#/$defs/jsonObject" },
+            "search": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/jsonObject" }
+            },
+            "validationWarnings": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/jsonObject" }
+            }
+          }
+        }
+      ]
+    },
+    "conceptKbIndexRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/versionedDomainRequest" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contractVersion",
+            "algorithmVersion",
+            "concepts",
+            "senses",
+            "aliases",
+            "sourceManifestHash",
+            "rebuiltAt"
+          ],
+          "properties": {
+            "contractVersion": { "const": "synthesis-concept-kb-index.v1" },
+            "algorithmVersion": { "const": "concept-kb-index.v1" },
+            "concepts": {
+              "type": "array",
+              "maxItems": 25000,
+              "items": { "$ref": "#/$defs/jsonObject" }
+            },
+            "senses": {
+              "type": "array",
+              "maxItems": 100000,
+              "items": { "$ref": "#/$defs/jsonObject" }
+            },
+            "aliases": {
+              "type": "array",
+              "maxItems": 250000,
+              "items": { "$ref": "#/$defs/jsonObject" }
+            },
+            "sourceManifestHash": { "$ref": "#/$defs/string" },
+            "rebuiltAt": { "$ref": "#/$defs/string" }
+          }
+        }
+      ]
+    },
+    "conceptKbIndexResult": {
+      "allOf": [
+        { "$ref": "#/$defs/versionedDomainResult" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contractVersion",
+            "algorithmVersion",
+            "schemaVersion",
+            "sourceManifestHash",
+            "rebuiltAt",
+            "search",
+            "overlayEntries"
+          ],
+          "properties": {
+            "contractVersion": { "const": "synthesis-concept-kb-index.v1" },
+            "algorithmVersion": { "const": "concept-kb-index.v1" },
+            "schemaVersion": { "const": "1.0.0" },
+            "sourceManifestHash": { "$ref": "#/$defs/string" },
+            "rebuiltAt": { "$ref": "#/$defs/string" },
+            "search": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/jsonObject" }
+            },
+            "overlayEntries": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/jsonObject" }
+            }
+          }
+        }
+      ]
+    },
+    "conceptKbQueryRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/versionedDomainRequest" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contractVersion",
+            "algorithmVersion",
+            "concepts",
+            "senses",
+            "aliases",
+            "labels"
+          ],
+          "properties": {
+            "contractVersion": { "const": "synthesis-concept-kb-index.v1" },
+            "algorithmVersion": { "const": "concept-kb-query.v1" },
+            "concepts": {
+              "type": "array",
+              "maxItems": 25000,
+              "items": { "$ref": "#/$defs/jsonObject" }
+            },
+            "senses": {
+              "type": "array",
+              "maxItems": 100000,
+              "items": { "$ref": "#/$defs/jsonObject" }
+            },
+            "aliases": {
+              "type": "array",
+              "maxItems": 250000,
+              "items": { "$ref": "#/$defs/jsonObject" }
+            },
+            "labels": {
+              "type": "array",
+              "maxItems": 100,
+              "items": { "$ref": "#/$defs/string" }
+            }
+          }
+        }
+      ]
+    },
+    "conceptKbQueryResult": {
+      "allOf": [
+        { "$ref": "#/$defs/versionedDomainResult" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["contractVersion", "algorithmVersion", "matches"],
+          "properties": {
+            "contractVersion": { "const": "synthesis-concept-kb-index.v1" },
+            "algorithmVersion": { "const": "concept-kb-query.v1" },
+            "matches": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/jsonObject" }
+            }
+          }
+        }
+      ]
+    },
+    "topicGraphIndexRequest": {
+      "allOf": [
+        { "$ref": "#/$defs/versionedDomainRequest" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contractVersion",
+            "algorithmVersion",
+            "sourceManifestHash",
+            "rebuiltAt",
+            "nodes",
+            "edges"
+          ],
+          "properties": {
+            "contractVersion": { "const": "synthesis-topic-graph-index.v1" },
+            "algorithmVersion": { "const": "topic-graph-index.v1" },
+            "sourceManifestHash": { "$ref": "#/$defs/string" },
+            "rebuiltAt": { "$ref": "#/$defs/string" },
+            "nodes": {
+              "type": "array",
+              "maxItems": 25000,
+              "items": { "$ref": "#/$defs/jsonObject" }
+            },
+            "edges": {
+              "type": "array",
+              "maxItems": 100000,
+              "items": { "$ref": "#/$defs/jsonObject" }
+            }
+          }
+        }
+      ]
+    },
+    "topicGraphIndexResult": {
+      "allOf": [
+        { "$ref": "#/$defs/versionedDomainResult" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contractVersion",
+            "algorithmVersion",
+            "schemaVersion",
+            "sourceManifestHash",
+            "rebuiltAt",
+            "roots",
+            "unplaced"
+          ],
+          "properties": {
+            "contractVersion": { "const": "synthesis-topic-graph-index.v1" },
+            "algorithmVersion": { "const": "topic-graph-index.v1" },
+            "schemaVersion": { "const": "1.0.0" },
+            "sourceManifestHash": { "$ref": "#/$defs/string" },
+            "rebuiltAt": { "$ref": "#/$defs/string" },
+            "roots": { "type": "array", "items": { "$ref": "#/$defs/string" } },
+            "unplaced": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/string" }
+            }
+          }
+        }
+      ]
+    },
+    "versionedDomainRequest": {
+      "type": "object",
+      "required": ["contractVersion", "algorithmVersion"],
+      "properties": {
+        "contractVersion": { "$ref": "#/$defs/string" },
+        "algorithmVersion": { "$ref": "#/$defs/string" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "versionedDomainResult": {
+      "type": "object",
+      "required": ["contractVersion", "algorithmVersion"],
+      "properties": {
+        "contractVersion": { "$ref": "#/$defs/string" },
+        "algorithmVersion": { "$ref": "#/$defs/string" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    }
+  }
+}

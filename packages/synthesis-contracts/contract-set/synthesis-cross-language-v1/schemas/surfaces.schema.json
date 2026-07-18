@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zotero-agents.local/synthesis/contracts/v1/surfaces.schema.json",
+  "title": "Synthesis canonical inspect and Workbench chrome v1 normalized DTOs",
+  "oneOf": [
+    { "$ref": "#/$defs/canonicalInspectRequest" },
+    { "$ref": "#/$defs/canonicalInspectResult" },
+    { "$ref": "#/$defs/workbenchChromeRequest" },
+    { "$ref": "#/$defs/workbenchChromeResult" }
+  ],
+  "$defs": {
+    "jsonValue": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "type": "string" },
+        { "type": "array", "items": { "$ref": "#/$defs/jsonValue" } },
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+        }
+      ]
+    },
+    "jsonObject": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "nullableSha256": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      ]
+    },
+    "canonicalSection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "fileName", "sha256", "byteLength"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "fileName": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "canonicalInspectRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["topicId"],
+      "properties": {
+        "topicId": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    },
+    "canonicalInspectResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "topicId",
+        "pathId",
+        "manifestHash",
+        "artifactHash",
+        "metadataHash",
+        "sections",
+        "diagnostics"
+      ],
+      "properties": {
+        "status": { "enum": ["absent", "ready", "invalid"] },
+        "topicId": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "pathId": { "type": "string", "minLength": 1 },
+        "manifestHash": { "$ref": "#/$defs/nullableSha256" },
+        "artifactHash": { "$ref": "#/$defs/nullableSha256" },
+        "metadataHash": { "$ref": "#/$defs/nullableSha256" },
+        "sections": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/canonicalSection" }
+        },
+        "diagnostics": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "topic_current_missing_file",
+              "unknown_current_entry",
+              "symlink_forbidden",
+              "invalid_json",
+              "snapshot_invalid",
+              "hash_mismatch",
+              "duplicate_section_filename",
+              "path_identity_mismatch"
+            ]
+          }
+        }
+      }
+    },
+    "workbenchChromeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state"],
+      "properties": { "state": { "$ref": "#/$defs/jsonObject" } }
+    },
+    "cacheReadiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cacheKey", "cacheKind", "status"],
+      "properties": {
+        "cacheKey": {
+          "enum": ["reference-sidecar:library", "citation-graph:library"]
+        },
+        "cacheKind": { "enum": ["reference-sidecar", "citation_graph"] },
+        "status": {
+          "enum": ["missing", "ready", "stale", "refreshing", "failed"]
+        },
+        "refreshedAt": { "type": "string", "minLength": 1 },
+        "updatedAt": { "type": "string", "minLength": 1 },
+        "staleReason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "jobProgress": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {
+            "mode": { "const": "indeterminate" },
+            "label": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "percent"],
+          "properties": {
+            "mode": { "const": "determinate" },
+            "percent": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "current": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "total": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "label": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "backgroundJob": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["job_id", "source", "status", "label", "progress"],
+      "properties": {
+        "job_id": { "type": "string", "minLength": 1 },
+        "source": {
+          "enum": [
+            "workbench",
+            "operation",
+            "reference_sidecar_refresh",
+            "citation_graph_cache_rebuild",
+            "citation_graph_layout",
+            "webdav_sync",
+            "canonical_maintenance"
+          ]
+        },
+        "status": {
+          "enum": ["submitted", "queued", "running", "waiting", "failed"]
+        },
+        "label": { "type": "string", "minLength": 1 },
+        "detail": { "type": "string", "minLength": 1 },
+        "updated_at": { "type": "string", "minLength": 1 },
+        "progress": { "$ref": "#/$defs/jobProgress" }
+      }
+    },
+    "workbenchChromeResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maintenance"],
+      "properties": {
+        "maintenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cacheReadiness", "backgroundJobs"],
+          "properties": {
+            "cacheReadiness": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": { "$ref": "#/$defs/cacheReadiness" }
+            },
+            "backgroundJobs": {
+              "type": "array",
+              "maxItems": 70,
+              "items": { "$ref": "#/$defs/backgroundJob" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

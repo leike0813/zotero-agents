@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zotero-agents.local/synthesis/contracts/v1/transfer.schema.json",
+  "title": "Synthesis sidecar transfer v1 normalized DTOs",
+  "oneOf": [
+    { "$ref": "#/$defs/pageDescriptor" },
+    { "$ref": "#/$defs/manifest" },
+    { "$ref": "#/$defs/page" },
+    { "$ref": "#/$defs/action" },
+    { "$ref": "#/$defs/status" },
+    { "$ref": "#/$defs/snapshot" }
+  ],
+  "$defs": {
+    "jsonValue": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "type": "string" },
+        { "type": "array", "items": { "$ref": "#/$defs/jsonValue" } },
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+        }
+      ]
+    },
+    "jsonObject": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/jsonValue" }
+    },
+    "safeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "pageDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "pageIndex", "rowCount", "byteLength", "sha256"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "pageIndex": { "$ref": "#/$defs/safeInteger" },
+        "rowCount": { "$ref": "#/$defs/safeInteger" },
+        "byteLength": { "type": "integer", "minimum": 0, "maximum": 4194304 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transferVersion",
+        "encoding",
+        "direction",
+        "header",
+        "pages",
+        "rootSha256"
+      ],
+      "properties": {
+        "transferVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "encoding": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "direction": { "enum": ["input", "output"] },
+        "header": { "$ref": "#/$defs/jsonObject" },
+        "pages": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/pageDescriptor" }
+        },
+        "rootSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "rows"],
+      "properties": {
+        "descriptor": { "$ref": "#/$defs/pageDescriptor" },
+        "rows": { "type": "array", "items": { "$ref": "#/$defs/jsonValue" } }
+      }
+    },
+    "action": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "idempotencyKey", "manifest"],
+          "properties": {
+            "action": { "const": "begin" },
+            "idempotencyKey": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "manifest": { "$ref": "#/$defs/manifest" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "sessionId", "page"],
+          "properties": {
+            "action": { "const": "put_input_page" },
+            "sessionId": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "page": { "$ref": "#/$defs/page" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "sessionId"],
+          "properties": {
+            "action": {
+              "enum": [
+                "seal_input",
+                "execute",
+                "status",
+                "get_output_manifest",
+                "cancel"
+              ]
+            },
+            "sessionId": { "type": "string", "minLength": 1, "maxLength": 128 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "sessionId", "kind", "pageIndex"],
+          "properties": {
+            "action": { "const": "get_output_page" },
+            "sessionId": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "kind": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "pageIndex": { "$ref": "#/$defs/safeInteger" }
+          }
+        }
+      ]
+    },
+    "progress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["receivedPages", "totalPages", "stagedBytes"],
+      "properties": {
+        "receivedPages": { "$ref": "#/$defs/safeInteger" },
+        "totalPages": { "$ref": "#/$defs/safeInteger" },
+        "stagedBytes": { "$ref": "#/$defs/safeInteger" }
+      }
+    },
+    "lastFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "retryable", "atMs"],
+      "properties": {
+        "code": {
+          "enum": [
+            "worker_timeout",
+            "worker_canceled",
+            "worker_crashed",
+            "worker_result_invalid",
+            "worker_unavailable",
+            "transfer_limit_exceeded",
+            "transfer_conflict",
+            "internal_error"
+          ]
+        },
+        "retryable": { "type": "boolean" },
+        "atMs": { "$ref": "#/$defs/safeInteger" }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attempts"],
+      "properties": {
+        "attempts": { "$ref": "#/$defs/safeInteger" },
+        "lastFailure": { "$ref": "#/$defs/lastFailure" }
+      }
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sessionId",
+        "state",
+        "input",
+        "execution",
+        "stagedBytes",
+        "createdAtMs",
+        "lastActivityAtMs"
+      ],
+      "properties": {
+        "sessionId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "state": {
+          "enum": [
+            "receiving_input",
+            "input_sealed",
+            "queued",
+            "executing",
+            "publishing_output",
+            "completed"
+          ]
+        },
+        "input": { "$ref": "#/$defs/progress" },
+        "output": { "$ref": "#/$defs/progress" },
+        "execution": { "$ref": "#/$defs/execution" },
+        "stagedBytes": { "$ref": "#/$defs/safeInteger" },
+        "createdAtMs": { "$ref": "#/$defs/safeInteger" },
+        "lastActivityAtMs": { "$ref": "#/$defs/safeInteger" }
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "sessions", "stagedBytes"],
+      "properties": {
+        "state": { "enum": ["idle", "active", "stopping"] },
+        "sessions": { "$ref": "#/$defs/safeInteger" },
+        "stagedBytes": { "$ref": "#/$defs/safeInteger" }
+      }
+    }
+  }
+}

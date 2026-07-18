@@ -1,0 +1,67 @@
+{
+  "version": "synthesis-cross-language-positive.v1",
+  "cases": [
+    {
+      "id": "canonical-utf16-order-float-negative-zero",
+      "oracle": "canonicalJson",
+      "schemaRef": "schemas/system.schema.json#/$defs/jsonObject",
+      "inputJson": "{\"\\ue000\":1,\"😀\":2,\"a\":-0,\"float\":1e-7}",
+      "output": { "a": 0, "float": 1e-7, "😀": 2, "": 1 },
+      "canonicalJson": "{\"a\":0,\"float\":1e-7,\"😀\":2,\"\":1}",
+      "sha256": "sha256:8ea42081471bf081697b912e59f207b803004aaf41fc75df225c77941edda7ed"
+    },
+    {
+      "id": "call-request-drops-unknown-field",
+      "oracle": "sidecarCallRequest",
+      "schemaRef": "schemas/system.schema.json#/$defs/callRequest",
+      "inputJson": "{\"protocol\":\"synthesis-sidecar.v1\",\"requestId\":\"r1\",\"profileId\":\"p1\",\"capability\":\"system.handshake\",\"payload\":{},\"unknown\":true}",
+      "output": {
+        "protocol": "synthesis-sidecar.v1",
+        "requestId": "r1",
+        "profileId": "p1",
+        "capability": "system.handshake",
+        "payload": {}
+      },
+      "canonicalJson": "{\"capability\":\"system.handshake\",\"payload\":{},\"profileId\":\"p1\",\"protocol\":\"synthesis-sidecar.v1\",\"requestId\":\"r1\"}",
+      "sha256": "sha256:116e6595c60efac54ed2e4f5141c3431496760b945997bb3d4ac4ac7ff947fc3"
+    },
+    {
+      "id": "runtime-pointer-v1",
+      "oracle": "runtimePointer",
+      "schemaRef": "schemas/runtime-bundle.schema.json#/$defs/pointer",
+      "inputJson": "{\"schema\":\"synthesis-sidecar-runtime-pointer.v1\",\"bundleId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+      "output": {
+        "schema": "synthesis-sidecar-runtime-pointer.v1",
+        "bundleId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "canonicalJson": "{\"bundleId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"schema\":\"synthesis-sidecar-runtime-pointer.v1\"}",
+      "sha256": "sha256:cffd0b001dab7814551832736a1273547c63bdb0b85bc8562f5a20959b54441f"
+    },
+    {
+      "id": "owner-safe-integer-lower-bound",
+      "oracle": "sidecarOwner",
+      "schemaRef": "schemas/lifecycle.schema.json#/$defs/owner",
+      "inputJson": "{\"schema\":\"synthesis-sidecar-owner.v1\",\"profileId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"supervisorInstanceId\":\"supervisor-1\",\"serviceInstanceId\":\"service-1\",\"leaseNonce\":\"lease-1\",\"pid\":2,\"createdAtMs\":0}",
+      "output": {
+        "schema": "synthesis-sidecar-owner.v1",
+        "profileId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "supervisorInstanceId": "supervisor-1",
+        "serviceInstanceId": "service-1",
+        "leaseNonce": "lease-1",
+        "pid": 2,
+        "createdAtMs": 0
+      },
+      "canonicalJson": "{\"createdAtMs\":0,\"leaseNonce\":\"lease-1\",\"pid\":2,\"profileId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"schema\":\"synthesis-sidecar-owner.v1\",\"serviceInstanceId\":\"service-1\",\"supervisorInstanceId\":\"supervisor-1\"}",
+      "sha256": "sha256:18ca3f07f06c4301425b868ef0dfdf0df4e5bc700f49b568c1c61571d4bdb0d2"
+    },
+    {
+      "id": "transfer-snapshot-empty",
+      "oracle": "transferSnapshot",
+      "schemaRef": "schemas/transfer.schema.json#/$defs/snapshot",
+      "inputJson": "{\"state\":\"idle\",\"sessions\":0,\"stagedBytes\":0}",
+      "output": { "state": "idle", "sessions": 0, "stagedBytes": 0 },
+      "canonicalJson": "{\"sessions\":0,\"stagedBytes\":0,\"state\":\"idle\"}",
+      "sha256": "sha256:8ea326c5903a4bf871c1f509e6535cafd43cfcb94acec63326b1f7003df810fc"
+    }
+  ]
+}

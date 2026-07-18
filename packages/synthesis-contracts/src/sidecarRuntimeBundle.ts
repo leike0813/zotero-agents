@@ -1,3 +1,5 @@
+import { hasUnpairedSynthesisSurrogate } from "./canonicalJson.js";
+
 export const SYNTHESIS_SIDECAR_RUNTIME_BUNDLE_SCHEMA =
   "synthesis-sidecar-runtime-bundle.v1" as const;
 export const SYNTHESIS_SIDECAR_RUNTIME_POINTER_SCHEMA =
@@ -82,7 +84,11 @@ function strictRecord(
 }
 
 function strictString(value: unknown, code: string, pattern: RegExp): string {
-  if (typeof value !== "string" || !pattern.test(value)) {
+  if (
+    typeof value !== "string" ||
+    hasUnpairedSynthesisSurrogate(value) ||
+    !pattern.test(value)
+  ) {
     fail(code);
   }
   return value;
@@ -96,6 +102,7 @@ function rebuildRelativeFilePath(value: unknown, code: string) {
   if (
     typeof value !== "string" ||
     !value ||
+    hasUnpairedSynthesisSurrogate(value) ||
     value.length > 512 ||
     value.includes("\\") ||
     value.startsWith("/") ||

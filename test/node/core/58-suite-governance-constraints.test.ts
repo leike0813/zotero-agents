@@ -234,18 +234,18 @@ describe("suite governance constraints", function () {
       .map((entry) => `test/core/${entry.name}`);
     const suite = resolveSynthesisSidecarStage1Suite(files);
 
-    assert.equal(suite.files.length, 43);
+    assert.equal(suite.files.length, 44);
     assert.equal(
       suite.files[0],
       "test/core/175-synthesis-client-foundation.test.ts",
     );
     assert.equal(
       suite.files.at(-1),
-      "test/core/217-synthesis-sidecar-debug-maintenance-application-foundation.test.ts",
+      "test/core/218-synthesis-cross-language-sidecar-contract.test.ts",
     );
     assert.deepEqual(
       suite.segments.map((segment) => segment.files.length),
-      [27, 1, 15],
+      [27, 1, 16],
     );
     assert.deepEqual(suite.segments[1].files, [
       "test/core/202-synthesis-citation-graph-build-streaming-worker.test.ts",

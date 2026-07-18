@@ -4,7 +4,7 @@ import {
   type SynthesisJsonObject,
 } from "./common.js";
 import type { SynthesisSidecarTransferSnapshot } from "./sidecarTransfer.js";
-import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "../../../packages/synthesis-repository/src/index.js";
+import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "./schemaVersion.js";
 import {
   rebuildSynthesisTopicCanonicalStoreSnapshot,
   type SynthesisTopicCanonicalStoreSnapshot,

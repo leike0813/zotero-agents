@@ -52,14 +52,18 @@ best-effort and retried at startup. Sessions are never recovered after a
 service restart. Health and handshake report only in-memory state, session
 count, and staged bytes.
 
-The owner retains only descriptor/path metadata after atomic upload. During an
-attempt, the service main thread reads and strictly rebuilds one page, transfers
-its canonical bytes through a task-scoped `MessagePort`, and waits for worker
-acknowledgement before reading another. The worker packs validated rows into a
-string table and typed columns, computes through the shared graph-build kernel,
-and returns bounded pages with the same acknowledgement rule. It never receives
-a staging path or database, canonical-file, Host, Zotero-global, or subprocess
-authority.
+The owner retains only descriptor/path/byte-range metadata after atomic upload.
+Each admitted page is rebuilt once into a canonical UTF-8 artifact whose bytes,
+byte length, and SHA-256 are reused for staging and transfer. During an attempt,
+the service main thread hash-checks and reads one canonical row frame, transfers
+it through a task-scoped `MessagePort`, and waits for worker acknowledgement
+before reading another. The worker strictly rebuilds every input frame, packs
+validated rows into a string table and typed columns, computes through the
+shared graph-build kernel, and paginates the result directly into canonical
+output frames. The owner is the single output trust boundary: it strictly
+rebuilds each returned frame, compares its canonical bytes and descriptor, and
+only then stages it atomically. It never receives a staging path or database,
+canonical-file, Host, Zotero-global, or subprocess authority.
 
 Output pages are written below an attempt directory and become addressable only
 after the service rebuilds the final manifest and atomically commits it. Failure

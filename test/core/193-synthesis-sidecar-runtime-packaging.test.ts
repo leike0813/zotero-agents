@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { parse as parseYaml } from "yaml";
 import {
   SYNTHESIS_SIDECAR_NODE_VERSION,
   rebuildSynthesisSidecarRuntimeBundleManifest,
@@ -890,8 +891,21 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(workflow, "SHASUMS256.txt.asc");
     assert.include(workflow, "nodejs/release-keys");
     assert.include(workflow, "Get-AuthenticodeSignature");
-    assert.include(workflow, "codesign --verify");
-    assert.include(workflow, "spctl --assess");
+    const parsedWorkflow = parseYaml(workflow) as {
+      jobs?: Record<string, { steps?: unknown[] }>;
+    };
+    const buildSteps = parsedWorkflow.jobs?.build?.steps;
+    assert.isArray(buildSteps);
+    const macosSignatureStep = buildSteps?.find(
+      (step): step is Record<string, unknown> =>
+        !!step &&
+        typeof step === "object" &&
+        (step as Record<string, unknown>).name ===
+          "Verify macOS runtime code signature",
+    );
+    assert.isOk(macosSignatureStep);
+    assert.match(String(macosSignatureStep?.if), /matrix\.target.*darwin-/);
+    assert.match(String(macosSignatureStep?.run), /codesign\s+--verify\b/);
 
     const release = fs.readFileSync(
       path.join(ROOT, ".github/workflows/release.yml"),

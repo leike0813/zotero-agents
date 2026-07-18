@@ -1,3 +1,5 @@
+import { hasUnpairedSynthesisSurrogate } from "./canonicalJson.js";
+
 export type SynthesisJsonPrimitive = string | number | boolean | null;
 
 export type SynthesisJsonValue =
@@ -66,11 +68,17 @@ export function toSynthesisJsonValue(
   location = "$",
   seen = new Set<object>(),
 ): SynthesisJsonValue {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean"
-  ) {
+  if (value === null || typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    if (hasUnpairedSynthesisSurrogate(value)) {
+      throw new SynthesisClientError(
+        "invalid_request",
+        `Synthesis JSON string is invalid at ${location}`,
+        { location },
+      );
+    }
     return value;
   }
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -107,6 +115,13 @@ export function toSynthesisJsonValue(
     }
     const result: SynthesisJsonObject = {};
     for (const [key, entry] of Object.entries(value)) {
+      if (hasUnpairedSynthesisSurrogate(key)) {
+        throw new SynthesisClientError(
+          "invalid_request",
+          `Synthesis JSON key is invalid at ${location}`,
+          { location },
+        );
+      }
       result[key] = toSynthesisJsonValue(entry, `${location}.${key}`, seen);
     }
     return result;

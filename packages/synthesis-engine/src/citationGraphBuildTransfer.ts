@@ -1,7 +1,10 @@
 import {
   byteLengthSynthesisEngineText,
+  canonicalizeSynthesisEngineJsonArtifact,
   canonicalizeSynthesisEngineJson,
+  encodeSynthesisEngineText,
   hashSynthesisEngineCanonicalJson,
+  sha256SynthesisEngineBytes,
 } from "./canonicalJson.ts";
 import {
   SYNTHESIS_CITATION_GRAPH_BUILD_CONTRACT_VERSION,
@@ -54,6 +57,10 @@ export type SynthesisCitationGraphBuildTransferPageDescriptor = {
 export type SynthesisCitationGraphBuildTransferPage = {
   descriptor: SynthesisCitationGraphBuildTransferPageDescriptor;
   rows: unknown[];
+};
+export type SynthesisCitationGraphBuildTransferPageArtifact = {
+  page: SynthesisCitationGraphBuildTransferPage;
+  bytes: Uint8Array;
 };
 export type SynthesisCitationGraphBuildTransferManifest = {
   transferVersion: typeof SYNTHESIS_CITATION_GRAPH_BUILD_TRANSFER_VERSION;
@@ -276,37 +283,162 @@ export function buildSynthesisCitationGraphBuildTransferPage(
   pageIndexInput: number,
   rowsInput: unknown,
 ): SynthesisCitationGraphBuildTransferPage {
+  return buildSynthesisCitationGraphBuildTransferPageArtifact(
+    kindInput,
+    pageIndexInput,
+    rowsInput,
+  ).page;
+}
+
+export function buildSynthesisCitationGraphBuildTransferPageArtifact(
+  kindInput: SynthesisCitationGraphBuildTransferPageKind,
+  pageIndexInput: number,
+  rowsInput: unknown,
+): SynthesisCitationGraphBuildTransferPageArtifact {
   const kind = pageKind(kindInput);
   const pageIndex = nonNegativeInteger(pageIndexInput, "page_index");
   const rows = rebuildRows(kind, rowsInput);
-  const canonical = canonicalizeSynthesisEngineJson(rows);
+  const canonical = canonicalizeSynthesisEngineJsonArtifact(rows);
   return {
-    descriptor: {
-      kind,
-      pageIndex,
-      rowCount: rows.length,
-      byteLength: byteLengthSynthesisEngineText(canonical),
-      sha256: hashSynthesisEngineCanonicalJson(rows),
+    page: {
+      descriptor: {
+        kind,
+        pageIndex,
+        rowCount: rows.length,
+        byteLength: canonical.byteLength,
+        sha256: canonical.sha256,
+      },
+      rows,
     },
-    rows,
+    bytes: canonical.bytes,
   };
 }
 
 export function rebuildSynthesisCitationGraphBuildTransferPage(
   value: unknown,
 ): SynthesisCitationGraphBuildTransferPage {
+  return rebuildSynthesisCitationGraphBuildTransferPageArtifact(value).page;
+}
+
+export function rebuildSynthesisCitationGraphBuildTransferPageArtifact(
+  value: unknown,
+): SynthesisCitationGraphBuildTransferPageArtifact {
   const page = object(value, "page");
   exactFields(page, ["descriptor", "rows"], "page");
   const expected = rebuildDescriptor(page.descriptor);
-  const rebuilt = buildSynthesisCitationGraphBuildTransferPage(
+  const rebuilt = buildSynthesisCitationGraphBuildTransferPageArtifact(
     expected.kind,
     expected.pageIndex,
     page.rows,
   );
-  if (JSON.stringify(rebuilt.descriptor) !== JSON.stringify(expected)) {
+  if (JSON.stringify(rebuilt.page.descriptor) !== JSON.stringify(expected)) {
     return invalid("page_descriptor_mismatch");
   }
   return rebuilt;
+}
+
+function joinCanonicalRowBytes(
+  rows: readonly Uint8Array[],
+  byteLength: number,
+) {
+  const output = new Uint8Array(byteLength);
+  let offset = 0;
+  output[offset++] = 0x5b;
+  for (const [index, row] of rows.entries()) {
+    if (index > 0) output[offset++] = 0x2c;
+    output.set(row, offset);
+    offset += row.byteLength;
+  }
+  output[offset] = 0x5d;
+  return output;
+}
+
+function* iterateTrustedRowsArtifacts(
+  kind: (typeof SYNTHESIS_CITATION_GRAPH_BUILD_OUTPUT_PAGE_KINDS)[number],
+  rows: unknown[],
+  limits: { pageBytes: number; pageJsonNodes: number },
+): Generator<SynthesisCitationGraphBuildTransferPageArtifact> {
+  let pageRows: unknown[] = [];
+  let canonicalRows: Uint8Array[] = [];
+  let pageBytes = 2;
+  let pageJsonNodes = 1;
+  let pageIndex = 0;
+  const flush = () => {
+    if (!pageRows.length) return undefined;
+    const bytes = joinCanonicalRowBytes(canonicalRows, pageBytes);
+    const artifact: SynthesisCitationGraphBuildTransferPageArtifact = {
+      page: {
+        descriptor: {
+          kind,
+          pageIndex,
+          rowCount: pageRows.length,
+          byteLength: bytes.byteLength,
+          sha256: sha256SynthesisEngineBytes(bytes),
+        },
+        rows: pageRows,
+      },
+      bytes,
+    };
+    pageIndex += 1;
+    pageRows = [];
+    canonicalRows = [];
+    pageBytes = 2;
+    pageJsonNodes = 1;
+    return artifact;
+  };
+  for (const row of rows) {
+    const canonical = encodeSynthesisEngineText(
+      canonicalizeSynthesisEngineJson(row),
+    );
+    const rowJsonNodes = countSynthesisEngineJsonNodes(row);
+    const separatorBytes = pageRows.length ? 1 : 0;
+    if (
+      pageBytes + separatorBytes + canonical.byteLength > limits.pageBytes ||
+      pageJsonNodes + rowJsonNodes > limits.pageJsonNodes
+    ) {
+      const artifact = flush();
+      if (!artifact) invalid("output_row_exceeds_page_limit");
+      yield artifact;
+    }
+    pageRows.push(row);
+    canonicalRows.push(canonical);
+    pageBytes += (pageRows.length > 1 ? 1 : 0) + canonical.byteLength;
+    pageJsonNodes += rowJsonNodes;
+  }
+  const artifact = flush();
+  if (artifact) yield artifact;
+}
+
+export function* iterateSynthesisCitationGraphBuildResultPageArtifacts(
+  result: SynthesisCitationGraphBuildResult,
+  limits: { pageBytes: number; pageJsonNodes: number },
+): Generator<SynthesisCitationGraphBuildTransferPageArtifact> {
+  yield* iterateTrustedRowsArtifacts("nodes", result.nodes, limits);
+  yield* iterateTrustedRowsArtifacts(
+    "resolved_edges",
+    result.resolvedEdges,
+    limits,
+  );
+  yield* iterateTrustedRowsArtifacts(
+    "aggregate_edges",
+    result.aggregateEdges,
+    limits,
+  );
+  yield* iterateTrustedRowsArtifacts(
+    "source_ownership",
+    result.sourceOwnership,
+    limits,
+  );
+  yield* iterateTrustedRowsArtifacts(
+    "incoming_groups",
+    result.incomingGroups,
+    limits,
+  );
+  yield* iterateTrustedRowsArtifacts(
+    "light_metrics",
+    result.lightMetrics,
+    limits,
+  );
 }
 
 export function buildSynthesisCitationGraphBuildTransferManifest(args: {

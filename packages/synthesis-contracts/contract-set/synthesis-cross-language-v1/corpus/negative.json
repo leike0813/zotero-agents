@@ -1,0 +1,35 @@
+{
+  "version": "synthesis-cross-language-negative.v1",
+  "cases": [
+    {
+      "id": "malformed-json",
+      "oracle": "sidecarCallRequest",
+      "inputJson": "{",
+      "errorCode": "malformed_json"
+    },
+    {
+      "id": "owner-unsafe-integer",
+      "oracle": "sidecarOwner",
+      "inputJson": "{\"schema\":\"synthesis-sidecar-owner.v1\",\"profileId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"supervisorInstanceId\":\"supervisor-1\",\"serviceInstanceId\":\"service-1\",\"leaseNonce\":\"lease-1\",\"pid\":9007199254740992,\"createdAtMs\":0}",
+      "errorCode": "invalid_request"
+    },
+    {
+      "id": "wire-unpaired-surrogate",
+      "oracle": "sidecarCallRequest",
+      "inputJson": "{\"protocol\":\"synthesis-sidecar.v1\",\"requestId\":\"\\ud800\",\"profileId\":\"p1\",\"capability\":\"system.handshake\",\"payload\":{}}",
+      "errorCode": "invalid_request"
+    },
+    {
+      "id": "runtime-pointer-unknown-field",
+      "oracle": "runtimePointer",
+      "inputJson": "{\"schema\":\"synthesis-sidecar-runtime-pointer.v1\",\"bundleId\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"unknown\":true}",
+      "errorCode": "pointer_unknown_field"
+    },
+    {
+      "id": "canonical-unpaired-surrogate",
+      "oracle": "canonicalJson",
+      "inputJson": "{\"value\":\"\\ud800\"}",
+      "errorCode": "canonical_unpaired_surrogate"
+    }
+  ]
+}

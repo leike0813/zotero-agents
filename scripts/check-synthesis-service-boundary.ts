@@ -74,12 +74,6 @@ const NODE_SQLITE_ALLOWLIST = new Set([
 const TOPIC_CANONICAL_NODE_ALLOWLIST = new Set([
   "apps/synthesis-service/src/topicCanonicalStoreNode.ts",
 ]);
-const CONTRACT_SOURCE_IMPORT_ALLOWLIST = new Map([
-  [
-    "packages/synthesis-contracts/src/sidecarSystem.ts",
-    new Set(["../../../packages/synthesis-repository/src/index.js"]),
-  ],
-]);
 const VALID_CATEGORIES = new Set<MethodCategory>([
   "query",
   "command",
@@ -237,10 +231,7 @@ export function findSynthesisContractBoundaryViolations(): string[] {
         if (
           specifier.startsWith("node:") ||
           specifier.startsWith("zotero-") ||
-          (specifier.includes("/src/") &&
-            !CONTRACT_SOURCE_IMPORT_ALLOWLIST.get(relativePath)?.has(
-              specifier,
-            )) ||
+          specifier.includes("/src/") ||
           specifier.endsWith("/src")
         ) {
           violations.push(`${relativePath}: forbidden import ${specifier}`);

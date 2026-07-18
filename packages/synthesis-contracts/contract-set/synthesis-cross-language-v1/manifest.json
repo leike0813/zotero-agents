@@ -1,0 +1,254 @@
+{
+  "contractSetVersion": "synthesis-cross-language-sidecar-contract.v1",
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "schemas": [
+    {
+      "path": "schemas/compute.schema.json",
+      "definitions": [
+        "jsonValue",
+        "jsonObject",
+        "string",
+        "identifier",
+        "safeInteger",
+        "nodeKind",
+        "layoutRequestNode",
+        "layoutRequestEdge",
+        "layoutRequest",
+        "layoutResultNode",
+        "layoutResult",
+        "metricsRequestNode",
+        "metricsRequestEdge",
+        "metricsRequest",
+        "metricsNode",
+        "metricsResult",
+        "graphBuildScope",
+        "graphBuildLibraryNode",
+        "graphBuildReference",
+        "graphBuildRequest",
+        "graphBuildResult",
+        "tagVocabularyValidationRequest",
+        "tagVocabularyValidationResult",
+        "tagVocabularyIndexRequest",
+        "tagVocabularyIndexResult",
+        "conceptKbIndexRequest",
+        "conceptKbIndexResult",
+        "conceptKbQueryRequest",
+        "conceptKbQueryResult",
+        "topicGraphIndexRequest",
+        "topicGraphIndexResult",
+        "versionedDomainRequest",
+        "versionedDomainResult"
+      ]
+    },
+    {
+      "path": "schemas/lifecycle.schema.json",
+      "definitions": [
+        "hash",
+        "id",
+        "safeInteger",
+        "capability",
+        "launchConfig",
+        "owner",
+        "lease",
+        "discovery"
+      ]
+    },
+    {
+      "path": "schemas/runtime-bundle.schema.json",
+      "definitions": [
+        "sha256Hex",
+        "relativePath",
+        "file",
+        "upstream",
+        "bundleManifest",
+        "pointer"
+      ]
+    },
+    {
+      "path": "schemas/surfaces.schema.json",
+      "definitions": [
+        "jsonValue",
+        "jsonObject",
+        "nullableSha256",
+        "canonicalSection",
+        "canonicalInspectRequest",
+        "canonicalInspectResult",
+        "workbenchChromeRequest",
+        "cacheReadiness",
+        "jobProgress",
+        "backgroundJob",
+        "workbenchChromeResult"
+      ]
+    },
+    {
+      "path": "schemas/system.schema.json",
+      "definitions": [
+        "jsonValue",
+        "jsonObject",
+        "sha256Hex",
+        "safeNonNegativeInteger",
+        "capability",
+        "callRequest",
+        "computePoolSnapshot",
+        "repositorySnapshot",
+        "canonicalStoreSnapshot",
+        "transferSnapshot",
+        "health",
+        "handshakePayload",
+        "handshakeResult",
+        "shutdownResult",
+        "error",
+        "success",
+        "failure",
+        "response"
+      ]
+    },
+    {
+      "path": "schemas/transfer.schema.json",
+      "definitions": [
+        "jsonValue",
+        "jsonObject",
+        "safeInteger",
+        "sha256",
+        "pageDescriptor",
+        "manifest",
+        "page",
+        "action",
+        "progress",
+        "lastFailure",
+        "execution",
+        "status",
+        "snapshot"
+      ]
+    }
+  ],
+  "corpora": [
+    {
+      "path": "corpus/negative.json",
+      "kind": "negative",
+      "version": "synthesis-cross-language-negative.v1"
+    },
+    {
+      "path": "corpus/positive.json",
+      "kind": "positive",
+      "version": "synthesis-cross-language-positive.v1"
+    }
+  ],
+  "capabilities": {
+    "contract.foundation": [
+      "schemas/compute.schema.json#/$defs/jsonValue",
+      "schemas/compute.schema.json#/$defs/jsonObject",
+      "schemas/compute.schema.json#/$defs/string",
+      "schemas/compute.schema.json#/$defs/identifier",
+      "schemas/compute.schema.json#/$defs/safeInteger",
+      "schemas/compute.schema.json#/$defs/nodeKind",
+      "schemas/compute.schema.json#/$defs/layoutRequestNode",
+      "schemas/compute.schema.json#/$defs/layoutRequestEdge",
+      "schemas/compute.schema.json#/$defs/layoutResultNode",
+      "schemas/compute.schema.json#/$defs/metricsRequestNode",
+      "schemas/compute.schema.json#/$defs/metricsRequestEdge",
+      "schemas/compute.schema.json#/$defs/metricsNode",
+      "schemas/compute.schema.json#/$defs/graphBuildScope",
+      "schemas/compute.schema.json#/$defs/graphBuildLibraryNode",
+      "schemas/compute.schema.json#/$defs/graphBuildReference",
+      "schemas/compute.schema.json#/$defs/versionedDomainRequest",
+      "schemas/compute.schema.json#/$defs/versionedDomainResult",
+      "schemas/lifecycle.schema.json#/$defs/hash",
+      "schemas/lifecycle.schema.json#/$defs/id",
+      "schemas/lifecycle.schema.json#/$defs/safeInteger",
+      "schemas/lifecycle.schema.json#/$defs/capability",
+      "schemas/runtime-bundle.schema.json#/$defs/sha256Hex",
+      "schemas/runtime-bundle.schema.json#/$defs/relativePath",
+      "schemas/runtime-bundle.schema.json#/$defs/file",
+      "schemas/runtime-bundle.schema.json#/$defs/upstream",
+      "schemas/surfaces.schema.json#/$defs/jsonValue",
+      "schemas/surfaces.schema.json#/$defs/jsonObject",
+      "schemas/surfaces.schema.json#/$defs/nullableSha256",
+      "schemas/surfaces.schema.json#/$defs/canonicalSection",
+      "schemas/surfaces.schema.json#/$defs/cacheReadiness",
+      "schemas/surfaces.schema.json#/$defs/jobProgress",
+      "schemas/surfaces.schema.json#/$defs/backgroundJob",
+      "schemas/system.schema.json#/$defs/jsonValue",
+      "schemas/system.schema.json#/$defs/jsonObject",
+      "schemas/system.schema.json#/$defs/sha256Hex",
+      "schemas/system.schema.json#/$defs/safeNonNegativeInteger",
+      "schemas/system.schema.json#/$defs/capability",
+      "schemas/system.schema.json#/$defs/computePoolSnapshot",
+      "schemas/system.schema.json#/$defs/repositorySnapshot",
+      "schemas/system.schema.json#/$defs/canonicalStoreSnapshot",
+      "schemas/system.schema.json#/$defs/transferSnapshot",
+      "schemas/system.schema.json#/$defs/error",
+      "schemas/system.schema.json#/$defs/success",
+      "schemas/system.schema.json#/$defs/failure",
+      "schemas/transfer.schema.json#/$defs/jsonValue",
+      "schemas/transfer.schema.json#/$defs/jsonObject",
+      "schemas/transfer.schema.json#/$defs/safeInteger",
+      "schemas/transfer.schema.json#/$defs/sha256",
+      "schemas/transfer.schema.json#/$defs/progress",
+      "schemas/transfer.schema.json#/$defs/lastFailure",
+      "schemas/transfer.schema.json#/$defs/execution"
+    ],
+    "system.lifecycle": [
+      "schemas/system.schema.json#/$defs/callRequest",
+      "schemas/system.schema.json#/$defs/health",
+      "schemas/system.schema.json#/$defs/handshakePayload",
+      "schemas/system.schema.json#/$defs/handshakeResult",
+      "schemas/system.schema.json#/$defs/shutdownResult",
+      "schemas/system.schema.json#/$defs/response"
+    ],
+    "runtime.supervision": [
+      "schemas/lifecycle.schema.json#/$defs/launchConfig",
+      "schemas/lifecycle.schema.json#/$defs/owner",
+      "schemas/lifecycle.schema.json#/$defs/lease",
+      "schemas/lifecycle.schema.json#/$defs/discovery"
+    ],
+    "runtime.node-oracle-v1": [
+      "schemas/runtime-bundle.schema.json#/$defs/bundleManifest",
+      "schemas/runtime-bundle.schema.json#/$defs/pointer"
+    ],
+    "topics.canonical.inspect": [
+      "schemas/surfaces.schema.json#/$defs/canonicalInspectRequest",
+      "schemas/surfaces.schema.json#/$defs/canonicalInspectResult"
+    ],
+    "workbench.chrome.read": [
+      "schemas/surfaces.schema.json#/$defs/workbenchChromeRequest",
+      "schemas/surfaces.schema.json#/$defs/workbenchChromeResult"
+    ],
+    "compute.citation_graph_layout": [
+      "schemas/compute.schema.json#/$defs/layoutRequest",
+      "schemas/compute.schema.json#/$defs/layoutResult"
+    ],
+    "compute.citation_graph_metrics": [
+      "schemas/compute.schema.json#/$defs/metricsRequest",
+      "schemas/compute.schema.json#/$defs/metricsResult"
+    ],
+    "compute.citation_graph_build": [
+      "schemas/compute.schema.json#/$defs/graphBuildRequest",
+      "schemas/compute.schema.json#/$defs/graphBuildResult"
+    ],
+    "compute.citation_graph_build_transfer": [
+      "schemas/transfer.schema.json#/$defs/pageDescriptor",
+      "schemas/transfer.schema.json#/$defs/manifest",
+      "schemas/transfer.schema.json#/$defs/page",
+      "schemas/transfer.schema.json#/$defs/action",
+      "schemas/transfer.schema.json#/$defs/status",
+      "schemas/transfer.schema.json#/$defs/snapshot"
+    ],
+    "worker.tag_vocabulary": [
+      "schemas/compute.schema.json#/$defs/tagVocabularyValidationRequest",
+      "schemas/compute.schema.json#/$defs/tagVocabularyValidationResult",
+      "schemas/compute.schema.json#/$defs/tagVocabularyIndexRequest",
+      "schemas/compute.schema.json#/$defs/tagVocabularyIndexResult"
+    ],
+    "worker.concept_kb": [
+      "schemas/compute.schema.json#/$defs/conceptKbIndexRequest",
+      "schemas/compute.schema.json#/$defs/conceptKbIndexResult",
+      "schemas/compute.schema.json#/$defs/conceptKbQueryRequest",
+      "schemas/compute.schema.json#/$defs/conceptKbQueryResult"
+    ],
+    "worker.topic_graph": [
+      "schemas/compute.schema.json#/$defs/topicGraphIndexRequest",
+      "schemas/compute.schema.json#/$defs/topicGraphIndexResult"
+    ]
+  }
+}

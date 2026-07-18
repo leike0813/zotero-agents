@@ -1,4 +1,5 @@
 export * from "./client";
+export * from "./canonicalJson";
 export * from "./citationGraphApplication";
 export * from "./common";
 export * from "./concepts";
@@ -20,6 +21,7 @@ export * from "./references";
 export * from "./referenceRefreshApplication";
 export * from "./referenceMatchingReviewApplication";
 export * from "./representativeImageRead";
+export * from "./schemaVersion";
 export * from "./relatedItemsEffect";
 export * from "./sidecarLifecycle";
 export * from "./sidecarCanonicalStore";
