@@ -258,3 +258,23 @@ and packaged runtime closure.
 ```
 
 该表述既保留了 WS5 的真实工程成果，也不会把 foundation 完成误认为生产 sidecar 已可用。
+
+## 10. 2026-07-18 Rust 路线补遗
+
+本节是对后续实施顺序的日期化补遗，不改写第 1-9 节在审查时记录的代码状态、缺陷、验证结果或 WS5 里程碑结论。
+
+自审后已完成并发布五个平台的 Node sidecar prebuild，但它们尚未同步进正式 XPI，五个平台工件合计约 `203,071,203` bytes。该证据关闭了“是否能生成 prebuild”的问题，同时证明正式交付模型不可接受：把五份 product-owned Node runtime 全部放进 universal XPI 会使插件接近或超过 200 MB；安装后下载 Node runtime 也因离线、生命周期与供应链约束被明确拒绝。
+
+因此，第 7 节“保留当前架构方向”的含义调整为保留 client/port seam、环境中立分层、独立进程、worker 隔离、private roots、durable ownership 与 fail-closed 设计，不再意味着继续把 Node service 生产化。第 8 节原关闭顺序的前几项仍是有效的 oracle 质量修补记录；但“累计 Node release gate、Node XPI freshness、进入 Node WS6/WS7 和 Node 实机交付”不再是活动路线。
+
+后续执行规则如下：
+
+- Node service、worker、repository/canonical foundation 与现有 fixtures 冻结为迁移 oracle；只允许修复妨碍基线复现或跨语言验证的问题。
+- 暂停原 WS6 Node shadow route 与 WS7 Node production ownership cutover；生产 DB/canonical owner 保持插件侧，直到 Rust 一次性切换。
+- 先建立 versioned language-neutral schema、positive/negative corpus 与 canonical bytes/hash SSOT，再按 capability 迁移 Rust。
+- Rust 保留独立、可终止的 worker process；Node/Rust 不共享 live DB、canonical root 或 write lease，也不提供 production runtime fallback。
+- Force layout 通过显式 `layoutVersion: 2` 迁移；其他 durable data 与 canonical semantics 保持兼容。
+- 正式交付只包含 native Rust executable；压缩后的单平台 runtime ≤15 MiB、五平台合计 ≤75 MiB、最终 XPI ≤100 MiB。
+- Rust cutover 后 rollback 仅在兼容 Rust bundles 之间进行；Node runtime/service/worker/D3 资产在同一 release milestone 删除。
+
+新的详细计划是 `artifact/synthesis_sidecar_rust_migration_plan_20260718.md`，治理工件是 `openspec/changes/pivot-synthesis-sidecar-runtime-to-rust/`。在该路线完成前，WS5 仍应登记为 private isolated foundation complete，而不是 production-ready、real-machine accepted 或已完成 Rust 迁移。

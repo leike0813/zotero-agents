@@ -1,10 +1,4 @@
-# synthesis-webdav-durable-sync Specification
-
-## Purpose
-Define WebDAV as the sole Synthesis durable-sync transport, including bundle publication, autosync, bounded retry, lifecycle cancellation, import boundaries, and fixed startup cleanup.
-
-## Requirements
-
+## ADDED Requirements
 
 ### Requirement: WebDAV is the only durable-sync transport
 

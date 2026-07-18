@@ -1,6 +1,6 @@
 # Stage 1 Detailed Refactor Plan: Synthesis Sidecar Service
 
-> 状态：实施中；当前里程碑为 `Stage 1 / WS5 — Private Isolated Synthesis Foundation Complete`，下一阶段为 WS6 shadow verification；这不表示 Stage 1、生产切换、生产就绪或真实机器验收已经完成
+> 状态：实施中；`Stage 1 / WS5 — Private Isolated Synthesis Foundation Complete` 已完成；2026-07-18 起暂停原 Node WS6/WS7 路线，下一阶段改为 Rust parity 与 native cutover；这不表示 Rust 实现、生产切换、生产就绪或真实机器验收已经完成
 >
 > 日期：2026-07-15
 >
@@ -10,7 +10,7 @@
 
 ## 1. 执行摘要
 
-第一阶段将现有插件内 Synthesis runtime 改造成一个同仓库、独立构建、独立进程的 TypeScript/Node 服务。
+第一阶段原计划将现有插件内 Synthesis runtime 改造成一个同仓库、独立构建、独立进程的 TypeScript/Node 服务。WS0-WS5 已按该路线建立迁移 seam 与可执行 Node oracle；由于五平台 Node prebuild 的实测包体不满足产品交付约束，最终 sidecar 目标已于 2026-07-18 转为同仓库、独立构建、独立进程的 Rust native service。
 
 完成后：
 
@@ -21,12 +21,26 @@
 - Topic canonical 文件是真源，Zotero note shards 是 mirror；
 - Synthesis Service 不直接读取 Zotero DB，也不导入 `Zotero`、`addon` 或插件 toolkit；
 - 插件和未来 Electron shell 使用同一套 service/host contracts；
-- Node runtime 随插件直接分发，用户不安装 Node，launcher 不查询系统 PATH；
-- Node 主进程只负责协议、operation、SQLite 和 canonical commit，重计算进入受控 worker pool；
-- Rust 只在 benchmark 证明某个纯计算 kernel 无法满足预算时作为可替换 worker，不参与领域持久化；
+- 正式 XPI 只分发匹配平台的 native Rust executable，不包含 Node，也不在安装后下载 runtime；
+- Rust service 主进程只负责协议、operation、SQLite 和 canonical commit，重计算进入可替换的独立 worker 进程；
+- Node service 冻结为迁移 oracle，不获得 production DB、canonical files 或 Zotero effects 的所有权；
 - 生产状态不存在 DB 双写、文件双写或自动 in-process fallback。
 
-本阶段采用“先建立 client/port seam，在进程内保持行为；再让同一用例实现运行于 Node；最后原子切换 single writer”的迁移方式。
+本阶段采用“先建立 client/port seam 与 Node 可执行 oracle；再建立语言中立 contract/corpus 并按 capability 迁移到 Rust；最后只向 Rust 原子切换 single writer”的迁移方式。详细后续路线见 `artifact/synthesis_sidecar_rust_migration_plan_20260718.md`。
+
+### 1.1 2026-07-18 Rust 路线转向（后续实施的优先规则）
+
+本节与 `artifact/synthesis_sidecar_rust_migration_plan_20260718.md` 是 WS5 之后的实施 SSOT。本文其余章节继续保留 WS0-WS5 的历史目标、决策与验证证据；若旧章节仍把 Node WS6/WS7、Node universal XPI、安装后 Node runtime 或“Rust 仅为 benchmark fallback”描述为后续路线，以本节和 Rust 迁移总计划为准。
+
+- 五平台 Node prebuild 已验证可构建，但合计约 `203,071,203` bytes，尚未同步进 XPI，也不再作为正式交付目标。
+- 原 WS6 改为跨语言 contract、Rust engine parity、独立 worker process 与五平台 native canary。
+- 原 WS7 改为 Rust repository/canonical/application parity、native service/lifecycle/manifest v2，以及一次性 production single-writer cutover。
+- 原 WS8 扩展为同时删除插件内旧 implementation 与 Node service/runtime/worker/D3 runtime。
+- 原 WS9 改为 Rust native build、签名、provenance、包体预算、XPI inventory 与五平台实机验收。
+- Node/Rust 只能在测试 harness 中对隔离数据双执行；production route 无逐请求 fallback，也不共享 live DB/canonical root/write lease。
+- production DB 格式与 canonical bytes/hash 保持兼容；Force layout 通过显式 `layoutVersion: 2` 迁移。
+- native runtime 压缩后每平台不超过 15 MiB、五平台合计不超过 75 MiB、最终 XPI 不超过 100 MiB。
+- Rust cutover 后 active/previous 只允许兼容 Rust bundle，不支持回滚至 Node。
 
 ## 2. 已确认决策
 
@@ -34,17 +48,24 @@
 | --- | --- | --- |
 | S1-D001 | 第一阶段最终由后端独占 Synthesis DB 和应用用例，不止转移 CPU 计算 | 已确认 |
 | S1-D002 | Topic canonical 文件是真源，Zotero note mirror 不是 canonical | 已确认 |
-| S1-D003 | TypeScript/Node、同仓库、插件托管、per-profile sidecar | 已确认 |
+| S1-D003 | TypeScript/Node、同仓库、插件托管、per-profile sidecar | 已完成的 WS0-WS5 历史路线；最终 runtime 被 S1-D014 取代 |
 | S1-D004 | Synthesis Service 是领域服务，不是 agent provider | 已确认 |
 | S1-D005 | service 与 plugin 不共享 `synthesis.db` 写入权 | 已确认 |
 | S1-D006 | 本地通信优先采用 loopback HTTP/JSON；进度使用 SSE，必要时保留 polling | 规划决策 |
 | S1-D007 | 插件通过受限 Host Capability API 提供 Zotero 访问，不允许 service 直接读 Zotero DB | 规划决策 |
 | S1-D008 | 切换后不保留自动 in-process fallback；发布 rollback 必须先停止 service 并恢复单一所有者 | 规划决策 |
 | S1-D009 | service 只按 profile 共享，不在第一阶段实现跨 profile daemon | 规划决策 |
-| S1-D010 | Node runtime 作为插件资产直接分发和管理，用户无需安装 Node，launcher 禁止查询系统 PATH | 已确认 |
-| S1-D011 | Node 主进程是控制面、DB/file 单一写入者；CPU 密集任务必须进入有界 worker pool | 已确认 |
-| S1-D012 | Rust 只由 normal/target/stress benchmark 驱动，用于替换纯计算 kernel，不拥有 DB、canonical files 或 Zotero effects | 已确认 |
+| S1-D010 | Node runtime 作为插件资产直接分发和管理，用户无需安装 Node，launcher 禁止查询系统 PATH | Node oracle 已实现；正式交付被 S1-D014/S1-D019 取代 |
+| S1-D011 | Node 主进程是控制面、DB/file 单一写入者；CPU 密集任务必须进入有界 worker pool | 隔离模型保留，控制面实现改为 Rust |
+| S1-D012 | Rust 只由 normal/target/stress benchmark 驱动，用于替换纯计算 kernel，不拥有 DB、canonical files 或 Zotero effects | 被 S1-D014-S1-D018 取代 |
 | S1-D013 | Synthesis supervisor 必须提供 owner lock、ready/health 分离、parent lease、有限重启和 crash-loop 熔断，不能只复制无状态 ACP Bridge 的 best-effort 生命周期 | 已确认 |
+| S1-D014 | Rust native service 是唯一正式 sidecar 交付目标；Node 只作为迁移 oracle | 已确认 |
+| S1-D015 | WS6/WS7 之前冻结 Node capability、生产 writer 与正式 XPI 集成 | 已确认 |
+| S1-D016 | 先建立 versioned language-neutral schema/corpus/canonical semantics，再迁移领域实现 | 已确认 |
+| S1-D017 | bounded CPU work 保持独立、可终止、可替换的 Rust worker process | 已确认 |
+| S1-D018 | production DB/canonical semantics 保持兼容；Force layout 显式升级为 layout v2 | 已确认 |
+| S1-D019 | native runtime 每平台 ≤15 MiB、五平台 ≤75 MiB、最终 XPI ≤100 MiB | 已确认 |
+| S1-D020 | native cutover 后仅支持 Rust-to-Rust rollback，不支持 Node downgrade | 已确认 |
 
 如果平台 spike 证明 SSE 或 loopback HTTP 在目标 Zotero 平台不可行，可以在不改变 DTO/用例语义的前提下替换 transport；不得因此退回共享 service object。
 
@@ -57,7 +78,7 @@
 - plugin in-process adapter（仅迁移期）；
 - Zotero Host Capability contracts 和 adapter；
 - 纯 Synthesis engine；
-- product-owned Node runtime、compute worker pool、health、auth、discovery、supervisor lifecycle；
+- product-owned Rust native runtime、独立 compute worker process、health、auth、discovery、supervisor lifecycle；Node 对应实现仅作为冻结 oracle；
 - Synthesis application use cases；
 - Synthesis repository 和 schema ownership；
 - Topic canonical file ownership；
@@ -76,7 +97,7 @@
 - Assistant Workspace transcript/rendering 改造；
 - Synthesis Workbench 前端大重写；
 - Electron 应用开发；
-- 全量 Rust 重写或在第一阶段预先引入 Rust compute worker；
+- 一次性逐文件翻译全部 TypeScript，或在没有语言中立契约与分阶段退出门禁时进行巨型 Rust 重写；
 - 依赖用户安装的 Node、npm、系统 PATH 或用户 shell 配置；
 - 跨设备常驻 Synthesis daemon；
 - 直接读取 Zotero SQLite；
@@ -736,11 +757,14 @@ Baseline
   -> all plugin consumers use SynthesisClient
   -> host ports replace direct Zotero access
   -> pure engine extraction
-  -> Node service runtime
-  -> application/repository port
-  -> isolated parity + shadow reads
-  -> atomic DB/file owner cutover
-  -> remove in-process implementation
+  -> Node service + private foundation (WS4-WS5 complete; freeze as oracle)
+  -> language-neutral schema + canonical corpus
+  -> Rust worker/service vertical slices
+  -> Rust engine parity + layout v2
+  -> Rust application/repository/canonical parity in isolated roots
+  -> native manifest v2 + five-platform acceptance
+  -> atomic DB/file owner cutover to Rust
+  -> remove in-process and Node implementations
 ```
 
 ### 12.2 为什么先改 consumers
@@ -978,7 +1002,7 @@ graph layout 作为第一条 process canary，因为：
 - worker 不能访问 production DB、canonical files 或 Host Capability；
 - TypeScript worker 是第一阶段唯一必需实现，Rust 没有成为 cutover 依赖。
 
-### WS4：Node service runtime
+### WS4：Node service runtime（已完成，冻结为迁移 oracle）
 
 #### 目标
 
@@ -1038,9 +1062,9 @@ graph layout 作为第一条 process canary，因为：
 
 #### 任务
 
-以下清单是 WS4 已交付的 runtime foundation。remote-capable client、process event
-parity 和 production cutover 不属于本工作流的完成语义，分别由 WS6、WS7 承接；跨平台
-release asset 闭环由 WS9 承接。
+以下清单是 WS4 已交付的 runtime foundation。其 remote-capable client、process event
+parity、production cutover 与正式 Node release 不再继续实现；可观察契约与隔离模型由新的
+Rust WS6/WS7 承接。Node bundle 只用于 migration oracle 与 differential tests。
 
 - 独立 package/build/entrypoint；
 - 将 matching platform/architecture 的 Node executable、service bundle 和必要原生组件作为插件资产直接分发；
@@ -1220,9 +1244,9 @@ release asset 闭环由 WS9 承接。
   捕获 repository basis，transaction 外 inspect canonical descriptor，再 recapture；变化返回
   `superseded`。所有 read 均零写入，Node profiler 默认 unavailable，checkpoint/durable/protected reset
   复用既有 owner。私有 composition 无 route/worker/client/Host capability，并在 shutdown 首先 drain。
-  六项 WS5 exit gate 已由 Core、boundary、inventory 与 runtime/XPI 检查锁定；WS6 shadow parity 为下一阶段。
-- 此切片不是 production repository mirror 或 route。WS6 仍需完成 shadow parity，
-  WS7 仍需一次性切换 DB/canonical single writer；当前 service 不接触生产
+  六项 WS5 exit gate 已由 Core、boundary、inventory 与 runtime/XPI 检查锁定；下一阶段改为 Rust parity。
+- 此切片不是 production repository mirror 或 route。新的 WS6 先完成 Rust parity，
+  新的 WS7 再一次性向 Rust 切换 DB/canonical single writer；当前 Node service 不接触生产
   `synthesis.db`、production canonical files、Host capability 或公开 `SynthesisClient`。
 
 #### 任务
@@ -1277,11 +1301,17 @@ release asset 闭环由 WS9 承接。
 - 所有生产 capability 均已记录为 private foundation、保留的 plugin owner、WS6 parity、
   WS7 cutover 或明确从 Stage 1 删除，不把尚未路由的生产 consumer 计为已实现。
 
-### WS6：Shadow verification 和 process canary
+### WS6：Rust parity、shadow verification 和 native process canary
+
+> 2026-07-18 路线替换：原 Node remote route/shadow 草案不再作为交付任务。本工作流按
+> `artifact/synthesis_sidecar_rust_migration_plan_20260718.md` 的 R1-R6 执行：先锁定
+> language-neutral schema/canonical corpus，再按 metrics、确定性 kernels、复杂 kernels、
+> build/transfer、layout v2 的顺序建立 Rust parity。Node 仅在测试 harness 中读取固定 fixture
+> 或隔离副本，不注册新的 production route。
 
 #### 目标
 
-在不写生产状态的前提下验证远程实现。
+在不写生产状态的前提下验证 Rust remote implementation。
 
 #### 任务
 
@@ -1326,7 +1356,7 @@ release asset 闭环由 WS9 承接。
 - degraded/failure behavior；
 - control-plane health/SSE/shutdown latency under normal/target/stress compute load；
 - worker input serialization/copy cost；
-- TypeScript worker 与可选 Rust spike 的同 contract 结果、性能和资源对比。
+- Rust worker 与冻结 Node oracle 的同 contract 结果、性能和资源对比。
 
 #### 测试先行
 
@@ -1337,7 +1367,7 @@ release asset 闭环由 WS9 承接。
 - host pagination/cancellation；
 - service crash during staging；
 - plugin disconnect during host call；
-- TypeScript worker 满载时的 control-plane responsiveness；
+- Rust worker 满载时的 control-plane responsiveness；
 - worker crash/hang 后 previous projection 和 operation semantics；
 - benchmark spike 不写 production DB/file/Host effect。
 
@@ -1345,12 +1375,17 @@ release asset 闭环由 WS9 承接。
 
 - representative data 无未解释语义差异；
 - target scale 不使用 unbounded RPC；
-- TypeScript worker 在 target tier 满足既定预算，或有明确、可复现的单 kernel Rust 候选证据；
-- Node 主事件循环在 target/stress compute 下保持 health/cancel/shutdown 可响应；
+- Rust engine/worker 对已纳入 slice 的 capability 通过 language-neutral corpus、语义、错误与资源 parity；
+- Rust service 主进程在 target/stress compute 下保持 health/cancel/shutdown 可响应；
+- 五平台 native canary 可复现，单平台压缩 runtime 不超过 15 MiB；
 - process crash 不破坏 fixture current/DB；
 - cutover runbook 在副本上演练成功。
 
-### WS7：Production single-writer cutover
+### WS7：Rust durable foundation 与 production single-writer cutover
+
+> 2026-07-18 路线替换：原 Node production cutover 禁止执行。本工作流按 Rust 总计划的
+> R7-R9 完成 repository、canonical store、application、native service/lifecycle 与 manifest v2，
+> 通过五平台 fault injection、包体和实机门禁后，只向 Rust 原子切换 production owner。
 
 #### 目标
 
@@ -1370,7 +1405,7 @@ release asset 闭环由 WS9 承接。
 
 - WS0–WS6 全部门禁完成；
 - release artifact 包含匹配的 plugin/service/contracts；
-- release artifact 包含匹配平台/架构且已验证的 product-owned Node runtime，不依赖系统 Node；
+- release artifact 包含匹配平台/架构且已验证的 native Rust executable，不包含或依赖 Node；
 - migration dry-run 成功；
 - 备份和 restore 验证完成；
 - 所有 consumers 已使用 remote-capable client；
@@ -1424,7 +1459,7 @@ release asset 闭环由 WS9 承接。
 - 无双写和 fallback；
 - cutover/backup/restore receipt 完整。
 
-### WS8：删除插件内 runtime 和收口入口
+### WS8：删除插件内旧 runtime、Node oracle 和收口入口
 
 #### 目标
 
@@ -1437,6 +1472,7 @@ release asset 闭环由 WS9 承接。
 - 删除插件内 repository 创建；
 - 删除插件内 canonical file write；
 - 删除 Synthesis application/engine 旧文件；
+- 删除 `apps/synthesis-service` Node service、JavaScript worker、Node runtime bundle/prebuild/download 与 D3 runtime copy；
 - 删除 plugin-specific duplicate DTO；
 - Host Bridge/MCP 只保留 proxy；
 - Workbench 只保留 client message bridge；
@@ -1464,8 +1500,8 @@ release asset 闭环由 WS9 承接。
 - no direct DB open；
 - no direct canonical root write；
 - no `getDefaultSynthesisService`；
-- plugin bundle 不包含 Node-only service code；
-- service bundle 不包含 Zotero/plugin code。
+- plugin bundle 不包含 Node runtime、Node-only service code 或 D3 runtime copy；
+- native service bundle 不包含 Zotero/plugin code、JavaScript entrypoint 或 npm tree。
 
 #### 退出门禁
 
@@ -1474,7 +1510,7 @@ release asset 闭环由 WS9 承接。
 - active code 与 active docs 一致；
 - Stage 1 Definition of Done 全部满足。
 
-### WS9：Build、发布和运维
+### WS9：Rust native build、发布和运维
 
 #### 目标
 
@@ -1482,18 +1518,18 @@ release asset 闭环由 WS9 承接。
 
 #### 任务
 
-- 为 service 建立独立 build target；
-- plugin 构建不打入 Node-only code；
-- 插件包直接携带各目标平台/架构的 Node runtime、service bundle 和必要原生组件，用户无需另行安装 runtime；
-- service artifact 包含 runtime、service、worker、protocol 和 schema version/fingerprint；
-- 固定 Node/runtime/native component 的来源、版本和构建 provenance，生成许可证清单与 SBOM；
-- release preflight 检查已知漏洞，并为 Node 安全更新定义受影响版本识别、补丁时限和 rollback 边界；
+- 为 Rust workspace/service 建立独立、locked、可复现的五平台 build target；
+- plugin 构建不打入 Node runtime、Node-only service code、JavaScript worker 或 D3 runtime copy；
+- 插件包直接携带各目标平台/架构的 native executable，用户无需另行安装或下载 runtime；
+- service artifact 包含 executable、protocol、schema、capability 与 build fingerprint；
+- 固定 Rust toolchain、Cargo lock、crate/native component 的来源与构建 provenance，生成许可证清单与 SBOM；
+- release preflight 检查已知漏洞，并为 Rust runtime/dependency 安全更新定义受影响版本识别、补丁时限和 rollback 边界；
 - launcher 处理 Windows/macOS/Linux 路径、CPU 架构、可执行权限、签名、公证和安全软件诊断；
 - 安装/升级时重新校验包内及已解压 runtime 的真实 hash/signature；
 - 使用 versioned runtime directory、atomic active pointer 和完整上一版 rollback；
-- release 不得要求用户安装 Node/npm，也不得从 PATH 或 shell profile 解析 Node；
+- release 不得要求用户安装 Node/npm/system Rust，也不得从 PATH 或 shell profile 解析外部 runtime；
 - plugin/service/protocol/schema 兼容矩阵；
-- release preflight 加入无系统 Node、worker 满载 health/cancel、parent death、crash-loop 和关键 smoke；
+- release preflight 加入离线 clean machine、worker 满载 health/cancel、parent death、crash-loop、包体硬预算和关键 smoke；
 - debug bundle 收集 bounded service status/log；
 - 文档说明 service unavailable、restart、repair 和 reset；
 - release pipeline 增加 service package publication/fingerprint gates。
@@ -1501,7 +1537,7 @@ release asset 闭环由 WS9 承接。
 #### 测试先行
 
 - packaged artifact discovery；
-- clean environment without Node/npm/PATH；
+- clean/offline environment without Node/npm/system Rust/PATH dependency；
 - version mismatch；
 - upgrade migration；
 - partial extraction、hash/signature mismatch、active pointer failure 和上一版 rollback；
@@ -1522,14 +1558,29 @@ release asset 闭环由 WS9 承接。
 - 三平台构建/启动策略明确并验证；
 - 用户无需安装任何外部 runtime；
 - release pipeline 能发现 plugin/service 漂移；
-- release pipeline 能发现 Node/service/worker/native component 的 fingerprint 错配；
+- release pipeline 能发现 executable/service/worker/schema/native component 的 fingerprint 错配；
 - release pipeline 能发现 runtime 来源、许可证、SBOM 或安全版本门禁缺失；
 - clean install 和 upgrade smoke 通过；
 - 运维文档可执行。
 
 ## 14. 建议的 OpenSpec Change 序列
 
-不建议用一个 change 承载全部实施。推荐 umbrella + 可交付 changes：
+不建议用一个 change 承载全部实施。WS0-WS5 的既有 change 继续作为历史证据；2026-07-18 后的活动序列如下：
+
+| 顺序 | Change 建议名 | 主要范围 | 依赖 |
+| --- | --- | --- | --- |
+| R0 | `pivot-synthesis-sidecar-runtime-to-rust` | 冻结、治理、文档、预算和 change sequence | WS5 |
+| R1 | `define-synthesis-cross-language-canonical-semantics` | versioned schemas、positive/negative corpus、canonical bytes/hash、解除 contracts 反向依赖 | R0 |
+| R2-R3 | `introduce-synthesis-rust-sidecar-metrics-vertical-slice` | Cargo workspace、五平台 CI、serve/worker framing、metrics end-to-end | R1 |
+| R4 | `migrate-synthesis-deterministic-kernels-to-rust` | Tag Vocabulary、Concept KB、Topic Graph index | R2-R3 |
+| R5 | `migrate-synthesis-complex-kernels-and-transfer-to-rust` | matcher、structured artifacts、graph build/packed transfer | R4 |
+| R6 | `introduce-synthesis-citation-layout-v2` | Rust layout v2、cache invalidation、删除 runtime D3 | R5 |
+| R7 | `migrate-synthesis-durable-foundation-to-rust` | SQLite、canonical store、applications、五平台 fault injection | R6 |
+| R8 | `introduce-synthesis-native-runtime-manifest-v2` | native bundle、installer、supervisor、launch/discovery/handshake | R7 |
+| R9a | `cut-over-synthesis-production-owner-to-rust` | production copy rehearsal、single-writer cutover、实机 gates | R8 |
+| R9b | `remove-synthesis-node-runtime-and-legacy-implementation` | 删除 Node、旧 plugin implementation、依赖和 release branches | R9a，同一 release milestone |
+
+下表是原 Stage 1 Node 路线的历史编排。0-5 已为当前迁移提供 seam/oracle；6-9 的 Node 目标已由上表取代，不再创建或继续：
 
 | 顺序 | Change 建议名 | 主要范围 | 依赖 |
 | --- | --- | --- | --- |
@@ -1635,19 +1686,21 @@ release asset 闭环由 WS9 承接。
 - DB transaction 保持短小；
 - file/network/host IO 不在 DB write transaction 中。
 
-### 16.4 Rust 引入门禁
+### 16.4 Rust 实施门禁
 
-Rust 不是默认优化步骤。只有同时满足以下条件，才可为单个 kernel 建立 Rust change：
+Rust 已是默认 sidecar 目标，但不允许跳过以下门禁：
 
-1. TypeScript worker 已完成有界输入、分片、数据结构和算法优化；
-2. normal/target/stress benchmark 可重复，且 target tier 仍违反明确预算；
-3. profiler 证明瓶颈在纯计算 kernel，而不是 SQL、文件、Host RPC、序列化或错误的数据模型；
-4. Rust 实现通过同一 input/output contract、gold result 和错误语义；
-5. Rust worker 不打开 production DB、canonical root，不调用 Host Capability；
-6. Rust 失败时 Node application 能标记 operation 失败并保留 previous projection；
-7. 新增平台二进制、签名、升级和诊断成本经发布评审接受。
+1. 先为跨进程 DTO 建立 versioned schema、positive/negative corpus 与 canonical bytes/hash SSOT；
+2. 每个 slice 使用同一公开 contract、gold result、错误类别和可重复 benchmark 与 Node oracle 对比；
+3. 双执行只存在于测试 harness，使用固定 fixture 或隔离 roots；production route 无 Node fallback；
+4. bounded CPU work 进入可替换 worker process，worker 不直接拥有 DB、canonical files 或 Host Capability；
+5. repository/canonical 迁移锁定 transaction、fsync、journal、recovery 与五平台 fault semantics；
+6. 每次新增依赖都审查 license、供应链、五平台构建、lock provenance 与 compressed binary 增量；
+7. 每平台 native runtime ≤15 MiB、五平台总量 ≤75 MiB、最终 XPI ≤100 MiB；
+8. Force layout 只通过显式 layout v2 change 迁移；
+9. 接受一个 slice 后删除被替代的活动实现，禁止双栈长期化。
 
-不得以现有 Windows ACP Bridge 使用 Rust 为理由跳过上述门禁；该 bridge 是无状态传输适配器，不是 Synthesis 领域服务。
+现有 Windows ACP Bridge 仍只是无状态传输适配器；它既不能替代上述门禁，也不是 Synthesis Rust service 的复用前提。
 
 ## 17. 故障语义
 
@@ -1768,11 +1821,11 @@ hostBridgeCapabilityRegistry
 
 ### 架构
 
-- [ ] service 独立 Node 构建并按 profile 运行；
-- [ ] Node runtime 随插件直接分发，用户无需安装 Node/npm；
-- [ ] launcher 不搜索 PATH，只执行经过验证的 product-owned runtime；
-- [ ] service 主进程与 compute worker pool 职责分离；
-- [ ] Rust 不是第一阶段 cutover 依赖；
+- [ ] service 独立 Rust native 构建并按 profile 运行；
+- [ ] XPI 携带五平台 native executable，不包含 Node/npm 或安装后 runtime 下载；
+- [ ] launcher 不搜索 PATH，只执行经过验证的 product-owned native runtime；
+- [ ] Rust service 主进程与可替换 compute worker process 职责分离；
+- [ ] language-neutral schema/corpus/canonical semantics 是跨语言 SSOT；
 - [ ] plugin/service/contracts/engine 依赖方向由静态规则保护；
 - [ ] 所有 production consumers 使用 typed client；
 - [ ] Synthesis Service 不属于 backend/provider registry；
@@ -1819,7 +1872,7 @@ hostBridgeCapabilityRegistry
 - [ ] representative fixture parity 通过；
 - [ ] target scale 使用分页/batch；
 - [ ] 重计算不占用 Zotero UI 线程；
-- [ ] 重计算不占用 Node service 主事件循环；
+- [ ] 重计算不占用 Rust service 控制面；
 - [ ] target tier worker 满载时 health、progress、cancel 和 shutdown 保持响应；
 - [ ] normal/target/stress benchmark 记录 worker、memory、event-loop 和 serialization 指标；
   - 2026-07-17：canary、2k/20k boundary 和 normal 已记录；target/stress 在 768 MiB 隔离父进程内终止，等待有界 large-transfer layout 后继续，因此本项保持未完成。
@@ -1830,11 +1883,13 @@ hostBridgeCapabilityRegistry
 - [ ] in-process adapter 删除；
 - [ ] `getDefaultSynthesisService()` 删除；
 - [ ] 插件内 service/repository/engine 旧实现删除；
+- [ ] Node service/runtime/worker、D3 runtime 与 Node-only release workflow 删除；
 - [ ] active docs/specs 与实现一致；
 - [ ] package/release/fingerprint/upgrade smoke 完成；
 - [ ] runtime provenance、许可证清单、SBOM、漏洞门禁和安全更新流程完整；
-- [ ] 无系统 Node 环境、runtime corruption、partial upgrade、parent death 和 crash-loop smoke 完成；
+- [ ] offline clean machine、runtime corruption、partial upgrade、parent death 和 crash-loop smoke 完成；
 - [ ] 包内及已解压 runtime 的 hash/signature 校验和上一版 rollback 通过；
+- [ ] 每平台 runtime、五平台总量和最终 XPI 满足 15/75/100 MiB 硬预算；
 - [ ] 无未解决的高风险项。
 
 ## 22. 第一阶段停止条件
@@ -1848,13 +1903,14 @@ hostBridgeCapabilityRegistry
 - service/plugin 需要同时写 DB 或 canonical files；
 - durable decisions 无可靠迁移/验证；
 - packaged service 无法稳定启动或鉴权；
-- launcher 仍依赖系统 Node、PATH、npm 或用户 shell；
-- Node 主事件循环仍执行 graph/matcher/layout 等长计算；
+- launcher 仍依赖系统 Node/system Rust、PATH、npm/cargo 或用户 shell；
+- Rust service 控制面仍执行 graph/matcher/layout 等长计算；
 - worker 可以直接写 DB、canonical files 或调用 Host Capability；
 - worker pool 没有有界并发、内存、取消和 crash isolation；
 - runtime 缺少真实完整性验证、原子升级或 rollback；
 - supervisor 无法防止孤儿 writer 或无限 crash restart；
-- Rust 被设为 cutover 前置条件但没有满足 benchmark 门禁；
+- Rust 未先满足 language-neutral contract/corpus、五平台或包体门禁；
+- production route 仍保留 Node fallback，或 Node/Rust 共享 live DB/canonical root/write lease；
 - performance regression 无法解释；
 - crash/staging 测试会破坏 current；
 - rollback 尚未在生产副本上演练。

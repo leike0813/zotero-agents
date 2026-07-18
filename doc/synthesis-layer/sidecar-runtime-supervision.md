@@ -1,5 +1,7 @@
 # Sidecar Runtime Supervision
 
+This document records the supervision invariants proven by the current frozen Node oracle. The approved release target is native Rust manifest v2: the installer will return one verified `executablePath`, the supervisor will launch `<binary> serve --config <path>`, and bounded work will run in a replaceable Rust worker process. Owner/discovery/lease isolation, fail-closed identity checks, bounded restart, crash-loop fuse, orphan prevention, and shutdown ordering remain required. Node-specific executable/entrypoint and event-loop wording below describes current implementation evidence, not a Node production-cutover plan. See `artifact/synthesis_sidecar_rust_migration_plan_20260718.md`.
+
 Plugin startup now starts the verified product-owned Synthesis runtime
 non-blockingly. The launcher executes only the absolute Node executable and
 service entrypoint returned by the runtime installer. It does not inspect
@@ -59,7 +61,7 @@ runtime/synthesis/service-runtime/profiles/<profileId>/
     topics/<pathId>/current/**
 ```
 
-The Node service obtains the runtime-instance owner before listening. A live
+The current Node oracle obtains the runtime-instance owner before listening. A live
 owner prevents a second service for the same profile. This lock protects only
 sidecar process identity; it is not the production database or canonical-file
 owner lock used by a future cutover.

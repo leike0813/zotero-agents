@@ -1,8 +1,26 @@
 # Sidecar Runtime Packaging
 
-The repository distributes the Synthesis service with a product-owned Node
-runtime. It does not discover system Node, npm, PATH entries, or user shells.
-The current target matrix is:
+## Approved Native Delivery Target
+
+The formal XPI target is one product-owned native Rust executable for each supported platform. It must not contain Node, npm, a JavaScript service entrypoint, or runtime D3 packages; installation must not download Node or discover system Node, system Rust, PATH entries, or user shells. The native executable provides a service mode and may spawn the same executable in an internal worker mode so bounded CPU work remains killable without adding another packaged runtime.
+
+The target matrix remains Windows x64, macOS x64/arm64, and Linux x64/arm64. A native runtime manifest v2 identifies the implementation kind, service/protocol version, target, executable, build fingerprint, toolchain/lock provenance, platform signature, capability inventory, and every file's size and SHA-256. It replaces Node-specific `nodeVersion`, upstream archive, Node executable, and JavaScript `entrypoint` fields. Installer snapshots expose `executablePath`; the supervisor invokes the verified executable as `serve --config <path>`.
+
+Compressed package budgets are hard release gates:
+
+| Artifact | Maximum compressed size |
+| --- | ---: |
+| One target native runtime | 15 MiB |
+| All five native runtimes | 75 MiB |
+| Final universal XPI | 100 MiB |
+
+CI records uncompressed, stripped, and archived size for every target and fails any budget overrun. Native cutover keeps active/previous rollback only between compatible Rust manifest v2 bundles; it cannot activate a Node bundle as `previous`.
+
+The detailed migration and dependency/provenance gates are defined in `artifact/synthesis_sidecar_rust_migration_plan_20260718.md`.
+
+## Transitional Node Prebuild Baseline
+
+The repository currently builds the frozen WS5 migration oracle with a product-owned Node runtime. It does not discover system Node, npm, PATH entries, or user shells. The five prebuilds have been published for verification but have not been synchronized into the formal XPI; together they are approximately `203,071,203` bytes. A universal Node XPI and post-install Node download are rejected, so this matrix is retained only to reproduce and compare migration behavior:
 
 | Target | Node asset |
 | --- | --- |
@@ -36,10 +54,12 @@ contracts including wire-capacity and transfer constants, synthesis-engine and
 repository sources/schema/package metadata, D3
 runtime package metadata and files, root package metadata, and the lockfile.
 Runtime assembly never runs npm or downloads dependencies. Source verification
-checks these inputs without publishing the five platform prebuilds; publication
-remains part of the separate release pipeline.
+checks these inputs independently of publication. Published prebuilds remain
+migration evidence only; source routing does not authorize Node XPI inclusion.
 
 ## Managed Installation
+
+The directory and atomic-install semantics below remain the product-owned executable-state boundary. They describe the current Node installer and the invariants that native manifest v2 must preserve; Node-specific paths and fields are replaced at Rust cutover rather than retained as a compatibility layer.
 
 The installer owns only:
 
@@ -63,6 +83,8 @@ selected trusted bundle without reading or deleting paths outside the managed
 root.
 
 ## Current Runtime Topology
+
+This section describes the current frozen Node oracle, not the approved final delivery topology. New capability, production ownership, and release work follows the native target above.
 
 Plugin startup now invokes the installer and launches the selected verified
 runtime under the profile-scoped supervisor described in
@@ -100,8 +122,9 @@ remain plugin-owned. Compute JSON request and response envelopes are capped at
 8 MiB and the graph-build module requires no additional runtime dependency or
 asset or license.
 
-Source routing does not regenerate platform prebuilds. Production release
-freshness and XPI checks fail closed until every bundled platform runtime
-matches the current service/worker/engine/repository/Topic-and-Graph-application/
-knowledge-checkpoint/canonical-store/D3/package-version/lockfile fingerprint
-produced by the separate release pipeline.
+Source routing does not regenerate platform prebuilds. The existing Node
+freshness and XPI checks continue to fail closed so stale oracle assets cannot be
+mistaken for release-ready assets. They do not require syncing the Node
+prebuilds into the XPI. Native implementation changes will replace them with
+manifest v2 freshness, five-platform provenance, inventory, and 15/75/100 MiB
+size gates before the Rust cutover.

@@ -4,6 +4,8 @@ Synthesis persistence is a sidecar beside Zotero Library. SQLite is the normal s
 
 Files are explicit artifacts, exports, checkpoints, or debug dumps; they are not the normal Workbench read/write path.
 
+The current `runtime/synthesis/service-runtime` tree contains verified Node/service bundles and WS5 private roots used as a frozen migration oracle. The approved delivery target is native Rust manifest v2; Node is not entering the formal XPI or production ownership path. This language change does not alter the distinction between executable packaging state and domain state, and it does not move the production DB/canonical owner before the atomic Rust cutover. See `artifact/synthesis_sidecar_rust_migration_plan_20260718.md`.
+
 ## Storage Classes
 
 | Class | Location | Role |
@@ -13,10 +15,10 @@ Files are explicit artifacts, exports, checkpoints, or debug dumps; they are not
 | Legacy sidecar files | `data/synthesis/sidecar/**` | Historical global sidecar JSON/JSONL files, explicit migration input, sync transaction staging, and debug outputs. Normal Workbench/read-model/governance paths use SQLite instead of `index.json`, `topic-definitions.json`, `resolvers.json`, `resolved-paper-sets.json`, `artifact-state.json`, `deleted-topic-artifacts.json`, canonical-store JSONL logs, or projection registry JSON. |
 | Deleted topic artifact archive | `data/synthesis/deleted/**` | Removed topic artifact trees kept for explicit recovery/inspection, not active Workbench data |
 | WebDAV durable exchange store | Remote WebDAV collection plus `runtime/synthesis/webdav-sync/**` staging | Deterministic durable-state assets used for cross-device sync and recovery; see [WebDAV Durable Sync](./webdav-durable-sync.md) |
-| Product-owned sidecar runtime | `runtime/synthesis/service-runtime/**` | Verified immutable Node/service versions plus strict active/previous pointers. This is executable packaging state, not Synthesis domain state or a Workbench data source. |
+| Product-owned sidecar runtime | `runtime/synthesis/service-runtime/**` | Currently verified immutable Node/service oracle versions; approved target is native Rust manifest v2 with strict compatible-Rust active/previous pointers. This is executable packaging state, not Synthesis domain state or a Workbench data source. |
 | Service isolated repository | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-repository/<dataRootId>/synthesis.db` | Persistent shadow for **Stage 1 / WS5 — Private Isolated Synthesis Foundation Complete**, containing foundation plus seven private domain table families, isolated auxiliary durable owners, a strict sync index, and one durable-import commit receipt. The private debug projection captures bounded schema/cache/operation/Topic facts transactionally and performs no writes; it exposes neither SQL/table/path/raw-row access nor an unbounded snapshot. The milestone is not Stage 1 completion, production cutover, or real-machine acceptance, and this store is not a production mirror, Workbench source, public route, or production mutation owner. |
 | Service Topic canonical shadow | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-canonical/<dataRootId>/topics/<pathId>/current/**` | Persistent WS5 shadow of complete Topic current JSON and bounded Markdown. Single-Topic writes use identity binding, canonical validation, expected-basis CAS, durable staging, one transaction journal, rollback, and restart recovery. Durable import adds one strict multi-Topic batch journal; a matching repository receipt rolls it forward, an uncommitted batch is discarded, and mismatched state fails closed. Authenticated inspect still returns hashes and descriptors only. |
-| Service WebDAV sync shadow state | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-webdav-sync/<dataRootId>/**` | Identity-bound, atomically written private queue/conflict/progress state. The default Node Host port is disabled; no credentials, remote content, production paths, or hidden retry timers are persisted here. |
+| Service WebDAV sync shadow state | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-webdav-sync/<dataRootId>/**` | Identity-bound, atomically written private queue/conflict/progress state. The current Node oracle Host port is disabled; the Rust candidate must preserve that boundary. No credentials, remote content, production paths, or hidden retry timers are persisted here. |
 | Zotero Library | Zotero DB/API | SSOT for item existence, metadata, tags, collections, notes, attachments, and native relations |
 | Source artifact notes | Zotero notes/items | SSOT for literature workflow artifacts consumed by Synthesis; excludes applied Topic canonical current files |
 | Legacy Zotero Topic anchor/shard items | Zotero notes/items | Inert historical data; normal runtime does not discover, read, update, delete, or recover from it |
@@ -75,7 +77,9 @@ must not be confused with the persistence-root `state/` directory.
 runtime installer. Its manifest paths are strict relative paths; staging,
 repair, activation, rollback, and cleanup cannot target an external path. The
 directory does not prove that a service process is running or owns production
-data.
+data. Native manifest v2 reuses this managed-root role but changes the launch
+identity from Node executable plus JavaScript entrypoint to one verified Rust
+executable. After cutover, active/previous pointers cannot target a Node bundle.
 
 The profile shadow repository is different from both the immutable runtime
 versions and production `state/synthesis.db`. Runtime configuration supplies
