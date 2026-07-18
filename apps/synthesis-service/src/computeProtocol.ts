@@ -24,6 +24,10 @@ import type {
   SynthesisTagVocabularyValidationRequest,
   SynthesisTagVocabularyValidationResult,
 } from "../../../packages/synthesis-engine/src/tagVocabulary.js";
+import type {
+  SynthesisTopicGraphIndexRequest,
+  SynthesisTopicGraphIndexResult,
+} from "../../../packages/synthesis-engine/src/topicGraphIndex.js";
 
 export const SYNTHESIS_SIDECAR_COMPUTE_OPERATION =
   "citation_graph_layout.v1" as const;
@@ -41,6 +45,8 @@ export const SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION =
   "concept_kb_index.v1" as const;
 export const SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION =
   "concept_kb_query.v1" as const;
+export const SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION =
+  "topic_graph_index.v1" as const;
 
 type SynthesisSidecarComputeRunMessageBase = {
   type: "run";
@@ -76,6 +82,10 @@ export type SynthesisSidecarComputeRunMessage =
   | (SynthesisSidecarComputeRunMessageBase & {
       operation: typeof SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION;
       payload: SynthesisConceptKbQueryRequest;
+    })
+  | (SynthesisSidecarComputeRunMessageBase & {
+      operation: typeof SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION;
+      payload: SynthesisTopicGraphIndexRequest;
     })
   | (SynthesisSidecarComputeRunMessageBase & {
       operation: typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION;
@@ -135,7 +145,8 @@ export type SynthesisSidecarComputeWorkerResponse =
         | SynthesisTagVocabularyValidationResult
         | SynthesisTagVocabularyIndexResult
         | SynthesisConceptKbIndexResult
-        | SynthesisConceptKbQueryResult;
+        | SynthesisConceptKbQueryResult
+        | SynthesisTopicGraphIndexResult;
     }
   | { type: "canceled"; taskId: string }
   | { type: "error"; taskId: string };

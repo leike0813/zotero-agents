@@ -14,7 +14,7 @@ Files are explicit artifacts, exports, checkpoints, or debug dumps; they are not
 | Deleted topic artifact archive | `data/synthesis/deleted/**` | Removed topic artifact trees kept for explicit recovery/inspection, not active Workbench data |
 | WebDAV durable exchange store | Remote WebDAV collection plus `runtime/synthesis/webdav-sync/**` staging | Deterministic durable-state assets used for cross-device sync and recovery; see [WebDAV Durable Sync](./webdav-durable-sync.md) |
 | Product-owned sidecar runtime | `runtime/synthesis/service-runtime/**` | Verified immutable Node/service versions plus strict active/previous pointers. This is executable packaging state, not Synthesis domain state or a Workbench data source. |
-| Service isolated repository | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-repository/<dataRootId>/synthesis.db` | Persistent WS5 shadow containing foundation plus Topic, Reference Refresh, Reference Matching/Review, Citation Graph, and Tag Vocabulary application tables. Tag vocabulary, staged suggestion, audit, and effect rows use revision CAS; unavailable post-commit Host effects remain pending. It is not a production mirror, production Workbench source, public route, or production mutation owner. |
+| Service isolated repository | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-repository/<dataRootId>/synthesis.db` | Persistent WS5 shadow containing foundation plus seven private Topic, Reference Refresh, Reference Matching/Review, Citation Graph, Tag Vocabulary, Concept KB, and Topic Graph application table families. Tag Vocabulary uses revision CAS; Concept KB and Topic Graph use independent manifest CAS and last-good index state. It is not a production mirror, production Workbench source, public route, or production mutation owner. |
 | Service Topic canonical shadow | `runtime/synthesis/service-runtime/profiles/<profileId>/shadow-canonical/<dataRootId>/topics/<pathId>/current/**` | Persistent WS5 shadow of complete Topic current snapshots. The main process uses identity binding, canonical validation, expected-basis CAS, durable staging, one transaction journal, rollback, and restart recovery. Authenticated inspect returns hashes and descriptors only; this tree is not the production Topic SSOT or an apply route. |
 | Zotero Library | Zotero DB/API | SSOT for item existence, metadata, tags, collections, notes, attachments, and native relations |
 | Source artifact notes | Zotero notes/items | SSOT for literature workflow artifacts consumed by Synthesis; excludes applied Topic canonical current files |
@@ -82,7 +82,9 @@ operations can become `canceled`; terminal operation history and cache-basis
 rows remain. The same isolated database stores strict Topic application state,
 JSON-safe derived graph/concept/interest/discovery projections, and private
 Citation Graph structure, metrics, layout, and active-basis state. These rows
-are private application state, not a production repository mirror. Shutdown
+are private application state, not a production repository mirror. Independent
+Concept KB and Topic Graph aggregates add complete rows, manifest revisions,
+stale markers, and last-good index payloads. Shutdown
 closes the handle but does not delete the shadow root.
 
 Reference Refresh state records the active reference projection hash, canonical descriptor input hash, row counts, and reference/graph/related readiness. Full promotion removes absent sources; scoped promotion replaces only listed changed sources and preserves unrelated rows plus protected bindings, redirects, rejected decisions, and canonical-revision review state. Preparation itself changes no readiness. Citation Graph state separately records its active build-result/input/metrics hashes and counts; Graph replacement and later basis-bound metrics/layout behavior are unchanged. Reads never require an in-memory full mirror or production fallback.
@@ -167,6 +169,10 @@ merge/create/review outcomes. Failed, cancelled, oversized, or malformed
 results leave durable rows and the existing projection registry state
 unchanged.
 
+The private Concept KB application owns the isolated proposal/review/display/
+delete policy and dispatches index/query through the bounded worker. It promotes
+only against the captured manifest and never exposes a public service route.
+
 Topic Graph nodes, edges, review items, and relation decisions remain
 SQLite-owned. The environment-neutral Topic Graph index engine receives only
 bounded placement fields, edge relation/status fields, and the current
@@ -175,6 +181,12 @@ opens SQLite, writes canonical files, owns proposal/review transitions,
 assembles Workbench filters, or updates the projection registry. Failed,
 cancelled, oversized, or malformed results leave graph rows and existing
 projection registry state unchanged.
+
+The private Topic Graph application owns the isolated snapshot, upsert,
+proposal/review/decision, deletion-cleanup, and index-promotion policy. Index
+construction runs through the bounded worker; manifest supersession or worker
+failure preserves the last-good index. Production canonical files, projection
+registry, discovery effects, and public compatibility results remain plugin-owned.
 
 Topic structured artifacts are computed through the environment-neutral Topic
 Structured Artifact engine. Its bounded DTOs validate complete and patch

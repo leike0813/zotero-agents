@@ -12,6 +12,7 @@ export * from "./conceptKb.js";
 export * from "./referenceMatchingReview.js";
 export * from "./referenceRefresh.js";
 export * from "./tagVocabulary.js";
+export * from "./topicGraph.js";
 import {
   ensureSynthesisConceptKbApplicationRepositorySchema,
   getSynthesisConceptApplicationState,
@@ -82,6 +83,16 @@ import {
   type SynthesisTagStagedSuggestionRecord,
   type SynthesisTagVocabularyStateRecords,
 } from "./tagVocabulary.js";
+import {
+  ensureSynthesisTopicGraphApplicationRepositorySchema,
+  getSynthesisTopicGraphApplicationState,
+  listSynthesisTopicGraphEdges,
+  listSynthesisTopicGraphNodes,
+  listSynthesisTopicGraphReviewItems,
+  promoteSynthesisTopicGraphIndex,
+  replaceSynthesisTopicGraphState,
+  type SynthesisTopicGraphStateRecords,
+} from "./topicGraph.js";
 
 export type SqlPrimitive = string | number | null;
 export type SqlParams = Record<string, SqlPrimitive | boolean | undefined>;
@@ -904,6 +915,7 @@ export function createSynthesisRepositoryFoundationStore(options: {
   let referenceMatchingReviewApplicationInitialized = false;
   let tagVocabularyApplicationInitialized = false;
   let conceptKbApplicationInitialized = false;
+  let topicGraphApplicationInitialized = false;
   const initialize = () => {
     if (initialized) return;
     ensureSynthesisRepositoryFoundationSchema(db);
@@ -948,6 +960,12 @@ export function createSynthesisRepositoryFoundationStore(options: {
     if (conceptKbApplicationInitialized) return;
     ensureSynthesisConceptKbApplicationRepositorySchema(db);
     conceptKbApplicationInitialized = true;
+  };
+  const initializeTopicGraphApplication = () => {
+    initialize();
+    if (topicGraphApplicationInitialized) return;
+    ensureSynthesisTopicGraphApplicationRepositorySchema(db);
+    topicGraphApplicationInitialized = true;
   };
   return {
     initialize,
@@ -1017,6 +1035,41 @@ export function createSynthesisRepositoryFoundationStore(options: {
     reconcileReferenceMatchingPreparations,
     initializeTagVocabularyApplication,
     initializeConceptKbApplication,
+    initializeTopicGraphApplication,
+    getTopicGraphApplicationState() {
+      initializeTopicGraphApplication();
+      return getSynthesisTopicGraphApplicationState(db);
+    },
+    listTopicGraphNodes() {
+      initializeTopicGraphApplication();
+      return listSynthesisTopicGraphNodes(db);
+    },
+    listTopicGraphEdges() {
+      initializeTopicGraphApplication();
+      return listSynthesisTopicGraphEdges(db);
+    },
+    listTopicGraphReviewItems() {
+      initializeTopicGraphApplication();
+      return listSynthesisTopicGraphReviewItems(db);
+    },
+    replaceTopicGraphApplicationState(args: {
+      expectedManifestHash: string | null;
+      manifestHash: string;
+      state: SynthesisTopicGraphStateRecords;
+      now: string;
+    }) {
+      initializeTopicGraphApplication();
+      return replaceSynthesisTopicGraphState(db, args);
+    },
+    promoteTopicGraphIndex(args: {
+      expectedManifestHash: string;
+      indexHash: string;
+      indexJson: string;
+      now: string;
+    }) {
+      initializeTopicGraphApplication();
+      return promoteSynthesisTopicGraphIndex(db, args);
+    },
     getConceptApplicationState() {
       initializeConceptKbApplication();
       return getSynthesisConceptApplicationState(db);

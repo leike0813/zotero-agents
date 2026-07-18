@@ -23,6 +23,13 @@ import {
   type SynthesisTopicGraphIndexEngine,
 } from "../../../packages/synthesis-engine/src/topicGraphIndex";
 import { buildSynthesisTopicGraphIndexWithEngine } from "./topicGraphIndexEngineAdapter";
+import {
+  canonicalizeSynthesisTopicGraphEdgeTuple,
+  hasSynthesisTopicGraphBroaderPath,
+  safeSynthesisTopicGraphId,
+  synthesisTopicGraphEdgeId,
+  synthesisTopicGraphRelationForProposal,
+} from "../../../packages/synthesis-application/src/topicGraphApplication";
 
 export const SYNTHESIS_TOPIC_GRAPH_INDEX_TARGET = "topic-graph-index";
 export const SYNTHESIS_TOPIC_GRAPH_NODE_SCHEMA_ID =
@@ -194,10 +201,6 @@ type ServiceOptions = {
   engine?: SynthesisTopicGraphIndexEngine;
 };
 
-const DIRECTIONAL_RELATIONS = new Set<SynthesisTopicGraphRelation>([
-  "broader_than",
-]);
-
 function cleanString(value: unknown) {
   return String(value || "").trim();
 }
@@ -222,14 +225,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-export function safeTopicGraphId(value: unknown) {
-  return (
-    cleanString(value)
-      .replace(/\\/g, "/")
-      .replace(/[^A-Za-z0-9_.-]+/g, "_")
-      .replace(/^_+|_+$/g, "") || "topic"
-  );
-}
+export const safeTopicGraphId = safeSynthesisTopicGraphId;
 
 function clampConfidence(value: unknown) {
   const number = Number(value);
@@ -241,18 +237,11 @@ export function canonicalizeTopicGraphEdgeTuple(args: {
   targetTopicId: string;
   relation: SynthesisTopicGraphRelation;
 }) {
-  let source = cleanString(args.sourceTopicId);
-  let target = cleanString(args.targetTopicId);
-  if (
-    !DIRECTIONAL_RELATIONS.has(args.relation) &&
-    target.localeCompare(source) < 0
-  ) {
-    [source, target] = [target, source];
-  }
+  const shared = canonicalizeSynthesisTopicGraphEdgeTuple(args);
   return {
-    sourceTopicId: source,
-    targetTopicId: target,
-    relation: args.relation,
+    sourceTopicId: shared.sourceTopicId,
+    targetTopicId: shared.targetTopicId,
+    relation: shared.relation,
   };
 }
 
@@ -261,8 +250,7 @@ export function deterministicTopicGraphEdgeId(args: {
   targetTopicId: string;
   relation: SynthesisTopicGraphRelation;
 }) {
-  const tuple = canonicalizeTopicGraphEdgeTuple(args);
-  return `edge:${tuple.relation}:${safeTopicGraphId(tuple.sourceTopicId)}:${safeTopicGraphId(tuple.targetTopicId)}`;
+  return synthesisTopicGraphEdgeId(args);
 }
 
 function normalizeTopicNode(
@@ -545,19 +533,7 @@ function createRegistry() {
 function proposalRelation(
   type: SynthesisTopicRelationProposalType,
 ): SynthesisTopicGraphRelation {
-  if (
-    type === "target_is_broader_topic_candidate" ||
-    type === "target_is_narrower_topic_candidate"
-  ) {
-    return "broader_than";
-  }
-  if (type === "overlap_topic_candidate") {
-    return "overlaps_with";
-  }
-  if (type === "contrast_topic_candidate") {
-    return "contrasts_with";
-  }
-  return "related_to";
+  return synthesisTopicGraphRelationForProposal(type);
 }
 
 function normalizeProposalType(
@@ -768,35 +744,22 @@ function hasBroaderPath(
   start: string,
   target: string,
 ) {
-  const adjacency = new Map<string, string[]>();
-  for (const edge of edges) {
-    if (
-      edge.relation !== "broader_than" ||
-      edge.status === "rejected" ||
-      edge.status === "deleted" ||
-      edge.status === "stale"
-    ) {
-      continue;
-    }
-    adjacency.set(edge.source_topic_id, [
-      ...(adjacency.get(edge.source_topic_id) || []),
-      edge.target_topic_id,
-    ]);
-  }
-  const queue = [start];
-  const visited = new Set<string>();
-  while (queue.length) {
-    const current = queue.shift() || "";
-    if (current === target) {
-      return true;
-    }
-    if (visited.has(current)) {
-      continue;
-    }
-    visited.add(current);
-    queue.push(...(adjacency.get(current) || []));
-  }
-  return false;
+  return hasSynthesisTopicGraphBroaderPath(
+    edges.map((edge) => ({
+      edgeId: edge.edge_id,
+      sourceTopicId: edge.source_topic_id,
+      targetTopicId: edge.target_topic_id,
+      relation: edge.relation,
+      status: edge.status,
+      confidence: edge.confidence,
+      provenance: edge.provenance,
+      evidenceRefs: edge.evidence_refs,
+      createdAt: edge.created_at,
+      updatedAt: edge.updated_at,
+    })),
+    start,
+    target,
+  );
 }
 
 export function createSynthesisTopicGraphService(options: ServiceOptions) {

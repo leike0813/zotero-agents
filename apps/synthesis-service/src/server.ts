@@ -73,6 +73,7 @@ import { createSynthesisSidecarReferenceRefreshApplication } from "./referenceRe
 import { createSynthesisSidecarReferenceMatchingReviewApplication } from "./referenceMatchingReviewApplicationNode.js";
 import { createSynthesisSidecarTagVocabularyApplication } from "./tagVocabularyApplicationNode.js";
 import { createSynthesisSidecarConceptKbApplication } from "./conceptKbApplicationNode.js";
+import { createSynthesisSidecarTopicGraphApplication } from "./topicGraphApplicationNode.js";
 import {
   rebuildSynthesisTopicCanonicalInspectRequest,
   rebuildSynthesisTopicCanonicalInspectResult,
@@ -328,6 +329,10 @@ export async function startSynthesisSidecarServer(
     repository: repository.store,
     computePool,
   });
+  const topicGraphApplication = createSynthesisSidecarTopicGraphApplication({
+    repository: repository.store,
+    computePool,
+  });
   const transferExecutor =
     options.transferExecutor ??
     createCitationGraphBuildTransferExecutor({
@@ -347,6 +352,7 @@ export async function startSynthesisSidecarServer(
     referenceMatchingReviewApplication.stopAdmission();
     tagVocabularyApplication.stopAdmission();
     conceptKbApplication.stopAdmission();
+    topicGraphApplication.stopAdmission();
     canonicalStore.stopAdmission();
     transferExecutor.shutdown();
     writeServiceLog("service_stopping", {
@@ -358,6 +364,7 @@ export async function startSynthesisSidecarServer(
       await referenceMatchingReviewApplication.shutdown();
       await tagVocabularyApplication.shutdown();
       await conceptKbApplication.shutdown();
+      await topicGraphApplication.shutdown();
       await citationGraphApplication.shutdown();
       repository.close();
       await Promise.allSettled([
@@ -813,6 +820,7 @@ export async function startSynthesisSidecarServer(
     await referenceMatchingReviewApplication.shutdown();
     await tagVocabularyApplication.shutdown();
     await conceptKbApplication.shutdown();
+    await topicGraphApplication.shutdown();
     await citationGraphApplication.shutdown();
     canonicalStore.close();
     repository.close();

@@ -30,6 +30,10 @@ import {
   rebuildSynthesisTagVocabularyIndexRequest,
   rebuildSynthesisTagVocabularyValidationRequest,
 } from "../../packages/synthesis-engine/src/tagVocabulary";
+import {
+  createInProcessSynthesisTopicGraphIndexEngine,
+  rebuildSynthesisTopicGraphIndexRequest,
+} from "../../packages/synthesis-engine/src/topicGraphIndex";
 import { SYNTHESIS_SIDECAR_PROTOCOL } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import {
   ComputeWorkerPoolError,
@@ -181,6 +185,38 @@ function conceptQueryRequest() {
   });
 }
 
+function topicGraphIndexRequest() {
+  return rebuildSynthesisTopicGraphIndexRequest({
+    contractVersion: "synthesis-topic-graph-index.v1",
+    algorithmVersion: "topic-graph-index.v1",
+    sourceManifestHash: `sha256:${"c".repeat(64)}`,
+    rebuiltAt: "2026-07-18T00:00:00.000Z",
+    nodes: [
+      {
+        topicId: "topic:root",
+        isRoot: true,
+        level: "top",
+        definitionStatus: "has_synthesis",
+      },
+      {
+        topicId: "topic:child",
+        isRoot: false,
+        level: "normal",
+        definitionStatus: "placeholder",
+      },
+    ],
+    edges: [
+      {
+        edgeId: "edge:root-child",
+        sourceTopicId: "topic:child",
+        targetTopicId: "topic:root",
+        relation: "broader_than",
+        status: "confirmed",
+      },
+    ],
+  });
+}
+
 function errorCode(error: unknown) {
   return error instanceof ComputeWorkerPoolError ? error.code : "unknown";
 }
@@ -309,6 +345,7 @@ describe("Synthesis sidecar compute worker pool", function () {
       const tagIndexInput = tagIndexRequest();
       const conceptIndexInput = conceptIndexRequest();
       const conceptQueryInput = conceptQueryRequest();
+      const topicGraphInput = topicGraphIndexRequest();
       const [
         workerResult,
         directResult,
@@ -350,6 +387,12 @@ describe("Synthesis sidecar compute worker pool", function () {
       assert.deepEqual(
         await pool.runConceptKbQuery(conceptQueryInput),
         await conceptEngine.query(conceptQueryInput),
+      );
+      assert.deepEqual(
+        await pool.runTopicGraphIndex(topicGraphInput),
+        await createInProcessSynthesisTopicGraphIndexEngine().buildIndex(
+          topicGraphInput,
+        ),
       );
       assert.equal(spawns, 1);
       assert.deepEqual(options?.resourceLimits, {

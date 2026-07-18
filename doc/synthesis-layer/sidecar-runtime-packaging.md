@@ -72,15 +72,15 @@ The service remains production-mutation-disabled and does not access production
 `synthesis.db` or Topic canonical current files. Its main process opens the
 persistent identity-bound shadow repository and Topic canonical shadow beneath
 the profile runtime root, then composes private Topic, Reference Refresh,
-Reference Matching/Review, Citation Graph, Tag Vocabulary, and Concept KB applications over
+Reference Matching/Review, Citation Graph, Tag Vocabulary, Concept KB, and Topic Graph applications over
 those isolated owners. The bundle includes the environment-neutral strict
 Topic/Reference/Graph/Tag/Concept contracts, application rules and projections,
 repository records/schema, and designated Node adapters. Both reference
-applications, the Tag application, and the Concept application are packaged without a Host or RPC adapter.
+applications, the Tag application, the Concept application, and the Topic Graph application are packaged without a Host or RPC adapter.
 The Tag application uses two internal bounded worker operations for validation
 and index construction. Concept KB uses two more for index and read-only query;
-none is a public service capability. The sole Node filesystem
-adapter;
+Topic Graph uses one for index construction. None is a public service capability.
+The designated Node filesystem and SQLite adapters remain in service composition;
 built-in `node:sqlite` and `node:fs` come from the pinned Node runtime and add no
 third-party dependency or license. The default `SynthesisClient`
 routes Citation Graph layout and metrics computation to its lazy bounded worker;

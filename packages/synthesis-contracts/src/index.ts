@@ -29,6 +29,8 @@ export * from "./tagVocabularyCore";
 export * from "./topics";
 export * from "./topicApplication";
 export * from "./topicGraph";
+export * from "./topicGraphApplication";
+export * from "./topicGraphCore";
 export * from "./workflow";
 export * from "./workflowReview";
 export * from "./workbench";

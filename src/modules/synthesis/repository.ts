@@ -32,6 +32,10 @@ import {
   rebuildSynthesisTagAbbrevRow,
   rebuildSynthesisTagAliasRow,
   rebuildSynthesisTagVocabularyEntryRow,
+  rebuildSynthesisTopicGraphEdgeRow,
+  rebuildSynthesisTopicGraphNodeRow,
+  rebuildSynthesisTopicGraphReviewItemRow,
+  ensureSynthesisTopicGraphRowsSchema,
   hasRejectedSynthesisReferenceMatchProposal,
   updateSynthesisReferenceMatchProposalStatus,
   upsertSynthesisReferenceMatchProposal,
@@ -69,6 +73,9 @@ import {
   type SynthesisTagAliasRecord,
   type SynthesisTagVocabularyEntryRecord,
   type SynthesisTopicConceptLinkRecord,
+  type SynthesisTopicGraphEdgeRecord,
+  type SynthesisTopicGraphNodeRecord,
+  type SynthesisTopicGraphReviewItemRecord,
 } from "../../../packages/synthesis-repository/src/index";
 
 export type {
@@ -100,6 +107,9 @@ export type {
   SynthesisRawReferenceStaleResult,
   SynthesisReferenceBindingRecord,
   SynthesisTopicConceptLinkRecord,
+  SynthesisTopicGraphEdgeRecord,
+  SynthesisTopicGraphNodeRecord,
+  SynthesisTopicGraphReviewItemRecord,
   SynthesisReferenceMatchProposalKind,
   SynthesisReferenceMatchProposalRecord,
   SynthesisReferenceMatchProposalStatus,
@@ -262,50 +272,6 @@ export type SynthesisTopicDiscoveryBuildResult = {
   accepted: number;
   hints: SynthesisTopicDiscoveryHintRecord[];
   diagnostics: SynthesisReviewActionDiagnostic[];
-};
-
-export type SynthesisTopicGraphNodeRecord = {
-  topicId: string;
-  title: string;
-  definition?: string;
-  aliasesJson?: string;
-  nodeType: string;
-  definitionStatus?: string;
-  currentArtifactPath?: string;
-  isRoot?: boolean;
-  level?: string;
-  paperCount?: number;
-  lastSynthesisAt?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisTopicGraphEdgeRecord = {
-  edgeId: string;
-  sourceTopicId: string;
-  targetTopicId: string;
-  relation: string;
-  status: string;
-  confidence?: number;
-  provenanceJson?: string;
-  evidenceRefsJson?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
-
-export type SynthesisTopicGraphReviewItemRecord = {
-  reviewId: string;
-  status: string;
-  sourceTopicId: string;
-  targetTopicId: string;
-  targetTitle?: string;
-  relation: string;
-  confidence?: number;
-  provenanceJson?: string;
-  evidenceRefsJson?: string;
-  createdAt?: string;
-  updatedAt?: string;
-  resolvedAt?: string;
 };
 
 export type SynthesisTagProtocolRecord = {
@@ -2482,23 +2448,7 @@ function ensureSchema(db: SqlAdapter) {
       UNIQUE(topic_id, literature_item_id, method)
     );
   `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS synt_topic_graph_node (
-      topic_id TEXT PRIMARY KEY,
-      title TEXT NOT NULL DEFAULT '',
-      definition TEXT NOT NULL DEFAULT '',
-      aliases_json TEXT NOT NULL DEFAULT '[]',
-      node_type TEXT NOT NULL DEFAULT 'placeholder',
-      definition_status TEXT NOT NULL DEFAULT '',
-      current_artifact_path TEXT NOT NULL DEFAULT '',
-      is_root INTEGER NOT NULL DEFAULT 0,
-      level TEXT NOT NULL DEFAULT '',
-      paper_count INTEGER NOT NULL DEFAULT 0,
-      last_synthesis_at TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL DEFAULT '',
-      updated_at TEXT NOT NULL DEFAULT ''
-    );
-  `);
+  ensureSynthesisTopicGraphRowsSchema(db);
   applyOptionalMigration(
     db,
     "ALTER TABLE synt_topic_graph_node ADD COLUMN definition TEXT NOT NULL DEFAULT ''",
@@ -2511,37 +2461,6 @@ function ensureSchema(db: SqlAdapter) {
     `);
     dropOptionalColumn(db, "synt_topic_graph_node", "description");
   }
-  db.run(`
-    CREATE TABLE IF NOT EXISTS synt_topic_graph_edge (
-      edge_id TEXT PRIMARY KEY,
-      source_topic_id TEXT NOT NULL,
-      target_topic_id TEXT NOT NULL,
-      relation TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'suggested',
-      confidence REAL,
-      provenance_json TEXT NOT NULL DEFAULT '[]',
-      evidence_refs_json TEXT NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL DEFAULT '',
-      updated_at TEXT NOT NULL DEFAULT '',
-      UNIQUE(source_topic_id, target_topic_id, relation)
-    );
-  `);
-  db.run(`
-    CREATE TABLE IF NOT EXISTS synt_topic_graph_review_item (
-      review_id TEXT PRIMARY KEY,
-      status TEXT NOT NULL DEFAULT 'open',
-      source_topic_id TEXT NOT NULL,
-      target_topic_id TEXT NOT NULL,
-      target_title TEXT NOT NULL DEFAULT '',
-      relation TEXT NOT NULL,
-      confidence REAL,
-      provenance_json TEXT NOT NULL DEFAULT '[]',
-      evidence_refs_json TEXT NOT NULL DEFAULT '[]',
-      created_at TEXT NOT NULL DEFAULT '',
-      updated_at TEXT NOT NULL DEFAULT '',
-      resolved_at TEXT NOT NULL DEFAULT ''
-    );
-  `);
   db.run(`
     CREATE TABLE IF NOT EXISTS synt_concept (
       concept_id TEXT PRIMARY KEY,
@@ -2845,38 +2764,6 @@ function ensureSchema(db: SqlAdapter) {
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_synt_related_items_sync_echo
       ON synt_related_items_sync_effect(source_library_id, source_item_key, echo_state, external_write_at);
-  `);
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_topic_graph_node_type_updated
-      ON synt_topic_graph_node(node_type, updated_at DESC);
-  `);
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_topic_graph_node_definition_updated
-      ON synt_topic_graph_node(definition_status, updated_at DESC);
-  `);
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_topic_graph_edge_source_status
-      ON synt_topic_graph_edge(source_topic_id, status);
-  `);
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_topic_graph_edge_target_status
-      ON synt_topic_graph_edge(target_topic_id, status);
-  `);
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_topic_graph_edge_relation_status
-      ON synt_topic_graph_edge(relation, status);
-  `);
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_topic_graph_review_status_updated
-      ON synt_topic_graph_review_item(status, updated_at DESC);
-  `);
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_topic_graph_review_source
-      ON synt_topic_graph_review_item(source_topic_id, status);
-  `);
-  db.run(`
-    CREATE INDEX IF NOT EXISTS idx_synt_topic_graph_review_target
-      ON synt_topic_graph_review_item(target_topic_id, status);
   `);
   db.run(`
     CREATE INDEX IF NOT EXISTS idx_synt_concept_status_updated
@@ -3224,61 +3111,17 @@ function rowToTopicDiscoveryHint(
 }
 
 function rowToTopicGraphNode(row: SqlRow): SynthesisTopicGraphNodeRecord {
-  return {
-    topicId: cleanString(row.topic_id),
-    title: cleanString(row.title),
-    definition: cleanString(row.definition) || undefined,
-    aliasesJson: cleanString(row.aliases_json) || "[]",
-    nodeType: cleanString(row.node_type) || "placeholder",
-    definitionStatus: cleanString(row.definition_status) || undefined,
-    currentArtifactPath: cleanString(row.current_artifact_path) || undefined,
-    isRoot: Boolean(Number(row.is_root) || 0),
-    level: cleanString(row.level) || undefined,
-    paperCount: Math.max(0, Math.floor(Number(row.paper_count) || 0)),
-    lastSynthesisAt: cleanString(row.last_synthesis_at) || undefined,
-    createdAt: cleanString(row.created_at) || undefined,
-    updatedAt: cleanString(row.updated_at) || undefined,
-  };
+  return rebuildSynthesisTopicGraphNodeRow(row);
 }
 
 function rowToTopicGraphEdge(row: SqlRow): SynthesisTopicGraphEdgeRecord {
-  return {
-    edgeId: cleanString(row.edge_id),
-    sourceTopicId: cleanString(row.source_topic_id),
-    targetTopicId: cleanString(row.target_topic_id),
-    relation: cleanString(row.relation),
-    status: cleanString(row.status) || "suggested",
-    confidence:
-      row.confidence === null || row.confidence === undefined
-        ? undefined
-        : Number(row.confidence),
-    provenanceJson: cleanString(row.provenance_json) || "[]",
-    evidenceRefsJson: cleanString(row.evidence_refs_json) || "[]",
-    createdAt: cleanString(row.created_at) || undefined,
-    updatedAt: cleanString(row.updated_at) || undefined,
-  };
+  return rebuildSynthesisTopicGraphEdgeRow(row);
 }
 
 function rowToTopicGraphReviewItem(
   row: SqlRow,
 ): SynthesisTopicGraphReviewItemRecord {
-  return {
-    reviewId: cleanString(row.review_id),
-    status: cleanString(row.status) || "open",
-    sourceTopicId: cleanString(row.source_topic_id),
-    targetTopicId: cleanString(row.target_topic_id),
-    targetTitle: cleanString(row.target_title) || undefined,
-    relation: cleanString(row.relation),
-    confidence:
-      row.confidence === null || row.confidence === undefined
-        ? undefined
-        : Number(row.confidence),
-    provenanceJson: cleanString(row.provenance_json) || "[]",
-    evidenceRefsJson: cleanString(row.evidence_refs_json) || "[]",
-    createdAt: cleanString(row.created_at) || undefined,
-    updatedAt: cleanString(row.updated_at) || undefined,
-    resolvedAt: cleanString(row.resolved_at) || undefined,
-  };
+  return rebuildSynthesisTopicGraphReviewItemRow(row);
 }
 
 function rowToConcept(row: SqlRow): SynthesisConceptRecord {

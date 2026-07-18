@@ -9,7 +9,7 @@ The service is still mutation-disabled. It does not open production
 `synthesis.db`, Topic canonical files, or Host capabilities. Before listen and
 discovery it opens only an identity-bound persistent shadow repository under
 the profile runtime root, establishes foundation plus private Topic, Reference Refresh,
-Reference Matching/Review, Citation Graph, Tag Vocabulary, and Concept KB
+Reference Matching/Review, Citation Graph, Tag Vocabulary, Concept KB, and Topic Graph
 application schemas, and
 reconciles interrupted shadow operations. It then initializes isolated Topic
 application state and composes a private list/detail/apply application after
@@ -21,8 +21,9 @@ path-free O(1) repository and canonical-store snapshots; `mutationEnabled:
 false` continues to describe production authority. None of the private domain
 application methods is admitted by the HTTP router. Concept KB stops admission
 and drains index/query work before repository and worker closure; its isolated
-manifest and last-good index never become a production fallback. Reference
-Refresh owns a single preparation/apply lease, discards preparation and drains
+manifest and last-good index never become a production fallback. Topic Graph
+follows the same ordering for index work and preserves its own
+manifest-basis last-good index. Reference Refresh owns a single preparation/apply lease, discards preparation and drains
 apply before repository close, and never calls Host or graph effects. The
 private Citation Graph application uses the same single compute worker but owns
 an immediate-fail mutation lease and persists only graph-basis-guarded shadow

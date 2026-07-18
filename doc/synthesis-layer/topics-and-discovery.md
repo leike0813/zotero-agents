@@ -112,6 +112,10 @@ Accepting a suggested topic graph relation as `confirmed` may therefore change d
 
 Discovery cascade does not imply that parent topic content has consumed child candidates. It only exposes possible update work. Topic update remains an explicit workflow action.
 
+The private sidecar Topic Graph application does not execute this production
+discovery cascade. It persists only isolated graph/review facts and last-good
+index state; production Topic Graph composition remains the discovery owner.
+
 Topic create/update materialization uses the bounded Topic Structured Artifact
 engine for manifest validation, section-patch CAS/merge, artifact assembly, and
 deep content validation. The engine does not read run-workspace files, resolve

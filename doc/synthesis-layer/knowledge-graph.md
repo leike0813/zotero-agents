@@ -15,7 +15,7 @@ Core modules implementing this subsystem are:
 | WebDAV Sync | `src/modules/synthesis/webDavSync.ts` | Durable bundle synchronization through the Host WebDAV port |
 | Citation Graph | `src/modules/synthesis/citationGraph.ts` | Legacy paper identity adapter and canonical graph envelope |
 | Citation Graph Build Engine | `packages/synthesis-engine/src/citationGraphBuild.ts` | Bounded environment-neutral node, edge, ownership, aggregate, and light-metric assembly |
-| Topic Graph | `src/modules/synthesis/topicGraph.ts` | SQLite, canonical, relation, review, proposal, mutation, and projection orchestration |
+| Topic Graph | `packages/synthesis-application/src/topicGraphApplication.ts`, `packages/synthesis-repository/src/topicGraph.ts`, `src/modules/synthesis/topicGraph.ts` | Shared isolated aggregate/policy plus production canonical, discovery, projection, checkpoint, and public compatibility composition |
 | Topic Graph Index Engine | `packages/synthesis-engine/src/topicGraphIndex.ts` | Bounded environment-neutral root and unplaced-topic derivation |
 | Topic Structured Artifact Engine | `packages/synthesis-engine/src/topicStructuredArtifact.ts` | Bounded environment-neutral manifest validation, artifact assembly/validation, and section-patch computation |
 | Concept KB | `packages/synthesis-application/src/conceptKbApplication.ts`, `packages/synthesis-repository/src/conceptKb.ts`, `src/modules/synthesis/conceptKb.ts` | Shared isolated aggregate/policy plus production canonical, projection, diagnostics, import/export, and public query composition |
@@ -210,7 +210,7 @@ Each knowledge domain follows a similar service pattern:
 | Domain | Entry Function | Core Operations |
 |--------|---------------|-----------------|
 | Citation Graph | `SynthesisCitationGraphBuildEngine` plus application adapters | Full/source-slice production records and legacy `buildUnifiedCitationGraph()` projection; bounded metrics v2 and force/radial/components layout engines remain sibling compute seams |
-| Topic Graph | `SynthesisTopicGraphIndexEngine` plus application adapter | Strict asynchronous `buildIndex()` placement computation; application-owned upsert, relation decisions, review, proposal ingestion, checkpoint export, manifests, and projection registration |
+| Topic Graph | `SynthesisTopicGraphIndexEngine` plus shared/private and production application adapters | Strict asynchronous `buildIndex()` placement computation. The private sidecar application owns isolated manifest CAS, proposals, decisions, cleanup, and guarded index promotion; production composition retains canonical assets, discovery cascade, checkpoint export, projection registration, and public DTOs. |
 | Topic artifact lifecycle | `SynthesisTopicStructuredArtifactEngine` plus application adapter | Four strict asynchronous compute methods; application-owned workspace reads, digest checks, hashes, canonical promotion, metadata/index, proposal ingestion, discovery, and autosync |
 | Concept KB | `createSynthesisConceptKbService()` | ingestCardProposals, applyReviewAction, deleteEntries, exportCheckpoint, rebuildIndex |
 | Tag Vocabulary | `SynthesisTagVocabularyEngine` plus shared/private and production application adapters | Strict bounded `validate()` and `buildIndex()` computation. The private sidecar application owns isolated CAS transactions, staged suggestions, audits, index promotion, and durable pending Host effects; production plugin composition retains import/checkpoint, manifests, WebDAV, progress, projection registration, and Host adapters. |
@@ -235,8 +235,9 @@ units per string. The application rejoins those identifiers with complete
 node, edge, review, and diagnostic rows, then promotes projection registry
 state only after strict result validation. Proposal ingestion, cycle checks,
 review decisions, mutations, and Workbench neighborhood/search filtering do
-not cross this compute boundary. Production remains in-process; the Node
-worker is test-only.
+not cross this compute boundary. Production remains in-process; the private
+sidecar application uses one internal bounded worker operation, promotes only
+against the captured manifest, and preserves its last-good index on failure.
 
 ### Concept KB Structure
 

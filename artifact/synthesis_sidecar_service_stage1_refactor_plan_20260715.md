@@ -1169,6 +1169,15 @@ graph layout 作为第一条 process canary，因为：
   CAS 原子提升。index 与只读 query 使用两个内部 bounded worker operation；失败、malformed
   result 或 basis supersession 不替换 last-good index。当前没有 checkpoint/import/export、canonical
   asset delivery、WebDAV、authenticated RPC、public capability 或 production route。
+- `add-synthesis-sidecar-topic-graph-application-foundation` 已完成拆分优先级第 6 项的
+  Topic Graph application foundation：node、edge、review item 与独立 manifest/revision、stale、
+  last-good index state 收敛到 shared contracts/repository/application。完整 snapshot replacement、
+  topic upsert/materialization、proposal ingestion、relation/review decision、mark/purge cleanup 均使用
+  expected-manifest CAS 和短事务；稳定 relation/review ID、proposal mapping、cycle 检查与 production
+  row/policy 复用同一 SSOT。index build 使用一个内部 bounded worker operation，仅在 captured
+  manifest 仍 active 时提升；失败、malformed result 或 supersession 保留 last-good index。当前没有
+  checkpoint/import/export、canonical asset delivery、discovery cascade、authenticated RPC、public
+  capability 或 production route。
 - 此切片不是 production repository mirror 或 route。WS6 仍需完成 shadow parity，
   WS7 仍需一次性切换 DB/canonical single writer；当前 service 不接触生产
   `synthesis.db`、production canonical files、Host capability 或公开 `SynthesisClient`。

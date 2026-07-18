@@ -32,6 +32,11 @@ import {
   rebuildSynthesisTagVocabularyValidationResult,
 } from "../../../packages/synthesis-engine/src/tagVocabulary.js";
 import {
+  createInProcessSynthesisTopicGraphIndexEngine,
+  rebuildSynthesisTopicGraphIndexRequest,
+  rebuildSynthesisTopicGraphIndexResult,
+} from "../../../packages/synthesis-engine/src/topicGraphIndex.js";
+import {
   SYNTHESIS_SIDECAR_COMPUTE_OPERATION,
   SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION,
   SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION,
@@ -40,6 +45,7 @@ import {
   SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION,
   SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION,
   SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION,
+  SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION,
   type SynthesisSidecarComputeWorkerMessage,
   type SynthesisSidecarComputeWorkerResponse,
   type SynthesisSidecarTransferPortAckMessage,
@@ -293,6 +299,19 @@ parentPort.on(
           type: "result",
           taskId,
           result: rebuildSynthesisConceptKbQueryResult(result, request),
+        });
+        return;
+      }
+      if (message.operation === SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION) {
+        const request = rebuildSynthesisTopicGraphIndexRequest(message.payload);
+        const result = await createInProcessSynthesisTopicGraphIndexEngine({
+          checkpoint: () => checkpoint(),
+        }).buildIndex(request);
+        checkpoint();
+        post({
+          type: "result",
+          taskId,
+          result: rebuildSynthesisTopicGraphIndexResult(result, request),
         });
         return;
       }
