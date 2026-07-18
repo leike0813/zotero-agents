@@ -18,11 +18,22 @@
       "skills_src/host-bridge-shared/control-invariants.md",
       "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md"
     ],
-    "cliRelease": "cli/zotero-bridge/release.json"
+    "cliRelease": "cli/zotero-bridge/release.json",
+    "releaseSet": "host-bridge/release-set.json",
+    "agentSurface": "cli/zotero-bridge/src/agent-surface.json"
   },
   "generated": {
-    "bundleVersion": "0.2.0",
+    "bundleVersion": "0.2.1",
     "cliVersion": "0.2.2",
-    "semanticChecksum": "a9af9b119762ef110f29b2a3099d2de178cf9d5725e7ff7e93be4fc21da6d6cd"
+    "cliIdentity": {
+      "schema": "host-bridge.surface-identity.v1",
+      "protocol": "host-bridge.v1",
+      "cliSchema": "zotero-bridge.cli.v1",
+      "version": "0.2.2",
+      "buildFingerprint": "bf8ce58c83754b990bd5f94b03c5d142be6afadf882b9d0af6829ea323fda2dc",
+      "commandCatalogChecksum": "25c68c70847bf44a78c0022c99712dda123d022f2b455e69f6f7ddc52d691874"
+    },
+    "binaryAggregateSha256": "fa6de0bf9f01857eebdfe093395ee680d0ed1dffe2e352fe91dbe7f621423d91",
+    "semanticChecksum": "14ae07b8aea3d9936553819c6eeadc91af4257b598a222011b6d93a50918cc12"
   }
 }

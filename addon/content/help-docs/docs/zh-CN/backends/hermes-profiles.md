@@ -107,16 +107,9 @@ Profile 的核心工具是 `zotero_librarian_index_service.py`。它维护一个
 
 ### 文献库管理
 
-**每日入库三问**（`cron/inbox-triage.yaml`）
+**每日 Workflow 状态分诊**（`cron/workflow-status-triage.yaml`）
 
-每日运行的入库三问 cron 会检查库中新条目的完整性：
-
-- 状态为 `0-inbox`（未处理）的条目
-- 缺少标签或合集归属的条目
-- 缺少 DOI、URL 或附件文件的条目
-- 缺少摘要/研读产物的条目
-
-它会生成建议操作的报告，但在你批准之前不会对 Zotero 做任何修改。
+该只读 cron 搜索带有 `status:need-*` 的条目，并报告每篇文献尚未完成的 workflow 待办。它不会推断、添加或删除状态标签，也不会修改 Zotero。
 
 **每周文献库健康检查**（`cron/library-hygiene.yaml`）
 
@@ -227,7 +220,7 @@ Profile 在 `cron/` 目录中包含六项预配置的 cron 模板：
 | `index-refresh` | 每 6 小时 | 分页拉取 `library snapshot` 保持本地 SQLite 索引为最新。无变化时返回 `[SILENT]`。 |
 | `workflow-catalog-refresh` | 每天 03:00 | 调用 `workflow list` + `workflow describe` 更新工作流目录缓存。无变化时返回 `[SILENT]`。 |
 | `run-monitor` | 每 5 分钟 | 调用 `run-watch` 检查活跃的已注册运行。仅报告状态变更、终态或需要关注的事项。 |
-| `inbox-triage` | 每天 09:00 | 搜索 `status:0-inbox` 条目、缺失标签、缺失合集、缺失元数据。生成只读报告。 |
+| `workflow-status-triage` | 每天 09:00 | 搜索 `status:need-*` 条目并生成只读 workflow 待办报告。 |
 | `library-hygiene` | 每周一 | 扫描重复条目、孤立条目、空合集和数据质量问题。 |
 | `attention-queue` | 每天 18:00 | 将关注队列 insights 与本地索引数据结合，排列高优先级任务。 |
 

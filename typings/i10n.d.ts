@@ -1331,6 +1331,7 @@ export type FluentMessageId =
   | 'synthesis-tab-tags'
   | 'synthesis-tab-topic-detail'
   | 'synthesis-tab-topics'
+  | 'synthesis-tags-builtin'
   | 'synthesis-tags-cache-ready'
   | 'synthesis-tags-cache-stale'
   | 'synthesis-tags-count-warning'

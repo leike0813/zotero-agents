@@ -107,16 +107,9 @@ The profile's core utility is `zotero_librarian_index_service.py`. It maintains 
 
 ### Library Management
 
-**Daily Inbox Triage** (`cron/inbox-triage.yaml`)
+**Daily Workflow Status Triage** (`cron/workflow-status-triage.yaml`)
 
-The profile's inbox triage cron runs daily and checks new items in your library for completeness:
-
-- Items with status `0-inbox` (unprocessed)
-- Missing tags or collection assignments
-- Missing DOI, URL, or attachment files
-- Missing summary or digest artifacts
-
-It produces a report of suggested actions but does not make any Zotero mutations without your approval.
+This read-only cron searches for `status:need-*` and reports each item's outstanding workflow tasks. It does not infer, add, or remove status tags and does not mutate Zotero.
 
 **Weekly Library Hygiene** (`cron/library-hygiene.yaml`)
 
@@ -227,7 +220,7 @@ The profile includes six pre-configured cron templates in the `cron/` directory:
 | `index-refresh` | Every 6 hours | Pages through `library snapshot` to keep the local SQLite index current. Reports `[SILENT]` when no changes are detected. |
 | `workflow-catalog-refresh` | Daily at 03:00 | Calls `workflow list` + `workflow describe` to update the workflow catalog cache. Reports `[SILENT]` when no changes. |
 | `run-monitor` | Every 5 minutes | Calls `run-watch` to check active registered runs. Reports only state changes, terminal states, or attention-required items. |
-| `inbox-triage` | Daily at 09:00 | Searches for items with `status:0-inbox`, missing tags, missing collections, missing metadata. Generates a read-only report. |
+| `workflow-status-triage` | Daily at 09:00 | Searches for items with `status:need-*` and generates a read-only workflow-pending report. |
 | `library-hygiene` | Weekly on Monday | Scans for duplicate entries, orphaned items, empty collections, and data quality issues. |
 | `attention-queue` | Daily at 18:00 | Combines attention queue insights with local index data to rank high-priority tasks. |
 

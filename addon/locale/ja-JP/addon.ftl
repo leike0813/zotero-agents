@@ -611,6 +611,7 @@ skillrunner-backend-auto-disabled-toast = バックエンド { $backend } は 6 
 # Assistant panel shared UI
 assistant-panel-action-send = 送信
 assistant-panel-action-cancel = キャンセル
+assistant-panel-action-cancelling = キャンセル中…
 assistant-panel-action-cancel-run = タスクをキャンセル
 assistant-panel-action-archive = アーカイブ
 assistant-panel-action-close = 閉じる
@@ -1192,6 +1193,7 @@ synthesis-canonical-unsaved-metadata = メタデータドラフトに未保存�
 synthesis-canonical-edit-metadata = 外部正規引用メタデータを編集
 synthesis-canonical-archive-empty = 空の正規引用をアーカイブ
 synthesis-tags-management = Synthesis タグ管理
+synthesis-tags-builtin = 組み込み
 synthesis-tags-summary-canonical = 正規
 synthesis-tags-summary-staged = ステージング
 synthesis-tags-summary-warnings = 警告

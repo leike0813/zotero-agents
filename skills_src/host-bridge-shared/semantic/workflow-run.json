@@ -1,0 +1,27 @@
+{
+  "schema": "host-bridge.semantic-domain.v2",
+  "domain": "workflow-run",
+  "families": {
+    "workflow": {
+      "domain": "workflow-run",
+      "intents": ["inspect, validate, submit, or hand off a workflow"],
+      "useWhen": ["The task is reusable multi-step behavior governed by a workflow contract."],
+      "avoidWhen": ["Do not use agent-run for workflows that require Host-owned options or provider profiles."],
+      "evidence": ["executionModes, validation result, workflowRunId, agentRunId, or apply receipt"],
+      "followups": ["workflow describe", "workflow agent-apply-status"]
+    },
+    "run": {
+      "domain": "workflow-run",
+      "intents": ["inspect or interact with workflow, task, skill, notification, or permission state"],
+      "useWhen": ["A returned runtime handle or lifecycle event must be monitored or acted on."],
+      "avoidWhen": ["Do not substitute workflowRunId, skillRunId, permissionRequestId, or eventId for one another."],
+      "evidence": ["current lifecycle state and the exact runtime handle used"],
+      "followups": ["workflow describe", "surface describe"]
+    }
+  },
+  "commands": {
+    "workflow submit": { "intents": ["host owned workflow", "submit workflow"], "evidence": ["executionModes.hostOwned and workflowRunId"] },
+    "workflow agent-run": { "intents": ["agent owned workflow", "handoff workflow"], "evidence": ["executionModes.agentOwned, agentRunId, agentRequestIds, and verified bundles"] },
+    "workflow agent-apply": { "intents": ["apply agent results", "write back handoff"], "evidence": ["apply receipt and per-request applied or failed state"] }
+  }
+}

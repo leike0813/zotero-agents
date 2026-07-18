@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zotero-agents.dev/schemas/host-bridge.release-set.v1.schema.json",
+  "title": "Host Bridge Release Set",
+  "type": "object",
+  "required": [
+    "schema",
+    "releaseSetId",
+    "status",
+    "source",
+    "protocol",
+    "cliSchema",
+    "cli",
+    "surfaces"
+  ],
+  "properties": {
+    "schema": { "const": "host-bridge.release-set.v1" },
+    "releaseSetId": { "type": "string", "pattern": "^hbrs-[a-f0-9]{24}$" },
+    "status": { "enum": ["planned", "complete"] },
+    "source": {
+      "type": "object",
+      "required": ["repository", "commit"],
+      "properties": {
+        "repository": { "type": "string" },
+        "commit": { "type": "string" },
+        "workflowRun": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "protocol": { "const": "host-bridge.v1" },
+    "cliSchema": { "enum": ["zotero-bridge.cli.v1", "zotero-bridge.cli.v2"] },
+    "cli": {
+      "type": "object",
+      "required": [
+        "version",
+        "buildFingerprint",
+        "binariesBuildFingerprint",
+        "prebuildRequired",
+        "commandCatalogChecksum",
+        "binaryAggregateSha256",
+        "binaries",
+        "identity"
+      ]
+    },
+    "surfaces": {
+      "type": "object",
+      "required": ["cliBundle", "libraryAgent", "librarianProfile"]
+    }
+  },
+  "additionalProperties": false
+}

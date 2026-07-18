@@ -25,6 +25,7 @@ import {
   getHostBridgeSkillRun,
   getHostBridgeWorkflowRunStatus,
   applyHostBridgeWorkflowAgentRun,
+  getHostBridgeWorkflowAgentRunApplyReceipt,
   listHostBridgeActiveTasks,
   listHostBridgeNotifications,
   listHostBridgeRecentSkillRuns,
@@ -943,14 +944,24 @@ function buildMutationApprovalPrompt(input: unknown) {
       );
     }
     const paper = isRecord(request.paper) ? request.paper : {};
-    const title = cleanPromptText(paper.title) || "one literature paper";
+    const fields = isRecord(paper.fields) ? paper.fields : {};
+    const identifiersObject = isRecord(paper.identifiers)
+      ? paper.identifiers
+      : {};
+    const title = cleanPromptText(fields.title) || "one literature paper";
     const identifiers = [
-      cleanPromptText(paper.doi) ? `DOI: ${cleanPromptText(paper.doi)}` : "",
-      cleanPromptText(paper.arxiv)
-        ? `arXiv: ${cleanPromptText(paper.arxiv)}`
+      cleanPromptText(identifiersObject.doi || fields.DOI)
+        ? `DOI: ${cleanPromptText(identifiersObject.doi || fields.DOI)}`
         : "",
-      cleanPromptText(paper.pmid) ? `PMID: ${cleanPromptText(paper.pmid)}` : "",
-      cleanPromptText(paper.isbn) ? `ISBN: ${cleanPromptText(paper.isbn)}` : "",
+      cleanPromptText(identifiersObject.arxiv)
+        ? `arXiv: ${cleanPromptText(identifiersObject.arxiv)}`
+        : "",
+      cleanPromptText(identifiersObject.pmid)
+        ? `PMID: ${cleanPromptText(identifiersObject.pmid)}`
+        : "",
+      cleanPromptText(identifiersObject.isbn || fields.ISBN)
+        ? `ISBN: ${cleanPromptText(identifiersObject.isbn || fields.ISBN)}`
+        : "",
     ].filter(Boolean);
     const pdfLine = cleanPromptText(paper.pdfUrl)
       ? "PDF: best-effort attachment requested."
@@ -965,6 +976,9 @@ function buildMutationApprovalPrompt(input: unknown) {
       detail: [
         "Action: create or update one Zotero literature record.",
         `Paper: ${title}.`,
+        cleanPromptText(paper.itemType)
+          ? `Item type: ${cleanPromptText(paper.itemType)}.`
+          : "",
         identifiers.length ? `Identifier: ${identifiers.join("; ")}.` : "",
         pdfLine,
         landingLinkLine,
@@ -2107,16 +2121,35 @@ async function agentRunWorkflow(request: HttpRequest) {
 }
 
 async function applyAgentRunWorkflow(request: HttpRequest) {
-  if (request.method !== "POST") {
-    return methodNotAllowed(
-      "Workflow agent-run apply endpoint only supports POST",
-      "POST",
-    );
-  }
   const prefix = "/bridge/v1/workflows/agent-runs/";
   const suffix = "/apply";
   const encoded = request.path.slice(prefix.length, -suffix.length);
   const agentRunId = safeDecodeURIComponent(encoded) || "";
+  if (request.method === "GET") {
+    const receipt = getHostBridgeWorkflowAgentRunApplyReceipt(agentRunId);
+    if (!receipt) {
+      return response(
+        404,
+        "Not Found",
+        hostBridgeError(
+          "agent_run_not_found",
+          "Agent run not found",
+          "workflow",
+          {
+            agentRunId,
+          },
+        ),
+        "agent_run_not_found",
+      );
+    }
+    return response(200, "OK", hostBridgeOk(receipt));
+  }
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Workflow agent-run apply endpoint only supports GET and POST",
+      "GET, POST",
+    );
+  }
   let payload: HostBridgeWorkflowAgentApplyRequest;
   try {
     payload = parseJsonBody(

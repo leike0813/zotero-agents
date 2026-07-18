@@ -1,5 +1,11 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, relative } from "node:path";
 import {
   buildHostBridgeSurfaceCatalog,
@@ -24,7 +30,22 @@ type WorkflowCatalogEntry = {
   version: string;
   path: string;
   parameters: string[];
+  parameterDetails: Array<{
+    name: string;
+    type: string;
+    required: boolean;
+    defaultValue?: unknown;
+    enumValues: unknown[];
+    description: string;
+  }>;
   inputMode: string;
+  requiresSelection: boolean;
+  resultEvidence: string[];
+  executionModes: {
+    hostOwned: true;
+    agentOwned: boolean;
+    requiredParameters: string[];
+  };
 };
 
 const ROOT = process.cwd();
@@ -45,6 +66,19 @@ const SHARED_TERMINOLOGY_SOURCE =
   "skills_src/host-bridge-shared/terminology.md";
 const SHARED_CONTROL_INVARIANTS_SOURCE =
   "skills_src/host-bridge-shared/control-invariants.md";
+const SHARED_AGENT_GUIDANCE_SOURCES = [
+  "skills_src/host-bridge-shared/semantic/manifest.json",
+  "skills_src/host-bridge-shared/semantic/connectivity-context.json",
+  "skills_src/host-bridge-shared/semantic/library.json",
+  "skills_src/host-bridge-shared/semantic/workflow-run.json",
+  "skills_src/host-bridge-shared/semantic/mutation-file-product.json",
+  "skills_src/host-bridge-shared/semantic/synthesis.json",
+  "skills_src/host-bridge-shared/semantic/diagnostics.json",
+];
+const GENERATED_COMMAND_ROOT =
+  "skills_builtin/zotero-bridge-cli/references/commands";
+const GENERATED_OUTPUT_RECOVERY =
+  "skills_builtin/zotero-bridge-cli/references/output-and-recovery.md";
 const PROFILE_TERMINOLOGY_TARGET = join(
   PROFILE_ROOT,
   "skills/zotero-librarian/references/terminology.md",
@@ -65,12 +99,19 @@ const GENERATED_MARKER_EXAMPLES = [
   "zotero-librarian:host-bridge:start",
   "zotero-librarian:workflow-catalog:start",
 ];
-const PROFILE_SEMANTIC_COPIES = [
+export const PROFILE_SEMANTIC_COPIES = [
+  "README.md",
   "SOUL.md",
   "skills/zotero-librarian/SKILL.md",
   "skills/zotero-librarian/references/operating-principles.md",
   "skills/zotero-librarian/references/workflow-execution-policy.md",
   "skills/zotero-librarian/references/common-tasks.md",
+  "skills/zotero-librarian/references/library-maintenance.md",
+  "skills/zotero-librarian/references/resident-index.md",
+  "skills/zotero-librarian/references/scheduled-jobs.md",
+  "skills/zotero-librarian/references/monitoring-and-notifications.md",
+  "skills/zotero-librarian/references/maintenance-and-recovery.md",
+  "skills/zotero-librarian/references/profile-script-contracts.md",
   "skills/zotero-workflow-agent-runner/SKILL.md",
   "skills/zotero-workflow-agent-runner/references/agent-run-playbook.md",
 ];
@@ -85,7 +126,7 @@ const PROFILE_CRON_SOURCES = [
   "profiles/hermes/zotero-librarian/cron/workflow-catalog-refresh.yaml",
   "profiles/hermes/zotero-librarian/cron/run-monitor.yaml",
   "profiles/hermes/zotero-librarian/cron/notification-sync.yaml",
-  "profiles/hermes/zotero-librarian/cron/inbox-triage.yaml",
+  "profiles/hermes/zotero-librarian/cron/workflow-status-triage.yaml",
   "profiles/hermes/zotero-librarian/cron/library-hygiene.yaml",
   "profiles/hermes/zotero-librarian/cron/attention-queue.yaml",
 ];
@@ -160,12 +201,14 @@ function writeOrCheck(
 function sortedCliMappings(catalog: HostBridgeSurfaceCatalog) {
   const order = [
     "bridge",
+    "context",
     "library",
     "synthesis",
     "workflow",
     "run",
     "mutation",
     "file",
+    "product",
   ];
   return [...catalog.endpointMappings, ...catalog.cliMappings].sort(
     (left, right) => {
@@ -184,19 +227,18 @@ function sortedCliMappings(catalog: HostBridgeSurfaceCatalog) {
   );
 }
 
-function renderHostBridgeReference(
-  catalog: HostBridgeSurfaceCatalog,
-  release: ZoteroBridgeCliRelease,
-) {
+function renderHostBridgeReference(catalog: HostBridgeSurfaceCatalog) {
   const commands = sortedCliMappings(catalog)
     .filter((mapping) => {
       const group = mapping.command.split(" ")[0] || "";
       return [
         "bridge",
+        "context",
         "library",
         "workflow",
         "run",
         "file",
+        "product",
         "synthesis",
         "mutation",
       ].includes(group);
@@ -220,11 +262,11 @@ function renderHostBridgeReference(
     );
 
   return [
-    "## CLI Release",
+    "## CLI Identity",
     "",
-    `This profile surface is generated for \`zotero-bridge\` CLI version \`${release.version}\`.`,
+    "Run `zotero-bridge surface identity --json` and compare CLI schema, build fingerprint, and command catalog checksum with the profile release envelope. SemVer alone is not compatibility evidence.",
     "",
-    "Confirm with `zotero-bridge --version` when the loaded profile or skill path is uncertain, command help does not match this reference, or a CLI error points to command shape mismatch. If the observed version differs, prefer the profile copy and CLI shim from the active workspace, then inspect `zotero-bridge --help` or this generated reference beside that profile copy.",
+    "Load the relevant generated card under `references/commands/` for task-oriented command choice; use the table below only for exhaustive target inspection.",
     "",
     "## CLI Commands",
     "",
@@ -304,7 +346,44 @@ function loadWorkflowCatalog(): WorkflowCatalogEntry[] {
       parameters: Object.keys(
         (workflow.parameters as object | undefined) || {},
       ),
+      parameterDetails: Object.entries(
+        (workflow.parameters as
+          | Record<string, Record<string, unknown>>
+          | undefined) || {},
+      ).map(([name, parameter]) => ({
+        name,
+        type: String(parameter.type || "unknown"),
+        required: parameter.required === true,
+        ...(Object.prototype.hasOwnProperty.call(parameter, "default")
+          ? { defaultValue: parameter.default }
+          : {}),
+        enumValues: Array.isArray(parameter.enum) ? parameter.enum : [],
+        description: String(parameter.description || parameter.title || ""),
+      })),
       inputMode: workflowInputMode(workflow),
+      requiresSelection:
+        (workflow.trigger as Record<string, unknown> | undefined)
+          ?.requiresSelection === true,
+      resultEvidence: Object.values(
+        ((workflow.result as Record<string, unknown> | undefined)?.expects as
+          | Record<string, unknown>
+          | undefined) || {},
+      ).map(String),
+      executionModes: {
+        hostOwned: true,
+        agentOwned: !Object.values(
+          (workflow.parameters as
+            | Record<string, { required?: boolean }>
+            | undefined) || {},
+        ).some((parameter) => parameter.required === true),
+        requiredParameters: Object.entries(
+          (workflow.parameters as
+            | Record<string, { required?: boolean }>
+            | undefined) || {},
+        )
+          .filter(([, parameter]) => parameter.required === true)
+          .map(([key]) => key),
+      },
     });
   }
   return entries.sort((left, right) => left.id.localeCompare(right.id));
@@ -317,18 +396,34 @@ function renderWorkflowReference(entries: WorkflowCatalogEntry[]) {
         entry.provider,
       )} | ${markdownCell(entry.inputMode)} | ${markdownCell(
         entry.parameters.join(", ") || "none",
-      )} |`,
+      )} | ${entry.executionModes.agentOwned ? "yes" : "no"} |`,
   );
   return [
     "## Built-In Workflow Catalog",
     "",
     "Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py workflow-refresh`.",
     "",
-    "| Workflow | Label | Provider | Inputs | Parameters |",
-    "| --- | --- | --- | --- | --- |",
+    "| Workflow | Label | Provider | Inputs | Parameters | Agent-owned |",
+    "| --- | --- | --- | --- | --- | --- |",
     ...rows,
     "",
-    "Use `workflow-show <workflow-id>` to inspect the cached payload contract before direct submission.",
+    ...entries.flatMap((entry) => [
+      `## \`${entry.id}\` — ${entry.label}`,
+      "",
+      `- Provider: \`${entry.provider}\`; input mode: \`${entry.inputMode}\`; selection required: ${entry.requiresSelection}.`,
+      `- Execution: Host-owned supported; agent-owned ${entry.executionModes.agentOwned ? "supported" : "not supported because required workflow options cannot be supplied by agent-run"}.`,
+      `- Completion evidence: ${entry.resultEvidence.length ? entry.resultEvidence.map((value) => `\`${value}\``).join(", ") : "terminal run result and any declared Product/output contract"}.`,
+      "- Parameters:",
+      ...(entry.parameterDetails.length
+        ? entry.parameterDetails.map(
+            (parameter) =>
+              `  - \`${parameter.name}\`: ${parameter.type}; required=${parameter.required}${parameter.defaultValue !== undefined ? `; default=${JSON.stringify(parameter.defaultValue)}` : ""}${parameter.enumValues.length ? `; enum=${parameter.enumValues.map(String).join(", ")}` : ""}${parameter.description ? ` — ${parameter.description}` : ""}`,
+          )
+        : ["  - None."]),
+      "- Selection rule: choose this workflow only when its label, declared inputs, parameters, and result evidence match the requested outcome; confirm live `workflow describe` before execution.",
+      "",
+    ]),
+    "Use `workflow-show <workflow-id>` and live `workflow describe` executionModes before direct submission or handoff.",
     "Register and monitor only Host-owned submitted workflow runs with `run-register` and `run-watch`.",
   ].join("\n");
 }
@@ -351,6 +446,8 @@ function renderManifestSource(
         "src/modules/hostBridgeCapabilityRegistry.ts",
       zoteroBridgeCliCommands: "cli/zotero-bridge/src/commands.rs",
       zoteroBridgeCliRelease: ZOTERO_BRIDGE_CLI_RELEASE_PATH,
+      releaseSet: "host-bridge/release-set.json",
+      agentSurface: "cli/zotero-bridge/src/agent-surface.json",
       profileVersionSource: ZOTERO_LIBRARIAN_PROFILE_VERSION_SOURCE_PATH,
       workflowManifest: "workflows_builtin/manifest.json",
       profileExample: PROFILE_EXAMPLE_SOURCE,
@@ -360,6 +457,7 @@ function renderManifestSource(
         ),
         SHARED_TERMINOLOGY_SOURCE,
         SHARED_CONTROL_INVARIANTS_SOURCE,
+        ...SHARED_AGENT_GUIDANCE_SOURCES,
       ],
       profileScripts: PROFILE_SCRIPT_SOURCES,
       profileCron: PROFILE_CRON_SOURCES,
@@ -382,6 +480,7 @@ function renderManifestSource(
           ),
           read(SHARED_TERMINOLOGY_SOURCE),
           read(SHARED_CONTROL_INVARIANTS_SOURCE),
+          ...SHARED_AGENT_GUIDANCE_SOURCES.map((path) => read(path)),
         ].join("\n---\n"),
       ),
       serviceSourceChecksum: sha256(
@@ -396,7 +495,10 @@ function renderManifestSource(
   return `${JSON.stringify(source, null, 2)}\n`;
 }
 
-function render(check = false) {
+export function renderZoteroLibrarianProfile(
+  check = false,
+  mode: "content" | "release" = "release",
+) {
   const diffs: string[] = [];
   const catalog = buildHostBridgeSurfaceCatalog(ROOT);
   const errors = validateHostBridgeSurfaceCatalog(catalog);
@@ -407,15 +509,17 @@ function render(check = false) {
   const release = readZoteroBridgeCliRelease(ROOT);
   const profileVersion = inspectZoteroLibrarianProfileVersion(ROOT).resolved;
 
-  writeOrCheck(
-    PROFILE_DISTRIBUTION_TARGET,
-    replaceDistributionVersion(
-      read(PROFILE_DISTRIBUTION_TARGET),
-      profileVersion.version,
-    ),
-    check,
-    diffs,
-  );
+  if (mode === "release") {
+    writeOrCheck(
+      PROFILE_DISTRIBUTION_TARGET,
+      replaceDistributionVersion(
+        read(PROFILE_DISTRIBUTION_TARGET),
+        profileVersion.version,
+      ),
+      check,
+      diffs,
+    );
+  }
 
   for (const path of PROFILE_SEMANTIC_COPIES) {
     writeOrCheck(
@@ -446,7 +550,7 @@ function render(check = false) {
     replaceGeneratedSection(
       hostBridgeSource,
       "zotero-librarian:host-bridge",
-      renderHostBridgeReference(catalog, release),
+      renderHostBridgeReference(catalog),
     ),
     check,
     diffs,
@@ -470,12 +574,32 @@ function render(check = false) {
     check,
     diffs,
   );
+  for (const name of readdirSync(join(ROOT, GENERATED_COMMAND_ROOT)).sort()) {
+    if (!name.endsWith(".md")) continue;
+    writeOrCheck(
+      join(PROFILE_ROOT, "skills/zotero-librarian/references/commands", name),
+      read(join(GENERATED_COMMAND_ROOT, name)),
+      check,
+      diffs,
+    );
+  }
   writeOrCheck(
-    MANIFEST_SOURCE_TARGET,
-    renderManifestSource(catalog, workflows, release, profileVersion),
+    join(
+      PROFILE_ROOT,
+      "skills/zotero-librarian/references/output-and-recovery.md",
+    ),
+    read(GENERATED_OUTPUT_RECOVERY),
     check,
     diffs,
   );
+  if (mode === "release") {
+    writeOrCheck(
+      MANIFEST_SOURCE_TARGET,
+      renderManifestSource(catalog, workflows, release, profileVersion),
+      check,
+      diffs,
+    );
+  }
 
   if (diffs.length) {
     const lines = diffs
@@ -487,4 +611,7 @@ function render(check = false) {
 }
 
 const check = process.argv.includes("--check");
-render(check);
+renderZoteroLibrarianProfile(
+  check,
+  process.argv.includes("--content-only") ? "content" : "release",
+);

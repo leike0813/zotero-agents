@@ -17,7 +17,7 @@ Jedes Tag gehört zu einer Facette (Dimension). Derzeit werden folgende Facetten
 | `ai_task` | KI-Aufgabentyp | `ai_task:text_summarization` |
 | `data` | Datensatz | `data:imagenet` |
 | `tool` | Werkzeug | `tool:python` |
-| `status` | Status-Markierung | `status:to_read` |
+| `status` | Workflow-Aufgabe | `status:need-analysis` |
 
 Tag-Format: `^[a-z_]+:[a-zA-Z0-9/_.-]+$`, maximal 120 Zeichen.
 
@@ -61,4 +61,4 @@ Das Tag-Vokabular unterstützt JSON-Format-Import/Export (TagVocab-Format), was 
 
 ## Zugehöriger Workflow
 
-Tag-Standardisierung und automatische Inferenz werden durch den [Tag Regulator](#doc/workflows%2Ftag-regulator)-Workflow gesteuert. Die Ausführung dieses Workflows kann Tags basierend auf dem kontrollierten Vokabular automatisch bereinigen und ergänzen.
+`status` beschreibt offene Workflow-Aufgaben, nicht den Lesefortschritt. Ein Eintrag kann keine, eine oder mehrere Status-Tags haben. Die fünf eingebauten Definitionen (`need-metadata-curation`, `need-fulltext`, `need-markdown`, `need-analysis`, `need-deep-reading`) werden beim Plugin-Start angelegt. Tag Bootstrapper und [Tag Regulator](#doc/workflows%2Ftag-regulator) dürfen sie weder erzeugen noch ändern und auf Literatur weder hinzufügen noch entfernen. Eigene `status:*`-Einträge bleiben erlaubt. Ein manuell angehängtes PDF entfernt `status:need-fulltext` nicht automatisch.

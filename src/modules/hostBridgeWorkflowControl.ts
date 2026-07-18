@@ -39,6 +39,7 @@ import { createLocalizedMessageFormatter } from "./workflowExecution/messageForm
 import { buildWorkflowSettingsUiDescriptor } from "./workflowSettings";
 import {
   assertRequiredWorkflowParameters,
+  listMissingRequiredWorkflowParameters,
   type WorkflowExecutionOptions,
 } from "./workflowSettingsDomain";
 import { buildSelectionContext } from "./selectionContext";
@@ -51,7 +52,9 @@ import {
   createHostBridgeAgentRunRecord,
   finishHostBridgeAgentRunRecord,
   getExpiredHostBridgeAgentRunRecord,
+  getHostBridgeAgentRunApplyReceipt,
   getHostBridgeAgentRunRecord,
+  recordHostBridgeAgentRunApplyReceipt,
   sealHostBridgeAgentRunRecord,
   type HostBridgeAgentRunPreparedRequest,
 } from "./hostBridgeWorkflowAgentRunStore";
@@ -235,6 +238,25 @@ export type HostBridgeWorkflowDescribeResult = {
     selectedBackendId: string;
     providerOptionsSchema: unknown[];
     normalizedProviderOptions: Record<string, unknown>;
+  };
+  executionModes: {
+    hostOwned: {
+      supported: true;
+      command: "workflow submit";
+      acceptsWorkflowOptions: true;
+      monitorable: true;
+      requiresApplyBack: false;
+      requiredParameters: string[];
+    };
+    agentOwned: {
+      supported: boolean;
+      command: "workflow agent-run";
+      acceptsWorkflowOptions: false;
+      monitorable: false;
+      requiresApplyBack: true;
+      requiredParameters: string[];
+      blockedReason?: string;
+    };
   };
   blockedReason?: string;
 };
@@ -442,6 +464,7 @@ export function getHostBridgeWorkflowControlManifest(): HostBridgeWorkflowContro
       "POST /bridge/v1/workflows/submit",
       "POST /bridge/v1/workflows/agent-run",
       "POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply",
+      "GET /bridge/v1/workflows/agent-runs/{agentRunId}/apply",
       "GET /bridge/v1/workflows/runs",
       "GET /bridge/v1/workflows/runs/{workflowRunId}",
       "POST /bridge/v1/workflows/runs/{workflowRunId}/cancel",
@@ -820,6 +843,10 @@ export async function describeHostBridgeWorkflow(
     autoSelectFallbackProfile: false,
     ignoreSavedSettings: true,
   });
+  const agentRequiredParameters = listMissingRequiredWorkflowParameters(
+    workflow.manifest,
+    {},
+  );
   return {
     workflowId: workflow.manifest.id,
     workflowLabel: localizeWorkflowLabel(workflow),
@@ -839,6 +866,30 @@ export async function describeHostBridgeWorkflow(
       selectedBackendId: descriptor.selectedProfile,
       providerOptionsSchema: descriptor.providerSchemaEntries,
       normalizedProviderOptions: descriptor.providerOptions,
+    },
+    executionModes: {
+      hostOwned: {
+        supported: true,
+        command: "workflow submit",
+        acceptsWorkflowOptions: true,
+        monitorable: true,
+        requiresApplyBack: false,
+        requiredParameters: agentRequiredParameters,
+      },
+      agentOwned: {
+        supported: agentRequiredParameters.length === 0,
+        command: "workflow agent-run",
+        acceptsWorkflowOptions: false,
+        monitorable: false,
+        requiresApplyBack: true,
+        requiredParameters: agentRequiredParameters,
+        ...(agentRequiredParameters.length
+          ? {
+              blockedReason:
+                "workflow agent-run cannot supply required workflow options",
+            }
+          : {}),
+      },
     },
     ...(descriptor.blockedReason
       ? { blockedReason: descriptor.blockedReason }
@@ -1338,106 +1389,143 @@ export async function applyHostBridgeWorkflowAgentRun(args: {
     );
   }
 
+  const preflight = [] as Array<{
+    result: HostBridgeWorkflowAgentApplyResultRef;
+    prepared: HostBridgeAgentRunPreparedRequest;
+    bundleReader: BundleReader;
+  }>;
+  for (const result of results) {
+    const prepared = preparedById.get(result.agentRequestId)!;
+    const bundleReader = createAgentApplyBundleReader(result.bundle.path);
+    await validateAgentApplyBundle({ bundleReader, prepared });
+    preflight.push({ result, prepared, bundleReader });
+  }
+  recordHostBridgeAgentRunApplyReceipt(agentRunId, {
+    agentRunId,
+    workflowId: record.workflowId,
+    status: "preflight",
+    stateChanged: false,
+    handleConsumed: false,
+    recoverable: true,
+    results: [],
+  });
+
   const permission = await requestAgentRunApplyPermission({
     workflow,
     resultCount: results.length,
     scope: args.scope,
   });
   sealHostBridgeAgentRunRecord(agentRunId);
+  recordHostBridgeAgentRunApplyReceipt(agentRunId, {
+    agentRunId,
+    workflowId: record.workflowId,
+    status: "applying",
+    stateChanged: false,
+    handleConsumed: true,
+    recoverable: false,
+    results: [],
+  });
 
   const appliedAt = new Date().toISOString();
   const perRequest: HostBridgeWorkflowAgentApplyResult["results"] = [];
   const warnings: string[] = [];
   let succeeded = 0;
   let failed = 0;
-  try {
-    for (const result of results) {
-      const prepared = preparedById.get(result.agentRequestId)!;
-      const bundleReader = createAgentApplyBundleReader(result.bundle.path);
-      try {
-        await validateAgentApplyBundle({ bundleReader, prepared });
-        const workspaceDir =
-          typeof bundleReader.getExtractedDir === "function"
-            ? await bundleReader.getExtractedDir()
-            : result.bundle.path;
-        const runResult = {
-          status: "succeeded",
-          backendStatus: "succeeded",
-          requestId: prepared.agentRequestId,
+  for (const { result, prepared, bundleReader } of preflight) {
+    try {
+      const workspaceDir =
+        typeof bundleReader.getExtractedDir === "function"
+          ? await bundleReader.getExtractedDir()
+          : result.bundle.path;
+      const runResult = {
+        status: "succeeded",
+        backendStatus: "succeeded",
+        requestId: prepared.agentRequestId,
+        resultJsonPath: prepared.resultJsonPath,
+        resultArtifactBasePath: `result/${prepared.namespace}`,
+        workspaceDir,
+        bundleDir: workspaceDir,
+        responseJson: {
+          provider: "agent-run",
+          namespace: prepared.namespace,
           resultJsonPath: prepared.resultJsonPath,
-          resultArtifactBasePath: `result/${prepared.namespace}`,
-          workspaceDir,
-          bundleDir: workspaceDir,
-          responseJson: {
-            provider: "agent-run",
-            namespace: prepared.namespace,
-            resultJsonPath: prepared.resultJsonPath,
-          },
-        };
-        const resultContext = await createWorkflowResultContext({
-          runResult,
-          bundleReader,
-          manifest: workflow.manifest,
-        });
-        const parent = resolveTargetParentIDFromRequest(prepared.request);
-        await executeApplyResult({
-          workflow,
-          parent,
-          bundleReader,
-          resultContext,
-          request: prepared.request,
-          runResult,
-        });
-        await collectSkillRunFeedbackSidecar({
-          workflow,
-          request: prepared.request,
-          runResult,
-          resultContext,
-          bundleReader,
-          jobId: prepared.agentRequestId,
-        });
-        if (resultContext.warnings.length > 0) {
-          warnings.push(
-            ...resultContext.warnings.map(
-              (warning) =>
-                `${prepared.agentRequestId}: ${warning.code}: ${warning.message}`,
-            ),
-          );
-        }
-        succeeded += 1;
-        perRequest.push({
-          agentRequestId: prepared.agentRequestId,
-          requestIndex: prepared.requestIndex,
-          namespace: prepared.namespace,
-          succeeded: true,
-          warningCount: resultContext.warnings.length,
-          errorCount: resultContext.errors.length,
-        });
-      } catch (error) {
-        failed += 1;
-        const message =
-          error instanceof Error ? error.message : String(error || "");
-        perRequest.push({
-          agentRequestId: prepared.agentRequestId,
-          requestIndex: prepared.requestIndex,
-          namespace: prepared.namespace,
-          succeeded: false,
-          warningCount: 0,
-          errorCount: 1,
-          error: message,
-        });
-        throw error;
+        },
+      };
+      const resultContext = await createWorkflowResultContext({
+        runResult,
+        bundleReader,
+        manifest: workflow.manifest,
+      });
+      const parent = resolveTargetParentIDFromRequest(prepared.request);
+      await executeApplyResult({
+        workflow,
+        parent,
+        bundleReader,
+        resultContext,
+        request: prepared.request,
+        runResult,
+      });
+      await collectSkillRunFeedbackSidecar({
+        workflow,
+        request: prepared.request,
+        runResult,
+        resultContext,
+        bundleReader,
+        jobId: prepared.agentRequestId,
+      });
+      if (resultContext.warnings.length > 0) {
+        warnings.push(
+          ...resultContext.warnings.map(
+            (warning) =>
+              `${prepared.agentRequestId}: ${warning.code}: ${warning.message}`,
+          ),
+        );
       }
+      succeeded += 1;
+      perRequest.push({
+        agentRequestId: prepared.agentRequestId,
+        requestIndex: prepared.requestIndex,
+        namespace: prepared.namespace,
+        succeeded: true,
+        warningCount: resultContext.warnings.length,
+        errorCount: resultContext.errors.length,
+      });
+    } catch (error) {
+      failed += 1;
+      const message =
+        error instanceof Error ? error.message : String(error || "");
+      perRequest.push({
+        agentRequestId: prepared.agentRequestId,
+        requestIndex: prepared.requestIndex,
+        namespace: prepared.namespace,
+        succeeded: false,
+        warningCount: 0,
+        errorCount: 1,
+        error: message,
+      });
     }
-    finishHostBridgeAgentRunRecord({ agentRunId, outcome: "succeeded" });
-  } catch (error) {
-    finishHostBridgeAgentRunRecord({
-      agentRunId,
-      outcome: "failed",
-      error: error instanceof Error ? error.message : String(error || ""),
-    });
-    throw error;
   }
+
+  const receiptStatus =
+    failed === 0 ? "succeeded" : succeeded > 0 ? "partial" : "failed";
+  finishHostBridgeAgentRunRecord({
+    agentRunId,
+    outcome: failed === 0 ? "succeeded" : "failed",
+    ...(failed > 0 ? { error: `${failed} apply-back request(s) failed` } : {}),
+  });
+  recordHostBridgeAgentRunApplyReceipt(agentRunId, {
+    agentRunId,
+    workflowId: record.workflowId,
+    status: receiptStatus,
+    stateChanged: succeeded > 0,
+    handleConsumed: true,
+    recoverable: false,
+    results: perRequest.map((entry) => ({
+      agentRequestId: entry.agentRequestId,
+      succeeded: entry.succeeded,
+      ...(entry.error ? { error: entry.error } : {}),
+    })),
+  });
 
   return {
     agentRunId,
@@ -1452,6 +1540,10 @@ export async function applyHostBridgeWorkflowAgentRun(args: {
     results: perRequest,
     warnings,
   };
+}
+
+export function getHostBridgeWorkflowAgentRunApplyReceipt(agentRunId: string) {
+  return getHostBridgeAgentRunApplyReceipt(normalizeString(agentRunId));
 }
 
 function selectionArray(

@@ -118,6 +118,23 @@ describe("release coordinator gate", function () {
     });
   });
 
+  it("routes the unified Host Bridge release workflow to its pipeline", async function () {
+    await withPackageVersion("0.5.4", async (packageJsonPath) => {
+      const report = await analyzeReleaseGate({
+        packageJsonPath,
+        targetVersion: "v0.5.5",
+        changedFiles: [".github/workflows/release-host-bridge.yml"],
+        commandRunner: commandRunner(),
+        testNodeFullPassed: true,
+        lintCheckPassed: true,
+        contentPackageReleaseVerified: true,
+      });
+
+      assert.equal(report.next_action, "run_host_bridge_pipeline");
+      assert.isTrue(report.host_bridge.required);
+    });
+  });
+
   it("requires content package verification for content package candidate changes", async function () {
     await withPackageVersion("0.5.4", async (packageJsonPath) => {
       const report = await analyzeReleaseGate({

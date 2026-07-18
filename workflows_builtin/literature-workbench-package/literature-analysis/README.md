@@ -12,6 +12,8 @@ Literature Analysis 是文献管理的核心 workflow——所有入库文献都
 
 > **建议**：在首次分析前，先运行 [Tag Bootstrapper](../tag-bootstrapper/README.md) 初始化一个受控标签词表，这样分析流程中的自动标签规范化（`auto_tag_regulator`）才能发挥最大效果。
 
+五个内建 workflow 状态由插件启动时自动初始化，不需要运行 Tag Bootstrapper。正式分析产物全部写入成功后，workflow 会移除条目上的 `status:need-analysis`；失败、跳过或尚未完成 apply 时保留。状态清理失败只产生部分成功警告，不回滚笔记和 sidecar 产物。
+
 ## 怎么输入？
 
 - **直接选中附件**：右键一个 PDF 或 Markdown 附件，选择此 workflow

@@ -1,18 +1,14 @@
 ---
 name: zotero-agents-release-coordinator
-description: Coordinate the zotero-agents project release workflow. Use when preparing, auditing, executing, recovering, or verifying a Zotero Agents release, including SkillRunner runtime feed checks, content package version/feed publishing, Host Bridge CLI release requirements, local test/lint gates, GitHub/Gitee main synchronization, zotero-plugin release execution, tag/release failure recovery, and post-release verification.
+description: Coordinate the zotero-agents project release workflow. Use when preparing, auditing, executing, recovering, or verifying a Zotero Agents release, including SkillRunner runtime feed checks, content package version/feed publishing, Host Bridge release-set requirements, local test/lint gates, GitHub/Gitee main synchronization, zotero-plugin release execution, tag/release failure recovery, and post-release verification.
 ---
 
 # Zotero Agents Release Coordinator
 
-Use this skill from the repository root:
-
-```powershell
-D:\Workspace\Code\JavaScript\zotero-agents
-```
+Use this skill from the repository root.
 
 This skill is the release gatekeeper for Zotero Agents. It coordinates local
-checks, content feed publication, Host Bridge CLI publication, GitHub/Gitee
+checks, content feed publication, Host Bridge release-set publication, GitHub/Gitee
 synchronization, plugin release execution, Gitee mirror publication, and
 failed-release recovery.
 
@@ -56,7 +52,7 @@ npm exec -- tsx scripts/release-coordinator-gate.ts --target vX.Y.Z --test-node-
 | `next_action` | Meaning | Agent responsibility |
 | --- | --- | --- |
 | `resolve_blockers` | The working tree, branch, version, or remote state blocks release. | Report blockers and ask for the smallest required decision. |
-| `run_host_bridge_pipeline` | Host Bridge surfaces or CLI/package/profile paths changed. | Use `$host-bridge-release-pipeline`, then rerun this gate with `--host-bridge-done` only after it completes. |
+| `run_host_bridge_pipeline` | Host Bridge surfaces or CLI/package/profile paths changed. | Use `$host-bridge-release-pipeline`. Pass `--host-bridge-done` only after the same `releaseSetId` has a verified complete receipt. |
 | `publish_content_package` | Content package or feed-adjacent files changed and release verification evidence is missing. | Follow the content package stage in the playbook, then rerun with verification flags. |
 | `run_local_gates` | Required local validation evidence is missing. | Run `npm run test:node:full` and `npm run lint:check`; rerun with evidence flags only when they pass. |
 | `sync_main_remotes` | `HEAD` is not confirmed on GitHub `main`. | Ask before pushing; push `main` to `origin` after confirmation. |
@@ -72,8 +68,8 @@ Before `ready_to_release`, require:
 - `npm run lint:check`
 - content package release verification when the gate reports content package
   candidate changes
-- Host Bridge release pipeline completion when the gate reports Host Bridge
-  candidate changes
+- a `host-bridge.release-receipt.v1` with `status: complete` for the prepared
+  `releaseSetId` when the gate reports Host Bridge candidate changes
 
 Do not treat CI `test:gate:release` as a replacement for local
 `test:node:full` or `lint:check`.
@@ -131,7 +127,8 @@ When finished, report:
 
 - target plugin version and content package version
 - whether SkillRunner runtime feed was checked or updated
-- whether Host Bridge pipeline was required and completed
+- whether Host Bridge publication was required, its `releaseSetId`, and its
+  release receipt status
 - local validation commands and results
 - GitHub/Gitee main and tag status
 - release command result

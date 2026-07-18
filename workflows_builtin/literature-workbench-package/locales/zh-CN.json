@@ -39,6 +39,8 @@
   "workflows.literature-search-ingest.skills.literature-search-ingest.name": "🔎 文献搜索导入",
   "workflows.literature-search-ingest.taskNameTemplate": "搜索并导入文献：{query}",
   "workflows.literature-metadata-curator.label": "文献元数据修正",
+  "workflows.literature-metadata-curator.parameters.skip_identifier_fast_path.description": "跳过 Zotero 标识符检索，直接运行 literature-metadata-search。",
+  "workflows.literature-metadata-curator.parameters.skip_identifier_fast_path.title": "跳过标识符快速模式",
   "workflows.literature-metadata-curator.skills.literature-metadata-search.name": "📇 文献元数据搜索",
   "workflows.literature-metadata-curator.taskNameTemplate": "修正文献元数据",
   "workflows.literature-translator.label": "文献翻译",

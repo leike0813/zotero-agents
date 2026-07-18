@@ -5,6 +5,8 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { validateAcpSkillFinalPayload } from "../../src/modules/acpSkillOutputValidator";
+import { scanPluginSkillRegistry } from "../../src/modules/pluginSkillRegistry";
 
 const HELPER = join(
   process.cwd(),
@@ -29,6 +31,87 @@ function runHelper(args: string[]) {
 }
 
 describe("zotero library agent bundle", function () {
+  it("renders a plugin-executable runner and final result contract", async function () {
+    const sourceRunner = readFileSync(
+      "skills_src/zotero-library-agent/runner.json",
+      "utf8",
+    );
+    const renderedRunner = readFileSync(
+      "skills_builtin/zotero-library-agent/assets/runner.json",
+      "utf8",
+    );
+    const sourceSchema = readFileSync(
+      "skills_src/zotero-library-agent/output.schema.json",
+      "utf8",
+    );
+    const renderedSchema = readFileSync(
+      "skills_builtin/zotero-library-agent/assets/output.schema.json",
+      "utf8",
+    );
+    assert.strictEqual(renderedRunner, sourceRunner);
+    assert.strictEqual(renderedSchema, sourceSchema);
+
+    const runner = JSON.parse(renderedRunner);
+    assert.strictEqual(runner.id, "zotero-library-agent");
+    assert.sameMembers(runner.execution_modes, ["auto", "interactive"]);
+    assert.strictEqual(runner.schemas.output, "assets/output.schema.json");
+
+    const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
+    assert.property(registry.entriesById, "zotero-library-agent");
+    assert.isFalse(
+      registry.diagnostics.some(
+        (entry) =>
+          entry.level === "error" &&
+          entry.path.replace(/\\/g, "/").includes("zotero-library-agent"),
+      ),
+      JSON.stringify(registry.diagnostics),
+    );
+
+    const validation = await validateAcpSkillFinalPayload({
+      payload: {
+        status: "completed",
+        summary: "Inspected the requested Zotero context.",
+      },
+      runnerJson: runner,
+      primarySkillDir: join(
+        process.cwd(),
+        "skills_builtin/zotero-library-agent",
+      ),
+    });
+    assert.isTrue(validation.ok, validation.errors.join("\n"));
+  });
+
+  it("renders its repository README from bounded-task semantic source", function () {
+    const source = readFileSync(
+      "skills_src/zotero-library-agent/semantic/README.md",
+      "utf8",
+    );
+    const rendered = readFileSync(
+      "skills_builtin/zotero-library-agent/README.md",
+      "utf8",
+    );
+    assert.strictEqual(rendered, source);
+    assert.include(rendered, "surface identity --json");
+    assert.include(rendered, "bounded");
+    assert.notMatch(rendered, /cron|SQLite|HERMES_HOME/);
+  });
+
+  it("documents only helper commands exposed by the packaged parser", function () {
+    const skill = readFileSync(
+      "skills_builtin/zotero-library-agent/SKILL.md",
+      "utf8",
+    );
+    const contract = readFileSync(
+      "skills_builtin/zotero-library-agent/references/helper-script-contract.md",
+      "utf8",
+    );
+    const guidance = `${skill}\n${contract}`;
+    assert.include(guidance, "zotero_library_agent.py evidence build");
+    assert.include(guidance, "zotero_library_agent.py evidence validate");
+    assert.notInclude(guidance, "zotero_library_agent.py validate-input");
+    assert.notInclude(guidance, "zotero_library_agent.py render-evidence");
+  });
+
   it("builds and validates hash-bound evidence without persistent state", async function () {
     const root = mkdtempSync(join(tmpdir(), "zla-evidence-"));
     try {

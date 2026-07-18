@@ -44,6 +44,13 @@ export type HostBridgeErrorCode =
   | "invalid_request_body"
   | "invalid_skill_run_id"
   | "invalid_workflow_agent_run_request"
+  | "invalid_agent_run_apply_request"
+  | "agent_run_not_found"
+  | "agent_run_expired"
+  | "agent_run_already_consumed"
+  | "unknown_request"
+  | "invalid_bundle"
+  | "apply_not_allowed"
   | "invalid_workflow_describe_request"
   | "invalid_workflow_input"
   | "missing_required_workflow_parameter"
@@ -80,6 +87,11 @@ export type HostBridgeError = {
   message: string;
   category: HostBridgeErrorCategory;
   details?: Record<string, unknown>;
+  retryable: boolean;
+  stateChanged: boolean;
+  handleConsumed: boolean;
+  safeNextActions: string[];
+  nextCommand?: string;
 };
 
 export type HostBridgeBindMode = "loopback" | "lan";
@@ -265,13 +277,40 @@ export function hostBridgeError(
   message: string,
   category: HostBridgeErrorCategory,
   details?: Record<string, unknown>,
+  control?: Partial<
+    Pick<
+      HostBridgeError,
+      | "retryable"
+      | "stateChanged"
+      | "handleConsumed"
+      | "safeNextActions"
+      | "nextCommand"
+    >
+  >,
 ): HostBridgeResponse<never> {
+  const handleConsumed =
+    control?.handleConsumed ?? code === "agent_run_already_consumed";
+  const retryable =
+    control?.retryable ??
+    ["bridge_unavailable", "download_failed", "upload_failed"].includes(code);
+  const safeNextActions =
+    control?.safeNextActions ||
+    (code.startsWith("agent_run_") || code === "invalid_bundle"
+      ? ["workflow agent-apply-status", "surface describe workflow agent-apply"]
+      : retryable
+        ? ["bridge status", "retry command"]
+        : ["surface describe"]);
   return {
     status: "error",
     error: {
       code,
       message,
       category,
+      retryable,
+      stateChanged: control?.stateChanged ?? handleConsumed,
+      handleConsumed,
+      safeNextActions,
+      ...(control?.nextCommand ? { nextCommand: control.nextCommand } : {}),
       ...(details ? { details } : {}),
     },
   };

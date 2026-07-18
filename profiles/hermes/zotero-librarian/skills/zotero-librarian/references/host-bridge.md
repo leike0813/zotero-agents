@@ -3,11 +3,11 @@
 This reference is generated from the Host Bridge capability registry and Rust CLI mappings.
 
 <!-- zotero-librarian:host-bridge:start -->
-## CLI Release
+## CLI Identity
 
-This profile surface is generated for `zotero-bridge` CLI version `0.2.2`.
+Run `zotero-bridge surface identity --json` and compare CLI schema, build fingerprint, and command catalog checksum with the profile release envelope. SemVer alone is not compatibility evidence.
 
-Confirm with `zotero-bridge --version` when the loaded profile or skill path is uncertain, command help does not match this reference, or a CLI error points to command shape mismatch. If the observed version differs, prefer the profile copy and CLI shim from the active workspace, then inspect `zotero-bridge --help` or this generated reference beside that profile copy.
+Load the relevant generated card under `references/commands/` for task-oriented command choice; use the table below only for exhaustive target inspection.
 
 ## CLI Commands
 
@@ -19,6 +19,14 @@ Confirm with `zotero-bridge --version` when the loaded profile or skill path is 
 | `zotero-bridge bridge profile diagnose` | GET /bridge/v1/diagnostics/profile/diagnose | endpoint |
 | `zotero-bridge bridge profile inspect` | GET /bridge/v1/diagnostics/profile | endpoint |
 | `zotero-bridge bridge status` | GET /bridge/v1/health | endpoint |
+| `zotero-bridge context collection open` | POST /bridge/v1/context/collections/open | endpoint |
+| `zotero-bridge context current` | GET /bridge/v1/context/current | endpoint |
+| `zotero-bridge context current` | context.get_current_view | capability |
+| `zotero-bridge context item open` | POST /bridge/v1/context/items/open | endpoint |
+| `zotero-bridge context note open` | POST /bridge/v1/context/notes/open | endpoint |
+| `zotero-bridge context selection get` | GET /bridge/v1/context/selection | endpoint |
+| `zotero-bridge context selection get` | context.get_selected_items | capability |
+| `zotero-bridge context selection open` | POST /bridge/v1/context/selection/open | endpoint |
 | `zotero-bridge library annotation export` | library.export_annotations | capability |
 | `zotero-bridge library annotation list` | library.list_annotations | capability |
 | `zotero-bridge library item attachments` | library.get_item_attachments | capability |
@@ -61,6 +69,7 @@ Confirm with `zotero-bridge --version` when the loaded profile or skill path is 
 | `zotero-bridge synthesis topic get-review-input` | topics.get_review_input | capability |
 | `zotero-bridge synthesis topic list` | topics.list | capability |
 | `zotero-bridge workflow agent-apply` | POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply | endpoint |
+| `zotero-bridge workflow agent-apply-status` | GET /bridge/v1/workflows/agent-runs/{agentRunId}/apply | endpoint |
 | `zotero-bridge workflow agent-run` | POST /bridge/v1/workflows/agent-run | endpoint |
 | `zotero-bridge workflow describe` | POST /bridge/v1/workflows/describe | endpoint |
 | `zotero-bridge workflow list` | GET /bridge/v1/workflows | endpoint |
@@ -98,6 +107,10 @@ Confirm with `zotero-bridge --version` when the loaded profile or skill path is 
 | `zotero-bridge mutation tag remove` | mutation.execute | capability |
 | `zotero-bridge file download` | GET /bridge/v1/files/{fileId} | endpoint |
 | `zotero-bridge file upload` | POST /bridge/v1/files/upload | endpoint |
+| `zotero-bridge product download` | workflow_products.export | capability |
+| `zotero-bridge product get` | workflow_products.get | capability |
+| `zotero-bridge product list` | workflow_products.list | capability |
+| `zotero-bridge product remove` | workflow_products.remove | capability |
 
 ## Library Capabilities
 

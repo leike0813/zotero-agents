@@ -15,15 +15,7 @@ $addonBin = Join-Path $repoRoot "addon" "bin"
 $addonBinManifestPath = "addon/bin"
 $mainRepository = "https://github.com/leike0813/zotero-agents"
 $installCommand = "hermes profile install https://github.com/leike0813/zotero-librarian-profile.git <--alias>"
-$platforms = @(
-  @{ platform = "win32-x64"; binary = "zotero-bridge.exe" },
-  @{ platform = "darwin-x64"; binary = "zotero-bridge" },
-  @{ platform = "darwin-arm64"; binary = "zotero-bridge" },
-  @{ platform = "linux-x86"; binary = "zotero-bridge" },
-  @{ platform = "linux-x64"; binary = "zotero-bridge" },
-  @{ platform = "linux-arm"; binary = "zotero-bridge" },
-  @{ platform = "linux-arm64"; binary = "zotero-bridge" }
-)
+$releaseSetPath = Join-Path $repoRoot "host-bridge" "release-set.json"
 
 function Invoke-DevGit {
   param([string[]]$GitArgs)
@@ -72,6 +64,14 @@ function Copy-ProfileSource {
 if (-not (Test-Path -LiteralPath $profileRoot -PathType Container)) {
   throw "Missing profile source directory: $profileRoot"
 }
+Assert-File $releaseSetPath
+$releaseSet = Get-Content -LiteralPath $releaseSetPath -Raw | ConvertFrom-Json
+if ([string]$releaseSet.schema -ne "host-bridge.release-set.v1") {
+  throw "Invalid Host Bridge release set"
+}
+$platforms = @($releaseSet.cli.binaries | ForEach-Object {
+  @{ platform = [string]$_.platform; binary = [string]$_.binary }
+})
 
 $dirty = (& git -C $repoRoot status --porcelain)
 if ($dirty -and -not $AllowDirty) {
@@ -151,7 +151,9 @@ try {
   }
 
   $manifest = [ordered]@{
-    schema = "zotero-librarian.profile.release-manifest.v1"
+    schema = "host-bridge.surface-release.v1"
+    releaseSetId = [string]$releaseSet.releaseSetId
+    releaseSet = $releaseSet
     profile = "zotero-librarian"
     profileVersion = $profileVersion
     zoteroBridgeCliVersion = $zoteroBridgeCliVersion
@@ -160,7 +162,7 @@ try {
     installCommand = $installCommand
     sourceCommit = $sourceCommit
     dirty = [bool]$dirty
-    generatedAt = (Get-Date).ToUniversalTime().ToString("o")
+    cliIdentity = $releaseSet.cli.identity
     binarySource = $addonBinManifestPath
     binaries = $binaryManifest
     generatedCatalogChecksum = Get-FileSha256 (Join-Path $WorktreePath "assets" "profile-manifest-source.json")

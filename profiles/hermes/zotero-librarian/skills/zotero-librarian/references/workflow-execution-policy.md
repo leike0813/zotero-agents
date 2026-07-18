@@ -21,9 +21,13 @@ For a pre-authorized ACP workflow, submit `{"providerOptions":{"autoApproveAcpPe
 
 ## Mode Choice
 
+Use the structured `executionModes` returned by `workflow describe` or `workflow requirements`; do not infer support from workflow names, providers, or local prose.
+
 Use Host-owned `workflow submit` when Host Bridge or the backend should own execution and expose a `workflowRunId`.
 
-Use `$zotero-workflow-agent-runner` when the workflow should hand work to the agent through `workflow agent-run`. The returned `agentRunId` is an apply-back session handle, not a run-control handle.
+Use `$zotero-workflow-agent-runner` only when `executionModes.agentOwned.supported` is true. `workflow agent-run` cannot supply workflow options or provider profiles. The returned `agentRunId` is an apply-back session handle, not a run-control handle.
+
+After an interrupted or failed apply-back, query `workflow agent-apply-status <agentRunId>` and follow the receipt. Do not reuse a consumed handle.
 
 ## Concurrency
 

@@ -1,172 +1,154 @@
 ---
 name: literature-search-ingest
-description: Search academic literature, guide users from an empty request to a confirmed search brief, and ingest approved papers into Zotero. Use when a user wants literature search, guided search planning, or Zotero ingest and zotero-bridge CLI is available.
+description: Search academic literature with broad multilingual discovery, guide candidate selection, and ingest approved papers into Zotero through zotero-bridge CLI.
 ---
 
 # Literature Search Ingest
 
-本 skill 只支持 ACP interactive 后端。不要尝试浏览器、Zotero Connector、CDP 或登录态自动化。
+本 skill 只支持 ACP interactive 后端。不要尝试浏览器、Zotero Connector、CDP 或登录态自动化。开始搜索前必须阅读 [检索策略](references/search-strategy.md)。
 
 ## 交互输出硬约束
 
-- 只有当前确实需要用户输入才能继续时，才允许进入等待用户回复状态；它不是进度提示、状态通知或后台执行占位。
-- 禁止用“正在入库，请稍候”“我将开始入库”“正在处理”等消息让界面停在等待用户输入状态。如果下一步不需要用户回答，就继续执行。
-- 用户已经确认搜索方案后，必须继续执行搜索；用户已经确认最终落库列表后，必须逐篇调用 `zotero-bridge mutation literature-ingest`，不得再次要求用户回复，也不得用 `open_text` 让界面停在等待输入状态。
-- 入库工具调用期间如果需要说明进度，只能用普通 assistant 消息；不得把进度包装成待用户输入或最终 JSON。
-- 入库完成后必须输出合法最终 JSON。入库无法执行时也必须输出 `literature_search_ingest_canceled`，不要停留在 pending。
-- LLM 负责需求澄清、搜索 brief、候选准入判断与用户确认；不得用临时脚本替代这些语义判断，也不得手写或要求写入 `result/result.json`。
+- 只有当前确实需要用户输入才能继续时，才允许进入等待用户回复状态。
+- 禁止用“正在入库，请稍候”等进度消息让界面停在等待输入状态；进度只能使用普通 assistant 消息。
+- 用户确认搜索方案后必须继续搜索；确认最终落库列表后必须逐篇调用 `zotero-bridge mutation literature-ingest`，不得再次要求回复，也不得用 `open_text` 等待。
+- 入库结束后输出单个合法最终 JSON；无法继续时输出 `literature_search_ingest_canceled`，不得停留在 pending。
+- LLM 负责需求澄清、查询扩展、候选分层、用户确认和结果整理，不得用临时脚本代替语义判断，也不得手写 `result/result.json`。
 
 ## 输入
 
-- `query`: 用户自由输入的搜索主题、研究方向或论文相关线索；可为空。按 `query.trim()` 判断是否为空白。
-- `searchMode`: `auto`、`guided`、`topic_expansion`、`paper_seed_expansion`、`targeted_ingest`；默认 `auto`。
-- `targetCollection`: 可选的目标 collection ref；为空时写入默认库。
+- `query`：用户查询、研究方向或论文线索，可为空；按 `query.trim()` 判断空白。
+- `searchMode`：`auto`、`guided`、`topic_expansion`、`paper_seed_expansion`、`targeted_ingest`；默认 `auto`。
+- `searchBreadth`：`broad`、`balanced`、`quick`；默认 `broad`。它控制查询与来源覆盖，不提高候选准入门槛。
+- `languageHints`：可选语言提示数组，例如 `en`、`zh-CN`、`ja`。它用于扩展查询和来源，绝不能作为排除其他语言的过滤器。
+- `targetCollection`：可选目标 collection ref。
 
-## 模式路由
+## 模式路由与确认
 
-1. `query.trim()` 为空且 `searchMode` 为 `auto`：进入 `guided`。
-2. `searchMode` 为 `guided`：进入 `guided`；非空 query 是已知背景，不重复询问。
-3. 非空 query 且 `searchMode` 为 `auto`：执行既有自动分类流程。
-4. `searchMode` 为 `topic_expansion`、`paper_seed_expansion` 或 `targeted_ingest`：保持用户选择；若 query 为空，先询问该模式所需的最小主题、种子论文或目标条目，不改派到其他模式。
+1. 空 query 且 `auto` 进入 `guided`；显式模式保持用户选择，缺少最小线索时只询问该模式所需信息。
+2. 引导模式简短收集研究目标、范围、种子、纳排条件与期望规模；信息足够后停止追问。
+3. 使用 `zotero-bridge synthesis topic list`、`zotero-bridge synthesis index library get`，并按需使用 library search/get，只读检查本地 Zotero/Synthesis。方案确认前不得联网、下载、创建或写入条目。
+4. `paper_seed_expansion` 先定位本地 seed，并用 `zotero-bridge synthesis artifact read` 读取 references、citation-analysis 或 digest；不可用时再按元数据搜索。
+5. 展示 search brief：目标、范围、本地覆盖、待补空白、四类 query lane、来源组合、早期去重规则、预计候选量和停止条件，然后等待用户确认。
+6. brief 确认后直接进入候选搜索，不得重新选择、映射或分类为原三种策略；引导结果使用 `search_mode: "guided"`。
+7. 非空 `auto` 可先做一次轻量联网探测，再确定 topic、seed 或 targeted 模式；显式模式不重分类。
 
-## 引导模式
+## 高召回搜索
 
-### 1. 澄清最小研究目标
+### 查询编排
 
-- 以简短轮次收集尚未确定的信息：研究问题或目标、学科/应用范围、时间/语言/文献类型、已知作者或论文种子、纳入与排除条件、预期数量或深度。
-- 不重复询问已有信息，允许用户回答“不确定”；只要已获得可执行的最小研究目标，就停止追问并继续。
-- 用户明确取消时输出取消分支；没有最小研究目标时，说明缺口并继续等待真实用户输入，不得伪造进度或执行检索。
+- 每轮维护四类查询：`core lane` 覆盖核心概念；`multilingual lane` 使用原文、常见译名和本地学术术语；`seed lane` 做作者、引文、相似论文与关联作品扩展；`gap lane` 针对年份、方法、地区、文献类型和本地库空白补检。
+- 非英文查询保留原始文字，并与英文或其他语言变体并行搜索；翻译和罗马化只生成查询变体，不替代候选题名、作者或载体。
+- `broad` 跑完所有适用 lane 和来源族；`balanced` 优先高产组合并补一轮 gap；`quick` 完成 core 与最相关语言 lane。各模式都必须记录实际执行和停止原因。
 
-### 2. 只读本地覆盖检查
+### 来源组合
 
-- 在最小研究目标明确后，使用 `zotero-bridge synthesis topic list`、`zotero-bridge synthesis index library get`，并按需使用 `zotero-bridge library item search` / `zotero-bridge library item get` 查询本地 Zotero/Synthesis。
-- 汇总已覆盖主题、可复用种子、疑似重复和待补空白；本阶段不得联网、下载、创建或写入条目。
+- 通用发现覆盖 Crossref、OpenAlex、Semantic Scholar、Google Scholar 或等价学术索引、出版社/期刊官网、领域数据库、机构仓储、学位论文库、图书馆目录和参考文献网络。
+- 中文大陆来源包括 China DOI、知网、万方、PDC、期刊/会议/出版社官网、授予单位和机构仓储。
+- 繁体中文与区域来源包括 Airiti Library、TSSCI、台湾博硕士论文知识加值系统、期刊官网、大学仓储和图书馆目录。
+- 来源清单用于策略选择，不要求每个后端都有专用客户端；使用 agent 可用的合法公开搜索能力。不得使用登录态、机构代理、验证码、Sci-Hub、LibGen 或盗版来源。
 
-### 3. Search brief 与确认
+### 先去重，再核验
 
-- 基于用户信息和本地覆盖，展示结构化 search brief：研究目标、范围限制、本地覆盖摘要、待补空白、拟用检索式与来源、筛选/去重标准、预期候选规模与 PDF 获取边界。
-- 等待用户确认或修改 brief。确认前不得联网搜索、下载或写入。
-- brief 确认后直接进入候选搜索；不得重新选择、映射或分类为原三种策略。最终完成结果使用 `search_mode: "guided"`。
+1. 每个来源命中立即进入 search ledger，保留来源 URL、query lane、命中时的原文题名/作者/年份/载体和 identifier。
+2. 先去重：优先规范化 DOI、arXiv、PMID、ISBN；无 identifier 时使用 Unicode 规范化后的原文题名、年份、第一作者与载体形成弱指纹。中文与其他非拉丁文字不得先翻译后去重。
+3. 合并的是同一候选的发现证据，不覆盖原文元数据；存在明显版本关系时分别记录 journal/preprint/conference/thesis 版本。
+4. 搜索阶段只做足以支持筛选的轻量核对，不要求先找到完整作者、权威 identifier 或 PDF 才展示。
 
-## 非引导模式的方案确认
+## 候选分层与用户选择
 
-- 使用 `zotero-bridge synthesis topic list`、`zotero-bridge synthesis index library get`，并按需使用 `zotero-bridge library item search` / `zotero-bridge library item get` 读取 Zotero library 与 Synthesis 上下文。
-- `auto` 的非空 query 必须额外完成一次联网搜索，再判断实际策略：`topic_expansion` 用于研究方向、主题、关键词或技术路线；`paper_seed_expansion` 用于具体论文、DOI、arXiv、PMID、标题或作者线索；`targeted_ingest` 用于联网搜索发现的库外高匹配单篇文献。
-- 显式 `topic_expansion`、`paper_seed_expansion` 或 `targeted_ingest` 不得重新分类；仍须完成库内比对、联网查证和方案确认。
-- `paper_seed_expansion` 必须先尝试在库内定位 seed paper，并使用 `zotero-bridge synthesis artifact read` 获取 references / citation-analysis / digest artifact；artifact 不存在或不可读时，再基于 seed metadata 联网搜索。
-- `targeted_ingest` 必须展示单篇候选的标题、作者、年份、identifier、landing link、PDF URL 状态、匹配依据和库内去重结论。确认后直接进入入库，不进行额外候选扩展搜索。
-- 向用户展示搜索方案时，至少说明搜索模式、关键词/种子、是否使用 references artifact、优先来源、去重策略、PDF best-effort 限制；等待用户明确确认后再进入候选搜索。
+- `ready`：identifier 或权威元数据足以形成语义明确的 typed ingest payload。
+- `needs_curation`：主题相关且来源可追溯，可以安全创建最接近的 Zotero 类型，但字段缺失、来源冲突或作者结构不完整；入库后必须设置 `needsCuration: true`。
+- `lead_only`：仅有搜索摘要、题名线索或相互冲突的记录，尚不足以安全创建条目；可以向用户展示用于扩展搜索，但不得入库。
+- 只有 `lead_only` 需要因元数据不足被阻止。不得以仅有标题的 lead 直接入库，也不得因为非英文、缺英文译名、缺 DOI 或暂缺 PDF 而删除可追溯候选。
+- 候选表至少展示原文题名、可用译名、年份、作者/载体、语言、分层、发现来源、identifier 状态、疑似重复和推荐理由，然后等待用户确认。用户可以选择任意数量。
 
-## 候选搜索、确认与入库
+## 用户选择后的核验、PDF 与 typed ingest
 
-1. 使用 agent 自身搜索能力按已确认方案查找候选；不要调用浏览器自动化或 Connector。`targeted_ingest` 跳过额外扩展搜索，直接使用已确认的单篇候选作为落库对象。
-2. 每个候选都必须先完成标识符和权威元数据查证，才能进入候选表或最终入库列表。优先检索 DOI、arXiv、PMID、ISBN、publisher landing page，并用标题、作者、年份、载体相互核验。
-3. 中文文献触发条件为 query、候选标题、作者或载体显示中文文献特征。中文期刊/会议优先查询 China DOI、期刊或会议官方页、知网、万方；中文学位论文优先查询知网、万方、授予单位或机构仓储；中文图书或 ISBN 优先查询 PDC、出版社和图书馆目录。知网、万方与 PDC 只用于公开元数据、落地页和合法公开全文线索，不使用登录态、机构代理或受限全文。
-4. 每个候选必须记录 `identifier_status`：找到可靠 identifier 时标记 `resolved`；已完成适用来源检索仍未找到时标记 `identifier_not_found`，并记录 `metadata_source` 与已核对的标题、作者、年份、载体。不得以仅有标题或未核验的搜索摘要进入候选表或入库。
-5. 没有 identifier 的候选只有在存在权威元数据来源，且标题、作者、年份、载体等可用信息不冲突时才能展示；必须向用户披露 `identifier_not_found`。没有权威元数据来源的候选直接跳过。
-6. PDF best-effort 需要在完成标识符/元数据查证后尽可能尝试合法公开来源：DOI landing page、publisher PDF 链接、arXiv/eprint、PubMed Central、Europe PMC、OpenAlex/Crossref/开放获取线索、机构仓储、作者主页、实验室主页、项目页，以及 quoted title + `filetype:pdf` 或 identifier + `pdf` 等搜索。中文文献还应尝试来源机构、期刊或出版社公开页及可公开访问的机构仓储。
-7. 禁止使用登录态、机构代理、验证码、Sci-Hub、LibGen 或其他盗版来源。`pdfUrl` 只有在标题、作者、DOI/arXiv/PMID 等元数据高度匹配时才写入；不确定时标记为 `skipped`。对找到的 `pdfUrl` 需要逐个验证可访问性，不可访问的 URL 不得作为可信 PDF 来源。
-8. 输出候选表格并等待用户确认。表格字段至少包括：序号、标题、年份、作者/venue、identifier 与 `identifier_status`、`metadata_source`、landing link、PDF 尝试与 URL 状态、推荐理由、是否疑似已存在。需要登录、机构代理或无法确定 PDF URL 的正文附件标记为 `skipped`，不得阻断已通过元数据准入的候选入库。
-9. 用户可选择任意数量候选；不要设置硬上限。只有已完成候选准入的条目可以写入入库 payload。`identifier_not_found` 且无公开 PDF 的条目仍可在已披露权威元数据来源、PDF 尝试结果和 landing link 后由用户确认入库。
-10. 将确认候选规范化为单篇 `zotero-bridge mutation literature-ingest` JSON 输入。每次 payload 顶层只能包含 `paper` 和可选 `collection`；`paper` 可包含 `title`、`authors`、`year`、`doi`、`arxiv`、`pmid`、`isbn`、`landingUrl`、`pdfUrl`、`attachLandingUrlOnMissingPdf`、`abstract`、`venue`。写入 payload 的 `pdfUrl` 必须是经过验证后的可达 URL。
-11. 每篇 payload 都必须设置 `paper.attachLandingUrlOnMissingPdf: true`，并分别写入 `runtime/payloads/ingest-paper-NNN.json`。禁止生成包含 `papers` 或 `papers[]` 的批量 payload；后端只接受单篇 `paper`。
-12. 一旦用户确认最终落库列表，后续不得让界面进入等待用户输入状态。逐篇调用 `zotero-bridge mutation literature-ingest --input @runtime/payloads/ingest-paper-001.json`；入库调用是本阶段的第一动作，不要先输出 pending JSON。调用失败、审批拒绝或工具不可用时输出合法的 `literature_search_ingest_canceled` 或失败结果，不得停留在 pending。
-13. 聚合每次单篇调用结果，只整理最终用户需要的 `ingested_references`、`missing_pdf_references`，以及非空时的 `ingest_failures`。`ingested_references` 只列出 `created` 或 `existing` 的成功入库论文；`missing_pdf_references` 只列出成功入库但 `hasPdfAttachment` 为 `false` 的论文，并保留 landing page 和 manual search links。不要放不确定、盗版或需要登录态的 PDF URL；只有存在入库失败时才输出 `ingest_failures`。
+1. 用户选择后才对入选项做较昂贵的元数据补全、identifier 交叉核对与 PDF best-effort；未入选候选不做全面 PDF 探测。
+2. identifier 找到时标记 `resolved`；查完适用来源仍没有时标记 `identifier_not_found`。无 identifier 但有可追溯元数据的 `ready`/`needs_curation` 可入库。
+3. PDF 尝试包括 DOI/publisher landing、arXiv/eprint、PubMed Central、Europe PMC、开放获取线索、机构仓储、作者/实验室/项目页，以及 quoted title + `filetype:pdf` 或 identifier + `pdf`。只写入经元数据匹配且确认可达的 `pdfUrl`。
+4. PDF 缺失、不可达或需要登录时记为 `missing`、`skipped` 或 `failed`，不得阻断元数据可安全落库的条目；最终依据返回的 `hasPdfAttachment` 判断附件状态并提供合法的 `manualSearchLinks`。
+5. 每篇生成独立的 `runtime/payloads/ingest-paper-NNN.json`，顶层只能有 `paper` 和可选 `collection`，禁止 `papers` 或 `papers[]` 批量 payload。第一篇路径必须是 `ingest-paper-001.json`。
+6. `paper` 必须使用显式 typed payload：
+   - `itemType`：确认类型时使用 `journalArticle`、`conferencePaper`、`thesis`、`book` 等；无法可靠判型时使用 `document`，不得猜成期刊论文。
+   - `fields`：只放该 `itemType` 的 Zotero 合法字段，例如 `title`、`date`、`publicationTitle`、`proceedingsTitle`、`university`、`thesisType`、`publisher`、`abstractNote`、`language`、`extra`、`url`。
+   - `creators`：结构化数组；机构作者用 `{ "name": "...", "creatorType": "author" }`，个人作者用 `firstName`/`lastName`，不得拆分或罗马化原名。
+   - `identifiers`：对象，可含 `doi`、`arxiv`、`pmid`、`isbn`。
+   - 可选 `landingUrl`、`pdfUrl`；每篇设置 `attachLandingUrlOnMissingPdf: true`。
+7. 用户确认后逐篇调用 `zotero-bridge mutation literature-ingest --input @runtime/payloads/ingest-paper-001.json`。每个 outcome 都保留 `created`、`existing`、`failed` 或 `not_attempted`，不能只汇报成功项。
 
-## 输出契约
+typed payload 示例：
 
-最终输出必须是单个合法 JSON object。不要在最终 JSON 前后附加 Markdown、解释正文、代码块围栏或额外说明。
+```json
+{
+  "paper": {
+    "itemType": "thesis",
+    "fields": {
+      "title": "隧道衬砌病害智能识别研究",
+      "date": "2024",
+      "university": "某大学",
+      "thesisType": "博士学位论文",
+      "language": "zh-CN"
+    },
+    "creators": [
+      { "lastName": "张", "firstName": "三", "creatorType": "author" }
+    ],
+    "identifiers": {},
+    "landingUrl": "https://example.edu/thesis/123",
+    "attachLandingUrlOnMissingPdf": true
+  }
+}
+```
 
-### 完成分支
+## Search ledger 与最终输出
 
-- `kind: "literature_search_ingest"`
-- `query`: 可选，原始用户查询；允许为空字符串。
-- `search_mode: "guided" | "topic_expansion" | "paper_seed_expansion" | "targeted_ingest"`，可选。
-- `ingested_references`: 必填数组。列出所有成功入库论文，每项只保留：
-  - `index`
-  - `title`
-  - `status: "created" | "existing"`
-  - `itemRef`: 可选，成功入库时尽量包含 `{ "key", "id", "libraryId" }`。
-  - `doi`、`arxiv`、`pmid`、`isbn`: 可选 identifier。
-  - `landingUrl`: 可选。
-- `missing_pdf_references`: 必填数组。列出所有成功入库但 `hasPdfAttachment` 为 `false` 的论文。没有则输出空数组 `[]`。每项必须包含：
-  - `index`
-  - `title`
-  - `status: "created" | "existing"`，可选。
-  - `itemRef`: 可选。
-  - `doi`、`arxiv`、`pmid`、`isbn`: 可选 identifier。
-  - `landingUrl`: 可选，优先 DOI landing、publisher landing、arXiv abs、PMC/Europe PMC 或项目页。
-  - `manualSearchLinks`: 可选字符串数组，用于后续手动查找 PDF。可以包含 DOI landing、publisher page、arXiv abs、PMC/Europe PMC、作者主页、项目页、quoted title 搜索链接等；不得包含 Sci-Hub、LibGen、盗版来源、登录态代理 URL 或未确认匹配的 PDF URL。
-  - `reason`: 可选，建议使用 `no_public_pdf_url`、`pdf_url_unreachable`、`login_required`、`metadata_uncertain`、`attachment_import_failed` 等简短原因。
-- `ingest_failures`: 可选数组。只有存在入库失败时输出，每项包含 `index`、`title`、`error`。
+- 将全部查询、来源命中、去重关系、分层依据、用户决策、核验结果和落库回执写入 `result/search-ledger.json`。
+- 最终输出必须是单个合法 JSON object；JSON 前后不得附加 Markdown、解释或代码围栏。
+- 完成分支必须包含 `kind: "literature_search_ingest"`、`status: "completed"`、`searchSummary`、`outcomes`、`searchLedgerPath`。
+- `searchSummary` 汇总 breadth、实际语言、query/source lane 数量、唯一候选数、选择数和 `stopReason`。
+- `outcomes` 对每个已展示的重要候选记录 candidate id、原文题名、tier、发现来源、identifier、用户 decision、ingest/PDF 状态、itemRef、landing/manual links、reasonCode 与 `needsCuration`。
+- 对成功 `created` 或 `existing` 且信息仍需整理的条目设置 `needsCuration: true`；运行结束后 workflow 会通过插件已初始化的内建 policy，在对应文献上添加 `status:need-metadata-curation` 标签实例。
+- `searchLedgerPath` 固定为 `result/search-ledger.json`。
 
 完成分支示例：
 
 ```json
 {
   "kind": "literature_search_ingest",
-  "query": "polar-based segmentation",
+  "status": "completed",
+  "query": "隧道衬砌视觉检测",
   "search_mode": "guided",
-  "ingested_references": [
+  "searchSummary": {
+    "breadth": "broad",
+    "languages": ["zh-CN", "en"],
+    "queryLaneCount": 4,
+    "sourceLaneCount": 7,
+    "uniqueCandidateCount": 18,
+    "selectedCount": 1,
+    "stopReason": "all_applicable_lanes_completed"
+  },
+  "outcomes": [
     {
-      "index": 1,
-      "title": "PolarNet: An Improved Grid Representation for Online LiDAR Point Clouds Semantic Segmentation",
-      "status": "created",
-      "itemRef": {
-        "key": "CHPBJDLU",
-        "id": 784,
-        "libraryId": 1
-      },
-      "doi": "10.1109/CVPR42600.2020.00962",
-      "landingUrl": "https://doi.org/10.1109/CVPR42600.2020.00962"
+      "candidateId": "source:thesis-123",
+      "title": "隧道衬砌病害智能识别研究",
+      "candidateTier": "needs_curation",
+      "discoverySources": [
+        { "source": "institutional-repository", "url": "https://example.edu/thesis/123", "queryLane": "multilingual" }
+      ],
+      "identifiers": {},
+      "decision": "approved",
+      "ingestStatus": "created",
+      "pdfStatus": "missing",
+      "needsCuration": true,
+      "itemRef": { "id": 101, "key": "ITEM101", "libraryId": 1 },
+      "landingUrl": "https://example.edu/thesis/123",
+      "manualSearchLinks": ["https://example.edu/thesis/123"],
+      "reasonCode": "identifier_not_found"
     }
   ],
-  "missing_pdf_references": [
-    {
-      "index": 1,
-      "title": "PolarNet: An Improved Grid Representation for Online LiDAR Point Clouds Semantic Segmentation",
-      "status": "created",
-      "itemRef": {
-        "key": "CHPBJDLU",
-        "id": 784,
-        "libraryId": 1
-      },
-      "doi": "10.1109/CVPR42600.2020.00962",
-      "landingUrl": "https://doi.org/10.1109/CVPR42600.2020.00962",
-      "manualSearchLinks": [
-        "https://doi.org/10.1109/CVPR42600.2020.00962",
-        "https://scholar.google.com/scholar?q=%22PolarNet%3A%20An%20Improved%20Grid%20Representation%20for%20Online%20LiDAR%20Point%20Clouds%20Semantic%20Segmentation%22"
-      ],
-      "reason": "no_public_pdf_url"
-    }
-  ]
+  "searchLedgerPath": "result/search-ledger.json"
 }
 ```
 
-如果所有成功入库论文都已附 PDF，则仍必须输出：
-
-```json
-{
-  "missing_pdf_references": []
-}
-```
-
-### 取消分支
-
-用户取消或无法继续时输出：
-
-- `kind: "literature_search_ingest_canceled"`
-- `status: "canceled"`
-- `reason`
-- `message`
-
-取消分支示例：
-
-```json
-{
-  "kind": "literature_search_ingest_canceled",
-  "status": "canceled",
-  "reason": "user_cancelled",
-  "message": "用户取消了搜索方案确认。"
-}
-```
+取消分支必须包含 `kind: "literature_search_ingest_canceled"`、`status: "canceled"`、reason 和 message。用户取消时使用 reason `"user_cancelled"`。

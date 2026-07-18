@@ -611,6 +611,7 @@ skillrunner-backend-auto-disabled-toast = 後端 { $backend } 在連續 6 小時
 # 助手面板共享介面
 assistant-panel-action-send = 傳送
 assistant-panel-action-cancel = 取消
+assistant-panel-action-cancelling = 正在取消…
 assistant-panel-action-cancel-run = 取消任務
 assistant-panel-action-archive = 封存
 assistant-panel-action-close = 關閉
@@ -1247,6 +1248,7 @@ synthesis-canonical-unsaved-metadata = 中繼資料草稿有未儲存的變更
 synthesis-canonical-edit-metadata = 編輯外部典範中繼資料
 synthesis-canonical-archive-empty = 封存空典範
 synthesis-tags-management = Synthesis 標籤管理
+synthesis-tags-builtin = 內建
 synthesis-tags-summary-canonical = 典範
 synthesis-tags-summary-staged = 暫存
 synthesis-tags-summary-warnings = 警告

@@ -6,12 +6,17 @@
       "type": "object",
       "required": [
         "kind",
-        "ingested_references",
-        "missing_pdf_references"
+        "status",
+        "searchSummary",
+        "outcomes",
+        "searchLedgerPath"
       ],
       "properties": {
         "kind": {
           "const": "literature_search_ingest"
+        },
+        "status": {
+          "const": "completed"
         },
         "query": {
           "type": "string"
@@ -25,89 +30,159 @@
             "targeted_ingest"
           ]
         },
-        "ingested_references": {
-          "type": "array",
-          "description": "Successfully ingested reference items. Each entry has index, title, and status.",
-          "items": {
-            "type": "object",
-            "required": [
-              "index",
-              "title",
-              "status"
-            ],
-            "properties": {
-              "index": {
-                "type": "number"
-              },
-              "title": {
-                "type": "string"
-              },
-              "status": {
-                "type": "string",
-                "enum": [
-                  "created",
-                  "existing"
-                ]
-              },
-              "itemRef": {
-                "type": "object"
-              },
-              "doi": {
-                "type": "string"
-              },
-              "arxiv": {
-                "type": "string"
-              },
-              "pmid": {
-                "type": "string"
-              },
-              "isbn": {
-                "type": "string"
-              },
-              "landingUrl": {
+        "searchSummary": {
+          "type": "object",
+          "required": [
+            "breadth",
+            "languages",
+            "queryLaneCount",
+            "sourceLaneCount",
+            "uniqueCandidateCount",
+            "selectedCount",
+            "stopReason"
+          ],
+          "properties": {
+            "breadth": {
+              "type": "string",
+              "enum": [
+                "broad",
+                "balanced",
+                "quick"
+              ]
+            },
+            "languages": {
+              "type": "array",
+              "items": {
                 "type": "string"
               }
             },
-            "additionalProperties": true
-          }
+            "queryLaneCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "sourceLaneCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "uniqueCandidateCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "selectedCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "stopReason": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
         },
-        "missing_pdf_references": {
+        "outcomes": {
           "type": "array",
-          "description": "Ingested references without PDF attachments, with landing page and manual search links.",
           "items": {
             "type": "object",
             "required": [
-              "index",
-              "title"
+              "candidateId",
+              "title",
+              "candidateTier",
+              "discoverySources",
+              "decision",
+              "ingestStatus",
+              "pdfStatus",
+              "needsCuration"
             ],
             "properties": {
-              "index": {
-                "type": "number"
+              "candidateId": {
+                "type": "string"
               },
               "title": {
                 "type": "string"
               },
-              "status": {
+              "candidateTier": {
+                "type": "string",
+                "enum": [
+                  "ready",
+                  "needs_curation",
+                  "lead_only"
+                ]
+              },
+              "discoverySources": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "source",
+                    "queryLane"
+                  ],
+                  "properties": {
+                    "source": {
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string"
+                    },
+                    "queryLane": {
+                      "type": "string",
+                      "enum": [
+                        "core",
+                        "multilingual",
+                        "seed",
+                        "gap"
+                      ]
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              },
+              "identifiers": {
+                "type": "object",
+                "properties": {
+                  "doi": { "type": "string" },
+                  "arxiv": { "type": "string" },
+                  "pmid": { "type": "string" },
+                  "isbn": { "type": "string" }
+                },
+                "additionalProperties": false
+              },
+              "decision": {
+                "type": "string",
+                "enum": [
+                  "approved",
+                  "rejected",
+                  "not_selected",
+                  "unresolved"
+                ]
+              },
+              "ingestStatus": {
                 "type": "string",
                 "enum": [
                   "created",
-                  "existing"
+                  "existing",
+                  "not_attempted",
+                  "failed"
                 ]
               },
+              "pdfStatus": {
+                "type": "string",
+                "enum": [
+                  "attached",
+                  "missing",
+                  "skipped",
+                  "failed"
+                ]
+              },
+              "needsCuration": {
+                "type": "boolean"
+              },
               "itemRef": {
-                "type": "object"
-              },
-              "doi": {
-                "type": "string"
-              },
-              "arxiv": {
-                "type": "string"
-              },
-              "pmid": {
-                "type": "string"
-              },
-              "isbn": {
-                "type": "string"
+                "type": "object",
+                "properties": {
+                  "id": { "type": "integer", "minimum": 1 },
+                  "key": { "type": "string" },
+                  "libraryId": { "type": "integer", "minimum": 0 }
+                },
+                "additionalProperties": true
               },
               "landingUrl": {
                 "type": "string"
@@ -118,35 +193,18 @@
                   "type": "string"
                 }
               },
-              "reason": {
+              "reasonCode": {
                 "type": "string"
-              }
+              },
+              "error": {}
             },
             "additionalProperties": true
           }
         },
-        "ingest_failures": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": [
-              "index",
-              "title",
-              "error"
-            ],
-            "properties": {
-              "index": {
-                "type": "number"
-              },
-              "title": {
-                "type": "string"
-              },
-              "error": {
-                "type": "object"
-              }
-            },
-            "additionalProperties": true
-          }
+        "searchLedgerPath": {
+          "type": "string",
+          "x-type": "artifact",
+          "x-role": "search-ledger"
         }
       },
       "additionalProperties": true
@@ -167,12 +225,10 @@
           "const": "canceled"
         },
         "reason": {
-          "type": "string",
-          "description": "Machine-readable reason code explaining the cancellation."
+          "type": "string"
         },
         "message": {
-          "type": "string",
-          "description": "Human-readable explanation message."
+          "type": "string"
         }
       },
       "additionalProperties": true

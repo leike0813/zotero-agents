@@ -15,10 +15,10 @@ Use this skill to operate the Zotero library through Host Bridge with a libraria
 3. Read `references/terminology.md` when the request uses shorthand such as graph, 三件套, digest, references, citation analysis, run handles, or writeback.
 4. Read `references/workflow-execution-policy.md` before preparing or submitting workflows.
 5. Use `references/common-tasks.md` for common literature, readiness, synthesis, and writeback task routing.
-6. Use `references/host-bridge.md` for Host Bridge CLI commands and `references/workflows.md` for workflow catalog guidance.
-7. Use `references/library-maintenance.md` for recurring maintenance routines.
+6. Load exactly one matching generated command manual under `references/commands/`; use `references/workflows.md` for the generated workflow catalog and `references/host-bridge.md` only for exhaustive target inspection.
+7. Read the resident references below before index, schedule, monitoring, maintenance, or helper-script work.
 8. Check `zotero-bridge bridge status` when Host Bridge availability is uncertain.
-9. Compare `zotero-bridge --version` with the expected version in `references/host-bridge.md` when the loaded profile path, command help, or CLI error suggests a surface mismatch.
+9. Run `zotero-bridge surface identity --json` and compare the CLI schema, build fingerprint, and command catalog checksum with the profile release envelope when the loaded profile path, command help, or CLI error suggests a surface mismatch.
 10. Use `zotero-bridge bridge profile inspect`, `zotero-bridge bridge profile diagnose`, and `zotero-bridge bridge backend ...` before retrying backend or profile-sensitive operations.
 
 ## Decision Rules
@@ -33,6 +33,30 @@ Use this skill to operate the Zotero library through Host Bridge with a libraria
 - For Host-owned execution, submit the workflow and monitor the returned `workflowRunId` with `run`.
 - For agent-owned handoffs, use `$zotero-workflow-agent-runner`; treat `agentRunId` as the apply-back session handle, complete the returned requests, and apply them with `workflow agent-apply`.
 - For writes, use preview/apply, mutation-backed semantic commands, or workflow apply-back. Keep the preview, applied result, uploaded `fileId`, or result bundle path in the task record.
+- For exact command distinctions, load the directly linked command manual below; load `references/output-and-recovery.md` after any failure or uncertain state change.
+
+## Resident references
+
+- `references/resident-index.md`: read before local-index discovery, refresh, freshness decisions, or live confirmation.
+- `references/scheduled-jobs.md`: read before running or changing any cron-owned task.
+- `references/monitoring-and-notifications.md`: read before notification sync, run registration, or run-watch.
+- `references/workflows.md`: generated workflow catalog facts; refresh locally, then confirm live execution modes before execution.
+- `references/workflow-execution-policy.md`: read before Host-owned submit or agent-owned handoff.
+- `references/maintenance-and-recovery.md`: read before cache invalidation, graph metric refresh, index repair, or recovery from partial state.
+- `references/profile-script-contracts.md`: read before calling any profile helper script.
+- `references/library-maintenance.md`: resident triage, hygiene, and attention-queue policy.
+
+## Command manuals
+
+- `references/commands/connectivity-context.md`: identity, bridge/profile/backend checks, context, and navigation.
+- `references/commands/library-items.md`: library search, deterministic paging, item detail, notes, and attachments.
+- `references/commands/library-notes-attachments-readiness.md`: note payloads, annotations, readiness, and snapshot pages.
+- `references/commands/workflows-and-runs.md`: workflow modes, submit/handoff/apply, run monitoring, permissions, and interaction.
+- `references/commands/mutations-files-products.md`: concrete writes, registered files, and Dashboard Products.
+- `references/commands/synthesis-topics-artifacts.md`: topics, artifacts, concepts, and schemas.
+- `references/commands/synthesis-graph.md`: graph view and maintenance distinctions.
+- `references/commands/synthesis-index-resolver-insights.md`: derived indexes, resolvers, attention queue, and cache state.
+- `references/commands/diagnostics.md`: debug-only escalation after normal diagnostics.
 
 ## Context Handling
 

@@ -1248,6 +1248,7 @@ synthesis-canonical-unsaved-metadata = 元数据草稿有未保存更改
 synthesis-canonical-edit-metadata = 编辑外部规范引用元数据
 synthesis-canonical-archive-empty = 归档空规范引用
 synthesis-tags-management = Synthesis 标签管理
+synthesis-tags-builtin = 内建
 synthesis-tags-summary-canonical = 规范标签
 synthesis-tags-summary-staged = 暂存
 synthesis-tags-summary-warnings = 警告

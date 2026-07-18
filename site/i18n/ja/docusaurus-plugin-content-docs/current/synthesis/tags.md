@@ -17,7 +17,7 @@
 | `ai_task` | AI タスクタイプ | `ai_task:text_summarization` |
 | `data` | データセット | `data:imagenet` |
 | `tool` | ツール | `tool:python` |
-| `status` | 状態マーカー | `status:to_read` |
+| `status` | Workflow の未完了タスク | `status:need-analysis` |
 
 タグフォーマット：`^[a-z_]+:[a-zA-Z0-9/_.-]+$`、最大 120 文字。
 
@@ -31,6 +31,8 @@ Synthesis Workbench → Tags → Vocabulary ページでは以下の操作がで
 - **非推奨化**: タグを非推奨としてマーク。代替タグを指定可能
 - **JSON インポート**: JSON ファイルからタグ語彙をインポート（確認前のプレビューをサポート）
 - **JSON エクスポート**: 現在の語彙を JSON ファイルにエクスポート
+
+5 つの組み込み Workflow ステータスはプラグイン起動時に初期化されます。それらの tag、facet、source、非推奨状態、replacement は変更または削除できません。note は引き続き編集可能で、aliases は通常のガバナンスパスを使用します。カスタム `status:*` エントリは他のカスタム語彙エントリと同じ管理コントロールを保持します。インポートは組み込みの note と aliases を更新できますが、組み込みを省略したり保護された ID を変更したりしても、削除や置換はできません。
 
 ![Synthesis Tags ページ](/img/docs/synthesis/tags.png)
 
@@ -61,4 +63,23 @@ Synthesis Workbench → Tags → Vocabulary ページでは以下の操作がで
 
 ## 関連 Workflow
 
-タグの標準化と自動推論は [Tag Regulator](../workflows/tag-regulator) Workflow によって駆動される。この Workflow を実行すると、統制語彙に基づいてタグの自動クリーニングと補完が行われる。
+`status` は読書進捗ではなく Workflow の未完了タスクを表します。項目には 0 個以上の status を付けられます。5 つの組み込み定義：
+
+- `status:need-metadata-curation`
+- `status:need-fulltext`
+- `status:need-markdown`
+- `status:need-analysis`
+- `status:need-deep-reading`
+
+これらを作成するために Tag Bootstrapper を実行する必要はありません。Tag Bootstrapper はカスタム語彙エントリのみを追加し、[Tag Regulator](../workflows/tag-regulator) は通常の統制タグを監査できますが、文献項目に組み込み Workflow ステータスを追加または削除することはできません。どちらの Workflow も論文のトピック、言語、メタデータ、または全文から組み込みステータスを推論することはできません。
+
+| イベント | 項目に追加 | 項目から削除 |
+|----------|------------|--------------|
+| Search が項目を作成 | Markdown、analysis、deep reading。結果が必要とする場合の metadata/fulltext | — |
+| Search が項目を再利用 | この結果で明示的に必要な metadata/fulltext のみ | — |
+| Metadata Curator が成功または変更なしを確認 | — | Metadata curation |
+| MinerU が Markdown を書き込んで添付 | — | Markdown と fulltext |
+| Literature Analysis が正式な成果物を書き込み | — | Analysis |
+| Literature Deep Reading が HTML を書き込んで添付 | — | Deep reading |
+
+失敗、スキップ、キャンセル、または未適用の実行はステータスをクリアしません。成果物が成功してもステータスクリーンアップが失敗した場合、成果物は保持され、実行は部分的な警告を報告します。PDF を手動添付しても `status:need-fulltext` は自動削除されません。

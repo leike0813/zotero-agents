@@ -62,9 +62,15 @@ Workflowは3つのバックエンドタイプを通じて実行できます。
 | Workflow | 目的 | 入力 | バックエンド | ドキュメント |
 |---------|------|------|------|------|
 | **Literature Analysis** ⭐ | PDF/MDからダイジェスト、参考文献リスト、引用分析を生成。タグ正規化へカスケード可能 | 添付ファイル | Skill-Runner | [詳細](#doc/workflows%2Fliterature-analysis) |
+| **Literature Metadata Curator** | Zotero アイテムの書誌メタデータをクエリ、修正、補完 | 親アイテム | Skill-Runner | [詳細](#doc/workflows%2Fliterature-metadata-curator) |
+| **Literature Translator** | 用語集管理と品質ゲート付きで学術文献を翻訳 | 添付ファイル | Skill-Runner | [詳細](#doc/workflows%2Fliterature-translator) |
 | **Interactive Literature Explainer** | AIとのマルチターン対話による文献の深い理解、検証済み回答で幻覚を防止 | 添付ファイル | Skill-Runner | [詳細](#doc/workflows%2Fliterature-explainer) |
 | **Deep Reading** | 翻訳サポート付きの構造化された深読HTMLビューを生成 | 添付ファイル | ACP | [詳細](#doc/workflows%2Fliterature-deep-reading) |
 | **Literature Search & Ingest** | エージェントに学術文献を検索させ、Zoteroに直接取り込む | workflow | ACP | [詳細](#doc/workflows%2Fliterature-search-ingest) |
+| **Collection Collector** | 宣言されたスコープに基づき既存コレクション用にライブラリから既存文献を選択 | workflow | ACP | [詳細](#doc/workflows%2Fcollection-collector) |
+| **Export/Import Literature Bundle** | メタデータ、添付ファイル、ノート付き Zotero アイテムのポータブル ZIP バンドルをエクスポート/インポート | 親アイテム / workflow | バックエンド不要 | [詳細](#doc/workflows%2Fexport-import-literature-bundle) |
+| **Export Research Bundle** | ライブラリと Synthesis コンテキストから論文プロジェクトの読み取り専用リサーチバンドルを自動構成 | workflow | Skill-Runner | [詳細](#doc/workflows%2Fexport-research-bundle) |
+| **Tag Auditor** | ライブラリの全アイテムを統制タグ語彙に対してスキャンし適合性を報告 | workflow | バックエンド不要 | [詳細](#doc/workflows%2Ftag-auditor) |
 | **Tag Bootstrapper** | 研究ドメインの統制されたタグ語彙を対話的に作成 | workflow | Skill-Runner | [詳細](#doc/workflows%2Ftag-bootstrapper) |
 | **Tag Regulator** | 統制語彙に基づいてタグを正規化し、新しいタグを推論 | 親アイテム | Skill-Runner | [詳細](#doc/workflows%2Ftag-regulator) |
 | **Export/Import Notes** | 分析ノートのエクスポート・インポート、編集と再インポートに対応 | 親アイテム | バックエンド不要 | [詳細](#doc/workflows%2Fexport-import-notes) |

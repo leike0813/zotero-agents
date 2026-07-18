@@ -107,16 +107,9 @@ Das Kernwerkzeug des Profils ist `zotero_librarian_index_service.py`. Es pflegt 
 
 ### Bibliotheksverwaltung
 
-**Tägliche Posteingangstriage** (`cron/inbox-triage.yaml`)
+**Tägliche Workflow-Status-Triage** (`cron/workflow-status-triage.yaml`)
 
-Der Posteingangstriage-Cron des Profils läuft täglich und prüft neue Elemente in Ihrer Bibliothek auf Vollständigkeit:
-
-- Elemente mit Status `0-inbox` (unbearbeitet)
-- Fehlende Tags oder Sammlungszuweisungen
-- Fehlende DOI, URL oder Anhangsdateien
-- Fehlende Zusammenfassungs- oder Digest-Artefakte
-
-Er erstellt einen Bericht mit Handlungsvorschlägen, nimmt jedoch ohne Ihre Zustimmung keine Zotero-Änderungen vor.
+Dieser schreibgeschützte Cron sucht nach `status:need-*` und meldet offene Workflow-Aufgaben. Er leitet keine Status ab, ändert keine Tags und verändert Zotero nicht.
 
 **Wöchentliche Bibliothekshygiene** (`cron/library-hygiene.yaml`)
 
@@ -227,7 +220,7 @@ Das Profil enthält sechs vorkonfigurierte Cron-Vorlagen im Verzeichnis `cron/`:
 | `index-refresh` | Alle 6 Stunden | Durchläuft `library snapshot`, um den lokalen SQLite-Index aktuell zu halten. Meldet `[SILENT]`, wenn keine Änderungen erkannt werden. |
 | `workflow-catalog-refresh` | Täglich um 03:00 | Ruft `workflow list` + `workflow describe` auf, um den Workflow-Katalogcache zu aktualisieren. Meldet `[SILENT]` bei keinen Änderungen. |
 | `run-monitor` | Alle 5 Minuten | Ruft `run-watch` auf, um aktive registrierte Ausführungen zu prüfen. Meldet nur Zustandsänderungen, Endzustände oder aufmerksamkeitsbedürftige Elemente. |
-| `inbox-triage` | Täglich um 09:00 | Sucht nach Elementen mit `status:0-inbox`, fehlenden Tags, fehlenden Sammlungen, fehlenden Metadaten. Erstellt einen schreibgeschützten Bericht. |
+| `workflow-status-triage` | Täglich um 09:00 | Sucht nach `status:need-*` und erstellt einen schreibgeschützten Workflow-Bericht. |
 | `library-hygiene` | Wöchentlich montags | Durchsucht nach doppelten Einträgen, verwaisten Elementen, leeren Sammlungen und Datenqualitätsproblemen. |
 | `attention-queue` | Täglich um 18:00 | Kombiniert Aufmerksamkeitswarteschlangen-Erkenntnisse mit lokalen Indexdaten zur Priorisierung von Aufgaben. |
 

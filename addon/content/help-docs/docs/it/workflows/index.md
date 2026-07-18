@@ -62,9 +62,15 @@ Il plugin include una serie di workflow ufficiali, raggruppati per funzione:
 | Workflow | Scopo | Input | Backend | Docs |
 |----------|-------|-------|---------|------|
 | **Analisi della letteratura** ⭐ | Genera riassunto, riferimenti, analisi delle citazioni da PDF/MD. Può innescare a cascata la regolazione dei tag | Allegato | Skill-Runner | [Dettagli](#doc/workflows%2Fliterature-analysis) |
+| **Literature Metadata Curator** | Interrogare, correggere e completare i metadati bibliografici di un elemento Zotero | Elemento padre | Skill-Runner | [Dettagli](#doc/workflows%2Fliterature-metadata-curator) |
+| **Literature Translator** | Tradurre letteratura accademica con gestione del glossario e controlli di qualità | Allegato | Skill-Runner | [Dettagli](#doc/workflows%2Fliterature-translator) |
 | **Spiegatore interattivo della letteratura** | Dialogo multi-turno con l'AI per una comprensione approfondita della letteratura, con risposte verificate per prevenire allucinazioni | Allegato | Skill-Runner | [Dettagli](#doc/workflows%2Fliterature-explainer) |
 | **Lettura approfondita** | Genera una vista HTML strutturata di lettura approfondita con supporto per la traduzione | Allegato | ACP | [Dettagli](#doc/workflows%2Fliterature-deep-reading) |
 | **Ricerca e acquisizione della letteratura** | Lascia che l'Agent cerchi letteratura accademica e la acquisisca direttamente in Zotero | workflow | ACP | [Dettagli](#doc/workflows%2Fliterature-search-ingest) |
+| **Collection Collector** | Selezionare letteratura esistente dalla libreria per una raccolta in base a un ambito dichiarato | workflow | ACP | [Dettagli](#doc/workflows%2Fcollection-collector) |
+| **Export/Import Literature Bundle** | Esportare/importare bundle ZIP portabili di elementi Zotero con metadati, allegati e note | Elemento padre / workflow | Nessun backend richiesto | [Dettagli](#doc/workflows%2Fexport-import-literature-bundle) |
+| **Export Research Bundle** | Assemblare automaticamente un bundle di ricerca di sola lettura per un progetto dalla libreria e dal contesto Synthesis | workflow | Skill-Runner | [Dettagli](#doc/workflows%2Fexport-research-bundle) |
+| **Tag Auditor** | Scansionare tutti gli elementi della libreria rispetto al vocabolario di tag controllato e segnalare la conformità | workflow | Nessun backend richiesto | [Dettagli](#doc/workflows%2Ftag-auditor) |
 | **Bootstrapper dei tag** | Crea in modo interattivo un vocabolario controllato di tag per un dominio di ricerca | workflow | Skill-Runner | [Dettagli](#doc/workflows%2Ftag-bootstrapper) |
 | **Regolatore dei tag** | Normalizza i tag in base a un vocabolario controllato e inferisce nuovi tag | Elemento padre | Skill-Runner | [Dettagli](#doc/workflows%2Ftag-regulator) |
 | **Esporta/Importa note** | Esporta o importa note di analisi con supporto per la modifica e la reimportazione | Elemento padre | Nessun backend richiesto | [Dettagli](#doc/workflows%2Fexport-import-notes) |

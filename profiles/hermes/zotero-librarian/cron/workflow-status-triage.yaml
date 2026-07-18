@@ -1,0 +1,14 @@
+schema: hermes.cron.v1
+name: workflow-status-triage
+schedule:
+  time: "09:00"
+command:
+  - scripts/zotero_librarian_index_service.py
+  - search
+  - "status:need-"
+behavior:
+  unchanged: "[SILENT]"
+  mutation: never
+notes:
+  - Report items carrying one or more plugin workflow-pending statuses.
+  - Suggest the owning workflow without writing to Zotero or changing status tags.

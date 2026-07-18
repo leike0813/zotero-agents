@@ -2,9 +2,13 @@
 
 ## Choose Ownership
 
+Read `executionModes` from `workflow describe` or `workflow requirements`; do not infer ownership support from provider names or prose.
+
 Use `workflow submit` when Host Bridge and a configured backend should own execution. Keep the returned `workflowRunId` and obtain explicit `skillRunId` values before replying or reconnecting.
 
 Use `workflow agent-run` when the current agent should execute prepared requests locally. The downloaded handoff contains sanitized context, request metadata, output contracts, and the authoritative output-contract toolkit. The returned `agentRunId` is an apply-back session handle, not a running Host task.
+
+Do not choose agent-owned execution when `executionModes.agentOwned.supported` is false. In particular, `workflow agent-run` does not accept workflow options or provider profiles.
 
 ## Prepare Inputs
 
@@ -29,6 +33,7 @@ Use `workflow agent-run` when the current agent should execute prepared requests
 4. Finalize each result with the bundled output-contract toolkit or an equivalent implementation of that exact contract.
 5. Optionally inspect the handoff and validate a result with `scripts/zotero_library_agent.py workflow ...`.
 6. Apply completed results with `workflow agent-apply <agentRunId> --result <agentRequestId>=<bundlePath>` only after reviewing the result and write intent.
+7. Query `workflow agent-apply-status <agentRunId>` after any interrupted, failed, or multi-result apply to obtain the receipt before deciding whether recovery is safe.
 
 Do not use run-control commands for `agentRunId`, monitor agent-owned work as a Host run, or hand-build a result namespace when an output contract is present.
 

@@ -1,35 +1,44 @@
 # Host Bridge Surface Versioning
 
-Use `npm run inspect:zotero-librarian-profile-version -- --json` to read the
-recorded CLI version, the Profile patch source, and the resolved Profile version.
+The release planner governs four independent component versions from their
+owned inputs and public content digests.
 
-The Profile version is `<CLI major>.<CLI minor>.<Profile patch>`. CLI patch
-changes do not change the Profile version. A new CLI major/minor line starts at
-Profile patch `0` until a public Profile change is bumped.
+## Rust CLI
 
-Run `npm run bump:zotero-librarian-profile` exactly once before rendering when
-the release changes public Profile content: Profile guidance, scripts,
-configuration, cron jobs, generated Host Bridge references, wrapper guidance,
-Host Bridge capabilities, or workflow catalog content. Do not bump for
-generated-output drift only. Do not bump for a CLI patch-only release.
+The Rust CLI version identifies the executable release line. Changed binary
+inputs require a prepared CLI patch unless an explicit release intent selects a
+minor or major protocol/schema change. The build fingerprint and command catalog
+checksum remain part of compatibility identity even when the version matches.
 
-After a version decision, render and verify committed generated surfaces:
+## CLI Wrapper
 
-```powershell
-npm run render:host-bridge-surface
-npm run check:host-bridge-surface
-npm run check:zotero-librarian-profile
-```
+`skills_src/zotero-bridge-cli/runner.json.version` is the wrapper content
+version. Bump it when wrapper public content changes; do not couple it to the
+Rust CLI version.
 
-Use `npm run inspect:zotero-library-agent-bundle-version -- --json` to read the
-recorded CLI version, bundle patch source, and resolved bundle version.
+## Zotero Library Agent
 
-The Zotero Library Agent bundle version is
-`<CLI major>.<CLI minor>.<bundle patch>`. CLI patch changes do not change the
-bundle version. A CLI major/minor line resolves to bundle patch `0` until a
-public bundle change is bumped.
+Use `npm run inspect:zotero-library-agent-bundle-version -- --json`. The bundle
+version is `<CLI major>.<CLI minor>.<bundle patch>`. Bump the owned patch when
+bundle guidance, shared control facts, helpers, schemas, generated references,
+or packaging layout changes.
 
-Run `npm run bump:zotero-library-agent-bundle` exactly once before rendering
-when public bundle guidance, shared control facts, schemas, helpers, generated
-references, or packaging layout changes. Do not bump for generated-output drift
-or a CLI patch-only release.
+## Zotero Librarian Profile
+
+Use `npm run inspect:zotero-librarian-profile-version -- --json`. The Profile
+version is `<CLI major>.<CLI minor>.<Profile patch>`. Bump the owned patch when
+Profile guidance, scripts, configuration, cron jobs, generated references,
+capabilities, or workflow catalog content changes.
+
+## Decision Rules
+
+- Let `npm run release:host-bridge:plan` classify owned changes.
+- Use `render:host-bridge-content` and `check:host-bridge-content` on feature
+  changes without changing version metadata.
+- After accumulated changes reach `main`, let
+  `npm run prepare:host-bridge-release -- --intent <patch|minor>` apply each
+  required bump once before release rendering.
+- Do not bump a component for generated-output drift alone or for another
+  component's patch-only release.
+- Use explicit release intent for breaking protocol or schema decisions.
+- Keep preparation idempotent by public digest and `releaseSetId`.

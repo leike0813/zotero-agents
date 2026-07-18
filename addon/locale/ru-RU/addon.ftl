@@ -611,6 +611,7 @@ skillrunner-backend-auto-disabled-toast = Бэкенд { $backend } был от�
 # Интерфейс панели помощника
 assistant-panel-action-send = Отправить
 assistant-panel-action-cancel = Отмена
+assistant-panel-action-cancelling = Отмена…
 assistant-panel-action-cancel-run = Отменить задачу
 assistant-panel-action-archive = Архивировать
 assistant-panel-action-close = Закрыть
@@ -1247,6 +1248,7 @@ synthesis-canonical-unsaved-metadata = Проект метаданных име�
 synthesis-canonical-edit-metadata = Редактировать метаданные внешней канонической
 synthesis-canonical-archive-empty = Архивировать пустую каноническую
 synthesis-tags-management = Управление тегами Synthesis
+synthesis-tags-builtin = Встроенный
 synthesis-tags-summary-canonical = Канонические
 synthesis-tags-summary-staged = Промежуточные
 synthesis-tags-summary-warnings = Предупреждения

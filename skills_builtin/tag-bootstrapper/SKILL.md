@@ -80,13 +80,13 @@ Ask concise questions until the vocabulary intent is clear. Do not ask about plu
 
 1. Identify the user's research domains and recurring literature areas.
 2. Review the Host Bridge library index when available and identify recurring domains, methods, models, datasets, tools, collections, and informal tags.
-3. Identify the facets they actually want to govern: field, topic, method, model, ai_task, data, tool, status, match_status, or the subset allowed by `input.protocol.facets`.
+3. Identify the facets they actually want to govern: field, topic, method, model, ai_task, data, tool, status, or the subset allowed by `input.protocol.facets`.
 4. Ask about desired granularity: broad browse tags, mid-level retrieval tags, or fine-grained project tags.
 5. Review `existing_tags` and ask what is missing, over-specific, or underrepresented.
 6. Propose a compact vocabulary increment. Prefer a small coherent set over an exhaustive list.
 7. If the user rejects a naming pattern or granularity, revise the candidate set before final output.
 
-For an empty vocabulary, start with foundational tags: 1-3 `field:` tags, a small set of core `method:` or `model:` tags when relevant, and workflow tags only if the user wants status tracking. For a non-empty vocabulary, focus only on gaps and adjacent additions.
+For a vocabulary containing only plugin builtins, start with foundational custom tags: 1-3 `field:` tags and a small set of core `method:` or `model:` tags when relevant. For a non-empty custom vocabulary, focus only on gaps and adjacent additions.
 
 ## Tag Generation Rules
 
@@ -105,6 +105,8 @@ For an empty vocabulary, start with foundational tags: 1-3 `field:` tags, a smal
 - Do not emit duplicate tags within `add_tags`, comparing by `tag.toLowerCase()`.
 - Keep each tag within `input.protocol.max_tag_length`.
 - Ensure every emitted tag matches `input.protocol.tag_pattern`.
+- Treat every `status:need-*` entry supplied by the plugin as a read-only reserved builtin. Never emit any of the five plugin-owned workflow statuses in `add_tags`.
+- Do not infer workflow status from a paper's topic, language, metadata, digest, or full text. A custom `status:*` candidate is allowed only when the user explicitly defines a durable workflow meaning that is not a plugin builtin.
 
 When uncertain, omit the tag and add a warning. Do not pad the result with speculative tags.
 
@@ -132,6 +134,7 @@ When uncertain, omit the tag and add a warning. Do not pad the result with specu
 - Do not place implementation commentary in `add_tags[].note`.
 - Do not read Zotero DB/storage, plugin internals, or attachment paths directly; use Host Bridge only.
 - Do not create aliases, abbreviations, protocol changes, or deprecation records; this skill only emits `add_tags`.
+- Do not create, rename, replace, deprecate, or otherwise maintain plugin builtin workflow status definitions.
 
 ## Output Contract
 
@@ -241,6 +244,7 @@ Before stdout, verify:
 - every tag has an allowed facet and matches the protocol;
 - no tag duplicates an existing tag case-insensitively;
 - no tag duplicates another result tag case-insensitively;
+- no plugin builtin workflow status appears in `add_tags`;
 - `warnings` is an array of strings;
 - `error` is an object; use `{}` for success and include fields such as `code` and `message` when reporting a failure;
 - `provenance.generated_at`, when present, is a string;

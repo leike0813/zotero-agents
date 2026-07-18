@@ -62,7 +62,7 @@ type WorkflowSettingsDialogSnapshot = {
     selectedProfile: string;
     workflowSchemaEntries: Array<{
       key: string;
-      type: "string" | "number" | "boolean";
+      type: "string" | "number" | "boolean" | "array";
       title?: string;
       description?: string;
       enumValues?: string[];
@@ -82,7 +82,7 @@ type WorkflowSettingsDialogSnapshot = {
     }>;
     providerSchemaEntries: Array<{
       key: string;
-      type: "string" | "number" | "boolean";
+      type: "string" | "number" | "boolean" | "array";
       title?: string;
       description?: string;
       enumValues?: string[];
@@ -102,7 +102,7 @@ type WorkflowSettingsDialogSnapshot = {
     }>;
     runSchemaEntries: Array<{
       key: string;
-      type: "string" | "number" | "boolean";
+      type: "string" | "number" | "boolean" | "array";
       title?: string;
       description?: string;
       enumValues?: string[];

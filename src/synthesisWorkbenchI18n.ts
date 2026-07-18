@@ -68,6 +68,7 @@ export const SYNTHESIS_WORKBENCH_DEFAULT_MESSAGES = {
   "synthesis-action-import": "Import",
   "synthesis-action-apply": "Apply",
   "synthesis-action-edit": "Edit",
+  "synthesis-tags-builtin": "Builtin",
   "synthesis-action-remove": "Remove",
   "synthesis-action-save": "Save",
   "synthesis-action-revert": "Revert",

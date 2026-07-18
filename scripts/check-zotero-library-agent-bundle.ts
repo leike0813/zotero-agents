@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import Ajv from "ajv";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { readZoteroBridgeCliRelease } from "./zotero-bridge-cli-release";
@@ -8,10 +9,14 @@ import {
   inspectZoteroLibraryAgentBundleVersion,
   ZOTERO_LIBRARY_AGENT_BUNDLE_VERSION_SOURCE_PATH,
 } from "./zotero-library-agent-bundle-version";
-import { ZOTERO_LIBRARY_AGENT_SEMANTIC_FILES } from "./render-zotero-library-agent-bundle";
+import {
+  ZOTERO_LIBRARY_AGENT_RUNTIME_FILES,
+  ZOTERO_LIBRARY_AGENT_SEMANTIC_FILES,
+} from "./render-zotero-library-agent-bundle";
 
 const ROOT = process.cwd();
 const SOURCE_ROOT = "skills_src/zotero-library-agent/semantic";
+const RUNTIME_SOURCE_ROOT = "skills_src/zotero-library-agent";
 const TARGET_ROOT = "skills_builtin/zotero-library-agent";
 const SHARED_TERMINOLOGY = "skills_src/host-bridge-shared/terminology.md";
 const SHARED_CONTROL = "skills_src/host-bridge-shared/control-invariants.md";
@@ -61,6 +66,27 @@ function checkFiles(errors: string[]) {
       fail(errors, `rendered file differs from semantic source: ${relative}`);
     }
   }
+  for (const {
+    source: relativeSource,
+    target: relativeTarget,
+  } of ZOTERO_LIBRARY_AGENT_RUNTIME_FILES) {
+    const source = join(RUNTIME_SOURCE_ROOT, relativeSource);
+    const target = join(TARGET_ROOT, relativeTarget);
+    if (!existsSync(join(ROOT, source))) {
+      fail(errors, `missing runtime source: ${source}`);
+      continue;
+    }
+    if (!existsSync(join(ROOT, target))) {
+      fail(errors, `missing rendered runtime file: ${target}`);
+      continue;
+    }
+    if (read(source) !== read(target)) {
+      fail(
+        errors,
+        `rendered runtime file differs from source: ${relativeTarget}`,
+      );
+    }
+  }
   const sharedCopies = [
     [SHARED_TERMINOLOGY, join(TARGET_ROOT, "references/terminology.md")],
     [SHARED_CONTROL, join(TARGET_ROOT, "references/control-invariants.md")],
@@ -78,6 +104,38 @@ function checkFiles(errors: string[]) {
     if (!existsSync(join(ROOT, target)) || read(source) !== read(target)) {
       fail(errors, `shared generated copy is stale: ${target}`);
     }
+  }
+}
+
+function checkRuntimeContract(errors: string[]) {
+  const runnerPath = join(TARGET_ROOT, "assets/runner.json");
+  const outputSchemaPath = join(TARGET_ROOT, "assets/output.schema.json");
+  try {
+    const runner = readJson(runnerPath);
+    if (runner.id !== "zotero-library-agent") {
+      fail(errors, "Library Agent runner has an incorrect id");
+    }
+    if (
+      !Array.isArray(runner.execution_modes) ||
+      !runner.execution_modes.includes("auto") ||
+      !runner.execution_modes.includes("interactive")
+    ) {
+      fail(
+        errors,
+        "Library Agent runner must support auto and interactive modes",
+      );
+    }
+    if (runner.schemas?.output !== "assets/output.schema.json") {
+      fail(errors, "Library Agent runner has an incorrect output schema path");
+    }
+  } catch (error) {
+    fail(errors, `invalid Library Agent runner: ${String(error)}`);
+  }
+  try {
+    const ajv = new Ajv({ allErrors: true, strict: false });
+    ajv.compile(readJson(outputSchemaPath));
+  } catch (error) {
+    fail(errors, `invalid Library Agent output schema: ${String(error)}`);
   }
 }
 
@@ -201,6 +259,7 @@ function checkPrebuilds(errors: string[]) {
 
 const errors: string[] = [];
 checkFiles(errors);
+checkRuntimeContract(errors);
 checkSemanticBoundary(errors);
 checkSchemaAndHelper(errors);
 checkVersionAndManifest(errors);

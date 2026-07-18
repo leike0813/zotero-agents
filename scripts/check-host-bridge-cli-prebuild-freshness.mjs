@@ -67,6 +67,19 @@ export async function checkHostBridgeCliPrebuildFreshness(options = {}) {
     );
   }
 
+  if (manifest.binariesBuildFingerprint !== manifest.buildFingerprint) {
+    return createFailure(
+      "host_bridge_cli_binary_identity_stale",
+      "Host Bridge CLI prebuilds were produced from a different build fingerprint.",
+      {
+        buildFingerprint: String(manifest.buildFingerprint || ""),
+        binariesBuildFingerprint: String(
+          manifest.binariesBuildFingerprint || "",
+        ),
+      },
+    );
+  }
+
   const addonManifestPath = repoPath(root, ADDON_RELEASE_MANIFEST_PATH);
   if (!existsSync(addonManifestPath)) {
     return createFailure(
@@ -80,7 +93,9 @@ export async function checkHostBridgeCliPrebuildFreshness(options = {}) {
   const addonManifest = JSON.parse(readFileSync(addonManifestPath, "utf8"));
   if (
     addonManifest.version !== manifest.version ||
-    addonManifest.buildFingerprint !== manifest.buildFingerprint
+    addonManifest.buildFingerprint !== manifest.buildFingerprint ||
+    addonManifest.binariesBuildFingerprint !==
+      manifest.binariesBuildFingerprint
   ) {
     return createFailure(
       "host_bridge_cli_addon_manifest_stale",
@@ -91,6 +106,9 @@ export async function checkHostBridgeCliPrebuildFreshness(options = {}) {
         expectedVersion: manifest.version,
         buildFingerprint: addonManifest.buildFingerprint,
         expectedBuildFingerprint: manifest.buildFingerprint,
+        binariesBuildFingerprint: addonManifest.binariesBuildFingerprint,
+        expectedBinariesBuildFingerprint:
+          manifest.binariesBuildFingerprint,
       },
     );
   }
