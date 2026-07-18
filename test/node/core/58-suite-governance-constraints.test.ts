@@ -1,5 +1,13 @@
 import { assert } from "chai";
-import { existsSync, readdirSync, readFileSync, statSync } from "fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "fs";
+import { tmpdir } from "os";
 import { dirname, extname, join, resolve } from "path";
 import ts from "typescript";
 import packageJson from "../../../package.json";
@@ -330,5 +338,66 @@ describe("suite governance constraints", function () {
       workflowSource,
       /name: Publish content-feed branch to Gitee mirror[\s\S]*?continue-on-error: true/,
     );
+    assert.match(
+      workflowSource,
+      /name: Publish content-feed branch to Gitee mirror[\s\S]*?for attempt in 1 2 3; do[\s\S]*?git -C content-feed-gitee push origin content-feed/,
+    );
+  });
+
+  it("recovers a timed-out Gitee upload only after the attachment is visible", async function () {
+    const root = mkdtempSync(join(tmpdir(), "zs-gitee-upload-"));
+    const asset = join(root, "package.zip");
+    writeFileSync(asset, "package");
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (
+      _input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      if (init?.method === "POST") {
+        throw new DOMException("timed out", "TimeoutError");
+      }
+      return new Response(JSON.stringify([{ name: "package.zip" }]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+    try {
+      const { syncGiteeReleaseInternalsForTests } =
+        await import("../../../scripts/sync-gitee-release");
+      await syncGiteeReleaseInternalsForTests.uploadAttachment({
+        owner: "owner",
+        repo: "repo",
+        releaseId: 1,
+        filePath: asset,
+        token: "token",
+      });
+      globalThis.fetch = (async (
+        _input: string | URL | Request,
+        init?: RequestInit,
+      ) => {
+        if (init?.method === "POST") {
+          throw new DOMException("timed out", "TimeoutError");
+        }
+        return new Response("[]", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }) as typeof fetch;
+      let missingAttachmentError: unknown;
+      try {
+        await syncGiteeReleaseInternalsForTests.uploadAttachment({
+          owner: "owner",
+          repo: "repo",
+          releaseId: 1,
+          filePath: asset,
+          token: "token",
+        });
+      } catch (error) {
+        missingAttachmentError = error;
+      }
+      assert.match(String(missingAttachmentError), /timed out/);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

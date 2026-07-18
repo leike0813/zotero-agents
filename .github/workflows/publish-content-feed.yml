@@ -127,4 +127,12 @@ jobs:
           git -C content-feed-gitee config user.name "github-actions[bot]"
           git -C content-feed-gitee config user.email "actions@github.com"
           git -C content-feed-gitee commit -m "publish content feed ${GITHUB_SHA}" || exit 0
-          git -C content-feed-gitee push origin content-feed
+          for attempt in 1 2 3; do
+            if git -C content-feed-gitee push origin content-feed; then
+              break
+            fi
+            if [ "${attempt}" -eq 3 ]; then
+              exit 1
+            fi
+            sleep "$((attempt * 5))"
+          done

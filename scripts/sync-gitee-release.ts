@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 type CliOptions = {
   repo: string;
@@ -264,20 +265,6 @@ async function listAttachments(args: {
   return Array.isArray(attachments) ? attachments : [];
 }
 
-async function deleteAttachment(args: {
-  owner: string;
-  repo: string;
-  releaseId: number | string;
-  attachmentId: number | string;
-  token: string;
-}): Promise<void> {
-  await requestJson(
-    `/repos/${args.owner}/${args.repo}/releases/${args.releaseId}/attach_files/${args.attachmentId}`,
-    args.token,
-    { method: "DELETE" },
-  );
-}
-
 async function uploadAttachment(args: {
   owner: string;
   repo: string;
@@ -286,16 +273,31 @@ async function uploadAttachment(args: {
   token: string;
 }): Promise<void> {
   const bytes = await fs.readFile(args.filePath);
+  const fileName = path.basename(args.filePath);
   const form = new FormData();
-  form.append("file", new Blob([bytes]), path.basename(args.filePath));
-  await requestJson(
-    `/repos/${args.owner}/${args.repo}/releases/${args.releaseId}/attach_files`,
-    args.token,
-    {
-      method: "POST",
-      body: form,
-    },
-  );
+  form.append("file", new Blob([bytes]), fileName);
+  try {
+    await requestJson(
+      `/repos/${args.owner}/${args.repo}/releases/${args.releaseId}/attach_files`,
+      args.token,
+      {
+        method: "POST",
+        body: form,
+        signal: AbortSignal.timeout(120_000),
+      },
+    );
+  } catch (error) {
+    const attachments = await listAttachments(args);
+    const uploaded = attachments.some(
+      (attachment) => (attachment.name || attachment.filename) === fileName,
+    );
+    if (!uploaded) {
+      throw error;
+    }
+    console.warn(
+      `[gitee-release] upload response failed after Gitee accepted ${fileName}`,
+    );
+  }
 }
 
 async function assertFiles(filePaths: string[]): Promise<string[]> {
@@ -364,23 +366,27 @@ async function main() {
     const existing = attachments.filter(
       (attachment) => (attachment.name || attachment.filename) === fileName,
     );
-    for (const attachment of existing) {
-      if (attachment.id === undefined || attachment.id === null) continue;
-      await deleteAttachment({
-        owner,
-        repo,
-        releaseId,
-        attachmentId: attachment.id,
-        token,
-      });
-      console.log(`[gitee-release] deleted existing asset ${fileName}`);
+    if (existing.length > 0) {
+      console.log(`[gitee-release] reused existing asset ${fileName}`);
+      continue;
     }
     await uploadAttachment({ owner, repo, releaseId, filePath, token });
     console.log(`[gitee-release] uploaded ${fileName}`);
   }
 }
 
-void main().catch((error) => {
-  console.error(error instanceof Error ? error.stack || error.message : error);
-  process.exit(1);
-});
+export const syncGiteeReleaseInternalsForTests = {
+  uploadAttachment,
+};
+
+const invokedModule = process.argv[1]
+  ? pathToFileURL(path.resolve(process.argv[1])).href
+  : "";
+if (import.meta.url === invokedModule) {
+  void main().catch((error) => {
+    console.error(
+      error instanceof Error ? error.stack || error.message : error,
+    );
+    process.exit(1);
+  });
+}
