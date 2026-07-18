@@ -1660,6 +1660,7 @@ describe("host bridge cli packaging and install", function () {
       "node scripts/check-zotero-bridge-cli-binary-identity.mjs",
     );
     assert.include(workflow, "runtimeIdentity: false");
+    assert.include(workflow, "if: ${{ !matrix.runtimeIdentity }}");
     assert.include(workflow, "if: matrix.runtimeIdentity");
     assert.include(workflow, "group: host-bridge-release");
     assert.include(workflow, "npm run --silent release:host-bridge:plan");

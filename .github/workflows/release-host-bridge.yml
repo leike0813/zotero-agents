@@ -96,7 +96,8 @@ jobs:
         run: cargo install cargo-zigbuild --locked --version "$CARGO_ZIGBUILD_VERSION"
       - run: npm ci
       - run: node scripts/build-zotero-bridge-cli.mjs --platform=${{ matrix.platform }} --target=${{ matrix.target }}
-      - run: node scripts/check-zotero-bridge-cli-binary-identity.mjs --platform=${{ matrix.platform }} --binary=${{ matrix.binary }}
+      - if: ${{ !matrix.runtimeIdentity }}
+        run: node scripts/check-zotero-bridge-cli-binary-identity.mjs --platform=${{ matrix.platform }} --binary=${{ matrix.binary }}
       - if: matrix.runtimeIdentity
         shell: bash
         run: addon/bin/${{ matrix.platform }}/${{ matrix.binary }} surface identity --json
