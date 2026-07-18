@@ -1651,7 +1651,7 @@ describe("host bridge cli packaging and install", function () {
     assert.include(workflow, "cargo install cargo-zigbuild --locked --version");
     assert.include(workflow, "goto-bus-stop/setup-zig@v2");
     assert.include(workflow, "group: host-bridge-release");
-    assert.include(workflow, "npm run release:host-bridge:plan");
+    assert.include(workflow, "npm run --silent release:host-bridge:plan");
     assert.include(workflow, "record-binaries --write");
     assert.include(workflow, "npm run render:host-bridge-surface");
     assert.include(

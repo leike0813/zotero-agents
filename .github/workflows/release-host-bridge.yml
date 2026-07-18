@@ -45,7 +45,7 @@ jobs:
       - id: plan
         shell: bash
         run: |
-          npm run release:host-bridge:plan > .host-bridge-plan.json
+          npm run --silent release:host-bridge:plan > .host-bridge-plan.json
           release_set_id="$(node -p "require('./host-bridge/release-set.json').releaseSetId")"
           requested="${{ inputs.release_set_id }}"
           if [ -n "$requested" ] && [ "$requested" != "$release_set_id" ]; then
