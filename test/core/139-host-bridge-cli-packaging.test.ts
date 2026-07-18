@@ -27,6 +27,7 @@ import {
   shouldPromptHostBridgeCliInstall,
   shouldRunHostBridgeCliStartupPrompt,
 } from "../../src/modules/hostBridgeCliInstallPrompt";
+import { syncHostBridgeCliPrebuildInternalsForTests } from "../../scripts/sync-host-bridge-cli-prebuilds";
 
 const execFileAsync = promisify(execFile);
 
@@ -146,6 +147,61 @@ async function createFreshnessFixture() {
 }
 
 describe("host bridge cli packaging and install", function () {
+  it("replaces packaged prebuilds only after a complete staged set verifies", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-sync-"));
+    const sourceRoot = path.join(root, "source");
+    const targetRoot = path.join(root, "target");
+    const staleMarker = path.join(targetRoot, "linux-x64", "stale");
+    await writeTextFile(targetRoot, "linux-x64/stale", "preserve-on-error");
+
+    let missingError: unknown;
+    try {
+      await syncHostBridgeCliPrebuildInternalsForTests.replacePrebuilds(
+        sourceRoot,
+        targetRoot,
+      );
+    } catch (error) {
+      missingError = error;
+    }
+    assert.match(String(missingError), /Missing Host Bridge CLI prebuilds/);
+    assert.strictEqual(
+      await fs.readFile(staleMarker, "utf8"),
+      "preserve-on-error",
+    );
+
+    for (const {
+      platform,
+      binary,
+    } of syncHostBridgeCliPrebuildInternalsForTests.expectedPlatforms) {
+      await writeTextFile(sourceRoot, `${platform}/${binary}`, platform);
+      await writeTextFile(
+        sourceRoot,
+        `${platform}/${binary}.sha256`,
+        `${platform}-sha256`,
+      );
+    }
+
+    await syncHostBridgeCliPrebuildInternalsForTests.replacePrebuilds(
+      sourceRoot,
+      targetRoot,
+    );
+    assert.isFalse(
+      await fs
+        .stat(staleMarker)
+        .then(() => true)
+        .catch(() => false),
+    );
+    for (const {
+      platform,
+      binary,
+    } of syncHostBridgeCliPrebuildInternalsForTests.expectedPlatforms) {
+      assert.strictEqual(
+        await fs.readFile(path.join(targetRoot, platform, binary), "utf8"),
+        platform,
+      );
+    }
+  });
+
   it("documents resolve-resolver with the direct resolver payload contract", async function () {
     const cliArgs = await fs.readFile(
       path.join(process.cwd(), "cli/zotero-bridge/src/args.rs"),
@@ -1837,9 +1893,8 @@ describe("host bridge cli packaging and install", function () {
           ].join("\0"),
         ),
       );
-      const identity = await import(
-        "../../scripts/check-zotero-bridge-cli-binary-identity.mjs"
-      );
+      const identity =
+        await import("../../scripts/check-zotero-bridge-cli-binary-identity.mjs");
       const current = await identity.checkHostBridgeCliBinaryIdentity({
         root,
         platform: "linux-arm64",

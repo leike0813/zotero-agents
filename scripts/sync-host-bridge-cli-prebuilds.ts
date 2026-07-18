@@ -1,11 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { chmod, mkdir, readdir, rm, stat } from "node:fs/promises";
+import { chmod, cp, mkdir, readdir, rm, stat } from "node:fs/promises";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path, { dirname } from "node:path";
+import { pathToFileURL } from "node:url";
 import zlib from "node:zlib";
 
 const PREBUILD_TAG = "host-bridge-cli-prebuilds";
 const DOWNLOAD_DIR = path.join(".scaffold", "host-bridge-cli-prebuilds-sync");
+const EXTRACT_DIR = path.join(DOWNLOAD_DIR, "extracted");
+const PREBUILD_ROOT = path.join("addon", "bin");
 
 const EXPECTED_PLATFORMS: Array<{ platform: string; binary: string }> = [
   { platform: "win32-x64", binary: "zotero-bridge.exe" },
@@ -66,18 +69,18 @@ function powershellCommand() {
   throw new Error("Missing required command: pwsh or powershell");
 }
 
-function extractArchive(archive: string) {
+function extractArchive(archive: string, destination: string) {
   if (process.platform === "win32") {
     run(powershellCommand(), [
       "-NoProfile",
       "-ExecutionPolicy",
       "Bypass",
       "-Command",
-      `Expand-Archive -LiteralPath '${archive}' -DestinationPath '${process.cwd()}' -Force`,
+      `Expand-Archive -LiteralPath '${archive}' -DestinationPath '${destination}' -Force`,
     ]);
     return;
   }
-  extractZipWithNode(archive, process.cwd());
+  extractZipWithNode(archive, destination);
 }
 
 function extractZipWithNode(archive: string, destination: string) {
@@ -156,17 +159,14 @@ function extractZipWithNode(archive: string, destination: string) {
   }
 }
 
-async function verifyPrebuilds() {
+async function verifyPrebuilds(root = PREBUILD_ROOT) {
   const missing: string[] = [];
   for (const { platform, binary } of EXPECTED_PLATFORMS) {
     for (const file of [binary, `${binary}.sha256`]) {
-      const target = path.join("addon", "bin", platform, file);
+      const target = path.join(root, platform, file);
       if (!existsSync(target)) {
         missing.push(target);
       }
-    }
-    if (!platform.startsWith("win32")) {
-      await chmod(path.join("addon", "bin", platform, binary), 0o755);
     }
   }
   if (missing.length) {
@@ -174,6 +174,26 @@ async function verifyPrebuilds() {
       `Missing Host Bridge CLI prebuilds:\n${missing.join("\n")}`,
     );
   }
+  for (const { platform, binary } of EXPECTED_PLATFORMS) {
+    if (!platform.startsWith("win32")) {
+      await chmod(path.join(root, platform, binary), 0o755);
+    }
+  }
+}
+
+async function replacePrebuilds(
+  sourceRoot: string,
+  targetRoot = PREBUILD_ROOT,
+) {
+  await verifyPrebuilds(sourceRoot);
+  for (const { platform } of EXPECTED_PLATFORMS) {
+    const source = path.join(sourceRoot, platform);
+    const target = path.join(targetRoot, platform);
+    await rm(target, { recursive: true, force: true });
+    await mkdir(dirname(target), { recursive: true });
+    await cp(source, target, { recursive: true });
+  }
+  await verifyPrebuilds(targetRoot);
 }
 
 async function main() {
@@ -209,15 +229,17 @@ async function main() {
     throw new Error(`No zotero-bridge-*.zip assets found in ${repo}@${tag}`);
   }
 
+  await rm(EXTRACT_DIR, { recursive: true, force: true });
+  await mkdir(EXTRACT_DIR, { recursive: true });
   for (const archive of archives) {
     const archiveStat = await stat(archive);
     if (!archiveStat.isFile()) {
       continue;
     }
-    extractArchive(archive);
+    extractArchive(archive, EXTRACT_DIR);
   }
 
-  await verifyPrebuilds();
+  await replacePrebuilds(EXTRACT_DIR);
   console.log(
     JSON.stringify({
       ok: true,
@@ -229,7 +251,17 @@ async function main() {
   );
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+export const syncHostBridgeCliPrebuildInternalsForTests = {
+  expectedPlatforms: EXPECTED_PLATFORMS,
+  replacePrebuilds,
+};
+
+const invokedModule = process.argv[1]
+  ? pathToFileURL(path.resolve(process.argv[1])).href
+  : "";
+if (import.meta.url === invokedModule) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
