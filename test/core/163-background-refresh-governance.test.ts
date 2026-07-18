@@ -61,6 +61,10 @@ import {
   resetWorkflowSettingsReadDiagnosticsForTests,
 } from "../../src/modules/workflowSettings";
 import { serializeSettingsRecord } from "../../src/modules/workflowSettingsDomain";
+import {
+  appendRuntimeLog,
+  clearRuntimeLogs,
+} from "../../src/modules/runtimeLogManager";
 
 function makeSkillRunnerJob(index: number, backendId: string): JobRecord {
   return {
@@ -915,6 +919,81 @@ describe("background refresh governance", function () {
     assert.equal(runDiagnostics.lightweightProjectionUnscopedReadCount, 0);
     assert.equal(runDiagnostics.lightweightProjectionSummaryQueryCount, 0);
     assert.equal(getBackendsRegistryReadDiagnosticsForTests().parseCount, 0);
+  });
+
+  it("refreshes runtime logs from summary plus at most 300 visible rows", async function () {
+    await clearRuntimeLogs();
+    for (let index = 0; index < 350; index += 1) {
+      appendRuntimeLog({
+        level: "info",
+        scope: "provider",
+        backendId: `runtime-backend-${index % 2}`,
+        workflowId: "runtime-workflow",
+        stage: `runtime-log-${index}`,
+        message: `runtime log ${index}`,
+      });
+    }
+    const harness = createDashboardRuntimeHarness();
+    const runtime = await mountTaskDashboardRuntime({
+      root: harness.root,
+      hostWindow: harness.hostWindow,
+      initialTabKey: "runtime-logs",
+    });
+    try {
+      await flushDashboardRuntime();
+      const initial = harness.frameWindow.posted.at(-1) as {
+        payload?: {
+          runtimeLogsView?: {
+            totalEntries?: number;
+            logs?: unknown[];
+            filterOptions?: { backends?: unknown[]; workflows?: unknown[] };
+          };
+        };
+      };
+      assert.equal(initial.payload?.runtimeLogsView?.totalEntries, 350);
+      assert.lengthOf(initial.payload?.runtimeLogsView?.logs || [], 300);
+      assert.lengthOf(
+        initial.payload?.runtimeLogsView?.filterOptions?.backends || [],
+        2,
+      );
+
+      appendRuntimeLog({
+        level: "warn",
+        scope: "system",
+        stage: "periodic-runtime-log",
+        message: "periodic runtime log",
+      });
+      harness.runInterval();
+      await flushDashboardRuntime();
+      const refreshed = harness.frameWindow.posted.at(-1) as {
+        payload?: { runtimeLogsView?: { totalEntries?: number } };
+      };
+      assert.equal(refreshed.payload?.runtimeLogsView?.totalEntries, 351);
+    } finally {
+      runtime.cleanup();
+      await clearRuntimeLogs();
+    }
+  });
+
+  it("keeps runtime log refreshes independent from full snapshots", function () {
+    const source = readFileSync(
+      join(process.cwd(), "src/modules/taskManagerDialog.ts"),
+      "utf8",
+    );
+    const runtimeLogsBranch = source.slice(
+      source.indexOf('resolvedSelectedTabKey === "runtime-logs"'),
+      source.indexOf(
+        'resolvedSelectedTabKey === "skillrunner-connection-audit"',
+      ),
+    );
+    assert.include(runtimeLogsBranch, "getRuntimeLogSummary");
+    assert.include(runtimeLogsBranch, "limit: 300");
+    assert.notInclude(runtimeLogsBranch, "snapshotRuntimeLogs");
+    const skipBlock = source.slice(
+      source.indexOf("const shouldSkipRefresh"),
+      source.indexOf("const enqueueRefresh"),
+    );
+    assert.notInclude(skipBlock, 'state.selectedTabKey === "runtime-logs"');
   });
 
   it("publishes a visible Replay failure when the host has no AbortController", async function () {

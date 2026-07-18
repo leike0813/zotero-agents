@@ -141,6 +141,10 @@ Zotero 环境测试中禁止引入会真实打开以下 UI 的测试：
   - `47-workflow-log-instrumentation`
   - `52-runtime-bridge`
   - `87/88/89` runtime diagnostics / debug probe
+  - `182` Host Bridge socket integration
+  - `185` Zotero library page query
+  - `186` ACP runtime file I/O
+  - `187` runtime log persistence
 - `ui`
   - `01-startup-workflow-menu-init`
   - `35-workflow-settings-execution` 的核心 smoke
@@ -202,6 +206,11 @@ lite 模式下：
   - `test/core/52-runtime-bridge.test.ts`
   - `test/core/87-workflow-package-runtime-diagnostics.test.ts`
   - `test/core/88-workflow-runtime-scope-diagnostics.test.ts`
+  - `test/core/104-acp-zotero-opencode.integration.test.ts`
+  - `test/core/182-host-bridge-socket.integration.test.ts`
+  - `test/core/185-zotero-library-page-query.zotero.test.ts`
+  - `test/core/186-acp-runtime-file-io.zotero.test.ts`
+  - `test/core/187-runtime-log-persistence.zotero.test.ts`
   - `test/ui/35-workflow-settings-execution.test.ts`
   - `test/workflow-literature-workbench-package/45-workflow-note-import-export.test.ts`
   - `test/workflow-mineru/39-workflow-mineru.test.ts`
@@ -227,6 +236,11 @@ lite 模式下：
 - 在 workflow/ui 的高复杂度测试文件内，部分边界/兼容性用例通过 `itFullOnly` 下沉到 `full`
   - 代表性文件：`test/workflow-literature-analysis/21-workflow-literature-analysis.test.ts`、`test/workflow-mineru/39-workflow-mineru.test.ts`、`test/ui/40-gui-preferences-menu-scan.test.ts`
 - `selection-context` 的 lite 子夹具执行后保留重建产物（不清理）
+
+`187-runtime-log-persistence.zotero.test.ts` 是 R8 的真实宿主机制门禁。它通过真实
+`IOUtils` 验证异步 hydration、single-flight true flush，以及分块临时文件完成后再
+替换为可解析 JSON；测试不设置机器相关耗时断言。当前验收环境为 Zotero 9.0.4，
+Zotero 7 仍是明确的后续宿主验证项。
 
 补充治理约定：
 

@@ -91,6 +91,7 @@ import { shutdownSkillRunnerAsyncLifecycle } from "./modules/skillRunnerAsyncLif
 import {
   appendRuntimeLog,
   flushRuntimeLogsPersistence,
+  initializeRuntimeLogsPersistence,
 } from "./modules/runtimeLogManager";
 import {
   closeAssistantWorkspaceSidebar,
@@ -818,6 +819,7 @@ async function onStartup() {
     Zotero.unlockPromise,
     Zotero.uiReadyPromise,
   ]);
+  await initializeRuntimeLogsPersistence();
 
   initLocale();
   installWorkflowEditorHostBridge();

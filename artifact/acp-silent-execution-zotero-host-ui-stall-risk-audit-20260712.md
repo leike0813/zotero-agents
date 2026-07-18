@@ -2,7 +2,7 @@
 
 日期：2026-07-12
 
-状态：只读审计已完成；阶段 0 profiler 与自动化机制基线已于 2026-07-13 实现；R3 区域发布治理已于 2026-07-15 完成实现及 Zotero 9 机制验收；R2 事件驱动 reader 的初次实现存在 Zotero 插件沙箱连接生命周期缺陷，`repair-host-bridge-async-socket-lifecycle` 已于 2026-07-17 完成修复，并通过 Zotero 9 原始响应 fixture 及冷重启 CLI 验收，Zotero 7 宿主验收待补；R6 文件传输已于 2026-07-17 完成有界分块、全局单 worker 与异步 socket copy 治理，并通过 Zotero 9.0.4 机制验收，Zotero 7 宿主验收待补；R11 未包含在该治理中
+状态：只读审计已完成；阶段 0 profiler 与自动化机制基线已于 2026-07-13 实现；R3 区域发布治理已于 2026-07-15 完成实现及 Zotero 9 机制验收；R2 事件驱动 reader 的初次实现存在 Zotero 插件沙箱连接生命周期缺陷，`repair-host-bridge-async-socket-lifecycle` 已于 2026-07-17 完成修复，并通过 Zotero 9 原始响应 fixture 及冷重启 CLI 验收，Zotero 7 宿主验收待补；R6 文件传输已于 2026-07-17 完成有界分块、全局单 worker 与异步 socket copy 治理，并通过 Zotero 9.0.4 机制验收，Zotero 7 宿主验收待补；R8 runtime log 已完成单条序列化缓存、single-flight 与有界分块原子替换治理，并通过 Zotero 9.0.4 机制验收，Zotero 7 宿主验收待补；R11 未包含在该治理中
 
 适用范围：ACP Skills、ACP Chat、Assistant Workspace、Host Bridge、Zotero Host Capability、ACP transcript/run/audit/runtime-log 持久化
 
@@ -144,7 +144,7 @@ live | boundary | silent
 | R5 | P1 | transport/message queue 无容量边界 | 已证实结构，影响待实测 | 突发 WebSocket/stdio frame |
 | R6 | P1 | 大附件整文件读取、哈希与重复复制 | 已治理；Zotero 9.0.4 机制通过，Zotero 7 待补 | 多个大 PDF、下载 |
 | R7 | P1 | library 分页实际重复全库扫描和排序 | 已治理；Zotero 9.0.4 机制通过，Zotero 7 待补 | 大型 Zotero 库、多页读取 |
-| R8 | P1 | runtime log 全量 clone/stringify | 已证实 | 高频日志、diagnostic 模式 |
+| R8 | P1 | runtime log 全量 clone/stringify | 已治理；Zotero 9.0.4 机制通过，Zotero 7 待补 | 高频日志、diagnostic 模式 |
 | R9 | P1 | transcript/audit 同步 XPCOM append 与索引恢复 | 已治理并经 Zotero 9.0.4 验收 | 高频 transcript、长历史、索引失效 |
 | R10 | P1 | 逐 item `saveTx()` 与 Notifier 风暴 | 已证实事务粒度，影响待实测 | 批量标签/collection mutation |
 | R11 | P2 | Host Bridge 大响应多重 stringify/copy | 已证实 | 大 synthesis 结果、大二进制 |
@@ -614,16 +614,18 @@ cursor 校验、页间插入/删除和 `%/_` 字面语义。本机 Zotero 9.0.4 
 
 ### 11.1 Runtime logger
 
-`src/modules/runtimeLogManager.ts:314-330,969-976,1015-1058,1166-1180` 显示，每条日志可能执行：
+Runtime logger 现为显式异步生命周期：startup 在任何日志生产者之前等待文件
+hydration；每条 sanitized entry 只执行一次 `JSON.stringify`，同一缓存字符串同时作为
+byte-budget 与持久化输入。保留上限仍为普通 2,000 条、诊断 3,000 条。
 
-- sanitize；
-- JSON size 估算；
-- retention；
-- 有 listener 时克隆完整日志 snapshot。
+append listener 只发布 revision、change kind、单条 entry 与淘汰 ID；Task Manager
+周期刷新读取 summary 和最多 300 条可见日志，不再克隆完整 snapshot。snapshot、list
+和 diagnostic bundle 均为纯内存 read model，不隐式触发写盘。
 
-保留上限约为普通 2,000 条、诊断 3,000 条。
-
-`src/modules/runtimeLogManager.ts:804-830` 在 25ms debounce 后仍会 `JSON.stringify` 整份日志文档。文件写入可能是异步的，但 stringify、clone 和临时对象分配仍发生在主线程。
+持久化采用 250ms idle debounce、2s 最大延迟和 revision single-flight。每次 save 从
+JSON prefix、缓存 entry、separator 与 suffix 产生有界 fragment，经 surrogate-safe
+256 KiB append 写入同目录临时文件，全部成功后才替换目标。flush、clear 与 shutdown
+等待真实 drain；失败保留 dirty revision 供下次 flush 重试。
 
 ### 11.2 Debug audit
 
@@ -674,7 +676,7 @@ missing/invalid/v1/oversized index 与 stale v2 tail 现在共享同一条路径
 `readAcpSkillRunTranscriptItems()` 也改为沿 index 分页 hydrate，不再维护第二套整文件
 fold 实现。
 
-### 11.5 Zotero 9.0.4 证据与 R8 待采样项
+### 11.5 Zotero 9.0.4 证据与 R8 治理结果
 
 真实宿主修复前探针中，1,415,918 字节、4002 个有效 event 的现有恢复路径耗时
 约 1148.9ms，主线程最大计时器间隙约 1147.7ms。分块扫描与线性 builder 原型结果
@@ -686,13 +688,20 @@ core-lite 用例从 `chrome://zotero-skills/` 加载打包 worker，覆盖 Unico
 EOF range、600-event rebuild 和 200-item page hydrate，Zotero 9.0.4 实际执行
 1 passed（两次执行为 44ms、46ms）。未设置固定耗时门禁。
 
-R8 仍需继续采样：
+R8 在 Zotero 9.0.4 中另行完成只读基线与临时候选试验：现有 core-lite 26 项、
+R8 专项 8 项均通过。真实宿主确认同步 Node hydration 无法读取日志文件、旧 flush
+早于 `IOUtils.writeUTF8` 完成返回，且两份全量快照可并发写入并发生旧快照晚完成覆盖。
 
-- 每秒 runtime log 数；
-- 每次完整日志 snapshot clone/stringify 的耗时与字节数；
-- debug on/off 对照；
-- runtime log document rewrite 的 stringify、写入与 heap 峰值；
-- audit sanitize/serialize 的逐 update 成本与队列峰值。
+6.28 MiB 日志上，旧完整 snapshot 约 44.2ms、全量 stringify 约 28.1ms、全量
+details 深拷贝约 41.0ms；缓存条目后的文档组装约 10.8ms。12.46 MiB 日志上，
+整串组装约 21.6ms、整文件异步写约 51.8ms；256 KiB 分块临时文件原子替换总历时
+约 36.7ms，最大 timer gap 约 4.16ms，共 48 个块。这些数据用于方案选择，不作为
+机器相关测试阈值。
+
+最终门禁 `187-runtime-log-persistence.zotero.test.ts` 使用真实 `IOUtils` 覆盖 hydration、
+single-flight true flush 与分块 JSON 原子替换。当前仅完成 Zotero 9.0.4 验收；本机
+没有 Zotero 7，因此不能声明双版本验收完成。audit sanitize/serialize 的逐 update
+成本与队列峰值仍属于 R9/debug audit 的后续采样，不纳入本次 R8 范围。
 
 ## 12. R10：批量 Zotero mutation 的事务与 Notifier 放大
 
@@ -1369,21 +1378,17 @@ type JobProgressPulse = {
 
 #### 阶段 3B：runtime log async persistence
 
-定义：
-
-```ts
-interface RuntimeLogPersistencePort {
-  load(): Promise<string>;
-  save(document: string): Promise<void>;
-}
-```
+最终实现不传递完整 document string。`runtimeLogManager` 缓存每条 sanitized entry 的
+序列化结果，save 捕获 revision 与该 revision 的 entry 字符串视图；
+`runtimePersistence.replaceRuntimeTextFileAtomically()` 消费 prefix、entries、separator
+和 suffix fragments，并以同目录临时文件加原子替换完成提交。
 
 修改 `src/modules/runtimeLogManager.ts`：
 
-- 生产实现只使用 `runtimePersistence` 的 async read/write；
-- 单一 in-flight save + latest pending document；
-- `flushRuntimeLogsPersistence()` 真正等待文件写完；
-- listener 发布 revision/change，完整 snapshot 由诊断页显式读取；
+- 生产实现只使用 `runtimePersistence` 的 async read 与分块原子替换；
+- 250ms idle debounce、2s 最大延迟、单一 in-flight revision drain；
+- `flushRuntimeLogsPersistence()` 真正等待文件写完，失败保留 dirty 供重试；
+- listener 发布 revision/change，summary 与 snapshot 都是纯内存读取；
 - 删除 Node sync read/write helper 和名不副实的 async wrapper。
 
 验证 `test/core/45-runtime-log-manager.test.ts`：
@@ -1393,6 +1398,10 @@ interface RuntimeLogPersistencePort {
 - explicit flush 真正 drain；
 - persistence failure 不影响业务路径；
 - normal/diagnostic mode 分开覆盖。
+
+Profiler 中 `runtime_log_persist*` 继续归入阶段 0 已有 R1-R3 baseline 的
+`persistence` 聚合组。这里的“R8”是审计风险编号，二者是不同分类轴；本次不扩展或
+改写 profiler schema。
 
 #### 阶段 3C：transport queue 容量与背压（R5）
 

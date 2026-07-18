@@ -40,7 +40,7 @@ type CleanupDeps = {
   setSkillRunnerBackendReconcileFailureToastEmitterForTests: () => void;
   setSkillRunnerTaskLifecycleToastEmitterForTests: () => void;
   resetWorkflowTasks: () => void;
-  clearRuntimeLogs: () => void;
+  clearRuntimeLogs: () => void | Promise<void>;
   resetSkillRunnerSessionSyncForTests: () => void | Promise<void>;
   resetSkillRunnerTaskReconcilerForTests: () => void | Promise<void>;
   resetSkillRunnerRunDialogForTests: () => void | Promise<void>;
@@ -116,7 +116,7 @@ export async function cleanupBackgroundRuntimeForZoteroTests() {
   cleanupDeps.setSkillRunnerBackendReconcileFailureToastEmitterForTests();
   cleanupDeps.setSkillRunnerTaskLifecycleToastEmitterForTests();
   cleanupDeps.resetWorkflowTasks();
-  cleanupDeps.clearRuntimeLogs();
+  await Promise.resolve(cleanupDeps.clearRuntimeLogs());
   cleanupDeps.resetWorkflowSettingsReadDiagnosticsForTests();
   cleanupDeps.resetTestPerformanceProbeHooksForTests();
   cleanupDeps.resetWorkflowHostApiForTests();

@@ -2,8 +2,9 @@ import { getPref, setPref } from "../utils/prefs";
 import { version } from "../../package.json";
 import {
   getRuntimePersistencePaths,
+  readRuntimeTextFile,
   registerRuntimeLogClearer,
-  writeRuntimeTextFile,
+  replaceRuntimeTextFileAtomically,
 } from "./runtimePersistence";
 import { isDebugModeEnabled } from "./debugMode";
 import {
@@ -308,7 +309,27 @@ type RuntimeLogDocument = {
   droppedByReason?: unknown;
 };
 
-type RuntimeLogListener = (snapshot: RuntimeLogSnapshot) => void;
+export type RuntimeLogChange = {
+  revision: number;
+  kind: "append" | "clear" | "settings";
+  entry?: RuntimeLogEntry;
+  evictedEntryIds: string[];
+};
+
+type RuntimeLogListener = (change: RuntimeLogChange) => void;
+
+export type RuntimeLogSummary = Omit<RuntimeLogSnapshot, "entries"> & {
+  entryCount: number;
+  facets: {
+    backendIds: string[];
+    workflowIds: string[];
+  };
+};
+
+type RuntimeLogPersistenceWriter = (args: {
+  path: string;
+  fragments: Iterable<string>;
+}) => Promise<void>;
 
 type RuntimeLogDropReasonCounter = {
   entry_limit: number;
@@ -336,7 +357,8 @@ const DEFAULT_ALLOWED_LEVELS = new Set<RuntimeLogLevel>([
 ]);
 const SENSITIVE_KEY =
   /(authorization|token|secret|password|api[-_]?key|cookie|bearer)/i;
-const PERSIST_DEBOUNCE_MS = 25;
+const PERSIST_IDLE_DEBOUNCE_MS = 250;
+const PERSIST_MAX_DELAY_MS = 2000;
 
 let sequence = 0;
 let droppedEntries = 0;
@@ -347,15 +369,24 @@ let droppedByReason: RuntimeLogDropReasonCounter = {
 };
 const entries: RuntimeLogEntry[] = [];
 const entryByteSizes = new Map<string, number>();
+const serializedEntries = new Map<string, string>();
 let estimatedBytes = 0;
 const listeners = new Set<RuntimeLogListener>();
 const allowedLevels = new Set<RuntimeLogLevel>(DEFAULT_ALLOWED_LEVELS);
 let diagnosticMode = false;
 let hydrated = false;
+let hydrationPromise: Promise<void> | null = null;
 let persistenceDirty = false;
-let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let persistIdleTimer: ReturnType<typeof setTimeout> | null = null;
+let persistMaxDelayTimer: ReturnType<typeof setTimeout> | null = null;
+let changeRevision = 0;
+let durableRevision = 0;
+let inFlightSave: Promise<void> | null = null;
 let persistenceFlushCount = 0;
 let filePersistenceFailureCount = 0;
+let entrySerializationCount = 0;
+let legacyMigrationRevision: number | null = null;
+let persistenceWriterForTests: RuntimeLogPersistenceWriter | null = null;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -626,16 +657,18 @@ function normalizeTransport(
   return transport;
 }
 
-function estimateSerializedBytes(value: unknown) {
-  try {
-    const raw = JSON.stringify(value);
-    if (typeof raw !== "string") {
-      return 0;
-    }
-    return raw.length;
-  } catch {
-    return 128;
-  }
+function utf8ByteLength(value: string) {
+  return new TextEncoder().encode(value).byteLength;
+}
+
+function retainSerializedEntry(entry: RuntimeLogEntry) {
+  const serialized = JSON.stringify(entry);
+  entrySerializationCount += 1;
+  entries.push(entry);
+  serializedEntries.set(entry.id, serialized);
+  const byteSize = utf8ByteLength(serialized);
+  entryByteSizes.set(entry.id, byteSize);
+  estimatedBytes += byteSize;
 }
 
 function resolveActiveRetentionBudget() {
@@ -659,13 +692,15 @@ function removeEntryAt(
 ) {
   const [removed] = entries.splice(index, 1);
   if (!removed) {
-    return;
+    return undefined;
   }
   droppedEntries += 1;
   droppedByReason[reason] += 1;
   const byteSize = entryByteSizes.get(removed.id) || 0;
   entryByteSizes.delete(removed.id);
+  serializedEntries.delete(removed.id);
   estimatedBytes = Math.max(0, estimatedBytes - byteSize);
+  return removed.id;
 }
 
 function parseRuntimeLogEntry(raw: unknown): RuntimeLogEntry | null {
@@ -721,308 +756,378 @@ function parseRuntimeLogEntry(raw: unknown): RuntimeLogEntry | null {
   return entry;
 }
 
-function buildRuntimeLogDocument() {
-  return {
-    entries,
-    droppedEntries,
-    droppedByReason,
-  };
-}
-
-function getNodeBuiltinModule(name: string) {
-  const runtime = globalThis as {
-    process?: {
-      getBuiltinModule?: (specifier: string) => any;
-    };
-  };
-  try {
-    const module = runtime.process?.getBuiltinModule?.(name);
-    if (module) {
-      return module;
-    }
-  } catch {
-    // Fall through to CommonJS require fallback.
+function clearPersistTimers() {
+  if (persistIdleTimer) {
+    clearTimeout(persistIdleTimer);
+    persistIdleTimer = null;
   }
-  try {
-    const requireFn = new Function(
-      "return typeof require === 'function' ? require : null",
-    )() as ((specifier: string) => any) | null;
-    return requireFn ? requireFn(name) : null;
-  } catch {
-    return null;
+  if (persistMaxDelayTimer) {
+    clearTimeout(persistMaxDelayTimer);
+    persistMaxDelayTimer = null;
   }
-}
-
-function readRuntimeLogFileSync() {
-  const runtime = globalThis as { process?: unknown };
-  if (!runtime.process) {
-    return "";
-  }
-  try {
-    const fs = getNodeBuiltinModule("fs");
-    if (!fs) {
-      return "";
-    }
-    const path = getRuntimePersistencePaths().runtimeLogPath;
-    if (!fs.existsSync(path)) {
-      return "";
-    }
-    return String(fs.readFileSync(path, "utf8") || "");
-  } catch {
-    return "";
-  }
-}
-
-function writeRuntimeLogFileSync(content: string) {
-  const runtime = globalThis as { process?: unknown };
-  if (!runtime.process) {
-    return false;
-  }
-  try {
-    const fs = getNodeBuiltinModule("fs");
-    const path = getNodeBuiltinModule("path");
-    if (!fs || !path) {
-      return false;
-    }
-    const logPath = getRuntimePersistencePaths().runtimeLogPath;
-    fs.mkdirSync(path.dirname(logPath), { recursive: true });
-    fs.writeFileSync(logPath, content, "utf8");
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function writeRuntimeLogFileAsync(content: string) {
-  if (writeRuntimeLogFileSync(content)) {
-    return;
-  }
-  void writeRuntimeTextFile(
-    getRuntimePersistencePaths().runtimeLogPath,
-    content,
-  ).catch(() => {
-    filePersistenceFailureCount += 1;
-  });
-}
-
-function clearPersistTimer() {
-  if (!persistTimer) {
-    return;
-  }
-  clearTimeout(persistTimer);
-  persistTimer = null;
-}
-
-function persistRuntimeLogsNow(force = false) {
-  clearPersistTimer();
-  if (!force && !persistenceDirty) {
-    return;
-  }
-  const startedAt =
-    __acp_runtime_performance_profiler_enabled__ &&
-    (typeof __debug_mode__ === "undefined"
-      ? isDebugModeEnabled()
-      : __debug_mode__)
-      ? readAcpRuntimePerformanceClockMs()
-      : 0;
-  try {
-    const content = JSON.stringify(buildRuntimeLogDocument());
-    writeRuntimeLogFileAsync(content);
-    setPref(HISTORY_PREF_KEY, "");
-    if (
-      __acp_runtime_performance_profiler_enabled__ &&
-      (typeof __debug_mode__ === "undefined"
-        ? isDebugModeEnabled()
-        : __debug_mode__)
-    ) {
-      incrementAcpRuntimeMetric(null, "runtime_log_persist", {
-        persistenceChannel: "runtime-log",
-      });
-      incrementAcpRuntimeMetric(
-        null,
-        "runtime_log_persist_bytes",
-        { persistenceChannel: "runtime-log" },
-        new TextEncoder().encode(content).byteLength,
-      );
-      observeAcpRuntimeDuration(
-        null,
-        "runtime_log_persist_duration",
-        { persistenceChannel: "runtime-log" },
-        readAcpRuntimePerformanceClockMs() - startedAt,
-      );
-    }
-  } catch {
-    // Ignore prefs persistence failures in runtime logger.
-  }
-  persistenceDirty = false;
-  persistenceFlushCount += 1;
 }
 
 function scheduleRuntimeLogPersistence() {
+  if (persistIdleTimer) {
+    clearTimeout(persistIdleTimer);
+  }
+  persistIdleTimer = setTimeout(() => {
+    persistIdleTimer = null;
+    void drainRuntimeLogPersistence();
+  }, PERSIST_IDLE_DEBOUNCE_MS);
+  if (!persistMaxDelayTimer) {
+    persistMaxDelayTimer = setTimeout(() => {
+      persistMaxDelayTimer = null;
+      void drainRuntimeLogPersistence();
+    }, PERSIST_MAX_DELAY_MS);
+  }
+}
+
+function markRuntimeLogPersistenceDirty(options: { schedule?: boolean } = {}) {
+  changeRevision += 1;
   persistenceDirty = true;
-  if (persistTimer) {
+  if (options.schedule !== false) {
+    scheduleRuntimeLogPersistence();
+  }
+  return changeRevision;
+}
+
+function captureRuntimeLogPersistenceDocument() {
+  const serialized = entries
+    .map((entry) => serializedEntries.get(entry.id))
+    .filter((entry): entry is string => typeof entry === "string");
+  const capturedDroppedEntries = droppedEntries;
+  const capturedDroppedByReason = { ...droppedByReason };
+  const prefix = '{"entries":[';
+  const suffix = `],"droppedEntries":${capturedDroppedEntries},"droppedByReason":${JSON.stringify(
+    capturedDroppedByReason,
+  )}}`;
+  function* fragments() {
+    yield prefix;
+    for (let index = 0; index < serialized.length; index += 1) {
+      if (index > 0) {
+        yield ",";
+      }
+      yield serialized[index];
+    }
+    yield suffix;
+  }
+  return {
+    fragments: fragments(),
+    byteLength:
+      utf8ByteLength(prefix) +
+      utf8ByteLength(suffix) +
+      Math.max(0, serialized.length - 1) +
+      serialized.reduce(
+        (total, entry, index) =>
+          total +
+          (entryByteSizes.get(entries[index]?.id || "") ||
+            utf8ByteLength(entry)),
+        0,
+      ),
+  };
+}
+
+async function writeRuntimeLogPersistenceDocument(args: {
+  path: string;
+  fragments: Iterable<string>;
+}) {
+  if (persistenceWriterForTests) {
+    await persistenceWriterForTests(args);
     return;
   }
-  persistTimer = setTimeout(() => {
-    persistTimer = null;
-    persistRuntimeLogsNow();
-  }, PERSIST_DEBOUNCE_MS);
+  await replaceRuntimeTextFileAtomically({
+    targetPath: args.path,
+    fragments: args.fragments,
+  });
+}
+
+function recordRuntimeLogPersistenceMetrics(startedAt: number, bytes: number) {
+  if (
+    !__acp_runtime_performance_profiler_enabled__ ||
+    !(typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+  ) {
+    return;
+  }
+  incrementAcpRuntimeMetric(null, "runtime_log_persist", {
+    persistenceChannel: "runtime-log",
+  });
+  incrementAcpRuntimeMetric(
+    null,
+    "runtime_log_persist_bytes",
+    { persistenceChannel: "runtime-log" },
+    bytes,
+  );
+  observeAcpRuntimeDuration(
+    null,
+    "runtime_log_persist_duration",
+    { persistenceChannel: "runtime-log" },
+    readAcpRuntimePerformanceClockMs() - startedAt,
+  );
+}
+
+async function drainRuntimeLogPersistence() {
+  clearPersistTimers();
+  if (inFlightSave) {
+    await inFlightSave;
+    return;
+  }
+  inFlightSave = (async () => {
+    while (persistenceDirty && durableRevision < changeRevision) {
+      const saveRevision = changeRevision;
+      const document = captureRuntimeLogPersistenceDocument();
+      const startedAt =
+        __acp_runtime_performance_profiler_enabled__ &&
+        (typeof __debug_mode__ === "undefined"
+          ? isDebugModeEnabled()
+          : __debug_mode__)
+          ? readAcpRuntimePerformanceClockMs()
+          : 0;
+      try {
+        await writeRuntimeLogPersistenceDocument({
+          path: getRuntimePersistencePaths().runtimeLogPath,
+          fragments: document.fragments,
+        });
+      } catch {
+        filePersistenceFailureCount += 1;
+        persistenceDirty = true;
+        return;
+      }
+      durableRevision = Math.max(durableRevision, saveRevision);
+      persistenceDirty = durableRevision < changeRevision;
+      persistenceFlushCount += 1;
+      recordRuntimeLogPersistenceMetrics(startedAt, document.byteLength);
+      if (
+        legacyMigrationRevision !== null &&
+        durableRevision >= legacyMigrationRevision
+      ) {
+        try {
+          setPref(HISTORY_PREF_KEY, "");
+          legacyMigrationRevision = null;
+        } catch {
+          // The file is durable; leave the legacy pref for a later retry.
+        }
+      }
+    }
+  })();
+  try {
+    await inFlightSave;
+  } finally {
+    inFlightSave = null;
+    if (!persistenceDirty) {
+      clearPersistTimers();
+    }
+  }
 }
 
 function pruneExpiredRuntimeLogs(nowMs = Date.now()) {
+  const evictedEntryIds: string[] = [];
   const threshold = nowMs - RETENTION_MS;
   for (let i = entries.length - 1; i >= 0; i -= 1) {
     const ts = Date.parse(entries[i].ts || "");
     if (!Number.isFinite(ts) || ts >= threshold) {
       continue;
     }
-    removeEntryAt(i, "expired");
+    const removedId = removeEntryAt(i, "expired");
+    if (removedId) {
+      evictedEntryIds.push(removedId);
+    }
   }
+  return evictedEntryIds;
 }
 
 function pruneOverflowByEntryBudget() {
+  const evictedEntryIds: string[] = [];
   const { maxEntries } = resolveActiveRetentionBudget();
   while (entries.length > maxEntries) {
-    removeEntryAt(0, "entry_limit");
+    const removedId = removeEntryAt(0, "entry_limit");
+    if (removedId) {
+      evictedEntryIds.push(removedId);
+    }
   }
+  return evictedEntryIds;
 }
 
 function pruneOverflowByByteBudget() {
+  const evictedEntryIds: string[] = [];
   const { maxBytes } = resolveActiveRetentionBudget();
   if (!(maxBytes > 0)) {
-    return;
+    return evictedEntryIds;
   }
   while (entries.length > 0 && estimatedBytes > maxBytes) {
-    removeEntryAt(0, "byte_budget");
+    const removedId = removeEntryAt(0, "byte_budget");
+    if (removedId) {
+      evictedEntryIds.push(removedId);
+    }
   }
+  return evictedEntryIds;
 }
 
 function enforceRetentionBudgets() {
-  pruneExpiredRuntimeLogs();
-  pruneOverflowByEntryBudget();
-  pruneOverflowByByteBudget();
+  return [
+    ...pruneExpiredRuntimeLogs(),
+    ...pruneOverflowByEntryBudget(),
+    ...pruneOverflowByByteBudget(),
+  ];
 }
 
-function hydrateRuntimeLogsIfNeeded() {
+function resetRuntimeLogMemory() {
+  entries.length = 0;
+  entryByteSizes.clear();
+  serializedEntries.clear();
+  estimatedBytes = 0;
+  droppedEntries = 0;
+  droppedByReason = {
+    entry_limit: 0,
+    byte_budget: 0,
+    expired: 0,
+  };
+}
+
+function hydrateRuntimeLogDocument(raw: string) {
+  const parsed = JSON.parse(raw) as RuntimeLogDocument | unknown[];
+  const rows = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.entries)
+      ? parsed.entries
+      : [];
+  resetRuntimeLogMemory();
+  droppedEntries = Math.max(
+    0,
+    Math.floor(
+      Number(Array.isArray(parsed) ? 0 : parsed?.droppedEntries || 0) || 0,
+    ),
+  );
+  droppedByReason = {
+    entry_limit: Math.max(
+      0,
+      Math.floor(
+        Number(
+          Array.isArray(parsed)
+            ? 0
+            : (parsed?.droppedByReason as Record<string, unknown> | undefined)
+                ?.entry_limit || 0,
+        ) || 0,
+      ),
+    ),
+    byte_budget: Math.max(
+      0,
+      Math.floor(
+        Number(
+          Array.isArray(parsed)
+            ? 0
+            : (parsed?.droppedByReason as Record<string, unknown> | undefined)
+                ?.byte_budget || 0,
+        ) || 0,
+      ),
+    ),
+    expired: Math.max(
+      0,
+      Math.floor(
+        Number(
+          Array.isArray(parsed)
+            ? 0
+            : (parsed?.droppedByReason as Record<string, unknown> | undefined)
+                ?.expired || 0,
+        ) || 0,
+      ),
+    ),
+  };
+  let maxSeq = 0;
+  for (const row of rows) {
+    const parsedEntry = parseRuntimeLogEntry(row);
+    if (!parsedEntry) {
+      continue;
+    }
+    retainSerializedEntry(parsedEntry);
+    maxSeq = Math.max(maxSeq, parseSequenceFromLogId(parsedEntry.id));
+  }
+  sequence = Math.max(sequence, maxSeq);
+  return enforceRetentionBudgets();
+}
+
+export async function initializeRuntimeLogsPersistence() {
   if (hydrated) {
     return;
   }
-  hydrated = true;
-  let raw = readRuntimeLogFileSync();
-  try {
-    if (!raw.trim()) {
-      raw = String(getPref(HISTORY_PREF_KEY) || "").trim();
-      if (raw) {
-        writeRuntimeLogFileAsync(raw);
-        setPref(HISTORY_PREF_KEY, "");
-      }
-    }
-  } catch {
-    raw = raw || "";
-  }
-  if (!raw) {
+  if (hydrationPromise) {
+    await hydrationPromise;
     return;
   }
-  try {
-    const parsed = JSON.parse(raw) as RuntimeLogDocument | unknown[];
-    const rows = Array.isArray(parsed)
-      ? parsed
-      : Array.isArray(parsed?.entries)
-        ? parsed.entries
-        : [];
-    entries.length = 0;
-    entryByteSizes.clear();
-    estimatedBytes = 0;
-    droppedEntries = Math.max(
-      0,
-      Math.floor(
-        Number(Array.isArray(parsed) ? 0 : parsed?.droppedEntries || 0) || 0,
-      ),
-    );
-    droppedByReason = {
-      entry_limit: Math.max(
-        0,
-        Math.floor(
-          Number(
-            Array.isArray(parsed)
-              ? 0
-              : (parsed?.droppedByReason as Record<string, unknown> | undefined)
-                  ?.entry_limit || 0,
-          ) || 0,
-        ),
-      ),
-      byte_budget: Math.max(
-        0,
-        Math.floor(
-          Number(
-            Array.isArray(parsed)
-              ? 0
-              : (parsed?.droppedByReason as Record<string, unknown> | undefined)
-                  ?.byte_budget || 0,
-          ) || 0,
-        ),
-      ),
-      expired: Math.max(
-        0,
-        Math.floor(
-          Number(
-            Array.isArray(parsed)
-              ? 0
-              : (parsed?.droppedByReason as Record<string, unknown> | undefined)
-                  ?.expired || 0,
-          ) || 0,
-        ),
-      ),
-    };
-    let maxSeq = 0;
-    for (const row of rows) {
-      const parsedEntry = parseRuntimeLogEntry(row);
-      if (!parsedEntry) {
-        continue;
+  hydrationPromise = (async () => {
+    let fileRaw = "";
+    try {
+      fileRaw = await readRuntimeTextFile(
+        getRuntimePersistencePaths().runtimeLogPath,
+      );
+    } catch {
+      resetRuntimeLogMemory();
+      filePersistenceFailureCount += 1;
+      hydrated = true;
+      return;
+    }
+    let raw = fileRaw.trim();
+    let fromLegacyPref = false;
+    if (!raw) {
+      try {
+        raw = String(getPref(HISTORY_PREF_KEY) || "").trim();
+        fromLegacyPref = raw.length > 0;
+      } catch {
+        filePersistenceFailureCount += 1;
       }
-      entries.push(parsedEntry);
-      const bytes = estimateSerializedBytes(parsedEntry);
-      entryByteSizes.set(parsedEntry.id, bytes);
-      estimatedBytes += bytes;
-      maxSeq = Math.max(maxSeq, parseSequenceFromLogId(parsedEntry.id));
     }
-    sequence = Math.max(sequence, maxSeq);
-    const beforeDropped = droppedEntries;
-    enforceRetentionBudgets();
-    if (beforeDropped !== droppedEntries) {
-      persistRuntimeLogsNow(true);
+    if (!raw) {
+      hydrated = true;
+      return;
     }
-  } catch {
-    entries.length = 0;
-    entryByteSizes.clear();
-    estimatedBytes = 0;
-    droppedEntries = 0;
-    droppedByReason = {
-      entry_limit: 0,
-      byte_budget: 0,
-      expired: 0,
-    };
-    persistRuntimeLogsNow(true);
+    let evictedEntryIds: string[];
+    try {
+      evictedEntryIds = hydrateRuntimeLogDocument(raw);
+    } catch {
+      resetRuntimeLogMemory();
+      filePersistenceFailureCount += 1;
+      hydrated = true;
+      return;
+    }
+    hydrated = true;
+    if (fromLegacyPref || evictedEntryIds.length > 0) {
+      const revision = markRuntimeLogPersistenceDirty({ schedule: false });
+      if (fromLegacyPref) {
+        legacyMigrationRevision = revision;
+      }
+      await drainRuntimeLogPersistence();
+    }
+  })();
+  try {
+    await hydrationPromise;
+  } finally {
+    hydrationPromise = null;
   }
 }
 
-function emitChanged() {
+function emitChanged(change: RuntimeLogChange) {
   if (listeners.size === 0) {
     return;
   }
-  const snapshot = snapshotRuntimeLogsInternal();
   for (const listener of listeners) {
-    listener(snapshot);
+    listener(change);
   }
 }
 
-function flushRuntimeLogsPersistenceNow() {
-  hydrateRuntimeLogsIfNeeded();
-  persistRuntimeLogsNow();
+export async function flushRuntimeLogsPersistence() {
+  if (hydrationPromise) {
+    await hydrationPromise;
+  }
+  clearPersistTimers();
+  await drainRuntimeLogPersistence();
 }
 
-export async function flushRuntimeLogsPersistence() {
-  flushRuntimeLogsPersistenceNow();
+export function setRuntimeLogPersistenceWriterForTests(
+  writer: RuntimeLogPersistenceWriter | null,
+) {
+  persistenceWriterForTests = writer;
 }
 
 export function setRuntimeLogAllowedLevels(levels: RuntimeLogLevel[]) {
@@ -1040,12 +1145,18 @@ export function resetRuntimeLogAllowedLevels() {
 }
 
 export function setRuntimeLogDiagnosticMode(enabled: boolean) {
-  hydrateRuntimeLogsIfNeeded();
-  diagnosticMode = enabled === true;
-  enforceRetentionBudgets();
-  persistenceDirty = true;
-  persistRuntimeLogsNow();
-  emitChanged();
+  const next = enabled === true;
+  if (diagnosticMode === next) {
+    return;
+  }
+  diagnosticMode = next;
+  const evictedEntryIds = enforceRetentionBudgets();
+  const revision = markRuntimeLogPersistenceDirty();
+  emitChanged({
+    revision,
+    kind: "settings",
+    evictedEntryIds,
+  });
 }
 
 export function getRuntimeLogDiagnosticMode() {
@@ -1053,7 +1164,6 @@ export function getRuntimeLogDiagnosticMode() {
 }
 
 export function appendRuntimeLog(input: RuntimeLogInput) {
-  hydrateRuntimeLogsIfNeeded();
   const level = normalizeLevel(input.level);
   if (level === "debug" ? !diagnosticMode : !allowedLevels.has(level)) {
     return null;
@@ -1091,18 +1201,19 @@ export function appendRuntimeLog(input: RuntimeLogInput) {
     entry.error = normalizedError;
   }
 
-  entries.push(entry);
-  const entryBytes = estimateSerializedBytes(entry);
-  entryByteSizes.set(entry.id, entryBytes);
-  estimatedBytes += entryBytes;
-  enforceRetentionBudgets();
-  scheduleRuntimeLogPersistence();
-  emitChanged();
+  retainSerializedEntry(entry);
+  const evictedEntryIds = enforceRetentionBudgets();
+  const revision = markRuntimeLogPersistenceDirty();
+  emitChanged({
+    revision,
+    kind: "append",
+    entry: cloneEntry(entry),
+    evictedEntryIds,
+  });
   return cloneEntry(entry);
 }
 
 export function listRuntimeLogs(filters: RuntimeLogListFilters = {}) {
-  hydrateRuntimeLogsIfNeeded();
   const levels = Array.isArray(filters.levels) ? new Set(filters.levels) : null;
   const scopes = Array.isArray(filters.scopes) ? new Set(filters.scopes) : null;
   const backendIds = Array.isArray(filters.backendId)
@@ -1186,19 +1297,14 @@ export function listRuntimeLogs(filters: RuntimeLogListFilters = {}) {
 }
 
 export function clearRuntimeLogs() {
-  hydrateRuntimeLogsIfNeeded();
-  entries.length = 0;
-  entryByteSizes.clear();
-  estimatedBytes = 0;
-  droppedEntries = 0;
-  droppedByReason = {
-    entry_limit: 0,
-    byte_budget: 0,
-    expired: 0,
-  };
-  persistenceDirty = true;
-  persistRuntimeLogsNow(true);
-  emitChanged();
+  resetRuntimeLogMemory();
+  const revision = markRuntimeLogPersistenceDirty({ schedule: false });
+  emitChanged({
+    revision,
+    kind: "clear",
+    evictedEntryIds: [],
+  });
+  return drainRuntimeLogPersistence();
 }
 
 registerRuntimeLogClearer(clearRuntimeLogs);
@@ -1222,12 +1328,42 @@ function snapshotRuntimeLogsInternal(): RuntimeLogSnapshot {
 }
 
 export function snapshotRuntimeLogs(): RuntimeLogSnapshot {
-  flushRuntimeLogsPersistenceNow();
   return snapshotRuntimeLogsInternal();
 }
 
+export function getRuntimeLogSummary(): RuntimeLogSummary {
+  const budget = resolveActiveRetentionBudget();
+  const backendIds = new Set<string>();
+  const workflowIds = new Set<string>();
+  for (const entry of entries) {
+    if (entry.backendId) {
+      backendIds.add(entry.backendId);
+    }
+    if (entry.workflowId) {
+      workflowIds.add(entry.workflowId);
+    }
+  }
+  return {
+    entryCount: entries.length,
+    droppedEntries,
+    droppedByReason: { ...droppedByReason },
+    maxEntries: budget.maxEntries,
+    maxBytes: budget.maxBytes,
+    estimatedBytes,
+    retentionMode: budget.mode,
+    diagnosticMode,
+    sanitizationPolicy: {
+      redactedPlaceholder: REDACTED,
+      stringLimit: MAX_STRING_LENGTH,
+    },
+    facets: {
+      backendIds: [...backendIds],
+      workflowIds: [...workflowIds],
+    },
+  };
+}
+
 export function getRuntimeLogManagerSnapshotForTests() {
-  hydrateRuntimeLogsIfNeeded();
   const snapshot = snapshotRuntimeLogsInternal();
   return {
     entryCount: snapshot.entries.length,
@@ -1242,30 +1378,33 @@ export function getRuntimeLogManagerSnapshotForTests() {
 export function getRuntimeLogPersistenceStateForTests() {
   return {
     dirty: persistenceDirty,
-    hasPendingTimer: persistTimer !== null,
+    hasPendingTimer: persistIdleTimer !== null || persistMaxDelayTimer !== null,
+    hasIdleTimer: persistIdleTimer !== null,
+    hasMaxDelayTimer: persistMaxDelayTimer !== null,
+    revision: changeRevision,
+    durableRevision,
+    inFlight: inFlightSave !== null,
     flushCount: persistenceFlushCount,
     fileFailureCount: filePersistenceFailureCount,
+    entrySerializationCount,
     path: getRuntimePersistencePaths().runtimeLogPath,
   };
 }
 
 export function resetRuntimeLogHydrationForTests() {
-  clearPersistTimer();
+  clearPersistTimers();
   hydrated = false;
-  entries.length = 0;
-  entryByteSizes.clear();
-  estimatedBytes = 0;
-  droppedEntries = 0;
-  droppedByReason = {
-    entry_limit: 0,
-    byte_budget: 0,
-    expired: 0,
-  };
+  hydrationPromise = null;
+  resetRuntimeLogMemory();
   persistenceDirty = false;
+  changeRevision = 0;
+  durableRevision = 0;
+  inFlightSave = null;
+  legacyMigrationRevision = null;
+  entrySerializationCount = 0;
 }
 
 export function subscribeRuntimeLogs(listener: RuntimeLogListener) {
-  hydrateRuntimeLogsIfNeeded();
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
@@ -1719,7 +1858,6 @@ export function buildRuntimeDiagnosticBundle(
     filters?: RuntimeLogListFilters;
   } = {},
 ): RuntimeDiagnosticBundleV1 {
-  flushRuntimeLogsPersistenceNow();
   const filters = args.filters || {};
   const timelineEntries = listRuntimeLogs({
     ...filters,
@@ -1783,7 +1921,6 @@ export function buildRuntimeIssueDiagnosticBundle(
     includeRawEntries?: boolean;
   } = {},
 ): RuntimeIssueDiagnosticBundleV1 {
-  flushRuntimeLogsPersistenceNow();
   const filters = args.filters || {};
   const levels = issueDiagnosticLevels({
     filters,

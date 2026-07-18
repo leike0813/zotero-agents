@@ -172,6 +172,7 @@ export const RUNTIME_APPEND_CHUNK_CODE_UNITS = 256 * 1024;
 export const RUNTIME_TEXT_SCAN_CHUNK_BYTES = 256 * 1024;
 
 const runtimeAppendQueues = new Map<string, Promise<void>>();
+let runtimeAtomicWriteSequence = 0;
 
 export type RuntimeExpiredAssetOwner = "tmp" | "cache" | "logs";
 
@@ -190,7 +191,7 @@ const RUNTIME_EXPIRED_ASSET_TTL_MS: Record<RuntimeExpiredAssetOwner, number> = {
   logs: 30 * DAY_MS,
 };
 
-let runtimeLogClearer: (() => void) | null = null;
+let runtimeLogClearer: (() => void | Promise<void>) | null = null;
 let pluginTaskDomainClearer: ((domain: string) => number) | null = null;
 let pluginTaskDomainExceptRowScopesClearer:
   | ((domain: string, preservedRowScopes: string[]) => number)
@@ -230,7 +231,9 @@ let acpSkillRunsRetentionCleaner:
     })
   | null = null;
 
-export function registerRuntimeLogClearer(clearer: (() => void) | null) {
+export function registerRuntimeLogClearer(
+  clearer: (() => void | Promise<void>) | null,
+) {
   runtimeLogClearer = clearer;
 }
 
@@ -1531,6 +1534,68 @@ export async function appendRuntimeTextFile(pathRaw: string, content: string) {
   }
 }
 
+export async function replaceRuntimeTextFileAtomically(args: {
+  targetPath: string;
+  fragments: Iterable<string>;
+}) {
+  const targetPath = normalizeString(args.targetPath);
+  if (!targetPath) {
+    throw new Error("atomic text replacement target path is missing");
+  }
+  assertNativeRuntimeFsPath(targetPath, "replace runtime text file");
+  const directory = parentPath(targetPath);
+  const tempPath = joinPath(
+    directory,
+    `.${baseName(targetPath)}.${Date.now()}-${++runtimeAtomicWriteSequence}.tmp`,
+  );
+  await ensureRuntimeDirectory(directory);
+  await removeRuntimePath(tempPath).catch(() => undefined);
+  let replaced = false;
+  try {
+    let buffered = "";
+    const flushBounded = async (flushAll: boolean) => {
+      while (
+        buffered.length > RUNTIME_APPEND_CHUNK_CODE_UNITS ||
+        (flushAll && buffered.length > 0)
+      ) {
+        let end = flushAll
+          ? Math.min(buffered.length, RUNTIME_APPEND_CHUNK_CODE_UNITS)
+          : RUNTIME_APPEND_CHUNK_CODE_UNITS;
+        if (
+          end < buffered.length &&
+          end > 0 &&
+          buffered.charCodeAt(end - 1) >= 0xd800 &&
+          buffered.charCodeAt(end - 1) <= 0xdbff &&
+          buffered.charCodeAt(end) >= 0xdc00 &&
+          buffered.charCodeAt(end) <= 0xdfff
+        ) {
+          end -= 1;
+        }
+        await appendRuntimeTextFile(tempPath, buffered.slice(0, end));
+        buffered = buffered.slice(end);
+      }
+    };
+    for (const fragment of args.fragments) {
+      if (!fragment) {
+        continue;
+      }
+      buffered += fragment;
+      await flushBounded(false);
+    }
+    await flushBounded(true);
+    await moveRuntimePath({
+      sourcePath: tempPath,
+      targetPath,
+      overwrite: true,
+    });
+    replaced = true;
+  } finally {
+    if (!replaced) {
+      await removeRuntimePath(tempPath).catch(() => undefined);
+    }
+  }
+}
+
 export async function statRuntimePath(pathRaw: string): Promise<{
   exists: boolean;
   isDir: boolean;
@@ -1973,7 +2038,7 @@ export async function cleanupRuntimePersistenceCategory(
   };
 
   if (category === "logs") {
-    runtimeLogClearer?.();
+    await runtimeLogClearer?.();
     await removeAndTrack(paths.logsDir);
   } else if (category === "skillrunner-ledger") {
     const runRowsDeleted = pluginRunStoreClearer?.("skillrunner") || 0;

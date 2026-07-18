@@ -12,3 +12,4 @@ import "../../../core/174-workflow-archive-zotero-runtime.test";
 import "../../../core/182-host-bridge-socket.integration.test";
 import "../../../core/185-zotero-library-page-query.zotero.test";
 import "../../../core/186-acp-runtime-file-io.zotero.test";
+import "../../../core/187-runtime-log-persistence.zotero.test";

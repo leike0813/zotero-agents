@@ -153,14 +153,28 @@ export function installWorkflowToastCapture(toasts: ToastCaptureEntry[]) {
 }
 
 export function installRuntimeLogCapture(logs: RuntimeLogEntry[]) {
-  clearRuntimeLogs();
+  void clearRuntimeLogs();
   resetRuntimeLogAllowedLevels();
-  const unsubscribe = subscribeRuntimeLogs((snapshot) => {
-    logs.splice(0, logs.length, ...snapshot.entries);
+  const unsubscribe = subscribeRuntimeLogs((change) => {
+    if (change.kind === "clear") {
+      logs.splice(0, logs.length);
+      return;
+    }
+    if (change.evictedEntryIds.length > 0) {
+      const evicted = new Set(change.evictedEntryIds);
+      for (let index = logs.length - 1; index >= 0; index -= 1) {
+        if (evicted.has(logs[index].id)) {
+          logs.splice(index, 1);
+        }
+      }
+    }
+    if (change.entry && !change.evictedEntryIds.includes(change.entry.id)) {
+      logs.push(change.entry);
+    }
   });
   return () => {
     unsubscribe();
-    clearRuntimeLogs();
+    void clearRuntimeLogs();
     resetRuntimeLogAllowedLevels();
   };
 }

@@ -2205,10 +2205,10 @@ async function buildDashboardSnapshot(args: {
   }
 
   if (resolvedSelectedTabKey === "runtime-logs") {
-    const { getRuntimeLogDiagnosticMode, snapshotRuntimeLogs } =
+    const { getRuntimeLogDiagnosticMode, getRuntimeLogSummary } =
       await import("./runtimeLogManager");
     const diagnosticMode = getRuntimeLogDiagnosticMode();
-    const logSnapshot = snapshotRuntimeLogs();
+    const logSummary = getRuntimeLogSummary();
     const runtimeLogFilters = normalizeRuntimeLogFilters(
       args.state.runtimeLogFilters,
     );
@@ -2218,50 +2218,39 @@ async function buildDashboardSnapshot(args: {
       order: "desc",
       limit: 300,
     });
-    const uniqueBackends = new Set<string>();
-    const uniqueWorkflows = new Set<string>();
-    for (const entry of logSnapshot.entries) {
-      if (entry.backendId) uniqueBackends.add(entry.backendId);
-      if (entry.workflowId) uniqueWorkflows.add(entry.workflowId);
-    }
-
     const { getVisibleLoadedWorkflowEntries } =
       await import("./workflowVisibility");
     const loadedWorkflows = getVisibleLoadedWorkflowEntries();
 
-    const mappedBackends = Array.from(uniqueBackends)
-      .sort()
-      .map((bId) => {
-        const foundBackend = args.backends.find((b) => b.id === bId);
-        return {
-          value: bId,
-          label: foundBackend
-            ? resolveBackendDisplayName(bId, foundBackend.displayName)
-            : bId,
-        };
-      });
+    const mappedBackends = logSummary.facets.backendIds.sort().map((bId) => {
+      const foundBackend = args.backends.find((b) => b.id === bId);
+      return {
+        value: bId,
+        label: foundBackend
+          ? resolveBackendDisplayName(bId, foundBackend.displayName)
+          : bId,
+      };
+    });
 
-    const mappedWorkflows = Array.from(uniqueWorkflows)
-      .sort()
-      .map((wId) => {
-        const match = loadedWorkflows.find((w) => w.manifest.id === wId);
-        return {
-          value: wId,
-          label: match ? localizeWorkflowLabel(match) : wId,
-        };
-      });
+    const mappedWorkflows = logSummary.facets.workflowIds.sort().map((wId) => {
+      const match = loadedWorkflows.find((w) => w.manifest.id === wId);
+      return {
+        value: wId,
+        label: match ? localizeWorkflowLabel(match) : wId,
+      };
+    });
 
     snapshot.runtimeLogsView = {
       filters: runtimeLogFilters,
       diagnosticMode,
-      totalEntries: logSnapshot.entries.length,
+      totalEntries: logSummary.entryCount,
       budget: {
-        maxEntries: logSnapshot.maxEntries,
-        maxBytes: logSnapshot.maxBytes,
-        estimatedBytes: logSnapshot.estimatedBytes,
-        droppedEntries: logSnapshot.droppedEntries,
-        droppedByReason: logSnapshot.droppedByReason,
-        retentionMode: logSnapshot.retentionMode,
+        maxEntries: logSummary.maxEntries,
+        maxBytes: logSummary.maxBytes,
+        estimatedBytes: logSummary.estimatedBytes,
+        droppedEntries: logSummary.droppedEntries,
+        droppedByReason: logSummary.droppedByReason,
+        retentionMode: logSummary.retentionMode,
       },
       logs: rawLogs.map((entry) => mapLogRow(entry)),
       selectedEntryIds: Array.from(args.state.runtimeLogSelectedIdSet),
@@ -2997,7 +2986,6 @@ export async function openTaskManagerDialog(args?: {
     return (
       state.selectedTabKey === "workflow-options" ||
       state.selectedTabKey === "products" ||
-      state.selectedTabKey === "runtime-logs" ||
       state.selectedTabKey === "skillrunner-connection-audit" ||
       state.selectedTabKey === "acp-trace-replay"
     );
@@ -4000,7 +3988,7 @@ export async function openTaskManagerDialog(args?: {
     }
     if (action === "runtime-logs-clear") {
       const { clearRuntimeLogs } = await import("./runtimeLogManager");
-      clearRuntimeLogs();
+      await clearRuntimeLogs();
       state.runtimeLogSelectedIdSet.clear();
       refresh("user-action");
       return;

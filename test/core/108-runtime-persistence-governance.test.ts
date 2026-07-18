@@ -10,6 +10,8 @@ import {
   cleanupRuntimePersistenceRetention,
   cleanupRuntimePersistenceCategory,
   getRuntimePersistencePaths,
+  registerRuntimeLogClearer,
+  replaceRuntimeTextFileAtomically,
   scanRuntimePersistenceUsage,
   validateManagedAbsolutePath,
   validateManagedRelativePath,
@@ -84,12 +86,13 @@ describe("runtime persistence governance", function () {
     process.env.ZOTERO_SKILLS_RUNTIME_ROOT = tempRoot;
     resetPluginStateStoreForTests();
     resetAcpSkillRunsForTests();
-    clearRuntimeLogs();
+    await clearRuntimeLogs();
     setDebugModeOverrideForTests(true);
   });
 
   afterEach(async function () {
-    clearRuntimeLogs();
+    await clearRuntimeLogs();
+    await flushRuntimeLogsPersistence();
     clearPluginTaskDomain(PLUGIN_TASK_DOMAIN_SKILLRUNNER);
     clearPluginTaskDomain(PLUGIN_TASK_DOMAIN_ACP);
     clearPluginTaskDomain(PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS);
@@ -235,6 +238,163 @@ describe("runtime persistence governance", function () {
       } else {
         delete runtime.IOUtils;
       }
+    }
+  });
+
+  it("atomically replaces text from ordered bounded fragments without damaging Unicode", async function () {
+    const targetPath = path.join(tempRoot, "logs", "atomic.json");
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    await fs.writeFile(targetPath, '{"old":true}', "utf8");
+    const largeText = `${"a".repeat(RUNTIME_APPEND_CHUNK_CODE_UNITS - 1)}😀tail`;
+
+    await replaceRuntimeTextFileAtomically({
+      targetPath,
+      fragments: ['{"entries":["', largeText, '"]}'],
+    });
+
+    const persisted = await fs.readFile(targetPath, "utf8");
+    assert.deepEqual(JSON.parse(persisted), { entries: [largeText] });
+    assert.deepEqual(await fs.readdir(path.dirname(targetPath)), [
+      "atomic.json",
+    ]);
+  });
+
+  it("keeps the previous target and removes its temporary file when fragment production fails", async function () {
+    const targetPath = path.join(tempRoot, "logs", "atomic-failure.json");
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    await fs.writeFile(targetPath, '{"old":true}', "utf8");
+    function* failingFragments() {
+      yield '{"entries":[';
+      throw new Error("controlled fragment failure");
+    }
+
+    let failure: unknown;
+    try {
+      await replaceRuntimeTextFileAtomically({
+        targetPath,
+        fragments: failingFragments(),
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    assert.match(String(failure), /controlled fragment failure/);
+    assert.equal(await fs.readFile(targetPath, "utf8"), '{"old":true}');
+    assert.deepEqual(await fs.readdir(path.dirname(targetPath)), [
+      "atomic-failure.json",
+    ]);
+  });
+
+  it("keeps every Zotero physical append within the surrogate-safe chunk policy", async function () {
+    const runtime = globalThis as any;
+    const processDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "process",
+    );
+    const ioUtilsDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "IOUtils",
+    );
+    const files = new Map<string, string>();
+    const writes: string[] = [];
+    const targetPath = path.join(tempRoot, "logs", "bounded.json");
+    files.set(targetPath, "old");
+    try {
+      Object.defineProperty(globalThis, "process", {
+        configurable: true,
+        writable: true,
+        value: undefined,
+      });
+      Object.defineProperty(globalThis, "IOUtils", {
+        configurable: true,
+        writable: true,
+        value: {
+          exists: async (filePath: string) => files.has(filePath),
+          makeDirectory: async () => undefined,
+          writeUTF8: async (
+            filePath: string,
+            content: string,
+            options: { mode: string },
+          ) => {
+            assert.deepEqual(options, { mode: "appendOrCreate" });
+            writes.push(content);
+            files.set(filePath, `${files.get(filePath) || ""}${content}`);
+          },
+          move: async (sourcePath: string, destinationPath: string) => {
+            files.set(destinationPath, files.get(sourcePath) || "");
+            files.delete(sourcePath);
+          },
+          remove: async (filePath: string) => {
+            files.delete(filePath);
+          },
+        },
+      });
+      const text = `${"x".repeat(RUNTIME_APPEND_CHUNK_CODE_UNITS - 1)}😀${"y".repeat(
+        RUNTIME_APPEND_CHUNK_CODE_UNITS,
+      )}`;
+
+      await replaceRuntimeTextFileAtomically({
+        targetPath,
+        fragments: ["prefix", text, "suffix"],
+      });
+
+      assert.equal(files.get(targetPath), `prefix${text}suffix`);
+      assert.isAtLeast(writes.length, 3);
+      for (const content of writes) {
+        assert.isAtMost(content.length, RUNTIME_APPEND_CHUNK_CODE_UNITS);
+        assert.notMatch(content, /^\uDE00/);
+        assert.notMatch(content, /\uD83D$/);
+      }
+      assert.equal(
+        [...files.keys()].filter((filePath) => filePath !== targetPath).length,
+        0,
+      );
+    } finally {
+      if (processDescriptor) {
+        Object.defineProperty(globalThis, "process", processDescriptor);
+      }
+      if (ioUtilsDescriptor) {
+        Object.defineProperty(globalThis, "IOUtils", ioUtilsDescriptor);
+      } else {
+        delete runtime.IOUtils;
+      }
+    }
+  });
+
+  it("awaits the asynchronous runtime log clearer before deleting log storage", async function () {
+    const paths = getRuntimePersistencePaths();
+    await fs.mkdir(paths.logsDir, { recursive: true });
+    await fs.writeFile(
+      path.join(paths.logsDir, "pending.log"),
+      "pending",
+      "utf8",
+    );
+    let release!: () => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    registerRuntimeLogClearer(async () => {
+      markStarted();
+      await blocked;
+    });
+    try {
+      let completed = false;
+      const cleanup = cleanupRuntimePersistenceCategory("logs").then(() => {
+        completed = true;
+      });
+      await started;
+      assert.isTrue(await pathExists(paths.logsDir));
+      assert.isFalse(completed);
+      release();
+      await cleanup;
+      assert.isFalse(await pathExists(paths.logsDir));
+    } finally {
+      release?.();
+      registerRuntimeLogClearer(clearRuntimeLogs);
     }
   });
 

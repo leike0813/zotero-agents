@@ -6,10 +6,13 @@ import { getSkillRunnerBackendReachabilityCoordinatorRuntimeForTests } from "../
 import {
   clearRuntimeLogs,
   getRuntimeLogDiagnosticMode,
+  getRuntimeLogPersistenceStateForTests,
   listRuntimeLogs,
+  resetRuntimeLogHydrationForTests,
   resetRuntimeLogAllowedLevels,
   setRuntimeLogDiagnosticMode,
 } from "../../src/modules/runtimeLogManager";
+import { writeRuntimeTextFile } from "../../src/modules/runtimePersistence";
 import { cleanupBackgroundRuntimeForZoteroTests } from "../../src/modules/testRuntimeCleanup";
 
 type LocalizationRequest = {
@@ -88,7 +91,7 @@ describe("hooks startup template cleanup", function () {
   });
 
   it("emits runtime startup preflight info logs", async function () {
-    clearRuntimeLogs();
+    await clearRuntimeLogs();
 
     await hooks.onStartup();
 
@@ -108,6 +111,35 @@ describe("hooks startup template cleanup", function () {
       assert.notInclude(JSON.stringify(entry.details || {}), "OPENAI_API_KEY");
       assert.notInclude(JSON.stringify(entry.details || {}), "PATH=");
     }
+  });
+
+  it("initializes runtime log persistence before startup log producers", async function () {
+    await clearRuntimeLogs();
+    resetRuntimeLogHydrationForTests();
+    await writeRuntimeTextFile(
+      getRuntimeLogPersistenceStateForTests().path,
+      JSON.stringify({
+        entries: [
+          {
+            id: "log-before-startup",
+            ts: new Date().toISOString(),
+            level: "info",
+            scope: "system",
+            schemaVersion: 1,
+            diagnosticMode: false,
+            stage: "before-startup",
+            message: "hydrate before startup producers",
+          },
+        ],
+      }),
+    );
+
+    await hooks.onStartup();
+
+    assert.equal(
+      listRuntimeLogs().find((entry) => entry.stage === "before-startup")?.id,
+      "log-before-startup",
+    );
   });
 
   it("registers preferences pane on startup", async function () {
