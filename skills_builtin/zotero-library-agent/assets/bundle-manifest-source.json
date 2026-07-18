@@ -4,18 +4,38 @@
   "sourceFiles": {
     "version": "skills_src/zotero-library-agent/bundle-version.json",
     "semantic": [
+      "skills_src/zotero-library-agent/semantic/README.md",
       "skills_src/zotero-library-agent/semantic/SKILL.md",
       "skills_src/zotero-library-agent/semantic/agents/openai.yaml",
       "skills_src/zotero-library-agent/semantic/references/task-routing.md",
       "skills_src/zotero-library-agent/semantic/references/workflow-execution.md",
       "skills_src/zotero-library-agent/semantic/references/evidence-handoff.md",
+      "skills_src/zotero-library-agent/semantic/references/helper-script-contract.md",
+      "skills_src/zotero-library-agent/semantic/references/journeys/current-context-and-library-read.md",
+      "skills_src/zotero-library-agent/semantic/references/journeys/notes-attachments-and-readiness.md",
+      "skills_src/zotero-library-agent/semantic/references/journeys/synthesis-research-context.md",
+      "skills_src/zotero-library-agent/semantic/references/journeys/host-owned-workflow.md",
+      "skills_src/zotero-library-agent/semantic/references/journeys/agent-owned-handoff.md",
+      "skills_src/zotero-library-agent/semantic/references/journeys/concrete-writeback.md",
+      "skills_src/zotero-library-agent/semantic/references/journeys/products-and-files.md",
       "skills_src/zotero-library-agent/semantic/assets/evidence-bundle.schema.json",
       "skills_src/zotero-library-agent/semantic/assets/evidence-input.example.json",
       "skills_src/zotero-library-agent/semantic/scripts/zotero_library_agent.py"
     ],
+    "runtime": [
+      "skills_src/zotero-library-agent/runner.json",
+      "skills_src/zotero-library-agent/output.schema.json"
+    ],
     "shared": [
       "skills_src/host-bridge-shared/terminology.md",
       "skills_src/host-bridge-shared/control-invariants.md",
+      "skills_src/host-bridge-shared/semantic/manifest.json",
+      "skills_src/host-bridge-shared/semantic/connectivity-context.json",
+      "skills_src/host-bridge-shared/semantic/library.json",
+      "skills_src/host-bridge-shared/semantic/workflow-run.json",
+      "skills_src/host-bridge-shared/semantic/mutation-file-product.json",
+      "skills_src/host-bridge-shared/semantic/synthesis.json",
+      "skills_src/host-bridge-shared/semantic/diagnostics.json",
       "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md"
     ],
     "cliRelease": "cli/zotero-bridge/release.json",
@@ -23,17 +43,17 @@
     "agentSurface": "cli/zotero-bridge/src/agent-surface.json"
   },
   "generated": {
-    "bundleVersion": "0.2.1",
-    "cliVersion": "0.2.2",
+    "bundleVersion": "0.3.0",
+    "cliVersion": "0.3.0",
     "cliIdentity": {
-      "schema": "host-bridge.surface-identity.v1",
+      "schema": "host-bridge.surface-identity.v2",
       "protocol": "host-bridge.v1",
-      "cliSchema": "zotero-bridge.cli.v1",
-      "version": "0.2.2",
-      "buildFingerprint": "bf8ce58c83754b990bd5f94b03c5d142be6afadf882b9d0af6829ea323fda2dc",
-      "commandCatalogChecksum": "25c68c70847bf44a78c0022c99712dda123d022f2b455e69f6f7ddc52d691874"
+      "cliSchema": "zotero-bridge.cli.v2",
+      "version": "0.3.0",
+      "buildFingerprint": "3ff549a3b9633aa570c80b9fb81a803d12ac880a035d19c305c11e9051114213",
+      "commandCatalogChecksum": "9f3f82cc60299963ed2660e1c08a9de46db277ef57e199cbad04dd7e14227b40"
     },
-    "binaryAggregateSha256": "fa6de0bf9f01857eebdfe093395ee680d0ed1dffe2e352fe91dbe7f621423d91",
-    "semanticChecksum": "14ae07b8aea3d9936553819c6eeadc91af4257b598a222011b6d93a50918cc12"
+    "binaryAggregateSha256": "",
+    "semanticChecksum": "da4a49ec572bb27b0d82c138ba60fcc372718793c7b29d7d5cb3aea927db88a0"
   }
 }

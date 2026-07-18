@@ -1,7 +1,7 @@
 {
   "schema": "zotero-bridge-cli-release.v1",
-  "version": "0.2.2",
-  "buildFingerprint": "bf8ce58c83754b990bd5f94b03c5d142be6afadf882b9d0af6829ea323fda2dc",
+  "version": "0.3.0",
+  "buildFingerprint": "3ff549a3b9633aa570c80b9fb81a803d12ac880a035d19c305c11e9051114213",
   "binariesBuildFingerprint": "7de2f185e0bc25cee73f882c20a71762ae9b8e737cdd12709f847b95ed5be314",
   "fingerprintInputs": [
     ".github/workflows/release-host-bridge.yml",
@@ -20,7 +20,6 @@
     "scripts/host-bridge-cli-release-governance.mjs",
     "scripts/package-zotero-bridge-cli.mjs"
   ],
-  "binaryAggregateSha256": "fa6de0bf9f01857eebdfe093395ee680d0ed1dffe2e352fe91dbe7f621423d91",
   "binaries": [
     {
       "platform": "win32-x64",
@@ -65,5 +64,5 @@
       "bytes": 1395584
     }
   ],
-  "dispatchReason": "workflow_dispatch"
+  "dispatchReason": "prepare"
 }

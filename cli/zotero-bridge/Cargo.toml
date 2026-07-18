@@ -1,6 +1,6 @@
 [package]
 name = "zotero-bridge"
-version = "0.2.2"
+version = "0.3.0"
 edition = "2021"
 description = "Agent-first CLI for the Zotero Agents Host Bridge"
 license = "AGPL-3.0-or-later"

@@ -2,7 +2,7 @@
   "schema": "host-bridge.agent-surface.v2",
   "protocol": "host-bridge.v1",
   "cliSchema": "zotero-bridge.cli.v2",
-  "commandCatalogChecksum": "b8ee450e7a4e2ac71481a89c71764717c4771b6e1960a1d5aa1b52904c273ac3",
+  "commandCatalogChecksum": "9f3f82cc60299963ed2660e1c08a9de46db277ef57e199cbad04dd7e14227b40",
   "commands": [
     {
       "command": "bridge backend list",
@@ -9178,9 +9178,9 @@
         }
       ],
       "approvalContract": {
-        "kind": "none",
-        "timing": "none",
-        "scope": "No Host Bridge UI approval; provider runtimes may still request their own permission."
+        "kind": "zotero-ui-required",
+        "timing": "before-command",
+        "scope": "Zotero UI approval for the described Host-owned effect."
       },
       "handleTransitions": [
         {
@@ -16329,8 +16329,8 @@
           "handle": "agentRunId",
           "direction": "consume",
           "required": true,
-          "condition": "Required by the command invocation.",
-          "lifetime": "one-shot"
+          "condition": "Required to read persisted apply status; the read does not consume it.",
+          "lifetime": "caller-owned"
         },
         {
           "handle": "applyReceipt",
@@ -16530,8 +16530,8 @@
         {
           "handle": "itemRef",
           "direction": "consume",
-          "required": true,
-          "condition": "Required by the command invocation.",
+          "required": false,
+          "condition": "Required only for an explicit --selection input; --none carries no itemRef.",
           "lifetime": "caller-owned"
         },
         {
@@ -16539,7 +16539,7 @@
           "direction": "produce",
           "required": false,
           "condition": "Returned when the corresponding operation succeeds.",
-          "lifetime": "response"
+          "lifetime": "one-shot"
         },
         {
           "handle": "agentRequestId",
@@ -17168,16 +17168,16 @@
         }
       ],
       "approvalContract": {
-        "kind": "none",
-        "timing": "none",
-        "scope": "No Host Bridge UI approval; provider runtimes may still request their own permission."
+        "kind": "zotero-ui-required",
+        "timing": "before-command",
+        "scope": "Zotero UI approval for the described Host-owned effect."
       },
       "handleTransitions": [
         {
           "handle": "itemRef",
           "direction": "consume",
-          "required": true,
-          "condition": "Required by the command invocation.",
+          "required": false,
+          "condition": "Required only for an explicit --selection input; --none carries no itemRef.",
           "lifetime": "caller-owned"
         },
         {

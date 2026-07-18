@@ -115,7 +115,7 @@ Distinguish from:
 
 ### Approval, effects, and handles
 
-- Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
+- Approval: `zotero-ui-required` at `before-command`; Zotero UI approval for the described Host-owned effect.
 - Effect `workflow-control`: May change workflow control state. stateChanged=true.
 - consume `workflowRunId` (caller-owned): Required by the command invocation.
 
@@ -1162,7 +1162,7 @@ Distinguish from:
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
 - Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
-- consume `agentRunId` (one-shot): Required by the command invocation.
+- consume `agentRunId` (caller-owned): Required to read persisted apply status; the read does not consume it.
 - produce `applyReceipt` (response): Returned when the corresponding operation succeeds.
 
 ### Failure and recovery
@@ -1233,8 +1233,8 @@ Distinguish from:
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
 - Effect `workflow-control`: May change workflow control state. stateChanged=true.
-- consume `itemRef` (caller-owned): Required by the command invocation.
-- produce `agentRunId` (response): Returned when the corresponding operation succeeds.
+- consume `itemRef` (caller-owned): Required only for an explicit --selection input; --none carries no itemRef.
+- produce `agentRunId` (one-shot): Returned when the corresponding operation succeeds.
 - produce `agentRequestId` (response): Returned when the corresponding operation succeeds.
 - produce `fileId` (short-lived): Returned when the corresponding operation succeeds.
 
@@ -1488,9 +1488,9 @@ Distinguish from:
 
 ### Approval, effects, and handles
 
-- Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
+- Approval: `zotero-ui-required` at `before-command`; Zotero UI approval for the described Host-owned effect.
 - Effect `workflow-control`: May change workflow control state. stateChanged=true.
-- consume `itemRef` (caller-owned): Required by the command invocation.
+- consume `itemRef` (caller-owned): Required only for an explicit --selection input; --none carries no itemRef.
 - produce `workflowRunId` (response): Returned when the corresponding operation succeeds.
 
 ### Failure and recovery
