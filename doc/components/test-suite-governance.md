@@ -191,7 +191,6 @@ Zotero `full` extra parity ring:
 - `test/core/70a-skillrunner-task-reconciler-state-restore.test.ts` (selected cases)
 - `test/core/70b-skillrunner-task-reconciler-apply-bundle-retry.test.ts` (selected cases)
 - `test/core/70c-skillrunner-task-reconciler-ledger-reconcile.test.ts` (selected cases)
-- `test/core/71-skillrunner-run-dialog-ui-e2e-alignment.test.ts`
 - `test/core/83-skillrunner-run-dialog-waiting-auth-observer.test.ts`
 - selected extra cases or full stable-suite prefixes in:
   - `test/ui/35-workflow-settings-execution.test.ts`
@@ -216,6 +215,8 @@ Default exclusions from routine Zotero runs:
 - package helper / library tests
 - filterInputs / schema / payload-shape logic tests
 - mock-heavy or fake DOM suites
+- `test/core/71-skillrunner-run-dialog-ui-e2e-alignment.test.ts` is covered by
+  the Node suite because its behavior harness uses a local Node HTTP server
 - editor / picker / dialog interaction suites
 - GitHub sync, local runtime, installer, and OS integration deep chains
 
