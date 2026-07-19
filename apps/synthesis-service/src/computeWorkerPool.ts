@@ -40,7 +40,6 @@ import {
   SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION,
   SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION,
   SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION,
-  SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION,
   SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION,
   SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION,
   SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION,
@@ -64,6 +63,12 @@ import {
   type SynthesisTopicGraphIndexRequest,
   type SynthesisTopicGraphIndexResult,
 } from "../../../packages/synthesis-engine/src/topicGraphIndex.js";
+import {
+  defaultRustMetricsWorkerPath,
+  RustMetricsWorkerTransport,
+} from "./rustMetricsWorkerTransport.js";
+
+const RUST_METRICS_OPERATION = "citation_graph_metrics.v1" as const;
 
 export const SYNTHESIS_SIDECAR_COMPUTE_LIMITS = Object.freeze({
   concurrency: 1,
@@ -115,7 +120,7 @@ type Task = {
   id: string;
   operation:
     | typeof SYNTHESIS_SIDECAR_COMPUTE_OPERATION
-    | typeof SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION
+    | typeof RUST_METRICS_OPERATION
     | typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION
     | typeof SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION
     | typeof SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION
@@ -205,7 +210,11 @@ type PoolOptions = {
   cancellationGraceMs?: number;
   shutdownTimeoutMs?: number;
   transferExecutionTimeoutMs?: number;
+  metricsWorkerPath?: string;
+  metricsWorkerArguments?: string[];
 };
+
+type ComputeWorkerTarget = Worker | RustMetricsWorkerTransport;
 
 function delay(milliseconds: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
@@ -223,6 +232,8 @@ export function createSynthesisSidecarComputeWorkerPool(
   const workerFactory =
     options.workerFactory ??
     ((url, workerOptions) => new Worker(url, workerOptions));
+  const metricsWorkerPath =
+    options.metricsWorkerPath ?? defaultRustMetricsWorkerPath();
   const executionTimeoutMs =
     options.executionTimeoutMs ??
     SYNTHESIS_SIDECAR_COMPUTE_LIMITS.executionTimeoutMs;
@@ -236,8 +247,9 @@ export function createSynthesisSidecarComputeWorkerPool(
     options.transferExecutionTimeoutMs ??
     SYNTHESIS_SIDECAR_TRANSFER_EXECUTION_TIMEOUT_MS;
   const queue: Task[] = [];
-  const expectedExits = new WeakSet<Worker>();
+  const expectedExits = new WeakSet<object>();
   let worker: Worker | null = null;
+  let metricsWorker: RustMetricsWorkerTransport | null = null;
   let active: Task | null = null;
   let stopping = false;
   let degraded = false;
@@ -319,10 +331,16 @@ export function createSynthesisSidecarComputeWorkerPool(
     }
   };
 
-  const terminateWorker = async (target: Worker, graceMs: number) => {
+  const terminateWorker = async (
+    target: ComputeWorkerTarget,
+    graceMs: number,
+  ) => {
     expectedExits.add(target);
     if (worker === target) {
       worker = null;
+    }
+    if (metricsWorker === target) {
+      metricsWorker = null;
     }
     const terminate = target.terminate().then(
       () => undefined,
@@ -336,7 +354,7 @@ export function createSynthesisSidecarComputeWorkerPool(
   const finishRuntimeFailure = (
     task: Task,
     code: "worker_crashed" | "worker_result_invalid",
-    target: Worker | null,
+    target: ComputeWorkerTarget | null,
   ) => {
     if (task !== active || task.terminating) {
       return;
@@ -357,7 +375,7 @@ export function createSynthesisSidecarComputeWorkerPool(
 
   const requestCooperativeCancellation = (
     task: Task,
-    target: Worker | null,
+    target: ComputeWorkerTarget | null,
   ) => {
     let acknowledged = false;
     const acknowledgment = new Promise<void>((resolve) => {
@@ -378,7 +396,7 @@ export function createSynthesisSidecarComputeWorkerPool(
     };
   };
 
-  const timeoutActive = (task: Task, target: Worker | null) => {
+  const timeoutActive = (task: Task, target: ComputeWorkerTarget | null) => {
     if (task !== active || task.terminating) {
       return;
     }
@@ -404,7 +422,8 @@ export function createSynthesisSidecarComputeWorkerPool(
       return;
     }
     task.terminating = true;
-    const target = worker;
+    const target =
+      task.operation === RUST_METRICS_OPERATION ? metricsWorker : worker;
     const cooperative = requestCooperativeCancellation(task, target);
     const pending = (async () => {
       const acknowledged = await cooperative.wait;
@@ -420,11 +439,15 @@ export function createSynthesisSidecarComputeWorkerPool(
     trackTermination(pending);
   };
 
-  const onUnexpectedWorkerFailure = (target: Worker) => {
-    if (worker !== target || expectedExits.has(target)) {
+  const onUnexpectedWorkerFailure = (target: ComputeWorkerTarget) => {
+    if (
+      (worker !== target && metricsWorker !== target) ||
+      expectedExits.has(target)
+    ) {
       return;
     }
-    worker = null;
+    if (worker === target) worker = null;
+    if (metricsWorker === target) metricsWorker = null;
     const task = active;
     if (task) {
       finishRuntimeFailure(task, "worker_crashed", null);
@@ -612,19 +635,14 @@ export function createSynthesisSidecarComputeWorkerPool(
           | SynthesisTagVocabularyIndexResult
           | SynthesisConceptKbIndexResult
           | SynthesisConceptKbQueryResult
-          | SynthesisTopicGraphIndexResult;
+          | SynthesisTopicGraphIndexResult
+          | undefined;
         try {
           switch (task.operation) {
             case SYNTHESIS_SIDECAR_COMPUTE_OPERATION:
               result = rebuildSynthesisCitationGraphLayoutResult(
                 response.result,
                 task.request as SynthesisCitationGraphLayoutRequest,
-              );
-              break;
-            case SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION:
-              result = rebuildSynthesisCitationGraphMetricsResult(
-                response.result,
-                task.request as SynthesisCitationGraphMetricsRequest,
               );
               break;
             case SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION:
@@ -668,6 +686,10 @@ export function createSynthesisSidecarComputeWorkerPool(
           finishRuntimeFailure(task, "worker_result_invalid", created);
           return;
         }
+        if (!result) {
+          finishRuntimeFailure(task, "worker_result_invalid", created);
+          return;
+        }
         active = null;
         task.settled = true;
         clearTaskHooks(task);
@@ -687,6 +709,62 @@ export function createSynthesisSidecarComputeWorkerPool(
     return created;
   };
 
+  const ensureMetricsWorker = () => {
+    if (metricsWorker) {
+      return metricsWorker;
+    }
+    const created = new RustMetricsWorkerTransport({
+      executablePath: metricsWorkerPath,
+      arguments: options.metricsWorkerArguments,
+    });
+    metricsWorker = created;
+    created.on("message", (message: unknown) => {
+      const task = active;
+      if (!task || task.operation !== RUST_METRICS_OPERATION) {
+        return;
+      }
+      if (
+        !message ||
+        typeof message !== "object" ||
+        (message as { taskId?: unknown }).taskId !== task.id
+      ) {
+        finishRuntimeFailure(task, "worker_result_invalid", created);
+        return;
+      }
+      const response = message as { type?: unknown; result?: unknown };
+      if (response.type === "canceled" && task.terminating) {
+        task.acknowledgeCancellation?.();
+        return;
+      }
+      if (task.terminating) {
+        return;
+      }
+      if (response.type !== "result") {
+        finishRuntimeFailure(task, "worker_result_invalid", created);
+        return;
+      }
+      let result: SynthesisCitationGraphMetricsResult;
+      try {
+        result = rebuildSynthesisCitationGraphMetricsResult(
+          response.result,
+          task.request as SynthesisCitationGraphMetricsRequest,
+        );
+      } catch {
+        finishRuntimeFailure(task, "worker_result_invalid", created);
+        return;
+      }
+      active = null;
+      task.settled = true;
+      clearTaskHooks(task);
+      consecutiveFailures = 0;
+      task.resolve(result);
+      pump();
+    });
+    created.once("error", () => onUnexpectedWorkerFailure(created));
+    created.once("exit", () => onUnexpectedWorkerFailure(created));
+    return created;
+  };
+
   pump = () => {
     if (active || termination || stopping || degraded) {
       return;
@@ -700,8 +778,15 @@ export function createSynthesisSidecarComputeWorkerPool(
       queueMicrotask(pump);
       return;
     }
+    const metricsTask = task.operation === RUST_METRICS_OPERATION;
+    const inactiveBackend = metricsTask ? worker : metricsWorker;
+    if (inactiveBackend) {
+      queue.unshift(task);
+      trackTermination(terminateWorker(inactiveBackend, cancellationGraceMs));
+      return;
+    }
     active = task;
-    const target = ensureWorker();
+    const target = metricsTask ? ensureMetricsWorker() : ensureWorker();
     task.deadline = setTimeout(() => {
       timeoutActive(task, target);
     }, task.timeoutMs);
@@ -719,8 +804,9 @@ export function createSynthesisSidecarComputeWorkerPool(
         port: channel.port2,
         cancellation,
       };
-      target.postMessage(message, [channel.port2]);
-      void streamTransferTask(task, target, channel.port1);
+      const nodeTarget = target as Worker;
+      nodeTarget.postMessage(message, [channel.port2]);
+      void streamTransferTask(task, nodeTarget, channel.port1);
       return;
     }
     let message: SynthesisSidecarComputeRunMessage;
@@ -734,15 +820,14 @@ export function createSynthesisSidecarComputeWorkerPool(
           cancellation,
         };
         break;
-      case SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION:
-        message = {
+      case RUST_METRICS_OPERATION:
+        target.postMessage({
           type: "run",
           taskId: task.id,
-          operation: SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION,
+          operation: RUST_METRICS_OPERATION,
           payload: task.request as SynthesisCitationGraphMetricsRequest,
-          cancellation,
-        };
-        break;
+        });
+        return;
       case SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION:
         message = {
           type: "run",
@@ -885,7 +970,7 @@ export function createSynthesisSidecarComputeWorkerPool(
         SynthesisCitationGraphMetricsRequest,
         SynthesisCitationGraphMetricsResult
       >(
-        SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION,
+        RUST_METRICS_OPERATION,
         rebuildSynthesisCitationGraphMetricsRequest(requestInput),
         runOptions,
       );
@@ -1017,6 +1102,9 @@ export function createSynthesisSidecarComputeWorkerPool(
       await Promise.race([stop, delay(shutdownTimeoutMs)]);
       if (worker) {
         await terminateWorker(worker, 0);
+      }
+      if (metricsWorker) {
+        await terminateWorker(metricsWorker, 0);
       }
       if (active) {
         const task = active;

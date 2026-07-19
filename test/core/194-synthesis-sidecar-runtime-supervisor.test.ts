@@ -357,6 +357,15 @@ describe("Synthesis sidecar runtime supervisor", function () {
     assert.include(pool, "shutdownTimeoutMs: 500");
     assert.include(pool, "target.terminate()");
     assert.notInclude(pool, "node:child_process");
+    const rustTransport = fs.readFileSync(
+      path.join(
+        process.cwd(),
+        "apps/synthesis-service/src/rustMetricsWorkerTransport.ts",
+      ),
+      "utf8",
+    );
+    assert.include(rustTransport, 'from "node:child_process"');
+    assert.include(rustTransport, '["worker"');
     const transferOwner = fs.readFileSync(
       path.join(
         process.cwd(),

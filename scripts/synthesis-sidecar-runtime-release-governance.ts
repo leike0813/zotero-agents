@@ -28,6 +28,7 @@ export const SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES = [
 
 const FINGERPRINT_STATIC_INPUTS = [
   ".github/workflows/build-synthesis-sidecar-runtime.yml",
+  ".github/workflows/build-synthesis-rust-sidecar.yml",
   "apps/synthesis-service/package.json",
   "apps/synthesis-service/tsconfig.json",
   "apps/synthesis-service/tsconfig.build.json",
@@ -46,6 +47,8 @@ const FINGERPRINT_STATIC_INPUTS = [
   "scripts/package-synthesis-sidecar-runtime.ts",
   "scripts/synthesis-sidecar-runtime-release-governance.ts",
 ] as const;
+
+const SYNTHESIS_RUST_SIDECAR_ROOT = "native/synthesis-sidecar";
 
 async function collectFiles(root: string, relativeDir: string) {
   const absoluteDir = path.join(root, relativeDir);
@@ -77,6 +80,9 @@ export async function synthesisSidecarRuntimeFingerprintInputs(
     )
   ).flat();
   const dynamicInputs = [
+    ...(await collectFiles(root, SYNTHESIS_RUST_SIDECAR_ROOT)).filter(
+      (file) => !file.includes("/target/"),
+    ),
     ...(await collectFiles(root, "apps/synthesis-service/src")),
     ...(await collectFiles(root, "packages/synthesis-engine/src")),
     ...(await collectFiles(root, "packages/synthesis-repository/src")),
@@ -111,6 +117,22 @@ export async function synthesisSidecarRuntimeFingerprintInputs(
   return Array.from(
     new Set([...FINGERPRINT_STATIC_INPUTS, ...dynamicInputs]),
   ).sort();
+}
+
+export async function computeSynthesisRustSidecarSourceFingerprint(
+  root = process.cwd(),
+) {
+  const inputs = (await collectFiles(root, SYNTHESIS_RUST_SIDECAR_ROOT)).filter(
+    (file) => !file.includes("/target/"),
+  );
+  const hash = createHash("sha256");
+  hash.update("synthesis-rust-sidecar\n");
+  for (const relativePath of inputs) {
+    hash.update(`${relativePath}\0`);
+    hash.update(await fs.readFile(path.join(root, relativePath)));
+    hash.update("\0");
+  }
+  return { fingerprint: hash.digest("hex"), inputs };
 }
 
 export function sha256Bytes(bytes: Uint8Array | string) {

@@ -62,6 +62,130 @@
       "output": { "state": "idle", "sessions": 0, "stagedBytes": 0 },
       "canonicalJson": "{\"sessions\":0,\"stagedBytes\":0,\"state\":\"idle\"}",
       "sha256": "sha256:8ea326c5903a4bf871c1f509e6535cafd43cfcb94acec63326b1f7003df810fc"
+    },
+    {
+      "id": "metrics-request-unicode-order",
+      "oracle": "citationGraphMetricsRequest",
+      "schemaRef": "schemas/compute.schema.json#/$defs/metricsRequest",
+      "inputJson": "{\"graphHash\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"nodes\":[{\"nodeId\":\"paper:😀\",\"kind\":\"library_paper\",\"libraryId\":1,\"itemKey\":\"BBBB2222\",\"title\":\"目标\",\"year\":\"2020\"},{\"nodeId\":\"paper:\",\"kind\":\"library_paper\",\"libraryId\":1,\"itemKey\":\"AAAA1111\",\"title\":\"源\",\"year\":\"2024\"},{\"nodeId\":\"ref:external\",\"kind\":\"external_reference\",\"title\":\"外部\",\"year\":\"2018\"}],\"edges\":[{\"edgeId\":\"edge:2\",\"source\":\"paper:😀\",\"target\":\"ref:external\",\"mentionCount\":1},{\"edgeId\":\"edge:1\",\"source\":\"paper:\",\"target\":\"paper:😀\",\"mentionCount\":2}]}",
+      "output": {
+        "graphHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "nodes": [
+          {
+            "nodeId": "paper:😀",
+            "kind": "library_paper",
+            "libraryId": 1,
+            "itemKey": "BBBB2222",
+            "title": "目标",
+            "year": "2020"
+          },
+          {
+            "nodeId": "paper:",
+            "kind": "library_paper",
+            "libraryId": 1,
+            "itemKey": "AAAA1111",
+            "title": "源",
+            "year": "2024"
+          },
+          {
+            "nodeId": "ref:external",
+            "kind": "external_reference",
+            "title": "外部",
+            "year": "2018"
+          }
+        ],
+        "edges": [
+          {
+            "edgeId": "edge:1",
+            "source": "paper:",
+            "target": "paper:😀",
+            "mentionCount": 2
+          },
+          {
+            "edgeId": "edge:2",
+            "source": "paper:😀",
+            "target": "ref:external",
+            "mentionCount": 1
+          }
+        ]
+      },
+      "canonicalJson": "{\"edges\":[{\"edgeId\":\"edge:1\",\"mentionCount\":2,\"source\":\"paper:\",\"target\":\"paper:😀\"},{\"edgeId\":\"edge:2\",\"mentionCount\":1,\"source\":\"paper:😀\",\"target\":\"ref:external\"}],\"graphHash\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"nodes\":[{\"itemKey\":\"BBBB2222\",\"kind\":\"library_paper\",\"libraryId\":1,\"nodeId\":\"paper:😀\",\"title\":\"目标\",\"year\":\"2020\"},{\"itemKey\":\"AAAA1111\",\"kind\":\"library_paper\",\"libraryId\":1,\"nodeId\":\"paper:\",\"title\":\"源\",\"year\":\"2024\"},{\"kind\":\"external_reference\",\"nodeId\":\"ref:external\",\"title\":\"外部\",\"year\":\"2018\"}]}",
+      "sha256": "sha256:63805a93d29407a57366496811e90d9f94a9569b82aa8ad392399bfee59f1197"
+    },
+    {
+      "id": "metrics-result-v2",
+      "oracle": "citationGraphMetricsResult",
+      "schemaRef": "schemas/compute.schema.json#/$defs/metricsResult",
+      "inputJson": "{\"graphHash\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"nodes\":[{\"nodeId\":\"paper:😀\",\"kind\":\"library_paper\",\"libraryId\":1,\"itemKey\":\"BBBB2222\",\"title\":\"目标\",\"year\":\"2020\"},{\"nodeId\":\"paper:\",\"kind\":\"library_paper\",\"libraryId\":1,\"itemKey\":\"AAAA1111\",\"title\":\"源\",\"year\":\"2024\"},{\"nodeId\":\"ref:external\",\"kind\":\"external_reference\",\"title\":\"外部\",\"year\":\"2018\"}],\"edges\":[{\"edgeId\":\"edge:2\",\"source\":\"paper:😀\",\"target\":\"ref:external\",\"mentionCount\":1},{\"edgeId\":\"edge:1\",\"source\":\"paper:\",\"target\":\"paper:😀\",\"mentionCount\":2}]}",
+      "output": {
+        "graphHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "metricsVersion": 2,
+        "params": {
+          "pagerankDamping": 0.85,
+          "pagerankIterations": 50,
+          "foundationFormula": "is_isolated ? 0.15*age_norm : 0.50*in_degree_norm + 0.35*pagerank_norm + 0.15*age_norm",
+          "frontierFormula": "is_isolated ? 0.55*recency_norm : 0.55*recency_norm + 0.25*out_degree_norm + 0.20*pagerank_norm"
+        },
+        "graphYear": 2024,
+        "libraryNodeMetrics": [
+          {
+            "nodeId": "paper:😀",
+            "internalInDegree": 2,
+            "internalOutDegree": 0,
+            "externalReferenceCount": 1,
+            "unresolvedReferenceCount": 0,
+            "internalPagerank": 0.649123,
+            "componentId": "component:001",
+            "componentSize": 2,
+            "isIsolated": false,
+            "ageNorm": 1,
+            "recencyNorm": 0,
+            "inDegreeNorm": 1,
+            "outDegreeNorm": 0,
+            "pagerankNorm": 1,
+            "foundationScore": 1,
+            "frontierScore": 0.2,
+            "synthesisRoleHints": ["core", "foundation"],
+            "paperRef": "1:BBBB2222",
+            "itemKey": "BBBB2222",
+            "title": "目标",
+            "year": "2020"
+          },
+          {
+            "nodeId": "paper:",
+            "internalInDegree": 0,
+            "internalOutDegree": 2,
+            "externalReferenceCount": 0,
+            "unresolvedReferenceCount": 0,
+            "internalPagerank": 0.350877,
+            "componentId": "component:001",
+            "componentSize": 2,
+            "isIsolated": false,
+            "ageNorm": 0,
+            "recencyNorm": 1,
+            "inDegreeNorm": 0,
+            "outDegreeNorm": 1,
+            "pagerankNorm": 0.54054,
+            "foundationScore": 0.189189,
+            "frontierScore": 0.908108,
+            "synthesisRoleHints": ["frontier"],
+            "paperRef": "1:AAAA1111",
+            "itemKey": "AAAA1111",
+            "title": "源",
+            "year": "2024"
+          }
+        ],
+        "diagnostics": {
+          "libraryNodeCount": 2,
+          "externalReferenceCount": 1,
+          "unresolvedReferenceCount": 0,
+          "componentCount": 1,
+          "isolatedLibraryNodeCount": 0,
+          "missingYearCount": 0
+        }
+      },
+      "canonicalJson": "{\"diagnostics\":{\"componentCount\":1,\"externalReferenceCount\":1,\"isolatedLibraryNodeCount\":0,\"libraryNodeCount\":2,\"missingYearCount\":0,\"unresolvedReferenceCount\":0},\"graphHash\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"graphYear\":2024,\"libraryNodeMetrics\":[{\"ageNorm\":1,\"componentId\":\"component:001\",\"componentSize\":2,\"externalReferenceCount\":1,\"foundationScore\":1,\"frontierScore\":0.2,\"inDegreeNorm\":1,\"internalInDegree\":2,\"internalOutDegree\":0,\"internalPagerank\":0.649123,\"isIsolated\":false,\"itemKey\":\"BBBB2222\",\"nodeId\":\"paper:😀\",\"outDegreeNorm\":0,\"pagerankNorm\":1,\"paperRef\":\"1:BBBB2222\",\"recencyNorm\":0,\"synthesisRoleHints\":[\"core\",\"foundation\"],\"title\":\"目标\",\"unresolvedReferenceCount\":0,\"year\":\"2020\"},{\"ageNorm\":0,\"componentId\":\"component:001\",\"componentSize\":2,\"externalReferenceCount\":0,\"foundationScore\":0.189189,\"frontierScore\":0.908108,\"inDegreeNorm\":0,\"internalInDegree\":0,\"internalOutDegree\":2,\"internalPagerank\":0.350877,\"isIsolated\":false,\"itemKey\":\"AAAA1111\",\"nodeId\":\"paper:\",\"outDegreeNorm\":1,\"pagerankNorm\":0.54054,\"paperRef\":\"1:AAAA1111\",\"recencyNorm\":1,\"synthesisRoleHints\":[\"frontier\"],\"title\":\"源\",\"unresolvedReferenceCount\":0,\"year\":\"2024\"}],\"metricsVersion\":2,\"params\":{\"foundationFormula\":\"is_isolated ? 0.15*age_norm : 0.50*in_degree_norm + 0.35*pagerank_norm + 0.15*age_norm\",\"frontierFormula\":\"is_isolated ? 0.55*recency_norm : 0.55*recency_norm + 0.25*out_degree_norm + 0.20*pagerank_norm\",\"pagerankDamping\":0.85,\"pagerankIterations\":50}}",
+      "sha256": "sha256:1dc785b446ba81ce41f3c51026e6e7b7ab47da3416cb5e886600fb3952a50f1e"
     }
   ]
 }

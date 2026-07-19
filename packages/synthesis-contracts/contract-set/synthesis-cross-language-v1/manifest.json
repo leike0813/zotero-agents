@@ -21,6 +21,11 @@
         "metricsRequest",
         "metricsNode",
         "metricsResult",
+        "metricsWorkerRun",
+        "metricsWorkerCancel",
+        "metricsWorkerResult",
+        "metricsWorkerFailure",
+        "metricsWorkerMessage",
         "graphBuildScope",
         "graphBuildLibraryNode",
         "graphBuildReference",
@@ -221,6 +226,13 @@
     "compute.citation_graph_metrics": [
       "schemas/compute.schema.json#/$defs/metricsRequest",
       "schemas/compute.schema.json#/$defs/metricsResult"
+    ],
+    "worker.citation_graph_metrics": [
+      "schemas/compute.schema.json#/$defs/metricsWorkerRun",
+      "schemas/compute.schema.json#/$defs/metricsWorkerCancel",
+      "schemas/compute.schema.json#/$defs/metricsWorkerResult",
+      "schemas/compute.schema.json#/$defs/metricsWorkerFailure",
+      "schemas/compute.schema.json#/$defs/metricsWorkerMessage"
     ],
     "compute.citation_graph_build": [
       "schemas/compute.schema.json#/$defs/graphBuildRequest",

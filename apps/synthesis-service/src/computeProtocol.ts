@@ -7,8 +7,6 @@ import type {
 import type {
   SynthesisCitationGraphLayoutRequest,
   SynthesisCitationGraphLayoutResult,
-  SynthesisCitationGraphMetricsRequest,
-  SynthesisCitationGraphMetricsResult,
 } from "../../../packages/synthesis-engine/src/index.js";
 import type {
   SynthesisCitationGraphBuildRequest,
@@ -31,8 +29,6 @@ import type {
 
 export const SYNTHESIS_SIDECAR_COMPUTE_OPERATION =
   "citation_graph_layout.v1" as const;
-export const SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION =
-  "citation_graph_metrics.v1" as const;
 export const SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION =
   "citation_graph_build.v1" as const;
 export const SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION =
@@ -58,10 +54,6 @@ export type SynthesisSidecarComputeRunMessage =
   | (SynthesisSidecarComputeRunMessageBase & {
       operation: typeof SYNTHESIS_SIDECAR_COMPUTE_OPERATION;
       payload: SynthesisCitationGraphLayoutRequest;
-    })
-  | (SynthesisSidecarComputeRunMessageBase & {
-      operation: typeof SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION;
-      payload: SynthesisCitationGraphMetricsRequest;
     })
   | (SynthesisSidecarComputeRunMessageBase & {
       operation: typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION;
@@ -137,7 +129,6 @@ export type SynthesisSidecarComputeWorkerResponse =
       taskId: string;
       result:
         | SynthesisCitationGraphLayoutResult
-        | SynthesisCitationGraphMetricsResult
         | SynthesisCitationGraphBuildResult
         | SynthesisTagVocabularyValidationResult
         | SynthesisTagVocabularyIndexResult

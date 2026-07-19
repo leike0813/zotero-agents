@@ -183,7 +183,7 @@ function sha256Hex(bytes: Uint8Array) {
     .join("");
 }
 
-function compareUtf16CodeUnits(left: string, right: string) {
+export function compareSynthesisContractStrings(left: string, right: string) {
   if (left === right) return 0;
   return left < right ? -1 : 1;
 }
@@ -232,7 +232,9 @@ function normalizeJson(
       return output;
     }
     const output: Record<string, SynthesisCanonicalJsonValue> = {};
-    for (const key of Object.keys(value).sort(compareUtf16CodeUnits)) {
+    for (const key of Object.keys(value).sort(
+      compareSynthesisContractStrings,
+    )) {
       path.push("$key");
       assertValidString(key, formatLocation(path));
       path.pop();

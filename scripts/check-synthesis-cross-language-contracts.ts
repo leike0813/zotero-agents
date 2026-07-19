@@ -12,6 +12,10 @@ import { rebuildSynthesisSidecarOwner } from "../packages/synthesis-contracts/sr
 import { rebuildSynthesisSidecarRuntimePointer } from "../packages/synthesis-contracts/src/sidecarRuntimeBundle.js";
 import { rebuildSynthesisSidecarCallRequest } from "../packages/synthesis-contracts/src/sidecarSystem.js";
 import { rebuildSynthesisSidecarTransferSnapshot } from "../packages/synthesis-contracts/src/sidecarTransfer.js";
+import {
+  computeSynthesisCitationGraphMetrics,
+  rebuildSynthesisCitationGraphMetricsRequest,
+} from "../packages/synthesis-engine/src/index.js";
 
 const CONTRACT_SET_ROOT = path.resolve(
   import.meta.dirname,
@@ -109,6 +113,12 @@ function runOracle(oracle: string, inputJson: string) {
       return rebuildSynthesisSidecarRuntimePointer(input);
     case "transferSnapshot":
       return rebuildSynthesisSidecarTransferSnapshot(input);
+    case "citationGraphMetricsRequest":
+      return rebuildSynthesisCitationGraphMetricsRequest(input);
+    case "citationGraphMetricsResult":
+      return computeSynthesisCitationGraphMetrics(
+        rebuildSynthesisCitationGraphMetricsRequest(input),
+      );
     default:
       throw new Error(`unknown_oracle:${oracle}`);
   }

@@ -7,6 +7,7 @@ import {
   type SimulationLinkDatum,
   type SimulationNodeDatum,
 } from "d3-force";
+import { compareSynthesisEngineStrings } from "./canonicalJson.ts";
 
 export * from "./canonicalJson.ts";
 export * from "./citationGraphBuildPacked.ts";
@@ -969,8 +970,12 @@ export function rebuildSynthesisCitationGraphMetricsRequest(
     );
     return { edgeId, source, target, mentionCount };
   });
-  nodes.sort((left, right) => left.nodeId.localeCompare(right.nodeId));
-  edges.sort((left, right) => left.edgeId.localeCompare(right.edgeId));
+  nodes.sort((left, right) =>
+    compareSynthesisEngineStrings(left.nodeId, right.nodeId),
+  );
+  edges.sort((left, right) =>
+    compareSynthesisEngineStrings(left.edgeId, right.edgeId),
+  );
   return { graphHash, nodes, edges };
 }
 
@@ -1006,7 +1011,7 @@ function rebuildMetricHints(value: unknown, location: string) {
   ) {
     return invalid(`${location} contains invalid roles`);
   }
-  return hints.sort((left, right) => left.localeCompare(right));
+  return hints.sort(compareSynthesisEngineStrings);
 }
 
 function expectedMetricNodeMetadata(
@@ -1234,7 +1239,7 @@ export function rebuildSynthesisCitationGraphMetricsResult(
     return invalid("result diagnostics do not match the request");
   }
   libraryNodeMetrics.sort((left, right) =>
-    left.nodeId.localeCompare(right.nodeId),
+    compareSynthesisEngineStrings(left.nodeId, right.nodeId),
   );
   return {
     graphHash,
@@ -1269,9 +1274,7 @@ function computeMetricsPagerank(args: {
   internalEdges: SynthesisCitationGraphMetricsRequestEdge[];
   checkpoint?: SynthesisCitationGraphMetricsCheckpoint;
 }) {
-  const nodes = [...args.libraryNodeIds].sort((left, right) =>
-    left.localeCompare(right),
-  );
+  const nodes = [...args.libraryNodeIds].sort(compareSynthesisEngineStrings);
   const nodeSet = new Set(nodes);
   const count = nodes.length;
   const ranks = new Map<string, number>();
@@ -1340,9 +1343,7 @@ function computeMetricsComponents(args: {
   internalEdges: SynthesisCitationGraphMetricsRequestEdge[];
   checkpoint?: SynthesisCitationGraphMetricsCheckpoint;
 }) {
-  const nodes = [...args.libraryNodeIds].sort((left, right) =>
-    left.localeCompare(right),
-  );
+  const nodes = [...args.libraryNodeIds].sort(compareSynthesisEngineStrings);
   const adjacency = new Map<string, Set<string>>();
   for (const node of nodes) {
     adjacency.set(node, new Set());
@@ -1365,7 +1366,7 @@ function computeMetricsComponents(args: {
       const current = queue.shift()!;
       component.push(current);
       for (const next of [...(adjacency.get(current) || [])].sort(
-        (left, right) => left.localeCompare(right),
+        compareSynthesisEngineStrings,
       )) {
         if (!seen.has(next)) {
           seen.add(next);
@@ -1373,9 +1374,11 @@ function computeMetricsComponents(args: {
         }
       }
     }
-    components.push(component.sort((left, right) => left.localeCompare(right)));
+    components.push(component.sort(compareSynthesisEngineStrings));
   }
-  components.sort((left, right) => left[0].localeCompare(right[0]));
+  components.sort((left, right) =>
+    compareSynthesisEngineStrings(left[0], right[0]),
+  );
   const byNode = new Map<
     string,
     { componentId: string; componentSize: number }
@@ -1420,7 +1423,7 @@ function metricRoleHints(args: {
   ) {
     hints.add("external-heavy");
   }
-  return [...hints].sort((left, right) => left.localeCompare(right));
+  return [...hints].sort(compareSynthesisEngineStrings);
 }
 
 export function computeSynthesisCitationGraphMetrics(

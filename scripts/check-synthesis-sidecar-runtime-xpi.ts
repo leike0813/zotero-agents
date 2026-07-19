@@ -70,6 +70,13 @@ export async function checkSynthesisSidecarRuntimeXpi(root = process.cwd()) {
       `${prefix}/service/apps/synthesis-service/src/entrypoint.js`,
       `${prefix}/service/apps/synthesis-service/src/computeWorker.js`,
       `${prefix}/service/apps/synthesis-service/src/computeWorkerPool.js`,
+      `${prefix}/service/apps/synthesis-service/src/rustMetricsWorkerTransport.js`,
+      `${prefix}/service/native/synthesis-sidecar/synthesis-sidecar${
+        target === "win32-x64" ? ".exe" : ""
+      }`,
+      `${prefix}/service/native/synthesis-sidecar/provenance.json`,
+      `${prefix}/service/native/synthesis-sidecar/licenses.json`,
+      `${prefix}/service/native/synthesis-sidecar/LICENSE-AGPL-3.0.txt`,
       `${prefix}/service/apps/synthesis-service/src/citationGraphTransferOwner.js`,
       `${prefix}/service/apps/synthesis-service/src/citationGraphBuildTransferExecutor.js`,
       `${prefix}/service/apps/synthesis-service/src/isolatedRepository.js`,

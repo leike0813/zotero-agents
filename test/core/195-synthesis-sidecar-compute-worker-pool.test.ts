@@ -54,6 +54,11 @@ const FIXTURE_WORKER = new URL(
   "../fixtures/synthesis-sidecar-compute-worker.mjs",
   import.meta.url,
 );
+const RUST_METRICS_FIXTURE = path.join(
+  ROOT,
+  "native/synthesis-sidecar/target/debug",
+  `synthesis-metrics-worker-fixture${process.platform === "win32" ? ".exe" : ""}`,
+);
 const CLIENT_TOKEN = "client-token-0123456789abcdef0123456789abcdef";
 
 function request(prefix = "0"): SynthesisCitationGraphLayoutRequest {
@@ -231,6 +236,7 @@ function fixturePool(
 ) {
   return createSynthesisSidecarComputeWorkerPool({
     workerUrl: FIXTURE_WORKER,
+    metricsWorkerPath: RUST_METRICS_FIXTURE,
     executionTimeoutMs: overrides.executionTimeoutMs ?? 250,
     cancellationGraceMs: overrides.cancellationGraceMs ?? 20,
     shutdownTimeoutMs: overrides.shutdownTimeoutMs ?? 100,
@@ -305,7 +311,7 @@ describe("Synthesis sidecar compute worker pool", function () {
     );
   });
 
-  it("lazily spawns one resource-bounded worker and matches all direct kernels", async function () {
+  it("lazily switches resource-bounded backends and matches all direct kernels", async function () {
     assert.deepEqual(SYNTHESIS_SIDECAR_COMPUTE_LIMITS, {
       concurrency: 1,
       maxQueued: 2,
@@ -394,7 +400,7 @@ describe("Synthesis sidecar compute worker pool", function () {
           topicGraphInput,
         ),
       );
-      assert.equal(spawns, 1);
+      assert.equal(spawns, 2);
       assert.deepEqual(options?.resourceLimits, {
         maxOldGenerationSizeMb: 256,
         maxYoungGenerationSizeMb: 32,

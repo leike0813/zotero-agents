@@ -68,6 +68,9 @@ const WORKER_THREAD_ALLOWLIST = new Set([
   "apps/synthesis-service/src/computeWorker.ts",
   "apps/synthesis-service/src/computeWorkerPool.ts",
 ]);
+const CHILD_PROCESS_ALLOWLIST = new Set([
+  "apps/synthesis-service/src/rustMetricsWorkerTransport.ts",
+]);
 const NODE_SQLITE_ALLOWLIST = new Set([
   "apps/synthesis-service/src/repositoryNodeSqlite.ts",
 ]);
@@ -293,7 +296,9 @@ export function findSynthesisSidecarAppBoundaryViolations(): string[] {
       relativePath ===
         "apps/synthesis-service/src/webDavSyncApplicationNode.ts";
     for (const forbidden of [
-      /node:child_process/,
+      ...(CHILD_PROCESS_ALLOWLIST.has(relativePath)
+        ? []
+        : [/node:child_process/]),
       /src\/modules\/synthesis/,
       /src\/modules\/synthesis\/repository/,
       /synthesis\/service/,

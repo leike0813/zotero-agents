@@ -1,7 +1,9 @@
 import { assert } from "chai";
 import fs from "fs/promises";
 import path from "path";
+import { execFileSync } from "node:child_process";
 import { Worker } from "node:worker_threads";
+import { createSynthesisSidecarComputeWorkerPool } from "../../apps/synthesis-service/src/computeWorkerPool";
 import {
   SYNTHESIS_CITATION_GRAPH_COMPUTE_EDGE_MAX,
   SYNTHESIS_CITATION_GRAPH_COMPUTE_NODE_MAX,
@@ -73,6 +75,23 @@ function sampleRequest(
 }
 
 describe("Synthesis Citation Graph metrics engine", function () {
+  this.timeout(20_000);
+
+  before(function () {
+    execFileSync(
+      "cargo",
+      [
+        "+1.92.0",
+        "build",
+        "--workspace",
+        "--locked",
+        "--manifest-path",
+        path.resolve("native/synthesis-sidecar/Cargo.toml"),
+      ],
+      { stdio: "pipe" },
+    );
+  });
+
   it("canonically rebuilds requests and shares bounded graph limits", function () {
     assert.equal(SYNTHESIS_CITATION_GRAPH_COMPUTE_NODE_MAX, 5000);
     assert.equal(SYNTHESIS_CITATION_GRAPH_COMPUTE_EDGE_MAX, 20000);
@@ -356,6 +375,22 @@ describe("Synthesis Citation Graph metrics engine", function () {
       );
     } finally {
       await worker.terminate();
+    }
+  });
+
+  it("returns the same canonical result through the Rust worker backend", async function () {
+    const request = rebuildSynthesisCitationGraphMetricsRequest(
+      JSON.parse(JSON.stringify(sampleRequest())),
+    );
+    const direct =
+      await createInProcessSynthesisCitationGraphMetricsEngine().compute(
+        request,
+      );
+    const pool = createSynthesisSidecarComputeWorkerPool();
+    try {
+      assert.deepEqual(await pool.runCitationGraphMetrics(request), direct);
+    } finally {
+      await pool.shutdown();
     }
   });
 });

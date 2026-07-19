@@ -33,10 +33,13 @@ describe("Synthesis cross-language sidecar contract", function () {
       "synthesis-cross-language-sidecar-contract.v1",
     );
     assert.equal(result.schemaCount, 6);
-    assert.equal(result.definitionCount, 89);
-    assert.equal(result.positiveCaseCount, 5);
+    assert.equal(result.definitionCount, 94);
+    assert.equal(result.positiveCaseCount, 7);
     assert.equal(result.negativeCaseCount, 5);
-    assert.match(result.fingerprint, /^sha256:[a-f0-9]{64}$/);
+    assert.equal(
+      result.fingerprint,
+      "sha256:9b6c44a585cc7700c5c3e770c9bffc7273de49a218259ef9a21e78e198f191b4",
+    );
   });
 
   it("locks canonical UTF-16 ordering, ECMAScript numbers, and UTF-8 hashes", function () {

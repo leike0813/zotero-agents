@@ -38,9 +38,27 @@ function createBundle(
   bundleId = "a".repeat(64),
 ) {
   const executable = target.startsWith("win32") ? "node.exe" : "node";
+  const rustExecutable = `service/native/synthesis-sidecar/synthesis-sidecar${
+    target.startsWith("win32") ? ".exe" : ""
+  }`;
   const assets = new Map<string, Uint8Array>([
     [executable, bytes("product-owned-node")],
     ["service/entrypoint.js", bytes("export const service = true;\n")],
+    [rustExecutable, bytes("rust-metrics-sidecar")],
+    [
+      "service/native/synthesis-sidecar/provenance.json",
+      bytes('{"schema":"synthesis-rust-sidecar-provenance.v1"}\n'),
+    ],
+    [
+      "service/native/synthesis-sidecar/licenses.json",
+      bytes(
+        '{"schema":"synthesis-rust-sidecar-license-inventory.v1","packages":[]}\n',
+      ),
+    ],
+    [
+      "service/native/synthesis-sidecar/LICENSE-AGPL-3.0.txt",
+      bytes("AGPL-3.0-only\n"),
+    ],
     ["LICENSE-node.txt", bytes("Node.js license\n")],
   ]);
   const manifest = rebuildSynthesisSidecarRuntimeBundleManifest({
@@ -66,7 +84,7 @@ function createBundle(
         path: filePath,
         bytes: value.byteLength,
         sha256: sha256(value),
-        executable: filePath === executable,
+        executable: filePath === executable || filePath === rustExecutable,
       }))
       .sort((left, right) => left.path.localeCompare(right.path)),
   });
@@ -153,9 +171,16 @@ describe("Synthesis sidecar runtime packaging", function () {
     );
     const nodeRoot = path.join(tempRoot, "node");
     const outputRoot = path.join(tempRoot, "bundle");
+    const rustSidecar = path.join(
+      tempRoot,
+      process.platform === "win32"
+        ? "synthesis-sidecar.exe"
+        : "synthesis-sidecar",
+    );
     fs.mkdirSync(path.join(nodeRoot, "bin"), { recursive: true });
     fs.writeFileSync(path.join(nodeRoot, "bin", "node"), "node-runtime");
     fs.writeFileSync(path.join(nodeRoot, "LICENSE"), "Node license\n");
+    fs.writeFileSync(rustSidecar, "rust-metrics-sidecar");
     execFileSync(
       process.execPath,
       [
@@ -163,6 +188,7 @@ describe("Synthesis sidecar runtime packaging", function () {
         path.join(ROOT, "scripts/package-synthesis-sidecar-runtime.ts"),
         "--target=linux-x64",
         `--node-root=${nodeRoot}`,
+        `--rust-sidecar=${rustSidecar}`,
         `--output=${outputRoot}`,
         `--upstream-sha256=${"a".repeat(64)}`,
         "--upstream-signature=verified",
@@ -180,6 +206,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/apps/synthesis-service/src/computeWorker.js",
       "service/apps/synthesis-service/src/computeWorkerPool.js",
       "service/apps/synthesis-service/src/computeProtocol.js",
+      "service/apps/synthesis-service/src/rustMetricsWorkerTransport.js",
       "service/apps/synthesis-service/src/citationGraphTransferOwner.js",
       "service/apps/synthesis-service/src/citationGraphBuildTransferExecutor.js",
       "service/apps/synthesis-service/src/isolatedRepository.js",
@@ -254,6 +281,10 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/node_modules/d3-dispatch/LICENSE",
       "service/node_modules/d3-quadtree/LICENSE",
       "service/node_modules/d3-timer/LICENSE",
+      "service/native/synthesis-sidecar/synthesis-sidecar",
+      "service/native/synthesis-sidecar/provenance.json",
+      "service/native/synthesis-sidecar/licenses.json",
+      "service/native/synthesis-sidecar/LICENSE-AGPL-3.0.txt",
     ]) {
       assert.include(files, required);
     }
@@ -264,7 +295,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       ),
       "utf8",
     );
-    assert.include(packagedProtocol, "citation_graph_metrics.v1");
+    assert.notInclude(packagedProtocol, "citation_graph_metrics.v1");
     assert.include(packagedProtocol, "citation_graph_build.v1");
     assert.include(packagedProtocol, "citation_graph_build_transfer.v1");
     assert.include(packagedProtocol, "tag_vocabulary_validate.v1");
@@ -276,7 +307,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       ),
       "utf8",
     );
-    assert.include(
+    assert.notInclude(
       packagedWorker,
       "createInProcessSynthesisCitationGraphMetricsEngine",
     );
@@ -291,6 +322,67 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(
       packagedWorker,
       "createInProcessSynthesisTagVocabularyEngine",
+    );
+    const rustEntry = manifest.files.find(
+      (entry) =>
+        entry.path === "service/native/synthesis-sidecar/synthesis-sidecar",
+    );
+    assert.equal(rustEntry?.executable, true);
+    assert.equal(
+      fs.readFileSync(
+        path.join(
+          outputRoot,
+          "service/native/synthesis-sidecar/synthesis-sidecar",
+        ),
+        "utf8",
+      ),
+      "rust-metrics-sidecar",
+    );
+    const provenance = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          outputRoot,
+          "service/native/synthesis-sidecar/provenance.json",
+        ),
+        "utf8",
+      ),
+    ) as Record<string, unknown>;
+    assert.equal(provenance.schema, "synthesis-rust-sidecar-provenance.v1");
+    assert.equal(provenance.target, "linux-x64");
+    assert.equal(provenance.licenseInventory, "licenses.json");
+    const licenses = JSON.parse(
+      fs.readFileSync(
+        path.join(outputRoot, "service/native/synthesis-sidecar/licenses.json"),
+        "utf8",
+      ),
+    ) as {
+      packages: Array<{ name: string; version: string; license: string }>;
+    };
+    assert.includeMembers(
+      licenses.packages.map((entry) => entry.name),
+      ["synthesis-sidecar", "serde", "serde_json", "sha2"],
+    );
+    const cargoMetadata = JSON.parse(
+      execFileSync(
+        "cargo",
+        [
+          "metadata",
+          "--locked",
+          "--format-version",
+          "1",
+          "--manifest-path",
+          path.join(ROOT, "native/synthesis-sidecar/Cargo.toml"),
+        ],
+        { cwd: ROOT, encoding: "utf8" },
+      ),
+    ) as {
+      packages: Array<{ name: string; version: string; license: string }>;
+    };
+    assert.deepEqual(
+      licenses.packages,
+      cargoMetadata.packages
+        .map(({ name, version, license }) => ({ name, version, license }))
+        .sort((left, right) => left.name.localeCompare(right.name)),
     );
   });
 
@@ -698,6 +790,19 @@ describe("Synthesis sidecar runtime packaging", function () {
       "packages/synthesis-contracts/src/durableBundleImport.ts",
     );
     assert.include(first.inputs, "package-lock.json");
+    assert.include(first.inputs, "native/synthesis-sidecar/Cargo.lock");
+    assert.include(
+      first.inputs,
+      "native/synthesis-sidecar/rust-toolchain.toml",
+    );
+    assert.include(
+      first.inputs,
+      "native/synthesis-sidecar/crates/synthesis-metrics/src/lib.rs",
+    );
+    assert.include(
+      first.inputs,
+      ".github/workflows/build-synthesis-rust-sidecar.yml",
+    );
     assert.deepEqual(SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES, [
       "d3-dispatch",
       "d3-force",
@@ -714,6 +819,8 @@ describe("Synthesis sidecar runtime packaging", function () {
       "utf8",
     );
     assert.include(packageScript, "copyComputeRuntimeDependencies");
+    assert.include(packageScript, "copyRustMetricsRuntime");
+    assert.include(packageScript, "synthesis-rust-sidecar-provenance.v1");
     assert.include(packageScript, 'path.join(targetRoot, "src")');
     const xpiCheck = fs.readFileSync(
       path.join(ROOT, "scripts/check-synthesis-sidecar-runtime-xpi.ts"),

@@ -1,6 +1,9 @@
 import { assert } from "chai";
 import fs from "node:fs";
+import { spawn } from "node:child_process";
+import os from "node:os";
 import path from "node:path";
+import { createInterface } from "node:readline";
 import {
   createInProcessSynthesisCitationGraphMetricsEngine,
   rebuildSynthesisCitationGraphMetricsRequest,
@@ -11,7 +14,7 @@ import {
   SYNTHESIS_SIDECAR_PROTOCOL,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import type { SynthesisSidecarRuntimeConfig } from "../../apps/synthesis-service/src/runtimeConfig";
-import type { SynthesisSidecarComputeWorkerPool } from "../../apps/synthesis-service/src/computeWorkerPool";
+import { createSynthesisSidecarComputeWorkerPool } from "../../apps/synthesis-service/src/computeWorkerPool";
 import { startSynthesisSidecarServer } from "../../apps/synthesis-service/src/server";
 import {
   createSynthesisSidecarComputeClient,
@@ -131,23 +134,7 @@ describe("Synthesis Citation Graph metrics production sidecar route", function (
   it("matches the direct engine through real authenticated HTTP", async function () {
     const config = runtimeConfig();
     const direct = createInProcessSynthesisCitationGraphMetricsEngine();
-    const pool: SynthesisSidecarComputeWorkerPool = {
-      runCitationGraphLayout: async () => {
-        throw new Error("unexpected layout compute");
-      },
-      runCitationGraphMetrics: (input) => direct.compute(input),
-      async runCitationGraphBuild() {
-        throw new Error("unexpected graph-build compute");
-      },
-      snapshot: () => ({
-        state: "idle",
-        active: 0,
-        queued: 0,
-        restartCount: 0,
-        failureCount: 0,
-      }),
-      async shutdown() {},
-    };
+    const pool = createSynthesisSidecarComputeWorkerPool();
     const runtime = await startSynthesisSidecarServer(
       config,
       SERVICE_INSTANCE_ID,
@@ -165,6 +152,127 @@ describe("Synthesis Citation Graph metrics production sidecar route", function (
     } finally {
       runtime.beginShutdown("test_complete");
       await runtime.stopped;
+    }
+  });
+
+  it("serves the same authenticated Metrics contract from the Rust candidate", async function () {
+    const tempRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-rust-metrics-candidate-"),
+    );
+    const configPath = path.join(tempRoot, "config.json");
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        port: 0,
+        profileId: "candidate-profile",
+        clientToken: CLIENT_TOKEN,
+      }),
+    );
+    const executable = path.join(
+      ROOT,
+      "native/synthesis-sidecar/target/debug",
+      `synthesis-sidecar${process.platform === "win32" ? ".exe" : ""}`,
+    );
+    const child = spawn(executable, ["serve", configPath], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const lines = createInterface({ input: child.stdout });
+    const listening = new Promise<{ port: number }>((resolve, reject) => {
+      lines.once("line", (line) => {
+        try {
+          resolve(JSON.parse(line) as { port: number });
+        } catch (error) {
+          reject(error);
+        }
+      });
+      child.once("error", reject);
+      child.once("exit", (code) => {
+        if (code !== 0) reject(new Error(`candidate exited with ${code}`));
+      });
+    });
+    child.stderr.resume();
+    try {
+      const { port } = await listening;
+      const endpoint = `http://127.0.0.1:${port}`;
+      assert.equal((await fetch(`${endpoint}/health`)).status, 200);
+      assert.equal(
+        (
+          await fetch(`${endpoint}/call`, {
+            method: "POST",
+            headers: {
+              authorization: "Bearer wrong-token",
+              "content-type": "application/json",
+            },
+            body: "{}",
+          })
+        ).status,
+        401,
+      );
+      const handshake = (await (
+        await fetch(`${endpoint}/call`, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${CLIENT_TOKEN}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            protocol: SYNTHESIS_SIDECAR_PROTOCOL,
+            requestId: "candidate-handshake",
+            profileId: "candidate-profile",
+            capability: "system.handshake",
+            payload: {},
+          }),
+        })
+      ).json()) as { ok: boolean; data: { capabilities: string[] } };
+      assert.equal(handshake.ok, true);
+      assert.include(
+        handshake.data.capabilities,
+        "compute.citation_graph_metrics",
+      );
+      const input = metricsRequest();
+      const response = await fetch(`${endpoint}/call`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${CLIENT_TOKEN}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          protocol: SYNTHESIS_SIDECAR_PROTOCOL,
+          requestId: "candidate-request",
+          profileId: "candidate-profile",
+          capability: "compute.citation_graph_metrics",
+          payload: input,
+        }),
+      });
+      const body = (await response.json()) as {
+        ok: boolean;
+        data: unknown;
+      };
+      assert.equal(response.status, 200);
+      assert.equal(body.ok, true);
+      assert.deepEqual(
+        body.data,
+        await createInProcessSynthesisCitationGraphMetricsEngine().compute(
+          input,
+        ),
+      );
+      await fetch(`${endpoint}/call`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${CLIENT_TOKEN}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          protocol: SYNTHESIS_SIDECAR_PROTOCOL,
+          requestId: "candidate-shutdown",
+          profileId: "candidate-profile",
+          capability: "system.shutdown",
+          payload: {},
+        }),
+      });
+    } finally {
+      if (child.exitCode === null) child.kill();
+      lines.close();
     }
   });
 

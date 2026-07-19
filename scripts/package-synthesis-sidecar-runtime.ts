@@ -12,6 +12,7 @@ import {
   SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES,
   SYNTHESIS_SIDECAR_RUNTIME_NODE_VERSION,
   computeSynthesisSidecarRuntimeBuildFingerprint,
+  computeSynthesisRustSidecarSourceFingerprint,
   computeSynthesisSidecarRuntimeBundleId,
   runtimeArchiveName,
   sha256File,
@@ -101,6 +102,59 @@ async function copyComputeRuntimeDependencies(
   }
 }
 
+async function copyRustMetricsRuntime(
+  root: string,
+  outputRoot: string,
+  target: SynthesisSidecarRuntimeTarget,
+) {
+  const source = path.resolve(requiredArgument("rust-sidecar"));
+  const stat = await fs.stat(source);
+  if (!stat.isFile()) {
+    throw new Error("Rust Metrics sidecar must be a regular file");
+  }
+  const nativeRoot = path.join(outputRoot, "service/native/synthesis-sidecar");
+  await fs.mkdir(nativeRoot, { recursive: true });
+  const executableName = target.startsWith("win32")
+    ? "synthesis-sidecar.exe"
+    : "synthesis-sidecar";
+  await fs.copyFile(source, path.join(nativeRoot, executableName));
+  if (!target.startsWith("win32")) {
+    await fs.chmod(path.join(nativeRoot, executableName), 0o755);
+  }
+  await fs.copyFile(
+    path.join(root, "LICENSE"),
+    path.join(nativeRoot, "LICENSE-AGPL-3.0.txt"),
+  );
+  await fs.copyFile(
+    path.join(root, "native/synthesis-sidecar/licenses.json"),
+    path.join(nativeRoot, "licenses.json"),
+  );
+  const native = await computeSynthesisRustSidecarSourceFingerprint(root);
+  await fs.writeFile(
+    path.join(nativeRoot, "provenance.json"),
+    `${JSON.stringify(
+      {
+        schema: "synthesis-rust-sidecar-provenance.v1",
+        target,
+        sourceFingerprint: native.fingerprint,
+        cargoLockSha256: await sha256File(
+          path.join(root, "native/synthesis-sidecar/Cargo.lock"),
+        ),
+        toolchain: (
+          await fs.readFile(
+            path.join(root, "native/synthesis-sidecar/rust-toolchain.toml"),
+            "utf8",
+          )
+        ).match(/channel\s*=\s*"([^"]+)"/)?.[1],
+        licenseInventory: "licenses.json",
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+}
+
 async function main() {
   const root = process.cwd();
   const target = targetArgument();
@@ -142,6 +196,7 @@ async function main() {
   );
   await copyServiceTree(root, outputRoot);
   await copyComputeRuntimeDependencies(root, outputRoot);
+  await copyRustMetricsRuntime(root, outputRoot, target);
 
   const servicePackage = JSON.parse(
     await fs.readFile(
@@ -158,7 +213,12 @@ async function main() {
       path: relativePath,
       bytes: stat.size,
       sha256: await sha256File(filePath),
-      executable: relativePath === executable,
+      executable:
+        relativePath === executable ||
+        relativePath ===
+          `service/native/synthesis-sidecar/synthesis-sidecar${
+            target.startsWith("win32") ? ".exe" : ""
+          }`,
     });
   }
   files.sort((left, right) => left.path.localeCompare(right.path));

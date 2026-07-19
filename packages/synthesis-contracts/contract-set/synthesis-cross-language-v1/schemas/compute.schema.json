@@ -707,6 +707,64 @@
         }
       ]
     },
+    "metricsWorkerRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "type", "taskId", "operation", "payload"],
+      "properties": {
+        "protocol": { "const": "synthesis-rust-worker.v1" },
+        "type": { "const": "run" },
+        "taskId": { "$ref": "#/$defs/identifier" },
+        "operation": { "const": "citation_graph_metrics.v1" },
+        "payload": { "$ref": "#/$defs/metricsRequest" }
+      }
+    },
+    "metricsWorkerCancel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "type", "taskId"],
+      "properties": {
+        "protocol": { "const": "synthesis-rust-worker.v1" },
+        "type": { "const": "cancel" },
+        "taskId": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "metricsWorkerResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "type", "taskId", "result"],
+      "properties": {
+        "protocol": { "const": "synthesis-rust-worker.v1" },
+        "type": { "const": "result" },
+        "taskId": { "$ref": "#/$defs/identifier" },
+        "result": { "$ref": "#/$defs/metricsResult" }
+      }
+    },
+    "metricsWorkerFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "type", "taskId", "code"],
+      "properties": {
+        "protocol": { "const": "synthesis-rust-worker.v1" },
+        "type": { "enum": ["error", "canceled"] },
+        "taskId": { "$ref": "#/$defs/identifier" },
+        "code": {
+          "enum": [
+            "invalid_request",
+            "worker_canceled",
+            "worker_result_invalid"
+          ]
+        }
+      }
+    },
+    "metricsWorkerMessage": {
+      "oneOf": [
+        { "$ref": "#/$defs/metricsWorkerRun" },
+        { "$ref": "#/$defs/metricsWorkerCancel" },
+        { "$ref": "#/$defs/metricsWorkerResult" },
+        { "$ref": "#/$defs/metricsWorkerFailure" }
+      ]
+    },
     "versionedDomainRequest": {
       "type": "object",
       "required": ["contractVersion", "algorithmVersion"],

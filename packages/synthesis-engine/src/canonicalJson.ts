@@ -3,6 +3,7 @@ export {
   byteLengthSynthesisContractText as byteLengthSynthesisEngineText,
   canonicalizeSynthesisContractJsonArtifact as canonicalizeSynthesisEngineJsonArtifact,
   canonicalizeSynthesisContractJson as canonicalizeSynthesisEngineJson,
+  compareSynthesisContractStrings as compareSynthesisEngineStrings,
   countSynthesisContractJsonNodes as countSynthesisEngineJsonNodes,
   encodeSynthesisContractText as encodeSynthesisEngineText,
   hashSynthesisContractCanonicalJson as hashSynthesisEngineCanonicalJson,

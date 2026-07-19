@@ -34,6 +34,8 @@ Prebuild CI verifies the Node release's signed SHASUMS with the official Node
 release keyring, checks the selected archive hash, and validates Authenticode
 or the macOS runtime's code signature where applicable. It then combines the
 minimal Node executable and license with the compiled service worker, the
+target-matching Rust Metrics executable and its source/lock/toolchain/license
+provenance, the
 `packages/synthesis-engine` JavaScript graph, the environment-neutral
 `packages/synthesis-repository` foundation plus designated `node:sqlite`
 adapter/owner, the environment-neutral `packages/synthesis-application`
@@ -48,7 +50,8 @@ runtime file's size, SHA-256, and executable state. Unsafe relative paths,
 unknown fields, duplicate paths, symlinks, and incomplete runtime entrypoints
 are rejected.
 
-The build fingerprint covers service, worker, graph-transfer owner/executor,
+The build fingerprint covers the pinned Rust workspace, toolchain and lockfile,
+service, worker, graph-transfer owner/executor,
 packed graph-build engine and streaming protocol sources, shared sidecar
 contracts including wire-capacity and transfer constants, synthesis-engine and
 repository sources/schema/package metadata, D3
@@ -110,7 +113,8 @@ Topic Graph uses one for index construction. None is a public service capability
 The designated Node filesystem and SQLite adapters remain in service composition;
 built-in `node:sqlite` and `node:fs` come from the pinned Node runtime and add no
 third-party dependency or license. The default `SynthesisClient`
-routes Citation Graph layout and metrics computation to its lazy bounded worker;
+routes Citation Graph layout to its lazy Node Worker and Metrics computation to
+the bundled Rust child through the same bounded pool;
 Unified Citation Graph build is packaged as monolithic and packed-transfer
 authenticated internal canaries while its production composition remains in
 process. The same bundle
@@ -121,6 +125,12 @@ graph-basis checks, production promotion/canonical files, and the other producti
 remain plugin-owned. Compute JSON request and response envelopes are capped at
 8 MiB and the graph-build module requires no additional runtime dependency or
 asset or license.
+
+The independent native candidate workflow builds and smokes Windows x64,
+macOS x64/arm64, and Linux x64/arm64 binaries, records source provenance, and
+enforces 15 MiB per-target and 75 MiB aggregate compressed limits. These
+candidates do not change the v1 launch executable, entrypoint, installer,
+discovery, or active/previous pointer schema.
 
 Source routing does not regenerate platform prebuilds. The existing Node
 freshness and XPI checks continue to fail closed so stale oracle assets cannot be

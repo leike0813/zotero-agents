@@ -9,12 +9,9 @@ import {
 import {
   createSynthesisCitationGraphBuildPackedAccumulator,
   createInProcessSynthesisCitationGraphLayoutEngine,
-  createInProcessSynthesisCitationGraphMetricsEngine,
   iterateRebuiltSynthesisCitationGraphBuildResultPageArtifacts,
   rebuildSynthesisCitationGraphLayoutRequest,
   rebuildSynthesisCitationGraphLayoutResult,
-  rebuildSynthesisCitationGraphMetricsRequest,
-  rebuildSynthesisCitationGraphMetricsResult,
   rebuildSynthesisCitationGraphBuildTransferPage,
 } from "../../../packages/synthesis-engine/src/index.js";
 import { SYNTHESIS_SIDECAR_TRANSFER_LIMITS } from "../../../packages/synthesis-contracts/src/sidecarTransfer.js";
@@ -41,7 +38,6 @@ import {
   SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION,
   SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION,
   SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION,
-  SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION,
   SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION,
   SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION,
   SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION,
@@ -207,23 +203,6 @@ parentPort.on(
           type: "result",
           taskId,
           result: rebuildSynthesisCitationGraphLayoutResult(result, request),
-        });
-        return;
-      }
-      if (message.operation === SYNTHESIS_SIDECAR_METRICS_COMPUTE_OPERATION) {
-        const request = rebuildSynthesisCitationGraphMetricsRequest(
-          message.payload,
-        );
-        const result = await createInProcessSynthesisCitationGraphMetricsEngine(
-          {
-            checkpoint,
-          },
-        ).compute(request);
-        checkpoint();
-        post({
-          type: "result",
-          taskId,
-          result: rebuildSynthesisCitationGraphMetricsResult(result, request),
         });
         return;
       }
