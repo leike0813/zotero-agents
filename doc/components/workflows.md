@@ -155,7 +155,7 @@ Gitee feed mirror 是可用性 fallback，发布失败或滞后不应阻断 GitH
   `y` 表示向后兼容能力新增，`z` 表示 bugfix、UI、安装器或订阅逻辑修复。
 - 官方 Workflow 包版本：独立 semver。仅 Workflow 包升级时只 bump 内容包版本，
   不 bump 插件版本。
-- 内容运行时协议版本：`content_api`。当前插件支持版本为 `1.0.0`。Workflow
+- 内容运行时协议版本：`content_api`。当前插件支持版本为 `2.0.0`。Workflow
   包需要新运行时能力时，优先通过 `requires.content_api` 表达。
 
 ### Feed 与兼容性字段

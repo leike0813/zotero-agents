@@ -1335,9 +1335,9 @@ async function callCapability(request: HttpRequest) {
     }
     if (error instanceof HostBridgeWorkflowProductError) {
       return response(
-        404,
-        "Not Found",
-        hostBridgeError(error.code, error.message, "not_found"),
+        error.httpStatus,
+        error.statusText,
+        hostBridgeError(error.code, error.message, error.category),
         error.code,
       );
     }

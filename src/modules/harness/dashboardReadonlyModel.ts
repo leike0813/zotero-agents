@@ -384,7 +384,7 @@ const DASHBOARD_LABELS = {
   productsNoFiles: "No product files.",
   productsRawMarkdown: "Raw Markdown",
   productsSelectFile: "Select a file to preview.",
-  productsOpenWorkspace: "Open Folder",
+  productsOpenWorkspace: "Export Product",
   productsOpenRun: "Open Run",
   productsRemove: "Remove From Products",
   productsPreviewUnavailable: "Select a file to preview.",
@@ -531,24 +531,14 @@ function normalizeProduct(row: PluginStateReadonlyRow) {
     backendType: cleanString(product.backendType || row.backendId),
     requestId: cleanString(product.requestId || row.requestId),
     runId: cleanString(product.runId),
-    storageMode:
-      product.storageMode === "persistent-cache" ||
-      product.storageMode === "cached-bundle" ||
-      product.storageMode === "local-workspace"
-        ? product.storageMode
-        : "local-workspace",
-    workspaceDir: cleanString(product.workspaceDir),
-    cacheDir: cleanString(product.cacheDir),
-    resultJsonPath: cleanString(product.resultJsonPath),
+    schemaVersion: Number(product.schemaVersion) || 2,
     assets: assets.map((asset: any, index: number) => ({
       assetId: cleanString(asset.assetId || asset.id || `asset-${index + 1}`),
       label: cleanString(asset.label || asset.assetId || `Asset ${index + 1}`),
-      path: cleanString(asset.path || asset.relativePath),
-      relativePath: cleanString(asset.relativePath || asset.path),
+      path: cleanString(asset.relativePath),
+      relativePath: cleanString(asset.relativePath),
       contentType: cleanString(asset.contentType),
-      sourceKind: cleanString(asset.sourceKind || "missing"),
-      localPath: cleanString(asset.localPath),
-      entryPath: cleanString(asset.entryPath),
+      availability: cleanString(asset.availability || "missing"),
       size: Number.isFinite(Number(asset.size))
         ? Number(asset.size)
         : undefined,

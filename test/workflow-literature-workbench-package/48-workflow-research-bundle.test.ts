@@ -377,7 +377,12 @@ describe("export research bundle workflow", function () {
       productStorage: {
         async registerProduct(input: any) {
           registration = input;
-          return { productId: "research-product", assets: input.assets };
+          return {
+            productId: "research-product",
+            assetCount: input.assets.length,
+            availableAssetCount: input.assets.length,
+            missingAssetCount: 0,
+          };
         },
       },
     });
@@ -508,7 +513,12 @@ describe("export research bundle workflow", function () {
         productStorage: {
           async registerProduct(input: any) {
             registrationCount += 1;
-            return { productId: "fallback-product", assets: input.assets };
+            return {
+              productId: "fallback-product",
+              assetCount: input.assets.length,
+              availableAssetCount: input.assets.length,
+              missingAssetCount: 0,
+            };
           },
         },
       });
@@ -610,7 +620,12 @@ describe("export research bundle workflow", function () {
       },
       productStorage: {
         async registerProduct(input: any) {
-          return { productId: "missing-product", assets: input.assets };
+          return {
+            productId: "missing-product",
+            assetCount: input.assets.length,
+            availableAssetCount: input.assets.length,
+            missingAssetCount: 0,
+          };
         },
       },
     });
@@ -695,7 +710,12 @@ describe("export research bundle workflow", function () {
       productStorage: {
         async registerProduct(input: any) {
           registration = input;
-          return { productId: "diagnostics-product", assets: input.assets };
+          return {
+            productId: "diagnostics-product",
+            assetCount: input.assets.length,
+            availableAssetCount: input.assets.length,
+            missingAssetCount: 0,
+          };
         },
       },
     });

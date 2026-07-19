@@ -81,7 +81,10 @@ export type HostBridgeErrorCode =
   | "workflow_submit_failed"
   | "workflow_submit_requires_approval"
   | "workflow_product_not_found"
-  | "workflow_product_asset_not_found";
+  | "workflow_product_asset_not_found"
+  | "workflow_product_store_migration_incomplete"
+  | "workflow_product_export_path_too_long"
+  | "workflow_product_export_failed";
 
 export type HostBridgeError = {
   code: HostBridgeErrorCode;

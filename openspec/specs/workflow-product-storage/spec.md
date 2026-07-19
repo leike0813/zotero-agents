@@ -5,39 +5,39 @@ TBD - created by archiving change add-dashboard-workflow-product-storage. Update
 ## Requirements
 ### Requirement: Workflow hooks can register products
 
-The system SHALL inject a product storage API into workflow `applyResult` hooks that can persist result artifacts, inline text, and host-local text or binary files.
+The system SHALL inject a registration-only Product API into workflow apply hooks and SHALL persist every successfully published Product in one managed opaque-object layout.
 
-#### Scenario: Hook registers a binary local asset
+#### Scenario: Hook registers a Product
 
-- **WHEN** a hook registers a PDF or image from a readable host-local file
-- **THEN** product storage SHALL copy the original bytes into managed storage
-- **AND** SHALL record the byte size and SHA-256
-- **AND** SHALL NOT decode and rewrite the asset as text.
+- **WHEN** a hook registers logical text or binary assets
+- **THEN** storage SHALL preserve each validated Product-relative path as logical metadata
+- **AND** SHALL return a bounded registration receipt without managed filesystem paths.
 
-#### Scenario: Hook registers a binary bundle asset
+### Requirement: Workflow Product physical paths are bounded
 
-- **WHEN** a hook registers a binary result-bundle entry
-- **THEN** the managed copy SHALL be byte-identical to that entry.
+Workflow Product storage SHALL derive fixed-width managed object paths independently of Product identifiers, filenames, and logical directory depth.
 
-#### Scenario: Existing result artifact input is used
+#### Scenario: Product has a deep logical asset path
 
-- **WHEN** an existing hook supplies `rawPath` and `fallbackPath`
-- **THEN** product storage SHALL normalize it to the result-artifact source without changing existing text behavior.
+- **WHEN** a Product registers an asset with a valid deep or long relative path
+- **THEN** its managed object path SHALL contain only fixed-width Product, revision, and asset keys
+- **AND** logical exports and previews SHALL retain the original relative path.
 
-### Requirement: Workflow product registration can be atomic
+### Requirement: Workflow Product registration is atomically published
 
-Product storage SHALL support opt-in atomic multi-asset registration.
+Product storage SHALL write a new immutable revision before changing the indexed Product record.
 
-#### Scenario: Atomic registration succeeds
+#### Scenario: Product update succeeds
 
-- **WHEN** every declared asset is materialized successfully
-- **THEN** the managed directory and product row SHALL become visible as one completed product.
+- **WHEN** every required asset is materialized and verified
+- **THEN** one Product row update SHALL publish the new revision
+- **AND** the previous revision SHALL remain readable until that update succeeds.
 
-#### Scenario: Atomic registration fails
+#### Scenario: Product update fails
 
-- **WHEN** any required asset cannot be materialized or two assets target the same product path
-- **THEN** no product row or final managed directory SHALL remain
-- **AND** temporary staging assets SHALL be cleaned up.
+- **WHEN** a required source, write, hash, or metadata commit fails
+- **THEN** the previous Product revision SHALL remain authoritative
+- **AND** the failed revision SHALL not become visible.
 
 ### Requirement: Dashboard exposes product storage
 
@@ -154,3 +154,19 @@ managed-target materialization behavior.
 - **WHEN** an external workflow hook calls either existing single-asset method
 - **THEN** the method SHALL retain its public signature and managed-copy behavior
 - **AND** SHALL apply the same target policy as product registration.
+
+### Requirement: Workflow Product storage has one current record schema
+
+Normal Product reads SHALL accept only schema version 2 records without persisted absolute managed paths.
+
+#### Scenario: Legacy Product records exist at startup
+
+- **WHEN** startup finds legacy Product rows
+- **THEN** it SHALL migrate them before Product surfaces become ready
+- **AND** normal reads SHALL NOT use the legacy directory layout.
+
+#### Scenario: Migration cannot complete
+
+- **WHEN** a transient migration read, write, or metadata operation fails
+- **THEN** the legacy row and bytes SHALL remain untouched
+- **AND** Product surfaces SHALL report a retryable migration-incomplete state.

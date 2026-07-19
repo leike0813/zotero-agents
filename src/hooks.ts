@@ -108,6 +108,7 @@ import {
 } from "./modules/assistantExecutionDisplayPolicy";
 import { shutdownAcpSessionManager } from "./modules/acpSessionManager";
 import { releaseAcpSkillRunAuditTrailWrites } from "./modules/acpSkillRunAuditTrail";
+import { initializeWorkflowProductStorage } from "./modules/workflowProductStore";
 import { shutdownAcpWebSocketBridgeService } from "./modules/acpWebSocketBridgeService";
 import {
   reconcileAcpSkillRunWorkflowTasksOnStartup,
@@ -832,6 +833,11 @@ async function onStartup() {
   const runtimeRootURI = resolveRuntimeRootURI();
   setPluginSkillRegistryRuntimeRootURI(runtimeRootURI);
   await ensureStartupRuntimePreflight();
+  try {
+    await initializeWorkflowProductStorage();
+  } catch (error) {
+    Zotero.logError(error instanceof Error ? error : new Error(String(error)));
+  }
   await initializeSynthesisBuiltinTagsOnStartup();
 
   await ensureDefaultWorkflowDirExistsOnStartup();

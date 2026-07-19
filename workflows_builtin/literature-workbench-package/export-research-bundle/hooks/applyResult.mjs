@@ -25,7 +25,7 @@ export async function applyResult(context = {}) {
     status: "recorded",
     product: {
       productId: materialized.product.productId,
-      assetCount: materialized.product.assets.length,
+      assetCount: materialized.product.assetCount,
     },
     applyDiagnostics: {
       warningCount: materialized.manifest.warnings.length,

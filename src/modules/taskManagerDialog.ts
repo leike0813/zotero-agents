@@ -90,6 +90,8 @@ import {
 import { openAssistantWorkspaceSidebar } from "./assistantWorkspaceSidebar";
 import {
   getWorkflowProduct,
+  getWorkflowProductMigrationStatus,
+  exportWorkflowProductToDirectory,
   listWorkflowProducts,
   listSkillRunFeedbackProducts,
   readProductAssetPreview,
@@ -1876,10 +1878,16 @@ async function buildDashboardSnapshot(args: {
       "task-dashboard-runtime-logs-copy-success",
       "Copied { $count } log entries to clipboard!",
     ),
-    productsEmpty: localize(
-      "task-dashboard-products-empty",
-      "No workflow products have been registered yet.",
-    ),
+    productsEmpty:
+      getWorkflowProductMigrationStatus().state === "failed"
+        ? localize(
+            "task-dashboard-products-migration-incomplete",
+            "Product storage migration is incomplete. Restart Zotero to retry.",
+          )
+        : localize(
+            "task-dashboard-products-empty",
+            "No workflow products have been registered yet.",
+          ),
     productsNoFiles: localize(
       "task-dashboard-products-no-files",
       "No product files.",
@@ -1894,7 +1902,7 @@ async function buildDashboardSnapshot(args: {
     ),
     productsOpenWorkspace: localize(
       "task-dashboard-products-open-workspace",
-      "Open Folder",
+      "Export Product",
     ),
     productsOpenRun: localize("task-dashboard-products-open-run", "Open Run"),
     productsRemove: localize(
@@ -3431,9 +3439,32 @@ export async function openTaskManagerDialog(args?: {
       const product = getWorkflowProduct(
         String(payload.productId || "").trim(),
       );
-      const folder = String(product?.cacheDir || "").trim();
-      if (folder) {
-        openFolderInSystemFileManager(folder, { label: "product folder" });
+      if (!product) return;
+      const selected = await openRuntimeFilePicker({
+        title: localize(
+          "task-dashboard-products-export-title",
+          "Select Product export directory",
+        ),
+        mode: "folder",
+      });
+      if (typeof selected === "string") {
+        try {
+          await exportWorkflowProductToDirectory({
+            productId: product.productId,
+            outputDir: selected,
+          });
+          openFolderInSystemFileManager(selected, {
+            label: "product export folder",
+          });
+        } catch (error) {
+          alertRuntimeWindow(
+            localize(
+              "task-dashboard-products-export-failed",
+              "Failed to export Product: {error}",
+              { args: { error: compactError(error) } },
+            ),
+          );
+        }
       }
       return;
     }

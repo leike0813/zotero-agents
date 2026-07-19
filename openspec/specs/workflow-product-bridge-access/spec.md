@@ -29,65 +29,41 @@ records with `kind: "skill_run_feedback"`.
 - **THEN** the bridge SHALL return the stable `workflow_product_not_found` error
 - **AND** it SHALL NOT expose feedback metadata through this surface.
 
-### Requirement: Product DTOs do not disclose managed storage paths
-Product responses SHALL expose identity, workflow, backend, request, display,
-timestamp, and asset metadata required by callers, but SHALL NOT expose managed
-filesystem paths or private workflow-run metadata.
+### Requirement: Product DTOs expose logical assets only
 
-#### Scenario: Caller receives product metadata
-- **WHEN** list or get returns a product DTO
-- **THEN** the DTO SHALL omit `localPath`, `workspaceDir`, `cacheDir`,
-  `resultJsonPath`, source paths, and bundle entry paths
-- **AND** each asset DTO SHALL retain a stable asset id and safe display and
-  relative-path metadata.
+Host Bridge Product DTOs SHALL expose logical identity, availability, size, and integrity metadata without managed storage fields.
 
-### Requirement: Product assets use opaque broker file handles
-The Host Bridge SHALL expose `workflow_products.read_asset` for one selected
-asset and SHALL use the existing registered-file download protocol. Managed
-ownership SHALL be derived from runtime product storage, product identity, and
-the asset's validated relative path rather than trusted persisted absolute paths.
+#### Scenario: Caller receives Product metadata
 
-#### Scenario: Caller reads a normal product asset
-- **WHEN** a caller invokes `workflow_products.read_asset` with a normal
-  `productId` and `assetId`
-- **THEN** the bridge SHALL derive the owning cache directory from runtime
-  storage and product identity
-- **AND** SHALL derive the asset path from its validated managed relative path
-- **AND** SHALL require persisted `cacheDir` and `localPath` metadata to agree
-  with those derived paths
-- **AND** SHALL verify that the derived file still exists
-- **AND** SHALL return public asset metadata with a short-lived opaque file
-  descriptor registered as a workflow artifact
-- **AND** SHALL NOT return bytes or an internal absolute path in capability JSON.
+- **WHEN** list or get returns a Product
+- **THEN** assets SHALL expose `assetId` and `relativePath`
+- **AND** Product and asset DTOs SHALL omit revision keys, absolute paths, cache directories, and source locations.
 
-#### Scenario: Asset cannot be resolved
-- **WHEN** the selected asset is missing, belongs to another product, has invalid
-  relative metadata, has inconsistent persisted ownership paths, resolves outside
-  derived managed product storage, or no longer exists
-- **THEN** the bridge SHALL return the stable `workflow_product_asset_not_found`
-  error
-- **AND** SHALL not register a file handle.
+### Requirement: Product assets use logical selectors and opaque file handles
 
-### Requirement: Product export supports local and remote delivery
-The Host Bridge SHALL expose `workflow_products.export` for one selected asset
-or every asset of a normal product. Local callers SHALL receive direct output
-delivery; remote callers SHALL receive a registered ZIP file descriptor and
-download guidance.
+`workflow_products.read_asset` SHALL accept exactly one `assetId` or `relativePath` selector and resolve it through the owning Product record.
 
-#### Scenario: Local caller exports selected assets
-- **WHEN** a local caller invokes `workflow_products.export` with an output
-  directory and an optional asset id
-- **THEN** the bridge SHALL copy the selected asset or assets beneath that output
-  directory using validated relative paths
-- **AND** it SHALL reject traversal and existing destination conflicts unless the
-  caller explicitly requests overwrite.
+#### Scenario: Caller follows a manifest path
 
-#### Scenario: Remote caller exports selected assets
-- **WHEN** a remote caller invokes `workflow_products.export` for one asset or
-  all assets of a normal product
-- **THEN** the bridge SHALL package the selected assets in a ZIP archive
-- **AND** it SHALL return `delivery.mode: "bridge-download"`, an opaque file
-  descriptor, and download/unpack guidance without internal absolute paths.
+- **WHEN** a caller supplies a Product-relative path from a manifest
+- **THEN** Host Bridge SHALL resolve the corresponding managed object
+- **AND** return only a short-lived opaque file descriptor.
+
+### Requirement: Product export reconstructs the logical tree
+
+Product export SHALL project managed objects to validated logical relative paths.
+
+#### Scenario: Product is exported locally
+
+- **WHEN** a local caller selects an output directory
+- **THEN** every selected available asset SHALL be copied beneath that directory using `relativePath`
+- **AND** existing targets SHALL be rejected unless overwrite is explicit.
+
+#### Scenario: Product is exported remotely
+
+- **WHEN** a remote caller exports a Product
+- **THEN** ZIP entry names SHALL equal the assets' logical relative paths
+- **AND** the archive SHALL not disclose managed object names.
 
 ### Requirement: Product removal is approval-gated metadata removal
 The Host Bridge SHALL expose `workflow_products.remove` as a Zotero-side

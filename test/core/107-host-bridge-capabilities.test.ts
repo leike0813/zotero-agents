@@ -1,4 +1,7 @@
 import { assert } from "chai";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import {
   configureHostBridgeServerForTests,
   handleHostBridgeHttpRequestForTests,
@@ -31,6 +34,8 @@ import {
 } from "../../src/modules/zoteroLibraryPageQuery";
 import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
 import { runtimeHttpResponseInternalsForTests } from "../../src/modules/runtimeHttpResponse";
+import { createProductStorageApi } from "../../src/modules/workflowProductStore";
+import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -1438,9 +1443,8 @@ describe("host bridge capability calls", function () {
   });
 
   it("exposes read-only workflow-product capabilities without MCP export or removal", async function () {
-    const capabilityNames = listHostBridgeCapabilities().map(
-      (entry) => entry.name,
-    );
+    const capabilities = listHostBridgeCapabilities();
+    const capabilityNames = capabilities.map((entry) => entry.name);
     assert.includeMembers(capabilityNames, [
       "workflow_products.list",
       "workflow_products.get",
@@ -1463,6 +1467,103 @@ describe("host bridge capability calls", function () {
     ]);
     assert.notInclude(toolNames, "workflow_products.export");
     assert.notInclude(toolNames, "workflow_products.remove");
+    const readAsset = capabilities.find(
+      (entry) => entry.name === "workflow_products.read_asset",
+    ) as any;
+    assert.containsAllKeys(readAsset.input.properties, [
+      "productId",
+      "assetId",
+      "relativePath",
+    ]);
+    assert.deepEqual(readAsset.input.requiredProperties, ["productId"]);
+  });
+
+  it("reads and exports Product assets through logical relative paths", async function () {
+    const previousRoot = process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+    const runtimeRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-bridge-product-"),
+    );
+    process.env.ZOTERO_SKILLS_RUNTIME_ROOT = runtimeRoot;
+    resetPluginStateStoreForTests();
+    try {
+      const api = createProductStorageApi({
+        manifest: { id: "bridge-product", label: "Bridge Product" },
+        resultContext: {
+          async resolveArtifactBytes() {
+            throw new Error("not used");
+          },
+        } as any,
+        runResult: { requestId: "bridge-product-request" },
+      });
+      const receipt = await api.registerProduct({
+        productKey: "portable",
+        kind: "research_bundle",
+        title: "Portable Product",
+        failurePolicy: "atomic",
+        assets: [
+          {
+            assetId: "manifest",
+            productAssetPath: "nested/manifest.json",
+            contentType: "application/json",
+            source: { kind: "inline-text", text: '{"ok":true}' },
+          },
+        ],
+      });
+      const token = configureHostBridgeServerForTests({
+        token: "workflow-product-token",
+      });
+      const metadata = await callBridgeCapability({
+        token,
+        capability: "workflow_products.get",
+        input: { productId: receipt.productId },
+      });
+      assert.strictEqual(metadata.status, 200);
+      assert.equal(
+        metadata.json.result.data.product.assets[0].relativePath,
+        "nested/manifest.json",
+      );
+      assert.notProperty(metadata.json.result.data.product, "storageRevision");
+      assert.notProperty(
+        metadata.json.result.data.product.assets[0],
+        "localPath",
+      );
+
+      const read = await callBridgeCapability({
+        token,
+        capability: "workflow_products.read_asset",
+        input: {
+          productId: receipt.productId,
+          relativePath: "nested/manifest.json",
+        },
+      });
+      assert.strictEqual(read.status, 200);
+      assert.equal(read.json.result.data.asset.assetId, "manifest");
+      assert.isString(read.json.result.data.file.fileId);
+
+      const outputDir = path.join(runtimeRoot, "export");
+      const exported = await callBridgeCapability({
+        token,
+        capability: "workflow_products.export",
+        input: { productId: receipt.productId, outputDir },
+        connectionMode: "local",
+      });
+      assert.strictEqual(exported.status, 200);
+      assert.equal(
+        await fs.readFile(
+          path.join(outputDir, "nested", "manifest.json"),
+          "utf8",
+        ),
+        '{"ok":true}',
+      );
+    } finally {
+      resetPluginStateStoreForTests();
+      if (typeof previousRoot === "undefined") {
+        delete process.env.ZOTERO_SKILLS_RUNTIME_ROOT;
+      } else {
+        process.env.ZOTERO_SKILLS_RUNTIME_ROOT = previousRoot;
+      }
+      await fs.rm(runtimeRoot, { recursive: true, force: true });
+    }
   });
 
   it("decodes Zotero MCP JSON-RPC bodies as UTF-8 bytes", async function () {

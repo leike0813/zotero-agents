@@ -29,6 +29,7 @@ import {
   cleanupPersistenceIssues,
   scanPersistenceIntegrity,
 } from "../../src/modules/persistenceIntegrity";
+import type { WorkflowProductRecord } from "../../src/modules/workflowProductStore";
 import {
   buildSynthesisKnowledgeGraphPaths,
   buildSynthesisStoragePaths,
@@ -1539,43 +1540,37 @@ describe("runtime persistence governance", function () {
 
   it("reports SQLite-indexed missing files and orphan runtime assets before cleanup", async function () {
     const paths = getRuntimePersistencePaths();
-    const missingPath = path.join(
-      paths.runtimeRoot,
-      "workflow-products",
-      "assets",
-      "product-missing",
-      "missing.md",
-    );
+    const missingProduct: WorkflowProductRecord = {
+      schemaVersion: 2,
+      productId: "product-missing",
+      productKey: "product-missing",
+      kind: "workflow.product",
+      title: "Missing product",
+      workflowId: "workflow",
+      workflowLabel: "Workflow",
+      backendType: "workflow-product",
+      requestId: "request",
+      storageRevision: "0123456789abcdef",
+      assets: [
+        {
+          assetId: "missing",
+          label: "Missing",
+          relativePath: "missing.md",
+          availability: "available",
+          size: 1,
+        },
+      ],
+      metadata: {},
+      createdAt: "2026-05-25T00:00:00.000Z",
+      updatedAt: "2026-05-25T00:00:00.000Z",
+    };
     upsertPluginTaskRowEntry(PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS, "products", {
       taskId: "product-missing",
       requestId: "request",
       backendId: "workflow-product",
       state: "available",
       updatedAt: "2026-05-25T00:00:00.000Z",
-      payload: JSON.stringify({
-        productId: "product-missing",
-        productKey: "product-missing",
-        kind: "workflow.product",
-        title: "Missing product",
-        workflowId: "workflow",
-        workflowLabel: "Workflow",
-        backendType: "workflow-product",
-        requestId: "request",
-        storageMode: "cached-bundle",
-        assets: [
-          {
-            assetId: "missing",
-            label: "Missing",
-            path: "missing.md",
-            relativePath: "missing.md",
-            sourceKind: "bundle-entry",
-            localPath: missingPath,
-          },
-        ],
-        metadata: {},
-        createdAt: "2026-05-25T00:00:00.000Z",
-        updatedAt: "2026-05-25T00:00:00.000Z",
-      }),
+      payload: JSON.stringify(missingProduct),
     });
 
     const orphan = path.join(

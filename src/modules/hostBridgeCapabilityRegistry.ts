@@ -10,20 +10,21 @@ import {
   isSkillRunnerConnectionAuditAvailable,
 } from "./debugMode";
 import {
-  copyRuntimeFile,
   getRuntimePersistencePaths,
   readRuntimeBytes,
-  runtimePathExists,
   scanRuntimePersistenceUsage,
   writeRuntimeBytes,
 } from "./runtimePersistence";
 import { joinPath } from "../utils/path";
 import { createStoreZipBytes } from "./zipStore";
 import {
+  assertWorkflowProductStorageReady,
+  exportWorkflowProductToDirectory,
   getWorkflowProduct,
   listWorkflowProducts,
   removeWorkflowProduct,
   resolveManagedWorkflowProductAsset,
+  resolveManagedWorkflowProductAssetByRelativePath,
   WORKFLOW_PRODUCT_KIND_SKILL_RUN_FEEDBACK,
   type WorkflowProductAsset,
   type WorkflowProductRecord,
@@ -40,6 +41,7 @@ import type {
   HostBridgeCapabilityCategory,
   HostBridgeCapabilityManifestEntry,
   HostBridgeConnectionMode,
+  HostBridgeErrorCategory,
   HostBridgeStatusSnapshot,
 } from "./hostBridgeProtocol";
 import {
@@ -86,18 +88,43 @@ export type HostBridgeCapabilityDefinition =
     handler: HostBridgeCapabilityHandler;
   };
 
-export class HostBridgeWorkflowProductError extends Error {
-  readonly code:
-    | "workflow_product_not_found"
-    | "workflow_product_asset_not_found";
+type HostBridgeWorkflowProductErrorCode =
+  | "workflow_product_not_found"
+  | "workflow_product_asset_not_found"
+  | "workflow_product_store_migration_incomplete"
+  | "workflow_product_export_path_too_long"
+  | "workflow_product_export_failed";
 
-  constructor(
-    code: "workflow_product_not_found" | "workflow_product_asset_not_found",
-    message: string,
-  ) {
+export class HostBridgeWorkflowProductError extends Error {
+  readonly code: HostBridgeWorkflowProductErrorCode;
+  readonly httpStatus: number;
+  readonly statusText: string;
+  readonly category: HostBridgeErrorCategory;
+
+  constructor(code: HostBridgeWorkflowProductErrorCode, message: string) {
     super(message);
     this.name = "HostBridgeWorkflowProductError";
     this.code = code;
+    if (
+      code === "workflow_product_not_found" ||
+      code === "workflow_product_asset_not_found"
+    ) {
+      this.httpStatus = 404;
+      this.statusText = "Not Found";
+      this.category = "not_found";
+    } else if (code === "workflow_product_export_path_too_long") {
+      this.httpStatus = 400;
+      this.statusText = "Bad Request";
+      this.category = "validation";
+    } else if (code === "workflow_product_store_migration_incomplete") {
+      this.httpStatus = 503;
+      this.statusText = "Service Unavailable";
+      this.category = "workflow";
+    } else {
+      this.httpStatus = 500;
+      this.statusText = "Internal Server Error";
+      this.category = "capability";
+    }
   }
 }
 
@@ -285,15 +312,26 @@ function normalizedWorkflowProductId(value: unknown) {
   return String(value || "").trim();
 }
 
+function assertHostWorkflowProductStorageReady() {
+  try {
+    assertWorkflowProductStorageReady();
+  } catch {
+    throw new HostBridgeWorkflowProductError(
+      "workflow_product_store_migration_incomplete",
+      "Workflow Product storage migration is incomplete",
+    );
+  }
+}
+
 function publicWorkflowProductAsset(asset: WorkflowProductAsset) {
   return {
     assetId: asset.assetId,
     label: asset.label,
-    path: asset.path,
     relativePath: asset.relativePath,
     contentType: asset.contentType,
-    sourceKind: asset.sourceKind,
+    availability: asset.availability,
     size: asset.size,
+    sha256: asset.sha256,
     diagnostics: asset.diagnostics,
   };
 }
@@ -311,7 +349,6 @@ function publicWorkflowProduct(product: WorkflowProductRecord) {
     runKey: product.runKey,
     requestId: product.requestId,
     runId: product.runId,
-    storageMode: product.storageMode,
     assets: product.assets.map(publicWorkflowProductAsset),
     createdAt: product.createdAt,
     updatedAt: product.updatedAt,
@@ -340,6 +377,7 @@ function workflowProductPageInput(input: unknown) {
 }
 
 function selectWorkflowProducts(input: unknown) {
+  assertHostWorkflowProductStorageReady();
   const filters = workflowProductPageInput(input);
   const matches = listWorkflowProducts().filter((product) => {
     if (!isNormalWorkflowProduct(product)) return false;
@@ -362,6 +400,7 @@ function selectWorkflowProducts(input: unknown) {
 }
 
 function workflowProductOrThrow(productId: unknown) {
+  assertHostWorkflowProductStorageReady();
   const product = getWorkflowProduct(normalizedWorkflowProductId(productId));
   if (!isNormalWorkflowProduct(product)) {
     throw new HostBridgeWorkflowProductError(
@@ -374,13 +413,23 @@ function workflowProductOrThrow(productId: unknown) {
 
 async function managedWorkflowProductAssetOrThrow(
   productId: unknown,
-  assetId: unknown,
+  selector: { assetId?: unknown; relativePath?: unknown },
 ) {
   const product = workflowProductOrThrow(productId);
-  const resolved = await resolveManagedWorkflowProductAsset(
-    product.productId,
-    normalizedWorkflowProductId(assetId),
-  );
+  const assetId = normalizedWorkflowProductId(selector.assetId);
+  const relativePath = normalizedWorkflowProductId(selector.relativePath);
+  if (Boolean(assetId) === Boolean(relativePath)) {
+    throw new HostBridgeWorkflowProductError(
+      "workflow_product_asset_not_found",
+      "Exactly one workflow product asset selector is required",
+    );
+  }
+  const resolved = assetId
+    ? await resolveManagedWorkflowProductAsset(product.productId, assetId)
+    : await resolveManagedWorkflowProductAssetByRelativePath(
+        product.productId,
+        relativePath,
+      );
   if (!resolved) {
     throw new HostBridgeWorkflowProductError(
       "workflow_product_asset_not_found",
@@ -413,7 +462,7 @@ async function exportWorkflowProduct(
   const requestedAssetId = normalizedWorkflowProductId(object.assetId);
   const assets = requestedAssetId
     ? product.assets.filter((asset) => asset.assetId === requestedAssetId)
-    : product.assets;
+    : product.assets.filter((asset) => asset.availability === "available");
   if (!assets.length) {
     throw new HostBridgeWorkflowProductError(
       "workflow_product_asset_not_found",
@@ -422,7 +471,9 @@ async function exportWorkflowProduct(
   }
   const resolved = await Promise.all(
     assets.map((asset) =>
-      managedWorkflowProductAssetOrThrow(product.productId, asset.assetId),
+      managedWorkflowProductAssetOrThrow(product.productId, {
+        assetId: asset.assetId,
+      }),
     ),
   );
   if (context.connectionMode !== "remote") {
@@ -432,26 +483,32 @@ async function exportWorkflowProduct(
         "workflow_products.export requires outputDir for local callers",
       );
     }
-    const overwrite = object.overwrite === true;
-    const files = [];
-    for (const entry of resolved) {
-      const relativePath = safeWorkflowProductExportPath(
-        entry.asset.relativePath,
-      );
-      const targetPath = joinPath(outputDir, relativePath);
-      if ((await runtimePathExists(targetPath)) && !overwrite) {
-        throw new Error("workflow product export output already exists");
-      }
-      await copyRuntimeFile({ sourcePath: entry.localPath, targetPath });
-      files.push({
-        assetId: entry.asset.assetId,
-        relativePath,
-        size: entry.asset.size,
+    let exported;
+    try {
+      exported = await exportWorkflowProductToDirectory({
+        productId: product.productId,
+        outputDir,
+        assetId: requestedAssetId || undefined,
+        overwrite: object.overwrite === true,
       });
+    } catch (error) {
+      const code = isPlainObject(error) ? String(error.code || "") : "";
+      if (
+        code === "workflow_product_export_path_too_long" ||
+        code === "workflow_product_export_failed"
+      ) {
+        throw new HostBridgeWorkflowProductError(
+          code,
+          error instanceof Error
+            ? error.message
+            : "Workflow Product export failed",
+        );
+      }
+      throw error;
     }
     return {
       product: publicWorkflowProduct(product),
-      delivery: { mode: "local", files },
+      delivery: { mode: "local", files: exported.files },
     };
   }
   const exportRoot = joinPath(
@@ -1149,14 +1206,15 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
       properties: {
         productId: { type: "string" },
         assetId: { type: "string" },
+        relativePath: { type: "string" },
       },
-      requiredProperties: ["productId", "assetId"],
+      requiredProperties: ["productId"],
     },
     async (input) => {
       const object = asObject(input);
       const resolved = await managedWorkflowProductAssetOrThrow(
         object.productId,
-        object.assetId,
+        { assetId: object.assetId, relativePath: object.relativePath },
       );
       const file = await registerHostBridgeWorkflowArtifactFile({
         localPath: resolved.localPath,

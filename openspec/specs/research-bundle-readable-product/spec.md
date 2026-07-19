@@ -21,17 +21,21 @@ The system SHALL generate an agent-readable README for each Research Bundle Prod
 - **THEN** the Product README SHALL use English fixed prose
 - **AND** paths, logical identifiers, and manifest field names SHALL remain locale-independent.
 
-### Requirement: Research Bundle Product paths are shallow and stable
+### Requirement: Research Bundle Product paths are portable logical paths
 
-The system SHALL materialize each Topic and paper in its own stable Product-relative directory while keeping paper-owned metadata, source, and payload files directly within that paper directory.
+Research Bundle manifests, README indexes, source Markdown, and exports SHALL use one Product-relative logical namespace independently of managed storage layout.
 
-#### Scenario: Product contains portable research material
+#### Scenario: Research Bundle contains a deeply nested image
 
-- **WHEN** Topic reports, portable metadata, payloads, source material, or local source images are available
-- **THEN** each Topic report SHALL be stored as `topics/topic-<ordinal>/report.md`
-- **AND** each paper-owned metadata, source, and payload file SHALL be stored under `papers/paper-<ordinal>/`
-- **AND** the bibliography for all successfully materialized papers SHALL be stored as root `references.bib`
-- **AND** the system SHALL NOT create a directory per payload type or payload instance.
+- **WHEN** an eligible Markdown image has a long source-relative path
+- **THEN** the manifest and rewritten Markdown SHALL retain its Product-relative path
+- **AND** Product registration SHALL store its bytes at a bounded managed object path.
+
+#### Scenario: Third party consumes an exported Research Bundle
+
+- **WHEN** a third party receives the Product directory or ZIP
+- **THEN** every available path recorded by the manifest SHALL resolve beneath the export root
+- **AND** file sizes and hashes SHALL match the manifest.
 
 ### Requirement: Research Bundle preserves eligible Markdown image paths
 
