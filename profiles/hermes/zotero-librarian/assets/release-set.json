@@ -4,7 +4,7 @@
   "status": "planned",
   "source": {
     "repository": "leike0813/zotero-agents",
-    "commit": "6d040c4aacf0dc0bbccfa533ac912f206d7b298c"
+    "commit": "be002d4fed928843f8f8272ec2fdc7020de186b0"
   },
   "protocol": "host-bridge.v1",
   "cliSchema": "zotero-bridge.cli.v2",
