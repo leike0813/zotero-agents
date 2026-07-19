@@ -287,12 +287,30 @@ describe("workflow: literature-metadata-curator", function () {
     const normalizedSkill = skill.replace(/\s+/g, " ");
     assert.match(
       normalizedSkill,
-      /Chinese-language (paper|work).*Chinese-character creator names/i,
+      /direct work.*original publication language is Chinese.*Chinese-character form/i,
     );
     assert.match(
       normalizedSkill,
       /do not (guess|infer|back-transliterate).*Chinese characters/i,
     );
+    assert.match(
+      normalizedSkill,
+      /direct work.*original publication language is Chinese.*single Zotero `name` field/i,
+    );
+    assert.include(normalizedSkill, '"name": "张三"');
+    assert.match(
+      normalizedSkill,
+      /search snippet.*(?:not sufficient|must not)/i,
+    );
+    assert.match(
+      normalizedSkill,
+      /title.*creator.*journal.*conference.*university.*institution.*publisher/i,
+    );
+    assert.match(
+      normalizedSkill,
+      /creatorCompleteness.*(?:incomplete|unknown).*creators.*empty/i,
+    );
+    assert.match(normalizedSkill, /Safe Partial Updates.*edition/i);
     assert.include(normalizedSkill, "native_creator_names_unverified");
     assert.equal(runner.version, "1.2.0");
     for (const key of ["parent", "identifier", "diagnostics"]) {
@@ -361,8 +379,7 @@ describe("workflow: literature-metadata-curator", function () {
         creators: [
           {
             creatorType: "author",
-            firstName: "Ada",
-            lastName: "Lovelace",
+            name: "张三",
           },
         ],
       },
@@ -1086,7 +1103,7 @@ describe("workflow: literature-metadata-curator", function () {
     assert.isTrue(validation.ok, validation.errors.join("\n"));
   });
 
-  it("applies canonical metadata fields and creators without changing item type", async function () {
+  it("applies canonical metadata fields and a single-field Chinese creator without changing item type", async function () {
     const parent = await createParent({
       title: "Before metadata",
       doi: "10.1000/before",
@@ -1107,7 +1124,7 @@ describe("workflow: literature-metadata-curator", function () {
             },
             creators: [
               {
-                name: "Metadata Group",
+                name: "张三",
                 creatorType: "author",
               },
             ],
@@ -1124,7 +1141,7 @@ describe("workflow: literature-metadata-curator", function () {
     assert.equal(String(parent.getField("numPages") || ""), "");
     assert.deepEqual((parent as any).getCreators(), [
       {
-        name: "Metadata Group",
+        name: "张三",
         creatorType: "author",
       },
     ]);

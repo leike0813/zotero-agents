@@ -52,27 +52,26 @@ Specification for literature workbench workflow sequences, including digest anal
 - **WHEN** the deep_reading step later fails
 - **THEN** the translator Markdown and alignment JSON remain materialized.
 
-### Requirement: Literature search ingest returns concise user-facing output
+### Requirement: Literature search ingest returns structured user-facing outcomes
 
-`literature-search-ingest` SHALL return a concise final JSON object after
-ingest completion. The success branch SHALL list successful ingest references,
-missing-PDF references, and non-empty ingest failures only.
+`literature-search-ingest` SHALL return one final JSON object after ingest
+completion or cancellation. The completed branch SHALL summarize the executed
+search and retain one structured outcome for every important displayed
+candidate.
 
-#### Scenario: Successful ingest output is concise
+#### Scenario: Completed ingest output is auditable
 
-- **WHEN** `literature-search-ingest` completes at least one successful
-  `literature.ingest` call
-- **THEN** the final JSON SHALL include `kind: "literature_search_ingest"`
-- **AND** it SHALL include `ingested_references`
-- **AND** it SHALL include `missing_pdf_references`
-- **AND** it SHALL NOT require `confirmed_references`, `summary`, or full
-  per-call `results`.
+- **WHEN** `literature-search-ingest` finishes processing the user's candidate decisions
+- **THEN** the final JSON SHALL include `kind: "literature_search_ingest"` and `status: "completed"`
+- **AND** it SHALL include `searchSummary`, `outcomes`, and `searchLedgerPath`
+- **AND** every approved candidate SHALL record `created`, `existing`, `failed`, or `not_attempted` as its ingest status
+- **AND** PDF and metadata-curation status SHALL remain associated with the same candidate outcome.
 
-#### Scenario: Partial failures are visible only when present
+#### Scenario: Search or ingest cannot continue
 
-- **WHEN** one or more requested literature ingest calls fail
-- **THEN** the final JSON SHALL include `ingest_failures` with the failed
-  references and structured error details.
+- **WHEN** the user cancels or rejects ingest, a required tool is unavailable, or execution cannot continue
+- **THEN** the final JSON SHALL include `kind: "literature_search_ingest_canceled"` and `status: "canceled"`
+- **AND** it SHALL include a structured reason and message instead of remaining pending.
 
 #### Scenario: Skill requests ingest-time landing URL attachment
 
@@ -153,30 +152,33 @@ The `literature-metadata-search` skill SHALL search for bibliographic metadata w
 
 ### Requirement: Literature metadata search skill SHALL preserve authoritative Chinese creator names
 
-For a paper originally published in Chinese, the skill SHALL prefer the complete
-Chinese-character creator list from an authoritative original source over
-romanized or translated creator names.
+For a direct bibliographic work originally published in Chinese, the skill SHALL
+prefer the complete Chinese-character author list from an authoritative original
+source over romanized or translated author names. This applies to articles,
+conference contributions, books, theses, reports, preprints, and other supported
+work types.
 
 #### Scenario: Complete Chinese creator list is verified
 
-- **GIVEN** the paper's original publication language is Chinese
-- **AND** an authoritative original source verifies the complete creator list and order
+- **GIVEN** the direct work's original publication language is Chinese
+- **AND** an authoritative original source verifies the complete author list and order
 - **WHEN** the skill emits `metadata.creators`
-- **THEN** it SHALL use the verified Chinese-character names in source order
+- **THEN** each personal author SHALL use the verified complete Chinese-character name in the single Zotero `name` field and preserve source order
+- **AND** it SHALL NOT split a Chinese personal name into `firstName` and `lastName`
 - **AND** it SHALL NOT substitute pinyin or translated names.
 
 #### Scenario: Complete Chinese creator list cannot be verified
 
-- **GIVEN** the paper's original publication language is Chinese
-- **AND** only romanized names or an incomplete Chinese creator list can be verified
+- **GIVEN** the direct work's original publication language is Chinese
+- **AND** only romanized names or an incomplete Chinese author list can be verified
 - **WHEN** the skill emits otherwise applicable metadata
 - **THEN** it SHALL NOT infer or back-transliterate Chinese characters
 - **AND** it SHALL emit an empty `metadata.creators` array so existing creators are preserved
 - **AND** it SHALL include a warning with code `native_creator_names_unverified`.
 
-#### Scenario: Chinese authors publish an English-language paper
+#### Scenario: Chinese authors publish a non-Chinese-language work
 
-- **GIVEN** the original publication language is not Chinese
+- **GIVEN** the direct work's original publication language is not Chinese
 - **WHEN** the skill evaluates creator names
 - **THEN** author nationality, name, affiliation, or publication country alone SHALL NOT trigger Chinese-character replacement
 - **AND** the skill SHALL preserve the officially published creator form.

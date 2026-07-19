@@ -214,7 +214,9 @@ The `literature-digest` workflow apply step SHALL consume optional `representati
 
 `literature-search-ingest` SHALL support `auto`, `guided`, `topic_expansion`,
 `paper_seed_expansion`, and `targeted_ingest` search modes. It SHALL resolve
-each candidate before interactive confirmation.
+enough discovery evidence to assign each candidate an ingest tier before
+interactive selection, then perform expensive metadata and PDF enrichment only
+for selected candidates.
 
 #### Scenario: Blank auto query starts guided planning
 
@@ -235,7 +237,7 @@ each candidate before interactive confirmation.
   `paper_seed_expansion`, or `targeted_ingest`
 - **AND** a completed result SHALL use `search_mode: "guided"`.
 
-#### Scenario: Explicit legacy mode has no query
+#### Scenario: Explicit mode has no query
 
 - **WHEN** `query` is blank and the user explicitly selects
   `topic_expansion`, `paper_seed_expansion`, or `targeted_ingest`
@@ -250,13 +252,20 @@ each candidate before interactive confirmation.
 - **THEN** the skill SHALL compare the query against library/Synthesis context
   and perform an initial web lookup before selecting the effective mode.
 
+#### Scenario: Targeted ingest identifies one exact record
+
+- **WHEN** the user selects `targeted_ingest`
+- **THEN** the skill SHALL locate and present only the requested record with its identifier, authoritative landing page, PDF status, metadata match, and library-duplicate status
+- **AND** after confirmation it SHALL ingest that record without expanding to related literature.
+
 #### Scenario: Candidate has no resolved identifier
 
 - **WHEN** a candidate has completed applicable identifier searches without a
   DOI, ISBN, arXiv, or PMID
 - **THEN** the skill SHALL record `identifier_not_found`, authoritative metadata
-  provenance, landing URL, and PDF attempt outcome before showing it
-- **AND** it SHALL NOT admit a bare title or unverified search snippet.
+  provenance, landing URL, and PDF attempt outcome before ingesting the selected candidate
+- **AND** it MAY show the traceable candidate as `needs_curation`
+- **AND** it SHALL retain a bare title or unverified search snippet only as non-ingestible `lead_only` evidence.
 
 ### Requirement: Literature search ingest performs legal public PDF best effort
 
@@ -416,6 +425,7 @@ candidate indicates Chinese literature.
 - **THEN** the skill SHALL add China DOI, CNKI, Wanfang, official publishers,
   institutions, or repositories as applicable
 - **AND** it SHALL add PDC and library catalogs for Chinese books or ISBNs
+- **AND** when the direct work's original publication language is Chinese, each personal author SHALL use the complete authoritative Chinese name in the single Zotero `name` field rather than `firstName` and `lastName`
 - **AND** it SHALL use only public metadata, landing pages, and legally public
   PDFs without login, proxy, or restricted full-text access.
 
@@ -478,4 +488,3 @@ Package documentation and localized copies MUST state that builtin statuses exis
 - **WHEN** the user reads package or site documentation
 - **THEN** it SHALL present the five builtin statuses and lifecycle transition table
 - **AND** SHALL NOT recommend numeric reading progress, `status:to_read`, `status:0-inbox`, `match_status`, or `matching_status`
-

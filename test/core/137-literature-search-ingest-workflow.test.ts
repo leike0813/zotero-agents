@@ -573,6 +573,7 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.include(files, "assets/runner.json");
     assert.include(files, "assets/parameter.schema.json");
     assert.include(files, "assets/output.schema.json");
+    assert.notInclude(files, "references/search-strategy.md");
   });
 
   it("loads literature workbench workflows after syncing only packaged manifest files", async function () {
@@ -755,14 +756,29 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.include(skill, "`query.trim()`");
     assert.include(skill, "本地 Zotero/Synthesis");
     assert.include(skill, "不得联网、下载、创建或写入条目");
-    assert.include(skill, "不得重新选择、映射或分类为原三种策略");
+    assert.match(
+      skill.replace(/\s+/g, " "),
+      /guided.*不得.*重新(?:选择|分类).*其他模式/i,
+    );
     assert.include(skill, "确认后直接进入候选搜索");
     assert.include(skill, "open_text");
     assert.include(skill, "普通 assistant 消息");
+    assert.match(
+      skill.replace(/\s+/g, " "),
+      /waiting state.*确实需要用户输入.*无需.*继续执行/i,
+    );
     assert.include(skill, "synthesis topic list");
     assert.include(skill, "synthesis index library get");
     assert.include(skill, "synthesis artifact read");
     assert.include(skill, "targeted_ingest");
+    assert.match(
+      skill.replace(/\s+/g, " "),
+      /targeted_ingest.*(?:单个|一个).*目标.*不得.*扩展搜索/i,
+    );
+    assert.match(
+      skill.replace(/\s+/g, " "),
+      /非空.*auto.*(?:初始|首次).*联网/i,
+    );
     assert.include(skill, "China DOI");
     assert.include(skill, "知网");
     assert.include(skill, "万方");
@@ -773,6 +789,15 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.include(skill, "multilingual lane");
     assert.include(skill, "seed lane");
     assert.include(skill, "gap lane");
+    assert.match(
+      skill.replace(/\s+/g, " "),
+      /每个关键语言.*索引来源.*(?:原始|长尾)来源/i,
+    );
+    assert.include(skill, "matching evidence");
+    assert.match(
+      skill.replace(/\s+/g, " "),
+      /material conflict.*保持分离.*待核验/i,
+    );
     assert.include(skill, "ready");
     assert.include(skill, "needs_curation");
     assert.include(skill, "lead_only");
@@ -780,8 +805,19 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.include(skill, "用户选择后");
     assert.include(skill, "filetype:pdf");
     assert.include(skill, "identifier_not_found");
-    assert.include(skill, "等待用户确认");
+    assert.match(skill, /等待用户(?:选择|确认)/);
+    assert.include(skill, "landing URL");
+    assert.include(skill, "metadata source");
+    assert.include(skill, "PDF attempt/status");
     assert.include(skill, "逐篇调用");
+    assert.match(
+      skill.replace(/\s+/g, " "),
+      /确认.*第一动作.*zotero-bridge mutation literature-ingest/i,
+    );
+    assert.match(
+      skill.replace(/\s+/g, " "),
+      /(?:拒绝|工具不可用|无法继续).*canceled/i,
+    );
     assert.include(skill, "ingest-paper-001.json");
     assert.include(skill, "papers[]");
     assert.include(skill, "最终输出必须是单个合法 JSON object");
@@ -796,6 +832,9 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.include(skill, '"literature_search_ingest"');
     assert.include(skill, '"literature_search_ingest_canceled"');
     assert.include(skill, '"user_cancelled"');
+    assert.include(skill, '"name": "张三"');
+    assert.notInclude(skill, '"lastName": "张"');
+    assert.notInclude(skill, '"firstName": "三"');
     assert.notInclude(skill, "confirmed_references");
     assert.notInclude(skill, "confirmed-papers.json");
     assert.notInclude(prompt, "confirmed-papers.json");
