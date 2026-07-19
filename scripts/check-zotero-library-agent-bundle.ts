@@ -68,6 +68,9 @@ function checkFiles(errors: string[]) {
       fail(errors, `missing rendered file: ${target}`);
       continue;
     }
+    if (relative === "assets/evidence-input.example.json") {
+      continue;
+    }
     if (read(source) !== read(target)) {
       fail(errors, `rendered file differs from semantic source: ${relative}`);
     }
@@ -237,6 +240,29 @@ function checkVersionAndManifest(errors: string[]) {
       fail(
         errors,
         `Library Agent Host Bridge reference is missing CLI guidance: ${required}`,
+      );
+    }
+  }
+  const evidenceExamplePath = join(
+    TARGET_ROOT,
+    "assets/evidence-input.example.json",
+  );
+  if (!existsSync(join(ROOT, evidenceExamplePath))) {
+    fail(errors, `missing rendered evidence example: ${evidenceExamplePath}`);
+  } else {
+    const evidenceExample = readJson(evidenceExamplePath);
+    if (evidenceExample.producer?.cliVersion !== release.version) {
+      fail(
+        errors,
+        `evidence example has incorrect cliVersion: expected ${release.version}, got ${evidenceExample.producer?.cliVersion}`,
+      );
+    }
+    if (
+      evidenceExample.producer?.surfaceVersion !== inspected.resolved.version
+    ) {
+      fail(
+        errors,
+        `evidence example has incorrect surfaceVersion: expected ${inspected.resolved.version}, got ${evidenceExample.producer?.surfaceVersion}`,
       );
     }
   }

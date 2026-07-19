@@ -79,12 +79,15 @@ function writeOrCheck(
   writeFileSync(absolute, next, "utf8");
 }
 
-function renderManifestSource() {
-  const release = readZoteroBridgeCliRelease(ROOT);
+function renderManifestSource(
+  release: ReturnType<typeof readZoteroBridgeCliRelease>,
+  bundleVersion: ReturnType<
+    typeof inspectZoteroLibraryAgentBundleVersion
+  >["resolved"],
+) {
   const agentSurface = JSON.parse(
     read("cli/zotero-bridge/src/agent-surface.json"),
   );
-  const version = inspectZoteroLibraryAgentBundleVersion(ROOT).resolved;
   const semanticSources = ZOTERO_LIBRARY_AGENT_SEMANTIC_FILES.map((path) =>
     join(SOURCE_ROOT, path).replace(/\\/g, "/"),
   );
@@ -112,7 +115,7 @@ function renderManifestSource() {
         agentSurface: "cli/zotero-bridge/src/agent-surface.json",
       },
       generated: {
-        bundleVersion: version.version,
+        bundleVersion: bundleVersion.version,
         cliVersion: release.version,
         cliIdentity: {
           schema:
@@ -143,13 +146,23 @@ export function renderZoteroLibraryAgentBundle(
   mode: "content" | "release" = "release",
 ) {
   const diffs: string[] = [];
+  const release = readZoteroBridgeCliRelease(ROOT);
+  const bundleVersion = inspectZoteroLibraryAgentBundleVersion(ROOT).resolved;
   for (const path of ZOTERO_LIBRARY_AGENT_SEMANTIC_FILES) {
-    writeOrCheck(
-      join(TARGET_ROOT, path),
-      read(join(SOURCE_ROOT, path)),
-      check,
-      diffs,
-    );
+    if (path === "assets/evidence-input.example.json") {
+      const template = read(join(SOURCE_ROOT, path));
+      const rendered = template
+        .replace("__CLI_VERSION__", release.version)
+        .replace("__BUNDLE_VERSION__", bundleVersion.version);
+      writeOrCheck(join(TARGET_ROOT, path), rendered, check, diffs);
+    } else {
+      writeOrCheck(
+        join(TARGET_ROOT, path),
+        read(join(SOURCE_ROOT, path)),
+        check,
+        diffs,
+      );
+    }
   }
   for (const { source, target } of ZOTERO_LIBRARY_AGENT_RUNTIME_FILES) {
     writeOrCheck(
@@ -178,7 +191,12 @@ export function renderZoteroLibraryAgentBundle(
     diffs,
   );
   if (mode === "release") {
-    writeOrCheck(MANIFEST_SOURCE, renderManifestSource(), check, diffs);
+    writeOrCheck(
+      MANIFEST_SOURCE,
+      renderManifestSource(release, bundleVersion),
+      check,
+      diffs,
+    );
   }
 
   if (diffs.length) {

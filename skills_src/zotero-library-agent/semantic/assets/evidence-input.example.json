@@ -1,7 +1,7 @@
 {
   "producer": {
-    "surfaceVersion": "0.2.0",
-    "cliVersion": "0.2.1"
+    "surfaceVersion": "__BUNDLE_VERSION__",
+    "cliVersion": "__CLI_VERSION__"
   },
   "operation": {
     "kind": "library-read",

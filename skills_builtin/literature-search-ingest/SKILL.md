@@ -2,7 +2,6 @@
 name: literature-search-ingest
 description: Search academic literature with broad multilingual discovery, guide candidate selection, and ingest approved papers into Zotero through zotero-bridge CLI. Use for literature searches, guided search planning, seed-paper expansion, exact-record ingest, and Zotero ingest when zotero-bridge is available.
 ---
-
 # Literature Search Ingest
 
 本 skill 只支持 ACP interactive 后端。不要尝试浏览器、Zotero Connector、CDP 或登录态自动化。
@@ -87,12 +86,14 @@ guided brief 确认前不得联网、下载、创建或写入条目。确认后�
 
 每轮按目标启用以下 query lane，并在 search ledger 中记录实际查询：
 
-| lane | 目标 | 典型查询 |
-| --- | --- | --- |
-| `core lane` | 覆盖研究问题的主要表达 | 核心概念组合、标题短语、方法与研究对象组合 |
+
+| lane                | 目标            | 典型查询                         |
+| ------------------- | ------------- | ---------------------------- |
+| `core lane`         | 覆盖研究问题的主要表达   | 核心概念组合、标题短语、方法与研究对象组合        |
 | `multilingual lane` | 找到原语言和地区数据库记录 | 原文术语、常见译名、繁简体变体、地区学术术语、英文对照词 |
-| `seed lane` | 从已知文献或对象扩展 | 作者、参考文献、被引文献、相似作品、相关项目和数据集 |
-| `gap lane` | 填补结果中的结构性空白 | 缺失年份、方法、地区、文献类型、研究对象和本地库空白 |
+| `seed lane`         | 从已知文献或对象扩展    | 作者、参考文献、被引文献、相似作品、相关项目和数据集   |
+| `gap lane`          | 填补结果中的结构性空白   | 缺失年份、方法、地区、文献类型、研究对象和本地库空白   |
+
 
 - 非英文查询保留原始文字，并与英文或其他语言变体并行搜索。
 - 翻译、转写和罗马化只生成查询变体，不得替代候选的原文题名、作者、期刊、会议、学校或出版社。
@@ -154,15 +155,17 @@ guided brief 确认前不得联网、下载、创建或写入条目。确认后�
 1. 用户选择后才对入选项做较昂贵的元数据补全、identifier 交叉核对与 PDF best-effort；未入选候选不做全面 PDF 探测。
 2. 对每个入选项记录实际查过的 identifier 来源和核对事实。identifier 找到时标记 `resolved`；查完适用来源仍没有时标记 `identifier_not_found`，并向用户披露已检查范围。无 identifier 但有可追溯元数据的 `ready`/`needs_curation` 可入库。
 3. PDF 尝试包括 DOI/publisher landing、arXiv/eprint、PubMed Central、Europe PMC、开放获取线索、机构仓储、作者/实验室/项目页，以及 quoted title + `filetype:pdf` 或 identifier + `pdf`。每个写入 payload 的 `pdfUrl` 都必须单独核验元数据匹配与可达性。
-4. PDF 缺失、不可达、需要登录/机构代理、受限或匹配不确定时记为 `missing`、`skipped` 或 `failed`，不得阻断元数据可安全落库的条目；最终依据返回的 `hasPdfAttachment` 判断附件状态并提供合法的 `manualSearchLinks`。
-5. 每篇生成独立的 `runtime/payloads/ingest-paper-NNN.json`，顶层只能有 `paper` 和可选 `collection`，禁止 `papers` 或 `papers[]` 批量 payload。第一篇路径必须是 `ingest-paper-001.json`。
-6. `paper` 必须使用显式 typed payload：
-   - `itemType`：确认类型时使用 `journalArticle`、`conferencePaper`、`thesis`、`book` 等；无法可靠判型时使用 `document`，不得猜成期刊论文。
-   - `fields`：只放该 `itemType` 的 Zotero 合法字段，例如 `title`、`date`、`publicationTitle`、`proceedingsTitle`、`university`、`thesisType`、`publisher`、`abstractNote`、`language`、`extra`、`url`。
-   - `creators`：结构化数组。原始出版语言为中文时，每位个人作者都用单一 Zotero 姓名字段 `{ "name": "张三", "creatorType": "author" }`，保持权威来源中的完整姓名与顺序，不得拆为 `firstName`/`lastName`、不得罗马化，也不得输出 `fieldMode`。机构作者同样使用 `name`。非中文文献按正式发表形式使用 `firstName`/`lastName` 或 `name`。
-   - `identifiers`：对象，可含 `doi`、`arxiv`、`pmid`、`isbn`。
-   - 可选 `landingUrl`、`pdfUrl`；每篇设置 `attachLandingUrlOnMissingPdf: true`。
-7. 用户确认后逐篇调用 `zotero-bridge mutation literature-ingest --input @runtime/payloads/ingest-paper-001.json`。每个 outcome 都保留 `created`、`existing`、`failed` 或 `not_attempted`，不能只汇报成功项。
+4. 在执行 ingest 前请确保你已经尝试了各种可能的途径来获取 PDF，不得静默跳过 PDF 探测步骤。
+5. PDF 缺失、不可达、需要登录/机构代理、受限或匹配不确定时记为 `missing`、`skipped` 或 `failed`，不得阻断元数据可安全落库的条目；最终依据返回的 `hasPdfAttachment` 判断附件状态并提供合法的 `manualSearchLinks`。
+6. 生成 payload 并执行 ingest 前，请用表格的形式向用户展示最终的待入库条目，表格中应至少显示 `title`、`author`、`identifier` 以及是否获取到 PDF。
+7. 每篇生成独立的 `runtime/payloads/ingest-paper-NNN.json`，顶层只能有 `paper` 和可选 `collection`，禁止 `papers` 或 `papers[]` 批量 payload。第一篇路径必须是 `ingest-paper-001.json`。
+8. `paper` 必须使用显式 typed payload：
+  - `itemType`：确认类型时使用 `journalArticle`、`conferencePaper`、`thesis`、`book` 等；无法可靠判型时使用 `document`，不得猜成期刊论文。
+  - `fields`：只放该 `itemType` 的 Zotero 合法字段，例如 `title`、`date`、`publicationTitle`、`proceedingsTitle`、`university`、`thesisType`、`publisher`、`abstractNote`、`language`、`extra`、`url`。
+  - `creators`：结构化数组。原始出版语言为中文时，每位个人作者都用单一 Zotero 姓名字段 `{ "name": "张三", "creatorType": "author" }`，保持权威来源中的完整姓名与顺序，不得拆为 `firstName`/`lastName`、不得罗马化，也不得输出 `fieldMode`。机构作者同样使用 `name`。非中文文献按正式发表形式使用 `firstName`/`lastName` 或 `name`。
+  - `identifiers`：对象，可含 `doi`、`arxiv`、`pmid`、`isbn`。
+  - 可选 `landingUrl`、`pdfUrl`；每篇设置 `attachLandingUrlOnMissingPdf: true`。
+9. 用户确认后逐篇调用 `zotero-bridge mutation literature-ingest --input @runtime/payloads/ingest-paper-001.json`。每个 outcome 都保留 `created`、`existing`、`failed` 或 `not_attempted`，不能只汇报成功项。
 
 typed payload 示例：
 
@@ -266,3 +269,4 @@ typed payload 示例：
   "message": "The user declined the final ingest selection."
 }
 ```
+
