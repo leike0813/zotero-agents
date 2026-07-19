@@ -18,16 +18,22 @@ import {
 } from "../packages/synthesis-engine/src/index.js";
 import {
   createInProcessSynthesisTagVocabularyEngine,
+  rebuildSynthesisTagVocabularyIndexRequest,
   rebuildSynthesisTagVocabularyValidationRequest,
 } from "../packages/synthesis-engine/src/tagVocabulary.js";
 import {
   createInProcessSynthesisConceptKbIndexEngine,
+  rebuildSynthesisConceptKbIndexRequest,
   rebuildSynthesisConceptKbQueryRequest,
 } from "../packages/synthesis-engine/src/conceptKbIndex.js";
 import {
   createInProcessSynthesisTopicGraphIndexEngine,
   rebuildSynthesisTopicGraphIndexRequest,
 } from "../packages/synthesis-engine/src/topicGraphIndex.js";
+import {
+  ComputeWorkerPoolError,
+  createSynthesisSidecarComputeWorkerPool,
+} from "../apps/synthesis-service/src/computeWorkerPool.js";
 
 const CONTRACT_SET_ROOT = path.resolve(
   import.meta.dirname,
@@ -103,7 +109,8 @@ function sameStrings(left: readonly string[], right: readonly string[]) {
 function stableErrorCode(error: unknown) {
   if (
     error instanceof SynthesisClientError ||
-    error instanceof SynthesisCanonicalJsonError
+    error instanceof SynthesisCanonicalJsonError ||
+    error instanceof ComputeWorkerPoolError
   ) {
     return error.code;
   }
@@ -142,7 +149,9 @@ async function runOracle(oracle: string, inputJson: string) {
     }
     case "topicGraphIndexResult": {
       const request = rebuildSynthesisTopicGraphIndexRequest(input);
-      return createInProcessSynthesisTopicGraphIndexEngine().buildIndex(request);
+      return createInProcessSynthesisTopicGraphIndexEngine().buildIndex(
+        request,
+      );
     }
     default:
       throw new Error(`unknown_oracle:${oracle}`);
@@ -158,6 +167,125 @@ function validatorForRef(
   const schema = schemas.get(schemaPath);
   const id = typeof schema?.$id === "string" ? schema.$id : "";
   return id ? ajv.getSchema(`${id}#${fragment}`) : undefined;
+}
+
+async function checkRustDeterministicParity(args: {
+  ajv: Ajv2020;
+  schemas: Map<string, JsonObject>;
+  positiveCases: PositiveCase[];
+  errors: string[];
+}) {
+  const findInput = (oracle: string) => {
+    const corpusCase = args.positiveCases.find(
+      (entry) => entry.oracle === oracle,
+    );
+    if (!corpusCase) throw new Error(`corpus_oracle_missing:${oracle}`);
+    return JSON.parse(corpusCase.inputJson) as Record<string, unknown>;
+  };
+
+  const tagValidation = rebuildSynthesisTagVocabularyValidationRequest(
+    findInput("tagVocabularyValidationResult"),
+  );
+  const tagIndex = rebuildSynthesisTagVocabularyIndexRequest({
+    ...tagValidation,
+    algorithmVersion: "tag-vocabulary-index.v1",
+    sourceManifestHash: `sha256:${"a".repeat(64)}`,
+    rebuiltAt: "2026-07-19T00:00:00.000Z",
+  });
+  const conceptQuery = rebuildSynthesisConceptKbQueryRequest(
+    findInput("conceptKbQueryResult"),
+  );
+  const { labels: _labels, ...conceptSource } = conceptQuery;
+  const conceptIndex = rebuildSynthesisConceptKbIndexRequest({
+    ...conceptSource,
+    algorithmVersion: "concept-kb-index.v1",
+    sourceManifestHash: `sha256:${"b".repeat(64)}`,
+    rebuiltAt: "2026-07-19T00:00:00.000Z",
+  });
+  const topicGraphIndex = rebuildSynthesisTopicGraphIndexRequest(
+    findInput("topicGraphIndexResult"),
+  );
+  const tagEngine = createInProcessSynthesisTagVocabularyEngine();
+  const conceptEngine = createInProcessSynthesisConceptKbIndexEngine();
+  const topicEngine = createInProcessSynthesisTopicGraphIndexEngine();
+  const pool = createSynthesisSidecarComputeWorkerPool();
+  const cases = [
+    {
+      id: "tag-vocabulary-validation",
+      schemaRef:
+        "schemas/compute.schema.json#/$defs/tagVocabularyValidationResult",
+      typescript: () => tagEngine.validate(tagValidation),
+      rust: () => pool.runTagVocabularyValidation(tagValidation),
+    },
+    {
+      id: "tag-vocabulary-index",
+      schemaRef: "schemas/compute.schema.json#/$defs/tagVocabularyIndexResult",
+      typescript: () => tagEngine.buildIndex(tagIndex),
+      rust: () => pool.runTagVocabularyIndex(tagIndex),
+    },
+    {
+      id: "concept-kb-index",
+      schemaRef: "schemas/compute.schema.json#/$defs/conceptKbIndexResult",
+      typescript: () => conceptEngine.buildIndex(conceptIndex),
+      rust: () => pool.runConceptKbIndex(conceptIndex),
+    },
+    {
+      id: "concept-kb-query",
+      schemaRef: "schemas/compute.schema.json#/$defs/conceptKbQueryResult",
+      typescript: () => conceptEngine.query(conceptQuery),
+      rust: () => pool.runConceptKbQuery(conceptQuery),
+    },
+    {
+      id: "topic-graph-index",
+      schemaRef: "schemas/compute.schema.json#/$defs/topicGraphIndexResult",
+      typescript: () => topicEngine.buildIndex(topicGraphIndex),
+      rust: () => pool.runTopicGraphIndex(topicGraphIndex),
+    },
+  ];
+
+  try {
+    for (const parityCase of cases) {
+      try {
+        const [typescriptResult, rustResult] = await Promise.all([
+          parityCase.typescript(),
+          parityCase.rust(),
+        ]);
+        const typescriptCanonical =
+          canonicalizeSynthesisContractJson(typescriptResult);
+        const rustCanonical = canonicalizeSynthesisContractJson(rustResult);
+        if (typescriptCanonical !== rustCanonical) {
+          args.errors.push(`rust_result_mismatch:${parityCase.id}`);
+        }
+        if (
+          hashSynthesisContractCanonicalJson(typescriptResult) !==
+          hashSynthesisContractCanonicalJson(rustResult)
+        ) {
+          args.errors.push(`rust_hash_mismatch:${parityCase.id}`);
+        }
+        const validate = validatorForRef(
+          args.ajv,
+          args.schemas,
+          parityCase.schemaRef,
+        );
+        if (!validate) {
+          args.errors.push(`rust_schema_missing:${parityCase.id}`);
+        } else {
+          if (!validate(typescriptResult)) {
+            args.errors.push(`typescript_schema_mismatch:${parityCase.id}`);
+          }
+          if (!validate(rustResult)) {
+            args.errors.push(`rust_schema_mismatch:${parityCase.id}`);
+          }
+        }
+      } catch (error) {
+        args.errors.push(
+          `rust_oracle_failed:${parityCase.id}:${stableErrorCode(error)}`,
+        );
+      }
+    }
+  } finally {
+    await pool.shutdown();
+  }
 }
 
 export async function checkSynthesisCrossLanguageContracts(): Promise<SynthesisCrossLanguageContractCheck> {
@@ -284,6 +412,13 @@ export async function checkSynthesisCrossLanguageContracts(): Promise<SynthesisC
       }
     }
   }
+
+  await checkRustDeterministicParity({
+    ajv,
+    schemas,
+    positiveCases: positiveCorpus.cases,
+    errors,
+  });
 
   const fingerprintInput = {
     manifest,

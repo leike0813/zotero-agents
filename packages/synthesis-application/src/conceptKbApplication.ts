@@ -23,8 +23,8 @@ import {
   SYNTHESIS_CONCEPT_KB_CONTRACT_VERSION,
   SYNTHESIS_CONCEPT_KB_INDEX_VERSION,
   SYNTHESIS_CONCEPT_KB_QUERY_VERSION,
-  rebuildSynthesisConceptKbIndexResult,
-  rebuildSynthesisConceptKbQueryResult,
+  rebuildSynthesisConceptKbIndexResultPayload,
+  rebuildSynthesisConceptKbQueryResultPayload,
   type SynthesisConceptKbIndexRequest,
   type SynthesisConceptKbIndexResult,
   type SynthesisConceptKbQueryRequest,
@@ -842,9 +842,8 @@ export function createSynthesisConceptKbApplication(options: Options) {
           rebuiltAt: now(),
         };
         try {
-          const result = rebuildSynthesisConceptKbIndexResult(
+          const result = rebuildSynthesisConceptKbIndexResultPayload(
             await compute.buildIndex(indexRequest, { signal }),
-            indexRequest,
           );
           const indexJson = canonicalizeSynthesisEngineJson(result);
           const promoted = repository.promoteConceptKbIndex({
@@ -896,7 +895,7 @@ export function createSynthesisConceptKbApplication(options: Options) {
     const pending = compute.query(queryRequest, { signal: controller.signal });
     activeQueries.set(pending, controller);
     try {
-      return rebuildSynthesisConceptKbQueryResult(await pending, queryRequest);
+      return rebuildSynthesisConceptKbQueryResultPayload(await pending);
     } finally {
       activeQueries.delete(pending);
     }

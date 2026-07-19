@@ -1,0 +1,107 @@
+# synthesis-rust-sidecar-migration-governance Specification
+
+## Purpose
+TBD - created by archiving change pivot-synthesis-sidecar-runtime-to-rust. Update Purpose after archive.
+## Requirements
+### Requirement: Node sidecar development is frozen during Rust migration
+
+The project SHALL treat the current Node sidecar as a migration oracle only and SHALL NOT add new Node-only capabilities, move production ownership to Node, publish a formal Node-runtime XPI, or introduce post-install Node download.
+
+#### Scenario: New Synthesis sidecar work is planned
+
+- **WHEN** a change would extend the external Synthesis process or advance WS6/WS7
+- **THEN** its implementation target SHALL be Rust
+- **AND** the Node implementation MAY participate only as a test oracle until the corresponding Rust behavior is accepted.
+
+### Requirement: Cross-language contracts precede Rust domain migration
+
+The project SHALL define versioned language-neutral schemas and canonical positive/negative corpora for every process-boundary DTO before Rust becomes authoritative for that DTO.
+
+#### Scenario: Rust parses or emits a sidecar document
+
+- **WHEN** a Rust migration slice introduces a request, response, launch, discovery, lifecycle, transfer, canonical, or runtime-manifest document
+- **THEN** TypeScript and Rust SHALL validate the same schema and gold corpus
+- **AND** canonical JSON bytes and hashes SHALL match for all compatibility-preserving documents.
+
+### Requirement: Rust migration uses one active implementation without runtime fallback
+
+Each accepted capability SHALL have exactly one active production implementation, and Node/Rust dual execution SHALL be limited to tests.
+
+#### Scenario: A Rust capability becomes active
+
+- **WHEN** a migrated capability passes its parity and failure gates
+- **THEN** the active route SHALL use Rust without per-request Node fallback
+- **AND** the superseded TypeScript compute implementation SHALL be removed in that change or an immediately coupled deletion change.
+
+### Requirement: Node and Rust never share mutable ownership
+
+Node and Rust migration candidates SHALL NOT concurrently own the same database, canonical root, owner record, lease, operation, or write authority.
+
+#### Scenario: Repository or canonical parity is tested
+
+- **WHEN** Node and Rust results are compared
+- **THEN** each implementation SHALL use an independent identity-bound shadow root
+- **AND** production ownership SHALL remain unchanged until the atomic Rust cutover.
+
+### Requirement: CPU isolation survives the runtime-language pivot
+
+The Rust sidecar SHALL execute bounded CPU kernels in a replaceable process boundary with bounded admission, deadlines, cancellation, crash accounting, and degraded-state behavior.
+
+#### Scenario: A Rust kernel hangs or crashes
+
+- **WHEN** the worker fails to complete within its deadline or exits unexpectedly
+- **THEN** the control process SHALL terminate or replace the worker without falling back to Node
+- **AND** it SHALL preserve the last-good result and expose a bounded structured failure.
+
+### Requirement: Durable Rust state remains production-compatible
+
+Rust repository and canonical implementations SHALL preserve current database, transaction, canonical byte/hash, atomic promotion, journal, recovery, and single-writer semantics unless a separate data migration change explicitly versions them.
+
+#### Scenario: Rust durable parity is evaluated
+
+- **WHEN** the Rust candidate processes existing compatible shadow data or fault-injection fixtures
+- **THEN** it SHALL produce compatible rows, canonical bytes, hashes, receipts, and recovery outcomes
+- **AND** all five supported targets SHALL pass the required persistence fault matrix before cutover.
+
+### Requirement: Force layout migration is explicitly versioned
+
+The Rust force-layout implementation SHALL use a new layout version rather than claiming exact d3-force compatibility.
+
+#### Scenario: A cached v1 force layout meets the Rust engine
+
+- **WHEN** the Rust layout v2 engine evaluates the cache
+- **THEN** the v1 result SHALL be treated as stale and rebuildable
+- **AND** no canonical user data SHALL be rewritten merely to preserve old coordinates.
+
+### Requirement: Native runtime packaging meets hard size and provenance gates
+
+The native sidecar SHALL package one executable per supported target with no Node, npm, JavaScript entrypoint, system-runtime discovery, or post-install runtime download.
+
+#### Scenario: Native prebuilds are accepted for XPI assembly
+
+- **WHEN** the five target bundles are built and signed
+- **THEN** each compressed runtime SHALL be at most 15 MiB
+- **AND** the five runtimes together SHALL be at most 75 MiB
+- **AND** the final XPI SHALL be at most 100 MiB
+- **AND** each bundle SHALL carry immutable build, lockfile, target, signature, and per-file hash provenance.
+
+### Requirement: Native cutover removes the Node runtime
+
+The Rust production cutover SHALL be atomic and SHALL include deletion of the Node service, Node runtime packaging, JavaScript worker runtime, and obsolete D3 runtime assets.
+
+#### Scenario: Rust cutover is declared complete
+
+- **WHEN** the plugin launches the native manifest v2 bundle in production
+- **THEN** no Node binary, Node service entrypoint, runtime D3 package, or Node fallback SHALL remain in the XPI or launch path
+- **AND** rollback SHALL select only a compatible prior Rust bundle.
+
+### Requirement: Rust implementation work remains split into reviewable changes
+
+The migration SHALL proceed through independently validated OpenSpec changes rather than one repository-wide translation change.
+
+#### Scenario: A migration workstream begins
+
+- **WHEN** a developer starts canonical contracts, a kernel group, layout v2, durable parity, native packaging, or final cutover
+- **THEN** that workstream SHALL have its own behavior-level tasks and exit gates
+- **AND** it SHALL identify the superseded Node code that becomes deletable.
+

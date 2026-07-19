@@ -876,7 +876,17 @@ describe("Synthesis sidecar migration boundary", function () {
       sidecarAppSource,
       /(?:src\/modules\/synthesis|synthesis\/service|hostEffect|globalThis\.Zotero|zotero-plugin)/i,
     );
-    assert.notInclude(sidecarAppSource, "node:child_process");
+    const childProcessUsers = fs
+      .readdirSync(path.join(sidecarAppRoot, "src"))
+      .filter(
+        (entry) =>
+          entry.endsWith(".ts") &&
+          fs
+            .readFileSync(path.join(sidecarAppRoot, "src", entry), "utf8")
+            .includes("node:child_process"),
+      )
+      .sort();
+    assert.deepEqual(childProcessUsers, ["rustComputeWorkerTransport.ts"]);
     assert.include(
       sidecarServer,
       "createSynthesisSidecarDurableBundleApplication",
@@ -890,9 +900,15 @@ describe("Synthesis sidecar migration boundary", function () {
       sidecarServer.indexOf("server.listen("),
     );
     assert.notInclude(sidecarSystemContract, "durable_bundle");
+    assert.include(sidecarServer, 'owner: "web_dav_sync_application"');
+    assert.include(sidecarServer, 'owner: "durable_bundle_application"');
     assert.match(
       sidecarServer,
-      /await webDavSyncApplication\.shutdown\(\);[\s\S]*await durableBundleApplication\.shutdown\(\);[\s\S]*canonicalStore\.close\(\);[\s\S]*repository\.close\(\);/,
+      /for \(const \{ owner, shutdown \} of applicationOwners\) \{\s*await attemptCleanup\(phase, owner, shutdown\);\s*\}/,
+    );
+    assert.isBelow(
+      sidecarServer.lastIndexOf('attemptCleanup(phase, "canonical_store"'),
+      sidecarServer.lastIndexOf('attemptCleanup(phase, "repository"'),
     );
     const sqliteUsers = fs
       .readdirSync(path.join(sidecarAppRoot, "src"))
@@ -1311,18 +1327,25 @@ describe("Synthesis sidecar migration boundary", function () {
     const engineImports = [
       ...citationGraphLayoutEngine.matchAll(/from\s+["']([^"']+)["']/g),
     ].map((match) => match[1]);
-    assert.deepEqual(engineImports, [
-      "d3-force",
-      "./canonicalJson.ts",
-      "./citationGraphBuildPacked.ts",
-      "./citationGraphBuildTransfer.ts",
-      "./conceptKbIndex.ts",
-      "./referenceMatcher.ts",
-      "./tagVocabulary.ts",
-      "./topicGraphIndex.ts",
-      "./topicStructuredArtifact.ts",
-      "./citationGraphBuildTransfer.ts",
-    ]);
+    assert.deepEqual(
+      [...new Set(engineImports)].sort(),
+      [
+        "d3-force",
+        "./canonicalJson.ts",
+        "./citationGraphBuildPacked.ts",
+        "./citationGraphBuildTransfer.ts",
+        "./conceptKbIndex.ts",
+        "./referenceMatcher.ts",
+        "./tagVocabulary.ts",
+        "./topicGraphIndex.ts",
+        "./topicStructuredArtifact.ts",
+      ].sort(),
+    );
+    assert.isFalse(
+      engineImports.some((specifier) =>
+        /^(?:node:)|(?:repository|foundation|zotero)/i.test(specifier),
+      ),
+    );
     assert.include(legacyComposition, "createZoteroSynthesisHostReadPort");
     assert.include(legacyComposition, "hostReadPort");
     assert.include(

@@ -2,9 +2,7 @@
 
 ## Purpose
 Synthesis docs describe Zotero Library SSOT, sidecar cache, explicit operations, and destructive hard-cut cleanup.
-
 ## Requirements
-
 ### Requirement: Active docs hard-cut old synchronization model
 
 Active Synthesis docs and specs SHALL describe Zotero Library SSOT, sidecar cache, explicit operations, and removal of dirty-event/WorkItem/startup-reconcile synchronization.
@@ -101,7 +99,6 @@ production Advanced Reference Matching policy.
 
 ### Requirement: Docs describe graph incremental and full rebuild modes
 
-
 Active Synthesis documentation SHALL describe source-slice incremental graph refresh and explicit full graph rebuild as separate maintenance modes.
 
 #### Scenario: Docs no longer say graph cache is only full rebuilt
@@ -110,7 +107,6 @@ Active Synthesis documentation SHALL describe source-slice incremental graph ref
 - **THEN** they SHALL see the incremental refresh trigger rules and bootstrap policy.
 
 ### Requirement: Synthesis docs describe related-items sync as graph-optional
-
 
 Active Synthesis documentation SHALL describe related-items sync as an independent visible operation that may use graph cache as a fast path but can compute accepted library-to-library edges from sidecar facts.
 
@@ -141,7 +137,6 @@ Active documentation and agent-facing prompt text SHALL describe the same `resol
 
 ### Requirement: Docs describe deferred sidecar graph maintenance
 
-
 Active Synthesis documentation SHALL state that digest apply and Reference Sidecar refresh write sidecar facts and mark graph/related-items sync stale, while graph refresh is an explicit follow-up maintenance action.
 
 #### Scenario: Docs describe sidecar update ordering
@@ -152,7 +147,6 @@ Active Synthesis documentation SHALL state that digest apply and Reference Sidec
 
 ### Requirement: Docs describe scoped post-refresh related-items sync
 
-
 Active Synthesis documentation SHALL state that manual stale graph refresh may run scoped related-items sync after graph refresh succeeds.
 
 #### Scenario: Docs describe graph refresh follow-up
@@ -162,7 +156,6 @@ Active Synthesis documentation SHALL state that manual stale graph refresh may r
 - **AND** full graph rebuild SHALL NOT be described as automatically running full-library related-items sync.
 
 ### Requirement: Synthesis docs describe WebDAV durable bundle sync
-
 
 Active Synthesis documentation SHALL describe WebDAV Sync as the only durable
 bundle transport and SHALL contain no Git Sync history, compatibility, or
@@ -208,7 +201,6 @@ Current-state Synthesis documentation SHALL describe the isolated Citation Graph
 
 ### Requirement: Current Synthesis docs SHALL describe the compute canary topology
 
-
 Runtime, packaging, performance, README, and Stage 1 documentation SHALL state
 that the supervised service owns a lazy bounded layout worker canary while
 production DB, canonical files, engine composition, and client routing remain
@@ -245,7 +237,6 @@ Synthesis runtime, persistence, performance, packaging, supervision, README, and
 
 ### Requirement: Documentation distinguishes runtime foundation from production service
 
-
 Active Synthesis documentation SHALL describe the independent Node service
 foundation as development/test-only until packaging, plugin launch, remote
 client routing, and production ownership are implemented.
@@ -268,7 +259,6 @@ Current-state Synthesis documentation SHALL describe the shadow Topic applicatio
 
 ### Requirement: Docs describe the operational chrome WS5 slice
 
-
 Active Synthesis documentation SHALL describe the environment-neutral application package and authenticated `workbench.chrome.read` canary as an operational shadow read model over cache-basis and operation rows.
 
 #### Scenario: Developer reviews WS5 progress
@@ -278,7 +268,6 @@ Active Synthesis documentation SHALL describe the environment-neutral applicatio
 - **AND** it SHALL identify WS6 parity and WS7 single-writer cutover as later work.
 
 ### Requirement: Active documentation distinguishes the WS5 milestone from Stage 1 completion
-
 
 Active Synthesis planning and current-state documentation SHALL use the exact
 name `Stage 1 / WS5 — Private Isolated Synthesis Foundation Complete` whenever
@@ -347,7 +336,6 @@ Active documentation SHALL distinguish the authenticated JSON-page staging canar
 
 ### Requirement: Documentation SHALL describe the Concept KB index engine boundary
 
-
 Active Synthesis documentation SHALL describe Concept KB search, overlay, and
 bounded exact-query computation as an environment-neutral engine while
 repository, canonical, review, mutation, and public compatibility ownership
@@ -362,7 +350,6 @@ remain application-side.
 
 ### Requirement: Active docs SHALL describe the matcher engine boundary
 
-
 Active Synthesis documentation SHALL describe Advanced Reference Binding and Advanced External Dedupe as process-portable engine contracts orchestrated by the application layer.
 
 #### Scenario: Developer reads matcher documentation
@@ -373,7 +360,6 @@ Active Synthesis documentation SHALL describe Advanced Reference Binding and Adv
 
 ### Requirement: Documentation SHALL describe the Tag Vocabulary engine boundary
 
-
 Active Synthesis documentation SHALL describe TagVocab validation and index construction as process-portable engine contracts orchestrated by the application layer.
 
 #### Scenario: Developer reads Tag Vocabulary documentation
@@ -383,7 +369,6 @@ Active Synthesis documentation SHALL describe TagVocab validation and index cons
 - **AND** they SHALL identify SQLite, transactions, manifests, import merge policy, diagnostics, staged suggestions, Host effects, progress, and autosync as application responsibilities.
 
 ### Requirement: Documentation SHALL describe the Topic Graph index engine boundary
-
 
 Active Synthesis documentation SHALL describe root and unplaced-topic index
 derivation as an environment-neutral engine while repository, canonical,
@@ -407,7 +392,6 @@ envelope, unchanged engine bounds, and unchanged in-process production owner.
 - **THEN** the maintainer can distinguish transport-capacity readiness from a completed production layout cutover
 
 ### Requirement: Documentation distinguishes packaging from runtime activation
-
 
 Current-state Synthesis documentation SHALL describe the product-owned runtime
 bundle and installer without claiming that the plugin launches, supervises, or
@@ -447,7 +431,6 @@ supervision, packaging, performance, README, and Stage 1 guidance.
 
 ### Requirement: Active documentation describes supervised current state
 
-
 Synthesis architecture documentation SHALL describe the sidecar as
 product-owned, launched, supervised, mutation-disabled, and disconnected from
 production data and clients.
@@ -457,3 +440,34 @@ production data and clients.
 - **THEN** documentation SHALL distinguish runtime-instance ownership from
   future production data ownership
 - **AND** it SHALL document the event-driven, low-frequency supervision budget.
+
+### Requirement: Active docs describe the Rust sidecar pivot consistently
+
+Active Synthesis documentation SHALL identify Rust as the approved external sidecar implementation target, the current Node service as a frozen migration oracle, and Rust parity/cutover as the work that replaces the previous Node WS6/WS7 sequence.
+
+#### Scenario: Developer reads the Synthesis roadmap
+
+- **WHEN** an active plan, architecture document, runtime document, or implementation-status table describes the next sidecar stage
+- **THEN** it SHALL direct new process implementation work to Rust
+- **AND** it SHALL NOT describe Node shadow verification, Node production cutover, a universal Node-runtime XPI, or post-install Node download as the active target.
+
+### Requirement: Historical Node findings remain distinguishable from the approved target
+
+Historical baseline and self-review facts SHALL remain auditable while current planning artifacts clearly record the later Rust pivot.
+
+#### Scenario: A historical WS5 report is updated
+
+- **WHEN** the report predates the Rust decision
+- **THEN** its original findings SHALL remain intact
+- **AND** a dated follow-up SHALL state which recommendations were superseded rather than rewriting the original evidence as if Rust had already been the plan.
+
+### Requirement: Active documentation reports cross-language migration state precisely
+
+Active Synthesis documentation SHALL identify the cross-language contract and canonical-semantics milestone as Rust migration R1, state whether a Rust executable exists, and name the next approved migration slice.
+
+#### Scenario: R1 documentation is read after completion
+
+- **WHEN** a maintainer consults the migration plan or Synthesis status documentation
+- **THEN** it SHALL state that the v1 contract/corpus oracle is frozen
+- **AND** no Rust executable or production ownership change exists
+- **AND** the next change is the Citation Graph Metrics vertical slice.

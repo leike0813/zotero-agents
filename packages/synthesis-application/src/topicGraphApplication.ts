@@ -24,7 +24,7 @@ import {
 import {
   SYNTHESIS_TOPIC_GRAPH_INDEX_ALGORITHM_VERSION,
   SYNTHESIS_TOPIC_GRAPH_INDEX_CONTRACT_VERSION,
-  rebuildSynthesisTopicGraphIndexResult,
+  rebuildSynthesisTopicGraphIndexResultPayload,
   type SynthesisTopicGraphIndexRelation,
   type SynthesisTopicGraphIndexRequest,
   type SynthesisTopicGraphIndexResult,
@@ -924,9 +924,8 @@ export function createSynthesisTopicGraphApplication(options: Options) {
           ),
         };
         try {
-          const result = rebuildSynthesisTopicGraphIndexResult(
+          const result = rebuildSynthesisTopicGraphIndexResultPayload(
             await compute.buildIndex(indexRequest, { signal }),
-            indexRequest,
           );
           const promoted = repository.promoteTopicGraphIndex({
             expectedManifestHash: current.manifestHash,

@@ -2,9 +2,7 @@
 
 ## Purpose
 Defines the synthesis sidecar compute worker pool capability for the Synthesis plugin, specifying its service boundary, integration contracts, and runtime behavior.
-
 ## Requirements
-
 ### Requirement: Pool SHALL support a closed graph-build operation
 
 The sidecar compute pool SHALL support `citation_graph_build.v1` in addition to
@@ -34,7 +32,6 @@ shutdown, and degraded-state policies.
 
 ### Requirement: Sidecar compute scheduling SHALL be bounded and lazy
 
-
 The service SHALL own one lazily created worker, run at most one compute task at
 a time, retain at most two waiting tasks in memory, and SHALL NOT persist,
 warmup, or rebuild domain state as part of pool startup.
@@ -52,7 +49,6 @@ warmup, or rebuild domain state as part of pool startup.
 - **AND** no layout engine work SHALL have run.
 
 ### Requirement: Citation Graph layout SHALL use strict shared DTOs
-
 
 The service SHALL expose only `citation_graph_layout.v1` as
 `compute.citation_graph_layout` and SHALL rebuild the request before enqueue, in
@@ -73,7 +69,6 @@ accepted request by using the synthesis-engine rebuilders.
 
 ### Requirement: Compute cancellation and deadlines SHALL be hard-bounded
 
-
 Layout execution SHALL have a five-second hard deadline. Queued cancellation
 SHALL remove the task, while active cancellation or timeout SHALL allow at most
 100ms cooperative grace before worker termination and replacement.
@@ -91,7 +86,6 @@ SHALL remove the task, while active cancellation or timeout SHALL allow at most
 - **AND** the worker SHALL be terminated after no more than 100ms grace.
 
 ### Requirement: Worker faults SHALL be isolated and fused
-
 
 Crash, OOM, hang termination, and invalid result SHALL fail only the active
 task and replace the worker. After three consecutive runtime faults the pool
@@ -112,7 +106,6 @@ and recover only after service restart.
 
 ### Requirement: Worker resources and authority SHALL be constrained
 
-
 The worker SHALL use V8 limits of 256 MiB old generation, 32 MiB young
 generation, and 4 MiB stack and SHALL NOT access repositories, DB or canonical
 files, Host capabilities, Zotero globals, or child processes.
@@ -126,7 +119,6 @@ files, Host capabilities, Zotero globals, or child processes.
 
 ### Requirement: Compute pool shutdown SHALL be bounded and idempotent
 
-
 Pool shutdown SHALL stop admission, reject queued tasks, cancel active work, and
 terminate its worker within one 500ms total budget.
 
@@ -138,19 +130,19 @@ terminate its worker within one 500ms total budget.
 
 ### Requirement: Streaming transfer shares bounded worker admission and failures
 
-Streaming Citation Graph Build SHALL share the one-active/two-waiting pool, resource limits, replacement policy, and three-runtime-failure degraded fuse. Its active deadline SHALL be 30 seconds while existing operations retain five seconds.
+All Node worker operations, Rust Metrics work, and streaming Citation Graph Build SHALL share one one-active/two-waiting queue, operation deadlines, cancellation, shutdown, replacement accounting, and three-runtime-failure degraded fuse. Backend selection SHALL NOT create parallel admission or failure authorities.
 
-#### Scenario: Transfer queue is full
-- **WHEN** one worker task is active and two tasks are waiting
-- **THEN** another `execute` SHALL fail immediately with `worker_busy`
+#### Scenario: Mixed-backend queue is full
+- **WHEN** one Node or Rust task is active and two tasks of either backend are waiting
+- **THEN** another task SHALL fail immediately with `worker_busy`
 
-#### Scenario: Transfer runtime fails three consecutive times
-- **WHEN** crash, OOM, timeout, or invalid worker output occurs on three consecutive active tasks
-- **THEN** the pool SHALL become degraded and reject later execution with `worker_unavailable` until service restart
+#### Scenario: Failures cross backend boundaries
+- **WHEN** three consecutive active Node/Rust worker tasks crash, time out, or return invalid output
+- **THEN** the shared pool SHALL become degraded and reject later tasks with `worker_unavailable`
 
-#### Scenario: Transfer is canceled cooperatively
-- **WHEN** an active attempt is canceled
-- **THEN** the worker SHALL receive cancellation, receive 100 ms grace, and then be terminated if it does not acknowledge
+#### Scenario: Backend changes normally
+- **WHEN** the next task requires a different backend
+- **THEN** the idle previous backend SHALL terminate without incrementing failure or restart counters
 
 ### Requirement: Wire failures remain outside worker scheduling and fault accounting
 

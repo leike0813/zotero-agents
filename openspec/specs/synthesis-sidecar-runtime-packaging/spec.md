@@ -2,9 +2,7 @@
 
 ## Purpose
 Defines the synthesis sidecar runtime packaging capability for the Synthesis plugin, specifying its service boundary, integration contracts, and runtime behavior.
-
 ## Requirements
-
 ### Requirement: Runtime bundle SHALL include graph-build compute code
 
 The compiled runtime, manifest, XPI requirements, and source fingerprint SHALL
@@ -21,14 +19,17 @@ third-party dependency.
 
 ### Requirement: Citation Graph application artifacts are packaged and fingerprinted
 
-The service build, runtime bundle, XPI inventory, and runtime fingerprint SHALL include graph application contracts, orchestration/projection sources, shared repository schema/CRUD, and the Node compute-pool adapter.
+The temporary v1 Node oracle runtime SHALL include the target-matching Rust Metrics executable and provenance as ancillary hashed files while retaining the Node executable and JavaScript entrypoint as the v1 launch target. Native candidates SHALL also be built independently for five targets and SHALL NOT enter the formal XPI or native manifest v2 release chain in this change.
 
-#### Scenario: Graph application source changes invalidate runtime freshness
-- **WHEN** any packaged graph application source changes
-- **THEN** the source fingerprint changes and exact runtime inventory requires its compiled artifact
+#### Scenario: Rust source or lock changes
+- **WHEN** Rust Metrics sources, the locked toolchain, or `Cargo.lock` change
+- **THEN** candidate and temporary runtime fingerprints SHALL change and stale or mismatched binaries SHALL be rejected
+
+#### Scenario: V1 runtime is launched
+- **WHEN** the supervisor resolves the active v1 bundle
+- **THEN** its launch config, discovery, Node executable, entrypoint, and active/previous pointer semantics SHALL remain unchanged
 
 ### Requirement: Runtime bundles SHALL carry the complete compute worker graph
-
 
 Each runtime target SHALL include the compiled worker entrypoint, required
 synthesis-engine modules, exact runtime files for `d3-force`, `d3-dispatch`,
@@ -43,7 +44,6 @@ synthesis-engine modules, exact runtime files for `d3-force`, `d3-dispatch`,
 
 ### Requirement: Compute runtime inputs SHALL participate in fingerprinting
 
-
 The runtime build fingerprint SHALL include service, worker, synthesis-engine,
 D3 package versions/runtime files, and the root lockfile.
 
@@ -55,7 +55,6 @@ D3 package versions/runtime files, and the root lockfile.
 - **AND** stale prebuilds SHALL fail the existing fingerprint gate.
 
 ### Requirement: Source verification SHALL not publish runtime prebuilds
-
 
 This change SHALL verify source assembly and manifest behavior without
 downloading, publishing, or synchronizing five-platform runtime prebuilds.
@@ -108,7 +107,6 @@ The service build, runtime bundle manifest, and build fingerprint SHALL include 
 
 ### Requirement: Sidecar runtime bundles have one strict manifest
 
-
 The system SHALL describe every Synthesis sidecar runtime bundle with the
 `synthesis-sidecar-runtime-bundle.v1` manifest and SHALL reject unsafe or
 ambiguous manifest input.
@@ -129,7 +127,6 @@ ambiguous manifest input.
 
 ### Requirement: Product-owned runtime platform support is explicit
 
-
 The runtime bundle system SHALL support only Windows x64, macOS x64/arm64, and
 Linux x64/arm64 and SHALL pin Node to `24.18.0`.
 
@@ -146,7 +143,6 @@ Linux x64/arm64 and SHALL pin Node to `24.18.0`.
 - **AND** they SHALL NOT fall back to another runtime or inspect PATH.
 
 ### Requirement: Packaged and installed bytes are verified
-
 
 The installer SHALL verify the size and SHA-256 of every declared packaged file
 and every staged or active installed file.
@@ -165,7 +161,6 @@ and every staged or active installed file.
 - **AND** the promoted installation SHALL pass a complete verification pass.
 
 ### Requirement: Runtime installation is staged and atomically activated
-
 
 The installer SHALL install immutable versions below the fixed managed runtime
 root and SHALL expose a new version only after complete verification.
@@ -192,7 +187,6 @@ root and SHALL expose a new version only after complete verification.
 
 ### Requirement: Runtime installation supports repair and one-version rollback
 
-
 The installer SHALL repair a corrupt active bundle from trusted packaged assets
 and SHALL preserve one verified previous bundle for explicit rollback.
 
@@ -216,7 +210,6 @@ and SHALL preserve one verified previous bundle for explicit rollback.
 - **AND** the current active pointer SHALL remain unchanged.
 
 ### Requirement: Runtime packaging has release provenance and freshness gates
-
 
 Every published runtime prebuild and plugin release SHALL prove that Node,
 service sources, contracts, packaging policy, licenses, and generated manifests
@@ -263,7 +256,6 @@ lockfile without introducing additional dependencies.
 - **THEN** freshness and XPI release checks fail closed until the release workflow regenerates it
 
 ### Requirement: Installed runtime snapshots expose verified launch identity
-
 
 A ready installed runtime snapshot SHALL expose the verified bundle, Node,
 service, and protocol identity used by the supervisor handshake.

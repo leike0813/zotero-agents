@@ -45,6 +45,7 @@ const FINGERPRINT_STATIC_INPUTS = [
   "packages/synthesis-contracts/src/sidecarSystem.ts",
   "scripts/check-synthesis-sidecar-runtime-freshness.ts",
   "scripts/package-synthesis-sidecar-runtime.ts",
+  "scripts/smoke-synthesis-rust-sidecar-worker.ts",
   "scripts/synthesis-sidecar-runtime-release-governance.ts",
 ] as const;
 

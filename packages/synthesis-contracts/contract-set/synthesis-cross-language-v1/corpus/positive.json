@@ -208,13 +208,15 @@
       "output": {
         "contractVersion": "synthesis-concept-kb-index.v1",
         "algorithmVersion": "concept-kb-query.v1",
-        "matches": [{
-          "label": "ÉLAN",
-          "exactConceptIds": ["concept:one"],
-          "aliasMatches": [],
-          "senseIds": [],
-          "ambiguous": false
-        }]
+        "matches": [
+          {
+            "label": "ÉLAN",
+            "exactConceptIds": ["concept:one"],
+            "aliasMatches": [],
+            "senseIds": [],
+            "ambiguous": false
+          }
+        ]
       },
       "canonicalJson": "{\"algorithmVersion\":\"concept-kb-query.v1\",\"contractVersion\":\"synthesis-concept-kb-index.v1\",\"matches\":[{\"aliasMatches\":[],\"ambiguous\":false,\"exactConceptIds\":[\"concept:one\"],\"label\":\"ÉLAN\",\"senseIds\":[]}]}",
       "sha256": "sha256:4963bb1b0398b05a771e2ca9c8440261c36d51617ecd107f4afa7fe6727996cc"
@@ -235,6 +237,27 @@
       },
       "canonicalJson": "{\"algorithmVersion\":\"topic-graph-index.v1\",\"contractVersion\":\"synthesis-topic-graph-index.v1\",\"rebuiltAt\":\"2026-07-19T00:00:00.000Z\",\"roots\":[\"topic:😀\",\"topic:\"],\"schemaVersion\":\"1.0.0\",\"sourceManifestHash\":\"sha256:topic\",\"unplaced\":[]}",
       "sha256": "sha256:e8965becf465407bf7cda2f4f74f1c5c62b7edd957654a641e1ade341171b11b"
+    },
+    {
+      "id": "deterministic-worker-empty-input-page",
+      "oracle": "canonicalJson",
+      "schemaRef": "schemas/compute.schema.json#/$defs/deterministicWorkerPage",
+      "inputJson": "{\"protocol\":\"synthesis-rust-worker.v1\",\"type\":\"input_page\",\"taskId\":\"task-1\",\"descriptor\":{\"section\":\"entries\",\"pageIndex\":0,\"rowCount\":0,\"byteLength\":2,\"sha256\":\"sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945\"},\"rows\":[]}",
+      "output": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "input_page",
+        "taskId": "task-1",
+        "descriptor": {
+          "section": "entries",
+          "pageIndex": 0,
+          "rowCount": 0,
+          "byteLength": 2,
+          "sha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        },
+        "rows": []
+      },
+      "canonicalJson": "{\"descriptor\":{\"byteLength\":2,\"pageIndex\":0,\"rowCount\":0,\"section\":\"entries\",\"sha256\":\"sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945\"},\"protocol\":\"synthesis-rust-worker.v1\",\"rows\":[],\"taskId\":\"task-1\",\"type\":\"input_page\"}",
+      "sha256": "sha256:c4fe593e71c82e993b133b00a7db20d4713f8ba3c6cccfc17ca89678499b6d90"
     }
   ]
 }

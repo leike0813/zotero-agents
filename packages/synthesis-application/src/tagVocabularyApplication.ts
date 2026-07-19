@@ -34,8 +34,8 @@ import {
   SYNTHESIS_TAG_VOCABULARY_CONTRACT_VERSION,
   SYNTHESIS_TAG_VOCABULARY_INDEX_VERSION,
   SYNTHESIS_TAG_VOCABULARY_VALIDATION_VERSION,
-  rebuildSynthesisTagVocabularyIndexResult,
-  rebuildSynthesisTagVocabularyValidationResult,
+  rebuildSynthesisTagVocabularyIndexResultPayload,
+  rebuildSynthesisTagVocabularyValidationResultPayload,
   type SynthesisTagVocabularyIndexRequest,
   type SynthesisTagVocabularyIndexResult,
   type SynthesisTagVocabularyValidationRequest,
@@ -457,9 +457,8 @@ export function createSynthesisTagVocabularyApplication(options: Options) {
     candidate: SynthesisTagVocabularyApplicationCandidate,
     signal?: AbortSignal,
   ) =>
-    rebuildSynthesisTagVocabularyValidationResult(
+    rebuildSynthesisTagVocabularyValidationResultPayload(
       await compute.validate(validationRequest(candidate), { signal }),
-      validationRequest(candidate),
     );
 
   const commitCandidate = async (
@@ -1048,9 +1047,8 @@ export function createSynthesisTagVocabularyApplication(options: Options) {
         };
         let result: SynthesisTagVocabularyIndexResult;
         try {
-          result = rebuildSynthesisTagVocabularyIndexResult(
+          result = rebuildSynthesisTagVocabularyIndexResultPayload(
             await compute.buildIndex(indexRequest, { signal }),
-            indexRequest,
           );
         } catch (error) {
           return emptyResult(workerStatus(error), state());

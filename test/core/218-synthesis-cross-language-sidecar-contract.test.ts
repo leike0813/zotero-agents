@@ -33,12 +33,12 @@ describe("Synthesis cross-language sidecar contract", function () {
       "synthesis-cross-language-sidecar-contract.v1",
     );
     assert.equal(result.schemaCount, 6);
-    assert.equal(result.definitionCount, 114);
-    assert.equal(result.positiveCaseCount, 10);
-    assert.equal(result.negativeCaseCount, 7);
+    assert.equal(result.definitionCount, 115);
+    assert.equal(result.positiveCaseCount, 11);
+    assert.equal(result.negativeCaseCount, 9);
     assert.equal(
       result.fingerprint,
-      "sha256:14312bd4167a8ac8ab62a271b025342415f84b76016fc3579993deb32d110c65",
+      "sha256:2013f87dac13875da9810f9b7e40d85a6fda5a9e6a4cc8426922f859d58ece01",
     );
   });
 

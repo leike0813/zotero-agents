@@ -2,22 +2,18 @@
 
 ## Purpose
 Defines the synthesis citation graph metrics production routing capability for the Synthesis plugin, specifying its service boundary, integration contracts, and runtime behavior.
-
 ## Requirements
-
 ### Requirement: Production metrics uses the sidecar worker
 
-Production composition SHALL execute Citation Graph metrics through the
-authenticated sidecar compute service using a fresh ready runtime connection for
-each call and SHALL NOT retry or fall back to the in-process engine.
+Production composition SHALL keep the authenticated Node v1 HTTP/auth front door and fresh ready runtime connection, while the shared service pool SHALL execute Metrics only through the verified Rust worker child. The plugin and service SHALL NOT retry or fall back to the TypeScript Metrics kernel.
 
 #### Scenario: Ready runtime computes metrics
-- **WHEN** production metrics refresh begins while the supervisor has a ready runtime
-- **THEN** the plugin sends `compute.citation_graph_metrics` to that runtime and uses the strictly rebuilt worker result
+- **WHEN** production metrics refresh begins with a ready current runtime
+- **THEN** the unchanged `compute.citation_graph_metrics` call SHALL pass through the shared pool to Rust and return a strictly rebuilt result within five seconds
 
-#### Scenario: Runtime is unavailable
-- **WHEN** production metrics refresh begins without a ready runtime
-- **THEN** the call fails immediately with `service_not_ready` and does not execute an in-process metrics kernel
+#### Scenario: Rust candidate is absent or invalid
+- **WHEN** its binary, provenance, startup identity, or result frame cannot be verified
+- **THEN** computation SHALL fail closed with an existing worker error and preserve previous metrics
 
 ### Requirement: Plugin retains metrics promotion authority
 

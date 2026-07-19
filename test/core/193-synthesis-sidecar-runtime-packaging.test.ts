@@ -319,10 +319,13 @@ describe("Synthesis sidecar runtime packaging", function () {
       packagedWorker,
       "createSynthesisCitationGraphBuildPackedAccumulator",
     );
-    assert.include(
-      packagedWorker,
+    for (const removedKernel of [
       "createInProcessSynthesisTagVocabularyEngine",
-    );
+      "createInProcessSynthesisConceptKbIndexEngine",
+      "createInProcessSynthesisTopicGraphIndexEngine",
+    ]) {
+      assert.notInclude(packagedWorker, removedKernel);
+    }
     const rustEntry = manifest.files.find(
       (entry) =>
         entry.path === "service/native/synthesis-sidecar/synthesis-sidecar",

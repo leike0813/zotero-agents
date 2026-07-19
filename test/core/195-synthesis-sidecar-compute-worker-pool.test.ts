@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import { execFileSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import path from "node:path";
 import { Worker, type WorkerOptions } from "node:worker_threads";
 import {
@@ -9,6 +10,7 @@ import {
 } from "../../packages/synthesis-engine/src/conceptKbIndex";
 import {
   canonicalizeSynthesisEngineJson,
+  canonicalizeSynthesisEngineJsonArtifact,
   createInProcessSynthesisCitationGraphLayoutEngine,
   createInProcessSynthesisCitationGraphMetricsEngine,
   rebuildSynthesisCitationGraphLayoutRequest,
@@ -244,6 +246,82 @@ function fixturePool(
   });
 }
 
+type RustFrame = Record<string, unknown>;
+
+class ScriptedRustWorker extends EventEmitter {
+  constructor(
+    private readonly onInputComplete: (
+      send: (frame: RustFrame) => void,
+      taskId: string,
+    ) => void,
+  ) {
+    super();
+  }
+
+  postMessage(message: RustFrame) {
+    const taskId = String(message.taskId || "");
+    if (message.type === "input_page") {
+      const descriptor = message.descriptor as {
+        section: string;
+        pageIndex: number;
+      };
+      queueMicrotask(() =>
+        this.send({
+          type: "input_ack",
+          taskId,
+          section: descriptor.section,
+          pageIndex: descriptor.pageIndex,
+        }),
+      );
+    } else if (message.type === "input_complete") {
+      queueMicrotask(() => this.onInputComplete(this.send.bind(this), taskId));
+    }
+  }
+
+  async terminate() {
+    queueMicrotask(() => this.emit("exit", 0, null));
+    return 0;
+  }
+
+  private send(frame: RustFrame) {
+    this.emit("message", {
+      protocol: "synthesis-rust-worker.v1",
+      ...frame,
+    });
+  }
+}
+
+function rustResultPage(
+  taskId: string,
+  section: string,
+  pageIndex: number,
+  rows: unknown[],
+): RustFrame {
+  const artifact = canonicalizeSynthesisEngineJsonArtifact(rows);
+  return {
+    type: "result_page",
+    taskId,
+    descriptor: {
+      section,
+      pageIndex,
+      rowCount: rows.length,
+      byteLength: artifact.byteLength,
+      sha256: artifact.sha256,
+    },
+    rows,
+  };
+}
+
+function scriptedRustPool(
+  onInputComplete: ConstructorParameters<typeof ScriptedRustWorker>[0],
+) {
+  return createSynthesisSidecarComputeWorkerPool({
+    rustWorkerFactory: () => new ScriptedRustWorker(onInputComplete),
+    executionTimeoutMs: 500,
+    cancellationGraceMs: 10,
+  });
+}
+
 function runtimeConfig(): SynthesisSidecarRuntimeConfig {
   return {
     schema: "synthesis-sidecar-launch-config.v1",
@@ -444,6 +522,97 @@ describe("Synthesis sidecar compute worker pool", function () {
       assert.deepEqual(
         result,
         createInProcessSynthesisTagVocabularyEngine().buildIndex(request),
+      );
+    } finally {
+      await pool.shutdown();
+    }
+  });
+
+  for (const testCase of [
+    {
+      name: "complete before result begin",
+      send(send: (frame: RustFrame) => void, taskId: string) {
+        send({ type: "result_complete", taskId });
+      },
+    },
+    {
+      name: "an unknown result section",
+      send(send: (frame: RustFrame) => void, taskId: string) {
+        send({ type: "result_begin", taskId, header: {} });
+        send(rustResultPage(taskId, "unknown", 0, []));
+      },
+    },
+    {
+      name: "a missing required result section",
+      send(send: (frame: RustFrame) => void, taskId: string) {
+        send({ type: "result_begin", taskId, header: {} });
+        send({ type: "result_complete", taskId });
+      },
+    },
+    {
+      name: "a tampered page hash",
+      send(send: (frame: RustFrame) => void, taskId: string) {
+        send({ type: "result_begin", taskId, header: {} });
+        const page = rustResultPage(taskId, "warnings", 0, []);
+        (page.descriptor as { sha256: string }).sha256 =
+          `sha256:${"0".repeat(64)}`;
+        send(page);
+      },
+    },
+    {
+      name: "a legacy unpaged deterministic result",
+      send(send: (frame: RustFrame) => void, taskId: string) {
+        send({
+          type: "result",
+          taskId,
+          result: {
+            contractVersion: "synthesis-tag-vocabulary.v1",
+            algorithmVersion: "tag-vocabulary-validation.v1",
+            warnings: [],
+          },
+        });
+      },
+    },
+  ]) {
+    it(`fails closed on ${testCase.name}`, async function () {
+      const pool = scriptedRustPool(testCase.send);
+      try {
+        const result = await pool
+          .runTagVocabularyValidation(tagValidationRequest())
+          .then(() => "published")
+          .catch(errorCode);
+        assert.equal(result, "worker_result_invalid");
+      } finally {
+        await pool.shutdown();
+      }
+    });
+  }
+
+  it("rejects duplicate record keys across paged results", async function () {
+    const pool = scriptedRustPool((send, taskId) => {
+      send({
+        type: "result_begin",
+        taskId,
+        header: {
+          contractVersion: "synthesis-tag-vocabulary.v1",
+          algorithmVersion: "tag-vocabulary-index.v1",
+          schemaVersion: "1.0.0",
+          sourceManifestHash: `sha256:${"a".repeat(64)}`,
+          rebuiltAt: "2026-07-18T00:00:00.000Z",
+        },
+      });
+      send(rustResultPage(taskId, "tags", 0, []));
+      send(
+        rustResultPage(taskId, "aliases", 0, [
+          ["duplicate", "first"],
+          ["duplicate", "second"],
+        ]),
+      );
+    });
+    try {
+      assert.equal(
+        await pool.runTagVocabularyIndex(tagIndexRequest()).catch(errorCode),
+        "worker_result_invalid",
       );
     } finally {
       await pool.shutdown();

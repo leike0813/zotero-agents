@@ -4,8 +4,8 @@ import type {
   SynthesisTagVocabularyIndexResult,
   SynthesisTagVocabularyIndexSearchRow,
   SynthesisTagVocabularyWarning,
-} from "../../synthesis-contracts/src/tagVocabularyCore.js";
-import { compareSynthesisContractStrings } from "../../synthesis-contracts/src/canonicalJson.js";
+} from "../../synthesis-contracts/src/tagVocabularyCore.ts";
+import { compareSynthesisContractStrings } from "../../synthesis-contracts/src/canonicalJson.ts";
 
 export {
   type SynthesisTagVocabularyEngineEntry,
@@ -756,11 +756,26 @@ export function rebuildSynthesisTagVocabularyValidationResult(
   bounds: SynthesisTagVocabularyContractBounds = {},
 ): SynthesisTagVocabularyValidationResult {
   assertJsonSafe(input, "result");
-  const resolved = resolveBounds(bounds);
+  const rebuilt = rebuildSynthesisTagVocabularyValidationResultPayload(
+    input,
+    bounds,
+  );
   const request = rebuildSynthesisTagVocabularyValidationRequest(
     requestInput,
     bounds,
   );
+  const expected = computeValidation(request, {});
+  if (!sameJson(rebuilt, expected)) {
+    invalid("validation result does not match the request");
+  }
+  return rebuilt;
+}
+
+export function rebuildSynthesisTagVocabularyValidationResultPayload(
+  input: unknown,
+  bounds: SynthesisTagVocabularyContractBounds = {},
+): SynthesisTagVocabularyValidationResult {
+  const resolved = resolveBounds(bounds);
   const row = objectValue(input, "result");
   if (
     row.contractVersion !== SYNTHESIS_TAG_VOCABULARY_CONTRACT_VERSION ||
@@ -768,16 +783,11 @@ export function rebuildSynthesisTagVocabularyValidationResult(
   ) {
     invalid("validation result version is invalid");
   }
-  const rebuilt: SynthesisTagVocabularyValidationResult = {
+  return {
     contractVersion: SYNTHESIS_TAG_VOCABULARY_CONTRACT_VERSION,
     algorithmVersion: SYNTHESIS_TAG_VOCABULARY_VALIDATION_VERSION,
     warnings: rebuildWarnings(row.warnings, resolved),
   };
-  const expected = computeValidation(request, {});
-  if (!sameJson(rebuilt, expected)) {
-    invalid("validation result does not match the request");
-  }
-  return rebuilt;
 }
 
 function rebuildSearchRow(
@@ -809,11 +819,26 @@ export function rebuildSynthesisTagVocabularyIndexResult(
   bounds: SynthesisTagVocabularyContractBounds = {},
 ): SynthesisTagVocabularyIndexResult {
   assertJsonSafe(input, "result");
-  const resolved = resolveBounds(bounds);
+  const rebuilt = rebuildSynthesisTagVocabularyIndexResultPayload(
+    input,
+    bounds,
+  );
   const request = rebuildSynthesisTagVocabularyIndexRequest(
     requestInput,
     bounds,
   );
+  const expected = computeIndex(request, {});
+  if (!sameJson(rebuilt, expected)) {
+    invalid("index result does not match the request");
+  }
+  return rebuilt;
+}
+
+export function rebuildSynthesisTagVocabularyIndexResultPayload(
+  input: unknown,
+  bounds: SynthesisTagVocabularyContractBounds = {},
+): SynthesisTagVocabularyIndexResult {
+  const resolved = resolveBounds(bounds);
   const row = objectValue(input, "result");
   if (
     row.contractVersion !== SYNTHESIS_TAG_VOCABULARY_CONTRACT_VERSION ||
@@ -828,7 +853,7 @@ export function rebuildSynthesisTagVocabularyIndexResult(
   const search = arrayValue(row.search, "search").map((entry, index) =>
     rebuildSearchRow(entry, index, resolved),
   );
-  const rebuilt: SynthesisTagVocabularyIndexResult = {
+  return {
     contractVersion: SYNTHESIS_TAG_VOCABULARY_CONTRACT_VERSION,
     algorithmVersion: SYNTHESIS_TAG_VOCABULARY_INDEX_VERSION,
     schemaVersion: SYNTHESIS_TAG_VOCABULARY_INDEX_SCHEMA_VERSION,
@@ -855,11 +880,6 @@ export function rebuildSynthesisTagVocabularyIndexResult(
     search,
     validationWarnings: rebuildWarnings(row.validationWarnings, resolved),
   };
-  const expected = computeIndex(request, {});
-  if (!sameJson(rebuilt, expected)) {
-    invalid("index result does not match the request");
-  }
-  return rebuilt;
 }
 
 export function createInProcessSynthesisTagVocabularyEngine(

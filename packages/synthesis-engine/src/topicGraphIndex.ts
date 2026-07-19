@@ -393,8 +393,19 @@ export function rebuildSynthesisTopicGraphIndexResult(
   bounds: SynthesisTopicGraphIndexContractBounds = {},
 ): SynthesisTopicGraphIndexResult {
   assertJsonSafe(input, "result");
-  const resolved = resolveBounds(bounds);
+  const rebuilt = rebuildSynthesisTopicGraphIndexResultPayload(input, bounds);
   const request = rebuildSynthesisTopicGraphIndexRequest(requestInput, bounds);
+  if (JSON.stringify(rebuilt) !== JSON.stringify(computeIndex(request, {}))) {
+    invalid("index result does not match the request");
+  }
+  return rebuilt;
+}
+
+export function rebuildSynthesisTopicGraphIndexResultPayload(
+  input: unknown,
+  bounds: SynthesisTopicGraphIndexContractBounds = {},
+): SynthesisTopicGraphIndexResult {
+  const resolved = resolveBounds(bounds);
   const row = objectValue(input, "result");
   if (
     row.contractVersion !== SYNTHESIS_TOPIC_GRAPH_INDEX_CONTRACT_VERSION ||
@@ -403,7 +414,7 @@ export function rebuildSynthesisTopicGraphIndexResult(
   ) {
     invalid("index result version is invalid");
   }
-  const rebuilt: SynthesisTopicGraphIndexResult = {
+  return {
     contractVersion: SYNTHESIS_TOPIC_GRAPH_INDEX_CONTRACT_VERSION,
     algorithmVersion: SYNTHESIS_TOPIC_GRAPH_INDEX_ALGORITHM_VERSION,
     schemaVersion: SYNTHESIS_TOPIC_GRAPH_INDEX_SCHEMA_VERSION,
@@ -416,10 +427,6 @@ export function rebuildSynthesisTopicGraphIndexResult(
     roots: rebuildStringResult(row.roots, "roots", resolved),
     unplaced: rebuildStringResult(row.unplaced, "unplaced", resolved),
   };
-  if (JSON.stringify(rebuilt) !== JSON.stringify(computeIndex(request, {}))) {
-    invalid("index result does not match the request");
-  }
-  return rebuilt;
 }
 
 export function createInProcessSynthesisTopicGraphIndexEngine(

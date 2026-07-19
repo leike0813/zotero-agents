@@ -218,7 +218,7 @@ HTTP runtime、SQLite binding、压缩/归档、签名或跨平台辅助 crate �
 
 **目标**：在写 Rust 领域实现前消除语言隐式语义。
 
-**状态（2026-07-19）**：已完成。`packages/synthesis-contracts/contract-set/synthesis-cross-language-v1` 已冻结当前 v1 process boundary 的 Draft 2020-12 schema、positive/negative corpus、capability inventory 和可计算 fingerprint；canonical JSON/hash 与 repository foundation schema version 已归 contracts 所有。Node 仍是只读行为 oracle，Rust workspace/executable 尚不存在，生产 owner、Node 路由和 runtime bundle/pointer v1 均未改变。
+**状态（2026-07-19）**：已完成。`packages/synthesis-contracts/contract-set/synthesis-cross-language-v1` 已冻结当前 v1 process boundary 的 Draft 2020-12 schema、positive/negative corpus、capability inventory 和可计算 fingerprint；canonical JSON/hash 与 repository foundation schema version 已归 contracts 所有。Node 仍是只读行为 oracle；后续 R2/R3 已在这套 contract set 上建立 Rust workspace、worker executable 与首个 Metrics slice。生产 owner 和 runtime bundle/pointer v1 尚未改变。
 
 **TDD 顺序**：先用现有 TypeScript 行为生成经人工审查的 positive/negative gold corpus，再让 strict schema checker 与 TypeScript validator 对 corpus 全绿。任何 Rust slice 必须先消费这套 contract set，并在取得 byte/hash 等价后才能成为该 DTO 的实现。
 
@@ -243,13 +243,13 @@ HTTP runtime、SQLite binding、压缩/归档、签名或跨平台辅助 crate �
 
 **退出条件**：五平台都能运行最小 handshake/worker canary；单平台 runtime 低于 15 MiB，若最小骨架已超预算则立即停止扩展并重新评审依赖/架构。
 
-R2 不单独创建空 workspace change；其最小工具链、worker framing 和 CI 骨架与 R3 合并到下一 change `introduce-synthesis-rust-sidecar-metrics-vertical-slice`，由 Metrics corpus 提供首个真实 consumer。
+**状态（2026-07-19）**：已随 R3 完成。固定工具链、workspace、worker framing、五平台 candidate workflow、provenance 与压缩包体门禁均已有真实 Metrics consumer。
 
 ### R3：Citation Graph metrics 首个 vertical slice
 
 **目标**：用最小、确定、已生产路由的 capability 贯通协议、worker、engine、HTTP 与插件调用。
 
-**下一 change**：`introduce-synthesis-rust-sidecar-metrics-vertical-slice`。
+**状态（2026-07-19）**：已完成并归档。Metrics 是共享 Rust worker、compute pool、deadline/cancel/replacement/fuse 与五平台 packaging 的首个真实 vertical slice。
 
 **TDD 顺序**：固定输入/输出/hash corpus → Node oracle 输出 → Rust engine → Rust worker → Rust HTTP → 插件 candidate route。
 
@@ -265,6 +265,8 @@ R2 不单独创建空 workspace change；其最小工具链、worker framing 和
 **范围**：Tag Vocabulary、Concept KB index/query、Topic Graph index。
 
 **策略**：每个 kernel 单独迁移；优先复用 R1 canonicalizer 与 R2 worker，不复制 parser、hash 或错误映射。
+
+**当前状态（2026-07-19）**：活动 change 为 `migrate-synthesis-deterministic-kernels-to-rust`。三个领域 crate、五个 Rust operation、共享 child transport 和 bounded paged worker protocol 已进入本地收口；private sidecar 不保留这些 operation 的 Node compute branch，TypeScript engines 继续作为 production plugin 实现和 differential oracle。R4 只有在本地协议、parity、性能与 packaging 门禁通过，并另行取得授权完成五平台 candidate matrix 后才能归档。
 
 **退出条件**：每个 capability 的 schema、gold corpus、property/invariant、性能与 worker 故障测试通过，并完成对应 TypeScript compute 删除。Topic Graph 的 source/build Worker parity 必须保持，不允许源树 `.js` shim。
 

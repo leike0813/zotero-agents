@@ -110,7 +110,7 @@ async function copyRustComputeRuntime(
   const source = path.resolve(requiredArgument("rust-sidecar"));
   const stat = await fs.stat(source);
   if (!stat.isFile()) {
-    throw new Error("Rust Metrics sidecar must be a regular file");
+    throw new Error("Rust compute sidecar must be a regular file");
   }
   const nativeRoot = path.join(outputRoot, "service/native/synthesis-sidecar");
   await fs.mkdir(nativeRoot, { recursive: true });

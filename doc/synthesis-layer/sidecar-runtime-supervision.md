@@ -98,14 +98,14 @@ stdin EOF.
 
 ## Bounded Graph Compute
 
-`compute.citation_graph_layout`, `compute.citation_graph_metrics`, the
-internal-only `compute.citation_graph_build` canary, and explicit packed
-transfer execution are the only worker operations. The shared pool is lazy and
-is the single admission, deadline, cancellation, replacement, and fuse owner.
-Metrics selects the Rust JSON-lines child; all other operations select the Node
-Worker. A normal backend switch terminates the idle prior backend, so only one
-compute process is resident. The pool runs one task, retains at most two waiting
-tasks across all four operations, and rejects additional work
+Citation Graph layout, metrics, build, explicit packed transfer, Tag Vocabulary
+validation/index, Concept KB index/query, and Topic Graph index are the bounded
+worker operations. The shared pool is lazy and is the single admission,
+deadline, cancellation, replacement, and fuse owner. Metrics and the five
+private deterministic operations select the Rust JSON-lines child; layout,
+build, and transfer select the Node Worker. A normal backend switch terminates
+the idle prior backend, so only one compute process is resident. The pool runs
+one task, retains at most two waiting tasks across all operations, and rejects additional work
 with `worker_busy`; it is not an operation queue and writes no persistent state.
 The HTTP main thread, worker, and main-thread result boundary all use the strict
 operation-specific rebuilders from `packages/synthesis-engine`. Compute request and response
@@ -123,8 +123,8 @@ rebuild and plugin-owned graph-basis promotion.
 Each layout, metrics, or monolithic graph-build task has a five-second hard
 deadline; packed transfer execution has a 30-second active deadline. Active cancellation gets 100 ms of
 cooperative grace before worker termination. The Node Worker is limited to 256 MiB
-old generation, 32 MiB young generation, and a 4 MiB stack. The Rust Metrics
-profile is DTO-bounded and measured below 256 MiB peak RSS; platform hard RSS
+old generation, 32 MiB young generation, and a 4 MiB stack. Rust compute
+profiles are DTO-bounded and measured below 256 MiB peak RSS; platform hard RSS
 enforcement belongs to the native supervisor boundary. Neither backend has database,
 canonical-file, Host, Zotero, or child-process authority. Crash, OOM, hang, or
 invalid output fails the active task and replaces the worker; three consecutive

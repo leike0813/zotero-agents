@@ -1,4 +1,4 @@
-import { compareSynthesisContractStrings } from "../../synthesis-contracts/src/canonicalJson.js";
+import { compareSynthesisContractStrings } from "../../synthesis-contracts/src/canonicalJson.ts";
 
 export const SYNTHESIS_CONCEPT_KB_CONTRACT_VERSION =
   "synthesis-concept-kb-index.v1" as const;
@@ -244,28 +244,30 @@ function rebuildConcept(
   bounds: ResolvedBounds,
 ): SynthesisConceptKbIndexConcept {
   const row = objectValue(input, `concepts[${index}]`);
-  const rebuilt: SynthesisConceptKbIndexConcept = {
-    conceptId: requiredString(
-      row.conceptId,
-      `concepts[${index}].conceptId`,
-      bounds,
-    ),
-    label: requiredString(row.label, `concepts[${index}].label`, bounds),
-    aliases: stringArray(
-      row.aliases,
-      `concepts[${index}].aliases`,
-      bounds.perConceptAliasMax,
-      bounds,
-      { preserveOrder: true },
-    ),
-    conceptType: requiredString(
-      row.conceptType,
-      `concepts[${index}].conceptType`,
-      bounds,
-    ),
-    domain: requiredString(row.domain, `concepts[${index}].domain`, bounds),
-    status: conceptStatus(row.status, `concepts[${index}].status`),
-  };
+  const conceptId = requiredString(
+    row.conceptId,
+    `concepts[${index}].conceptId`,
+    bounds,
+  );
+  const label = requiredString(row.label, `concepts[${index}].label`, bounds);
+  const aliases = stringArray(
+    row.aliases,
+    `concepts[${index}].aliases`,
+    bounds.perConceptAliasMax,
+    bounds,
+    { preserveOrder: true },
+  );
+  const conceptType = requiredString(
+    row.conceptType,
+    `concepts[${index}].conceptType`,
+    bounds,
+  );
+  const domain = requiredString(
+    row.domain,
+    `concepts[${index}].domain`,
+    bounds,
+  );
+  const status = conceptStatus(row.status, `concepts[${index}].status`);
   const shortDefinition = optionalString(
     row.shortDefinition,
     `concepts[${index}].shortDefinition`,
@@ -276,13 +278,16 @@ function rebuildConcept(
     `concepts[${index}].definition`,
     bounds,
   );
-  if (shortDefinition) {
-    rebuilt.shortDefinition = shortDefinition;
-  }
-  if (definition) {
-    rebuilt.definition = definition;
-  }
-  return rebuilt;
+  return {
+    aliases,
+    conceptId,
+    conceptType,
+    ...(definition ? { definition } : {}),
+    domain,
+    label,
+    ...(shortDefinition ? { shortDefinition } : {}),
+    status,
+  };
 }
 
 function rebuildSense(
@@ -291,16 +296,21 @@ function rebuildSense(
   bounds: ResolvedBounds,
 ): SynthesisConceptKbIndexSense {
   const row = objectValue(input, `senses[${index}]`);
-  const rebuilt: SynthesisConceptKbIndexSense = {
-    senseId: requiredString(row.senseId, `senses[${index}].senseId`, bounds),
-    conceptId: requiredString(
-      row.conceptId,
-      `senses[${index}].conceptId`,
-      bounds,
-    ),
-    label: requiredString(row.label, `senses[${index}].label`, bounds),
-    confidence: confidence(row.confidence, `senses[${index}].confidence`),
-  };
+  const conceptId = requiredString(
+    row.conceptId,
+    `senses[${index}].conceptId`,
+    bounds,
+  );
+  const confidenceValue = confidence(
+    row.confidence,
+    `senses[${index}].confidence`,
+  );
+  const label = requiredString(row.label, `senses[${index}].label`, bounds);
+  const senseId = requiredString(
+    row.senseId,
+    `senses[${index}].senseId`,
+    bounds,
+  );
   const shortDefinition = optionalString(
     row.shortDefinition,
     `senses[${index}].shortDefinition`,
@@ -311,13 +321,14 @@ function rebuildSense(
     `senses[${index}].definition`,
     bounds,
   );
-  if (shortDefinition) {
-    rebuilt.shortDefinition = shortDefinition;
-  }
-  if (definition) {
-    rebuilt.definition = definition;
-  }
-  return rebuilt;
+  return {
+    conceptId,
+    confidence: confidenceValue,
+    ...(definition ? { definition } : {}),
+    label,
+    senseId,
+    ...(shortDefinition ? { shortDefinition } : {}),
+  };
 }
 
 function rebuildAlias(
@@ -326,31 +337,41 @@ function rebuildAlias(
   bounds: ResolvedBounds,
 ): SynthesisConceptKbIndexAlias {
   const row = objectValue(input, `aliases[${index}]`);
-  const rebuilt: SynthesisConceptKbIndexAlias = {
-    aliasId: requiredString(row.aliasId, `aliases[${index}].aliasId`, bounds),
-    alias: requiredString(row.alias, `aliases[${index}].alias`, bounds),
-    normalized: requiredString(
-      row.normalized,
-      `aliases[${index}].normalized`,
-      bounds,
-    ),
-    conceptId: requiredString(
-      row.conceptId,
-      `aliases[${index}].conceptId`,
-      bounds,
-    ),
-    status: conceptStatus(row.status, `aliases[${index}].status`),
-    confidence: confidence(row.confidence, `aliases[${index}].confidence`),
-  };
+  const alias = requiredString(row.alias, `aliases[${index}].alias`, bounds);
+  const aliasId = requiredString(
+    row.aliasId,
+    `aliases[${index}].aliasId`,
+    bounds,
+  );
+  const conceptId = requiredString(
+    row.conceptId,
+    `aliases[${index}].conceptId`,
+    bounds,
+  );
+  const confidenceValue = confidence(
+    row.confidence,
+    `aliases[${index}].confidence`,
+  );
+  const normalized = requiredString(
+    row.normalized,
+    `aliases[${index}].normalized`,
+    bounds,
+  );
   const senseId = optionalString(
     row.senseId,
     `aliases[${index}].senseId`,
     bounds,
   );
-  if (senseId) {
-    rebuilt.senseId = senseId;
-  }
-  return rebuilt;
+  const status = conceptStatus(row.status, `aliases[${index}].status`);
+  return {
+    alias,
+    aliasId,
+    conceptId,
+    confidence: confidenceValue,
+    normalized,
+    ...(senseId ? { senseId } : {}),
+    status,
+  };
 }
 
 function uniqueIds<T>(rows: T[], idOf: (row: T) => string, location: string) {
@@ -362,6 +383,19 @@ function uniqueIds<T>(rows: T[], idOf: (row: T) => string, location: string) {
     }
     seen.add(id);
   }
+}
+
+function sortConceptRowsIfNeeded<T>(
+  rows: T[],
+  compare: (left: T, right: T) => number,
+) {
+  for (let index = 1; index < rows.length; index += 1) {
+    if (compare(rows[index - 1], rows[index]) > 0) {
+      rows.sort(compare);
+      break;
+    }
+  }
+  return rows;
 }
 
 function rebuildSource(
@@ -380,27 +414,24 @@ function rebuildSource(
   if (rawAliases.length > bounds.aliasMax) {
     invalid("aliases exceeds its collection bound");
   }
-  const concepts = rawConcepts
-    .map((entry, index) => rebuildConcept(entry, index, bounds))
-    .sort(
-      (left, right) =>
-        compareSynthesisContractStrings(left.label, right.label) ||
-        compareSynthesisContractStrings(left.conceptId, right.conceptId),
-    );
-  const senses = rawSenses
-    .map((entry, index) => rebuildSense(entry, index, bounds))
-    .sort(
-      (left, right) =>
-        compareSynthesisContractStrings(left.label, right.label) ||
-        compareSynthesisContractStrings(left.senseId, right.senseId),
-    );
-  const aliases = rawAliases
-    .map((entry, index) => rebuildAlias(entry, index, bounds))
-    .sort(
-      (left, right) =>
-        compareSynthesisContractStrings(left.normalized, right.normalized) ||
-        compareSynthesisContractStrings(left.aliasId, right.aliasId),
-    );
+  const concepts = sortConceptRowsIfNeeded(
+    rawConcepts.map((entry, index) => rebuildConcept(entry, index, bounds)),
+    (left, right) =>
+      compareSynthesisContractStrings(left.label, right.label) ||
+      compareSynthesisContractStrings(left.conceptId, right.conceptId),
+  );
+  const senses = sortConceptRowsIfNeeded(
+    rawSenses.map((entry, index) => rebuildSense(entry, index, bounds)),
+    (left, right) =>
+      compareSynthesisContractStrings(left.label, right.label) ||
+      compareSynthesisContractStrings(left.senseId, right.senseId),
+  );
+  const aliases = sortConceptRowsIfNeeded(
+    rawAliases.map((entry, index) => rebuildAlias(entry, index, bounds)),
+    (left, right) =>
+      compareSynthesisContractStrings(left.normalized, right.normalized) ||
+      compareSynthesisContractStrings(left.aliasId, right.aliasId),
+  );
   uniqueIds(concepts, (entry) => entry.conceptId, "concepts");
   uniqueIds(senses, (entry) => entry.senseId, "senses");
   uniqueIds(aliases, (entry) => entry.aliasId, "aliases");
@@ -737,8 +768,19 @@ export function rebuildSynthesisConceptKbIndexResult(
   bounds: SynthesisConceptKbIndexContractBounds = {},
 ): SynthesisConceptKbIndexResult {
   assertJsonSafe(input, "result");
-  const resolved = resolveBounds(bounds);
+  const rebuilt = rebuildSynthesisConceptKbIndexResultPayload(input, bounds);
   const request = rebuildSynthesisConceptKbIndexRequest(requestInput, bounds);
+  if (!sameJson(rebuilt, computeIndex(request, {}))) {
+    invalid("index result does not match the request");
+  }
+  return rebuilt;
+}
+
+export function rebuildSynthesisConceptKbIndexResultPayload(
+  input: unknown,
+  bounds: SynthesisConceptKbIndexContractBounds = {},
+): SynthesisConceptKbIndexResult {
+  const resolved = resolveBounds(bounds);
   const row = objectValue(input, "result");
   if (
     row.contractVersion !== SYNTHESIS_CONCEPT_KB_CONTRACT_VERSION ||
@@ -747,7 +789,7 @@ export function rebuildSynthesisConceptKbIndexResult(
   ) {
     invalid("index result version is invalid");
   }
-  const rebuilt: SynthesisConceptKbIndexResult = {
+  return {
     contractVersion: SYNTHESIS_CONCEPT_KB_CONTRACT_VERSION,
     algorithmVersion: SYNTHESIS_CONCEPT_KB_INDEX_VERSION,
     schemaVersion: SYNTHESIS_CONCEPT_KB_INDEX_SCHEMA_VERSION,
@@ -764,10 +806,6 @@ export function rebuildSynthesisConceptKbIndexResult(
       (entry, index) => rebuildOverlayEntry(entry, index, resolved),
     ),
   };
-  if (!sameJson(rebuilt, computeIndex(request, {}))) {
-    invalid("index result does not match the request");
-  }
-  return rebuilt;
 }
 
 function rebuildQueryMatch(
@@ -827,8 +865,19 @@ export function rebuildSynthesisConceptKbQueryResult(
   bounds: SynthesisConceptKbIndexContractBounds = {},
 ): SynthesisConceptKbQueryResult {
   assertJsonSafe(input, "result");
-  const resolved = resolveBounds(bounds);
+  const rebuilt = rebuildSynthesisConceptKbQueryResultPayload(input, bounds);
   const request = rebuildSynthesisConceptKbQueryRequest(requestInput, bounds);
+  if (!sameJson(rebuilt, computeQuery(request, {}))) {
+    invalid("query result does not match the request");
+  }
+  return rebuilt;
+}
+
+export function rebuildSynthesisConceptKbQueryResultPayload(
+  input: unknown,
+  bounds: SynthesisConceptKbIndexContractBounds = {},
+): SynthesisConceptKbQueryResult {
+  const resolved = resolveBounds(bounds);
   const row = objectValue(input, "result");
   if (
     row.contractVersion !== SYNTHESIS_CONCEPT_KB_CONTRACT_VERSION ||
@@ -836,17 +885,13 @@ export function rebuildSynthesisConceptKbQueryResult(
   ) {
     invalid("query result version is invalid");
   }
-  const rebuilt: SynthesisConceptKbQueryResult = {
+  return {
     contractVersion: SYNTHESIS_CONCEPT_KB_CONTRACT_VERSION,
     algorithmVersion: SYNTHESIS_CONCEPT_KB_QUERY_VERSION,
     matches: arrayValue(row.matches, "matches").map((entry, index) =>
       rebuildQueryMatch(entry, index, resolved),
     ),
   };
-  if (!sameJson(rebuilt, computeQuery(request, {}))) {
-    invalid("query result does not match the request");
-  }
-  return rebuilt;
 }
 
 export function createInProcessSynthesisConceptKbIndexEngine(

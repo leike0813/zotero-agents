@@ -200,6 +200,7 @@ dependencies = [
 name = "synthesis-concept-kb"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "serde_json",
  "synthesis-protocol",
 ]

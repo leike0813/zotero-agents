@@ -2,11 +2,8 @@
 
 ## Purpose
 Defines the Synthesis citation graph metrics engine, specifying its processing pipeline, input/output contracts, and integration with the parent capability.
-
 ## Requirements
-
 ### Requirement: Metrics compute SHALL use a strict environment-neutral contract
-
 
 The Citation Graph metrics engine SHALL accept and return canonical JSON-safe DTOs containing only the bounded graph slice and metrics v2 facts required for deterministic computation.
 
@@ -28,23 +25,17 @@ The Citation Graph metrics engine SHALL accept and return canonical JSON-safe DT
 
 ### Requirement: Metrics kernels SHALL preserve metrics v2 behavior
 
+The active engine SHALL implement Metrics v2 in Rust with the existing weighted PageRank, weak components, year normalization, foundation/frontier scoring, role hints, constants, one-millionth rounding, explicit UTF-16 ordering, and deterministic result structure. The TypeScript implementation SHALL remain only as a frozen differential oracle.
 
-The engine SHALL implement the current weighted PageRank, weak-component discovery, year normalization, foundation/frontier scoring, and role-hint behavior with the existing metrics version, parameters, formulas, rounding, and deterministic ordering.
+#### Scenario: Existing graph is computed through Rust
+- **WHEN** a canonical request is computed by the active engine
+- **THEN** its strict result and application-projected canonical metrics hash SHALL match the reviewed Node oracle
 
-#### Scenario: Existing graph is computed in-process
-
-- **WHEN** a canonical request is computed by the in-process engine
-- **THEN** its node metrics and diagnostics SHALL match the pre-extraction implementation
-- **AND** the application-projected canonical metrics hash SHALL remain unchanged.
-
-#### Scenario: Isolated and incomplete nodes are computed
-
-- **WHEN** library nodes are isolated or have missing years and the request is otherwise valid
-- **THEN** every library node SHALL receive one deterministic metrics row
-- **AND** diagnostics SHALL preserve the current isolated-node and missing-year counts.
+#### Scenario: Node worker sources are inspected
+- **WHEN** the vertical slice is accepted
+- **THEN** no active Node worker Metrics operation, branch, or runtime fallback SHALL remain
 
 ### Requirement: Metrics engine package SHALL remain process portable
-
 
 The metrics engine package SHALL NOT import Node, DOM, Zotero, plugin toolkit, application runtime, repository, filesystem, or application hashing capabilities.
 

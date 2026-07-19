@@ -7,7 +7,10 @@ on:
       - dev-refactor
     paths:
       - "native/synthesis-sidecar/**"
+      - "apps/synthesis-service/src/**"
       - "packages/synthesis-contracts/contract-set/synthesis-cross-language-v1/**"
+      - "packages/synthesis-engine/src/**"
+      - "scripts/smoke-synthesis-rust-sidecar-worker.ts"
       - "scripts/synthesis-sidecar-runtime-release-governance.ts"
       - ".github/workflows/build-synthesis-rust-sidecar.yml"
 
@@ -75,46 +78,9 @@ jobs:
         run: |
           set -euo pipefail
           BINARY=".scaffold/rust-candidate/${{ matrix.target }}/synthesis-sidecar${{ startsWith(matrix.target, 'win32-') && '.exe' || '' }}"
-          node - "${BINARY}" <<'NODE'
-          const { spawnSync } = require("child_process");
-          const fs = require("fs");
-          const binary = process.argv[2];
-          const provenance = JSON.parse(fs.readFileSync(
-            `.scaffold/rust-candidate/${{ matrix.target }}/provenance.json`,
-            "utf8",
-          ));
-          const payload = {
-            protocol: "synthesis-rust-worker.v1",
-            type: "run",
-            taskId: "smoke:1",
-            operation: "citation_graph_metrics.v1",
-            payload: {
-              graphHash: `sha256:${"0".repeat(64)}`,
-              nodes: [{
-                nodeId: "paper:1",
-                kind: "library_paper",
-                libraryId: 1,
-                itemKey: "1",
-                title: "Smoke",
-                year: "2024",
-              }],
-              edges: [],
-            },
-          };
-          const run = spawnSync(binary, ["worker"], {
-            input: `${JSON.stringify(payload)}\n`,
-            encoding: "utf8",
-          });
-          if (run.status !== 0) throw new Error(run.stderr);
-          const frames = run.stdout.trim().split(/\r?\n/).map(JSON.parse);
-          if (
-            frames[0]?.type !== "ready" ||
-            frames[0]?.buildFingerprint !== provenance.sourceFingerprint ||
-            frames[1]?.type !== "result"
-          ) {
-            throw new Error(`Unexpected worker frames: ${run.stdout}`);
-          }
-          NODE
+          npx tsx scripts/smoke-synthesis-rust-sidecar-worker.ts \
+            "${BINARY}" \
+            ".scaffold/rust-candidate/${{ matrix.target }}/provenance.json"
           tar -czf ".scaffold/synthesis-rust-sidecar-${{ matrix.target }}.tar.gz" \
             -C .scaffold/rust-candidate "${{ matrix.target }}"
           node - ".scaffold/synthesis-rust-sidecar-${{ matrix.target }}.tar.gz" <<'NODE'

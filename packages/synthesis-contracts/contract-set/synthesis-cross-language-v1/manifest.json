@@ -28,6 +28,7 @@
         "metricsWorkerMessage",
         "workerPageDescriptor",
         "deterministicWorkerRunBegin",
+        "deterministicWorkerResultBegin",
         "deterministicWorkerPage",
         "deterministicWorkerAck",
         "deterministicWorkerComplete",
@@ -299,6 +300,7 @@
     "worker.deterministic_protocol": [
       "schemas/compute.schema.json#/$defs/workerPageDescriptor",
       "schemas/compute.schema.json#/$defs/deterministicWorkerRunBegin",
+      "schemas/compute.schema.json#/$defs/deterministicWorkerResultBegin",
       "schemas/compute.schema.json#/$defs/deterministicWorkerPage",
       "schemas/compute.schema.json#/$defs/deterministicWorkerAck",
       "schemas/compute.schema.json#/$defs/deterministicWorkerComplete",

@@ -408,8 +408,16 @@
         "note": { "$ref": "#/$defs/string" },
         "deprecated": { "type": "boolean" },
         "replacement": { "$ref": "#/$defs/string" },
-        "aliases": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/string" } },
-        "abbrev": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/string" } }
+        "aliases": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/string" }
+        },
+        "abbrev": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/string" }
+        }
       }
     },
     "tagVocabularyProtocol": {
@@ -419,64 +427,213 @@
       "properties": {
         "version": { "$ref": "#/$defs/string" },
         "tagPattern": { "$ref": "#/$defs/string" },
-        "maxTagLength": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
-        "facets": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/string" } }
+        "maxTagLength": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "facets": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/string" }
+        }
       }
     },
     "tagVocabularyWarning": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["code", "severity", "message"],
-      "properties": { "code": { "$ref": "#/$defs/string" }, "severity": { "enum": ["warning", "error"] }, "tag": { "$ref": "#/$defs/string" }, "message": { "$ref": "#/$defs/string" } }
+      "properties": {
+        "code": { "$ref": "#/$defs/string" },
+        "severity": { "enum": ["warning", "error"] },
+        "tag": { "$ref": "#/$defs/string" },
+        "message": { "$ref": "#/$defs/string" }
+      }
     },
     "tagVocabularySearchRow": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["tag", "normalized", "facet", "aliases", "abbrev"],
-      "properties": { "tag": { "$ref": "#/$defs/string" }, "normalized": { "$ref": "#/$defs/string" }, "facet": { "$ref": "#/$defs/string" }, "aliases": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/string" } }, "abbrev": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/string" } } }
+      "properties": {
+        "tag": { "$ref": "#/$defs/string" },
+        "normalized": { "$ref": "#/$defs/string" },
+        "facet": { "$ref": "#/$defs/string" },
+        "aliases": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/string" }
+        },
+        "abbrev": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/string" }
+        }
+      }
     },
     "conceptKbConcept": {
-      "type": "object", "additionalProperties": false,
-      "required": ["conceptId", "label", "aliases", "conceptType", "domain", "status"],
-      "properties": { "conceptId": { "$ref": "#/$defs/identifier" }, "label": { "$ref": "#/$defs/string" }, "aliases": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/string" } }, "conceptType": { "$ref": "#/$defs/string" }, "domain": { "$ref": "#/$defs/string" }, "status": { "enum": ["active", "review", "deprecated"] }, "shortDefinition": { "$ref": "#/$defs/string" }, "definition": { "$ref": "#/$defs/string" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "conceptId",
+        "label",
+        "aliases",
+        "conceptType",
+        "domain",
+        "status"
+      ],
+      "properties": {
+        "conceptId": { "$ref": "#/$defs/identifier" },
+        "label": { "$ref": "#/$defs/string" },
+        "aliases": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/string" }
+        },
+        "conceptType": { "$ref": "#/$defs/string" },
+        "domain": { "$ref": "#/$defs/string" },
+        "status": { "enum": ["active", "review", "deprecated"] },
+        "shortDefinition": { "$ref": "#/$defs/string" },
+        "definition": { "$ref": "#/$defs/string" }
+      }
     },
     "conceptKbSense": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["senseId", "conceptId", "label", "confidence"],
-      "properties": { "senseId": { "$ref": "#/$defs/identifier" }, "conceptId": { "$ref": "#/$defs/identifier" }, "label": { "$ref": "#/$defs/string" }, "shortDefinition": { "$ref": "#/$defs/string" }, "definition": { "$ref": "#/$defs/string" }, "confidence": { "enum": ["high", "medium", "low"] } }
+      "properties": {
+        "senseId": { "$ref": "#/$defs/identifier" },
+        "conceptId": { "$ref": "#/$defs/identifier" },
+        "label": { "$ref": "#/$defs/string" },
+        "shortDefinition": { "$ref": "#/$defs/string" },
+        "definition": { "$ref": "#/$defs/string" },
+        "confidence": { "enum": ["high", "medium", "low"] }
+      }
     },
     "conceptKbAlias": {
-      "type": "object", "additionalProperties": false,
-      "required": ["aliasId", "alias", "normalized", "conceptId", "status", "confidence"],
-      "properties": { "aliasId": { "$ref": "#/$defs/identifier" }, "alias": { "$ref": "#/$defs/string" }, "normalized": { "$ref": "#/$defs/string" }, "conceptId": { "$ref": "#/$defs/identifier" }, "senseId": { "$ref": "#/$defs/identifier" }, "status": { "enum": ["active", "review", "deprecated"] }, "confidence": { "enum": ["high", "medium", "low"] } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "aliasId",
+        "alias",
+        "normalized",
+        "conceptId",
+        "status",
+        "confidence"
+      ],
+      "properties": {
+        "aliasId": { "$ref": "#/$defs/identifier" },
+        "alias": { "$ref": "#/$defs/string" },
+        "normalized": { "$ref": "#/$defs/string" },
+        "conceptId": { "$ref": "#/$defs/identifier" },
+        "senseId": { "$ref": "#/$defs/identifier" },
+        "status": { "enum": ["active", "review", "deprecated"] },
+        "confidence": { "enum": ["high", "medium", "low"] }
+      }
     },
     "conceptKbSearchRow": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["conceptId", "label", "normalized", "conceptType", "domain"],
-      "properties": { "conceptId": { "$ref": "#/$defs/identifier" }, "label": { "$ref": "#/$defs/string" }, "normalized": { "$ref": "#/$defs/string" }, "conceptType": { "$ref": "#/$defs/string" }, "domain": { "$ref": "#/$defs/string" } }
+      "properties": {
+        "conceptId": { "$ref": "#/$defs/identifier" },
+        "label": { "$ref": "#/$defs/string" },
+        "normalized": { "$ref": "#/$defs/string" },
+        "conceptType": { "$ref": "#/$defs/string" },
+        "domain": { "$ref": "#/$defs/string" }
+      }
     },
     "conceptKbOverlayEntry": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["conceptId", "alias", "label", "confidence"],
-      "properties": { "conceptId": { "$ref": "#/$defs/identifier" }, "senseId": { "$ref": "#/$defs/identifier" }, "alias": { "$ref": "#/$defs/string" }, "label": { "$ref": "#/$defs/string" }, "shortDefinition": { "$ref": "#/$defs/string" }, "definition": { "$ref": "#/$defs/string" }, "confidence": { "enum": ["high", "medium", "low"] } }
+      "properties": {
+        "conceptId": { "$ref": "#/$defs/identifier" },
+        "senseId": { "$ref": "#/$defs/identifier" },
+        "alias": { "$ref": "#/$defs/string" },
+        "label": { "$ref": "#/$defs/string" },
+        "shortDefinition": { "$ref": "#/$defs/string" },
+        "definition": { "$ref": "#/$defs/string" },
+        "confidence": { "enum": ["high", "medium", "low"] }
+      }
     },
     "conceptKbQueryAliasMatch": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["aliasId", "conceptId"],
-      "properties": { "aliasId": { "$ref": "#/$defs/identifier" }, "conceptId": { "$ref": "#/$defs/identifier" } }
+      "properties": {
+        "aliasId": { "$ref": "#/$defs/identifier" },
+        "conceptId": { "$ref": "#/$defs/identifier" }
+      }
     },
     "conceptKbQueryMatch": {
-      "type": "object", "additionalProperties": false,
-      "required": ["label", "exactConceptIds", "aliasMatches", "senseIds", "ambiguous"],
-      "properties": { "label": { "$ref": "#/$defs/string" }, "exactConceptIds": { "type": "array", "maxItems": 25000, "items": { "$ref": "#/$defs/identifier" } }, "aliasMatches": { "type": "array", "maxItems": 250000, "items": { "$ref": "#/$defs/conceptKbQueryAliasMatch" } }, "senseIds": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/identifier" } }, "ambiguous": { "type": "boolean" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "exactConceptIds",
+        "aliasMatches",
+        "senseIds",
+        "ambiguous"
+      ],
+      "properties": {
+        "label": { "$ref": "#/$defs/string" },
+        "exactConceptIds": {
+          "type": "array",
+          "maxItems": 25000,
+          "items": { "$ref": "#/$defs/identifier" }
+        },
+        "aliasMatches": {
+          "type": "array",
+          "maxItems": 250000,
+          "items": { "$ref": "#/$defs/conceptKbQueryAliasMatch" }
+        },
+        "senseIds": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": { "$ref": "#/$defs/identifier" }
+        },
+        "ambiguous": { "type": "boolean" }
+      }
     },
     "topicGraphNode": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["topicId", "isRoot"],
-      "properties": { "topicId": { "$ref": "#/$defs/identifier" }, "isRoot": { "type": "boolean" }, "level": { "enum": ["top", "normal"] }, "definitionStatus": { "enum": ["has_synthesis", "placeholder", "deleted", "stale"] } }
+      "properties": {
+        "topicId": { "$ref": "#/$defs/identifier" },
+        "isRoot": { "type": "boolean" },
+        "level": { "enum": ["top", "normal"] },
+        "definitionStatus": {
+          "enum": ["has_synthesis", "placeholder", "deleted", "stale"]
+        }
+      }
     },
     "topicGraphEdge": {
-      "type": "object", "additionalProperties": false,
-      "required": ["edgeId", "sourceTopicId", "targetTopicId", "relation", "status"],
-      "properties": { "edgeId": { "$ref": "#/$defs/identifier" }, "sourceTopicId": { "$ref": "#/$defs/identifier" }, "targetTopicId": { "$ref": "#/$defs/identifier" }, "relation": { "enum": ["broader_than", "related_to", "overlaps_with", "contrasts_with"] }, "status": { "enum": ["suggested", "confirmed", "rejected", "stale", "deleted"] } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "edgeId",
+        "sourceTopicId",
+        "targetTopicId",
+        "relation",
+        "status"
+      ],
+      "properties": {
+        "edgeId": { "$ref": "#/$defs/identifier" },
+        "sourceTopicId": { "$ref": "#/$defs/identifier" },
+        "targetTopicId": { "$ref": "#/$defs/identifier" },
+        "relation": {
+          "enum": [
+            "broader_than",
+            "related_to",
+            "overlaps_with",
+            "contrasts_with"
+          ]
+        },
+        "status": {
+          "enum": ["suggested", "confirmed", "rejected", "stale", "deleted"]
+        }
+      }
     },
     "tagVocabularyValidationRequest": {
       "allOf": [
@@ -854,7 +1011,26 @@
       "additionalProperties": false,
       "required": ["section", "pageIndex", "rowCount", "byteLength", "sha256"],
       "properties": {
-        "section": { "$ref": "#/$defs/identifier" },
+        "section": {
+          "enum": [
+            "entries",
+            "aliases",
+            "abbrev",
+            "concepts",
+            "senses",
+            "labels",
+            "nodes",
+            "edges",
+            "warnings",
+            "tags",
+            "search",
+            "validationWarnings",
+            "overlayEntries",
+            "matches",
+            "roots",
+            "unplaced"
+          ]
+        },
         "pageIndex": { "type": "integer", "minimum": 0, "maximum": 255 },
         "rowCount": { "type": "integer", "minimum": 0, "maximum": 100000 },
         "byteLength": { "type": "integer", "minimum": 2, "maximum": 4194304 },
@@ -869,7 +1045,26 @@
         "protocol": { "const": "synthesis-rust-worker.v1" },
         "type": { "const": "run_begin" },
         "taskId": { "$ref": "#/$defs/identifier" },
-        "operation": { "enum": ["tag_vocabulary_validate.v1", "tag_vocabulary_index.v1", "concept_kb_index.v1", "concept_kb_query.v1", "topic_graph_index.v1"] },
+        "operation": {
+          "enum": [
+            "tag_vocabulary_validate.v1",
+            "tag_vocabulary_index.v1",
+            "concept_kb_index.v1",
+            "concept_kb_query.v1",
+            "topic_graph_index.v1"
+          ]
+        },
+        "header": { "$ref": "#/$defs/jsonObject" }
+      }
+    },
+    "deterministicWorkerResultBegin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "type", "taskId", "header"],
+      "properties": {
+        "protocol": { "const": "synthesis-rust-worker.v1" },
+        "type": { "const": "result_begin" },
+        "taskId": { "$ref": "#/$defs/identifier" },
         "header": { "$ref": "#/$defs/jsonObject" }
       }
     },
@@ -882,7 +1077,11 @@
         "type": { "enum": ["input_page", "result_page"] },
         "taskId": { "$ref": "#/$defs/identifier" },
         "descriptor": { "$ref": "#/$defs/workerPageDescriptor" },
-        "rows": { "type": "array", "maxItems": 100000, "items": { "$ref": "#/$defs/jsonValue" } }
+        "rows": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": { "$ref": "#/$defs/jsonValue" }
+        }
       }
     },
     "deterministicWorkerAck": {
@@ -910,9 +1109,11 @@
     "deterministicWorkerMessage": {
       "oneOf": [
         { "$ref": "#/$defs/deterministicWorkerRunBegin" },
+        { "$ref": "#/$defs/deterministicWorkerResultBegin" },
         { "$ref": "#/$defs/deterministicWorkerPage" },
         { "$ref": "#/$defs/deterministicWorkerAck" },
         { "$ref": "#/$defs/deterministicWorkerComplete" },
+        { "$ref": "#/$defs/metricsWorkerCancel" },
         { "$ref": "#/$defs/metricsWorkerFailure" }
       ]
     },
