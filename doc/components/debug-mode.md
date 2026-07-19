@@ -84,12 +84,30 @@ zero audit module bytes or event markers. When both gates are enabled, the
 existing bounded event ledger, 22 guarded event points, and read-only snapshot
 contract are preserved.
 
+## Wire Assert Self-Checks
+
+`WORKSPACE_PUBLICATION_WIRE_ASSERT_ENABLED` and
+`SKILLRUNNER_SNAPSHOT_WIRE_ASSERT_ENABLED` are independent source literals in
+`debugMode.ts` and default to `true`. Each requires debug mode; release builds
+fold the checks out through their esbuild defines. They are not preferences
+and cannot be toggled at runtime; tests use the respective
+`set*WireAssertOverrideForTests` hooks.
+
+When enabled, the Assistant Workspace publication coordinator asserts every
+outgoing v1 publication at its single construction point before posting, and
+the SkillRunner run-workspace host asserts every outgoing snapshot against
+`zotero-agents.skillrunner-workspace-snapshot.v1` before delivery. Both checks
+exist to fail producer-side contract drift at construction time during
+development instead of dropping it silently at the receiver.
+
 ## Consumers
 
 | Consumer | File | Effect when debug mode is OFF |
 |----------|------|-------------------------------|
 | ACP Trace Recorder / Replay Profiler | `acpRuntimeSemanticTraceRecorder.ts`, `acpRuntimeReplayProfiler.ts` | Capture and replay modules are removed from release bundles |
 | SkillRunner Connection Audit | `skillRunnerConnectionAudit.ts`, `skillRunnerConnectionAuditStore.ts` | Collection and snapshot modules are removed from release bundles |
+| Publication Wire Assert | `assistantWorkspacePublicationCoordinator.ts` | Outgoing publications skip the v1 wire assertion |
+| SkillRunner Snapshot Wire Assert | `skillRunnerRunDialog.ts` | Outgoing run-workspace snapshots skip the v1 wire assertion |
 | Workflow Debug Probe | `workflowDebugProbe.ts` | Probe tool hidden from UI |
 | Plugin Skill Registry | `pluginSkillRegistry.ts` | `debug_only: true` skills excluded from registry |
 | Host Bridge Capability Registry | `hostBridgeCapabilityRegistry.ts` | Debug capabilities filtered from listings |

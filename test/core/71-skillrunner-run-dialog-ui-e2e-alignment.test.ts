@@ -1,4 +1,43 @@
+// 本文件采用行为级契约测试（不再是源码文本正则匹配），分三层：
+//   A 层（snapshot 生产契约）：走真实生产路径 attachSkillRunnerSidebarHost →
+//     refreshSkillRunnerSidebarHostSnapshot → pushSnapshot，捕获注入的
+//     publishSnapshot 拿到的生产真快照，断言其语义字段。
+//   B 层（JS 消费契约）：进程内 import 真实 assistantPanelModel.js（迁移到
+//     src/sidebar/ 的 ES module），用 A 层
+//     真快照驱动 projectSkillRunnerPanelSnapshot；并用递归 Proxy 记录投影的
+//     全部属性读取路径，双向断言“幻影读取”与“关键字段必达”。
+//   C 层（静态资源联动）：run-dialog.html 的 mount id 与 runDialog.js 实际
+//     getElementById 查找键联动断言，并保留共享资源引用存在性断言。
+//
+// 旧版文本断言的处置（删除理由）：
+//   - 旧 it1（host 侧 getRun 轮询收敛、abortCurrentChatStream 文本）：可行为化
+//     核心已由 65（pending/状态归一化）、83（waiting_auth observer 决策）、
+//     84-skillrunner-run-state-projection（状态投影语义）覆盖；A 层改用真实
+//     管理响应走同一 syncRunMeta/syncPendingState 路径验证快照语义。
+//   - 旧 it2（六区 scaffold HTML/JS 文本）→ C 层 mount id 联动 + 资源引用断言。
+//   - 旧 it3（model/renderer 函数名文本）→ B 层真实投影行为 + 字段消费清单。
+//   - 旧 it4（sendAction 文本）→ A 层 action 分发闭环（真实 dispatch）。
+//   - 旧 it5（auth import 文件处理文本）：页面本地文件读取的可行为核心
+//     （必填文件校验）已由 83 的 validateRunDialogAuthImportFiles 覆盖。
+//   - 旧 it6（transcript renderer/thinking core 文本）：display_text 优先语义
+//     已由 65（toRunDialogConversationEntry）与 84-skillrunner-chat-thinking-core
+//     （真实加载 chatThinkingCore.js 的行为测试）覆盖；tool/revision 投影由
+//     B 层投影产物结构断言覆盖。
+//   - 旧 it7（纯 CSS 文本断言）：删除；CSS 选择器行为化收益低，共享 CSS 引用
+//     存在性保留在 C 层。
+//   - 旧 it8（host 侧 sync 语义文本）：同旧 it1，由 65/83/84 与 A 层行为覆盖。
 import { assert } from "chai";
+import * as AssistantPanelModel from "../../src/sidebar/assistantPanelModel.js";
+import { adaptLegacyTranscriptItem } from "../../src/sidebar/assistantTranscriptRenderer.js";
+import { getSkillRunnerRunRecord } from "../../src/modules/skillRunnerRunStore";
+import {
+  SKILLRUNNER_SNAPSHOT_COMPAT_ALIAS_PATHS,
+  SKILLRUNNER_SNAPSHOT_REQUIRED_CONSUMED_PATHS,
+} from "../../src/shared/skillRunnerSnapshotContract";
+import {
+  captureSkillRunnerWorkspaceEnvelope,
+  startSkillRunnerWorkspaceSnapshotHarness,
+} from "../helpers/skillRunnerWorkspaceSnapshotHarness";
 import {
   getProjectRoot,
   joinPath,
@@ -10,428 +49,649 @@ async function readProjectFile(relativePath: string) {
   return readUtf8(targetPath);
 }
 
-describe("skillrunner run dialog managed ui alignment", function () {
-  it("converges jobs endpoint terminal and waiting states during metadata sync", async function () {
-    const source = await readProjectFile("src/modules/skillRunnerRunDialog.ts");
+async function loadPanelModel() {
+  return AssistantPanelModel;
+}
 
-    assert.match(
-      source,
-      /const run = await client\.getRun\(\{\s*requestId: entry\.requestId,\s*\}\)/,
-    );
-    assert.match(
-      source,
-      /resolveSkillRunnerManagementResponseSemantic\(\{\s*response: run,/,
-    );
-    assert.match(
-      source,
-      /isTerminal\(observedStatus\) \|\| isWaiting\(observedStatus\)/,
-    );
-    assert.match(
-      source,
-      /applyManagementStatusToRunDialogEntry\(\{\s*entry,\s*status: observedStatus,\s*source: "run-dialog-meta"/,
-    );
-    assert.match(
-      source,
-      /if \(isTerminal\(status\) \|\| isWaiting\(status\)\) \{\s*abortCurrentChatStream\(\);\s*stopSessionSync\(\{/,
-    );
+type SnapshotConsumption = {
+  proxied: unknown;
+  consumedPaths: Set<string>;
+  phantomPaths: Set<string>;
+  producedPaths: Set<string>;
+};
+
+/**
+ * Wrap a real production snapshot in a recursive Proxy that records every
+ * property get path during the panel projection. `phantomPaths` are gets for
+ * keys that do not exist on the real snapshot (defensive alias sniffing);
+ * `producedPaths` is the full recursive key inventory of the real snapshot.
+ */
+function trackSnapshotConsumption(snapshot: unknown): SnapshotConsumption {
+  const consumedPaths = new Set<string>();
+  const phantomPaths = new Set<string>();
+  const producedPaths = new Set<string>();
+  enumerateProduced(snapshot, "");
+  const proxied = wrap(snapshot, "");
+  return { proxied, consumedPaths, phantomPaths, producedPaths };
+
+  function childPath(base: string, key: string, parentIsArray: boolean) {
+    if (parentIsArray) {
+      return `${base}[]`;
+    }
+    return base ? `${base}.${key}` : key;
+  }
+
+  function enumerateProduced(value: unknown, path: string) {
+    if (!value || typeof value !== "object") {
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        enumerateProduced(entry, `${path}[]`);
+      }
+      return;
+    }
+    for (const [key, entry] of Object.entries(value)) {
+      const nextPath = path ? `${path}.${key}` : key;
+      producedPaths.add(nextPath);
+      enumerateProduced(entry, nextPath);
+    }
+  }
+
+  function wrap(value: unknown, path: string): unknown {
+    if (!value || typeof value !== "object") {
+      return value;
+    }
+    const target = value as Record<string | symbol, unknown>;
+    return new Proxy(target, {
+      get(obj, key) {
+        if (typeof key !== "string") {
+          return Reflect.get(obj, key);
+        }
+        const nextPath = childPath(path, key, Array.isArray(obj));
+        consumedPaths.add(nextPath);
+        if (!Reflect.has(obj, key)) {
+          phantomPaths.add(nextPath);
+        }
+        return wrap(Reflect.get(obj, key), nextPath);
+      },
+    });
+  }
+}
+
+function unionPaths(...sets: Array<Set<string>>) {
+  const merged = new Set<string>();
+  for (const set of sets) {
+    for (const path of set) {
+      merged.add(path);
+    }
+  }
+  return merged;
+}
+
+function sortedPaths(paths: Set<string>) {
+  return [...paths].sort();
+}
+
+const WAITING_USER_PENDING = {
+  interaction_id: 77,
+  kind: "choose_one",
+  prompt: "Choose the next step",
+  options: [
+    { label: "Continue analysis", value: "continue_value" },
+    { label: "Stop task", value: "stop_value" },
+  ],
+  ask_user: {
+    kind: "choose_one",
+    prompt: "Choose the next step",
+    options: [
+      { label: "Continue analysis", value: "continue_value" },
+      { label: "Stop task", value: "stop_value" },
+    ],
+  },
+};
+
+const WAITING_AUTH_PENDING = {
+  phase: "challenge_active",
+  auth_session_id: "sess-auth-1",
+  engine: "opencode",
+  provider_id: "openai",
+  prompt: "Provide the authorization code",
+  challenge_kind: "auth_code_or_url",
+  accepts_chat_input: true,
+  input_kind: "auth_code_or_url",
+  auth_url: "https://auth.example/device",
+  user_code: "ABCDE",
+  available_methods: ["auth_code_or_url", "api_key"],
+  ask_user: {
+    kind: "open_text",
+    prompt: "Provide the authorization code",
+    hint: "Paste the code from your browser",
+  },
+};
+
+describe("skillrunner run dialog ui behavior contract", function () {
+  this.timeout(20_000);
+
+  describe("layer A: snapshot production contract", function () {
+    it("publishes waiting_user semantics for a selected run", async function () {
+      const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+      try {
+        const seeded = harness.seedTask({
+          taskName: "Waiting Task",
+          requestId: "req-waiting-1",
+          status: "waiting_user",
+          pending: WAITING_USER_PENDING,
+        });
+        const capture = await harness.attach({ selectRunKey: seeded.runKey });
+        const snapshot = await capture.waitFor(
+          (entry) =>
+            !!entry.session &&
+            entry.session.loading === false &&
+            entry.session.pendingInteractionId === 77,
+        );
+
+        assert.isOk(snapshot.session, "expected a selected session snapshot");
+        assert.equal(
+          snapshot.workspace.selectedTaskKey,
+          seeded.runKey,
+          "selectedTaskKey must match the seeded run",
+        );
+        assert.equal(snapshot.session?.status, "waiting_user");
+        assert.equal(snapshot.session?.statusSemantics.waiting, true);
+        assert.equal(snapshot.session?.statusSemantics.terminal, false);
+        assert.equal(snapshot.session?.canReply, true);
+        assert.isOk(
+          String(snapshot.labels.title || "").trim(),
+          "labels.title must be produced",
+        );
+        assert.isOk(
+          String(snapshot.labels.emptyTasks || "").trim(),
+          "labels.emptyTasks must be produced",
+        );
+      } finally {
+        await harness.reset();
+      }
+    });
+
+    it("publishes terminal semantics for a finished run", async function () {
+      const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+      try {
+        const seeded = harness.seedTask({
+          taskName: "Finished Task",
+          requestId: "req-terminal-1",
+          status: "succeeded",
+        });
+        const capture = await harness.attach({ selectRunKey: seeded.runKey });
+        const snapshot = await capture.waitFor(
+          (entry) =>
+            !!entry.session &&
+            entry.session.loading === false &&
+            entry.session.historyLoading === false,
+        );
+
+        assert.isOk(snapshot.session, "expected a selected session snapshot");
+        assert.equal(snapshot.workspace.selectedTaskKey, seeded.runKey);
+        assert.equal(snapshot.session?.status, "succeeded");
+        assert.equal(snapshot.session?.statusSemantics.terminal, true);
+        assert.equal(snapshot.session?.statusSemantics.waiting, false);
+        assert.equal(snapshot.session?.canCancelBackendRun, false);
+      } finally {
+        await harness.reset();
+      }
+    });
+
+    it("passes pending interaction fields through to the session snapshot", async function () {
+      const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+      try {
+        const seeded = harness.seedTask({
+          taskName: "Interaction Task",
+          requestId: "req-interaction-1",
+          status: "waiting_user",
+          pending: WAITING_USER_PENDING,
+        });
+        const capture = await harness.attach({ selectRunKey: seeded.runKey });
+        const snapshot = await capture.waitFor(
+          (entry) =>
+            !!entry.session &&
+            entry.session.loading === false &&
+            entry.session.pendingInteractionId === 77,
+        );
+
+        assert.equal(snapshot.session?.pendingInteractionId, 77);
+        assert.equal(snapshot.session?.pendingKind, "choose_one");
+        assert.equal(snapshot.session?.pendingPrompt, "Choose the next step");
+        assert.deepEqual(snapshot.session?.pendingOptions, [
+          { label: "Continue analysis", value: "continue_value" },
+          { label: "Stop task", value: "stop_value" },
+        ]);
+        assert.deepEqual(snapshot.session?.pendingAskUser, {
+          kind: "choose_one",
+          prompt: "Choose the next step",
+          options: [
+            { label: "Continue analysis", value: "continue_value" },
+            { label: "Stop task", value: "stop_value" },
+          ],
+        });
+      } finally {
+        await harness.reset();
+      }
+    });
+
+    it("passes pending auth fields through to the session snapshot", async function () {
+      const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+      try {
+        const seeded = harness.seedTask({
+          taskName: "Auth Task",
+          requestId: "req-auth-1",
+          status: "waiting_auth",
+          pendingAuth: WAITING_AUTH_PENDING,
+          authSession: {
+            request_id: "req-auth-1",
+            auth_session_id: "sess-auth-1",
+            status: "waiting_auth",
+            phase: "challenge_active",
+            challenge_kind: "auth_code_or_url",
+          },
+        });
+        const capture = await harness.attach({ selectRunKey: seeded.runKey });
+        const snapshot = await capture.waitFor(
+          (entry) =>
+            !!entry.session &&
+            entry.session.loading === false &&
+            entry.session.authPhase === "challenge_active",
+        );
+
+        assert.equal(snapshot.session?.status, "waiting_auth");
+        assert.equal(snapshot.session?.authPhase, "challenge_active");
+        assert.equal(snapshot.session?.authSessionId, "sess-auth-1");
+        assert.equal(snapshot.session?.authEngine, "opencode");
+        assert.equal(snapshot.session?.authProviderId, "openai");
+        assert.equal(snapshot.session?.authInputKind, "auth_code_or_url");
+        assert.equal(snapshot.session?.authUrl, "https://auth.example/device");
+        assert.equal(snapshot.session?.authUserCode, "ABCDE");
+        assert.equal(snapshot.session?.authAcceptsChatInput, true);
+        assert.deepEqual(snapshot.session?.authAvailableMethods, [
+          "auth_code_or_url",
+          "api_key",
+        ]);
+      } finally {
+        await harness.reset();
+      }
+    });
+
+    it("closes the action dispatch loop for workspace and host actions", async function () {
+      const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+      try {
+        const first = harness.seedTask({
+          taskName: "Action Task A",
+          requestId: "req-action-a",
+          status: "succeeded",
+        });
+        const second = harness.seedTask({
+          taskName: "Action Task B",
+          requestId: "req-action-b",
+          status: "succeeded",
+        });
+        const hostActions: Array<{
+          action: string;
+          payload: Record<string, unknown>;
+        }> = [];
+        const capture = await harness.attach({
+          selectRunKey: first.runKey,
+          handleHostAction: (envelope) => {
+            hostActions.push(envelope);
+            return true;
+          },
+        });
+        await capture.waitFor(
+          (entry) =>
+            entry.workspace.selectedTaskKey === first.runKey && !!entry.session,
+        );
+
+        // select-task is handled by the workspace core: observable via the
+        // published snapshot, not via handleHostAction.
+        await harness.dispatch("select-task", { taskKey: second.runKey });
+        const reselected = await capture.waitFor(
+          (entry) => entry.workspace.selectedTaskKey === second.runKey,
+        );
+        assert.equal(reselected.workspace.selectedTaskKey, second.runKey);
+
+        // reply/permission/cancel/drawer actions are routed to the injected
+        // host action handler before any entry-level fallback.
+        await harness.dispatch("reply-run", {
+          mode: "interaction",
+          replyText: "continue",
+        });
+        await harness.dispatch("resolve-permission", {
+          permissionRequestId: "perm-1",
+          outcome: "selected",
+          optionId: "allow",
+        });
+        await harness.dispatch("cancel-run", {});
+        await harness.dispatch("toggle-drawer", {});
+        assert.deepEqual(
+          hostActions.map((entry) => entry.action),
+          ["reply-run", "resolve-permission", "cancel-run", "toggle-drawer"],
+        );
+        assert.deepEqual(hostActions[0].payload, {
+          mode: "interaction",
+          replyText: "continue",
+        });
+        assert.deepEqual(hostActions[1].payload, {
+          permissionRequestId: "perm-1",
+          outcome: "selected",
+          optionId: "allow",
+        });
+
+        // archive-run is handled by the workspace core against the run store.
+        await harness.dispatch("archive-run", { runKey: second.runKey });
+        assert.isOk(
+          getSkillRunnerRunRecord(second.runKey)?.archivedAt,
+          "archive-run must mark the run record archived",
+        );
+        const afterArchive = await capture.waitFor(
+          (entry) =>
+            !entry.workspace.groups.some((group) =>
+              [...group.activeTasks, ...group.finishedTasks].some(
+                (task) => task.key === second.runKey,
+              ),
+            ),
+        );
+        assert.isOk(afterArchive);
+      } finally {
+        await harness.reset();
+      }
+    });
   });
 
-  it("uses the shared managed six-region scaffold instead of the legacy card layout", async function () {
-    const [html, js] = await Promise.all([
-      readProjectFile("addon/content/sidebar/run-dialog.html"),
-      readProjectFile("addon/content/sidebar/run-dialog.js"),
-    ]);
+  describe("layer B: panel model consumption contract", function () {
+    it("projects a real waiting_user snapshot into panel semantics", async function () {
+      const snapshot = await captureSkillRunnerWorkspaceEnvelope({
+        tasks: [
+          {
+            taskName: "Projection Task",
+            requestId: "req-projection-1",
+            status: "waiting_user",
+            pending: WAITING_USER_PENDING,
+          },
+        ],
+        waitFor: (entry) =>
+          !!entry.session &&
+          entry.session.loading === false &&
+          entry.session.pendingInteractionId === 77,
+      });
+      const model = await loadPanelModel();
+      const panel = model.projectSkillRunnerPanelSnapshot(snapshot);
 
-    assert.include(html, 'id="skillrunner-toolbar"');
-    assert.include(html, 'id="skillrunner-banner"');
-    assert.include(html, 'id="skillrunner-conversation-window"');
-    assert.include(html, 'id="skillrunner-plan"');
-    assert.include(html, 'id="skillrunner-hint"');
-    assert.include(html, 'id="reply-form"');
-    assert.include(html, 'id="skillrunner-drawer"');
-    assert.include(html, 'id="skillrunner-details"');
-    assert.include(html, 'id="chat-panel"');
-    assert.include(html, 'id="chat-mode-plain"');
-    assert.include(html, 'id="chat-mode-bubble"');
-    assert.notInclude(html, 'id="skillrunner-empty"');
-    assert.notMatch(
-      html,
-      /id="skillrunner-main"[\s\S]{0,120}class="[^"]*\bhidden\b/,
-    );
-    assert.include(html, "../shared/assistant/assistant-panel-shared.css");
-    assert.notInclude(
-      html,
-      "../shared/assistant/assistant-conversation-view.js",
-    );
-    assert.include(
-      html,
-      "../shared/assistant/assistant-transcript-renderer.js",
-    );
-    assert.include(html, "../shared/assistant/assistant-panel-model.js");
-    assert.include(html, "../shared/assistant/assistant-panel-renderer.js");
-    assert.include(html, 'src="./chat_thinking_core.js?v=');
-    assert.include(html, "vendor/markdown-it/markdown-it.min.js");
-    assert.include(html, "vendor/katex/katex.min.css");
-    assert.include(html, "vendor/katex/katex.min.js");
-    assert.include(html, "vendor/markdown-it-texmath/texmath.min.js");
+      assert.equal(panel.kind, "skillrunner");
+      assert.equal(panel.context.status, "waiting-user");
+      assert.equal(panel.reply.enabled, true);
+      assert.equal(panel.interaction.kind, "waiting_user");
+      assert.equal(panel.context.title, "Projection Task");
+    });
 
-    assert.notInclude(html, 'id="workspace-groups"');
-    assert.notInclude(html, 'id="sessions-toggle-btn"');
-    assert.notInclude(html, 'id="close-sidebar-btn"');
-    assert.notInclude(html, 'id="prompt-card"');
-    assert.notInclude(html, 'id="auth-card"');
-    assert.notInclude(html, 'id="final-summary-status"');
-    assert.notInclude(html, 'id="reply-composer"');
-    assert.notInclude(html, 'id="reply-text"');
-    assert.notInclude(html, 'class="conversation-card"');
-    assert.notInclude(js, 'getElementById("skillrunner-empty")');
-    assert.notInclude(js, "const hasSession = !!state.snapshot");
-    assert.notInclude(js, 'mainEl.classList.toggle("hidden"');
-    assert.include(js, "safeText(panelSnapshot.labels?.emptyTasks)");
+    it("maps projected conversation items through the receiver transcript adapter", async function () {
+      // Regression: the run-dialog receiver renders transcript rows via
+      // conversation.items.map(adaptLegacyTranscriptItem).filter(Boolean).
+      // A missing/broken adapter blanks the transcript while the rest of the
+      // panel keeps rendering.
+      const snapshot = await captureSkillRunnerWorkspaceEnvelope({
+        tasks: [
+          {
+            taskName: "Transcript Adapter Task",
+            requestId: "req-transcript-adapter-1",
+            status: "waiting_user",
+            pending: WAITING_USER_PENDING,
+            chatEvents: [
+              {
+                seq: 1,
+                ts: "2026-07-19T00:00:10.000Z",
+                role: "assistant",
+                kind: "assistant_process",
+                text: "Reading papers/a.md",
+                correlation: { process_type: "tool_call" },
+              },
+              {
+                seq: 2,
+                ts: "2026-07-19T00:00:11.000Z",
+                role: "assistant",
+                kind: "assistant_final",
+                text: "Final answer.",
+              },
+            ],
+          },
+        ],
+        waitFor: (entry) =>
+          !!entry.session &&
+          entry.session.loading === false &&
+          entry.session.messages.length >= 1,
+      });
+      const model = await loadPanelModel();
+      const panel = model.projectSkillRunnerPanelSnapshot(snapshot);
+
+      const items = (panel.conversation as { items?: unknown[] } | undefined)
+        ?.items;
+      assert.isArray(items, "projection must expose conversation.items");
+      const adapted = (items || [])
+        .map(adaptLegacyTranscriptItem)
+        .filter(Boolean);
+      assert.isAbove(
+        adapted.length,
+        0,
+        "adaptLegacyTranscriptItem must produce transcript items from a real snapshot",
+      );
+    });
+
+    it("projects a real empty snapshot as unavailable chrome with produced labels", async function () {
+      const snapshot = await captureSkillRunnerWorkspaceEnvelope();
+      assert.isNull(snapshot.session);
+      const model = await loadPanelModel();
+      const panel = model.projectSkillRunnerPanelSnapshot(snapshot);
+
+      assert.equal(panel.context.status, "unavailable");
+      assert.equal(panel.reply.enabled, false);
+      assert.equal(
+        panel.labels.emptyTasks,
+        snapshot.labels.emptyTasks,
+        "empty transcript text must come from the produced labels.emptyTasks",
+      );
+      assert.isOk(
+        String(panel.labels.emptyTasks || "").trim(),
+        "labels.emptyTasks must reach the panel snapshot",
+      );
+    });
+
+    it("tracks the exact field consumption of the panel projection", async function () {
+      const waitingSnapshot = await captureSkillRunnerWorkspaceEnvelope({
+        tasks: [
+          {
+            taskName: "Field Probe Task",
+            requestId: "req-fields-1",
+            status: "waiting_user",
+            pending: WAITING_USER_PENDING,
+            chatEvents: [
+              {
+                seq: 1,
+                ts: "2026-07-18T00:00:10.000Z",
+                role: "assistant",
+                kind: "assistant_process",
+                text: "Reading papers/a.md",
+                correlation: {
+                  process_type: "tool_call",
+                  tool_name: "read_file",
+                  details: { path: "papers/a.md" },
+                },
+              },
+              {
+                seq: 2,
+                ts: "2026-07-18T00:00:11.000Z",
+                role: "assistant",
+                kind: "assistant_final",
+                text: "Final answer.",
+                display_text: "Final answer.",
+              },
+            ],
+          },
+        ],
+        waitFor: (entry) =>
+          !!entry.session &&
+          entry.session.loading === false &&
+          entry.session.pendingInteractionId === 77 &&
+          entry.session.messages.some((message) => message.seq === 2),
+      });
+      const authSnapshot = await captureSkillRunnerWorkspaceEnvelope({
+        tasks: [
+          {
+            taskName: "Auth Field Task",
+            requestId: "req-fields-2",
+            status: "waiting_auth",
+            pendingAuth: WAITING_AUTH_PENDING,
+            authSession: {
+              request_id: "req-fields-2",
+              auth_session_id: "sess-auth-1",
+              status: "waiting_auth",
+              phase: "challenge_active",
+              challenge_kind: "auth_code_or_url",
+            },
+          },
+        ],
+        waitFor: (entry) =>
+          !!entry.session &&
+          entry.session.loading === false &&
+          entry.session.authPhase === "challenge_active",
+      });
+      const model = await loadPanelModel();
+
+      const waiting = trackSnapshotConsumption(waitingSnapshot);
+      const auth = trackSnapshotConsumption(authSnapshot);
+      model.projectSkillRunnerPanelSnapshot(waiting.proxied);
+      model.projectSkillRunnerPanelSnapshot(auth.proxied);
+
+      const consumedPaths = unionPaths(
+        waiting.consumedPaths,
+        auth.consumedPaths,
+      );
+      const phantomPaths = unionPaths(waiting.phantomPaths, auth.phantomPaths);
+      const producedPaths = unionPaths(
+        waiting.producedPaths,
+        auth.producedPaths,
+      );
+
+      // 幻影读取（JS 侧读取了生产快照上不存在的键）必须精确等于策展清单。
+      // 清单 SSOT 已上移到 src/shared/skillRunnerSnapshotContract.ts
+      // （SKILLRUNNER_SNAPSHOT_COMPAT_ALIAS_PATHS，含分组注释）：共享
+      // assistantPanelModel.js 同时服务 ACP Chat/Skills 等不同快照形状，对
+      // 字段做系统性防御性回退（snake_case 别名、可选协议字段、多源任务辅助
+      // 函数），这些读取是既有架构行为；任何一侧漂移（JS 读了新字段 / 生产
+      // 开始提供某字段 / JS 不再读某条）都会让本断言变红，替代旧文本断言的
+      // 漂移检测职责。
+      const knownCompatAliasPaths = new Set<string>(
+        SKILLRUNNER_SNAPSHOT_COMPAT_ALIAS_PATHS,
+      );
+      assert.deepEqual(
+        sortedPaths(phantomPaths),
+        sortedPaths(knownCompatAliasPaths),
+        "projection must not read fields the production snapshot does not produce",
+      );
+
+      // 关键字段必达：投影必须真实消费这些生产字段（否则 TS 侧改名字段时
+      // 无任何测试变红——正是旧文本断言抓不住的漂移）。清单 SSOT 同样在
+      // src/shared/skillRunnerSnapshotContract.ts
+      // （SKILLRUNNER_SNAPSHOT_REQUIRED_CONSUMED_PATHS）。注意
+      // envelope.title 与 session.messages[].text 是有意的 fallback 读取
+      // （session.title / displayText 优先，生产快照里它们始终非空），不在
+      // 此清单中。
+      const requiredConsumedPaths =
+        SKILLRUNNER_SNAPSHOT_REQUIRED_CONSUMED_PATHS;
+      const missingConsumed = requiredConsumedPaths.filter(
+        (path) => !consumedPaths.has(path),
+      );
+      assert.deepEqual(
+        missingConsumed,
+        [],
+        "projection must consume every curated contract field",
+      );
+
+      // 生产了但未被投影消费的字段：不算失败，列在此处供审查（多为有意
+      // 透传或由 runDialog.js / renderer 下游消费的字段，例如
+      // transcriptRevision、drawer.open、badges、selectionTasks、
+      // contextHint、navigation、hostMode 等）。
+      const unconsumed = sortedPaths(producedPaths).filter(
+        (path) => path && !consumedPaths.has(path),
+      );
+      console.info(
+        `[skillrunner-consumption] produced-but-unconsumed paths: ${JSON.stringify(unconsumed)}`,
+      );
+    });
   });
 
-  it("projects SkillRunner snapshots into AssistantPanelSnapshot and uses the shared renderer", async function () {
-    const modelJs = await readProjectFile(
-      "addon/content/shared/assistant/assistant-panel-model.js",
-    );
-    const rendererJs = await readProjectFile(
-      "addon/content/shared/assistant/assistant-panel-renderer.js",
-    );
-    const runDialogJs = await readProjectFile(
-      "addon/content/sidebar/run-dialog.js",
-    );
+  describe("layer C: static resource linkage", function () {
+    it("resolves every mount id the page script looks up", async function () {
+      const [html, js] = await Promise.all([
+        readProjectFile("addon/content/sidebar/run-dialog.html"),
+        // runDialog.js 有加载期 DOM 副作用，只能读文本，不得 import。
+        readProjectFile("src/sidebar/runDialog.js"),
+      ]);
+      const htmlIds = new Set(
+        [...html.matchAll(/id="([^"]+)"/g)].map((match) => match[1]),
+      );
+      const lookedUpIds = new Set(
+        [...js.matchAll(/getElementById\(\s*"([^"]+)"/g)].map(
+          (match) => match[1],
+        ),
+      );
+      for (const id of lookedUpIds) {
+        assert.isTrue(
+          htmlIds.has(id),
+          `runDialog.js looks up #${id} but run-dialog.html does not mount it`,
+        );
+      }
+      // 反向：managed 六区 + transcript + 视图切换 mount 点必须都被脚本接管。
+      const managedMountIds = [
+        "run-root",
+        "skillrunner-toolbar",
+        "skillrunner-banner",
+        "skillrunner-message-counter",
+        "skillrunner-conversation-window",
+        "chat-panel",
+        "chat-mode-plain",
+        "chat-mode-bubble",
+        "skillrunner-plan",
+        "skillrunner-hint",
+        "reply-form",
+        "skillrunner-drawer",
+        "skillrunner-details",
+      ];
+      for (const id of managedMountIds) {
+        assert.isTrue(htmlIds.has(id), `run-dialog.html must mount #${id}`);
+        assert.isTrue(
+          lookedUpIds.has(id),
+          `runDialog.js must take over the #${id} mount`,
+        );
+      }
+    });
 
-    assert.include(
-      modelJs,
-      "function projectSkillRunnerPanelSnapshot(snapshot)",
-    );
-    assert.include(
-      modelJs,
-      "buildSkillRunnerConversationView(session, envelope)",
-    );
-    assert.include(modelJs, "isSkillRunnerToolProcess(processType)");
-    assert.include(
-      modelJs,
-      "function skillRunnerToolDisplay(source, processType)",
-    );
-    assert.include(modelJs, "function skillRunnerToolDetails(source)");
-    assert.include(modelJs, "compactSkillRunnerToolValue(tool.details.path)");
-    assert.include(
-      modelJs,
-      "compactSkillRunnerToolValue(tool.details.pattern)",
-    );
-    assert.include(
-      modelJs,
-      'value === "tool_call" || value === "command_execution"',
-    );
-    assert.include(modelJs, 'kind: "tool"');
-    assert.include(modelJs, "buildSkillRunnerPendingInteraction(");
-    assert.include(modelJs, "session,");
-    assert.include(modelJs, "status,");
-    assert.include(modelJs, "envelope,");
-    assert.include(modelJs, "buildSkillRunnerContexts(envelope)");
-    assert.include(modelJs, "buildSkillRunnerDetails(envelope, session)");
-    assert.include(modelJs, "Conversation Summary");
-    assert.include(modelJs, "Revision Summary");
-    assert.notInclude(modelJs, 'detailSection("Raw Snapshot"');
-    assert.include(modelJs, 'kind: "skillrunner"');
-    assert.include(modelJs, 'layout: "skillrunner-workspace"');
-    assert.include(
-      modelJs,
-      'contextTitle: labelFrom(envelope, "actions.runs", "Runs")',
-    );
-    assert.include(modelJs, "skillrunnerSections:");
-    assert.include(modelJs, "decorateSkillRunnerWorkspaceSections");
-    assert.notInclude(
-      modelJs,
-      "function buildSkillRunnerSectionsFromWorkspace(envelope)",
-    );
-    assert.include(modelJs, '"archive-run"');
-    assert.include(modelJs, "selectedTaskKey:");
-    assert.include(modelJs, 'action: "open-context-drawer"');
-    assert.include(modelJs, 'action: "openDetails"');
-    assert.include(modelJs, 'action: "open-backend-manager"');
-    assert.include(modelJs, 'action: "copy-request-id"');
-    assert.include(modelJs, '"cancel-run"');
-
-    assert.include(rendererJs, "renderAssistantPanelSnapshot");
-    assert.include(rendererJs, "renderAssistantBanner");
-    assert.include(rendererJs, "renderAssistantHint");
-    assert.include(rendererJs, "renderAssistantReply");
-    assert.include(rendererJs, "renderAssistantContextDrawer");
-    assert.include(rendererJs, "renderDetailsDrawer");
-    assert.include(rendererJs, "function renderDetailsSection");
-    assert.include(rendererJs, '"assistant-panel-details-section-summary"');
-    assert.include(rendererJs, '"assistant-panel-details-section-body"');
-    assert.include(rendererJs, "renderAssistantWorkspaceTaskDrawer");
-    assert.include(rendererJs, "renderAssistantWorkspaceTaskAction");
-    assert.include(rendererJs, "event.stopPropagation()");
-    assert.include(rendererJs, "safeText(drawers.notice)");
-    assert.include(rendererJs, "assistant-workspace-drawer-history-notice");
-    assert.include(rendererJs, 'sectionId === "completed"');
-    assert.include(rendererJs, '" is-completed"');
-    assert.include(rendererJs, 'sectionId === "running"');
-    assert.include(rendererJs, '" is-running"');
-    assert.include(rendererJs, '" is-neutral"');
-    assert.match(
-      rendererJs,
-      /toggle\.setAttribute\(\s*"aria-expanded",\s*sectionCollapsed\s*\?\s*"false"\s*:\s*"true",?\s*\)/,
-    );
-    assert.include(
-      rendererJs,
-      'emit(options, "toggle-drawer-section", { sectionId: "completed" })',
-    );
-    assert.match(
-      rendererJs,
-      /emit\(\s*options,\s*item\.action \|\| "select-task",\s*item\.payload \|\| \{ taskKey \},?\s*\)/,
-    );
-    assert.include(rendererJs, 'emit(options, "close-context-drawer", {})');
-    assert.include(rendererJs, 'emit(options, "auth-import-run"');
-
-    assert.include(runDialogJs, "function assistantPanelModel()");
-    assert.include(runDialogJs, "function assistantPanelRenderer()");
-    assert.include(runDialogJs, "function assistantTranscriptRenderer()");
-    assert.include(
-      runDialogJs,
-      "function projectAssistantPanelSnapshot(envelope)",
-    );
-    assert.include(runDialogJs, "projectSkillRunnerPanelSnapshot(source)");
-    assert.include(
-      runDialogJs,
-      "function skillRunnerToolDisplay(source, processType)",
-    );
-    assert.include(runDialogJs, "function skillRunnerToolDetails(source)");
-    assert.include(
-      runDialogJs,
-      "compactSkillRunnerToolValue(tool.details.path)",
-    );
-    assert.include(
-      runDialogJs,
-      "compactSkillRunnerToolValue(tool.details.pattern)",
-    );
-    assert.include(
-      runDialogJs,
-      "renderer.renderAssistantPanelSnapshot(panelSnapshot",
-    );
-    assert.include(runDialogJs, 'action === "open-backend-manager"');
-    assert.include(
-      runDialogJs,
-      'action === "copy-request-id" || action === "copy-diagnostics"',
-    );
-    assert.include(runDialogJs, "managed: true");
-    assert.include(runDialogJs, "toolbar: true");
-    assert.include(runDialogJs, "banner: true");
-    assert.include(runDialogJs, "hint: true");
-    assert.include(runDialogJs, "reply: true");
-    assert.include(runDialogJs, "drawer: true");
-    assert.include(runDialogJs, "details: true");
-  });
-
-  it("keeps SkillRunner action semantics while routing through the managed envelope", async function () {
-    const js = await readProjectFile("addon/content/sidebar/run-dialog.js");
-    const modelJs = await readProjectFile(
-      "addon/content/shared/assistant/assistant-panel-model.js",
-    );
-
-    assert.include(js, "__zsSkillRunnerSidebarBridge");
-    assert.include(js, "window.wrappedJSObject");
-    assert.include(js, 'sendAction("ready"');
-    assert.include(js, 'sendAction("reply-run"');
-    assert.match(js, /sendAction\(\s*"resolve-permission"/);
-    assert.include(js, 'sendAction("auth-import-run"');
-    assert.include(js, 'sendAction("cancel-run"');
-    assert.include(js, 'sendAction("archive-run"');
-    assert.include(js, 'sendAction("select-task"');
-    assert.notInclude(
-      js,
-      'sendAction("close-drawer", {});\n      sendAction("select-task"',
-    );
-    assert.include(js, 'sendAction("toggle-drawer"');
-    assert.include(js, 'sendAction("close-drawer"');
-    assert.include(js, 'action === "open-context-drawer"');
-    assert.include(js, 'action === "close-context-drawer"');
-    assert.include(js, 'action === "select-task"');
-    assert.include(js, 'action === "cancel" || action === "cancel-run"');
-    assert.include(js, 'action === "archive-run"');
-    assert.notInclude(js, "taskKey: runKey");
-    assert.notInclude(modelJs, "{ runKey: taskKey, taskKey }");
-    assert.include(js, 'action === "reply" || action === "reply-run"');
-    assert.include(js, 'action === "resolve-permission"');
-    assert.include(js, 'action === "auth-import-run"');
-    assert.include(js, 'mode: "interaction"');
-    assert.include(js, 'mode: "auth"');
-    assert.include(modelJs, 'kind: "auth_method"');
-    assert.include(js, '"auth_code_or_url"');
-    assert.include(js, "responseValue: matchedOption.value");
-  });
-
-  it("keeps auth import file handling page-local while shared renderer owns visible controls", async function () {
-    const rendererJs = await readProjectFile(
-      "addon/content/shared/assistant/assistant-panel-renderer.js",
-    );
-    const js = await readProjectFile("addon/content/sidebar/run-dialog.js");
-
-    assert.include(rendererJs, "data-assistant-auth-import-file");
-    assert.include(rendererJs, "data-assistant-auth-import-name");
-    assert.include(rendererJs, "assistant-panel-auth-import");
-    assert.include(rendererJs, '"Import and Continue"');
-
-    assert.include(js, "function readAuthImportFiles()");
-    assert.include(
-      js,
-      'querySelectorAll("input[data-assistant-auth-import-file]")',
-    );
-    assert.include(js, "new FileReader()");
-    assert.include(js, "reader.readAsDataURL(file)");
-    assert.include(js, "contentBase64");
-    assert.notInclude(js, "function renderAuthCard");
-    assert.notInclude(js, "authCardEl");
-  });
-
-  it("uses shared transcript rendering with SkillRunner revision metadata preserved as badges/details", async function () {
-    const transcriptRendererJs = await readProjectFile(
-      "addon/content/shared/assistant/assistant-transcript-renderer.js",
-    );
-    const js = await readProjectFile("addon/content/sidebar/run-dialog.js");
-    const thinkingCoreJs = await readProjectFile(
-      "addon/content/sidebar/chat_thinking_core.js",
-    );
-    const css = await readProjectFile("addon/content/sidebar/run-dialog.css");
-
-    assert.include(transcriptRendererJs, "data-assistant-panel-kind");
-    assert.include(transcriptRendererJs, "assistant-transcript-revision-badge");
-    assert.include(transcriptRendererJs, "assistant-transcript-row");
-    assert.include(
-      js,
-      "createCompatibleThinkingChatModel(state.chatDisplayMode)",
-    );
-    assert.include(js, "buildSkillRunnerToolItem(");
-    assert.include(js, "isSkillRunnerToolProcess(processType)");
-    assert.include(js, 'entry.type === "revision"');
-    assert.include(js, 'kind.trim().toLowerCase() !== "assistant_revision"');
-    assert.include(js, 'variant: "skillrunner"');
-    assert.include(js, "renderMarkdown");
-    assert.include(
-      js,
-      "item.displayText || item.display_text || item.text || item.summary",
-    );
-    assert.match(
-      thinkingCoreJs,
-      /const displayText = safeText\(\s*event && \(event\.displayText \|\| event\.display_text\),?\s*\);/,
-    );
-    assert.include(
-      thinkingCoreJs,
-      "const rawText = safeText(event && event.text);",
-    );
-    assert.include(
-      thinkingCoreJs,
-      "const text = displayText || rawText || summary;",
-    );
-    assert.include(
-      thinkingCoreJs,
-      "normalizedText: normalizeText(text || summary),",
-    );
-    assert.notInclude(
-      thinkingCoreJs,
-      "const text = normalizeText(event && event.text);",
-    );
-    assert.notInclude(css, ".revision-badge");
-    assert.notInclude(js, "function renderRevisionEntry");
-    assert.notInclude(css, ".revision-bubble");
-  });
-
-  it("keeps conversation as the stretching content area and removes legacy button/card systems", async function () {
-    const css = await readProjectFile("addon/content/sidebar/run-dialog.css");
-    const sharedCss = await readProjectFile(
-      "addon/content/shared/assistant/assistant-panel-shared.css",
-    );
-
-    assert.include(css, "--asst-context-drawer-width");
-    assert.include(css, "--asst-details-drawer-width");
-    assert.notInclude(css, "grid-template-rows: auto auto minmax(0, 1fr);");
-    assert.notInclude(
-      css,
-      "grid-template-rows: minmax(0, 1fr) auto auto auto;",
-    );
-    assert.notInclude(css, ".skillrunner-banner .assistant-panel-managed-view");
-    assert.include(css, ".skillrunner-transcript");
-    assert.notInclude(css, ".skillrunner-transcript.plain-mode");
-    assert.notInclude(css, ".skillrunner-transcript.bubble-mode");
-    assert.notInclude(css, ".transcript-row");
-    assert.notInclude(css, ".assistant-panel-reply-input");
-    assert.notInclude(css, ".skillrunner-drawer .asst-drawer-panel");
-    assert.notInclude(css, ".skillrunner-details .asst-drawer-panel");
-    assert.notInclude(css, ".assistant-panel-context-list");
-    assert.notInclude(css, ".assistant-panel-details-list");
-    assert.notInclude(css, ".assistant-panel-context-entry");
-    assert.notInclude(css, ".empty-state");
-    assert.include(sharedCss, ".asst-panel-shell");
-    assert.include(sharedCss, ".asst-panel-main");
-    assert.include(sharedCss, ".asst-panel-drawer-overlay");
-    assert.include(sharedCss, ".asst-panel-details-overlay");
-    assert.include(sharedCss, ".asst-panel-details-overlay .asst-drawer-panel");
-    assert.include(sharedCss, ".assistant-panel-details-section-summary");
-    assert.include(sharedCss, ".assistant-panel-details-section-body");
-    assert.include(
-      sharedCss,
-      '.assistant-panel-details-row[data-assistant-details-entry-kind="code"]',
-    );
-    assert.include(sharedCss, "max-height: min(42vh, 360px);");
-    assert.include(sharedCss, "flex-direction: column;");
-    assert.include(sharedCss, "overflow: auto;");
-    assert.include(sharedCss, "white-space: pre-wrap;");
-    assert.include(sharedCss, "word-break: break-word;");
-    assert.include(sharedCss, "line-height: 1.55;");
-    assert.include(sharedCss, "max-height: none;");
-    assert.include(sharedCss, ".asst-empty-state");
-    assert.include(sharedCss, ".assistant-workspace-drawer-section");
-    assert.include(sharedCss, ".assistant-workspace-drawer-task");
-    assert.include(sharedCss, "align-content: start;");
-    assert.include(sharedCss, "height: 34px;");
-    assert.notInclude(css, ".skillrunner-workspace-section {");
-    assert.notInclude(css, ".skillrunner-workspace-task {");
-    assert.notInclude(css, "\n.btn {");
-    assert.notInclude(css, ".conversation-card");
-    assert.notInclude(css, ".prompt-card");
-    assert.notInclude(css, "#reply-composer");
-  });
-
-  it("keeps host-side run state sync and backend semantics unchanged", async function () {
-    const hostTs = await readProjectFile("src/modules/skillRunnerRunDialog.ts");
-
-    assert.include(hostTs, "const refreshRunState = async () =>");
-    assert.include(hostTs, "entry.refreshState = () =>");
-    assert.include(hostTs, "entry.refreshDisplay = () =>");
-    assert.include(hostTs, "syncSessionStateFromRunStore(entry)");
-    assert.include(hostTs, "drawer: {");
-    assert.include(hostTs, 'id: "running"');
-    assert.include(hostTs, "groups: runningGroups");
-    assert.include(hostTs, "function shouldRefreshLocalRunDialogMessages");
-    assert.include(hostTs, "shouldRefreshRunDialogLocalMessages");
-    assert.include(hostTs, "function maxBackendRunDialogSeq");
-    assert.include(hostTs, "seq: -5");
-    assert.notInclude(
-      hostTs,
-      "entry.session.lastSeq = entry.session.messages.reduce",
-    );
-    assert.notInclude(hostTs, "entry.session.lastSeq = Math.floor(cursor)");
-    assert.include(hostTs, "subscribeSkillRunnerSessionState");
-    assert.include(hostTs, "await syncPendingState()");
-    assert.include(hostTs, "continueSkillRunnerForegroundRun");
-    assert.include(hostTs, "startRunDialogEntryForegroundContinuation");
-    assert.include(hostTs, "WAITING_AUTH_OBSERVER_INTERVAL_MS = 1500");
-    assert.include(hostTs, "resolveRunDialogWaitingAuthObservation");
-    assert.include(hostTs, '"run-dialog-waiting-auth-auto-resume"');
-    assert.include(hostTs, 'action === "open-auth-url"');
-    assert.include(hostTs, "resolveRunDialogAuthExternalUrl");
-    assert.include(hostTs, "launchURL");
-    assert.include(hostTs, "streamRunChat");
-    assert.notInclude(hostTs, "ensureSkillRunnerSessionSync");
-    assert.notInclude(hostTs, "restartSessionSyncAfterWaitingExit");
-    assert.include(hostTs, "hasRunDialogWaitingAuthExited");
-    assert.notInclude(
-      hostTs,
-      "runWorkspaceState.refreshTimer = dialogWindow.setInterval",
-    );
+    it("references the shared assistant panel resources", async function () {
+      const html = await readProjectFile(
+        "addon/content/sidebar/run-dialog.html",
+      );
+      const sharedReferences = [
+        "../shared/assistant/assistant-panel-shared.css",
+        "vendor/markdown-it/markdown-it.min.js",
+        "vendor/katex/katex.min.css",
+        "vendor/katex/katex.min.js",
+        "vendor/markdown-it-texmath/texmath.min.js",
+        'href="./run-dialog.css"',
+        'src="./run-dialog.bundle.js"',
+      ];
+      for (const reference of sharedReferences) {
+        assert.include(
+          html,
+          reference,
+          `run-dialog.html must reference ${reference}`,
+        );
+      }
+    });
   });
 });

@@ -33,12 +33,16 @@ describe("skillrunner sidebar host runtime", function () {
   });
 
   it("keeps SkillRunner, ACP Chat, and ACP Skills wired through the workspace host bridge", async function () {
-    const ts = await readProjectFile(
-      "src/modules/assistantWorkspaceSidebar.ts",
-    );
-    assert.include(ts, "__zsAssistantWorkspaceBridge");
-    assert.include(ts, "assistant-workspace:init");
-    assert.include(ts, "assistant-workspace:child-snapshot");
+    const [ts, contract] = await Promise.all([
+      readProjectFile("src/modules/assistantWorkspaceSidebar.ts"),
+      readProjectFile("src/shared/assistantWireContract.ts"),
+    ]);
+    assert.include(ts, "ASSISTANT_WORKSPACE_SHELL_BRIDGE_KEY");
+    assert.include(ts, "ASSISTANT_WORKSPACE_MESSAGE_TYPES.INIT");
+    assert.include(ts, "ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_SNAPSHOT");
+    assert.include(contract, '"__zsAssistantWorkspaceBridge"');
+    assert.include(contract, '"assistant-workspace:init"');
+    assert.include(contract, '"assistant-workspace:child-snapshot"');
     assert.include(ts, "dispatchRunWorkspaceAction");
     assert.include(ts, "ACP_CHAT_WORKSPACE_ADAPTER");
     assert.include(ts, "new AssistantWorkspacePublicationRuntime");

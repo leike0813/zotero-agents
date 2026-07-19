@@ -256,6 +256,19 @@ and recoverable status, not a `JobState` expansion.
 - **AND** unrecoverable or unsupported failed records SHALL remain terminal
   `failed`.
 
+#### Scenario: Reply continuation re-enters running
+
+- **GIVEN** a non-terminal ACP Skills run is `waiting_user` or
+  `failed_retriable`
+- **WHEN** an accepted reply starts a continuation prompt
+- **THEN** the main run status SHALL transition to `running` with an explicit
+  continuation reason
+- **AND** `activePrompt` SHALL be `true`
+- **AND** `replyState` SHALL remain an independent acknowledgement axis rather
+  than substitute for the main run status
+- **AND** prompt completion or failure SHALL leave `running` through a valid
+  state-machine transition.
+
 ### Requirement: ACP skills active task projections SHALL use ACP status classifiers
 
 ACP Skills SHALL classify dashboard, toolbar, run drawer, workflow task sync,

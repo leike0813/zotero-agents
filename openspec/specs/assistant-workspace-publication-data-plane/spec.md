@@ -311,3 +311,103 @@ Transcript publication form SHALL be `snapshot` or `delta`. Gap and overflow SHA
 - **WHEN** a selected owner receives a valid sequence of transcript mutations
 - **THEN** every steady transcript publication is a delta
 - **AND** no automatic-rebase control form or snapshot is posted.
+
+### Requirement: Wire field registries are exposed by both peers
+
+The v1 publication wire field lists SHALL be defined once per peer as
+importable constants: exported from the host publication module and exposed
+by the ACP child as
+`window.AssistantWorkspaceAcpChild.wireFieldRegistry`. The lists SHALL cover
+envelope keys, per-kind region payload keys, transcript snapshot and delta
+keys, permission request keys, and forbidden wire fields. Both peers SHALL
+reject host-internal fields using the same 15-entry forbidden set.
+
+#### Scenario: Drift guard compares both registries
+
+- **WHEN** the wire drift guard test runs
+- **THEN** it SHALL fail naming the kind and the differing fields whenever the
+  host and child registries disagree on any envelope, payload, transcript,
+  permission, or forbidden key set.
+
+#### Scenario: Host-internal field reaches the receiver
+
+- **WHEN** a publication payload contains a forbidden wire field such as
+  `deliveryRevision`, `initialization`, `totalItemCount`, `eventSeq`,
+  `uiRevision`, or `baseUiRevision`
+- **THEN** the child receiver SHALL reject the publication as invalid.
+
+### Requirement: Debug builds self-check produced publications
+
+Debug builds SHALL assert every outgoing publication against the strict v1
+wire schema at the coordinator's single construction point before it is
+posted. The check SHALL be gated by a build-time capability flag and debug
+mode so release builds fold it out entirely.
+
+#### Scenario: Malformed publication in a debug build
+
+- **WHEN** a debug build constructs a publication whose payload violates the
+  v1 key registry
+- **THEN** construction SHALL throw before the publication is posted.
+
+#### Scenario: Release build constructs publications
+
+- **WHEN** a release build constructs any publication
+- **THEN** no wire assertion SHALL execute.
+
+### Requirement: Data-plane tests derive fixtures from production constructors
+
+Publication data-plane tests SHALL source payloads from the production region
+and transcript constructors rather than hand-written literals. Boundaries
+whose production constructor is impractical to seed in Node (service-status,
+acp-skills owner-details) MAY keep hand-written fixtures only when a smoke
+assertion verifies the production constructor's output passes the v1 wire
+assertion.
+
+#### Scenario: Producer adds a payload field
+
+- **WHEN** a production region constructor emits a new payload field
+- **THEN** the data-plane fixtures SHALL carry that field without manual
+  fixture edits
+- **AND** the wire drift guard SHALL fail until the receiver registry is
+  updated.
+
+### Requirement: Wire contract has one shared source
+
+The v1 wire contract SHALL have one shared source:
+`src/shared/assistantWireContract.ts`, imported by both the host modules and
+the page-bundle modules. The v1 wire field lists, message types, bridge keys,
+and out-of-band action names SHALL be defined only there. Hand-duplicated
+contract literals in page scripts or host modules SHALL be rejected by an
+anti-hardcoding test guard. The publication module MAY re-export the shared
+constants for compatibility.
+
+#### Scenario: A message type is needed on both sides
+
+- **WHEN** a host module and a page module both reference a wire message
+  type, bridge key, or field list
+- **THEN** both SHALL import the same constant from the shared contract
+- **AND** the anti-hardcoding guard SHALL fail if a literal is reintroduced.
+
+#### Scenario: Dead vocabulary stays removed
+
+- **WHEN** the shell resolves per-tab message types
+- **THEN** the removed `acp-skill-run:*` and `acp:*` types SHALL NOT
+  reappear
+- **AND** drawer closing uses `assistant-workspace:close-drawers` and the
+  details drawer action uses `open-details-drawer` on both emitter and
+  listeners.
+
+### Requirement: Action payloads are typed with registry drift guards
+
+Every action in `ASSISTANT_WORKSPACE_ACTION_REGISTRY` SHALL have a payload
+type in `src/shared/assistantActionContract.ts`. Compile-time guards SHALL
+fail the type check when the type map's keys differ from the registry's
+`payloadKeys` or when the chat/skills action subsets differ from the
+registry's `sources`. Runtime registry validation SHALL remain the receiver
+gate; the types add compile-time checking without changing runtime behavior.
+
+#### Scenario: A registry action gains a payload key
+
+- **WHEN** a registry entry's `payloadKeys` changes without a matching
+  payload type update
+- **THEN** `tsc --noEmit` SHALL fail at the drift guard.

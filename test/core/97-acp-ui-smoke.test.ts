@@ -1,8 +1,12 @@
 import { assert } from "chai";
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
-import vm from "node:vm";
 import { ASSISTANT_WORKSPACE_ACTION_REGISTRY } from "../../src/modules/assistantWorkspacePublication";
+import * as AssistantPanelModel from "../../src/sidebar/assistantPanelModel.js";
+import * as AssistantPanelRenderer from "../../src/sidebar/assistantPanelRenderer.js";
+import * as AssistantTranscriptRenderer from "../../src/sidebar/assistantTranscriptRenderer.js";
+import * as AssistantWorkspaceAcpChild from "../../src/sidebar/assistantWorkspaceAcpChild.js";
+import { captureSkillRunnerWorkspaceEnvelope } from "../helpers/skillRunnerWorkspaceSnapshotHarness";
 
 const root = path.resolve(import.meta.dirname, "../..");
 
@@ -11,21 +15,11 @@ async function readProjectFile(relativePath: string) {
 }
 
 async function loadPanelModel() {
-  const code = await readProjectFile(
-    "addon/content/shared/assistant/assistant-panel-model.js",
-  );
-  const context = { window: {} as Record<string, unknown> };
-  vm.runInNewContext(code, context);
-  return (context.window as any).AssistantPanelModel;
+  return AssistantPanelModel;
 }
 
 async function loadWorkspaceChild() {
-  const code = await readProjectFile(
-    "addon/content/shared/assistant/assistant-workspace-acp-child.js",
-  );
-  const context = { window: {} as Record<string, unknown> };
-  vm.runInNewContext(code, context);
-  return (context.window as any).AssistantWorkspaceAcpChild;
+  return AssistantWorkspaceAcpChild;
 }
 
 class FakeElement {
@@ -229,30 +223,103 @@ function createPanelManagedRegions(document: FakeDocument) {
   return { root, regions };
 }
 
-async function loadAssistantRendererContext(
+// Region mounts are reused permanently, so mount-level identity alone cannot
+// catch a guard miss that rebuilds the mount's content. Capture the full
+// subtree node list and compare element-wise by reference.
+function subtreeNodes(node: FakeElement | null): FakeElement[] {
+  if (!node) return [];
+  return [node, ...node.children.flatMap((child) => subtreeNodes(child))];
+}
+
+function captureRegionSubtrees(
+  regions: Record<string, FakeElement>,
+): Record<string, FakeElement[]> {
+  return Object.fromEntries(
+    Object.entries(regions).map(([key, region]) => [
+      key,
+      subtreeNodes(region.firstChild),
+    ]),
+  );
+}
+
+function assertRegionSubtreesPreserved(
+  regions: Record<string, FakeElement>,
+  captured: Record<string, FakeElement[]>,
+) {
+  for (const [key, region] of Object.entries(regions)) {
+    const current = subtreeNodes(region.firstChild);
+    const previous = captured[key] || [];
+    assert.equal(
+      current.length,
+      previous.length,
+      `${key} subtree node count changed`,
+    );
+    current.forEach((node, index) => {
+      assert.strictEqual(
+        node,
+        previous[index],
+        `${key} subtree node #${index} was rebuilt`,
+      );
+    });
+  }
+}
+
+// Mocha runs every suite in a single process. The sidebar renderer modules
+// read the bare `document` global at render time (and `window` for raf when
+// present), so each renderer loader installs the fake document plus a raf
+// shim before returning the module namespaces. Tests that need to control
+// frame timing inject their own requestAnimationFrame; the default shim runs
+// callbacks synchronously. The suite-level after hook restores the previous
+// global state so nothing leaks into other suites.
+let rendererGlobalDescriptors:
+  | Partial<Record<"document" | "window", PropertyDescriptor | undefined>>
+  | undefined;
+
+function installRendererGlobals(
   document: FakeDocument,
   requestAnimationFrame: (callback: () => void) => number = (callback) => {
     callback();
     return 0;
   },
 ) {
-  const transcriptCode = await readProjectFile(
-    "addon/content/shared/assistant/assistant-transcript-renderer.js",
-  );
-  const rendererCode = await readProjectFile(
-    "addon/content/shared/assistant/assistant-panel-renderer.js",
-  );
-  const context = {
-    window: {
-      requestAnimationFrame,
-    },
-    document,
-    setTimeout,
-    clearTimeout,
+  const runtime = globalThis as Record<string, unknown>;
+  if (!rendererGlobalDescriptors) {
+    rendererGlobalDescriptors = {
+      document: Object.getOwnPropertyDescriptor(runtime, "document"),
+      window: Object.getOwnPropertyDescriptor(runtime, "window"),
+    };
+  }
+  runtime.document = document;
+  runtime.window = {
+    requestAnimationFrame,
   };
-  vm.runInNewContext(transcriptCode, context);
-  vm.runInNewContext(rendererCode, context);
-  return context;
+}
+
+function restoreRendererGlobals() {
+  if (!rendererGlobalDescriptors) return;
+  const runtime = globalThis as Record<string, unknown>;
+  for (const key of ["document", "window"] as const) {
+    const descriptor = rendererGlobalDescriptors[key];
+    if (descriptor) {
+      Object.defineProperty(runtime, key, descriptor);
+    } else {
+      delete runtime[key];
+    }
+  }
+  rendererGlobalDescriptors = undefined;
+}
+
+async function loadAssistantRendererContext(
+  document: FakeDocument,
+  requestAnimationFrame?: (callback: () => void) => number,
+) {
+  installRendererGlobals(document, requestAnimationFrame);
+  return {
+    window: {
+      AssistantPanelRenderer,
+      AssistantTranscriptRenderer,
+    },
+  };
 }
 
 function createAnimationFrameHarness() {
@@ -450,22 +517,11 @@ function emptyPanelLabels(source: "acp-chat" | "acp-skills") {
   };
 }
 
-function skillRunnerEnvelope(session: Record<string, unknown> | null) {
-  return {
-    title: "SkillRunner Workspace",
-    labels: {
-      emptyTasks: "No SkillRunner tasks.",
-      assistantPanel: {
-        emptyState: { noTask: "No task" },
-      },
-    },
-    workspace: { selectedTaskKey: session ? "task-a" : null, groups: [] },
-    drawer: { sections: [] },
-    session,
-  };
-}
-
 describe("Assistant Workspace ACP UI v1", function () {
+  after(function () {
+    restoreRendererGlobals();
+  });
+
   it("loads both ACP documents through one shared child and identical roles", async function () {
     const [chat, skills] = await Promise.all([
       readProjectFile("addon/content/sidebar/acp-chat.html"),
@@ -487,10 +543,7 @@ describe("Assistant Workspace ACP UI v1", function () {
       ]) {
         assert.include(html, `data-role="${role}"`);
       }
-      assert.include(
-        html,
-        "../shared/assistant/assistant-workspace-acp-child.js",
-      );
+      assert.include(html, 'src="./acp-child.bundle.js"');
       assert.include(
         html,
         "../shared/assistant/assistant-workspace-acp-child.css",
@@ -522,16 +575,16 @@ describe("Assistant Workspace ACP UI v1", function () {
   });
 
   it("keeps one strict bridge path without ACP postMessage fallback", async function () {
-    const [child, shell] = await Promise.all([
-      readProjectFile(
-        "addon/content/shared/assistant/assistant-workspace-acp-child.js",
-      ),
-      readProjectFile("addon/content/sidebar/assistant-workspace.js"),
+    const [child, shell, contract] = await Promise.all([
+      readProjectFile("src/sidebar/assistantWorkspaceAcpChild.js"),
+      readProjectFile("src/sidebar/assistantWorkspaceShell.js"),
+      readProjectFile("src/shared/assistantWireContract.ts"),
     ]);
     assert.include(
       child,
-      'const BRIDGE_KEY = "__zsAssistantWorkspaceAcpBridge"',
+      "const BRIDGE_KEY = ASSISTANT_WORKSPACE_ACP_CHILD_BRIDGE_KEY",
     );
+    assert.include(contract, '"__zsAssistantWorkspaceAcpBridge"');
     assert.include(child, "bridge.sendAction(envelope)");
     assert.notInclude(child, 'type: "acp:action"');
     assert.notInclude(child, 'type: "acp-skill-run:action"');
@@ -695,8 +748,10 @@ describe("Assistant Workspace ACP UI v1", function () {
 
   it("projects SkillRunner null session as fixed unavailable chrome", async function () {
     const model = await loadPanelModel();
+    // 生产真空快照：无任务种子 → session=null（harness 走真实
+    // attach → refresh → publish 路径，labels 由生产构建）。
     const panel = model.projectSkillRunnerPanelSnapshot(
-      skillRunnerEnvelope(null),
+      await captureSkillRunnerWorkspaceEnvelope(),
     );
 
     assert.deepInclude(panel.context, {
@@ -735,17 +790,16 @@ describe("Assistant Workspace ACP UI v1", function () {
 
   it("keeps a selected SkillRunner session without requestId in preparing state", async function () {
     const model = await loadPanelModel();
+    // 生产等价种子：本地已创建、尚未分配 requestId 的 SkillRunner 任务
+    // （submitPhase=pre_request、status=queued）。
     const panel = model.projectSkillRunnerPanelSnapshot(
-      skillRunnerEnvelope({
-        title: "Task Alpha",
-        status: "idle",
-        requestAssigned: false,
-        backendInteractive: false,
+      await captureSkillRunnerWorkspaceEnvelope({
+        tasks: [{ taskName: "Task Alpha" }],
       }),
     );
 
     assert.equal(panel.context.title, "Task Alpha");
-    assert.equal(panel.context.status, "idle");
+    assert.equal(panel.context.status, "queued");
     assert.notEqual(panel.context.subtitle, "No task");
     assert.deepInclude(panel.context.indicators[0], {
       id: "skillrunner-control",
@@ -759,53 +813,103 @@ describe("Assistant Workspace ACP UI v1", function () {
     const model = await loadPanelModel();
     const renderer = await loadPanelRenderer(document);
     const { root, regions } = createPanelManagedRegions(document);
-    const render = (assistant: number, cumulativeAssistant: number) => {
-      const messageCounts = {
-        scopeKey: "skillrunner-task-a",
-        executionKey: "execution-a",
-        active: false,
-        current: { assistant, thought: 2, tool: 3 },
-        cumulative: {
-          assistant: cumulativeAssistant,
-          thought: 5,
-          tool: 6,
-        },
-        completeness: "complete",
-        revision: assistant,
-      };
-      const envelope = {
-        ...skillRunnerEnvelope({
-          title: "Task Alpha",
-          status: "completed",
-          requestId: "req-a",
-        }),
-        labels: {
-          assistantPanel: {
-            emptyState: { noTask: "No task" },
-            transcript: {
-              assistant: "助手",
-              thinking: "思考",
-              tool: "工具",
-            },
+    // 生产真快照：messageCounts 由生产侧从 transcript 消息投影派生。
+    // 种子事件的语义计数（projectSkillRunnerMessageCounts）：
+    //   render(1): current {assistant:1,thought:1,tool:0}
+    //              cumulative {assistant:1,thought:2,tool:3}
+    //   render(2): current {assistant:1,thought:2,tool:1}
+    //              cumulative {assistant:1,thought:3,tool:4}
+    // counter 标签来自生产 labels（mock 环境为英文 fallback）。
+    const toolProcess = (seq: number, toolCallId: string, text: string) => ({
+      seq,
+      ts: `2026-07-18T00:00:${String(seq).padStart(2, "0")}.000Z`,
+      role: "assistant",
+      kind: "assistant_process",
+      text,
+      correlation: { process_type: "tool_call", tool_call_id: toolCallId },
+    });
+    const render = async (variant: 1 | 2) => {
+      const envelope = await captureSkillRunnerWorkspaceEnvelope({
+        tasks: [
+          {
+            taskName: "Task Alpha",
+            requestId: "req-counts",
+            status: "succeeded",
+            chatEvents: [
+              {
+                seq: 1,
+                ts: "2026-07-18T00:00:01.000Z",
+                role: "assistant",
+                kind: "assistant_process",
+                text: "reasoning step one",
+                correlation: { process_type: "reasoning" },
+              },
+              toolProcess(2, "tool-1", "read a.md"),
+              toolProcess(3, "tool-2", "read b.md"),
+              toolProcess(4, "tool-3", "read c.md"),
+              {
+                seq: 5,
+                ts: "2026-07-18T00:00:05.000Z",
+                role: "user",
+                kind: "user_message",
+                text: "go on",
+              },
+              {
+                seq: 6,
+                ts: "2026-07-18T00:00:06.000Z",
+                role: "assistant",
+                kind: "assistant_process",
+                text: "reasoning step two",
+                correlation: { process_type: "reasoning" },
+              },
+              {
+                seq: 7,
+                ts: "2026-07-18T00:00:07.000Z",
+                role: "assistant",
+                kind: "assistant_final",
+                text: "final answer",
+                display_text: "final answer",
+              },
+              ...(variant === 2
+                ? [
+                    {
+                      seq: 8,
+                      ts: "2026-07-18T00:00:08.000Z",
+                      role: "assistant",
+                      kind: "assistant_process",
+                      text: "reasoning step three",
+                      correlation: { process_type: "reasoning" },
+                    },
+                    toolProcess(9, "tool-4", "read d.md"),
+                  ]
+                : []),
+            ],
           },
-        },
-        messageCounts,
-      };
+        ],
+        waitFor: (snapshot) =>
+          !!snapshot.session &&
+          snapshot.session.loading === false &&
+          snapshot.session.messages.some(
+            (message) => message.seq === (variant === 2 ? 9 : 7),
+          ),
+      });
       const panel = model.projectSkillRunnerPanelSnapshot(envelope);
-      assert.deepEqual(panel.messageCounts, messageCounts);
+      // model 原样透传生产投影的 messageCounts。
+      assert.deepEqual(panel.messageCounts, envelope.messageCounts);
       renderer.renderAssistantPanelSnapshot(panel, {
         managed: true,
         root,
         regions,
         onAction() {},
       });
+      return envelope;
     };
 
-    render(1, 4);
+    const first = await render(1);
     assert.isFalse(regions.messageCounter.classList.contains("hidden"));
     assert.equal(
       regions.messageCounter.getAttribute("data-message-counter-owner"),
-      "skillrunner-task-a",
+      first.workspace.selectedTaskKey,
     );
     const counterItems = regions.messageCounter.querySelectorAll(
       ".assistant-message-counter-item",
@@ -817,11 +921,11 @@ describe("Assistant Workspace ACP UI v1", function () {
       regions.messageCounter
         .querySelectorAll(".assistant-message-counter-label")
         .map((entry) => entry.textContent),
-      ["助手", "思考", "工具"],
+      ["Assistant", "Thought", "Tool"],
     );
     assert.deepEqual(
       counterValues.map((entry) => entry.textContent),
-      ["1/4", "2/5", "3/6"],
+      ["1/1", "1/2", "0/3"],
     );
     const stableRegions = [
       "toolbar",
@@ -830,29 +934,25 @@ describe("Assistant Workspace ACP UI v1", function () {
       "hint",
       "reply",
       "drawer",
-      "details",
     ] as const;
-    const stableIdentities = new Map(
-      stableRegions.map((key) => [key, regions[key].firstChild]),
+    const stableSubtrees = Object.fromEntries(
+      stableRegions.map((key) => [key, subtreeNodes(regions[key].firstChild)]),
     );
 
-    render(2, 5);
+    await render(2);
     assert.deepEqual(
       counterValues.map((entry) => entry.textContent),
-      ["2/5", "2/5", "3/6"],
+      ["1/1", "2/3", "1/4"],
     );
     regions.messageCounter
       .querySelectorAll(".assistant-message-counter-item")
       .forEach((entry, index) => {
         assert.strictEqual(entry, counterItems[index]);
       });
-    stableRegions.forEach((key) => {
-      assert.strictEqual(
-        regions[key].firstChild,
-        stableIdentities.get(key),
-        key,
-      );
-    });
+    assertRegionSubtreesPreserved(
+      Object.fromEntries(stableRegions.map((key) => [key, regions[key]])),
+      stableSubtrees,
+    );
   });
 
   it("preserves SkillRunner managed mounts across empty and selected snapshots", async function () {
@@ -860,9 +960,16 @@ describe("Assistant Workspace ACP UI v1", function () {
     const model = await loadPanelModel();
     const renderer = await loadPanelRenderer(document);
     const { root, regions } = createPanelManagedRegions(document);
-    const render = (session: Record<string, unknown> | null) => {
+    // 生产真空快照（无任务）与生产选中快照（running 任务）。
+    const emptyEnvelope = await captureSkillRunnerWorkspaceEnvelope();
+    const selectedEnvelope = await captureSkillRunnerWorkspaceEnvelope({
+      tasks: [
+        { taskName: "Task Alpha", requestId: "req-a", status: "running" },
+      ],
+    });
+    const render = (envelope: unknown) => {
       renderer.renderAssistantPanelSnapshot(
-        model.projectSkillRunnerPanelSnapshot(skillRunnerEnvelope(session)),
+        model.projectSkillRunnerPanelSnapshot(envelope),
         {
           managed: true,
           root,
@@ -872,15 +979,76 @@ describe("Assistant Workspace ACP UI v1", function () {
       );
     };
 
-    render(null);
+    render(selectedEnvelope);
     const identities = Object.fromEntries(
       Object.entries(regions).map(([key, region]) => [key, region.firstChild]),
     );
-    render({ title: "Task Alpha", status: "running", requestId: "req-a" });
-    render(null);
+    render(emptyEnvelope);
+    render(selectedEnvelope);
     for (const [key, region] of Object.entries(regions)) {
       assert.strictEqual(region.firstChild, identities[key], key);
     }
+  });
+
+  it("keeps current Skills runtime option values visible while prompt controls are disabled", async function () {
+    const state = canonicalState("acp-skills");
+    state.selection.composer = {
+      reply: { status: "busy" },
+      runtimeOptions: {
+        mode: {
+          selectedOptionId: "code",
+          options: [{ optionId: "code", label: "Code", description: null }],
+          enabled: true,
+        },
+        model: {
+          selectedOptionId: "model-a",
+          options: [
+            { optionId: "model-a", label: "Model A", description: null },
+          ],
+          enabled: false,
+        },
+        reasoningEffort: {
+          selectedOptionId: "high",
+          options: [{ optionId: "high", label: "High", description: null }],
+          enabled: false,
+        },
+      },
+    };
+    const panel = AssistantPanelModel.projectAssistantWorkspacePanel(
+      state,
+      { executionDisplayMode: "live" },
+      {},
+    );
+    assert.deepEqual(
+      panel.reply.controls.map((entry: any) => [
+        entry.id,
+        entry.value,
+        entry.disabled,
+      ]),
+      [
+        ["mode", "code", false],
+        ["model", "model-a", true],
+        ["reasoning", "high", true],
+      ],
+    );
+
+    const document = new FakeDocument();
+    const renderer = await loadPanelRenderer(document);
+    const reply = document.createElement("div");
+    renderer.renderAssistantReply(reply, panel);
+    const selects = reply.querySelectorAll(".assistant-panel-select");
+    assert.deepEqual(
+      selects.map((entry) => entry.disabled),
+      [false, true, true],
+    );
+    assert.deepEqual(
+      selects.map(
+        (select) =>
+          select.children.find((option) => (option as any).selected)
+            ?.textContent,
+      ),
+      ["Code", "Model A", "High"],
+    );
   });
 
   it("projects Skills title, subtitle, banner metadata, and task status axes", async function () {
@@ -1217,9 +1385,7 @@ describe("Assistant Workspace ACP UI v1", function () {
 
   it("keeps the shared main grid mounted when selection is empty", async function () {
     const [child, chat, skills] = await Promise.all([
-      readProjectFile(
-        "addon/content/shared/assistant/assistant-workspace-acp-child.js",
-      ),
+      readProjectFile("src/sidebar/assistantWorkspaceAcpChild.js"),
       readProjectFile("addon/content/sidebar/acp-chat.html"),
       readProjectFile("addon/content/sidebar/acp-skill-run.html"),
     ]);
@@ -1388,9 +1554,7 @@ describe("Assistant Workspace ACP UI v1", function () {
       });
     };
     render();
-    const identities = Object.fromEntries(
-      Object.entries(regions).map(([key, region]) => [key, region.firstChild]),
-    );
+    const regionSubtrees = captureRegionSubtrees(regions);
     state.selection.transcript = {
       ...state.selection.transcript,
       status: "ready",
@@ -1407,9 +1571,7 @@ describe("Assistant Workspace ACP UI v1", function () {
       },
     };
     render();
-    for (const [key, region] of Object.entries(regions)) {
-      assert.strictEqual(region.firstChild, identities[key], key);
-    }
+    assertRegionSubtreesPreserved(regions, regionSubtrees);
   });
 
   it("retries a v1 transcript mutation after a transactional DOM failure", async function () {

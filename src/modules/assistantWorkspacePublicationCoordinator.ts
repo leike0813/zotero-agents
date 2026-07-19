@@ -1,5 +1,6 @@
 import {
   ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
+  assertAssistantWorkspacePublication,
   type AssistantWorkspaceOwner,
   type AssistantWorkspacePublicationOwner,
   type AssistantWorkspaceDomainChange,
@@ -7,6 +8,7 @@ import {
   type AssistantWorkspacePublicationAck,
   type AssistantWorkspacePublicationCause,
 } from "./assistantWorkspacePublication";
+import { isWorkspacePublicationWireAssertAvailable } from "./debugMode";
 import {
   AssistantWorkspaceTranscriptAccumulator,
   AssistantWorkspaceTranscriptProjection,
@@ -500,6 +502,9 @@ export class AssistantWorkspacePublicationCoordinator {
       deliverySequence: this.deliverySequence,
       ...args,
     } as AssistantWorkspacePublication;
+    if (isWorkspacePublicationWireAssertAvailable()) {
+      assertAssistantWorkspacePublication(publication);
+    }
     return publication;
   }
 

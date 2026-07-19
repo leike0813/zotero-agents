@@ -136,8 +136,22 @@ import {
   parseAssistantWorkspaceTranscriptPageRequest,
   type AssistantWorkspaceTranscriptRegion,
 } from "./assistantWorkspaceTranscriptPublication";
+import {
+  ASSISTANT_WORKSPACE_MESSAGE_PREFIX,
+  ASSISTANT_WORKSPACE_MESSAGE_TYPES,
+  ASSISTANT_WORKSPACE_SHELL_BRIDGE_KEY,
+  resolveRunDialogMessageType,
+  type AssistantWorkspaceMessageType,
+  type AssistantWorkspaceTab,
+} from "../shared/assistantWireContract";
+import type {
+  AcpChatAction,
+  AcpSkillsAction,
+  AssistantWorkspaceChildActionEnvelope,
+  AssistantWorkspaceInboundActionPayload,
+  AssistantWorkspaceShellActionEnvelope,
+} from "../shared/assistantActionContract";
 
-type AssistantWorkspaceTab = "skillrunner" | "acp-chat" | "acp-skills";
 type AssistantWorkspaceLogTab = AssistantWorkspaceTab | "shell";
 type SidebarButtonElement = XULElement | Element;
 
@@ -224,16 +238,13 @@ type SkillRunnerSidebarRefreshRequest = {
   generation: number;
 };
 type AssistantWorkspaceEnvelope = {
-  type?: string;
+  type?: AssistantWorkspaceMessageType;
   payload?: Record<string, unknown>;
 };
-type AssistantWorkspaceActionPayload = Record<string, unknown> & {
-  tab?: AssistantWorkspaceTab;
-  source?: "acp-chat" | "acp-skills";
-  owner?: AssistantWorkspaceOwner | null;
-  action?: string;
-  actionId?: string;
-};
+// Payload union for the action-bearing inbound messages; the host probes the
+// generic fields (action/actionId/tab/source) before dispatching on the
+// message type, and the per-handler runtime validation stays the real gate.
+type AssistantWorkspaceActionPayload = AssistantWorkspaceInboundActionPayload;
 type AssistantWorkspaceBridgeResult = {
   ok: boolean;
   actionId?: string;
@@ -241,7 +252,7 @@ type AssistantWorkspaceBridgeResult = {
 };
 type AssistantWorkspaceBridge = {
   postMessage: (
-    type: string,
+    type: AssistantWorkspaceMessageType,
     payload?: Record<string, unknown>,
   ) => Promise<AssistantWorkspaceBridgeResult>;
 };
@@ -258,7 +269,7 @@ const ASSISTANT_WORKSPACE_TABS: AssistantWorkspaceTab[] = [
   "acp-skills",
   "skillrunner",
 ];
-const ASSISTANT_WORKSPACE_BRIDGE_KEY = "__zsAssistantWorkspaceBridge";
+const ASSISTANT_WORKSPACE_BRIDGE_KEY = ASSISTANT_WORKSPACE_SHELL_BRIDGE_KEY;
 const MAX_WORKSPACE_PUBLICATION_LIFECYCLES = 256;
 const localize = getStringOrFallback;
 
@@ -658,7 +669,7 @@ function postDecoratedSkillRunnerSnapshot(
   phase: "init" | "snapshot",
   snapshot: RunWorkspaceSnapshot,
 ) {
-  postShellMessage(host, "assistant-workspace:child-snapshot", {
+  postShellMessage(host, ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_SNAPSHOT, {
     tab: "skillrunner",
     phase,
     snapshot,
@@ -768,7 +779,7 @@ function resolveTargetFromSource(
     source &&
     frameWindow &&
     source !== frameWindow &&
-    String(type || "").startsWith("assistant-workspace:")
+    String(type || "").startsWith(ASSISTANT_WORKSPACE_MESSAGE_PREFIX)
   ) {
     appendRuntimeLog({
       level: "warn",
@@ -815,7 +826,7 @@ function postShellMessage(
     },
   );
   const profilerPublication =
-    type === "assistant-workspace:child-publication" &&
+    type === ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_PUBLICATION &&
     messagePayload.publication &&
     typeof messagePayload.publication === "object"
       ? (messagePayload.publication as unknown as AssistantWorkspacePublication)
@@ -1072,7 +1083,7 @@ function isAssistantShellReadyEnvelope(
   payload?: Record<string, unknown>,
 ) {
   return (
-    type === "assistant-workspace:action" &&
+    type === ASSISTANT_WORKSPACE_MESSAGE_TYPES.ACTION &&
     String(payload?.action || "").trim() === "ready"
   );
 }
@@ -1682,7 +1693,7 @@ function postShellInit(
   host: AssistantWorkspaceHostRuntime,
   activeTab: AssistantWorkspaceTab,
 ) {
-  postShellMessage(host, "assistant-workspace:init", {
+  postShellMessage(host, ASSISTANT_WORKSPACE_MESSAGE_TYPES.INIT, {
     activeTab,
     activeTarget: host.activeTarget,
     scopeKey: host.scopeKey,
@@ -1706,9 +1717,13 @@ function assistantWorkspaceAcpRuntimeConfiguration(): AssistantWorkspacePublicat
 function postAssistantWorkspacePublicationConfiguration(
   host: AssistantWorkspaceHostRuntime,
 ) {
-  return postShellMessage(host, "assistant-workspace:surface-config", {
-    configuration: assistantWorkspaceAcpRuntimeConfiguration(),
-  });
+  return postShellMessage(
+    host,
+    ASSISTANT_WORKSPACE_MESSAGE_TYPES.SURFACE_CONFIG,
+    {
+      configuration: assistantWorkspaceAcpRuntimeConfiguration(),
+    },
+  );
 }
 
 async function postInitialSnapshotForActiveTab(
@@ -2083,7 +2098,7 @@ async function handleAssistantWorkspaceMessage(
   const actionPayload =
     data.payload && typeof data.payload === "object"
       ? (data.payload as AssistantWorkspaceActionPayload)
-      : {};
+      : ({} as AssistantWorkspaceActionPayload);
   const actionId = String(actionPayload.actionId || "").trim();
   const action = String(actionPayload.action || "").trim();
   const tab = actionPayload.source
@@ -2107,20 +2122,24 @@ async function handleAssistantWorkspaceMessage(
     },
   );
   const duplicateShellReady =
-    data.type === "assistant-workspace:action" &&
+    data.type === ASSISTANT_WORKSPACE_MESSAGE_TYPES.ACTION &&
     action === "ready" &&
     host.shell.ready;
   const duplicateChildReady =
-    data.type === "assistant-workspace:child-action" &&
+    data.type === ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_ACTION &&
     action === "ready" &&
     host.readyTabs.has(tab);
   try {
-    if (data.type === "assistant-workspace:publication-ack") {
+    if (data.type === ASSISTANT_WORKSPACE_MESSAGE_TYPES.PUBLICATION_ACK) {
       recordWorkspacePublicationAck(host, actionPayload);
       return { ok: true, actionId };
     }
-    if (data.type === "assistant-workspace:action") {
-      await handleShellAction(host, target, data.payload || {});
+    if (data.type === ASSISTANT_WORKSPACE_MESSAGE_TYPES.ACTION) {
+      await handleShellAction(
+        host,
+        target,
+        (data.payload || {}) as AssistantWorkspaceShellActionEnvelope,
+      );
       if (!duplicateShellReady) {
         logAssistantShellAction({
           host,
@@ -2134,8 +2153,12 @@ async function handleAssistantWorkspaceMessage(
       }
       return { ok: true, actionId };
     }
-    if (data.type === "assistant-workspace:child-action") {
-      await handleChildAction(host, target, data.payload || {});
+    if (data.type === ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_ACTION) {
+      await handleChildAction(
+        host,
+        target,
+        (data.payload || {}) as AssistantWorkspaceChildActionEnvelope,
+      );
       if (!duplicateChildReady) {
         logAssistantShellAction({
           host,
@@ -2204,7 +2227,7 @@ function resolveAssistantWorkspaceActionLogTab(
   type: string,
   payload: AssistantWorkspaceActionPayload,
 ): AssistantWorkspaceLogTab {
-  if (type === "assistant-workspace:action") {
+  if (type === ASSISTANT_WORKSPACE_MESSAGE_TYPES.ACTION) {
     const tabText = String(payload.tab || "").trim();
     return tabText ? normalizeTab(tabText) : "shell";
   }
@@ -2305,7 +2328,7 @@ function scheduleSkillRunnerSidebarRefresh(
 async function handleShellAction(
   host: AssistantWorkspaceHostRuntime,
   target: AcpSidebarTarget,
-  payload: Record<string, unknown>,
+  payload: AssistantWorkspaceShellActionEnvelope,
 ) {
   const action = String(payload.action || "").trim();
   logAssistantWorkspaceDebug(
@@ -2382,7 +2405,7 @@ function parseAssistantWorkspaceActionOwner(
 async function handleChildAction(
   host: AssistantWorkspaceHostRuntime,
   target: AcpSidebarTarget,
-  payload: Record<string, unknown>,
+  payload: AssistantWorkspaceChildActionEnvelope,
 ) {
   const source =
     payload.source === "acp-chat" || payload.source === "acp-skills"
@@ -2513,7 +2536,7 @@ async function handleChildAction(
       return;
     }
     await dispatchRunWorkspaceAction({
-      type: "skillrunner-sidebar:action",
+      type: resolveRunDialogMessageType("skillrunner-sidebar", "action"),
       action,
       payload: childPayload,
     });
@@ -2657,7 +2680,13 @@ async function handleChildAction(
       await selectAcpSkillRun(String(actionPayload.requestId || "").trim());
       return;
     }
-    await handleAcpSkillRunAction(host, action, actionPayload);
+    // The registry validation above narrows action to the source's routed
+    // set; the no-source fallthrough stays defensive inside the routers.
+    await handleAcpSkillRunAction(
+      host,
+      action as AcpSkillsHostRoutedAction,
+      actionPayload,
+    );
     return;
   }
   if (tab === "acp-chat") {
@@ -2666,11 +2695,21 @@ async function handleChildAction(
       action === "set-active-backend" ||
       action === "new-conversation"
     ) {
-      await handleAcpChatAction(host, target, action, actionPayload);
+      await handleAcpChatAction(
+        host,
+        target,
+        action as AcpChatHostRoutedAction,
+        actionPayload,
+      );
       return;
     }
   }
-  await handleAcpChatAction(host, target, action, actionPayload);
+  await handleAcpChatAction(
+    host,
+    target,
+    action as AcpChatHostRoutedAction,
+    actionPayload,
+  );
 }
 
 function recordWorkspacePublicationAck(
@@ -2815,9 +2854,26 @@ function recordWorkspacePublicationRenderObservation(
   }
 }
 
+// Actions the ACP routers accept: the registry-routed actions for the source
+// plus a defensive "ready" branch and dead routes without a known sender that
+// predate the registry (see the TODO(contract) markers in the router bodies).
+// The payload stays a merged record: handleChildAction merges the action
+// payload with the owner identity fields (backendId/conversationId or
+// requestId) before dispatch, and the routers keep their defensive runtime
+// reads; the per-action payload shapes are contract-typed at the envelope
+// boundary (src/shared/assistantActionContract.ts).
+type AcpSkillsHostRoutedAction = AcpSkillsAction | "ready" | "end-session";
+type AcpChatHostRoutedAction =
+  | AcpChatAction
+  | "ready"
+  | "rename-conversation"
+  | "reconnect"
+  | "toggle-diagnostics"
+  | "toggle-status-details";
+
 async function handleAcpSkillRunAction(
   host: AssistantWorkspaceHostRuntime,
-  action: string,
+  action: AcpSkillsHostRoutedAction,
   payload: Record<string, unknown>,
 ) {
   try {
@@ -2846,6 +2902,7 @@ async function handleAcpSkillRunAction(
       archiveAcpSkillRun(String(payload.requestId || "").trim());
       return;
     }
+    // TODO(contract): host route without a known sender; verify and remove in a later phase
     if (action === "end-session") {
       await endAcpSkillRunSession(String(payload.requestId || "").trim());
       return;
@@ -2934,7 +2991,7 @@ async function handleAcpSkillRunAction(
 async function handleAcpChatAction(
   host: AssistantWorkspaceHostRuntime,
   target: AcpSidebarTarget,
-  action: string,
+  action: AcpChatHostRoutedAction,
   payload: Record<string, unknown>,
 ) {
   try {
@@ -2977,6 +3034,7 @@ async function handleAcpChatAction(
       await startNewAcpConversation({ backendId });
       return;
     }
+    // TODO(contract): host route without a known sender; verify and remove in a later phase
     if (action === "rename-conversation") {
       const title = String(payload.title || "").trim();
       const conversationId = String(payload.conversationId || "").trim();
@@ -2992,6 +3050,7 @@ async function handleAcpChatAction(
         await archiveAcpConversation({ conversationId, backendId });
       return;
     }
+    // TODO(contract): host route without a known sender; verify and remove in a later phase
     if (action === "reconnect") {
       await reconnectAcpConversation({
         backendId: String(payload.backendId || "").trim(),
@@ -3078,6 +3137,7 @@ async function handleAcpChatAction(
         });
       return;
     }
+    // TODO(contract): host route without a known sender; verify and remove in a later phase
     if (action === "toggle-diagnostics") {
       toggleAcpConversationDiagnostics({
         backendId: String(payload.backendId || "").trim(),
@@ -3089,6 +3149,7 @@ async function handleAcpChatAction(
       });
       return;
     }
+    // TODO(contract): host route without a known sender; verify and remove in a later phase
     if (action === "toggle-status-details") {
       toggleAcpConversationStatusDetails({
         backendId: String(payload.backendId || "").trim(),
@@ -3178,7 +3239,7 @@ function attachSkillRunnerToShell(
     hostWindow: host.win,
     frameWindow,
     publishSnapshot: (phase, snapshot) => {
-      postShellMessage(host, "assistant-workspace:child-snapshot", {
+      postShellMessage(host, ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_SNAPSHOT, {
         tab: "skillrunner",
         phase,
         snapshot,
@@ -3572,7 +3633,7 @@ export function installAssistantWorkspaceSidebarShell(
       if (!host.shell.ready) return false;
       const posted = postShellMessage(
         host,
-        "assistant-workspace:child-publication",
+        ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_PUBLICATION,
         { publication },
       );
       if (posted) {

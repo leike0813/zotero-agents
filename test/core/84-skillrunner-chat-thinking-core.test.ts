@@ -1,9 +1,5 @@
 import { assert } from "chai";
-import {
-  getProjectRoot,
-  joinPath,
-  readUtf8,
-} from "../zotero/workflow-test-utils";
+import { createThinkingChatModel } from "../../src/sidebar/chatThinkingCore.js";
 
 type ThinkingChatModel = {
   consume: (event: Record<string, unknown>) => boolean;
@@ -14,21 +10,7 @@ type ThinkingChatModel = {
 };
 
 async function loadThinkingChatCore() {
-  const script = await readUtf8(
-    joinPath(
-      getProjectRoot(),
-      "addon",
-      "content",
-      "sidebar",
-      "chat_thinking_core.js",
-    ),
-  );
-  const windowObject: Record<string, unknown> = {};
-  const factory = new Function(
-    "window",
-    `${script}\nreturn window.SkillRunnerThinkingChatCore;`,
-  );
-  return factory(windowObject) as {
+  return { createThinkingChatModel } as {
     createThinkingChatModel: (mode?: string) => ThinkingChatModel;
   };
 }

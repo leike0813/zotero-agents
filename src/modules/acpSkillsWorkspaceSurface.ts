@@ -1,6 +1,7 @@
 import { getAssistantExecutionDisplayMode } from "./assistantExecutionDisplayPolicy";
 import { snapshotAcpMessageCounts } from "./acpExecutionProgress";
 import {
+  canEditAcpSkillRunModelConfiguration,
   getAcpSkillRunWorkspaceReadModel,
   getAcpSkillRunWorkspaceDetailsReadModel,
   getSelectedAcpSkillRunRequestId,
@@ -193,6 +194,11 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
   }
   if (requested.has("composer")) {
     const options = record.runtimeOptions;
+    const modelConfigurationEditable =
+      canEditAcpSkillRunModelConfiguration(record);
+    const modelOptions = options?.displayModelOptions?.length
+      ? options.displayModelOptions
+      : options?.modelOptions;
     const replyAllowed =
       connected &&
       (interactionState.waitingForUser || record.status === "failed_retriable");
@@ -214,26 +220,17 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
           connected && Boolean(options?.modeOptions.length),
         ),
         model: optionGroup(
-          connected && !record.activePrompt
-            ? options?.displayModelOptions?.length
-              ? options.displayModelOptions
-              : options?.modelOptions
-            : [],
+          connected ? modelOptions : [],
           options?.currentDisplayModel?.id || options?.currentModel?.id,
           connected &&
-            !record.activePrompt &&
-            Boolean(
-              options?.displayModelOptions.length ||
-              options?.modelOptions.length,
-            ),
+            modelConfigurationEditable &&
+            Boolean(modelOptions?.length),
         ),
         reasoningEffort: optionGroup(
-          connected && !record.activePrompt
-            ? options?.reasoningEffortOptions
-            : [],
+          connected ? options?.reasoningEffortOptions : [],
           options?.currentReasoningEffort?.id,
           connected &&
-            !record.activePrompt &&
+            modelConfigurationEditable &&
             Boolean(options?.reasoningEffortOptions.length),
         ),
       },

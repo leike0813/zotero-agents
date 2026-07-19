@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { readFile } from "fs/promises";
+import * as AssistantWorkspaceAcpChild from "../../src/sidebar/assistantWorkspaceAcpChild.js";
 import {
   ASSISTANT_WORKSPACE_PUBLICATION_KINDS,
   ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
@@ -10,22 +10,55 @@ import {
   ACP_SKILLS_WORKSPACE_DOMAIN_MAPPING,
   assertAssistantWorkspacePublication,
   assertAssistantWorkspacePublicationAck,
+  createAcpChatWorkspaceOwner,
+  createAcpSkillsWorkspaceOwner,
   createAssistantWorkspaceUnownedScope,
   createLoadingTranscriptRegion,
-  createReadyTranscriptRegion,
+  type AssistantWorkspaceOwner,
+  type AssistantWorkspaceOwnerNavigation,
   type AssistantWorkspacePublication,
   type AssistantWorkspacePublicationKind,
 } from "../../src/modules/assistantWorkspacePublication";
+import type { AssistantWorkspaceTranscriptRegion } from "../../src/modules/assistantWorkspaceTranscriptPublication";
 import { AssistantWorkspacePublicationCoordinator } from "../../src/modules/assistantWorkspacePublicationCoordinator";
 import {
   AssistantWorkspacePublicationRuntime,
   defineAssistantWorkspacePublicationAdapter,
+  readAssistantWorkspaceServiceStatus,
+  type AssistantWorkspacePublicationRuntimePayloadByKind,
 } from "../../src/modules/assistantWorkspacePublicationRuntime";
 import {
-  assistantWorkspaceTestOwner,
-  assistantWorkspaceTestPage,
-  assistantWorkspaceTestPublication,
-} from "../helpers/assistantWorkspacePublicationHarness";
+  upsertAcpSkillRun,
+  recordAcpSkillRunSessionUpdate,
+  resetAcpSkillRunsForTests,
+  selectAcpSkillRun,
+  readAcpSkillRunTranscriptRegionFromMemoryForTests,
+} from "../../src/modules/acpSkillRunStore";
+import {
+  ACP_SKILLS_WORKSPACE_ADAPTER,
+  readAcpSkillRunWorkspaceRegions,
+} from "../../src/modules/acpSkillsWorkspaceSurface";
+import {
+  ACP_CHAT_WORKSPACE_ADAPTER,
+  readAcpChatWorkspaceRegions,
+} from "../../src/modules/acpChatWorkspaceSurface";
+import {
+  getActiveAcpChatOwner,
+  getAcpChatWorkspaceOwnerNavigation,
+} from "../../src/modules/acpSessionManager";
+import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
+import { resetWorkflowTasks } from "../../src/modules/taskRuntime";
+import { resetRuntimeCommandRegistryForTests } from "../../src/platform/command";
+import { assistantWorkspaceTestPublication } from "../helpers/assistantWorkspacePublicationHarness";
+import {
+  FakeAcpConnectionAdapter,
+  installAcpSessionManagerTestHooks,
+  sendAcpConversationPrompt,
+  resolveAcpConversationPermission,
+  setAcpConnectionAdapterFactoryForTests,
+  startNewAcpConversation,
+  waitForAcpConversationSnapshot,
+} from "../helpers/acpSessionManagerHarness";
 
 const expectedKinds = [
   "owner-navigation",
@@ -40,54 +73,100 @@ const expectedKinds = [
   "owner-details",
 ] as const;
 
-function ownerControl() {
-  return {
-    status: "running",
-    busy: true,
-    hint: { kind: "running" as const, message: null },
-    connection: {
-      status: "connected",
-      sessionAvailable: true,
-      connected: true,
-      canConnect: false,
-      canDisconnect: true,
-    },
-    execution: { canCancel: true, canInterrupt: true },
-    authentication: {
-      required: false,
-      canAuthenticate: false,
-      methodId: null,
-    },
-    permissionPolicy: { autoApprove: false, canSetAutoApprove: false },
-  };
-}
+const workspaceRegionKinds = [
+  "owner-control",
+  "message-counts",
+  "plan",
+  "permission",
+  "composer",
+  "owner-presentation",
+] as const;
 
-function navigation(owner: ReturnType<typeof assistantWorkspaceTestOwner>) {
-  return {
-    selectedOwner: owner,
-    selectedGroupId: null,
-    groups: [],
-    entries: [
-      {
-        owner,
-        groupId: null,
-        label: "Selected owner",
-        subtitle: null,
-        description: null,
-        groupLabel: null,
-        status: "running",
-        backendStatus: "running",
-        applyState: null,
-        attention: null,
-        updatedAt: null,
-        messageCount: 1,
-      },
-    ],
-    canCreateOwner: false,
-  };
-}
+// Publication payloads fed to these tests are produced by the production
+// workspace surface readers against seeded ACP Skills / ACP Chat state; only
+// the envelope shells (publicationId/regionRevision/deliverySequence/schema)
+// stay hand-written because they are runtime artifacts.
+let skillsOwner: Extract<AssistantWorkspaceOwner, { source: "acp-skills" }>;
+let skillsNavigation: AssistantWorkspaceOwnerNavigation;
+let skillsRegions: Partial<AssistantWorkspacePublicationRuntimePayloadByKind>;
+let skillsTranscript: AssistantWorkspaceTranscriptRegion;
+let chatOwner: Extract<AssistantWorkspaceOwner, { source: "acp-chat" }>;
+let chatNavigation: AssistantWorkspaceOwnerNavigation;
+let chatRegions: Partial<AssistantWorkspacePublicationRuntimePayloadByKind>;
+let chatTranscript: AssistantWorkspaceTranscriptRegion;
 
 describe("Assistant Workspace ACP publication data plane v1", function () {
+  const harness = installAcpSessionManagerTestHooks();
+
+  beforeEach(async function () {
+    // Reset sequence mirrors test/core/107 beforeEach; the acp-chat side is
+    // cleaned by installAcpSessionManagerTestHooks like the 96-* suites.
+    resetPluginStateStoreForTests();
+    resetWorkflowTasks();
+    resetAcpSkillRunsForTests();
+    resetRuntimeCommandRegistryForTests();
+
+    upsertAcpSkillRun({
+      requestId: "request-1",
+      backendId: "backend-acp",
+      backendType: "acp",
+      backendLabel: "ACP Backend",
+      taskName: "Task",
+      skillName: "Skill",
+      workspaceDir: "/workspace/request-1",
+      sessionId: "session-1",
+      status: "running",
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+      connectionActionState: "idle",
+      activePrompt: true,
+    });
+    recordAcpSkillRunSessionUpdate("request-1", {
+      sessionId: "session-1",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "hello" },
+      },
+    } as never);
+    await selectAcpSkillRun("request-1");
+    skillsOwner = createAcpSkillsWorkspaceOwner("request-1");
+    skillsNavigation = await ACP_SKILLS_WORKSPACE_ADAPTER.readOwnerNavigation();
+    skillsRegions = await readAcpSkillRunWorkspaceRegions({
+      requestId: "request-1",
+      kinds: workspaceRegionKinds,
+    });
+    skillsTranscript = readAcpSkillRunTranscriptRegionFromMemoryForTests({
+      requestId: "request-1",
+    });
+
+    await startNewAcpConversation();
+    const activeChat = getActiveAcpChatOwner();
+    chatOwner = createAcpChatWorkspaceOwner(
+      activeChat.backendId,
+      activeChat.conversationId,
+    );
+    chatNavigation = getAcpChatWorkspaceOwnerNavigation();
+    chatRegions = await readAcpChatWorkspaceRegions({
+      owner: chatOwner,
+      kinds: workspaceRegionKinds,
+    });
+    chatTranscript = await ACP_CHAT_WORKSPACE_ADAPTER.readTranscriptPage({
+      owner: chatOwner,
+      context: undefined as never,
+      request: undefined,
+    });
+
+    for (const regions of [skillsRegions, chatRegions]) {
+      for (const kind of workspaceRegionKinds) {
+        if (!regions[kind]) {
+          throw new Error(
+            `workspace publication fixture seed missing region: ${kind}`,
+          );
+        }
+      }
+    }
+  });
+
   it("defines one exhaustive strict registry for both ACP sources", function () {
     assert.deepEqual(ASSISTANT_WORKSPACE_PUBLICATION_KINDS, expectedKinds);
     assert.deepEqual(
@@ -122,11 +201,11 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
   });
 
   it("accepts only the exact v1 envelope and rejects removed versions and aliases", function () {
-    const owner = assistantWorkspaceTestOwner("acp-skills");
+    const owner = skillsOwner;
     const publication = assistantWorkspaceTestPublication({
       owner,
       kind: "owner-control",
-      payload: ownerControl(),
+      payload: skillsRegions["owner-control"]!,
     });
     assert.doesNotThrow(() => assertAssistantWorkspacePublication(publication));
     assert.equal(
@@ -140,7 +219,10 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
       })),
       { ...publication, tab: "acp-skills" },
       { ...publication, publicationKind: "baseline-status" },
-      { ...publication, payload: { ...ownerControl(), selectedRun: {} } },
+      {
+        ...publication,
+        payload: { ...skillsRegions["owner-control"], selectedRun: {} },
+      },
     ]) {
       assert.throws(() => assertAssistantWorkspacePublication(invalid));
     }
@@ -188,15 +270,8 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
   });
 
   it("accepts only the exact v1 owner presentation payload", function () {
-    const owner = assistantWorkspaceTestOwner("acp-skills");
-    const presentation = {
-      title: "Task",
-      subtitle: "Skill",
-      description: null,
-      notice: { tone: "warning" as const, text: "Needs input" },
-      metadata: [{ fieldId: "workflow" as const, value: "Literature" }],
-      usage: { used: 4, limit: 10, costText: null },
-    };
+    const owner = skillsOwner;
+    const presentation = skillsRegions["owner-presentation"]!;
     assert.doesNotThrow(() =>
       assertAssistantWorkspacePublication(
         assistantWorkspaceTestPublication({
@@ -220,24 +295,32 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
     );
   });
 
-  it("accepts structured permission and rejects legacy source or raw detail", function () {
-    const owner = assistantWorkspaceTestOwner("acp-chat");
-    const request = {
-      requestId: "permission-1",
-      approvalKind: "zotero-write" as const,
-      title: "Write Zotero item",
-      summary: "Update one item",
-      tool: {
-        title: "Update item",
-        callId: "call-1",
-      },
-      review: {
-        requestedAt: "2026-07-17T00:00:00.000Z",
-        command: null,
-        preview: "title: Revised",
-      },
-      options: [{ optionId: "allow", label: "Allow", description: null }],
-    };
+  it("accepts structured permission and rejects legacy source or raw detail", async function () {
+    const owner = chatOwner;
+    setAcpConnectionAdapterFactoryForTests(async () => {
+      harness.lastAdapter = new FakeAcpConnectionAdapter();
+      harness.lastAdapter.emitPermissionDuringPrompt = true;
+      return harness.lastAdapter;
+    });
+    const promptPromise = sendAcpConversationPrompt({
+      message: "Need permission",
+    });
+    await waitForAcpConversationSnapshot(
+      (entry) => !!entry.pendingPermissionRequest,
+    );
+    const regions = await readAcpChatWorkspaceRegions({
+      owner,
+      kinds: ["permission"],
+    });
+    const request = regions.permission?.request;
+    if (!request) {
+      throw new Error("permission fixture seed missing pending request");
+    }
+    await resolveAcpConversationPermission({
+      outcome: "selected",
+      optionId: "allow-once",
+    });
+    await promptPromise;
     assert.doesNotThrow(() =>
       assertAssistantWorkspacePublication(
         assistantWorkspaceTestPublication({
@@ -268,7 +351,10 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
   });
 
   it("accepts only bounded owner details sections and actions", function () {
-    const owner = assistantWorkspaceTestOwner("acp-skills");
+    const owner = skillsOwner;
+    // acp-skills owner-details stays hand-written here: the production reader
+    // (readAcpSkillRunWorkspaceRegions with "owner-details") depends on run
+    // directory files; its output is covered by the smoke test below.
     const details = {
       status: "ready" as const,
       title: "Task",
@@ -309,6 +395,38 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
     );
   });
 
+  it("projects the live Host Bridge service status through the v1 envelope", function () {
+    // service-status payloads stay hand-written in the scenarios below because
+    // the production constructor reads the hostBridgeServer singleton; this
+    // smoke test locks the production constructor output to the v1 contract.
+    const publication = assistantWorkspaceTestPublication({
+      owner: createAssistantWorkspaceUnownedScope("acp-skills"),
+      kind: "service-status",
+      payload: readAssistantWorkspaceServiceStatus(),
+    });
+    assert.doesNotThrow(() => assertAssistantWorkspacePublication(publication));
+  });
+
+  it("projects seeded ACP Skills owner details through the v1 envelope", async function () {
+    const regions = await readAcpSkillRunWorkspaceRegions({
+      requestId: "request-1",
+      kinds: ["owner-details"],
+    });
+    const details = regions["owner-details"];
+    if (!details) {
+      throw new Error("owner-details fixture seed missing production payload");
+    }
+    assert.doesNotThrow(() =>
+      assertAssistantWorkspacePublication(
+        assistantWorkspaceTestPublication({
+          owner: skillsOwner,
+          kind: "owner-details",
+          payload: details,
+        }),
+      ),
+    );
+  });
+
   it("accepts bounded renderer failures and rejects arbitrary ACK fields", function () {
     assert.doesNotThrow(() =>
       assertAssistantWorkspacePublicationAck({
@@ -331,7 +449,7 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
   });
 
   it("drops inactive changes before invoking the producer adapter", function () {
-    const owner = assistantWorkspaceTestOwner("acp-chat");
+    const owner = chatOwner;
     let mapCalls = 0;
     const adapter = defineAssistantWorkspacePublicationAdapter({
       source: "acp-chat" as const,
@@ -341,14 +459,9 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
         mapCalls += 1;
         throw new Error("inactive producer must not run");
       },
-      readOwnerNavigation: async () => navigation(owner),
+      readOwnerNavigation: async () => chatNavigation,
       readOwnerRegions: async () => ({}),
-      readTranscriptPage: async () =>
-        createReadyTranscriptRegion(
-          owner,
-          assistantWorkspaceTestPage(owner),
-          0,
-        ),
+      readTranscriptPage: async () => chatTranscript,
     });
     const coordinator = new AssistantWorkspacePublicationCoordinator({
       scopeKey: "test",
@@ -365,7 +478,7 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
   });
 
   it("drops an owner mismatch before any region read", async function () {
-    const activeOwner = assistantWorkspaceTestOwner("acp-skills");
+    const activeOwner = skillsOwner;
     const changedOwner = {
       ...activeOwner,
       ownerKey: "request-2",
@@ -381,17 +494,12 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
         targetsActiveOwner: true,
         publicationKinds: ["owner-control"] as const,
       }),
-      readOwnerNavigation: async () => navigation(activeOwner),
+      readOwnerNavigation: async () => skillsNavigation,
       readOwnerRegions: async () => {
         reads += 1;
         return {};
       },
-      readTranscriptPage: async () =>
-        createReadyTranscriptRegion(
-          activeOwner,
-          assistantWorkspaceTestPage(activeOwner),
-          0,
-        ),
+      readTranscriptPage: async () => skillsTranscript,
     });
     const coordinator = new AssistantWorkspacePublicationCoordinator({
       scopeKey: "owner-mismatch",
@@ -434,9 +542,8 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
   });
 
   it("coalesces one owner lane into one minimal batch read", async function () {
-    const owner = assistantWorkspaceTestOwner("acp-chat");
+    const owner = chatOwner;
     let reads = 0;
-    let changed = false;
     const posts: AssistantWorkspacePublication[] = [];
     const adapter = defineAssistantWorkspacePublicationAdapter({
       source: "acp-chat" as const,
@@ -447,49 +554,12 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
         targetsActiveOwner: true,
         publicationKinds: [change.kind],
       }),
-      readOwnerNavigation: async () => navigation(owner),
+      readOwnerNavigation: async () => chatNavigation,
       readOwnerRegions: async ({ kinds }) => {
         reads += 1;
-        return Object.fromEntries(
-          kinds.map((kind) => [
-            kind,
-            kind === "owner-control"
-              ? {
-                  ...ownerControl(),
-                  hint: {
-                    kind: "running",
-                    message: changed ? "changed" : null,
-                  },
-                }
-              : {
-                  reply: { status: "enabled" },
-                  runtimeOptions: {
-                    mode: {
-                      selectedOptionId: null,
-                      options: [],
-                      enabled: changed,
-                    },
-                    model: {
-                      selectedOptionId: null,
-                      options: [],
-                      enabled: false,
-                    },
-                    reasoningEffort: {
-                      selectedOptionId: null,
-                      options: [],
-                      enabled: false,
-                    },
-                  },
-                },
-          ]),
-        );
+        return readAcpChatWorkspaceRegions({ owner, kinds });
       },
-      readTranscriptPage: async () =>
-        createReadyTranscriptRegion(
-          owner,
-          assistantWorkspaceTestPage(owner),
-          0,
-        ),
+      readTranscriptPage: async () => chatTranscript,
     });
     const coordinator = new AssistantWorkspacePublicationCoordinator({
       scopeKey: "coalesce",
@@ -525,7 +595,10 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
     });
     reads = 0;
     posts.length = 0;
-    changed = true;
+    // A completed prompt turn is the production state change: it flips the
+    // owner-control connection/hint fields and enables composer runtime
+    // options, so the coalesced batch read publishes both scheduled regions.
+    await sendAcpConversationPrompt({ message: "Coalesce batch" });
     runtime.schedule({
       adapter,
       change: { kind: "owner-control" },
@@ -545,11 +618,10 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
   });
 
   it("keeps diagnostic-only owner presentation reads out of transcript and other managed regions", async function () {
-    const owner = assistantWorkspaceTestOwner("acp-chat");
+    const owner = chatOwner;
     const posts: AssistantWorkspacePublication[] = [];
     const regionReads: string[][] = [];
     let transcriptReads = 0;
-    let changed = false;
     const adapter = defineAssistantWorkspacePublicationAdapter({
       source: "acp-chat" as const,
       supportedKinds: expectedKinds,
@@ -559,27 +631,14 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
         targetsActiveOwner: true,
         publicationKinds: ["owner-presentation"] as const,
       }),
-      readOwnerNavigation: async () => navigation(owner),
+      readOwnerNavigation: async () => chatNavigation,
       readOwnerRegions: async ({ kinds }) => {
         regionReads.push([...kinds]);
-        return {
-          "owner-presentation": {
-            title: changed ? "Conversation updated" : "Conversation",
-            subtitle: null,
-            description: null,
-            notice: null,
-            metadata: [],
-            usage: null,
-          },
-        };
+        return readAcpChatWorkspaceRegions({ owner, kinds });
       },
       readTranscriptPage: async () => {
         transcriptReads += 1;
-        return createReadyTranscriptRegion(
-          owner,
-          assistantWorkspaceTestPage(owner),
-          0,
-        );
+        return chatTranscript;
       },
     });
     const coordinator = new AssistantWorkspacePublicationCoordinator({
@@ -612,7 +671,9 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
     posts.length = 0;
     regionReads.length = 0;
     transcriptReads = 0;
-    changed = true;
+    // A completed prompt turn attaches a live session to the conversation,
+    // which changes the production owner-presentation metadata payload.
+    await sendAcpConversationPrompt({ message: "Presentation update" });
 
     runtime.schedule({ adapter, change: {}, context: {} });
     await runtime.flush();
@@ -627,7 +688,7 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
 
   for (const source of ["acp-chat", "acp-skills"] as const) {
     it(`initializes ${source} owner-first and batch-reads owned regions once`, async function () {
-      const owner = assistantWorkspaceTestOwner(source);
+      const owner = source === "acp-chat" ? chatOwner : skillsOwner;
       const posts: AssistantWorkspacePublication[] = [];
       const materializations: Array<{
         kind: AssistantWorkspacePublicationKind;
@@ -646,68 +707,19 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
           targetsActiveOwner: true,
           publicationKinds: [],
         }),
-        readOwnerNavigation: async () => navigation(owner),
+        readOwnerNavigation: async () =>
+          source === "acp-chat" ? chatNavigation : skillsNavigation,
         readOwnerRegions: async ({ kinds }) => {
           batchReads += 1;
-          return Object.fromEntries(
-            kinds.map((kind) => [
-              kind,
-              kind === "owner-control"
-                ? ownerControl()
-                : kind === "message-counts"
-                  ? { counts: null }
-                  : kind === "plan"
-                    ? { items: [] }
-                    : kind === "permission"
-                      ? { request: null }
-                      : kind === "composer"
-                        ? {
-                            reply: { status: "disabled" },
-                            runtimeOptions: {
-                              mode: {
-                                selectedOptionId: null,
-                                options: [],
-                                enabled: false,
-                              },
-                              model: {
-                                selectedOptionId: null,
-                                options: [],
-                                enabled: false,
-                              },
-                              reasoningEffort: {
-                                selectedOptionId: null,
-                                options: [],
-                                enabled: false,
-                              },
-                            },
-                          }
-                        : kind === "owner-details"
-                          ? {
-                              status: "ready",
-                              title: "Owner",
-                              subtitle: null,
-                              sections: [],
-                              actions: [],
-                              error: null,
-                            }
-                          : {
-                              title: "Owner",
-                              subtitle: null,
-                              description: null,
-                              notice: null,
-                              metadata: [],
-                              usage: null,
-                              sections: [],
-                            },
-            ]),
-          );
+          return source === "acp-chat"
+            ? readAcpChatWorkspaceRegions({ owner: chatOwner, kinds })
+            : readAcpSkillRunWorkspaceRegions({
+                requestId: skillsOwner.requestId,
+                kinds,
+              });
         },
         readTranscriptPage: async () =>
-          createReadyTranscriptRegion(
-            owner,
-            assistantWorkspaceTestPage(owner),
-            0,
-          ),
+          source === "acp-chat" ? chatTranscript : skillsTranscript,
       });
       const coordinator = new AssistantWorkspacePublicationCoordinator({
         scopeKey: source,
@@ -785,7 +797,7 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
   }
 
   it("drops lazy owner details that arrive after an owner switch", async function () {
-    const ownerA = assistantWorkspaceTestOwner("acp-skills");
+    const ownerA = skillsOwner;
     const ownerB = { ...ownerA, ownerKey: "request-2", requestId: "request-2" };
     let selectedOwner = ownerA;
     let resolveDetails: ((value: Record<string, unknown>) => void) | undefined;
@@ -803,14 +815,9 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
         targetsActiveOwner: true,
         publicationKinds: [],
       }),
-      readOwnerNavigation: async () => navigation(selectedOwner),
+      readOwnerNavigation: async () => skillsNavigation,
       readOwnerRegions: async () => detailsRead as never,
-      readTranscriptPage: async () =>
-        createReadyTranscriptRegion(
-          selectedOwner,
-          assistantWorkspaceTestPage(selectedOwner),
-          0,
-        ),
+      readTranscriptPage: async () => skillsTranscript,
     });
     const coordinator = new AssistantWorkspacePublicationCoordinator({
       scopeKey: "details-owner-guard",
@@ -835,6 +842,8 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
       context: {},
     });
     selectedOwner = ownerB;
+    // acp-skills owner-details stays hand-written (production reader needs run
+    // directory files); the value is dropped before any publication anyway.
     resolveDetails?.({
       "owner-details": {
         status: "ready",
@@ -851,42 +860,26 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
   });
 
   it("atomically invalidates every old-owner selection region", async function () {
-    const vm = await import("vm");
-    const code = await readFile(
-      "addon/content/shared/assistant/assistant-workspace-acp-child.js",
-      "utf8",
-    );
-    const context = { window: {} as Record<string, unknown> };
-    vm.runInNewContext(code, context);
-    const receiver = (
-      context.window as any
-    ).AssistantWorkspaceAcpChild.createReceiver({
+    const receiver = AssistantWorkspaceAcpChild.createReceiver({
       source: "acp-skills",
     });
-    const oldOwner = assistantWorkspaceTestOwner("acp-skills");
-    const newOwner = {
-      ...oldOwner,
-      ownerKey: "request-2",
-      requestId: "request-2",
-    };
+    const oldOwner = skillsOwner;
     const oldState = {
       source: "acp-skills",
-      navigation: navigation(oldOwner),
+      navigation: skillsNavigation,
       services: { items: [] },
       selection: {
         owner: oldOwner,
         phase: "ready",
-        control: ownerControl(),
-        messageCounts: { counts: null },
-        transcript: createReadyTranscriptRegion(
-          oldOwner,
-          assistantWorkspaceTestPage(oldOwner),
-          3,
-        ),
-        plan: null,
-        permission: { request: null },
-        composer: null,
-        presentation: { title: "old" },
+        control: skillsRegions["owner-control"],
+        messageCounts: skillsRegions["message-counts"],
+        transcript: skillsTranscript,
+        plan: skillsRegions.plan,
+        permission: skillsRegions.permission,
+        composer: skillsRegions.composer,
+        presentation: skillsRegions["owner-presentation"],
+        // acp-skills owner-details stays hand-written (production reader
+        // needs run directory files); smoke coverage lives above.
         details: {
           status: "ready",
           title: "old",
@@ -897,12 +890,21 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
         },
       },
     };
+    upsertAcpSkillRun({
+      requestId: "request-2",
+      backendId: "backend-acp",
+      backendType: "acp",
+      status: "running",
+    });
+    await selectAcpSkillRun("request-2");
+    const newNavigation =
+      await ACP_SKILLS_WORKSPACE_ADAPTER.readOwnerNavigation();
     const result = receiver.apply(
       oldState,
       assistantWorkspaceTestPublication({
         owner: createAssistantWorkspaceUnownedScope("acp-skills"),
         kind: "owner-navigation",
-        payload: navigation(newOwner),
+        payload: newNavigation,
         deliverySequence: 2,
       }),
       oldOwner.ownerKey,
@@ -921,17 +923,10 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
   });
 
   it("keeps child-visible region revisions monotonic across host deactivation", async function () {
-    const vm = await import("vm");
-    const code = await readFile(
-      "addon/content/shared/assistant/assistant-workspace-acp-child.js",
-      "utf8",
-    );
-    const context = { window: {} as Record<string, unknown> };
-    vm.runInNewContext(code, context);
-    const receiver = (
-      context.window as any
-    ).AssistantWorkspaceAcpChild.createReceiver({ source: "acp-chat" });
-    const owner = assistantWorkspaceTestOwner("acp-chat");
+    const receiver = AssistantWorkspaceAcpChild.createReceiver({
+      source: "acp-chat",
+    });
+    const owner = chatOwner;
     const posts: AssistantWorkspacePublication[] = [];
     const coordinator = new AssistantWorkspacePublicationCoordinator({
       scopeKey: "deactivation-continuity",
@@ -950,7 +945,7 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
         owner,
         publicationKind: "owner-control",
         cause: "activation",
-        payload: ownerControl(),
+        payload: chatRegions["owner-control"]!,
         force: true,
       });
 
@@ -974,7 +969,7 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
   });
 
   it("retries an identical region when transport did not accept the first post", function () {
-    const owner = assistantWorkspaceTestOwner("acp-chat");
+    const owner = chatOwner;
     let accepts = false;
     let attempts = 0;
     const coordinator = new AssistantWorkspacePublicationCoordinator({
@@ -990,7 +985,7 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
         owner,
         publicationKind: "owner-control",
         cause: "steady-state",
-        payload: ownerControl(),
+        payload: chatRegions["owner-control"]!,
       }),
     );
     accepts = true;
@@ -999,14 +994,14 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
         owner,
         publicationKind: "owner-control",
         cause: "steady-state",
-        payload: ownerControl(),
+        payload: chatRegions["owner-control"]!,
       }),
     );
     assert.equal(attempts, 2);
   });
 
   it("turns a rejected render ACK into one coordinator-owned rebase", function () {
-    const owner = assistantWorkspaceTestOwner("acp-chat");
+    const owner = chatOwner;
     let rebases = 0;
     const coordinator = new AssistantWorkspacePublicationCoordinator({
       scopeKey: "rebase",
@@ -1019,11 +1014,7 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
     const publication = coordinator.publishTranscriptSnapshot({
       owner,
       cause: "activation",
-      region: createReadyTranscriptRegion(
-        owner,
-        assistantWorkspaceTestPage(owner),
-        0,
-      ),
+      region: chatTranscript,
     });
     assert.isDefined(publication);
     coordinator.acknowledge({
@@ -1044,7 +1035,7 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
   });
 
   it("keeps page requests owner-enveloped without duplicated source IDs", function () {
-    const owner = assistantWorkspaceTestOwner("acp-chat");
+    const owner = chatOwner;
     const publication = assistantWorkspaceTestPublication({
       owner,
       kind: "transcript",

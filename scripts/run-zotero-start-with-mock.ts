@@ -13,7 +13,11 @@ type SpawnOptions = Parameters<typeof spawn>[2];
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const ROOT = path.resolve(path.dirname(SCRIPT_PATH), "..");
-loadEnv({ path: path.resolve(ROOT, ".env") });
+// Load .env only when executed as a CLI; importing this module (e.g. from
+// tests) must not mutate process.env.
+if (process.argv[1] && path.resolve(process.argv[1]) === SCRIPT_PATH) {
+  loadEnv({ path: path.resolve(ROOT, ".env") });
+}
 
 const MOCK_PORT = process.env.ZOTERO_MOCK_SKILLRUNNER_PORT || "8030";
 const MOCK_HOST = process.env.ZOTERO_MOCK_SKILLRUNNER_HOST || "127.0.0.1";
