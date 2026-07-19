@@ -291,8 +291,8 @@ function checkHostBridgeSurface(errors: string[]) {
   const hostReference = readProfile(
     "skills/zotero-librarian/references/host-bridge.md",
   );
-  const expectedCliVersion = inspectZoteroLibrarianProfileVersion(ROOT).resolved
-    .cliVersion;
+  const expectedCliVersion =
+    inspectZoteroLibrarianProfileVersion(ROOT).resolved.cliVersion;
   for (const snippet of [
     "zotero-librarian:host-bridge:start",
     "zotero-librarian:host-bridge:end",

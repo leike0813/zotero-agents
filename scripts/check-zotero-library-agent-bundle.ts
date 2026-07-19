@@ -52,7 +52,10 @@ function fail(errors: string[], message: string) {
 
 function checkFiles(errors: string[]) {
   if (existsSync(join(ROOT, "skills_builtin/zotero-bridge-cli/README.md"))) {
-    fail(errors, "CLI bundle README must not be nested inside the wrapper skill");
+    fail(
+      errors,
+      "CLI bundle README must not be nested inside the wrapper skill",
+    );
   }
   for (const relative of ZOTERO_LIBRARY_AGENT_SEMANTIC_FILES) {
     const source = join(SOURCE_ROOT, relative);

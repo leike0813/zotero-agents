@@ -205,7 +205,10 @@ describe("zotero-librarian Hermes profile distribution", function () {
     assert.include(hostBridgeReference, release.version);
     assert.include(hostBridgeReference, "zotero-bridge --version");
     assert.include(hostBridgeReference, "--help");
-    assert.include(hostBridgeReference, "Version mismatch alone is not a blocker");
+    assert.include(
+      hostBridgeReference,
+      "Version mismatch alone is not a blocker",
+    );
     assert.include(hostBridgeReference, "surface identity --json");
 
     assert.include(

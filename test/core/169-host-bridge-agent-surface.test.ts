@@ -212,7 +212,10 @@ describe("Host Bridge agent surface contract", function () {
   it("keeps additive CLI, bounded-agent, and resident-profile guidance", function () {
     const sources = {
       cli: fs.readFileSync(
-        path.join(process.cwd(), "skills_src/zotero-bridge-cli/semantic/SKILL.md"),
+        path.join(
+          process.cwd(),
+          "skills_src/zotero-bridge-cli/semantic/SKILL.md",
+        ),
         "utf8",
       ),
       agent: fs.readFileSync(
