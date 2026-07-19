@@ -60,23 +60,23 @@ export function acpChatTranscriptPageKey(
 }
 
 export const ACP_CHAT_CHANGE_PUBLICATION_MAPPING = {
-  "active-scope": "owner-navigation",
-  status: "owner-control",
-  permission: "permission",
-  "session-list": "owner-navigation",
-  "transcript-boundary": "transcript",
-  "transcript-append": "transcript",
-  "transcript-progress": "transcript",
-  "message-counts": "message-counts",
-  plan: "plan",
-  composer: "composer",
-  "owner-presentation": "owner-presentation",
-  "runtime-options": "composer",
-  backend: "owner-navigation",
-  global: "owner-navigation",
+  "active-scope": ["owner-navigation"],
+  status: ["owner-control", "composer"],
+  permission: ["permission"],
+  "session-list": ["owner-navigation"],
+  "transcript-boundary": ["transcript"],
+  "transcript-append": ["transcript"],
+  "transcript-progress": ["transcript"],
+  "message-counts": ["message-counts"],
+  plan: ["plan"],
+  composer: ["composer"],
+  "owner-presentation": ["owner-presentation"],
+  "runtime-options": ["composer"],
+  backend: ["owner-navigation"],
+  global: ["owner-navigation"],
 } as const satisfies Record<
   AcpChatWorkspaceChangeKind,
-  AssistantWorkspacePublicationKind
+  readonly AssistantWorkspacePublicationKind[]
 >;
 
 function normalizedChangeKinds(change: AcpChatWorkspaceChange) {
@@ -154,7 +154,7 @@ export function mapAcpChatWorkspaceChangeKinds(
             kind !== "transcript-append" ||
             state.executionDisplayMode === "live",
         )
-        .map((kind) => ACP_CHAT_CHANGE_PUBLICATION_MAPPING[kind]),
+        .flatMap((kind) => ACP_CHAT_CHANGE_PUBLICATION_MAPPING[kind]),
     ),
   );
 }

@@ -2032,7 +2032,7 @@ describe("acp session manager", function () {
         active: true,
         kinds: ["status"],
       }),
-      ["owner-control"],
+      ["owner-control", "composer"],
     );
     assert.deepEqual(
       resolveAcpChatWorkspacePublicationKinds(base, {
@@ -2380,6 +2380,55 @@ describe("acp session manager", function () {
           item.kind === "message" && item.text.includes("final trailing text"),
       ),
     );
+  });
+
+  it("publishes composer state when prompting resumes after cancellation", async function () {
+    await connectAcpConversation();
+    harness.lastAdapter!.promptStopReason = "cancelled";
+    const releaseFirstPrompt = harness.lastAdapter!.holdPrompt();
+    const firstPrompt = sendAcpConversationPrompt({ message: "First turn" });
+    await waitForAcpConversationSnapshot((snapshot) => snapshot.busy);
+    await cancelAcpConversationPrompt();
+    releaseFirstPrompt();
+    await firstPrompt;
+    assert.equal(
+      getAcpConversationSnapshot().promptInterruptState,
+      "confirmed",
+    );
+
+    const changes: AcpChatPanelSnapshotChange[] = [];
+    const unsubscribe = subscribeAcpChatPanelSnapshots((change) => {
+      changes.push(change);
+    });
+    harness.lastAdapter!.promptStopReason = "end_turn";
+    const releaseSecondPrompt = harness.lastAdapter!.holdPrompt();
+    const secondPrompt = sendAcpConversationPrompt({ message: "Continue" });
+    try {
+      const prompting = await waitForAcpConversationSnapshot(
+        (snapshot) => snapshot.busy && snapshot.status === "prompting",
+      );
+      const owner = createAcpChatWorkspaceOwner(
+        prompting.backendId,
+        prompting.conversationId,
+      );
+      const composer = await readAcpChatWorkspacePublication({
+        owner,
+        publicationKind: "composer",
+      });
+
+      assert.equal(composer?.reply.status, "busy");
+      assert.isTrue(
+        changes.some(
+          (change) =>
+            change.kinds.includes("transcript-boundary") &&
+            change.kinds.includes("status"),
+        ),
+      );
+    } finally {
+      unsubscribe();
+      releaseSecondPrompt();
+      await secondPrompt;
+    }
   });
 
   it("persists ACP chat display mode and compact status expansion state", async function () {
