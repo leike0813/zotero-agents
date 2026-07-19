@@ -62,7 +62,7 @@
       "zotero-librarian:host-bridge:start",
       "zotero-librarian:workflow-catalog:start"
     ],
-    "catalogChecksum": "c59a7482dda6931912a6e9ec0ebe30879d685ebf271864497bce1eef912c96de",
+    "catalogChecksum": "bc45166d54fa5e501bc0330ccf7f5010ab1cec24d75f3063b50c3cf80d9b6a4f",
     "workflowCatalogChecksum": "3874d201640cc664221d4b1c3041e5eb5ae2172ce95df8c1bf11453a5b96c23a",
     "zoteroBridgeCliRelease": {
       "schema": "zotero-bridge-cli-release.v1",
