@@ -28,6 +28,7 @@ import {
   endAcpSkillRunSession,
   flushAcpSkillRunRuntimeFileWritesForTests,
   getAcpSkillRunRecord,
+  getAcpSkillRunRuntimeOptions,
   getSelectedAcpSkillRunRequestId,
   getAcpSkillRunTranscriptMirrorDiagnosticsForTests,
   hasAcpSkillRunController,
@@ -6018,6 +6019,158 @@ describe("ACP SkillRunner-compatible runner", function () {
       getAcpSkillRunRecord(requestId)?.acpRawModelId,
       "claude-4@high",
     );
+  });
+
+  it("exposes stored model and reasoning options on the idle connected Skills composer", async function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-composer-options",
+      status: "waiting_user",
+      backendId: "backend-acp",
+      backendType: "acp",
+      sessionId: "session-composer-options",
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+      activePrompt: false,
+      replyState: "idle",
+      acpModelId: "gpt-5",
+      acpRawModelId: "gpt-5@medium",
+      acpReasoningEffort: "medium",
+    });
+    setAcpSkillRunRuntimeOptions("run-composer-options", {
+      modeOptions: [{ id: "code", label: "Code" }],
+      modelOptions: [
+        { id: "gpt-5@medium", label: "GPT-5 Medium" },
+        { id: "gpt-5@high", label: "GPT-5 High" },
+      ],
+      displayModelOptions: [{ id: "gpt-5", label: "GPT-5" }],
+      reasoningEffortOptions: [
+        { id: "medium", label: "Medium" },
+        { id: "high", label: "High" },
+      ],
+    });
+
+    const regions = await readAcpSkillRunWorkspaceRegions({
+      requestId: "run-composer-options",
+      kinds: ["composer"],
+    });
+
+    const modelGroup = regions.composer?.runtimeOptions?.model;
+    const reasoningGroup = regions.composer?.runtimeOptions?.reasoningEffort;
+    assert.isTrue(modelGroup?.enabled);
+    assert.deepEqual(
+      modelGroup?.options.map((entry) => entry.optionId),
+      ["gpt-5"],
+    );
+    assert.equal(modelGroup?.selectedOptionId, "gpt-5");
+    assert.isTrue(reasoningGroup?.enabled);
+    assert.deepEqual(
+      reasoningGroup?.options.map((entry) => entry.optionId),
+      ["medium", "high"],
+    );
+    assert.equal(reasoningGroup?.selectedOptionId, "medium");
+  });
+
+  it("derives Skills runtime options from the session models when the backend cache is cold", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const adapter = createRuntimeModelAdapter({
+      currentModelId: "gpt-5@medium",
+      setModelCalls: [],
+    });
+    adapter.newSession = async () => ({
+      sessionId: "session-cold-cache",
+      models: {
+        currentModelId: "gpt-5@medium",
+        availableModels: [
+          { modelId: "gpt-5@medium", name: "GPT-5 Medium" },
+          { modelId: "gpt-5@high", name: "GPT-5 High" },
+        ],
+      },
+    });
+    try {
+      const result = await runDemoAcpSkill({
+        root,
+        entry,
+        adapter,
+        backend: createBackend(),
+      });
+
+      const options = getAcpSkillRunRuntimeOptions(result.requestId);
+      assert.deepEqual(
+        (options?.displayModelOptions || []).map((entry) => entry.id),
+        ["gpt-5"],
+      );
+      assert.deepEqual(
+        (options?.reasoningEffortOptions || []).map((entry) => entry.id),
+        ["medium", "high"],
+      );
+      assert.equal(options?.currentDisplayModel?.id, "gpt-5");
+      assert.equal(options?.currentReasoningEffort?.id, "medium");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("derives Skills runtime options from session config options when the backend cache is cold", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const adapter = createRuntimeModelAdapter({
+      currentModelId: "",
+      setModelCalls: [],
+    });
+    adapter.newSession = async () => ({
+      sessionId: "session-config-options",
+      configOptions: [
+        {
+          id: "mode",
+          name: "Mode",
+          type: "select",
+          currentValue: "code",
+          options: [
+            { value: "code", name: "Code" },
+            { value: "plan", name: "Plan" },
+          ],
+        },
+        {
+          id: "model",
+          name: "Model",
+          type: "select",
+          currentValue: "gpt-5@high",
+          options: [
+            { value: "gpt-5@medium", name: "GPT-5 Medium" },
+            { value: "gpt-5@high", name: "GPT-5 High" },
+          ],
+        },
+      ],
+    });
+    try {
+      const result = await runDemoAcpSkill({
+        root,
+        entry,
+        adapter,
+        backend: createBackend(),
+      });
+
+      const options = getAcpSkillRunRuntimeOptions(result.requestId);
+      assert.deepEqual(
+        (options?.modeOptions || []).map((entry) => entry.id),
+        ["code", "plan"],
+      );
+      assert.equal(options?.currentMode?.id, "code");
+      assert.deepEqual(
+        (options?.displayModelOptions || []).map((entry) => entry.id),
+        ["gpt-5"],
+      );
+      assert.deepEqual(
+        (options?.reasoningEffortOptions || []).map((entry) => entry.id),
+        ["medium", "high"],
+      );
+      assert.equal(options?.currentDisplayModel?.id, "gpt-5");
+      assert.equal(options?.currentReasoningEffort?.id, "high");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("marks tool updates with output payload as completed when ACP omits status", async function () {

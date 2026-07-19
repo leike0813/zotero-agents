@@ -65,6 +65,7 @@ import {
 } from "./acpRuntimePerformanceProfiler";
 import { recordAcpRuntimeSemanticTraceEvent } from "./acpRuntimeSemanticTraceRecorder";
 import { recordAcpRuntimeDiagnostic } from "./acpDiagnosticRouter";
+import { buildAcpRuntimeOptionsCache } from "./acpBackendProbe";
 import type { AcpDiagnosticsEntry } from "./acpTypes";
 import {
   buildAcpSkillRunPrompt,
@@ -96,6 +97,7 @@ import {
   createAcpConnectionAdapter,
   type AcpConnectionAdapter,
   type AcpConnectionInitializeResult,
+  type AcpConnectionNewSessionResult,
   type AcpPromptBackendError,
 } from "./acpConnectionAdapter";
 import { ensureZoteroMcpServer } from "./zoteroMcpServer";
@@ -128,7 +130,10 @@ import {
   requestAcpSkillRunForeground,
   type AcpSkillRunForegroundDeps,
 } from "./acpSkillRunForeground";
-import { resolveAcpRawModelIdForSelection } from "./acpModelOptionFolding";
+import {
+  resolveAcpRawModelIdForSelection,
+  type AcpSelectableOption,
+} from "./acpModelOptionFolding";
 import { applyAcpReasoningEffortWithFallback } from "./acpReasoningEffortFallback";
 import {
   listWorkflowTasks,
@@ -1307,6 +1312,76 @@ function rememberAcpSkillRunRuntimeOptions(args: {
   });
 }
 
+// The per-run runtime options snapshot is only as fresh as the backend probe
+// cache captured at run start/recovery. The run's own session handshake
+// (session/new, session/load, session/resume) carries the freshest
+// configOptions/models, so fold them in and let session values win per
+// category while keeping cache values for categories the session omits.
+function refreshAcpSkillRunRuntimeOptionsFromSession(args: {
+  requestId: string;
+  backend?: BackendInstance;
+  session: Pick<
+    AcpConnectionNewSessionResult,
+    "configOptions" | "modes" | "models"
+  >;
+}) {
+  const sessionState = buildAcpRuntimeOptionsCache({
+    configOptions: args.session.configOptions,
+    modes: args.session.modes,
+    models: args.session.models,
+  });
+  const cache = args.backend?.acp?.runtimeOptionsCache;
+  const modeOptions = sessionState.modes.length
+    ? sessionState.modes
+    : cache?.modes || [];
+  const modelOptions = sessionState.rawModels.length
+    ? sessionState.rawModels
+    : cache?.rawModels || [];
+  const displayModelOptions = sessionState.displayModels.length
+    ? sessionState.displayModels
+    : cache?.displayModels || [];
+  const reasoningEffortOptions = sessionState.reasoningEfforts.length
+    ? sessionState.reasoningEfforts
+    : cache?.reasoningEfforts || [];
+  if (
+    !modeOptions.length &&
+    !modelOptions.length &&
+    !displayModelOptions.length &&
+    !reasoningEffortOptions.length
+  ) {
+    return;
+  }
+  const findOption = (options: AcpSelectableOption[], id: string) =>
+    options.find((entry) => entry.id === id) ||
+    (id ? { id, label: id } : undefined);
+  const currentModeId =
+    sessionState.currentModeId || cache?.currentModeId || "";
+  const currentRawModelId =
+    sessionState.currentRawModelId || cache?.currentRawModelId || "";
+  const currentDisplayModelId =
+    sessionState.currentDisplayModelId || cache?.currentDisplayModelId || "";
+  const currentReasoningEffortId =
+    sessionState.currentReasoningEffortId ||
+    cache?.currentReasoningEffortId ||
+    "";
+  setAcpSkillRunRuntimeOptions(args.requestId, {
+    modeOptions,
+    currentMode: findOption(modeOptions, currentModeId),
+    modelOptions,
+    currentModel: findOption(modelOptions, currentRawModelId),
+    displayModelOptions,
+    currentDisplayModel: findOption(
+      displayModelOptions,
+      currentDisplayModelId,
+    ),
+    reasoningEffortOptions,
+    currentReasoningEffort: findOption(
+      reasoningEffortOptions,
+      currentReasoningEffortId,
+    ),
+  });
+}
+
 function resolveFrozenAcpRuntimeOptions(args: {
   backend: BackendInstance;
   providerOptions?: Record<string, unknown>;
@@ -1368,6 +1443,11 @@ async function runPrompt(args: {
   if (!sessionId) {
     const session = await args.adapter.newSession();
     sessionId = session.sessionId;
+    refreshAcpSkillRunRuntimeOptionsFromSession({
+      requestId: args.requestId,
+      backend: args.backend,
+      session,
+    });
     upsertAcpSkillRun({
       requestId: args.requestId,
       sessionId,
@@ -2119,11 +2199,19 @@ async function attachRecoveredSession(args: {
   adapter: AcpConnectionAdapter;
   requestId: string;
   sessionId: string;
+  backend: BackendInstance;
 }) {
   const initialized = await args.adapter.initialize();
   if (initialized.canResumeSession) {
     try {
-      await args.adapter.resumeSession({ sessionId: args.sessionId });
+      const session = await args.adapter.resumeSession({
+        sessionId: args.sessionId,
+      });
+      refreshAcpSkillRunRuntimeOptionsFromSession({
+        requestId: args.requestId,
+        backend: args.backend,
+        session,
+      });
       return "resumed";
     } catch (error) {
       upsertAcpSkillRun({
@@ -2140,7 +2228,14 @@ async function attachRecoveredSession(args: {
     }
   }
   if (initialized.canLoadSession) {
-    await args.adapter.loadSession({ sessionId: args.sessionId });
+    const session = await args.adapter.loadSession({
+      sessionId: args.sessionId,
+    });
+    refreshAcpSkillRunRuntimeOptionsFromSession({
+      requestId: args.requestId,
+      backend: args.backend,
+      session,
+    });
     return "loaded";
   }
   upsertAcpSkillRun({
@@ -3240,6 +3335,7 @@ export async function recoverAcpSkillRunConversation(args: {
       adapter,
       requestId,
       sessionId,
+      backend,
     });
     registerAcpSkillRunController(requestId, {
       cancel: async () => {
