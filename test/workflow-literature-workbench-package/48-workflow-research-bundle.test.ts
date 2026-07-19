@@ -16,6 +16,7 @@ import {
   resolveResearchBundleReadmeLocale,
 } from "../../workflows_builtin/literature-workbench-package/lib/researchBundleReadme.mjs";
 import { createWorkflowArchiveApi } from "../../src/workflows/archive";
+import { applyResult as applyResearchBundleResult } from "../../workflows_builtin/literature-workbench-package/export-research-bundle/hooks/applyResult.mjs";
 
 describe("export research bundle workflow", function () {
   it("loads as a core automatic no-selection workflow without language", async function () {
@@ -231,6 +232,16 @@ describe("export research bundle workflow", function () {
       assert.include(readme, "`manifest.json`");
       assert.include(readme, "topics/topic-001/report.md");
       assert.include(readme, "papers/paper-001/source.md");
+      const tableLines = readme
+        .split("\n")
+        .filter((line) => line.startsWith("| "));
+      const paperHeaderIndex = tableLines.findIndex((line) =>
+        /\| ID \| (?:Paper reference|文献引用) \|/.test(line),
+      );
+      assert.isAtLeast(paperHeaderIndex, 0);
+      const tableCellCount = (line: string) => line.split("|").length - 2;
+      assert.equal(tableCellCount(tableLines[paperHeaderIndex]), 7);
+      assert.equal(tableCellCount(tableLines[paperHeaderIndex + 1]), 7);
     }
   });
 
@@ -261,6 +272,7 @@ describe("export research bundle workflow", function () {
       ["BBBB2222", { id: 2, key: "BBBB2222", getNotes: () => [] }],
       ["CCCC3333", { id: 3, key: "CCCC3333", getNotes: () => [] }],
     ]);
+    const exportedItemKeys: string[] = [];
     let registration: any;
     const result = await materializeResearchProduct({
       selection: {
@@ -292,6 +304,29 @@ describe("export research bundle workflow", function () {
               itemType: "journalArticle",
               key: item.key,
             }),
+            async exportText(args: any) {
+              exportedItemKeys.push(
+                ...args.items.map((item: any) => String(item.key)),
+              );
+              return {
+                ok: true,
+                content:
+                  "@article{a, title={A}}\n@article{b, title={B}}\n@article{c, title={C}}\n",
+                translator: {
+                  translatorID: "ca65189f-8815-4afe-8c8b-8c7c15f0edca",
+                  label: "Better BibTeX",
+                  target: "bib",
+                },
+                fallbackUsed: false,
+                attempts: [
+                  {
+                    translatorID: "ca65189f-8815-4afe-8c8b-8c7c15f0edca",
+                    label: "Better BibTeX",
+                    status: "succeeded",
+                  },
+                ],
+              };
+            },
           },
           synthesis: {
             async getTopicReport() {
@@ -324,6 +359,9 @@ describe("export research bundle workflow", function () {
           },
           file: {
             exists: async (target: string) => {
+              if (target.endsWith("missing.png")) {
+                throw new Error("NS_ERROR_FILE_UNRECOGNIZED_PATH");
+              }
               try {
                 await fs.stat(target);
                 return true;
@@ -363,6 +401,8 @@ describe("export research bundle workflow", function () {
       assert.include(productPaths, "papers/paper-002/metadata.json");
       assert.include(productPaths, "papers/paper-002/source.pdf");
       assert.include(productPaths, "papers/paper-003/metadata.json");
+      assert.include(productPaths, "references.bib");
+      assert.deepEqual(exportedItemKeys, ["AAAA1111", "BBBB2222", "CCCC3333"]);
       assert.notInclude(productPaths, "papers/paper-001.image-m1-figure.png");
       assert.notInclude(productPaths, `papers/paper-001/${outsideFileName}`);
       const markdownSource = registration.assets.find(
@@ -397,11 +437,277 @@ describe("export research bundle workflow", function () {
         result.manifest.warnings.map((warning) => warning.code),
         ["markdown_image_outside_source_tree", "markdown_image_missing"],
       );
+      assert.deepInclude(result.manifest.warnings, {
+        code: "markdown_image_missing",
+        path: path.join(root, "missing.png"),
+        reason: "probe_failed",
+        paper_ref: "1:AAAA1111",
+      });
       assert.notProperty(result.manifest.files, "manifest.json");
+      assert.property(result.manifest.files, "references.bib");
+      assert.deepInclude(result.manifest.bibliography, {
+        status: "generated",
+        path: "references.bib",
+        requested_format: "better-bibtex",
+        actual_format: "better-bibtex",
+        fallback_used: false,
+        item_count: 3,
+      });
+      const readmeAsset = registration.assets.find(
+        (entry: any) => entry.productAssetPath === "README.md",
+      );
+      assert.include(readmeAsset.source.text, "references.bib");
       assert.equal(result.manifest.papers[0].role, "core");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
       await fs.rm(outsideImagePath, { force: true });
     }
+  });
+
+  it("records native BibTeX fallback and aborts when every exporter fails", async function () {
+    const selection = {
+      schema_id: "research_bundle.selection",
+      intent: {
+        paper_title: "Fallback research",
+        article_type: "review",
+        research_content: "Evidence",
+      },
+      topics: [],
+      papers: [
+        {
+          paper_ref: "1:AAAA1111",
+          semantic_relevance: 0.8,
+          role: "related",
+        },
+      ],
+    };
+    let exportResult: any;
+    let registrationCount = 0;
+    const run = () =>
+      materializeResearchProduct({
+        selection,
+        runtime: {
+          helpers: { resolveItemRef: () => null },
+          hostApi: {
+            items: {
+              getByLibraryAndKey: () => ({
+                id: 1,
+                key: "AAAA1111",
+                getNotes: () => [],
+              }),
+              get: () => null,
+              exportPortableJson: () => ({
+                itemType: "journalArticle",
+                key: "AAAA1111",
+              }),
+              exportText: async () => exportResult,
+            },
+            archive: createWorkflowArchiveApi(),
+          },
+        },
+        productStorage: {
+          async registerProduct(input: any) {
+            registrationCount += 1;
+            return { productId: "fallback-product", assets: input.assets };
+          },
+        },
+      });
+
+    exportResult = {
+      ok: true,
+      content: "@article{native, title={Fallback}}\n",
+      translator: {
+        translatorID: "9cb70025-a888-4a29-a210-93ec52da40d4",
+        label: "BibTeX",
+        target: "bib",
+      },
+      fallbackUsed: true,
+      attempts: [
+        {
+          translatorID: "ca65189f-8815-4afe-8c8b-8c7c15f0edca",
+          label: "Better BibTeX",
+          status: "failed",
+          errorCode: "export_failed",
+        },
+        {
+          translatorID: "9cb70025-a888-4a29-a210-93ec52da40d4",
+          label: "BibTeX",
+          status: "succeeded",
+        },
+      ],
+    };
+    const fallback = await run();
+    assert.deepInclude(fallback.manifest.bibliography, {
+      status: "generated",
+      actual_format: "bibtex",
+      fallback_used: true,
+    });
+    assert.deepInclude(fallback.manifest.warnings[0], {
+      code: "bibliography_export_fallback",
+      reason_code: "export_failed",
+    });
+
+    exportResult = {
+      ok: false,
+      attempts: [
+        {
+          translatorID: "ca65189f-8815-4afe-8c8b-8c7c15f0edca",
+          label: "Better BibTeX",
+          status: "failed",
+          errorCode: "export_failed",
+        },
+        {
+          translatorID: "9cb70025-a888-4a29-a210-93ec52da40d4",
+          label: "BibTeX",
+          status: "failed",
+          errorCode: "export_failed",
+        },
+      ],
+    };
+    let failure: any;
+    try {
+      await run();
+    } catch (error) {
+      failure = error;
+    }
+    assert.equal(failure?.code, "bibliography_export_failed");
+    assert.equal(registrationCount, 1);
+  });
+
+  it("does not invoke bibliography export when no selected item materializes", async function () {
+    let exportCalls = 0;
+    const result = await materializeResearchProduct({
+      selection: {
+        schema_id: "research_bundle.selection",
+        intent: {
+          paper_title: "Missing research",
+          article_type: "review",
+          research_content: "Evidence",
+        },
+        topics: [],
+        papers: [
+          {
+            paper_ref: "1:MISSING1",
+            semantic_relevance: 0.8,
+            role: "related",
+          },
+        ],
+      },
+      runtime: {
+        helpers: { resolveItemRef: () => null },
+        hostApi: {
+          items: {
+            getByLibraryAndKey: () => null,
+            get: () => null,
+            exportPortableJson: () => ({}),
+            async exportText() {
+              exportCalls += 1;
+              throw new Error("must not be called");
+            },
+          },
+          archive: createWorkflowArchiveApi(),
+        },
+      },
+      productStorage: {
+        async registerProduct(input: any) {
+          return { productId: "missing-product", assets: input.assets };
+        },
+      },
+    });
+
+    assert.equal(exportCalls, 0);
+    assert.deepInclude(result.manifest.bibliography, {
+      status: "not_generated",
+      reason: "no_materialized_items",
+      item_count: 0,
+    });
+    assert.include(
+      result.manifest.warnings.map((warning: any) => warning.code),
+      "paper_missing",
+    );
+  });
+
+  it("returns apply diagnostics derived from Product manifest warnings", async function () {
+    const selection = {
+      schema_id: "research_bundle.selection",
+      intent: {
+        paper_title: "Diagnostics",
+        article_type: "original research",
+        research_content: "Warning propagation",
+      },
+      topics: [],
+      papers: [
+        {
+          paper_ref: "1:AAAA1111",
+          semantic_relevance: 1,
+          role: "core",
+        },
+      ],
+    };
+    let registration: any;
+    const result = await applyResearchBundleResult({
+      runResult: { status: "succeeded" },
+      resultContext: {
+        resultJson: { selection_manifest_path: "result/selection.json" },
+        async readArtifactText() {
+          return { text: JSON.stringify(selection) };
+        },
+      },
+      runtime: {
+        helpers: {
+          isMarkdownAttachment: () => false,
+          isPdfAttachment: () => false,
+        },
+        hostApi: {
+          items: {
+            getByLibraryAndKey: () => ({
+              id: 1,
+              key: "AAAA1111",
+              getNotes: () => [],
+            }),
+            get: () => null,
+            exportPortableJson: () => ({
+              itemType: "journalArticle",
+              key: "AAAA1111",
+            }),
+            async exportText() {
+              return {
+                ok: true,
+                content: "@article{a, title={A}}\n",
+                translator: {
+                  translatorID: "ca65189f-8815-4afe-8c8b-8c7c15f0edca",
+                  label: "Better BibTeX",
+                  target: "bib",
+                },
+                fallbackUsed: false,
+                attempts: [],
+              };
+            },
+          },
+          library: { getItemAttachments: async () => [] },
+          file: {
+            exists: async () => false,
+            readText: async () => "",
+          },
+          archive: createWorkflowArchiveApi(),
+        },
+      },
+      productStorage: {
+        async registerProduct(input: any) {
+          registration = input;
+          return { productId: "diagnostics-product", assets: input.assets };
+        },
+      },
+    });
+
+    const manifestAsset = registration.assets.find(
+      (entry: any) => entry.productAssetPath === "manifest.json",
+    );
+    const manifest = JSON.parse(manifestAsset.source.text);
+    assert.notProperty(result, "warningCount");
+    assert.deepEqual(result.applyDiagnostics, {
+      warningCount: manifest.warnings.length,
+      warningCodeCounts: { core_source_missing: 1 },
+    });
   });
 });

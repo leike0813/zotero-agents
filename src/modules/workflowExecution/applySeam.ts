@@ -36,6 +36,7 @@ import {
 import { buildWorkflowTaskRecordFromJob } from "../taskRuntime";
 import { canWorkflowRunWithoutSelection } from "../workflowSelectionPolicy";
 import { collectSkillRunFeedbackSidecar } from "../skillRunFeedback";
+import { normalizeWorkflowApplyDiagnostics } from "./applyDiagnostics";
 
 type RunResultLike = {
   status?: string;
@@ -752,7 +753,7 @@ export async function runWorkflowApplySeam(
         runId: String(job.meta.runId || "").trim() || undefined,
         ...(sequenceApplyContext ? { sequence: sequenceApplyContext } : {}),
       };
-      await resolved.executeApplyResult({
+      const hookResult = await resolved.executeApplyResult({
         workflow: args.runState.workflow,
         parent: applyParent,
         bundleReader,
@@ -760,6 +761,7 @@ export async function runWorkflowApplySeam(
         request: args.runState.requests[i],
         runResult: enrichedRunResult,
       });
+      const applyDiagnostics = normalizeWorkflowApplyDiagnostics(hookResult);
       await resolved.collectSkillRunFeedback({
         workflow: args.runState.workflow,
         request: args.runState.requests[i],
@@ -808,17 +810,20 @@ export async function runWorkflowApplySeam(
         requestId: result.requestId,
       });
       resolved.appendRuntimeLog({
-        level: "info",
+        level: applyDiagnostics ? "warn" : "info",
         scope: "job",
         workflowId: args.runState.workflow.manifest.id,
         jobId: job.id,
         requestId: result.requestId,
         stage: "apply-succeeded",
-        message: "applyResult succeeded",
+        message: applyDiagnostics
+          ? "applyResult succeeded with warnings"
+          : "applyResult succeeded",
         details: {
           index: i,
           taskLabel,
           targetParentID: applyParent || undefined,
+          ...(applyDiagnostics ? { applyDiagnostics } : {}),
         },
       });
     } catch (error) {
@@ -911,7 +916,7 @@ export async function runWorkflowApplySeam(
         manifest: args.runState.workflow.manifest,
         preflight: entry.preflight,
       });
-      await resolved.executeApplyResult({
+      const hookResult = await resolved.executeApplyResult({
         workflow: args.runState.workflow,
         parent: entry.parent,
         bundleReader,
@@ -919,6 +924,7 @@ export async function runWorkflowApplySeam(
         request: entry.request,
         runResult: entry.runResult,
       });
+      const applyDiagnostics = normalizeWorkflowApplyDiagnostics(hookResult);
       succeeded += 1;
       jobOutcomes.push({
         index: entry.index,
@@ -929,16 +935,19 @@ export async function runWorkflowApplySeam(
         requestId,
       });
       resolved.appendRuntimeLog({
-        level: "info",
+        level: applyDiagnostics ? "warn" : "info",
         scope: "job",
         workflowId: args.runState.workflow.manifest.id,
         jobId: requestId,
         requestId,
         stage: "apply-succeeded-preflight-short-circuit",
-        message: "preflight short-circuit applyResult succeeded",
+        message: applyDiagnostics
+          ? "preflight short-circuit applyResult succeeded with warnings"
+          : "preflight short-circuit applyResult succeeded",
         details: {
           index: entry.index,
           taskLabel: entry.taskLabel,
+          ...(applyDiagnostics ? { applyDiagnostics } : {}),
         },
       });
     } catch (error) {
@@ -1071,7 +1080,7 @@ export async function runWorkflowApplySeam(
       const targetParentID = resolveTargetParentIDFromRequest(
         args.runState.requests[firstRequestIndex],
       );
-      await resolved.executeApplyResult({
+      const hookResult = await resolved.executeApplyResult({
         workflow: args.runState.workflow,
         parent:
           typeof targetParentID === "number" && targetParentID > 0
@@ -1085,6 +1094,7 @@ export async function runWorkflowApplySeam(
         },
         runResult: aggregateRunResult,
       });
+      const applyDiagnostics = normalizeWorkflowApplyDiagnostics(hookResult);
       succeeded += 1;
       jobOutcomes.push({
         index: firstRequestIndex,
@@ -1093,6 +1103,21 @@ export async function runWorkflowApplySeam(
         terminalState: "succeeded",
         jobId: aggregateRequestId,
         requestId: aggregateRequestId,
+      });
+      resolved.appendRuntimeLog({
+        level: applyDiagnostics ? "warn" : "info",
+        scope: "job",
+        workflowId: args.runState.workflow.manifest.id,
+        jobId: aggregateRequestId,
+        requestId: aggregateRequestId,
+        stage: "apply-succeeded-preflight-aggregate",
+        message: applyDiagnostics
+          ? "preflight aggregate applyResult succeeded with warnings"
+          : "preflight aggregate applyResult succeeded",
+        details: {
+          aggregateId: aggregate.id,
+          ...(applyDiagnostics ? { applyDiagnostics } : {}),
+        },
       });
     } catch (error) {
       failed += 1;

@@ -41,12 +41,15 @@ Topic、图谱、分析产物或原文不可用时，workflow 会使用仍可读
 
 - 根目录 `README.md`：面向 agent 和人类的入口说明，给出建议读取顺序、浅层文件命名、Topic/文献索引，以及 `manifest.json` 与警告的使用语义；固定说明会按当前插件 locale 输出，不支持的 locale 使用英文
 - 根目录 `manifest.json`：机器可读的权威清单，记录 v2 产物路径、溯源、文件完整性与详细诊断
+- 根目录 `references.bib`：实际成功写入研究包的全部核心文献和相关文献的 BibTeX 引用；优先使用 Better BibTeX，无法导出时回退到 Zotero 原生 BibTeX，并在清单中记录实际格式与回退原因
 - 已选 Topic 的报告（可用时）
 - 每篇核心文献和相关文献的可移植书目信息
 - 可用的 v2 Literature Analysis 或对话产物，例如摘要、参考文献、引文分析和对话内容
 - 对核心文献，优先附带 Markdown 原文及其本地图片；没有可用 Markdown 时尝试附带 PDF；两者均不可用时记录警告
 
-除根目录文件外，产物只使用 `topics/` 和 `papers/` 两个语义目录。每个 Topic 和每篇文献都有稳定逻辑 ID 的独立目录，例如 `topics/topic-001/report.md`、`papers/paper-001/metadata.json`、`papers/paper-001/source.md` 或 `papers/paper-001/digest-001.md`；同类 payload 不再额外建立分类目录。
+根目录包含 README、清单和参考文献表，研究材料目录只使用 `topics/` 和 `papers/`。每个 Topic 和每篇文献都有稳定逻辑 ID 的独立目录，例如 `topics/topic-001/report.md`、`papers/paper-001/metadata.json`、`papers/paper-001/source.md` 或 `papers/paper-001/digest-001.md`；同类 payload 不再额外建立分类目录。
+
+若 Better BibTeX 未安装、导出失败或返回空内容，workflow 会使用 Zotero 原生 BibTeX 生成 `references.bib`，并在 `manifest.json` 的 `bibliography` 与 warnings 中记录回退。若两种导出器都无法生成有效内容，则原子登记失败，不会发布缺少参考文献表的部分研究包。
 
 Markdown 图片只在解析后的本地路径位于该 Markdown 所在目录或其子目录时才会打包，且在文献目录中保留相同相对路径，例如 `papers/paper-001/figures/example.png`。目录树外、缺失的本地图片保留原 Markdown 链接但不登记为 Product 文件，并在 `manifest.json` 的 warnings 中说明原因；远程和 data 图片链接保持不变。
 

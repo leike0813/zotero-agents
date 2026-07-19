@@ -28,7 +28,10 @@ import {
   resolveRuntimeZotero,
 } from "../utils/runtimeBridge";
 import { joinPath } from "../utils/path";
-import { getParentPath } from "../platform/path";
+import {
+  getParentPath,
+  normalizeNativeLocalPath,
+} from "../platform/path";
 import {
   openRuntimeFilePicker,
   resolveRuntimeFilePickerParentWindow,
@@ -47,7 +50,9 @@ import {
   type BuiltinStatusTag,
 } from "../modules/synthesis/builtinTagPolicy";
 
-export const WORKFLOW_HOST_API_VERSION = 9;
+import { exportZoteroItemsAsText } from "../modules/zoteroItemTextExporter";
+
+export const WORKFLOW_HOST_API_VERSION = 10;
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -282,60 +287,71 @@ function resolveIOUtils() {
 }
 
 async function readText(path: string) {
+  const nativePath = requireHostFilePath(path);
   const io = resolveIOUtils();
   if (typeof io?.readUTF8 === "function") {
-    return io.readUTF8(path);
+    return io.readUTF8(nativePath);
   }
   const fs = await dynamicImport("fs/promises");
-  return fs.readFile(path, "utf8");
+  return fs.readFile(nativePath, "utf8");
 }
 
 async function writeText(path: string, content: string) {
+  const nativePath = requireHostFilePath(path);
   const io = resolveIOUtils();
   if (typeof io?.writeUTF8 === "function") {
-    await io.writeUTF8(path, String(content || ""));
+    await io.writeUTF8(nativePath, String(content || ""));
     return;
   }
   const fs = await dynamicImport("fs/promises");
-  await fs.writeFile(path, String(content || ""), "utf8");
+  await fs.writeFile(nativePath, String(content || ""), "utf8");
 }
 
 async function readBytes(path: string) {
+  const nativePath = requireHostFilePath(path);
   const runtime = globalThis as typeof globalThis & {
     IOUtils?: { read?: (path: string) => Promise<Uint8Array> };
   };
   if (typeof runtime.IOUtils?.read === "function") {
-    return runtime.IOUtils.read(path);
+    return runtime.IOUtils.read(nativePath);
   }
   const fs = await dynamicImport("fs/promises");
-  return new Uint8Array(await fs.readFile(path));
+  return new Uint8Array(await fs.readFile(nativePath));
 }
 
 async function writeBytes(path: string, bytes: Uint8Array | ArrayBuffer) {
+  const nativePath = requireHostFilePath(path);
   const data = toUint8Array(bytes);
   const runtime = globalThis as typeof globalThis & {
     IOUtils?: { write?: (path: string, data: Uint8Array) => Promise<void> };
   };
   if (typeof runtime.IOUtils?.write === "function") {
-    await runtime.IOUtils.write(path, data);
+    await runtime.IOUtils.write(nativePath, data);
     return;
   }
   const fs = await dynamicImport("fs/promises");
-  await fs.writeFile(path, data);
+  await fs.writeFile(nativePath, data);
 }
 
 async function copyFile(sourcePath: string, targetPath: string) {
-  await copyRuntimeFile({ sourcePath, targetPath });
+  await copyRuntimeFile({
+    sourcePath: requireHostFilePath(sourcePath),
+    targetPath: requireHostFilePath(targetPath),
+  });
 }
 
 async function pathExists(path: string) {
-  const io = resolveIOUtils();
-  if (typeof io?.exists === "function") {
-    return io.exists(path);
-  }
-  const fs = await dynamicImport("fs/promises");
   try {
-    await fs.access(path);
+    const nativePath = normalizeNativeLocalPath(path);
+    if (!nativePath) {
+      return false;
+    }
+    const io = resolveIOUtils();
+    if (typeof io?.exists === "function") {
+      return Boolean(await io.exists(nativePath));
+    }
+    const fs = await dynamicImport("fs/promises");
+    await fs.access(nativePath);
     return true;
   } catch {
     return false;
@@ -343,13 +359,22 @@ async function pathExists(path: string) {
 }
 
 async function makeDirectory(path: string) {
+  const nativePath = requireHostFilePath(path);
   const io = resolveIOUtils();
   if (typeof io?.makeDirectory === "function") {
-    await io.makeDirectory(path, { createAncestors: true });
+    await io.makeDirectory(nativePath, { createAncestors: true });
     return;
   }
   const fs = await dynamicImport("fs/promises");
-  await fs.mkdir(path, { recursive: true });
+  await fs.mkdir(nativePath, { recursive: true });
+}
+
+function requireHostFilePath(path: string) {
+  const nativePath = normalizeNativeLocalPath(path);
+  if (!nativePath) {
+    throw new TypeError("Host file path is invalid");
+  }
+  return nativePath;
 }
 
 function normalizeManagedPathSegment(value: unknown, fallback: string) {
@@ -956,6 +981,9 @@ export function createWorkflowHostApi(): WorkflowHostApi {
       exportPortableJson(ref) {
         return handlers.item.exportPortableJson(ref);
       },
+      exportText(args) {
+        return exportZoteroItemsAsText(resolveHostZotero() as any, args);
+      },
       createFromJson(args) {
         return handlers.item.createFromJson(args);
       },
@@ -1042,7 +1070,7 @@ export function createWorkflowHostApi(): WorkflowHostApi {
     },
     file: {
       pathToFile(path: string) {
-        return resolveHostZotero().File.pathToFile(path);
+        return resolveHostZotero().File.pathToFile(requireHostFilePath(path));
       },
       readText,
       writeText,

@@ -72,6 +72,14 @@ describe("runtime platform services in Zotero", function () {
       normalizeNativeLocalPath("C:/Users/leike/Zotero/runtime/result.json"),
       "C:\\Users\\leike\\Zotero\\runtime\\result.json",
     );
+    assert.equal(
+      normalizeNativeLocalPath("file:///E:/research/a%20b.jpg"),
+      "E:\\research\\a b.jpg",
+    );
+    assert.equal(
+      normalizeNativeLocalPath("file:///tmp/research/a%20b.jpg"),
+      "/tmp/research/a b.jpg",
+    );
     assert.isTrue(isAbsolutePathLike("C:\\Users\\leike\\Zotero"));
     assert.isTrue(isAbsolutePathLike("/home/leike/zotero"));
     assert.isFalse(isAbsolutePathLike("C:relative"));

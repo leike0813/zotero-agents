@@ -765,7 +765,7 @@ dedupe, and stickiness behavior for panels that opt into virtualized rendering.
 For virtualized transcript rows, the renderer SHALL use measured row heights
 when available, SHALL use estimated row heights only for rows that have not
 been measured, and SHALL compute virtual windows, spacer heights, and page
-boundary checks from cumulative row heights rather than fixed item counts.
+boundary checks from cumulative row heights rather than fixed item counts. Content-changing measurements SHALL converge against the committed live owner state. Tail-follow work SHALL be bounded per transcript container and SHALL NOT override an explicit user scroll-away anchor.
 
 #### Scenario: Virtualized transcript renders a selected page
 
@@ -815,6 +815,21 @@ boundary checks from cumulative row heights rather than fixed item counts.
   offscreen rows
 - **AND** it SHALL use the configured estimated row height only for rows without
   a measurement.
+
+#### Scenario: Live tall-row measurement converges
+
+- **GIVEN** a visible live transcript row grows beyond its estimated height
+- **WHEN** the steady mutation commits the new measured height
+- **THEN** the virtual window and spacers SHALL converge from that committed measurement
+- **AND** the existing row identity SHALL be preserved.
+
+#### Scenario: Repeated tail-follow requests are coalesced
+
+- **GIVEN** a transcript container is following the live tail
+- **WHEN** multiple chunks request bottom-stick work before the pending animation work settles
+- **THEN** the renderer SHALL keep one active bottom-stick chain for the container
+- **AND** an older callback SHALL NOT clear the programmatic-scroll state owned by newer work
+- **AND** the transcript SHALL converge to the latest tail position without visible oscillation.
 
 #### Scenario: Page requests are deduplicated
 

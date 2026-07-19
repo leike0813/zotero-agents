@@ -138,7 +138,17 @@ export async function rewriteMarkdownLocalImages(args) {
       warnings.push({ code: "markdown_image_outside_source_tree", path: local.path });
       continue;
     }
-    const resolved = await resolveLocalPath?.(local.path);
+    let resolved;
+    try {
+      resolved = await resolveLocalPath?.(local.path);
+    } catch {
+      warnings.push({
+        code: "markdown_image_missing",
+        path: local.path,
+        reason: "probe_failed",
+      });
+      continue;
+    }
     if (!resolved) {
       warnings.push({ code: "markdown_image_missing", path: local.path });
       continue;

@@ -88,8 +88,8 @@ When WebDAV Sync enters `blocked_conflict`, the panel switches to conflict revie
 ## Graph UI
 
 - Show all library nodes by default.
-- Show shared external nodes with incoming degree greater than 1.
-- Keep single-degree external nodes hover-only by default.
+- Show shared external nodes when more than one distinct library paper cites the target. Repeated reference instances from one library paper increase edge mentions but do not increase incoming degree.
+- Keep single-degree external nodes hover-only by default and exclude them from the default graph layout.
 - If graph cache is stale and graph rows still exist, render the latest usable graph and show `refreshCitationGraphCacheIncrementalNow` when stale delta metadata is available; after a successful stale refresh, the host may run scoped related-items sync for the final affected source refs. Full rebuild remains the fallback when no delta is recorded.
 - If graph cache is failed but graph rows still exist, render the latest usable graph and offer `rebuildCitationGraphCacheNow`.
 - If graph cache is missing, show a clear cache state and run `rebuildCitationGraphCacheNow` from the primary manual rebuild action. Sidecar-changing actions mark graph stale instead of starting source-slice graph refresh.
@@ -99,6 +99,8 @@ When WebDAV Sync enters `blocked_conflict`, the panel switches to conflict revie
 - Graph edges should indicate direction with directed arrow rendering and target-tinted edge color. Hovering a visible neighbor of a selected node should show that neighbor title, including external reference nodes.
 
 Graph data rebuild and layout rebuild must remain different UI actions. Layout rebuild never repairs missing graph data.
+
+The Graph surface owns one persistent Sigma stage, renderer, canvas set, and WebGL context set for the Workbench document lifetime. Sidebar, selection, drawer, status, snapshot, and tab updates must reuse that surface; model changes use `setGraph()` rather than renderer teardown. A hidden Graph surface remains mounted and inert without `display:none`, and host resize bursts are coalesced before one visible resize/refresh.
 
 ## Review and Overrides
 

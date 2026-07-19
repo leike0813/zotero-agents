@@ -33,7 +33,12 @@ class FakeElement {
   onclick: ((event: any) => void) | null = null;
   listeners = new Map<string, Array<(event: any) => void>>();
   failNextInsertBefore = false;
-  style = { setProperty() {} };
+  scrollTop = 0;
+  scrollHeight = 0;
+  clientHeight = 0;
+  offsetHeight = 0;
+  innerHTML = "";
+  style = { height: "", setProperty() {} };
   classList = {
     add: (...names: string[]) => {
       const values = new Set(this.className.split(/\s+/).filter(Boolean));
@@ -122,6 +127,16 @@ class FakeElement {
     this.attributes.delete(name);
   }
 
+  getBoundingClientRect() {
+    return {
+      height:
+        this.offsetHeight ||
+        (this.classList.contains("assistant-transcript-row")
+          ? this.ownerDocument.transcriptRowHeight
+          : 0),
+    };
+  }
+
   addEventListener(type: string, listener: (event: any) => void) {
     const listeners = this.listeners.get(type) || [];
     listeners.push(listener);
@@ -165,6 +180,7 @@ class FakeElement {
 
 class FakeDocument {
   activeElement: FakeElement | null = null;
+  transcriptRowHeight = 0;
 
   createElement(tagName: string) {
     return new FakeElement(tagName.toUpperCase(), this);
@@ -180,8 +196,14 @@ async function loadPanelRenderer(document: FakeDocument) {
   return (context.window as any).AssistantPanelRenderer;
 }
 
-async function loadTranscriptRenderer(document: FakeDocument) {
-  const context = await loadAssistantRendererContext(document);
+async function loadTranscriptRenderer(
+  document: FakeDocument,
+  requestAnimationFrame?: (callback: () => void) => number,
+) {
+  const context = await loadAssistantRendererContext(
+    document,
+    requestAnimationFrame,
+  );
   return (context.window as any).AssistantTranscriptRenderer;
 }
 
@@ -244,15 +266,22 @@ function assertRegionSubtreesPreserved(
 
 // Mocha runs every suite in a single process. The sidebar renderer modules
 // read the bare `document` global at render time (and `window` for raf when
-// present), so each renderer loader installs the fake document plus a
-// synchronous raf shim before returning the module namespaces. The
-// suite-level after hook restores the previous global state so nothing leaks
-// into other suites.
+// present), so each renderer loader installs the fake document plus a raf
+// shim before returning the module namespaces. Tests that need to control
+// frame timing inject their own requestAnimationFrame; the default shim runs
+// callbacks synchronously. The suite-level after hook restores the previous
+// global state so nothing leaks into other suites.
 let rendererGlobalDescriptors:
   | Partial<Record<"document" | "window", PropertyDescriptor | undefined>>
   | undefined;
 
-function installRendererGlobals(document: FakeDocument) {
+function installRendererGlobals(
+  document: FakeDocument,
+  requestAnimationFrame: (callback: () => void) => number = (callback) => {
+    callback();
+    return 0;
+  },
+) {
   const runtime = globalThis as Record<string, unknown>;
   if (!rendererGlobalDescriptors) {
     rendererGlobalDescriptors = {
@@ -262,10 +291,7 @@ function installRendererGlobals(document: FakeDocument) {
   }
   runtime.document = document;
   runtime.window = {
-    requestAnimationFrame(callback: () => void) {
-      callback();
-      return 0;
-    },
+    requestAnimationFrame,
   };
 }
 
@@ -283,12 +309,48 @@ function restoreRendererGlobals() {
   rendererGlobalDescriptors = undefined;
 }
 
-async function loadAssistantRendererContext(document: FakeDocument) {
-  installRendererGlobals(document);
+async function loadAssistantRendererContext(
+  document: FakeDocument,
+  requestAnimationFrame?: (callback: () => void) => number,
+) {
+  installRendererGlobals(document, requestAnimationFrame);
   return {
     window: {
       AssistantPanelRenderer,
       AssistantTranscriptRenderer,
+    },
+  };
+}
+
+function createAnimationFrameHarness() {
+  let nextId = 1;
+  const callbacks = new Map<number, () => void>();
+  return {
+    requestAnimationFrame(callback: () => void) {
+      const id = nextId;
+      nextId += 1;
+      callbacks.set(id, callback);
+      return id;
+    },
+    get pendingCount() {
+      return callbacks.size;
+    },
+    flushNext() {
+      const next = callbacks.entries().next().value as
+        | [number, () => void]
+        | undefined;
+      if (!next) return false;
+      callbacks.delete(next[0]);
+      next[1]();
+      return true;
+    },
+    flushAll(limit = 20) {
+      let count = 0;
+      while (callbacks.size > 0 && count < limit) {
+        this.flushNext();
+        count += 1;
+      }
+      assert.isBelow(count, limit, "animation frame callbacks did not settle");
     },
   };
 }
@@ -1489,6 +1551,162 @@ describe("Assistant Workspace ACP UI v1", function () {
     assert.equal(
       transcript.children[0].getAttribute("data-assistant-item-id"),
       "assistant-segment-1",
+    );
+  });
+
+  it("commits terminal Markdown and measured virtual geometry on the live state", async function () {
+    const animationFrames = createAnimationFrameHarness();
+    const document = new FakeDocument();
+    document.transcriptRowHeight = 88;
+    const renderer = await loadTranscriptRenderer(
+      document,
+      animationFrames.requestAnimationFrame,
+    );
+    const transcript = document.createElement("div");
+    transcript.clientHeight = 400;
+    transcript.scrollHeight = 10_000;
+    transcript.scrollTop = 9_600;
+    const streamingItem = {
+      itemId: "assistant-segment-1",
+      itemKind: "message",
+      role: "assistant",
+      status: "streaming",
+      text: "long response",
+      createdAt: "2026-07-16T00:00:00.000Z",
+    };
+    const page = {
+      ownerKey: "request-a",
+      pageKey: "request-a\ntail:80",
+      startCursor: 0,
+      limit: 80,
+      totalVisibleItemCount: 1,
+      previousCursor: null,
+      nextCursor: null,
+      sourceEventSeq: 1,
+      transcriptRevision: 1,
+      items: [streamingItem],
+    };
+    const virtualLayouts: Array<{ totalHeight: number }> = [];
+    const renderOptions = {
+      container: transcript,
+      virtualized: true,
+      ownerKey: "request-a",
+      page,
+      mode: "plain",
+      variant: "skillrunner",
+      renderMarkdown: (value: string) => `<strong>${value}</strong>`,
+      onRendered: ({ virtual }: any) => {
+        virtualLayouts.push(virtual);
+      },
+    };
+    renderer.renderAssistantTranscript(renderOptions);
+    animationFrames.flushAll();
+
+    const row = transcript.querySelector(".assistant-transcript-row");
+    assert.isOk(row);
+    transcript.setAttribute("data-assistant-transcript-stick", "false");
+    transcript.setAttribute("data-assistant-transcript-last-scroll-top", "200");
+    transcript.scrollTop = 200;
+    document.transcriptRowHeight = 6_000;
+    const completeItem = {
+      ...streamingItem,
+      status: "complete",
+      text: "**finished**",
+    };
+    const completePage = {
+      ...page,
+      sourceEventSeq: 2,
+      transcriptRevision: 2,
+      items: [completeItem],
+    };
+    const result = renderer.applyAssistantTranscriptEffectsExact({
+      ...renderOptions,
+      page: completePage,
+      effect: {
+        kind: "mutations",
+        onSelectedPage: true,
+        mutations: [{ op: "patch_item", itemId: completeItem.itemId }],
+        affectedItems: [completeItem],
+        pageItems: [completeItem],
+        evictedItemIds: [],
+      },
+      affectedItems: [completeItem],
+    });
+
+    assert.isTrue(result.ok);
+    assert.strictEqual(
+      transcript.querySelector(".assistant-transcript-row"),
+      row,
+    );
+    const body = row?.querySelector("[data-assistant-transcript-body]");
+    assert.equal(body?.innerHTML, "<strong>**finished**</strong>");
+    assert.equal(animationFrames.pendingCount, 1);
+
+    animationFrames.flushAll();
+    assert.equal(animationFrames.pendingCount, 0);
+    assert.equal(virtualLayouts.at(-1)?.totalHeight, 6_000);
+    assert.equal(transcript.scrollTop, 200);
+    assert.strictEqual(
+      transcript.querySelector(".assistant-transcript-row"),
+      row,
+    );
+
+    document.transcriptRowHeight = 7_000;
+    const extendedItem = {
+      ...completeItem,
+      text: "**finished with more output**",
+    };
+    const extendedPage = {
+      ...completePage,
+      sourceEventSeq: 3,
+      transcriptRevision: 3,
+      items: [extendedItem],
+    };
+    const extendedResult = renderer.applyAssistantTranscriptEffectsExact({
+      ...renderOptions,
+      page: extendedPage,
+      effect: {
+        kind: "mutations",
+        onSelectedPage: true,
+        mutations: [{ op: "patch_item", itemId: extendedItem.itemId }],
+        affectedItems: [extendedItem],
+        pageItems: [extendedItem],
+        evictedItemIds: [],
+      },
+      affectedItems: [extendedItem],
+    });
+
+    assert.isTrue(extendedResult.ok);
+    assert.equal(animationFrames.pendingCount, 1);
+    animationFrames.flushAll();
+    assert.equal(virtualLayouts.at(-1)?.totalHeight, 7_000);
+    assert.equal(transcript.scrollTop, 200);
+    assert.strictEqual(
+      transcript.querySelector(".assistant-transcript-row"),
+      row,
+    );
+  });
+
+  it("coalesces repeated transcript bottom-stick animation frames", async function () {
+    const animationFrames = createAnimationFrameHarness();
+    const document = new FakeDocument();
+    const renderer = await loadTranscriptRenderer(
+      document,
+      animationFrames.requestAnimationFrame,
+    );
+    const transcript = document.createElement("div");
+    transcript.scrollHeight = 20_000;
+
+    renderer.stickAssistantTranscriptToBottom(transcript);
+    renderer.stickAssistantTranscriptToBottom(transcript);
+    renderer.stickAssistantTranscriptToBottom(transcript);
+
+    assert.equal(animationFrames.pendingCount, 1);
+    animationFrames.flushAll();
+    assert.equal(animationFrames.pendingCount, 0);
+    assert.equal(transcript.scrollTop, 20_000);
+    assert.isNull(
+      transcript.getAttribute("data-assistant-transcript-programmatic-scroll"),
     );
   });
 

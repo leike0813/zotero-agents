@@ -38,6 +38,7 @@ import {
   type ShardKind,
 } from "./foundation";
 import {
+  aggregateCitationGraphEdges,
   buildUnifiedCitationGraph,
   CITATION_GRAPH_LAYOUT_VERSION,
   computeCitationGraphMetrics,
@@ -2856,6 +2857,19 @@ function dbCitationEdgeMatchesRole(
   return roleEntriesFromDb(edge.rolesJson).some((entry) =>
     roleFilter.has(entry.role),
   );
+}
+
+function countDistinctDbCitationEdgePairs(
+  edges: SynthesisCitationEdgeRecord[],
+) {
+  return new Set(
+    edges.map((edge) =>
+      JSON.stringify([
+        edge.sourceLiteratureItemId,
+        edge.targetLiteratureItemId,
+      ]),
+    ),
+  ).size;
 }
 
 function emptyCitationGraph(
@@ -7690,7 +7704,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       nodeIdByLiteratureItem.set(node.literatureItemId, graphNode.node_id);
       return graphNode;
     });
-    const edges = args.edges
+    const edgeEvidence = args.edges
       .filter((edge) => edge.edgeStatus !== "ignored")
       .map((edge) => {
         const sourceNodeId = nodeIdByLiteratureItem.get(
@@ -7709,6 +7723,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           : null;
       })
       .filter((edge): edge is CitationGraphEdge => Boolean(edge));
+    const edges = aggregateCitationGraphEdges(edgeEvidence);
     const nodeCounts = {
       library_paper: nodes.filter((node) => node.kind === "library_paper")
         .length,
@@ -7793,16 +7808,23 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           Boolean(edge.targetLiteratureItemId) &&
           Boolean(nodeById.get(edge.targetLiteratureItemId || "")),
       );
-    const externalIncomingDegree = new Map<string, number>();
+    const externalIncomingSources = new Map<string, Set<string>>();
     for (const edge of candidateEdges) {
       const target = nodeById.get(edge.targetLiteratureItemId || "");
       if (target && !target.hasZoteroBinding) {
-        externalIncomingDegree.set(
-          target.literatureItemId,
-          (externalIncomingDegree.get(target.literatureItemId) || 0) + 1,
-        );
+        const sources =
+          externalIncomingSources.get(target.literatureItemId) ||
+          new Set<string>();
+        sources.add(edge.sourceLiteratureItemId);
+        externalIncomingSources.set(target.literatureItemId, sources);
       }
     }
+    const externalIncomingDegree = new Map(
+      [...externalIncomingSources.entries()].map(([target, sources]) => [
+        target,
+        sources.size,
+      ]),
+    );
 
     const mainNodeIds = new Set(libraryIds);
     const hoverOnlyNodeIds = new Set<string>();
@@ -7885,10 +7907,10 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           (node) => !node.hasZoteroBinding,
         ).length,
         hover_only_external_count: hoverOnlyNodes.length,
-        displayed_edge_count: mainEdges.length,
-        hover_only_edge_count: hoverOnlyEdges.length,
+        displayed_edge_count: countDistinctDbCitationEdgePairs(mainEdges),
+        hover_only_edge_count: countDistinctDbCitationEdgePairs(hoverOnlyEdges),
         node_count: mainNodes.length,
-        edge_count: mainEdges.length,
+        edge_count: countDistinctDbCitationEdgePairs(mainEdges),
         truncated: false,
         limits: {
           libraryNodes: "unbounded",

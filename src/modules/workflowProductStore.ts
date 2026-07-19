@@ -1,4 +1,4 @@
-import { joinPath } from "../utils/path";
+import { joinPath, normalizeNativeLocalPath } from "../utils/path";
 import {
   assertManagedRelativePath,
   copyRuntimeDirectory,
@@ -647,12 +647,16 @@ export function createProductStorageApi(args: {
       };
     }
     if (source.kind === "local-file") {
-      if (!(await runtimePathExists(source.path))) {
+      const sourcePath = normalizeNativeLocalPath(source.path);
+      if (!sourcePath) {
+        throw new Error("local product asset path is invalid");
+      }
+      if (!(await runtimePathExists(sourcePath))) {
         throw new Error(`local product asset does not exist: ${source.path}`);
       }
       return {
-        entryPath: source.path,
-        sourcePath: source.path,
+        entryPath: sourcePath,
+        sourcePath,
       };
     }
     return args.resultContext.resolveArtifactBytes({

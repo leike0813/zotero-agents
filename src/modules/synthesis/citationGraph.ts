@@ -67,6 +67,15 @@ export type CitationGraphEdge = {
   visibility?: "default" | "hover_only";
 };
 
+export type CitationGraphEdgeEvidence = Pick<
+  CitationGraphEdge,
+  "source" | "target" | "visibility"
+> & {
+  mention_count: number;
+  role_evidence: Array<{ role: string; count: number }>;
+  source_refs: string[];
+};
+
 export type CitationGraph = {
   schema_id: "synthesis.unified_citation_graph";
   schema_version: "1.0.0";
@@ -446,19 +455,51 @@ function choosePrimaryRole(
   })[0][0];
 }
 
-function finalizeEdges(
-  aggregate: Map<
+export function aggregateCitationGraphEdges(
+  evidence: CitationGraphEdgeEvidence[],
+  rolePriority: string[] = [],
+) {
+  const aggregate = new Map<
     string,
     {
       source: string;
       target: string;
       mentionCount: number;
-      sourceRefs: string[];
+      sourceRefs: Set<string>;
       roleCounts: Map<string, number>;
+      visibility?: "default" | "hover_only";
     }
-  >,
-  rolePriority: string[],
-) {
+  >();
+  for (const edge of evidence) {
+    const key = JSON.stringify([edge.source, edge.target]);
+    const entry = aggregate.get(key) || {
+      source: edge.source,
+      target: edge.target,
+      mentionCount: 0,
+      sourceRefs: new Set<string>(),
+      roleCounts: new Map<string, number>(),
+    };
+    entry.mentionCount += Math.max(
+      1,
+      Math.floor(Number(edge.mention_count) || 1),
+    );
+    for (const sourceRef of edge.source_refs) {
+      if (sourceRef) {
+        entry.sourceRefs.add(sourceRef);
+      }
+    }
+    for (const role of edge.role_evidence) {
+      const label = normalizeText(role.role) || "unspecified";
+      const count = Math.max(1, Math.floor(Number(role.count) || 1));
+      entry.roleCounts.set(label, (entry.roleCounts.get(label) || 0) + count);
+    }
+    if (edge.visibility === "default") {
+      entry.visibility = "default";
+    } else if (edge.visibility === "hover_only" && !entry.visibility) {
+      entry.visibility = "hover_only";
+    }
+    aggregate.set(key, entry);
+  }
   return [...aggregate.values()]
     .map((entry): CitationGraphEdge => {
       const primary = choosePrimaryRole(entry.roleCounts, rolePriority);
@@ -479,7 +520,10 @@ function finalizeEdges(
           .filter((role) => role.role !== primary)
           .map((role) => ({ role: role.role, count: role.count })),
         role_evidence: roleEvidence,
-        source_refs: entry.sourceRefs,
+        source_refs: [...entry.sourceRefs].sort((left, right) =>
+          left.localeCompare(right),
+        ),
+        ...(entry.visibility ? { visibility: entry.visibility } : {}),
       };
     })
     .sort((left, right) => left.edge_id.localeCompare(right.edge_id));
@@ -510,16 +554,7 @@ export function buildUnifiedCitationGraph(args: {
     nodes.set(paperNodeId(paper), basePaperNode(paper));
   }
 
-  const edgeAggregate = new Map<
-    string,
-    {
-      source: string;
-      target: string;
-      mentionCount: number;
-      sourceRefs: string[];
-      roleCounts: Map<string, number>;
-    }
-  >();
+  const edgeEvidence: CitationGraphEdgeEvidence[] = [];
 
   for (const paper of papers) {
     const source = paperNodeId(paper);
@@ -577,31 +612,26 @@ export function buildUnifiedCitationGraph(args: {
         continue;
       }
 
-      const id = `${source}->${target}`;
-      const existing = edgeAggregate.get(id) || {
+      edgeEvidence.push({
         source,
         target,
-        mentionCount: 0,
-        sourceRefs: [],
-        roleCounts: new Map<string, number>(),
-      };
-      existing.mentionCount += 1;
-      existing.sourceRefs.push(`${source}#ref:${index}`);
-      for (const role of reference.roles || []) {
-        const label = normalizeText(role) || "unspecified";
-        existing.roleCounts.set(
-          label,
-          (existing.roleCounts.get(label) || 0) + 1,
-        );
-      }
-      edgeAggregate.set(id, existing);
+        mention_count: 1,
+        role_evidence: (reference.roles || []).map((role) => ({
+          role: normalizeText(role) || "unspecified",
+          count: 1,
+        })),
+        source_refs: [`${source}#ref:${index}`],
+      });
     }
   }
 
   const nodeList = [...nodes.values()].sort((left, right) =>
     left.node_id.localeCompare(right.node_id),
   );
-  const edgeList = finalizeEdges(edgeAggregate, args.rolePriority || []);
+  const edgeList = aggregateCitationGraphEdges(
+    edgeEvidence,
+    args.rolePriority || [],
+  );
   const nodeCounts = {
     library_paper: nodeList.filter((node) => node.kind === "library_paper")
       .length,

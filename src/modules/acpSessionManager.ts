@@ -1010,12 +1010,15 @@ function resolveAcpChatWorkspaceChangeKinds(
   if (reason === "live") {
     return ["transcript-append"];
   }
+  const kinds: AcpChatWorkspaceChangeKind[] = [];
   if (sessionRuntime.workspaceTranscriptEvents.length > 0) {
-    return ["transcript-boundary"];
+    kinds.push("transcript-boundary");
   }
-  return sessionRuntime.snapshot.pendingPermissionRequest
-    ? ["permission"]
-    : ["status"];
+  if (sessionRuntime.snapshot.pendingPermissionRequest) {
+    kinds.push("permission");
+  }
+  kinds.push("status");
+  return kinds;
 }
 
 function isLiveAcpChatSessionRuntime(sessionRuntime: AcpChatSessionRuntime) {

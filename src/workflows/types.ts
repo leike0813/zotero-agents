@@ -338,6 +338,11 @@ export type WorkflowHostApi = {
     exportPortableJson: (
       ref: Zotero.Item | number | string,
     ) => Record<string, unknown>;
+    exportText: (
+      args: import("../modules/zoteroItemTextExporter").WorkflowItemTextExportArgs,
+    ) => Promise<
+      import("../modules/zoteroItemTextExporter").WorkflowItemTextExportResult
+    >;
     createFromJson: (args: {
       itemJson: Record<string, unknown>;
       libraryID?: number;
@@ -678,6 +683,15 @@ export type BuildRequestHook = (args: {
   runtime: WorkflowRuntimeContext;
 }) => unknown | Promise<unknown>;
 
+export type WorkflowApplyDiagnostics = {
+  warningCount?: number;
+  warningCodeCounts?: Record<string, number>;
+};
+
+export type WorkflowApplyResult = Record<string, unknown> & {
+  applyDiagnostics?: WorkflowApplyDiagnostics;
+};
+
 export type ApplyResultHook = (args: {
   parent: Zotero.Item | number | string | null;
   bundleReader: {
@@ -698,7 +712,7 @@ export type ApplyResultHook = (args: {
   };
   manifest: WorkflowManifest;
   runtime: WorkflowRuntimeContext;
-}) => unknown | Promise<unknown>;
+}) => WorkflowApplyResult | void | Promise<WorkflowApplyResult | void>;
 
 export type NormalizeWorkflowSettingsHook = (
   args:

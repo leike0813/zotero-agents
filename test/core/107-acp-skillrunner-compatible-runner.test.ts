@@ -7802,6 +7802,57 @@ describe("ACP SkillRunner-compatible runner", function () {
     );
   });
 
+  it("publishes a busy Skills composer while an accepted reply is active", async function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-active-reply",
+      status: "waiting_user",
+      backendId: "backend-acp",
+      backendType: "acp",
+      sessionId: "session-1",
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+      replyState: "idle",
+      promptInterruptState: "confirmed",
+    });
+    let releaseReply: (() => void) | undefined;
+    const replyHeld = new Promise<void>((resolve) => {
+      releaseReply = resolve;
+    });
+    registerAcpSkillRunController("run-active-reply", {
+      cancel: async () => undefined,
+      reply: async () => replyHeld,
+      disconnect: async () => undefined,
+    });
+    const changes: Array<{ kinds?: readonly string[] }> = [];
+    const unsubscribe = subscribeAcpSkillRunWorkspaceChanges((change) => {
+      changes.push(change);
+    });
+
+    const reply = replyAcpSkillRun({
+      requestId: "run-active-reply",
+      message: "continue",
+    });
+    try {
+      while (
+        getAcpSkillRunRecord("run-active-reply")?.replyState !== "accepted"
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      const regions = await readAcpSkillRunWorkspaceRegions({
+        requestId: "run-active-reply",
+        kinds: ["composer"],
+      });
+
+      assert.equal(regions.composer?.reply.status, "busy");
+      assert.isTrue(changes.some((change) => change.kinds?.includes("run")));
+    } finally {
+      unsubscribe();
+      releaseReply?.();
+      await reply;
+    }
+  });
+
   it("rejects continuation replies for terminal canceled ACP runs", async function () {
     resetAcpSkillRunsForTests();
     upsertAcpSkillRun({

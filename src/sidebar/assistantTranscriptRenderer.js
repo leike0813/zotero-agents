@@ -40,6 +40,7 @@ const VIRTUAL_ESTIMATED_ROW_HEIGHT = 88;
 const VIRTUAL_PAGE_LOAD_THRESHOLD_PX = 320;
 const VIRTUAL_ROW_HEIGHT_CHANGE_THRESHOLD = 1;
 const virtualTranscriptStates = new WeakMap();
+const transcriptBottomStickStates = new WeakMap();
 
 function finiteNumber(value, fallback) {
   const number = Number(value);
@@ -73,11 +74,11 @@ function getVirtualTranscriptState(container) {
       pages: new Map(),
       loadingCursors: new Set(),
       renderScheduled: false,
+      renderToken: 0,
       scrollInstalled: false,
       latestOptions: null,
       lastVirtual: null,
       lastAnchor: null,
-      pendingMeasureRender: false,
       rowHeights: new Map(),
       itemLocations: new Map(),
       virtualSourceMode: "page",
@@ -108,12 +109,9 @@ function cloneVirtualTranscriptState(source) {
     ownerKey: source.ownerKey,
     pages,
     loadingCursors: new Set(source.loadingCursors),
-    renderScheduled: source.renderScheduled,
     scrollInstalled: source.scrollInstalled,
-    latestOptions: source.latestOptions,
     lastVirtual: source.lastVirtual,
     lastAnchor: source.lastAnchor,
-    pendingMeasureRender: source.pendingMeasureRender,
     rowHeights: new Map(source.rowHeights),
     itemLocations,
     virtualSourceMode: source.virtualSourceMode,
@@ -124,11 +122,8 @@ function commitVirtualTranscriptState(target, source) {
   target.ownerKey = source.ownerKey;
   target.pages = source.pages;
   target.loadingCursors = source.loadingCursors;
-  target.renderScheduled = source.renderScheduled;
-  target.latestOptions = source.latestOptions;
   target.lastVirtual = source.lastVirtual;
   target.lastAnchor = source.lastAnchor;
-  target.pendingMeasureRender = source.pendingMeasureRender;
   target.rowHeights = source.rowHeights;
   target.itemLocations = source.itemLocations;
   target.virtualSourceMode = source.virtualSourceMode;
@@ -136,6 +131,7 @@ function commitVirtualTranscriptState(target, source) {
 
 function resetTranscriptScrollState(container) {
   if (!container) return;
+  cancelAssistantTranscriptBottomStick(container);
   container.removeAttribute("data-assistant-transcript-programmatic-scroll");
   container.removeAttribute("data-assistant-transcript-scroll-render");
   container.setAttribute("data-assistant-transcript-stick", "true");
@@ -147,7 +143,7 @@ function resetVirtualTranscriptState(state, ownerKey) {
   state.pages = new Map();
   state.loadingCursors = new Set();
   state.renderScheduled = false;
-  state.pendingMeasureRender = false;
+  state.renderToken += 1;
   state.latestOptions = null;
   state.lastVirtual = null;
   state.lastAnchor = null;
@@ -962,14 +958,15 @@ function measureVirtualTranscriptRows(container, state, options, dirtyRowKeys) {
   return changed;
 }
 
-function scheduleVirtualTranscriptRender(container, state, reason) {
+function scheduleVirtualTranscriptRender(container, state) {
   if (state.renderScheduled || !state.latestOptions) return;
   state.renderScheduled = true;
-  if (reason === "measure") state.pendingMeasureRender = true;
+  const scheduledToken = state.renderToken + 1;
+  state.renderToken = scheduledToken;
   const scheduledOwnerKey = state.ownerKey;
   transcriptAnimationFrame(function () {
+    if (scheduledToken !== state.renderToken) return;
     state.renderScheduled = false;
-    state.pendingMeasureRender = false;
     if (!state.latestOptions) return;
     if (scheduledOwnerKey !== state.ownerKey) return;
     renderAssistantTranscript(
@@ -1185,32 +1182,54 @@ function shouldStickAssistantTranscript(container, threshold) {
 
 function stickAssistantTranscriptToBottom(container) {
   if (!container) return;
-  const finish = function () {
-    container.scrollTop = container.scrollHeight;
-    container.setAttribute(
-      "data-assistant-transcript-last-scroll-top",
-      String(finiteNumber(container.scrollTop, 0)),
-    );
-  };
+  let state = transcriptBottomStickStates.get(container);
+  if (!state) {
+    state = { generation: 0, scheduled: false, cancelled: false };
+    transcriptBottomStickStates.set(container, state);
+  }
+  state.cancelled = false;
+  state.generation += 1;
   container.setAttribute(
     "data-assistant-transcript-programmatic-scroll",
     "true",
   );
+  finishAssistantTranscriptBottomStick(container);
+  scheduleAssistantTranscriptBottomStick(container, state);
+}
+
+function finishAssistantTranscriptBottomStick(container) {
   container.scrollTop = container.scrollHeight;
   container.setAttribute(
     "data-assistant-transcript-last-scroll-top",
     String(finiteNumber(container.scrollTop, 0)),
   );
-  const raf =
-    typeof window !== "undefined" &&
-    typeof window.requestAnimationFrame === "function"
-      ? window.requestAnimationFrame.bind(window)
-      : function (callback) {
-          return setTimeout(callback, 0);
-        };
-  raf(function () {
-    finish();
-    raf(function () {
+}
+
+function cancelAssistantTranscriptBottomStick(container) {
+  const state = transcriptBottomStickStates.get(container);
+  if (!state) return;
+  state.cancelled = true;
+  state.generation += 1;
+}
+
+function scheduleAssistantTranscriptBottomStick(container, state) {
+  if (state.scheduled || state.cancelled) return;
+  state.scheduled = true;
+  const scheduledGeneration = state.generation;
+  transcriptAnimationFrame(function () {
+    if (state.cancelled || scheduledGeneration !== state.generation) {
+      state.scheduled = false;
+      scheduleAssistantTranscriptBottomStick(container, state);
+      return;
+    }
+    finishAssistantTranscriptBottomStick(container);
+    transcriptAnimationFrame(function () {
+      if (state.cancelled || scheduledGeneration !== state.generation) {
+        state.scheduled = false;
+        scheduleAssistantTranscriptBottomStick(container, state);
+        return;
+      }
+      state.scheduled = false;
       container.removeAttribute(
         "data-assistant-transcript-programmatic-scroll",
       );
@@ -1954,7 +1973,10 @@ function applyAssistantTranscriptEffectsUnsafe(options) {
     !container ||
     !nodeMap
   ) {
-    return effect.kind === "mutations" && effect.onSelectedPage !== true;
+    return {
+      ok: effect.kind === "mutations" && effect.onSelectedPage !== true,
+      measuredChanged: false,
+    };
   }
   const affected = new Map();
   (Array.isArray(opts.affectedItems) ? opts.affectedItems : []).forEach(
@@ -1978,17 +2000,19 @@ function applyAssistantTranscriptEffectsUnsafe(options) {
     return op === "upsert_item" || op === "delete_item";
   });
   const pageItems = Array.isArray(effect.pageItems) ? effect.pageItems : null;
-  if (structural && !pageItems) return false;
+  if (structural && !pageItems) {
+    return { ok: false, measuredChanged: false };
+  }
   let virtualState = null;
   let virtual = null;
   let rawItems = pageItems;
   if (opts.virtualized) {
-    if (!opts.page || !Array.isArray(opts.page.items)) return false;
+    if (!opts.page || !Array.isArray(opts.page.items)) {
+      return { ok: false, measuredChanged: false };
+    }
     virtualState = opts.virtualState || getVirtualTranscriptState(container);
     const merged = mergeVirtualTranscriptPage(virtualState, opts.page, opts);
-    if (!merged) return false;
-    const latestOptions = Object.assign({}, opts);
-    virtualState.latestOptions = latestOptions;
+    if (!merged) return { ok: false, measuredChanged: false };
     virtual = buildVirtualTranscriptWindow(container, virtualState, opts);
     rawItems = virtual.items;
   }
@@ -2001,7 +2025,7 @@ function applyAssistantTranscriptEffectsUnsafe(options) {
       if (!row || !presentation) return;
       renderAssistantTranscriptItemIfChanged(row, presentation, opts);
     });
-    return true;
+    return { ok: true, measuredChanged: false };
   }
   const rows = buildTranscriptRenderItems(
     rawItems,
@@ -2068,7 +2092,7 @@ function applyAssistantTranscriptEffectsUnsafe(options) {
       : null;
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const row = nodeMap.get(String(rows[index].rowKey));
-    if (!row) return false;
+    if (!row) return { ok: false, measuredChanged: false };
     const currentChildren = Array.from(container.children || []);
     const rowIndex = currentChildren.indexOf(row);
     const next = rowIndex >= 0 ? currentChildren[rowIndex + 1] || null : null;
@@ -2091,9 +2115,6 @@ function applyAssistantTranscriptEffectsUnsafe(options) {
     );
   }
   if (virtualState && virtual) virtualState.lastVirtual = virtual;
-  if (shouldStickAssistantTranscript(container, opts.stickThreshold)) {
-    stickAssistantTranscriptToBottom(container);
-  }
   if (typeof opts.onEffectRendered === "function") {
     opts.onEffectRendered({
       renderPath: "incremental",
@@ -2103,7 +2124,7 @@ function applyAssistantTranscriptEffectsUnsafe(options) {
       measuredRows: dirtyRowKeys.size,
     });
   }
-  return true;
+  return { ok: true, measuredChanged };
 }
 
 function applyAssistantTranscriptEffectsExact(options) {
@@ -2163,6 +2184,10 @@ function applyAssistantTranscriptEffectsExact(options) {
   const stagedVirtualState = liveVirtualState
     ? cloneVirtualTranscriptState(liveVirtualState)
     : null;
+  const shouldStick = shouldStickAssistantTranscript(
+    opts.container,
+    opts.stickThreshold,
+  );
   try {
     const rendered = applyAssistantTranscriptEffectsUnsafe(
       Object.assign({}, opts, {
@@ -2170,7 +2195,7 @@ function applyAssistantTranscriptEffectsExact(options) {
         virtualState: stagedVirtualState,
       }),
     );
-    if (rendered === false) {
+    if (!rendered.ok) {
       return {
         ok: false,
         renderPath: "incremental",
@@ -2188,6 +2213,17 @@ function applyAssistantTranscriptEffectsExact(options) {
     });
     if (liveVirtualState && stagedVirtualState) {
       commitVirtualTranscriptState(liveVirtualState, stagedVirtualState);
+      const latestOptions = Object.assign({}, opts, {
+        nodeMap: liveNodeMap,
+      });
+      delete latestOptions.virtualState;
+      liveVirtualState.latestOptions = latestOptions;
+      if (rendered.measuredChanged) {
+        scheduleVirtualTranscriptRender(opts.container, liveVirtualState);
+      }
+    }
+    if (shouldStick) {
+      stickAssistantTranscriptToBottom(opts.container);
     }
     return { ok: true, renderPath: "incremental", failure: null };
   } catch (_error) {
@@ -2402,7 +2438,7 @@ function renderAssistantTranscript(options) {
     if (measuredChanged) {
       virtualState.lastAnchor =
         scrollAnchor || captureVirtualScrollAnchor(container, virtual);
-      scheduleVirtualTranscriptRender(container, virtualState, "measure");
+      scheduleVirtualTranscriptRender(container, virtualState);
     } else {
       virtualState.lastAnchor = null;
     }

@@ -13,6 +13,7 @@ import {
   createSynthesisService,
   type SynthesisMirrorAdapter,
 } from "../../src/modules/synthesis/service";
+import { computeCitationGraphLayout } from "../../src/modules/synthesis/citationGraph";
 import { createSynthesisTopicGraphService } from "../../src/modules/synthesis/topicGraph";
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import {
@@ -48,6 +49,14 @@ async function withMockZoteroPrefs<T>(run: () => Promise<T>): Promise<T> {
       runtime.Zotero = previousZotero;
     }
   }
+}
+
+function citationEdgeEndpointKeys(
+  edges: Array<{ source: string; target: string }>,
+) {
+  return edges
+    .map((edge) => `${edge.source}->${edge.target}`)
+    .sort((left, right) => left.localeCompare(right));
 }
 
 function validBundle(overrides: Record<string, unknown> = {}) {
@@ -1739,14 +1748,17 @@ describe("Synthesis Layer v1 integration service", function () {
         "ref:raw:low",
       ],
     );
-    assert.deepEqual(
-      byPaperRef.edges.map((edge) => edge.edge_id),
-      ["edge-a-b", "edge-a-external", "edge-a-low", "edge-c-a"],
-    );
-    assert.deepEqual(
-      byNodeId.edges.map((edge) => edge.edge_id),
-      ["edge-a-b", "edge-a-external", "edge-a-low"],
-    );
+    assert.deepEqual(citationEdgeEndpointKeys(byPaperRef.edges), [
+      "zotero:item:A->ref:external:x",
+      "zotero:item:A->ref:raw:low",
+      "zotero:item:A->zotero:item:B",
+      "zotero:item:C->zotero:item:A",
+    ]);
+    assert.deepEqual(citationEdgeEndpointKeys(byNodeId.edges), [
+      "zotero:item:A->ref:external:x",
+      "zotero:item:A->ref:raw:low",
+      "zotero:item:A->zotero:item:B",
+    ]);
   });
 
   it("applies citation graph slice depth, direction, role, low-signal, and cap controls", async function () {
@@ -1775,10 +1787,9 @@ describe("Synthesis Layer v1 integration service", function () {
       maxEdges: 1,
     });
 
-    assert.deepEqual(
-      incoming.edges.map((edge) => edge.edge_id),
-      ["edge-c-a"],
-    );
+    assert.deepEqual(citationEdgeEndpointKeys(incoming.edges), [
+      "zotero:item:C->zotero:item:A",
+    ]);
     assert.deepEqual(
       methodOnly.edges.map((edge) => edge.edge_id),
       [],
@@ -1875,10 +1886,9 @@ describe("Synthesis Layer v1 integration service", function () {
       explicit.nodes.map((node) => node.node_id),
       ["zotero:item:A", "zotero:item:B"],
     );
-    assert.deepEqual(
-      explicit.edges.map((edge) => edge.edge_id),
-      ["edge-a-b"],
-    );
+    assert.deepEqual(citationEdgeEndpointKeys(explicit.edges), [
+      "zotero:item:A->zotero:item:B",
+    ]);
   });
 
   it("reports missing and oversized citation graph layout reads without recomputing", async function () {
@@ -3133,6 +3143,8 @@ describe("Synthesis Layer v1 integration service", function () {
           references: [
             { title: "Beta Paper", year: "2024", authors: ["Beta"] },
             { title: "Shared External Reference", year: "2020" },
+            { title: "Shared External Reference", year: "2020" },
+            { title: "Unique Alpha Reference", year: "2021" },
             { title: "Unique Alpha Reference", year: "2021" },
           ],
         },
@@ -3165,6 +3177,7 @@ describe("Synthesis Layer v1 integration service", function () {
     const graph = (await service.queryCitationGraph()) as any;
     const firstPage = (await service.queryCitationGraph({ limit: 2 })) as any;
     const snapshot = await service.getSynthesisSnapshot();
+    const layout = computeCitationGraphLayout(graph, "components");
 
     assert.includeMembers(
       graph.nodes.map((node: { node_id: string }) => node.node_id),
@@ -3188,6 +3201,48 @@ describe("Synthesis Layer v1 integration service", function () {
       ),
       ["Unique Alpha Reference", "Unique Gamma Reference"],
     );
+    const sharedExternal = graph.nodes.find(
+      (node: { title?: string }) => node.title === "Shared External Reference",
+    );
+    const uniqueAlpha = (graph.hover_only_nodes || []).find(
+      (node: { title?: string }) => node.title === "Unique Alpha Reference",
+    );
+    assert.equal(sharedExternal?.external_degree, 2);
+    assert.equal(uniqueAlpha?.external_degree, 1);
+    assert.deepInclude(
+      graph.edges.find(
+        (edge: { source: string; target: string }) =>
+          edge.source === "zotero:item:A" &&
+          edge.target === sharedExternal?.node_id,
+      ),
+      { mention_count: 2 },
+    );
+    assert.deepInclude(
+      (graph.hover_only_edges || []).find(
+        (edge: { source: string; target: string }) =>
+          edge.source === "zotero:item:A" &&
+          edge.target === uniqueAlpha?.node_id,
+      ),
+      { mention_count: 2, visibility: "hover_only" },
+    );
+    assert.lengthOf(
+      graph.edges.filter(
+        (edge: { source: string; target: string }) =>
+          edge.source === "zotero:item:A" &&
+          edge.target === sharedExternal?.node_id,
+      ),
+      1,
+    );
+    assert.lengthOf(
+      (graph.hover_only_edges || []).filter(
+        (edge: { source: string; target: string }) =>
+          edge.source === "zotero:item:A" &&
+          edge.target === uniqueAlpha?.node_id,
+      ),
+      1,
+    );
+    assert.include(Object.keys(layout.nodes), sharedExternal?.node_id);
+    assert.notInclude(Object.keys(layout.nodes), uniqueAlpha?.node_id);
     assert.lengthOf(firstPage.nodes, 2);
     assert.isTrue(firstPage.pagination.nodes.hasMore);
     assert.strictEqual(firstPage.pagination.nodes.nextCursor, "2");
