@@ -86,3 +86,9 @@ The workflow SHALL register one read-only Research Bundle Product rather than a 
 - **THEN** README, manifest, Topic reports, paper metadata, source files, payload files, and eligible source images SHALL be registered under stable Product-relative paths
 - **AND** the manifest SHALL use `schema_id` `research_bundle.product` and `schema_version` `2.0.0`
 - **AND** the manifest SHALL record sizes and SHA-256 values without hashing itself.
+
+#### Scenario: README indexes are valid Markdown tables
+
+- **WHEN** the Research Bundle README is generated
+- **THEN** each Topic and paper index header SHALL have a matching delimiter cell for every column
+- **AND** a standard Markdown table parser SHALL recognize both indexes as tables.

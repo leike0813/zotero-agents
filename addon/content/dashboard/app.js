@@ -13,8 +13,8 @@
     lastSurfaceSignature: "",
     lastSurfaceKey: "",
     productsListCollapsed: false,
+    dashboardScrollTopsByKey: Object.create(null),
     productExpandedTreePathsById: Object.create(null),
-    productTreeInitializedById: Object.create(null),
   };
 
   function sendAction(action, payload) {
@@ -45,6 +45,29 @@
     while (node.firstChild) {
       node.removeChild(node.firstChild);
     }
+  }
+
+  function captureDashboardScrollPositions(root) {
+    root
+      .querySelectorAll("[data-dashboard-scroll-key]")
+      .forEach(function (node) {
+        const key = String(node.dataset.dashboardScrollKey || "").trim();
+        if (key && Number.isFinite(node.scrollTop)) {
+          state.dashboardScrollTopsByKey[key] = node.scrollTop;
+        }
+      });
+  }
+
+  function restoreDashboardScrollPositions(root) {
+    root
+      .querySelectorAll("[data-dashboard-scroll-key]")
+      .forEach(function (node) {
+        const key = String(node.dataset.dashboardScrollKey || "").trim();
+        const scrollTop = state.dashboardScrollTopsByKey[key];
+        if (key && Number.isFinite(scrollTop)) {
+          node.scrollTop = scrollTop;
+        }
+      });
   }
 
   function el(tag, className, text) {
@@ -285,30 +308,12 @@
     return root;
   }
 
-  function collectFolderPaths(node, output) {
-    node.children.forEach(function (child) {
-      if (child.kind !== "folder") {
-        return;
-      }
-      output.push(child.path);
-      collectFolderPaths(child, output);
-    });
-    return output;
-  }
-
-  function getProductExpandedTreePaths(product, tree) {
+  function getProductExpandedTreePaths(product) {
     const productId = String(product.productId || "");
     if (!state.productExpandedTreePathsById[productId]) {
       state.productExpandedTreePathsById[productId] = new Set();
     }
-    const expanded = state.productExpandedTreePathsById[productId];
-    if (!state.productTreeInitializedById[productId]) {
-      collectFolderPaths(tree, []).forEach(function (path) {
-        expanded.add(path);
-      });
-      state.productTreeInitializedById[productId] = true;
-    }
-    return expanded;
+    return state.productExpandedTreePathsById[productId];
   }
 
   function productFileTypeIconClass(asset) {
@@ -2064,6 +2069,9 @@
 
   function renderProductFileTree(product, selectedAssetId, labels) {
     const wrap = el("div", "product-file-tree");
+    wrap.dataset.dashboardScrollKey = `product:tree:${String(
+      product.productId || "",
+    )}`;
     if (!product.assets || product.assets.length === 0) {
       wrap.appendChild(
         el("div", "empty", labelText(labels, "productsNoFiles")),
@@ -2071,7 +2079,7 @@
       return wrap;
     }
     const tree = buildProductAssetTree(product);
-    const expandedPaths = getProductExpandedTreePaths(product, tree);
+    const expandedPaths = getProductExpandedTreePaths(product);
     tree.children.forEach(function (child) {
       wrap.appendChild(
         renderProductTreeNode({
@@ -2395,6 +2403,9 @@
       ).length;
       const layout = el("div", "products-layout");
       const list = el("div", "product-list");
+      list.dataset.dashboardScrollKey = `feedback:list:${String(
+        view.feedbackSkillFilter || "all",
+      )}`;
       const listHeader = el("div", "product-list-header");
       const title = el(
         "div",
@@ -2558,6 +2569,7 @@
       }
       list.appendChild(rail);
     } else {
+      list.dataset.dashboardScrollKey = "products:list";
       products.forEach(function (product) {
         const btn = el("button", "product-card");
         if (selected && product.productId === selected.productId) {
@@ -4053,6 +4065,7 @@
       }
     }
 
+    captureDashboardScrollPositions(app);
     state.previousTabKey = snapshot ? snapshot.selectedTabKey : null;
 
     const shouldRestoreWorkflowOptionsScroll = Boolean(
@@ -4345,6 +4358,7 @@
         ] = previousBackendTaskScrollTop;
       }
     }
+    restoreDashboardScrollPositions(main);
     rememberSnapshotRenderSignature(snapshot);
 
     // Synchronously restore scroll layout in the same frame for runtime logs

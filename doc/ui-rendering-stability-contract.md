@@ -71,5 +71,8 @@ must be owned locally or restored by stable keys.
   camera and renderer identity.
 - Workspace shell keeps Dashboard and Synthesis mounts alive and toggles
   visibility instead of replacing iframes.
+- Dashboard Products restores product-list, skill-filtered feedback-list, and
+  product-owned file-tree scroll positions by stable keys; product folders
+  start collapsed and retain page-local expansion state per product.
 - Assistant surfaces must keep reply textareas, transcript scroll, and details
   drawers stable across unrelated status snapshots.

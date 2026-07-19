@@ -232,6 +232,16 @@ describe("export research bundle workflow", function () {
       assert.include(readme, "`manifest.json`");
       assert.include(readme, "topics/topic-001/report.md");
       assert.include(readme, "papers/paper-001/source.md");
+      const tableLines = readme
+        .split("\n")
+        .filter((line) => line.startsWith("| "));
+      const paperHeaderIndex = tableLines.findIndex((line) =>
+        /\| ID \| (?:Paper reference|文献引用) \|/.test(line),
+      );
+      assert.isAtLeast(paperHeaderIndex, 0);
+      const tableCellCount = (line: string) => line.split("|").length - 2;
+      assert.equal(tableCellCount(tableLines[paperHeaderIndex]), 7);
+      assert.equal(tableCellCount(tableLines[paperHeaderIndex + 1]), 7);
     }
   });
 
