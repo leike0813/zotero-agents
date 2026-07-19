@@ -37,11 +37,11 @@ jobs:
             archive: node-v24.18.0-win-x64.zip
             platform_signature: verified
           - target: darwin-x64
-            os: macos-13
+            os: macos-15-intel
             archive: node-v24.18.0-darwin-x64.tar.gz
             platform_signature: verified
           - target: darwin-arm64
-            os: macos-14
+            os: macos-15
             archive: node-v24.18.0-darwin-arm64.tar.gz
             platform_signature: verified
           - target: linux-x64
