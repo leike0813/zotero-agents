@@ -333,6 +333,23 @@ ACP Skills SHALL publish transcript through the shared transcript region, progre
 - **WHEN** the selected request emits a UI-visible transcript mutation
 - **THEN** Skills passes the normalized mutation through the same projection and coordinator as Chat.
 
+### Requirement: Skills workspace changes remain owner partitioned
+
+ACP Skills SHALL partition pending workspace changes by request ID. Cadence batching MAY merge changes for the same request, but SHALL NOT combine owner-local kinds, transcript mutations, event sequence metadata, or item counts from different requests into one change descriptor.
+
+#### Scenario: Foreground and background changes share one cadence window
+
+- **GIVEN** request `A` is selected and request `B` is running in the background
+- **WHEN** both requests emit workspace changes before the cadence timer fires
+- **THEN** subscribers receive independent request-scoped change descriptors
+- **AND** each transcript mutation, event sequence, and item count remains attached to its originating request.
+
+#### Scenario: Critical change drains pending owners
+
+- **WHEN** an immediate workspace change is emitted while other request-scoped changes are pending
+- **THEN** pending owners and the immediate owner are emitted as separate descriptors in first-seen order
+- **AND** a global or navigation descriptor SHALL NOT discard pending owner transcript mutations.
+
 ### Requirement: Skills Replay releases production hard boundaries
 
 Workflow Replay turn-end, root-end, and request terminal events SHALL invoke the same hard-boundary release seam used by production Skills execution. Text held in boundary mode SHALL become visible exactly once at the semantic boundary.
@@ -490,4 +507,3 @@ the complete derived index once per event.
 #### Scenario: UTF-8 content crosses a scan boundary
 - **WHEN** a JSONL line or multi-byte character crosses a physical read boundary or the final line has no newline
 - **THEN** recovery SHALL preserve exact UTF-8 byte offsets and parse the complete logical line once.
-

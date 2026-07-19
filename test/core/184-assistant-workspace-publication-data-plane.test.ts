@@ -541,6 +541,102 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
     assert.equal(reads, 0);
   });
 
+  it("keeps source navigation independent from mismatched owner regions", async function () {
+    const activeOwner = skillsOwner;
+    const changedOwner = createAcpSkillsWorkspaceOwner("request-2");
+    const posts: AssistantWorkspacePublication[] = [];
+    let navigationReads = 0;
+    let regionReads = 0;
+    const adapter = defineAssistantWorkspacePublicationAdapter({
+      source: "acp-skills" as const,
+      supportedKinds: expectedKinds,
+      selectedOwner: () => activeOwner,
+      mapChange: () => ({
+        owner: changedOwner,
+        targetsActiveOwner: false,
+        publicationKinds: [
+          "owner-navigation",
+          "owner-control",
+          "permission",
+          "transcript",
+        ] as const,
+        transcript: {
+          events: [],
+          sourceEventSeq: 1,
+          visibility: "live" as const,
+        },
+      }),
+      readOwnerNavigation: async () => {
+        navigationReads += 1;
+        return skillsNavigation;
+      },
+      readOwnerRegions: async () => {
+        regionReads += 1;
+        return {};
+      },
+      readTranscriptPage: async () => skillsTranscript,
+    });
+    const coordinator = new AssistantWorkspacePublicationCoordinator({
+      scopeKey: "source-navigation-owner-mismatch",
+      getActiveOwner: () => activeOwner,
+      post: (publication) => {
+        posts.push(publication);
+        if (
+          publication.publicationKind === "transcript" &&
+          (publication.payload as { status?: string }).status === "loading"
+        ) {
+          queueMicrotask(() => {
+            coordinator.acknowledge({
+              publicationId: publication.publicationId,
+              stage: "render-complete",
+              outcome: "accepted",
+              reason: null,
+              failure: null,
+            });
+          });
+        }
+        return true;
+      },
+    });
+    const runtime = new AssistantWorkspacePublicationRuntime({
+      coordinator,
+      activity: () => "matching-target",
+    });
+
+    await runtime.initialize({
+      adapter,
+      context: {},
+      cause: "activation",
+    });
+    posts.length = 0;
+    navigationReads = 0;
+    regionReads = 0;
+
+    const result = runtime.schedule({ adapter, change: {}, context: {} });
+    await runtime.flush();
+
+    assert.equal(result.status, "scheduled");
+    assert.equal(navigationReads, 1);
+    assert.equal(regionReads, 0);
+    assert.deepEqual(posts, []);
+  });
+
+  it("does not rebind an ACP Skills background run change to the selected owner", function () {
+    const mapped = ACP_SKILLS_WORKSPACE_ADAPTER.mapChange(
+      {
+        requestIds: ["request-2"],
+        kinds: ["run", "transcript"],
+        transcriptEvents: [],
+        transcriptEventSeq: 1,
+        transcriptItemCount: 1,
+      },
+      undefined,
+    );
+
+    assert.equal(mapped.owner?.ownerKey, "request-2");
+    assert.isFalse(mapped.targetsActiveOwner);
+  });
+
   it("coalesces one owner lane into one minimal batch read", async function () {
     const owner = chatOwner;
     let reads = 0;

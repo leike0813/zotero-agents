@@ -500,21 +500,15 @@ export const ACP_SKILLS_WORKSPACE_ADAPTER =
       const publicationKinds = mapAcpSkillRunChangeToPublicationKinds(
         change.kinds || [],
       );
-      const ownerNavigationChange =
-        publicationKinds.includes("owner-navigation");
       const changedRequestIds = change.requestIds || [];
       const requestId =
-        ownerNavigationChange || change.global === true
-          ? selectedRequestId
-          : selectedRequestId &&
-              (changedRequestIds.length === 0 ||
-                changedRequestIds.includes(selectedRequestId))
-            ? selectedRequestId
-            : changedRequestIds[0] || "";
+        change.global !== true && changedRequestIds.length === 1
+          ? changedRequestIds[0]
+          : "";
       return {
         owner: requestId ? createAcpSkillsWorkspaceOwner(requestId) : null,
         targetsActiveOwner:
-          !requestId || !selectedRequestId || requestId === selectedRequestId,
+          !!requestId && !!selectedRequestId && requestId === selectedRequestId,
         publicationKinds,
         transcript: {
           events: change.transcriptEvents || [],

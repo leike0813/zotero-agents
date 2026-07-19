@@ -370,8 +370,7 @@ export class AssistantWorkspacePublicationRuntime {
       !!owner &&
       !!selectedOwner &&
       owner.ownerKey === selectedOwner.ownerKey;
-    const navigationTargetsActiveSource =
-      includesNavigation && mapped.targetsActiveOwner;
+    const navigationTargetsActiveSource = includesNavigation;
     const causality =
       ownerMatches || navigationTargetsActiveSource
         ? activity
@@ -411,13 +410,43 @@ export class AssistantWorkspacePublicationRuntime {
       return { status: "initializing" as const, owner, mapped };
     }
 
-    if (
-      ownerMatches &&
-      mapped.publicationKinds.includes("transcript") &&
-      mapped.transcript
-    ) {
+    const ownerKinds = mapped.publicationKinds.filter(
+      (
+        kind,
+      ): kind is Exclude<
+        AssistantWorkspacePublicationKind,
+        "owner-navigation" | "service-status" | "transcript"
+      > =>
+        kind !== "owner-navigation" &&
+        kind !== "service-status" &&
+        kind !== "transcript",
+    );
+    if (!ownerMatches) {
+      const droppedKinds = mapped.publicationKinds.filter(
+        (kind) => kind !== "owner-navigation" && kind !== "service-status",
+      );
+      if (droppedKinds.length > 0) {
+        this.options.hooks?.onDropped?.({
+          owner,
+          kinds: droppedKinds,
+          reason: "owner-mismatch",
+        });
+      }
+      this.queue({
+        source: args.adapter.source,
+        owner: null,
+        navigation: true,
+        kinds: new Set(),
+        read: async () => ({}),
+        readNavigation: () => args.adapter.readOwnerNavigation(),
+      });
+      return { status: "scheduled" as const, owner, mapped };
+    }
+
+    const activeOwner = owner!;
+    if (mapped.publicationKinds.includes("transcript") && mapped.transcript) {
       this.options.coordinator.publishDomainChange({
-        owner: owner!,
+        owner: activeOwner,
         kind: "transcript",
         cause: "steady-state",
         transcript: {
@@ -429,26 +458,15 @@ export class AssistantWorkspacePublicationRuntime {
       });
     }
 
-    const kinds = mapped.publicationKinds.filter(
-      (
-        kind,
-      ): kind is Exclude<
-        AssistantWorkspacePublicationKind,
-        "owner-navigation" | "service-status" | "transcript"
-      > =>
-        kind !== "owner-navigation" &&
-        kind !== "service-status" &&
-        kind !== "transcript",
-    );
-    if (kinds.length > 0) {
+    if (ownerKinds.length > 0) {
       this.queue({
         source: args.adapter.source,
-        owner: owner!,
+        owner: activeOwner,
         navigation: includesNavigation,
-        kinds: new Set(kinds),
+        kinds: new Set(ownerKinds),
         read: (requestedKinds) =>
           args.adapter.readOwnerRegions({
-            owner: owner!,
+            owner: activeOwner,
             kinds: requestedKinds,
             context: args.context,
           }),
@@ -457,7 +475,7 @@ export class AssistantWorkspacePublicationRuntime {
     } else if (includesNavigation) {
       this.queue({
         source: args.adapter.source,
-        owner: selectedOwner,
+        owner: null,
         navigation: true,
         kinds: new Set(),
         read: async () => ({}),

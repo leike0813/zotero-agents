@@ -1574,6 +1574,91 @@ describe("Assistant Workspace ACP UI v1", function () {
     assertRegionSubtreesPreserved(regions, regionSubtrees);
   });
 
+  it("preserves the selected ACP Skills DOM when background owner publications arrive", async function () {
+    const document = new FakeDocument();
+    const model = await loadPanelModel();
+    const renderer = await loadPanelRenderer(document);
+    const child = await loadWorkspaceChild();
+    const { root, regions } = createPanelManagedRegions(document);
+    let snapshot = canonicalState("acp-skills");
+    renderer.renderAssistantPanelSnapshot(
+      model.projectAssistantWorkspacePanel(snapshot, {}, {}),
+      {
+        managed: true,
+        root,
+        regions,
+        onAction() {},
+      },
+    );
+    const regionSubtrees = captureRegionSubtrees(regions);
+    const acknowledgements: Array<{ reason: string | null }> = [];
+    let renderCalls = 0;
+    const client = child.createClient({
+      source: "acp-skills",
+      getSnapshot: () => snapshot,
+      setSnapshot: (next: typeof snapshot) => {
+        snapshot = next;
+      },
+      getOwnerKey: (state: typeof snapshot) => state.selection.owner.ownerKey,
+      render: () => {
+        renderCalls += 1;
+        return { ok: true, renderPath: "incremental", failure: null };
+      },
+      ack: (
+        _publication: unknown,
+        _stage: string,
+        _outcome: string,
+        reason: string | null,
+      ) => {
+        acknowledgements.push({ reason });
+      },
+    });
+    const backgroundOwner = owner("acp-skills", "request-b");
+
+    client.apply({
+      schema: "zotero-agents.assistant-workspace-publication.v1",
+      publicationId: "background-permission",
+      owner: backgroundOwner,
+      publicationKind: "permission",
+      publicationForm: "region",
+      publicationCause: "steady-state",
+      regionRevision: 1,
+      deliverySequence: 1,
+      payload: { request: null },
+    });
+    client.apply({
+      schema: "zotero-agents.assistant-workspace-publication.v1",
+      publicationId: "background-workspace-activity",
+      owner: backgroundOwner,
+      publicationKind: "transcript",
+      publicationForm: "delta",
+      publicationCause: "steady-state",
+      regionRevision: 1,
+      deliverySequence: 2,
+      payload: {
+        page: {
+          pageKey: "request-b\ntail:80",
+          startCursor: 0,
+          limit: 80,
+          totalVisibleItemCount: 1,
+          previousCursor: null,
+          nextCursor: null,
+          sourceEventSeq: 1,
+        },
+        baseTranscriptRevision: 0,
+        transcriptRevision: 1,
+        mutations: [],
+      },
+    });
+
+    assert.equal(renderCalls, 0);
+    assert.deepEqual(
+      acknowledgements.map((entry) => entry.reason),
+      ["old-owner", "old-owner"],
+    );
+    assertRegionSubtreesPreserved(regions, regionSubtrees);
+  });
+
   it("retries a v1 transcript mutation after a transactional DOM failure", async function () {
     const fixture = JSON.parse(
       await readProjectFile(

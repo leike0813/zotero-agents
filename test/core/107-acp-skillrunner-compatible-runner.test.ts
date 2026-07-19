@@ -52,6 +52,7 @@ import {
   setAcpSkillRunRuntimeOptions,
   shutdownAcpSkillRunConversations,
   subscribeAcpSkillRunWorkspaceChanges,
+  type AcpSkillRunWorkspaceChange,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import { readAcpSkillRunOutputRevisions } from "../../src/modules/acpSkillRunPayloadStore";
@@ -6377,6 +6378,80 @@ describe("ACP SkillRunner-compatible runner", function () {
       buildAcpSkillRunPanelSnapshot({}).selectedRun?.requestId,
       "run-selected-original",
     );
+  });
+
+  it("keeps pending ACP Skills workspace changes partitioned by request id", function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-owner-a",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+    });
+    upsertAcpSkillRun({
+      requestId: "run-owner-b",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+    });
+    const changes: AcpSkillRunWorkspaceChange[] = [];
+    const unsubscribe = subscribeAcpSkillRunWorkspaceChanges((change) => {
+      changes.push(change);
+    });
+    try {
+      const cases = [
+        {
+          label: "workspace activity",
+          trigger() {
+            upsertAcpSkillRun({
+              requestId: "run-owner-b",
+              event: {
+                stage: "workspace-activity",
+                message: "result/output.json",
+                level: "info",
+                details: { relativePath: "result/output.json" },
+              },
+            });
+          },
+        },
+        {
+          label: "permission request",
+          trigger() {
+            setAcpSkillRunPermissionRequest("run-owner-b", {
+              requestId: "permission-owner-b",
+              sessionId: "session-b",
+              toolCallId: "tool-owner-b",
+              toolTitle: "Background tool",
+              requestedAt: "2026-07-20T00:00:00.000Z",
+              options: [],
+              resolve() {},
+            });
+          },
+        },
+      ];
+      for (const [index, testCase] of cases.entries()) {
+        changes.length = 0;
+        recordAcpSkillRunSessionUpdate("run-owner-a", {
+          sessionId: "session-a",
+          update: {
+            sessionUpdate: "usage_update",
+            used: 10 + index,
+            size: 100,
+          },
+        } as any);
+        testCase.trigger();
+
+        assert.deepEqual(
+          changes.map((change) => change.requestIds),
+          [["run-owner-a"], ["run-owner-b"]],
+          testCase.label,
+        );
+        assert.isUndefined(changes[0]?.transcriptEvents, testCase.label);
+        assert.isNotEmpty(changes[1]?.transcriptEvents || [], testCase.label);
+      }
+    } finally {
+      unsubscribe();
+    }
   });
 
   it("surfaces workspace activity as visible status while ACP prompt is active", async function () {

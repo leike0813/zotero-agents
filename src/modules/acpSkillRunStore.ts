@@ -660,7 +660,7 @@ let lastExecutionDisplayMode = getAssistantExecutionDisplayMode();
 let selectedRequestId = "";
 let recoveryHandler: AcpSkillRunRecoveryHandler | null = null;
 let changedEmitTimer: ReturnType<typeof setTimeout> | null = null;
-let pendingWorkspaceChange: AcpSkillRunWorkspaceChange | null = null;
+const pendingWorkspaceChanges = new Map<string, AcpSkillRunWorkspaceChange>();
 const activeRunRequestIds = new Set<string>();
 const ACP_SKILL_RUN_PREVIEW_LIMIT = 8 * 1024;
 const ACP_SKILL_RUN_TRANSCRIPT_PAGE_DEFAULT_LIMIT = 80;
@@ -2994,6 +2994,38 @@ function mergeAcpSkillRunWorkspaceChanges(
   });
 }
 
+function acpSkillRunWorkspaceChangePartitionKey(
+  change: AcpSkillRunWorkspaceChange,
+) {
+  if (change.global) return "source:global";
+  const requestIds = change.requestIds || [];
+  if (requestIds.length === 1) return `owner:${requestIds[0]}`;
+  return `source:${[...requestIds].sort().join("\n") || "unowned"}:${[
+    ...(change.kinds || []),
+  ]
+    .sort()
+    .join(",")}`;
+}
+
+function enqueuePendingAcpSkillRunWorkspaceChange(
+  change: AcpSkillRunWorkspaceChange,
+) {
+  const key = acpSkillRunWorkspaceChangePartitionKey(change);
+  pendingWorkspaceChanges.set(
+    key,
+    mergeAcpSkillRunWorkspaceChanges(
+      pendingWorkspaceChanges.get(key) || null,
+      change,
+    ),
+  );
+}
+
+function takePendingAcpSkillRunWorkspaceChanges() {
+  const changes = [...pendingWorkspaceChanges.values()];
+  pendingWorkspaceChanges.clear();
+  return changes;
+}
+
 function acpSkillRunWorkspaceChange(
   requestId: string,
   kinds: AcpSkillRunWorkspaceChangeKind[],
@@ -3027,38 +3059,38 @@ function emitWorkspaceChanged(change?: AcpSkillRunWorkspaceChange) {
     clearTimeout(changedEmitTimer);
     changedEmitTimer = null;
   }
-  const emittedChange =
-    pendingWorkspaceChange && change
-      ? mergeAcpSkillRunWorkspaceChanges(
-          pendingWorkspaceChange,
-          createAcpSkillRunWorkspaceChange(change),
-        )
-      : pendingWorkspaceChange || createAcpSkillRunWorkspaceChange(change);
-  pendingWorkspaceChange = null;
-  if (
-    __acp_runtime_performance_profiler_enabled__ &&
-    (typeof __debug_mode__ === "undefined"
-      ? isDebugModeEnabled()
-      : __debug_mode__)
-  ) {
-    const requestId = emittedChange.requestIds?.[0];
-    for (const kind of emittedChange.kinds || ["global"]) {
-      incrementAcpRuntimeMetric(requestId, "change_emitted", {
-        changeKind: kind === "selection" ? "other" : kind,
-      });
-    }
+  if (change) {
+    enqueuePendingAcpSkillRunWorkspaceChange(
+      createAcpSkillRunWorkspaceChange(change),
+    );
   }
-  for (const listener of workspaceListeners) {
-    listener(emittedChange);
+  const emittedChanges = takePendingAcpSkillRunWorkspaceChanges();
+  if (emittedChanges.length === 0) {
+    emittedChanges.push(createAcpSkillRunWorkspaceChange());
+  }
+  for (const emittedChange of emittedChanges) {
+    if (
+      __acp_runtime_performance_profiler_enabled__ &&
+      (typeof __debug_mode__ === "undefined"
+        ? isDebugModeEnabled()
+        : __debug_mode__)
+    ) {
+      const requestId = emittedChange.requestIds?.[0];
+      for (const kind of emittedChange.kinds || ["global"]) {
+        incrementAcpRuntimeMetric(requestId, "change_emitted", {
+          changeKind: kind === "selection" ? "other" : kind,
+        });
+      }
+    }
+    for (const listener of workspaceListeners) {
+      listener(emittedChange);
+    }
   }
 }
 
 function scheduleWorkspaceChangedEmit(change?: AcpSkillRunWorkspaceChange) {
   const immutableChange = createAcpSkillRunWorkspaceChange(change);
-  pendingWorkspaceChange = mergeAcpSkillRunWorkspaceChanges(
-    pendingWorkspaceChange,
-    immutableChange,
-  );
+  enqueuePendingAcpSkillRunWorkspaceChange(immutableChange);
   if (
     __acp_runtime_performance_profiler_enabled__ &&
     (typeof __debug_mode__ === "undefined"
@@ -3116,11 +3148,13 @@ export function inspectSyntheticAcpSkillRunReplayTimers(args: {
   }
 
   if (changedEmitTimer) {
-    const pending =
-      pendingWorkspaceChange || createAcpSkillRunWorkspaceChange();
-    const pendingRequestIds = pending.requestIds || [];
+    const pending = [...pendingWorkspaceChanges.values()];
+    const pendingRequestIds = pending.flatMap(
+      (change) => change.requestIds || [],
+    );
     const owned =
-      !pending.global &&
+      pending.length > 0 &&
+      pending.every((change) => !change.global) &&
       pendingRequestIds.length > 0 &&
       pendingRequestIds.every((requestId) => allowed.has(requestId));
     if (!owned) {
@@ -6326,6 +6360,7 @@ export function resetAcpSkillRunsForTests() {
     clearTimeout(changedEmitTimer);
     changedEmitTimer = null;
   }
+  pendingWorkspaceChanges.clear();
   clearAcpSkillRunRecords();
   for (const timer of softRunPersistTimers.values()) {
     clearTimeout(timer);

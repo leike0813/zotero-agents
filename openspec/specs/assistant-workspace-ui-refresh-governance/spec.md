@@ -209,6 +209,14 @@ Assistant Workspace SHALL use ACP Skills change descriptors to avoid rebuilding 
 - **WHEN** request `A` emits a transcript or runtime-options change descriptor
 - **THEN** the workspace host SHALL refresh the ACP Skills panel snapshot.
 
+#### Scenario: Background run change refreshes navigation without changing selected owner regions
+
+- **GIVEN** request `A` is selected and request `B` runs in the background
+- **WHEN** request `B` emits one change containing source navigation plus transcript, permission, plan, control, composer, or presentation invalidations
+- **THEN** the host MAY refresh the ACP Skills owner-navigation region
+- **AND** it SHALL reject every owner-local invalidation for request `B` before region read or transcript mutation publication
+- **AND** it SHALL NOT relabel request `B` events, sequence metadata, or item counts as belonging to request `A`.
+
 #### Scenario: Unknown changes remain conservative
 
 - **WHEN** an ACP Skills store change has no descriptor or is marked global
@@ -389,6 +397,13 @@ Chat owners SHALL be identified by backend plus conversation and Skills owners S
 
 - **WHEN** a runtime change belongs to a conversation or request other than the selected owner
 - **THEN** the host SHALL reject it before transcript page read, DTO construction, or serialization.
+
+#### Scenario: Source-scoped navigation is independent from owner-local content
+
+- **WHEN** one runtime change contains both owner-navigation and owner-local publication kinds
+- **THEN** the publication runtime SHALL evaluate owner-navigation against the active source
+- **AND** it SHALL evaluate transcript and all other managed regions against the exact selected owner
+- **AND** accepting owner-navigation SHALL NOT cause an owner mismatch to be accepted for any owner-local kind.
 
 ### Requirement: Managed regions use independent stable signatures
 

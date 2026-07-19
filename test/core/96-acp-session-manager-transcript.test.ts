@@ -2034,15 +2034,24 @@ describe("acp session manager", function () {
       }),
       ["owner-control", "composer"],
     );
-    assert.deepEqual(
-      resolveAcpChatWorkspacePublicationKinds(base, {
-        backendId: "backend-a",
-        conversationId: "conversation-a",
-        active: false,
-        kinds: ["transcript-append"],
-      }),
-      [],
-    );
+    for (const kind of [
+      "transcript-append",
+      "permission",
+      "plan",
+      "status",
+      "composer",
+    ] as const) {
+      assert.deepEqual(
+        resolveAcpChatWorkspacePublicationKinds(base, {
+          backendId: "backend-a",
+          conversationId: "conversation-a",
+          active: false,
+          kinds: [kind],
+        }),
+        [],
+        `background ${kind} must stay owner-local`,
+      );
+    }
   });
 
   it("builds canonical count and baseline regions without transcript state", async function () {
