@@ -24,6 +24,7 @@ import {
 } from "../../scripts/host-bridge-release-plan";
 import { materializeHostBridgeSurfaces } from "../../scripts/materialize-host-bridge-surfaces";
 import { resolveExactCliReleaseIntent } from "../../scripts/host-bridge-version-intent";
+import { renderHostBridgeReleaseSet } from "../../scripts/render-host-bridge-release-set";
 import {
   readImmutablePublicationSource,
   selectDispatchedHostBridgeRun,
@@ -228,19 +229,29 @@ describe("Host Bridge release coordinator", function () {
     const releaseSet = JSON.parse(
       readFileSync("host-bridge/release-set.json", "utf8"),
     );
-    execFileSync(
-      "npx",
-      ["tsx", "scripts/render-host-bridge-release-set.ts", "--check"],
-      {
-        cwd: process.cwd(),
-        env: {
-          ...process.env,
-          HOST_BRIDGE_SOURCE_COMMIT: releaseSet.source.commit,
-          GITHUB_RUN_ID: "ambient-ci-run-must-not-change-prepared-identity",
-        },
-        stdio: "pipe",
-      },
-    );
+    const previousRunId = process.env.GITHUB_RUN_ID;
+    try {
+      delete process.env.GITHUB_RUN_ID;
+      const expected = renderHostBridgeReleaseSet({
+        root: process.cwd(),
+        sourceCommit: releaseSet.source.commit,
+      });
+      process.env.GITHUB_RUN_ID =
+        "ambient-ci-run-must-not-change-prepared-identity";
+      const actual = renderHostBridgeReleaseSet({
+        root: process.cwd(),
+        sourceCommit: releaseSet.source.commit,
+      });
+
+      assert.strictEqual(actual, expected);
+      assert.notProperty(JSON.parse(actual), "workflowRun");
+    } finally {
+      if (previousRunId === undefined) {
+        delete process.env.GITHUB_RUN_ID;
+      } else {
+        process.env.GITHUB_RUN_ID = previousRunId;
+      }
+    }
   });
 
   it("classifies release inputs independently from generated drift", function () {

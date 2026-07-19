@@ -5,7 +5,7 @@ Define the `collection-collector` SkillRunner workflow that builds an auditable 
 ## Requirements
 ### Requirement: Collection collector workflow is discoverable
 
-The system SHALL provide a core automatic SkillRunner workflow named `collection-collector` that requires no Zotero selection.
+The system SHALL provide a non-core automatic SkillRunner workflow named `collection-collector` that requires no Zotero selection.
 
 #### Scenario: Workflow parameters are configured
 

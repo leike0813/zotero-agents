@@ -45,7 +45,7 @@ describe("collection collector workflow", function () {
 
     assert.isOk(workflow);
     assert.equal(workflow?.provider, "skillrunner");
-    assert.isTrue(workflow?.display?.core);
+    assert.isFalse(workflow?.display?.core);
     assert.equal(workflow?.trigger?.requiresSelection, false);
     assert.equal(workflow?.request?.create?.mode, "auto");
     assert.isTrue(workflow?.parameters?.collection?.required);

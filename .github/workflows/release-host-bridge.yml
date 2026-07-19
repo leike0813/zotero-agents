@@ -257,6 +257,22 @@ jobs:
         run: |
           set -euo pipefail
           release_id="${{ needs.plan.outputs.release_set_id }}"
+          restore_surface_executable_modes() {
+            name="$1"; work="$2"; manifest="$3"
+            if [ "$name" = "cli" ] || [ "$name" = "library" ]; then
+              git -C "$work" update-index --chmod=+x install.sh
+            fi
+            while IFS=$'\t' read -r platform binary; do
+              if [ "$name" = "profile" ]; then
+                relative_path="assets/zotero-bridge/bin/$platform/$binary"
+              else
+                relative_path="bin/$platform/$binary"
+              fi
+              git -C "$work" update-index --chmod=+x "$relative_path"
+            done < <(
+              jq -r '.releaseSet.cli.binaries[] | select(.platform | startswith("win32-") | not) | [.platform, .binary] | @tsv' "$manifest"
+            )
+          }
           publish_surface() {
             name="$1"; source="$2"; repo="$3"; branch="$4"
             work=".publish/$name"
@@ -275,6 +291,7 @@ jobs:
             find "$work" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
             cp -a "$source/." "$work/"
             git -C "$work" add -A
+            restore_surface_executable_modes "$name" "$work" "$source/manifest.json"
             if ! git -C "$work" diff --cached --quiet; then
               git -C "$work" commit -m "Publish Host Bridge $release_id"
             fi
@@ -353,6 +370,11 @@ jobs:
             skills_builtin/zotero-bridge-cli/assets/release-set.json \
             skills_builtin/zotero-library-agent/assets/release-set.json \
             profiles/hermes/zotero-librarian/assets/release-set.json
+          while IFS=$'\t' read -r platform binary; do
+            git -C .finalize update-index --chmod=+x "addon/bin/$platform/$binary"
+          done < <(
+            jq -r '.cli.binaries[] | select(.platform | startswith("win32-") | not) | [.platform, .binary] | @tsv' .finalize/host-bridge/release-set.json
+          )
           git -C .finalize diff --cached --check
           git -C .finalize config user.name github-actions[bot]
           git -C .finalize config user.email 41898282+github-actions[bot]@users.noreply.github.com

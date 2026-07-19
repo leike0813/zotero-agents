@@ -13451,7 +13451,7 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
   stage.appendChild(renderGraphZoomOverlay());
   stage.appendChild(el("div", "graph-scope-badge", graphScopeLabel(snapshot)));
   if (state.standaloneGraphOnly) {
-    shell.appendChild(renderCitationGraphLegend());
+    shell.insertBefore(renderCitationGraphLegend(), stage);
   }
 
   const selectedTopicTitle = selectedGraphTopicTitle(snapshot);

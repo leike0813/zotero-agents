@@ -1,6 +1,6 @@
 ---
 name: zotero-bridge-cli
-description: Use when an agent needs Zotero Bridge CLI access to Zotero library or synthesis context, workflow execution and monitoring, mutation or file writeback, exact machine-readable command identity, or structured failure recovery.
+description: Use when an agent needs Zotero Bridge CLI access to Zotero library or synthesis context, workflow execution and monitoring, mutation or file writeback, exact surface identity and command contracts, or structured failure recovery.
 license: AGPL-3.0-or-later
 ---
 

@@ -553,23 +553,40 @@ describe("host bridge cli packaging and install", function () {
       path.join(process.cwd(), "scripts/publish-host-bridge-cli-bundle.ps1"),
       "utf8",
     );
+    const releaseWorkflow = await fs.readFile(
+      path.join(process.cwd(), ".github/workflows/release-host-bridge.yml"),
+      "utf8",
+    );
 
     assert.include(packageScript, "chmod(target, 0o755)");
     assert.include(publishScript, "update-index --chmod=+x install.sh");
     assert.include(publishScript, "$entry.platform -notlike 'win32-*'");
     assert.include(publishScript, "update-index --chmod=+x $entry.binaryPath");
+    assert.include(releaseWorkflow, "restore_surface_executable_modes");
+    assert.include(releaseWorkflow, 'update-index --chmod=+x "$relative_path"');
+    assert.include(
+      releaseWorkflow,
+      'update-index --chmod=+x "addon/bin/$platform/$binary"',
+    );
   });
 
   it("keeps tracked POSIX Host Bridge artifacts executable", async function () {
     if (process.platform === "win32") {
       this.skip();
     }
+    const release = JSON.parse(
+      await fs.readFile(
+        path.join(process.cwd(), "cli/zotero-bridge/release.json"),
+        "utf8",
+      ),
+    ) as {
+      binaries: Array<{ platform: string; binary: string }>;
+    };
     const executablePaths = [
       "cli/zotero-bridge/scripts/install.sh",
-      "addon/bin/linux-x86/zotero-bridge",
-      "addon/bin/linux-x64/zotero-bridge",
-      "addon/bin/linux-arm/zotero-bridge",
-      "addon/bin/linux-arm64/zotero-bridge",
+      ...release.binaries
+        .filter((entry) => !entry.platform.startsWith("win32-"))
+        .map((entry) => `addon/bin/${entry.platform}/${entry.binary}`),
     ];
 
     for (const relativePath of executablePaths) {
