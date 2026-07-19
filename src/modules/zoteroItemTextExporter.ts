@@ -42,6 +42,7 @@ type ZoteroExportTranslator = {
 };
 
 type ZoteroExportTranslation = {
+  string?: unknown;
   setItems: (items: Zotero.Item[]) => void;
   setTranslator: (translatorID: string) => void;
   setDisplayOptions?: (options: Record<string, boolean>) => void;
@@ -126,8 +127,9 @@ export async function exportZoteroItemsAsText(
       translation.setItems(items);
       translation.setTranslator(translatorID);
       translation.setDisplayOptions?.(args.displayOptions || {});
-      const output = await translation.translate();
-      const content = typeof output === "string" ? output : "";
+      await translation.translate();
+      const content =
+        typeof translation.string === "string" ? translation.string : "";
       if (!content.trim()) {
         attempts.push({
           translatorID,

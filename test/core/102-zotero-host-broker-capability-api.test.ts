@@ -116,6 +116,7 @@ async function withMockExportTranslators<T>(
     items: unknown[] = [];
     translatorID = "";
     displayOptions: Record<string, unknown> = {};
+    string = "";
 
     setItems(items: unknown[]) {
       this.items = items;
@@ -137,7 +138,8 @@ async function withMockExportTranslators<T>(
       });
       const output = args.outputs[this.translatorID];
       if (output instanceof Error) throw output;
-      return output;
+      this.string = output;
+      return [];
     }
   }
 
