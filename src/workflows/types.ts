@@ -338,6 +338,11 @@ export type WorkflowHostApi = {
     exportPortableJson: (
       ref: Zotero.Item | number | string,
     ) => Record<string, unknown>;
+    exportText: (
+      args: import("../modules/zoteroItemTextExporter").WorkflowItemTextExportArgs,
+    ) => Promise<
+      import("../modules/zoteroItemTextExporter").WorkflowItemTextExportResult
+    >;
     createFromJson: (args: {
       itemJson: Record<string, unknown>;
       libraryID?: number;

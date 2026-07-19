@@ -12,6 +12,7 @@ The system SHALL generate an agent-readable README for each Research Bundle Prod
 - **WHEN** a valid selection is materialized with a supported workflow locale
 - **THEN** the Product README SHALL use that locale for its fixed explanatory prose
 - **AND** SHALL describe the recommended consumption order, layout, manifest authority, integrity records, and warning semantics
+- **AND** SHALL identify the root `references.bib` file and its actual export translator when generated
 - **AND** SHALL index each materialized Topic and paper with its Product-relative paths.
 
 #### Scenario: Product locale is unsupported
@@ -29,6 +30,7 @@ The system SHALL materialize each Topic and paper in its own stable Product-rela
 - **WHEN** Topic reports, portable metadata, payloads, source material, or local source images are available
 - **THEN** each Topic report SHALL be stored as `topics/topic-<ordinal>/report.md`
 - **AND** each paper-owned metadata, source, and payload file SHALL be stored under `papers/paper-<ordinal>/`
+- **AND** the bibliography for all successfully materialized papers SHALL be stored as root `references.bib`
 - **AND** the system SHALL NOT create a directory per payload type or payload instance.
 
 ### Requirement: Research Bundle preserves eligible Markdown image paths

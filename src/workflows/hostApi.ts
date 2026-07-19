@@ -50,7 +50,9 @@ import {
   type BuiltinStatusTag,
 } from "../modules/synthesis/builtinTagPolicy";
 
-export const WORKFLOW_HOST_API_VERSION = 9;
+import { exportZoteroItemsAsText } from "../modules/zoteroItemTextExporter";
+
+export const WORKFLOW_HOST_API_VERSION = 10;
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -978,6 +980,9 @@ export function createWorkflowHostApi(): WorkflowHostApi {
       },
       exportPortableJson(ref) {
         return handlers.item.exportPortableJson(ref);
+      },
+      exportText(args) {
+        return exportZoteroItemsAsText(resolveHostZotero() as any, args);
       },
       createFromJson(args) {
         return handlers.item.createFromJson(args);

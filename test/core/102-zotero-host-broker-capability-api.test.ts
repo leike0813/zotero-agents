@@ -104,6 +104,62 @@ async function withMockTranslate<T>(
   }
 }
 
+async function withMockExportTranslators<T>(
+  args: {
+    translators: Record<string, Record<string, unknown> | null>;
+    outputs: Record<string, string | Error>;
+  },
+  callback: (calls: Array<Record<string, unknown>>) => Promise<T>,
+): Promise<T> {
+  const calls: Array<Record<string, unknown>> = [];
+  class Export {
+    items: unknown[] = [];
+    translatorID = "";
+    displayOptions: Record<string, unknown> = {};
+
+    setItems(items: unknown[]) {
+      this.items = items;
+    }
+
+    setTranslator(translatorID: string) {
+      this.translatorID = translatorID;
+    }
+
+    setDisplayOptions(displayOptions: Record<string, unknown>) {
+      this.displayOptions = displayOptions;
+    }
+
+    async translate() {
+      calls.push({
+        translatorID: this.translatorID,
+        items: this.items,
+        displayOptions: this.displayOptions,
+      });
+      const output = args.outputs[this.translatorID];
+      if (output instanceof Error) throw output;
+      return output;
+    }
+  }
+
+  const previousTranslate = (Zotero as any).Translate;
+  const previousTranslators = (Zotero as any).Translators;
+  (Zotero as any).Translate = { ...(previousTranslate || {}), Export };
+  (Zotero as any).Translators = {
+    ...(previousTranslators || {}),
+    async get(translatorID: string) {
+      return args.translators[translatorID] || null;
+    },
+  };
+  resetWorkflowHostApiForTests();
+  try {
+    return await callback(calls);
+  } finally {
+    (Zotero as any).Translate = previousTranslate;
+    (Zotero as any).Translators = previousTranslators;
+    resetWorkflowHostApiForTests();
+  }
+}
+
 describe("zotero host broker capability api", function () {
   beforeEach(function () {
     setZoteroLibraryPageQueryAdapterForTests(
@@ -117,12 +173,12 @@ describe("zotero host broker capability api", function () {
     resetZoteroMcpServerForTests();
   });
 
-  it("exposes v9 broker domains without removing legacy APIs", async function () {
+  it("exposes v10 broker domains without removing legacy APIs", async function () {
     const hostApi = createWorkflowHostApi();
     const item = await createParentItem("Broker Legacy Compatibility");
 
     assert.strictEqual(hostApi.version, WORKFLOW_HOST_API_VERSION);
-    assert.strictEqual(WORKFLOW_HOST_API_VERSION, 9);
+    assert.strictEqual(WORKFLOW_HOST_API_VERSION, 10);
     assert.isFunction(hostApi.context.getCurrentView);
     assert.isFunction(hostApi.library.searchItems);
     assert.isFunction(hostApi.mutations.preview);
@@ -137,6 +193,7 @@ describe("zotero host broker capability api", function () {
     assert.isFunction(hostApi.archive.writeZipAtomic);
     assert.isFunction(hostApi.archive.withExtractedZip);
     assert.isFunction(hostApi.items.exportPortableJson);
+    assert.isFunction(hostApi.items.exportText);
     assert.isFunction(hostApi.items.createFromJson);
     assert.isFunction(hostApi.items.remove);
     assert.isFunction(hostApi.statusTags.getPolicy);
@@ -148,6 +205,63 @@ describe("zotero host broker capability api", function () {
       title: "Broker Legacy Updated",
     });
     assert.strictEqual(item.getField("title"), "Broker Legacy Updated");
+  });
+
+  it("exports item text with ordered translator fallback", async function () {
+    const betterBibtexID = "ca65189f-8815-4afe-8c8b-8c7c15f0edca";
+    const nativeBibtexID = "9cb70025-a888-4a29-a210-93ec52da40d4";
+    const item = { id: 1, key: "AAAA1111" } as Zotero.Item;
+
+    await withMockExportTranslators(
+      {
+        translators: {
+          [betterBibtexID]: {
+            translatorID: betterBibtexID,
+            label: "Better BibTeX",
+            target: "bib",
+            translatorType: 3,
+          },
+          [nativeBibtexID]: {
+            translatorID: nativeBibtexID,
+            label: "BibTeX",
+            target: "bib",
+            translatorType: 3,
+          },
+        },
+        outputs: {
+          [betterBibtexID]: new Error("BBT failed"),
+          [nativeBibtexID]: "@article{native, title={Fallback}}\n",
+        },
+      },
+      async (calls) => {
+        const result = await createWorkflowHostApi().items.exportText({
+          items: [item],
+          translatorCandidates: [
+            { translatorID: betterBibtexID, label: "Better BibTeX" },
+            { translatorID: nativeBibtexID, label: "BibTeX" },
+          ],
+          displayOptions: {
+            exportNotes: false,
+            exportFileData: false,
+            keepUpdated: false,
+          },
+        });
+
+        assert.isTrue(result.ok);
+        if (!result.ok) throw new Error("expected export success");
+        assert.strictEqual(result.translator.translatorID, nativeBibtexID);
+        assert.isTrue(result.fallbackUsed);
+        assert.deepEqual(
+          result.attempts.map((attempt) => attempt.status),
+          ["failed", "succeeded"],
+        );
+        assert.deepEqual(
+          calls.map((call) => call.translatorID),
+          [betterBibtexID, nativeBibtexID],
+        );
+        assert.deepEqual(calls[1].items, [item]);
+      },
+    );
   });
 
   it("normalizes Host file paths and keeps exists a total boolean probe", async function () {
