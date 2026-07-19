@@ -1,9 +1,9 @@
 {
   "schema": "host-bridge.release-receipt.v1",
   "status": "complete",
-  "releaseSetId": "hbrs-72a169557ae4ec6e6e6e95eb",
-  "sourceCommit": "8dc2637fefd4ba88031f3404422fc023b515502e",
-  "workflowRun": "https://github.com/leike0813/zotero-agents/actions/runs/29695913928",
+  "releaseSetId": "hbrs-3d834c0f075f3122ac566e9a",
+  "sourceCommit": "033e97e04610e9f4390f646cd5598367a930427a",
+  "workflowRun": "https://github.com/leike0813/zotero-agents/actions/runs/29702461833",
   "pipelineRevision": "cb56dc52b35f6c141801c88e83875cce8c08bb8e",
   "prebuild": {
     "branch": "host-bridge-cli-prebuilds",
@@ -11,13 +11,13 @@
   },
   "surfaces": {
     "cliBundle": {
-      "commit": "33cad30099a675203cfb5680856228b550e86091"
+      "commit": "732c532a18580ef01c028ea7e2ef65fc743291f7"
     },
     "libraryAgent": {
-      "commit": "ddfab9db211f500817ced4c2352d2b51b0b037fc"
+      "commit": "01f4c670881d510f6f29e4df7c75ec547257b300"
     },
     "librarianProfile": {
-      "commit": "6bdca94e43a5266e2401194d39894ab60b5cf2ad"
+      "commit": "d3f2a91ae33f8ae0693a59130ff8c8d251fe53fe"
     }
   }
 }
