@@ -227,7 +227,10 @@ function sortedCliMappings(catalog: HostBridgeSurfaceCatalog) {
   );
 }
 
-function renderHostBridgeReference(catalog: HostBridgeSurfaceCatalog) {
+function renderHostBridgeReference(
+  catalog: HostBridgeSurfaceCatalog,
+  release: ZoteroBridgeCliRelease,
+) {
   const commands = sortedCliMappings(catalog)
     .filter((mapping) => {
       const group = mapping.command.split(" ")[0] || "";
@@ -263,6 +266,10 @@ function renderHostBridgeReference(catalog: HostBridgeSurfaceCatalog) {
 
   return [
     "## CLI Identity",
+    "",
+    `Expected \`zotero-bridge\` CLI version for this profile surface: \`${release.version}\`. Run \`zotero-bridge --version\` when the loaded profile path, command help, or a CLI error suggests a surface mismatch.`,
+    "",
+    "Version mismatch alone is not a blocker. When versions differ, inspect `zotero-bridge <command> --help` before executing that command; use offline `surface search` or `surface describe` when the canonical command or argv remains uncertain.",
     "",
     "Run `zotero-bridge surface identity --json` and compare CLI schema, build fingerprint, and command catalog checksum with the profile release envelope. SemVer alone is not compatibility evidence.",
     "",
@@ -550,7 +557,7 @@ export function renderZoteroLibrarianProfile(
     replaceGeneratedSection(
       hostBridgeSource,
       "zotero-librarian:host-bridge",
-      renderHostBridgeReference(catalog),
+      renderHostBridgeReference(catalog, release),
     ),
     check,
     diffs,

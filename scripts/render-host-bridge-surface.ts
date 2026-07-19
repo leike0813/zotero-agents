@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import {
   buildHostBridgeSurfaceCatalog,
@@ -13,6 +19,10 @@ import {
   type HostBridgeArgvBinding,
   type HostBridgeAgentSurfaceDescriptor,
 } from "./host-bridge-agent-surface";
+import {
+  readZoteroBridgeCliRelease,
+  type ZoteroBridgeCliRelease,
+} from "./zotero-bridge-cli-release";
 
 const ROOT = process.cwd();
 const WRAPPER_SKILL_SOURCE = "skills_src/zotero-bridge-cli/semantic/SKILL.md";
@@ -29,7 +39,10 @@ type RenderTarget = {
   path: string;
   sourcePath?: string;
   section: string;
-  render: (catalog: HostBridgeSurfaceCatalog) => string;
+  render: (
+    catalog: HostBridgeSurfaceCatalog,
+    release: ZoteroBridgeCliRelease,
+  ) => string;
 };
 
 type CopyTarget = {
@@ -219,11 +232,14 @@ function shimGuidance() {
   ].join("\n");
 }
 
-function cliReleaseGuidance() {
+function cliReleaseGuidance(release: ZoteroBridgeCliRelease) {
   return [
+    `- Expected \`zotero-bridge\` CLI version for this generated surface: \`${release.version}\`.`,
+    "- Run `<zotero-bridge> --version` when the loaded skill path, command help, or a CLI error suggests that the active command surface may differ.",
+    "- Version mismatch alone is not a blocker. When versions differ, inspect `<zotero-bridge> <command> --help` before executing that command; use offline `surface search` or `surface describe` when the canonical command or argv remains uncertain.",
     "- Run `<zotero-bridge> surface identity --json` before relying on a loaded command contract.",
     "- Compare CLI schema, build fingerprint, and command catalog checksum with the release envelope shipped beside the current surface. SemVer alone is not compatibility evidence.",
-    "- If identity differs, stop and use the wrapper, CLI shim, and release envelope from one release set.",
+    "- Stop only when the required command is unavailable, its argv or control contract cannot be confirmed, or the observed approval, handle, state-change, or recovery semantics are incompatible. Recover with the wrapper, CLI shim, and release envelope from one release set.",
   ].join("\n");
 }
 
@@ -333,7 +349,10 @@ function renderDocSurface(catalog: HostBridgeSurfaceCatalog) {
   ].join("\n");
 }
 
-function renderWrapperSurface(catalog: HostBridgeSurfaceCatalog) {
+function renderWrapperSurface(
+  catalog: HostBridgeSurfaceCatalog,
+  release: ZoteroBridgeCliRelease,
+) {
   const insightCommands = catalog.cliMappings
     .filter(
       (mapping) =>
@@ -352,7 +371,7 @@ function renderWrapperSurface(catalog: HostBridgeSurfaceCatalog) {
     "",
     "### CLI release check",
     "",
-    cliReleaseGuidance(),
+    cliReleaseGuidance(release),
     "",
     "### Command families",
     "",
@@ -384,7 +403,10 @@ function renderWrapperSurface(catalog: HostBridgeSurfaceCatalog) {
   ].join("\n");
 }
 
-function renderWrapperReference(catalog: HostBridgeSurfaceCatalog) {
+function renderWrapperReference(
+  catalog: HostBridgeSurfaceCatalog,
+  release: ZoteroBridgeCliRelease,
+) {
   return [
     "This section is generated from the Host Bridge surface catalog.",
     "",
@@ -394,7 +416,7 @@ function renderWrapperReference(catalog: HostBridgeSurfaceCatalog) {
     "",
     "### CLI release check",
     "",
-    cliReleaseGuidance(),
+    cliReleaseGuidance(release),
     "",
     "### Discovery commands",
     "",
@@ -668,10 +690,6 @@ const TARGETS: RenderTarget[] = [
 
 const COPY_TARGETS: CopyTarget[] = [
   {
-    path: "skills_builtin/zotero-bridge-cli/README.md",
-    sourcePath: "skills_src/zotero-bridge-cli/semantic/README.md",
-  },
-  {
     path: "skills_builtin/zotero-bridge-cli/assets/runner.json",
     sourcePath: "skills_src/zotero-bridge-cli/runner.json",
   },
@@ -699,6 +717,8 @@ const COPY_TARGETS: CopyTarget[] = [
   },
 ];
 
+const REMOVED_TARGETS = ["skills_builtin/zotero-bridge-cli/README.md"];
+
 function replaceSection(text: string, section: string, replacement: string) {
   const start = marker(section, "start");
   const end = marker(section, "end");
@@ -713,6 +733,7 @@ function replaceSection(text: string, section: string, replacement: string) {
 function main() {
   const check = process.argv.includes("--check");
   const catalog = buildHostBridgeSurfaceCatalog(ROOT);
+  const release = readZoteroBridgeCliRelease(ROOT);
   const errors = validateHostBridgeSurfaceCatalog(catalog);
   if (errors.length > 0) {
     for (const error of errors) {
@@ -746,7 +767,11 @@ function main() {
     const current = existsSync(join(ROOT, target.path))
       ? read(target.path)
       : "";
-    const next = replaceSection(source, target.section, target.render(catalog));
+    const next = replaceSection(
+      source,
+      target.section,
+      target.render(catalog, release),
+    );
     if (next !== current) {
       changed = true;
       if (check) {
@@ -796,6 +821,17 @@ function main() {
         write(target.path, next);
         console.log(`[host-bridge-surface] copied ${target.path}`);
       }
+    }
+  }
+
+  for (const path of REMOVED_TARGETS) {
+    if (!existsSync(join(ROOT, path))) continue;
+    changed = true;
+    if (check) {
+      console.error(`[host-bridge-surface] ${path} should not exist`);
+    } else {
+      rmSync(join(ROOT, path));
+      console.log(`[host-bridge-surface] removed ${path}`);
     }
   }
 

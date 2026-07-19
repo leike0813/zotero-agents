@@ -18,8 +18,9 @@ Use this skill to operate the Zotero library through Host Bridge with a libraria
 6. Load exactly one matching generated command manual under `references/commands/`; use `references/workflows.md` for the generated workflow catalog and `references/host-bridge.md` only for exhaustive target inspection.
 7. Read the resident references below before index, schedule, monitoring, maintenance, or helper-script work.
 8. Check `zotero-bridge bridge status` when Host Bridge availability is uncertain.
-9. Run `zotero-bridge surface identity --json` and compare the CLI schema, build fingerprint, and command catalog checksum with the profile release envelope when the loaded profile path, command help, or CLI error suggests a surface mismatch.
-10. Use `zotero-bridge bridge profile inspect`, `zotero-bridge bridge profile diagnose`, and `zotero-bridge bridge backend ...` before retrying backend or profile-sensitive operations.
+9. Compare `zotero-bridge --version` with the expected CLI version rendered in `references/host-bridge.md` when the loaded profile path, command help, or CLI error suggests a surface mismatch. A version difference is advisory: use `zotero-bridge <command> --help` before executing that command.
+10. Run `zotero-bridge surface identity --json` and compare the CLI schema, build fingerprint, and command catalog checksum with the profile release envelope. Use offline `surface search` or `surface describe` when command availability, argv, approval, handles, effects, or recovery remain uncertain.
+11. Use `zotero-bridge bridge profile inspect`, `zotero-bridge bridge profile diagnose`, and `zotero-bridge bridge backend ...` before retrying backend or profile-sensitive operations.
 
 ## Decision Rules
 

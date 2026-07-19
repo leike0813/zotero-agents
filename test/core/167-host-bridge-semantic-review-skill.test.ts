@@ -100,6 +100,16 @@ describe("Host Bridge semantic surface review skill", function () {
     ]);
   });
 
+  it("classifies the CLI bundle root README as a semantic surface source", function () {
+    const context = classifyChangedFiles([
+      "skills_src/zotero-bridge-cli/README.md",
+    ]);
+    assert.isTrue(context.reviewRequired);
+    assert.deepEqual(context.semanticSourceChanges, [
+      "skills_src/zotero-bridge-cli/README.md",
+    ]);
+  });
+
   it("includes every Profile semantic owner and Host Bridge OpenSpec surface", function () {
     const context = classifyChangedFiles([
       "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/references/library-maintenance.md",

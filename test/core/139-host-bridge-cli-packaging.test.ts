@@ -2164,6 +2164,9 @@ describe("host bridge cli packaging and install", function () {
       "utf8",
     );
     const docs = await fs.readFile("doc/host-bridge-cli.md", "utf8");
+    const release = JSON.parse(
+      await fs.readFile("cli/zotero-bridge/release.json", "utf8"),
+    );
 
     for (const source of [installPs1, installSh]) {
       assert.include(source, "zotero-agents");
@@ -2179,6 +2182,13 @@ describe("host bridge cli packaging and install", function () {
     assert.include(wrapperSkill, "surface identity --json");
     assert.include(wrapperSkill, "surface describe <command> --json");
     assert.include(wrapperSkill, "surface search --intent <intent> --json");
+    for (const source of [wrapperSkill, wrapperReference]) {
+      assert.include(source, release.version);
+      assert.include(source, "--version");
+      assert.include(source, "--help");
+      assert.include(source, "Version mismatch alone is not a blocker");
+      assert.include(source, "surface identity --json");
+    }
     assert.include(docs, "zotero-agents");
     assert.notInclude(wrapperReference, "--platform");
   });

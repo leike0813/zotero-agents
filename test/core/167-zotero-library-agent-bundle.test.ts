@@ -96,6 +96,21 @@ describe("zotero library agent bundle", function () {
     assert.notMatch(rendered, /cron|SQLite|HERMES_HOME/);
   });
 
+  it("renders non-blocking CLI version guidance from the release SSOT", function () {
+    const release = JSON.parse(
+      readFileSync("cli/zotero-bridge/release.json", "utf8"),
+    );
+    const hostBridge = readFileSync(
+      "skills_builtin/zotero-library-agent/references/host-bridge.md",
+      "utf8",
+    );
+    assert.include(hostBridge, release.version);
+    assert.include(hostBridge, "--version");
+    assert.include(hostBridge, "--help");
+    assert.include(hostBridge, "Version mismatch alone is not a blocker");
+    assert.include(hostBridge, "surface identity --json");
+  });
+
   it("documents only helper commands exposed by the packaged parser", function () {
     const skill = readFileSync(
       "skills_builtin/zotero-library-agent/SKILL.md",

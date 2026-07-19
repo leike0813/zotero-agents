@@ -179,6 +179,12 @@ describe("zotero-librarian Hermes profile distribution", function () {
     const workflowReference = await readProfile(
       "skills/zotero-librarian/references/workflows.md",
     );
+    const release = JSON.parse(
+      await fs.readFile(
+        path.join(process.cwd(), "cli/zotero-bridge/release.json"),
+        "utf8",
+      ),
+    );
 
     assert.include(
       hostBridgeReference,
@@ -196,6 +202,11 @@ describe("zotero-librarian Hermes profile distribution", function () {
       hostBridgeReference,
       "`zotero-bridge library readiness missing-analysis`",
     );
+    assert.include(hostBridgeReference, release.version);
+    assert.include(hostBridgeReference, "zotero-bridge --version");
+    assert.include(hostBridgeReference, "--help");
+    assert.include(hostBridgeReference, "Version mismatch alone is not a blocker");
+    assert.include(hostBridgeReference, "surface identity --json");
 
     assert.include(
       workflowReference,
@@ -213,6 +224,8 @@ describe("zotero-librarian Hermes profile distribution", function () {
     assert.include(skill, "references/workflow-execution-policy.md");
     assert.include(skill, "references/common-tasks.md");
     assert.include(skill, "$zotero-workflow-agent-runner");
+    assert.include(skill, "expected CLI version");
+    assert.include(skill, "--help");
 
     const agentRunner = await readProfile(
       "skills/zotero-workflow-agent-runner/SKILL.md",

@@ -4,6 +4,7 @@ import {
   buildHostBridgeSurfaceCatalog,
   validateHostBridgeSurfaceCatalog,
 } from "./host-bridge-surface-catalog";
+import { readZoteroBridgeCliRelease } from "./zotero-bridge-cli-release";
 
 const ROOT = process.cwd();
 
@@ -58,11 +59,10 @@ const CANONICAL_CLI_DOCS = [
 ];
 
 const CURRENT_STATE_ONLY_DOCS = [
-  "skills_src/zotero-bridge-cli/semantic/README.md",
+  "skills_src/zotero-bridge-cli/README.md",
   "skills_src/zotero-bridge-cli/semantic/SKILL.md",
   "skills_src/zotero-bridge-cli/semantic/references/agent-guidance.md",
   "skills_builtin/zotero-bridge-cli/SKILL.md",
-  "skills_builtin/zotero-bridge-cli/README.md",
   "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
   "skills_builtin/zotero-bridge-cli/references/agent-guidance.md",
   "skills_builtin/zotero-bridge-cli/references/terminology.md",
@@ -202,6 +202,8 @@ const REMOVED_PATHS = [
   "assets/wrapper-skills/zotero-bridge-cli/SKILL.md",
   "addon/content/acp-runtime-prompts/templates/host_bridge_cli_readme.md",
   "addon/content/acp-runtime-prompts/templates/host_bridge_cli_prompt.md",
+  "skills_src/zotero-bridge-cli/semantic/README.md",
+  "skills_builtin/zotero-bridge-cli/README.md",
 ];
 
 const RESOLVER_CONTRACT_PATHS = [
@@ -254,6 +256,7 @@ function hasLiteralMarker(text: string, marker: string, kind: "start" | "end") {
 }
 
 const catalog = buildHostBridgeSurfaceCatalog(ROOT);
+const cliRelease = readZoteroBridgeCliRelease(ROOT);
 const errors = validateHostBridgeSurfaceCatalog(catalog);
 for (const error of errors) {
   fail(error);
@@ -326,6 +329,35 @@ for (const docPath of CURRENT_STATE_ONLY_DOCS) {
       fail(
         `${docPath} contains non-current-state skill/profile text (${label}): ${match[0]}`,
       );
+    }
+  }
+}
+
+for (const [path, label] of [
+  ["skills_builtin/zotero-bridge-cli/SKILL.md", "CLI wrapper skill"],
+  [
+    "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
+    "CLI wrapper reference",
+  ],
+  [
+    "skills_builtin/zotero-library-agent/references/host-bridge.md",
+    "Library Agent CLI reference",
+  ],
+  [
+    "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/host-bridge.md",
+    "Librarian Profile CLI reference",
+  ],
+] as const) {
+  const text = read(path);
+  for (const required of [
+    cliRelease.version,
+    "--version",
+    "--help",
+    "Version mismatch alone is not a blocker",
+    "surface identity --json",
+  ]) {
+    if (!text.includes(required)) {
+      fail(`${label} missing dynamic CLI guidance marker: ${required}`);
     }
   }
 }

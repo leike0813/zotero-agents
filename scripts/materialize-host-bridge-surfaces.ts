@@ -119,7 +119,7 @@ export function materializeHostBridgeSurfaces(args: {
     join(cliBundle, "skills/zotero-bridge-cli"),
   );
   copy(
-    join(root, "skills_builtin/zotero-bridge-cli/README.md"),
+    join(root, "skills_src/zotero-bridge-cli/README.md"),
     join(cliBundle, "README.md"),
   );
   copy(

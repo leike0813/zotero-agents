@@ -62,6 +62,12 @@ Choose the narrowest Host Bridge command family that owns the requested behavior
 - Read-only debug snapshots do not authorize repair. `synthesis cache invalidate`, graph metric refresh, reapply, and clean-install reset cross explicit state-change boundaries.
 - If command identity is uncertain, use offline `surface identity`, `surface describe`, or `surface search` before connecting.
 
+## CLI Surface Uncertainty
+
+- Compare the active `zotero-bridge --version` with the expected version rendered into the bundled Host Bridge reference when the skill path, command help, or an error suggests a different command surface.
+- A version difference is advisory, not a hard stop. Use a help-first check with `zotero-bridge <command> --help` before executing the command, then use offline `surface search` or `surface describe` when the canonical command, argv, approval, handles, effects, or recovery remain uncertain.
+- Stop only when the required command is absent or its control and safety contract cannot be confirmed. Preserve the complete `surface identity` comparison as supporting evidence.
+
 ## Progressive References
 
 Choose one matching file under `references/journeys/` for the bounded task. For exact argv, decoded payload, result fields, effects, handles, and recovery, follow that journey into the bundled `zotero-bridge-cli` command manual. Read the wrapper's `output-and-recovery.md` after a failure.

@@ -25,7 +25,7 @@ Review these as source-of-truth changes for Host Bridge behavior:
 Edit only these sources when semantic guidance needs to change:
 
 - `skills_src/zotero-bridge-cli/semantic/SKILL.md`
-- `skills_src/zotero-bridge-cli/semantic/README.md`
+- `skills_src/zotero-bridge-cli/README.md` (CLI bundle root README; it is not part of the nested wrapper skill)
 - `skills_src/zotero-bridge-cli/semantic/references/agent-guidance.md`
 - `skills_src/zotero-bridge-cli/semantic/references/identity-and-connection.md`
 - `skills_src/zotero-bridge-cli/semantic/references/invocation-and-json-input.md`

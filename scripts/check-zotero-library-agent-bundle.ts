@@ -51,6 +51,9 @@ function fail(errors: string[], message: string) {
 }
 
 function checkFiles(errors: string[]) {
+  if (existsSync(join(ROOT, "skills_builtin/zotero-bridge-cli/README.md"))) {
+    fail(errors, "CLI bundle README must not be nested inside the wrapper skill");
+  }
   for (const relative of ZOTERO_LIBRARY_AGENT_SEMANTIC_FILES) {
     const source = join(SOURCE_ROOT, relative);
     const target = join(TARGET_ROOT, relative);
@@ -216,6 +219,23 @@ function checkVersionAndManifest(errors: string[]) {
     ZOTERO_LIBRARY_AGENT_BUNDLE_VERSION_SOURCE_PATH
   ) {
     fail(errors, "bundle manifest source is missing its version source path");
+  }
+  const hostBridgeReference = read(
+    join(TARGET_ROOT, "references/host-bridge.md"),
+  );
+  for (const required of [
+    release.version,
+    "--version",
+    "--help",
+    "Version mismatch alone is not a blocker",
+    "surface identity --json",
+  ]) {
+    if (!hostBridgeReference.includes(required)) {
+      fail(
+        errors,
+        `Library Agent Host Bridge reference is missing CLI guidance: ${required}`,
+      );
+    }
   }
 }
 

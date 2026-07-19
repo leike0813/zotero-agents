@@ -291,6 +291,8 @@ function checkHostBridgeSurface(errors: string[]) {
   const hostReference = readProfile(
     "skills/zotero-librarian/references/host-bridge.md",
   );
+  const expectedCliVersion = inspectZoteroLibrarianProfileVersion(ROOT).resolved
+    .cliVersion;
   for (const snippet of [
     "zotero-librarian:host-bridge:start",
     "zotero-librarian:host-bridge:end",
@@ -304,6 +306,10 @@ function checkHostBridgeSurface(errors: string[]) {
     "nextCursor",
     "collectionKey",
     "zotero-bridge surface identity --json",
+    expectedCliVersion,
+    "zotero-bridge --version",
+    "--help",
+    "Version mismatch alone is not a blocker",
     "SemVer alone is not compatibility evidence",
   ]) {
     assertIncludes(errors, hostReference, snippet, "host-bridge reference");
@@ -318,6 +324,8 @@ function checkHostBridgeSurface(errors: string[]) {
     "$zotero-workflow-agent-runner",
     "workflow agent-apply",
     "agentRunId",
+    "expected CLI version",
+    "--help",
     "zotero-bridge surface identity --json",
   ]) {
     assertIncludes(errors, skill, snippet, "zotero-librarian skill");

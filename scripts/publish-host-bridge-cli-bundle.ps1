@@ -107,6 +107,7 @@ if (-not $DevRoot) {
 $DevRoot = (Resolve-Path -LiteralPath $DevRoot).Path
 
 $SkillDir = Join-Path $DevRoot 'skills_builtin' 'zotero-bridge-cli'
+$BundleReadmePath = Join-Path $DevRoot 'skills_src/zotero-bridge-cli/README.md'
 $ProfileTemplatePath = Join-Path $SkillDir 'assets' 'profile.template.json'
 $InstallPs1Path = Join-Path $DevRoot 'cli' 'zotero-bridge' 'scripts' 'install.ps1'
 $InstallShPath = Join-Path $DevRoot 'cli' 'zotero-bridge' 'scripts' 'install.sh'
@@ -115,8 +116,8 @@ $ReleaseSetPath = Join-Path $DevRoot 'host-bridge' 'release-set.json'
 if (-not (Test-Path -LiteralPath (Join-Path $SkillDir 'SKILL.md'))) {
     Log-Error "Wrapper skill not found at skills_builtin\zotero-bridge-cli"
 }
-if (-not (Test-Path -LiteralPath (Join-Path $SkillDir 'README.md'))) {
-    Log-Error "Rendered CLI bundle README not found at skills_builtin\zotero-bridge-cli"
+if (-not (Test-Path -LiteralPath $BundleReadmePath)) {
+    Log-Error "CLI bundle README not found at skills_src\zotero-bridge-cli\README.md"
 }
 if (-not (Test-Path -LiteralPath $ProfileTemplatePath)) {
     Log-Error "Profile template not found at skills_builtin\zotero-bridge-cli\assets\profile.template.json"
@@ -272,7 +273,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $entry.sourceDir "$($entry.binary).sha256") -Destination (Join-Path $platformOut "$($entry.binary).sha256") -Force
     }
     Copy-DirectoryContents -Source $SkillDir -Destination (Join-Path $Worktree 'skills' 'zotero-bridge-cli')
-    Copy-Item -LiteralPath (Join-Path $SkillDir 'README.md') -Destination (Join-Path $Worktree 'README.md') -Force
+    Copy-Item -LiteralPath $BundleReadmePath -Destination (Join-Path $Worktree 'README.md') -Force
     New-Item -ItemType Directory -Path (Join-Path $Worktree 'assets') -Force | Out-Null
     Copy-Item -LiteralPath $ProfileTemplatePath -Destination (Join-Path $Worktree 'assets' 'profile.template.json') -Force
     Copy-Item -LiteralPath $InstallPs1Path -Destination (Join-Path $Worktree 'install.ps1') -Force

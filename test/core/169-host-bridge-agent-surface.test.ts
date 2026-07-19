@@ -209,6 +209,59 @@ describe("Host Bridge agent surface contract", function () {
     }
   });
 
+  it("keeps additive CLI, bounded-agent, and resident-profile guidance", function () {
+    const sources = {
+      cli: fs.readFileSync(
+        path.join(process.cwd(), "skills_src/zotero-bridge-cli/semantic/SKILL.md"),
+        "utf8",
+      ),
+      agent: fs.readFileSync(
+        path.join(
+          process.cwd(),
+          "skills_src/zotero-bridge-cli/semantic/references/agent-guidance.md",
+        ),
+        "utf8",
+      ),
+      library: fs.readFileSync(
+        path.join(
+          process.cwd(),
+          "skills_src/zotero-library-agent/semantic/references/task-routing.md",
+        ),
+        "utf8",
+      ),
+      profile: fs.readFileSync(
+        path.join(
+          process.cwd(),
+          "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/SKILL.md",
+        ),
+        "utf8",
+      ),
+    };
+
+    for (const marker of [
+      "Provider Runtime Profiles",
+      "autoApproveAcpPermissions",
+      "permission visibility as read-only",
+      "currentSkillRunId",
+      "Version mismatch alone is not a blocker",
+    ]) {
+      assert.include(`${sources.cli}\n${sources.agent}`, marker);
+    }
+    for (const marker of [
+      "Diagnostics and Readiness",
+      "Notification Inbox",
+      "Annotation Reads",
+      "checksum",
+      "Evidence and Artifacts",
+    ]) {
+      assert.include(sources.agent, marker);
+    }
+    assert.include(sources.library, "help-first");
+    assert.notMatch(sources.library, /cron|HERMES_HOME|index\.sqlite/);
+    assert.include(sources.profile, "expected CLI version");
+    assert.include(sources.profile, "--help");
+  });
+
   it("uses backend-aligned approval and state-change metadata", function () {
     const commands = new Map(
       buildHostBridgeAgentSurfaceDescriptor(

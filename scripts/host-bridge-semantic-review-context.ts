@@ -58,6 +58,7 @@ export function collectChangedFiles() {
 
 function isSemanticSource(path: string) {
   return (
+    path === "skills_src/zotero-bridge-cli/README.md" ||
     path.startsWith("skills_src/zotero-bridge-cli/semantic/") ||
     path.startsWith("skills_src/zotero-library-agent/semantic/") ||
     path.startsWith("skills_src/host-bridge-shared/") ||

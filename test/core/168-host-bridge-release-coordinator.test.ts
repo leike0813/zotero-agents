@@ -266,7 +266,7 @@ describe("Host Bridge release coordinator", function () {
   it("classifies README semantic sources by their published surfaces", function () {
     const cases = [
       {
-        path: "skills_src/zotero-bridge-cli/semantic/README.md",
+        path: "skills_src/zotero-bridge-cli/README.md",
         surfaces: {
           cliBundle: true,
           libraryAgent: true,
@@ -433,8 +433,16 @@ describe("Host Bridge release coordinator", function () {
           );
         }
       }
+      for (const surface of result.surfaces.filter(
+        (entry) => entry.name !== "librarianProfile",
+      )) {
+        assert.isFalse(
+          existsSync(join(surface.path, "skills/zotero-bridge-cli/README.md")),
+          surface.name,
+        );
+      }
       const readmeSources = {
-        cliBundle: "skills_builtin/zotero-bridge-cli/README.md",
+        cliBundle: "skills_src/zotero-bridge-cli/README.md",
         libraryAgent: "skills_builtin/zotero-library-agent/README.md",
         librarianProfile: "profiles/hermes/zotero-librarian/README.md",
       } as const;
@@ -458,7 +466,8 @@ describe("Host Bridge release coordinator", function () {
       "scripts/publish-zotero-library-agent-bundle.ps1",
       "utf8",
     );
-    assert.include(cliPublisher, "Join-Path $SkillDir 'README.md'");
+    assert.include(cliPublisher, "skills_src/zotero-bridge-cli/README.md");
+    assert.notInclude(cliPublisher, "Join-Path $SkillDir 'README.md'");
     assert.include(libraryPublisher, 'Join-Path $agentSkillRoot "README.md"');
     assert.notInclude(cliPublisher, "# Zotero Host Bridge CLI Bundle");
     assert.notInclude(libraryPublisher, "# Zotero Library Agent Bundle");

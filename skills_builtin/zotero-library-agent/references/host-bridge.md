@@ -33,9 +33,12 @@ This section is generated from the Host Bridge surface catalog.
 
 ### CLI release check
 
+- Expected `zotero-bridge` CLI version for this generated surface: `0.3.0`.
+- Run `<zotero-bridge> --version` when the loaded skill path, command help, or a CLI error suggests that the active command surface may differ.
+- Version mismatch alone is not a blocker. When versions differ, inspect `<zotero-bridge> <command> --help` before executing that command; use offline `surface search` or `surface describe` when the canonical command or argv remains uncertain.
 - Run `<zotero-bridge> surface identity --json` before relying on a loaded command contract.
 - Compare CLI schema, build fingerprint, and command catalog checksum with the release envelope shipped beside the current surface. SemVer alone is not compatibility evidence.
-- If identity differs, stop and use the wrapper, CLI shim, and release envelope from one release set.
+- Stop only when the required command is unavailable, its argv or control contract cannot be confirmed, or the observed approval, handle, state-change, or recovery semantics are incompatible. Recover with the wrapper, CLI shim, and release envelope from one release set.
 
 ### Discovery commands
 

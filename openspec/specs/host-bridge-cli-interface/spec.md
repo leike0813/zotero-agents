@@ -1229,6 +1229,23 @@ The CLI bundle repository README SHALL explain when to choose low-level installa
 - **THEN** it SHALL route command details to the wrapper skill and progressive Agent Surface discovery
 - **AND** SHALL distinguish the Library Agent bounded task surface from the Librarian resident surface.
 
+### Requirement: Agent-facing surfaces SHALL render advisory CLI version guidance
+
+The CLI wrapper bundle, Zotero Library Agent bundle, and Zotero Librarian Profile SHALL render their expected CLI version from `cli/zotero-bridge/release.json`. Each surface SHALL retain the complete offline identity comparison and SHALL treat a version difference as an exploration signal rather than a hard execution blocker.
+
+#### Scenario: Active CLI version differs from the rendered expectation
+
+- **WHEN** an agent observes a `zotero-bridge --version` value that differs from the expected version rendered in its active surface
+- **THEN** the guidance SHALL tell the agent to inspect `zotero-bridge <command> --help` before executing the affected command
+- **AND** it SHALL route unresolved command or argv uncertainty to offline `surface search` or `surface describe`
+- **AND** version difference alone SHALL NOT require the agent to stop.
+
+#### Scenario: Observed control contract cannot support the operation
+
+- **WHEN** the required command is unavailable or its argv, approval, typed-handle, state-change, or recovery contract cannot be confirmed
+- **THEN** the agent SHALL stop that operation and recover a coherent wrapper, CLI shim, and release envelope
+- **AND** `surface identity --json` SHALL remain the evidence source for CLI schema, build fingerprint, and command catalog checksum.
+
 ### Requirement: Every CLI leaf command SHALL have an actionable operating contract
 
 Each public leaf command SHALL resolve to exactly one domain-owned operation supplement and one rendered command-specific decision record in addition to generated CLI and backend facts.
