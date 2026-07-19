@@ -80,6 +80,28 @@ that remote session before sending the reply.
 - **AND** it SHALL repeat the JSON-only final/pending branch contract
 - **AND** it SHALL forbid explanations and Markdown fences.
 
+#### Scenario: Accepted Reply Starts An Active Prompt Turn
+
+- **GIVEN** a non-terminal ACP Skill run is waiting for user input on a reusable
+  ACP session
+- **WHEN** the user's reply is accepted and the next `session/prompt` request is
+  about to start
+- **THEN** the main run status SHALL transition to `running`
+- **AND** `activePrompt` SHALL be `true`
+- **AND** stale pending-interaction and prompt-interruption state SHALL be cleared
+- **AND** the ACP Skills panel SHALL project the run as running rather than
+  waiting for user input.
+
+#### Scenario: Recovered Follow-Up Without Workflow Convergence Settles
+
+- **GIVEN** a recovered non-terminal run can reuse its ACP session but has no
+  workflow-output convergence context
+- **WHEN** a user reply starts a follow-up prompt
+- **THEN** the run SHALL be `running` while that prompt is active
+- **AND** a normally completed prompt SHALL settle the run back to `waiting_user`
+- **AND** a failed prompt SHALL settle the run to `failed_retriable` while keeping
+  the recovered session available for a later reply.
+
 ### Requirement: ACP Skill Apply Is Single-Shot
 
 Automatic Zotero writeback SHALL happen only from the first validated workflow result for the run.
@@ -143,10 +165,12 @@ ACP Skills SHALL keep the current prompt active after sending `session/cancel` a
 - **AND** the interruption state MUST be `confirmed`
 - **AND** the adapter MUST remain available for continuation.
 
-#### Scenario: Skill turn returns a non-cancelled result
-- **WHEN** the original prompt returns a non-cancelled result after interruption was requested
-- **THEN** the run MUST set the interruption state to `unconfirmed`
-- **AND** it MUST process the real result through the existing convergence or failure path.
+#### Scenario: Skill turn settles after interruption
+- **WHEN** the original prompt settles after interruption was requested
+- **THEN** the run MUST move to `waiting_user`
+- **AND** the interruption state MUST be `confirmed`
+- **AND** the adapter MUST remain available for continuation
+- **AND** assistant text from the interrupted turn MUST NOT enter result-file fallback, output validation, output repair, or workflow apply.
 
 ### Requirement: ACP Skills interruption has a recovery-aware force-stop
 
@@ -178,4 +202,3 @@ ACP Skills SHALL record each interrupt transition once from the orchestrator and
 - **WHEN** a skill turn progresses through interruption request and completion
 - **THEN** the run MUST record `interrupt-requested` once
 - **AND** it MUST record exactly one of `interrupt-confirmed` or `interrupt-forced` when applicable.
-

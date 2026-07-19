@@ -5108,11 +5108,22 @@ export async function replyAcpSkillRun(args: {
   }
 }
 
-function isAcpSkillRunPromptActive(run: AcpSkillRunRecord) {
+export function isAcpSkillRunPromptActive(
+  run: Pick<AcpSkillRunRecord, "activePrompt" | "replyState">,
+) {
   return (
     run.activePrompt === true ||
     run.replyState === "submitted" ||
     run.replyState === "accepted"
+  );
+}
+
+export function canEditAcpSkillRunModelConfiguration(
+  run: Pick<AcpSkillRunRecord, "status" | "activePrompt" | "replyState">,
+) {
+  return (
+    !isAcpSkillRunPromptActive(run) &&
+    (run.status === "waiting_user" || run.status === "failed_retriable")
   );
 }
 
@@ -5222,9 +5233,9 @@ export async function setAcpSkillRunModel(args: {
       "No active ACP skill run session is available for model changes.",
     );
   }
-  if (isAcpSkillRunPromptActive(run)) {
+  if (!canEditAcpSkillRunModelConfiguration(run)) {
     throw new Error(
-      "Cannot change ACP skill run model while a prompt is running.",
+      "Cannot change ACP skill run model while model configuration is frozen.",
     );
   }
   const runtimeOptions = runtimeOptionsForRun(run);
@@ -5273,9 +5284,9 @@ export async function setAcpSkillRunReasoningEffort(args: {
       "No active ACP skill run session is available for reasoning changes.",
     );
   }
-  if (isAcpSkillRunPromptActive(run)) {
+  if (!canEditAcpSkillRunModelConfiguration(run)) {
     throw new Error(
-      "Cannot change ACP skill run reasoning effort while a prompt is running.",
+      "Cannot change ACP skill run reasoning effort while model configuration is frozen.",
     );
   }
   const runtimeOptions = runtimeOptionsForRun(run);

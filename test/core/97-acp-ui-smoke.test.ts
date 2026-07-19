@@ -990,6 +990,67 @@ describe("Assistant Workspace ACP UI v1", function () {
     }
   });
 
+  it("keeps current Skills runtime option values visible while prompt controls are disabled", async function () {
+    const state = canonicalState("acp-skills");
+    state.selection.composer = {
+      reply: { status: "busy" },
+      runtimeOptions: {
+        mode: {
+          selectedOptionId: "code",
+          options: [{ optionId: "code", label: "Code", description: null }],
+          enabled: true,
+        },
+        model: {
+          selectedOptionId: "model-a",
+          options: [
+            { optionId: "model-a", label: "Model A", description: null },
+          ],
+          enabled: false,
+        },
+        reasoningEffort: {
+          selectedOptionId: "high",
+          options: [{ optionId: "high", label: "High", description: null }],
+          enabled: false,
+        },
+      },
+    };
+    const panel = AssistantPanelModel.projectAssistantWorkspacePanel(
+      state,
+      { executionDisplayMode: "live" },
+      {},
+    );
+    assert.deepEqual(
+      panel.reply.controls.map((entry: any) => [
+        entry.id,
+        entry.value,
+        entry.disabled,
+      ]),
+      [
+        ["mode", "code", false],
+        ["model", "model-a", true],
+        ["reasoning", "high", true],
+      ],
+    );
+
+    const document = new FakeDocument();
+    const renderer = await loadPanelRenderer(document);
+    const reply = document.createElement("div");
+    renderer.renderAssistantReply(reply, panel);
+    const selects = reply.querySelectorAll(".assistant-panel-select");
+    assert.deepEqual(
+      selects.map((entry) => entry.disabled),
+      [false, true, true],
+    );
+    assert.deepEqual(
+      selects.map(
+        (select) =>
+          select.children.find((option) => (option as any).selected)
+            ?.textContent,
+      ),
+      ["Code", "Model A", "High"],
+    );
+  });
+
   it("projects Skills title, subtitle, banner metadata, and task status axes", async function () {
     const model = await loadPanelModel();
     const panel = model.projectAssistantWorkspacePanel(

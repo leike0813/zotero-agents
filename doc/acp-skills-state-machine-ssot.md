@@ -174,7 +174,7 @@ interacts with `repairing` run status and `replyState`.
 The five axes evolve independently but have well-defined constraints:
 
 ```
-Run Status:    queued → running → wait_user ──→ succeeded
+Run Status:    queued → running → waiting_user ─→ succeeded
                   │         │   │   ↑             │  failed
                   │         │   │   └── repairing ─┘  canceled
                   │         │   └────→ failed_retriable
@@ -202,6 +202,15 @@ Reply:        idle → submitted → accepted → idle
 ```
 
 ### Combined State Constraints
+
+A reply acknowledgement does not replace the main run status transition. When
+an accepted reply starts a continuation prompt, a non-terminal `waiting_user` or
+`failed_retriable` run moves to `running`, sets `activePrompt = true`, clears
+`pendingInteraction`, and resets the previous prompt-interruption state before
+the prompt is issued. If a recovered follow-up has no workflow-output
+convergence context, normal prompt completion returns the run to `waiting_user`;
+prompt failure returns it to `failed_retriable` while the session remains
+recoverable.
 
 - `replyState !== "idle"` implies `conversationState === "active"`.
 - `connectionActionState === "connecting"` implies `recoveryState` is in

@@ -2631,7 +2631,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     });
   });
 
-  it("interrupts an active ACP skill prompt without closing the live adapter", async function () {
+  it("keeps an interrupted active prompt out of output repair after end_turn", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root);
     let updateListener: ((event: any) => void | Promise<void>) | null = null;
@@ -2680,7 +2680,7 @@ describe("ACP SkillRunner-compatible runner", function () {
           resolvePrompt = resolve;
           resolvePromptStarted();
         });
-        return { stopReason: "cancelled" };
+        return { stopReason: "end_turn" };
       },
       cancel: async () => {
         cancelCalls += 1;
@@ -2723,6 +2723,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     await interruptAcpSkillRunCurrentTurn(requestId);
     const result = await runPromise;
     const record = getAcpSkillRunRecord(requestId);
+    const stages = (record?.events || []).map((event) => event.stage);
 
     assert.equal(cancelCalls, 1);
     assert.equal(closeCalls, 0);
@@ -2742,6 +2743,9 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(record?.conversationState, "active");
     assert.equal(record?.conversationRecoveryState, "connected");
     assert.equal(record?.promptInterruptState, "confirmed");
+    assert.include(stages, "interrupt-confirmed");
+    assert.notInclude(stages, "output-validation-failed");
+    assert.notInclude(stages, "repair-started");
     assert.isUndefined(record?.removedAt);
   });
 
@@ -5897,128 +5901,160 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(record?.conversationRecoveryState, "connected");
   });
 
-  it("allows ACP skill run mode changes during active prompts but rejects model and reasoning changes", async function () {
-    const requestId = "run-runtime-active";
-    const modeSelections: string[] = [];
-    const modelSelections: string[] = [];
-    upsertAcpSkillRun({
-      requestId,
-      status: "running",
-      sessionId: "session-runtime-active",
-      conversationState: "active",
-      conversationRecoveryState: "connected",
-      activePrompt: true,
-      acpModeId: "code",
-      acpModelId: "gpt-5",
-      acpReasoningEffort: "medium",
-      acpRawModelId: "gpt-5@medium",
-    });
-    setAcpSkillRunRuntimeOptions(requestId, {
-      modeOptions: [
-        { id: "code", label: "Code" },
-        { id: "plan", label: "Plan" },
-      ],
-      modelOptions: [
-        { id: "gpt-5@medium", label: "GPT-5 Medium" },
-        { id: "gpt-5@high", label: "GPT-5 High" },
-      ],
-      displayModelOptions: [{ id: "gpt-5", label: "GPT-5" }],
-      reasoningEffortOptions: [
-        { id: "medium", label: "Medium" },
-        { id: "high", label: "High" },
-      ],
-    });
-    registerAcpSkillRunController(requestId, {
-      cancel: async () => undefined,
-      setMode: async ({ sessionId, modeId }) => {
-        modeSelections.push(`${sessionId}:${modeId}`);
-      },
-      setModel: async ({ sessionId, modelId }) => {
-        modelSelections.push(`${sessionId}:${modelId}`);
-      },
-    });
+  it("allows mode changes while frozen runtime configuration rejects model changes", async function () {
+    const frozenStates = [
+      { suffix: "active", activePrompt: true },
+      { suffix: "preparing", activePrompt: false },
+    ];
 
-    await setAcpSkillRunMode({ requestId, modeId: "plan" });
-    assert.deepEqual(modeSelections, ["session-runtime-active:plan"]);
-    assert.equal(getAcpSkillRunRecord(requestId)?.acpModeId, "plan");
+    for (const state of frozenStates) {
+      const requestId = `run-runtime-${state.suffix}`;
+      const sessionId = `session-runtime-${state.suffix}`;
+      const modeSelections: string[] = [];
+      const modelSelections: string[] = [];
+      upsertAcpSkillRun({
+        requestId,
+        status: "running",
+        sessionId,
+        conversationState: "active",
+        conversationRecoveryState: "connected",
+        activePrompt: state.activePrompt,
+        acpModeId: "code",
+        acpModelId: "gpt-5",
+        acpReasoningEffort: "medium",
+        acpRawModelId: "gpt-5@medium",
+      });
+      setAcpSkillRunRuntimeOptions(requestId, {
+        modeOptions: [
+          { id: "code", label: "Code" },
+          { id: "plan", label: "Plan" },
+        ],
+        modelOptions: [
+          { id: "gpt-5@medium", label: "GPT-5 Medium" },
+          { id: "gpt-5@high", label: "GPT-5 High" },
+        ],
+        displayModelOptions: [{ id: "gpt-5", label: "GPT-5" }],
+        reasoningEffortOptions: [
+          { id: "medium", label: "Medium" },
+          { id: "high", label: "High" },
+        ],
+      });
+      registerAcpSkillRunController(requestId, {
+        cancel: async () => undefined,
+        setMode: async ({ sessionId: selectedSessionId, modeId }) => {
+          modeSelections.push(`${selectedSessionId}:${modeId}`);
+        },
+        setModel: async ({ sessionId: selectedSessionId, modelId }) => {
+          modelSelections.push(`${selectedSessionId}:${modelId}`);
+        },
+      });
 
-    try {
-      await setAcpSkillRunModel({ requestId, modelId: "gpt-5" });
-      assert.fail("expected active prompt model change to be rejected");
-    } catch (error) {
-      assert.include(
-        error instanceof Error ? error.message : String(error),
-        "prompt is running",
+      await setAcpSkillRunMode({ requestId, modeId: "plan" });
+      assert.deepEqual(modeSelections, [`${sessionId}:plan`], state.suffix);
+      assert.equal(
+        getAcpSkillRunRecord(requestId)?.acpModeId,
+        "plan",
+        state.suffix,
       );
+
+      for (const change of [
+        () => setAcpSkillRunModel({ requestId, modelId: "gpt-5" }),
+        () => setAcpSkillRunReasoningEffort({ requestId, effortId: "high" }),
+      ]) {
+        try {
+          await change();
+          assert.fail(
+            `expected ${state.suffix} model configuration change to be rejected`,
+          );
+        } catch (error) {
+          assert.include(
+            error instanceof Error ? error.message : String(error),
+            "configuration is frozen",
+            state.suffix,
+          );
+        }
+      }
+      assert.deepEqual(modelSelections, [], state.suffix);
     }
-    try {
-      await setAcpSkillRunReasoningEffort({ requestId, effortId: "high" });
-      assert.fail("expected active prompt reasoning change to be rejected");
-    } catch (error) {
-      assert.include(
-        error instanceof Error ? error.message : String(error),
-        "prompt is running",
-      );
-    }
-    assert.deepEqual(modelSelections, []);
   });
 
-  it("maps ACP skill run model and reasoning changes to raw model ids outside active prompts", async function () {
-    const requestId = "run-runtime-idle";
-    const modelSelections: string[] = [];
-    upsertAcpSkillRun({
-      requestId,
-      status: "waiting_user",
-      sessionId: "session-runtime-idle",
-      conversationState: "active",
-      conversationRecoveryState: "connected",
-      activePrompt: false,
-      acpModeId: "code",
-      acpModelId: "gpt-5",
-      acpReasoningEffort: "medium",
-      acpRawModelId: "gpt-5@medium",
-    });
-    setAcpSkillRunRuntimeOptions(requestId, {
-      modeOptions: [{ id: "code", label: "Code" }],
-      modelOptions: [
-        { id: "gpt-5@medium", label: "GPT-5 Medium" },
-        { id: "gpt-5@high", label: "GPT-5 High" },
-        { id: "claude-4@default", label: "Claude 4 Default" },
-        { id: "claude-4@high", label: "Claude 4 High" },
-      ],
-      displayModelOptions: [
-        { id: "gpt-5", label: "GPT-5" },
-        { id: "claude-4", label: "Claude 4" },
-      ],
-      reasoningEffortOptions: [
-        { id: "default", label: "Default" },
-        { id: "medium", label: "Medium" },
-        { id: "high", label: "High" },
-      ],
-    });
-    registerAcpSkillRunController(requestId, {
-      cancel: async () => undefined,
-      setModel: async ({ sessionId, modelId }) => {
-        modelSelections.push(`${sessionId}:${modelId}`);
-      },
-    });
+  it("maps model configuration changes in editable idle states", async function () {
+    for (const status of ["waiting_user", "failed_retriable"] as const) {
+      const requestId = `run-runtime-idle-${status}`;
+      const sessionId = `session-runtime-idle-${status}`;
+      const modelSelections: string[] = [];
+      upsertAcpSkillRun({
+        requestId,
+        status,
+        sessionId,
+        conversationState: "active",
+        conversationRecoveryState: "connected",
+        activePrompt: false,
+        acpModeId: "code",
+        acpModelId: "gpt-5",
+        acpReasoningEffort: "medium",
+        acpRawModelId: "gpt-5@medium",
+      });
+      setAcpSkillRunRuntimeOptions(requestId, {
+        modeOptions: [{ id: "code", label: "Code" }],
+        modelOptions: [
+          { id: "gpt-5@medium", label: "GPT-5 Medium" },
+          { id: "gpt-5@high", label: "GPT-5 High" },
+          { id: "claude-4@default", label: "Claude 4 Default" },
+          { id: "claude-4@high", label: "Claude 4 High" },
+        ],
+        displayModelOptions: [
+          { id: "gpt-5", label: "GPT-5" },
+          { id: "claude-4", label: "Claude 4" },
+        ],
+        reasoningEffortOptions: [
+          { id: "default", label: "Default" },
+          { id: "medium", label: "Medium" },
+          { id: "high", label: "High" },
+        ],
+      });
+      registerAcpSkillRunController(requestId, {
+        cancel: async () => undefined,
+        setModel: async ({ sessionId: selectedSessionId, modelId }) => {
+          modelSelections.push(`${selectedSessionId}:${modelId}`);
+        },
+      });
 
-    await setAcpSkillRunReasoningEffort({ requestId, effortId: "high" });
-    assert.deepEqual(modelSelections, ["session-runtime-idle:gpt-5@high"]);
-    assert.equal(getAcpSkillRunRecord(requestId)?.acpReasoningEffort, "high");
-    assert.equal(getAcpSkillRunRecord(requestId)?.acpRawModelId, "gpt-5@high");
+      await setAcpSkillRunReasoningEffort({ requestId, effortId: "high" });
+      assert.deepEqual(modelSelections, [`${sessionId}:gpt-5@high`], status);
+      assert.equal(
+        getAcpSkillRunRecord(requestId)?.acpReasoningEffort,
+        "high",
+        status,
+      );
+      assert.equal(
+        getAcpSkillRunRecord(requestId)?.acpRawModelId,
+        "gpt-5@high",
+        status,
+      );
 
-    await setAcpSkillRunModel({ requestId, modelId: "claude-4" });
-    assert.deepEqual(modelSelections, [
-      "session-runtime-idle:gpt-5@high",
-      "session-runtime-idle:claude-4@high",
-    ]);
-    assert.equal(getAcpSkillRunRecord(requestId)?.acpModelId, "claude-4");
-    assert.equal(getAcpSkillRunRecord(requestId)?.acpReasoningEffort, "high");
-    assert.equal(
-      getAcpSkillRunRecord(requestId)?.acpRawModelId,
-      "claude-4@high",
-    );
+      await setAcpSkillRunModel({ requestId, modelId: "claude-4" });
+      assert.deepEqual(
+        modelSelections,
+        [`${sessionId}:gpt-5@high`, `${sessionId}:claude-4@high`],
+        status,
+      );
+      assert.equal(
+        getAcpSkillRunRecord(requestId)?.acpModelId,
+        "claude-4",
+        status,
+      );
+      assert.equal(
+        getAcpSkillRunRecord(requestId)?.acpReasoningEffort,
+        "high",
+        status,
+      );
+      assert.equal(
+        getAcpSkillRunRecord(requestId)?.acpRawModelId,
+        "claude-4@high",
+        status,
+      );
+    }
   });
 
   it("exposes stored model and reasoning options on the idle connected Skills composer", async function () {
@@ -6055,8 +6091,10 @@ describe("ACP SkillRunner-compatible runner", function () {
       kinds: ["composer"],
     });
 
+    const modeGroup = regions.composer?.runtimeOptions?.mode;
     const modelGroup = regions.composer?.runtimeOptions?.model;
     const reasoningGroup = regions.composer?.runtimeOptions?.reasoningEffort;
+    assert.isTrue(modeGroup?.enabled);
     assert.isTrue(modelGroup?.enabled);
     assert.deepEqual(
       modelGroup?.options.map((entry) => entry.optionId),
@@ -6069,6 +6107,102 @@ describe("ACP SkillRunner-compatible runner", function () {
       ["medium", "high"],
     );
     assert.equal(reasoningGroup?.selectedOptionId, "medium");
+  });
+
+  it("keeps current runtime options visible while model configuration is frozen", async function () {
+    const promptingStates = [
+      {
+        suffix: "active",
+        status: "running" as const,
+        activePrompt: true,
+        replyState: "idle" as const,
+      },
+      {
+        suffix: "submitted",
+        status: "running" as const,
+        activePrompt: false,
+        replyState: "submitted" as const,
+      },
+      {
+        suffix: "accepted",
+        status: "running" as const,
+        activePrompt: false,
+        replyState: "accepted" as const,
+      },
+      {
+        suffix: "queued",
+        status: "queued" as const,
+        activePrompt: false,
+        replyState: "idle" as const,
+      },
+      {
+        suffix: "preparing",
+        status: "running" as const,
+        activePrompt: false,
+        replyState: "idle" as const,
+      },
+      {
+        suffix: "repairing",
+        status: "repairing" as const,
+        activePrompt: false,
+        replyState: "idle" as const,
+      },
+    ];
+
+    for (const state of promptingStates) {
+      resetAcpSkillRunsForTests();
+      const requestId = `run-composer-options-${state.suffix}`;
+      upsertAcpSkillRun({
+        requestId,
+        status: state.status,
+        backendId: "backend-acp",
+        backendType: "acp",
+        sessionId: `session-composer-options-${state.suffix}`,
+        conversationState: "active",
+        conversationRecoveryState: "connected",
+        activePrompt: state.activePrompt,
+        replyState: state.replyState,
+        acpModelId: "gpt-5",
+        acpRawModelId: "gpt-5@medium",
+        acpReasoningEffort: "medium",
+      });
+      setAcpSkillRunRuntimeOptions(requestId, {
+        modeOptions: [{ id: "code", label: "Code" }],
+        modelOptions: [
+          { id: "gpt-5@medium", label: "GPT-5 Medium" },
+          { id: "gpt-5@high", label: "GPT-5 High" },
+        ],
+        displayModelOptions: [{ id: "gpt-5", label: "GPT-5" }],
+        reasoningEffortOptions: [
+          { id: "medium", label: "Medium" },
+          { id: "high", label: "High" },
+        ],
+      });
+
+      const regions = await readAcpSkillRunWorkspaceRegions({
+        requestId,
+        kinds: ["composer"],
+      });
+      const modeGroup = regions.composer?.runtimeOptions?.mode;
+      const modelGroup = regions.composer?.runtimeOptions?.model;
+      const reasoningGroup = regions.composer?.runtimeOptions?.reasoningEffort;
+
+      assert.isTrue(modeGroup?.enabled, state.suffix);
+      assert.isFalse(modelGroup?.enabled, state.suffix);
+      assert.deepEqual(
+        modelGroup?.options.map((entry) => entry.optionId),
+        ["gpt-5"],
+        state.suffix,
+      );
+      assert.equal(modelGroup?.selectedOptionId, "gpt-5", state.suffix);
+      assert.isFalse(reasoningGroup?.enabled, state.suffix);
+      assert.deepEqual(
+        reasoningGroup?.options.map((entry) => entry.optionId),
+        ["medium", "high"],
+        state.suffix,
+      );
+      assert.equal(reasoningGroup?.selectedOptionId, "medium", state.suffix);
+    }
   });
 
   it("derives Skills runtime options from the session models when the backend cache is cold", async function () {
@@ -9430,6 +9564,11 @@ describe("ACP SkillRunner-compatible runner", function () {
       jobId: "job",
     });
     let promptCalls = 0;
+    let resolveSecondPromptStarted: (() => void) | null = null;
+    let releaseSecondPrompt: (() => void) | null = null;
+    const secondPromptStarted = new Promise<void>((resolve) => {
+      resolveSecondPromptStarted = resolve;
+    });
     const fakeAdapter: AcpConnectionAdapter = {
       initialize: async () => ({
         authMethods: [],
@@ -9454,6 +9593,10 @@ describe("ACP SkillRunner-compatible runner", function () {
         if (promptCalls === 1) {
           throw new Error("first recovered prompt failed");
         }
+        resolveSecondPromptStarted?.();
+        await new Promise<void>((resolve) => {
+          releaseSecondPrompt = resolve;
+        });
         return { stopReason: "end_turn" };
       },
       cancel: async () => undefined,
@@ -9501,16 +9644,37 @@ describe("ACP SkillRunner-compatible runner", function () {
         );
       }
 
-      await replyAcpSkillRun({
+      const failedRecord = getAcpSkillRunRecord(workspace.requestId);
+      assert.equal(failedRecord?.status, "failed_retriable");
+      assert.equal(failedRecord?.activePrompt, false);
+      assert.equal(failedRecord?.replyState, "rejected");
+
+      const secondReply = replyAcpSkillRun({
         requestId: workspace.requestId,
         message: "second",
       });
+      await secondPromptStarted;
+
+      const resumedRecord = getAcpSkillRunRecord(workspace.requestId);
+      const resumedRegions = await readAcpSkillRunWorkspaceRegions({
+        requestId: workspace.requestId,
+        kinds: ["owner-control"],
+      });
+      assert.equal(resumedRecord?.status, "running");
+      assert.equal(resumedRecord?.activePrompt, true);
+      assert.equal(resumedRecord?.replyState, "accepted");
+      assert.equal(resumedRecord?.promptInterruptState, "idle");
+      assert.equal(resumedRegions["owner-control"]?.status, "running");
+      assert.equal(resumedRegions["owner-control"]?.hint.kind, "running");
+
+      releaseSecondPrompt?.();
+      await secondReply;
 
       assert.equal(promptCalls, 2);
-      assert.equal(
-        getAcpSkillRunRecord(workspace.requestId)?.replyState,
-        "idle",
-      );
+      const settledRecord = getAcpSkillRunRecord(workspace.requestId);
+      assert.equal(settledRecord?.status, "waiting_user");
+      assert.equal(settledRecord?.activePrompt, false);
+      assert.equal(settledRecord?.replyState, "idle");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -9631,7 +9795,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
-  it("interrupts a recovered active prompt without detaching the session", async function () {
+  it("keeps an interrupted recovered prompt out of convergence after end_turn", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
       executionModes: ["interactive"],
@@ -9687,7 +9851,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         await new Promise<void>((resolve) => {
           releasePrompt = resolve;
         });
-        return { stopReason: "cancelled" };
+        return { stopReason: "end_turn" };
       },
       cancel: async () => {
         cancelCalls += 1;
@@ -11557,6 +11721,237 @@ describe("ACP SkillRunner-compatible runner", function () {
         "succeeded",
       );
       assert.equal(promptCount, 3);
+    } finally {
+      if (typeof previousWorkflowDir === "string") {
+        process.env.ZOTERO_TEST_WORKFLOW_DIR = previousWorkflowDir;
+      } else {
+        delete process.env.ZOTERO_TEST_WORKFLOW_DIR;
+      }
+      await shutdownAcpSkillRunConversations().catch(() => undefined);
+      await rescanWorkflowRegistry();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps an interrupted live deferred reply out of output repair after end_turn", async function () {
+    this.timeout(10000);
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+      skillId: "topic-synthesis-finalize",
+    });
+    const recoveryWorkflow = await createRecoveryApplyWorkflowRoot(root);
+    const previousWorkflowDir = process.env.ZOTERO_TEST_WORKFLOW_DIR;
+    const backend = createBackend({ id: ACP_OPENCODE_BACKEND_ID });
+    const workflowRunId = "workflow-run-live-deferred-interrupt";
+    const jobId = "job-live-deferred-interrupt";
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    let promptCount = 0;
+    let closeCalls = 0;
+    let resolveFirstPromptStarted: (() => void) | null = null;
+    let releaseFirstPrompt: (() => void) | null = null;
+    let resolveReplyPromptStarted: (() => void) | null = null;
+    let releaseReplyPrompt: (() => void) | null = null;
+    const firstPromptStarted = new Promise<void>((resolve) => {
+      resolveFirstPromptStarted = resolve;
+    });
+    const replyPromptStarted = new Promise<void>((resolve) => {
+      resolveReplyPromptStarted = resolve;
+    });
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({
+        sessionId: "session-live-deferred-interrupt",
+      }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId }) => {
+        promptCount += 1;
+        if (promptCount === 1) {
+          await new Promise<void>((resolve) => {
+            releaseFirstPrompt = resolve;
+            resolveFirstPromptStarted?.();
+          });
+          return { stopReason: "cancelled", cancelRequested: true };
+        }
+        if (promptCount !== 2) {
+          throw new Error("Interrupted detached reply must not start repair.");
+        }
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "not valid json after interrupt" },
+          },
+        });
+        await new Promise<void>((resolve) => {
+          releaseReplyPrompt = resolve;
+          resolveReplyPromptStarted?.();
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => {
+        if (promptCount === 1) {
+          releaseFirstPrompt?.();
+          return;
+        }
+        releaseReplyPrompt?.();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        closeCalls += 1;
+      },
+    };
+    const sequenceRequest = {
+      kind: "skillrunner.sequence.v1" as const,
+      steps: [
+        {
+          id: "finalize",
+          skill_id: "topic-synthesis-finalize",
+          mode: "interactive",
+          workspace: "reuse-workflow" as const,
+        },
+      ],
+      final_step_id: "finalize",
+    };
+    let requestId = "";
+    try {
+      resetAcpSkillRunsForTests();
+      resetWorkflowTasks();
+      process.env.ZOTERO_TEST_WORKFLOW_DIR = recoveryWorkflow.workflowsDir;
+      await rescanWorkflowRegistry({
+        workflowsDir: recoveryWorkflow.workflowsDir,
+      });
+      initializeSequenceRunState({
+        request: sequenceRequest,
+        backend,
+        providerOptions: { mode: "live-deferred-interrupt-test" },
+        workflowId: recoveryWorkflow.workflowId,
+        workflowLabel: "Recovered Sequence Apply Workflow",
+        workflowRunId,
+        jobId,
+      });
+      const execution = executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend,
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "topic-synthesis-finalize",
+          fetch_type: "result",
+          runtime_options: { execution_mode: "interactive" },
+        },
+        orchestrationContext: {
+          workflowId: recoveryWorkflow.workflowId,
+          workflowLabel: "Recovered Sequence Apply Workflow",
+          workflowRunId,
+          jobId,
+          sequenceStepId: "finalize",
+          finalStepId: "finalize",
+        },
+        onProgress: (event) => {
+          if (event.type !== "request-created") return;
+          requestId = String(event.requestId);
+          recordSequenceStepRequestCreated({
+            sequenceRunId: workflowRunId,
+            stepIndex: 0,
+            requestId,
+          });
+          recordWorkflowTaskUpdate(
+            makeAcpWorkflowTaskJob({
+              requestId,
+              workflowId: recoveryWorkflow.workflowId,
+              backendId: ACP_OPENCODE_BACKEND_ID,
+              state: "running",
+            }),
+          );
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "topic-synthesis-finalize": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () => fakeAdapter,
+          maxRepairRounds: 2,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+      await firstPromptStarted;
+      assert.isNotEmpty(requestId);
+      await interruptAcpSkillRunCurrentTurn(requestId);
+      const deferred = await execution;
+      assert.equal(deferred.status, "deferred");
+      assert.equal(deferred.backendStatus, "waiting_user");
+
+      const replyPromise = replyAcpSkillRun({
+        requestId,
+        message: "continue but interrupt this reply",
+      });
+      await replyPromptStarted;
+      const resumedRecord = getAcpSkillRunRecord(requestId);
+      const resumedRegions = await readAcpSkillRunWorkspaceRegions({
+        requestId,
+        kinds: ["owner-control"],
+      });
+      assert.equal(resumedRecord?.status, "running");
+      assert.equal(resumedRecord?.activePrompt, true);
+      assert.equal(resumedRecord?.replyState, "accepted");
+      assert.equal(resumedRecord?.promptInterruptState, "idle");
+      assert.equal(resumedRegions["owner-control"]?.status, "running");
+      assert.equal(resumedRegions["owner-control"]?.hint.kind, "running");
+      await interruptAcpSkillRunCurrentTurn(requestId);
+      await replyPromise;
+
+      const record = getAcpSkillRunRecord(requestId);
+      const stages = (record?.events || []).map((event) => event.stage);
+      assert.equal(promptCount, 2);
+      assert.equal(closeCalls, 0);
+      assert.equal(record?.status, "waiting_user");
+      assert.equal(record?.activePrompt, false);
+      assert.equal(record?.replyState, "idle");
+      assert.equal(record?.conversationState, "active");
+      assert.equal(record?.conversationRecoveryState, "connected");
+      assert.equal(record?.promptInterruptState, "confirmed");
+      assert.equal(record?.repairRounds, 0);
+      assert.notEqual(record?.applyResultState, "succeeded");
+      assert.deepEqual(await readRunOutputRevisions(requestId), []);
+      assert.lengthOf(
+        stages.filter((stage) => stage === "interrupt-confirmed"),
+        2,
+      );
+      assert.notInclude(stages, "output-validation-failed");
+      assert.notInclude(stages, "repair-started");
+      assert.notInclude(stages, "apply-succeeded");
+      assert.notInclude(stages, "succeeded");
+      assert.equal(
+        listWorkflowTasks().find((task) => task.requestId === requestId)?.state,
+        "running",
+      );
     } finally {
       if (typeof previousWorkflowDir === "string") {
         process.env.ZOTERO_TEST_WORKFLOW_DIR = previousWorkflowDir;
