@@ -114,32 +114,7 @@
 - [x] workflow 多语言文案机制
 - [x] Dashboard 增加 Tag Manager 快捷方式（可选，要做的话也得做成注册式的）
 - [x] host bridge 的取消 workflow 能力
-- [x] MinerU还没完全修好，仍然会有以下报错而不是跳过：
-
-```
-  {
-    "id": "log-243",
-    "ts": "2026-07-09T01:39:20.171Z",
-    "level": "error",
-    "scope": "workflow-trigger",
-    "schemaVersion": 1,
-    "diagnosticMode": false,
-    "workflowId": "mineru",
-    "stage": "build-requests-failed",
-    "message": "build requests failed",
-    "details": {
-      "reason": "Could not determine if `Harnessing Vision Models for Time Series Analysis: A Survey PDF' exists: could not parse path (NS_ERROR_FILE_UNRECOGNIZED_PATH)",
-      "errorMessage": "OperationError: Could not determine if `Harnessing Vision Models for Time Series Analysis: A Survey PDF' exists: could not parse path (NS_ERROR_FILE_UNRECOGNIZED_PATH)"
-    },
-    "error": {
-      "name": "OperationError",
-      "message": "Could not determine if `Harnessing Vision Models for Time Series Analysis: A Survey PDF' exists: could not parse path (NS_ERROR_FILE_UNRECOGNIZED_PATH)",
-      "stack": "pathExists2@jar:file:///home/joshua/.zotero/zotero/7jcjn08q.default/extensions/zotero-skills@leike0813@gmail.com.xpi!/content/scripts/zotero-skills.js:79313:17\nfileExists@jar:file:///home/joshua/.zotero/zotero/7jcjn08q.default/extensions/zotero-skills@leike0813@gmail.com.xpi!/content/scripts/zotero-skills.js:103207:37\nfilterMissingSourceFiles@jar:file:///home/joshua/.zotero/zotero/7jcjn08q.default/extensions/zotero-skills@leike0813@gmail.com.xpi!/content/scripts/zotero-skills.js:103221:17\n",
-      "category": "unknown"
-    }
-  }
-```
-
+- [x] MinerU还没完全修好，仍然会有报错而不是跳过
 - [x] 增加opencode和kilo code ACP后端预设的注入环境变量，将`question`工具禁用
 - [x] kilo ACP 有一个小BUG: kilo会提供“none"这个推理强度，而这个推理强度对于某些模型不可用，会导致任务提交失败。不知道有没有办法进行自动fallback
 - [x] 优化transcript写盘的IO负载
@@ -154,6 +129,8 @@
 - [x] 新增collection-collector workflow
 - [x] zotero-librarian-profile 版本号治理（major/minor跟随CLI，patch单列）
 - [x] 观测到ACP Chat在prompting状态下点击Cancel(interrupt)后前端已经乐观变为cancelled，但后端仍在继续执行，需要复核这个interrupt的逻辑。ACP Skills中很有可能存在相同问题
+- [ ] 产物区UI，scroll重置，markdown渲染不生效
+- [ ] transcript窗口遇到超长agent消息卷不动
 - [ ] **初次启动时的使用指导demo**
 - [ ] mock skillrunner 改为 mock acp backend，规避端口问题
 - [ ] **独立的 Rust 服务程序，卸载重计算到这个服务程序上，避免界面阻塞**

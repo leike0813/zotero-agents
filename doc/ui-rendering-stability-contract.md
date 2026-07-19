@@ -30,6 +30,10 @@ must be owned locally or restored by stable keys.
   teardown from a polling, heartbeat, streaming, or background-job update path.
 - Destroying graph/canvas renderers from a generic shell render when graph data
   has not changed.
+- Calling renderer teardown that explicitly loses WebGL contexts during tab,
+  sidebar, selection, drawer, snapshot, or localization updates.
+- Scheduling multiple RAF and timer resize rounds for one graph container size
+  change.
 - Restoring scroll by DOM index instead of a stable `data-*` key.
 - Rebuilding reply boxes, details drawers, tables, or graph canvases because a
   statusbar, progress row, or action receipt changed.
@@ -49,13 +53,23 @@ must be owned locally or restored by stable keys.
   - drawer open/closed state,
   - canvas/graph camera state.
 - Prefer patching an existing DOM region over rebuilding the whole shell.
+- Keep WebGL graph regions mounted across tab changes. Make inactive regions
+  inert, aria-hidden, invisible, and outside normal layout flow without using
+  `display:none` or resizing their framebuffer to a degenerate size.
+- Replace graph models in place on the existing renderer. Reducers and event
+  handlers must read the current graph/snapshot rather than creation-time
+  closures.
+- Coalesce plugin-owned graph resize work into at most one outstanding,
+  cancellable animation frame and defer hidden-surface resize until activation.
 
 ## Current Application
 
 - Synthesis Workbench uses content signatures for the active tab and a separate
   chrome signature for action/background job status.
+- Synthesis Citation Graph preserves one Sigma renderer and canvas/context set;
+  topology or layout changes use `setGraph()` while shell-only changes preserve
+  camera and renderer identity.
 - Workspace shell keeps Dashboard and Synthesis mounts alive and toggles
   visibility instead of replacing iframes.
 - Assistant surfaces must keep reply textareas, transcript scroll, and details
   drawers stable across unrelated status snapshots.
-
