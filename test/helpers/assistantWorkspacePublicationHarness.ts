@@ -7,7 +7,10 @@ import {
   type AssistantWorkspacePublicationKind,
   type AssistantWorkspacePublicationPayloadByKind,
 } from "../../src/modules/assistantWorkspacePublication";
-import type { AssistantWorkspaceTranscriptPage } from "../../src/modules/assistantWorkspaceTranscriptPublication";
+import {
+  createAssistantWorkspaceTranscriptPage,
+  type AssistantWorkspaceTranscriptPage,
+} from "../../src/modules/assistantWorkspaceTranscriptPublication";
 
 export function assistantWorkspaceTestOwner(
   source: AssistantWorkspaceOwner["source"],
@@ -20,13 +23,12 @@ export function assistantWorkspaceTestOwner(
 export function assistantWorkspaceTestPage(
   owner: AssistantWorkspaceOwner,
 ): AssistantWorkspaceTranscriptPage {
-  return {
-    pageKey: `${owner.ownerKey}\ntail:80`,
-    startCursor: 0,
+  return createAssistantWorkspaceTranscriptPage({
+    owner,
+    anchor: "tail",
+    cursor: 0,
     limit: 80,
     totalVisibleItemCount: 1,
-    previousCursor: null,
-    nextCursor: null,
     sourceEventSeq: 1,
     items: [
       {
@@ -37,7 +39,7 @@ export function assistantWorkspaceTestPage(
         status: "complete",
       },
     ],
-  };
+  });
 }
 
 export function assistantWorkspaceTestPublication<

@@ -9,6 +9,8 @@ import {
   ACP_RUNTIME_REPLAY_PROFILER_ENABLED,
   ACP_RUNTIME_SEMANTIC_TRACE_RECORDER_ENABLED,
   SKILLRUNNER_CONNECTION_AUDIT_ENABLED,
+  SKILLRUNNER_SNAPSHOT_WIRE_ASSERT_ENABLED,
+  WORKSPACE_PUBLICATION_WIRE_ASSERT_ENABLED,
 } from "./src/modules/debugMode";
 
 type TestDomain = "all" | "core" | "ui" | "workflow";
@@ -153,6 +155,12 @@ export default defineConfig({
           __skillrunner_connection_audit_enabled__: String(
             SKILLRUNNER_CONNECTION_AUDIT_ENABLED,
           ),
+          __workspace_publication_wire_assert_enabled__: String(
+            WORKSPACE_PUBLICATION_WIRE_ASSERT_ENABLED,
+          ),
+          __skillrunner_snapshot_wire_assert_enabled__: String(
+            SKILLRUNNER_SNAPSHOT_WIRE_ASSERT_ENABLED,
+          ),
         },
         bundle: true,
         minifySyntax: true,
@@ -171,6 +179,25 @@ export default defineConfig({
         bundle: true,
         target: "firefox115",
         outfile: ".scaffold/build/addon/content/workspace/app.bundle.js",
+      },
+      {
+        entryPoints: ["src/sidebar/acpChildApp.js"],
+        bundle: true,
+        target: "firefox115",
+        outfile: ".scaffold/build/addon/content/sidebar/acp-child.bundle.js",
+      },
+      {
+        entryPoints: ["src/sidebar/runDialogApp.js"],
+        bundle: true,
+        target: "firefox115",
+        outfile: ".scaffold/build/addon/content/sidebar/run-dialog.bundle.js",
+      },
+      {
+        entryPoints: ["src/sidebar/assistantWorkspaceApp.js"],
+        bundle: true,
+        target: "firefox115",
+        outfile:
+          ".scaffold/build/addon/content/sidebar/assistant-workspace.bundle.js",
       },
       {
         entryPoints: ["src/workers/runtimeFileRangeWorker.ts"],

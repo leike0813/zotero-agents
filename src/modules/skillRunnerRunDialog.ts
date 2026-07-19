@@ -97,6 +97,17 @@ import {
   resolveSkillRunnerHostBridgePermissionRequest,
   subscribeSkillRunnerHostBridgePermissionRequests,
 } from "./skillRunnerHostBridgePermissionRegistry";
+import {
+  resolveRunDialogMessageType,
+  type RunDialogBridgeType,
+  type RunDialogMessageType,
+} from "../shared/assistantWireContract";
+import {
+  assertSkillRunnerWorkspaceSnapshot,
+  SKILLRUNNER_SNAPSHOT_SCHEMA,
+  type RunDialogActionEnvelope,
+} from "../shared/skillRunnerSnapshotContract";
+import { isSkillRunnerSnapshotWireAssertAvailable } from "./debugMode";
 
 export type RunDialogMessageRole = "assistant" | "user" | "system";
 export type RunDialogMessageKind =
@@ -328,12 +339,6 @@ export type RunDialogChoiceOption = {
 
 export type RightShellMode = "item" | "notes" | "skillrunner";
 
-type RunDialogActionEnvelope = {
-  type: "run-dialog:action" | "skillrunner-sidebar:action";
-  action: string;
-  payload?: Record<string, unknown>;
-};
-
 type RunDialogEntry = {
   key: string;
   backend: BackendInstance;
@@ -413,6 +418,7 @@ export type RunWorkspaceGroup = {
 };
 
 export type RunWorkspaceSnapshot = {
+  schema: typeof SKILLRUNNER_SNAPSHOT_SCHEMA;
   title: string;
   hostMode?: "dialog" | "sidebar";
   transcriptRevision?: number;
@@ -472,7 +478,7 @@ export type RunWorkspaceSnapshot = {
 
 type RunWorkspaceState = {
   hostMode: "dialog" | "sidebar";
-  bridgeType: "run-dialog" | "skillrunner-sidebar";
+  bridgeType: RunDialogBridgeType;
   hostWindow: Window | null;
   frameWindow: Window | null;
   publishSnapshot?: (
@@ -2952,6 +2958,7 @@ function buildRunWorkspaceSnapshot(
   const executionDisplayMode = getAssistantExecutionDisplayMode();
   const currentEntry = runWorkspaceState.currentEntry;
   return {
+    schema: SKILLRUNNER_SNAPSHOT_SCHEMA,
     title:
       String(selectedTask?.title || "").trim() ||
       session?.title ||
@@ -3026,14 +3033,8 @@ function buildRunWorkspaceSnapshot(
 
 function resolveRunWorkspaceBridgeMessageType(
   phase: "init" | "snapshot" | "action",
-) {
-  return `${runWorkspaceState.bridgeType}:${phase}` as
-    | "run-dialog:init"
-    | "run-dialog:snapshot"
-    | "run-dialog:action"
-    | "skillrunner-sidebar:init"
-    | "skillrunner-sidebar:snapshot"
-    | "skillrunner-sidebar:action";
+): RunDialogMessageType {
+  return resolveRunDialogMessageType(runWorkspaceState.bridgeType, phase);
 }
 
 function isRunWorkspaceHostAlive() {
@@ -3084,6 +3085,10 @@ function pushSnapshot(
         buildRunWorkspaceSnapshot(session, selectedTask),
       )
     : buildRunWorkspaceSnapshot(session, selectedTask);
+  if (isSkillRunnerSnapshotWireAssertAvailable()) {
+    // `as unknown` keeps the assert signature from narrowing the typed local.
+    assertSkillRunnerWorkspaceSnapshot(snapshot as unknown);
+  }
   if (runWorkspaceState.publishSnapshot) {
     runWorkspaceState.publishSnapshot(messageType, snapshot);
     return;
@@ -3345,7 +3350,7 @@ function ensureRunWorkspaceSubscriptions() {
 
 function attachRunWorkspaceHost(args: {
   hostMode: "dialog" | "sidebar";
-  bridgeType: "run-dialog" | "skillrunner-sidebar";
+  bridgeType: RunDialogBridgeType;
   hostWindow: Window;
   frameWindow: Window | null;
   publishSnapshot?: (

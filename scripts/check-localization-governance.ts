@@ -380,25 +380,23 @@ function main() {
   for (const file of [
     "addon/content/dashboard/app.js",
     "addon/content/dashboard/workflow-settings-dialog.js",
-    "addon/content/sidebar/run-dialog.js",
-    "addon/content/shared/assistant/assistant-workspace-acp-child.js",
-    "addon/content/shared/assistant/assistant-transcript-renderer.js",
+    "src/sidebar/runDialog.js",
+    "src/sidebar/assistantWorkspaceAcpChild.js",
+    "src/sidebar/assistantTranscriptRenderer.js",
   ]) {
     errors.push(...reportDashboardUiHardcodes(file, readText(file)));
   }
-  const assistantPanelModel = readText(
-    "addon/content/shared/assistant/assistant-panel-model.js",
-  );
+  const assistantPanelModel = readText("src/sidebar/assistantPanelModel.js");
   const workspaceProjectorStart = assistantPanelModel.indexOf(
     "function projectAssistantWorkspacePanel",
   );
   const workspaceProjectorEnd = assistantPanelModel.indexOf(
-    "window.AssistantPanelModel",
+    "export {",
     workspaceProjectorStart,
   );
   errors.push(
     ...reportDashboardUiHardcodes(
-      "addon/content/shared/assistant/assistant-panel-model.js#workspace",
+      "src/sidebar/assistantPanelModel.js#workspace",
       assistantPanelModel.slice(workspaceProjectorStart, workspaceProjectorEnd),
     ),
   );

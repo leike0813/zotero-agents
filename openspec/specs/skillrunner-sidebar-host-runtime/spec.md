@@ -263,3 +263,68 @@ SkillRunner SHALL normalize Assistant replacement identity and Thought/Tool proc
 - **THEN** its last current and cumulative category values are restored
 - **AND** foreground observation and critical-state behavior remain unchanged.
 
+### Requirement: Run-workspace snapshot boundary is verified behaviorally
+
+The SkillRunner run-workspace snapshot contract SHALL be verified by tests
+that capture a production `RunWorkspaceSnapshot` through the real host
+assembly (`attachSkillRunnerSidebarHost` with an injected `publishSnapshot`)
+and consume it through the real receiver projection
+(`projectSkillRunnerPanelSnapshot`), rather than by matching source-file
+text. Receiver field consumption SHALL be recorded with a recursive Proxy:
+consuming a field the producer never sends SHALL fail; every curated critical
+field SHALL be consumed; produced-but-unconsumed fields SHALL be reported
+without failing.
+
+#### Scenario: Phantom receiver read
+
+- **WHEN** the receiver projection reads a snapshot field path that the
+  production snapshot never provides
+- **THEN** the contract test SHALL fail naming the missing path.
+
+#### Scenario: Lifecycle snapshot semantics
+
+- **WHEN** waiting-user, terminal, pending-interaction, and pending-auth runs
+  are seeded
+- **THEN** the production snapshot SHALL expose the matching status
+  semantics, reply/cancel capabilities, pending interaction pass-through, and
+  auth pass-through, and the receiver projection SHALL render them without
+  throwing.
+
+#### Scenario: Dialog scaffold linkage
+
+- **WHEN** the run dialog HTML changes
+- **THEN** every mount point the renderer or dialog script looks up SHALL
+  exist in the document, and shared assistant panel assets SHALL remain
+  referenced.
+
+### Requirement: Run-workspace snapshots are schema-versioned and validated
+
+Every run-workspace snapshot SHALL carry
+`schema: "zotero-agents.skillrunner-workspace-snapshot.v1"` from the single
+production builder. The receiver SHALL validate each inbound snapshot through
+the shared `validate` implementation in
+`src/shared/skillRunnerSnapshotContract.ts` before rendering and SHALL drop
+and trace invalid payloads. Validation SHALL cover schema equality, required
+structural keys (including the own `session` key), per-level known-key
+whitelists rejecting unknown fields, and L2 type spot checks; decorated
+fields (hostMode, badges, sidebar, renderHints) SHALL remain optional.
+
+#### Scenario: Snapshot without an own session key arrives
+
+- **WHEN** an inbound snapshot lacks the own `session` key
+- **THEN** the receiver SHALL drop and trace it
+- **AND** the panel model's envelope-as-session sniffing fallback SHALL NOT
+  be reached.
+
+#### Scenario: Producer emits a malformed snapshot in a debug build
+
+- **WHEN** the debug-gated producer self-check is enabled and the built
+  snapshot violates the v1 contract
+- **THEN** the host SHALL throw before delivery.
+
+#### Scenario: Both sides validate identically
+
+- **WHEN** the TS assert and the receiver gate evaluate the same payload
+- **THEN** they SHALL accept or reject identically, because both call the
+  same shared validate implementation.
+

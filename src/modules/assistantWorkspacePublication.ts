@@ -6,10 +6,50 @@ import type {
   AssistantWorkspaceTranscriptMutationEvent,
 } from "./assistantWorkspaceTranscriptPublication";
 
-export const ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA =
-  "zotero-agents.assistant-workspace-publication.v1" as const;
+// Wire identity and field lists are single-sourced in the shared wire
+// contract (imported by both this module and the sidebar page bundles);
+// re-exported here to keep existing import sites compatible.
+export {
+  ASSISTANT_WORKSPACE_FORBIDDEN_WIRE_FIELDS,
+  ASSISTANT_WORKSPACE_PERMISSION_REQUEST_KEYS,
+  ASSISTANT_WORKSPACE_PUBLICATION_ENVELOPE_KEYS,
+  ASSISTANT_WORKSPACE_PUBLICATION_PAYLOAD_KEYS,
+  ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
+  ASSISTANT_WORKSPACE_TRANSCRIPT_DELTA_KEYS,
+  ASSISTANT_WORKSPACE_TRANSCRIPT_SNAPSHOT_KEYS,
+} from "../shared/assistantWireContract";
 
-export type AssistantWorkspacePublicationSource = "acp-chat" | "acp-skills";
+// Shared wire identity types (AssistantWorkspaceOwner,
+// AssistantWorkspacePublicationAck, ...) also live in the shared wire
+// contract; re-exported here for the same compatibility reason.
+export type {
+  AssistantWorkspaceOwner,
+  AssistantWorkspacePublicationAck,
+  AssistantWorkspacePublicationAckStage,
+  AssistantWorkspacePublicationSource,
+} from "../shared/assistantWireContract";
+
+import {
+  ASSISTANT_WORKSPACE_FORBIDDEN_WIRE_FIELDS,
+  ASSISTANT_WORKSPACE_PERMISSION_REQUEST_KEYS,
+  ASSISTANT_WORKSPACE_PUBLICATION_ENVELOPE_KEYS,
+  ASSISTANT_WORKSPACE_PUBLICATION_PAYLOAD_KEYS,
+  ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
+  ASSISTANT_WORKSPACE_TRANSCRIPT_DELTA_KEYS,
+  ASSISTANT_WORKSPACE_TRANSCRIPT_SNAPSHOT_KEYS,
+} from "../shared/assistantWireContract";
+
+import type {
+  AssistantWorkspaceOwner,
+  AssistantWorkspacePublicationAck,
+  AssistantWorkspacePublicationSource,
+} from "../shared/assistantWireContract";
+
+import type {
+  AcpChatAction,
+  AcpSkillsAction,
+  AssistantWorkspaceActionPayloadMap,
+} from "../shared/assistantActionContract";
 
 export const ASSISTANT_WORKSPACE_PRESENTATION_FIELD_REGISTRY = {
   backend: { labelPath: "fields.backend" },
@@ -242,6 +282,72 @@ export const ASSISTANT_WORKSPACE_ACTION_REGISTRY = {
 export type AssistantWorkspaceAction =
   keyof typeof ASSISTANT_WORKSPACE_ACTION_REGISTRY;
 
+// ---------------------------------------------------------------------------
+// Compile-time drift guards between the runtime action registry above and the
+// shared action payload contract (src/shared/assistantActionContract.ts).
+// Type-level assertions only; they emit no runtime code and fail tsc when the
+// registry and the contract fall out of sync.
+// ---------------------------------------------------------------------------
+
+type AssistantWorkspaceContractIsEqual<Left, Right> =
+  (<T>() => T extends Left ? 1 : 2) extends <T>() => T extends Right ? 1 : 2
+    ? true
+    : false;
+
+type AssistantWorkspaceContractAssert<Check extends true> = Check;
+
+type AssistantWorkspaceRegistryActionsForSource<
+  Source extends AssistantWorkspacePublicationSource,
+> = {
+  [Action in AssistantWorkspaceAction]: Source extends (typeof ASSISTANT_WORKSPACE_ACTION_REGISTRY)[Action]["sources"][number]
+    ? Action
+    : never;
+}[AssistantWorkspaceAction];
+
+type AssistantWorkspaceActionPayloadKeyDrift = {
+  [Action in AssistantWorkspaceAction]: AssistantWorkspaceContractIsEqual<
+    keyof AssistantWorkspaceActionPayloadMap[Action],
+    (typeof ASSISTANT_WORKSPACE_ACTION_REGISTRY)[Action]["payloadKeys"][number]
+  > extends true
+    ? never
+    : Action;
+}[AssistantWorkspaceAction];
+
+// The payload map must cover the registry vocabulary one-for-one.
+export type _AssistantWorkspaceActionVocabularyGuard =
+  AssistantWorkspaceContractAssert<
+    AssistantWorkspaceContractIsEqual<
+      keyof AssistantWorkspaceActionPayloadMap,
+      AssistantWorkspaceAction
+    >
+  >;
+
+// Each payload entry's keys must equal the registry payloadKeys exactly.
+export type _AssistantWorkspaceActionPayloadKeysGuard =
+  AssistantWorkspaceContractAssert<
+    AssistantWorkspaceContractIsEqual<
+      AssistantWorkspaceActionPayloadKeyDrift,
+      never
+    >
+  >;
+
+// The contract's per-source action subsets must equal the registry sources.
+export type _AssistantWorkspaceAcpChatActionSubsetGuard =
+  AssistantWorkspaceContractAssert<
+    AssistantWorkspaceContractIsEqual<
+      AcpChatAction,
+      AssistantWorkspaceRegistryActionsForSource<"acp-chat">
+    >
+  >;
+
+export type _AssistantWorkspaceAcpSkillsActionSubsetGuard =
+  AssistantWorkspaceContractAssert<
+    AssistantWorkspaceContractIsEqual<
+      AcpSkillsAction,
+      AssistantWorkspaceRegistryActionsForSource<"acp-skills">
+    >
+  >;
+
 export type AssistantWorkspacePublicationKind =
   | "owner-navigation"
   | "service-status"
@@ -253,19 +359,6 @@ export type AssistantWorkspacePublicationKind =
   | "composer"
   | "owner-presentation"
   | "owner-details";
-
-export type AssistantWorkspaceOwner =
-  | {
-      source: "acp-chat";
-      ownerKey: string;
-      backendId: string;
-      conversationId: string;
-    }
-  | {
-      source: "acp-skills";
-      ownerKey: string;
-      requestId: string;
-    };
 
 export type AssistantWorkspaceUnownedScope = {
   source: AssistantWorkspacePublicationSource;
@@ -838,52 +931,6 @@ export type AssistantWorkspaceDomainChange =
       };
     };
 
-export type AssistantWorkspacePublicationAckStage =
-  | "shell-receive"
-  | "shell-forward"
-  | "child-apply"
-  | "render-complete";
-
-export type AssistantWorkspacePublicationAck = {
-  publicationId: string;
-  stage: AssistantWorkspacePublicationAckStage;
-  outcome: "accepted" | "rejected";
-  reason:
-    | "old-owner"
-    | "stale"
-    | "gap"
-    | "superseded"
-    | "invalid"
-    | "render-failed"
-    | null;
-  failure: {
-    stage:
-      | "projection"
-      | "toolbar"
-      | "banner"
-      | "message-counts"
-      | "transcript"
-      | "plan"
-      | "permission"
-      | "composer"
-      | "context-drawer"
-      | "details-drawer";
-    code:
-      | "module-missing"
-      | "bridge-missing"
-      | "projection-failed"
-      | "render-failed"
-      | "effect-invalid"
-      | "container-missing"
-      | "node-map-missing"
-      | "page-items-missing"
-      | "page-invalid"
-      | "virtual-reconcile-failed"
-      | "row-reconcile-failed"
-      | "dom-commit-failed";
-  } | null;
-};
-
 export type AssistantWorkspacePublicationLifecycle = {
   publicationId: string;
   state: "pending" | "render-complete" | "rejected";
@@ -1006,24 +1053,6 @@ export function createFailedTranscriptRegion(
   };
 }
 
-const forbiddenWireFields = new Set([
-  "regions",
-  "selectedTranscript",
-  "selectedTranscriptPage",
-  "transcriptState",
-  "transcriptRegion",
-  "selectedRun",
-  "selectedRequestId",
-  "activeConversationId",
-  "deliveryRevision",
-  "initialization",
-  "tab",
-  "totalItemCount",
-  "eventSeq",
-  "uiRevision",
-  "baseUiRevision",
-]);
-
 export function assertAssistantWorkspacePublication(
   value: unknown,
 ): asserts value is AssistantWorkspacePublication {
@@ -1031,17 +1060,7 @@ export function assertAssistantWorkspacePublication(
   const publication = value as Partial<AssistantWorkspacePublication>;
   assertExactObjectKeys(
     publication,
-    [
-      "schema",
-      "publicationId",
-      "owner",
-      "publicationKind",
-      "publicationForm",
-      "publicationCause",
-      "regionRevision",
-      "deliverySequence",
-      "payload",
-    ],
+    ASSISTANT_WORKSPACE_PUBLICATION_ENVELOPE_KEYS,
     "assistant-workspace-publication-envelope",
   );
   if (publication.schema !== ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA) {
@@ -1167,7 +1186,7 @@ function assertPublicationPayloadInvariant(
     if (form === "snapshot") {
       assertExactObjectKeys(
         payload,
-        ["owner", "status", "error", "page", "transcriptRevision"],
+        ASSISTANT_WORKSPACE_TRANSCRIPT_SNAPSHOT_KEYS,
         "assistant-workspace-transcript-region",
       );
       assertTranscriptRegionInvariant(payload);
@@ -1176,7 +1195,7 @@ function assertPublicationPayloadInvariant(
     if (form === "delta") {
       assertExactObjectKeys(
         payload,
-        ["page", "baseTranscriptRevision", "transcriptRevision", "mutations"],
+        ASSISTANT_WORKSPACE_TRANSCRIPT_DELTA_KEYS,
         "assistant-workspace-transcript-delta",
       );
       if (
@@ -1188,51 +1207,9 @@ function assertPublicationPayloadInvariant(
     }
     throw new Error("assistant-workspace-transcript-form");
   }
-  const keysByKind: Record<
-    Exclude<AssistantWorkspacePublicationKind, "transcript">,
-    readonly string[]
-  > = {
-    "owner-navigation": [
-      "selectedOwner",
-      "selectedGroupId",
-      "groups",
-      "entries",
-      "canCreateOwner",
-    ],
-    "service-status": ["items"],
-    "owner-control": [
-      "status",
-      "busy",
-      "hint",
-      "connection",
-      "execution",
-      "authentication",
-      "permissionPolicy",
-    ],
-    "message-counts": ["counts"],
-    plan: ["items"],
-    permission: ["request"],
-    composer: ["reply", "runtimeOptions"],
-    "owner-presentation": [
-      "title",
-      "subtitle",
-      "description",
-      "notice",
-      "metadata",
-      "usage",
-    ],
-    "owner-details": [
-      "status",
-      "title",
-      "subtitle",
-      "sections",
-      "actions",
-      "error",
-    ],
-  };
   assertExactObjectKeys(
     payload,
-    keysByKind[kind],
+    ASSISTANT_WORKSPACE_PUBLICATION_PAYLOAD_KEYS[kind],
     `assistant-workspace-${kind}-payload`,
   );
   if (kind === "owner-control") {
@@ -1341,15 +1318,7 @@ function assertPublicationPayloadInvariant(
     if (request) {
       assertExactObjectKeys(
         request,
-        [
-          "requestId",
-          "approvalKind",
-          "title",
-          "summary",
-          "tool",
-          "review",
-          "options",
-        ],
+        ASSISTANT_WORKSPACE_PERMISSION_REQUEST_KEYS,
         "assistant-workspace-permission-request",
       );
       if (!["acp-tool", "zotero-write"].includes(request.approvalKind)) {
@@ -1604,7 +1573,7 @@ function assertWireValue(value: unknown, path: string): void {
     return;
   }
   for (const [key, entry] of Object.entries(value)) {
-    if (forbiddenWireFields.has(key)) {
+    if (ASSISTANT_WORKSPACE_FORBIDDEN_WIRE_FIELDS.has(key)) {
       throw new Error(`forbidden-wire-field:${key}`);
     }
     assertWireValue(entry, `${path}.${key}`);

@@ -27,8 +27,8 @@
 │   ├── prefs.js              # 首选项默认值
 │   ├── content/
 │   │   ├── dashboard/        # Dashboard 页面（index.html, app.js, styles.css 等）
-│   │   ├── shared/           # 共享前端组件（assistant panel, markdown renderer, vendor libs）
-│   │   ├── sidebar/          # 侧边栏页面
+│   │   ├── shared/           # 静态共享资产（css、markdown renderer、theme、vendor libs）
+│   │   ├── sidebar/          # 侧边栏页面（HTML/css；JS 由 src/sidebar 构建为 bundle）
 │   │   ├── synthesis/        # Synthesis 工作台页面
 │   │   ├── workspace/        # Assistant Workspace 页面
 │   │   ├── harness/          # 只读 Harness 测试页面
@@ -71,7 +71,8 @@
 │   ├── jobQueue/             # 任务队列
 │   ├── platform/             # 平台抽象（command, env, path, subprocess）
 │   ├── schemas/              # JSON Schema 定义
-│   └── shared/               # 共享前端组件（citation graph, topic timeline）
+│   ├── shared/               # 共享前端组件与跨边界契约（citation graph, topic timeline, assistant wire/snapshot contract）
+│   └── sidebar/              # 侧边栏页面 JS（ES module .js，esbuild 打包到 addon/content/sidebar/*.bundle.js；只允许 import 相对路径与 src/shared）
 ├── test/                     # 测试
 │   ├── core/                 # 核心功能测试（~100+ 测试文件）
 │   ├── node/core/            # Node.js 环境测试
