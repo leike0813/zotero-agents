@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-sidecar-concept-kb-application-foundation Specification
+
+## Purpose
+Defines the application-level foundation for the Synthesis sidecar concept kb component, including its service boundary, lifecycle, and integration with the sidecar runtime.
+
+## Requirements
 
 ### Requirement: Private sidecar owns an isolated Concept KB aggregate
+
 The Synthesis sidecar SHALL persist an isolated Concept KB aggregate containing concepts, senses, aliases, relations, review items, topic-concept links, application state, and last-good index state without reading or mutating production storage.
 
 #### Scenario: Service restarts after Concept mutations
@@ -9,6 +15,7 @@ The Synthesis sidecar SHALL persist an isolated Concept KB aggregate containing 
 - **AND** production database and canonical files SHALL remain untouched.
 
 ### Requirement: Private Concept contracts are strict and bounded
+
 The private Concept application SHALL accept and return versioned JSON-safe DTOs with bounded collections, deterministic ordering, unique identities, valid references, stable structured codes, and strict field rebuilding.
 
 #### Scenario: Malformed or oversized request arrives
@@ -16,6 +23,7 @@ The private Concept application SHALL accept and return versioned JSON-safe DTOs
 - **THEN** the request SHALL fail before repository mutation or engine execution.
 
 ### Requirement: Concept mutations use manifest compare-and-swap
+
 Snapshot replacement, proposal ingestion, review transitions, display-text updates, and concept deletion SHALL construct and validate a detached candidate and promote it only while the expected manifest remains active.
 
 #### Scenario: Mutation or manifest check fails
@@ -23,6 +31,7 @@ Snapshot replacement, proposal ingestion, review transitions, display-text updat
 - **THEN** all aggregate rows, application revision, manifest, stale marker, and last-good index state SHALL remain unchanged.
 
 ### Requirement: Proposal ingestion applies deterministic Concept policy
+
 The private application SHALL create stable concept, sense, alias, relation and topic-link facts for unmatched high-confidence proposals, merge exact unambiguous proposals, and create review items for ambiguous or low-confidence proposals.
 
 #### Scenario: Exact proposal match is unambiguous
@@ -34,6 +43,7 @@ The private application SHALL create stable concept, sense, alias, relation and 
 - **THEN** the application SHALL create one stable open review item and SHALL preserve the existing concepts until review.
 
 ### Requirement: Review transitions are explicit and atomic
+
 The private application SHALL support approve, merge, and reject transitions from an open review item with stable target validation and one aggregate manifest update.
 
 #### Scenario: Review is approved or merged
@@ -45,6 +55,7 @@ The private application SHALL support approve, merge, and reject transitions fro
 - **THEN** the item SHALL become rejected with resolution metadata and no new concept facts.
 
 ### Requirement: Display updates and deletion preserve referential integrity
+
 Display-text updates SHALL retain stable identities, and concept deletion SHALL atomically remove owned senses, aliases, relations and topic links while removing deleted candidates from review items.
 
 #### Scenario: Concept is deleted
@@ -53,6 +64,7 @@ Display-text updates SHALL retain stable identities, and concept deletion SHALL 
 - **AND** review candidates SHALL contain no deleted concept ID.
 
 ### Requirement: Concept index promotion is manifest guarded
+
 The private application SHALL construct the Concept index through the bounded sidecar worker and promote it only while its source manifest remains active.
 
 #### Scenario: Index result is superseded or invalid
@@ -61,6 +73,7 @@ The private application SHALL construct the Concept index through the bounded si
 - **AND** aggregate mutation state SHALL remain authoritative and stale until a valid rebuild succeeds.
 
 ### Requirement: Candidate query is bounded and read only
+
 The private application SHALL execute strict bounded Concept candidate queries through the sidecar worker against a captured aggregate snapshot without mutating repository state.
 
 #### Scenario: Candidate query completes
@@ -69,6 +82,7 @@ The private application SHALL execute strict bounded Concept candidate queries t
 - **AND** manifest, revision, index state and rows SHALL remain unchanged.
 
 ### Requirement: Private Concept lifecycle drains before persistence closes
+
 The private Concept application SHALL reject new mutations after admission stops and SHALL cancel or drain active computation before its repository and worker dependencies close.
 
 #### Scenario: Service shutdown begins during Concept work
@@ -77,6 +91,7 @@ The private Concept application SHALL reject new mutations after admission stops
 - **AND** repository closure SHALL occur only after the application reaches a terminal drained state.
 
 ### Requirement: Concept foundation remains production disconnected
+
 The private Concept foundation SHALL NOT add a public sidecar capability, authenticated route, `SynthesisClient` method, automatic invocation, Zotero adapter, production persistence owner, checkpoint/import behavior, canonical delivery, or WebDAV synchronization.
 
 #### Scenario: Foundation is packaged

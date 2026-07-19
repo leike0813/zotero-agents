@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-host-tag-effect-port Specification
+
+## Purpose
+Defines the Synthesis Host port for host tag effect, specifying the injected interface that the application service uses to delegate to Host-owned implementation.
+
+## Requirements
 
 ### Requirement: Host item references SHALL be stable and canonical
+
 
 Synthesis Host contracts SHALL identify Zotero items only by a positive `libraryId` and non-empty bounded `itemKey`, and SHALL rebuild known fields into a canonical JSON-safe object.
 
@@ -13,6 +19,7 @@ Synthesis Host contracts SHALL identify Zotero items only by a positive `library
 - **THEN** rebuilding SHALL fail before Host access
 
 ### Requirement: Legacy staged parent IDs SHALL resolve through a bounded Host port
+
 
 The migration port SHALL accept one library and at most 100 unique positive item IDs and SHALL return a canonical exact partition of resolved refs and missing IDs.
 
@@ -30,6 +37,7 @@ The migration port SHALL accept one library and at most 100 unique positive item
 - **THEN** canonical result rebuilding SHALL fail
 
 ### Requirement: Staged Tag writes SHALL use bounded semantic effects
+
 
 The Tag effect port SHALL accept batches of at most 50 unique ensure-present effects carrying stable target refs, bounded tags, staged-promotion provenance, target-exists preconditions, and explicit `synthesis.tags` permission.
 
@@ -51,6 +59,7 @@ The Tag effect port SHALL accept batches of at most 50 unique ensure-present eff
 - **AND** it SHALL NOT expose the raw error, Zotero object, callback, or local path
 
 ### Requirement: Tag effect receipts SHALL be canonical and correlated
+
 
 Each receipt SHALL repeat the effect ID and action, carry a valid timestamp, contain at most 20 JSON-safe diagnostics, and exactly correspond to one requested effect.
 

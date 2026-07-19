@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-workbench-reference-review-client-consumer Specification
+
+## Purpose
+Defines the Synthesis Workbench client consumer contract for reference review operations, specifying how Workbench reads and reacts to client-side state changes.
+
+## Requirements
 
 ### Requirement: Reference review actions use a bounded client capability
+
 The Synthesis client SHALL expose Reference commands for canonical revision review, a single match proposal action, and batch match proposal decisions. The Workbench SHALL lazily resolve the default client and SHALL NOT call the corresponding legacy service methods directly.
 
 #### Scenario: Workbench applies a Reference review action
@@ -9,6 +15,7 @@ The Synthesis client SHALL expose Reference commands for canonical revision revi
 - **AND** the result SHALL cross the client boundary as an opaque JSON-safe object
 
 ### Requirement: Reference review request contracts are strict
+
 Canonical review requests SHALL contain a non-empty `reviewItemId` and `accept | reject`. Single proposal requests SHALL contain a non-empty `proposalId` and `accept | reverse_accept | reject | reopen | delete`. Batch requests SHALL contain at least one proposal decision, MAY additionally use `manual_target`, and SHALL represent its target as either a positive-integer Zotero `libraryId` with a non-empty `itemKey` or a non-empty `canonicalReferenceId`.
 
 #### Scenario: Canonical revision review is valid
@@ -33,6 +40,7 @@ Canonical review requests SHALL contain a non-empty `reviewItemId` and `accept |
 - **AND** it SHALL NOT invoke the legacy port
 
 ### Requirement: In-process Reference review commands normalize ports, results, and errors
+
 The in-process adapter SHALL depend on three narrow legacy Reference review/proposal ports. It SHALL normalize each successful result through the shared JSON-safe object path, reject a missing port with `unavailable`, preserve an existing client error and `storage_busy`, and normalize an ordinary legacy exception to `internal`.
 
 #### Scenario: Legacy Reference review command succeeds
@@ -53,6 +61,7 @@ The in-process adapter SHALL depend on three narrow legacy Reference review/prop
 - **AND** it SHALL NOT rewrite the object as a client error
 
 ### Requirement: Existing Workbench review behavior is preserved
+
 The client-routed actions SHALL preserve snake_case and camelCase aliases, whitespace trimming, default actions, batch filtering, command single-flight, singular `diagnostic` handling, and Index, Review, and Graph surface invalidation. They SHALL NOT add confirmation, deferred start, or progress callbacks.
 
 #### Scenario: Workbench normalizes review payloads
@@ -74,6 +83,7 @@ The client-routed actions SHALL preserve snake_case and camelCase aliases, white
 - **THEN** the existing `failOnDiagnostic` helper SHALL retain its current singular-only behavior
 
 ### Requirement: Migration boundaries remain stable
+
 This migration SHALL retain 125 public Synthesis service methods, exactly four direct legacy service consumers, all existing public Reference service methods, and current process, repository, persistence, Host Bridge, MCP, and domain ownership.
 
 #### Scenario: Static service boundaries are checked

@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-workbench-read-client Specification
+
+## Purpose
+Defines the synthesis workbench read client capability for the Synthesis plugin, specifying its service boundary, integration contracts, and runtime behavior.
+
+## Requirements
 
 ### Requirement: Workbench reads are grouped and region-scoped
+
 `SynthesisClient` SHALL expose chrome, surface, Topic detail, and paper digest reads through a `workbench` capability and SHALL NOT expose the legacy full snapshot through that capability.
 
 #### Scenario: Chrome and active surface are read
@@ -13,6 +19,7 @@
 - **THEN** it SHALL invoke the corresponding narrow Workbench client method with stable identifiers
 
 ### Requirement: Workbench contracts are environment-neutral
+
 Workbench client requests and results SHALL be JSON-safe, SHALL use the contract-owned Workbench surface union, and SHALL NOT include plugin UI classes, host objects, functions, absolute paths, or legacy service-derived public types.
 
 #### Scenario: Contract package is checked
@@ -24,6 +31,7 @@ Workbench client requests and results SHALL be JSON-safe, SHALL use the contract
 - **THEN** the in-process client SHALL reject it with a stable `invalid_request` client error before invoking the legacy port
 
 ### Requirement: The read-only harness consumes the client
+
 The Synthesis read-only harness SHALL return `SynthesisClient` plus an explicit close operation and SHALL route its four service-backed UI reads only through `client.workbench`.
 
 #### Scenario: Read-only UI harness starts
@@ -40,6 +48,7 @@ The Synthesis read-only harness SHALL return `SynthesisClient` plus an explicit 
 - **THEN** it SHALL continue to mock or reject the action without routing it to the Synthesis client
 
 ### Requirement: Legacy service composition has one direct owner
+
 Only the declared migration-time legacy composition module SHALL import or create the complete Synthesis service for client adapters.
 
 #### Scenario: Direct consumers are checked
@@ -48,6 +57,7 @@ Only the declared migration-time legacy composition module SHALL import or creat
 - **AND** default client and read-only harness modules SHALL not appear as direct consumers
 
 ### Requirement: Existing ownership and failures are preserved
+
 The migration-time in-process adapter SHALL preserve current query behavior, stable client error mapping, and current database, canonical file, mirror, and Zotero ownership.
 
 #### Scenario: A legacy query throws

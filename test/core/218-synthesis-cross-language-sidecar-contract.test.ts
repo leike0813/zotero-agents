@@ -23,8 +23,8 @@ function canonicalErrorCode(action: () => unknown) {
 }
 
 describe("Synthesis cross-language sidecar contract", function () {
-  it("strictly compiles the complete manifest and conforms to both corpora", function () {
-    const result = checkSynthesisCrossLanguageContracts();
+  it("strictly compiles the complete manifest and conforms to both corpora", async function () {
+    const result = await checkSynthesisCrossLanguageContracts();
 
     assert.deepEqual(result.errors, []);
     assert.isTrue(result.ok);
@@ -33,12 +33,12 @@ describe("Synthesis cross-language sidecar contract", function () {
       "synthesis-cross-language-sidecar-contract.v1",
     );
     assert.equal(result.schemaCount, 6);
-    assert.equal(result.definitionCount, 94);
-    assert.equal(result.positiveCaseCount, 7);
-    assert.equal(result.negativeCaseCount, 5);
+    assert.equal(result.definitionCount, 114);
+    assert.equal(result.positiveCaseCount, 10);
+    assert.equal(result.negativeCaseCount, 7);
     assert.equal(
       result.fingerprint,
-      "sha256:9b6c44a585cc7700c5c3e770c9bffc7273de49a218259ef9a21e78e198f191b4",
+      "sha256:14312bd4167a8ac8ab62a271b025342415f84b76016fc3579993deb32d110c65",
     );
   });
 

@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-sidecar-stage1-node-milestone-gate Specification
+
+## Purpose
+Defines the synthesis sidecar stage1 node milestone gate capability for the Synthesis plugin, specifying its service boundary, integration contracts, and runtime behavior.
+
+## Requirements
 
 ### Requirement: Stage 1 Node milestone inventory SHALL be complete
+
 
 The Node test runner SHALL expose one named Synthesis Stage 1 milestone that
 contains exactly one Synthesis Core test for every numeric prefix from 175
@@ -20,6 +26,7 @@ through 217 inclusive.
 
 ### Requirement: Load-sensitive milestone work SHALL remain blocking
 
+
 The milestone runner SHALL execute Core 202 in an isolated child process while
 retaining its unchanged behavior and failure status as part of the cumulative
 milestone result.
@@ -37,6 +44,7 @@ milestone result.
   failing segment
 
 ### Requirement: PR and release gates SHALL block on the Node milestone
+
 
 The shared CI gate orchestrator SHALL run the same Synthesis Stage 1 Node
 milestone once for both PR and release gates before their gate-specific Zotero

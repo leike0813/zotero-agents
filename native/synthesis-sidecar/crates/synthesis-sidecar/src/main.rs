@@ -1,10 +1,11 @@
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
+use std::collections::HashMap;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
-use synthesis_protocol::{METRICS_OPERATION, MetricsRequest, WORKER_PROTOCOL};
+use synthesis_protocol::{METRICS_OPERATION, MetricsRequest, WORKER_PROTOCOL, deterministic_operation};
 
 const BUILD_FINGERPRINT: &str = match option_env!("SYNTHESIS_RUST_BUILD_FINGERPRINT") {
     Some(value) => value,
@@ -13,8 +14,133 @@ const BUILD_FINGERPRINT: &str = match option_env!("SYNTHESIS_RUST_BUILD_FINGERPR
 const MAX_WORKER_FRAME_BYTES: u64 = 8 * 1024 * 1024;
 
 enum WorkerCommand {
-    Run(String, MetricsRequest),
+    Run(String, String, Value),
     End,
+}
+
+struct PendingInput {
+    task_id: String,
+    operation: String,
+    header: Map<String, Value>,
+    sections: HashMap<String, Vec<Value>>,
+    page_indexes: HashMap<String, u64>,
+}
+
+fn page_descriptor(section: &str, page_index: usize, rows: &[Value]) -> Result<Value, &'static str> {
+    let value = Value::Array(rows.to_vec());
+    let canonical = synthesis_protocol::canonical_json(&value)?;
+    if canonical.len() > 4 * 1024 * 1024 || rows.len() > 100_000 {
+        return Err("invalid_request");
+    }
+    Ok(json!({
+        "section": section,
+        "pageIndex": page_index,
+        "rowCount": rows.len(),
+        "byteLength": canonical.len(),
+        "sha256": synthesis_protocol::canonical_sha256(&value)?,
+    }))
+}
+
+fn append_input_page(pending: &mut PendingInput, value: &Value) -> Result<Value, &'static str> {
+    if value["taskId"] != pending.task_id {
+        return Err("invalid_request");
+    }
+    let descriptor = value["descriptor"].as_object().ok_or("invalid_request")?;
+    let section = descriptor["section"].as_str().ok_or("invalid_request")?;
+    let rows = value["rows"].as_array().ok_or("invalid_request")?;
+    let page_index = *pending.page_indexes.get(section).unwrap_or(&0);
+    let expected = page_descriptor(section, page_index as usize, rows)?;
+    if expected != value["descriptor"] {
+        return Err("invalid_request");
+    }
+    pending.sections.entry(section.to_owned()).or_default().extend(rows.iter().cloned());
+    pending.page_indexes.insert(section.to_owned(), page_index + 1);
+    Ok(json!({"protocol":WORKER_PROTOCOL,"type":"input_ack","taskId":pending.task_id,"section":section,"pageIndex":page_index}))
+}
+
+fn finish_input(mut pending: PendingInput) -> Result<(String, String, Value), &'static str> {
+    for (section, rows) in pending.sections {
+        if (pending.operation == synthesis_protocol::TAG_VOCABULARY_VALIDATE_OPERATION
+            || pending.operation == synthesis_protocol::TAG_VOCABULARY_INDEX_OPERATION)
+            && (section == "aliases" || section == "abbrev")
+        {
+            let mut object = Map::new();
+            for row in rows {
+                let pair = row.as_array().filter(|pair| pair.len() == 2).ok_or("invalid_request")?;
+                let key = pair[0].as_str().ok_or("invalid_request")?;
+                if object.insert(key.to_owned(), pair[1].clone()).is_some() { return Err("invalid_request"); }
+            }
+            pending.header.insert(section, Value::Object(object));
+        } else {
+            pending.header.insert(section, Value::Array(rows));
+        }
+    }
+    Ok((pending.task_id, pending.operation, Value::Object(pending.header)))
+}
+
+fn result_parts(operation: &str, result: Value) -> Result<(Map<String, Value>, Vec<(String, Vec<Value>)>), &'static str> {
+    let mut header = result.as_object().cloned().ok_or("worker_result_invalid")?;
+    let names: &[&str] = match operation {
+        synthesis_protocol::TAG_VOCABULARY_VALIDATE_OPERATION => &["warnings"],
+        synthesis_protocol::TAG_VOCABULARY_INDEX_OPERATION => &["tags", "aliases", "abbrev", "search", "validationWarnings"],
+        synthesis_protocol::CONCEPT_KB_INDEX_OPERATION => &["search", "overlayEntries"],
+        synthesis_protocol::CONCEPT_KB_QUERY_OPERATION => &["matches"],
+        synthesis_protocol::TOPIC_GRAPH_INDEX_OPERATION => &["roots", "unplaced"],
+        _ => return Err("worker_result_invalid"),
+    };
+    let mut sections = Vec::new();
+    for name in names {
+        let value = header.remove(*name).ok_or("worker_result_invalid")?;
+        let rows = if *name == "aliases" || *name == "abbrev" {
+            value.as_object().ok_or("worker_result_invalid")?.iter().map(|(key, value)| json!([key, value])).collect()
+        } else {
+            value.as_array().cloned().ok_or("worker_result_invalid")?
+        };
+        sections.push(((*name).to_owned(), rows));
+    }
+    Ok((header, sections))
+}
+
+fn paginate_rows(section: &str, rows: Vec<Value>) -> Result<Vec<(Value, Vec<Value>)>, &'static str> {
+    let mut pages = Vec::new();
+    let mut current = Vec::new();
+    let mut bytes = 2usize;
+    for row in rows {
+        let row_bytes = synthesis_protocol::canonical_json(&row)?.len();
+        if !current.is_empty() && bytes + 1 + row_bytes > 4 * 1024 * 1024 {
+            let descriptor = page_descriptor(section, pages.len(), &current)?;
+            pages.push((descriptor, std::mem::take(&mut current)));
+            bytes = 2;
+        }
+        if row_bytes + 2 > 4 * 1024 * 1024 { return Err("worker_result_invalid"); }
+        bytes += if current.is_empty() { row_bytes } else { row_bytes + 1 };
+        current.push(row);
+    }
+    if !current.is_empty() || pages.is_empty() {
+        let descriptor = page_descriptor(section, pages.len(), &current)?;
+        pages.push((descriptor, current));
+    }
+    Ok(pages)
+}
+
+fn write_paged_result(
+    task_id: &str,
+    operation: &str,
+    result: Value,
+    acknowledgments: &mpsc::Receiver<(String, String, u64)>,
+) -> Result<(), &'static str> {
+    let (header, sections) = result_parts(operation, result)?;
+    write_frame(&json!({"protocol":WORKER_PROTOCOL,"type":"result_begin","taskId":task_id,"header":header})).map_err(|_| "worker_result_invalid")?;
+    for (section, rows) in sections {
+        for (descriptor, rows) in paginate_rows(&section, rows)? {
+            let page_index = descriptor["pageIndex"].as_u64().ok_or("worker_result_invalid")?;
+            write_frame(&json!({"protocol":WORKER_PROTOCOL,"type":"result_page","taskId":task_id,"descriptor":descriptor,"rows":rows})).map_err(|_| "worker_result_invalid")?;
+            let acknowledgment = acknowledgments.recv().map_err(|_| "worker_canceled")?;
+            if acknowledgment != (task_id.to_owned(), section.clone(), page_index) { return Err("worker_result_invalid"); }
+        }
+    }
+    write_frame(&json!({"protocol":WORKER_PROTOCOL,"type":"result_complete","taskId":task_id})).map_err(|_| "worker_result_invalid")?;
+    Ok(())
 }
 
 type ActiveWorkerTask = Arc<Mutex<Option<(String, Arc<AtomicBool>)>>>;
@@ -29,11 +155,13 @@ fn write_frame(value: &Value) -> io::Result<()> {
 fn worker() -> Result<(), String> {
     write_frame(&json!({"protocol": WORKER_PROTOCOL, "type": "ready", "buildFingerprint": BUILD_FINGERPRINT})).map_err(|error| error.to_string())?;
     let (sender, receiver) = mpsc::sync_channel(1);
+    let (ack_sender, ack_receiver) = mpsc::channel();
     let active: ActiveWorkerTask = Arc::new(Mutex::new(None));
     let reader_active = Arc::clone(&active);
     std::thread::spawn(move || {
         let stdin = io::stdin();
         let mut reader = BufReader::new(stdin.lock());
+        let mut pending_input: Option<PendingInput> = None;
         loop {
             let mut line = String::new();
             let Ok(bytes) = reader
@@ -59,20 +187,42 @@ fn worker() -> Result<(), String> {
             match value["type"].as_str() {
                 Some("run")
                     if value["protocol"] == WORKER_PROTOCOL
-                        && value["operation"] == METRICS_OPERATION =>
+                        && value["operation"].as_str().is_some_and(|operation| operation == METRICS_OPERATION || deterministic_operation(operation)) =>
                 {
-                    match serde_json::from_value(value["payload"].clone()) {
-                        Ok(request) => {
-                            if sender.send(WorkerCommand::Run(task_id, request)).is_err() {
-                                break;
-                            }
-                        }
-                        Err(_) => {
-                            let _ = write_frame(
-                                &json!({"protocol":WORKER_PROTOCOL,"type":"error","taskId":task_id,"code":"invalid_request"}),
-                            );
-                        }
+                    let Some(operation) = value["operation"].as_str().map(str::to_owned) else { continue; };
+                    if !value["payload"].is_object() {
+                        let _ = write_frame(&json!({"protocol":WORKER_PROTOCOL,"type":"error","taskId":task_id,"code":"invalid_request"}));
+                    } else if sender.send(WorkerCommand::Run(task_id, operation, value["payload"].clone())).is_err() {
+                        break;
                     }
+                }
+                Some("run_begin")
+                    if value["protocol"] == WORKER_PROTOCOL
+                        && value["operation"].as_str().is_some_and(deterministic_operation) =>
+                {
+                    if pending_input.is_some() { break; }
+                    let Some(operation) = value["operation"].as_str() else { continue; };
+                    let Some(header) = value["header"].as_object() else { continue; };
+                    pending_input = Some(PendingInput { task_id, operation: operation.to_owned(), header: header.clone(), sections: HashMap::new(), page_indexes: HashMap::new() });
+                }
+                Some("input_page") => {
+                    let Some(pending) = pending_input.as_mut() else { continue; };
+                    match append_input_page(pending, &value) {
+                        Ok(ack) => { let _ = write_frame(&ack); }
+                        Err(_) => { let _ = write_frame(&json!({"protocol":WORKER_PROTOCOL,"type":"error","taskId":task_id,"code":"invalid_request"})); break; }
+                    }
+                }
+                Some("input_complete") => {
+                    let Some(pending) = pending_input.take() else { continue; };
+                    match finish_input(pending) {
+                        Ok((task_id, operation, request)) => if sender.send(WorkerCommand::Run(task_id, operation, request)).is_err() { break; },
+                        Err(_) => { let _ = write_frame(&json!({"protocol":WORKER_PROTOCOL,"type":"error","taskId":task_id,"code":"invalid_request"})); break; }
+                    }
+                }
+                Some("result_ack") => {
+                    let Some(section) = value["section"].as_str() else { continue; };
+                    let Some(page_index) = value["pageIndex"].as_u64() else { continue; };
+                    let _ = ack_sender.send((task_id, section.to_owned(), page_index));
                 }
                 Some("cancel") => {
                     if let Some((current, flag)) = &*reader_active.lock().unwrap()
@@ -88,10 +238,28 @@ fn worker() -> Result<(), String> {
     });
     while let Ok(command) = receiver.recv() {
         match command {
-            WorkerCommand::Run(task_id, request) => {
+            WorkerCommand::Run(task_id, operation, request) => {
                 let canceled = Arc::new(AtomicBool::new(false));
                 *active.lock().unwrap() = Some((task_id.clone(), Arc::clone(&canceled)));
-                let frame = match synthesis_metrics::compute(request, &canceled) {
+                let computed = match operation.as_str() {
+                    METRICS_OPERATION => serde_json::from_value(request)
+                        .map_err(|_| "invalid_request")
+                        .and_then(|request| synthesis_metrics::compute(request, &canceled).map(|result| serde_json::to_value(result).unwrap())),
+                    synthesis_protocol::TAG_VOCABULARY_VALIDATE_OPERATION | synthesis_protocol::TAG_VOCABULARY_INDEX_OPERATION => synthesis_tag_vocabulary::compute(&operation, request, &canceled),
+                    synthesis_protocol::CONCEPT_KB_INDEX_OPERATION | synthesis_protocol::CONCEPT_KB_QUERY_OPERATION => synthesis_concept_kb::compute(&operation, request, &canceled),
+                    synthesis_protocol::TOPIC_GRAPH_INDEX_OPERATION => synthesis_topic_graph::compute(request, &canceled),
+                    _ => Err("invalid_request"),
+                };
+                if computed.is_ok() && deterministic_operation(&operation) {
+                    let result = computed.unwrap();
+                    let outcome = write_paged_result(&task_id, &operation, result, &ack_receiver);
+                    *active.lock().unwrap() = None;
+                    if let Err(code) = outcome {
+                        write_frame(&json!({"protocol":WORKER_PROTOCOL,"type":"error","taskId":task_id,"code":code})).map_err(|error| error.to_string())?;
+                    }
+                    continue;
+                }
+                let frame = match computed {
                     Ok(result) => {
                         json!({"protocol":WORKER_PROTOCOL,"type":"result","taskId":task_id,"result":result})
                     }

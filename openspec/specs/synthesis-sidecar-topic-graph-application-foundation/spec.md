@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-sidecar-topic-graph-application-foundation Specification
+
+## Purpose
+Defines the application-level foundation for the Synthesis sidecar topic graph component, including its service boundary, lifecycle, and integration with the sidecar runtime.
+
+## Requirements
 
 ### Requirement: Private sidecar owns an isolated Topic Graph aggregate
+
 The Synthesis sidecar SHALL persist an isolated Topic Graph aggregate containing nodes, edges, review items, application state, and last-good index state without reading or mutating production storage.
 
 #### Scenario: Service restarts after Topic Graph mutations
@@ -9,6 +15,7 @@ The Synthesis sidecar SHALL persist an isolated Topic Graph aggregate containing
 - **AND** production database, canonical files and projection registry SHALL remain untouched.
 
 ### Requirement: Private Topic Graph contracts are strict and bounded
+
 The private Topic Graph application SHALL accept and return versioned JSON-safe DTOs with bounded collections, deterministic ordering, unique identities, valid references, stable structured codes, and strict field rebuilding.
 
 #### Scenario: Malformed or oversized request arrives
@@ -16,6 +23,7 @@ The private Topic Graph application SHALL accept and return versioned JSON-safe 
 - **THEN** the request SHALL fail before repository mutation or engine execution.
 
 ### Requirement: Topic Graph mutations use manifest compare-and-swap
+
 Snapshot replacement, node/edge upsert, proposal ingestion, relation/review transitions and deletion SHALL construct and validate a detached candidate and promote it only while the expected manifest remains active.
 
 #### Scenario: Mutation or manifest check fails
@@ -23,6 +31,7 @@ Snapshot replacement, node/edge upsert, proposal ingestion, relation/review tran
 - **THEN** all aggregate rows, application revision, manifest, stale marker, and last-good index state SHALL remain unchanged.
 
 ### Requirement: Proposal ingestion applies deterministic Topic Graph policy
+
 The private application SHALL map proposal types to canonical relation tuples, create suggested edges for valid proposals, create review items for low-confidence proposals, reject unknown targets, self edges and hierarchy cycles, and preserve prior confirmed or rejected decisions.
 
 #### Scenario: Valid high-confidence proposal arrives
@@ -36,6 +45,7 @@ The private application SHALL map proposal types to canonical relation tuples, c
 - **THEN** the application SHALL preserve current graph facts and return a structured diagnostic.
 
 ### Requirement: Relation and review transitions are explicit and atomic
+
 The private application SHALL support suggested-edge confirm/reject and open-review approve-suggested/reject transitions with stable target validation and one aggregate manifest update.
 
 #### Scenario: Review is approved as suggested
@@ -48,6 +58,7 @@ The private application SHALL support suggested-edge confirm/reject and open-rev
 - **THEN** its rejected state and resolution metadata SHALL commit atomically without overwriting a prior closed decision.
 
 ### Requirement: Topic deletion preserves two-stage lifecycle
+
 Topic relation deletion SHALL first mark related edges and review items deleted, and explicit purge SHALL later remove deleted topic nodes and every related edge/review row.
 
 #### Scenario: Topic relations are deleted and purged
@@ -57,6 +68,7 @@ Topic relation deletion SHALL first mark related edges and review items deleted,
 - **THEN** eligible deleted nodes and all related edge/review rows SHALL be removed atomically.
 
 ### Requirement: Topic Graph index promotion is manifest guarded
+
 The private application SHALL construct the Topic Graph index through the bounded sidecar worker and promote it only while its source manifest remains active.
 
 #### Scenario: Index result is superseded or invalid
@@ -65,6 +77,7 @@ The private application SHALL construct the Topic Graph index through the bounde
 - **AND** aggregate mutation state SHALL remain authoritative and stale until a valid rebuild succeeds.
 
 ### Requirement: Private Topic Graph lifecycle drains before persistence closes
+
 The private Topic Graph application SHALL reject new mutations after admission stops and SHALL cancel or drain active computation before its repository and worker dependencies close.
 
 #### Scenario: Service shutdown begins during Topic Graph work
@@ -73,6 +86,7 @@ The private Topic Graph application SHALL reject new mutations after admission s
 - **AND** repository closure SHALL occur only after the application reaches a terminal drained state.
 
 ### Requirement: Topic Graph foundation remains production disconnected
+
 The private Topic Graph foundation SHALL NOT add a public sidecar capability, authenticated route, `SynthesisClient` method, automatic invocation, Zotero adapter, production persistence owner, checkpoint/import behavior, canonical delivery, discovery cascade, Workbench filtering, or WebDAV synchronization.
 
 #### Scenario: Foundation is packaged

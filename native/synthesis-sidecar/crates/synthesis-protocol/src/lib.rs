@@ -6,6 +6,15 @@ use std::collections::HashSet;
 
 pub const WORKER_PROTOCOL: &str = "synthesis-rust-worker.v1";
 pub const METRICS_OPERATION: &str = "citation_graph_metrics.v1";
+pub const TAG_VOCABULARY_VALIDATE_OPERATION: &str = "tag_vocabulary_validate.v1";
+pub const TAG_VOCABULARY_INDEX_OPERATION: &str = "tag_vocabulary_index.v1";
+pub const CONCEPT_KB_INDEX_OPERATION: &str = "concept_kb_index.v1";
+pub const CONCEPT_KB_QUERY_OPERATION: &str = "concept_kb_query.v1";
+pub const TOPIC_GRAPH_INDEX_OPERATION: &str = "topic_graph_index.v1";
+
+pub fn deterministic_operation(value: &str) -> bool {
+    matches!(value, TAG_VOCABULARY_VALIDATE_OPERATION | TAG_VOCABULARY_INDEX_OPERATION | CONCEPT_KB_INDEX_OPERATION | CONCEPT_KB_QUERY_OPERATION | TOPIC_GRAPH_INDEX_OPERATION)
+}
 pub const METRICS_VERSION: u8 = 2;
 pub const NODE_MAX: usize = 5_000;
 pub const EDGE_MAX: usize = 20_000;

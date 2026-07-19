@@ -16,6 +16,18 @@ import {
   computeSynthesisCitationGraphMetrics,
   rebuildSynthesisCitationGraphMetricsRequest,
 } from "../packages/synthesis-engine/src/index.js";
+import {
+  createInProcessSynthesisTagVocabularyEngine,
+  rebuildSynthesisTagVocabularyValidationRequest,
+} from "../packages/synthesis-engine/src/tagVocabulary.js";
+import {
+  createInProcessSynthesisConceptKbIndexEngine,
+  rebuildSynthesisConceptKbQueryRequest,
+} from "../packages/synthesis-engine/src/conceptKbIndex.js";
+import {
+  createInProcessSynthesisTopicGraphIndexEngine,
+  rebuildSynthesisTopicGraphIndexRequest,
+} from "../packages/synthesis-engine/src/topicGraphIndex.js";
 
 const CONTRACT_SET_ROOT = path.resolve(
   import.meta.dirname,
@@ -51,6 +63,7 @@ type NegativeCase = {
   oracle: string;
   inputJson: string;
   errorCode: string;
+  schemaRef?: string;
 };
 
 export type SynthesisCrossLanguageContractCheck = {
@@ -99,7 +112,7 @@ function stableErrorCode(error: unknown) {
   return match?.[1] || "unknown_error";
 }
 
-function runOracle(oracle: string, inputJson: string) {
+async function runOracle(oracle: string, inputJson: string) {
   const input = JSON.parse(inputJson) as unknown;
   switch (oracle) {
     case "canonicalJson":
@@ -119,6 +132,18 @@ function runOracle(oracle: string, inputJson: string) {
       return computeSynthesisCitationGraphMetrics(
         rebuildSynthesisCitationGraphMetricsRequest(input),
       );
+    case "tagVocabularyValidationResult": {
+      const request = rebuildSynthesisTagVocabularyValidationRequest(input);
+      return createInProcessSynthesisTagVocabularyEngine().validate(request);
+    }
+    case "conceptKbQueryResult": {
+      const request = rebuildSynthesisConceptKbQueryRequest(input);
+      return createInProcessSynthesisConceptKbIndexEngine().query(request);
+    }
+    case "topicGraphIndexResult": {
+      const request = rebuildSynthesisTopicGraphIndexRequest(input);
+      return createInProcessSynthesisTopicGraphIndexEngine().buildIndex(request);
+    }
     default:
       throw new Error(`unknown_oracle:${oracle}`);
   }
@@ -135,7 +160,7 @@ function validatorForRef(
   return id ? ajv.getSchema(`${id}#${fragment}`) : undefined;
 }
 
-export function checkSynthesisCrossLanguageContracts(): SynthesisCrossLanguageContractCheck {
+export async function checkSynthesisCrossLanguageContracts(): Promise<SynthesisCrossLanguageContractCheck> {
   const errors: string[] = [];
   const manifest = readJson("manifest.json") as Manifest;
   const expectedSchemas = manifest.schemas.map((entry) => entry.path).sort();
@@ -210,7 +235,7 @@ export function checkSynthesisCrossLanguageContracts(): SynthesisCrossLanguageCo
 
   for (const corpusCase of positiveCorpus.cases) {
     try {
-      const output = runOracle(corpusCase.oracle, corpusCase.inputJson);
+      const output = await runOracle(corpusCase.oracle, corpusCase.inputJson);
       if (
         canonicalizeSynthesisContractJson(output) !==
         canonicalizeSynthesisContractJson(corpusCase.output)
@@ -238,8 +263,17 @@ export function checkSynthesisCrossLanguageContracts(): SynthesisCrossLanguageCo
   }
 
   for (const corpusCase of negativeCorpus.cases) {
+    if (corpusCase.schemaRef) {
+      const validate = validatorForRef(ajv, schemas, corpusCase.schemaRef);
+      if (!validate) {
+        errors.push(`negative_schema_missing:${corpusCase.id}`);
+      } else if (validate(JSON.parse(corpusCase.inputJson))) {
+        errors.push(`negative_schema_admitted:${corpusCase.id}`);
+      }
+      continue;
+    }
     try {
-      runOracle(corpusCase.oracle, corpusCase.inputJson);
+      await runOracle(corpusCase.oracle, corpusCase.inputJson);
       errors.push(`negative_case_admitted:${corpusCase.id}`);
     } catch (error) {
       const actual = stableErrorCode(error);
@@ -278,7 +312,7 @@ if (
   process.argv[1] &&
   path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))
 ) {
-  const result = checkSynthesisCrossLanguageContracts();
+  const result = await checkSynthesisCrossLanguageContracts();
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   if (!result.ok) process.exitCode = 1;
 }

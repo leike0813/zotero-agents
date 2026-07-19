@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-workbench-tag-import-command-client-consumer Specification
+
+## Purpose
+Defines the Synthesis Workbench client consumer contract for tag import command operations, specifying how Workbench reads and reacts to client-side state changes.
+
+## Requirements
 
 ### Requirement: Strict Tag import command contracts
+
 The system SHALL expose Tag import preview and apply through strict JSON-safe request objects and SHALL return opaque JSON-safe object results.
 
 #### Scenario: Preview request preserves raw payload
@@ -16,6 +22,7 @@ The system SHALL expose Tag import preview and apply through strict JSON-safe re
 - **THEN** the client rejects it with `invalid_request` before resolving or invoking the legacy port
 
 ### Requirement: Stable adapter result and error behavior
+
 The in-process adapter SHALL invoke narrow optional preview and apply ports, normalize successful results as JSON objects, and use stable client error categories.
 
 #### Scenario: Domain import results remain successful
@@ -27,6 +34,7 @@ The in-process adapter SHALL invoke narrow optional preview and apply ports, nor
 - **THEN** the adapter maps the outcome respectively to `unavailable`, the preserved client error, `storage_busy`, or `internal`
 
 ### Requirement: Workbench routes Tag import through the client
+
 The Workbench SHALL lazily resolve the default Synthesis client inside each Tag import single-flight closure and SHALL not directly resolve the legacy service from the preview or apply branches.
 
 #### Scenario: Preview aliases retain shared orchestration
@@ -46,6 +54,7 @@ The Workbench SHALL lazily resolve the default Synthesis client inside each Tag 
 - **THEN** the Workbench invalidates only the Tags surface without confirmation, deferred start, progress callback, streaming, or diagnostic transformation
 
 ### Requirement: Service boundary remains stable
+
 The migration SHALL preserve the existing Tag import domain ownership and Synthesis service boundary inventory.
 
 #### Scenario: Existing domain state remains service-owned

@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-sidecar-citation-graph-application-foundation Specification
+
+## Purpose
+Defines the application-level foundation for the Synthesis sidecar citation graph component, including its service boundary, lifecycle, and integration with the sidecar runtime.
+
+## Requirements
 
 ### Requirement: Citation Graph application contracts are strict and bounded
+
 The application SHALL rebuild exact `inspect`, `readSlice`, `readMetrics`, `readLayout`, `rebuildFull`, `recomputeLayout`, `refreshMetrics`, `stopAdmission`, and `shutdown` inputs and outputs, SHALL reject unknown fields, and SHALL enforce the existing slice bounds plus a maximum metrics page size of 100.
 
 #### Scenario: Invalid input is rejected before work begins
@@ -8,6 +14,7 @@ The application SHALL rebuild exact `inspect`, `readSlice`, `readMetrics`, `read
 - **THEN** the application returns `invalid_request` or rejects the read without repository mutation or worker admission
 
 ### Requirement: Inspection exposes bounded projection state
+
 The application SHALL expose only the active graph hash, canonical input hash, metrics hash, node and edge counts, and layout/metrics readiness; it SHALL NOT expose graph payloads, database details, paths, or production identities.
 
 #### Scenario: Empty and ready inspection remain constant-size
@@ -15,6 +22,7 @@ The application SHALL expose only the active graph hash, canonical input hash, m
 - **THEN** the result contains only strict state descriptors and bounded counts independent of graph size
 
 ### Requirement: Full rebuild uses canonical input identity and graph compare-and-swap
+
 The application SHALL accept only a strict full-scope build-engine request, compute its canonical input hash, allow `expectedGraphHash:null` only when no active graph exists, require updates to match the active graph hash, and return `unchanged` for an identical input hash unless `force:true`.
 
 #### Scenario: First creation requires null basis
@@ -30,6 +38,7 @@ The application SHALL accept only a strict full-scope build-engine request, comp
 - **THEN** the application returns `unchanged` without worker execution
 
 ### Requirement: Graph promotion is atomic and preserves last-good state
+
 The repository SHALL validate the expected active basis and replace application state, nodes, edges, ownership, incoming indexes, and light metrics in one SQLite transaction. A build failure, invalid worker result, basis supersession, transaction failure, or pre-promotion receipt failure SHALL preserve the complete last-good graph.
 
 #### Scenario: Transaction failure rolls back full replacement
@@ -41,6 +50,7 @@ The repository SHALL validate the expected active basis and replace application 
 - **THEN** the stale result is discarded as `basis_mismatch` and does not overwrite the winner
 
 ### Requirement: Complex metrics follow graph commit semantics
+
 After graph promotion, the application SHALL compute complex metrics through the worker and SHALL promote them only if the graph hash remains active. A metrics or terminal operation receipt failure after graph commit SHALL keep the graph committed and return success with a stable warning.
 
 #### Scenario: Post-commit metrics failure does not roll back graph
@@ -52,6 +62,7 @@ After graph promotion, the application SHALL compute complex metrics through the
 - **THEN** the result is not promoted and the active graph metrics projection is unchanged
 
 ### Requirement: Layout recomputation is explicit and basis-bound
+
 Full rebuild SHALL NOT automatically compute layout. `recomputeLayout` SHALL execute the existing layout engine for a strict preset and bounded scope and SHALL persist the result only while its graph hash remains active.
 
 #### Scenario: Rebuild leaves layout pending
@@ -63,6 +74,7 @@ Full rebuild SHALL NOT automatically compute layout. `recomputeLayout` SHALL exe
 - **THEN** the stale layout is not persisted or returned for the active graph
 
 ### Requirement: Reads are stable, bounded, and projection-backed
+
 Slice reads SHALL reuse existing depth, direction, role, node, and edge bounds; metrics reads SHALL use stable ordering and pagination with at most 100 records; layout reads SHALL select persisted coordinates by preset and bounded scope. No read SHALL invoke a graph kernel or require an in-memory full graph mirror.
 
 #### Scenario: Stable pagination survives restart
@@ -74,6 +86,7 @@ Slice reads SHALL reuse existing depth, direction, role, node, and edge bounds; 
 - **THEN** the bounded result reports not-ready without falling back to production data or on-demand main-process computation
 
 ### Requirement: Mutation admission is globally serialized
+
 At most one Citation Graph mutation SHALL be active globally. A competing mutation SHALL immediately return `graph_application_busy`, while reads, health, handshake, stop admission, and shutdown remain responsive.
 
 #### Scenario: Competing mutation fails fast
@@ -81,6 +94,7 @@ At most one Citation Graph mutation SHALL be active globally. A competing mutati
 - **THEN** the second request returns `graph_application_busy` without queueing or changing state
 
 ### Requirement: Compute remains worker-owned and bounded
+
 Build, layout, and metrics kernels SHALL execute only through the existing global single-worker, two-item-queue compute service with its five-second deadline and fuse. Full rebuild SHALL enforce the existing 8 MiB request, 250,000 request-node, and 50,000 result-node admission limits and SHALL NOT automatically switch to packed or streaming transfer.
 
 #### Scenario: Worker and admission failures are stable
@@ -88,6 +102,7 @@ Build, layout, and metrics kernels SHALL execute only through the existing globa
 - **THEN** the mutation returns `worker_busy`, `worker_failed`, or `invalid_request` without main-process kernel execution or projection mutation
 
 ### Requirement: Lifecycle preserves repository ownership
+
 The service SHALL construct the private Citation Graph application after isolated repository recovery. Shutdown SHALL stop mutation admission, cancel and await active compute, and then close the repository; persisted application state SHALL be reconstructed on restart or fail closed as `repair_required` when schema/state is corrupt.
 
 #### Scenario: Shutdown rejects new mutation work
@@ -99,9 +114,9 @@ The service SHALL construct the private Citation Graph application after isolate
 - **THEN** inspection and bounded reads expose the same hashes, counts, and persisted projections without rebuilding
 
 ### Requirement: Shadow composition remains private and production-disconnected
+
 The service SHALL NOT advertise an HTTP/RPC graph capability, accept production paths, route `SynthesisClient` calls, invoke the shadow application automatically, or change production graph repositories, basis capture, layout/metrics worker routes, or promotion. Governance SHALL retain `mutationEnabled:false`, 108 public methods, one direct consumer, eight engine owners, and two production worker routes.
 
 #### Scenario: Packaging does not imply production cutover
 - **WHEN** the private application is built and included in the runtime bundle
 - **THEN** public discovery and production ownership inventories remain unchanged while direct fixture composition can exercise the shadow application
-

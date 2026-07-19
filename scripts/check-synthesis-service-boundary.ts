@@ -69,7 +69,7 @@ const WORKER_THREAD_ALLOWLIST = new Set([
   "apps/synthesis-service/src/computeWorkerPool.ts",
 ]);
 const CHILD_PROCESS_ALLOWLIST = new Set([
-  "apps/synthesis-service/src/rustMetricsWorkerTransport.ts",
+  "apps/synthesis-service/src/rustComputeWorkerTransport.ts",
 ]);
 const NODE_SQLITE_ALLOWLIST = new Set([
   "apps/synthesis-service/src/repositoryNodeSqlite.ts",

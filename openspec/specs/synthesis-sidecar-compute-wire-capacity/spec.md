@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-sidecar-compute-wire-capacity Specification
+
+## Purpose
+Defines the synthesis sidecar compute wire capacity capability for the Synthesis plugin, specifying its service boundary, integration contracts, and runtime behavior.
+
+## Requirements
 
 ### Requirement: Compute transport has independent bounded envelopes
+
 The sidecar SHALL limit complete UTF-8 JSON envelopes to 8 MiB for compute
 requests and responses while general and system requests remain limited to
 1 MiB.
@@ -14,6 +20,7 @@ requests and responses while general and system requests remain limited to
 - **THEN** the service rejects it with `request_body_too_large` and does not dispatch it
 
 ### Requirement: Oversized requests are rejected before dispatch
+
 The compute client and service SHALL enforce the request byte limit before the
 request can consume worker scheduling capacity.
 
@@ -30,6 +37,7 @@ request can consume worker scheduling capacity.
 - **THEN** the service stops collecting it, returns `request_body_too_large`, and never dispatches it
 
 ### Requirement: Compute JSON structure remains bounded
+
 The service SHALL limit compute request JSON to 250,000 structural nodes and
 compute response JSON to 50,000 structural nodes while retaining depth 32 and
 64 KiB single-string limits.
@@ -43,6 +51,7 @@ compute response JSON to 50,000 structural nodes while retaining depth 32 and
 - **THEN** strict engine DTO rebuilding rejects it without changing the wire limits
 
 ### Requirement: Compute responses are symmetrically bounded
+
 The server and compute client SHALL enforce an 8 MiB complete response envelope
 before writing and before parsing respectively.
 
@@ -55,6 +64,7 @@ before writing and before parsing respectively.
 - **THEN** the client aborts reading and reports `response_body_too_large`
 
 ### Requirement: Body collection is abort-aware
+
 The service SHALL stop body collection and prevent dispatch when the client
 disconnects before a complete request has been validated.
 
@@ -63,6 +73,7 @@ disconnects before a complete request has been validated.
 - **THEN** the service releases buffered state and does not enqueue compute work
 
 ### Requirement: Wire and engine capacity are separate contracts
+
 Documentation and validation SHALL state that 8 MiB is the guaranteed compute
 wire envelope and does not guarantee every theoretical maximum-string DTO
 allowed by engine count bounds.

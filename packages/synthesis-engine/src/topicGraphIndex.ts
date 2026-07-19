@@ -18,6 +18,7 @@ import {
   type SynthesisTopicGraphIndexRequest,
   type SynthesisTopicGraphIndexResult,
 } from "../../synthesis-contracts/src/topicGraphCore.ts";
+import { compareSynthesisContractStrings } from "../../synthesis-contracts/src/canonicalJson.ts";
 
 export * from "../../synthesis-contracts/src/topicGraphCore.ts";
 
@@ -265,7 +266,7 @@ function rebuildStringResult(
   if (new Set(rebuilt).size !== rebuilt.length) {
     invalid(`${location} contains duplicate identifiers`);
   }
-  const sorted = [...rebuilt].sort((left, right) => left.localeCompare(right));
+  const sorted = [...rebuilt].sort(compareSynthesisContractStrings);
   if (JSON.stringify(rebuilt) !== JSON.stringify(sorted)) {
     invalid(`${location} must be deterministically sorted`);
   }
@@ -295,10 +296,14 @@ export function rebuildSynthesisTopicGraphIndexRequest(
   }
   const nodes = rawNodes
     .map((entry, index) => rebuildNode(entry, index, resolved))
-    .sort((left, right) => left.topicId.localeCompare(right.topicId));
+    .sort((left, right) =>
+      compareSynthesisContractStrings(left.topicId, right.topicId),
+    );
   const edges = rawEdges
     .map((entry, index) => rebuildEdge(entry, index, resolved))
-    .sort((left, right) => left.edgeId.localeCompare(right.edgeId));
+    .sort((left, right) =>
+      compareSynthesisContractStrings(left.edgeId, right.edgeId),
+    );
   uniqueIds(nodes, (entry) => entry.topicId, "nodes");
   uniqueIds(edges, (entry) => entry.edgeId, "edges");
   return {
@@ -357,7 +362,7 @@ function computeIndex(
   const roots = request.nodes
     .filter((node) => node.isRoot || node.level === "top")
     .map((node) => node.topicId)
-    .sort((left, right) => left.localeCompare(right));
+    .sort(compareSynthesisContractStrings);
   checkpoint(options, "roots", processedCount, totalCount, true);
   const unplaced = request.nodes
     .filter(
@@ -368,7 +373,7 @@ function computeIndex(
         !parented.has(node.topicId),
     )
     .map((node) => node.topicId)
-    .sort((left, right) => left.localeCompare(right));
+    .sort(compareSynthesisContractStrings);
   checkpoint(options, "unplaced", processedCount, totalCount, true);
   checkpoint(options, "complete", totalCount, totalCount, true);
   return {

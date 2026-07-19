@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-concept-kb-index-engine Specification
+
+## Purpose
+Defines the Synthesis concept kb index engine, specifying its processing pipeline, input/output contracts, and integration with the parent capability.
+
+## Requirements
 
 ### Requirement: Concept KB index engine SHALL use strict environment-neutral contracts
+
 
 The engine SHALL expose canonical JSON-safe index and query requests and
 results with explicit contract and algorithm versions.
@@ -18,6 +24,7 @@ results with explicit contract and algorithm versions.
 - **THEN** rebuilding SHALL reject it before application use.
 
 ### Requirement: Concept KB index engine SHALL preserve current index semantics
+
 
 The engine SHALL deterministically build Concept KB search rows and overlay
 entries from concept, sense, and alias source rows.
@@ -37,6 +44,7 @@ entries from concept, sense, and alias source rows.
 
 ### Requirement: Concept KB index engine SHALL preserve bounded query semantics
 
+
 The engine SHALL return exact concept matches, exact alias matches, candidate
 senses, and ambiguity derived from unique matching concept identifiers.
 
@@ -48,6 +56,7 @@ senses, and ambiguity derived from unique matching concept identifiers.
 
 ### Requirement: Concept KB index engine SHALL be bounded and cancellable
 
+
 The engine SHALL cap concepts at 25,000, senses at 100,000, aliases at 250,000,
 per-concept aliases at 256, query labels at 100, and strings at 4,096 code
 units.
@@ -58,6 +67,7 @@ units.
 - **THEN** computation SHALL stop without returning a partial result.
 
 ### Requirement: Concept KB index engine SHALL be process-portable
+
 
 The engine source SHALL not import plugin, Zotero, repository, persistence,
 filesystem, runtime, DOM, or Node-only modules.

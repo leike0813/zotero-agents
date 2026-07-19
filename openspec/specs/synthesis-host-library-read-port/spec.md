@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-host-library-read-port Specification
+
+## Purpose
+Defines the Synthesis Host port for host library read, specifying the injected interface that the application service uses to delegate to Host-owned implementation.
+
+## Requirements
 
 ### Requirement: Host library reads are bounded and JSON-safe
+
 The Synthesis application SHALL read Zotero library metadata through an environment-neutral Host port. Page requests SHALL default to 50 rows, reject limits above 100, and use opaque cursors. Results SHALL contain only JSON-safe bibliographic summaries and continuation metadata, never Zotero objects, functions, notes, payloads, or local paths.
 
 #### Scenario: Library page is read
@@ -15,6 +21,7 @@ The Synthesis application SHALL read Zotero library metadata through an environm
 - **AND** the failure SHALL use the stable invalid-request classification
 
 ### Requirement: Stable-ref lookup replaces direct item access
+
 Point reads SHALL accept at most 100 stable paper refs and SHALL return found summaries plus missing refs. Synthesis query and workflow-input paths SHALL NOT read Zotero objects or call Zotero item methods directly.
 
 #### Scenario: Known and missing refs are requested
@@ -23,6 +30,7 @@ Point reads SHALL accept at most 100 stable paper refs and SHALL return found su
 - **AND** the application SHALL not infer identities from titles or display text
 
 ### Requirement: Default composition owns the Host adapter
+
 The complete service SHALL accept a Host read port rather than construct a Zotero adapter. The single legacy client composition root SHALL own the default service instance, adapter injection, caching, and invalidation. The public service SHALL retain 128 methods and exactly one production direct consumer.
 
 #### Scenario: Static boundary is checked

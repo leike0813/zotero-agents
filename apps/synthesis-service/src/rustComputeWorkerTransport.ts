@@ -5,17 +5,17 @@ import { fileURLToPath } from "node:url";
 
 const WORKER_PROTOCOL = "synthesis-rust-worker.v1";
 
-export type RustMetricsWorkerTransportOptions = {
+export type RustComputeWorkerTransportOptions = {
   executablePath: string;
   arguments?: string[];
 };
 
-export class RustMetricsWorkerTransport extends EventEmitter {
+export class RustComputeWorkerTransport extends EventEmitter {
   readonly child: ChildProcessWithoutNullStreams;
   private ended = false;
   private ready = false;
 
-  constructor(options: RustMetricsWorkerTransportOptions) {
+  constructor(options: RustComputeWorkerTransportOptions) {
     super();
     this.child = spawn(
       options.executablePath,
@@ -57,7 +57,7 @@ export class RustMetricsWorkerTransport extends EventEmitter {
 
   postMessage(message: Record<string, unknown>) {
     if (this.ended || !this.child.stdin.writable) {
-      throw new Error("rust_metrics_worker_unavailable");
+      throw new Error("rust_compute_worker_unavailable");
     }
     this.child.stdin.write(
       `${JSON.stringify({ protocol: WORKER_PROTOCOL, ...message })}\n`,
@@ -74,7 +74,7 @@ export class RustMetricsWorkerTransport extends EventEmitter {
   }
 }
 
-export function defaultRustMetricsWorkerPath() {
+export function defaultRustComputeWorkerPath() {
   const relative = import.meta.url.endsWith(".ts")
     ? `../../../native/synthesis-sidecar/target/debug/synthesis-sidecar${process.platform === "win32" ? ".exe" : ""}`
     : `../../../native/synthesis-sidecar/synthesis-sidecar${process.platform === "win32" ? ".exe" : ""}`;

@@ -1,4 +1,9 @@
-## ADDED Requirements
+# synthesis-webdav-durable-sync Specification
+
+## Purpose
+Define WebDAV as the sole Synthesis durable-sync transport, including bundle publication, autosync, bounded retry, lifecycle cancellation, import boundaries, and fixed startup cleanup.
+
+## Requirements
 
 ### Requirement: WebDAV is the only durable-sync transport
 
@@ -143,4 +148,3 @@ be safe.
 
 - **WHEN** the fixed directories or preferences are already absent
 - **THEN** cleanup SHALL complete successfully without recreating them.
-

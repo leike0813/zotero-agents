@@ -1,7 +1,6 @@
 import { assert } from "chai";
 import fs from "fs/promises";
 import path from "path";
-import { Worker } from "node:worker_threads";
 import {
   SYNTHESIS_TAG_VOCABULARY_ABBREV_MAX,
   SYNTHESIS_TAG_VOCABULARY_CONTRACT_VERSION,
@@ -254,37 +253,6 @@ describe("Synthesis Tag Vocabulary engine", function () {
     assert.include(checkpoints, "start:0");
     assert.include(checkpoints, "entries:1");
     assert.notInclude(checkpoints, "complete:3");
-  });
-
-  it("returns the same canonical results through the Node worker canary", async function () {
-    const validation = rebuildSynthesisTagVocabularyValidationRequest(
-      JSON.parse(JSON.stringify(validationRequest())),
-    );
-    const index = rebuildSynthesisTagVocabularyIndexRequest(
-      JSON.parse(JSON.stringify(indexRequest())),
-    );
-    const direct = createInProcessSynthesisTagVocabularyEngine();
-    const expected = {
-      validation: direct.validate(validation),
-      index: direct.buildIndex(index),
-    };
-    const worker = new Worker(
-      new URL(
-        "../fixtures/synthesis-tag-vocabulary-engine-worker.ts",
-        import.meta.url,
-      ),
-      { execArgv: ["--import", "tsx"] },
-    );
-    try {
-      const actual = await new Promise<unknown>((resolve, reject) => {
-        worker.once("message", resolve);
-        worker.once("error", reject);
-        worker.postMessage({ validation, index });
-      });
-      assert.deepEqual(actual, expected);
-    } finally {
-      await worker.terminate();
-    }
   });
 
   it("keeps the engine source environment-neutral", async function () {

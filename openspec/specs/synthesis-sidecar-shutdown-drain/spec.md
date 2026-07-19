@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-sidecar-shutdown-drain Specification
+
+## Purpose
+Defines the synthesis sidecar shutdown drain capability for the Synthesis plugin, specifying its service boundary, integration contracts, and runtime behavior.
+
+## Requirements
 
 ### Requirement: Topic application shutdown SHALL drain admitted work
+
 
 The Topic application SHALL stop new apply admission and wait for every apply
 admitted before shutdown to settle before its shutdown promise completes.
@@ -17,6 +23,7 @@ admitted before shutdown to settle before its shutdown promise completes.
 - **THEN** the application shutdown still settles after all other admitted work has settled
 
 ### Requirement: Service cleanup SHALL be failure-isolated
+
 
 The service SHALL attempt every admission stop, application drain, owner close,
 and terminal resource shutdown even when another cleanup step throws or rejects.
@@ -35,6 +42,7 @@ and terminal resource shutdown even when another cleanup step throws or rejects.
 - **AND** arbitrary error message content is not serialized
 
 ### Requirement: Listen rollback SHALL preserve the startup failure
+
 
 Post-composition listen rollback SHALL use the same failure-isolated owner
 cleanup and SHALL rethrow the original listen error after cleanup attempts.

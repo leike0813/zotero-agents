@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-citation-graph-layout-production-routing Specification
+
+## Purpose
+Defines the synthesis citation graph layout production routing capability for the Synthesis plugin, specifying its service boundary, integration contracts, and runtime behavior.
+
+## Requirements
 
 ### Requirement: Production layout computation uses the authenticated sidecar worker
+
 The production Synthesis composition SHALL execute Citation Graph layout through
 the authenticated sidecar compute worker and SHALL NOT execute that kernel
 in-process or fall back to an in-process engine.
@@ -16,6 +22,7 @@ in-process or fall back to an in-process engine.
 - **AND** it does not wait, poll, retry, start the runtime, or execute locally
 
 ### Requirement: Production routing preserves plugin data authority
+
 The plugin SHALL remain the sole owner of Citation Graph reads, basis checks,
 layout promotion, failure diagnostics, and previous-layout retention.
 
@@ -34,6 +41,7 @@ layout promotion, failure diagnostics, and previous-layout retention.
 - **AND** the previous layout remains available
 
 ### Requirement: Production routing validates runtime identity and lifecycle
+
 Each compute call SHALL resolve a fresh ready connection, validate response
 request/runtime identity, and honor the owning composition's AbortSignal.
 
@@ -47,6 +55,7 @@ request/runtime identity, and honor the owning composition's AbortSignal.
 - **AND** any late result cannot be promoted
 
 ### Requirement: Existing budget and client contracts remain stable
+
 Production routing SHALL retain the dispatch-before soft budget, use the fixed
 five-second compute deadline, and leave the public `SynthesisClient` graph API
 and DTOs unchanged.
@@ -58,4 +67,3 @@ and DTOs unchanged.
 #### Scenario: Dispatched compute exceeds its hard deadline
 - **WHEN** a sidecar compute request runs longer than five seconds
 - **THEN** it is canceled as `worker_timeout` and cannot be promoted
-

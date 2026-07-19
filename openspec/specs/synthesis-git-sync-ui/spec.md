@@ -1,9 +1,15 @@
-## REMOVED Requirements
+# synthesis-git-sync-ui Specification
 
-### Requirement: Dashboard does not expose Git Sync UI
+## Purpose
+Documents the retired Synthesis Git Sync Workbench UI. All Git Sync Workbench actions, status projections, and configuration UI have been removed. WebDAV Sync UI is the only sync projection in Workbench.
 
-**Reason**: The never-released Git Sync transport and all of its state are
-removed, so a Git-specific negative UI contract is no longer meaningful.
+## Requirements
 
-**Migration**: Workbench exposes only the WebDAV Sync projection and commands.
+### Requirement: Git Sync Workbench UI is retired
 
+Synthesis Workbench SHALL NOT render Git Sync status, actions, or configuration UI. All Git Sync Workbench projections have been removed without compatibility shims.
+
+#### Scenario: Workbench shows no Git Sync surface
+- **WHEN** Workbench builds its snapshot
+- **THEN** it SHALL NOT include Git Sync status, actions, or configuration rows
+- **AND** WebDAV Sync UI SHALL be the only sync projection.

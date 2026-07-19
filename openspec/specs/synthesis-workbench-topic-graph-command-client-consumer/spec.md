@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-workbench-topic-graph-command-client-consumer Specification
+
+## Purpose
+Defines the Synthesis Workbench client consumer contract for topic graph command operations, specifying how Workbench reads and reacts to client-side state changes.
+
+## Requirements
 
 ### Requirement: Workbench Topic Graph commands use a distinct client capability
+
 The Synthesis client SHALL expose an independent Topic Graph capability for projection rebuild, edge acceptance, edge rejection, and review action. The Workbench SHALL lazily resolve the default client and SHALL NOT call the corresponding legacy service methods directly.
 
 #### Scenario: Workbench applies a Topic Graph command
@@ -9,6 +15,7 @@ The Synthesis client SHALL expose an independent Topic Graph capability for proj
 - **AND** Topic Graph commands SHALL NOT be added to the Citation Graph `client.graph` capability
 
 ### Requirement: Topic Graph decision requests are strict and bounded
+
 An edge decision request SHALL contain a non-empty, trimmed `edgeId`. A review request SHALL contain a non-empty, trimmed `reviewId` and exactly `approve_suggested | reject`. Unknown JSON-safe fields SHALL NOT be forwarded. Rebuild SHALL be a no-argument command.
 
 #### Scenario: Edge decision request is valid
@@ -29,6 +36,7 @@ An edge decision request SHALL contain a non-empty, trimmed `edgeId`. A review r
 - **THEN** the adapter SHALL invoke the rebuild port without request data, callbacks, or streaming state
 
 ### Requirement: In-process Topic Graph commands normalize ports, results, and errors
+
 The in-process adapter SHALL depend on four narrow legacy Topic Graph ports. It SHALL validate and rebuild decision requests before resolving ports, normalize each returned value through the shared JSON-safe object path, reject a missing port with `unavailable`, preserve an existing client error and `storage_busy`, and normalize an ordinary exception or non-JSON result to `internal`.
 
 #### Scenario: Legacy Topic Graph command succeeds
@@ -49,6 +57,7 @@ The in-process adapter SHALL depend on four narrow legacy Topic Graph ports. It 
 - **AND** it SHALL NOT rewrite the object as a client error
 
 ### Requirement: Existing Workbench Topic Graph behavior is preserved
+
 The client-routed commands SHALL preserve identifier trimming, review action normalization, command single-flight, protected rebuild confirmation, deferred rebuild start, immediate mutation start, singular diagnostic handling, and existing surface invalidation. The client contract SHALL NOT carry progress callbacks or streaming state.
 
 #### Scenario: Topic Graph rebuild runs
@@ -73,6 +82,7 @@ The client-routed commands SHALL preserve identifier trimming, review action nor
 - **THEN** the Workbench SHALL invalidate Home, Topics, Graph, and Review
 
 ### Requirement: Migration boundaries remain stable
+
 This migration SHALL retain 125 public Synthesis service methods, exactly four direct legacy service consumers, and current process, repository, persistence, autosync, Host Bridge, MCP, and domain ownership.
 
 #### Scenario: Static service boundaries are checked

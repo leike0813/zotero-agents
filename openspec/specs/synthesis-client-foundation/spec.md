@@ -1,6 +1,23 @@
-## ADDED Requirements
+# synthesis-client-foundation Specification
+
+## Purpose
+Defines the Synthesis client foundation, specifying the core service wiring, dependency injection, and lifecycle integration.
+
+## Requirements
+
+### Requirement: Production layout routing is internal to client composition
+
+The production Synthesis client composition SHALL supply the sidecar-backed
+layout engine without changing public graph methods, request DTOs, result DTOs,
+or direct-consumer ownership.
+
+#### Scenario: Existing graph client invokes layout
+- **WHEN** a caller uses `SynthesisClient.graph.recomputeCitationGraphLayout`
+- **THEN** its public input and output contract remains unchanged
+- **AND** routing is selected only by internal production composition
 
 ### Requirement: Public synthesis client remains unchanged
+
 Routing metrics through the sidecar SHALL be an internal production-composition
 decision and SHALL NOT add a public `SynthesisClient` method or change Workbench
 callers.
@@ -10,6 +27,7 @@ callers.
 - **THEN** the public client surface remains at 108 methods with one direct consumer
 
 ### Requirement: Internal metrics adapter is fail closed
+
 The internal sidecar metrics engine adapter SHALL use the authenticated compute
 client and SHALL NOT expose retry or fallback behavior to production callers.
 

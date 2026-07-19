@@ -70,7 +70,7 @@ export async function checkSynthesisSidecarRuntimeXpi(root = process.cwd()) {
       `${prefix}/service/apps/synthesis-service/src/entrypoint.js`,
       `${prefix}/service/apps/synthesis-service/src/computeWorker.js`,
       `${prefix}/service/apps/synthesis-service/src/computeWorkerPool.js`,
-      `${prefix}/service/apps/synthesis-service/src/rustMetricsWorkerTransport.js`,
+      `${prefix}/service/apps/synthesis-service/src/rustComputeWorkerTransport.js`,
       `${prefix}/service/native/synthesis-sidecar/synthesis-sidecar${
         target === "win32-x64" ? ".exe" : ""
       }`,

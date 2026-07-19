@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-host-representative-image-read-port Specification
+
+## Purpose
+Defines the Synthesis Host port for host representative image read, specifying the injected interface that the application service uses to delegate to Host-owned implementation.
+
+## Requirements
 
 ### Requirement: Representative image Host reads use a strict bounded DTO contract
+
 
 The system SHALL expose a representative-image Host read request containing only canonical `libraryId` and `noteKey` values, and SHALL return a canonical `absent`, `unavailable`, or `available` result without Zotero objects, note HTML, local paths, callbacks, or other non-JSON values.
 
@@ -16,6 +22,7 @@ The system SHALL expose a representative-image Host read request containing only
 
 ### Requirement: Representative image payloads and diagnostics are bounded
 
+
 The system SHALL limit decoded representative-image content to 2 MiB and SHALL limit result diagnostics to 20 entries, using shared contract constants as the single source of truth.
 
 #### Scenario: Available content exceeds the byte limit
@@ -29,6 +36,7 @@ The system SHALL limit decoded representative-image content to 2 MiB and SHALL l
 - **THEN** the contract SHALL reject that result.
 
 ### Requirement: Host adapter validates Zotero image ownership and bytes
+
 
 The legacy Host adapter SHALL resolve the requested note and descriptor attachment, verify that the attachment is an image child of that note, read bounded non-empty bytes from a valid attachment path, and return base64 content plus declared presentation/source metadata.
 
@@ -49,6 +57,7 @@ The legacy Host adapter SHALL resolve the requested note and descriptor attachme
 
 ### Requirement: Representative image pure logic remains environment-neutral
 
+
 Descriptor parsing and digest UI projection SHALL operate only on strings and representative-image DTOs and SHALL NOT import runtime persistence, access Zotero globals, resolve local paths, or perform file I/O.
 
 #### Scenario: Application code resolves an available Host result
@@ -57,6 +66,7 @@ Descriptor parsing and digest UI projection SHALL operate only on strings and re
 - **THEN** the pure projection SHALL produce the existing snake_case metadata and image data URL shape without consulting Host runtime state.
 
 ### Requirement: Composition makes representative image Host access explicit
+
 
 The default legacy Synthesis composition SHALL inject the Zotero representative-image read adapter, while readonly composition SHALL omit the port and the public `SynthesisService` method inventory SHALL remain unchanged.
 

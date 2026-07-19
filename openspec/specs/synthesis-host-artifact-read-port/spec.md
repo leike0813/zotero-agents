@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-host-artifact-read-port Specification
+
+## Purpose
+Defines the Synthesis Host port for host artifact read, specifying the injected interface that the application service uses to delegate to Host-owned implementation.
+
+## Requirements
 
 ### Requirement: Artifact discovery is hash-first and payload-free
+
 Artifact scanning SHALL return bounded pages of descriptors containing stable paper refs, artifact type, status, payload type, optional opaque locator, optional payload hash and estimated size, and bounded diagnostics. Scanning SHALL NOT return decoded payloads, note HTML, attachment paths, or Zotero objects.
 
 #### Scenario: Available and missing artifacts are scanned
@@ -9,6 +15,7 @@ Artifact scanning SHALL return bounded pages of descriptors containing stable pa
 - **AND** missing or decode-error artifacts SHALL carry status and diagnostics without a readable locator
 
 ### Requirement: Artifact payload reads are locator- and hash-guarded
+
 The Host SHALL read one artifact payload per request using a scan-issued opaque locator and expected hash. Available content SHALL be returned as typed JSON or text. Invalid locators SHALL fail before storage access. A current hash different from the expected hash SHALL return `stale` without returning mismatched content.
 
 #### Scenario: Matching payload is read
@@ -22,6 +29,7 @@ The Host SHALL read one artifact payload per request using a scan-issued opaque 
 - **AND** the stale payload SHALL NOT be consumed by the application
 
 ### Requirement: Reference refresh reads only changed payloads
+
 Reference refresh SHALL scan descriptors, compare hashes with persisted artifact sidecars, and read only changed available references plus their matching available citation-analysis companions. Unchanged descriptors SHALL cause no payload read. Missing and decode-error references SHALL stale prior raw references without attempting a payload read.
 
 #### Scenario: One reference artifact changed

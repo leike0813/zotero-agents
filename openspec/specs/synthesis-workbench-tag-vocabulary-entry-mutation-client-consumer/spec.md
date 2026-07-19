@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-workbench-tag-vocabulary-entry-mutation-client-consumer Specification
+
+## Purpose
+Defines the Synthesis Workbench client consumer contract for tag vocabulary entry mutation operations, specifying how Workbench reads and reacts to client-side state changes.
+
+## Requirements
 
 ### Requirement: Tag Vocabulary entry mutation contracts are strict and environment-neutral
+
 The system SHALL expose update and delete commands through `SynthesisClient.tags` using strict JSON-safe request DTOs and opaque `SynthesisTagCommandResult` responses without Workbench or persistence types.
 
 #### Scenario: Update request is accepted
@@ -20,6 +26,7 @@ The system SHALL expose update and delete commands through `SynthesisClient.tags
 - **THEN** the adapter validates before port resolution and preserves the established `invalid_request`, `unavailable`, known client error, `storage_busy`, `internal`, and invalid-result classifications
 
 ### Requirement: Entry updates are atomic and preserve canonical metadata
+
 The Tag Vocabulary domain SHALL read, mutate, validate, maintain references, and persist an update within one repository transaction.
 
 #### Scenario: Same-tag update succeeds
@@ -43,6 +50,7 @@ The Tag Vocabulary domain SHALL read, mutate, validate, maintain references, and
 - **THEN** the complete mutation, including reference maintenance, rolls back
 
 ### Requirement: Entry deletion is atomic and removes dangling references
+
 The Tag Vocabulary domain SHALL delete an entry and maintain dependent references within one repository transaction.
 
 #### Scenario: Existing entry is deleted
@@ -58,6 +66,7 @@ The Tag Vocabulary domain SHALL delete an entry and maintain dependent reference
 - **THEN** the complete deletion and reference cleanup roll back
 
 ### Requirement: Autosync observes committed mutations only
+
 The public Tag service SHALL execute both commands through `runCanonicalWriteWithAutosync` and SHALL notify autosync exactly once only after an actual canonical mutation commits.
 
 #### Scenario: Mutation commits
@@ -73,6 +82,7 @@ The public Tag service SHALL execute both commands through `runCanonicalWriteWit
 - **THEN** the committed mutation remains persisted and is not rolled back
 
 ### Requirement: Workbench routes entry mutations through the Tag client
+
 The Workbench SHALL lazily resolve the default Synthesis client inside the existing single-flight closure and SHALL invoke update and delete through `client.tags` without directly loading or saving the vocabulary.
 
 #### Scenario: Workbench updates an entry
@@ -88,6 +98,7 @@ The Workbench SHALL lazily resolve the default Synthesis client inside the exist
 - **THEN** the Workbench skips the command without resolving the client
 
 ### Requirement: Adjacent Synthesis boundaries remain unchanged
+
 The migration SHALL leave generic vocabulary save, staged/import/promotion/bootstrap/audit commands, Git/WebDAV Sync, Host Bridge, MCP, and persistence formats unchanged.
 
 #### Scenario: Boundary inventory is checked

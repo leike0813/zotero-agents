@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-citation-graph-build-engine Specification
+
+## Purpose
+Defines the Synthesis citation graph build engine, specifying its processing pipeline, input/output contracts, and integration with the parent capability.
+
+## Requirements
 
 ### Requirement: Graph build SHALL use a strict environment-neutral contract
+
 
 The Citation Graph build engine SHALL accept and return canonical JSON-safe DTOs containing only bounded resolved graph facts required for deterministic graph assembly.
 
@@ -22,6 +28,7 @@ The Citation Graph build engine SHALL accept and return canonical JSON-safe DTOs
 
 ### Requirement: Graph build SHALL preserve current graph semantics
 
+
 The engine SHALL deterministically merge node metadata, materialize resolved targets, build one edge per reference instance, aggregate source-target citations and roles, derive source ownership and incoming groups, and compute lightweight degree metrics.
 
 #### Scenario: Legacy paper graph is built
@@ -36,6 +43,7 @@ The engine SHALL deterministically merge node metadata, materialize resolved tar
 - **AND** application-owned timestamps and hashes SHALL remain outside the engine.
 
 ### Requirement: Graph build package SHALL remain process portable
+
 
 The graph build engine package SHALL NOT import Node, DOM, Zotero, plugin toolkit, application runtime, repository, filesystem, or application hashing capabilities.
 

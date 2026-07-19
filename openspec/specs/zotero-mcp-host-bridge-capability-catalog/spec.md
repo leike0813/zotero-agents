@@ -1,6 +1,12 @@
-## ADDED Requirements
+# zotero-mcp-host-bridge-capability-catalog Specification
+
+## Purpose
+Defines the zotero mcp host bridge capability catalog capability for the Synthesis plugin, specifying its service boundary, integration contracts, and runtime behavior.
+
+## Requirements
 
 ### Requirement: MCP uses the Host Bridge capability catalog exclusively
+
 MCP `tools/list` and `tools/call` SHALL derive tool definitions and handlers from the Host Bridge capability catalog. Production MCP protocol code SHALL NOT contain or consult a separate legacy tool registry or direct Synthesis service dispatcher.
 
 #### Scenario: MCP client lists tools
@@ -14,6 +20,7 @@ MCP `tools/list` and `tools/call` SHALL derive tool definitions and handlers fro
 - **AND** permission handling, queueing, summaries, structured content, and errors SHALL remain unchanged
 
 ### Requirement: MCP compatibility constants remain stable
+
 Public `ZOTERO_MCP_TOOL_*` constants SHALL retain their exported names and values even when the unreachable legacy registry is removed.
 
 #### Scenario: Existing caller imports a tool constant

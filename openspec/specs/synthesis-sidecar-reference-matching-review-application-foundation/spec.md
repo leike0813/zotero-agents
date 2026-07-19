@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-sidecar-reference-matching-review-application-foundation Specification
+
+## Purpose
+Defines the application-level foundation for the Synthesis sidecar reference matching review component, including its service boundary, lifecycle, and integration with the sidecar runtime.
+
+## Requirements
 
 ### Requirement: Matching and review contracts SHALL be strict and bounded
+
 The system SHALL expose JSON-safe private matching/review request, result, proposal-page, preparation, decision, state, and lifecycle DTOs that reject unknown fields, malformed identifiers, invalid states/actions, duplicate decisions, and values outside the existing matcher/application bounds.
 
 #### Scenario: Malformed matching input is rejected
@@ -8,6 +14,7 @@ The system SHALL expose JSON-safe private matching/review request, result, propo
 - **THEN** the application SHALL return or throw the stable strict-contract failure before engine or repository mutation
 
 ### Requirement: Matching SHALL use a two-stage basis-bound protocol
+
 The system SHALL prepare both matcher-engine passes from one materialized Host snapshot and captured active reference basis, then apply the prepared result only when the recaptured Host basis and active reference hash remain equal to the preparation.
 
 #### Scenario: Matching bases remain current
@@ -19,6 +26,7 @@ The system SHALL prepare both matcher-engine passes from one materialized Host s
 - **THEN** apply SHALL fail without changing proposals, bindings, redirects, or last-good readiness
 
 ### Requirement: Matching SHALL preserve precision-first materialization
+
 The system SHALL persist deterministic/high Zotero bindings and safe deterministic canonical redirects automatically, preserve suggested, ambiguous, fuzzy, and semantic-risk candidates as bounded proposals, and suppress regeneration of rejected proposals only for the same kind, basis hash, and source hash.
 
 #### Scenario: Weak candidate remains review-only
@@ -30,6 +38,7 @@ The system SHALL persist deterministic/high Zotero bindings and safe determinist
 - **THEN** apply SHALL preserve the rejected decision and SHALL NOT reopen or duplicate the proposal
 
 ### Requirement: Proposal review SHALL atomically govern derived facts
+
 The system SHALL support accept, reverse accept, reject, reopen, logical delete, and manual target decisions across `open`, `accepted`, `rejected`, `superseded`, and `retargeted` proposals, with each proposal transition and its derived binding/redirect creation or revocation committed atomically.
 
 #### Scenario: Accepted proposal is reopened or rejected
@@ -41,6 +50,7 @@ The system SHALL support accept, reverse accept, reject, reopen, logical delete,
 - **THEN** the application SHALL revoke any prior accepted fact, persist the manual fact plus audit proposal, and mark the original proposal retargeted
 
 ### Requirement: Batch review SHALL preserve partial-success semantics
+
 The system SHALL validate and apply each decision independently, keep each successful decision committed when another decision fails, and return bounded applied, skipped, failed, result, and aggregate-delta fields.
 
 #### Scenario: One batch decision is invalid
@@ -48,6 +58,7 @@ The system SHALL validate and apply each decision independently, keep each succe
 - **THEN** valid decisions SHALL remain committed and the result SHALL identify the failed decision without throwing away successful results
 
 ### Requirement: Matching/review state SHALL be durable and CAS-safe
+
 The isolated repository SHALL persist proposal rows, matching state, operation receipts, accepted facts, redirects, and review decisions across restart, while matching promotion SHALL use the active reference hash as its transactional compare-and-swap basis.
 
 #### Scenario: Service restarts after completed review
@@ -55,6 +66,7 @@ The isolated repository SHALL persist proposal rows, matching state, operation r
 - **THEN** proposal states and their accepted or revoked facts SHALL remain observable through bounded reads
 
 ### Requirement: Downstream effects SHALL remain outside the private application
+
 The private application SHALL return bounded changed canonical/binding/redirect deltas and mark graph/related projections stale when accepted facts change, but SHALL NOT execute graph refresh, layout, related-items synchronization, Host writes, or production fallback.
 
 #### Scenario: Accepted fact changes
@@ -62,6 +74,7 @@ The private application SHALL return bounded changed canonical/binding/redirect 
 - **THEN** the private repository SHALL record downstream staleness and the application SHALL return the bounded delta without invoking a downstream effect
 
 ### Requirement: Private composition SHALL preserve lifecycle and production boundaries
+
 The service SHALL compose the matching/review application after isolated repository recovery, keep bounded reads available during matching work, fail competing mutations immediately, discard outstanding preparation during shutdown, and expose no new HTTP/RPC, `SynthesisClient`, automatic invocation, or production persistence route.
 
 #### Scenario: Shutdown occurs with an outstanding preparation

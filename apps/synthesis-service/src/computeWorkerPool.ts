@@ -34,6 +34,12 @@ import type {
   SynthesisSidecarComputePoolSnapshot,
   SynthesisSidecarErrorCode,
 } from "../../../packages/synthesis-contracts/src/sidecarSystem.js";
+import { SYNTHESIS_SIDECAR_TRANSFER_LIMITS } from "../../../packages/synthesis-contracts/src/sidecarTransfer.js";
+import {
+  canonicalizeSynthesisEngineJsonArtifact,
+  compareSynthesisEngineStrings,
+  countSynthesisEngineJsonNodes,
+} from "../../../packages/synthesis-engine/src/canonicalJson.js";
 import {
   SYNTHESIS_SIDECAR_COMPUTE_OPERATION,
   SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION,
@@ -64,11 +70,166 @@ import {
   type SynthesisTopicGraphIndexResult,
 } from "../../../packages/synthesis-engine/src/topicGraphIndex.js";
 import {
-  defaultRustMetricsWorkerPath,
-  RustMetricsWorkerTransport,
-} from "./rustMetricsWorkerTransport.js";
+  defaultRustComputeWorkerPath,
+  RustComputeWorkerTransport,
+} from "./rustComputeWorkerTransport.js";
 
 const RUST_METRICS_OPERATION = "citation_graph_metrics.v1" as const;
+
+type RustPagedDescriptor = {
+  section: string;
+  pageIndex: number;
+  rowCount: number;
+  byteLength: number;
+  sha256: string;
+};
+
+type RustPagedFrame = {
+  descriptor: RustPagedDescriptor;
+  rows: unknown[];
+};
+
+function rustPageArtifact(
+  section: string,
+  pageIndex: number,
+  rows: unknown[],
+): RustPagedFrame {
+  const artifact = canonicalizeSynthesisEngineJsonArtifact(rows);
+  if (
+    artifact.byteLength > SYNTHESIS_SIDECAR_TRANSFER_LIMITS.pageBytes ||
+    countSynthesisEngineJsonNodes(rows) >
+      SYNTHESIS_SIDECAR_TRANSFER_LIMITS.pageJsonNodes
+  ) {
+    throw poolError("worker_result_invalid");
+  }
+  return {
+    descriptor: {
+      section,
+      pageIndex,
+      rowCount: rows.length,
+      byteLength: artifact.byteLength,
+      sha256: artifact.sha256,
+    },
+    rows,
+  };
+}
+
+function paginateRustRows(section: string, rows: unknown[]) {
+  const pages: RustPagedFrame[] = [];
+  let pageRows: unknown[] = [];
+  let pageBytes = 2;
+  let pageNodes = 1;
+  const flush = () => {
+    if (!pageRows.length) return;
+    pages.push(rustPageArtifact(section, pages.length, pageRows));
+    pageRows = [];
+    pageBytes = 2;
+    pageNodes = 1;
+  };
+  for (const row of rows) {
+    const artifact = canonicalizeSynthesisEngineJsonArtifact(row);
+    const nodes = countSynthesisEngineJsonNodes(row);
+    const nextBytes = pageBytes + (pageRows.length ? 1 : 0) + artifact.byteLength;
+    if (
+      pageRows.length &&
+      (nextBytes > SYNTHESIS_SIDECAR_TRANSFER_LIMITS.pageBytes ||
+        pageNodes + nodes > SYNTHESIS_SIDECAR_TRANSFER_LIMITS.pageJsonNodes)
+    ) {
+      flush();
+    }
+    if (
+      artifact.byteLength + 2 > SYNTHESIS_SIDECAR_TRANSFER_LIMITS.pageBytes ||
+      nodes + 1 > SYNTHESIS_SIDECAR_TRANSFER_LIMITS.pageJsonNodes
+    ) {
+      throw poolError("worker_result_invalid");
+    }
+    pageRows.push(row);
+    pageBytes += (pageRows.length > 1 ? 1 : 0) + artifact.byteLength;
+    pageNodes += nodes;
+  }
+  flush();
+  return pages.length ? pages : [rustPageArtifact(section, 0, [])];
+}
+
+function extractRustPagedRequest(
+  operation: Task["operation"],
+  request: Exclude<Task["request"], SynthesisSidecarGraphBuildTransferRun>,
+) {
+  const source = request as unknown as Record<string, unknown>;
+  const header = { ...source };
+  const sections: Array<[string, unknown[]]> = [];
+  const takeArray = (name: string) => {
+    const rows = source[name];
+    if (!Array.isArray(rows)) throw poolError("worker_result_invalid");
+    delete header[name];
+    sections.push([name, rows]);
+  };
+  const takeRecord = (name: string) => {
+    const value = source[name];
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw poolError("worker_result_invalid");
+    }
+    delete header[name];
+    sections.push([
+      name,
+      Object.entries(value as Record<string, unknown>).sort(([left], [right]) =>
+        compareSynthesisEngineStrings(left, right),
+      ),
+    ]);
+  };
+  if (
+    operation === SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION ||
+    operation === SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION
+  ) {
+    takeArray("entries");
+    takeRecord("aliases");
+    takeRecord("abbrev");
+  } else if (
+    operation === SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION ||
+    operation === SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION
+  ) {
+    takeArray("concepts");
+    takeArray("senses");
+    takeArray("aliases");
+    if (operation === SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION) {
+      takeArray("labels");
+    }
+  } else if (operation === SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION) {
+    takeArray("nodes");
+    takeArray("edges");
+  } else {
+    throw poolError("worker_result_invalid");
+  }
+  return {
+    header,
+    pages: sections.flatMap(([section, rows]) => paginateRustRows(section, rows)),
+  };
+}
+
+function assembleRustPagedResult(
+  header: Record<string, unknown>,
+  sections: Map<string, unknown[]>,
+) {
+  const result = { ...header };
+  for (const [section, rows] of sections) {
+    result[section] =
+      section === "aliases" || section === "abbrev"
+        ? Object.fromEntries(rows as [string, unknown][])
+        : rows;
+  }
+  return result;
+}
+
+function isRustComputeOperation(operation: Task["operation"]) {
+  return (
+    operation === RUST_METRICS_OPERATION ||
+    operation === SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION ||
+    operation === SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION ||
+    operation === SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION ||
+    operation === SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION ||
+    operation === SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION
+  );
+}
 
 export const SYNTHESIS_SIDECAR_COMPUTE_LIMITS = Object.freeze({
   concurrency: 1,
@@ -160,6 +321,10 @@ type Task = {
   acknowledgeCancellation?: () => void;
   timeoutMs: number;
   transferPort?: MessagePort;
+  rustInputPages?: RustPagedFrame[];
+  rustOutputHeader?: Record<string, unknown>;
+  rustOutputSections?: Map<string, unknown[]>;
+  rustOutputPageCounts?: Map<string, number>;
 };
 
 export type SynthesisSidecarComputeWorkerPool = {
@@ -210,11 +375,11 @@ type PoolOptions = {
   cancellationGraceMs?: number;
   shutdownTimeoutMs?: number;
   transferExecutionTimeoutMs?: number;
-  metricsWorkerPath?: string;
-  metricsWorkerArguments?: string[];
+  rustWorkerPath?: string;
+  rustWorkerArguments?: string[];
 };
 
-type ComputeWorkerTarget = Worker | RustMetricsWorkerTransport;
+type ComputeWorkerTarget = Worker | RustComputeWorkerTransport;
 
 function delay(milliseconds: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
@@ -232,8 +397,7 @@ export function createSynthesisSidecarComputeWorkerPool(
   const workerFactory =
     options.workerFactory ??
     ((url, workerOptions) => new Worker(url, workerOptions));
-  const metricsWorkerPath =
-    options.metricsWorkerPath ?? defaultRustMetricsWorkerPath();
+  const rustWorkerPath = options.rustWorkerPath ?? defaultRustComputeWorkerPath();
   const executionTimeoutMs =
     options.executionTimeoutMs ??
     SYNTHESIS_SIDECAR_COMPUTE_LIMITS.executionTimeoutMs;
@@ -249,7 +413,7 @@ export function createSynthesisSidecarComputeWorkerPool(
   const queue: Task[] = [];
   const expectedExits = new WeakSet<object>();
   let worker: Worker | null = null;
-  let metricsWorker: RustMetricsWorkerTransport | null = null;
+  let rustWorker: RustComputeWorkerTransport | null = null;
   let active: Task | null = null;
   let stopping = false;
   let degraded = false;
@@ -339,8 +503,8 @@ export function createSynthesisSidecarComputeWorkerPool(
     if (worker === target) {
       worker = null;
     }
-    if (metricsWorker === target) {
-      metricsWorker = null;
+    if (rustWorker === target) {
+      rustWorker = null;
     }
     const terminate = target.terminate().then(
       () => undefined,
@@ -423,7 +587,7 @@ export function createSynthesisSidecarComputeWorkerPool(
     }
     task.terminating = true;
     const target =
-      task.operation === RUST_METRICS_OPERATION ? metricsWorker : worker;
+      isRustComputeOperation(task.operation) ? rustWorker : worker;
     const cooperative = requestCooperativeCancellation(task, target);
     const pending = (async () => {
       const acknowledged = await cooperative.wait;
@@ -441,13 +605,13 @@ export function createSynthesisSidecarComputeWorkerPool(
 
   const onUnexpectedWorkerFailure = (target: ComputeWorkerTarget) => {
     if (
-      (worker !== target && metricsWorker !== target) ||
+      (worker !== target && rustWorker !== target) ||
       expectedExits.has(target)
     ) {
       return;
     }
     if (worker === target) worker = null;
-    if (metricsWorker === target) metricsWorker = null;
+    if (rustWorker === target) rustWorker = null;
     const task = active;
     if (task) {
       finishRuntimeFailure(task, "worker_crashed", null);
@@ -709,18 +873,18 @@ export function createSynthesisSidecarComputeWorkerPool(
     return created;
   };
 
-  const ensureMetricsWorker = () => {
-    if (metricsWorker) {
-      return metricsWorker;
+  const ensureRustWorker = () => {
+    if (rustWorker) {
+      return rustWorker;
     }
-    const created = new RustMetricsWorkerTransport({
-      executablePath: metricsWorkerPath,
-      arguments: options.metricsWorkerArguments,
+    const created = new RustComputeWorkerTransport({
+      executablePath: rustWorkerPath,
+      arguments: options.rustWorkerArguments,
     });
-    metricsWorker = created;
+    rustWorker = created;
     created.on("message", (message: unknown) => {
       const task = active;
-      if (!task || task.operation !== RUST_METRICS_OPERATION) {
+      if (!task || !isRustComputeOperation(task.operation)) {
         return;
       }
       if (
@@ -731,7 +895,15 @@ export function createSynthesisSidecarComputeWorkerPool(
         finishRuntimeFailure(task, "worker_result_invalid", created);
         return;
       }
-      const response = message as { type?: unknown; result?: unknown };
+      let response = message as {
+        type?: unknown;
+        result?: unknown;
+        header?: unknown;
+        descriptor?: unknown;
+        rows?: unknown;
+        section?: unknown;
+        pageIndex?: unknown;
+      };
       if (response.type === "canceled" && task.terminating) {
         task.acknowledgeCancellation?.();
         return;
@@ -739,16 +911,155 @@ export function createSynthesisSidecarComputeWorkerPool(
       if (task.terminating) {
         return;
       }
+      if (response.type === "input_ack") {
+        const page = task.rustInputPages?.[0];
+        if (
+          !page ||
+          response.section !== page.descriptor.section ||
+          response.pageIndex !== page.descriptor.pageIndex
+        ) {
+          finishRuntimeFailure(task, "worker_result_invalid", created);
+          return;
+        }
+        task.rustInputPages?.shift();
+        const next = task.rustInputPages?.[0];
+        created.postMessage(
+          next
+            ? {
+                type: "input_page",
+                taskId: task.id,
+                descriptor: next.descriptor,
+                rows: next.rows,
+              }
+            : { type: "input_complete", taskId: task.id },
+        );
+        return;
+      }
+      if (response.type === "result_begin") {
+        if (
+          task.rustOutputHeader ||
+          !response.header ||
+          typeof response.header !== "object" ||
+          Array.isArray(response.header)
+        ) {
+          finishRuntimeFailure(task, "worker_result_invalid", created);
+          return;
+        }
+        task.rustOutputHeader = response.header as Record<string, unknown>;
+        task.rustOutputSections = new Map();
+        task.rustOutputPageCounts = new Map();
+        return;
+      }
+      if (response.type === "result_page") {
+        if (
+          !task.rustOutputHeader ||
+          !response.descriptor ||
+          typeof response.descriptor !== "object" ||
+          !Array.isArray(response.rows)
+        ) {
+          finishRuntimeFailure(task, "worker_result_invalid", created);
+          return;
+        }
+        const descriptor = response.descriptor as RustPagedDescriptor;
+        const expectedIndex =
+          task.rustOutputPageCounts?.get(descriptor.section) ?? 0;
+        let verified: RustPagedFrame;
+        try {
+          verified = rustPageArtifact(
+            descriptor.section,
+            expectedIndex,
+            response.rows,
+          );
+        } catch {
+          finishRuntimeFailure(task, "worker_result_invalid", created);
+          return;
+        }
+        if (
+          verified.descriptor.section !== descriptor.section ||
+          verified.descriptor.pageIndex !== descriptor.pageIndex ||
+          verified.descriptor.rowCount !== descriptor.rowCount ||
+          verified.descriptor.byteLength !== descriptor.byteLength ||
+          verified.descriptor.sha256 !== descriptor.sha256
+        ) {
+          finishRuntimeFailure(task, "worker_result_invalid", created);
+          return;
+        }
+        task.rustOutputSections?.set(descriptor.section, [
+          ...(task.rustOutputSections.get(descriptor.section) || []),
+          ...response.rows,
+        ]);
+        task.rustOutputPageCounts?.set(descriptor.section, expectedIndex + 1);
+        created.postMessage({
+          type: "result_ack",
+          taskId: task.id,
+          section: descriptor.section,
+          pageIndex: descriptor.pageIndex,
+        });
+        return;
+      }
+      if (response.type === "result_complete") {
+        if (!task.rustOutputHeader || !task.rustOutputSections) {
+          finishRuntimeFailure(task, "worker_result_invalid", created);
+          return;
+        }
+        response = {
+          type: "result",
+          result: assembleRustPagedResult(
+            task.rustOutputHeader,
+            task.rustOutputSections,
+          ),
+        };
+      }
       if (response.type !== "result") {
         finishRuntimeFailure(task, "worker_result_invalid", created);
         return;
       }
-      let result: SynthesisCitationGraphMetricsResult;
+      let result:
+        | SynthesisCitationGraphMetricsResult
+        | SynthesisTagVocabularyValidationResult
+        | SynthesisTagVocabularyIndexResult
+        | SynthesisConceptKbIndexResult
+        | SynthesisConceptKbQueryResult
+        | SynthesisTopicGraphIndexResult;
       try {
-        result = rebuildSynthesisCitationGraphMetricsResult(
-          response.result,
-          task.request as SynthesisCitationGraphMetricsRequest,
-        );
+        switch (task.operation) {
+          case RUST_METRICS_OPERATION:
+            result = rebuildSynthesisCitationGraphMetricsResult(
+              response.result,
+              task.request as SynthesisCitationGraphMetricsRequest,
+            );
+            break;
+          case SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION:
+            result = rebuildSynthesisTagVocabularyValidationResult(
+              response.result,
+              task.request as SynthesisTagVocabularyValidationRequest,
+            );
+            break;
+          case SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION:
+            result = rebuildSynthesisTagVocabularyIndexResult(
+              response.result,
+              task.request as SynthesisTagVocabularyIndexRequest,
+            );
+            break;
+          case SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION:
+            result = rebuildSynthesisConceptKbIndexResult(
+              response.result,
+              task.request as SynthesisConceptKbIndexRequest,
+            );
+            break;
+          case SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION:
+            result = rebuildSynthesisConceptKbQueryResult(
+              response.result,
+              task.request as SynthesisConceptKbQueryRequest,
+            );
+            break;
+          case SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION:
+            result = rebuildSynthesisTopicGraphIndexResult(
+              response.result,
+              task.request as SynthesisTopicGraphIndexRequest,
+            );
+            break;
+        }
       } catch {
         finishRuntimeFailure(task, "worker_result_invalid", created);
         return;
@@ -778,15 +1089,15 @@ export function createSynthesisSidecarComputeWorkerPool(
       queueMicrotask(pump);
       return;
     }
-    const metricsTask = task.operation === RUST_METRICS_OPERATION;
-    const inactiveBackend = metricsTask ? worker : metricsWorker;
+    const rustTask = isRustComputeOperation(task.operation);
+    const inactiveBackend = rustTask ? worker : rustWorker;
     if (inactiveBackend) {
       queue.unshift(task);
       trackTermination(terminateWorker(inactiveBackend, cancellationGraceMs));
       return;
     }
     active = task;
-    const target = metricsTask ? ensureMetricsWorker() : ensureWorker();
+    const target = rustTask ? ensureRustWorker() : ensureWorker();
     task.deadline = setTimeout(() => {
       timeoutActive(task, target);
     }, task.timeoutMs);
@@ -824,61 +1135,44 @@ export function createSynthesisSidecarComputeWorkerPool(
         target.postMessage({
           type: "run",
           taskId: task.id,
-          operation: RUST_METRICS_OPERATION,
-          payload: task.request as SynthesisCitationGraphMetricsRequest,
+          operation: task.operation,
+          payload: task.request,
         });
         return;
+      case SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION:
+      case SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION:
+      case SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION:
+      case SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION:
+      case SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION: {
+        const paged = extractRustPagedRequest(
+          task.operation,
+          task.request as Exclude<
+            Task["request"],
+            SynthesisSidecarGraphBuildTransferRun
+          >,
+        );
+        task.rustInputPages = paged.pages;
+        target.postMessage({
+          type: "run_begin",
+          taskId: task.id,
+          operation: task.operation,
+          header: paged.header,
+        });
+        const first = task.rustInputPages[0];
+        target.postMessage({
+          type: "input_page",
+          taskId: task.id,
+          descriptor: first.descriptor,
+          rows: first.rows,
+        });
+        return;
+      }
       case SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION:
         message = {
           type: "run",
           taskId: task.id,
           operation: SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION,
           payload: task.request as SynthesisCitationGraphBuildRequest,
-          cancellation,
-        };
-        break;
-      case SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION:
-        message = {
-          type: "run",
-          taskId: task.id,
-          operation: SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION,
-          payload: task.request as SynthesisTagVocabularyValidationRequest,
-          cancellation,
-        };
-        break;
-      case SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION:
-        message = {
-          type: "run",
-          taskId: task.id,
-          operation: SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION,
-          payload: task.request as SynthesisTagVocabularyIndexRequest,
-          cancellation,
-        };
-        break;
-      case SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION:
-        message = {
-          type: "run",
-          taskId: task.id,
-          operation: SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION,
-          payload: task.request as SynthesisConceptKbIndexRequest,
-          cancellation,
-        };
-        break;
-      case SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION:
-        message = {
-          type: "run",
-          taskId: task.id,
-          operation: SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION,
-          payload: task.request as SynthesisConceptKbQueryRequest,
-          cancellation,
-        };
-        break;
-      case SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION:
-        message = {
-          type: "run",
-          taskId: task.id,
-          operation: SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION,
-          payload: task.request as SynthesisTopicGraphIndexRequest,
           cancellation,
         };
         break;
@@ -1103,8 +1397,8 @@ export function createSynthesisSidecarComputeWorkerPool(
       if (worker) {
         await terminateWorker(worker, 0);
       }
-      if (metricsWorker) {
-        await terminateWorker(metricsWorker, 0);
+      if (rustWorker) {
+        await terminateWorker(rustWorker, 0);
       }
       if (active) {
         const task = active;

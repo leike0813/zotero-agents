@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-workbench-concept-command-client-consumer Specification
+
+## Purpose
+Defines the Synthesis Workbench client consumer contract for concept command operations, specifying how Workbench reads and reacts to client-side state changes.
+
+## Requirements
 
 ### Requirement: Workbench Concept commands use a bounded client capability
+
 The Synthesis client SHALL expose Concept commands for Concept KB rebuild, display-text update, review action, and deletion. The Workbench SHALL lazily resolve the default client and SHALL NOT call the corresponding legacy service methods directly.
 
 #### Scenario: Workbench applies a Concept command
@@ -9,6 +15,7 @@ The Synthesis client SHALL expose Concept commands for Concept KB rebuild, displ
 - **AND** the result SHALL cross the client boundary as an opaque JSON-safe object
 
 ### Requirement: Concept display-text requests are strict and bounded
+
 A display-text update SHALL contain a non-empty, trimmed `conceptId` and at least one of `short_definition`, `definition`, `usage_note`, or `editorial_note`. Field values SHALL be strings and SHALL be trimmed. Empty strings SHALL remain valid clearing values. Unknown JSON-safe fields SHALL NOT be forwarded.
 
 #### Scenario: Display-text update is valid
@@ -25,6 +32,7 @@ A display-text update SHALL contain a non-empty, trimmed `conceptId` and at leas
 - **AND** it SHALL NOT invoke the legacy port
 
 ### Requirement: Concept review and deletion requests are strict
+
 A Concept review request SHALL contain a non-empty, trimmed `reviewId`, one of `approve_create | merge_into_existing | reject`, and MAY contain a non-empty, trimmed `targetConceptId`. A deletion request SHALL contain at least one non-empty, trimmed Concept identifier.
 
 #### Scenario: Concept review request is valid
@@ -46,6 +54,7 @@ A Concept review request SHALL contain a non-empty, trimmed `reviewId`, one of `
 - **AND** it SHALL NOT invoke the legacy port
 
 ### Requirement: In-process Concept commands normalize ports, results, and errors
+
 The in-process adapter SHALL depend on four narrow legacy Concept ports. It SHALL validate and rebuild requests before resolving ports, normalize each successful result through the shared JSON-safe object path, reject a missing port with `unavailable`, preserve an existing client error and `storage_busy`, and normalize an ordinary legacy exception to `internal`.
 
 #### Scenario: Legacy Concept command succeeds
@@ -66,6 +75,7 @@ The in-process adapter SHALL depend on four narrow legacy Concept ports. It SHAL
 - **AND** it SHALL NOT rewrite the object as a client error
 
 ### Requirement: Existing Workbench Concept behavior is preserved
+
 The client-routed commands SHALL preserve identifier trimming, review action filtering, optional target handling, deletion aliases, command single-flight, protected rebuild confirmation, deferred start, singular diagnostic handling, and Concepts/Review invalidation. The client contract SHALL NOT carry progress callbacks or streaming state.
 
 #### Scenario: Concept KB rebuild runs
@@ -84,6 +94,7 @@ The client-routed commands SHALL preserve identifier trimming, review action fil
 - **THEN** the Workbench SHALL invalidate Concepts and Review surfaces as before
 
 ### Requirement: Migration boundaries remain stable
+
 This migration SHALL retain 125 public Synthesis service methods, exactly four direct legacy service consumers, all existing public Concept service methods, and current process, repository, persistence, autosync, Host Bridge, MCP, and domain ownership.
 
 #### Scenario: Static service boundaries are checked

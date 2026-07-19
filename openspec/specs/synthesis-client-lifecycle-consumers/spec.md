@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-client-lifecycle-consumers Specification
+
+## Purpose
+Defines the synthesis client lifecycle consumers capability for the Synthesis plugin, specifying its service boundary, integration contracts, and runtime behavior.
+
+## Requirements
 
 ### Requirement: Startup lifecycle uses the grouped client
+
 Plugin startup SHALL reconcile Synthesis runtime work through the system client capability and SHALL keep failures non-blocking.
 
 #### Scenario: Startup reconciliation fails
@@ -9,6 +15,7 @@ Plugin startup SHALL reconcile Synthesis runtime work through the system client 
 - **AND** the existing bounded startup warning path SHALL receive the failure
 
 ### Requirement: Protected maintenance reset uses the grouped client
+
 Plugin maintenance handling SHALL invoke protected database reset through the maintenance client capability with the caller-provided confirmation text.
 
 #### Scenario: Confirmation does not match
@@ -16,6 +23,7 @@ Plugin maintenance handling SHALL invoke protected database reset through the ma
 - **THEN** it SHALL return the structured `confirmation_mismatch` result from the current owner
 
 ### Requirement: Host notifications use bounded client receipts
+
 The Zotero item observer SHALL submit related-items echo candidates through the notification client capability and SHALL consume only a bounded boolean receipt.
 
 #### Scenario: Notification is a recorded echo
@@ -29,6 +37,7 @@ The Zotero item observer SHALL submit related-items echo candidates through the 
 - **AND** ordinary observer processing SHALL continue
 
 ### Requirement: Default client invalidation is synchronous and isolated
+
 Preference and Host Bridge mutation paths SHALL invalidate the default client without directly importing the legacy service.
 
 #### Scenario: In-process client has loaded
@@ -40,6 +49,7 @@ Preference and Host Bridge mutation paths SHALL invalidate the default client wi
 - **THEN** it SHALL complete without loading the legacy service
 
 ### Requirement: Direct legacy consumers decrease
+
 Hooks, Host Bridge server lifecycle handling, and item observation SHALL NOT import or type against the full legacy Synthesis service.
 
 #### Scenario: Boundary inventory is checked

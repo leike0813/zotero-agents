@@ -1,6 +1,37 @@
-## MODIFIED Requirements
+# topic-synthesis-detail-ui Specification
+
+## Purpose
+TBD - created by archiving change align-topic-synthesis-detail-ui-with-structured-artifact. Update Purpose after archive.
+
+## Requirements
+
+### Requirement: Topic Detail Exposes Review-Oriented Sections
+
+Topic Detail SHALL expose six top-level tabs: Overview, Taxonomy, Claims,
+Compare, External, and Coverage.
+
+#### Scenario: Structured artifact contains review-oriented sections
+
+- **GIVEN** a topic artifact has positioning, taxonomy, comparison matrix,
+  debates, review outline, evidence map, claims, external literature analysis,
+  coverage, and gaps
+- **WHEN** Topic Detail renders
+- **THEN** the user SHALL be able to inspect those structures through the six
+  top-level tabs.
+
+### Requirement: Evidence Explorer Supports Digest Inspection
+
+Topic Detail SHALL render a right-side Evidence Explorer that opens the paper
+digest modal through the existing digest resolver.
+
+#### Scenario: User clicks a paper evidence row
+
+- **WHEN** the user clicks a paper evidence row or timeline marker
+- **THEN** the Workbench SHALL request `resolveTopicPaperDigest`
+- **AND** the digest modal SHALL show the result or an unavailable state.
 
 ### Requirement: Digest Modal SHALL Render Representative Image When Available
+
 
 The topic detail source digest modal SHALL render a digest representative image from Zotero-legal note image markup when optional Host image enrichment returns a valid available result, and digest resolution SHALL remain successful when that enrichment is absent, unavailable, malformed, unconfigured, or fails.
 
@@ -22,3 +53,39 @@ The topic detail source digest modal SHALL render a digest representative image 
 - **THEN** digest resolution SHALL NOT fail
 - **AND** `representative_image` SHALL be omitted
 - **AND** transport, malformed, and unavailable failures SHALL use stable diagnostics without exposing raw Host errors.
+
+### Requirement: Topic Detail renders timeline from artifact markers
+
+Topic Detail SHALL use `timeline_events.markers` as the primary timeline
+rendering input for new topic synthesis artifacts.
+
+#### Scenario: Markers are available
+
+- **WHEN** a topic artifact contains `timeline_events.markers`
+- **THEN** Topic Detail SHALL group markers by year and render paper/milestone
+  pins from marker data
+- **AND** it SHALL use paper evidence and event ids to resolve details.
+
+#### Scenario: Markers are missing
+
+- **WHEN** an older topic artifact lacks `timeline_events.markers`
+- **THEN** Topic Detail SHALL fall back to the existing timeline marker
+  derivation behavior.
+
+### Requirement: Topic Detail renders improvement dimensions
+
+Topic Detail SHALL prefer improvement dimension analysis over legacy comparison
+matrix rendering.
+
+#### Scenario: Improvement dimensions are available
+
+- **WHEN** a topic artifact contains `improvement_dimensions[]`
+- **THEN** Topic Detail SHALL render an Improvement / Dimensions view from
+  those dimensions
+- **AND** it SHALL not require a comparison matrix to show method progress.
+
+#### Scenario: Only legacy comparison matrix is available
+
+- **WHEN** an older topic artifact contains `comparison_matrix` but lacks
+  `improvement_dimensions[]`
+- **THEN** Topic Detail SHALL keep the legacy Compare fallback.

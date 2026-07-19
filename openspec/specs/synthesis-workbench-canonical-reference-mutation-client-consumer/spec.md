@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-workbench-canonical-reference-mutation-client-consumer Specification
+
+## Purpose
+Defines the Synthesis Workbench client consumer contract for canonical reference mutation operations, specifying how Workbench reads and reacts to client-side state changes.
+
+## Requirements
 
 ### Requirement: Canonical Reference mutations use a bounded client capability
+
 The Synthesis client SHALL expose Reference commands for single effective canonical merge, batch canonical merge, canonical metadata update, and canonical archive. The Workbench SHALL lazily resolve the default client and SHALL NOT call the corresponding legacy service methods directly.
 
 #### Scenario: Workbench applies a canonical Reference mutation
@@ -9,6 +15,7 @@ The Synthesis client SHALL expose Reference commands for single effective canoni
 - **AND** the result SHALL cross the client boundary as an opaque JSON-safe object
 
 ### Requirement: Canonical merge request contracts are strict
+
 A canonical merge pair SHALL contain non-empty, trimmed `sourceEffectiveCanonicalId` and `targetEffectiveCanonicalId` values. A single merge MAY contain boolean `confirmRetargetGroup`, whose omitted semantics SHALL be false. A batch merge SHALL contain at least one strict merge pair. Equal identifiers SHALL cross the adapter boundary so the legacy domain can return its established failure result.
 
 #### Scenario: Single canonical merge is valid
@@ -25,6 +32,7 @@ A canonical merge pair SHALL contain non-empty, trimmed `sourceEffectiveCanonica
 - **AND** it SHALL NOT invoke the legacy port
 
 ### Requirement: Canonical metadata and archive contracts are bounded
+
 Metadata update SHALL contain a non-empty `canonicalReferenceId` and a patch containing only optional `title`, `normalizedTitle`, `year`, `authors: string[]`, and `identifiers: Record<string, string>` fields. Archive SHALL contain a non-empty `canonicalReferenceId`. Empty patches, empty authors arrays, and empty identifiers objects SHALL be valid. Strings, author entries, and identifier entries SHALL be trimmed and SHALL be non-empty after trimming. Unknown JSON-safe patch fields SHALL NOT be forwarded, and invalid field types SHALL reject with `invalid_request`.
 
 #### Scenario: Metadata patch is valid
@@ -41,6 +49,7 @@ Metadata update SHALL contain a non-empty `canonicalReferenceId` and a patch con
 - **AND** it SHALL NOT invoke the legacy port
 
 ### Requirement: In-process canonical Reference mutations normalize ports, results, and errors
+
 The in-process adapter SHALL depend on four narrow legacy canonical Reference mutation ports. It SHALL validate and rebuild a request before resolving its port, normalize each successful result through the shared JSON-safe object path, reject a missing port with `unavailable`, preserve an existing client error and `storage_busy`, and normalize an ordinary legacy exception to `internal`.
 
 #### Scenario: Legacy canonical Reference command succeeds
@@ -61,6 +70,7 @@ The in-process adapter SHALL depend on four narrow legacy canonical Reference mu
 - **AND** it SHALL NOT rewrite the object as a client error
 
 ### Requirement: Existing Workbench canonical mutation behavior is preserved
+
 The client-routed actions SHALL preserve snake_case and camelCase identifier aliases, whitespace trimming, boolean confirmation coercion, batch object filtering and canonical mapping, metadata patch defaulting and normalized-title alias mapping, command single-flight, singular `diagnostic` handling, and existing surface invalidation. Only batch merge SHALL retain deferred start. The actions SHALL NOT add confirmation dialogs or progress callbacks.
 
 #### Scenario: Workbench normalizes canonical mutation payloads
@@ -86,6 +96,7 @@ The client-routed actions SHALL preserve snake_case and camelCase identifier ali
 - **THEN** the existing `failOnDiagnostic` helper SHALL retain its current singular-only behavior
 
 ### Requirement: Migration boundaries remain stable
+
 This migration SHALL retain 125 public Synthesis service methods, exactly four direct legacy service consumers, all existing public Reference service methods, and current process, repository, persistence, Host Bridge, MCP, and domain ownership.
 
 #### Scenario: Static service boundaries are checked

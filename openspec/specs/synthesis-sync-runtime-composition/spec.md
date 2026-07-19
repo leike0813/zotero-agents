@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-sync-runtime-composition Specification
+
+## Purpose
+Defines the synthesis sync runtime composition capability for the Synthesis plugin, specifying its service boundary, integration contracts, and runtime behavior.
+
+## Requirements
 
 ### Requirement: Sync runtime Host capabilities are explicit
+
 
 The complete Synthesis service SHALL receive Git runtime and WebDAV remote-operation capabilities through composition and SHALL NOT construct them from Zotero preferences, encrypted credentials, subprocess runners, global fetch, or default Host clients.
 
@@ -18,6 +24,7 @@ The complete Synthesis service SHALL receive Git runtime and WebDAV remote-opera
 
 ### Requirement: WebDAV Host port is strict and secret-free
 
+
 The WebDAV Host port SHALL canonically rebuild managed-relative-path requests and bounded JSON-safe results for sanitized description, text read, text write, and collection preparation. It SHALL reject invalid input before Host I/O and SHALL NOT expose credentials, Authorization headers, raw URLs with userinfo or secret query values, absolute paths, callbacks, or raw errors.
 
 #### Scenario: Application reads or writes remote content
@@ -34,6 +41,7 @@ The WebDAV Host port SHALL canonically rebuild managed-relative-path requests an
 
 ### Requirement: Configuration ownership remains in Preferences
 
+
 Preferences hooks SHALL remain the only supported owner of Git/WebDAV configuration status, save, credential clear/store, and connection-test operations, and successful configuration changes SHALL invalidate the default Synthesis client composition.
 
 #### Scenario: Configuration changes
@@ -44,6 +52,7 @@ Preferences hooks SHALL remain the only supported owner of Git/WebDAV configurat
 
 ### Requirement: Complete service inventory excludes dead Sync facade
 
+
 The complete service SHALL remove the ten unconsumed Git/WebDAV configuration facade methods while retaining all runtime Sync client commands and exactly one production direct consumer. The inventory SHALL be `115 methods / 1 direct consumer`.
 
 #### Scenario: Boundary inventory is checked
@@ -53,6 +62,7 @@ The complete service SHALL remove the ten unconsumed Git/WebDAV configuration fa
 - **AND** the retained Git/WebDAV runtime methods and `SynthesisClient.sync` commands SHALL remain available.
 
 ### Requirement: Readonly Sync composition has no Host effects
+
 
 The readonly composition SHALL explicitly inject disabled Sync capabilities and SHALL provide stable disabled Sync projections without reading or mutating prefs, decrypting credentials, using fetch, or starting subprocesses.
 

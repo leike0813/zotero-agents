@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-workbench-staged-tag-bulk-command-client-consumer Specification
+
+## Purpose
+Defines the Synthesis Workbench client consumer contract for staged tag bulk command operations, specifying how Workbench reads and reacts to client-side state changes.
+
+## Requirements
 
 ### Requirement: Staged Tag bulk capability uses a strict selection contract
+
 The system SHALL expose staged Tag promotion and discard through one JSON-safe selection DTO and staged clear through a no-argument command, with all three returning opaque JSON objects.
 
 #### Scenario: A non-empty selection is canonicalized
@@ -16,6 +22,7 @@ The system SHALL expose staged Tag promotion and discard through one JSON-safe s
 - **THEN** the client rejects it with `invalid_request` before resolving or invoking the legacy port
 
 ### Requirement: In-process staged Tag ports normalize the legacy boundary
+
 The in-process adapter SHALL invoke narrow optional promote, discard, and clear ports, normalize successful results as JSON objects, and use stable client error categories.
 
 #### Scenario: A port returns a legal domain result
@@ -27,6 +34,7 @@ The in-process adapter SHALL invoke narrow optional promote, discard, and clear 
 - **THEN** the adapter maps the outcome respectively to `unavailable`, the preserved client error, `storage_busy`, or `internal`
 
 ### Requirement: Workbench staged bulk actions use the Tag client
+
 The Workbench SHALL lazily resolve the default Synthesis client inside each staged bulk single-flight closure and SHALL not directly resolve the legacy service from the promote, bulk-discard, or clear host-command branches.
 
 #### Scenario: Promote or discard has normalized tags
@@ -46,6 +54,7 @@ The Workbench SHALL lazily resolve the default Synthesis client inside each stag
 - **THEN** the Workbench invalidates only the Tags surface without confirmation, deferred start, progress callback, streaming, or singular diagnostic transformation
 
 ### Requirement: Workflow Host compatibility remains stable
+
 The migration SHALL retain the Workflow Host's twelve use-case methods and SHALL keep its empty discard selection valid without changing notification semantics.
 
 #### Scenario: Workflow Host discards an empty selection

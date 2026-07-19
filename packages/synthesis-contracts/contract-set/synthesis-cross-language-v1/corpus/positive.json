@@ -186,6 +186,55 @@
       },
       "canonicalJson": "{\"diagnostics\":{\"componentCount\":1,\"externalReferenceCount\":1,\"isolatedLibraryNodeCount\":0,\"libraryNodeCount\":2,\"missingYearCount\":0,\"unresolvedReferenceCount\":0},\"graphHash\":\"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"graphYear\":2024,\"libraryNodeMetrics\":[{\"ageNorm\":1,\"componentId\":\"component:001\",\"componentSize\":2,\"externalReferenceCount\":1,\"foundationScore\":1,\"frontierScore\":0.2,\"inDegreeNorm\":1,\"internalInDegree\":2,\"internalOutDegree\":0,\"internalPagerank\":0.649123,\"isIsolated\":false,\"itemKey\":\"BBBB2222\",\"nodeId\":\"paper:😀\",\"outDegreeNorm\":0,\"pagerankNorm\":1,\"paperRef\":\"1:BBBB2222\",\"recencyNorm\":0,\"synthesisRoleHints\":[\"core\",\"foundation\"],\"title\":\"目标\",\"unresolvedReferenceCount\":0,\"year\":\"2020\"},{\"ageNorm\":0,\"componentId\":\"component:001\",\"componentSize\":2,\"externalReferenceCount\":0,\"foundationScore\":0.189189,\"frontierScore\":0.908108,\"inDegreeNorm\":0,\"internalInDegree\":0,\"internalOutDegree\":2,\"internalPagerank\":0.350877,\"isIsolated\":false,\"itemKey\":\"AAAA1111\",\"nodeId\":\"paper:\",\"outDegreeNorm\":1,\"pagerankNorm\":0.54054,\"paperRef\":\"1:AAAA1111\",\"recencyNorm\":1,\"synthesisRoleHints\":[\"frontier\"],\"title\":\"源\",\"unresolvedReferenceCount\":0,\"year\":\"2024\"}],\"metricsVersion\":2,\"params\":{\"foundationFormula\":\"is_isolated ? 0.15*age_norm : 0.50*in_degree_norm + 0.35*pagerank_norm + 0.15*age_norm\",\"frontierFormula\":\"is_isolated ? 0.55*recency_norm : 0.55*recency_norm + 0.25*out_degree_norm + 0.20*pagerank_norm\",\"pagerankDamping\":0.85,\"pagerankIterations\":50}}",
       "sha256": "sha256:1dc785b446ba81ce41f3c51026e6e7b7ab47da3416cb5e886600fb3952a50f1e"
+    },
+    {
+      "id": "tag-vocabulary-validation-unicode",
+      "oracle": "tagVocabularyValidationResult",
+      "schemaRef": "schemas/compute.schema.json#/$defs/tagVocabularyValidationResult",
+      "inputJson": "{\"contractVersion\":\"synthesis-tag-vocabulary.v1\",\"algorithmVersion\":\"tag-vocabulary-validation.v1\",\"entries\":[{\"tag\":\"field:vision\",\"facet\":\"field\",\"aliases\":[\"É\",\"😀\",\"\"],\"abbrev\":[]}],\"aliases\":{},\"abbrev\":{},\"protocol\":{\"version\":\"1.0.0\",\"tagPattern\":\"^[a-z_]+:[a-zA-Z0-9/_.-]+$\",\"maxTagLength\":120,\"facets\":[\"field\"]}}",
+      "output": {
+        "contractVersion": "synthesis-tag-vocabulary.v1",
+        "algorithmVersion": "tag-vocabulary-validation.v1",
+        "warnings": []
+      },
+      "canonicalJson": "{\"algorithmVersion\":\"tag-vocabulary-validation.v1\",\"contractVersion\":\"synthesis-tag-vocabulary.v1\",\"warnings\":[]}",
+      "sha256": "sha256:1ec9d02cea14c27076ca03fcc25ccf8159f875ba91ca72b8c0ae06d529be97e1"
+    },
+    {
+      "id": "concept-kb-query-unicode",
+      "oracle": "conceptKbQueryResult",
+      "schemaRef": "schemas/compute.schema.json#/$defs/conceptKbQueryResult",
+      "inputJson": "{\"contractVersion\":\"synthesis-concept-kb-index.v1\",\"algorithmVersion\":\"concept-kb-query.v1\",\"concepts\":[{\"conceptId\":\"concept:one\",\"label\":\"Élan\",\"aliases\":[],\"conceptType\":\"topic\",\"domain\":\"test\",\"status\":\"active\"}],\"senses\":[],\"aliases\":[],\"labels\":[\"ÉLAN\"]}",
+      "output": {
+        "contractVersion": "synthesis-concept-kb-index.v1",
+        "algorithmVersion": "concept-kb-query.v1",
+        "matches": [{
+          "label": "ÉLAN",
+          "exactConceptIds": ["concept:one"],
+          "aliasMatches": [],
+          "senseIds": [],
+          "ambiguous": false
+        }]
+      },
+      "canonicalJson": "{\"algorithmVersion\":\"concept-kb-query.v1\",\"contractVersion\":\"synthesis-concept-kb-index.v1\",\"matches\":[{\"aliasMatches\":[],\"ambiguous\":false,\"exactConceptIds\":[\"concept:one\"],\"label\":\"ÉLAN\",\"senseIds\":[]}]}",
+      "sha256": "sha256:4963bb1b0398b05a771e2ca9c8440261c36d51617ecd107f4afa7fe6727996cc"
+    },
+    {
+      "id": "topic-graph-index-unicode",
+      "oracle": "topicGraphIndexResult",
+      "schemaRef": "schemas/compute.schema.json#/$defs/topicGraphIndexResult",
+      "inputJson": "{\"contractVersion\":\"synthesis-topic-graph-index.v1\",\"algorithmVersion\":\"topic-graph-index.v1\",\"sourceManifestHash\":\"sha256:topic\",\"rebuiltAt\":\"2026-07-19T00:00:00.000Z\",\"nodes\":[{\"topicId\":\"topic:\",\"isRoot\":true,\"level\":\"normal\",\"definitionStatus\":\"has_synthesis\"},{\"topicId\":\"topic:😀\",\"isRoot\":true,\"level\":\"normal\",\"definitionStatus\":\"has_synthesis\"}],\"edges\":[]}",
+      "output": {
+        "contractVersion": "synthesis-topic-graph-index.v1",
+        "algorithmVersion": "topic-graph-index.v1",
+        "schemaVersion": "1.0.0",
+        "sourceManifestHash": "sha256:topic",
+        "rebuiltAt": "2026-07-19T00:00:00.000Z",
+        "roots": ["topic:😀", "topic:"],
+        "unplaced": []
+      },
+      "canonicalJson": "{\"algorithmVersion\":\"topic-graph-index.v1\",\"contractVersion\":\"synthesis-topic-graph-index.v1\",\"rebuiltAt\":\"2026-07-19T00:00:00.000Z\",\"roots\":[\"topic:😀\",\"topic:\"],\"schemaVersion\":\"1.0.0\",\"sourceManifestHash\":\"sha256:topic\",\"unplaced\":[]}",
+      "sha256": "sha256:e8965becf465407bf7cda2f4f74f1c5c62b7edd957654a641e1ade341171b11b"
     }
   ]
 }

@@ -30,6 +30,20 @@
       "oracle": "canonicalJson",
       "inputJson": "{\"value\":\"\\ud800\"}",
       "errorCode": "canonical_unpaired_surrogate"
+    },
+    {
+      "id": "tag-vocabulary-entry-unknown-field",
+      "oracle": "schemaOnly",
+      "schemaRef": "schemas/compute.schema.json#/$defs/tagVocabularyValidationRequest",
+      "inputJson": "{\"contractVersion\":\"synthesis-tag-vocabulary.v1\",\"algorithmVersion\":\"tag-vocabulary-validation.v1\",\"entries\":[{\"tag\":\"field:vision\",\"facet\":\"field\",\"aliases\":[],\"abbrev\":[],\"unknown\":true}],\"aliases\":{},\"abbrev\":{},\"protocol\":{\"version\":\"1.0.0\",\"tagPattern\":\"^field:\",\"maxTagLength\":120,\"facets\":[\"field\"]}}",
+      "errorCode": "invalid_request"
+    },
+    {
+      "id": "deterministic-worker-page-unknown-field",
+      "oracle": "schemaOnly",
+      "schemaRef": "schemas/compute.schema.json#/$defs/deterministicWorkerPage",
+      "inputJson": "{\"protocol\":\"synthesis-rust-worker.v1\",\"type\":\"input_page\",\"taskId\":\"task-1\",\"descriptor\":{\"section\":\"entries\",\"pageIndex\":0,\"rowCount\":0,\"byteLength\":2,\"sha256\":\"sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e4b1d4a31274b42ef455001\"},\"rows\":[],\"unknown\":true}",
+      "errorCode": "invalid_request"
     }
   ]
 }

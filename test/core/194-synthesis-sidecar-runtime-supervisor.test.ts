@@ -360,7 +360,7 @@ describe("Synthesis sidecar runtime supervisor", function () {
     const rustTransport = fs.readFileSync(
       path.join(
         process.cwd(),
-        "apps/synthesis-service/src/rustMetricsWorkerTransport.ts",
+        "apps/synthesis-service/src/rustComputeWorkerTransport.ts",
       ),
       "utf8",
     );

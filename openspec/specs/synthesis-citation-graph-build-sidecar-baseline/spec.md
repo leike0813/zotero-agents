@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-citation-graph-build-sidecar-baseline Specification
+
+## Purpose
+Defines the synthesis citation graph build sidecar baseline capability for the Synthesis plugin, specifying its service boundary, integration contracts, and runtime behavior.
+
+## Requirements
 
 ### Requirement: Deterministic graph-build benchmark matrix
+
 The system SHALL define one benchmark fixture source for the small canary, the
 2,000-source/20,000-reference boundary, and the normal, target, and stress scale
 tiers. Fixture construction SHALL reuse the production graph-build contract and
@@ -11,6 +17,7 @@ SHALL contain no production Zotero, repository, canonical-file, or Host data.
 - **THEN** its counts, identifiers, request bytes, JSON-node count, and canonical engine result are deterministic
 
 ### Requirement: Stable CI envelope gate
+
 Core 200 SHALL classify benchmark request and result envelopes against the
 authoritative sidecar byte and JSON-node limits without asserting
 machine-dependent timing or memory values.
@@ -20,6 +27,7 @@ machine-dependent timing or memory values.
 - **THEN** CI records the exact request and result classifications and proves that the current monolithic HTTP envelope is not production eligible
 
 ### Requirement: Opt-in isolated scale sampling
+
 The repository SHALL expose an explicit benchmark command that samples selected
 normal, target, or stress profiles outside ordinary CI. Each heavy profile
 SHALL run with bounded time and memory isolation, and timeout, wire rejection,
@@ -30,6 +38,7 @@ worker failure, or resource exhaustion SHALL be emitted as structured outcomes.
 - **THEN** the parent benchmark exits cleanly with the failed phase and stable classification recorded
 
 ### Requirement: Cross-process measurement report
+
 The benchmark SHALL report aggregate request/result size, phase timing, direct
 compute, strict rebuild, worker round-trip, CPU, memory, event-loop
 responsiveness, and cancellation observations where the phase is eligible. The

@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-citation-graph-layout-engine Specification
+
+## Purpose
+Defines the Synthesis citation graph layout engine, specifying its processing pipeline, input/output contracts, and integration with the parent capability.
+
+## Requirements
 
 ### Requirement: Layout compute SHALL use a strict environment-neutral contract
+
 
 The Citation Graph layout engine SHALL accept and return canonical JSON-safe DTOs that contain only the bounded graph slice and deterministic layout facts required for computation, including optional node title/year tie-break inputs and finite application-derived initial coordinates.
 
@@ -22,6 +28,7 @@ The Citation Graph layout engine SHALL accept and return canonical JSON-safe DTO
 
 ### Requirement: Layout kernels SHALL preserve deterministic behavior
 
+
 The engine SHALL implement the existing force, radial, and components algorithms with the current layout engine, version, parameters, and deterministic coordinate behavior.
 
 #### Scenario: Existing graph is computed in-process
@@ -35,6 +42,7 @@ The engine SHALL implement the existing force, radial, and components algorithms
 - **THEN** every input node SHALL receive one finite deterministic coordinate.
 
 ### Requirement: Engine package SHALL remain process portable
+
 
 The engine package SHALL NOT import Node, DOM, Zotero, plugin toolkit, application runtime, repository, or filesystem capabilities.
 

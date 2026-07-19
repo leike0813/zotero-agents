@@ -3,6 +3,12 @@
 version = 4
 
 [[package]]
+name = "allocator-api2"
+version = "0.2.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
+
+[[package]]
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -47,6 +53,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "equivalent"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
+
+[[package]]
+name = "foldhash"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -54,6 +72,17 @@ checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
 dependencies = [
  "typenum",
  "version_check",
+]
+
+[[package]]
+name = "hashbrown"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
+dependencies = [
+ "allocator-api2",
+ "equivalent",
+ "foldhash",
 ]
 
 [[package]]
@@ -90,6 +119,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "regress"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "158a764437582235e3501f683b93a0a6f8d825d04a789dbe5ed30b8799b8908a"
+dependencies = [
+ "hashbrown",
+ "memchr",
 ]
 
 [[package]]
@@ -158,6 +197,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "synthesis-concept-kb"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "synthesis-protocol",
+]
+
+[[package]]
 name = "synthesis-metrics"
 version = "0.1.0"
 dependencies = [
@@ -180,7 +227,27 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "synthesis-concept-kb",
  "synthesis-metrics",
+ "synthesis-protocol",
+ "synthesis-tag-vocabulary",
+ "synthesis-topic-graph",
+]
+
+[[package]]
+name = "synthesis-tag-vocabulary"
+version = "0.1.0"
+dependencies = [
+ "regress",
+ "serde_json",
+ "synthesis-protocol",
+]
+
+[[package]]
+name = "synthesis-topic-graph"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
  "synthesis-protocol",
 ]
 

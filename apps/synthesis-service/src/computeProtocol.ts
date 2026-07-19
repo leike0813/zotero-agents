@@ -1,10 +1,4 @@
 import type {
-  SynthesisConceptKbIndexRequest,
-  SynthesisConceptKbIndexResult,
-  SynthesisConceptKbQueryRequest,
-  SynthesisConceptKbQueryResult,
-} from "../../../packages/synthesis-engine/src/conceptKbIndex.js";
-import type {
   SynthesisCitationGraphLayoutRequest,
   SynthesisCitationGraphLayoutResult,
 } from "../../../packages/synthesis-engine/src/index.js";
@@ -16,16 +10,6 @@ import type {
   SynthesisCitationGraphBuildTransferPageDescriptor,
   SynthesisCitationGraphBuildTransferPageKind,
 } from "../../../packages/synthesis-engine/src/citationGraphBuildTransfer.js";
-import type {
-  SynthesisTagVocabularyIndexRequest,
-  SynthesisTagVocabularyIndexResult,
-  SynthesisTagVocabularyValidationRequest,
-  SynthesisTagVocabularyValidationResult,
-} from "../../../packages/synthesis-engine/src/tagVocabulary.js";
-import type {
-  SynthesisTopicGraphIndexRequest,
-  SynthesisTopicGraphIndexResult,
-} from "../../../packages/synthesis-engine/src/topicGraphIndex.js";
 
 export const SYNTHESIS_SIDECAR_COMPUTE_OPERATION =
   "citation_graph_layout.v1" as const;
@@ -58,26 +42,6 @@ export type SynthesisSidecarComputeRunMessage =
   | (SynthesisSidecarComputeRunMessageBase & {
       operation: typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION;
       payload: SynthesisCitationGraphBuildRequest;
-    })
-  | (SynthesisSidecarComputeRunMessageBase & {
-      operation: typeof SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION;
-      payload: SynthesisTagVocabularyValidationRequest;
-    })
-  | (SynthesisSidecarComputeRunMessageBase & {
-      operation: typeof SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION;
-      payload: SynthesisTagVocabularyIndexRequest;
-    })
-  | (SynthesisSidecarComputeRunMessageBase & {
-      operation: typeof SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION;
-      payload: SynthesisConceptKbIndexRequest;
-    })
-  | (SynthesisSidecarComputeRunMessageBase & {
-      operation: typeof SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION;
-      payload: SynthesisConceptKbQueryRequest;
-    })
-  | (SynthesisSidecarComputeRunMessageBase & {
-      operation: typeof SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION;
-      payload: SynthesisTopicGraphIndexRequest;
     })
   | (SynthesisSidecarComputeRunMessageBase & {
       operation: typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION;
@@ -129,12 +93,7 @@ export type SynthesisSidecarComputeWorkerResponse =
       taskId: string;
       result:
         | SynthesisCitationGraphLayoutResult
-        | SynthesisCitationGraphBuildResult
-        | SynthesisTagVocabularyValidationResult
-        | SynthesisTagVocabularyIndexResult
-        | SynthesisConceptKbIndexResult
-        | SynthesisConceptKbQueryResult
-        | SynthesisTopicGraphIndexResult;
+        | SynthesisCitationGraphBuildResult;
     }
   | { type: "canceled"; taskId: string }
   | { type: "error"; taskId: string };

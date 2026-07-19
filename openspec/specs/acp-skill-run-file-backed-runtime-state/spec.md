@@ -1,7 +1,7 @@
 # acp-skill-run-file-backed-runtime-state Specification
 
 ## Purpose
-TBD
+Defines the file-backed runtime state contract for ACP Skill runs, ensuring that large transcript, output revision, and continuation context values are stored in files rather than in the plugin run store database payload.
 ## Requirements
 ### Requirement: ACP Skill runtime state is file-backed
 

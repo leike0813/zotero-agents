@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-workbench-graph-command-client-consumer Specification
+
+## Purpose
+Defines the Synthesis Workbench client consumer contract for graph command operations, specifying how Workbench reads and reacts to client-side state changes.
+
+## Requirements
 
 ### Requirement: Citation Graph commands use a bounded client capability
+
 The Synthesis client SHALL expose a `graph` capability with commands for Citation Graph layout recomputation, full cache rebuild, incremental cache refresh, and failed rebuild retry. The Workbench SHALL resolve the default client lazily and SHALL NOT call the corresponding legacy service methods directly.
 
 #### Scenario: Workbench invokes a cache command
@@ -14,6 +20,7 @@ The Synthesis client SHALL expose a `graph` capability with commands for Citatio
 - **AND** it SHALL NOT invoke the legacy layout method directly
 
 ### Requirement: Layout requests have a narrow validated contract
+
 The layout request SHALL contain an algorithm from `force`, `radial`, or `components` and MAY contain a boolean `force` flag. The in-process adapter SHALL reject invalid request shapes, algorithms, and force values with the stable `invalid_request` client error code.
 
 #### Scenario: Manual layout is requested
@@ -30,6 +37,7 @@ The layout request SHALL contain an algorithm from `force`, `radial`, or `compon
 - **AND** it SHALL NOT invoke the legacy layout port
 
 ### Requirement: In-process Graph commands normalize ports, results, and errors
+
 The in-process adapter SHALL depend on four narrow legacy Graph command ports, normalize every successful result through the shared JSON-safe object path, reject a missing port with `unavailable`, preserve an existing client error, and normalize an ordinary legacy exception to `internal`.
 
 #### Scenario: Legacy command succeeds with a non-JSON-safe value
@@ -45,6 +53,7 @@ The in-process adapter SHALL depend on four narrow legacy Graph command ports, n
 - **THEN** the adapter SHALL reject with `internal`
 
 ### Requirement: Graph command progress does not cross the client contract
+
 Graph command contracts SHALL NOT accept or return UI progress callbacks, streaming hooks, or Workbench-owned DTOs. Workbench command progress SHALL continue to come from the existing 500 ms `workbench.readProgress()` polling path.
 
 #### Scenario: Cache command starts
@@ -57,6 +66,7 @@ Graph command contracts SHALL NOT accept or return UI progress callbacks, stream
 - **THEN** that helper SHALL remain available outside the Graph client contracts
 
 ### Requirement: Existing Citation Graph Workbench behavior is preserved
+
 The client-routed commands SHALL preserve confirmation, command single-flight, readiness and content-hash guards, error presentation, Graph surface invalidation, and stale, missing, and failed cache action semantics.
 
 #### Scenario: A Graph command completes successfully
@@ -69,6 +79,7 @@ The client-routed commands SHALL preserve confirmation, command single-flight, r
 - **THEN** the Workbench SHALL retain its existing command error presentation and single-flight cleanup
 
 ### Requirement: Migration boundaries remain stable
+
 This migration SHALL retain 125 public Synthesis service methods, exactly four direct legacy service consumers, all existing public Graph service methods, and current process, repository, persistence, Host Bridge, and MCP ownership.
 
 #### Scenario: Static service boundaries are checked

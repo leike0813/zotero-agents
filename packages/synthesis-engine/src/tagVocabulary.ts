@@ -5,6 +5,7 @@ import type {
   SynthesisTagVocabularyIndexSearchRow,
   SynthesisTagVocabularyWarning,
 } from "../../synthesis-contracts/src/tagVocabularyCore.js";
+import { compareSynthesisContractStrings } from "../../synthesis-contracts/src/canonicalJson.js";
 
 export {
   type SynthesisTagVocabularyEngineEntry,
@@ -29,6 +30,13 @@ export const SYNTHESIS_TAG_VOCABULARY_FACET_MAX = 256;
 export const SYNTHESIS_TAG_VOCABULARY_PER_ENTRY_ALIAS_MAX = 256;
 export const SYNTHESIS_TAG_VOCABULARY_STRING_MAX = 4096;
 export const SYNTHESIS_TAG_VOCABULARY_CHECKPOINT_INTERVAL = 256;
+
+function compareTagVocabularyStrings(left: string, right: string) {
+  return (
+    compareSynthesisContractStrings(left.toLowerCase(), right.toLowerCase()) ||
+    compareSynthesisContractStrings(left, right)
+  );
+}
 
 export type SynthesisTagVocabularyValidationRequest = {
   contractVersion: typeof SYNTHESIS_TAG_VOCABULARY_CONTRACT_VERSION;
@@ -269,9 +277,7 @@ function normalizeStringArray(
     seen.add(entry);
     output.push(entry);
   }
-  return output.sort((left, right) =>
-    left.localeCompare(right, "en", { sensitivity: "base" }),
-  );
+  return output.sort(compareTagVocabularyStrings);
 }
 
 function rebuildEntry(
@@ -329,8 +335,8 @@ function compareEntries(
   right: SynthesisTagVocabularyEngineEntry,
 ) {
   return (
-    left.facet.localeCompare(right.facet) ||
-    left.tag.localeCompare(right.tag, "en", { sensitivity: "base" })
+    compareSynthesisContractStrings(left.facet, right.facet) ||
+    compareTagVocabularyStrings(left.tag, right.tag)
   );
 }
 
@@ -378,7 +384,9 @@ function rebuildStringRecord(
     output.set(key, entry);
   }
   return Object.fromEntries(
-    [...output.entries()].sort(([left], [right]) => left.localeCompare(right)),
+    [...output.entries()].sort(([left], [right]) =>
+      compareSynthesisContractStrings(left, right),
+    ),
   );
 }
 
@@ -652,9 +660,7 @@ function computeIndex(
   const tags = request.entries
     .filter((entry) => !entry.deprecated)
     .map((entry) => entry.tag)
-    .sort((left, right) =>
-      left.localeCompare(right, "en", { sensitivity: "base" }),
-    );
+    .sort(compareTagVocabularyStrings);
   const search: SynthesisTagVocabularyIndexSearchRow[] = [];
   for (let index = 0; index < request.entries.length; index += 1) {
     const entry = request.entries[index];

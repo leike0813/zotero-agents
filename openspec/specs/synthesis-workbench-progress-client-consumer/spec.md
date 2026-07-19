@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-workbench-progress-client-consumer Specification
+
+## Purpose
+Defines the Synthesis Workbench client consumer contract for progress operations, specifying how Workbench reads and reacts to client-side state changes.
+
+## Requirements
 
 ### Requirement: Workbench progress polling uses a narrow client query
+
 The Synthesis Workbench SHALL obtain operation progress through the no-argument `SynthesisClient.workbench.readProgress` capability and SHALL NOT call the legacy service progress method directly.
 
 #### Scenario: Workbench polls operation progress
@@ -13,6 +19,7 @@ The Synthesis Workbench SHALL obtain operation progress through the no-argument 
 - **THEN** the in-process adapter SHALL reject with the stable internal client error code
 
 ### Requirement: Progress queries are side-effect-free
+
 Service construction, background-job progress reads, client progress reads, and debug progress reads SHALL NOT reconcile or mutate persisted operation lifecycle state.
 
 #### Scenario: A running operation is read during a live session
@@ -26,6 +33,7 @@ Service construction, background-job progress reads, client progress reads, and 
 - **THEN** construction SHALL NOT cancel or otherwise update that operation
 
 ### Requirement: Restart-orphan reconciliation belongs only to startup
+
 The explicit Synthesis startup reconciliation lifecycle SHALL cancel every persisted `running` operation as a restart orphan and SHALL NOT use elapsed timestamp age to cancel operations during a live session.
 
 #### Scenario: Startup finds persisted running operations
@@ -40,6 +48,7 @@ The explicit Synthesis startup reconciliation lifecycle SHALL cancel every persi
 - **THEN** the operation SHALL remain `running`
 
 ### Requirement: Existing Workbench progress behavior is preserved
+
 The client-routed progress poll SHALL preserve Git Sync chrome composition, 500 ms cadence, concurrent-poll locking, cached and runtime projection merge, snapshot locking, transient-error fallback, chrome-only publication, and command single-flight behavior.
 
 #### Scenario: A progress projection is received
@@ -52,6 +61,7 @@ The client-routed progress poll SHALL preserve Git Sync chrome composition, 500 
 - **THEN** the Workbench SHALL retain the existing fallback behavior and release its concurrency guard
 
 ### Requirement: Migration boundaries remain stable
+
 This change SHALL retain the public background-job service method, service migration inventory, 125-method public service surface, four direct legacy consumers, and existing process and storage ownership.
 
 #### Scenario: Service boundaries are checked

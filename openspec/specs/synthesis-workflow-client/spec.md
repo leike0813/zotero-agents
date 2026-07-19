@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-workflow-client Specification
+
+## Purpose
+Defines the synthesis workflow client capability for the Synthesis plugin, specifying its service boundary, integration contracts, and runtime behavior.
+
+## Requirements
 
 ### Requirement: Workflow Synthesis exposure is narrow
+
 `WorkflowHostApi.synthesis` SHALL expose only the twelve declared workflow methods and SHALL NOT expose the full `SynthesisService` or `SynthesisClient`.
 
 #### Scenario: Workflow host is created
@@ -9,6 +15,7 @@
 - **AND** unrelated repository, Workbench, debug, sync, and lifecycle methods SHALL be absent
 
 ### Requirement: Workflow methods route through grouped client capabilities
+
 The workflow facade SHALL lazily resolve `SynthesisClient` and route each method to its domain capability without importing the legacy service.
 
 #### Scenario: Workflow command executes
@@ -22,6 +29,7 @@ The workflow facade SHALL lazily resolve `SynthesisClient` and route each method
 - **AND** the total direct consumer count SHALL be five
 
 ### Requirement: Digest apply receives a JSON-safe item snapshot
+
 The plugin SHALL convert any live Zotero item used by digest apply into an explicit environment-neutral item snapshot before invoking the client.
 
 #### Scenario: Digest workflow passes a parent item
@@ -30,6 +38,7 @@ The plugin SHALL convert any live Zotero item used by digest apply into an expli
 - **AND** it SHALL NOT contain the live item or callable members
 
 ### Requirement: Topic apply materializes controlled assets
+
 The plugin SHALL resolve Topic apply run-workspace files before the client boundary and SHALL replace local locators with deterministic controlled asset identifiers.
 
 #### Scenario: Relative bundle paths are submitted
@@ -46,6 +55,7 @@ The plugin SHALL resolve Topic apply run-workspace files before the client bound
 - **THEN** the call SHALL fail with stable `invalid_request` details before the legacy mutation is invoked
 
 ### Requirement: In-process adapter preserves current workflow behavior
+
 The migration-time adapter SHALL reconstruct read-only asset access and delegate to the current in-process implementation without changing DB, canonical file, mirror, or Zotero ownership.
 
 #### Scenario: Topic apply reaches the legacy implementation
@@ -54,6 +64,7 @@ The migration-time adapter SHALL reconstruct read-only asset access and delegate
 - **AND** current persisted, conflict, missing, duplicate, and validation results SHALL remain observable-compatible
 
 ### Requirement: Workflow contracts are environment-neutral
+
 Workflow client DTOs SHALL be package-owned, JSON-safe, bounded where collections or assets cross the boundary, and free of repository rows, absolute paths, host objects, functions, and legacy service-derived types.
 
 #### Scenario: Contract boundary is checked
@@ -61,6 +72,7 @@ Workflow client DTOs SHALL be package-owned, JSON-safe, bounded where collection
 - **THEN** forbidden imports and non-environment-neutral workflow shapes SHALL fail validation
 
 ### Requirement: Active documentation describes the narrow current API
+
 Current workflow API documentation SHALL identify `WorkflowSynthesisApi`, list the supported methods, and state that the default implementation is still in-process.
 
 #### Scenario: Workflow API docs are generated

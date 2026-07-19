@@ -1,7 +1,6 @@
 import { assert } from "chai";
 import fs from "fs/promises";
 import path from "path";
-import { Worker } from "node:worker_threads";
 import {
   SYNTHESIS_CONCEPT_KB_ALIAS_MAX,
   SYNTHESIS_CONCEPT_KB_CONCEPT_MAX,
@@ -322,37 +321,6 @@ describe("Synthesis Concept KB index engine", function () {
     assert.include(checkpoints, "start:0");
     assert.include(checkpoints, "concepts:1");
     assert.notInclude(checkpoints, "complete:11");
-  });
-
-  it("returns the same canonical results through the Node worker canary", async function () {
-    const index = rebuildSynthesisConceptKbIndexRequest(
-      JSON.parse(JSON.stringify(indexRequest())),
-    );
-    const query = rebuildSynthesisConceptKbQueryRequest(
-      JSON.parse(JSON.stringify(queryRequest())),
-    );
-    const direct = createInProcessSynthesisConceptKbIndexEngine();
-    const expected = {
-      index: await direct.buildIndex(index),
-      query: await direct.query(query),
-    };
-    const worker = new Worker(
-      new URL(
-        "../fixtures/synthesis-concept-kb-index-engine-worker.ts",
-        import.meta.url,
-      ),
-      { execArgv: ["--import", "tsx"] },
-    );
-    try {
-      const actual = await new Promise<unknown>((resolve, reject) => {
-        worker.once("message", resolve);
-        worker.once("error", reject);
-        worker.postMessage({ index, query });
-      });
-      assert.deepEqual(actual, expected);
-    } finally {
-      await worker.terminate();
-    }
   });
 
   it("keeps the engine source environment-neutral", async function () {

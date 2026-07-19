@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-sidecar-topic-application-foundation Specification
+
+## Purpose
+Defines the application-level foundation for the Synthesis sidecar topic component, including its service boundary, lifecycle, and integration with the sidecar runtime.
+
+## Requirements
 
 ### Requirement: Topic application inputs are strict and environment neutral
+
 The application SHALL rebuild bounded list, detail, and apply requests, SHALL accept apply artifacts only as materialized assets, and SHALL reject unknown fields, duplicate asset IDs, traversal, absolute or URL paths, unsupported media types, missing assets, and bound violations before persistence.
 
 #### Scenario: Workspace authority cannot cross the application boundary
@@ -8,6 +14,7 @@ The application SHALL rebuild bounded list, detail, and apply requests, SHALL ac
 - **THEN** the request fails as invalid before an operation row or canonical write is created
 
 ### Requirement: Topic application supports complete and patch apply
+
 The application SHALL support `create`, `update_full`, and `update_patch`, use the structured-artifact engine for validation/assembly/patching, construct a complete canonical snapshot, and preserve existing Topic hash and result semantics.
 
 #### Scenario: Structured patch inherits unchanged sections
@@ -15,6 +22,7 @@ The application SHALL support `create`, `update_full`, and `update_patch`, use t
 - **THEN** changed sections replace their predecessors, unchanged sections are inherited, and one complete validated snapshot is promoted
 
 ### Requirement: Canonical promotion is the apply commit point
+
 The application SHALL perform all request, asset, schema, Topic existence, basis, and patch checks before promotion; create SHALL use a null expected basis and updates SHALL use the read manifest/artifact basis.
 
 #### Scenario: Optimistic conflict has zero domain writes
@@ -26,6 +34,7 @@ The application SHALL perform all request, asset, schema, Topic existence, basis
 - **THEN** current remains committed and apply returns success with stable warning diagnostics
 
 ### Requirement: List and detail are bounded canonical-backed projections
+
 List SHALL read indexed Topic registry state with stable pagination, and detail SHALL combine one registry record with one strictly rebuilt canonical snapshot without scanning Topic directories.
 
 #### Scenario: Sidecar restart preserves Topic reads
@@ -33,6 +42,7 @@ List SHALL read indexed Topic registry state with stable pagination, and detail 
 - **THEN** list and detail return the persisted Topic and canonical hashes without startup content scanning
 
 ### Requirement: Topic apply owns explicit operation lifecycle
+
 Each admitted apply SHALL create one `topic_apply` operation, update stable validation, assembly, promotion, and projection phases, and terminate as completed or failed without treating cache readiness as operation completion.
 
 #### Scenario: Pre-commit failure is terminal
@@ -40,6 +50,7 @@ Each admitted apply SHALL create one `topic_apply` operation, update stable vali
 - **THEN** the operation records a failed terminal phase and no current snapshot is changed
 
 ### Requirement: Isolated application composition is not a production route
+
 The service SHALL compose the Topic application only over identity-bound shadow owners and SHALL NOT advertise a remote Topic apply capability or receive production paths.
 
 #### Scenario: Production ownership remains unchanged

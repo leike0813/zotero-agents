@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-topic-graph-index-engine Specification
+
+## Purpose
+Defines the Synthesis topic graph index engine, specifying its processing pipeline, input/output contracts, and integration with the parent capability.
+
+## Requirements
 
 ### Requirement: Topic Graph index engine SHALL use strict environment-neutral contracts
+
 
 The engine SHALL expose canonical JSON-safe index requests and results with
 explicit contract and algorithm versions.
@@ -17,6 +23,7 @@ explicit contract and algorithm versions.
 - **THEN** rebuilding SHALL reject it before application use.
 
 ### Requirement: Topic Graph index engine SHALL preserve current placement semantics
+
 
 The engine SHALL deterministically derive root and unplaced topic identifiers
 from bounded Topic Graph node and edge inputs.
@@ -40,6 +47,7 @@ from bounded Topic Graph node and edge inputs.
 
 ### Requirement: Topic Graph index engine SHALL be bounded and cancellable
 
+
 The engine SHALL cap nodes at 25,000, edges at 100,000, and strings at 4,096
 code units.
 
@@ -49,6 +57,7 @@ code units.
 - **THEN** computation SHALL stop without returning a partial result.
 
 ### Requirement: Topic Graph index engine SHALL be process-portable
+
 
 The engine source SHALL not import plugin, Zotero, repository, persistence,
 filesystem, runtime, DOM, or Node-only modules.

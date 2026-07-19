@@ -1,3 +1,5 @@
+import { compareSynthesisContractStrings } from "../../synthesis-contracts/src/canonicalJson.js";
+
 export const SYNTHESIS_CONCEPT_KB_CONTRACT_VERSION =
   "synthesis-concept-kb-index.v1" as const;
 export const SYNTHESIS_CONCEPT_KB_INDEX_VERSION =
@@ -213,7 +215,7 @@ function stringArray(
   });
   return options.preserveOrder
     ? result
-    : result.sort((left, right) => left.localeCompare(right));
+    : result.sort(compareSynthesisContractStrings);
 }
 
 function conceptStatus(
@@ -382,22 +384,22 @@ function rebuildSource(
     .map((entry, index) => rebuildConcept(entry, index, bounds))
     .sort(
       (left, right) =>
-        left.label.localeCompare(right.label) ||
-        left.conceptId.localeCompare(right.conceptId),
+        compareSynthesisContractStrings(left.label, right.label) ||
+        compareSynthesisContractStrings(left.conceptId, right.conceptId),
     );
   const senses = rawSenses
     .map((entry, index) => rebuildSense(entry, index, bounds))
     .sort(
       (left, right) =>
-        left.label.localeCompare(right.label) ||
-        left.senseId.localeCompare(right.senseId),
+        compareSynthesisContractStrings(left.label, right.label) ||
+        compareSynthesisContractStrings(left.senseId, right.senseId),
     );
   const aliases = rawAliases
     .map((entry, index) => rebuildAlias(entry, index, bounds))
     .sort(
       (left, right) =>
-        left.normalized.localeCompare(right.normalized) ||
-        left.aliasId.localeCompare(right.aliasId),
+        compareSynthesisContractStrings(left.normalized, right.normalized) ||
+        compareSynthesisContractStrings(left.aliasId, right.aliasId),
     );
   uniqueIds(concepts, (entry) => entry.conceptId, "concepts");
   uniqueIds(senses, (entry) => entry.senseId, "senses");
@@ -575,7 +577,7 @@ function computeIndex(
   overlayEntries.sort(
     (left, right) =>
       right.alias.length - left.alias.length ||
-      left.alias.localeCompare(right.alias),
+      compareSynthesisContractStrings(left.alias, right.alias),
   );
   checkpoint(options, "complete", totalCount, totalCount, true);
   return {

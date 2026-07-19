@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-sidecar-tag-vocabulary-application-foundation Specification
+
+## Purpose
+Defines the application-level foundation for the Synthesis sidecar tag vocabulary component, including its service boundary, lifecycle, and integration with the sidecar runtime.
+
+## Requirements
 
 ### Requirement: Private sidecar owns an isolated Tag Vocabulary aggregate
+
 The Synthesis sidecar SHALL persist an isolated Tag Vocabulary aggregate containing vocabulary entries, aliases, abbreviations, protocol, validation warnings, staged suggestions, audit facts, application state, index state, and Host-effect facts without reading or mutating production storage.
 
 #### Scenario: Service restarts after Tag mutations
@@ -9,6 +15,7 @@ The Synthesis sidecar SHALL persist an isolated Tag Vocabulary aggregate contain
 - **AND** production database and canonical files SHALL remain untouched.
 
 ### Requirement: Private Tag contracts are strict and bounded
+
 The private Tag application SHALL accept and return versioned JSON-safe DTOs with bounded collections, deterministic ordering, stable structured codes, and strict field rebuilding.
 
 #### Scenario: Malformed or oversized request arrives
@@ -16,6 +23,7 @@ The private Tag application SHALL accept and return versioned JSON-safe DTOs wit
 - **THEN** the request SHALL fail before repository mutation or engine execution.
 
 ### Requirement: Vocabulary mutations preserve last-good state
+
 Vocabulary replacement, entry update, and entry deletion SHALL validate a detached candidate and promote it only when the captured vocabulary basis remains current.
 
 #### Scenario: Validation or basis check fails
@@ -28,6 +36,7 @@ Vocabulary replacement, entry update, and entry deletion SHALL validate a detach
 - **AND** unrelated metadata SHALL be preserved.
 
 ### Requirement: Staged suggestions form a revisioned inbox
+
 The private Tag application SHALL support bounded listing, deterministic staging merges, atomic update/rename collision handling, discard, and clear using a staged revision.
 
 #### Scenario: Staged rename write fails
@@ -35,6 +44,7 @@ The private Tag application SHALL support bounded listing, deterministic staging
 - **THEN** every original staged row and the staged revision SHALL remain unchanged.
 
 ### Requirement: Promotion commits durable effects before Host dispatch
+
 Promoting staged suggestions SHALL atomically validate and commit new vocabulary entries, remove only promoted staged rows, mark the index stale, and persist deterministic pending Host Tag effects before any Host call.
 
 #### Scenario: Host is unavailable after promotion commit
@@ -51,6 +61,7 @@ Promoting staged suggestions SHALL atomically validate and commit new vocabulary
 - **THEN** promotion SHALL leave vocabulary, staged rows, revisions, and effects unchanged.
 
 ### Requirement: Tag index promotion is basis guarded
+
 The private application SHALL construct the Tag index through the bounded sidecar worker and promote it only while its source vocabulary hash remains active.
 
 #### Scenario: Index result is superseded or invalid
@@ -58,6 +69,7 @@ The private application SHALL construct the Tag index through the bounded sideca
 - **THEN** the last-good index and its active basis SHALL remain unchanged.
 
 ### Requirement: Audit and regulator use cases remain domain bounded
+
 The private application SHALL provide deterministic active-tag export for tag-regulator and atomic per-library Tag audit replacement and clearing without triggering index rebuild, Host effects, files, import, or autosync.
 
 #### Scenario: Audit record is cleared
@@ -65,6 +77,7 @@ The private application SHALL provide deterministic active-tag export for tag-re
 - **THEN** the durable record SHALL be marked compliant with an empty non-compliant-tag list.
 
 ### Requirement: Private Tag lifecycle drains before persistence closes
+
 The private Tag application SHALL reject new mutations after admission stops and SHALL cancel or drain active computation and effect dispatch before its repository and worker dependencies close.
 
 #### Scenario: Service shutdown begins during Tag work
@@ -73,6 +86,7 @@ The private Tag application SHALL reject new mutations after admission stops and
 - **AND** repository closure SHALL occur only after the application reaches a terminal drained state.
 
 ### Requirement: Tag foundation remains production disconnected
+
 The private Tag foundation SHALL NOT add a public sidecar capability, authenticated route, `SynthesisClient` method, automatic invocation, Zotero adapter, production persistence owner, checkpoint/import behavior, or WebDAV synchronization.
 
 #### Scenario: Foundation is packaged

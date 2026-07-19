@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-sidecar-durable-bundle-export-foundation Specification
+
+## Purpose
+Defines the runtime foundation for the Synthesis sidecar durable-bundle-export component, including its service wiring, dependency injection, and integration with the sidecar process lifecycle.
+
+## Requirements
 
 ### Requirement: Complete durable entity contract
+
 The system SHALL define one strict durable entity contract for `concept`, `concept_sense`, `concept_alias`, `concept_relation`, `concept_review_item`, `topic_current_asset`, `topic_concept_links`, `topic_graph_node`, `topic_graph_edge`, `topic_graph_review_item`, `canonical_reference`, `canonical_reference_redirect`, `reference_binding`, `reference_match_proposal`, `review_item`, `topic_interest_metadata`, `topic_discovery_hint`, `tag_vocabulary`, `tag_aliases`, `tag_abbrev`, `tag_protocol`, `related_items_sync_effect`, and `tombstone`.
 
 #### Scenario: All current durable facts are represented
@@ -12,6 +18,7 @@ The system SHALL define one strict durable entity contract for `concept`, `conce
 - **THEN** it SHALL NOT synthesize a tombstone, while a valid input tombstone SHALL remain readable and verifiable
 
 ### Requirement: Exact and bounded wire shapes
+
 The system SHALL reject unknown fields, unsupported schema or entity kinds, unsafe paths, duplicate asset paths, duplicate entity identities, invalid bundle-kind mappings, and collections outside the durable limits SSOT. Manifest and entry aggregate limits SHALL be mechanically derived from the existing domain limits, and each encoded bundle SHALL retain the production v2 four-MiB canonical-text length boundary.
 
 #### Scenario: Invalid wire data is rejected
@@ -27,6 +34,7 @@ The system SHALL reject unknown fields, unsupported schema or entity kinds, unsa
 - **THEN** export SHALL fail instead of emitting an oversized asset
 
 ### Requirement: Canonical v2 export
+
 The builder SHALL emit only manifest schema v2 and bundle schema v2 using the existing manifest fields, capabilities, domain versions, bundle kinds, path layout, canonical JSON, content-hash, bundle-hash and manifest-hash semantics.
 
 #### Scenario: Equal facts and time produce equal bytes
@@ -38,6 +46,7 @@ The builder SHALL emit only manifest schema v2 and bundle schema v2 using the ex
 - **THEN** verification SHALL reject the export with a structured mismatch diagnostic
 
 ### Requirement: Legacy v1 read and verify
+
 The reader SHALL accept valid legacy manifest v1 exports with per-entity assets while the builder SHALL never generate that legacy layout.
 
 #### Scenario: Valid legacy export is read
@@ -49,6 +58,7 @@ The reader SHALL accept valid legacy manifest v1 exports with per-entity assets 
 - **THEN** the resulting export SHALL use only the canonical v2 manifest and bundle layout
 
 ### Requirement: Transactional repository capture
+
 The repository SHALL capture all available durable SQLite rows, Topic registry bases and normalized aggregate bases within one read transaction without creating placeholder rows, invoking domain mutation applications, or adding a new durable schema.
 
 #### Scenario: Owners contain rows and empty collections
@@ -60,6 +70,7 @@ The repository SHALL capture all available durable SQLite rows, Topic registry b
 - **THEN** build SHALL fail with `basis_superseded` and SHALL NOT publish a manifest
 
 ### Requirement: Canonical Topic current capture
+
 The application SHALL read Topic current content only through the canonical-store identity rules, allowing current `.json` and `.md` files while excluding asset descendants, HTML, `.metadata.json` and any unregistered or unsafe path.
 
 #### Scenario: Allowed current assets are stable
@@ -71,6 +82,7 @@ The application SHALL read Topic current content only through the canonical-stor
 - **THEN** the entire build SHALL fail with validation or `basis_superseded` diagnostics and SHALL NOT publish a manifest
 
 ### Requirement: Environment-neutral verification source
+
 The private application SHALL verify exports through a `SynthesisDurableBundleSource` that reads manifest and asset text without depending on Node filesystem or Zotero runtime APIs.
 
 #### Scenario: Source verifies a valid export
@@ -82,6 +94,7 @@ The private application SHALL verify exports through a `SynthesisDurableBundleSo
 - **THEN** `readAndVerify` SHALL return structured diagnostics and no normalized complete export
 
 ### Requirement: Manifest-last sink publication
+
 The private application SHALL write canonical bundle texts to `SynthesisDurableBundleSink` in stable path order and write the manifest only after every bundle write succeeds.
 
 #### Scenario: All writes succeed
@@ -93,6 +106,7 @@ The private application SHALL write canonical bundle texts to `SynthesisDurableB
 - **THEN** publication SHALL stop, SHALL NOT write the manifest, and SHALL NOT claim a verifiable complete export
 
 ### Requirement: Private lifecycle and capability boundary
+
 The durable export application SHALL admit only one active operation, SHALL reject new operations after `stopAdmission`, and `shutdown` SHALL drain the active lease before repository, canonical-store and SQLite closure. It SHALL expose no public worker, RPC, client, Workbench, Host Bridge or MCP operation.
 
 #### Scenario: Shutdown waits for active export
@@ -104,6 +118,7 @@ The durable export application SHALL admit only one active operation, SHALL reje
 - **THEN** the private durable exporter SHALL be constructed after recovery, drained before its dependencies, and public method/consumer inventories SHALL remain at their established counts
 
 ### Requirement: Production durable-sync compatibility
+
 Production durable-sync exports SHALL preserve existing public DTOs, function names, progress phases, valid v2 paths and bytes, legacy fallback, preview/apply results, sync-index and conflict behavior while delegating semantically identical contract and codec operations to the shared foundation.
 
 #### Scenario: Existing production facts are exported

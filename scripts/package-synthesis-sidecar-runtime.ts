@@ -102,7 +102,7 @@ async function copyComputeRuntimeDependencies(
   }
 }
 
-async function copyRustMetricsRuntime(
+async function copyRustComputeRuntime(
   root: string,
   outputRoot: string,
   target: SynthesisSidecarRuntimeTarget,
@@ -196,7 +196,7 @@ async function main() {
   );
   await copyServiceTree(root, outputRoot);
   await copyComputeRuntimeDependencies(root, outputRoot);
-  await copyRustMetricsRuntime(root, outputRoot, target);
+  await copyRustComputeRuntime(root, outputRoot, target);
 
   const servicePackage = JSON.parse(
     await fs.readFile(

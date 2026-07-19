@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-workbench-topic-report-client-consumer Specification
+
+## Purpose
+Defines the Synthesis Workbench client consumer contract for topic report operations, specifying how Workbench reads and reacts to client-side state changes.
+
+## Requirements
 
 ### Requirement: Workbench Topic Report export uses the topics client
+
 The Synthesis Workbench SHALL obtain Topic Report data through the existing `SynthesisClient.topics.getTopicReport` capability and SHALL NOT call the legacy service report method directly.
 
 #### Scenario: A Topic Report export is requested
@@ -12,6 +18,7 @@ The Synthesis Workbench SHALL obtain Topic Report data through the existing `Syn
 - **THEN** the Workbench SHALL reject before resolving the client or requesting report data
 
 ### Requirement: Report export behavior is preserved
+
 The Workbench SHALL preserve its existing report body and title handling, safe filename generation, file-picker cancellation, newline normalization, runtime file write, command single-flight, and error-reporting behavior after the client migration.
 
 #### Scenario: An available report is exported
@@ -27,6 +34,7 @@ The Workbench SHALL preserve its existing report body and title handling, safe f
 - **THEN** the Workbench SHALL return without writing a file
 
 ### Requirement: Migration boundaries remain unchanged
+
 This consumer migration SHALL NOT add or modify a Synthesis client contract, remove the service report method, change migration inventory membership, or migrate progress polling, commands, or mutations.
 
 #### Scenario: Service boundary checks run

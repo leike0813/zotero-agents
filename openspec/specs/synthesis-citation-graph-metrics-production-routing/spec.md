@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-citation-graph-metrics-production-routing Specification
+
+## Purpose
+Defines the synthesis citation graph metrics production routing capability for the Synthesis plugin, specifying its service boundary, integration contracts, and runtime behavior.
+
+## Requirements
 
 ### Requirement: Production metrics uses the sidecar worker
+
 Production composition SHALL execute Citation Graph metrics through the
 authenticated sidecar compute service using a fresh ready runtime connection for
 each call and SHALL NOT retry or fall back to the in-process engine.
@@ -14,6 +20,7 @@ each call and SHALL NOT retry or fall back to the in-process engine.
 - **THEN** the call fails immediately with `service_not_ready` and does not execute an in-process metrics kernel
 
 ### Requirement: Plugin retains metrics promotion authority
+
 The plugin SHALL retain ownership of graph reads, graph-basis validation, result
 promotion, previous metrics, DB access, and canonical files.
 

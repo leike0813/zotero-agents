@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-workbench-ui-client-consumer Specification
+
+## Purpose
+Defines the Synthesis Workbench client consumer contract for ui operations, specifying how Workbench reads and reacts to client-side state changes.
+
+## Requirements
 
 ### Requirement: Production Workbench UI reads use the client
+
 The production Synthesis Workbench SHALL route chrome, surface, Topic detail, and paper digest UI reads through `SynthesisClient.workbench` and SHALL NOT invoke the corresponding legacy service read methods.
 
 #### Scenario: Workbench chrome and surface render
@@ -13,6 +19,7 @@ The production Synthesis Workbench SHALL route chrome, surface, Topic detail, an
 - **THEN** it SHALL use stable identifiers with the corresponding client read
 
 ### Requirement: Workbench UI transport conversion has one owner
+
 Production Workbench and read-only harness consumers SHALL share one adapter for UI state, snapshot projection, and digest DTO conversion.
 
 #### Scenario: UI read state crosses the client boundary
@@ -24,6 +31,7 @@ Production Workbench and read-only harness consumers SHALL share one adapter for
 - **THEN** the shared adapter SHALL produce the existing UI digest contract shape
 
 ### Requirement: Region identity and stale-read behavior are preserved
+
 The production Workbench SHALL retain its existing surface request identity, active-surface and latest-request guards, dirty and loaded state, last-known-good snapshots, message structure, and merge order after client migration.
 
 #### Scenario: A stale surface read completes
@@ -35,6 +43,7 @@ The production Workbench SHALL retain its existing surface request identity, act
 - **THEN** unrelated managed region identity SHALL remain governed by its own stable signature
 
 ### Requirement: Storage busy remains transient across the client
+
 The in-process Synthesis client SHALL map SQLite busy failures to stable error code `storage_busy` before applying ordinary internal-error normalization.
 
 #### Scenario: SQLite rejects a Workbench read as busy
@@ -43,6 +52,7 @@ The in-process Synthesis client SHALL map SQLite busy failures to stable error c
 - **AND** the Workbench SHALL publish the existing transient surface error semantics
 
 ### Requirement: Command-plane scope remains unchanged
+
 Commands, prewarm phased callbacks, progress polling, report reads, options, mutations, Host Bridge, and MCP SHALL remain outside this consumer-only UI read migration.
 
 #### Scenario: Legacy consumer inventory is checked

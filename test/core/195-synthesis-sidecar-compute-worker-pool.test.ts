@@ -236,7 +236,7 @@ function fixturePool(
 ) {
   return createSynthesisSidecarComputeWorkerPool({
     workerUrl: FIXTURE_WORKER,
-    metricsWorkerPath: RUST_METRICS_FIXTURE,
+    rustWorkerPath: RUST_METRICS_FIXTURE,
     executionTimeoutMs: overrides.executionTimeoutMs ?? 250,
     cancellationGraceMs: overrides.cancellationGraceMs ?? 20,
     shutdownTimeoutMs: overrides.shutdownTimeoutMs ?? 100,
@@ -406,6 +406,45 @@ describe("Synthesis sidecar compute worker pool", function () {
         maxYoungGenerationSizeMb: 32,
         stackSizeMb: 4,
       });
+    } finally {
+      await pool.shutdown();
+    }
+  });
+
+  it("pages deterministic requests and results larger than one worker frame page", async function () {
+    const entries = Array.from({ length: 1_250 }, (_, index) => ({
+      tag: `field:item_${String(index).padStart(4, "0")}`,
+      facet: "field",
+      note: "x".repeat(3_500),
+      aliases: [],
+      abbrev: [],
+    }));
+    const request = rebuildSynthesisTagVocabularyIndexRequest({
+      contractVersion: "synthesis-tag-vocabulary.v1",
+      algorithmVersion: "tag-vocabulary-index.v1",
+      entries,
+      aliases: {},
+      abbrev: {},
+      protocol: {
+        version: "1.0.0",
+        tagPattern: "^[a-z_]+:[a-zA-Z0-9/_.-]+$",
+        maxTagLength: 120,
+        facets: ["field"],
+      },
+      sourceManifestHash: `sha256:${"d".repeat(64)}`,
+      rebuiltAt: "2026-07-19T00:00:00.000Z",
+    });
+    const pool = createSynthesisSidecarComputeWorkerPool({
+      workerUrl: BUILT_WORKER,
+    });
+    try {
+      const result = await pool.runTagVocabularyIndex(request);
+      assert.lengthOf(result.tags, entries.length);
+      assert.lengthOf(result.search, entries.length);
+      assert.deepEqual(
+        result,
+        createInProcessSynthesisTagVocabularyEngine().buildIndex(request),
+      );
     } finally {
       await pool.shutdown();
     }

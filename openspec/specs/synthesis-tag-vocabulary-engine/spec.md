@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-tag-vocabulary-engine Specification
+
+## Purpose
+Defines the Synthesis tag vocabulary engine, specifying its processing pipeline, input/output contracts, and integration with the parent capability.
+
+## Requirements
 
 ### Requirement: Tag Vocabulary engine SHALL use strict environment-neutral contracts
+
 
 The Tag Vocabulary engine SHALL expose canonical JSON-safe validation and index-build requests and results with explicit contract and algorithm versions.
 
@@ -22,6 +28,7 @@ The Tag Vocabulary engine SHALL expose canonical JSON-safe validation and index-
 
 ### Requirement: Tag Vocabulary engine SHALL preserve TagVocab v1 semantics
 
+
 The engine SHALL preserve current entry normalization, protocol validation, warning codes, severities, ordering, active-tag selection, abbreviation casing, replacement checks, alias checks, and search-index construction.
 
 #### Scenario: Vocabulary is validated
@@ -36,6 +43,7 @@ The engine SHALL preserve current entry normalization, protocol validation, warn
 
 ### Requirement: Tag Vocabulary engine SHALL be bounded and cancellable
 
+
 The engine SHALL cap entries at 25,000, global aliases at 50,000, abbreviations at 10,000, protocol facets at 256, per-entry aliases and abbreviations at 256 each, and strings at 4,096 code units.
 
 #### Scenario: Request exceeds a bound
@@ -49,6 +57,7 @@ The engine SHALL cap entries at 25,000, global aliases at 50,000, abbreviations 
 - **THEN** computation SHALL stop and no partial result SHALL be returned.
 
 ### Requirement: Tag Vocabulary engine SHALL be process-portable
+
 
 The engine source SHALL not import plugin, Zotero, repository, persistence, filesystem, runtime, or Node-only modules.
 

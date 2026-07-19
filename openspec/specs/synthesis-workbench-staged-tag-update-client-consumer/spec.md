@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-workbench-staged-tag-update-client-consumer Specification
+
+## Purpose
+Defines the Synthesis Workbench client consumer contract for staged tag update operations, specifying how Workbench reads and reacts to client-side state changes.
+
+## Requirements
 
 ### Requirement: Staged Tag update capability is strict and environment-neutral
+
 The Synthesis client SHALL expose `updateStagedTagSuggestion` through `client.tags` with a strict JSON-safe request and an opaque `SynthesisTagCommandResult`. `originalTag`, `tag`, `facet`, and `sourceFlow` SHALL be non-empty after trimming; `note` SHALL be a string and MAY trim to empty; `parentBindings` SHALL be an array containing only positive integers.
 
 #### Scenario: A valid update crosses the client boundary
@@ -14,6 +20,7 @@ The Synthesis client SHALL expose `updateStagedTagSuggestion` through `client.ta
 - **AND** it does not resolve or invoke the legacy port
 
 ### Requirement: In-process staged Tag update normalizes results and errors
+
 The in-process adapter SHALL normalize a successful staged Tag update as an opaque JSON-safe object and SHALL preserve stable client error categories.
 
 #### Scenario: The legacy port returns a valid command result
@@ -25,6 +32,7 @@ The in-process adapter SHALL normalize a successful staged Tag update as an opaq
 - **THEN** the adapter respectively returns `unavailable`, preserves the existing client code, preserves `storage_busy`, or maps the ordinary/invalid-result failure to `internal`
 
 ### Requirement: Staged Tag updates are atomic domain mutations
+
 The Tag Vocabulary domain SHALL read, merge, delete, and write staged Tag rows within one repository transaction. Any exception SHALL roll back the complete update. The service SHALL delegate to the domain without canonical autosync, and staged suggestions SHALL remain exempt from TagVocab protocol validation.
 
 #### Scenario: The original row is missing
@@ -49,6 +57,7 @@ The Tag Vocabulary domain SHALL read, merge, delete, and write staged Tag rows w
 - **THEN** the original and target rows remain exactly as they were before the command
 
 ### Requirement: Collision merges preserve deterministic field semantics
+
 The staged Tag update SHALL let non-empty requested `facet` and `sourceFlow` replace target values, let a non-empty requested note replace the target note, preserve an existing target note for an empty requested note, and store the sorted union of target and requested parent bindings. A collision merge SHALL preserve target `created_at`; a new row or target-free rename SHALL receive a new `created_at`; every successful update SHALL refresh `updated_at`.
 
 #### Scenario: Existing target fields are merged
@@ -60,6 +69,7 @@ The staged Tag update SHALL let non-empty requested `facet` and `sourceFlow` rep
 - **THEN** the new row receives fresh creation and update timestamps and contains the complete request fields
 
 ### Requirement: Workbench staged Tag edit uses the client without orchestration changes
+
 The Workbench SHALL lazily resolve the default Synthesis client inside the existing single-flight closure and SHALL call `client.tags.updateStagedTagSuggestion` instead of directly discarding and staging suggestions.
 
 #### Scenario: Host payload is normalized
@@ -75,6 +85,7 @@ The Workbench SHALL lazily resolve the default Synthesis client inside the exist
 - **THEN** the Workbench skips the command before resolving the client
 
 ### Requirement: Migration boundaries remain explicit
+
 The migration SHALL expose 126 public Synthesis service methods, retain exactly four approved direct service consumers, and SHALL NOT migrate or alter generic staging, promotion, bulk discard/clear, Tag import, audit, vocabulary entry edit/delete, Host Bridge, or MCP.
 
 #### Scenario: Static boundaries are checked

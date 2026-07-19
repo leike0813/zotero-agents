@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-reference-matcher-engine Specification
+
+## Purpose
+Defines the Synthesis reference matcher engine, specifying its processing pipeline, input/output contracts, and integration with the parent capability.
+
+## Requirements
 
 ### Requirement: Reference matcher SHALL use strict environment-neutral contracts
+
 
 The Reference Matcher engine SHALL expose separate canonical JSON-safe binding and canonical-dedupe requests and results with explicit contract and algorithm versions.
 
@@ -17,6 +23,7 @@ The Reference Matcher engine SHALL expose separate canonical JSON-safe binding a
 
 ### Requirement: Binding engine SHALL reuse one private library index
 
+
 The binding method SHALL build one matcher index from the request library papers and reuse it for every binding input without exposing `Map`, `Set`, or other non-JSON state.
 
 #### Scenario: Binding operation processes many canonicals
@@ -27,6 +34,7 @@ The binding method SHALL build one matcher index from the request library papers
 
 ### Requirement: Canonical dedupe engine SHALL preserve clustered policy
 
+
 The canonical-dedupe method SHALL preserve eligibility filtering, bounded blocking, deterministic and review edges, stable representatives, clusters, actions, counters, and diagnostics.
 
 #### Scenario: Clustered dedupe executes
@@ -36,6 +44,7 @@ The canonical-dedupe method SHALL preserve eligibility filtering, bounded blocki
 - **AND** block and candidate-pair budgets SHALL not widen into all-pairs matching.
 
 ### Requirement: Reference matcher SHALL remain process portable
+
 
 The matcher engine SHALL NOT import Node, DOM, Zotero, plugin toolkit, application runtime, repository, filesystem, or Host capabilities.
 

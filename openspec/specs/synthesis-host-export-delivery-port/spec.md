@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-host-export-delivery-port Specification
+
+## Purpose
+Defines the Synthesis Host port for host export delivery, specifying the injected interface that the application service uses to delegate to Host-owned implementation.
+
+## Requirements
 
 ### Requirement: Remote archive delivery uses a strict bounded DTO contract
+
 
 The system SHALL expose a Host archive request containing only a supported capability, a safe ZIP display name, and canonical text entries, and SHALL return a canonical `available` or `unavailable` result without local paths, callbacks, Host handle objects, raw errors, or other non-JSON values.
 
@@ -16,6 +22,7 @@ The system SHALL expose a Host archive request containing only a supported capab
 
 ### Requirement: Archive entries and diagnostics are bounded
 
+
 The archive-delivery contract SHALL allow at most 256 entries, 5 MiB of UTF-8 content per entry, 50 MiB total content, and 20 diagnostics, using shared constants as the single source of truth.
 
 #### Scenario: Request exceeds an archive limit
@@ -24,6 +31,7 @@ The archive-delivery contract SHALL allow at most 256 entries, 5 MiB of UTF-8 co
 - **THEN** request rebuilding SHALL reject it before temporary storage, ZIP creation, or file registration.
 
 ### Requirement: Host adapter owns remote archive publication
+
 
 The default Host adapter SHALL create the store ZIP in a managed temporary export root, calculate its integrity metadata, register it as a `bridge-export` file owned by the requested capability, and return the existing bridge-download projection.
 
@@ -38,6 +46,7 @@ The default Host adapter SHALL create the store ZIP in a managed temporary expor
 - **THEN** the adapter SHALL return `unavailable`, remove incomplete temporary output, and expose only a stable bounded diagnostic.
 
 ### Requirement: Remote Synthesis exports use the Host delivery port
+
 
 Remote Topic Context and filtered paper-artifact export SHALL build their canonical text entries in the application and publish them exclusively through the Host archive-delivery port. Local Topic Context and ACP run-root writes SHALL retain their existing behavior.
 
@@ -57,6 +66,7 @@ Remote Topic Context and filtered paper-artifact export SHALL build their canoni
 - **THEN** the client call SHALL fail with stable `unavailable` semantics without a half response, local-path fallback, or raw Host error.
 
 ### Requirement: Composition makes remote delivery capability explicit
+
 
 The default legacy composition SHALL inject the Host export-delivery adapter, the readonly composition SHALL omit it, and the complete service SHALL retain `125 methods / 1 direct consumer`.
 

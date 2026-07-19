@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-citation-graph-build-packed-worker-canary Specification
+
+## Purpose
+Defines the synthesis citation graph build packed worker canary capability for the Synthesis plugin, specifying its service boundary, integration contracts, and runtime behavior.
+
+## Requirements
 
 ### Requirement: Sealed graph transfers execute through a bounded packed worker
+
 The service SHALL execute explicitly requested sealed Citation Graph Build transfers through the existing single-worker pool using strictly rebuilt transferable pages and a packed engine representation, without exposing service paths or assembling one monolithic transport DTO.
 
 #### Scenario: Normal transfer completes through real HTTP and worker
@@ -12,6 +18,7 @@ The service SHALL execute explicitly requested sealed Citation Graph Build trans
 - **THEN** the worker SHALL NOT access filesystem paths, databases, canonical files, Host capabilities, Zotero globals, or child processes
 
 ### Requirement: Packed and direct adapters share graph semantics
+
 The direct object adapter and streaming worker adapter SHALL use one graph-build semantic kernel and preserve the existing request, result, bounds, ordering, and diagnostics contracts.
 
 #### Scenario: Adapter parity
@@ -19,6 +26,7 @@ The direct object adapter and streaming worker adapter SHALL use one graph-build
 - **THEN** their canonical results SHALL be identical
 
 ### Requirement: Worker output is bounded and atomic
+
 The worker SHALL emit deterministic output pages within the existing page byte and JSON-node limits, and the service SHALL expose them only after strict validation and atomic attempt commit.
 
 #### Scenario: Attempt fails after partial output

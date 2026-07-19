@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-workbench-topic-command-client-consumer Specification
+
+## Purpose
+Defines the Synthesis Workbench client consumer contract for topic command operations, specifying how Workbench reads and reacts to client-side state changes.
+
+## Requirements
 
 ### Requirement: Workbench Topic commands use the Topics client capability
+
 The Synthesis client SHALL expose commands for Topic artifact deletion, deleted-artifact purge, discovery-hint rejection, and discovery-hint restoration. The Workbench SHALL lazily resolve the default client and SHALL NOT call the corresponding legacy service methods directly.
 
 #### Scenario: Workbench applies a Topic command
@@ -9,6 +15,7 @@ The Synthesis client SHALL expose commands for Topic artifact deletion, deleted-
 - **AND** the result SHALL cross the client boundary as an opaque JSON-safe object
 
 ### Requirement: Topic command request DTOs are strict and bounded
+
 A Topic artifact delete request SHALL contain a non-empty, trimmed `topicId`. A discovery-hint request SHALL contain a non-empty, trimmed `hintId`. Unknown JSON-safe request fields SHALL NOT be forwarded. Purge SHALL be a no-argument command.
 
 #### Scenario: Identifier request is valid
@@ -25,6 +32,7 @@ A Topic artifact delete request SHALL contain a non-empty, trimmed `topicId`. A 
 - **THEN** the adapter SHALL invoke the purge port without request data, callbacks, or streaming state
 
 ### Requirement: In-process Topic commands normalize ports, results, and errors
+
 The in-process adapter SHALL depend on four narrow legacy Topic ports. It SHALL validate and rebuild identifier requests before resolving ports, normalize each returned value through the shared JSON-safe object path, reject a missing port with `unavailable`, preserve an existing client error and `storage_busy`, and normalize an ordinary exception to `internal`.
 
 #### Scenario: Legacy Topic command succeeds
@@ -45,6 +53,7 @@ The in-process adapter SHALL depend on four narrow legacy Topic ports. It SHALL 
 - **AND** it SHALL NOT rewrite the object as a client error
 
 ### Requirement: Existing Workbench Topic behavior is preserved
+
 The client-routed commands SHALL preserve identifier trimming, confirmation, command single-flight, delete failure handling, singular diagnostic handling, immediate start, and existing surface invalidation. The client contract SHALL NOT carry progress callbacks or streaming state.
 
 #### Scenario: Topic artifact deletion runs
@@ -67,6 +76,7 @@ The client-routed commands SHALL preserve identifier trimming, confirmation, com
 - **AND** discovery-hint actions SHALL retain default selected-surface invalidation
 
 ### Requirement: Migration boundaries remain stable
+
 This migration SHALL retain 125 public Synthesis service methods, exactly four direct legacy service consumers, and current process, repository, persistence, autosync, Host Bridge, MCP, and domain ownership.
 
 #### Scenario: Static service boundaries are checked

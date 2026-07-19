@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-workbench-prewarm-client-consumer Specification
+
+## Purpose
+Defines the Synthesis Workbench client consumer contract for prewarm operations, specifying how Workbench reads and reacts to client-side state changes.
+
+## Requirements
 
 ### Requirement: Workbench prewarm uses existing client reads
+
 The Synthesis Workbench SHALL orchestrate prewarm through existing `SynthesisClient.workbench.readChrome` and `readSurface` capabilities and SHALL NOT invoke a legacy service warmup method or require a callback, streaming, or full-snapshot client capability.
 
 #### Scenario: Default phased prewarm
@@ -12,6 +18,7 @@ The Synthesis Workbench SHALL orchestrate prewarm through existing `SynthesisCli
 - **THEN** it SHALL read and publish chrome without reading a surface
 
 ### Requirement: A prewarm run has stable state and single-flight ownership
+
 The Workbench SHALL preserve the exported prewarm signature and single-flight behavior, and each run SHALL capture and convert Workbench state exactly once for all client reads in that run.
 
 #### Scenario: Concurrent prewarm callers
@@ -23,6 +30,7 @@ The Workbench SHALL preserve the exported prewarm signature and single-flight be
 - **THEN** every read SHALL receive the same once-converted read state
 
 ### Requirement: Prewarm remains responsive and isolates surface failures
+
 The Workbench SHALL yield to the event loop immediately before every surface read, SHALL terminate the inner run when chrome fails, and SHALL skip only the failing surface when an individual surface read fails.
 
 #### Scenario: A surface read begins
@@ -38,6 +46,7 @@ The Workbench SHALL yield to the event loop immediately before every surface rea
 - **THEN** no surface read SHALL begin and the existing outer fallback SHALL resolve the exported prewarm result as `undefined`
 
 ### Requirement: Successful phases publish through current cache and runtime owners
+
 After every successful phase, the Workbench SHALL merge the projection into the global prewarm cache before dynamically resolving the current runtime and merging its snapshot. Chrome SHALL publish cached chrome; a surface SHALL be marked loaded and SHALL publish cached surface data only when it is active.
 
 #### Scenario: Chrome succeeds
@@ -53,6 +62,7 @@ After every successful phase, the Workbench SHALL merge the projection into the 
 - **THEN** the Workbench SHALL merge global cache then current runtime state and mark the surface loaded without publishing it as active
 
 ### Requirement: Legacy warmup API is removed without broadening migration scope
+
 The Synthesis service public surface and migration inventory SHALL omit `warmSynthesisWorkbenchSurfaces` and `workbench_warmup`, while the direct legacy consumer allowlist SHALL remain exactly legacy composition, Workbench, Host Bridge, and MCP.
 
 #### Scenario: Service boundary inventory is checked

@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-workbench-tag-maintenance-client-consumer Specification
+
+## Purpose
+Defines the Synthesis Workbench client consumer contract for tag maintenance operations, specifying how Workbench reads and reacts to client-side state changes.
+
+## Requirements
 
 ### Requirement: Tag maintenance capability is environment-neutral
+
 The system SHALL expose Tag Vocabulary validation, projection rebuild, and regulator export through `SynthesisClient.tags` using only JSON-safe results and without Workbench, clipboard, confirmation, streaming, or progress callback types.
 
 #### Scenario: Consumer imports the Tag capability
@@ -12,6 +18,7 @@ The system SHALL expose Tag Vocabulary validation, projection rebuild, and regul
 - **THEN** the client accepts no Workbench-specific arguments and returns respectively an opaque JSON value, an opaque JSON object, or a string array
 
 ### Requirement: In-process Tag maintenance adapter normalizes the legacy boundary
+
 The in-process adapter SHALL invoke narrow optional legacy ports, normalize all successful results to their public JSON-safe contracts, and use stable client error categories.
 
 #### Scenario: Ports return valid results
@@ -27,6 +34,7 @@ The in-process adapter SHALL invoke narrow optional legacy ports, normalize all 
 - **THEN** the adapter preserves known client and storage-busy categories and maps ordinary or invalid-result failures to `internal`
 
 ### Requirement: Workbench routes Tag maintenance through the client
+
 The Workbench SHALL lazily resolve the default Synthesis client inside each existing single-flight closure and SHALL invoke the three selected commands through `client.tags` without directly resolving the legacy service.
 
 #### Scenario: Vocabulary validation runs
@@ -42,6 +50,7 @@ The Workbench SHALL lazily resolve the default Synthesis client inside each exis
 - **THEN** it calls the Tag client export method immediately and writes the returned tags to the host clipboard as newline-separated text with one trailing newline while preserving Home-only invalidation
 
 ### Requirement: Adjacent Tag and integration behavior remains unchanged
+
 The migration SHALL NOT change staged suggestions, imports, vocabulary editing, bootstrap, audits, domain logic, public service inventory, Host Bridge, MCP, or workflow-host ownership.
 
 #### Scenario: Boundary inventory is checked

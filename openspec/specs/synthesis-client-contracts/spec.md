@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-client-contracts Specification
+
+## Purpose
+Defines the Synthesis clients contract, specifying the data exchange format, validation rules, and integration boundaries.
+
+## Requirements
 
 ### Requirement: Contracts are environment-neutral and independently checked
+
 The Synthesis contracts package SHALL compile without Node, DOM, Zotero, plugin toolkit, repository, filesystem, or transport implementation dependencies.
 
 #### Scenario: Forbidden dependency is introduced
@@ -12,6 +18,7 @@ The Synthesis contracts package SHALL compile without Node, DOM, Zotero, plugin 
 - **THEN** the contracts package SHALL be independently typechecked as part of that gate
 
 ### Requirement: Client capabilities are grouped and use-case shaped
+
 The `SynthesisClient` SHALL expose bounded domain capabilities and SHALL NOT reproduce the legacy flat service object.
 
 #### Scenario: Workflow Topic options are requested
@@ -24,6 +31,7 @@ The `SynthesisClient` SHALL expose bounded domain capabilities and SHALL NOT rep
 - **THEN** the contract SHALL add it to the relevant capability group rather than expose the full legacy service
 
 ### Requirement: Client errors have stable control-flow codes
+
 Client implementations SHALL reject failures as `SynthesisClientError` values with stable codes and JSON-safe diagnostic details, while human-readable messages remain non-authoritative.
 
 #### Scenario: Legacy implementation throws an ordinary error
@@ -36,6 +44,7 @@ Client implementations SHALL reject failures as `SynthesisClientError` values wi
 - **THEN** the adapter SHALL preserve its stable code and structured details
 
 ### Requirement: Legacy composition is isolated behind a narrow port
+
 The migration-time in-process client SHALL depend on narrow legacy capability ports, and only its default composition module SHALL resolve the full default Synthesis service.
 
 #### Scenario: Workflow option consumer resolves its dependency
@@ -48,6 +57,7 @@ The migration-time in-process client SHALL depend on narrow legacy capability po
 - **THEN** the service boundary check SHALL fail
 
 ### Requirement: Production behavior remains in-process during foundation migration
+
 The default client SHALL delegate to the current in-process service and SHALL NOT change Synthesis DB, canonical file, mirror, or Zotero ownership.
 
 #### Scenario: Default Topic option query executes

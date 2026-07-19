@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-citation-graph-metrics-engine Specification
+
+## Purpose
+Defines the Synthesis citation graph metrics engine, specifying its processing pipeline, input/output contracts, and integration with the parent capability.
+
+## Requirements
 
 ### Requirement: Metrics compute SHALL use a strict environment-neutral contract
+
 
 The Citation Graph metrics engine SHALL accept and return canonical JSON-safe DTOs containing only the bounded graph slice and metrics v2 facts required for deterministic computation.
 
@@ -22,6 +28,7 @@ The Citation Graph metrics engine SHALL accept and return canonical JSON-safe DT
 
 ### Requirement: Metrics kernels SHALL preserve metrics v2 behavior
 
+
 The engine SHALL implement the current weighted PageRank, weak-component discovery, year normalization, foundation/frontier scoring, and role-hint behavior with the existing metrics version, parameters, formulas, rounding, and deterministic ordering.
 
 #### Scenario: Existing graph is computed in-process
@@ -37,6 +44,7 @@ The engine SHALL implement the current weighted PageRank, weak-component discove
 - **AND** diagnostics SHALL preserve the current isolated-node and missing-year counts.
 
 ### Requirement: Metrics engine package SHALL remain process portable
+
 
 The metrics engine package SHALL NOT import Node, DOM, Zotero, plugin toolkit, application runtime, repository, filesystem, or application hashing capabilities.
 

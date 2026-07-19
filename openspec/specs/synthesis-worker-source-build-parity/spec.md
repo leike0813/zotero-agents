@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-worker-source-build-parity Specification
+
+## Purpose
+Defines the synthesis worker source build parity capability for the Synthesis plugin, specifying its service boundary, integration contracts, and runtime behavior.
+
+## Requirements
 
 ### Requirement: Source Workers SHALL resolve source-owned runtime modules
+
 
 Source Worker harnesses SHALL resolve TypeScript engine entrypoints against the
 modules present in the source tree and SHALL NOT require generated JavaScript
@@ -14,6 +20,7 @@ shims beside source files.
 
 ### Requirement: Compiled Workers SHALL use native Node ESM extensions
 
+
 The Synthesis service build SHALL rewrite relative TypeScript module specifiers
 to `.js` in emitted JavaScript and SHALL NOT leave runtime `.ts` specifiers in
 compiled engine modules.
@@ -25,6 +32,7 @@ compiled engine modules.
 - **AND** the emitted module contains no runtime reference to `topicGraphCore.ts`
 
 ### Requirement: Direct and Worker execution SHALL remain semantically equal
+
 
 The source and compiled Topic Graph Worker canaries SHALL rebuild canonical
 results that equal direct in-process engine execution for the same request.

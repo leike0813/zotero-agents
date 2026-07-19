@@ -1,6 +1,12 @@
-## ADDED Requirements
+# synthesis-default-client-lifecycle Specification
+
+## Purpose
+Defines the synthesis default client lifecycle capability for the Synthesis plugin, specifying its service boundary, integration contracts, and runtime behavior.
+
+## Requirements
 
 ### Requirement: Generation-scoped default client acquisition
+
 The system SHALL share one default Synthesis client composition initialization among concurrent acquisitions in the same generation. An acquisition whose generation is invalidated before initialization completes MUST fail with the unavailable result and MUST NOT publish its client into the current cache.
 
 #### Scenario: Concurrent acquisition shares initialization
@@ -12,6 +18,7 @@ The system SHALL share one default Synthesis client composition initialization a
 - **THEN** the system disposes that composition, does not cache it, and completes the stale acquisition with the unavailable result
 
 ### Requirement: Synchronous invalidation with owner-scoped asynchronous cleanup
+
 Default-client invalidation SHALL synchronously detach the cached generation, mark it stale, and abort its owned runtime work before returning. Cleanup that requires asynchronous draining MUST remain tracked by the lifecycle coordinator, and an invalidated generation MUST NOT dispose resources owned by a replacement generation.
 
 #### Scenario: Cached generation is invalidated
@@ -23,6 +30,7 @@ Default-client invalidation SHALL synchronously detach the cached generation, ma
 - **THEN** the system waits for stale-generation cleanup before creating the replacement composition
 
 ### Requirement: Disposed clients fail closed
+
 Every legacy composition SHALL own a private identity and an idempotent disposal operation. A client method invoked after its composition is disposed MUST fail with the unavailable result and MUST NOT resolve or recreate a global legacy service.
 
 #### Scenario: Stale client is invoked after disposal
@@ -34,6 +42,7 @@ Every legacy composition SHALL own a private identity and an idempotent disposal
 - **THEN** all calls observe the same cleanup completion without duplicate resource cleanup
 
 ### Requirement: Service disposal drains owned background work
+
 The Synthesis service SHALL have an internal, idempotent disposal mechanism that does not change its public method inventory. Disposal MUST cancel pending canonical-maintenance debounce state, stop new WebDAV application admission, and await active WebDAV application work.
 
 #### Scenario: Runtime abort precedes maintenance debounce
@@ -49,6 +58,7 @@ The Synthesis service SHALL have an internal, idempotent disposal mechanism that
 - **THEN** the service still exposes exactly the existing 108 public methods and no public dispose method
 
 ### Requirement: Plugin shutdown awaits default client cleanup
+
 The default-client lifecycle SHALL expose an idempotent shutdown barrier that rejects new acquisition and waits for cached, initializing, and previously invalidated generations to finish cleanup. Plugin shutdown MUST await this barrier, under the existing shutdown timeout policy, before stopping the Synthesis sidecar supervisor.
 
 #### Scenario: Shutdown overlaps initialization

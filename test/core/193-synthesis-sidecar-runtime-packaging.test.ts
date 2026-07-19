@@ -206,7 +206,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/apps/synthesis-service/src/computeWorker.js",
       "service/apps/synthesis-service/src/computeWorkerPool.js",
       "service/apps/synthesis-service/src/computeProtocol.js",
-      "service/apps/synthesis-service/src/rustMetricsWorkerTransport.js",
+      "service/apps/synthesis-service/src/rustComputeWorkerTransport.js",
       "service/apps/synthesis-service/src/citationGraphTransferOwner.js",
       "service/apps/synthesis-service/src/citationGraphBuildTransferExecutor.js",
       "service/apps/synthesis-service/src/isolatedRepository.js",
@@ -819,7 +819,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       "utf8",
     );
     assert.include(packageScript, "copyComputeRuntimeDependencies");
-    assert.include(packageScript, "copyRustMetricsRuntime");
+    assert.include(packageScript, "copyRustComputeRuntime");
     assert.include(packageScript, "synthesis-rust-sidecar-provenance.v1");
     assert.include(packageScript, 'path.join(targetRoot, "src")');
     const xpiCheck = fs.readFileSync(
