@@ -1,7 +1,0 @@
-- [x] Add a unified Zotero background runtime cleanup harness in `src/modules`
-- [x] Add missing test-only reset APIs for leaked dialog/session/timer state
-- [x] Hook cleanup into shared Zotero diagnostics after each test
-- [x] Tighten loop-starting tests with explicit local teardown or tracked instances
-- [x] Add Node regression coverage for cleanup order and idempotence
-- [x] Update governance docs with the background-cleanup rule
-- [x] Add OpenSpec deltas for runtime-affinity cleanup requirements

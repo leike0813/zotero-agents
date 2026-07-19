@@ -1,9 +1,0 @@
-- [x] Add bridge-native local runtime actions (`bootstrap/preflight/up/down/status/doctor`).
-- [x] Switch local runtime manager primary flow to bridge-native actions.
-- [x] Keep lease HTTP chain unchanged while decoupling ctl runtime dependency.
-- [x] Update manual deploy command text to bridge-equivalent commands (remove `skill-runnerctl` references).
-- [x] Update local runtime SSOT narrative to bridge-native control plane.
-- [x] Run `npx tsc --noEmit`.
-- [x] Run targeted node tests:
-  - [x] `test/core/74-skillrunner-ctl-bridge.test.ts`
-  - [x] key `test/core/73-skillrunner-local-runtime-manager.test.ts` scenarios for one-click/ensure/manual-command paths

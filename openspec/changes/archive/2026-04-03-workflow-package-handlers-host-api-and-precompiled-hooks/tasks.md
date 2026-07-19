@@ -1,7 +1,0 @@
-- [x] Define `WorkflowHostApi` and inject `hostApi` / `hostApiVersion` from plugin core runtime.
-- [x] Switch package workflow execution metadata from `package-host-bundle` raw-runtime semantics to `precompiled-host-hook` host-api semantics.
-- [x] Remove package runtime accessors that depend on raw `Zotero/addon/globalThis/bridge` and replace them with `hostApi` adapters in builtin packages.
-- [x] Route editor, logging, notifications, prefs, items, and file access through plugin core seams exposed by `hostApi`.
-- [x] Update workflow diagnostics and debug probe output to describe the new contract with `hostApiSummary`, `hostApiVersion`, and `compiledHookSource`.
-- [x] Migrate package workflow and test-only helpers to the new host-api contract and remove old bridge-based test assumptions.
-- [x] Re-run typecheck and targeted workflow/core regression suites covering loader, runtime diagnostics, package libs, tag manager, and tag regulator.

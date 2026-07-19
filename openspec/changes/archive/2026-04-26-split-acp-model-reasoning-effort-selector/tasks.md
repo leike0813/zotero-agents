@@ -1,5 +1,0 @@
-- [x] 1. Add OpenSpec artifacts for `split-acp-model-reasoning-effort-selector`.
-- [x] 2. Add ACP model/effort derivation tests for folded variants, plain models, set-model mapping, set-effort mapping, and persisted restore.
-- [x] 3. Extend ACP snapshot/session manager to derive display model and reasoning effort state while preserving raw ACP model state.
-- [x] 4. Add sidebar/view-model/iframe support for `set-reasoning-effort` and conditional Reasoning picker.
-- [x] 5. Run `npm run test:node:raw:core`, `npm run test:node:raw:ui`, and `npx tsc --noEmit`.
