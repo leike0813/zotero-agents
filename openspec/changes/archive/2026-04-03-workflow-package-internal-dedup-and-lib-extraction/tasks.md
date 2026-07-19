@@ -1,6 +1,0 @@
-- [x] Add package-internal `lib/` modules for `tag-vocabulary-package`
-- [x] Refactor `tag-manager` and `tag-regulator` hooks to use package-local shared modules
-- [x] Add package-internal `lib/` modules for `reference-workbench-package`
-- [x] Refactor `reference-note-editor`, `reference-matching`, and `literature-digest` hooks to use package-local shared modules
-- [x] Add low-level tests for package-local shared modules
-- [x] Run type-check and targeted workflow / governance regressions

@@ -1,6 +1,0 @@
-- [x] Add a generic workflow module resource bridge with fixed builtin/user resource roots
-- [x] Refresh workflow module resource substitutions during startup, rescan, and shutdown
-- [x] Upgrade workflow-package hook loading to use `resource://` runtime module imports
-- [x] Keep legacy single-workflow `.js` hooks on the text-loader compatibility path
-- [x] Add runtime loader tests for builtin packages, user packages, and workflowDir root refresh
-- [x] Run type-check and targeted loader / workflow regressions

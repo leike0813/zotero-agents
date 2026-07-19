@@ -1,8 +1,0 @@
-- [x] Add debug-only builtin diagnostic workflow entry
-- [x] Add central workflow visibility filtering for `debug_only`
-- [x] Implement probe collection by reusing real preflight chain
-- [x] Open a read-only diagnostic panel with copy-json support
-- [x] Write probe results to runtime logs / diagnostic bundle
-- [x] Preserve structured hook/build-request failure diagnostics in ordinary execution logs
-- [x] Add tests for visibility, probe classification, panel rendering, and failure logging
-- [x] Run TypeScript checks and targeted tests
