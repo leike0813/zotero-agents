@@ -183,18 +183,24 @@ export default defineConfig({
       {
         entryPoints: ["src/sidebar/acpChildApp.js"],
         bundle: true,
+        jsx: "automatic",
+        jsxImportSource: "preact",
         target: "firefox115",
         outfile: ".scaffold/build/addon/content/sidebar/acp-child.bundle.js",
       },
       {
         entryPoints: ["src/sidebar/runDialogApp.js"],
         bundle: true,
+        jsx: "automatic",
+        jsxImportSource: "preact",
         target: "firefox115",
         outfile: ".scaffold/build/addon/content/sidebar/run-dialog.bundle.js",
       },
       {
         entryPoints: ["src/sidebar/assistantWorkspaceApp.js"],
         bundle: true,
+        jsx: "automatic",
+        jsxImportSource: "preact",
         target: "firefox115",
         outfile:
           ".scaffold/build/addon/content/sidebar/assistant-workspace.bundle.js",

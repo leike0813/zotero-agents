@@ -6,7 +6,32 @@ import * as AssistantPanelModel from "../../src/sidebar/assistantPanelModel.js";
 import * as AssistantPanelRenderer from "../../src/sidebar/assistantPanelRenderer.js";
 import * as AssistantTranscriptRenderer from "../../src/sidebar/assistantTranscriptRenderer.js";
 import * as AssistantWorkspaceAcpChild from "../../src/sidebar/assistantWorkspaceAcpChild.js";
+import {
+  assertRegionSubtreesPreserved,
+  captureRegionSubtrees,
+  createSidebarDomEnvironment,
+  installSidebarDomGlobals,
+  restoreSidebarDomGlobals,
+  subtreeNodes,
+  type SidebarDomEnvironment,
+} from "../helpers/sidebarDomEnv";
 import { captureSkillRunnerWorkspaceEnvelope } from "../helpers/skillRunnerWorkspaceSnapshotHarness";
+import { createChromePanelRenderer } from "../../src/sidebar/components/chromeRenderer";
+
+// Mirrors the ACP child's chrome wiring: region marking via the shared
+// adoptPanelRegions, every managed chrome region through the Preact seam.
+// SkillRunner call sites below intentionally keep using
+// renderer.renderAssistantPanelSnapshot directly, matching the run-dialog.
+function chromePanelRenderer(renderer: {
+  adoptPanelRegions: (panel: unknown, options: Record<string, unknown>) => void;
+  managedMount: (container: HTMLElement, name: string) => HTMLElement | null;
+}) {
+  return createChromePanelRenderer({
+    adoptPanelRegions: renderer.adoptPanelRegions,
+    managedMount: renderer.managedMount,
+    statusTone: AssistantPanelModel.statusTone,
+  });
+}
 
 const root = path.resolve(import.meta.dirname, "../..");
 
@@ -22,192 +47,23 @@ async function loadWorkspaceChild() {
   return AssistantWorkspaceAcpChild;
 }
 
-class FakeElement {
-  parentNode: FakeElement | null = null;
-  children: FakeElement[] = [];
-  attributes = new Map<string, string>();
-  className = "";
-  textContent = "";
-  disabled = false;
-  type = "";
-  onclick: ((event: any) => void) | null = null;
-  listeners = new Map<string, Array<(event: any) => void>>();
-  failNextInsertBefore = false;
-  scrollTop = 0;
-  scrollHeight = 0;
-  clientHeight = 0;
-  offsetHeight = 0;
-  innerHTML = "";
-  style = { height: "", setProperty() {} };
-  classList = {
-    add: (...names: string[]) => {
-      const values = new Set(this.className.split(/\s+/).filter(Boolean));
-      names.forEach((name) => values.add(name));
-      this.className = [...values].join(" ");
-    },
-    remove: (...names: string[]) => {
-      const values = new Set(this.className.split(/\s+/).filter(Boolean));
-      names.forEach((name) => values.delete(name));
-      this.className = [...values].join(" ");
-    },
-    toggle: (name: string, force?: boolean) => {
-      const values = new Set(this.className.split(/\s+/).filter(Boolean));
-      const enabled = typeof force === "boolean" ? force : !values.has(name);
-      if (enabled) values.add(name);
-      else values.delete(name);
-      this.className = [...values].join(" ");
-    },
-    contains: (name: string) => this.className.split(/\s+/).includes(name),
-  };
-
-  constructor(
-    public readonly tagName: string,
-    public readonly ownerDocument: FakeDocument,
-  ) {}
-
-  get firstChild() {
-    return this.children[0] || null;
-  }
-
-  get firstElementChild() {
-    return this.firstChild;
-  }
-
-  appendChild(child: FakeElement) {
-    this.detach(child);
-    child.parentNode = this;
-    this.children.push(child);
-    return child;
-  }
-
-  insertBefore(child: FakeElement, before: FakeElement | null) {
-    if (this.failNextInsertBefore) {
-      this.failNextInsertBefore = false;
-      throw new Error("synthetic-dom-failure");
-    }
-    if (child === before) return child;
-    this.detach(child);
-    child.parentNode = this;
-    const index = before ? this.children.indexOf(before) : -1;
-    if (index < 0) this.children.push(child);
-    else this.children.splice(index, 0, child);
-    return child;
-  }
-
-  replaceChild(next: FakeElement, previous: FakeElement) {
-    const index = this.children.indexOf(previous);
-    if (index < 0) return previous;
-    this.detach(next);
-    next.parentNode = this;
-    previous.parentNode = null;
-    this.children[index] = next;
-    return previous;
-  }
-
-  removeChild(child: FakeElement) {
-    const index = this.children.indexOf(child);
-    if (index >= 0) this.children.splice(index, 1);
-    child.parentNode = null;
-    return child;
-  }
-
-  private detach(child: FakeElement) {
-    if (child.parentNode) child.parentNode.removeChild(child);
-  }
-
-  setAttribute(name: string, value: string) {
-    this.attributes.set(name, String(value));
-  }
-
-  getAttribute(name: string) {
-    return this.attributes.has(name) ? this.attributes.get(name) || "" : null;
-  }
-
-  removeAttribute(name: string) {
-    this.attributes.delete(name);
-  }
-
-  getBoundingClientRect() {
-    return {
-      height:
-        this.offsetHeight ||
-        (this.classList.contains("assistant-transcript-row")
-          ? this.ownerDocument.transcriptRowHeight
-          : 0),
-    };
-  }
-
-  addEventListener(type: string, listener: (event: any) => void) {
-    const listeners = this.listeners.get(type) || [];
-    listeners.push(listener);
-    this.listeners.set(type, listeners);
-  }
-
-  contains(node: FakeElement): boolean {
-    return node === this || this.children.some((child) => child.contains(node));
-  }
-
-  querySelector(selector: string) {
-    return this.querySelectorAll(selector)[0] || null;
-  }
-
-  querySelectorAll(selector: string) {
-    const directClass = /^:scope > \.([A-Za-z0-9_-]+)$/.exec(selector);
-    if (directClass) {
-      return this.children.filter((child) =>
-        child.classList.contains(directClass[1]),
-      );
-    }
-    const className = /^\.([A-Za-z0-9_-]+)$/.exec(selector);
-    if (className) {
-      return this.descendants().filter((child) =>
-        child.classList.contains(className[1]),
-      );
-    }
-    const attribute = /^\[([A-Za-z0-9_-]+)\]$/.exec(selector);
-    if (attribute) {
-      return this.descendants().filter(
-        (child) => child.getAttribute(attribute[1]) !== null,
-      );
-    }
-    return [];
-  }
-
-  private descendants(): FakeElement[] {
-    return this.children.flatMap((child) => [child, ...child.descendants()]);
-  }
-}
-
-class FakeDocument {
-  activeElement: FakeElement | null = null;
-  transcriptRowHeight = 0;
-
-  createElement(tagName: string) {
-    return new FakeElement(tagName.toUpperCase(), this);
-  }
-
-  createElementNS(_namespace: string, tagName: string) {
-    return this.createElement(tagName);
-  }
-}
-
-async function loadPanelRenderer(document: FakeDocument) {
-  const context = await loadAssistantRendererContext(document);
+async function loadPanelRenderer(domEnv: SidebarDomEnvironment) {
+  const context = await loadAssistantRendererContext(domEnv);
   return (context.window as any).AssistantPanelRenderer;
 }
 
 async function loadTranscriptRenderer(
-  document: FakeDocument,
+  domEnv: SidebarDomEnvironment,
   requestAnimationFrame?: (callback: () => void) => number,
 ) {
   const context = await loadAssistantRendererContext(
-    document,
+    domEnv,
     requestAnimationFrame,
   );
   return (context.window as any).AssistantTranscriptRenderer;
 }
 
-function createPanelManagedRegions(document: FakeDocument) {
+function createPanelManagedRegions(document: Document) {
   const root = document.createElement("div");
   const regions = {
     toolbar: document.createElement("div"),
@@ -223,97 +79,11 @@ function createPanelManagedRegions(document: FakeDocument) {
   return { root, regions };
 }
 
-// Region mounts are reused permanently, so mount-level identity alone cannot
-// catch a guard miss that rebuilds the mount's content. Capture the full
-// subtree node list and compare element-wise by reference.
-function subtreeNodes(node: FakeElement | null): FakeElement[] {
-  if (!node) return [];
-  return [node, ...node.children.flatMap((child) => subtreeNodes(child))];
-}
-
-function captureRegionSubtrees(
-  regions: Record<string, FakeElement>,
-): Record<string, FakeElement[]> {
-  return Object.fromEntries(
-    Object.entries(regions).map(([key, region]) => [
-      key,
-      subtreeNodes(region.firstChild),
-    ]),
-  );
-}
-
-function assertRegionSubtreesPreserved(
-  regions: Record<string, FakeElement>,
-  captured: Record<string, FakeElement[]>,
-) {
-  for (const [key, region] of Object.entries(regions)) {
-    const current = subtreeNodes(region.firstChild);
-    const previous = captured[key] || [];
-    assert.equal(
-      current.length,
-      previous.length,
-      `${key} subtree node count changed`,
-    );
-    current.forEach((node, index) => {
-      assert.strictEqual(
-        node,
-        previous[index],
-        `${key} subtree node #${index} was rebuilt`,
-      );
-    });
-  }
-}
-
-// Mocha runs every suite in a single process. The sidebar renderer modules
-// read the bare `document` global at render time (and `window` for raf when
-// present), so each renderer loader installs the fake document plus a raf
-// shim before returning the module namespaces. Tests that need to control
-// frame timing inject their own requestAnimationFrame; the default shim runs
-// callbacks synchronously. The suite-level after hook restores the previous
-// global state so nothing leaks into other suites.
-let rendererGlobalDescriptors:
-  | Partial<Record<"document" | "window", PropertyDescriptor | undefined>>
-  | undefined;
-
-function installRendererGlobals(
-  document: FakeDocument,
-  requestAnimationFrame: (callback: () => void) => number = (callback) => {
-    callback();
-    return 0;
-  },
-) {
-  const runtime = globalThis as Record<string, unknown>;
-  if (!rendererGlobalDescriptors) {
-    rendererGlobalDescriptors = {
-      document: Object.getOwnPropertyDescriptor(runtime, "document"),
-      window: Object.getOwnPropertyDescriptor(runtime, "window"),
-    };
-  }
-  runtime.document = document;
-  runtime.window = {
-    requestAnimationFrame,
-  };
-}
-
-function restoreRendererGlobals() {
-  if (!rendererGlobalDescriptors) return;
-  const runtime = globalThis as Record<string, unknown>;
-  for (const key of ["document", "window"] as const) {
-    const descriptor = rendererGlobalDescriptors[key];
-    if (descriptor) {
-      Object.defineProperty(runtime, key, descriptor);
-    } else {
-      delete runtime[key];
-    }
-  }
-  rendererGlobalDescriptors = undefined;
-}
-
 async function loadAssistantRendererContext(
-  document: FakeDocument,
+  domEnv: SidebarDomEnvironment,
   requestAnimationFrame?: (callback: () => void) => number,
 ) {
-  installRendererGlobals(document, requestAnimationFrame);
+  installSidebarDomGlobals(domEnv, requestAnimationFrame);
   return {
     window: {
       AssistantPanelRenderer,
@@ -519,7 +289,7 @@ function emptyPanelLabels(source: "acp-chat" | "acp-skills") {
 
 describe("Assistant Workspace ACP UI v1", function () {
   after(function () {
-    restoreRendererGlobals();
+    restoreSidebarDomGlobals();
   });
 
   it("loads both ACP documents through one shared child and identical roles", async function () {
@@ -632,8 +402,9 @@ describe("Assistant Workspace ACP UI v1", function () {
     );
     assert.isTrue(noUsagePanel.reply.showUsageGauge);
     assert.isNull(noUsagePanel.usage);
-    const document = new FakeDocument();
-    const renderer = await loadPanelRenderer(document);
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
+    const renderer = await loadPanelRenderer(domEnv);
     const reply = document.createElement("div");
     renderer.renderAssistantReply(reply, noUsagePanel);
     assert.equal(
@@ -733,14 +504,15 @@ describe("Assistant Workspace ACP UI v1", function () {
         );
       }
 
-      const document = new FakeDocument();
-      const renderer = await loadPanelRenderer(document);
+      const domEnv = createSidebarDomEnvironment();
+      const { document } = domEnv;
+      const renderer = await loadPanelRenderer(domEnv);
       const banner = document.createElement("div");
       renderer.renderAssistantBanner(banner, panel, { onAction() {} });
       assert.deepEqual(
-        banner
-          .querySelectorAll(".assistant-panel-meta-pill")
-          .map((entry) => entry.children[1].textContent),
+        Array.from(banner.querySelectorAll(".assistant-panel-meta-pill")).map(
+          (entry) => entry.children[1].textContent,
+        ),
         panel.context.metadata.map(() => "-"),
       );
     });
@@ -809,9 +581,10 @@ describe("Assistant Workspace ACP UI v1", function () {
   });
 
   it("renders SkillRunner message counts without rebuilding other managed regions", async function () {
-    const document = new FakeDocument();
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
     const model = await loadPanelModel();
-    const renderer = await loadPanelRenderer(document);
+    const renderer = await loadPanelRenderer(domEnv);
     const { root, regions } = createPanelManagedRegions(document);
     // 生产真快照：messageCounts 由生产侧从 transcript 消息投影派生。
     // 种子事件的语义计数（projectSkillRunnerMessageCounts）：
@@ -911,16 +684,22 @@ describe("Assistant Workspace ACP UI v1", function () {
       regions.messageCounter.getAttribute("data-message-counter-owner"),
       first.workspace.selectedTaskKey,
     );
-    const counterItems = regions.messageCounter.querySelectorAll(
-      ".assistant-message-counter-item",
+    const counterItems = Array.from(
+      regions.messageCounter.querySelectorAll(
+        ".assistant-message-counter-item",
+      ),
     );
-    const counterValues = regions.messageCounter.querySelectorAll(
-      ".assistant-message-counter-value",
+    const counterValues = Array.from(
+      regions.messageCounter.querySelectorAll(
+        ".assistant-message-counter-value",
+      ),
     );
     assert.deepEqual(
-      regions.messageCounter
-        .querySelectorAll(".assistant-message-counter-label")
-        .map((entry) => entry.textContent),
+      Array.from(
+        regions.messageCounter.querySelectorAll(
+          ".assistant-message-counter-label",
+        ),
+      ).map((entry) => entry.textContent),
       ["Assistant", "Thought", "Tool"],
     );
     assert.deepEqual(
@@ -944,11 +723,13 @@ describe("Assistant Workspace ACP UI v1", function () {
       counterValues.map((entry) => entry.textContent),
       ["1/1", "2/3", "1/4"],
     );
-    regions.messageCounter
-      .querySelectorAll(".assistant-message-counter-item")
-      .forEach((entry, index) => {
-        assert.strictEqual(entry, counterItems[index]);
-      });
+    Array.from(
+      regions.messageCounter.querySelectorAll(
+        ".assistant-message-counter-item",
+      ),
+    ).forEach((entry, index) => {
+      assert.strictEqual(entry, counterItems[index]);
+    });
     assertRegionSubtreesPreserved(
       Object.fromEntries(stableRegions.map((key) => [key, regions[key]])),
       stableSubtrees,
@@ -956,9 +737,10 @@ describe("Assistant Workspace ACP UI v1", function () {
   });
 
   it("preserves SkillRunner managed mounts across empty and selected snapshots", async function () {
-    const document = new FakeDocument();
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
     const model = await loadPanelModel();
-    const renderer = await loadPanelRenderer(document);
+    const renderer = await loadPanelRenderer(domEnv);
     const { root, regions } = createPanelManagedRegions(document);
     // 生产真空快照（无任务）与生产选中快照（running 任务）。
     const emptyEnvelope = await captureSkillRunnerWorkspaceEnvelope();
@@ -1032,11 +814,14 @@ describe("Assistant Workspace ACP UI v1", function () {
       ],
     );
 
-    const document = new FakeDocument();
-    const renderer = await loadPanelRenderer(document);
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
+    const renderer = await loadPanelRenderer(domEnv);
     const reply = document.createElement("div");
     renderer.renderAssistantReply(reply, panel);
-    const selects = reply.querySelectorAll(".assistant-panel-select");
+    const selects = Array.from(
+      reply.querySelectorAll<HTMLSelectElement>(".assistant-panel-select"),
+    );
     assert.deepEqual(
       selects.map((entry) => entry.disabled),
       [false, true, true],
@@ -1044,8 +829,9 @@ describe("Assistant Workspace ACP UI v1", function () {
     assert.deepEqual(
       selects.map(
         (select) =>
-          select.children.find((option) => (option as any).selected)
-            ?.textContent,
+          Array.from(select.children).find(
+            (option) => (option as HTMLOptionElement).selected,
+          )?.textContent,
       ),
       ["Code", "Model A", "High"],
     );
@@ -1480,8 +1266,9 @@ describe("Assistant Workspace ACP UI v1", function () {
   });
 
   it("keeps unchanged task cards identical when only selection moves", async function () {
-    const document = new FakeDocument();
-    const renderer = await loadPanelRenderer(document);
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
+    const renderer = await loadPanelRenderer(domEnv);
     const drawer = document.createElement("div");
     const sections = [
       {
@@ -1533,9 +1320,10 @@ describe("Assistant Workspace ACP UI v1", function () {
   });
 
   it("preserves every non-transcript managed region across transcript-only state", async function () {
-    const document = new FakeDocument();
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
     const model = await loadPanelModel();
-    const renderer = await loadPanelRenderer(document);
+    const renderer = await loadPanelRenderer(domEnv);
     const { root, regions } = createPanelManagedRegions(document);
     const state = canonicalState("acp-skills");
     const ui = {
@@ -1546,7 +1334,7 @@ describe("Assistant Workspace ACP UI v1", function () {
     };
     const render = () => {
       const panel = model.projectAssistantWorkspacePanel(state, ui, {});
-      renderer.renderAssistantPanelSnapshot(panel, {
+      chromePanelRenderer(renderer)(panel, {
         managed: true,
         root,
         regions,
@@ -1575,13 +1363,14 @@ describe("Assistant Workspace ACP UI v1", function () {
   });
 
   it("preserves the selected ACP Skills DOM when background owner publications arrive", async function () {
-    const document = new FakeDocument();
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
     const model = await loadPanelModel();
-    const renderer = await loadPanelRenderer(document);
+    const renderer = await loadPanelRenderer(domEnv);
     const child = await loadWorkspaceChild();
     const { root, regions } = createPanelManagedRegions(document);
     let snapshot = canonicalState("acp-skills");
-    renderer.renderAssistantPanelSnapshot(
+    chromePanelRenderer(renderer)(
       model.projectAssistantWorkspacePanel(snapshot, {}, {}),
       {
         managed: true,
@@ -1665,10 +1454,25 @@ describe("Assistant Workspace ACP UI v1", function () {
         "test/fixtures/assistant-workspace/v1-skills-transcript-mutation.json",
       ),
     );
-    const document = new FakeDocument();
-    const renderer = await loadTranscriptRenderer(document);
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
+    const renderer = await loadTranscriptRenderer(domEnv);
     const transcript = document.createElement("div");
-    transcript.failNextInsertBefore = true;
+    // Mirror the old fake's failNextInsertBefore hook: the first insertBefore
+    // on the container throws, so the commit hits the transactional DOM
+    // failure path and the retry must recover.
+    const originalInsertBefore = transcript.insertBefore.bind(transcript);
+    let failNextInsert = true;
+    Object.defineProperty(transcript, "insertBefore", {
+      configurable: true,
+      value: (child: Node, before: Node | null) => {
+        if (failNextInsert) {
+          failNextInsert = false;
+          throw new Error("synthetic-dom-failure");
+        }
+        return originalInsertBefore(child, before);
+      },
+    });
 
     const render = () =>
       renderer.applyAssistantTranscriptEffectsExact({
@@ -1702,15 +1506,23 @@ describe("Assistant Workspace ACP UI v1", function () {
 
   it("commits terminal Markdown and measured virtual geometry on the live state", async function () {
     const animationFrames = createAnimationFrameHarness();
-    const document = new FakeDocument();
-    document.transcriptRowHeight = 88;
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
     const renderer = await loadTranscriptRenderer(
-      document,
+      domEnv,
       animationFrames.requestAnimationFrame,
     );
     const transcript = document.createElement("div");
-    transcript.clientHeight = 400;
-    transcript.scrollHeight = 10_000;
+    // jsdom has no layout engine: the geometry inputs the fake exposed as
+    // mutable fields are stubbed per element instance with the same values.
+    Object.defineProperty(transcript, "clientHeight", {
+      configurable: true,
+      value: 400,
+    });
+    Object.defineProperty(transcript, "scrollHeight", {
+      configurable: true,
+      value: 10_000,
+    });
     transcript.scrollTop = 9_600;
     const streamingItem = {
       itemId: "assistant-segment-1",
@@ -1746,14 +1558,22 @@ describe("Assistant Workspace ACP UI v1", function () {
       },
     };
     renderer.renderAssistantTranscript(renderOptions);
-    animationFrames.flushAll();
-
     const row = transcript.querySelector(".assistant-transcript-row");
     assert.isOk(row);
+    // The fake fed row measurement from a document-level height field through
+    // getBoundingClientRect at measure time; jsdom reports zero layout, so
+    // feed the same mutable height through a per-row rect stub.
+    let transcriptRowHeight = 88;
+    Object.defineProperty(row, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({ height: transcriptRowHeight }),
+    });
+    animationFrames.flushAll();
+
     transcript.setAttribute("data-assistant-transcript-stick", "false");
     transcript.setAttribute("data-assistant-transcript-last-scroll-top", "200");
     transcript.scrollTop = 200;
-    document.transcriptRowHeight = 6_000;
+    transcriptRowHeight = 6_000;
     const completeItem = {
       ...streamingItem,
       status: "complete",
@@ -1797,7 +1617,7 @@ describe("Assistant Workspace ACP UI v1", function () {
       row,
     );
 
-    document.transcriptRowHeight = 7_000;
+    transcriptRowHeight = 7_000;
     const extendedItem = {
       ...completeItem,
       text: "**finished with more output**",
@@ -1835,13 +1655,17 @@ describe("Assistant Workspace ACP UI v1", function () {
 
   it("coalesces repeated transcript bottom-stick animation frames", async function () {
     const animationFrames = createAnimationFrameHarness();
-    const document = new FakeDocument();
+    const domEnv = createSidebarDomEnvironment();
+    const { document } = domEnv;
     const renderer = await loadTranscriptRenderer(
-      document,
+      domEnv,
       animationFrames.requestAnimationFrame,
     );
     const transcript = document.createElement("div");
-    transcript.scrollHeight = 20_000;
+    Object.defineProperty(transcript, "scrollHeight", {
+      configurable: true,
+      value: 20_000,
+    });
 
     renderer.stickAssistantTranscriptToBottom(transcript);
     renderer.stickAssistantTranscriptToBottom(transcript);

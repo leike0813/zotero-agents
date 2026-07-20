@@ -13,6 +13,7 @@ yarn.lock
 
 # TSC
 tsconfig.tsbuildinfo
+tsconfig.sidebar.tsbuildinfo
 
 # Rust
 cli/zotero-bridge/target/

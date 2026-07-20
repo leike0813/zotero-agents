@@ -1,14 +1,20 @@
-import { projectAssistantWorkspacePanel } from "./assistantPanelModel.js";
 import {
-  renderAssistantMessageCounts,
-  renderAssistantPanelSnapshot,
-} from "./assistantPanelRenderer.js";
+  projectAssistantWorkspacePanel,
+  statusTone,
+} from "./assistantPanelModel.js";
+import { adoptPanelRegions, managedMount } from "./assistantPanelRenderer.js";
 import {
   applyAssistantTranscriptEffects,
   applyAssistantTranscriptEffectsExact,
   renderAssistantTranscript,
   resetAssistantTranscriptVirtualState,
 } from "./assistantTranscriptRenderer.js";
+import {
+  createChromePanelRenderer,
+  renderStaticChrome,
+  renderTranscriptRegion,
+  renderTranscriptRegionReset,
+} from "./components/chromeRenderer";
 import {
   ASSISTANT_WORKSPACE_ACP_CHILD_BRIDGE_KEY,
   ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS,
@@ -956,87 +962,6 @@ function createController(options) {
   return { applyPublication };
 }
 
-function renderResult(result, options) {
-  const opts = options || {};
-  const snapshot = (result && result.snapshot) || {};
-  const kind = result && result.publicationKind;
-  const reportEffect = function (observation) {
-    if (typeof opts.onEffectRendered !== "function") return;
-    try {
-      opts.onEffectRendered(observation);
-    } catch (_error) {
-      return;
-    }
-  };
-  const labels =
-    typeof opts.getLabels === "function" ? opts.getLabels(snapshot) || {} : {};
-  if (kind === "message-counts") {
-    const countsRegion = readStateRegion(snapshot, "message-counts");
-    return !!(
-      opts.panelRenderer &&
-      typeof opts.panelRenderer.renderAssistantMessageCounts === "function" &&
-      opts.panelRenderer.renderAssistantMessageCounts(
-        opts.messageCountContainer,
-        countsRegion ? countsRegion.counts : null,
-        labels,
-      )
-    );
-  }
-  if (kind !== "transcript") {
-    return typeof opts.renderRegion === "function"
-      ? opts.renderRegion(result)
-      : true;
-  }
-  const ownerKey =
-    typeof opts.getOwnerKey === "function"
-      ? text(opts.getOwnerKey(snapshot))
-      : "";
-  const region = readRegion(snapshot, opts.source, ownerKey);
-  const page = rendererPage(region);
-  const effect = result.effect || {};
-  if (effect.kind === "none") return true;
-  if (effect.kind === "snapshot") {
-    if (typeof opts.renderSnapshot !== "function") return false;
-    const rendered = opts.renderSnapshot(result);
-    if (rendered !== false) {
-      reportEffect({
-        renderPath: "snapshot",
-        insertedRows: 0,
-        updatedRows: 0,
-        removedRows: 0,
-        measuredRows: 0,
-      });
-    }
-    return rendered;
-  }
-  const mode = typeof opts.getMode === "function" ? opts.getMode() : opts.mode;
-  return !!(
-    opts.transcriptRenderer &&
-    typeof opts.transcriptRenderer.applyAssistantTranscriptEffects ===
-      "function" &&
-    opts.transcriptRenderer.applyAssistantTranscriptEffects({
-      container: opts.transcriptContainer,
-      nodeMap: opts.rowNodesByKey,
-      effect,
-      affectedItems: effect.affectedItems || [],
-      virtualized:
-        !!page &&
-        (typeof opts.isVirtualized === "function"
-          ? opts.isVirtualized(snapshot, region)
-          : true),
-      ownerKey: page ? page.ownerKey : undefined,
-      page: page || undefined,
-      mode: mode === "bubble" ? "bubble" : "plain",
-      variant: opts.variant,
-      expandedIds: opts.expandedRowKeys,
-      renderMarkdown: opts.renderMarkdown,
-      formatTime: opts.formatTime,
-      labels,
-      onEffectRendered: reportEffect,
-    })
-  );
-}
-
 const BRIDGE_KEY = ASSISTANT_WORKSPACE_ACP_CHILD_BRIDGE_KEY;
 
 function childSource() {
@@ -1149,11 +1074,17 @@ function resolvePanelActionEnvelope(
 function createChildRuntime(source) {
   const model = {
     projectAssistantWorkspacePanel,
+    statusTone,
   };
   const panelRenderer = {
-    renderAssistantMessageCounts,
-    renderAssistantPanelSnapshot,
+    adoptPanelRegions,
+    managedMount,
   };
+  const renderChromePanel = createChromePanelRenderer({
+    adoptPanelRegions: panelRenderer.adoptPanelRegions,
+    managedMount: panelRenderer.managedMount,
+    statusTone: model.statusTone,
+  });
   const transcriptRenderer = {
     applyAssistantTranscriptEffects,
     applyAssistantTranscriptEffectsExact,
@@ -1185,8 +1116,7 @@ function createChildRuntime(source) {
     interaction: document.querySelector('[data-role="interaction"]'),
     composer: document.querySelector('[data-role="composer"]'),
     details: document.querySelector('[data-role="details-drawer"]'),
-    plain: document.querySelector('[data-assistant-view-mode="plain"]'),
-    bubble: document.querySelector('[data-assistant-view-mode="bubble"]'),
+    viewMode: document.querySelector(".asst-conversation-overlay-menu"),
   };
   if (
     !elements.root ||
@@ -1333,64 +1263,42 @@ function createChildRuntime(source) {
       : text(value);
   }
 
-  function showTranscriptState(kind, message) {
-    const existing =
-      elements.transcript.firstElementChild &&
-      elements.transcript.firstElementChild.getAttribute(
-        "data-assistant-transcript-state",
-      );
-    if (
-      existing === kind &&
-      text(elements.transcript.firstElementChild.textContent) === text(message)
-    ) {
-      return true;
-    }
-    const owner = selectedOwner(snapshot);
-    transcriptRenderer.resetAssistantTranscriptVirtualState(
-      elements.transcript,
-      owner ? owner.ownerKey : "",
-    );
-    elements.transcript.removeAttribute("data-assistant-transcript-order-key");
-    elements.transcript.removeAttribute("data-assistant-transcript-mode-key");
-    while (elements.transcript.firstChild) {
-      elements.transcript.removeChild(elements.transcript.firstChild);
-    }
-    const node = document.createElement("div");
-    node.className =
-      kind === "loading"
-        ? "assistant-transcript-loading asst-spinner"
-        : "assistant-transcript-empty";
-    node.setAttribute("data-assistant-transcript-state", kind);
-    node.textContent = message || "";
-    elements.transcript.appendChild(node);
-    return true;
-  }
-
-  function updateViewModeButtons() {
-    const bubble = ui.chatDisplayMode === "bubble";
-    elements.transcript.classList.toggle("bubble-mode", bubble);
-    elements.transcript.classList.toggle("plain-mode", !bubble);
-    if (elements.plain)
-      elements.plain.setAttribute("aria-pressed", bubble ? "false" : "true");
-    if (elements.bubble)
-      elements.bubble.setAttribute("aria-pressed", bubble ? "true" : "false");
-  }
-
   function renderTranscript() {
     const owner = selectedOwner(snapshot);
     const region = currentTranscript();
-    updateViewModeButtons();
-    if (!owner) {
-      return showTranscriptState("idle", "");
+    let state = "idle";
+    if (owner) {
+      if (!region || region.status === "loading") {
+        state = "loading";
+      } else if (region.status === "failed") {
+        state = "failed";
+      } else {
+        state = rendererPage(region) ? "ready" : "loading";
+      }
     }
-    if (!region || region.status === "loading") {
-      return showTranscriptState("loading", "");
-    }
-    if (region.status === "failed") {
-      return showTranscriptState("failed", errorMessage(region));
+    // The wrapper owns the placeholder/mode boundary; entering a non-ready
+    // state removes the rows through its diff and resets the imperative
+    // virtual state through the injected reset (the old showTranscriptState
+    // clear). While ready, the wrapper vnode is null and the imperative
+    // renderer owns the container content.
+    renderTranscriptRegion({
+      container: elements.transcript,
+      state,
+      message: state === "failed" ? errorMessage(region) : "",
+      mode: ui.chatDisplayMode,
+      onResetVirtualState: function (container) {
+        transcriptRenderer.resetAssistantTranscriptVirtualState(
+          container,
+          owner ? owner.ownerKey : "",
+        );
+        container.removeAttribute("data-assistant-transcript-order-key");
+        container.removeAttribute("data-assistant-transcript-mode-key");
+      },
+    });
+    if (state !== "ready") {
+      return true;
     }
     const page = rendererPage(region);
-    if (!page) return showTranscriptState("loading", "");
     transcriptRenderer.renderAssistantTranscript({
       container: elements.transcript,
       items: page.items,
@@ -1544,7 +1452,7 @@ function createChildRuntime(source) {
       ui.permissionRequestOpen = false;
     }
     const panel = model.projectAssistantWorkspacePanel(snapshot, ui, labels);
-    panelRenderer.renderAssistantPanelSnapshot(panel, {
+    renderChromePanel(panel, {
       managed: true,
       root: elements.root,
       onAction: handlePanelAction,
@@ -1561,6 +1469,17 @@ function createChildRuntime(source) {
       },
     });
     const owner = selectedOwner(snapshot);
+    renderStaticChrome({
+      viewModeContainer: elements.viewMode,
+      viewMode: ui.chatDisplayMode,
+      labels: labels || {},
+      onSelectViewMode: function (mode) {
+        ui.chatDisplayMode = mode;
+        renderTranscript();
+      },
+      emptyContainer: elements.empty,
+      emptyText: text(labels && labels.emptySelection),
+    });
     elements.empty.classList.toggle("hidden", Boolean(owner));
     elements.main.classList.remove("hidden");
     elements.drawer.classList.toggle("hidden", !ui.contextDrawerOpen);
@@ -1623,6 +1542,10 @@ function createChildRuntime(source) {
         "data-assistant-transcript-order-key",
       );
       elements.transcript.removeAttribute("data-assistant-transcript-mode-key");
+      // Bounded failure recovery intentionally hard-resets the container:
+      // unmount the wrapper vnode first so its next render starts from a
+      // clean slate, then drop the imperatively managed rows.
+      renderTranscriptRegionReset(elements.transcript);
       while (elements.transcript.firstChild) {
         elements.transcript.removeChild(elements.transcript.firstChild);
       }
@@ -1752,23 +1675,6 @@ function createChildRuntime(source) {
       payload && payload.labels && typeof payload.labels === "object"
         ? payload.labels
         : {};
-    const viewLabel = text(labels.view) || "";
-    const plainLabel = text(labels.plain) || "";
-    const bubbleLabel = text(labels.bubble) || "";
-    elements.empty.textContent = text(labels.emptySelection);
-    const viewGroup = document.querySelector(".asst-conversation-overlay-menu");
-    if (viewGroup) viewGroup.setAttribute("aria-label", viewLabel);
-    [
-      [elements.plain, plainLabel],
-      [elements.bubble, bubbleLabel],
-    ].forEach(function (entry) {
-      const button = entry[0];
-      const label = entry[1];
-      if (!button) return;
-      button.setAttribute("aria-label", label);
-      const node = button.querySelector(".asst-view-mode-label");
-      if (node) node.textContent = label;
-    });
     renderPanel();
   }
 
@@ -1778,19 +1684,6 @@ function createChildRuntime(source) {
       { documentGeneration: generation },
       null,
     );
-  }
-
-  if (elements.plain) {
-    elements.plain.addEventListener("click", function () {
-      ui.chatDisplayMode = "plain";
-      renderTranscript();
-    });
-  }
-  if (elements.bubble) {
-    elements.bubble.addEventListener("click", function () {
-      ui.chatDisplayMode = "bubble";
-      renderTranscript();
-    });
   }
 
   window.addEventListener("message", function (event) {
@@ -1840,7 +1733,6 @@ export {
   ownerMatches,
   readRegion,
   readStateRegion,
-  renderResult,
   rendererPage,
   resolvePanelActionEnvelope,
   wireFieldRegistry,

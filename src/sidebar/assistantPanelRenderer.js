@@ -139,9 +139,6 @@ function model() {
 }
 
 function normalize(snapshot) {
-  if (snapshot && snapshot.exact === true) {
-    return withDefaultPanel(snapshot);
-  }
   const helper = model();
   if (helper && typeof helper.normalizeAssistantPanelSnapshot === "function") {
     return withDefaultPanel(helper.normalizeAssistantPanelSnapshot(snapshot));
@@ -2981,4 +2978,6 @@ export {
   renderDetailsDrawer,
   renderPermissionRequestDrawer,
   emitAssistantPanelAction,
+  adoptPanelRegions,
+  managedMount,
 };

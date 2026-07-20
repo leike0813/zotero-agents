@@ -1,0 +1,14 @@
+{
+  "extends": "zotero-types/entries/sandbox/",
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "noEmit": true
+  },
+  "include": [
+    "src/sidebar/**/*.ts",
+    "src/sidebar/**/*.tsx",
+    "src/shared/**/*.ts"
+  ]
+}

@@ -242,6 +242,14 @@ context details, and permission regions.
 - Steady delta never falls back to a complete transcript or panel render.
 - Loading for one owner cannot clear another owner's transcript window.
 
+Child-side mechanism (Phase 2): ACP child chrome regions are Preact components
+(`src/sidebar/components/`) whose props equality boundary carries exactly the
+region signature content above — an equal region input produces zero DOM
+mutations in that region's subtree. The transcript renderer stays imperative
+behind the `TranscriptRegion` wrapper; only the placeholder/mode boundary is
+component-driven. The SkillRunner tab keeps the shared imperative renderer
+until its convergence.
+
 Snapshot/full transcript rendering is restricted to initialization, activation,
 explicit page navigation, rebase, display-mode change, or an explicit virtual
 window reset.

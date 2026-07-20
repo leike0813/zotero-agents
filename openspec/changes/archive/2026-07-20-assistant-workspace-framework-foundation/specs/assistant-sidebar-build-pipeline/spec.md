@@ -1,8 +1,5 @@
-# assistant-sidebar-build-pipeline Specification
+## MODIFIED Requirements
 
-## Purpose
-Governs the build pipeline and import boundaries for Assistant Workspace sidebar page scripts, ensuring they are delivered as esbuild bundles with clean dependency boundaries.
-## Requirements
 ### Requirement: Sidebar page scripts are built by esbuild
 
 Assistant Workspace sidebar page scripts SHALL live as ES modules under
