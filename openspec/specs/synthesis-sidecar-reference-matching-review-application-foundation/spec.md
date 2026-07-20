@@ -80,3 +80,13 @@ The service SHALL compose the matching/review application after isolated reposit
 #### Scenario: Shutdown occurs with an outstanding preparation
 - **WHEN** shutdown begins while one matching preparation exists
 - **THEN** admission SHALL stop, the preparation SHALL be discarded, active work SHALL drain, and the repository SHALL close without a partial promotion
+
+### Requirement: Matching application SHALL receive a Rust pool adapter
+
+Private reference matching composition SHALL inject a pool-backed matcher engine implementing the existing application port and SHALL preserve preparation, basis recapture, single-use promotion, review, and repository transaction semantics.
+
+#### Scenario: Rust matcher fails before apply
+
+- **WHEN** either matcher operation is canceled, times out, crashes, or returns invalid output
+- **THEN** preparation SHALL fail without changing proposals, bindings, redirects, or readiness
+- **AND** no in-process fallback SHALL run.
