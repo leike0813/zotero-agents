@@ -76,6 +76,13 @@ from baseline status. Conversation/run creation, selection, rename, archive,
 and availability changes update owner navigation without masquerading as a
 lifecycle status or forcing transcript rendering.
 
+Owner navigation keeps the complete backend catalog, while drawer projection
+contains only groups with visible owner cards. Chat projects one untitled
+`sessions` section without task lifecycle partitioning; Skills projects active
+and completed sections independently. Drawer signatures cover visible section
+title policy, backend identity and label, collapse state, and cards, but exclude
+catalog-only empty groups.
+
 ## Field Semantics
 
 Workspace fields describe the display projection, not raw storage:
@@ -126,6 +133,16 @@ workspace, and a real live session title/id when present; Skills backend and
 workspace. Runtime option groups carry their own enabled state, and a disabled
 Chat reasoning selector renders the localized Default option.
 
+Runtime option state has one category-level precedence rule across Chat and
+Skills: live `configOptions`, then live legacy mode/model state for missing
+categories, then backend cache for still-missing categories, followed by a
+validated successful setter override for the current value. Explicit
+`thought_level` state remains independent of model state. Model-variant
+reasoning is derived only when explicit reasoning is absent, and its internal
+provenance controls whether a model-group change may recompute it. Skills live
+session current values SHALL take precedence over frozen run/cache current
+values, and model/reasoning controls SHALL share one editability decision.
+
 Connected Chat and Skills adapters publish complete runtime option groups even
 while prompt controls are frozen. Prompting, permission wait, and requested
 interruption keep mode enabled while model and reasoning remain disabled with
@@ -175,6 +192,13 @@ then the indexed ready page, and finally one batch read of the remaining
 owner-scoped regions. It does not build a complete Chat or
 Skills panel snapshot. Indexed page readiness and full mirror hydration remain
 independent.
+
+Chat navigation-group selection resolves the final conversation owner before
+publication. A backend without a selectable conversation receives one reusable
+idle local placeholder; backend id, conversation id, session index, and frontend
+selection are committed before the single active-owner publication. Placeholder
+preparation performs no adapter connection or remote session creation, and no
+owner-less intermediate active scope is valid.
 
 Only accepted render completion or a terminal rejection advances an in-flight
 transcript publication. Shell receipt and forwarding are observational. A new
@@ -244,6 +268,9 @@ context details, and permission regions.
 - Message-count-only changes render only message counts.
 - Every non-transcript managed region uses a signature containing only its
   visible content and open/collapsed state.
+- The drawer signature includes visible section title policy and both id and
+  display name for each visible backend group; empty catalog groups do not
+  participate.
 - Streaming append preserves its target row and text-node identity.
 - Finalization or structural change redraws only affected presentation rows.
 - Steady delta never falls back to a complete transcript or panel render.

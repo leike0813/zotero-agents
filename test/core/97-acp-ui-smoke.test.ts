@@ -1110,6 +1110,82 @@ describe("Assistant Workspace ACP UI v1", function () {
     assert.equal(panel.actions.toolbar[3].align, "end");
   });
 
+  it("projects source-aware ACP drawers without empty backend groups", async function () {
+    const model = await loadPanelModel();
+    const chatState = canonicalState("acp-chat") as any;
+    const chatPanel = model.projectAssistantWorkspacePanel(
+      chatState,
+      { completedCollapsed: false },
+      {},
+    );
+    assert.deepEqual(
+      chatPanel.drawers.sections.map((section: any) => [
+        section.id,
+        section.hideTitle,
+        section.groups.map((group: any) => group.backendId),
+      ]),
+      [["sessions", true, ["backend-a"]]],
+    );
+
+    const skillsState = canonicalState("acp-skills") as any;
+    skillsState.navigation.groups.push({
+      groupId: "backend-c",
+      label: "Backend C",
+      status: "idle",
+    });
+    skillsState.navigation.entries.push({
+      owner: owner("acp-skills", "request-c"),
+      groupId: "backend-c",
+      label: "Task Complete",
+      subtitle: "Skill Complete",
+      groupLabel: "Backend C",
+      status: "succeeded",
+      backendStatus: "idle",
+      applyState: "succeeded",
+      updatedAt: "2026-07-17T00:00:00.000Z",
+      messageCount: 1,
+    });
+    const skillsPanel = model.projectAssistantWorkspacePanel(
+      skillsState,
+      { completedCollapsed: false },
+      {},
+    );
+    assert.deepEqual(
+      skillsPanel.drawers.sections.map((section: any) => [
+        section.id,
+        section.groups.map((group: any) => group.backendId),
+      ]),
+      [
+        ["active", ["backend-a"]],
+        ["completed", ["backend-c"]],
+      ],
+    );
+  });
+
+  it("preserves managed drawer identity when only an empty navigation backend is added", async function () {
+    const document = new FakeDocument();
+    const model = await loadPanelModel();
+    const renderer = await loadPanelRenderer(document);
+    const { root, regions } = createPanelManagedRegions(document);
+    const state = canonicalState("acp-chat") as any;
+    const render = () =>
+      renderer.renderAssistantPanelSnapshot(
+        model.projectAssistantWorkspacePanel(state, {}, {}),
+        { managed: true, root, regions, onAction() {} },
+      );
+
+    render();
+    const drawerIdentity = regions.drawer.firstChild;
+    state.navigation.groups.push({
+      groupId: "backend-empty",
+      label: "Backend Empty",
+      status: "idle",
+    });
+    render();
+
+    assert.strictEqual(regions.drawer.firstChild, drawerIdentity);
+  });
+
   it("restores the disconnected Chat banner without treating remote identity as live", async function () {
     const model = await loadPanelModel();
     const state = canonicalState("acp-chat");
@@ -1567,6 +1643,62 @@ describe("Assistant Workspace ACP UI v1", function () {
     assert.strictEqual(second[1], first[1]);
     assert.notInclude(second[0].className, "is-active");
     assert.include(second[1].className, "is-active");
+  });
+
+  it("refreshes drawer structure when title visibility or backend label changes", async function () {
+    const document = new FakeDocument();
+    const renderer = await loadPanelRenderer(document);
+    const drawer = document.createElement("div");
+    const section: any = {
+      id: "sessions",
+      title: "Sessions",
+      hideTitle: false,
+      groups: [
+        {
+          backendId: "backend-a",
+          backendDisplayName: "Backend A",
+          activeTasks: [
+            {
+              key: "conversation-a",
+              title: "Conversation A",
+              status: "idle",
+              selectable: true,
+            },
+          ],
+          finishedTasks: [],
+        },
+      ],
+    };
+    const render = () =>
+      renderer.renderAssistantContextDrawer(drawer, {
+        exact: true,
+        drawers: {
+          layout: "workspace-task-drawer",
+          contextTitle: "Sessions",
+          selectedTaskKey: "conversation-a",
+          sections: [section],
+        },
+      });
+
+    render();
+    assert.lengthOf(
+      drawer.querySelectorAll(".assistant-workspace-drawer-section-title"),
+      1,
+    );
+    section.hideTitle = true;
+    render();
+    assert.lengthOf(
+      drawer.querySelectorAll(".assistant-workspace-drawer-section-title"),
+      0,
+    );
+
+    section.groups[0].backendDisplayName = "Backend A Renamed";
+    render();
+    assert.equal(
+      drawer.querySelector(".assistant-workspace-drawer-group-title")
+        ?.textContent,
+      "Backend A Renamed",
+    );
   });
 
   it("preserves every non-transcript managed region across transcript-only state", async function () {

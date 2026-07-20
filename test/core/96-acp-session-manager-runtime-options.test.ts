@@ -288,6 +288,101 @@ describe("acp session manager", function () {
     assert.equal(snapshot.currentModel?.id, "opus@high");
   });
 
+  it("preserves independent cached reasoning when live config exposes plain models", async function () {
+    Zotero.Prefs.set(
+      `${config.prefsPrefix}.backendsConfigJson`,
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: [
+          {
+            id: "acp-independent-reasoning",
+            displayName: "ACP Independent Reasoning",
+            type: "acp",
+            command: "node",
+            args: ["independent-reasoning.js"],
+            acp: {
+              runtimeOptionsCache: {
+                refreshedAt: "2026-07-20T00:00:00.000Z",
+                modes: [],
+                currentModeId: "",
+                rawModels: [{ id: "cached-model", label: "Cached model" }],
+                currentRawModelId: "cached-model",
+                displayModels: [{ id: "cached-model", label: "Cached model" }],
+                currentDisplayModelId: "cached-model",
+                reasoningEfforts: [
+                  { id: "low", label: "Low" },
+                  { id: "high", label: "High" },
+                ],
+                currentReasoningEffortId: "high",
+                reasoningSource: "explicit",
+              },
+            },
+          },
+        ],
+      }),
+      true,
+    );
+    setAcpConnectionAdapterFactoryForTests(async (args) => {
+      harness.lastFactoryArgs = args;
+      harness.lastAdapter = new FakeAcpConnectionAdapter();
+      harness.lastAdapter.sessionConfigOptions = [
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          type: "select",
+          currentValue: "model-a",
+          options: [
+            { value: "model-a", name: "Model A" },
+            { value: "model-b", name: "Model B" },
+          ],
+        },
+      ];
+      const setConfigOption = harness.lastAdapter.setConfigOption.bind(
+        harness.lastAdapter,
+      );
+      harness.lastAdapter.setConfigOption = async (request) => {
+        if (request.category === "thought_level") {
+          harness.lastAdapter?.configOptionSelections.push(
+            `${request.sessionId}:${request.category}:${request.value}`,
+          );
+          return true;
+        }
+        return setConfigOption(request);
+      };
+      return harness.lastAdapter;
+    });
+
+    await refreshAcpConversationBackends();
+    await setActiveAcpBackend({ backendId: "acp-independent-reasoning" });
+    await connectAcpConversation();
+
+    let snapshot = getAcpConversationSnapshot();
+    assert.deepEqual(
+      snapshot.displayModelOptions.map((entry) => entry.id),
+      ["model-a", "model-b"],
+    );
+    assert.equal(snapshot.currentDisplayModel?.id, "model-a");
+    assert.deepEqual(
+      snapshot.reasoningEffortOptions.map((entry) => entry.id),
+      ["low", "high"],
+    );
+    assert.equal(snapshot.currentReasoningEffort?.id, "high");
+
+    await setAcpConversationModel({ modelId: "model-b" });
+    snapshot = getAcpConversationSnapshot();
+    assert.equal(snapshot.currentDisplayModel?.id, "model-b");
+    assert.equal(snapshot.currentReasoningEffort?.id, "high");
+
+    await setAcpConversationReasoningEffort({ effortId: "low" });
+    snapshot = getAcpConversationSnapshot();
+    assert.equal(snapshot.currentReasoningEffort?.id, "low");
+    assert.include(
+      harness.lastAdapter?.configOptionSelections || [],
+      "session-1:thought_level:low",
+    );
+  });
+
   it("projects ACP config options into chat runtime selectors and updates them from notifications", async function () {
     setAcpConnectionAdapterFactoryForTests(async (args) => {
       harness.lastFactoryArgs = args;

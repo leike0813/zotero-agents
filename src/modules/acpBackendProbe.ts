@@ -10,13 +10,8 @@ import type {
   SessionModeState,
 } from "./acpProtocol";
 import {
-  foldAcpModelOptions,
-  normalizeAcpModelOption,
-  type AcpSelectableOption,
-} from "./acpModelOptionFolding";
-import {
-  buildAcpRuntimeOptionsStateFromConfigOptions,
   hasAcpRuntimeOptionSelectors,
+  resolveAcpRuntimeOptionsState,
 } from "./acpSessionConfigOptions";
 import {
   appendAcpSkillRunTransportAuditEvent,
@@ -137,57 +132,20 @@ export function markAcpBackendConnectionState(
   };
 }
 
-function normalizeModeOptions(modes?: SessionModeState | null) {
-  const availableModes = Array.isArray(modes?.availableModes)
-    ? modes!.availableModes
-        .map((entry) => ({
-          id: normalizeString(entry.id),
-          label: normalizeString(entry.name || entry.id),
-          description: normalizeString(entry.description) || undefined,
-        }))
-        .filter((entry) => entry.id && entry.label)
-    : [];
-  return {
-    modeOptions: availableModes,
-    currentModeId: normalizeString(modes?.currentModeId),
-  };
-}
-
 export function buildAcpRuntimeOptionsCache(args: {
   configOptions?: AcpSessionConfigOption[] | null;
   modes?: SessionModeState | null;
   models?: SessionModelState | null;
   refreshedAt?: string;
 }) {
-  const configOptionState = buildAcpRuntimeOptionsStateFromConfigOptions(
-    args.configOptions,
-  );
-  if (hasAcpRuntimeOptionSelectors(configOptionState)) {
-    return {
-      refreshedAt: args.refreshedAt || new Date().toISOString(),
-      ...configOptionState,
-    };
-  }
-  const modeState = normalizeModeOptions(args.modes);
-  const rawModelOptions = Array.isArray(args.models?.availableModels)
-    ? args
-        .models!.availableModels.map(normalizeAcpModelOption)
-        .filter((entry) => entry.id && entry.label)
-    : ([] as AcpSelectableOption[]);
-  const folded = foldAcpModelOptions({
-    modelOptions: rawModelOptions,
-    currentModelId: normalizeString(args.models?.currentModelId),
+  const state = resolveAcpRuntimeOptionsState({
+    configOptions: args.configOptions,
+    modes: args.modes,
+    models: args.models,
   });
   return {
     refreshedAt: args.refreshedAt || new Date().toISOString(),
-    modes: modeState.modeOptions,
-    currentModeId: modeState.currentModeId,
-    rawModels: rawModelOptions,
-    currentRawModelId: normalizeString(args.models?.currentModelId),
-    displayModels: folded.displayModelOptions,
-    currentDisplayModelId: folded.currentDisplayModel?.id || "",
-    reasoningEfforts: folded.reasoningEffortOptions,
-    currentReasoningEffortId: folded.currentReasoningEffort?.id || "",
+    ...state,
   };
 }
 

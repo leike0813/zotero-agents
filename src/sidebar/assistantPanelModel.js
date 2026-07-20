@@ -2191,65 +2191,89 @@ function exactWorkspaceDrawerSections(
   selectedOwner,
   uiState,
   labelSource,
+  source,
 ) {
-  const groups = new Map();
+  const catalog = new Map();
   (Array.isArray(navigation && navigation.groups)
     ? navigation.groups
     : []
   ).forEach(function (group) {
-    groups.set(safeText(group.groupId), {
-      groupKey: safeText(group.groupId),
+    catalog.set(safeText(group.groupId), {
       backendId: safeText(group.groupId),
       backendDisplayName: safeText(group.label),
+    });
+  });
+  function createGroupBucket(groupKey, entry) {
+    const known = catalog.get(groupKey) || {};
+    return {
+      groupKey,
+      backendId: safeText(known.backendId) || groupKey,
+      backendDisplayName:
+        safeText(known.backendDisplayName) ||
+        safeText(entry && entry.groupLabel) ||
+        groupKey,
       disabled: false,
       collapsed:
         uiState &&
         uiState.drawerGroupCollapsed &&
-        uiState.drawerGroupCollapsed.get(safeText(group.groupId)) === true,
+        uiState.drawerGroupCollapsed.get(groupKey) === true,
       activeTasks: [],
       finishedTasks: [],
-    });
-  });
-  (Array.isArray(navigation && navigation.entries)
-    ? navigation.entries
-    : []
-  ).forEach(function (entry) {
+    };
+  }
+  function appendTask(buckets, entry, target, projectedTask) {
     const groupKey = safeText(entry && entry.groupId) || "default";
-    if (!groups.has(groupKey)) {
-      groups.set(groupKey, {
-        groupKey,
-        backendId: groupKey,
-        backendDisplayName: safeText(entry && entry.groupLabel) || groupKey,
-        disabled: false,
-        collapsed:
-          uiState &&
-          uiState.drawerGroupCollapsed &&
-          uiState.drawerGroupCollapsed.get(groupKey) === true,
-        activeTasks: [],
-        finishedTasks: [],
-      });
+    if (!buckets.has(groupKey)) {
+      buckets.set(groupKey, createGroupBucket(groupKey, entry));
     }
+    buckets
+      .get(groupKey)
+      [
+        target
+      ].push(projectedTask || exactWorkspaceTask(entry, selectedOwner, labelSource));
+  }
+  const entries = Array.isArray(navigation && navigation.entries)
+    ? navigation.entries
+    : [];
+  if (source === "acp-chat") {
+    const sessionGroups = new Map();
+    entries.forEach(function (entry) {
+      appendTask(sessionGroups, entry, "activeTasks");
+    });
+    return [
+      {
+        id: "sessions",
+        title: labelFrom(labelSource, "actions.sessions", "Sessions"),
+        hideTitle: true,
+        collapsed: false,
+        groups: Array.from(sessionGroups.values()),
+      },
+    ];
+  }
+
+  const activeGroups = new Map();
+  const completedGroups = new Map();
+  entries.forEach(function (entry) {
     const task = exactWorkspaceTask(entry, selectedOwner, labelSource);
-    const target = task.terminal ? "finishedTasks" : "activeTasks";
-    groups.get(groupKey)[target].push(task);
+    appendTask(
+      task.terminal ? completedGroups : activeGroups,
+      entry,
+      task.terminal ? "finishedTasks" : "activeTasks",
+      task,
+    );
   });
-  const values = Array.from(groups.values());
   return [
     {
       id: "active",
       title: labelFrom(labelSource, "drawer.running", "Running"),
       collapsed: false,
-      groups: values.map(function (group) {
-        return Object.assign({}, group, { finishedTasks: [] });
-      }),
+      groups: Array.from(activeGroups.values()),
     },
     {
       id: "completed",
       title: labelFrom(labelSource, "drawer.completed", "Completed"),
       collapsed: uiState && uiState.completedCollapsed === true,
-      groups: values.map(function (group) {
-        return Object.assign({}, group, { activeTasks: [] });
-      }),
+      groups: Array.from(completedGroups.values()),
     },
   ];
 }
@@ -2788,6 +2812,7 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
     owner,
     local,
     labelSource,
+    source.source,
   );
   return {
     exact: true,

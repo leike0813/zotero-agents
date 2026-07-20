@@ -231,6 +231,46 @@ describe("ACP backend probe", function () {
     assert.equal(cache?.currentReasoningEffortId, "high");
   });
 
+  it("recognizes reasoning-only ACP config options as runtime capability", async function () {
+    const result = await probeAcpBackendRuntimeOptions({
+      backend: {
+        id: "acp-reasoning-only",
+        displayName: "ACP Reasoning Only",
+        type: "acp",
+        baseUrl: "local://acp-reasoning-only",
+        command: "fake-acp",
+      },
+      createAdapter: async () =>
+        makeProbeAdapter({
+          newSession: async () => ({
+            sessionId: "session-reasoning-only",
+            configOptions: [
+              {
+                id: "effort",
+                name: "Reasoning",
+                category: "thought_level",
+                type: "select",
+                currentValue: "high",
+                options: [
+                  { value: "low", name: "Low" },
+                  { value: "high", name: "High" },
+                ],
+              },
+            ],
+          }),
+        }),
+    });
+
+    const cache = result.backend.acp?.runtimeOptionsCache;
+    assert.isTrue(result.ok);
+    assert.deepEqual(
+      cache?.reasoningEfforts.map((entry) => entry.id),
+      ["low", "high"],
+    );
+    assert.equal(cache?.currentReasoningEffortId, "high");
+    assert.equal(cache?.reasoningSource, "explicit");
+  });
+
   it("preserves existing runtime options cache when probe fails or returns empty selectors", async function () {
     const existingCache = {
       refreshedAt: "2026-04-29T00:00:00.000Z",

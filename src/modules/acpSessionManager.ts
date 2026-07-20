@@ -100,9 +100,14 @@ import type {
 } from "./acpRuntimeReplayLogicalTime";
 import { applyAcpReasoningEffortWithFallback } from "./acpReasoningEffortFallback";
 import {
-  buildAcpRuntimeOptionsStateFromConfigOptions,
   hasAcpRuntimeOptionSelectors,
+  resolveAcpRuntimeOptionsState,
+  type AcpReasoningSource,
 } from "./acpSessionConfigOptions";
+import {
+  normalizeAcpEffortId,
+  resolveAcpRawModelIdForSelection,
+} from "./acpModelOptionFolding";
 import {
   cloneAcpConversationItem,
   cloneAcpSelectableOption,
@@ -126,7 +131,11 @@ import {
   type AcpPlanEntry,
   type AcpSelectableOption,
 } from "./acpTypes";
-import type { RequestPermissionOutcome } from "./acpProtocol";
+import type {
+  RequestPermissionOutcome,
+  SessionModelState,
+  SessionModeState,
+} from "./acpProtocol";
 import {
   copyRuntimeDirectory,
   ensureRuntimeDirectory,
@@ -235,6 +244,7 @@ export type AcpChatSessionRuntime = {
   backendId: string;
   adapter: AcpConnectionAdapter | null;
   snapshot: AcpConversationSnapshot;
+  reasoningSource: AcpReasoningSource;
   pendingWorkspaceChangeKinds: Set<AcpChatWorkspaceChangeKind>;
   workspaceTranscriptEvents: AssistantWorkspaceTranscriptMutationEvent[];
   unsubscribeUpdate: (() => void) | null;
@@ -630,6 +640,7 @@ function getOrCreateSessionRuntime(
     backendId,
     adapter: null,
     snapshot: hydrateSnapshot(backendId, conversationId || undefined),
+    reasoningSource: "none",
     pendingWorkspaceChangeKinds: new Set<AcpChatWorkspaceChangeKind>(),
     workspaceTranscriptEvents: [],
     unsubscribeUpdate: null,
@@ -658,6 +669,9 @@ function getOrCreateSessionRuntime(
     persistTimer: null,
     lastLiveActivityMs: Date.now(),
   };
+  sessionRuntime.reasoningSource = reasoningSourceForSnapshot(
+    sessionRuntime.snapshot,
+  );
   resetSessionRuntimeTransientState(sessionRuntime);
   sessionRuntimes.set(key, sessionRuntime);
   return sessionRuntime;
@@ -2448,44 +2462,90 @@ function completeActiveStreamingTextItems(
   }
 }
 
-function normalizeModeOption(args: {
-  id: string;
-  name?: string | null;
-  description?: string | null;
-}): AcpSelectableOption {
+function snapshotRuntimeOptionsCache(
+  snapshot: AcpConversationSnapshot,
+  reasoningSource?: AcpReasoningSource,
+) {
   return {
-    id: String(args.id || "").trim(),
-    label: String(args.name || args.id || "").trim(),
-    description: String(args.description || "").trim() || undefined,
+    modes: snapshot.modeOptions,
+    currentModeId: snapshot.currentMode?.id || "",
+    rawModels: snapshot.modelOptions,
+    currentRawModelId: snapshot.currentModel?.id || "",
+    displayModels: snapshot.displayModelOptions,
+    currentDisplayModelId: snapshot.currentDisplayModel?.id || "",
+    reasoningEfforts: snapshot.reasoningEffortOptions,
+    currentReasoningEffortId: snapshot.currentReasoningEffort?.id || "",
+    ...(reasoningSource ? { reasoningSource } : {}),
   };
 }
 
-function normalizeCachedSelectableOptions(
-  value: unknown,
-): AcpSelectableOption[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .map((entry) => {
-      const source =
-        entry && typeof entry === "object"
-          ? (entry as Record<string, unknown>)
-          : {};
-      const id = String(source.id || source.value || "").trim();
-      const label = String(
-        source.label || source.name || source.title || id,
-      ).trim();
-      const description = String(source.description || "").trim();
-      return id && label
-        ? {
-            id,
-            label,
-            ...(description ? { description } : {}),
-          }
-        : null;
-    })
-    .filter((entry): entry is AcpSelectableOption => entry !== null);
+function reasoningSourceForSnapshot(snapshot: AcpConversationSnapshot) {
+  return resolveAcpRuntimeOptionsState({
+    cache: snapshotRuntimeOptionsCache(snapshot),
+  }).reasoningSource;
+}
+
+function mergeRuntimeOptionsCache(
+  primary: ReturnType<typeof snapshotRuntimeOptionsCache>,
+  fallback: NonNullable<BackendInstance["acp"]>["runtimeOptionsCache"],
+) {
+  const fallbackCache = fallback || {};
+  const usePrimaryModes = primary.modes.length > 0;
+  const usePrimaryModels = primary.rawModels.length > 0;
+  const usePrimaryReasoning = primary.reasoningEfforts.length > 0;
+  return {
+    modes: usePrimaryModes ? primary.modes : fallbackCache.modes,
+    currentModeId: usePrimaryModes
+      ? primary.currentModeId
+      : fallbackCache.currentModeId,
+    rawModels: usePrimaryModels ? primary.rawModels : fallbackCache.rawModels,
+    currentRawModelId: usePrimaryModels
+      ? primary.currentRawModelId
+      : fallbackCache.currentRawModelId,
+    displayModels: usePrimaryModels
+      ? primary.displayModels
+      : fallbackCache.displayModels,
+    currentDisplayModelId: usePrimaryModels
+      ? primary.currentDisplayModelId
+      : fallbackCache.currentDisplayModelId,
+    reasoningEfforts: usePrimaryReasoning
+      ? primary.reasoningEfforts
+      : fallbackCache.reasoningEfforts,
+    currentReasoningEffortId: usePrimaryReasoning
+      ? primary.currentReasoningEffortId
+      : fallbackCache.currentReasoningEffortId,
+    reasoningSource: usePrimaryReasoning
+      ? primary.reasoningSource
+      : fallbackCache.reasoningSource,
+  };
+}
+
+function applyResolvedRuntimeOptionsState(
+  sessionRuntime: AcpChatSessionRuntime,
+  state: ReturnType<typeof resolveAcpRuntimeOptionsState>,
+) {
+  const snapshot = sessionRuntime.snapshot;
+  snapshot.modeOptions = state.modes.map((entry) => ({ ...entry }));
+  snapshot.currentMode = snapshot.modeOptions.find(
+    (entry) => entry.id === state.currentModeId,
+  );
+  snapshot.modelOptions = state.rawModels.map((entry) => ({ ...entry }));
+  snapshot.currentModel = snapshot.modelOptions.find(
+    (entry) => entry.id === state.currentRawModelId,
+  );
+  snapshot.displayModelOptions = state.displayModels.map((entry) => ({
+    ...entry,
+  }));
+  snapshot.currentDisplayModel = snapshot.displayModelOptions.find(
+    (entry) => entry.id === state.currentDisplayModelId,
+  );
+  snapshot.reasoningEffortOptions = state.reasoningEfforts.map((entry) => ({
+    ...entry,
+  }));
+  snapshot.currentReasoningEffort = snapshot.reasoningEffortOptions.find(
+    (entry) => entry.id === state.currentReasoningEffortId,
+  );
+  sessionRuntime.reasoningSource = state.reasoningSource;
 }
 
 function applyRuntimeOptionsCache(
@@ -2497,67 +2557,26 @@ function applyRuntimeOptionsCache(
     return;
   }
 
-  if (sessionRuntime.snapshot.modeOptions.length === 0) {
-    const modeOptions = normalizeCachedSelectableOptions(cache.modes);
-    if (modeOptions.length > 0) {
-      sessionRuntime.snapshot.modeOptions = modeOptions;
-      const currentModeId = String(
-        sessionRuntime.snapshot.currentMode?.id ||
-          cache.currentModeId ||
-          modeOptions[0]?.id ||
-          "",
-      ).trim();
-      sessionRuntime.snapshot.currentMode =
-        modeOptions.find((entry) => entry.id === currentModeId) ||
-        modeOptions[0];
-    }
-  }
-
-  if (sessionRuntime.snapshot.modelOptions.length === 0) {
-    const rawModelOptions = normalizeCachedSelectableOptions(cache.rawModels);
-    if (rawModelOptions.length > 0) {
-      sessionRuntime.snapshot.modelOptions = rawModelOptions;
-      const currentRawModelId = String(
-        sessionRuntime.snapshot.currentModel?.id ||
-          cache.currentRawModelId ||
-          rawModelOptions[0]?.id ||
-          "",
-      ).trim();
-      sessionRuntime.snapshot.currentModel =
-        rawModelOptions.find((entry) => entry.id === currentRawModelId) ||
-        rawModelOptions[0];
-      deriveModelEffortState(sessionRuntime.snapshot);
-    }
-  }
-}
-
-function applyCurrentReasoningEffort(
-  snapshot: AcpConversationSnapshot,
-  effortIdRaw: string,
-) {
-  const effortId = normalizeEffortId(effortIdRaw);
-  if (!effortId) {
-    return;
-  }
-  snapshot.currentReasoningEffort = snapshot.reasoningEffortOptions.find(
-    (entry) => entry.id === effortId,
-  ) || {
-    id: effortId,
-    label: toTitleCase(effortId),
-  };
+  const primary = snapshotRuntimeOptionsCache(
+    sessionRuntime.snapshot,
+    sessionRuntime.reasoningSource,
+  );
+  applyResolvedRuntimeOptionsState(
+    sessionRuntime,
+    resolveAcpRuntimeOptionsState({
+      cache: mergeRuntimeOptionsCache(primary, cache),
+    }),
+  );
 }
 
 function applySessionConfigOptionsState(
   sessionRuntime: AcpChatSessionRuntime,
   configOptions: unknown,
 ) {
-  const state = buildAcpRuntimeOptionsStateFromConfigOptions(
-    Array.isArray(configOptions) ? configOptions : null,
-  );
-  if (
-    !hasAcpRuntimeOptionSelectors(state) &&
-    state.reasoningEfforts.length === 0
-  ) {
+  const liveState = resolveAcpRuntimeOptionsState({
+    configOptions: Array.isArray(configOptions) ? configOptions : null,
+  });
+  if (!hasAcpRuntimeOptionSelectors(liveState)) {
     return {
       modeApplied: false,
       modelApplied: false,
@@ -2565,69 +2584,21 @@ function applySessionConfigOptionsState(
     };
   }
 
-  let modeApplied = false;
-  let modelApplied = false;
-  let reasoningApplied = false;
-  if (state.modes.length > 0) {
-    sessionRuntime.snapshot.modeOptions = state.modes.map((entry) => ({
-      ...entry,
-    }));
-    const currentModeId = String(
-      state.currentModeId || sessionRuntime.snapshot.currentMode?.id || "",
-    ).trim();
-    sessionRuntime.snapshot.currentMode =
-      sessionRuntime.snapshot.modeOptions.find(
-        (entry) => entry.id === currentModeId,
-      ) || sessionRuntime.snapshot.modeOptions[0];
-    modeApplied = true;
-  }
-
-  if (state.rawModels.length > 0) {
-    sessionRuntime.snapshot.modelOptions = state.rawModels.map((entry) => ({
-      ...entry,
-    }));
-    const currentRawModelId = String(
-      state.currentRawModelId || sessionRuntime.snapshot.currentModel?.id || "",
-    ).trim();
-    sessionRuntime.snapshot.currentModel =
-      sessionRuntime.snapshot.modelOptions.find(
-        (entry) => entry.id === currentRawModelId,
-      ) || sessionRuntime.snapshot.modelOptions[0];
-    deriveModelEffortState(sessionRuntime.snapshot);
-    if (state.displayModels.length > 0) {
-      sessionRuntime.snapshot.displayModelOptions = state.displayModels.map(
-        (entry) => ({
-          ...entry,
-        }),
-      );
-      sessionRuntime.snapshot.currentDisplayModel =
-        sessionRuntime.snapshot.displayModelOptions.find(
-          (entry) => entry.id === state.currentDisplayModelId,
-        ) || sessionRuntime.snapshot.displayModelOptions[0];
-    }
-    modelApplied = true;
-  }
-
-  if (state.reasoningEfforts.length > 0) {
-    sessionRuntime.snapshot.reasoningEffortOptions = state.reasoningEfforts.map(
-      (entry) => ({
-        ...entry,
-      }),
-    );
-    applyCurrentReasoningEffort(
-      sessionRuntime.snapshot,
-      state.currentReasoningEffortId ||
-        sessionRuntime.snapshot.currentReasoningEffort?.id ||
-        state.reasoningEfforts[0]?.id ||
-        "",
-    );
-    reasoningApplied = true;
-  }
+  applyResolvedRuntimeOptionsState(
+    sessionRuntime,
+    resolveAcpRuntimeOptionsState({
+      configOptions: Array.isArray(configOptions) ? configOptions : null,
+      cache: snapshotRuntimeOptionsCache(
+        sessionRuntime.snapshot,
+        sessionRuntime.reasoningSource,
+      ),
+    }),
+  );
 
   return {
-    modeApplied,
-    modelApplied,
-    reasoningApplied,
+    modeApplied: liveState.modes.length > 0,
+    modelApplied: liveState.rawModels.length > 0,
+    reasoningApplied: liveState.reasoningSource === "explicit",
   };
 }
 
@@ -2642,272 +2613,34 @@ function applyModeState(
     }> | null;
   },
 ) {
-  const incomingModes = Array.isArray(value.availableModes)
-    ? value.availableModes
-        .map((entry) =>
-          normalizeModeOption({
-            id: entry.id,
-            name: entry.name,
-            description: entry.description,
-          }),
-        )
-        .filter((entry) => entry.id && entry.label)
-    : [];
-  const availableModes =
-    incomingModes.length > 0
-      ? incomingModes
-      : sessionRuntime.snapshot.modeOptions;
-  sessionRuntime.snapshot.modeOptions = availableModes;
-  const currentModeId = String(
-    value.currentModeId || sessionRuntime.snapshot.currentMode?.id || "",
-  ).trim();
-  sessionRuntime.snapshot.currentMode =
-    availableModes.find((entry) => entry.id === currentModeId) ||
-    (currentModeId
-      ? {
-          id: currentModeId,
-          label: currentModeId,
-        }
-      : undefined);
-}
-
-const KNOWN_REASONING_EFFORT_ORDER = [
-  "default",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-];
-
-type ParsedModelEffort = {
-  raw: AcpSelectableOption;
-  baseId: string;
-  baseLabel: string;
-  effortId: string;
-};
-
-type FoldedModelGroup = {
-  baseId: string;
-  baseLabel: string;
-  variants: ParsedModelEffort[];
-};
-
-function normalizeEffortId(value: unknown) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "-");
-}
-
-function toTitleCase(value: string) {
-  return String(value || "")
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-function stripKnownEffortSuffix(value: string, effortId: string) {
-  const escaped = effortId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return String(value || "")
-    .replace(new RegExp(`\\s*@\\s*${escaped}\\s*$`, "i"), "")
-    .replace(new RegExp(`\\s*\\(\\s*${escaped}\\s*\\)\\s*$`, "i"), "")
-    .replace(new RegExp(`\\s+-\\s+${escaped}\\s*$`, "i"), "")
-    .replace(new RegExp(`[-_]${escaped}\\s*$`, "i"), "")
-    .replace(new RegExp(`\\s+${escaped}\\s*$`, "i"), "")
-    .trim();
-}
-
-function parseEffortFromModelText(value: string) {
-  const text = String(value || "").trim();
-  const atMatch = /^(.*)@([A-Za-z][A-Za-z0-9_-]*)$/.exec(text);
-  if (atMatch && atMatch[1].trim() && atMatch[2].trim()) {
-    return {
-      baseId: atMatch[1].trim(),
-      effortId: normalizeEffortId(atMatch[2]),
-    };
-  }
-
-  const known = KNOWN_REASONING_EFFORT_ORDER.join("|");
-  const bracketMatch = new RegExp(`^(.*)\\(\\s*(${known})\\s*\\)$`, "i").exec(
-    text,
+  applyResolvedRuntimeOptionsState(
+    sessionRuntime,
+    resolveAcpRuntimeOptionsState({
+      modes: value as SessionModeState,
+      cache: snapshotRuntimeOptionsCache(
+        sessionRuntime.snapshot,
+        sessionRuntime.reasoningSource,
+      ),
+      overrides: { modeId: String(value.currentModeId || "").trim() },
+    }),
   );
-  if (bracketMatch && bracketMatch[1].trim()) {
-    return {
-      baseId: bracketMatch[1].trim(),
-      effortId: normalizeEffortId(bracketMatch[2]),
-    };
-  }
-
-  const dashMatch = new RegExp(`^(.*)(?:\\s+-\\s+|[-_])(${known})$`, "i").exec(
-    text,
-  );
-  if (dashMatch && dashMatch[1].trim()) {
-    return {
-      baseId: dashMatch[1].trim(),
-      effortId: normalizeEffortId(dashMatch[2]),
-    };
-  }
-
-  return null;
-}
-
-function parseModelEffortVariant(
-  option: AcpSelectableOption,
-): ParsedModelEffort | null {
-  const parsed =
-    parseEffortFromModelText(option.id) ||
-    parseEffortFromModelText(option.label);
-  if (!parsed) {
-    return null;
-  }
-  const strippedLabel =
-    stripKnownEffortSuffix(option.label, parsed.effortId) ||
-    stripKnownEffortSuffix(parsed.baseId, parsed.effortId);
-  return {
-    raw: option,
-    baseId: parsed.baseId,
-    baseLabel: strippedLabel || parsed.baseId,
-    effortId: parsed.effortId,
-  };
-}
-
-function compareEffortIds(left: string, right: string) {
-  const leftIndex = KNOWN_REASONING_EFFORT_ORDER.indexOf(left);
-  const rightIndex = KNOWN_REASONING_EFFORT_ORDER.indexOf(right);
-  if (leftIndex >= 0 || rightIndex >= 0) {
-    return (
-      (leftIndex >= 0 ? leftIndex : 999) - (rightIndex >= 0 ? rightIndex : 999)
-    );
-  }
-  return left.localeCompare(right);
-}
-
-function buildFoldedModelGroups(modelOptions: AcpSelectableOption[]) {
-  const grouped = new Map<string, FoldedModelGroup>();
-  for (const option of modelOptions) {
-    const parsed = parseModelEffortVariant(option);
-    if (!parsed) {
-      continue;
-    }
-    const existing = grouped.get(parsed.baseId);
-    if (existing) {
-      existing.variants.push(parsed);
-    } else {
-      grouped.set(parsed.baseId, {
-        baseId: parsed.baseId,
-        baseLabel: parsed.baseLabel,
-        variants: [parsed],
-      });
-    }
-  }
-
-  for (const [baseId, group] of Array.from(grouped.entries())) {
-    const uniqueEfforts = new Set(
-      group.variants.map((entry) => entry.effortId),
-    );
-    if (uniqueEfforts.size <= 1) {
-      grouped.delete(baseId);
-      continue;
-    }
-    group.variants = group.variants
-      .slice()
-      .sort((left, right) => compareEffortIds(left.effortId, right.effortId));
-  }
-  return grouped;
 }
 
 function deriveModelEffortState(snapshot: AcpConversationSnapshot) {
-  const rawOptions = snapshot.modelOptions.map((entry) => ({ ...entry }));
-  const groups = buildFoldedModelGroups(rawOptions);
-  const displayOptions: AcpSelectableOption[] = [];
-  const emittedGroups = new Set<string>();
-
-  for (const option of rawOptions) {
-    const parsed = parseModelEffortVariant(option);
-    if (parsed && groups.has(parsed.baseId)) {
-      if (!emittedGroups.has(parsed.baseId)) {
-        const group = groups.get(parsed.baseId);
-        displayOptions.push({
-          id: parsed.baseId,
-          label: group?.baseLabel || parsed.baseLabel || parsed.baseId,
-          description: option.description,
-        });
-        emittedGroups.add(parsed.baseId);
-      }
-      continue;
-    }
-    displayOptions.push({ ...option });
-  }
-
-  snapshot.displayModelOptions = displayOptions;
-  const currentRawId = String(snapshot.currentModel?.id || "").trim();
-  const currentParsed = currentRawId
-    ? parseModelEffortVariant({
-        id: currentRawId,
-        label: snapshot.currentModel?.label || currentRawId,
-        description: snapshot.currentModel?.description,
-      })
-    : null;
-  const activeGroup =
-    currentParsed && groups.has(currentParsed.baseId)
-      ? groups.get(currentParsed.baseId)
-      : null;
-
-  if (activeGroup) {
-    snapshot.currentDisplayModel = displayOptions.find(
-      (entry) => entry.id === activeGroup.baseId,
-    ) || {
-      id: activeGroup.baseId,
-      label: activeGroup.baseLabel,
-    };
-    snapshot.reasoningEffortOptions = activeGroup.variants.map((entry) => ({
-      id: entry.effortId,
-      label: toTitleCase(entry.effortId),
-      description: entry.raw.description,
-    }));
-    snapshot.currentReasoningEffort =
-      snapshot.reasoningEffortOptions.find(
-        (entry) => entry.id === currentParsed?.effortId,
-      ) || snapshot.reasoningEffortOptions[0];
-    return;
-  }
-
-  snapshot.currentDisplayModel =
-    displayOptions.find((entry) => entry.id === currentRawId) ||
-    (snapshot.currentModel ? { ...snapshot.currentModel } : undefined);
-  snapshot.reasoningEffortOptions = [];
-  snapshot.currentReasoningEffort = undefined;
-}
-
-function resolveRawModelIdForSelection(
-  snapshot: AcpConversationSnapshot,
-  displayModelId: string,
-  effortIdRaw?: string,
-) {
-  const displayId = String(displayModelId || "").trim();
-  if (!displayId) {
-    return "";
-  }
-  const groups = buildFoldedModelGroups(snapshot.modelOptions);
-  const group = groups.get(displayId);
-  if (group) {
-    const currentVariant = snapshot.currentModel
-      ? parseModelEffortVariant(snapshot.currentModel)
-      : null;
-    const effortId =
-      normalizeEffortId(effortIdRaw) ||
-      normalizeEffortId(snapshot.currentReasoningEffort?.id) ||
-      normalizeEffortId(currentVariant?.effortId);
-    const selected =
-      group.variants.find((entry) => entry.effortId === effortId) ||
-      group.variants.find((entry) => entry.effortId === "default") ||
-      group.variants[0];
-    return selected?.raw.id || displayId;
-  }
-  return (
-    snapshot.modelOptions.find((entry) => entry.id === displayId)?.id ||
-    displayId
+  const state = resolveAcpRuntimeOptionsState({
+    cache: snapshotRuntimeOptionsCache(snapshot),
+  });
+  snapshot.displayModelOptions = state.displayModels.map((entry) => ({
+    ...entry,
+  }));
+  snapshot.currentDisplayModel = snapshot.displayModelOptions.find(
+    (entry) => entry.id === state.currentDisplayModelId,
+  );
+  snapshot.reasoningEffortOptions = state.reasoningEfforts.map((entry) => ({
+    ...entry,
+  }));
+  snapshot.currentReasoningEffort = snapshot.reasoningEffortOptions.find(
+    (entry) => entry.id === state.currentReasoningEffortId,
   );
 }
 
@@ -2922,32 +2655,17 @@ function applyModelState(
     }> | null;
   },
 ) {
-  const incomingModels = Array.isArray(value.availableModels)
-    ? value.availableModels
-        .map((entry) => ({
-          id: String(entry.modelId || "").trim(),
-          label: String(entry.name || entry.modelId || "").trim(),
-          description: String(entry.description || "").trim() || undefined,
-        }))
-        .filter((entry) => entry.id && entry.label)
-    : [];
-  const availableModels =
-    incomingModels.length > 0
-      ? incomingModels
-      : sessionRuntime.snapshot.modelOptions;
-  sessionRuntime.snapshot.modelOptions = availableModels;
-  const currentModelId = String(
-    value.currentModelId || sessionRuntime.snapshot.currentModel?.id || "",
-  ).trim();
-  sessionRuntime.snapshot.currentModel =
-    availableModels.find((entry) => entry.id === currentModelId) ||
-    (currentModelId
-      ? {
-          id: currentModelId,
-          label: currentModelId,
-        }
-      : undefined);
-  deriveModelEffortState(sessionRuntime.snapshot);
+  applyResolvedRuntimeOptionsState(
+    sessionRuntime,
+    resolveAcpRuntimeOptionsState({
+      models: value as SessionModelState,
+      cache: snapshotRuntimeOptionsCache(
+        sessionRuntime.snapshot,
+        sessionRuntime.reasoningSource,
+      ),
+      overrides: { rawModelId: String(value.currentModelId || "").trim() },
+    }),
+  );
 }
 
 function handleSessionUpdate(
@@ -3745,22 +3463,26 @@ function applyAttachedSessionResult(
   sessionRuntime.snapshot.sessionUpdatedAt = String(
     result.sessionUpdatedAt || "",
   ).trim();
-  const configApplied = applySessionConfigOptionsState(
-    sessionRuntime,
-    result.configOptions,
-  );
-  if (!configApplied.modeApplied) {
-    applyModeState(sessionRuntime, result.modes || {});
-  }
-  if (!configApplied.modelApplied) {
-    applyModelState(sessionRuntime, result.models || {});
-  }
   const backend =
     sessionRuntime.snapshot.backend ||
     cachedAcpBackends.find((entry) => entry.id === sessionRuntime.backendId);
-  if (backend) {
-    applyRuntimeOptionsCache(sessionRuntime, backend);
-  }
+  applyResolvedRuntimeOptionsState(
+    sessionRuntime,
+    resolveAcpRuntimeOptionsState({
+      configOptions: Array.isArray(result.configOptions)
+        ? result.configOptions
+        : null,
+      modes: result.modes || null,
+      models: result.models || null,
+      cache: mergeRuntimeOptionsCache(
+        snapshotRuntimeOptionsCache(
+          sessionRuntime.snapshot,
+          sessionRuntime.reasoningSource,
+        ),
+        backend?.acp?.runtimeOptionsCache,
+      ),
+    }),
+  );
   sessionRuntime.snapshot.status = "connected";
   sessionRuntime.snapshot.busy = false;
 }
@@ -4324,17 +4046,44 @@ export async function setActiveAcpBackend(args: { backendId: string }) {
     backendId,
     backendId === activeBackendId ? "if-missing" : "always",
   );
-  if (backendId === activeBackendId) return;
-  activeBackendId = backendId;
-  activeConversationId =
-    loadAcpChatSessionIndex(backendId).activeConversationId;
-  saveAcpFrontendState({ activeBackendId });
-  const sessionRuntime = getOrCreateSessionRuntime(backendId);
+  const indexedConversationId = normalizeConversationId(
+    loadAcpChatSessionIndex(backendId).activeConversationId,
+  );
+  const visibleConversationIds = new Set(
+    listAcpChatSessions(backendId).map((entry) =>
+      normalizeConversationId(entry.conversationId),
+    ),
+  );
+  const selectableConversationId = visibleConversationIds.has(
+    indexedConversationId,
+  )
+    ? indexedConversationId
+    : "";
+  if (
+    backendId === activeBackendId &&
+    selectableConversationId &&
+    selectableConversationId ===
+      normalizeConversationId(resolveActiveConversationId(backendId))
+  ) {
+    return;
+  }
+  const sessionRuntime = selectableConversationId
+    ? getOrCreateSessionRuntime(backendId, selectableConversationId)
+    : prepareLocalAcpConversationPlaceholder({ backendId, backend });
   sessionRuntime.snapshot.backend = backend;
   applyRuntimeOptionsCache(sessionRuntime, backend);
+  activeBackendId = backendId;
+  activeConversationId = sessionRuntime.snapshot.conversationId;
+  saveAcpFrontendState({ activeBackendId });
+  emitSessionRuntimeSnapshot(sessionRuntime, { notifyUi: false });
+  saveActiveAcpConversationSelection(backendId, activeConversationId);
   pruneIdleBackgroundTranscriptMirrors();
   notifyAcpChatWorkspaceListeners(
-    buildAcpChatWorkspaceChange(sessionRuntime, ["active-scope", "backend"]),
+    buildAcpChatWorkspaceChange(sessionRuntime, [
+      "active-scope",
+      "backend",
+      "session-list",
+    ]),
   );
 }
 
@@ -4438,6 +4187,52 @@ function createNewLocalConversationSnapshot(args: {
     transcriptPreview: undefined,
     updatedAt: createdAt,
   };
+}
+
+function prepareLocalAcpConversationPlaceholder(args: {
+  backendId: string;
+  backend?: BackendInstance | null;
+}) {
+  const existingConversationId = findPlaceholderAcpConversationId(
+    args.backendId,
+  );
+  if (existingConversationId) {
+    const existingRuntime = getOrCreateSessionRuntime(
+      args.backendId,
+      existingConversationId,
+    );
+    if (args.backend) {
+      existingRuntime.snapshot.backend = args.backend;
+      applyRuntimeOptionsCache(existingRuntime, args.backend);
+    }
+    return existingRuntime;
+  }
+
+  const seedSessionRuntime = getOrCreateSessionRuntime(args.backendId);
+  const snapshot = createNewLocalConversationSnapshot({
+    sessionRuntime: seedSessionRuntime,
+    backend:
+      args.backend ||
+      cachedAcpBackends.find((entry) => entry.id === args.backendId) ||
+      seedSessionRuntime.snapshot.backend,
+    backendId: args.backendId,
+  });
+  const sessionRuntime = getOrCreateSessionRuntime(
+    args.backendId,
+    snapshot.conversationId,
+  );
+  sessionRuntime.snapshot = snapshot;
+  rekeySessionRuntime(sessionRuntime);
+  sessionRuntime.snapshot.messageCounts = restoreAcpExecutionProgress(
+    acpChatExecutionProgressScope(sessionRuntime),
+    sessionRuntime.snapshot.messageCounts,
+    { missingCompleteness: "complete" },
+  );
+  if (snapshot.backend) {
+    applyRuntimeOptionsCache(sessionRuntime, snapshot.backend);
+  }
+  resetSessionRuntimeTransientState(sessionRuntime);
+  return sessionRuntime;
 }
 
 export async function setActiveAcpConversation(args: {
@@ -4923,62 +4718,12 @@ export async function startNewAcpConversation(args?: { backendId?: string }) {
   ensureInitialized();
   await refreshAcpBackends();
   const backendId = normalizeBackendId(args?.backendId || activeBackendId);
-  const existingPlaceholderConversationId =
-    findPlaceholderAcpConversationId(backendId);
-  if (existingPlaceholderConversationId) {
-    activeBackendId = backendId;
-    activeConversationId = existingPlaceholderConversationId;
-    saveAcpFrontendState({ activeBackendId });
-    saveActiveAcpConversationSelection(
-      backendId,
-      existingPlaceholderConversationId,
-    );
-    const existingRuntime = getOrCreateSessionRuntime(
-      backendId,
-      existingPlaceholderConversationId,
-    );
-    pruneIdleBackgroundTranscriptMirrors();
-    notifyAcpChatWorkspaceListeners(
-      buildAcpChatWorkspaceChange(existingRuntime, [
-        "active-scope",
-        "session-list",
-      ]),
-    );
-    return;
-  }
-  const seedSessionRuntime = getOrCreateSessionRuntime(backendId);
-  const preservedBackend =
-    cachedAcpBackends.find((entry) => entry.id === backendId) ||
-    seedSessionRuntime.snapshot.backend;
-  const preservedDiagnosticsVisibility =
-    seedSessionRuntime.snapshot.showDiagnostics;
-  const preservedStatusExpanded = seedSessionRuntime.snapshot.statusExpanded;
-  const preservedChatDisplayMode = seedSessionRuntime.snapshot.chatDisplayMode;
-  const createdAt = nowIso();
-  const snapshot = createNewLocalConversationSnapshot({
-    sessionRuntime: seedSessionRuntime,
-    backend: preservedBackend,
+  const backend =
+    cachedAcpBackends.find((entry) => entry.id === backendId) || null;
+  const sessionRuntime = prepareLocalAcpConversationPlaceholder({
     backendId,
-    createdAt,
+    backend,
   });
-  const sessionRuntime = getOrCreateSessionRuntime(
-    backendId,
-    snapshot.conversationId,
-  );
-  sessionRuntime.snapshot = snapshot;
-  rekeySessionRuntime(sessionRuntime);
-  sessionRuntime.snapshot.messageCounts = restoreAcpExecutionProgress(
-    acpChatExecutionProgressScope(sessionRuntime),
-    sessionRuntime.snapshot.messageCounts,
-    { missingCompleteness: "complete" },
-  );
-  if (preservedBackend) {
-    applyRuntimeOptionsCache(sessionRuntime, preservedBackend);
-  }
-  sessionRuntime.snapshot.showDiagnostics = preservedDiagnosticsVisibility;
-  sessionRuntime.snapshot.statusExpanded = preservedStatusExpanded;
-  sessionRuntime.snapshot.chatDisplayMode = preservedChatDisplayMode;
-  resetSessionRuntimeTransientState(sessionRuntime);
   activeBackendId = backendId;
   activeConversationId = sessionRuntime.snapshot.conversationId;
   saveAcpFrontendState({ activeBackendId });
@@ -5374,11 +5119,12 @@ export async function setAcpConversationModel(args: {
   if (sessionRuntime.snapshot.busy === true) {
     throw new Error("Cannot change ACP model while a prompt is running.");
   }
-  const rawModelId = resolveRawModelIdForSelection(
-    sessionRuntime.snapshot,
-    modelId,
-    sessionRuntime.snapshot.currentReasoningEffort?.id,
-  );
+  const rawModelId = resolveAcpRawModelIdForSelection({
+    modelOptions: sessionRuntime.snapshot.modelOptions,
+    displayModelId: modelId,
+    effortId: sessionRuntime.snapshot.currentReasoningEffort?.id,
+    currentRawModelId: sessionRuntime.snapshot.currentModel?.id,
+  });
   const applied =
     (await adapter.setConfigOption?.({
       sessionId: sessionRuntime.snapshot.sessionId,
@@ -5391,9 +5137,21 @@ export async function setAcpConversationModel(args: {
       modelId: rawModelId,
     });
   }
-  applyModelState(sessionRuntime, {
-    currentModelId: applied ? modelId : rawModelId,
-  });
+  applyResolvedRuntimeOptionsState(
+    sessionRuntime,
+    resolveAcpRuntimeOptionsState({
+      cache: snapshotRuntimeOptionsCache(
+        sessionRuntime.snapshot,
+        sessionRuntime.reasoningSource,
+      ),
+      overrides: {
+        rawModelId,
+        displayModelId: modelId,
+        reasoningEffortId:
+          sessionRuntime.snapshot.currentReasoningEffort?.id || "",
+      },
+    }),
+  );
   emitSessionRuntimeSnapshot(sessionRuntime);
 }
 
@@ -5403,7 +5161,7 @@ export async function setAcpConversationReasoningEffort(args: {
   conversationId?: string;
 }) {
   ensureInitialized();
-  const effortId = normalizeEffortId(args.effortId);
+  const effortId = normalizeAcpEffortId(args.effortId);
   if (!effortId) {
     return;
   }
@@ -5419,14 +5177,14 @@ export async function setAcpConversationReasoningEffort(args: {
   const displayModelId =
     String(sessionRuntime.snapshot.currentDisplayModel?.id || "").trim() ||
     String(sessionRuntime.snapshot.currentModel?.id || "").trim();
-  if (!displayModelId) {
-    return;
-  }
-  const rawModelId = resolveRawModelIdForSelection(
-    sessionRuntime.snapshot,
-    displayModelId,
-    effortId,
-  );
+  const rawModelId = displayModelId
+    ? resolveAcpRawModelIdForSelection({
+        modelOptions: sessionRuntime.snapshot.modelOptions,
+        displayModelId,
+        effortId,
+        currentRawModelId: sessionRuntime.snapshot.currentModel?.id,
+      })
+    : "";
   const result = await applyAcpReasoningEffortWithFallback({
     adapter,
     backend: sessionRuntime.snapshot.backend || undefined,
@@ -5434,14 +5192,36 @@ export async function setAcpConversationReasoningEffort(args: {
     effortId,
   });
   if (result.kind === "applied") {
-    applyCurrentReasoningEffort(sessionRuntime.snapshot, effortId);
-  } else if (result.kind === "unavailable") {
+    applyResolvedRuntimeOptionsState(
+      sessionRuntime,
+      resolveAcpRuntimeOptionsState({
+        cache: snapshotRuntimeOptionsCache(
+          sessionRuntime.snapshot,
+          sessionRuntime.reasoningSource,
+        ),
+        overrides: { reasoningEffortId: effortId },
+      }),
+    );
+  } else if (result.kind === "unavailable" && rawModelId) {
     await adapter.setModel({
       sessionId: sessionRuntime.snapshot.sessionId,
       modelId: rawModelId,
     });
-    applyModelState(sessionRuntime, { currentModelId: rawModelId });
-  } else {
+    applyResolvedRuntimeOptionsState(
+      sessionRuntime,
+      resolveAcpRuntimeOptionsState({
+        cache: snapshotRuntimeOptionsCache(
+          sessionRuntime.snapshot,
+          sessionRuntime.reasoningSource,
+        ),
+        overrides: {
+          rawModelId,
+          displayModelId,
+          reasoningEffortId: effortId,
+        },
+      }),
+    );
+  } else if (result.kind === "fallback") {
     appendDiagnostic(sessionRuntime, {
       id: nextOpaqueId("acp-diag"),
       ts: nowIso(),

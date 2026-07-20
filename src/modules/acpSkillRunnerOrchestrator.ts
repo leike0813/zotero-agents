@@ -66,6 +66,7 @@ import {
 import { recordAcpRuntimeSemanticTraceEvent } from "./acpRuntimeSemanticTraceRecorder";
 import { recordAcpRuntimeDiagnostic } from "./acpDiagnosticRouter";
 import { buildAcpRuntimeOptionsCache } from "./acpBackendProbe";
+import { resolveAcpRuntimeOptionsState } from "./acpSessionConfigOptions";
 import type { AcpDiagnosticsEntry } from "./acpTypes";
 import {
   buildAcpSkillRunPrompt,
@@ -1308,37 +1309,25 @@ function rememberAcpSkillRunRuntimeOptions(args: {
   backend: BackendInstance;
 }) {
   const cache = args.backend.acp?.runtimeOptionsCache;
+  const state = resolveAcpRuntimeOptionsState({ cache });
+  const findOption = (options: AcpSelectableOption[], id: string) =>
+    options.find((entry) => entry.id === id);
   setAcpSkillRunRuntimeOptions(args.requestId, {
-    modeOptions: cache?.modes || [],
-    currentMode: cache?.currentModeId
-      ? (cache?.modes || []).find(
-          (entry) => entry.id === cache.currentModeId,
-        ) || { id: cache.currentModeId, label: cache.currentModeId }
-      : undefined,
-    modelOptions: cache?.rawModels || [],
-    currentModel: cache?.currentRawModelId
-      ? (cache?.rawModels || []).find(
-          (entry) => entry.id === cache.currentRawModelId,
-        ) || { id: cache.currentRawModelId, label: cache.currentRawModelId }
-      : undefined,
-    displayModelOptions: cache?.displayModels || [],
-    currentDisplayModel: cache?.currentDisplayModelId
-      ? (cache?.displayModels || []).find(
-          (entry) => entry.id === cache.currentDisplayModelId,
-        ) || {
-          id: cache.currentDisplayModelId,
-          label: cache.currentDisplayModelId,
-        }
-      : undefined,
-    reasoningEffortOptions: cache?.reasoningEfforts || [],
-    currentReasoningEffort: cache?.currentReasoningEffortId
-      ? (cache?.reasoningEfforts || []).find(
-          (entry) => entry.id === cache.currentReasoningEffortId,
-        ) || {
-          id: cache.currentReasoningEffortId,
-          label: cache.currentReasoningEffortId,
-        }
-      : undefined,
+    modeOptions: state.modes,
+    currentMode: findOption(state.modes, state.currentModeId),
+    modelOptions: state.rawModels,
+    currentModel: findOption(state.rawModels, state.currentRawModelId),
+    displayModelOptions: state.displayModels,
+    currentDisplayModel: findOption(
+      state.displayModels,
+      state.currentDisplayModelId,
+    ),
+    reasoningEffortOptions: state.reasoningEfforts,
+    currentReasoningEffort: findOption(
+      state.reasoningEfforts,
+      state.currentReasoningEffortId,
+    ),
+    reasoningSource: state.reasoningSource,
   });
 }
 
@@ -1355,57 +1344,41 @@ function refreshAcpSkillRunRuntimeOptionsFromSession(args: {
     "configOptions" | "modes" | "models"
   >;
 }) {
-  const sessionState = buildAcpRuntimeOptionsCache({
+  const sessionState = resolveAcpRuntimeOptionsState({
     configOptions: args.session.configOptions,
     modes: args.session.modes,
     models: args.session.models,
+    cache: args.backend?.acp?.runtimeOptionsCache,
   });
-  const cache = args.backend?.acp?.runtimeOptionsCache;
-  const modeOptions = sessionState.modes.length
-    ? sessionState.modes
-    : cache?.modes || [];
-  const modelOptions = sessionState.rawModels.length
-    ? sessionState.rawModels
-    : cache?.rawModels || [];
-  const displayModelOptions = sessionState.displayModels.length
-    ? sessionState.displayModels
-    : cache?.displayModels || [];
-  const reasoningEffortOptions = sessionState.reasoningEfforts.length
-    ? sessionState.reasoningEfforts
-    : cache?.reasoningEfforts || [];
   if (
-    !modeOptions.length &&
-    !modelOptions.length &&
-    !displayModelOptions.length &&
-    !reasoningEffortOptions.length
+    !sessionState.modes.length &&
+    !sessionState.rawModels.length &&
+    !sessionState.displayModels.length &&
+    !sessionState.reasoningEfforts.length
   ) {
     return;
   }
   const findOption = (options: AcpSelectableOption[], id: string) =>
-    options.find((entry) => entry.id === id) ||
-    (id ? { id, label: id } : undefined);
-  const currentModeId =
-    sessionState.currentModeId || cache?.currentModeId || "";
-  const currentRawModelId =
-    sessionState.currentRawModelId || cache?.currentRawModelId || "";
-  const currentDisplayModelId =
-    sessionState.currentDisplayModelId || cache?.currentDisplayModelId || "";
-  const currentReasoningEffortId =
-    sessionState.currentReasoningEffortId ||
-    cache?.currentReasoningEffortId ||
-    "";
+    options.find((entry) => entry.id === id);
   setAcpSkillRunRuntimeOptions(args.requestId, {
-    modeOptions,
-    currentMode: findOption(modeOptions, currentModeId),
-    modelOptions,
-    currentModel: findOption(modelOptions, currentRawModelId),
-    displayModelOptions,
-    currentDisplayModel: findOption(displayModelOptions, currentDisplayModelId),
-    reasoningEffortOptions,
-    currentReasoningEffort: findOption(
-      reasoningEffortOptions,
-      currentReasoningEffortId,
+    modeOptions: sessionState.modes,
+    currentMode: findOption(sessionState.modes, sessionState.currentModeId),
+    modelOptions: sessionState.rawModels,
+    currentModel: findOption(
+      sessionState.rawModels,
+      sessionState.currentRawModelId,
     ),
+    displayModelOptions: sessionState.displayModels,
+    currentDisplayModel: findOption(
+      sessionState.displayModels,
+      sessionState.currentDisplayModelId,
+    ),
+    reasoningEffortOptions: sessionState.reasoningEfforts,
+    currentReasoningEffort: findOption(
+      sessionState.reasoningEfforts,
+      sessionState.currentReasoningEffortId,
+    ),
+    reasoningSource: sessionState.reasoningSource,
   });
 }
 

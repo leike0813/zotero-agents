@@ -313,12 +313,28 @@ snapshot, and an ACP connect/attach result with empty `availableModes` or
 actions SHALL carry typed payload keys (`modeId`, `modelId`, `effortId`) in
 addition to the generic `value`.
 
+ACP Chat and ACP Skills SHALL resolve runtime options through the same canonical
+state policy. Selectable live `configOptions` win per category, live legacy
+mode/model state fills categories omitted by `configOptions`, and backend cache
+fills only categories omitted by both live sources. A successful setter is an
+immediate current-value override only when the value belongs to the resolved
+option domain. Explicit `thought_level` options are independent of model
+options: changing a plain model SHALL NOT clear or recompute explicit reasoning.
+Reasoning derived from model variants is recomputed only when its model group
+changes. Reasoning provenance is internal runtime/cache/run state and SHALL NOT
+be added to the Workspace wire DTO.
+
 For a connected ACP Chat owner, all three selectors SHALL retain their complete
 option domains and current values during prompting, permission wait, and
 requested interruption. Mode remains enabled in those states; model and
 reasoning effort remain visible but disabled until model configuration is
 editable. A disconnected or missing owner SHALL expose no cached runtime value
 as live editable configuration.
+
+ACP Skills model and reasoning controls SHALL use the same model-configuration
+editability gate. If the backend has no reasoning capability, the presentation
+MAY retain a disabled localized Default placeholder, but that placeholder SHALL
+NOT overwrite an explicit live or cached reasoning value.
 
 Usage gauges SHALL use compact token counts, not the word `Usage`. When both
 used tokens and context limit are known, the label SHALL use `k` units such as
@@ -367,6 +383,23 @@ Session drawer cards and archive actions target the owner represented by the
 clicked card, even when another session is currently selected. Backend
 selection and New conversation use a navigation-group action carrying only
 `groupId`.
+
+The canonical navigation model SHALL retain every configured backend. Visible
+drawer projection is source-specific: ACP Chat renders one untitled `sessions`
+section and preserves conversation order within backend groups; ACP Skills
+renders active and completed sections. Each visible section SHALL omit backend
+groups that contain no cards in that section. Adding a catalog-only backend
+therefore SHALL NOT change the drawer managed-region signature. The signature
+SHALL include section title visibility plus each visible backend id and display
+name.
+
+Selecting a valid Chat backend SHALL publish a complete owner atomically. If
+the backend has no selectable unarchived conversation, the session manager
+reuses an existing empty local placeholder or creates exactly one idle local
+placeholder before persisting and publishing the new backend/conversation
+selection. It SHALL NOT publish `conversationId: ""`, connect an adapter, or
+create a remote ACP session during backend selection. Repeated selection reuses
+the placeholder; invalid backend selection leaves the current owner unchanged.
 
 When the current backend has too many conversations, the conversation selector
 SHALL show only a bounded recent subset plus `Show more...`. Selecting

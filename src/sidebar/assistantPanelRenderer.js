@@ -1857,6 +1857,9 @@ function workspaceDrawerStableSignature(sections, noticeText) {
       return [
         safeText(section && section.id),
         safeText(section && section.title),
+        section && section.hideTitle === true
+          ? "hidden-title"
+          : "visible-title",
         section && section.collapsed === true ? "collapsed" : "expanded",
         groups
           .map(function (group) {
@@ -1867,10 +1870,8 @@ function workspaceDrawerStableSignature(sections, noticeText) {
               ? group.finishedTasks
               : [];
             return [
-              safeText(
-                group &&
-                  (group.backendId || group.backendDisplayName || group.title),
-              ),
+              safeText(group && group.backendId),
+              safeText(group && (group.backendDisplayName || group.title)),
               group && group.disabled === true ? "disabled" : "enabled",
               group && group.collapsed === true ? "collapsed" : "expanded",
               active.map(workspaceTaskSignature).join(";"),
