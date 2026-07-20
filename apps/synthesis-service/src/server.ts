@@ -338,6 +338,7 @@ export async function startSynthesisSidecarServer(
   const topicApplication = createSynthesisSidecarTopicApplication({
     canonicalStore,
     repository: repository.store,
+    computePool,
   });
   const citationGraphApplication =
     createSynthesisSidecarCitationGraphApplication({
@@ -351,6 +352,7 @@ export async function startSynthesisSidecarServer(
   const referenceMatchingReviewApplication =
     createSynthesisSidecarReferenceMatchingReviewApplication({
       databasePath: repository.paths.databasePath,
+      computePool,
     });
   const tagVocabularyApplication =
     createSynthesisSidecarTagVocabularyApplication({

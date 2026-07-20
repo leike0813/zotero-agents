@@ -21,7 +21,28 @@ import {
   createInProcessSynthesisTopicGraphIndexEngine,
   rebuildSynthesisTopicGraphIndexRequest,
 } from "../packages/synthesis-engine/src/topicGraphIndex.js";
-import { createSynthesisSidecarComputeWorkerPool } from "../apps/synthesis-service/src/computeWorkerPool.js";
+import {
+  computeSynthesisReferenceBinding,
+  computeSynthesisReferenceDedupe,
+  rebuildSynthesisReferenceBindingRequest,
+  rebuildSynthesisReferenceDedupeRequest,
+} from "../packages/synthesis-engine/src/referenceMatcher.js";
+import {
+  createInProcessSynthesisTopicStructuredArtifactEngine,
+  rebuildSynthesisTopicArtifactAssemblyRequest,
+  rebuildSynthesisTopicArtifactValidationRequest,
+  rebuildSynthesisTopicManifestValidationRequest,
+  rebuildSynthesisTopicSectionPatchRequest,
+} from "../packages/synthesis-engine/src/topicStructuredArtifact.js";
+import {
+  createInProcessSynthesisCitationGraphBuildEngine,
+  rebuildSynthesisCitationGraphBuildRequest,
+} from "../packages/synthesis-engine/src/citationGraphBuild.js";
+import { buildSynthesisCitationGraphBuildTransferPageArtifact } from "../packages/synthesis-engine/src/citationGraphBuildTransfer.js";
+import {
+  createSynthesisSidecarComputeWorkerPool,
+  synthesisRustPagedRequestHash,
+} from "../apps/synthesis-service/src/computeWorkerPool.js";
 
 const WORKER_PROTOCOL = "synthesis-rust-worker.v1";
 
@@ -219,6 +240,106 @@ async function main() {
       },
     ],
   });
+  const bindingRequest = rebuildSynthesisReferenceBindingRequest({
+    contractVersion: "synthesis-reference-matcher.v1",
+    algorithmVersion: "reference-binding.v1",
+    policyId: "production",
+    papers: [
+      {
+        paperRef: "1:A",
+        itemKey: "A",
+        title: "Smoke Reference",
+        authors: ["Author"],
+        identifiers: [{ kind: "doi", value: "10.1000/smoke" }],
+      },
+    ],
+    references: [
+      {
+        canonicalReferenceId: "canonical:1",
+        reference: {
+          title: "Smoke Reference",
+          rawReference: "doi:10.1000/smoke",
+        },
+      },
+    ],
+  });
+  const dedupeRequest = rebuildSynthesisReferenceDedupeRequest({
+    contractVersion: "synthesis-reference-matcher.v1",
+    algorithmVersion: "canonical-cluster-dedupe.v1",
+    canonicals: [
+      {
+        canonicalReferenceId: "canonical:1",
+        title: "Exact Reference Matching Work",
+        year: "2024",
+        authors: ["Alpha"],
+        acceptedBinding: false,
+        stickyRepresentative: true,
+        rawReferenceIds: ["raw:1"],
+        rawHashes: ["hash:1"],
+        rawReferences: ["Exact Reference Matching Work"],
+        sourceRefs: ["1:A"],
+        identifiers: [{ kind: "doi", value: "10.1000/exact" }],
+        titleCandidates: [],
+      },
+      {
+        canonicalReferenceId: "canonical:2",
+        title: "Exact Reference Matching Work",
+        year: "2024",
+        authors: ["Alpha"],
+        acceptedBinding: false,
+        stickyRepresentative: false,
+        rawReferenceIds: ["raw:2"],
+        rawHashes: ["hash:2"],
+        rawReferences: ["Exact Reference Matching Work"],
+        sourceRefs: ["1:B"],
+        identifiers: [{ kind: "doi", value: "10.1000/exact" }],
+        titleCandidates: [],
+      },
+    ],
+  });
+  const topicArtifactEngine =
+    createInProcessSynthesisTopicStructuredArtifactEngine();
+  const manifestValidationRequest =
+    rebuildSynthesisTopicManifestValidationRequest({
+      contractVersion: "synthesis-topic-structured-artifact.v1",
+      algorithmVersion: "topic-analysis-manifest-validation.v1",
+      manifest: {},
+    });
+  const artifactAssemblyRequest = rebuildSynthesisTopicArtifactAssemblyRequest({
+    contractVersion: "synthesis-topic-structured-artifact.v1",
+    algorithmVersion: "topic-structured-artifact-assembly.v1",
+    manifest: { language: "en" },
+    sections: { topic: { title: "Smoke" } },
+  });
+  const artifactValidationRequest =
+    rebuildSynthesisTopicArtifactValidationRequest({
+      contractVersion: "synthesis-topic-structured-artifact.v1",
+      algorithmVersion: "topic-structured-artifact-validation.v1",
+      artifact: { schema_id: "invalid" },
+    });
+  const sectionPatchRequest = rebuildSynthesisTopicSectionPatchRequest({
+    contractVersion: "synthesis-topic-structured-artifact.v1",
+    algorithmVersion: "topic-section-patch.v1",
+    currentManifest: { section_hashes: { topic: "sha256:old" } },
+    currentSections: { topic: { title: "Old" } },
+    patchManifest: {
+      patch: {
+        read_section_hashes: { topic: "sha256:old" },
+        replace_section_hashes: { topic: "sha256:old" },
+        sections: { topic: { hash: "sha256:new" } },
+      },
+    },
+    changedSections: { topic: { title: "New" } },
+  });
+  const graphBuildRequest = rebuildSynthesisCitationGraphBuildRequest({
+    contractVersion: "synthesis-citation-graph-build.v1",
+    scope: { kind: "full", sourceIds: [] },
+    rolePriority: [],
+    libraryNodes: [
+      { nodeId: "paper:A", title: "Smoke", authors: [], aliases: [] },
+    ],
+    references: [],
+  });
 
   const pool = createSynthesisSidecarComputeWorkerPool({
     rustWorkerPath: binary,
@@ -260,11 +381,120 @@ async function main() {
         topicRequest,
       ),
     );
+    assertParity(
+      "reference_binding.v1",
+      await pool.runReferenceBinding(bindingRequest),
+      computeSynthesisReferenceBinding(bindingRequest),
+    );
+    assertParity(
+      "reference_canonical_dedupe.v1",
+      await pool.runReferenceCanonicalDedupe(dedupeRequest),
+      computeSynthesisReferenceDedupe(dedupeRequest),
+    );
+    assertParity(
+      "topic_manifest_validate.v1",
+      await pool.runTopicManifestValidation(manifestValidationRequest),
+      await topicArtifactEngine.validateManifest(manifestValidationRequest),
+    );
+    assertParity(
+      "topic_artifact_assemble.v1",
+      await pool.runTopicArtifactAssembly(artifactAssemblyRequest),
+      await topicArtifactEngine.assembleArtifact(artifactAssemblyRequest),
+    );
+    assertParity(
+      "topic_artifact_validate.v1",
+      await pool.runTopicArtifactValidation(artifactValidationRequest),
+      await topicArtifactEngine.validateArtifact(artifactValidationRequest),
+    );
+    assertParity(
+      "topic_section_patch.v1",
+      await pool.runTopicSectionPatch(sectionPatchRequest),
+      await topicArtifactEngine.applySectionPatch(sectionPatchRequest),
+    );
+    const graphExpected =
+      await createInProcessSynthesisCitationGraphBuildEngine().compute(
+        graphBuildRequest,
+      );
+    assertParity(
+      "citation_graph_build.v1",
+      await pool.runCitationGraphBuild(graphBuildRequest),
+      graphExpected,
+    );
+    const inputArtifacts = [
+      buildSynthesisCitationGraphBuildTransferPageArtifact(
+        "library_nodes",
+        0,
+        graphBuildRequest.libraryNodes,
+      ),
+      buildSynthesisCitationGraphBuildTransferPageArtifact(
+        "references",
+        0,
+        graphBuildRequest.references,
+      ),
+    ];
+    const transferHeader = {
+      contractVersion: graphBuildRequest.contractVersion,
+      scope: graphBuildRequest.scope,
+      rolePriority: graphBuildRequest.rolePriority,
+    };
+    const output = new Map<string, unknown[]>();
+    let outputHeader: Record<string, unknown> = {};
+    await pool.runCitationGraphBuildTransfer({
+      header: transferHeader,
+      requestHash: synthesisRustPagedRequestHash(
+        "citation_graph_build_transfer.v1",
+        transferHeader,
+        inputArtifacts.map(({ page }) => ({
+          section:
+            page.descriptor.kind === "library_nodes"
+              ? "libraryNodes"
+              : "references",
+          pageIndex: page.descriptor.pageIndex,
+          rowCount: page.descriptor.rowCount,
+          byteLength: page.descriptor.byteLength,
+          sha256: page.descriptor.sha256,
+        })),
+      ),
+      async *inputPages() {
+        for (const artifact of inputArtifacts) {
+          yield {
+            descriptor: artifact.page.descriptor,
+            bytes: artifact.bytes.buffer.slice(
+              artifact.bytes.byteOffset,
+              artifact.bytes.byteOffset + artifact.bytes.byteLength,
+            ) as ArrayBuffer,
+          };
+        }
+      },
+      outputStarted() {},
+      outputPage(frame) {
+        output.set(frame.descriptor.kind, [
+          ...(output.get(frame.descriptor.kind) || []),
+          ...(JSON.parse(new TextDecoder().decode(frame.bytes)) as unknown[]),
+        ]);
+      },
+      outputComplete(header) {
+        outputHeader = header;
+      },
+    });
+    assertParity(
+      "citation_graph_build_transfer.v1",
+      {
+        ...outputHeader,
+        nodes: output.get("nodes") || [],
+        resolvedEdges: output.get("resolved_edges") || [],
+        aggregateEdges: output.get("aggregate_edges") || [],
+        sourceOwnership: output.get("source_ownership") || [],
+        incomingGroups: output.get("incoming_groups") || [],
+        lightMetrics: output.get("light_metrics") || [],
+      },
+      graphExpected,
+    );
   } finally {
     await pool.shutdown();
   }
   process.stdout.write(
-    `${JSON.stringify({ ok: true, operations: 6, protocol: WORKER_PROTOCOL })}\n`,
+    `${JSON.stringify({ ok: true, operations: 14, protocol: WORKER_PROTOCOL })}\n`,
   );
 }
 

@@ -53,6 +53,7 @@
     "test:synthesis-rust-sidecar": "cargo +1.92.0 test --workspace --locked --manifest-path native/synthesis-sidecar/Cargo.toml",
     "benchmark:synthesis-citation-graph-build-sidecar": "npm run build:synthesis-service && tsx scripts/benchmark-synthesis-citation-graph-build-sidecar.ts",
     "benchmark:synthesis-rust-deterministic-kernels": "tsx scripts/benchmark-synthesis-rust-deterministic-kernels.ts",
+    "benchmark:synthesis-rust-complex-kernels": "tsx scripts/benchmark-synthesis-rust-complex-kernels.ts",
     "package:synthesis-sidecar-runtime": "tsx scripts/package-synthesis-sidecar-runtime.ts",
     "check:synthesis-sidecar-runtime-freshness": "tsx scripts/check-synthesis-sidecar-runtime-freshness.ts",
     "check:synthesis-sidecar-runtime-xpi": "tsx scripts/check-synthesis-sidecar-runtime-xpi.ts",

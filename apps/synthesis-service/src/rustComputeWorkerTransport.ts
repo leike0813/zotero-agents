@@ -118,6 +118,7 @@ export class RustComputeWorkerTransport extends EventEmitter {
           );
           Object.defineProperty(frame, RUST_COMPUTE_RAW_ROWS_ARTIFACT, {
             value: {
+              bytes: rawRows,
               byteLength: rawRows.length,
               nodeCount: countRawJsonNodes(rawRows),
               sha256: `sha256:${createHash("sha256").update(rawRows).digest("hex")}`,

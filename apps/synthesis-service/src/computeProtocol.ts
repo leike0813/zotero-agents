@@ -27,6 +27,18 @@ export const SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION =
   "concept_kb_query.v1" as const;
 export const SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION =
   "topic_graph_index.v1" as const;
+export const SYNTHESIS_SIDECAR_REFERENCE_BINDING_OPERATION =
+  "reference_binding.v1" as const;
+export const SYNTHESIS_SIDECAR_REFERENCE_CANONICAL_DEDUPE_OPERATION =
+  "reference_canonical_dedupe.v1" as const;
+export const SYNTHESIS_SIDECAR_TOPIC_MANIFEST_VALIDATE_OPERATION =
+  "topic_manifest_validate.v1" as const;
+export const SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_ASSEMBLE_OPERATION =
+  "topic_artifact_assemble.v1" as const;
+export const SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_VALIDATE_OPERATION =
+  "topic_artifact_validate.v1" as const;
+export const SYNTHESIS_SIDECAR_TOPIC_SECTION_PATCH_OPERATION =
+  "topic_section_patch.v1" as const;
 
 type SynthesisSidecarComputeRunMessageBase = {
   type: "run";

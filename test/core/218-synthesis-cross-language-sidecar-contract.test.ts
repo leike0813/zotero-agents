@@ -34,11 +34,11 @@ describe("Synthesis cross-language sidecar contract", function () {
     );
     assert.equal(result.schemaCount, 6);
     assert.equal(result.definitionCount, 115);
-    assert.equal(result.positiveCaseCount, 11);
-    assert.equal(result.negativeCaseCount, 9);
+    assert.equal(result.positiveCaseCount, 13);
+    assert.equal(result.negativeCaseCount, 10);
     assert.equal(
       result.fingerprint,
-      "sha256:2013f87dac13875da9810f9b7e40d85a6fda5a9e6a4cc8426922f859d58ece01",
+      "sha256:114fd6fc92fab033c9fa1bd737a6cfdd81f6475184abae48fea21e55ced1b43f",
     );
   });
 

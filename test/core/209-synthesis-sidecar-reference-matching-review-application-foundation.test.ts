@@ -30,6 +30,7 @@ import {
 import { openSynthesisSidecarIsolatedRepository } from "../../apps/synthesis-service/src/isolatedRepository";
 import { openSynthesisNodeSqliteAdapter } from "../../apps/synthesis-service/src/repositoryNodeSqlite";
 import { createSynthesisSidecarReferenceMatchingReviewApplication } from "../../apps/synthesis-service/src/referenceMatchingReviewApplicationNode";
+import { createSynthesisSidecarComputeWorkerPool } from "../../apps/synthesis-service/src/computeWorkerPool";
 
 const PROFILE_ID = "1".repeat(64);
 const DATA_ROOT_ID = "2".repeat(64);
@@ -583,9 +584,11 @@ describe("Synthesis sidecar Reference Matching/Review application foundation", f
       graphFactsChanged: false,
       now: "2026-07-17T16:30:00.000Z",
     });
+    const pool = createSynthesisSidecarComputeWorkerPool();
     const application =
       createSynthesisSidecarReferenceMatchingReviewApplication({
         databasePath: repository.paths.databasePath,
+        computePool: pool,
         now: () => "2026-07-17T16:30:00.000Z",
         createPreparationId: () => "prep:node",
       });
@@ -649,6 +652,7 @@ describe("Synthesis sidecar Reference Matching/Review application foundation", f
       true,
     );
     await application.shutdown();
+    await pool.shutdown();
     const failedApplication =
       createSynthesisSidecarReferenceMatchingReviewApplication({
         databasePath: repository.paths.databasePath,

@@ -10,7 +10,7 @@ import {
   type ReferenceMatcherPolicyId,
   type ReferenceMatcherReferenceInput,
   type ReferenceResolutionGoldLabel,
-} from "../../../../src/modules/synthesis/referenceMatcher.ts";
+} from "../../../../packages/synthesis-engine/src/referenceMatcher.ts";
 
 export const REVIEW_SEED_SCHEMA =
   "synthesis.reference_resolution_review_seed.v1";

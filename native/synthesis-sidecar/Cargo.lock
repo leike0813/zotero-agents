@@ -197,6 +197,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "synthesis-citation-graph-build"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "synthesis-protocol",
+]
+
+[[package]]
 name = "synthesis-concept-kb"
 version = "0.1.0"
 dependencies = [
@@ -223,16 +232,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "synthesis-reference-matcher"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sha2",
+ "synthesis-protocol",
+ "unicode-normalization",
+ "unicode_categories",
+]
+
+[[package]]
 name = "synthesis-sidecar"
 version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "synthesis-citation-graph-build",
  "synthesis-concept-kb",
  "synthesis-metrics",
  "synthesis-protocol",
+ "synthesis-reference-matcher",
  "synthesis-tag-vocabulary",
  "synthesis-topic-graph",
+ "synthesis-topic-structured-artifact",
 ]
 
 [[package]]
@@ -253,6 +276,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "synthesis-topic-structured-artifact"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "synthesis-protocol",
+]
+
+[[package]]
+name = "tinyvec"
+version = "1.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb4ebadaa0af04fab11ae01eb5f9fdb5f9c5b875506e210e71c07873528baa7f"
+dependencies = [
+ "tinyvec_macros",
+]
+
+[[package]]
+name = "tinyvec_macros"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -263,6 +309,21 @@ name = "unicode-ident"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
+
+[[package]]
+name = "unicode-normalization"
+version = "0.1.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5033c97c4262335cded6d6fc3e5c18ab755e1a3dc96376350f3d8e9f009ad956"
+dependencies = [
+ "tinyvec",
+]
+
+[[package]]
+name = "unicode_categories"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39ec24b3121d976906ece63c9daad25b85969647682eee313cb5779fdd69e14e"
 
 [[package]]
 name = "version_check"

@@ -1,5 +1,6 @@
 import {
   canonicalizeSynthesisEngineJson,
+  compareSynthesisEngineStrings,
   hashSynthesisEngineCanonicalJson,
 } from "./canonicalJson.ts";
 
@@ -267,7 +268,7 @@ function cleanString(value: unknown) {
 
 function uniqueSorted<T>(values: T[]) {
   return Array.from(new Set(values)).sort((left, right) =>
-    String(left).localeCompare(String(right)),
+    compareSynthesisEngineStrings(String(left), String(right)),
   );
 }
 
@@ -409,7 +410,7 @@ function dedupeIdentifiers(identifiers: ReferenceMatcherIdentifier[]) {
     }
   }
   return result.sort((left, right) =>
-    identityKey(left).localeCompare(identityKey(right)),
+    compareSynthesisEngineStrings(identityKey(left), identityKey(right)),
   );
 }
 
@@ -552,7 +553,7 @@ function titleVariants(input: {
   return Array.from(variants.values()).sort(
     (left, right) =>
       Number(left.stripped) - Number(right.stripped) ||
-      left.normalized.localeCompare(right.normalized),
+      compareSynthesisEngineStrings(left.normalized, right.normalized),
   );
 }
 
@@ -974,7 +975,10 @@ function chooseTitleCandidate(
       .sort(
         (left, right) =>
           titleCandidateQuality(right) - titleCandidateQuality(left) ||
-          cleanString(left.title).localeCompare(cleanString(right.title)),
+          compareSynthesisEngineStrings(
+            cleanString(left.title),
+            cleanString(right.title),
+          ),
       )[0] || null
   );
 }
@@ -1170,7 +1174,10 @@ function chooseCanonicalRepresentative(records: CanonicalDedupeRecord[]) {
         right.strongIdentifierKeys.length - left.strongIdentifierKeys.length ||
         right.authors.length - left.authors.length ||
         cappedRawSupport(right) - cappedRawSupport(left) ||
-        left.canonicalReferenceId.localeCompare(right.canonicalReferenceId),
+        compareSynthesisEngineStrings(
+          left.canonicalReferenceId,
+          right.canonicalReferenceId,
+        ),
     )[0];
 }
 
@@ -1271,7 +1278,10 @@ function clusterRepresentativeRanking(
       right.strongIdentifierKeys.length - left.strongIdentifierKeys.length ||
       right.authors.length - left.authors.length ||
       cappedRawSupport(right) - cappedRawSupport(left) ||
-      left.canonicalReferenceId.localeCompare(right.canonicalReferenceId)
+      compareSynthesisEngineStrings(
+        left.canonicalReferenceId,
+        right.canonicalReferenceId,
+      )
     );
   });
 }
@@ -1289,7 +1299,10 @@ function chooseClusterRepresentative(
         Number(right.acceptedBinding) - Number(left.acceptedBinding) ||
         right.strongIdentifierKeys.length - left.strongIdentifierKeys.length ||
         canonicalTitleQuality(right) - canonicalTitleQuality(left) ||
-        left.canonicalReferenceId.localeCompare(right.canonicalReferenceId),
+        compareSynthesisEngineStrings(
+          left.canonicalReferenceId,
+          right.canonicalReferenceId,
+        ),
     )[0];
   if (
     sticky &&
@@ -1452,7 +1465,9 @@ const SEMANTIC_EXTENSION_TOKENS = new Set([
 ]);
 
 function edgePairId(left: string, right: string) {
-  return [left, right].sort((a, b) => a.localeCompare(b)).join("::");
+  return [left, right]
+    .sort((a, b) => compareSynthesisEngineStrings(a, b))
+    .join("::");
 }
 
 function clusterStableId(prefix: string, ids: string[]) {
@@ -1606,7 +1621,10 @@ function canonicalDedupeEdge(args: {
   evidence?: Record<string, unknown>;
 }): ReferenceCanonicalDedupeEdge {
   const [source, target] = [args.left, args.right].sort((left, right) =>
-    left.canonicalReferenceId.localeCompare(right.canonicalReferenceId),
+    compareSynthesisEngineStrings(
+      left.canonicalReferenceId,
+      right.canonicalReferenceId,
+    ),
   );
   const reasons = uniqueSorted(args.reasons);
   const riskSignals = uniqueSorted(args.riskSignals || []);
@@ -1701,9 +1719,15 @@ function connectedComponents(
         }
       }
     }
-    components.push(component.sort((left, right) => left.localeCompare(right)));
+    components.push(
+      component.sort((left, right) =>
+        compareSynthesisEngineStrings(left, right),
+      ),
+    );
   }
-  return components.sort((left, right) => left[0]!.localeCompare(right[0]!));
+  return components.sort((left, right) =>
+    compareSynthesisEngineStrings(left[0]!, right[0]!),
+  );
 }
 
 function deterministicEdge(edge: ReferenceCanonicalDedupeEdge) {
@@ -1747,7 +1771,9 @@ function subclustersForComponent(
       }
     }
     subclusters.push(
-      subcluster.sort((left, right) => left.localeCompare(right)),
+      subcluster.sort((left, right) =>
+        compareSynthesisEngineStrings(left, right),
+      ),
     );
   }
   return subclusters;
@@ -1830,7 +1856,10 @@ export function dedupeCanonicalReferencesClustered(
     })
     .filter((record): record is CanonicalDedupeRecord => Boolean(record))
     .sort((left, right) =>
-      left.canonicalReferenceId.localeCompare(right.canonicalReferenceId),
+      compareSynthesisEngineStrings(
+        left.canonicalReferenceId,
+        right.canonicalReferenceId,
+      ),
     );
   const diagnostics: unknown[] = [];
   const excludedRecords = records.filter(
@@ -1915,7 +1944,7 @@ export function dedupeCanonicalReferencesClustered(
       !existing ||
       edge.score > existing.score ||
       (edge.score === existing.score &&
-        edge.edgeType.localeCompare(existing.edgeType) < 0)
+        compareSynthesisEngineStrings(edge.edgeType, existing.edgeType) < 0)
     ) {
       edgesByPair.set(pairKey, edge);
     }
@@ -1923,7 +1952,7 @@ export function dedupeCanonicalReferencesClustered(
 
   for (const [blockKey, ids] of blocks) {
     const uniqueIds = Array.from(ids).sort((left, right) =>
-      left.localeCompare(right),
+      compareSynthesisEngineStrings(left, right),
     );
     if (uniqueIds.length < 2) {
       continue;
@@ -2082,13 +2111,15 @@ export function dedupeCanonicalReferencesClustered(
 
   const edges = Array.from(edgesByPair.values()).sort(
     (left, right) =>
-      left.sourceCanonicalReferenceId.localeCompare(
+      compareSynthesisEngineStrings(
+        left.sourceCanonicalReferenceId,
         right.sourceCanonicalReferenceId,
       ) ||
-      left.targetCanonicalReferenceId.localeCompare(
+      compareSynthesisEngineStrings(
+        left.targetCanonicalReferenceId,
         right.targetCanonicalReferenceId,
       ) ||
-      left.edgeType.localeCompare(right.edgeType),
+      compareSynthesisEngineStrings(left.edgeType, right.edgeType),
   );
   const edgesByComponentKey = new Map<string, ReferenceCanonicalDedupeEdge[]>();
   for (const edge of edges) {
@@ -2154,7 +2185,7 @@ export function dedupeCanonicalReferencesClustered(
         const bestEdge = supportingEdges.sort(
           (left, right) =>
             right.score - left.score ||
-            left.edgeType.localeCompare(right.edgeType),
+            compareSynthesisEngineStrings(left.edgeType, right.edgeType),
         )[0];
         if (!bestEdge) {
           continue;
@@ -2247,7 +2278,7 @@ export function dedupeCanonicalReferencesClustered(
           .sort(
             (left, right) =>
               right.score - left.score ||
-              left.edgeType.localeCompare(right.edgeType),
+              compareSynthesisEngineStrings(left.edgeType, right.edgeType),
           )[0] || componentEdges[0];
       if (retargetEdge) {
         actions.push({
@@ -2368,6 +2399,9 @@ export function dedupeCanonicalReferencesClustered(
     }
   }
 
+  clusters.sort((left, right) =>
+    compareSynthesisEngineStrings(left.clusterId, right.clusterId),
+  );
   const uniqueActions = Array.from(
     actions
       .slice()
@@ -2382,11 +2416,13 @@ export function dedupeCanonicalReferencesClustered(
       .values(),
   ).sort(
     (left, right) =>
-      left.clusterId.localeCompare(right.clusterId) ||
-      left.sourceCanonicalReferenceId.localeCompare(
+      compareSynthesisEngineStrings(left.clusterId, right.clusterId) ||
+      compareSynthesisEngineStrings(
+        left.sourceCanonicalReferenceId,
         right.sourceCanonicalReferenceId,
       ) ||
-      left.targetCanonicalReferenceId.localeCompare(
+      compareSynthesisEngineStrings(
+        left.targetCanonicalReferenceId,
         right.targetCanonicalReferenceId,
       ),
   );
@@ -2488,7 +2524,7 @@ function addToMap(
     map.set(
       key,
       [...existing, paper].sort((left, right) =>
-        left.paperRef.localeCompare(right.paperRef),
+        compareSynthesisEngineStrings(left.paperRef, right.paperRef),
       ),
     );
   }
@@ -2558,7 +2594,7 @@ export function buildReferenceMatcherIndex(
   }
   for (const candidates of authorTokenIndex.values()) {
     candidates.sort((left, right) =>
-      left.paperRef.localeCompare(right.paperRef),
+      compareSynthesisEngineStrings(left.paperRef, right.paperRef),
     );
   }
   return {
@@ -2643,7 +2679,7 @@ function candidateSort(
     Number(right.evidence.author_overlap_count || 0) -
       Number(left.evidence.author_overlap_count || 0) ||
     yearRank(right) - yearRank(left) ||
-    left.paperRef.localeCompare(right.paperRef)
+    compareSynthesisEngineStrings(left.paperRef, right.paperRef)
   );
 }
 
@@ -2772,7 +2808,10 @@ function titleCandidates(
     const fuzzyCandidates = Array.from(overlapCounts.values())
       .filter((entry) => entry.count >= 2)
       .sort((left, right) =>
-        left.paper.paperRef.localeCompare(right.paper.paperRef),
+        compareSynthesisEngineStrings(
+          left.paper.paperRef,
+          right.paper.paperRef,
+        ),
       );
     for (const { paper, feature: paperFeature } of fuzzyCandidates) {
       const score = titleSimilarity(
@@ -3358,8 +3397,8 @@ function rebuildMatcherIdentifiers(
   );
   return Array.from(unique.values()).sort(
     (left, right) =>
-      left.kind.localeCompare(right.kind) ||
-      left.value.localeCompare(right.value),
+      compareSynthesisEngineStrings(left.kind, right.kind) ||
+      compareSynthesisEngineStrings(left.value, right.value),
   );
 }
 
@@ -3608,9 +3647,10 @@ function rebuildDedupeCanonical(
       )
       .sort(
         (left, right) =>
-          left.source.localeCompare(right.source) ||
-          left.title.localeCompare(right.title) ||
-          (left.sourceCanonicalReferenceId || "").localeCompare(
+          compareSynthesisEngineStrings(left.source, right.source) ||
+          compareSynthesisEngineStrings(left.title, right.title) ||
+          compareSynthesisEngineStrings(
+            left.sourceCanonicalReferenceId || "",
             right.sourceCanonicalReferenceId || "",
           ),
       ),
@@ -3676,7 +3716,9 @@ export function rebuildSynthesisReferenceBindingRequest(
     .map((entry, index) =>
       rebuildMatcherPaper(entry, `request.papers[${index}]`, bounds),
     )
-    .sort((left, right) => left.paperRef.localeCompare(right.paperRef));
+    .sort((left, right) =>
+      compareSynthesisEngineStrings(left.paperRef, right.paperRef),
+    );
   assertUniqueMatcherIds(
     papers.map((paper) => paper.paperRef),
     "request.papers",
@@ -3708,7 +3750,10 @@ export function rebuildSynthesisReferenceBindingRequest(
       };
     })
     .sort((left, right) =>
-      left.canonicalReferenceId.localeCompare(right.canonicalReferenceId),
+      compareSynthesisEngineStrings(
+        left.canonicalReferenceId,
+        right.canonicalReferenceId,
+      ),
     );
   assertUniqueMatcherIds(
     references.map((entry) => entry.canonicalReferenceId),
@@ -3745,7 +3790,10 @@ export function rebuildSynthesisReferenceDedupeRequest(
       rebuildDedupeCanonical(entry, `request.canonicals[${index}]`, bounds),
     )
     .sort((left, right) =>
-      left.canonicalReferenceId.localeCompare(right.canonicalReferenceId),
+      compareSynthesisEngineStrings(
+        left.canonicalReferenceId,
+        right.canonicalReferenceId,
+      ),
     );
   assertUniqueMatcherIds(
     canonicals.map((entry) => entry.canonicalReferenceId),
@@ -3845,70 +3893,353 @@ export function computeSynthesisReferenceDedupe(
   };
 }
 
-function projectMatcherResultToExpected(
+function rebuildMatcherResultStringArray(value: unknown, location: string) {
+  return matcherArray(
+    value,
+    location,
+    SYNTHESIS_REFERENCE_MATCHER_EVIDENCE_ARRAY_MAX,
+  ).map((entry, index) =>
+    matcherString(entry, `${location}[${index}]`, {
+      required: true,
+      max: SYNTHESIS_REFERENCE_MATCHER_STRING_MAX,
+    }),
+  );
+}
+
+function rebuildMatcherCandidate(
   value: unknown,
-  expected: unknown,
   location: string,
-): unknown {
-  if (Array.isArray(expected)) {
-    if (!Array.isArray(value) || value.length !== expected.length) {
-      return matcherInvalid(`${location} has invalid array length`);
+  paperIds: Set<string>,
+): ReferenceMatcherCandidate {
+  const object = matcherPlainObject(value, location);
+  const paperRef = matcherString(object.paperRef, `${location}.paperRef`, {
+    required: true,
+    max: SYNTHESIS_REFERENCE_MATCHER_ID_MAX,
+  });
+  if (!paperIds.has(paperRef)) {
+    return matcherInvalid(`${location}.paperRef is not in the request`);
+  }
+  if (
+    typeof object.score !== "number" ||
+    !Number.isFinite(object.score) ||
+    object.score < 0 ||
+    object.score > 1
+  ) {
+    return matcherInvalid(`${location}.score is invalid`);
+  }
+  const candidate: ReferenceMatcherCandidate = {
+    paperRef,
+    title: matcherString(object.title, `${location}.title`, {
+      max: SYNTHESIS_REFERENCE_MATCHER_STRING_MAX,
+    }),
+    year: matcherString(object.year, `${location}.year`, {
+      max: SYNTHESIS_REFERENCE_MATCHER_STRING_MAX,
+    }),
+    score: object.score,
+    reasons: rebuildMatcherResultStringArray(
+      object.reasons,
+      `${location}.reasons`,
+    ),
+    evidence: matcherJsonClone(
+      matcherPlainObject(object.evidence, `${location}.evidence`),
+    ),
+  };
+  for (const key of ["itemKey", "literatureItemId"] as const) {
+    const field = matcherString(object[key], `${location}.${key}`, {
+      max: SYNTHESIS_REFERENCE_MATCHER_ID_MAX,
+    });
+    if (field) candidate[key] = field;
+  }
+  return candidate;
+}
+
+function rebuildMatcherBindingDecision(
+  value: unknown,
+  location: string,
+  paperIds: Set<string>,
+): ReferenceMatcherResult {
+  const object = matcherPlainObject(value, location);
+  if (
+    object.status !== "matched" &&
+    object.status !== "suggested" &&
+    object.status !== "unmatched" &&
+    object.status !== "ambiguous"
+  ) {
+    return matcherInvalid(`${location}.status is invalid`);
+  }
+  if (
+    object.confidence !== "deterministic" &&
+    object.confidence !== "high" &&
+    object.confidence !== "low" &&
+    object.confidence !== "review"
+  ) {
+    return matcherInvalid(`${location}.confidence is invalid`);
+  }
+  const targetPaperRef = matcherString(
+    object.targetPaperRef,
+    `${location}.targetPaperRef`,
+    { max: SYNTHESIS_REFERENCE_MATCHER_ID_MAX },
+  );
+  if (targetPaperRef && !paperIds.has(targetPaperRef)) {
+    return matcherInvalid(`${location}.targetPaperRef is not in the request`);
+  }
+  if ((object.status === "matched") !== Boolean(targetPaperRef)) {
+    return matcherInvalid(`${location}.targetPaperRef is inconsistent`);
+  }
+  const suggestedCandidates = matcherArray(
+    object.suggestedCandidates,
+    `${location}.suggestedCandidates`,
+    SYNTHESIS_REFERENCE_MATCHER_SUGGESTED_CANDIDATE_MAX,
+  ).map((entry, index) =>
+    rebuildMatcherCandidate(
+      entry,
+      `${location}.suggestedCandidates[${index}]`,
+      paperIds,
+    ),
+  );
+  assertUniqueMatcherIds(
+    suggestedCandidates.map((entry) => entry.paperRef),
+    `${location}.suggestedCandidates`,
+  );
+  for (let index = 1; index < suggestedCandidates.length; index += 1) {
+    const previous = suggestedCandidates[index - 1]!;
+    const current = suggestedCandidates[index]!;
+    if (
+      previous.score < current.score ||
+      (previous.score === current.score &&
+        compareSynthesisEngineStrings(previous.paperRef, current.paperRef) >= 0)
+    ) {
+      return matcherInvalid(`${location}.suggestedCandidates is not ordered`);
     }
-    return expected.map((entry, index) =>
-      projectMatcherResultToExpected(
-        value[index],
-        entry,
-        `${location}[${index}]`,
-      ),
-    );
   }
-  if (expected && typeof expected === "object") {
-    const object = matcherPlainObject(value, location);
-    const output: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(
-      expected as Record<string, unknown>,
-    )) {
-      if (!(key in object)) {
-        return matcherInvalid(`${location}.${key} is required`);
-      }
-      output[key] = projectMatcherResultToExpected(
-        object[key],
-        entry,
-        `${location}.${key}`,
-      );
-    }
-    return output;
-  }
-  if (!Object.is(value, expected)) {
-    return matcherInvalid(`${location} does not match canonical result`);
-  }
-  return expected;
+  return {
+    status: object.status,
+    ...(targetPaperRef ? { targetPaperRef } : {}),
+    confidence: object.confidence,
+    diagnostics: matcherArray(
+      object.diagnostics,
+      `${location}.diagnostics`,
+      SYNTHESIS_REFERENCE_MATCHER_EVIDENCE_ARRAY_MAX,
+    ).map((entry) => matcherJsonClone(entry)),
+    suggestedCandidates,
+  };
 }
 
 export function rebuildSynthesisReferenceBindingResult(
   value: unknown,
   requestInput: SynthesisReferenceBindingRequest,
 ): SynthesisReferenceBindingResult {
-  matcherAssertJsonSafe(value, "result");
-  const expected = computeSynthesisReferenceBinding(requestInput);
-  return projectMatcherResultToExpected(
-    value,
-    expected,
-    "result",
-  ) as SynthesisReferenceBindingResult;
+  const request = rebuildSynthesisReferenceBindingRequest(requestInput);
+  const object = matcherPlainObject(value, "result");
+  if (
+    object.contractVersion !== SYNTHESIS_REFERENCE_MATCHER_CONTRACT_VERSION ||
+    object.algorithmVersion !==
+      SYNTHESIS_REFERENCE_MATCHER_BINDING_ALGORITHM_VERSION ||
+    object.policyId !== request.policyId
+  ) {
+    return matcherInvalid("result matcher identity is invalid");
+  }
+  const rows = matcherArray(
+    object.matches,
+    "result.matches",
+    request.references.length,
+  );
+  if (rows.length !== request.references.length) {
+    return matcherInvalid("result.matches does not cover the request");
+  }
+  const paperIds = new Set(request.papers.map((paper) => paper.paperRef));
+  const matches = rows.map((entry, index) => {
+    const row = matcherPlainObject(entry, `result.matches[${index}]`);
+    const expectedId = request.references[index]!.canonicalReferenceId;
+    if (row.canonicalReferenceId !== expectedId) {
+      return matcherInvalid("result.matches identity or ordering is invalid");
+    }
+    return {
+      canonicalReferenceId: expectedId,
+      result: rebuildMatcherBindingDecision(
+        row.result,
+        `result.matches[${index}].result`,
+        paperIds,
+      ),
+    };
+  });
+  return {
+    contractVersion: SYNTHESIS_REFERENCE_MATCHER_CONTRACT_VERSION,
+    algorithmVersion: SYNTHESIS_REFERENCE_MATCHER_BINDING_ALGORITHM_VERSION,
+    policyId: request.policyId,
+    matches,
+  };
 }
 
 export function rebuildSynthesisReferenceDedupeResult(
   value: unknown,
   requestInput: SynthesisReferenceDedupeRequest,
 ): SynthesisReferenceDedupeResult {
-  matcherAssertJsonSafe(value, "result");
-  const expected = computeSynthesisReferenceDedupe(requestInput);
-  return projectMatcherResultToExpected(
-    value,
-    expected,
-    "result",
-  ) as SynthesisReferenceDedupeResult;
+  const request = rebuildSynthesisReferenceDedupeRequest(requestInput);
+  const object = matcherPlainObject(value, "result");
+  if (
+    object.contractVersion !== SYNTHESIS_REFERENCE_MATCHER_CONTRACT_VERSION ||
+    object.algorithmVersion !==
+      SYNTHESIS_REFERENCE_MATCHER_DEDUPE_ALGORITHM_VERSION
+  ) {
+    return matcherInvalid("result matcher identity is invalid");
+  }
+  const clusters = matcherJsonClone(
+    matcherArray(object.clusters, "result.clusters", request.canonicals.length),
+  ) as ReferenceCanonicalDedupeCluster[];
+  const edges = matcherJsonClone(
+    matcherArray(
+      object.edges,
+      "result.edges",
+      SYNTHESIS_REFERENCE_MATCHER_CANDIDATE_PAIR_MAX,
+    ),
+  ) as ReferenceCanonicalDedupeEdge[];
+  const actions = matcherJsonClone(
+    matcherArray(
+      object.actions,
+      "result.actions",
+      SYNTHESIS_REFERENCE_MATCHER_CANDIDATE_PAIR_MAX * 2,
+    ),
+  ) as ReferenceCanonicalDedupeClusterAction[];
+  const diagnostics = matcherArray(
+    object.diagnostics,
+    "result.diagnostics",
+    SYNTHESIS_REFERENCE_MATCHER_EVIDENCE_ARRAY_MAX,
+  ).map((entry) => matcherJsonClone(entry));
+  const countersObject = matcherPlainObject(object.counters, "result.counters");
+  const counterNames = [
+    "canonical_count",
+    "block_count",
+    "block_skipped_count",
+    "candidate_pair_count",
+    "candidate_pair_budget",
+    "edge_count",
+    "cluster_count",
+    "subcluster_count",
+    "redirect_action_count",
+    "review_action_count",
+    "extension_risk_edge_count",
+    "weak_record_count",
+    "excluded_record_count",
+  ] as const;
+  const counters = Object.fromEntries(
+    counterNames.map((name) => {
+      const entry = countersObject[name];
+      if (!Number.isSafeInteger(entry) || Number(entry) < 0) {
+        return matcherInvalid(`result.counters.${name} is invalid`);
+      }
+      return [name, Number(entry)];
+    }),
+  ) as SynthesisReferenceDedupeResult["counters"];
+  const canonicalIds = new Set(
+    request.canonicals.map((entry) => entry.canonicalReferenceId),
+  );
+  const seenMembers = new Set<string>();
+  const clusterIds = new Set<string>();
+  let subclusterCount = 0;
+  let previousClusterId = "";
+  for (const [index, cluster] of clusters.entries()) {
+    matcherAssertJsonSafe(cluster, `result.clusters[${index}]`);
+    if (
+      !cluster ||
+      typeof cluster.clusterId !== "string" ||
+      (previousClusterId &&
+        compareSynthesisEngineStrings(previousClusterId, cluster.clusterId) >=
+          0) ||
+      clusterIds.has(cluster.clusterId) ||
+      !Array.isArray(cluster.canonicalReferenceIds) ||
+      !cluster.canonicalReferenceIds.includes(
+        cluster.representativeCanonicalReferenceId,
+      ) ||
+      !Array.isArray(cluster.members) ||
+      !Array.isArray(cluster.subclusters)
+    ) {
+      return matcherInvalid("result.clusters is inconsistent");
+    }
+    previousClusterId = cluster.clusterId;
+    clusterIds.add(cluster.clusterId);
+    subclusterCount += cluster.subclusters.length;
+    for (const member of cluster.members) {
+      if (
+        !canonicalIds.has(member.canonicalReferenceId) ||
+        seenMembers.has(member.canonicalReferenceId) ||
+        !cluster.canonicalReferenceIds.includes(member.canonicalReferenceId)
+      ) {
+        return matcherInvalid("result cluster member identity is invalid");
+      }
+      seenMembers.add(member.canonicalReferenceId);
+    }
+  }
+  const edgeIds = new Set<string>();
+  let previousEdgeKey = "";
+  for (const edge of edges) {
+    const key = `${edge.sourceCanonicalReferenceId}\0${edge.targetCanonicalReferenceId}\0${edge.edgeType}`;
+    if (
+      typeof edge.edgeId !== "string" ||
+      edgeIds.has(edge.edgeId) ||
+      !canonicalIds.has(edge.sourceCanonicalReferenceId) ||
+      !canonicalIds.has(edge.targetCanonicalReferenceId) ||
+      compareSynthesisEngineStrings(
+        edge.sourceCanonicalReferenceId,
+        edge.targetCanonicalReferenceId,
+      ) >= 0 ||
+      (previousEdgeKey &&
+        compareSynthesisEngineStrings(previousEdgeKey, key) >= 0) ||
+      typeof edge.score !== "number" ||
+      !Number.isFinite(edge.score)
+    ) {
+      return matcherInvalid("result.edges is inconsistent");
+    }
+    previousEdgeKey = key;
+    edgeIds.add(edge.edgeId);
+  }
+  const actionIds = new Set<string>();
+  let previousActionKey = "";
+  for (const action of actions) {
+    const key = `${action.clusterId}\0${action.sourceCanonicalReferenceId}\0${action.targetCanonicalReferenceId}`;
+    if (
+      typeof action.actionId !== "string" ||
+      actionIds.has(action.actionId) ||
+      (action.action !== "redirect" && action.action !== "review") ||
+      !clusterIds.has(action.clusterId) ||
+      !canonicalIds.has(action.sourceCanonicalReferenceId) ||
+      !canonicalIds.has(action.targetCanonicalReferenceId) ||
+      (previousActionKey &&
+        compareSynthesisEngineStrings(previousActionKey, key) > 0)
+    ) {
+      return matcherInvalid("result.actions is inconsistent");
+    }
+    previousActionKey = key;
+    actionIds.add(action.actionId);
+  }
+  if (
+    counters.canonical_count !== request.canonicals.length ||
+    counters.candidate_pair_budget !==
+      SYNTHESIS_REFERENCE_MATCHER_CANDIDATE_PAIR_MAX ||
+    counters.edge_count !== edges.length ||
+    counters.cluster_count !== clusters.length ||
+    counters.subcluster_count !== subclusterCount ||
+    counters.redirect_action_count !==
+      actions.filter((entry) => entry.action === "redirect").length ||
+    counters.review_action_count !==
+      actions.filter((entry) => entry.action === "review").length ||
+    counters.extension_risk_edge_count !==
+      edges.filter((entry) => entry.edgeType === "contained_extension_risk")
+        .length ||
+    counters.weak_record_count + counters.excluded_record_count >
+      counters.canonical_count
+  ) {
+    return matcherInvalid("result.counters are inconsistent");
+  }
+  return {
+    contractVersion: SYNTHESIS_REFERENCE_MATCHER_CONTRACT_VERSION,
+    algorithmVersion: SYNTHESIS_REFERENCE_MATCHER_DEDUPE_ALGORITHM_VERSION,
+    clusters,
+    edges,
+    actions,
+    diagnostics,
+    counters,
+  };
 }
 
 export function createInProcessSynthesisReferenceMatcherEngine(

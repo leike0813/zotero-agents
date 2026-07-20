@@ -120,7 +120,17 @@ describe("Synthesis invariant guards", function () {
       .join("\n");
     assert.notMatch(
       sources,
-      /(?:src\/modules\/synthesis|synthesis\/service|hostEffect|node:child_process|globalThis\.Zotero|zotero-plugin)/i,
+      /(?:src\/modules\/synthesis|synthesis\/service|hostEffect|globalThis\.Zotero|zotero-plugin)/i,
+    );
+    assert.deepEqual(
+      sourceEntries.filter(
+        (entry) =>
+          entry !== "rustComputeWorkerTransport.ts" &&
+          /node:child_process/.test(
+            readRepoText(`apps/synthesis-service/src/${entry}`),
+          ),
+      ),
+      [],
     );
     assert.deepEqual(
       sourceEntries.filter(

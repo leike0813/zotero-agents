@@ -1332,7 +1332,6 @@ describe("Synthesis sidecar migration boundary", function () {
       [
         "d3-force",
         "./canonicalJson.ts",
-        "./citationGraphBuildPacked.ts",
         "./citationGraphBuildTransfer.ts",
         "./conceptKbIndex.ts",
         "./referenceMatcher.ts",

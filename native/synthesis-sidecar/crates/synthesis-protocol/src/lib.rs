@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize, Serializer};
-use serde_json::{Map, Value, value::RawValue};
+use serde_json::{Map, Value, json, value::RawValue};
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -11,6 +11,14 @@ pub const TAG_VOCABULARY_INDEX_OPERATION: &str = "tag_vocabulary_index.v1";
 pub const CONCEPT_KB_INDEX_OPERATION: &str = "concept_kb_index.v1";
 pub const CONCEPT_KB_QUERY_OPERATION: &str = "concept_kb_query.v1";
 pub const TOPIC_GRAPH_INDEX_OPERATION: &str = "topic_graph_index.v1";
+pub const REFERENCE_BINDING_OPERATION: &str = "reference_binding.v1";
+pub const REFERENCE_CANONICAL_DEDUPE_OPERATION: &str = "reference_canonical_dedupe.v1";
+pub const TOPIC_MANIFEST_VALIDATE_OPERATION: &str = "topic_manifest_validate.v1";
+pub const TOPIC_ARTIFACT_ASSEMBLE_OPERATION: &str = "topic_artifact_assemble.v1";
+pub const TOPIC_ARTIFACT_VALIDATE_OPERATION: &str = "topic_artifact_validate.v1";
+pub const TOPIC_SECTION_PATCH_OPERATION: &str = "topic_section_patch.v1";
+pub const CITATION_GRAPH_BUILD_OPERATION: &str = "citation_graph_build.v1";
+pub const CITATION_GRAPH_BUILD_TRANSFER_OPERATION: &str = "citation_graph_build_transfer.v1";
 
 pub const PAGE_MAX_BYTES: usize = 4 * 1024 * 1024;
 pub const PAGE_MAX_ROWS: usize = 100_000;
@@ -25,6 +33,7 @@ pub fn deterministic_operation(value: &str) -> bool {
 pub enum SectionShape {
     Array,
     StringRecord,
+    CanonicalJsonChunks,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -171,6 +180,170 @@ const TOPIC_OUTPUT_SECTIONS: &[SectionSpec] = &[
         shape: SectionShape::Array,
     },
 ];
+const REFERENCE_BINDING_INPUT_SECTIONS: &[SectionSpec] = &[
+    SectionSpec {
+        name: "papers",
+        max_rows: 25_000,
+        shape: SectionShape::Array,
+    },
+    SectionSpec {
+        name: "references",
+        max_rows: 750_000,
+        shape: SectionShape::Array,
+    },
+];
+const REFERENCE_BINDING_OUTPUT_SECTIONS: &[SectionSpec] = &[SectionSpec {
+    name: "matches",
+    max_rows: 750_000,
+    shape: SectionShape::Array,
+}];
+const REFERENCE_DEDUPE_INPUT_SECTIONS: &[SectionSpec] = &[SectionSpec {
+    name: "canonicals",
+    max_rows: 750_000,
+    shape: SectionShape::Array,
+}];
+const REFERENCE_DEDUPE_OUTPUT_SECTIONS: &[SectionSpec] = &[
+    SectionSpec {
+        name: "clusters",
+        max_rows: 750_000,
+        shape: SectionShape::Array,
+    },
+    SectionSpec {
+        name: "edges",
+        max_rows: 3_000,
+        shape: SectionShape::Array,
+    },
+    SectionSpec {
+        name: "actions",
+        max_rows: 6_000,
+        shape: SectionShape::Array,
+    },
+    SectionSpec {
+        name: "diagnostics",
+        max_rows: 4_096,
+        shape: SectionShape::Array,
+    },
+];
+const GRAPH_BUILD_INPUT_SECTIONS: &[SectionSpec] = &[
+    SectionSpec {
+        name: "libraryNodes",
+        max_rows: 25_000,
+        shape: SectionShape::Array,
+    },
+    SectionSpec {
+        name: "references",
+        max_rows: 1_250_000,
+        shape: SectionShape::Array,
+    },
+];
+const GRAPH_BUILD_OUTPUT_SECTIONS: &[SectionSpec] = &[
+    SectionSpec {
+        name: "nodes",
+        max_rows: 775_000,
+        shape: SectionShape::Array,
+    },
+    SectionSpec {
+        name: "resolvedEdges",
+        max_rows: 1_250_000,
+        shape: SectionShape::Array,
+    },
+    SectionSpec {
+        name: "aggregateEdges",
+        max_rows: 1_250_000,
+        shape: SectionShape::Array,
+    },
+    SectionSpec {
+        name: "sourceOwnership",
+        max_rows: 1_250_000,
+        shape: SectionShape::Array,
+    },
+    SectionSpec {
+        name: "incomingGroups",
+        max_rows: 1_250_000,
+        shape: SectionShape::Array,
+    },
+    SectionSpec {
+        name: "lightMetrics",
+        max_rows: 775_000,
+        shape: SectionShape::Array,
+    },
+];
+const TOPIC_MANIFEST_VALIDATE_INPUT_SECTIONS: &[SectionSpec] = &[SectionSpec {
+    name: "manifest",
+    max_rows: 64,
+    shape: SectionShape::CanonicalJsonChunks,
+}];
+const TOPIC_VALIDATION_OUTPUT_SECTIONS: &[SectionSpec] = &[SectionSpec {
+    name: "errors",
+    max_rows: 100_000,
+    shape: SectionShape::Array,
+}];
+const TOPIC_ASSEMBLE_INPUT_SECTIONS: &[SectionSpec] = &[
+    SectionSpec {
+        name: "manifest",
+        max_rows: 64,
+        shape: SectionShape::CanonicalJsonChunks,
+    },
+    SectionSpec {
+        name: "sections",
+        max_rows: 64,
+        shape: SectionShape::CanonicalJsonChunks,
+    },
+];
+const TOPIC_ASSEMBLE_OUTPUT_SECTIONS: &[SectionSpec] = &[SectionSpec {
+    name: "artifact",
+    max_rows: 64,
+    shape: SectionShape::CanonicalJsonChunks,
+}];
+const TOPIC_ARTIFACT_VALIDATE_INPUT_SECTIONS: &[SectionSpec] = &[SectionSpec {
+    name: "artifact",
+    max_rows: 64,
+    shape: SectionShape::CanonicalJsonChunks,
+}];
+const TOPIC_PATCH_INPUT_SECTIONS: &[SectionSpec] = &[
+    SectionSpec {
+        name: "currentManifest",
+        max_rows: 64,
+        shape: SectionShape::CanonicalJsonChunks,
+    },
+    SectionSpec {
+        name: "currentSections",
+        max_rows: 64,
+        shape: SectionShape::CanonicalJsonChunks,
+    },
+    SectionSpec {
+        name: "patchManifest",
+        max_rows: 64,
+        shape: SectionShape::CanonicalJsonChunks,
+    },
+    SectionSpec {
+        name: "changedSections",
+        max_rows: 64,
+        shape: SectionShape::CanonicalJsonChunks,
+    },
+];
+const TOPIC_PATCH_OUTPUT_SECTIONS: &[SectionSpec] = &[
+    SectionSpec {
+        name: "sections",
+        max_rows: 64,
+        shape: SectionShape::CanonicalJsonChunks,
+    },
+    SectionSpec {
+        name: "nextSectionHashes",
+        max_rows: 64,
+        shape: SectionShape::CanonicalJsonChunks,
+    },
+    SectionSpec {
+        name: "mismatches",
+        max_rows: 100_000,
+        shape: SectionShape::Array,
+    },
+    SectionSpec {
+        name: "errors",
+        max_rows: 100_000,
+        shape: SectionShape::Array,
+    },
+];
 const TAG_VALIDATE_INPUT_HEADER: &[&str] = &["contractVersion", "algorithmVersion", "protocol"];
 const TAG_INDEX_INPUT_HEADER: &[&str] = &[
     "contractVersion",
@@ -215,6 +388,21 @@ const TOPIC_OUTPUT_HEADER: &[&str] = &[
     "sourceManifestHash",
     "rebuiltAt",
 ];
+const REFERENCE_BINDING_INPUT_HEADER: &[&str] =
+    &["contractVersion", "algorithmVersion", "policyId"];
+const REFERENCE_BINDING_OUTPUT_HEADER: &[&str] =
+    &["contractVersion", "algorithmVersion", "policyId"];
+const REFERENCE_DEDUPE_HEADER: &[&str] = &["contractVersion", "algorithmVersion"];
+const REFERENCE_DEDUPE_OUTPUT_HEADER: &[&str] =
+    &["contractVersion", "algorithmVersion", "counters"];
+const GRAPH_BUILD_INPUT_HEADER: &[&str] = &["contractVersion", "scope", "rolePriority"];
+const GRAPH_BUILD_OUTPUT_HEADER: &[&str] = &["contractVersion", "scope", "diagnostics"];
+const TOPIC_VALIDATION_INPUT_HEADER: &[&str] = &["contractVersion", "algorithmVersion"];
+const TOPIC_ARTIFACT_VALIDATION_INPUT_HEADER: &[&str] =
+    &["contractVersion", "algorithmVersion", "expectedLanguage"];
+const TOPIC_VALIDATION_OUTPUT_HEADER: &[&str] = &["contractVersion", "algorithmVersion", "ok"];
+const TOPIC_ASSEMBLE_OUTPUT_HEADER: &[&str] = &["contractVersion", "algorithmVersion"];
+const TOPIC_PATCH_OUTPUT_HEADER: &[&str] = &["contractVersion", "algorithmVersion", "status"];
 
 pub fn deterministic_operation_spec(operation: &str) -> Option<DeterministicOperationSpec> {
     match operation {
@@ -248,6 +436,50 @@ pub fn deterministic_operation_spec(operation: &str) -> Option<DeterministicOper
             output_header_fields: TOPIC_OUTPUT_HEADER,
             output_sections: TOPIC_OUTPUT_SECTIONS,
         }),
+        REFERENCE_BINDING_OPERATION => Some(DeterministicOperationSpec {
+            input_header_fields: REFERENCE_BINDING_INPUT_HEADER,
+            input_sections: REFERENCE_BINDING_INPUT_SECTIONS,
+            output_header_fields: REFERENCE_BINDING_OUTPUT_HEADER,
+            output_sections: REFERENCE_BINDING_OUTPUT_SECTIONS,
+        }),
+        REFERENCE_CANONICAL_DEDUPE_OPERATION => Some(DeterministicOperationSpec {
+            input_header_fields: REFERENCE_DEDUPE_HEADER,
+            input_sections: REFERENCE_DEDUPE_INPUT_SECTIONS,
+            output_header_fields: REFERENCE_DEDUPE_OUTPUT_HEADER,
+            output_sections: REFERENCE_DEDUPE_OUTPUT_SECTIONS,
+        }),
+        CITATION_GRAPH_BUILD_OPERATION | CITATION_GRAPH_BUILD_TRANSFER_OPERATION => {
+            Some(DeterministicOperationSpec {
+                input_header_fields: GRAPH_BUILD_INPUT_HEADER,
+                input_sections: GRAPH_BUILD_INPUT_SECTIONS,
+                output_header_fields: GRAPH_BUILD_OUTPUT_HEADER,
+                output_sections: GRAPH_BUILD_OUTPUT_SECTIONS,
+            })
+        }
+        TOPIC_MANIFEST_VALIDATE_OPERATION => Some(DeterministicOperationSpec {
+            input_header_fields: TOPIC_VALIDATION_INPUT_HEADER,
+            input_sections: TOPIC_MANIFEST_VALIDATE_INPUT_SECTIONS,
+            output_header_fields: TOPIC_VALIDATION_OUTPUT_HEADER,
+            output_sections: TOPIC_VALIDATION_OUTPUT_SECTIONS,
+        }),
+        TOPIC_ARTIFACT_ASSEMBLE_OPERATION => Some(DeterministicOperationSpec {
+            input_header_fields: TOPIC_VALIDATION_INPUT_HEADER,
+            input_sections: TOPIC_ASSEMBLE_INPUT_SECTIONS,
+            output_header_fields: TOPIC_ASSEMBLE_OUTPUT_HEADER,
+            output_sections: TOPIC_ASSEMBLE_OUTPUT_SECTIONS,
+        }),
+        TOPIC_ARTIFACT_VALIDATE_OPERATION => Some(DeterministicOperationSpec {
+            input_header_fields: TOPIC_ARTIFACT_VALIDATION_INPUT_HEADER,
+            input_sections: TOPIC_ARTIFACT_VALIDATE_INPUT_SECTIONS,
+            output_header_fields: TOPIC_VALIDATION_OUTPUT_HEADER,
+            output_sections: TOPIC_VALIDATION_OUTPUT_SECTIONS,
+        }),
+        TOPIC_SECTION_PATCH_OPERATION => Some(DeterministicOperationSpec {
+            input_header_fields: TOPIC_VALIDATION_INPUT_HEADER,
+            input_sections: TOPIC_PATCH_INPUT_SECTIONS,
+            output_header_fields: TOPIC_PATCH_OUTPUT_HEADER,
+            output_sections: TOPIC_PATCH_OUTPUT_SECTIONS,
+        }),
         _ => None,
     }
 }
@@ -270,6 +502,7 @@ pub struct DeterministicRunBegin {
     pub frame_type: String,
     pub task_id: String,
     pub operation: String,
+    pub request_hash: String,
     pub header: Map<String, Value>,
 }
 
@@ -279,6 +512,7 @@ impl DeterministicRunBegin {
         if frame.protocol != WORKER_PROTOCOL
             || frame.frame_type != "run_begin"
             || !deterministic_operation(&frame.operation)
+            || !valid_sha256(&frame.request_hash)
         {
             return Err("invalid_request");
         }
@@ -553,11 +787,34 @@ fn exact_fields(values: &Map<String, Value>, expected: &[&str]) -> bool {
     values.len() == expected.len() && expected.iter().all(|field| values.contains_key(*field))
 }
 
+fn valid_sha256(value: &str) -> bool {
+    value.len() == 71
+        && value.starts_with("sha256:")
+        && value[7..]
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+pub fn paged_request_hash(
+    operation: &str,
+    header: &Map<String, Value>,
+    descriptors: &[PageDescriptor],
+) -> Result<String, &'static str> {
+    let canonical = canonical_json(&json!({
+        "operation": operation,
+        "header": header,
+        "pages": descriptors,
+    }))?;
+    Ok(format!("sha256:{:x}", Sha256::digest(canonical.as_bytes())))
+}
+
 #[derive(Debug)]
 pub struct PagedInputValidator {
     task_id: String,
     operation: String,
     header: Map<String, Value>,
+    request_hash: String,
+    descriptors: Vec<PageDescriptor>,
     spec: DeterministicOperationSpec,
     section_index: usize,
     page_index: u64,
@@ -565,23 +822,28 @@ pub struct PagedInputValidator {
     started: bool,
 }
 
+pub type ValidatedPagedInput = (String, String, String, Map<String, Value>);
+
 impl PagedInputValidator {
     pub fn new(
         task_id: String,
         operation: String,
+        request_hash: String,
         header: Map<String, Value>,
     ) -> Result<Self, &'static str> {
         if task_id.is_empty() || task_id.encode_utf16().count() > 512 {
             return Err("invalid_request");
         }
         let spec = deterministic_operation_spec(&operation).ok_or("invalid_request")?;
-        if !exact_fields(&header, spec.input_header_fields) {
+        if !exact_fields(&header, spec.input_header_fields) || !valid_sha256(&request_hash) {
             return Err("invalid_request");
         }
         Ok(Self {
             task_id,
             operation,
             header,
+            request_hash,
+            descriptors: Vec::new(),
             spec,
             section_index: 0,
             page_index: 0,
@@ -688,20 +950,22 @@ impl PagedInputValidator {
         self.page_index = page_index + 1;
         self.section_rows = accumulated;
         self.started = true;
+        self.descriptors.push(descriptor.clone());
         Ok((section, acknowledged))
     }
 
-    pub fn finish(
-        self,
-        task_id: &str,
-    ) -> Result<(String, String, Map<String, Value>), &'static str> {
+    pub fn finish(self, task_id: &str) -> Result<ValidatedPagedInput, &'static str> {
         if task_id != self.task_id
             || !self.started
             || self.section_index + 1 != self.spec.input_sections.len()
         {
             return Err("invalid_request");
         }
-        Ok((self.task_id, self.operation, self.header))
+        let actual = paged_request_hash(&self.operation, &self.header, &self.descriptors)?;
+        if actual != self.request_hash {
+            return Err("invalid_request");
+        }
+        Ok((self.task_id, self.operation, self.request_hash, self.header))
     }
 }
 
@@ -715,10 +979,11 @@ impl PagedInputAssembler {
     pub fn new(
         task_id: String,
         operation: String,
+        request_hash: String,
         header: Map<String, Value>,
     ) -> Result<Self, &'static str> {
         Ok(Self {
-            validator: PagedInputValidator::new(task_id, operation, header)?,
+            validator: PagedInputValidator::new(task_id, operation, request_hash, header)?,
             sections: HashMap::new(),
         })
     }
@@ -741,9 +1006,12 @@ impl PagedInputAssembler {
         Ok((section.name.to_owned(), acknowledged))
     }
 
-    pub fn finish(mut self, task_id: &str) -> Result<(String, String, Value), &'static str> {
+    pub fn finish(
+        mut self,
+        task_id: &str,
+    ) -> Result<(String, String, String, Value), &'static str> {
         let spec = self.validator.spec;
-        let (task_id, operation, mut header) = self.validator.finish(task_id)?;
+        let (task_id, operation, request_hash, mut header) = self.validator.finish(task_id)?;
         for section in spec.input_sections {
             let rows = self
                 .sections
@@ -772,10 +1040,17 @@ impl PagedInputAssembler {
                     }
                     Value::Object(object)
                 }
+                SectionShape::CanonicalJsonChunks => {
+                    let mut canonical = String::new();
+                    for row in rows {
+                        canonical.push_str(row.as_str().ok_or("invalid_request")?);
+                    }
+                    serde_json::from_str(&canonical).map_err(|_| "invalid_request")?
+                }
             };
             header.insert(section.name.to_owned(), value);
         }
-        Ok((task_id, operation, Value::Object(header)))
+        Ok((task_id, operation, request_hash, Value::Object(header)))
     }
 }
 
@@ -809,6 +1084,27 @@ pub fn split_paged_result(
                     .collect(),
                 _ => return Err("worker_result_invalid"),
             },
+            SectionShape::CanonicalJsonChunks => {
+                let canonical = canonical_json(&value).map_err(|_| "worker_result_invalid")?;
+                let mut chunks = Vec::new();
+                let mut start = 0usize;
+                const CHUNK_BYTES: usize = 1024 * 1024;
+                while start < canonical.len() {
+                    let mut end = (start + CHUNK_BYTES).min(canonical.len());
+                    while !canonical.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    if end == start {
+                        return Err("worker_result_invalid");
+                    }
+                    chunks.push(Value::String(canonical[start..end].to_owned()));
+                    start = end;
+                }
+                if chunks.is_empty() {
+                    chunks.push(Value::String(canonical));
+                }
+                chunks
+            }
         };
         if rows.len() > section.max_rows {
             return Err("worker_result_invalid");
@@ -1099,23 +1395,33 @@ mod tests {
             "rebuiltAt": "2026-07-19T00:00:00.000Z"
         }))
         .unwrap();
-        let mut input =
-            PagedInputAssembler::new("task-1".into(), TOPIC_GRAPH_INDEX_OPERATION.into(), header)
-                .unwrap();
         let edges = vec![json!({"edgeId":"edge:1"})];
+        let nodes = vec![json!({"topicId":"topic:1"})];
+        let empty: Vec<Value> = Vec::new();
+        let descriptors = vec![
+            descriptor("nodes", 0, &nodes),
+            descriptor("edges", 0, &empty),
+        ];
+        let request_hash =
+            paged_request_hash(TOPIC_GRAPH_INDEX_OPERATION, &header, &descriptors).unwrap();
+        let mut input = PagedInputAssembler::new(
+            "task-1".into(),
+            TOPIC_GRAPH_INDEX_OPERATION.into(),
+            request_hash,
+            header,
+        )
+        .unwrap();
         assert_eq!(
             input.append_page("task-1", descriptor("edges", 0, &edges), edges),
             Err("invalid_request")
         );
 
-        let nodes = vec![json!({"topicId":"topic:1"})];
         assert_eq!(
             input
                 .append_page("task-1", descriptor("nodes", 0, &nodes), nodes)
                 .unwrap(),
             ("nodes".into(), 0)
         );
-        let empty: Vec<Value> = Vec::new();
         assert_eq!(
             input
                 .append_page("task-1", descriptor("edges", 0, &empty), empty)
@@ -1158,6 +1464,7 @@ mod tests {
         let mut input = PagedInputAssembler::new(
             "task-1".into(),
             TAG_VOCABULARY_VALIDATE_OPERATION.into(),
+            format!("sha256:{}", "0".repeat(64)),
             header,
         )
         .unwrap();
@@ -1225,9 +1532,13 @@ mod tests {
             "rebuiltAt": "2026-07-19T00:00:00.000Z"
         }))
         .unwrap();
-        let mut validator =
-            PagedInputValidator::new("task".into(), TOPIC_GRAPH_INDEX_OPERATION.into(), header)
-                .unwrap();
+        let mut validator = PagedInputValidator::new(
+            "task".into(),
+            TOPIC_GRAPH_INDEX_OPERATION.into(),
+            format!("sha256:{}", "0".repeat(64)),
+            header,
+        )
+        .unwrap();
         let rows = value.as_array().unwrap();
         let descriptor = page_descriptor("nodes", 0, rows).unwrap();
         assert_eq!(

@@ -1,6 +1,6 @@
 ---
 name: synthesis-reference-resolution-harness
-description: Build and rerun the Synthesis reference-resolution benchmark workflow for this repository. Use when Codex needs to extract sanitized fixtures from the Synthesis DB, draft or review gold labels, run policy experiments against src/modules/synthesis/referenceMatcher.ts, compare precision/recall/candidate recall/danger false positives, or prepare a report before changing the literature-to-literature citation matcher.
+description: Build and rerun the Synthesis reference-resolution benchmark workflow for this repository. Use when Codex needs to extract sanitized fixtures from the Synthesis DB, draft or review gold labels, run policy experiments against packages/synthesis-engine/src/referenceMatcher.ts, compare precision/recall/candidate recall/danger false positives, or prepare a report before changing the literature-to-literature citation matcher.
 ---
 
 # Synthesis Reference Resolution Harness
@@ -12,7 +12,7 @@ Use this project-local development skill to repeat the full matcher workflow:
 3. Review reference-to-paper matches in the local review UI.
 4. Run the policy experiment matrix against reviewed gold labels.
 5. Write an experiment report.
-6. Only then change matcher rules and rerun the harness.
+6. Use the report as the quality gate for matcher changes.
 
 Do not place this skill under `skills_builtin/` or user-facing `skills/`. It is a repository development tool under `.agents/skills/`.
 
@@ -29,7 +29,7 @@ fixture extraction, gold-label review, and benchmark evaluation.
 
 ## Boundaries
 
-- Treat `src/modules/synthesis/referenceMatcher.ts` as the algorithm SSOT. Do not copy matcher logic into this skill.
+- Treat `packages/synthesis-engine/src/referenceMatcher.ts` as the algorithm SSOT. Do not copy matcher logic into this skill.
 - Do not use `literature_matching_metadata` for literature-to-literature reference identity resolution.
 - Keep automatic `matched` precision-first. Weak but useful evidence belongs in `suggested_candidates` / review.
 - Do not write tokens, absolute local paths, Zotero profile paths, or complete note HTML into fixtures.
@@ -112,9 +112,9 @@ The script prints a single JSON object and optionally writes a Markdown report.
 
 Use `--labels gold-labels.reviewed.json` after a human review pass.
 
-### 8. Change Matcher Rules
+### 8. Validate Matcher Changes
 
-After reviewing metrics, change `src/modules/synthesis/referenceMatcher.ts` or its integration points. Then rerun:
+After reviewing metrics and changing the matcher or its integration points, rerun:
 
 ```powershell
 npx mocha "test/core/151-synthesis-reference-resolution-matcher.test.ts" --require tsx --require test/setup/zotero-mock.ts --exit

@@ -1,7 +1,7 @@
 import { assert } from "chai";
 import fs from "fs/promises";
 import path from "path";
-import { Worker } from "node:worker_threads";
+import { createSynthesisSidecarComputeWorkerPool } from "../../apps/synthesis-service/src/computeWorkerPool";
 import {
   SYNTHESIS_CITATION_GRAPH_BUILD_REFERENCE_MAX,
   SYNTHESIS_CITATION_GRAPH_BUILD_SOURCE_MAX,
@@ -103,6 +103,19 @@ describe("Synthesis Unified Citation Graph build engine", function () {
     assert.notProperty(
       rebuilt.libraryNodes[0] as Record<string, unknown>,
       "ignored",
+    );
+
+    const unicodeOrder = rebuildSynthesisCitationGraphBuildRequest({
+      ...request,
+      libraryNodes: [
+        ...request.libraryNodes,
+        { nodeId: "paper:\ue000", authors: [], aliases: [] },
+        { nodeId: "paper:😀", authors: [], aliases: [] },
+      ],
+    });
+    assert.deepEqual(
+      unicodeOrder.libraryNodes.map((node) => node.nodeId),
+      ["paper:A", "paper:B", "paper:😀", "paper:\ue000"],
     );
   });
 
@@ -366,7 +379,7 @@ describe("Synthesis Unified Citation Graph build engine", function () {
     );
   });
 
-  it("supports checkpoint abort and direct/worker structured-clone parity", async function () {
+  it("supports checkpoint abort and direct/Rust worker canonical parity", async function () {
     const request = sampleRequest();
     assert.throws(() =>
       computeSynthesisCitationGraphBuild(request, {
@@ -381,25 +394,12 @@ describe("Synthesis Unified Citation Graph build engine", function () {
 
     const direct =
       await createInProcessSynthesisCitationGraphBuildEngine().compute(request);
-    const worker = new Worker(
-      new URL(
-        "../fixtures/synthesis-citation-build-engine-worker.ts",
-        import.meta.url,
-      ),
-      {
-        execArgv: ["--import", "tsx"],
-      },
-    );
-    const workerResult = await new Promise<unknown>((resolve, reject) => {
-      worker.once("message", resolve);
-      worker.once("error", reject);
-      worker.postMessage(request);
-    });
-    await worker.terminate();
-    assert.deepEqual(
-      rebuildSynthesisCitationGraphBuildResult(workerResult, request),
-      direct,
-    );
+    const pool = createSynthesisSidecarComputeWorkerPool();
+    try {
+      assert.deepEqual(await pool.runCitationGraphBuild(request), direct);
+    } finally {
+      await pool.shutdown();
+    }
   });
 
   it("keeps the engine source environment-neutral", async function () {

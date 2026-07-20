@@ -6,12 +6,7 @@ import {
   type SynthesisConceptKbQueryRequest,
   type SynthesisConceptKbQueryResult,
 } from "../../../packages/synthesis-engine/src/conceptKbIndex.js";
-import {
-  MessageChannel,
-  Worker,
-  type MessagePort,
-  type WorkerOptions,
-} from "node:worker_threads";
+import { Worker, type WorkerOptions } from "node:worker_threads";
 import { createHash } from "node:crypto";
 import {
   rebuildSynthesisCitationGraphLayoutRequest,
@@ -29,6 +24,34 @@ import {
   type SynthesisCitationGraphBuildRequest,
   type SynthesisCitationGraphBuildResult,
 } from "../../../packages/synthesis-engine/src/citationGraphBuild.js";
+import type { SynthesisCitationGraphBuildTransferPageKind } from "../../../packages/synthesis-engine/src/citationGraphBuildTransfer.js";
+import {
+  rebuildSynthesisReferenceBindingRequest,
+  rebuildSynthesisReferenceBindingResult,
+  rebuildSynthesisReferenceDedupeRequest,
+  rebuildSynthesisReferenceDedupeResult,
+  type SynthesisReferenceBindingRequest,
+  type SynthesisReferenceBindingResult,
+  type SynthesisReferenceDedupeRequest,
+  type SynthesisReferenceDedupeResult,
+} from "../../../packages/synthesis-engine/src/referenceMatcher.js";
+import {
+  rebuildSynthesisTopicArtifactAssemblyRequest,
+  rebuildSynthesisTopicArtifactAssemblyResult,
+  rebuildSynthesisTopicArtifactValidationRequest,
+  rebuildSynthesisTopicArtifactValidationResult,
+  rebuildSynthesisTopicManifestValidationRequest,
+  rebuildSynthesisTopicManifestValidationResult,
+  rebuildSynthesisTopicSectionPatchRequest,
+  rebuildSynthesisTopicSectionPatchResult,
+  type SynthesisTopicArtifactAssemblyRequest,
+  type SynthesisTopicArtifactAssemblyResult,
+  type SynthesisTopicArtifactValidationRequest,
+  type SynthesisTopicManifestValidationRequest,
+  type SynthesisTopicSectionPatchRequest,
+  type SynthesisTopicSectionPatchResult,
+  type SynthesisTopicValidationResult,
+} from "../../../packages/synthesis-engine/src/topicStructuredArtifact.js";
 import type {
   SynthesisSidecarComputePoolSnapshot,
   SynthesisSidecarErrorCode,
@@ -45,12 +68,17 @@ import {
   SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION,
   SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION,
   SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION,
+  SYNTHESIS_SIDECAR_REFERENCE_BINDING_OPERATION,
+  SYNTHESIS_SIDECAR_REFERENCE_CANONICAL_DEDUPE_OPERATION,
   SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION,
   SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION,
   SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION,
+  SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_ASSEMBLE_OPERATION,
+  SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_VALIDATE_OPERATION,
+  SYNTHESIS_SIDECAR_TOPIC_MANIFEST_VALIDATE_OPERATION,
+  SYNTHESIS_SIDECAR_TOPIC_SECTION_PATCH_OPERATION,
   type SynthesisSidecarComputeRunMessage,
   type SynthesisSidecarGraphBuildTransferPageFrame,
-  type SynthesisSidecarTransferPortWorkerMessage,
 } from "./computeProtocol.js";
 import {
   rebuildSynthesisTagVocabularyIndexResultPayload,
@@ -75,7 +103,7 @@ import {
 
 const RUST_METRICS_OPERATION = "citation_graph_metrics.v1" as const;
 
-type RustPagedDescriptor = {
+export type RustPagedDescriptor = {
   section: string;
   pageIndex: number;
   rowCount: number;
@@ -89,16 +117,41 @@ type RustPagedFrame = {
   canonicalRows?: Buffer;
 };
 
+const GRAPH_TRANSFER_SECTION_BY_KIND = {
+  library_nodes: "libraryNodes",
+  references: "references",
+  nodes: "nodes",
+  resolved_edges: "resolvedEdges",
+  aggregate_edges: "aggregateEdges",
+  source_ownership: "sourceOwnership",
+  incoming_groups: "incomingGroups",
+  light_metrics: "lightMetrics",
+} as const;
+
+const GRAPH_TRANSFER_KIND_BY_SECTION = Object.fromEntries(
+  Object.entries(GRAPH_TRANSFER_SECTION_BY_KIND).map(([kind, section]) => [
+    section,
+    kind,
+  ]),
+) as Record<string, SynthesisCitationGraphBuildTransferPageKind>;
+
 type RustDeterministicOperation =
   | typeof SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION
   | typeof SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION
   | typeof SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION
   | typeof SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION
-  | typeof SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION;
+  | typeof SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION
+  | typeof SYNTHESIS_SIDECAR_REFERENCE_BINDING_OPERATION
+  | typeof SYNTHESIS_SIDECAR_REFERENCE_CANONICAL_DEDUPE_OPERATION
+  | typeof SYNTHESIS_SIDECAR_TOPIC_MANIFEST_VALIDATE_OPERATION
+  | typeof SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_ASSEMBLE_OPERATION
+  | typeof SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_VALIDATE_OPERATION
+  | typeof SYNTHESIS_SIDECAR_TOPIC_SECTION_PATCH_OPERATION
+  | typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION;
 
 type RustPagedSectionSpec = {
   name: string;
-  record: boolean;
+  shape: "array" | "record" | "chunks";
 };
 
 const RUST_PAGED_RESULT_SECTIONS: Record<
@@ -106,25 +159,57 @@ const RUST_PAGED_RESULT_SECTIONS: Record<
   readonly RustPagedSectionSpec[]
 > = {
   [SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION]: [
-    { name: "warnings", record: false },
+    { name: "warnings", shape: "array" },
   ],
   [SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION]: [
-    { name: "tags", record: false },
-    { name: "aliases", record: true },
-    { name: "abbrev", record: true },
-    { name: "search", record: false },
-    { name: "validationWarnings", record: false },
+    { name: "tags", shape: "array" },
+    { name: "aliases", shape: "record" },
+    { name: "abbrev", shape: "record" },
+    { name: "search", shape: "array" },
+    { name: "validationWarnings", shape: "array" },
   ],
   [SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION]: [
-    { name: "search", record: false },
-    { name: "overlayEntries", record: false },
+    { name: "search", shape: "array" },
+    { name: "overlayEntries", shape: "array" },
   ],
   [SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION]: [
-    { name: "matches", record: false },
+    { name: "matches", shape: "array" },
   ],
   [SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION]: [
-    { name: "roots", record: false },
-    { name: "unplaced", record: false },
+    { name: "roots", shape: "array" },
+    { name: "unplaced", shape: "array" },
+  ],
+  [SYNTHESIS_SIDECAR_REFERENCE_BINDING_OPERATION]: [
+    { name: "matches", shape: "array" },
+  ],
+  [SYNTHESIS_SIDECAR_REFERENCE_CANONICAL_DEDUPE_OPERATION]: [
+    { name: "clusters", shape: "array" },
+    { name: "edges", shape: "array" },
+    { name: "actions", shape: "array" },
+    { name: "diagnostics", shape: "array" },
+  ],
+  [SYNTHESIS_SIDECAR_TOPIC_MANIFEST_VALIDATE_OPERATION]: [
+    { name: "errors", shape: "array" },
+  ],
+  [SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_ASSEMBLE_OPERATION]: [
+    { name: "artifact", shape: "chunks" },
+  ],
+  [SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_VALIDATE_OPERATION]: [
+    { name: "errors", shape: "array" },
+  ],
+  [SYNTHESIS_SIDECAR_TOPIC_SECTION_PATCH_OPERATION]: [
+    { name: "sections", shape: "chunks" },
+    { name: "nextSectionHashes", shape: "chunks" },
+    { name: "mismatches", shape: "array" },
+    { name: "errors", shape: "array" },
+  ],
+  [SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION]: [
+    { name: "nodes", shape: "array" },
+    { name: "resolvedEdges", shape: "array" },
+    { name: "aggregateEdges", shape: "array" },
+    { name: "sourceOwnership", shape: "array" },
+    { name: "incomingGroups", shape: "array" },
+    { name: "lightMetrics", shape: "array" },
   ],
 };
 
@@ -168,8 +253,23 @@ function isRustPagedDescriptor(value: unknown): value is RustPagedDescriptor {
   );
 }
 
+export function synthesisRustPagedRequestHash(
+  operation: string,
+  header: Record<string, unknown>,
+  pages: readonly RustPagedDescriptor[],
+) {
+  return `sha256:${createHash("sha256")
+    .update(canonicalizeSynthesisEngineJson({ operation, header, pages }))
+    .digest("hex")}`;
+}
+
 function deterministicResultSections(operation: Task["operation"]) {
   if (operation === RUST_METRICS_OPERATION) return undefined;
+  if (operation === SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION) {
+    return RUST_PAGED_RESULT_SECTIONS[
+      SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION
+    ];
+  }
   return RUST_PAGED_RESULT_SECTIONS[operation as RustDeterministicOperation];
 }
 
@@ -382,6 +482,26 @@ function extractRustPagedRequest(
       ),
     ]);
   };
+  const takeChunks = (name: string) => {
+    if (!(name in source)) throw poolError("worker_result_invalid");
+    const canonical = canonicalizeSynthesisEngineJson(source[name]);
+    delete header[name];
+    const chunks: string[] = [];
+    for (let offset = 0; offset < canonical.length; ) {
+      let end = Math.min(offset + 1024 * 1024, canonical.length);
+      if (
+        end < canonical.length &&
+        end > offset &&
+        canonical.charCodeAt(end - 1) >= 0xd800 &&
+        canonical.charCodeAt(end - 1) <= 0xdbff
+      ) {
+        end -= 1;
+      }
+      chunks.push(canonical.slice(offset, end));
+      offset = end;
+    }
+    sections.push([name, chunks.length ? chunks : [canonical]]);
+  };
   if (
     operation === SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION ||
     operation === SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION
@@ -402,6 +522,35 @@ function extractRustPagedRequest(
   } else if (operation === SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION) {
     takeArray("nodes");
     takeArray("edges");
+  } else if (operation === SYNTHESIS_SIDECAR_REFERENCE_BINDING_OPERATION) {
+    takeArray("papers");
+    takeArray("references");
+  } else if (
+    operation === SYNTHESIS_SIDECAR_REFERENCE_CANONICAL_DEDUPE_OPERATION
+  ) {
+    takeArray("canonicals");
+  } else if (
+    operation === SYNTHESIS_SIDECAR_TOPIC_MANIFEST_VALIDATE_OPERATION
+  ) {
+    takeChunks("manifest");
+  } else if (
+    operation === SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_ASSEMBLE_OPERATION
+  ) {
+    takeChunks("manifest");
+    takeChunks("sections");
+  } else if (
+    operation === SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_VALIDATE_OPERATION
+  ) {
+    takeChunks("artifact");
+    header.expectedLanguage ??= "";
+  } else if (operation === SYNTHESIS_SIDECAR_TOPIC_SECTION_PATCH_OPERATION) {
+    takeChunks("currentManifest");
+    takeChunks("currentSections");
+    takeChunks("patchManifest");
+    takeChunks("changedSections");
+  } else if (operation === SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION) {
+    takeArray("libraryNodes");
+    takeArray("references");
   } else {
     throw poolError("worker_result_invalid");
   }
@@ -418,13 +567,29 @@ function extractRustPagedRequest(
 function assembleRustPagedResult(
   header: Record<string, unknown>,
   sections: Map<string, unknown[]>,
+  specs: readonly RustPagedSectionSpec[],
 ) {
   const result = { ...header };
   for (const [section, rows] of sections) {
+    const shape = specs.find((entry) => entry.name === section)?.shape;
     result[section] =
-      section === "aliases" || section === "abbrev"
+      shape === "record"
         ? Object.fromEntries(rows as [string, unknown][])
-        : rows;
+        : shape === "chunks"
+          ? JSON.parse(rows.join(""))
+          : rows;
+  }
+  if (result.status === "conflict") {
+    delete result.sections;
+    delete result.nextSectionHashes;
+    delete result.errors;
+  } else if (result.status === "invalid") {
+    delete result.sections;
+    delete result.nextSectionHashes;
+    delete result.mismatches;
+  } else if (result.status === "applied") {
+    delete result.mismatches;
+    delete result.errors;
   }
   return result;
 }
@@ -436,7 +601,15 @@ function isRustComputeOperation(operation: Task["operation"]) {
     operation === SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION ||
     operation === SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION ||
     operation === SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION ||
-    operation === SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION
+    operation === SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION ||
+    operation === SYNTHESIS_SIDECAR_REFERENCE_BINDING_OPERATION ||
+    operation === SYNTHESIS_SIDECAR_REFERENCE_CANONICAL_DEDUPE_OPERATION ||
+    operation === SYNTHESIS_SIDECAR_TOPIC_MANIFEST_VALIDATE_OPERATION ||
+    operation === SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_ASSEMBLE_OPERATION ||
+    operation === SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_VALIDATE_OPERATION ||
+    operation === SYNTHESIS_SIDECAR_TOPIC_SECTION_PATCH_OPERATION ||
+    operation === SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION ||
+    operation === SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION
   );
 }
 
@@ -456,6 +629,7 @@ export const SYNTHESIS_SIDECAR_TRANSFER_EXECUTION_TIMEOUT_MS = 30_000;
 
 export type SynthesisSidecarGraphBuildTransferRun = {
   header: Record<string, unknown>;
+  requestHash: string;
   inputPages(): AsyncIterable<SynthesisSidecarGraphBuildTransferPageFrame>;
   outputStarted(): void | Promise<void>;
   outputPage(
@@ -497,6 +671,12 @@ type Task = {
     | typeof SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION
     | typeof SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION
     | typeof SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION
+    | typeof SYNTHESIS_SIDECAR_REFERENCE_BINDING_OPERATION
+    | typeof SYNTHESIS_SIDECAR_REFERENCE_CANONICAL_DEDUPE_OPERATION
+    | typeof SYNTHESIS_SIDECAR_TOPIC_MANIFEST_VALIDATE_OPERATION
+    | typeof SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_ASSEMBLE_OPERATION
+    | typeof SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_VALIDATE_OPERATION
+    | typeof SYNTHESIS_SIDECAR_TOPIC_SECTION_PATCH_OPERATION
     | typeof SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION;
   request:
     | SynthesisCitationGraphLayoutRequest
@@ -507,6 +687,12 @@ type Task = {
     | SynthesisConceptKbIndexRequest
     | SynthesisConceptKbQueryRequest
     | SynthesisTopicGraphIndexRequest
+    | SynthesisReferenceBindingRequest
+    | SynthesisReferenceDedupeRequest
+    | SynthesisTopicManifestValidationRequest
+    | SynthesisTopicArtifactAssemblyRequest
+    | SynthesisTopicArtifactValidationRequest
+    | SynthesisTopicSectionPatchRequest
     | SynthesisSidecarGraphBuildTransferRun;
   cancellation: Int32Array;
   resolve(
@@ -519,6 +705,11 @@ type Task = {
       | SynthesisConceptKbIndexResult
       | SynthesisConceptKbQueryResult
       | SynthesisTopicGraphIndexResult
+      | SynthesisReferenceBindingResult
+      | SynthesisReferenceDedupeResult
+      | SynthesisTopicValidationResult
+      | SynthesisTopicArtifactAssemblyResult
+      | SynthesisTopicSectionPatchResult
       | void,
   ): void;
   reject(error: unknown): void;
@@ -529,7 +720,6 @@ type Task = {
   terminating: boolean;
   acknowledgeCancellation?: () => void;
   timeoutMs: number;
-  transferPort?: MessagePort;
   rustInputPages?: RustPagedFrame[];
   rustInputPageIterator?: Iterator<RustPagedFrame>;
   rustOutputHeader?: Record<string, unknown>;
@@ -537,6 +727,11 @@ type Task = {
   rustOutputPageCounts?: Map<string, number>;
   rustProtocolPhase?: "input" | "awaiting_result" | "result";
   rustOutputSectionIndex?: number;
+  rustTransferInputIterator?: AsyncIterator<SynthesisSidecarGraphBuildTransferPageFrame>;
+  rustTransferInputPending?: boolean;
+  rustTransferInputDescriptor?: RustPagedDescriptor;
+  rustTransferOutputReady?: Promise<void>;
+  rustExpectedRequestHash?: string;
 };
 
 export type SynthesisSidecarComputeWorkerPool = {
@@ -572,6 +767,30 @@ export type SynthesisSidecarComputeWorkerPool = {
     request: SynthesisTopicGraphIndexRequest,
     options?: { signal?: AbortSignal },
   ): Promise<SynthesisTopicGraphIndexResult>;
+  runReferenceBinding(
+    request: SynthesisReferenceBindingRequest,
+    options?: { signal?: AbortSignal },
+  ): Promise<SynthesisReferenceBindingResult>;
+  runReferenceCanonicalDedupe(
+    request: SynthesisReferenceDedupeRequest,
+    options?: { signal?: AbortSignal },
+  ): Promise<SynthesisReferenceDedupeResult>;
+  runTopicManifestValidation(
+    request: SynthesisTopicManifestValidationRequest,
+    options?: { signal?: AbortSignal },
+  ): Promise<SynthesisTopicValidationResult>;
+  runTopicArtifactAssembly(
+    request: SynthesisTopicArtifactAssemblyRequest,
+    options?: { signal?: AbortSignal },
+  ): Promise<SynthesisTopicArtifactAssemblyResult>;
+  runTopicArtifactValidation(
+    request: SynthesisTopicArtifactValidationRequest,
+    options?: { signal?: AbortSignal },
+  ): Promise<SynthesisTopicValidationResult>;
+  runTopicSectionPatch(
+    request: SynthesisTopicSectionPatchRequest,
+    options?: { signal?: AbortSignal },
+  ): Promise<SynthesisTopicSectionPatchResult>;
   runCitationGraphBuildTransfer(
     run: SynthesisSidecarGraphBuildTransferRun,
     options?: { signal?: AbortSignal },
@@ -690,8 +909,6 @@ export function createSynthesisSidecarComputeWorkerPool(
       task.signal.removeEventListener("abort", task.abortListener);
       task.abortListener = undefined;
     }
-    task.transferPort?.close();
-    task.transferPort = undefined;
   };
 
   const rejectTask = (task: Task, code: WorkerErrorCode) => {
@@ -855,32 +1072,6 @@ export function createSynthesisSidecarComputeWorkerPool(
 
   class TransferProtocolError extends Error {}
 
-  const waitForPortMessage = (
-    port: MessagePort,
-  ): Promise<SynthesisSidecarTransferPortWorkerMessage> =>
-    new Promise((resolve, reject) => {
-      const cleanup = () => {
-        port.off("message", onMessage);
-        port.off("messageerror", onError);
-        port.off("close", onClose);
-      };
-      const onMessage = (message: unknown) => {
-        cleanup();
-        resolve(message as SynthesisSidecarTransferPortWorkerMessage);
-      };
-      const onError = () => {
-        cleanup();
-        reject(new TransferProtocolError());
-      };
-      const onClose = () => {
-        cleanup();
-        reject(new TransferProtocolError());
-      };
-      port.once("message", onMessage);
-      port.once("messageerror", onError);
-      port.once("close", onClose);
-    });
-
   const finishTransferSuccess = (task: Task) => {
     if (task !== active || task.terminating || task.settled) {
       return;
@@ -896,7 +1087,7 @@ export function createSynthesisSidecarComputeWorkerPool(
   const finishTransferControlFailure = (
     task: Task,
     error: unknown,
-    target: Worker,
+    target: ComputeWorkerTarget,
   ) => {
     if (task !== active || task.terminating) {
       return;
@@ -910,78 +1101,6 @@ export function createSynthesisSidecarComputeWorkerPool(
       rejectTaskWithError(task, error);
     })();
     trackTermination(pending);
-  };
-
-  const streamTransferTask = async (
-    task: Task,
-    target: Worker,
-    port: MessagePort,
-  ) => {
-    const run = task.request as SynthesisSidecarGraphBuildTransferRun;
-    try {
-      for await (const frame of run.inputPages()) {
-        if (task.terminating) {
-          return;
-        }
-        port.postMessage(
-          {
-            type: "input_page",
-            descriptor: frame.descriptor,
-            bytes: frame.bytes,
-          },
-          [frame.bytes],
-        );
-        const acknowledgment = await waitForPortMessage(port);
-        if (
-          acknowledgment.type !== "input_ack" ||
-          acknowledgment.kind !== frame.descriptor.kind ||
-          acknowledgment.pageIndex !== frame.descriptor.pageIndex
-        ) {
-          throw new TransferProtocolError();
-        }
-      }
-      port.postMessage({ type: "input_complete" });
-      let outputStarted = false;
-      while (!task.terminating) {
-        const message = await waitForPortMessage(port);
-        if (message.type === "output_started" && !outputStarted) {
-          outputStarted = true;
-          await run.outputStarted();
-          continue;
-        }
-        if (
-          message.type === "output_page" &&
-          outputStarted &&
-          message.bytes instanceof ArrayBuffer
-        ) {
-          await run.outputPage({
-            descriptor: message.descriptor,
-            bytes: message.bytes,
-          });
-          port.postMessage({
-            type: "output_ack",
-            kind: message.descriptor.kind,
-            pageIndex: message.descriptor.pageIndex,
-          });
-          continue;
-        }
-        if (message.type === "output_complete" && outputStarted) {
-          await run.outputComplete(message.header);
-          finishTransferSuccess(task);
-          return;
-        }
-        throw new TransferProtocolError();
-      }
-    } catch (error) {
-      if (task.terminating || task !== active) {
-        return;
-      }
-      if (error instanceof TransferProtocolError) {
-        finishRuntimeFailure(task, "worker_result_invalid", target);
-      } else {
-        finishTransferControlFailure(task, error, target);
-      }
-    }
   };
 
   const ensureWorker = () => {
@@ -1032,6 +1151,11 @@ export function createSynthesisSidecarComputeWorkerPool(
           | SynthesisConceptKbIndexResult
           | SynthesisConceptKbQueryResult
           | SynthesisTopicGraphIndexResult
+          | SynthesisReferenceBindingResult
+          | SynthesisReferenceDedupeResult
+          | SynthesisTopicValidationResult
+          | SynthesisTopicArtifactAssemblyResult
+          | SynthesisTopicSectionPatchResult
           | undefined;
         try {
           switch (task.operation) {
@@ -1100,6 +1224,56 @@ export function createSynthesisSidecarComputeWorkerPool(
     return created;
   };
 
+  const sendNextRustTransferInput = async (
+    task: Task,
+    target: RustComputeWorkerTarget,
+  ) => {
+    if (
+      task !== active ||
+      task.terminating ||
+      task.rustTransferInputPending ||
+      !task.rustTransferInputIterator
+    ) {
+      return;
+    }
+    task.rustTransferInputPending = true;
+    try {
+      const next = await task.rustTransferInputIterator.next();
+      if (task !== active || task.terminating) return;
+      if (next.done) {
+        task.rustTransferInputIterator = undefined;
+        task.rustProtocolPhase = "awaiting_result";
+        target.postMessage({ type: "input_complete", taskId: task.id });
+        return;
+      }
+      const frame = next.value;
+      const section = GRAPH_TRANSFER_SECTION_BY_KIND[frame.descriptor.kind];
+      if (section !== "libraryNodes" && section !== "references") {
+        throw new TransferProtocolError();
+      }
+      const canonicalRows = Buffer.from(frame.bytes);
+      task.rustTransferInputDescriptor = {
+        section,
+        pageIndex: frame.descriptor.pageIndex,
+        rowCount: frame.descriptor.rowCount,
+        byteLength: frame.descriptor.byteLength,
+        sha256: frame.descriptor.sha256,
+      };
+      target.postMessage({
+        type: "input_page",
+        taskId: task.id,
+        descriptor: task.rustTransferInputDescriptor,
+        rows: [],
+        [RUST_COMPUTE_CANONICAL_ROWS]: canonicalRows,
+      });
+    } catch (error) {
+      if (task !== active || task.terminating) return;
+      finishTransferControlFailure(task, error, target);
+    } finally {
+      task.rustTransferInputPending = false;
+    }
+  };
+
   const ensureRustWorker = () => {
     if (rustWorker) {
       return rustWorker;
@@ -1156,6 +1330,22 @@ export function createSynthesisSidecarComputeWorkerPool(
           finishRuntimeFailure(task, "worker_result_invalid", created);
           return;
         }
+        if (
+          task.operation === SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION
+        ) {
+          const descriptor = task.rustTransferInputDescriptor;
+          if (
+            !descriptor ||
+            response.section !== descriptor.section ||
+            response.pageIndex !== descriptor.pageIndex
+          ) {
+            finishRuntimeFailure(task, "worker_result_invalid", created);
+            return;
+          }
+          task.rustTransferInputDescriptor = undefined;
+          void sendNextRustTransferInput(task, created);
+          return;
+        }
         const page = task.rustInputPages?.[0];
         if (
           !page ||
@@ -1190,7 +1380,16 @@ export function createSynthesisSidecarComputeWorkerPool(
           !sectionSpecs ||
           task.rustProtocolPhase !== "awaiting_result" ||
           task.rustOutputHeader ||
-          !hasExactKeys(response, ["protocol", "type", "taskId", "header"]) ||
+          !hasExactKeys(response, [
+            "protocol",
+            "type",
+            "taskId",
+            "operation",
+            "requestHash",
+            "header",
+          ]) ||
+          response.operation !== task.operation ||
+          response.requestHash !== task.rustExpectedRequestHash ||
           !isPlainObject(response.header) ||
           sectionSpecs.some(
             (section) =>
@@ -1205,10 +1404,115 @@ export function createSynthesisSidecarComputeWorkerPool(
         task.rustOutputPageCounts = new Map();
         task.rustOutputSectionIndex = 0;
         task.rustProtocolPhase = "result";
+        if (
+          task.operation === SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION
+        ) {
+          const run = task.request as SynthesisSidecarGraphBuildTransferRun;
+          task.rustTransferOutputReady = Promise.resolve(run.outputStarted());
+        }
         return;
       }
       if (response.type === "result_page") {
         const sectionSpecs = deterministicResultSections(task.operation);
+        if (
+          task.operation === SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION
+        ) {
+          const rawArtifact = (response as Record<PropertyKey, unknown>)[
+            RUST_COMPUTE_RAW_ROWS_ARTIFACT
+          ] as
+            | {
+                bytes?: unknown;
+                byteLength?: unknown;
+                nodeCount?: unknown;
+                sha256?: unknown;
+              }
+            | undefined;
+          if (
+            !sectionSpecs ||
+            task.rustProtocolPhase !== "result" ||
+            !task.rustOutputHeader ||
+            !hasExactKeys(response, [
+              "protocol",
+              "type",
+              "taskId",
+              "descriptor",
+              "rows",
+            ]) ||
+            !isRustPagedDescriptor(response.descriptor) ||
+            !Array.isArray(response.rows) ||
+            !rawArtifact ||
+            !Buffer.isBuffer(rawArtifact.bytes) ||
+            rawArtifact.byteLength !== response.descriptor.byteLength ||
+            rawArtifact.sha256 !== response.descriptor.sha256 ||
+            !Number.isSafeInteger(rawArtifact.nodeCount) ||
+            (rawArtifact.nodeCount as number) >
+              SYNTHESIS_SIDECAR_TRANSFER_LIMITS.pageJsonNodes ||
+            response.rows.length !== response.descriptor.rowCount
+          ) {
+            finishRuntimeFailure(task, "worker_result_invalid", created);
+            return;
+          }
+          const descriptor = response.descriptor;
+          let sectionIndex = task.rustOutputSectionIndex ?? 0;
+          let sectionSpec = sectionSpecs[sectionIndex];
+          if (
+            descriptor.section !== sectionSpec?.name &&
+            sectionIndex + 1 < sectionSpecs.length &&
+            descriptor.section === sectionSpecs[sectionIndex + 1]?.name &&
+            descriptor.pageIndex === 0 &&
+            (task.rustOutputPageCounts?.get(sectionSpec?.name || "") ?? 0) > 0
+          ) {
+            sectionIndex += 1;
+            sectionSpec = sectionSpecs[sectionIndex];
+            task.rustOutputSectionIndex = sectionIndex;
+          }
+          const expectedIndex =
+            task.rustOutputPageCounts?.get(descriptor.section) ?? 0;
+          const kind = GRAPH_TRANSFER_KIND_BY_SECTION[descriptor.section];
+          if (
+            !sectionSpec ||
+            descriptor.section !== sectionSpec.name ||
+            descriptor.pageIndex !== expectedIndex ||
+            !kind
+          ) {
+            finishRuntimeFailure(task, "worker_result_invalid", created);
+            return;
+          }
+          task.rustOutputSections?.set(descriptor.section, []);
+          task.rustOutputPageCounts?.set(descriptor.section, expectedIndex + 1);
+          const bytes = rawArtifact.bytes;
+          const run = task.request as SynthesisSidecarGraphBuildTransferRun;
+          void (async () => {
+            try {
+              await task.rustTransferOutputReady;
+              await run.outputPage({
+                descriptor: {
+                  kind,
+                  pageIndex: descriptor.pageIndex,
+                  rowCount: descriptor.rowCount,
+                  byteLength: descriptor.byteLength,
+                  sha256: descriptor.sha256,
+                },
+                bytes: bytes.buffer.slice(
+                  bytes.byteOffset,
+                  bytes.byteOffset + bytes.byteLength,
+                ) as ArrayBuffer,
+              });
+              if (task !== active || task.terminating) return;
+              created.postMessage({
+                type: "result_ack",
+                taskId: task.id,
+                section: descriptor.section,
+                pageIndex: descriptor.pageIndex,
+              });
+            } catch (error) {
+              if (task === active && !task.terminating) {
+                finishTransferControlFailure(task, error, created);
+              }
+            }
+          })();
+          return;
+        }
         if (
           !sectionSpecs ||
           task.rustProtocolPhase !== "result" ||
@@ -1302,7 +1606,7 @@ export function createSynthesisSidecarComputeWorkerPool(
         }
         const existingRows =
           task.rustOutputSections?.get(descriptor.section) ?? [];
-        if (sectionSpec.record) {
+        if (sectionSpec.shape === "record") {
           const keys = new Set(
             existingRows.map((row) => (row as [string, unknown])[0]),
           );
@@ -1335,7 +1639,15 @@ export function createSynthesisSidecarComputeWorkerPool(
         if (
           !sectionSpecs ||
           task.rustProtocolPhase !== "result" ||
-          !hasExactKeys(response, ["protocol", "type", "taskId"]) ||
+          !hasExactKeys(response, [
+            "protocol",
+            "type",
+            "taskId",
+            "operation",
+            "requestHash",
+          ]) ||
+          response.operation !== task.operation ||
+          response.requestHash !== task.rustExpectedRequestHash ||
           !task.rustOutputHeader ||
           !task.rustOutputSections ||
           task.rustOutputSectionIndex !== sectionSpecs.length - 1 ||
@@ -1348,11 +1660,29 @@ export function createSynthesisSidecarComputeWorkerPool(
           finishRuntimeFailure(task, "worker_result_invalid", created);
           return;
         }
+        if (
+          task.operation === SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION
+        ) {
+          const run = task.request as SynthesisSidecarGraphBuildTransferRun;
+          void (async () => {
+            try {
+              await task.rustTransferOutputReady;
+              await run.outputComplete(task.rustOutputHeader!);
+              finishTransferSuccess(task);
+            } catch (error) {
+              if (task === active && !task.terminating) {
+                finishTransferControlFailure(task, error, created);
+              }
+            }
+          })();
+          return;
+        }
         response = {
           type: "result",
           result: assembleRustPagedResult(
             task.rustOutputHeader,
             task.rustOutputSections,
+            sectionSpecs,
           ),
         };
         assembledPagedResult = true;
@@ -1375,7 +1705,14 @@ export function createSynthesisSidecarComputeWorkerPool(
         | SynthesisTagVocabularyIndexResult
         | SynthesisConceptKbIndexResult
         | SynthesisConceptKbQueryResult
-        | SynthesisTopicGraphIndexResult;
+        | SynthesisTopicGraphIndexResult
+        | SynthesisCitationGraphBuildResult
+        | SynthesisReferenceBindingResult
+        | SynthesisReferenceDedupeResult
+        | SynthesisTopicValidationResult
+        | SynthesisTopicArtifactAssemblyResult
+        | SynthesisTopicSectionPatchResult
+        | undefined;
       try {
         switch (task.operation) {
           case RUST_METRICS_OPERATION:
@@ -1409,8 +1746,54 @@ export function createSynthesisSidecarComputeWorkerPool(
               response.result,
             );
             break;
+          case SYNTHESIS_SIDECAR_REFERENCE_BINDING_OPERATION:
+            result = rebuildSynthesisReferenceBindingResult(
+              response.result,
+              task.request as SynthesisReferenceBindingRequest,
+            );
+            break;
+          case SYNTHESIS_SIDECAR_REFERENCE_CANONICAL_DEDUPE_OPERATION:
+            result = rebuildSynthesisReferenceDedupeResult(
+              response.result,
+              task.request as SynthesisReferenceDedupeRequest,
+            );
+            break;
+          case SYNTHESIS_SIDECAR_TOPIC_MANIFEST_VALIDATE_OPERATION:
+            result = rebuildSynthesisTopicManifestValidationResult(
+              response.result,
+              task.request as SynthesisTopicManifestValidationRequest,
+            );
+            break;
+          case SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_ASSEMBLE_OPERATION:
+            result = rebuildSynthesisTopicArtifactAssemblyResult(
+              response.result,
+              task.request as SynthesisTopicArtifactAssemblyRequest,
+            );
+            break;
+          case SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_VALIDATE_OPERATION:
+            result = rebuildSynthesisTopicArtifactValidationResult(
+              response.result,
+              task.request as SynthesisTopicArtifactValidationRequest,
+            );
+            break;
+          case SYNTHESIS_SIDECAR_TOPIC_SECTION_PATCH_OPERATION:
+            result = rebuildSynthesisTopicSectionPatchResult(
+              response.result,
+              task.request as SynthesisTopicSectionPatchRequest,
+            );
+            break;
+          case SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION:
+            result = rebuildSynthesisCitationGraphBuildResult(
+              response.result,
+              task.request as SynthesisCitationGraphBuildRequest,
+            );
+            break;
         }
       } catch {
+        finishRuntimeFailure(task, "worker_result_invalid", created);
+        return;
+      }
+      if (!result) {
         finishRuntimeFailure(task, "worker_result_invalid", created);
         return;
       }
@@ -1454,20 +1837,18 @@ export function createSynthesisSidecarComputeWorkerPool(
     task.deadline.unref();
     const cancellation = task.cancellation.buffer as SharedArrayBuffer;
     if (task.operation === SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION) {
-      const channel = new MessageChannel();
-      task.transferPort = channel.port1;
       const run = task.request as SynthesisSidecarGraphBuildTransferRun;
-      const message: SynthesisSidecarComputeRunMessage = {
-        type: "run",
+      task.rustTransferInputIterator = run.inputPages()[Symbol.asyncIterator]();
+      task.rustProtocolPhase = "input";
+      task.rustExpectedRequestHash = run.requestHash;
+      target.postMessage({
+        type: "run_begin",
         taskId: task.id,
         operation: SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION,
+        requestHash: run.requestHash,
         header: run.header,
-        port: channel.port2,
-        cancellation,
-      };
-      const nodeTarget = target as Worker;
-      nodeTarget.postMessage(message, [channel.port2]);
-      void streamTransferTask(task, nodeTarget, channel.port1);
+      });
+      void sendNextRustTransferInput(task, target as RustComputeWorkerTarget);
       return;
     }
     let message: SynthesisSidecarComputeRunMessage;
@@ -1493,7 +1874,14 @@ export function createSynthesisSidecarComputeWorkerPool(
       case SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION:
       case SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION:
       case SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION:
-      case SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION: {
+      case SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION:
+      case SYNTHESIS_SIDECAR_REFERENCE_BINDING_OPERATION:
+      case SYNTHESIS_SIDECAR_REFERENCE_CANONICAL_DEDUPE_OPERATION:
+      case SYNTHESIS_SIDECAR_TOPIC_MANIFEST_VALIDATE_OPERATION:
+      case SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_ASSEMBLE_OPERATION:
+      case SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_VALIDATE_OPERATION:
+      case SYNTHESIS_SIDECAR_TOPIC_SECTION_PATCH_OPERATION:
+      case SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION: {
         const paged = extractRustPagedRequest(
           task.operation,
           task.request as Exclude<
@@ -1501,14 +1889,21 @@ export function createSynthesisSidecarComputeWorkerPool(
             SynthesisSidecarGraphBuildTransferRun
           >,
         );
+        const pages = [...paged.pages];
+        task.rustExpectedRequestHash = synthesisRustPagedRequestHash(
+          task.operation,
+          paged.header,
+          pages.map((page) => page.descriptor),
+        );
         task.rustInputPages = [];
-        task.rustInputPageIterator = paged.pages;
+        task.rustInputPageIterator = pages.values();
         prefetchRustInputPage(task);
         task.rustProtocolPhase = "input";
         target.postMessage({
           type: "run_begin",
           taskId: task.id,
           operation: task.operation,
+          requestHash: task.rustExpectedRequestHash,
           header: paged.header,
         });
         const first = task.rustInputPages[0];
@@ -1522,15 +1917,6 @@ export function createSynthesisSidecarComputeWorkerPool(
         prefetchRustInputPage(task);
         return;
       }
-      case SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION:
-        message = {
-          type: "run",
-          taskId: task.id,
-          operation: SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION,
-          payload: task.request as SynthesisCitationGraphBuildRequest,
-          cancellation,
-        };
-        break;
     }
     target.postMessage(message);
   };
@@ -1544,7 +1930,13 @@ export function createSynthesisSidecarComputeWorkerPool(
       | SynthesisTagVocabularyIndexRequest
       | SynthesisConceptKbIndexRequest
       | SynthesisConceptKbQueryRequest
-      | SynthesisTopicGraphIndexRequest,
+      | SynthesisTopicGraphIndexRequest
+      | SynthesisReferenceBindingRequest
+      | SynthesisReferenceDedupeRequest
+      | SynthesisTopicManifestValidationRequest
+      | SynthesisTopicArtifactAssemblyRequest
+      | SynthesisTopicArtifactValidationRequest
+      | SynthesisTopicSectionPatchRequest,
     Result extends
       | SynthesisCitationGraphLayoutResult
       | SynthesisCitationGraphMetricsResult
@@ -1553,7 +1945,12 @@ export function createSynthesisSidecarComputeWorkerPool(
       | SynthesisTagVocabularyIndexResult
       | SynthesisConceptKbIndexResult
       | SynthesisConceptKbQueryResult
-      | SynthesisTopicGraphIndexResult,
+      | SynthesisTopicGraphIndexResult
+      | SynthesisReferenceBindingResult
+      | SynthesisReferenceDedupeResult
+      | SynthesisTopicValidationResult
+      | SynthesisTopicArtifactAssemblyResult
+      | SynthesisTopicSectionPatchResult,
   >(
     operation: Task["operation"],
     request: Request,
@@ -1681,6 +2078,69 @@ export function createSynthesisSidecarComputeWorkerPool(
         runOptions,
       );
 
+  const runReferenceBinding: SynthesisSidecarComputeWorkerPool["runReferenceBinding"] =
+    (requestInput, runOptions = {}) =>
+      enqueue<
+        SynthesisReferenceBindingRequest,
+        SynthesisReferenceBindingResult
+      >(
+        SYNTHESIS_SIDECAR_REFERENCE_BINDING_OPERATION,
+        rebuildSynthesisReferenceBindingRequest(requestInput),
+        runOptions,
+      );
+
+  const runReferenceCanonicalDedupe: SynthesisSidecarComputeWorkerPool["runReferenceCanonicalDedupe"] =
+    (requestInput, runOptions = {}) =>
+      enqueue<SynthesisReferenceDedupeRequest, SynthesisReferenceDedupeResult>(
+        SYNTHESIS_SIDECAR_REFERENCE_CANONICAL_DEDUPE_OPERATION,
+        rebuildSynthesisReferenceDedupeRequest(requestInput),
+        runOptions,
+      );
+
+  const runTopicManifestValidation: SynthesisSidecarComputeWorkerPool["runTopicManifestValidation"] =
+    (requestInput, runOptions = {}) =>
+      enqueue<
+        SynthesisTopicManifestValidationRequest,
+        SynthesisTopicValidationResult
+      >(
+        SYNTHESIS_SIDECAR_TOPIC_MANIFEST_VALIDATE_OPERATION,
+        rebuildSynthesisTopicManifestValidationRequest(requestInput),
+        runOptions,
+      );
+
+  const runTopicArtifactAssembly: SynthesisSidecarComputeWorkerPool["runTopicArtifactAssembly"] =
+    (requestInput, runOptions = {}) =>
+      enqueue<
+        SynthesisTopicArtifactAssemblyRequest,
+        SynthesisTopicArtifactAssemblyResult
+      >(
+        SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_ASSEMBLE_OPERATION,
+        rebuildSynthesisTopicArtifactAssemblyRequest(requestInput),
+        runOptions,
+      );
+
+  const runTopicArtifactValidation: SynthesisSidecarComputeWorkerPool["runTopicArtifactValidation"] =
+    (requestInput, runOptions = {}) =>
+      enqueue<
+        SynthesisTopicArtifactValidationRequest,
+        SynthesisTopicValidationResult
+      >(
+        SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_VALIDATE_OPERATION,
+        rebuildSynthesisTopicArtifactValidationRequest(requestInput),
+        runOptions,
+      );
+
+  const runTopicSectionPatch: SynthesisSidecarComputeWorkerPool["runTopicSectionPatch"] =
+    (requestInput, runOptions = {}) =>
+      enqueue<
+        SynthesisTopicSectionPatchRequest,
+        SynthesisTopicSectionPatchResult
+      >(
+        SYNTHESIS_SIDECAR_TOPIC_SECTION_PATCH_OPERATION,
+        rebuildSynthesisTopicSectionPatchRequest(requestInput),
+        runOptions,
+      );
+
   const runCitationGraphBuildTransfer: SynthesisSidecarComputeWorkerPool["runCitationGraphBuildTransfer"] =
     (run, runOptions = {}) => {
       if (stopping || degraded) {
@@ -1773,6 +2233,12 @@ export function createSynthesisSidecarComputeWorkerPool(
     runConceptKbIndex,
     runConceptKbQuery,
     runTopicGraphIndex,
+    runReferenceBinding,
+    runReferenceCanonicalDedupe,
+    runTopicManifestValidation,
+    runTopicArtifactAssembly,
+    runTopicArtifactValidation,
+    runTopicSectionPatch,
     runCitationGraphBuildTransfer,
     snapshot,
     shutdown,

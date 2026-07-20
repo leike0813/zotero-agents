@@ -31,6 +31,23 @@ import {
   rebuildSynthesisTopicGraphIndexRequest,
 } from "../packages/synthesis-engine/src/topicGraphIndex.js";
 import {
+  computeSynthesisReferenceBinding,
+  computeSynthesisReferenceDedupe,
+  rebuildSynthesisReferenceBindingRequest,
+  rebuildSynthesisReferenceDedupeRequest,
+} from "../packages/synthesis-engine/src/referenceMatcher.js";
+import {
+  createInProcessSynthesisTopicStructuredArtifactEngine,
+  rebuildSynthesisTopicArtifactAssemblyRequest,
+  rebuildSynthesisTopicArtifactValidationRequest,
+  rebuildSynthesisTopicManifestValidationRequest,
+  rebuildSynthesisTopicSectionPatchRequest,
+} from "../packages/synthesis-engine/src/topicStructuredArtifact.js";
+import {
+  createInProcessSynthesisCitationGraphBuildEngine,
+  rebuildSynthesisCitationGraphBuildRequest,
+} from "../packages/synthesis-engine/src/citationGraphBuild.js";
+import {
   ComputeWorkerPoolError,
   createSynthesisSidecarComputeWorkerPool,
 } from "../apps/synthesis-service/src/computeWorkerPool.js";
@@ -208,6 +225,89 @@ async function checkRustDeterministicParity(args: {
   const tagEngine = createInProcessSynthesisTagVocabularyEngine();
   const conceptEngine = createInProcessSynthesisConceptKbIndexEngine();
   const topicEngine = createInProcessSynthesisTopicGraphIndexEngine();
+  const topicArtifactEngine =
+    createInProcessSynthesisTopicStructuredArtifactEngine();
+  const referenceBinding = rebuildSynthesisReferenceBindingRequest({
+    contractVersion: "synthesis-reference-matcher.v1",
+    algorithmVersion: "reference-binding.v1",
+    policyId: "production",
+    papers: [
+      {
+        paperRef: "1:A",
+        title: "Exact Reference Matching Work",
+        authors: ["Alpha"],
+        identifiers: [{ kind: "doi", value: "10.1000/exact" }],
+      },
+    ],
+    references: [
+      {
+        canonicalReferenceId: "canonical:1",
+        reference: {
+          title: "Exact Reference Matching Work",
+          rawReference: "doi:10.1000/exact",
+        },
+      },
+    ],
+  });
+  const referenceDedupe = rebuildSynthesisReferenceDedupeRequest({
+    contractVersion: "synthesis-reference-matcher.v1",
+    algorithmVersion: "canonical-cluster-dedupe.v1",
+    canonicals: ["a", "b"].map((id) => ({
+      canonicalReferenceId: `canonical:${id}`,
+      title: "Exact Reference Matching Work",
+      normalizedTitle: "exact reference matching work",
+      year: "2024",
+      authors: ["Alpha"],
+      acceptedBinding: false,
+      stickyRepresentative: id === "a",
+      rawReferenceIds: [`raw:${id}`],
+      rawHashes: [`hash:${id}`],
+      rawReferences: ["Exact Reference Matching Work"],
+      sourceRefs: [`1:${id.toUpperCase()}`],
+      identifiers: [{ kind: "doi", value: "10.1000/exact" }],
+      titleCandidates: [],
+    })),
+  });
+  const topicManifest = rebuildSynthesisTopicManifestValidationRequest({
+    contractVersion: "synthesis-topic-structured-artifact.v1",
+    algorithmVersion: "topic-analysis-manifest-validation.v1",
+    manifest: {},
+  });
+  const topicAssembly = rebuildSynthesisTopicArtifactAssemblyRequest({
+    contractVersion: "synthesis-topic-structured-artifact.v1",
+    algorithmVersion: "topic-structured-artifact-assembly.v1",
+    manifest: { language: "en" },
+    sections: { topic: { title: "Contract parity" } },
+  });
+  const topicValidation = rebuildSynthesisTopicArtifactValidationRequest({
+    contractVersion: "synthesis-topic-structured-artifact.v1",
+    algorithmVersion: "topic-structured-artifact-validation.v1",
+    artifact: { schema_id: "invalid" },
+  });
+  const topicPatch = rebuildSynthesisTopicSectionPatchRequest({
+    contractVersion: "synthesis-topic-structured-artifact.v1",
+    algorithmVersion: "topic-section-patch.v1",
+    currentManifest: { section_hashes: { claims: "sha256:old" } },
+    currentSections: { claims: [{ id: "old" }] },
+    patchManifest: {
+      base: {
+        read_section_hashes: { claims: "sha256:old" },
+        replace_section_hashes: { claims: "sha256:old" },
+      },
+      patch: { sections: { claims: { hash: "sha256:new" } } },
+    },
+    changedSections: { claims: [{ id: "new" }] },
+  });
+  const graphBuild = rebuildSynthesisCitationGraphBuildRequest({
+    contractVersion: "synthesis-citation-graph-build.v1",
+    scope: { kind: "full", sourceIds: [] },
+    rolePriority: [],
+    libraryNodes: [
+      { nodeId: "paper:A", title: "Contract parity", authors: [], aliases: [] },
+    ],
+    references: [],
+  });
+  const graphEngine = createInProcessSynthesisCitationGraphBuildEngine();
   const pool = createSynthesisSidecarComputeWorkerPool();
   const cases = [
     {
@@ -240,6 +340,48 @@ async function checkRustDeterministicParity(args: {
       schemaRef: "schemas/compute.schema.json#/$defs/topicGraphIndexResult",
       typescript: () => topicEngine.buildIndex(topicGraphIndex),
       rust: () => pool.runTopicGraphIndex(topicGraphIndex),
+    },
+    {
+      id: "reference-binding",
+      schemaRef: "schemas/compute.schema.json#/$defs/versionedDomainResult",
+      typescript: () => computeSynthesisReferenceBinding(referenceBinding),
+      rust: () => pool.runReferenceBinding(referenceBinding),
+    },
+    {
+      id: "reference-canonical-dedupe",
+      schemaRef: "schemas/compute.schema.json#/$defs/versionedDomainResult",
+      typescript: () => computeSynthesisReferenceDedupe(referenceDedupe),
+      rust: () => pool.runReferenceCanonicalDedupe(referenceDedupe),
+    },
+    {
+      id: "topic-manifest-validation",
+      schemaRef: "schemas/compute.schema.json#/$defs/versionedDomainResult",
+      typescript: () => topicArtifactEngine.validateManifest(topicManifest),
+      rust: () => pool.runTopicManifestValidation(topicManifest),
+    },
+    {
+      id: "topic-artifact-assembly",
+      schemaRef: "schemas/compute.schema.json#/$defs/versionedDomainResult",
+      typescript: () => topicArtifactEngine.assembleArtifact(topicAssembly),
+      rust: () => pool.runTopicArtifactAssembly(topicAssembly),
+    },
+    {
+      id: "topic-artifact-validation",
+      schemaRef: "schemas/compute.schema.json#/$defs/versionedDomainResult",
+      typescript: () => topicArtifactEngine.validateArtifact(topicValidation),
+      rust: () => pool.runTopicArtifactValidation(topicValidation),
+    },
+    {
+      id: "topic-section-patch",
+      schemaRef: "schemas/compute.schema.json#/$defs/versionedDomainResult",
+      typescript: () => topicArtifactEngine.applySectionPatch(topicPatch),
+      rust: () => pool.runTopicSectionPatch(topicPatch),
+    },
+    {
+      id: "citation-graph-build",
+      schemaRef: "schemas/compute.schema.json#/$defs/graphBuildResult",
+      typescript: () => graphEngine.compute(graphBuild),
+      rust: () => pool.runCitationGraphBuild(graphBuild),
     },
   ];
 

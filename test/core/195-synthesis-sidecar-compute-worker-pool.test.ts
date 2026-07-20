@@ -42,6 +42,7 @@ import {
   createSynthesisSidecarComputeWorkerPool,
   SYNTHESIS_SIDECAR_COMPUTE_LIMITS,
   SYNTHESIS_SIDECAR_TRANSFER_EXECUTION_TIMEOUT_MS,
+  synthesisRustPagedRequestHash,
 } from "../../apps/synthesis-service/src/computeWorkerPool";
 import { startSynthesisSidecarServer } from "../../apps/synthesis-service/src/server";
 import type { SynthesisSidecarRuntimeConfig } from "../../apps/synthesis-service/src/runtimeConfig";
@@ -478,7 +479,7 @@ describe("Synthesis sidecar compute worker pool", function () {
           topicGraphInput,
         ),
       );
-      assert.equal(spawns, 2);
+      assert.equal(spawns, 1);
       assert.deepEqual(options?.resourceLimits, {
         maxOldGenerationSizeMb: 256,
         maxYoungGenerationSizeMb: 32,
@@ -635,13 +636,28 @@ describe("Synthesis sidecar compute worker pool", function () {
     );
     const output: unknown[] = [];
     let publishing = false;
+    const header = {
+      contractVersion: "synthesis-citation-graph-build.v1",
+      scope: { kind: "full" as const, sourceIds: [] as string[] },
+      rolePriority: [] as string[],
+    };
     try {
       await pool.runCitationGraphBuildTransfer({
-        header: {
-          contractVersion: "synthesis-citation-graph-build.v1",
-          scope: { kind: "full", sourceIds: [] },
-          rolePriority: [],
-        },
+        header,
+        requestHash: synthesisRustPagedRequestHash(
+          "citation_graph_build_transfer.v1",
+          header,
+          [library, references].map((page) => ({
+            section:
+              page.descriptor.kind === "library_nodes"
+                ? "libraryNodes"
+                : "references",
+            pageIndex: page.descriptor.pageIndex,
+            rowCount: page.descriptor.rowCount,
+            byteLength: page.descriptor.byteLength,
+            sha256: page.descriptor.sha256,
+          })),
+        ),
         async *inputPages() {
           for (const page of [library, references]) {
             const encoded = new TextEncoder().encode(
@@ -686,6 +702,7 @@ describe("Synthesis sidecar compute worker pool", function () {
         await pool
           .runCitationGraphBuildTransfer({
             header: {},
+            requestHash: `sha256:${"0".repeat(64)}`,
             async *inputPages() {
               yield* [];
             },
@@ -705,6 +722,7 @@ describe("Synthesis sidecar compute worker pool", function () {
   it("cancels streaming transfer and applies its failures to the shared fuse", async function () {
     const run = {
       header: {},
+      requestHash: `sha256:${"0".repeat(64)}`,
       async *inputPages() {
         yield* [];
       },
@@ -768,7 +786,7 @@ describe("Synthesis sidecar compute worker pool", function () {
     const pool = fixturePool({ executionTimeoutMs: 500 });
     assert.equal(
       await pool.runCitationGraphBuild(graphBuildRequest("b")).catch(errorCode),
-      "worker_crashed",
+      "worker_timeout",
     );
     assert.equal(
       await pool.runCitationGraphMetrics(metricsRequest("b")).catch(errorCode),

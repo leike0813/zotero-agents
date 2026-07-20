@@ -58,6 +58,13 @@
       "schemaRef": "schemas/compute.schema.json#/$defs/deterministicWorkerResultBegin",
       "inputJson": "{\"protocol\":\"synthesis-rust-worker.v1\",\"type\":\"result_begin\",\"taskId\":\"task-1\",\"header\":{},\"unknown\":true}",
       "errorCode": "invalid_request"
+    },
+    {
+      "id": "r5-run-begin-invalid-request-hash",
+      "oracle": "schemaOnly",
+      "schemaRef": "schemas/compute.schema.json#/$defs/deterministicWorkerRunBegin",
+      "inputJson": "{\"protocol\":\"synthesis-rust-worker.v1\",\"type\":\"run_begin\",\"taskId\":\"task-r5\",\"operation\":\"reference_binding.v1\",\"requestHash\":\"sha256:bad\",\"header\":{\"contractVersion\":\"synthesis-reference-matcher.v1\",\"algorithmVersion\":\"reference-binding.v1\",\"policyId\":\"production\"}}",
+      "errorCode": "invalid_request"
     }
   ]
 }

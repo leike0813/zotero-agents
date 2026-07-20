@@ -226,7 +226,6 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/packages/synthesis-engine/src/index.js",
       "service/packages/synthesis-engine/src/citationGraphBuild.js",
       "service/packages/synthesis-engine/src/citationGraphBuildTransfer.js",
-      "service/packages/synthesis-engine/src/citationGraphBuildPacked.js",
       "service/packages/synthesis-engine/src/conceptKbIndex.js",
       "service/packages/synthesis-engine/src/topicGraphIndex.js",
       "service/packages/synthesis-contracts/src/sidecarTransfer.js",
@@ -313,13 +312,13 @@ describe("Synthesis sidecar runtime packaging", function () {
     );
     assert.include(
       packagedWorker,
-      "createInProcessSynthesisCitationGraphBuildEngine",
-    );
-    assert.include(
-      packagedWorker,
-      "createSynthesisCitationGraphBuildPackedAccumulator",
+      "createInProcessSynthesisCitationGraphLayoutEngine",
     );
     for (const removedKernel of [
+      "createInProcessSynthesisReferenceMatcherEngine",
+      "createInProcessSynthesisTopicStructuredArtifactEngine",
+      "createInProcessSynthesisCitationGraphBuildEngine",
+      "createSynthesisCitationGraphBuildPackedAccumulator",
       "createInProcessSynthesisTagVocabularyEngine",
       "createInProcessSynthesisConceptKbIndexEngine",
       "createInProcessSynthesisTopicGraphIndexEngine",
@@ -599,7 +598,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       first.inputs,
       "packages/synthesis-engine/src/citationGraphBuildTransfer.ts",
     );
-    assert.include(
+    assert.notInclude(
       first.inputs,
       "packages/synthesis-engine/src/citationGraphBuildPacked.ts",
     );

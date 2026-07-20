@@ -13,6 +13,7 @@ import {
 } from "./citationGraphTransferOwner.js";
 import {
   ComputeWorkerPoolError,
+  synthesisRustPagedRequestHash,
   type SynthesisSidecarComputeWorkerPool,
 } from "./computeWorkerPool.js";
 
@@ -87,6 +88,20 @@ export function createCitationGraphBuildTransferExecutor(options: {
       completion = options.pool.runCitationGraphBuildTransfer(
         {
           header: manifest.header,
+          requestHash: synthesisRustPagedRequestHash(
+            "citation_graph_build_transfer.v1",
+            manifest.header,
+            manifest.pages.map((descriptor) => ({
+              section:
+                descriptor.kind === "library_nodes"
+                  ? "libraryNodes"
+                  : "references",
+              pageIndex: descriptor.pageIndex,
+              rowCount: descriptor.rowCount,
+              byteLength: descriptor.byteLength,
+              sha256: descriptor.sha256,
+            })),
+          ),
           async *inputPages() {
             options.owner.startExecution(sessionId, queued.attempt);
             for (const descriptor of manifest.pages) {

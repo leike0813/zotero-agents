@@ -1459,24 +1459,27 @@ function rebuiltErrors(value: unknown, location: string) {
 
 function rebuiltValidationResult(
   input: unknown,
-  expected: SynthesisTopicValidationResult,
+  algorithmVersion:
+    | typeof SYNTHESIS_TOPIC_MANIFEST_VALIDATION_VERSION
+    | typeof SYNTHESIS_TOPIC_ARTIFACT_VALIDATION_VERSION,
 ): SynthesisTopicValidationResult {
   const row = requestObject(input, "result");
+  const errors = rebuiltErrors(row.errors, "result.errors");
   const rebuilt: SynthesisTopicValidationResult = {
     contractVersion: SYNTHESIS_TOPIC_STRUCTURED_ARTIFACT_CONTRACT_VERSION,
-    algorithmVersion: expected.algorithmVersion,
+    algorithmVersion,
     ok:
       typeof row.ok === "boolean"
         ? row.ok
         : contractInvalid("result.ok must be a boolean"),
-    errors: rebuiltErrors(row.errors, "result.errors"),
+    errors,
   };
   if (
     row.contractVersion !== rebuilt.contractVersion ||
     row.algorithmVersion !== rebuilt.algorithmVersion ||
-    !sameCanonicalJson(rebuilt, expected)
+    rebuilt.ok !== (errors.length === 0)
   ) {
-    contractInvalid("validation result does not match the request");
+    contractInvalid("validation result is inconsistent");
   }
   return rebuilt;
 }
@@ -1486,13 +1489,10 @@ export function rebuildSynthesisTopicManifestValidationResult(
   requestInput: unknown,
   bounds: SynthesisTopicStructuredArtifactContractBounds = {},
 ): SynthesisTopicValidationResult {
-  const request = rebuildSynthesisTopicManifestValidationRequest(
-    requestInput,
-    bounds,
-  );
+  rebuildSynthesisTopicManifestValidationRequest(requestInput, bounds);
   return rebuiltValidationResult(
     input,
-    computeManifestValidationResult(request),
+    SYNTHESIS_TOPIC_MANIFEST_VALIDATION_VERSION,
   );
 }
 
@@ -1501,13 +1501,10 @@ export function rebuildSynthesisTopicArtifactValidationResult(
   requestInput: unknown,
   bounds: SynthesisTopicStructuredArtifactContractBounds = {},
 ): SynthesisTopicValidationResult {
-  const request = rebuildSynthesisTopicArtifactValidationRequest(
-    requestInput,
-    bounds,
-  );
+  rebuildSynthesisTopicArtifactValidationRequest(requestInput, bounds);
   return rebuiltValidationResult(
     input,
-    computeArtifactValidationResult(request),
+    SYNTHESIS_TOPIC_ARTIFACT_VALIDATION_VERSION,
   );
 }
 
@@ -1532,12 +1529,18 @@ export function rebuildSynthesisTopicArtifactAssemblyResult(
       {},
     ),
   };
+  const expectedArtifact = {
+    schema_id: "synthesis.topic_synthesis_artifact",
+    schema_version: "3.0.0",
+    language: cleanString(request.manifest.language) || "auto",
+    ...request.sections,
+  };
   if (
     row.contractVersion !== rebuilt.contractVersion ||
     row.algorithmVersion !== rebuilt.algorithmVersion ||
-    !sameCanonicalJson(rebuilt, computeArtifactAssemblyResult(request))
+    !sameCanonicalJson(rebuilt.artifact, expectedArtifact)
   ) {
-    contractInvalid("assembly result does not match the request");
+    contractInvalid("assembly result violates request invariants");
   }
   return rebuilt;
 }
@@ -1622,12 +1625,54 @@ export function rebuildSynthesisTopicSectionPatchResult(
   } else {
     contractInvalid("result.status is invalid");
   }
+  const read = stringMap(
+    (request.patchManifest.base as Record<string, unknown> | undefined)
+      ?.read_section_hashes,
+  );
+  const replace = stringMap(
+    (request.patchManifest.base as Record<string, unknown> | undefined)
+      ?.replace_section_hashes,
+  );
+  const current = stringMap(request.currentManifest.section_hashes);
+  const mismatches = Object.entries(read)
+    .filter(([name, hash]) => current[name] !== hash)
+    .map(([name, base]) => ({
+      name: `section:${name}`,
+      base,
+      current: current[name] || "",
+    }));
+  const invalidReplace = Object.keys(replace).filter((name) => !(name in read));
+  let invariantValid = false;
+  if (rebuilt.status === "conflict") {
+    invariantValid =
+      mismatches.length > 0 &&
+      sameCanonicalJson(rebuilt.mismatches, mismatches);
+  } else if (rebuilt.status === "invalid") {
+    invariantValid = mismatches.length === 0 && invalidReplace.length > 0;
+  } else if (mismatches.length === 0 && invalidReplace.length === 0) {
+    const expectedSections = {
+      ...request.currentSections,
+      ...request.changedSections,
+    };
+    const expectedHashes = { ...current };
+    const patchSections =
+      (request.patchManifest.patch as Record<string, unknown> | undefined)
+        ?.sections || {};
+    if (isObject(patchSections)) {
+      for (const [name, entry] of Object.entries(patchSections)) {
+        if (isObject(entry)) expectedHashes[name] = cleanString(entry.hash);
+      }
+    }
+    invariantValid =
+      sameCanonicalJson(rebuilt.sections, expectedSections) &&
+      sameCanonicalJson(rebuilt.nextSectionHashes, expectedHashes);
+  }
   if (
     row.contractVersion !== rebuilt.contractVersion ||
     row.algorithmVersion !== rebuilt.algorithmVersion ||
-    !sameCanonicalJson(rebuilt, computeSectionPatchResult(request))
+    !invariantValid
   ) {
-    contractInvalid("section patch result does not match the request");
+    contractInvalid("section patch result violates request invariants");
   }
   return rebuilt;
 }

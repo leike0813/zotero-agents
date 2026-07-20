@@ -1028,7 +1028,29 @@
             "overlayEntries",
             "matches",
             "roots",
-            "unplaced"
+            "unplaced",
+            "papers",
+            "references",
+            "canonicals",
+            "clusters",
+            "actions",
+            "diagnostics",
+            "libraryNodes",
+            "resolvedEdges",
+            "aggregateEdges",
+            "sourceOwnership",
+            "incomingGroups",
+            "lightMetrics",
+            "manifest",
+            "artifact",
+            "sections",
+            "currentManifest",
+            "currentSections",
+            "patchManifest",
+            "changedSections",
+            "nextSectionHashes",
+            "mismatches",
+            "errors"
           ]
         },
         "pageIndex": { "type": "integer", "minimum": 0, "maximum": 255 },
@@ -1040,7 +1062,14 @@
     "deterministicWorkerRunBegin": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["protocol", "type", "taskId", "operation", "header"],
+      "required": [
+        "protocol",
+        "type",
+        "taskId",
+        "operation",
+        "requestHash",
+        "header"
+      ],
       "properties": {
         "protocol": { "const": "synthesis-rust-worker.v1" },
         "type": { "const": "run_begin" },
@@ -1051,20 +1080,38 @@
             "tag_vocabulary_index.v1",
             "concept_kb_index.v1",
             "concept_kb_query.v1",
-            "topic_graph_index.v1"
+            "topic_graph_index.v1",
+            "reference_binding.v1",
+            "reference_canonical_dedupe.v1",
+            "topic_manifest_validate.v1",
+            "topic_artifact_assemble.v1",
+            "topic_artifact_validate.v1",
+            "topic_section_patch.v1",
+            "citation_graph_build.v1",
+            "citation_graph_build_transfer.v1"
           ]
         },
+        "requestHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
         "header": { "$ref": "#/$defs/jsonObject" }
       }
     },
     "deterministicWorkerResultBegin": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["protocol", "type", "taskId", "header"],
+      "required": [
+        "protocol",
+        "type",
+        "taskId",
+        "operation",
+        "requestHash",
+        "header"
+      ],
       "properties": {
         "protocol": { "const": "synthesis-rust-worker.v1" },
         "type": { "const": "result_begin" },
         "taskId": { "$ref": "#/$defs/identifier" },
+        "operation": { "$ref": "#/$defs/identifier" },
+        "requestHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
         "header": { "$ref": "#/$defs/jsonObject" }
       }
     },
@@ -1103,8 +1150,25 @@
       "properties": {
         "protocol": { "const": "synthesis-rust-worker.v1" },
         "type": { "enum": ["input_complete", "result_complete"] },
-        "taskId": { "$ref": "#/$defs/identifier" }
-      }
+        "taskId": { "$ref": "#/$defs/identifier" },
+        "operation": { "$ref": "#/$defs/identifier" },
+        "requestHash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "result_complete" } } },
+          "then": {
+            "required": ["operation", "requestHash"],
+            "properties": {
+              "operation": { "$ref": "#/$defs/identifier" },
+              "requestHash": {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              }
+            }
+          }
+        }
+      ]
     },
     "deterministicWorkerMessage": {
       "oneOf": [

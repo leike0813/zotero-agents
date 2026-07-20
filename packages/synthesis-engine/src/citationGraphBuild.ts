@@ -1,3 +1,5 @@
+import { compareSynthesisEngineStrings } from "./canonicalJson.ts";
+
 export const SYNTHESIS_CITATION_GRAPH_BUILD_CONTRACT_VERSION =
   "synthesis-citation-graph-build.v1" as const;
 export const SYNTHESIS_CITATION_GRAPH_BUILD_SOURCE_MAX = 25_000 as const;
@@ -700,7 +702,9 @@ export function rebuildSynthesisCitationGraphBuildRequest(
   if (libraryNodes.length > bounds.sourceMax) {
     return invalid("libraryNodes exceeds its limit");
   }
-  libraryNodes.sort((left, right) => left.nodeId.localeCompare(right.nodeId));
+  libraryNodes.sort((left, right) =>
+    compareSynthesisEngineStrings(left.nodeId, right.nodeId),
+  );
   const libraryIds = new Set<string>();
   for (const node of libraryNodes) {
     if (libraryIds.has(node.nodeId)) {
@@ -721,7 +725,7 @@ export function rebuildSynthesisCitationGraphBuildRequest(
     return invalid("references exceeds its limit");
   }
   references.sort((left, right) =>
-    left.referenceId.localeCompare(right.referenceId),
+    compareSynthesisEngineStrings(left.referenceId, right.referenceId),
   );
   const referenceIds = new Set<string>();
   const edgeIds = new Set<string>();
@@ -821,7 +825,10 @@ function selectPrimaryRole(
     }
     const leftPriority = priority.get(left[0]) ?? Number.MAX_SAFE_INTEGER;
     const rightPriority = priority.get(right[0]) ?? Number.MAX_SAFE_INTEGER;
-    return leftPriority - rightPriority || left[0].localeCompare(right[0]);
+    return (
+      leftPriority - rightPriority ||
+      compareSynthesisEngineStrings(left[0], right[0])
+    );
   })[0][0];
 }
 
@@ -946,7 +953,8 @@ export function computeRebuiltSynthesisCitationGraphBuild(
         .map(([role, count]) => ({ role, count }))
         .sort(
           (left, right) =>
-            right.count - left.count || left.role.localeCompare(right.role),
+            right.count - left.count ||
+            compareSynthesisEngineStrings(left.role, right.role),
         );
       return {
         sourceId: entry.sourceId,
@@ -962,11 +970,11 @@ export function computeRebuiltSynthesisCitationGraphBuild(
     })
     .sort(
       (left, right) =>
-        left.sourceId.localeCompare(right.sourceId) ||
-        left.targetId.localeCompare(right.targetId),
+        compareSynthesisEngineStrings(left.sourceId, right.sourceId) ||
+        compareSynthesisEngineStrings(left.targetId, right.targetId),
     );
   resolvedEdges.sort((left, right) =>
-    left.referenceId.localeCompare(right.referenceId),
+    compareSynthesisEngineStrings(left.referenceId, right.referenceId),
   );
   const sourceOwnership = resolvedEdges.map((edge) => ({
     sourceId: edge.sourceId,
@@ -979,9 +987,9 @@ export function computeRebuiltSynthesisCitationGraphBuild(
     .map((entry) => ({ ...entry }))
     .sort(
       (left, right) =>
-        left.targetId.localeCompare(right.targetId) ||
-        left.sourceId.localeCompare(right.sourceId) ||
-        left.edgeId.localeCompare(right.edgeId),
+        compareSynthesisEngineStrings(left.targetId, right.targetId) ||
+        compareSynthesisEngineStrings(left.sourceId, right.sourceId) ||
+        compareSynthesisEngineStrings(left.edgeId, right.edgeId),
     );
   const outgoingCounts = new Map<string, number>();
   const incomingCounts = new Map<string, number>();
@@ -1001,7 +1009,7 @@ export function computeRebuiltSynthesisCitationGraphBuild(
     counts.set(edge.sourceId, (counts.get(edge.sourceId) || 0) + 1);
   }
   const nodeList = [...nodes.values()].sort((left, right) =>
-    left.nodeId.localeCompare(right.nodeId),
+    compareSynthesisEngineStrings(left.nodeId, right.nodeId),
   );
   const lightMetrics = nodeList.map(
     (node): SynthesisCitationGraphBuildLightMetric => {
@@ -1156,10 +1164,264 @@ export function rebuildSynthesisCitationGraphBuildResult(
   if (!sameScope(scope, request.scope)) {
     return invalid("result.scope does not match request");
   }
-  const result = computeSynthesisCitationGraphBuild(request);
-  const canonicalCandidate = canonicalizeResultValue(value, result, "result");
-  if (JSON.stringify(canonicalCandidate) !== JSON.stringify(result)) {
-    return invalid("result does not match the canonical graph build");
+  const result: SynthesisCitationGraphBuildResult = {
+    contractVersion: SYNTHESIS_CITATION_GRAPH_BUILD_CONTRACT_VERSION,
+    scope,
+    nodes: rebuildSynthesisCitationGraphBuildNodePage(object.nodes),
+    resolvedEdges: rebuildSynthesisCitationGraphBuildResolvedEdgePage(
+      object.resolvedEdges,
+    ),
+    aggregateEdges: rebuildSynthesisCitationGraphBuildAggregateEdgePage(
+      object.aggregateEdges,
+    ),
+    sourceOwnership: rebuildSynthesisCitationGraphBuildOwnershipPage(
+      object.sourceOwnership,
+    ),
+    incomingGroups: rebuildSynthesisCitationGraphBuildOwnershipPage(
+      object.incomingGroups,
+      "incomingGroups",
+    ),
+    lightMetrics: rebuildSynthesisCitationGraphBuildLightMetricPage(
+      object.lightMetrics,
+    ),
+    diagnostics: rebuildSynthesisCitationGraphBuildDiagnostics(
+      object.diagnostics,
+    ),
+  };
+  result.nodes.sort((left, right) =>
+    compareSynthesisEngineStrings(left.nodeId, right.nodeId),
+  );
+  result.resolvedEdges.sort((left, right) =>
+    compareSynthesisEngineStrings(left.referenceId, right.referenceId),
+  );
+  result.aggregateEdges.sort(
+    (left, right) =>
+      compareSynthesisEngineStrings(left.sourceId, right.sourceId) ||
+      compareSynthesisEngineStrings(left.targetId, right.targetId),
+  );
+  result.sourceOwnership.sort((left, right) =>
+    compareSynthesisEngineStrings(left.referenceId, right.referenceId),
+  );
+  result.incomingGroups.sort(
+    (left, right) =>
+      compareSynthesisEngineStrings(left.targetId, right.targetId) ||
+      compareSynthesisEngineStrings(left.sourceId, right.sourceId) ||
+      compareSynthesisEngineStrings(left.edgeId, right.edgeId),
+  );
+  result.lightMetrics.sort((left, right) =>
+    compareSynthesisEngineStrings(left.nodeId, right.nodeId),
+  );
+  const orderedUnique = <T>(
+    rows: T[],
+    key: (row: T) => string,
+    location: string,
+  ) => {
+    for (let index = 0; index < rows.length; index += 1) {
+      const current = key(rows[index]!);
+      if (
+        index > 0 &&
+        compareSynthesisEngineStrings(key(rows[index - 1]!), current) >= 0
+      ) {
+        return invalid(`${location} must be strictly ordered and unique`);
+      }
+    }
+  };
+  orderedUnique(result.nodes, (row) => row.nodeId, "result.nodes");
+  orderedUnique(
+    result.resolvedEdges,
+    (row) => row.referenceId,
+    "result.resolvedEdges",
+  );
+  orderedUnique(
+    result.aggregateEdges,
+    (row) => `${row.sourceId}\0${row.targetId}`,
+    "result.aggregateEdges",
+  );
+  orderedUnique(
+    result.sourceOwnership,
+    (row) => row.referenceId,
+    "result.sourceOwnership",
+  );
+  orderedUnique(
+    result.incomingGroups,
+    (row) => `${row.targetId}\0${row.sourceId}\0${row.edgeId}`,
+    "result.incomingGroups",
+  );
+  orderedUnique(
+    result.lightMetrics,
+    (row) => row.nodeId,
+    "result.lightMetrics",
+  );
+
+  const expectedNodeIds = new Set(
+    request.libraryNodes.map((row) => row.nodeId),
+  );
+  for (const reference of request.references) {
+    expectedNodeIds.add(reference.targetId);
+  }
+  const nodeById = new Map(result.nodes.map((row) => [row.nodeId, row]));
+  if (
+    nodeById.size !== expectedNodeIds.size ||
+    [...expectedNodeIds].some((nodeId) => !nodeById.has(nodeId))
+  ) {
+    return invalid("result.nodes do not cover the request node identities");
+  }
+  for (const libraryNode of request.libraryNodes) {
+    if (nodeById.get(libraryNode.nodeId)?.kind !== "library_paper") {
+      return invalid("result library node kind is invalid");
+    }
+  }
+
+  const references = new Map(
+    request.references.map((row) => [row.referenceId, row]),
+  );
+  if (result.resolvedEdges.length !== references.size) {
+    return invalid("result.resolvedEdges do not cover all references");
+  }
+  for (const edge of result.resolvedEdges) {
+    const reference = references.get(edge.referenceId);
+    if (
+      !reference ||
+      edge.edgeId !== reference.edgeId ||
+      edge.sourceId !== reference.sourceId ||
+      edge.targetId !== reference.targetId ||
+      edge.status !==
+        (reference.targetKind === "library_paper" ? "accepted" : "unbound") ||
+      edge.weight !== reference.weight ||
+      JSON.stringify(edge.roles) !== JSON.stringify(reference.roles) ||
+      !nodeById.has(edge.sourceId) ||
+      !nodeById.has(edge.targetId)
+    ) {
+      return invalid("result.resolvedEdges violate request identity");
+    }
+  }
+
+  const expectedOwnership = result.resolvedEdges.map((edge) => ({
+    sourceId: edge.sourceId,
+    edgeId: edge.edgeId,
+    referenceId: edge.referenceId,
+    targetId: edge.targetId,
+    status: edge.status,
+  }));
+  const expectedIncoming = expectedOwnership
+    .slice()
+    .sort(
+      (left, right) =>
+        compareSynthesisEngineStrings(left.targetId, right.targetId) ||
+        compareSynthesisEngineStrings(left.sourceId, right.sourceId) ||
+        compareSynthesisEngineStrings(left.edgeId, right.edgeId),
+    );
+  if (
+    JSON.stringify(result.sourceOwnership) !==
+      JSON.stringify(expectedOwnership) ||
+    JSON.stringify(result.incomingGroups) !== JSON.stringify(expectedIncoming)
+  ) {
+    return invalid("result ownership projections are inconsistent");
+  }
+
+  const aggregate = new Map<
+    string,
+    {
+      sourceId: string;
+      targetId: string;
+      mentionCount: number;
+      roleCounts: Map<string, number>;
+      sourceRefs: string[];
+    }
+  >();
+  for (const reference of request.references) {
+    const key = `${reference.sourceId}\0${reference.targetId}`;
+    const row = aggregate.get(key) || {
+      sourceId: reference.sourceId,
+      targetId: reference.targetId,
+      mentionCount: 0,
+      roleCounts: new Map<string, number>(),
+      sourceRefs: [],
+    };
+    row.mentionCount += reference.weight;
+    row.sourceRefs.push(reference.sourceRef || reference.referenceId);
+    for (const role of reference.roles) {
+      row.roleCounts.set(role, (row.roleCounts.get(role) || 0) + 1);
+    }
+    aggregate.set(key, row);
+  }
+  const expectedAggregates = [...aggregate.values()]
+    .map((row): SynthesisCitationGraphBuildAggregateEdge => {
+      const primaryRole = selectPrimaryRole(
+        row.roleCounts,
+        request.rolePriority,
+      );
+      const roleEvidence = [...row.roleCounts.entries()]
+        .map(([role, count]) => ({ role, count }))
+        .sort(
+          (left, right) =>
+            right.count - left.count ||
+            compareSynthesisEngineStrings(left.role, right.role),
+        );
+      return {
+        sourceId: row.sourceId,
+        targetId: row.targetId,
+        mentionCount: row.mentionCount,
+        primaryRole,
+        auxRoles: roleEvidence.filter((entry) => entry.role !== primaryRole),
+        roleEvidence,
+        sourceRefs: row.sourceRefs,
+      };
+    })
+    .sort(
+      (left, right) =>
+        compareSynthesisEngineStrings(left.sourceId, right.sourceId) ||
+        compareSynthesisEngineStrings(left.targetId, right.targetId),
+    );
+  if (
+    JSON.stringify(result.aggregateEdges) !== JSON.stringify(expectedAggregates)
+  ) {
+    return invalid("result aggregate edges are inconsistent");
+  }
+
+  const outgoing = new Map<string, number>();
+  const incoming = new Map<string, number>();
+  const matched = new Map<string, number>();
+  const unresolved = new Map<string, number>();
+  for (const edge of result.resolvedEdges) {
+    outgoing.set(edge.sourceId, (outgoing.get(edge.sourceId) || 0) + 1);
+    incoming.set(edge.targetId, (incoming.get(edge.targetId) || 0) + 1);
+    const statusCounts = edge.status === "accepted" ? matched : unresolved;
+    statusCounts.set(edge.sourceId, (statusCounts.get(edge.sourceId) || 0) + 1);
+  }
+  const expectedMetrics = result.nodes.map((node) => {
+    const outgoingCount = outgoing.get(node.nodeId) || 0;
+    const incomingCount = incoming.get(node.nodeId) || 0;
+    return {
+      nodeId: node.nodeId,
+      outgoingCount,
+      incomingCount,
+      localDegree: outgoingCount + incomingCount,
+      matchedOutgoingCount: matched.get(node.nodeId) || 0,
+      unresolvedOutgoingCount: unresolved.get(node.nodeId) || 0,
+      ambiguousOutgoingCount: 0 as const,
+    };
+  });
+  const expectedDiagnostics = {
+    nodeCounts: {
+      library_paper: result.nodes.filter(
+        (node) => node.kind === "library_paper",
+      ).length,
+      external_reference: result.nodes.filter(
+        (node) => node.kind === "external_reference",
+      ).length,
+      unresolved_reference: result.nodes.filter(
+        (node) => node.kind === "unresolved_reference",
+      ).length,
+    },
+    referenceCount: result.resolvedEdges.length,
+    aggregateEdgeCount: result.aggregateEdges.length,
+  };
+  if (
+    JSON.stringify(result.lightMetrics) !== JSON.stringify(expectedMetrics) ||
+    JSON.stringify(result.diagnostics) !== JSON.stringify(expectedDiagnostics)
+  ) {
+    return invalid("result metrics or diagnostics are inconsistent");
   }
   return result;
 }

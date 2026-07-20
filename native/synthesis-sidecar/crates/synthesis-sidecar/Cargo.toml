@@ -12,3 +12,6 @@ synthesis-metrics = { path = "../synthesis-metrics" }
 synthesis-tag-vocabulary = { path = "../synthesis-tag-vocabulary" }
 synthesis-concept-kb = { path = "../synthesis-concept-kb" }
 synthesis-topic-graph = { path = "../synthesis-topic-graph" }
+synthesis-reference-matcher = { path = "../synthesis-reference-matcher" }
+synthesis-topic-structured-artifact = { path = "../synthesis-topic-structured-artifact" }
+synthesis-citation-graph-build = { path = "../synthesis-citation-graph-build" }

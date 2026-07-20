@@ -270,13 +270,14 @@ impl ConceptPagedInputAssembler {
     pub fn new(
         task_id: String,
         operation: String,
+        request_hash: String,
         header: Map<String, Value>,
     ) -> Result<Self, &'static str> {
         if operation != CONCEPT_KB_INDEX_OPERATION && operation != CONCEPT_KB_QUERY_OPERATION {
             return Err("invalid_request");
         }
         Ok(Self {
-            validator: PagedInputValidator::new(task_id, operation, header)?,
+            validator: PagedInputValidator::new(task_id, operation, request_hash, header)?,
             concepts: Vec::new(),
             senses: Vec::new(),
             aliases: Vec::new(),
@@ -394,8 +395,8 @@ impl ConceptPagedInputAssembler {
         Ok((section.name.to_owned(), acknowledged))
     }
 
-    pub fn finish(self, task_id: &str) -> Result<(String, ConceptRequest), &'static str> {
-        let (task_id, operation, header) = self.validator.finish(task_id)?;
+    pub fn finish(self, task_id: &str) -> Result<(String, String, ConceptRequest), &'static str> {
+        let (task_id, operation, request_hash, header) = self.validator.finish(task_id)?;
         let source = ConceptSource {
             concepts: self.concepts,
             senses: self.senses,
@@ -435,7 +436,7 @@ impl ConceptPagedInputAssembler {
             }
             _ => return Err("invalid_request"),
         };
-        Ok((task_id, request))
+        Ok((task_id, request_hash, request))
     }
 }
 
@@ -852,7 +853,7 @@ pub fn compute(operation: &str, request: Value, flag: &AtomicBool) -> Result<Val
         .filter(|(key, _)| header_fields.contains(&key.as_str()))
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
-    let mut input = ConceptPagedInputAssembler::new("legacy".into(), operation.into(), header)?;
+    let mut pages = Vec::new();
     for section in synthesis_protocol::deterministic_operation_spec(operation)
         .ok_or("invalid_request")?
         .input_sections
@@ -863,9 +864,19 @@ pub fn compute(operation: &str, request: Value, flag: &AtomicBool) -> Result<Val
             .ok_or("invalid_request")?
             .clone();
         let descriptor = synthesis_protocol::page_descriptor(section.name, 0, &rows)?;
+        pages.push((descriptor, rows));
+    }
+    let descriptors = pages
+        .iter()
+        .map(|(descriptor, _)| descriptor.clone())
+        .collect::<Vec<_>>();
+    let request_hash = synthesis_protocol::paged_request_hash(operation, &header, &descriptors)?;
+    let mut input =
+        ConceptPagedInputAssembler::new("legacy".into(), operation.into(), request_hash, header)?;
+    for (descriptor, rows) in pages {
         input.append_page("legacy", descriptor, rows)?;
     }
-    let (_, request) = input.finish("legacy")?;
+    let (_, _, request) = input.finish("legacy")?;
     compute_typed(request, flag).map(ConceptResult::into_value)
 }
 
@@ -936,6 +947,7 @@ mod tests {
         let mut input = ConceptPagedInputAssembler::new(
             "task".into(),
             CONCEPT_KB_QUERY_OPERATION.into(),
+            format!("sha256:{}", "0".repeat(64)),
             header,
         )
         .unwrap();
@@ -961,6 +973,7 @@ mod tests {
             ConceptPagedInputAssembler::new(
                 "task".into(),
                 CONCEPT_KB_QUERY_OPERATION.into(),
+                format!("sha256:{}", "0".repeat(64)),
                 header,
             )
             .unwrap()

@@ -18,11 +18,11 @@ import type {
   SynthesisReferenceMatchReviewDecisionResult,
 } from "../../../packages/synthesis-contracts/src/referenceMatchingReviewApplication.js";
 import {
-  createInProcessSynthesisReferenceMatcherEngine,
   type ReferenceCanonicalDedupeInput,
   type ReferenceMatcherReferenceInput,
   type SynthesisReferenceMatcherEngine,
 } from "../../../packages/synthesis-engine/src/referenceMatcher.js";
+import type { SynthesisSidecarComputeWorkerPool } from "./computeWorkerPool.js";
 import {
   deleteSynthesisReferenceMatchingPreparation,
   ensureSynthesisReferenceMatchingReviewRepositorySchema,
@@ -595,6 +595,7 @@ function createRepositoryPort(
 
 export function createSynthesisSidecarReferenceMatchingReviewApplication(options: {
   databasePath: string;
+  computePool: SynthesisSidecarComputeWorkerPool;
   matcher?: SynthesisReferenceMatcherEngine;
   now?: () => string;
   createPreparationId?: () => string;
@@ -602,8 +603,12 @@ export function createSynthesisSidecarReferenceMatchingReviewApplication(options
   const connection = openSynthesisNodeSqliteAdapter(options.databasePath);
   const application = createSynthesisReferenceMatchingReviewApplication({
     repository: createRepositoryPort(connection.adapter),
-    matcher:
-      options.matcher ?? createInProcessSynthesisReferenceMatcherEngine(),
+    matcher: options.matcher ?? {
+      matchBindings: (request) =>
+        options.computePool.runReferenceBinding(request),
+      dedupeCanonicals: (request) =>
+        options.computePool.runReferenceCanonicalDedupe(request),
+    },
     now: options.now,
     createPreparationId: options.createPreparationId,
   });

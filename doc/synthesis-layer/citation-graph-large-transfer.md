@@ -2,7 +2,7 @@
 
 Citation Graph Build has an authenticated sidecar transfer capability for data
 sets that do not fit one compute request or response. Sealed input runs through
-an explicit packed streaming-worker canary; this capability is not a production
+the shared Rust child with acknowledged canonical row pages; this capability is not a production
 compute route. Production graph build runs in plugin
 composition, which still owns Host capture, the durable-fact basis, basis
 recapture, `synthesis.db` promotion, canonical files, and last-good state.
@@ -12,7 +12,7 @@ The single capability `compute.citation_graph_build_transfer` supports strict
 `get_output_page`, and `cancel` actions. Input pages contain `library_nodes` or
 `references`. Output pages contain `nodes`, `resolved_edges`,
 `aggregate_edges`, `source_ownership`, `incoming_groups`, or `light_metrics`.
-Output mutation remains service-internal and is produced only by the packed
+Output mutation remains service-internal and is produced only by the Rust
 worker attempt associated with an authenticated `execute`.
 
 Every transfer uses `synthesis-citation-graph-build-transfer.v1` and
@@ -58,10 +58,11 @@ admitted page is rebuilt once into a canonical UTF-8 artifact whose bytes, byte
 length, and SHA-256 are reused for staging and transfer. During an attempt, the
 service main thread hash-checks and reads one canonical input frame, transfers
 it through a task-scoped `MessagePort`, and waits for worker acknowledgement
-before reading another. The worker strictly rebuilds every input frame, packs
-validated rows into a string table and typed columns, computes through the
-shared graph-build kernel, and iterates the engine-normalized result directly
-into canonical output page artifacts. The owner is the only output validation
+before reading another. The Rust child strictly validates every input frame,
+moves typed rows into the shared graph-build kernel, and streams the typed
+result directly into canonical output page artifacts. The same staged bytes and
+raw result artifact are reused; Node does not materialize a full graph, create a
+base64 copy, or own a second transfer representation. The owner is the only output validation
 and staging boundary: it strictly rebuilds each returned frame, compares its
 canonical bytes and descriptor, and only then stages it atomically. The worker
 never receives a staging path or database, canonical-file, Host, Zotero-global,

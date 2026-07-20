@@ -1,7 +1,7 @@
 import { assert } from "chai";
 import fs from "fs/promises";
 import path from "path";
-import { Worker } from "node:worker_threads";
+import { createSynthesisSidecarComputeWorkerPool } from "../../apps/synthesis-service/src/computeWorkerPool";
 import {
   SYNTHESIS_TOPIC_ARTIFACT_ASSEMBLY_VERSION,
   SYNTHESIS_TOPIC_ARTIFACT_VALIDATION_VERSION,
@@ -299,30 +299,43 @@ describe("Synthesis Topic Structured Artifact engine", function () {
     assert.include(checkpoints, "start:0");
   });
 
-  it("returns the same canonical assembly through the Node worker canary", async function () {
-    const request = rebuildSynthesisTopicArtifactAssemblyRequest(
+  it("returns canonical parity for every Topic operation through the Rust worker", async function () {
+    const assembly = rebuildSynthesisTopicArtifactAssemblyRequest(
       JSON.parse(JSON.stringify(assemblyRequest())),
     );
-    const expected =
-      await createInProcessSynthesisTopicStructuredArtifactEngine().assembleArtifact(
-        request,
-      );
-    const worker = new Worker(
-      new URL(
-        "../fixtures/synthesis-topic-structured-artifact-engine-worker.ts",
-        import.meta.url,
-      ),
-      { execArgv: ["--import", "tsx"] },
+    const manifestValidation = rebuildSynthesisTopicManifestValidationRequest({
+      contractVersion: SYNTHESIS_TOPIC_STRUCTURED_ARTIFACT_CONTRACT_VERSION,
+      algorithmVersion: SYNTHESIS_TOPIC_MANIFEST_VALIDATION_VERSION,
+      manifest: manifest(),
+    });
+    const artifactValidation = rebuildSynthesisTopicArtifactValidationRequest({
+      contractVersion: SYNTHESIS_TOPIC_STRUCTURED_ARTIFACT_CONTRACT_VERSION,
+      algorithmVersion: SYNTHESIS_TOPIC_ARTIFACT_VALIDATION_VERSION,
+      artifact: { schema_id: "invalid" },
+    });
+    const sectionPatch = rebuildSynthesisTopicSectionPatchRequest(
+      JSON.parse(JSON.stringify(patchRequest())),
     );
+    const direct = createInProcessSynthesisTopicStructuredArtifactEngine();
+    const expected = {
+      manifest: await direct.validateManifest(manifestValidation),
+      assembly: await direct.assembleArtifact(assembly),
+      validation: await direct.validateArtifact(artifactValidation),
+      patch: await direct.applySectionPatch(sectionPatch),
+    };
+    const pool = createSynthesisSidecarComputeWorkerPool();
     try {
-      const actual = await new Promise<unknown>((resolve, reject) => {
-        worker.once("message", resolve);
-        worker.once("error", reject);
-        worker.postMessage(request);
-      });
-      assert.deepEqual(actual, expected);
+      assert.deepEqual(
+        {
+          manifest: await pool.runTopicManifestValidation(manifestValidation),
+          assembly: await pool.runTopicArtifactAssembly(assembly),
+          validation: await pool.runTopicArtifactValidation(artifactValidation),
+          patch: await pool.runTopicSectionPatch(sectionPatch),
+        },
+        expected,
+      );
     } finally {
-      await worker.terminate();
+      await pool.shutdown();
     }
   });
 

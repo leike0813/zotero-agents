@@ -10,7 +10,6 @@ import {
 import { compareSynthesisEngineStrings } from "./canonicalJson.ts";
 
 export * from "./canonicalJson.ts";
-export * from "./citationGraphBuildPacked.ts";
 export * from "./citationGraphBuildTransfer.ts";
 export * from "./conceptKbIndex.ts";
 export * from "./referenceMatcher.ts";

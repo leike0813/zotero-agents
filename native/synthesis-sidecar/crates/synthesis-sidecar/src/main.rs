@@ -8,8 +8,8 @@ use synthesis_protocol::{
     DeterministicAckFrame, DeterministicPageFrame, DeterministicRawPageFrame,
     DeterministicRunBegin, DeterministicTaskFrame, METRICS_OPERATION, MetricsRequest,
     PAGE_MAX_BYTES, PAGE_MAX_JSON_NODES, PageDescriptor, PagedInputAssembler, WORKER_PROTOCOL,
-    count_json_nodes, deterministic_operation, page_descriptor,
-    raw_page_descriptor_with_node_count, split_paged_result,
+    canonical_json, count_json_nodes, count_json_nodes_raw, deterministic_operation,
+    page_descriptor, raw_page_descriptor_with_node_count, split_paged_result,
 };
 
 const BUILD_FINGERPRINT: &str = match option_env!("SYNTHESIS_RUST_BUILD_FINGERPRINT") {
@@ -19,14 +19,21 @@ const BUILD_FINGERPRINT: &str = match option_env!("SYNTHESIS_RUST_BUILD_FINGERPR
 const MAX_WORKER_FRAME_BYTES: u64 = 8 * 1024 * 1024;
 
 enum WorkerCommand {
-    Run(String, String, Value),
-    RunConcept(String, synthesis_concept_kb::ConceptRequest),
+    Run(String, String, Option<String>, Value),
+    RunConcept(String, String, synthesis_concept_kb::ConceptRequest),
+    RunGraph(
+        String,
+        String,
+        String,
+        synthesis_citation_graph_build::GraphRequest,
+    ),
     End,
 }
 
 enum PendingInputAssembler {
     Generic(PagedInputAssembler),
     Concept(synthesis_concept_kb::ConceptPagedInputAssembler),
+    Graph(synthesis_citation_graph_build::GraphPagedInputAssembler),
 }
 
 impl PendingInputAssembler {
@@ -34,6 +41,7 @@ impl PendingInputAssembler {
         match self {
             Self::Generic(input) => input.task_id(),
             Self::Concept(input) => input.task_id(),
+            Self::Graph(input) => input.task_id(),
         }
     }
 
@@ -45,7 +53,7 @@ impl PendingInputAssembler {
     ) -> Result<(String, u64), &'static str> {
         match self {
             Self::Generic(input) => input.append_page(task_id, descriptor, rows),
-            Self::Concept(_) => Err("invalid_request"),
+            Self::Concept(_) | Self::Graph(_) => Err("invalid_request"),
         }
     }
 }
@@ -106,6 +114,7 @@ fn paginate_rows(
 fn write_paged_result(
     task_id: &str,
     operation: &str,
+    request_hash: &str,
     result: Value,
     controls: &mpsc::Receiver<ResultControl>,
     canceled: &AtomicBool,
@@ -114,7 +123,7 @@ fn write_paged_result(
     if canceled.load(Ordering::Relaxed) {
         return Err("worker_canceled");
     }
-    write_frame(&json!({"protocol":WORKER_PROTOCOL,"type":"result_begin","taskId":task_id,"header":parts.header})).map_err(|_| "worker_result_invalid")?;
+    write_frame(&json!({"protocol":WORKER_PROTOCOL,"type":"result_begin","taskId":task_id,"operation":operation,"requestHash":request_hash,"header":parts.header})).map_err(|_| "worker_result_invalid")?;
     for (section_spec, rows) in parts.sections {
         let section = section_spec.name;
         for (descriptor, rows) in paginate_rows(section, rows)? {
@@ -122,7 +131,17 @@ fn write_paged_result(
                 return Err("worker_canceled");
             }
             let page_index = descriptor.page_index;
-            write_frame(&json!({"protocol":WORKER_PROTOCOL,"type":"result_page","taskId":task_id,"descriptor":descriptor,"rows":rows})).map_err(|_| "worker_result_invalid")?;
+            let rows_json =
+                canonical_json(&Value::Array(rows)).map_err(|_| "worker_result_invalid")?;
+            write_raw_result_page(
+                task_id,
+                section,
+                descriptor.page_index,
+                &rows_json,
+                descriptor.row_count,
+                count_json_nodes_raw(&rows_json).map_err(|_| "worker_result_invalid")?,
+                canceled,
+            )?;
             loop {
                 if canceled.load(Ordering::Relaxed) {
                     return Err("worker_canceled");
@@ -148,7 +167,7 @@ fn write_paged_result(
     if canceled.load(Ordering::Relaxed) {
         return Err("worker_canceled");
     }
-    write_frame(&json!({"protocol":WORKER_PROTOCOL,"type":"result_complete","taskId":task_id}))
+    write_frame(&json!({"protocol":WORKER_PROTOCOL,"type":"result_complete","taskId":task_id,"operation":operation,"requestHash":request_hash}))
         .map_err(|_| "worker_result_invalid")?;
     Ok(())
 }
@@ -221,47 +240,30 @@ struct EncodedResultPage {
     node_count: usize,
 }
 
-fn next_typed_result_page<T: synthesis_concept_kb::ConceptResultRow>(
+fn next_typed_result_page<T: serde::Serialize>(
     rows: &[T],
     cursor: &mut usize,
     canceled: &AtomicBool,
 ) -> Result<Option<EncodedResultPage>, &'static str> {
+    if canceled.load(Ordering::Relaxed) {
+        return Err("worker_canceled");
+    }
     if *cursor >= rows.len() {
         return Ok(None);
     }
     let start = *cursor;
-    let mut end = start;
-    let mut nodes = 1usize;
-    while end < rows.len() {
-        if (end - start).is_multiple_of(256) && canceled.load(Ordering::Relaxed) {
-            return Err("worker_canceled");
-        }
-        let row_nodes = rows[end].json_nodes();
-        if end > start
-            && (end - start == synthesis_protocol::PAGE_MAX_ROWS
-                || nodes + row_nodes > PAGE_MAX_JSON_NODES)
-        {
-            break;
-        }
-        if row_nodes + 1 > PAGE_MAX_JSON_NODES {
-            return Err("worker_result_invalid");
-        }
-        nodes += row_nodes;
-        end += 1;
-    }
+    let mut end = (start + 4096).min(rows.len());
     let mut json = serde_json::to_string(&rows[start..end]).map_err(|_| "worker_result_invalid")?;
-    while json.len() > PAGE_MAX_BYTES && end - start > 1 {
+    let mut node_count = count_json_nodes_raw(&json).map_err(|_| "worker_result_invalid")?;
+    while (json.len() > PAGE_MAX_BYTES || node_count > PAGE_MAX_JSON_NODES) && end - start > 1 {
         end = start + (end - start) / 2;
         json = serde_json::to_string(&rows[start..end]).map_err(|_| "worker_result_invalid")?;
+        node_count = count_json_nodes_raw(&json).map_err(|_| "worker_result_invalid")?;
     }
-    if json.len() > PAGE_MAX_BYTES {
+    if json.len() > PAGE_MAX_BYTES || node_count > PAGE_MAX_JSON_NODES {
         return Err("worker_result_invalid");
     }
     *cursor = end;
-    let node_count = 1 + rows[start..end]
-        .iter()
-        .map(|row| row.json_nodes())
-        .sum::<usize>();
     Ok(Some(EncodedResultPage {
         json,
         row_count: end - start,
@@ -269,7 +271,7 @@ fn next_typed_result_page<T: synthesis_concept_kb::ConceptResultRow>(
     }))
 }
 
-fn write_typed_result_section<T: synthesis_concept_kb::ConceptResultRow>(
+fn write_typed_result_section<T: serde::Serialize>(
     task_id: &str,
     section: &str,
     rows: Vec<T>,
@@ -305,18 +307,64 @@ fn write_typed_result_section<T: synthesis_concept_kb::ConceptResultRow>(
     Ok(())
 }
 
+fn write_graph_paged_result(
+    task_id: &str,
+    operation: &str,
+    request_hash: &str,
+    result: synthesis_citation_graph_build::GraphResult,
+    controls: &mpsc::Receiver<ResultControl>,
+    canceled: &AtomicBool,
+) -> Result<(), &'static str> {
+    let parts = result.into_parts();
+    write_frame(
+        &json!({"protocol":WORKER_PROTOCOL,"type":"result_begin","taskId":task_id,"operation":operation,"requestHash":request_hash,"header":parts.header}),
+    )
+    .map_err(|_| "worker_result_invalid")?;
+    for section in parts.sections {
+        let name = section.name();
+        match section {
+            synthesis_citation_graph_build::GraphResultSection::Nodes(rows) => {
+                write_typed_result_section(task_id, name, rows, controls, canceled)?;
+            }
+            synthesis_citation_graph_build::GraphResultSection::ResolvedEdges(rows) => {
+                write_typed_result_section(task_id, name, rows, controls, canceled)?;
+            }
+            synthesis_citation_graph_build::GraphResultSection::AggregateEdges(rows) => {
+                write_typed_result_section(task_id, name, rows, controls, canceled)?;
+            }
+            synthesis_citation_graph_build::GraphResultSection::SourceOwnership(rows) => {
+                write_typed_result_section(task_id, name, rows, controls, canceled)?;
+            }
+            synthesis_citation_graph_build::GraphResultSection::IncomingGroups(rows) => {
+                write_typed_result_section(task_id, name, rows, controls, canceled)?;
+            }
+            synthesis_citation_graph_build::GraphResultSection::LightMetrics(rows) => {
+                write_typed_result_section(task_id, name, rows, controls, canceled)?;
+            }
+        }
+    }
+    write_frame(&json!({"protocol":WORKER_PROTOCOL,"type":"result_complete","taskId":task_id,"operation":operation,"requestHash":request_hash}))
+        .map_err(|_| "worker_result_invalid")
+}
+
 fn write_concept_paged_result(
     task_id: &str,
+    request_hash: &str,
     result: synthesis_concept_kb::ConceptResult,
     controls: &mpsc::Receiver<ResultControl>,
     canceled: &AtomicBool,
 ) -> Result<(), &'static str> {
     let parts = result.into_parts();
+    let operation = match parts.header.get("algorithmVersion").and_then(Value::as_str) {
+        Some("concept-kb-index.v1") => synthesis_protocol::CONCEPT_KB_INDEX_OPERATION,
+        Some("concept-kb-query.v1") => synthesis_protocol::CONCEPT_KB_QUERY_OPERATION,
+        _ => return Err("worker_result_invalid"),
+    };
     if canceled.load(Ordering::Relaxed) {
         return Err("worker_canceled");
     }
     write_frame(
-        &json!({"protocol":WORKER_PROTOCOL,"type":"result_begin","taskId":task_id,"header":parts.header}),
+        &json!({"protocol":WORKER_PROTOCOL,"type":"result_begin","taskId":task_id,"operation":operation,"requestHash":request_hash,"header":parts.header}),
     )
     .map_err(|_| "worker_result_invalid")?;
     for section in parts.sections {
@@ -336,7 +384,7 @@ fn write_concept_paged_result(
     if canceled.load(Ordering::Relaxed) {
         return Err("worker_canceled");
     }
-    write_frame(&json!({"protocol":WORKER_PROTOCOL,"type":"result_complete","taskId":task_id}))
+    write_frame(&json!({"protocol":WORKER_PROTOCOL,"type":"result_complete","taskId":task_id,"operation":operation,"requestHash":request_hash}))
         .map_err(|_| "worker_result_invalid")
 }
 
@@ -377,11 +425,18 @@ fn worker() -> Result<(), String> {
                 );
                 break;
             }
-            if matches!(pending_input, Some(PendingInputAssembler::Concept(_)))
-                && let Ok(frame) = DeterministicRawPageFrame::rebuild_input(&line)
+            if matches!(
+                pending_input,
+                Some(PendingInputAssembler::Concept(_) | PendingInputAssembler::Graph(_))
+            ) && let Ok(frame) = DeterministicRawPageFrame::rebuild_input(&line)
             {
                 let appended = match &mut pending_input {
                     Some(PendingInputAssembler::Concept(input)) => input
+                        .append_raw_page(frame.task_id, frame.descriptor, frame.rows.get())
+                        .map(|(section, page_index)| {
+                            (frame.task_id.to_owned(), section, page_index)
+                        }),
+                    Some(PendingInputAssembler::Graph(input)) => input
                         .append_raw_page(frame.task_id, frame.descriptor, frame.rows.get())
                         .map(|(section, page_index)| {
                             (frame.task_id.to_owned(), section, page_index)
@@ -430,6 +485,7 @@ fn worker() -> Result<(), String> {
                         .send(WorkerCommand::Run(
                             task_id,
                             operation,
+                            None,
                             value["payload"].clone(),
                         ))
                         .is_err()
@@ -467,13 +523,27 @@ fn worker() -> Result<(), String> {
                         synthesis_concept_kb::ConceptPagedInputAssembler::new(
                             frame.task_id.clone(),
                             frame.operation,
+                            frame.request_hash,
                             frame.header,
                         )
                         .map(PendingInputAssembler::Concept)
+                    } else if matches!(
+                        frame.operation.as_str(),
+                        synthesis_protocol::CITATION_GRAPH_BUILD_OPERATION
+                            | synthesis_protocol::CITATION_GRAPH_BUILD_TRANSFER_OPERATION
+                    ) {
+                        synthesis_citation_graph_build::GraphPagedInputAssembler::new(
+                            frame.task_id.clone(),
+                            frame.operation,
+                            frame.request_hash,
+                            frame.header,
+                        )
+                        .map(PendingInputAssembler::Graph)
                     } else {
                         PagedInputAssembler::new(
                             frame.task_id.clone(),
                             frame.operation,
+                            frame.request_hash,
                             frame.header,
                         )
                         .map(PendingInputAssembler::Generic)
@@ -528,16 +598,23 @@ fn worker() -> Result<(), String> {
                         break;
                     };
                     let command = match pending {
-                        PendingInputAssembler::Generic(input) => {
+                        PendingInputAssembler::Generic(input) => input.finish(&frame.task_id).map(
+                            |(task_id, operation, request_hash, request)| {
+                                WorkerCommand::Run(task_id, operation, Some(request_hash), request)
+                            },
+                        ),
+                        PendingInputAssembler::Concept(input) => {
                             input
                                 .finish(&frame.task_id)
-                                .map(|(task_id, operation, request)| {
-                                    WorkerCommand::Run(task_id, operation, request)
+                                .map(|(task_id, request_hash, request)| {
+                                    WorkerCommand::RunConcept(task_id, request_hash, request)
                                 })
                         }
-                        PendingInputAssembler::Concept(input) => input
-                            .finish(&frame.task_id)
-                            .map(|(task_id, request)| WorkerCommand::RunConcept(task_id, request)),
+                        PendingInputAssembler::Graph(input) => input.finish(&frame.task_id).map(
+                            |(task_id, operation, request_hash, request)| {
+                                WorkerCommand::RunGraph(task_id, operation, request_hash, request)
+                            },
+                        ),
                     };
                     match command {
                         Ok(command) => {
@@ -602,7 +679,7 @@ fn worker() -> Result<(), String> {
     });
     while let Ok(command) = receiver.recv() {
         match command {
-            WorkerCommand::Run(task_id, operation, request) => {
+            WorkerCommand::Run(task_id, operation, request_hash, request) => {
                 let canceled = Arc::new(AtomicBool::new(false));
                 *active.lock().unwrap() = Some((task_id.clone(), Arc::clone(&canceled)));
                 let computed = match operation.as_str() {
@@ -619,13 +696,29 @@ fn worker() -> Result<(), String> {
                     synthesis_protocol::TOPIC_GRAPH_INDEX_OPERATION => {
                         synthesis_topic_graph::compute(request, &canceled)
                     }
+                    synthesis_protocol::REFERENCE_BINDING_OPERATION
+                    | synthesis_protocol::REFERENCE_CANONICAL_DEDUPE_OPERATION => {
+                        synthesis_reference_matcher::compute(&operation, request, &canceled)
+                    }
+                    synthesis_protocol::TOPIC_MANIFEST_VALIDATE_OPERATION
+                    | synthesis_protocol::TOPIC_ARTIFACT_ASSEMBLE_OPERATION
+                    | synthesis_protocol::TOPIC_ARTIFACT_VALIDATE_OPERATION
+                    | synthesis_protocol::TOPIC_SECTION_PATCH_OPERATION => {
+                        synthesis_topic_structured_artifact::compute(&operation, request, &canceled)
+                    }
+                    synthesis_protocol::CITATION_GRAPH_BUILD_OPERATION
+                    | synthesis_protocol::CITATION_GRAPH_BUILD_TRANSFER_OPERATION => {
+                        synthesis_citation_graph_build::compute(request, &canceled)
+                    }
                     _ => Err("invalid_request"),
                 };
                 if deterministic_operation(&operation) {
+                    let request_hash = request_hash.ok_or("worker_result_invalid")?;
                     let outcome = computed.and_then(|result| {
                         write_paged_result(
                             &task_id,
                             &operation,
+                            &request_hash,
                             result,
                             &control_receiver,
                             &canceled,
@@ -656,12 +749,42 @@ fn worker() -> Result<(), String> {
                 *active.lock().unwrap() = None;
                 write_frame(&frame).map_err(|error| error.to_string())?;
             }
-            WorkerCommand::RunConcept(task_id, request) => {
+            WorkerCommand::RunConcept(task_id, request_hash, request) => {
                 let canceled = Arc::new(AtomicBool::new(false));
                 *active.lock().unwrap() = Some((task_id.clone(), Arc::clone(&canceled)));
                 let outcome =
                     synthesis_concept_kb::compute_typed(request, &canceled).and_then(|result| {
-                        write_concept_paged_result(&task_id, result, &control_receiver, &canceled)
+                        write_concept_paged_result(
+                            &task_id,
+                            &request_hash,
+                            result,
+                            &control_receiver,
+                            &canceled,
+                        )
+                    });
+                *active.lock().unwrap() = None;
+                if let Err(code) = outcome {
+                    let frame_type = if code == "worker_canceled" {
+                        "canceled"
+                    } else {
+                        "error"
+                    };
+                    write_frame(&json!({"protocol":WORKER_PROTOCOL,"type":frame_type,"taskId":task_id,"code":code})).map_err(|error| error.to_string())?;
+                }
+            }
+            WorkerCommand::RunGraph(task_id, operation, request_hash, request) => {
+                let canceled = Arc::new(AtomicBool::new(false));
+                *active.lock().unwrap() = Some((task_id.clone(), Arc::clone(&canceled)));
+                let outcome = synthesis_citation_graph_build::compute_typed(request, &canceled)
+                    .and_then(|result| {
+                        write_graph_paged_result(
+                            &task_id,
+                            &operation,
+                            &request_hash,
+                            result,
+                            &control_receiver,
+                            &canceled,
+                        )
                     });
                 *active.lock().unwrap() = None;
                 if let Err(code) = outcome {

@@ -96,7 +96,6 @@ export async function checkSynthesisSidecarRuntimeXpi(root = process.cwd()) {
       `${prefix}/service/packages/synthesis-engine/src/index.js`,
       `${prefix}/service/packages/synthesis-engine/src/citationGraphBuild.js`,
       `${prefix}/service/packages/synthesis-engine/src/citationGraphBuildTransfer.js`,
-      `${prefix}/service/packages/synthesis-engine/src/citationGraphBuildPacked.js`,
       `${prefix}/service/packages/synthesis-engine/src/conceptKbIndex.js`,
       `${prefix}/service/packages/synthesis-engine/src/topicGraphIndex.js`,
       `${prefix}/service/packages/synthesis-contracts/src/sidecarTransfer.js`,

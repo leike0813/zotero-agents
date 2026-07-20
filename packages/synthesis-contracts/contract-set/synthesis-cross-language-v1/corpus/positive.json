@@ -258,6 +258,41 @@
       },
       "canonicalJson": "{\"descriptor\":{\"byteLength\":2,\"pageIndex\":0,\"rowCount\":0,\"section\":\"entries\",\"sha256\":\"sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945\"},\"protocol\":\"synthesis-rust-worker.v1\",\"rows\":[],\"taskId\":\"task-1\",\"type\":\"input_page\"}",
       "sha256": "sha256:c4fe593e71c82e993b133b00a7db20d4713f8ba3c6cccfc17ca89678499b6d90"
+    },
+    {
+      "id": "r5-reference-binding-run-begin",
+      "oracle": "canonicalJson",
+      "schemaRef": "schemas/compute.schema.json#/$defs/deterministicWorkerRunBegin",
+      "inputJson": "{\"protocol\":\"synthesis-rust-worker.v1\",\"type\":\"run_begin\",\"taskId\":\"task-r5\",\"operation\":\"reference_binding.v1\",\"requestHash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"header\":{\"contractVersion\":\"synthesis-reference-matcher.v1\",\"algorithmVersion\":\"reference-binding.v1\",\"policyId\":\"production\"}}",
+      "output": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "run_begin",
+        "taskId": "task-r5",
+        "operation": "reference_binding.v1",
+        "requestHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "header": {
+          "contractVersion": "synthesis-reference-matcher.v1",
+          "algorithmVersion": "reference-binding.v1",
+          "policyId": "production"
+        }
+      },
+      "canonicalJson": "{\"header\":{\"algorithmVersion\":\"reference-binding.v1\",\"contractVersion\":\"synthesis-reference-matcher.v1\",\"policyId\":\"production\"},\"operation\":\"reference_binding.v1\",\"protocol\":\"synthesis-rust-worker.v1\",\"requestHash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"taskId\":\"task-r5\",\"type\":\"run_begin\"}",
+      "sha256": "sha256:6b1e3f4820d7caf0efb62e3ac6a5f03ab941dd2d022529a4188c6b15c0350f14"
+    },
+    {
+      "id": "r5-reference-binding-result-complete",
+      "oracle": "canonicalJson",
+      "schemaRef": "schemas/compute.schema.json#/$defs/deterministicWorkerComplete",
+      "inputJson": "{\"protocol\":\"synthesis-rust-worker.v1\",\"type\":\"result_complete\",\"taskId\":\"task-r5\",\"operation\":\"reference_binding.v1\",\"requestHash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+      "output": {
+        "protocol": "synthesis-rust-worker.v1",
+        "type": "result_complete",
+        "taskId": "task-r5",
+        "operation": "reference_binding.v1",
+        "requestHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "canonicalJson": "{\"operation\":\"reference_binding.v1\",\"protocol\":\"synthesis-rust-worker.v1\",\"requestHash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"taskId\":\"task-r5\",\"type\":\"result_complete\"}",
+      "sha256": "sha256:fa8324008a0827db763f0e253a3403344867314da7120f575ed66b4fb830dc6f"
     }
   ]
 }
