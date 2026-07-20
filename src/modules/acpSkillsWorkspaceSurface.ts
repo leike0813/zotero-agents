@@ -18,6 +18,7 @@ import type {
 } from "./assistantWorkspacePublication";
 import {
   createAcpSkillsWorkspaceOwner,
+  projectAssistantWorkspaceOptionGroup,
   projectAssistantWorkspacePermissionRequest,
 } from "./assistantWorkspacePublication";
 import {
@@ -214,19 +215,19 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
                 : "disabled",
       },
       runtimeOptions: {
-        mode: optionGroup(
+        mode: projectAssistantWorkspaceOptionGroup(
           connected ? options?.modeOptions : [],
           options?.currentMode?.id,
           connected && Boolean(options?.modeOptions.length),
         ),
-        model: optionGroup(
+        model: projectAssistantWorkspaceOptionGroup(
           connected ? modelOptions : [],
           options?.currentDisplayModel?.id || options?.currentModel?.id,
           connected &&
             modelConfigurationEditable &&
             Boolean(modelOptions?.length),
         ),
-        reasoningEffort: optionGroup(
+        reasoningEffort: projectAssistantWorkspaceOptionGroup(
           connected ? options?.reasoningEffortOptions : [],
           options?.currentReasoningEffort?.id,
           connected &&
@@ -536,21 +537,3 @@ export const ACP_SKILLS_WORKSPACE_ADAPTER =
     undefined,
     AcpSkillRunTranscriptPageRequest
   >);
-
-function optionGroup(
-  options:
-    | Array<{ id: string; label: string; description?: string }>
-    | undefined,
-  selectedOptionId: string | undefined,
-  enabled: boolean,
-) {
-  return {
-    selectedOptionId: selectedOptionId || null,
-    options: (options || []).map((option) => ({
-      optionId: option.id,
-      label: option.label,
-      description: option.description || null,
-    })),
-    enabled,
-  };
-}

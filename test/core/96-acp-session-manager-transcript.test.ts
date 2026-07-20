@@ -2034,6 +2034,15 @@ describe("acp session manager", function () {
       }),
       ["owner-control", "composer"],
     );
+    assert.deepEqual(
+      resolveAcpChatWorkspacePublicationKinds(base, {
+        backendId: "backend-a",
+        conversationId: "conversation-a",
+        active: true,
+        kinds: ["permission"],
+      }),
+      ["permission", "owner-control"],
+    );
     for (const kind of [
       "transcript-append",
       "permission",
@@ -2141,6 +2150,55 @@ describe("acp session manager", function () {
     );
     assert.isTrue(
       transcriptEvents.some((event) => event.boundary === "hard-boundary"),
+    );
+  });
+
+  it("keeps terminal transcript semantics when a live composer change is pending", async function () {
+    useScriptedPrompt(async (adapter, args) => {
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "**terminal markdown**" },
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 220));
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: { sessionUpdate: "usage_update", used: 1, size: 10 },
+      });
+      return { stopReason: "end_turn" };
+    });
+    setAssistantExecutionDisplayMode("live");
+    const changes: AcpChatPanelSnapshotChange[] = [];
+    const unsubscribe = subscribeAcpChatPanelSnapshots((change) => {
+      changes.push(change);
+    });
+
+    try {
+      await sendAcpConversationPrompt({ message: "terminal publication" });
+    } finally {
+      unsubscribe();
+    }
+
+    const assistant = (await readActiveTranscriptItems()).find(
+      (item) => item.kind === "message" && item.role === "assistant",
+    );
+    assert.equal(assistant?.state, "complete");
+    const terminalChange = changes.find(
+      (change) =>
+        change.kinds.includes("composer") &&
+        change.kinds.includes("transcript-boundary") &&
+        change.kinds.includes("status"),
+    );
+    assert.isOk(terminalChange);
+    assert.isTrue(
+      (terminalChange?.transcriptEvents || []).some(
+        (event) =>
+          event.boundary === "hard-boundary" &&
+          event.mutation.op === "patch_item" &&
+          event.mutation.patch.status === "complete",
+      ),
     );
   });
 

@@ -990,65 +990,102 @@ describe("Assistant Workspace ACP UI v1", function () {
     }
   });
 
-  it("keeps current Skills runtime option values visible while prompt controls are disabled", async function () {
-    const state = canonicalState("acp-skills");
-    state.selection.composer = {
-      reply: { status: "busy" },
-      runtimeOptions: {
-        mode: {
-          selectedOptionId: "code",
-          options: [{ optionId: "code", label: "Code", description: null }],
-          enabled: true,
+  for (const source of ["acp-chat", "acp-skills"] as const) {
+    it(`keeps current ${source} runtime option values visible while prompt controls are disabled`, async function () {
+      const state = canonicalState(source);
+      state.selection.composer = {
+        reply: { status: "busy" },
+        runtimeOptions: {
+          mode: {
+            selectedOptionId: "code",
+            options: [{ optionId: "code", label: "Code", description: null }],
+            enabled: true,
+          },
+          model: {
+            selectedOptionId: "model-a",
+            options: [
+              { optionId: "model-a", label: "Model A", description: null },
+            ],
+            enabled: false,
+          },
+          reasoningEffort: {
+            selectedOptionId: "high",
+            options: [{ optionId: "high", label: "High", description: null }],
+            enabled: false,
+          },
         },
-        model: {
-          selectedOptionId: "model-a",
-          options: [
-            { optionId: "model-a", label: "Model A", description: null },
-          ],
-          enabled: false,
-        },
-        reasoningEffort: {
-          selectedOptionId: "high",
-          options: [{ optionId: "high", label: "High", description: null }],
-          enabled: false,
-        },
-      },
-    };
-    const panel = AssistantPanelModel.projectAssistantWorkspacePanel(
-      state,
-      { executionDisplayMode: "live" },
-      {},
-    );
-    assert.deepEqual(
-      panel.reply.controls.map((entry: any) => [
-        entry.id,
-        entry.value,
-        entry.disabled,
-      ]),
-      [
-        ["mode", "code", false],
-        ["model", "model-a", true],
-        ["reasoning", "high", true],
-      ],
-    );
+      };
+      const panel = AssistantPanelModel.projectAssistantWorkspacePanel(
+        state,
+        { executionDisplayMode: "live" },
+        {},
+      );
+      assert.deepEqual(
+        panel.reply.controls.map((entry: any) => [
+          entry.id,
+          entry.value,
+          entry.disabled,
+        ]),
+        [
+          ["mode", "code", false],
+          ["model", "model-a", true],
+          ["reasoning", "high", true],
+        ],
+      );
 
+      const document = new FakeDocument();
+      const renderer = await loadPanelRenderer(document);
+      const reply = document.createElement("div");
+      renderer.renderAssistantReply(reply, panel);
+      const selects = reply.querySelectorAll(".assistant-panel-select");
+      assert.deepEqual(
+        selects.map((entry) => entry.disabled),
+        [false, true, true],
+      );
+      assert.deepEqual(
+        selects.map(
+          (select) =>
+            select.children.find((option) => (option as any).selected)
+              ?.textContent,
+        ),
+        ["Code", "Model A", "High"],
+      );
+    });
+  }
+
+  it("refreshes only the Chat banner when auto-approval changes", async function () {
     const document = new FakeDocument();
     const renderer = await loadPanelRenderer(document);
-    const reply = document.createElement("div");
-    renderer.renderAssistantReply(reply, panel);
-    const selects = reply.querySelectorAll(".assistant-panel-select");
-    assert.deepEqual(
-      selects.map((entry) => entry.disabled),
-      [false, true, true],
+    const { root, regions } = createPanelManagedRegions(document);
+    const state = canonicalState("acp-chat");
+    const render = () =>
+      renderer.renderAssistantPanelSnapshot(
+        AssistantPanelModel.projectAssistantWorkspacePanel(state, {}, {}),
+        { managed: true, root, regions, onAction() {} },
+      );
+
+    render();
+    const regionSubtrees = captureRegionSubtrees(regions);
+    assert.equal(
+      regions.banner
+        .querySelector(".assistant-panel-switch-action")
+        ?.getAttribute("data-assistant-switch-state"),
+      "off",
     );
-    assert.deepEqual(
-      selects.map(
-        (select) =>
-          select.children.find((option) => (option as any).selected)
-            ?.textContent,
-      ),
-      ["Code", "Model A", "High"],
+
+    state.selection.control.permissionPolicy.autoApprove = true;
+    render();
+
+    assert.equal(
+      regions.banner
+        .querySelector(".assistant-panel-switch-action")
+        ?.getAttribute("data-assistant-switch-state"),
+      "on",
     );
+    const nonBannerRegions = Object.fromEntries(
+      Object.entries(regions).filter(([key]) => key !== "banner"),
+    );
+    assertRegionSubtreesPreserved(nonBannerRegions, regionSubtrees);
   });
 
   it("projects Skills title, subtitle, banner metadata, and task status axes", async function () {
@@ -1739,7 +1776,7 @@ describe("Assistant Workspace ACP UI v1", function () {
       ownerKey: "request-a",
       page,
       mode: "plain",
-      variant: "skillrunner",
+      variant: "acp-chat",
       renderMarkdown: (value: string) => `<strong>${value}</strong>`,
       onRendered: ({ virtual }: any) => {
         virtualLayouts.push(virtual);
@@ -1853,6 +1890,45 @@ describe("Assistant Workspace ACP UI v1", function () {
     assert.equal(transcript.scrollTop, 20_000);
     assert.isNull(
       transcript.getAttribute("data-assistant-transcript-programmatic-scroll"),
+    );
+  });
+
+  it("honors user scroll-away while transcript bottom-stick work is pending", async function () {
+    const animationFrames = createAnimationFrameHarness();
+    const document = new FakeDocument();
+    const renderer = await loadTranscriptRenderer(
+      document,
+      animationFrames.requestAnimationFrame,
+    );
+    const transcript = document.createElement("div");
+    transcript.clientHeight = 400;
+    transcript.scrollHeight = 20_000;
+    transcript.scrollTop = 19_600;
+    renderer.installAssistantTranscriptStickiness(transcript, 80);
+    renderer.stickAssistantTranscriptToBottom(transcript);
+
+    transcript.scrollTop = 18_000;
+    for (const listener of transcript.listeners.get("scroll") || []) {
+      listener({ type: "scroll" });
+    }
+
+    assert.equal(
+      transcript.getAttribute("data-assistant-transcript-stick"),
+      "false",
+    );
+    assert.isNull(
+      transcript.getAttribute("data-assistant-transcript-programmatic-scroll"),
+    );
+    animationFrames.flushAll();
+    assert.equal(transcript.scrollTop, 18_000);
+
+    transcript.scrollTop = 19_600;
+    for (const listener of transcript.listeners.get("scroll") || []) {
+      listener({ type: "scroll" });
+    }
+    assert.equal(
+      transcript.getAttribute("data-assistant-transcript-stick"),
+      "true",
     );
   });
 

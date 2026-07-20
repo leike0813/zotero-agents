@@ -10,6 +10,7 @@ import {
   authenticateAcpConversation,
   buildAcpDiagnosticsBundle,
   buildAcpPromptTextForTests,
+  cancelAcpConversationPrompt,
   config,
   configureNoAcpBackendForTests,
   configureZoteroMcpServerForTests,
@@ -35,6 +36,7 @@ import {
   readAcpConversationTranscriptPage,
   readTranscriptItemsForConversation,
   reconnectAcpConversation,
+  readAcpChatWorkspacePublication,
   refreshAcpConversationBackends,
   resetAcpSessionManagerForTests,
   resetPluginStateStoreForTests,
@@ -543,6 +545,13 @@ describe("acp session manager", function () {
     let releasePrompt: () => void = () => undefined;
     setAcpConnectionAdapterFactoryForTests(async () => {
       harness.lastAdapter = new FakeAcpConnectionAdapter();
+      harness.lastAdapter.modelState = {
+        currentModelId: "gpt-5@medium",
+        availableModels: [
+          { modelId: "gpt-5@medium", name: "GPT-5 Medium" },
+          { modelId: "gpt-5@high", name: "GPT-5 High" },
+        ],
+      };
       releasePrompt = harness.lastAdapter.holdPrompt();
       return harness.lastAdapter;
     });
@@ -560,6 +569,66 @@ describe("acp session manager", function () {
     const busySnapshot = getAcpConversationSnapshot();
     assert.equal(busySnapshot.busy, true);
     assert.equal(busySnapshot.status, "prompting");
+    const composer = await readAcpChatWorkspacePublication({
+      owner: {
+        source: "acp-chat",
+        ownerKey: `${busySnapshot.backendId}\n${busySnapshot.conversationId}`,
+        backendId: busySnapshot.backendId,
+        conversationId: busySnapshot.conversationId,
+      },
+      publicationKind: "composer",
+    });
+    assert.deepEqual(
+      Object.fromEntries(
+        Object.entries(composer?.runtimeOptions || {}).map(
+          ([key, group]: [string, any]) => [
+            key,
+            {
+              selectedOptionId: group.selectedOptionId,
+              optionIds: group.options.map((option: any) => option.optionId),
+              enabled: group.enabled,
+            },
+          ],
+        ),
+      ),
+      {
+        mode: {
+          selectedOptionId: "plan",
+          optionIds: ["plan", "code"],
+          enabled: true,
+        },
+        model: {
+          selectedOptionId: "gpt-5",
+          optionIds: ["gpt-5"],
+          enabled: false,
+        },
+        reasoningEffort: {
+          selectedOptionId: "medium",
+          optionIds: ["medium", "high"],
+          enabled: false,
+        },
+      },
+    );
+
+    await cancelAcpConversationPrompt();
+    const interruptRequested = await waitForAcpConversationSnapshot(
+      (snapshot) => snapshot.promptInterruptState === "requested",
+    );
+    const interruptComposer = await readAcpChatWorkspacePublication({
+      owner: {
+        source: "acp-chat",
+        ownerKey: `${interruptRequested.backendId}\n${interruptRequested.conversationId}`,
+        backendId: interruptRequested.backendId,
+        conversationId: interruptRequested.conversationId,
+      },
+      publicationKind: "composer",
+    });
+    assert.deepEqual(
+      Object.values(interruptComposer?.runtimeOptions || {}).map(
+        (group: any) => group.enabled,
+      ),
+      [true, false, false],
+    );
 
     await setAcpConversationMode({
       modeId: "plan",

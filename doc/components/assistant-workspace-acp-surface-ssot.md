@@ -126,6 +126,13 @@ workspace, and a real live session title/id when present; Skills backend and
 workspace. Runtime option groups carry their own enabled state, and a disabled
 Chat reasoning selector renders the localized Default option.
 
+Connected Chat and Skills adapters publish complete runtime option groups even
+while prompt controls are frozen. Prompting, permission wait, and requested
+interruption keep mode enabled while model and reasoning remain disabled with
+their current values visible. Disconnected owners publish disabled empty option
+groups. A Chat permission-policy change publishes both `permission` and
+`owner-control`, because the banner switch is owned by the latter region.
+
 ## Adapter Contract
 
 Each domain registers one `AssistantWorkspacePublicationAdapter`. The adapter is

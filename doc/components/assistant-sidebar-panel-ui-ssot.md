@@ -313,6 +313,13 @@ snapshot, and an ACP connect/attach result with empty `availableModes` or
 actions SHALL carry typed payload keys (`modeId`, `modelId`, `effortId`) in
 addition to the generic `value`.
 
+For a connected ACP Chat owner, all three selectors SHALL retain their complete
+option domains and current values during prompting, permission wait, and
+requested interruption. Mode remains enabled in those states; model and
+reasoning effort remain visible but disabled until model configuration is
+editable. A disconnected or missing owner SHALL expose no cached runtime value
+as live editable configuration.
+
 Usage gauges SHALL use compact token counts, not the word `Usage`. When both
 used tokens and context limit are known, the label SHALL use `k` units such as
 `16k/256k`. When only used tokens are known, the label SHALL use `16k`. When no

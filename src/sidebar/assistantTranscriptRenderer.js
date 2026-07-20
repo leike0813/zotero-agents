@@ -1139,18 +1139,29 @@ function installAssistantTranscriptStickiness(container, threshold) {
     String(finiteNumber(container.scrollTop, 0)),
   );
   container.addEventListener("scroll", function () {
-    if (
-      container.getAttribute(
-        "data-assistant-transcript-programmatic-scroll",
-      ) === "true"
-    ) {
-      return;
-    }
     const previousScrollTop = finiteNumber(
       container.getAttribute("data-assistant-transcript-last-scroll-top"),
       finiteNumber(container.scrollTop, 0),
     );
     const currentScrollTop = finiteNumber(container.scrollTop, 0);
+    if (
+      container.getAttribute(
+        "data-assistant-transcript-programmatic-scroll",
+      ) === "true"
+    ) {
+      if (currentScrollTop < previousScrollTop) {
+        cancelAssistantTranscriptBottomStick(container);
+        container.removeAttribute(
+          "data-assistant-transcript-programmatic-scroll",
+        );
+        container.setAttribute(
+          "data-assistant-transcript-last-scroll-top",
+          String(currentScrollTop),
+        );
+        container.setAttribute("data-assistant-transcript-stick", "false");
+      }
+      return;
+    }
     container.setAttribute(
       "data-assistant-transcript-last-scroll-top",
       String(currentScrollTop),

@@ -18,6 +18,7 @@ import {
   createFailedTranscriptRegion,
   createIdleTranscriptRegion,
   createLoadingTranscriptRegion,
+  projectAssistantWorkspaceOptionGroup,
   projectAssistantWorkspacePermissionRequest,
   createReadyTranscriptRegion,
   type AssistantWorkspacePublicationKind,
@@ -62,7 +63,7 @@ export function acpChatTranscriptPageKey(
 export const ACP_CHAT_CHANGE_PUBLICATION_MAPPING = {
   "active-scope": ["owner-navigation"],
   status: ["owner-control", "composer"],
-  permission: ["permission"],
+  permission: ["permission", "owner-control"],
   "session-list": ["owner-navigation"],
   "transcript-boundary": ["transcript"],
   "transcript-append": ["transcript"],
@@ -157,29 +158,6 @@ export function mapAcpChatWorkspaceChangeKinds(
         .flatMap((kind) => ACP_CHAT_CHANGE_PUBLICATION_MAPPING[kind]),
     ),
   );
-}
-
-function optionGroup(
-  optionsRaw: unknown,
-  selectedRaw: unknown,
-  enabled: boolean,
-) {
-  const selected =
-    selectedRaw && typeof selectedRaw === "object"
-      ? (selectedRaw as Record<string, unknown>)
-      : null;
-  return {
-    selectedOptionId: selected ? String(selected.id || "") || null : null,
-    options: (Array.isArray(optionsRaw) ? optionsRaw : []).map((option) => {
-      const value = option as Record<string, unknown>;
-      return {
-        optionId: String(value.id || ""),
-        label: String(value.label || value.id || ""),
-        description: value.description ? String(value.description) : null,
-      };
-    }),
-    enabled,
-  };
 }
 
 function acpChatHint(snapshot: {
@@ -319,12 +297,12 @@ export async function readAcpChatWorkspaceRegions(args: {
     const connectionChanging = ["connecting", "disconnecting"].includes(
       String(snapshot.status || ""),
     );
-    const sessionAvailable = Boolean(
-      snapshot.sessionId || snapshot.remoteSessionId,
-    );
     const pendingPermission = Boolean(snapshot.pendingPermissionRequest);
     const connected = snapshot.connected === true;
-    const runtimeOptionsAvailable = connected && !snapshot.busy;
+    const modelConfigurationEditable = connected && !snapshot.busy;
+    const modelOptions = snapshot.displayModelOptions.length
+      ? snapshot.displayModelOptions
+      : snapshot.modelOptions;
     regions.composer = {
       reply: {
         status:
@@ -337,26 +315,21 @@ export async function readAcpChatWorkspaceRegions(args: {
                 : "disabled",
       },
       runtimeOptions: {
-        mode: optionGroup(
-          runtimeOptionsAvailable ? snapshot.modeOptions : [],
-          snapshot.currentMode,
-          runtimeOptionsAvailable && snapshot.modeOptions.length > 0,
+        mode: projectAssistantWorkspaceOptionGroup(
+          connected ? snapshot.modeOptions : [],
+          snapshot.currentMode?.id,
+          connected && snapshot.modeOptions.length > 0,
         ),
-        model: optionGroup(
-          runtimeOptionsAvailable
-            ? snapshot.displayModelOptions.length
-              ? snapshot.displayModelOptions
-              : snapshot.modelOptions
-            : [],
-          snapshot.currentDisplayModel || snapshot.currentModel,
-          runtimeOptionsAvailable &&
-            (snapshot.displayModelOptions.length > 0 ||
-              snapshot.modelOptions.length > 0),
+        model: projectAssistantWorkspaceOptionGroup(
+          connected ? modelOptions : [],
+          snapshot.currentDisplayModel?.id || snapshot.currentModel?.id,
+          modelConfigurationEditable && modelOptions.length > 0,
         ),
-        reasoningEffort: optionGroup(
-          runtimeOptionsAvailable ? snapshot.reasoningEffortOptions : [],
-          snapshot.currentReasoningEffort,
-          runtimeOptionsAvailable && snapshot.reasoningEffortOptions.length > 0,
+        reasoningEffort: projectAssistantWorkspaceOptionGroup(
+          connected ? snapshot.reasoningEffortOptions : [],
+          snapshot.currentReasoningEffort?.id,
+          modelConfigurationEditable &&
+            snapshot.reasoningEffortOptions.length > 0,
         ),
       },
     };

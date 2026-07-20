@@ -588,6 +588,28 @@ export type AssistantWorkspaceOptionGroup = {
   enabled: boolean;
 };
 
+export function projectAssistantWorkspaceOptionGroup(
+  options:
+    | ReadonlyArray<{
+        id: string;
+        label: string;
+        description?: string | null;
+      }>
+    | undefined,
+  selectedOptionId: string | null | undefined,
+  enabled: boolean,
+): AssistantWorkspaceOptionGroup {
+  return {
+    selectedOptionId: selectedOptionId || null,
+    options: (options || []).map((option) => ({
+      optionId: option.id,
+      label: option.label,
+      description: option.description || null,
+    })),
+    enabled,
+  };
+}
+
 export type AssistantWorkspaceOwnerPresentation = {
   title: string;
   subtitle: string | null;

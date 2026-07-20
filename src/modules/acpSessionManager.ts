@@ -1004,21 +1004,19 @@ function resolveAcpChatWorkspaceChangeKinds(
   sessionRuntime: AcpChatSessionRuntime,
   explicitKinds: readonly AcpChatWorkspaceChangeKind[] = [],
 ): AcpChatWorkspaceChangeKind[] {
-  if (explicitKinds.length > 0) {
-    return Array.from(new Set(explicitKinds));
-  }
+  const kinds = new Set(explicitKinds);
   if (reason === "live") {
-    return ["transcript-append"];
+    if (kinds.size === 0) kinds.add("transcript-append");
+    return Array.from(kinds);
   }
-  const kinds: AcpChatWorkspaceChangeKind[] = [];
   if (sessionRuntime.workspaceTranscriptEvents.length > 0) {
-    kinds.push("transcript-boundary");
+    kinds.add("transcript-boundary");
   }
   if (sessionRuntime.snapshot.pendingPermissionRequest) {
-    kinds.push("permission");
+    kinds.add("permission");
   }
-  kinds.push("status");
-  return kinds;
+  kinds.add("status");
+  return Array.from(kinds);
 }
 
 function isLiveAcpChatSessionRuntime(sessionRuntime: AcpChatSessionRuntime) {

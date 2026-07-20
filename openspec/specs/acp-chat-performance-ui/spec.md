@@ -130,7 +130,8 @@ Assistant Workspace SHALL project prompt interruption state independently from t
 #### Scenario: Requested interruption disables repeated input
 - **WHEN** interruption state is `requested`
 - **THEN** the reply input and submit action MUST be disabled
-- **AND** mode, model, and reasoning controls MUST remain disabled
+- **AND** model and reasoning controls MUST remain disabled
+- **AND** the connected mode control MUST remain enabled
 - **AND** a repeated cancel action MUST NOT be emitted.
 
 ### Requirement: ACP Chat routes runtime changes to bounded regions
@@ -165,6 +166,19 @@ Only backend or session scope changes, lifecycle structure, or a user-visible ba
 - **THEN** ACP Chat SHALL publish transcript, owner-control, and composer work for that owner
 - **AND** the composer SHALL show its busy interruption state without an owner or tab switch
 - **AND** managed regions whose DTOs are unchanged SHALL retain DOM identity.
+
+#### Scenario: Concurrent live state cannot suppress a terminal boundary
+
+- **GIVEN** a non-transcript live region change is pending for an ACP Chat owner
+- **WHEN** the same flush completes a streaming transcript item
+- **THEN** the publication SHALL retain the pending region kind and add transcript-boundary and status kinds
+- **AND** the hard-boundary completion patch SHALL be delivered in that mutation.
+
+#### Scenario: Permission policy change updates its owning regions
+
+- **WHEN** the active conversation's permission auto-approval policy changes
+- **THEN** ACP Chat SHALL publish both permission and owner-control regions
+- **AND** unrelated transcript, composer, toolbar, plan, and drawer regions SHALL retain identity when their DTOs are unchanged.
 
 ### Requirement: ACP Chat region publication preserves interaction behavior
 
