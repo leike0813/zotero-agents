@@ -33,4 +33,5 @@
 - [x] 6.2 Run targeted Core 188-190, 195, 210-212, and 218 plus the complete Stage 1 Core 175-218 suite `[27, 1, 16]`
 - [x] 6.3 Run each maximum collection-count representative profile three independent times below five seconds and 256 MiB peak RSS, and verify the local compressed candidate below 15 MiB
 - [x] 6.4 Run boundary `108 methods / 1 consumer`, removed-symbol/fallback audits, targeted ESLint/Prettier, `git diff --check`, and strict OpenSpec validation
-- [ ] 6.5 Run the five-platform remote candidate matrix and confirm smoke, provenance, per-target, and aggregate budgets when separate push/workflow authorization is available
+- [x] 6.5 Run the five-platform remote candidate matrix and confirm smoke, provenance, per-target, and aggregate budgets when separate push/workflow authorization is available
+
