@@ -44,6 +44,6 @@
 
 ## 7. Commit and five-platform acceptance
 
-- [ ] 7.1 Commit the complete local-green change as `refactor: migrate synthesis complex kernels to rust` and push current `dev-refactor` without altering `reference/Skill-Runner`.
-- [ ] 7.2 Monitor Windows x64, macOS x64/arm64, and Linux x64/arm64 Rust candidate smokes and per-platform/aggregate size gates; fix, recommit, and repush until all pass.
-- [ ] 7.3 Record final local and remote evidence, mark all tasks complete, and stop with R5 ready to archive without archiving it.
+- [x] 7.1 Commit the complete local-green change as `refactor: migrate synthesis complex kernels to rust` and push current `dev-refactor` without altering `reference/Skill-Runner`.
+- [x] 7.2 Monitor Windows x64, macOS x64/arm64, and Linux x64/arm64 Rust candidate smokes and per-platform/aggregate size gates; fix, recommit, and repush until all pass.
+- [x] 7.3 Record final local and remote evidence, mark all tasks complete, and stop with R5 ready to archive without archiving it.

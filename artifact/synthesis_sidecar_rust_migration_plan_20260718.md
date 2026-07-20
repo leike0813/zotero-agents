@@ -281,7 +281,7 @@ HTTP runtime、SQLite binding、压缩/归档、签名或跨平台辅助 crate �
 - large payload 不退化为无界 JSON copy；
 - cancel/backpressure/partial transfer 不产生可见半成品。
 
-**当前状态（2026-07-20）**：活动 change 为 `migrate-synthesis-complex-kernels-and-transfer-to-rust`。Reference Matcher、Topic Structured Artifact 与 Citation Graph build 三个领域 crate及八个 operation 已接入同一个 Rust child；private Node Worker 仅保留 R6 layout。Matcher reviewed fixture 六套策略均保持 precision/recall/candidate recall，danger false positives 为零。最终三次最大代表性 matcher profile 分别为 2.45/2.47/2.57 秒、峰值约 128.3 MiB；Topic 为 1.20/1.11/1.17 秒、约 74.0 MiB；graph normal `2,000/100,000` 为 10.47/10.03/10.41 秒、约 157.6 MiB，均满足 deadline 与 256 MiB 门禁。生产 DB、canonical files、Host effects 与 `SynthesisClient` 所有权不变；五平台 candidate matrix 是归档前最后验收。
+**状态（2026-07-20）**：已完成，change `migrate-synthesis-complex-kernels-and-transfer-to-rust` 可归档但尚未归档。Reference Matcher、Topic Structured Artifact 与 Citation Graph build 三个领域 crate及八个 operation 已接入同一个 Rust child；private Node Worker 仅保留 R6 layout。Matcher reviewed fixture 六套策略均保持 precision/recall/candidate recall，danger false positives 为零。最终三次最大代表性 matcher profile 分别为 2.45/2.47/2.57 秒、峰值约 128.3 MiB；Topic 为 1.20/1.11/1.17 秒、约 74.0 MiB；graph normal `2,000/100,000` 为 10.47/10.03/10.41 秒、约 157.6 MiB，均满足 deadline 与 256 MiB 门禁。五平台 candidate smoke、单平台 15 MiB 与聚合 75 MiB 门禁均通过。生产 DB、canonical files、Host effects 与 `SynthesisClient` 所有权不变；R6–R9 尚未开始。
 
 **退出条件**：领域 benchmark、传输完整性、内存峰值、超时/取消和删除旧实现均完成。
 
