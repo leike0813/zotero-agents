@@ -458,6 +458,18 @@ Completed sections, backend groups, active/finished task cards, selected/related
 task states, disabled task states, and the Completed-section collapse action.
 It SHALL NOT be flattened into a generic context-entry list.
 
+SkillRunner canonical backend history remains in the run-dialog session state;
+the snapshot producer owns a separate, owner-scoped UI-visible transcript
+mirror governed by the global execution display mode. `transcriptRevision`
+advances only when that published mirror changes, and the child continues to
+use the revision as its transcript render gate. In live mode, an immediate
+critical lifecycle or metadata snapshot must carry any concurrent changed
+transcript instead of canceling a queued live publication and retaining local
+pre-request notices. In boundary mode, HTTP history catch-up and foreground SSE
+use the same normalized semantic-boundary classifier so accumulated history is
+released once at the boundary. Silent mode continues to publish only its
+eligible projection; metadata snapshots must not expose suppressed content.
+
 The refactor SHALL NOT rewrite SkillRunner backend protocol, output
 convergence, reply/cancel semantics, or backend observation contracts.
 SkillRunner `assistant_revision` and replacement history SHALL be preserved as

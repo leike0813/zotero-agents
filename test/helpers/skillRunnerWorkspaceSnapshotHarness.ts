@@ -87,12 +87,24 @@ export type SkillRunnerWorkspaceCapture = {
     predicate: (snapshot: RunWorkspaceSnapshot) => boolean,
     timeoutMs?: number,
   ) => Promise<RunWorkspaceSnapshot>;
+  waitForAfter: (
+    afterIndex: number,
+    predicate: (snapshot: RunWorkspaceSnapshot) => boolean,
+    timeoutMs?: number,
+  ) => Promise<{
+    index: number;
+    snapshot: RunWorkspaceSnapshot;
+  }>;
 };
 
 export type SkillRunnerWorkspaceSnapshotHarness = {
   backendId: string;
   baseUrl: string;
   seedTask: (seed?: SkillRunnerHarnessTaskSeed) => SkillRunnerHarnessSeededTask;
+  appendChatEvents: (
+    requestId: string,
+    events: Array<Record<string, unknown>>,
+  ) => void;
   attach: (args?: {
     selectRunKey?: string;
     handleHostAction?: (
@@ -370,6 +382,13 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
       }
       return { runKey, requestId };
     },
+    appendChatEvents(requestId, events) {
+      const channel = runs.get(String(requestId || "").trim());
+      if (!channel) {
+        throw new Error(`unknown SkillRunner harness request: ${requestId}`);
+      }
+      channel.chatEvents.push(...events);
+    },
     async attach(args = {}) {
       const snapshots: SkillRunnerWorkspaceCapture["snapshots"] = [];
       attachSkillRunnerSidebarHost({
@@ -409,6 +428,26 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
             if (Date.now() > deadline) {
               throw new Error(
                 "timed out waiting for the expected SkillRunner workspace snapshot",
+              );
+            }
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+        },
+        async waitForAfter(afterIndex, predicate, timeoutMs = 8000) {
+          const deadline = Date.now() + timeoutMs;
+          for (;;) {
+            for (
+              let index = Math.max(-1, afterIndex) + 1;
+              index < snapshots.length;
+              index += 1
+            ) {
+              if (predicate(snapshots[index].snapshot)) {
+                return { index, snapshot: snapshots[index].snapshot };
+              }
+            }
+            if (Date.now() > deadline) {
+              throw new Error(
+                "timed out waiting for the next expected SkillRunner workspace snapshot",
               );
             }
             await new Promise((resolve) => setTimeout(resolve, 25));

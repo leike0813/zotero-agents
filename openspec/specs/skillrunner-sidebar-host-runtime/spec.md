@@ -225,7 +225,9 @@ the active Assistant workspace SkillRunner tab and host.
 
 ### Requirement: SkillRunner sidebar refreshes use Assistant Workspace publish governance
 
-SkillRunner sidebar snapshots SHALL use the global `live`, `boundary`, or `silent` Assistant Workspace policy. Canonical run state, foreground SSE, pending/auth refresh, interaction, permission, terminal handling, and semantic message counting SHALL remain active in every mode.
+SkillRunner sidebar snapshots SHALL use the global `live`, `boundary`, or `silent` Assistant Workspace policy. Canonical run state, foreground SSE, HTTP history catch-up, pending/auth refresh, interaction, permission, terminal handling, and semantic message counting SHALL remain active in every mode.
+
+SkillRunner SHALL keep canonical backend history separate from its UI-visible publication mirror. When a selected run starts with local pre-request notices and later receives backend history, the next eligible snapshot SHALL publish that history with a new transcript revision. A critical refresh SHALL NOT leave the live-mode mirror pinned to local notices. HTTP history and SSE entries SHALL use the same normalized semantic-boundary classifier.
 
 SkillRunner SHALL normalize Assistant replacement identity and Thought/Tool process identity before counting. Assistant final promotion SHALL not double-count an intermediate message. Each reasoning segment and new tool/command call SHALL count once, while updates for the same stable identity SHALL not increment. Silent process entries SHALL remain absent from the visible transcript while their counts advance.
 
@@ -235,6 +237,21 @@ SkillRunner SHALL normalize Assistant replacement identity and Thought/Tool proc
 - **WHEN** SkillRunner receives assistant or process text
 - **THEN** the visible transcript advances without waiting for metadata cadence
 - **AND** semantic category counts advance.
+
+#### Scenario: critical history catch-up replaces local-only mirror
+
+- **GIVEN** mode is `live`
+- **AND** a selected SkillRunner run has published only local pre-request notices
+- **WHEN** a critical refresh catches up backend history for the same owner
+- **THEN** the first snapshot reflecting the new semantic counts SHALL include the eligible backend messages
+- **AND** its transcript revision SHALL be newer than the local-only snapshot.
+
+#### Scenario: boundary history uses SSE semantic classification
+
+- **GIVEN** mode is `boundary`
+- **AND** a selected SkillRunner run has unpublished backend history
+- **WHEN** a history batch contains an entry classified as a semantic boundary by the SSE boundary rule
+- **THEN** the accumulated eligible history SHALL publish once with a new transcript revision.
 
 #### Scenario: boundary behavior remains unchanged
 

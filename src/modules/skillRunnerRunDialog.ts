@@ -351,6 +351,7 @@ type RunDialogEntry = {
   streamLastFocusedAt?: number;
   observerStarting?: boolean;
   historyHydrating?: boolean;
+  pendingTranscriptBoundary?: boolean;
   messageCounts: AssistantMessageCountsSnapshot;
   session: RunSessionState;
 };
@@ -1537,6 +1538,7 @@ function mergeHistoryEventsIntoSession(args: {
 }) {
   const events = args.historyPayload.events || [];
   let changed = false;
+  let boundary = false;
   for (const event of events) {
     if (!event || typeof event !== "object") {
       continue;
@@ -1554,10 +1556,12 @@ function mergeHistoryEventsIntoSession(args: {
       args.session.lastSeq = entry.seq;
     }
     changed = true;
+    boundary ||= isSkillRunnerDisabledLivePublishBoundary(entry);
   }
   if (changed && args.session.messages.length > 500) {
     args.session.messages = args.session.messages.slice(-500);
   }
+  return { changed, boundary };
 }
 
 function resolveRunDialogPageUrl() {
@@ -2909,28 +2913,35 @@ function resolveRunWorkspaceTranscriptMessages(args: {
     runWorkspaceState.lastPublishedTranscriptSignature = signature;
     runWorkspaceState.lastTranscriptPublishedAt = Date.now();
     runWorkspaceState.transcriptRevision += 1;
+    args.entry.pendingTranscriptBoundary = false;
     return cloneRunDialogTranscriptMessages(
       runWorkspaceState.publishedTranscriptMessages,
     );
   }
   if (signature === runWorkspaceState.lastPublishedTranscriptSignature) {
+    args.entry.pendingTranscriptBoundary = false;
     return cloneRunDialogTranscriptMessages(
       runWorkspaceState.publishedTranscriptMessages,
     );
   }
   const now = Date.now();
+  const silentMode = isAssistantSilentExecutionMode();
+  const liveMode = canPublishAssistantWorkspaceLiveUpdates();
   const shouldPublish =
-    (isAssistantSilentExecutionMode()
-      ? args.reason === "critical"
-      : args.reason === "boundary") ||
     isSkillRunnerTranscriptBoundary(args.entry) ||
-    (args.reason === "live" && canPublishAssistantWorkspaceLiveUpdates());
+    (silentMode
+      ? args.reason === "critical"
+      : liveMode
+        ? true
+        : args.reason === "boundary" ||
+          args.entry.pendingTranscriptBoundary === true);
   if (shouldPublish) {
     runWorkspaceState.publishedTranscriptMessages =
       cloneRunDialogTranscriptMessages(visibleMessages);
     runWorkspaceState.transcriptRevision += 1;
     runWorkspaceState.lastPublishedTranscriptSignature = signature;
     runWorkspaceState.lastTranscriptPublishedAt = now;
+    args.entry.pendingTranscriptBoundary = false;
   }
   return cloneRunDialogTranscriptMessages(
     runWorkspaceState.publishedTranscriptMessages,
@@ -3467,10 +3478,11 @@ async function startRunObserver(entry: RunDialogEntry) {
     if (!isObserverActive(generation)) {
       return;
     }
-    mergeHistoryEventsIntoSession({
+    const historyMerge = mergeHistoryEventsIntoSession({
       session: entry.session,
       historyPayload,
     });
+    entry.pendingTranscriptBoundary ||= historyMerge.boundary;
   };
 
   const syncRunMeta = async () => {
@@ -4975,10 +4987,11 @@ function hydrateSelectedRunHistoryInBackground(args: {
       if (!isRunDialogEntrySelected(args.entry)) {
         return;
       }
-      mergeHistoryEventsIntoSession({
+      const historyMerge = mergeHistoryEventsIntoSession({
         session: args.entry.session,
         historyPayload,
       });
+      args.entry.pendingTranscriptBoundary ||= historyMerge.boundary;
       args.entry.session.loading = false;
       args.entry.session.historyLoading = false;
     } catch (error) {

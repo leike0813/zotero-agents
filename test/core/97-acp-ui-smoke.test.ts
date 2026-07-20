@@ -6,7 +6,11 @@ import * as AssistantPanelModel from "../../src/sidebar/assistantPanelModel.js";
 import * as AssistantPanelRenderer from "../../src/sidebar/assistantPanelRenderer.js";
 import * as AssistantTranscriptRenderer from "../../src/sidebar/assistantTranscriptRenderer.js";
 import * as AssistantWorkspaceAcpChild from "../../src/sidebar/assistantWorkspaceAcpChild.js";
-import { captureSkillRunnerWorkspaceEnvelope } from "../helpers/skillRunnerWorkspaceSnapshotHarness";
+import { clearPref, setPref } from "../../src/utils/prefs";
+import {
+  captureSkillRunnerWorkspaceEnvelope,
+  startSkillRunnerWorkspaceSnapshotHarness,
+} from "../helpers/skillRunnerWorkspaceSnapshotHarness";
 
 const root = path.resolve(import.meta.dirname, "../..");
 
@@ -953,6 +957,93 @@ describe("Assistant Workspace ACP UI v1", function () {
       Object.fromEntries(stableRegions.map((key) => [key, regions[key]])),
       stableSubtrees,
     );
+  });
+
+  it("preserves SkillRunner managed chrome when backend history replaces local-only transcript", async function () {
+    setPref("assistantExecutionDisplayMode", "live");
+    const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+    try {
+      const document = new FakeDocument();
+      const model = await loadPanelModel();
+      const renderer = await loadPanelRenderer(document);
+      const { root, regions } = createPanelManagedRegions(document);
+      const seeded = harness.seedTask({
+        taskName: "Managed Transcript Catch-up",
+        requestId: "req-managed-transcript-catch-up",
+        status: "running",
+      });
+      const capture = await harness.attach({ selectRunKey: seeded.runKey });
+      const localOnly = await capture.waitFor(
+        (snapshot) =>
+          snapshot.session?.loading === false &&
+          snapshot.session.messages.length > 0 &&
+          snapshot.session.messages.every((message) => message.seq < 0),
+      );
+      const render = (snapshot: typeof localOnly) => {
+        const panel = model.projectSkillRunnerPanelSnapshot(snapshot);
+        renderer.renderAssistantPanelSnapshot(panel, {
+          managed: true,
+          root,
+          regions,
+          onAction() {},
+        });
+        return panel;
+      };
+      render(localOnly);
+      const stableRegions = [
+        "toolbar",
+        "banner",
+        "plan",
+        "hint",
+        "reply",
+        "drawer",
+      ] as const;
+      const stableSubtrees = Object.fromEntries(
+        stableRegions.map((key) => [
+          key,
+          subtreeNodes(regions[key].firstChild),
+        ]),
+      );
+
+      harness.appendChatEvents(seeded.requestId, [
+        {
+          seq: 1,
+          ts: "2026-07-18T00:03:00.000Z",
+          role: "assistant",
+          kind: "assistant_process",
+          text: "read backend artifact",
+          correlation: {
+            process_type: "tool_call",
+            tool_call_id: "tool-managed-history",
+          },
+        },
+      ]);
+      const afterIndex = capture.snapshots.length - 1;
+      await harness.dispatch("select-task", { taskKey: seeded.runKey });
+      const updated = await capture.waitForAfter(
+        afterIndex,
+        (snapshot) =>
+          snapshot.messageCounts?.cumulative.tool === 1 &&
+          snapshot.session?.messages.some((message) => message.seq === 1) ===
+            true,
+      );
+      const panel = render(updated.snapshot);
+
+      assert.isTrue(
+        panel.conversation.items.some((item: any) => item.kind === "tool"),
+      );
+      assert.isAbove(
+        updated.snapshot.transcriptRevision,
+        localOnly.transcriptRevision,
+      );
+      assertRegionSubtreesPreserved(
+        Object.fromEntries(stableRegions.map((key) => [key, regions[key]])),
+        stableSubtrees,
+      );
+    } finally {
+      await harness.reset();
+      clearPref("assistantExecutionDisplayMode");
+    }
   });
 
   it("preserves SkillRunner managed mounts across empty and selected snapshots", async function () {

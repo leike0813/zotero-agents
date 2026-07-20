@@ -9,13 +9,21 @@ Assistant Workspace panels SHALL classify runtime refreshes as `critical`,
 `boundary`, `live`, or `background` and SHALL apply the global `live`,
 `boundary`, or `silent` execution display mode before publishing.
 
-Critical events SHALL publish immediately and background events SHALL not publish. In `live`, text/thought live events SHALL publish naturally and metadata live events SHALL use the shared cadence. In `boundary`, live text SHALL remain unpublished until a complete semantic message or other existing boundary. In `silent`, ordinary live and boundary events SHALL not publish transcript content; only a semantic-message count change or critical interaction/terminal state SHALL publish.
+Scheduling urgency and transcript eligibility SHALL be additive. A critical event SHALL publish immediately, but in live mode it SHALL NOT suppress changed UI-visible transcript content or cancel a queued live transcript without publishing equivalent content. Background events SHALL not publish. In `live`, text/thought live events SHALL publish naturally and metadata live events SHALL use the shared cadence. In `boundary`, live text SHALL remain unpublished until a complete semantic message or other existing boundary. In `silent`, ordinary live and boundary events SHALL not publish transcript content; only a semantic-message count change or critical interaction/terminal state SHALL publish.
 
 #### Scenario: live text advances naturally
 
 - **GIVEN** execution display mode is `live`
 - **WHEN** a panel receives text or thought chunks
 - **THEN** the UI-visible transcript advances without waiting for metadata cadence.
+
+#### Scenario: critical refresh retains concurrent live transcript
+
+- **GIVEN** execution display mode is `live`
+- **AND** a selected owner's UI-visible transcript changed
+- **WHEN** a critical lifecycle or metadata refresh publishes before a queued live refresh
+- **THEN** the critical snapshot SHALL include the changed transcript
+- **AND** the transcript revision SHALL advance exactly once for that published mirror state.
 
 #### Scenario: boundary mode preserves message publication
 

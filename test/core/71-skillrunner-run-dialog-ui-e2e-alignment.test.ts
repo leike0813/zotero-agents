@@ -30,6 +30,7 @@ import { assert } from "chai";
 import * as AssistantPanelModel from "../../src/sidebar/assistantPanelModel.js";
 import { adaptLegacyTranscriptItem } from "../../src/sidebar/assistantTranscriptRenderer.js";
 import { getSkillRunnerRunRecord } from "../../src/modules/skillRunnerRunStore";
+import { clearPref, setPref } from "../../src/utils/prefs";
 import {
   SKILLRUNNER_SNAPSHOT_COMPAT_ALIAS_PATHS,
   SKILLRUNNER_SNAPSHOT_REQUIRED_CONSUMED_PATHS,
@@ -174,6 +175,134 @@ describe("skillrunner run dialog ui behavior contract", function () {
   this.timeout(20_000);
 
   describe("layer A: snapshot production contract", function () {
+    it("publishes backend history on the first affected live snapshot after local notices", async function () {
+      setPref("assistantExecutionDisplayMode", "live");
+      const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+      try {
+        const seeded = harness.seedTask({
+          taskName: "Live History Catch-up",
+          requestId: "req-live-history-catch-up",
+          status: "running",
+        });
+        const capture = await harness.attach({ selectRunKey: seeded.runKey });
+        const localOnly = await capture.waitFor(
+          (snapshot) =>
+            snapshot.session?.loading === false &&
+            snapshot.session.messages.length > 0 &&
+            snapshot.session.messages.every((message) => message.seq < 0),
+        );
+        const localRevision = localOnly.transcriptRevision;
+        const afterIndex = capture.snapshots.length - 1;
+
+        harness.appendChatEvents(seeded.requestId, [
+          {
+            seq: 1,
+            ts: "2026-07-18T00:01:00.000Z",
+            role: "assistant",
+            kind: "assistant_process",
+            text: "reading backend workspace",
+            correlation: {
+              process_type: "tool_call",
+              tool_call_id: "tool-live-history",
+            },
+          },
+        ]);
+        await harness.dispatch("select-task", { taskKey: seeded.runKey });
+
+        const affected = await capture.waitForAfter(
+          afterIndex,
+          (snapshot) => snapshot.messageCounts?.cumulative.tool === 1,
+        );
+        assert.isTrue(
+          affected.snapshot.session?.messages.some(
+            (message) => message.seq === 1,
+          ),
+          "the first snapshot with backend counts must carry the backend transcript",
+        );
+        assert.isAbove(
+          affected.snapshot.transcriptRevision,
+          localRevision,
+          "the backend transcript must advance the receiver revision",
+        );
+      } finally {
+        await harness.reset();
+        clearPref("assistantExecutionDisplayMode");
+      }
+    });
+
+    it("holds tool-only history in boundary mode and releases it with the next semantic boundary", async function () {
+      setPref("assistantExecutionDisplayMode", "boundary");
+      const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+      try {
+        const seeded = harness.seedTask({
+          taskName: "Boundary History Catch-up",
+          requestId: "req-boundary-history-catch-up",
+          status: "running",
+        });
+        const capture = await harness.attach({ selectRunKey: seeded.runKey });
+        const localOnly = await capture.waitFor(
+          (snapshot) =>
+            snapshot.session?.loading === false &&
+            snapshot.session.messages.length > 0 &&
+            snapshot.session.messages.every((message) => message.seq < 0),
+        );
+        const localRevision = localOnly.transcriptRevision;
+
+        harness.appendChatEvents(seeded.requestId, [
+          {
+            seq: 1,
+            ts: "2026-07-18T00:02:00.000Z",
+            role: "assistant",
+            kind: "assistant_process",
+            text: "read papers/a.md",
+            correlation: {
+              process_type: "tool_call",
+              tool_call_id: "tool-boundary-history",
+            },
+          },
+        ]);
+        let afterIndex = capture.snapshots.length - 1;
+        await harness.dispatch("select-task", { taskKey: seeded.runKey });
+        const toolOnly = await capture.waitForAfter(
+          afterIndex,
+          (snapshot) => snapshot.messageCounts?.cumulative.tool === 1,
+        );
+        assert.equal(toolOnly.snapshot.transcriptRevision, localRevision);
+        assert.isFalse(
+          toolOnly.snapshot.session?.messages.some(
+            (message) => message.seq === 1,
+          ),
+          "tool-only history remains unpublished until a semantic boundary",
+        );
+
+        harness.appendChatEvents(seeded.requestId, [
+          {
+            seq: 2,
+            ts: "2026-07-18T00:02:01.000Z",
+            role: "assistant",
+            kind: "assistant_final",
+            text: "backend result",
+            display_text: "backend result",
+          },
+        ]);
+        afterIndex = capture.snapshots.length - 1;
+        await harness.dispatch("select-task", { taskKey: seeded.runKey });
+        const released = await capture.waitForAfter(
+          afterIndex,
+          (snapshot) => snapshot.messageCounts?.cumulative.assistant === 1,
+        );
+        assert.includeMembers(
+          released.snapshot.session?.messages.map((message) => message.seq) ||
+            [],
+          [1, 2],
+        );
+        assert.isAbove(released.snapshot.transcriptRevision, localRevision);
+      } finally {
+        await harness.reset();
+        clearPref("assistantExecutionDisplayMode");
+      }
+    });
+
     it("publishes waiting_user semantics for a selected run", async function () {
       const harness = await startSkillRunnerWorkspaceSnapshotHarness();
       try {

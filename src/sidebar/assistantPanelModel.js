@@ -2226,11 +2226,10 @@ function exactWorkspaceDrawerSections(
     if (!buckets.has(groupKey)) {
       buckets.set(groupKey, createGroupBucket(groupKey, entry));
     }
-    buckets
-      .get(groupKey)
-      [
-        target
-      ].push(projectedTask || exactWorkspaceTask(entry, selectedOwner, labelSource));
+    const group = buckets.get(groupKey);
+    group[target].push(
+      projectedTask || exactWorkspaceTask(entry, selectedOwner, labelSource),
+    );
   }
   const entries = Array.isArray(navigation && navigation.entries)
     ? navigation.entries
