@@ -2,6 +2,7 @@ import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import {
   attachSkillRunnerSidebarHost,
+  detachSkillRunnerSidebarHost,
   dispatchRunWorkspaceAction,
   refreshSkillRunnerSidebarHostSnapshot,
   resetSkillRunnerRunDialogForTests,
@@ -95,6 +96,8 @@ export type SkillRunnerWorkspaceCapture = {
     index: number;
     snapshot: RunWorkspaceSnapshot;
   }>;
+  detach: () => void;
+  reattach: (args?: { selectRunKey?: string }) => Promise<void>;
 };
 
 export type SkillRunnerWorkspaceSnapshotHarness = {
@@ -513,25 +516,35 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
     },
     async attach(args = {}) {
       const snapshots: SkillRunnerWorkspaceCapture["snapshots"] = [];
-      attachSkillRunnerSidebarHost({
-        hostWindow: createHostWindowStub(),
-        frameWindow: null,
-        isHostAlive: () => true,
-        publishSnapshot: (phase, snapshot) => {
-          // structuredClone matches what postMessage would deliver to the
-          // page and detaches the capture from later in-place mutations.
-          snapshots.push({ phase, snapshot: structuredClone(snapshot) });
-        },
-        handleHostAction: args.handleHostAction
-          ? async (envelope) => {
-              const handled = await args.handleHostAction?.({
-                action: String(envelope.action || ""),
-                payload: isObject(envelope.payload) ? envelope.payload : {},
-              });
-              return handled === true;
-            }
-          : undefined,
-      });
+      const hostWindow = createHostWindowStub();
+      const publishSnapshot = (
+        phase: "init" | "snapshot",
+        snapshot: RunWorkspaceSnapshot,
+      ) => {
+        // structuredClone matches what postMessage would deliver to the
+        // page and detaches the capture from later in-place mutations.
+        snapshots.push({ phase, snapshot: structuredClone(snapshot) });
+      };
+      const handleHostAction: Parameters<
+        typeof attachSkillRunnerSidebarHost
+      >[0]["handleHostAction"] = args.handleHostAction
+        ? async (envelope) => {
+            const handled = await args.handleHostAction?.({
+              action: String(envelope.action || ""),
+              payload: isObject(envelope.payload) ? envelope.payload : {},
+            });
+            return handled === true;
+          }
+        : undefined;
+      const attachHost = () =>
+        attachSkillRunnerSidebarHost({
+          hostWindow,
+          frameWindow: null,
+          isHostAlive: () => true,
+          publishSnapshot,
+          handleHostAction,
+        });
+      attachHost();
       await refreshSkillRunnerSidebarHostSnapshot({
         forceInit: true,
         runKey: args.selectRunKey,
@@ -574,6 +587,16 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
             }
             await new Promise((resolve) => setTimeout(resolve, 25));
           }
+        },
+        detach() {
+          detachSkillRunnerSidebarHost({ hostWindow });
+        },
+        async reattach(reattachArgs = {}) {
+          attachHost();
+          await refreshSkillRunnerSidebarHostSnapshot({
+            forceInit: true,
+            runKey: reattachArgs.selectRunKey,
+          });
         },
       };
       return capture;

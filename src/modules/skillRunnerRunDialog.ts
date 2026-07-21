@@ -3274,6 +3274,12 @@ function clearRunWorkspaceHostState() {
     runWorkspaceState.snapshotFlushTimer = null;
     runWorkspaceState.pendingSnapshotType = undefined;
   }
+  if (runWorkspaceState.refreshFlushTimer) {
+    clearTimeout(runWorkspaceState.refreshFlushTimer);
+    runWorkspaceState.refreshFlushTimer = null;
+  }
+  runWorkspaceState.pendingRefreshArgs = undefined;
+  runWorkspaceState.pendingRefreshReason = undefined;
   if (runWorkspaceState.removeMessageListener) {
     runWorkspaceState.removeMessageListener();
     runWorkspaceState.removeMessageListener = undefined;
@@ -3295,11 +3301,19 @@ function clearRunWorkspaceHostState() {
   runWorkspaceState.groups = [];
   runWorkspaceState.historyTruncated = false;
   runWorkspaceState.historyNotice = "";
+}
+
+function resetRunWorkspaceTranscriptPublicationState() {
   runWorkspaceState.transcriptRevision = 0;
   runWorkspaceState.publishedTranscriptEntryKey = "";
   runWorkspaceState.publishedTranscriptMessages = [];
   runWorkspaceState.lastPublishedTranscriptSignature = "";
   runWorkspaceState.lastTranscriptPublishedAt = 0;
+}
+
+function clearRunWorkspaceRuntimeState() {
+  clearRunWorkspaceHostState();
+  resetRunWorkspaceTranscriptPublicationState();
 }
 
 function ensureRunWorkspaceSubscriptions() {
@@ -4854,7 +4868,7 @@ async function shutdownRunDialogRuntime() {
   runWorkspaceState.taskIndex.clear();
   runWorkspaceState.groupCollapsed.clear();
   runWorkspaceState.finishedCollapsed.clear();
-  clearRunWorkspaceHostState();
+  clearRunWorkspaceRuntimeState();
   runDialogMap.clear();
 }
 
@@ -5715,7 +5729,7 @@ export async function openSkillRunnerRunDialog(args?: { runKey?: string }) {
       runWorkspaceState.groups = [];
       runWorkspaceState.taskIndex.clear();
       runDialogMap.clear();
-      clearRunWorkspaceHostState();
+      clearRunWorkspaceRuntimeState();
     },
   };
 

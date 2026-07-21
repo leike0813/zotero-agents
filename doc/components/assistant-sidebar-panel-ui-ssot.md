@@ -293,6 +293,13 @@ control projected from an older snapshot cannot answer a later interaction.
 SkillRunner actions use canonical `reply-run`; literal `reply` and `cancel` are
 accepted only at the run-dialog host boundary.
 
+Interaction tokens and reply action payloads are non-visible live action state.
+The managed renderer SHALL update that state for every publication even when a
+region signature suppresses DOM work, and a stable reply listener SHALL read
+the current action and payload at dispatch time. A token-only update SHALL NOT
+rebuild the reply textarea, reply button, or another unchanged managed region;
+token validation at the host boundary remains mandatory for text replies.
+
 ACP Skills file replies use one native single-file picker per declared slot.
 Selected files are copied into the run workspace under the flat managed path
 `.acp-inputs/<turnKey>-<submissionKey>/<safeFileName>`. A sibling temporary
@@ -324,6 +331,8 @@ Common rules:
 - keep send/reply action visually stable
 - show keyboard shortcut hints near the action controls
 - do not let transient hints or status messages resize the reply controls
+- keep dynamic action payloads outside structural and visible-live signatures
+  so the existing textarea and send control survive token-only publications
 - do not wrap the whole reply zone in an extra framed surface; the textarea and
   footer SHALL align horizontally with the conversation window
 
@@ -502,6 +511,13 @@ pre-request notices. In boundary mode, HTTP history catch-up and foreground SSE
 use the same normalized semantic-boundary classifier so accumulated history is
 released once at the boundary. Silent mode continues to publish only its
 eligible projection; metadata snapshots must not expose suppressed content.
+Temporary sidebar or tab detach SHALL release host bindings, transient
+materialization, and pending render timers without resetting the transcript
+publication clock or published mirror state. Reattaching the same runtime,
+including the first A→B→A task return, SHALL therefore keep revisions monotonic
+and publish accumulated eligible history on the first return. Only complete
+runtime teardown such as plugin shutdown, test reset, or standalone dialog
+destruction SHALL clear the publication clock and mirror cache.
 
 The refactor SHALL NOT rewrite SkillRunner backend protocol, output
 convergence, reply/cancel semantics, or backend observation contracts.

@@ -238,6 +238,149 @@ describe("skillrunner run dialog ui behavior contract", function () {
       }
     });
 
+    it("preserves transcript revision and catches up history on the first same-owner reattach", async function () {
+      setPref("assistantExecutionDisplayMode", "live");
+      const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+      try {
+        const seeded = harness.seedTask({
+          taskName: "Same Owner Reactivation",
+          requestId: "req-same-owner-reactivation",
+          status: "running",
+        });
+        const capture = await harness.attach({ selectRunKey: seeded.runKey });
+        await capture.waitFor(
+          () => harness.getChatStreamState(seeded.requestId).openCount === 1,
+        );
+        harness.appendChatEvents(seeded.requestId, [
+          {
+            seq: 1,
+            role: "assistant",
+            kind: "assistant_process",
+            text: "before detach",
+          },
+        ]);
+        const beforeDetach = await capture.waitFor(
+          (snapshot) =>
+            snapshot.session?.messages.some((message) => message.seq === 1) ===
+            true,
+        );
+        const beforeRevision = beforeDetach.transcriptRevision;
+        const afterIndex = capture.snapshots.length - 1;
+
+        capture.detach();
+        harness.appendChatEvents(seeded.requestId, [
+          {
+            seq: 2,
+            role: "assistant",
+            kind: "assistant_final",
+            text: "while detached",
+            display_text: "while detached",
+          },
+        ]);
+        await capture.reattach();
+
+        const reactivated = await capture.waitForAfter(
+          afterIndex,
+          (snapshot) =>
+            snapshot.session?.messages.some((message) => message.seq === 2) ===
+            true,
+        );
+        assert.isAbove(
+          reactivated.snapshot.transcriptRevision,
+          beforeRevision,
+          "new history must continue the retained publication clock",
+        );
+        assert.deepEqual(
+          reactivated.snapshot.session?.messages
+            .filter((message) => message.seq > 0)
+            .map((message) => message.seq),
+          [1, 2],
+        );
+        assert.equal(
+          harness.getChatStreamState(seeded.requestId).requestCount,
+          1,
+          "temporary host detach must retain the foreground history cursor",
+        );
+      } finally {
+        await harness.reset();
+        clearPref("assistantExecutionDisplayMode");
+      }
+    });
+
+    it("publishes A history once on the first A to B to A return", async function () {
+      setPref("assistantExecutionDisplayMode", "live");
+      const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+      try {
+        const taskA = harness.seedTask({
+          taskName: "Warm Task A",
+          requestId: "req-warm-task-a",
+          status: "running",
+          chatEvents: [
+            {
+              seq: 1,
+              role: "assistant",
+              kind: "assistant_process",
+              text: "A before switch",
+            },
+          ],
+        });
+        const taskB = harness.seedTask({
+          taskName: "Warm Task B",
+          requestId: "req-warm-task-b",
+          status: "running",
+        });
+        const capture = await harness.attach({ selectRunKey: taskA.runKey });
+        const firstA = await capture.waitFor(
+          (snapshot) =>
+            snapshot.workspace.selectedTaskKey === taskA.runKey &&
+            snapshot.session?.messages.some((message) => message.seq === 1) ===
+              true,
+        );
+        const firstARevision = firstA.transcriptRevision;
+
+        await harness.dispatch("select-task", { taskKey: taskB.runKey });
+        await capture.waitFor(
+          (snapshot) => snapshot.workspace.selectedTaskKey === taskB.runKey,
+        );
+        await capture.waitFor(
+          () => harness.getChatStreamState(taskA.requestId).openCount === 1,
+        );
+        harness.appendChatEvents(taskA.requestId, [
+          {
+            seq: 2,
+            role: "assistant",
+            kind: "assistant_final",
+            text: "A while B selected",
+            display_text: "A while B selected",
+          },
+        ]);
+        const afterIndex = capture.snapshots.length - 1;
+
+        await harness.dispatch("select-task", { taskKey: taskA.runKey });
+        const returnedA = await capture.waitForAfter(
+          afterIndex,
+          (snapshot) =>
+            snapshot.workspace.selectedTaskKey === taskA.runKey &&
+            snapshot.session?.messages.some((message) => message.seq === 2) ===
+              true,
+        );
+        const visibleSequences = returnedA.snapshot.session?.messages
+          .filter((message) => message.seq > 0)
+          .map((message) => message.seq);
+        assert.deepEqual(visibleSequences, [1, 2]);
+        assert.equal(new Set(visibleSequences).size, visibleSequences?.length);
+        assert.isAbove(returnedA.snapshot.transcriptRevision, firstARevision);
+        assert.equal(
+          harness.getChatStreamState(taskA.requestId).requestCount,
+          1,
+          "the warm A observer must continue rather than restart its cursor",
+        );
+      } finally {
+        await harness.reset();
+        clearPref("assistantExecutionDisplayMode");
+      }
+    });
+
     it("holds tool-only history in boundary mode and releases it with the next semantic boundary", async function () {
       setPref("assistantExecutionDisplayMode", "boundary");
       const harness = await startSkillRunnerWorkspaceSnapshotHarness();

@@ -1704,60 +1704,163 @@ describe("Assistant Workspace ACP UI v1", function () {
     ]);
   });
 
-  it("retains the interaction token when the managed text reply is submitted", async function () {
+  it("dispatches the latest managed text-reply token without rebuilding panel regions", async function () {
     const document = new FakeDocument();
     const renderer = await loadPanelRenderer(document);
-    const state = canonicalState("acp-skills");
-    state.selection.control = {
-      ...state.selection.control,
-      status: "waiting_user",
-      busy: false,
-      hint: { kind: "waiting_user", message: null },
-      interaction: {
-        interactionToken: "revision:8",
-        inputKind: "open_text",
-        prompt: "Reply",
-        hint: null,
-        options: [],
-        files: [],
-        fileReply: {
-          supported: false,
-          maxFiles: 8,
-          maxFileBytes: 32 * 1024 * 1024,
-          maxTotalBytes: 64 * 1024 * 1024,
+    const acpState = canonicalState("acp-skills") as any;
+    const setAcpToken = (interactionToken: string) => {
+      acpState.selection.control = {
+        ...acpState.selection.control,
+        status: "waiting_user",
+        busy: false,
+        hint: { kind: "waiting_user", message: null },
+        interaction: {
+          interactionToken,
+          inputKind: "open_text",
+          prompt: "Reply",
+          hint: null,
+          options: [],
+          files: [],
+          fileReply: {
+            supported: false,
+            maxFiles: 8,
+            maxFileBytes: 32 * 1024 * 1024,
+            maxTotalBytes: 64 * 1024 * 1024,
+          },
         },
-      },
+      };
     };
-    const panel = AssistantPanelModel.projectAssistantWorkspacePanel(
-      state,
-      {},
-      {},
-    );
-    const reply = document.createElement("div");
-    const actions: Array<{ action: string; payload: unknown }> = [];
-    renderer.renderAssistantReply(reply, panel, {
-      onAction(action: string, payload: unknown) {
-        actions.push({ action, payload });
-      },
-    });
-    const input = reply.querySelector(".assistant-panel-reply-input");
-    const button = reply.querySelector(".assistant-panel-reply-submit");
-    assert.ok(input);
-    assert.ok(button);
-    (input as any).value = "Continue";
-    button?.listeners.get("click")?.[0]?.({
-      preventDefault() {},
-      stopPropagation() {},
-    });
-    assert.deepEqual(actions, [
-      {
-        action: "reply-run",
-        payload: {
-          interactionToken: "revision:8",
-          message: "Continue",
+    setAcpToken("revision:8");
+
+    const skillRunnerSnapshot = {
+      title: "SkillRunner",
+      labels: {},
+      workspace: { selectedTaskKey: "run:latest-token", groups: [] },
+      session: {
+        title: "Run",
+        backendTitle: "SkillRunner",
+        requestId: "request-latest-token",
+        status: "waiting_user",
+        statusSemantics: {
+          normalized: "waiting_user",
+          terminal: false,
+          waiting: true,
         },
+        pendingInteractionId: 8,
+        pendingInteraction: {
+          interactionToken: "8",
+          inputKind: "open_text",
+          prompt: "Reply",
+          hint: null,
+          options: [],
+          files: [],
+          fileReply: {
+            supported: false,
+            maxFiles: 8,
+            maxFileBytes: 32 * 1024 * 1024,
+            maxTotalBytes: 64 * 1024 * 1024,
+          },
+        },
+        pendingKind: "open_text",
+        pendingUiHints: {},
+        pendingOptions: [],
+        pendingRequiredFields: [],
+        authAvailableMethods: [],
+        loading: false,
+        messages: [],
+        labels: {},
       },
-    ]);
+    } as any;
+
+    const cases = [
+      {
+        name: "ACP Skills",
+        oldToken: "revision:8",
+        newToken: "revision:9",
+        updateToken() {
+          setAcpToken("revision:9");
+        },
+        project: () =>
+          AssistantPanelModel.projectAssistantWorkspacePanel(acpState, {}, {}),
+        expectedPayload: { interactionToken: "revision:9" },
+      },
+      {
+        name: "SkillRunner",
+        oldToken: "8",
+        newToken: "9",
+        updateToken() {
+          skillRunnerSnapshot.session.pendingInteractionId = 9;
+          skillRunnerSnapshot.session.pendingInteraction.interactionToken = "9";
+        },
+        project: () =>
+          AssistantPanelModel.projectSkillRunnerPanelSnapshot(
+            skillRunnerSnapshot,
+          ),
+        expectedPayload: { interactionToken: "9" },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const { root, regions } = createPanelManagedRegions(document);
+      const actions: Array<{ action: string; payload: any }> = [];
+      const onAction = (action: string, payload: unknown) => {
+        actions.push({ action, payload });
+      };
+      renderer.renderAssistantPanelSnapshot(testCase.project(), {
+        managed: true,
+        root,
+        regions,
+        onAction,
+      });
+      const input = regions.reply.querySelector(".assistant-panel-reply-input");
+      const button = regions.reply.querySelector(
+        ".assistant-panel-reply-submit",
+      );
+      assert.ok(input, `${testCase.name} reply input must exist`);
+      assert.ok(button, `${testCase.name} reply button must exist`);
+      const stableRegions = Object.fromEntries(
+        Object.entries(regions).filter(
+          ([key]) => testCase.name !== "SkillRunner" || key !== "details",
+        ),
+      );
+      const regionSubtrees = captureRegionSubtrees(stableRegions);
+
+      testCase.updateToken();
+      renderer.renderAssistantPanelSnapshot(testCase.project(), {
+        managed: true,
+        root,
+        regions,
+        onAction,
+      });
+
+      assertRegionSubtreesPreserved(stableRegions, regionSubtrees);
+      assert.strictEqual(
+        regions.reply.querySelector(".assistant-panel-reply-input"),
+        input,
+      );
+      assert.strictEqual(
+        regions.reply.querySelector(".assistant-panel-reply-submit"),
+        button,
+      );
+      (input as any).value = `Continue ${testCase.name}`;
+      button?.listeners.get("click")?.[0]?.({
+        preventDefault() {},
+        stopPropagation() {},
+      });
+
+      assert.lengthOf(actions, 1);
+      assert.equal(actions[0].action, "reply-run");
+      assert.deepInclude(actions[0].payload, {
+        ...testCase.expectedPayload,
+        message: `Continue ${testCase.name}`,
+      });
+      assert.notEqual(
+        actions[0].payload.interactionToken,
+        testCase.oldToken,
+        `${testCase.name} must not dispatch the listener's first token`,
+      );
+      assert.equal(actions[0].payload.interactionToken, testCase.newToken);
+    }
   });
 
   it("bounds the Chat selector to eight recent sessions, retains active, and appends Show more", async function () {

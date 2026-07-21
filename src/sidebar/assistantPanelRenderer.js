@@ -9,6 +9,18 @@ function safeText(value) {
 
 const replyHistoryByKey = new Map();
 const replyHistoryLimit = 50;
+const replyActionStateByMount = new WeakMap();
+
+function updateAssistantReplyActionState(target, panel) {
+  if (!target) return;
+  const reply =
+    panel && panel.reply && typeof panel.reply === "object" ? panel.reply : {};
+  replyActionStateByMount.set(target, {
+    action: safeText(reply.action || "reply"),
+    payload:
+      reply.payload && typeof reply.payload === "object" ? reply.payload : {},
+  });
+}
 
 function replyHistoryKey(panel) {
   const reply =
@@ -1422,6 +1434,7 @@ function renderAssistantReply(container, snapshot, options) {
     options && options.adoptOnly
       ? container
       : managedMount(container, "reply") || container;
+  updateAssistantReplyActionState(target, panel);
   container.setAttribute(
     "data-assistant-reply-enabled",
     panel.reply.enabled ? "true" : "false",
@@ -1492,16 +1505,19 @@ function renderAssistantReply(container, snapshot, options) {
     event.preventDefault();
     event.stopPropagation();
     if (!interruptAction) rememberReplyHistory(historyKey, input.value);
-    emit(
-      options,
-      replyAction || "reply",
-      Object.assign(
-        {},
+    const actionState = replyActionStateByMount.get(target) || {
+      action: replyAction,
+      payload:
         panel.reply.payload && typeof panel.reply.payload === "object"
           ? panel.reply.payload
           : {},
-        { message: safeText(input.value) },
-      ),
+    };
+    emit(
+      options,
+      safeText(actionState.action || replyAction || "reply"),
+      Object.assign({}, actionState.payload, {
+        message: safeText(input.value),
+      }),
     );
     resetReplyHistoryNavigation(historyKey);
     if (panel.reply.clearOnSend !== false && !interruptAction) input.value = "";
@@ -2850,6 +2866,24 @@ function replyRegionSignature(panel) {
   };
 }
 
+function hintRegionSignature(panel) {
+  const interaction =
+    panel && panel.interaction && typeof panel.interaction === "object"
+      ? panel.interaction
+      : {};
+  const pending =
+    interaction.pendingInteraction &&
+    typeof interaction.pendingInteraction === "object"
+      ? interaction.pendingInteraction
+      : null;
+  if (!pending) return interaction;
+  const visiblePending = Object.assign({}, pending);
+  delete visiblePending.interactionToken;
+  return Object.assign({}, interaction, {
+    pendingInteraction: visiblePending,
+  });
+}
+
 function permissionDrawerSignature(panel) {
   const drawers = panel && panel.drawers ? panel.drawers : {};
   const request =
@@ -2951,7 +2985,7 @@ function renderAssistantPanelSnapshot(snapshot, options) {
     renderManagedRegionIfChanged(
       opts.regions && opts.regions.hint,
       "hint",
-      panel.interaction,
+      hintRegionSignature(panel),
       function () {
         renderAssistantHint(
           opts.regions && opts.regions.hint,
@@ -2962,16 +2996,17 @@ function renderAssistantPanelSnapshot(snapshot, options) {
     );
   }
   if (shouldManageRegion(opts, "reply")) {
+    const replyRegion = opts.regions && opts.regions.reply;
+    updateAssistantReplyActionState(
+      managedMount(replyRegion, "reply") || replyRegion,
+      panel,
+    );
     renderManagedRegionIfChanged(
-      opts.regions && opts.regions.reply,
+      replyRegion,
       "reply",
       replyRegionSignature(panel),
       function () {
-        renderAssistantReply(
-          opts.regions && opts.regions.reply,
-          managedSnapshot,
-          opts,
-        );
+        renderAssistantReply(replyRegion, managedSnapshot, opts);
       },
     );
   }
