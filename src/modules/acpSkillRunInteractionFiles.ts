@@ -25,7 +25,6 @@ import {
   renderAcpRuntimePromptTemplate,
 } from "./acpRuntimePromptTemplates";
 import {
-  getAcpSkillRunPendingInteractionToken,
   getAcpSkillRunWorkspaceReadModel,
   replyAcpSkillRun,
 } from "./acpSkillRunStore";
@@ -136,32 +135,28 @@ async function renderFileReplyPrompt(files: StagedAcpInteractionFile[]) {
 
 export async function stageAcpSkillRunInteractionFiles(args: {
   requestId: string;
-  interactionToken: string;
   workspaceDir: string;
   selections: AssistantInteractionFileSelection[];
   submissionKey?: string;
 }): Promise<StagedAcpInteractionFiles> {
   const requestId = String(args.requestId || "").trim();
-  const interactionToken = String(args.interactionToken || "").trim();
   const workspaceDir = String(args.workspaceDir || "").trim();
   const selections = Array.isArray(args.selections) ? args.selections : [];
-  if (!requestId || !interactionToken || !workspaceDir || !selections.length) {
+  if (!requestId || !workspaceDir || !selections.length) {
     throw new Error("ACP interaction file staging arguments are incomplete");
   }
   if (selections.length > ASSISTANT_PENDING_INTERACTION_FILE_LIMIT) {
     throw new Error("ACP interaction file count exceeds the managed limit");
   }
-  const digest = await sha256Hex(
-    encodeText(`${requestId}\n${interactionToken}`),
-  );
+  const digest = await sha256Hex(encodeText(requestId));
   if (!digest)
     throw new Error("SHA-256 is unavailable for interaction staging");
-  const turnKey = digest.slice(0, 12);
+  const requestKey = digest.slice(0, 12);
   const submissionKey = safeManagedFileName(
     String(args.submissionKey || randomSubmissionKey()).slice(0, 12),
   );
   const directoryRelativePath = assertManagedRelativePath(
-    `.acp-inputs/${turnKey}-${submissionKey}`,
+    `.acp-inputs/${requestKey}-${submissionKey}`,
   );
   const temporaryRelativePath = assertManagedRelativePath(
     `.acp-inputs/.tmp-${submissionKey}`,
@@ -263,13 +258,11 @@ export async function pickAssistantInteractionFiles(args: {
 
 export async function submitAcpSkillRunInteractionFiles(args: {
   requestId: string;
-  interactionToken: string;
   slots: AssistantInteractionFileSlot[];
   pickFile?: (slot: AssistantInteractionFileSlot) => Promise<string | null>;
 }) {
   const requestId = String(args.requestId || "").trim();
-  const interactionToken = String(args.interactionToken || "").trim();
-  const flowKey = `${requestId}\n${interactionToken}`;
+  const flowKey = requestId;
   if (inFlightInteractionFiles.has(flowKey)) {
     return { status: "in-flight" as const };
   }
@@ -278,9 +271,10 @@ export async function submitAcpSkillRunInteractionFiles(args: {
     if (
       !initial ||
       initial.status !== "waiting_user" ||
-      interactionToken !== getAcpSkillRunPendingInteractionToken(requestId)
+      String(initial.pendingInteraction?.uiHints?.kind || "").trim() !==
+        "upload_files"
     ) {
-      throw new Error("ACP skill run interaction token is stale.");
+      throw new Error("ACP skill run is not waiting for file input.");
     }
     const picked = await pickAssistantInteractionFiles({
       slots: args.slots,
@@ -291,13 +285,13 @@ export async function submitAcpSkillRunInteractionFiles(args: {
     if (
       !current ||
       current.status !== "waiting_user" ||
-      interactionToken !== getAcpSkillRunPendingInteractionToken(requestId)
+      String(current.pendingInteraction?.uiHints?.kind || "").trim() !==
+        "upload_files"
     ) {
-      throw new Error("ACP skill run interaction token is stale.");
+      throw new Error("ACP skill run is no longer waiting for file input.");
     }
     const staged = await stageAcpSkillRunInteractionFiles({
       requestId,
-      interactionToken,
       workspaceDir: String(current.workspaceDir || "").trim(),
       selections: picked.selections,
     });
@@ -305,7 +299,6 @@ export async function submitAcpSkillRunInteractionFiles(args: {
       requestId,
       displayMessage: staged.displayMessage,
       promptMessage: staged.promptMessage,
-      interactionToken,
     });
     return { status: "submitted" as const, staged };
   })();

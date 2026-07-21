@@ -28,7 +28,6 @@ import {
   endAcpSkillRunSession,
   flushAcpSkillRunRuntimeFileWritesForTests,
   getAcpSkillRunRecord,
-  getAcpSkillRunPendingInteractionToken,
   getAcpSkillRunRuntimeCatalog,
   getSelectedAcpSkillRunRequestId,
   getAcpSkillRunTranscriptMirrorDiagnosticsForTests,
@@ -8614,68 +8613,160 @@ describe("ACP SkillRunner-compatible runner", function () {
     );
   });
 
-  it("separates visible and transport replies and rejects stale interaction tokens", async function () {
-    resetAcpSkillRunsForTests();
-    const requestId = "run-token-bound-reply";
-    upsertAcpSkillRun({
-      requestId,
-      status: "waiting_user",
-      backendId: "backend-acp",
-      backendType: "acp",
-      sessionId: "session-1",
-      conversationState: "active",
-      conversationRecoveryState: "connected",
-      pendingInteraction: {
-        message: "Choose",
-        uiHints: { kind: "choose_one", options: ["Visible label"] },
-        candidateText: '{"__SKILL_DONE__":false}',
+  it("continues an interrupted live run through a second waiting turn without a token", async function () {
+    this.timeout(10000);
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+    });
+    const firstPromptStarted = createDeferred();
+    const firstPromptRelease = createDeferred();
+    const thirdPromptStarted = createDeferred();
+    const thirdPromptRelease = createDeferred();
+    let promptCount = 0;
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    const promptMessages: string[] = [];
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-two-waiting-turns" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId, message }) => {
+        promptCount += 1;
+        promptMessages.push(message);
+        if (promptCount === 1) {
+          firstPromptStarted.resolve();
+          await firstPromptRelease.promise;
+          return { stopReason: "cancelled", cancelRequested: true };
+        }
+        if (promptCount === 2) {
+          await updateListener?.({
+            sessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: {
+                type: "text",
+                text: JSON.stringify({
+                  __SKILL_DONE__: false,
+                  message: "Need a second answer.",
+                  ui_hints: {
+                    kind: "open_text",
+                    prompt: "Provide the second answer.",
+                  },
+                }),
+              },
+            },
+          });
+          return { stopReason: "end_turn" };
+        }
+        thirdPromptStarted.resolve();
+        await thirdPromptRelease.promise;
+        return { stopReason: "cancelled", cancelRequested: true };
+      },
+      cancel: async () => {
+        if (promptCount === 1) firstPromptRelease.resolve();
+        if (promptCount === 3) thirdPromptRelease.resolve();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+    let requestId = "";
+    const execution = executeAcpSkillRunnerJob({
+      requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+      backend: createBackend(),
+      request: {
+        kind: ACP_SKILL_RUN_REQUEST_KIND,
+        skill_id: "demo-skill",
+        fetch_type: "result",
+        runtime_options: { execution_mode: "interactive" },
+      },
+      onProgress: (event) => {
+        if (event.type === "request-created") {
+          requestId = String(event.requestId);
+        }
+      },
+      dependencies: {
+        scanRegistry: async () => ({
+          entries: [entry],
+          entriesById: { "demo-skill": entry },
+          diagnostics: [],
+        }),
+        createWorkspace: (args) =>
+          import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+            mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+          ),
+        createAdapter: async () => fakeAdapter,
+        sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
       },
     });
-    const token = getAcpSkillRunPendingInteractionToken(requestId);
-    const received: Array<{ displayMessage: string; promptMessage: string }> =
-      [];
-    registerAcpSkillRunController(requestId, {
-      cancel: async () => undefined,
-      replyRequest: async (request) => {
-        received.push(request);
-        appendAcpSkillRunUserReply({
-          requestId,
-          message: request.displayMessage,
-        });
-      },
-    });
-
-    let staleError: unknown;
     try {
-      await replyAcpSkillRun({
-        requestId,
-        displayMessage: "Old label",
-        promptMessage: "old-value",
-        interactionToken: `${token}-stale`,
-      });
-    } catch (error) {
-      staleError = error;
-    }
-    assert.match(String(staleError), /interaction token is stale/);
-    await replyAcpSkillRun({
-      requestId,
-      displayMessage: "Visible label",
-      promptMessage: '{"depth":2,"mode":"deep"}',
-      interactionToken: token,
-    });
+      resetAcpSkillRunsForTests();
+      await firstPromptStarted.promise;
+      assert.isNotEmpty(requestId);
+      await interruptAcpSkillRunCurrentTurn(requestId);
+      const deferred = await execution;
+      assert.equal(deferred.status, "deferred");
+      assert.equal(deferred.backendStatus, "waiting_user");
 
-    assert.deepEqual(received, [
-      {
-        displayMessage: "Visible label",
-        promptMessage: '{"depth":2,"mode":"deep"}',
-      },
-    ]);
-    const userMessages = readAcpSkillRunTranscriptRegionFromMemoryForTests({
-      requestId,
-    }).page.items.filter(
-      (item) => item.itemKind === "message" && item.role === "user",
-    );
-    assert.equal(userMessages.at(-1)?.text, "Visible label");
+      const firstReply = replyAcpSkillRun({
+        requestId,
+        displayMessage: "First visible reply",
+        promptMessage: "first transport reply",
+      });
+      await waitForAcpSkillRun(
+        requestId,
+        (record) =>
+          record?.status === "waiting_user" &&
+          record.pendingInteraction?.message === "Need a second answer.",
+      );
+      const secondReply = replyAcpSkillRun({
+        requestId,
+        displayMessage: "Second visible reply",
+        promptMessage: "second transport reply",
+      });
+      await Promise.all([secondReply, thirdPromptStarted.promise]);
+      await interruptAcpSkillRunCurrentTurn(requestId);
+      await firstReply;
+
+      assert.equal(promptCount, 3);
+      assert.deepEqual(promptMessages.slice(1), [
+        "first transport reply",
+        "second transport reply",
+      ]);
+      const userMessages = readAcpSkillRunTranscriptRegionFromMemoryForTests({
+        requestId,
+      }).page.items.filter(
+        (item) => item.itemKind === "message" && item.role === "user",
+      );
+      assert.deepEqual(
+        userMessages.slice(-2).map((item) => item.text),
+        ["First visible reply", "Second visible reply"],
+      );
+    } finally {
+      await shutdownAcpSkillRunConversations().catch(() => undefined);
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("atomically stages flat collision-safe ACP interaction files without source-path leakage", async function () {
@@ -8693,7 +8784,6 @@ describe("ACP SkillRunner-compatible runner", function () {
 
       const staged = await stageAcpSkillRunInteractionFiles({
         requestId: `request-${"x".repeat(300)}`,
-        interactionToken: `token-${"y".repeat(300)}`,
         workspaceDir,
         submissionKey: "abc12345",
         selections: [
@@ -8767,7 +8857,6 @@ describe("ACP SkillRunner-compatible runner", function () {
       try {
         await stageAcpSkillRunInteractionFiles({
           requestId: "request-copy-failure",
-          interactionToken: "revision:1",
           workspaceDir,
           submissionKey: "deadbeef",
           selections: [
@@ -8794,7 +8883,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
-  it("rejects stale file flows and permits only one picker per owner token", async function () {
+  it("revalidates file waiting state and permits only one picker per request", async function () {
     resetAcpSkillRunsForTests();
     resetAcpSkillRunInteractionFileFlowsForTests();
     const requestId = "run-file-flow-guard";
@@ -8809,38 +8898,42 @@ describe("ACP SkillRunner-compatible runner", function () {
         uiHints: { kind: "upload_files" },
       },
     });
-    const token = getAcpSkillRunPendingInteractionToken(requestId);
-    let staleError: unknown;
-    try {
-      await submitAcpSkillRunInteractionFiles({
-        requestId,
-        interactionToken: `${token}-stale`,
-        slots: [{ name: "primary", required: true, hint: null, accept: null }],
-        pickFile: async () => null,
-      });
-    } catch (error) {
-      staleError = error;
-    }
-    assert.match(String(staleError), /interaction token is stale/);
-
     let releasePicker: ((value: string | null) => void) | undefined;
     const picker = new Promise<string | null>((resolve) => {
       releasePicker = resolve;
     });
-    const first = submitAcpSkillRunInteractionFiles({
+    const staleFlow = submitAcpSkillRunInteractionFiles({
       requestId,
-      interactionToken: token,
       slots: [{ name: "primary", required: true, hint: null, accept: null }],
       pickFile: async () => picker,
     });
+    upsertAcpSkillRun({ requestId, status: "running" });
+    releasePicker?.("/tmp/should-not-stage.pdf");
+    let staleError: unknown;
+    try {
+      await staleFlow;
+    } catch (error) {
+      staleError = error;
+    }
+    assert.instanceOf(staleError, Error);
+
+    upsertAcpSkillRun({ requestId, status: "waiting_user" });
+    let releaseCurrentPicker: ((value: string | null) => void) | undefined;
+    const currentPicker = new Promise<string | null>((resolve) => {
+      releaseCurrentPicker = resolve;
+    });
+    const first = submitAcpSkillRunInteractionFiles({
+      requestId,
+      slots: [{ name: "primary", required: true, hint: null, accept: null }],
+      pickFile: async () => currentPicker,
+    });
     const duplicate = await submitAcpSkillRunInteractionFiles({
       requestId,
-      interactionToken: token,
       slots: [{ name: "primary", required: true, hint: null, accept: null }],
       pickFile: async () => "/tmp/should-not-open.pdf",
     });
     assert.deepEqual(duplicate, { status: "in-flight" });
-    releasePicker?.(null);
+    releaseCurrentPicker?.(null);
     assert.deepEqual(await first, { status: "cancelled" });
   });
 
@@ -8873,12 +8966,10 @@ describe("ACP SkillRunner-compatible runner", function () {
           throw new Error("transport lost after acceptance");
         },
       });
-      const token = getAcpSkillRunPendingInteractionToken(requestId);
       let caught: unknown;
       try {
         await submitAcpSkillRunInteractionFiles({
           requestId,
-          interactionToken: token,
           slots: [
             { name: "primary", required: true, hint: null, accept: ".pdf" },
           ],
@@ -8918,9 +9009,13 @@ describe("ACP SkillRunner-compatible runner", function () {
     const replyHeld = new Promise<void>((resolve) => {
       releaseReply = resolve;
     });
+    let replyCalls = 0;
     registerAcpSkillRunController("run-active-reply", {
       cancel: async () => undefined,
-      reply: async () => replyHeld,
+      reply: async () => {
+        replyCalls += 1;
+        await replyHeld;
+      },
       disconnect: async () => undefined,
     });
     const changes: Array<{ kinds?: readonly string[] }> = [];
@@ -8944,6 +9039,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       });
 
       assert.equal(regions.composer?.reply.status, "busy");
+      assert.equal(replyCalls, 1);
       assert.isTrue(changes.some((change) => change.kinds?.includes("run")));
     } finally {
       unsubscribe();

@@ -8,7 +8,7 @@ import { SkillRunnerHttpError } from "../../src/providers/skillrunner/errors";
 import { resolveSkillRunnerManagementResponseSemantic } from "../../src/modules/skillRunnerRunSettlement";
 
 describe("skillrunner management client", function () {
-  it("posts token-bound interaction files as metadata plus repeated multipart parts", async function () {
+  it("posts interaction-id-bound files as metadata plus repeated multipart parts", async function () {
     let request: {
       url: string;
       body: FormData;

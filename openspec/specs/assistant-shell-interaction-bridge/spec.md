@@ -62,7 +62,7 @@ The Assistant shell and managed panel runtime SHALL NOT change child page backen
 
 ### Requirement: Waiting-user interactions use one bounded Assistant contract
 
-The Assistant shell SHALL represent open text, single choice, confirmation, and file upload requests with one exact-key validated pending-interaction DTO. The DTO SHALL preserve JSON option values, expose a stable interaction token, limit options to 16 and file slots to 8, and reject oversized or malformed nested wire data.
+The Assistant shell SHALL represent open text, single choice, confirmation, and file upload requests with one exact-key validated pending-interaction DTO. The DTO SHALL preserve JSON option values, limit options to 16 and file slots to 8, and reject oversized, malformed, or unknown nested wire data. It SHALL NOT introduce an interaction token when the backend protocol provides no such entity.
 
 #### Scenario: Structured choice remains typed
 
@@ -72,7 +72,7 @@ The Assistant shell SHALL represent open text, single choice, confirmation, and 
 
 #### Scenario: Stale interaction action arrives
 
-- **WHEN** an action's owner, waiting state, or interaction token no longer matches the current pending interaction
+- **WHEN** an action's owner or waiting state no longer matches the current pending interaction
 - **THEN** the host SHALL reject it without submitting a continuation
 
 ### Requirement: Canonical actions are model-owned
@@ -91,12 +91,13 @@ The Assistant panel model SHALL produce canonical host actions for waiting-user 
 - **THEN** the boundary MAY translate that literal once
 - **AND** no renderer or alias table SHALL become a second action source of truth
 
-### Requirement: Managed reply controls MUST dispatch the current interaction action
-The shared managed reply region MUST keep its textarea and action button stable across equivalent publications while updating the live action state used by its listener. An interaction token or action-payload update MUST NOT require reply-region reconstruction, and dispatch MUST retain existing current-token validation.
+### Requirement: Shared reply DOM reads only current user input
 
-#### Scenario: Interaction token advances on a stable reply mount
-- **WHEN** the same reply DOM receives interaction token N and then token N+1 without a structural reply-state change
-- **THEN** the textarea, reply button, and unrelated managed regions retain DOM identity
-- **AND** a subsequent reply dispatch contains token N+1 and the current typed response
-- **AND** token N is not dispatched.
+The shared managed reply region MUST keep its textarea and action button stable across equivalent publications. Reply dispatch SHALL use the currently entered text and canonical selected owner without carrying a synthetic interaction identity.
 
+#### Scenario: Sequential waiting turns reuse a stable reply mount
+
+- **WHEN** the same owner enters two serialized waiting-user turns without a structural reply-state change
+- **THEN** the textarea and reply button identities SHALL remain stable
+- **AND** each dispatch SHALL send the current typed response to the current waiting owner
+- **AND** no interaction token SHALL be emitted.

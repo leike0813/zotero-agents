@@ -18,7 +18,7 @@ import {
 import { projectSkillRunnerPanelSnapshot } from "../../src/sidebar/assistantPanelModel.js";
 
 describe("skillrunner run dialog bubble message model", function () {
-  it("projects typed waiting-user options into canonical token-bound actions", function () {
+  it("projects typed waiting-user options into canonical actions", function () {
     const responseValue = { decision: "continue", depth: 2 };
     const panel = projectSkillRunnerPanelSnapshot({
       title: "SkillRunner",
@@ -51,7 +51,10 @@ describe("skillrunner run dialog bubble message model", function () {
     });
 
     assert.equal(panel.interaction.pendingInteraction.inputKind, "choose_one");
-    assert.equal(panel.interaction.pendingInteraction.interactionToken, "42");
+    assert.notProperty(
+      panel.interaction.pendingInteraction,
+      "interactionToken",
+    );
     assert.deepEqual(
       panel.interaction.pendingInteraction.options[0].responseValue,
       responseValue,
@@ -91,7 +94,6 @@ describe("skillrunner run dialog bubble message model", function () {
         session: {
           ...baseSession,
           pendingInteraction: {
-            interactionToken: "9",
             inputKind,
             prompt: "Respond",
             hint: null,
@@ -110,7 +112,7 @@ describe("skillrunner run dialog bubble message model", function () {
         },
       });
       assert.equal(panel.interaction.pendingInteraction.inputKind, inputKind);
-      assert.equal(panel.reply.payload.interactionToken, "9");
+      assert.notProperty(panel.reply.payload, "interactionToken");
     }
 
     const projectUpload = (supported: boolean) =>
@@ -121,7 +123,6 @@ describe("skillrunner run dialog bubble message model", function () {
         session: {
           ...baseSession,
           pendingInteraction: {
-            interactionToken: "9",
             inputKind: "upload_files",
             prompt: "Upload the paper",
             hint: "PDF only",
@@ -149,7 +150,7 @@ describe("skillrunner run dialog bubble message model", function () {
     const supported = projectUpload(true);
     assert.deepEqual(supported.interaction.pendingInteraction.fileAction, {
       action: "submit-interaction-files",
-      payload: { interactionToken: "9" },
+      payload: {},
     });
   });
   it("projects silent conversations as semantic counts plus final and user content", function () {

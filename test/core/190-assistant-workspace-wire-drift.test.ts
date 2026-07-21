@@ -232,7 +232,6 @@ describe("assistant wire contract shared registry", function () {
   it("bounds and validates the shared pending-interaction DTO", function () {
     const optionValue = { approved: true, mode: "deep" };
     const interaction = projectAssistantPendingInteraction({
-      interactionToken: "revision:7",
       inputKind: "choose_one",
       prompt: "Choose a mode",
       hint: "The value remains typed",
@@ -263,12 +262,11 @@ describe("assistant wire contract shared registry", function () {
     assert.isNull(
       parseAssistantPendingInteraction({
         ...interaction,
-        unknown: true,
+        interactionToken: "removed-field",
       }),
     );
     assert.isNull(
       projectAssistantPendingInteraction({
-        interactionToken: "too-many-options",
         inputKind: "choose_one",
         options: Array.from(
           { length: ASSISTANT_PENDING_INTERACTION_OPTION_LIMIT + 1 },
@@ -278,7 +276,6 @@ describe("assistant wire contract shared registry", function () {
     );
     assert.isNull(
       projectAssistantPendingInteraction({
-        interactionToken: "too-many-files",
         inputKind: "upload_files",
         files: Array.from(
           { length: ASSISTANT_PENDING_INTERACTION_FILE_LIMIT + 1 },

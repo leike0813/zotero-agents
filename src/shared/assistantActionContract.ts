@@ -80,13 +80,12 @@ export type AssistantWorkspaceActionPayloadMap = {
   "disconnect-run": AssistantWorkspaceEmptyActionPayload;
   "interrupt-run-turn": AssistantWorkspaceEmptyActionPayload;
   "cancel-run": AssistantWorkspaceEmptyActionPayload;
-  "reply-run": { message: string; interactionToken: string };
+  "reply-run": { message: string };
   "select-interaction-option": {
-    interactionToken: string;
     responseValue: unknown;
     responseLabel: string;
   };
-  "submit-interaction-files": { interactionToken: string };
+  "submit-interaction-files": AssistantWorkspaceEmptyActionPayload;
   "resolve-permission": {
     permissionRequestId: string;
     // Senders emit exactly these two outcomes; host handlers stay tolerant

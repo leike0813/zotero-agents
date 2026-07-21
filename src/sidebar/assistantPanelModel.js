@@ -926,9 +926,6 @@ function buildSkillRunnerPendingInteraction(session, status, source) {
             ? askUser.ui_hints
             : {};
       projected = projectAssistantPendingInteractionFromHints({
-        interactionToken: String(
-          Number((session && session.pendingInteractionId) || 0),
-        ),
         pendingKind: safeText(
           (askUser && askUser.kind) || session.pendingKind || "open_text",
         ),
@@ -969,9 +966,6 @@ function buildSkillRunnerPendingInteraction(session, status, source) {
                 action: "reply-run",
                 responseValue: option.value,
                 payload: {
-                  mode: "interaction",
-                  interactionId: Number(projected.interactionToken || 0),
-                  interactionToken: projected.interactionToken,
                   responseValue: option.value,
                   responseLabel: option.label,
                   message: option.label,
@@ -981,7 +975,7 @@ function buildSkillRunnerPendingInteraction(session, status, source) {
             fileAction: projected.fileReply.supported
               ? {
                   action: "submit-interaction-files",
-                  payload: { interactionToken: projected.interactionToken },
+                  payload: {},
                 }
               : null,
           })
@@ -1865,14 +1859,7 @@ function projectSkillRunnerPanelSnapshot(snapshot) {
             : labelFrom(envelope, "actions.send", "Send"),
       sending: skillRunnerAuthActionPending,
       action: skillRunnerBusy ? "cancel-run" : "reply-run",
-      payload:
-        status === "waiting-user" && interaction.pendingInteraction
-          ? {
-              interactionToken: safeText(
-                interaction.pendingInteraction.interactionToken,
-              ),
-            }
-          : {},
+      payload: {},
       tone: skillRunnerBusy ? "danger" : "primary",
       clearOnSend: !skillRunnerBusy,
       hint: labelFrom(
@@ -2823,7 +2810,6 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
       }
     }
     if (kind === "waiting_user" && sharedPending) {
-      const interactionToken = safeText(sharedPending.interactionToken);
       return {
         kind,
         message: "",
@@ -2836,7 +2822,6 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
               action: "select-interaction-option",
               responseValue: option.value,
               payload: {
-                interactionToken,
                 responseValue: option.value,
                 responseLabel: safeText(option.label),
               },
@@ -2847,7 +2832,7 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
             sharedPending.fileReply.supported === true
               ? {
                   action: "submit-interaction-files",
-                  payload: { interactionToken },
+                  payload: {},
                 }
               : null,
         }),
@@ -2982,15 +2967,7 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
         : source.source === "acp-chat"
           ? "send-prompt"
           : "reply-run",
-      payload:
-        source.source === "acp-skills"
-          ? {
-              interactionToken: safeText(
-                interaction.pendingInteraction &&
-                  interaction.pendingInteraction.interactionToken,
-              ),
-            }
-          : {},
+      payload: {},
       tone: replyBusy ? "danger" : "primary",
       controls: [
         exactWorkspaceOptionGroup(

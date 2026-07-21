@@ -230,7 +230,7 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
     });
   });
 
-  it("publishes ACP ui_hints as a token-bound interaction without duplicating the pending message", async function () {
+  it("publishes ACP ui_hints without duplicating the pending message", async function () {
     projectAcpSkillRunOutputEnvelopeToTranscript({
       requestId: "request-1",
       kind: "pending",
@@ -264,7 +264,7 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
 
     assert.equal(control.hint.kind, "waiting_user");
     assert.isNull(control.hint.message);
-    assert.equal(control.interaction?.interactionToken, "revision:1");
+    assert.notProperty(control.interaction || {}, "interactionToken");
     assert.equal(control.interaction?.inputKind, "choose_one");
     assert.equal(control.interaction?.prompt, "Choose a typed value");
     assert.strictEqual(control.interaction?.options[0].value, true);

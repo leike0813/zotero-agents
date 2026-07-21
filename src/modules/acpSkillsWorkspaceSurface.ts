@@ -8,7 +8,6 @@ import {
 import { snapshotAcpMessageCounts } from "./acpExecutionProgress";
 import {
   canEditAcpSkillRunModelConfiguration,
-  deriveAcpSkillRunPendingInteractionToken,
   getAcpSkillRunWorkspaceReadModel,
   getAcpSkillRunWorkspaceDetailsReadModel,
   getSelectedAcpSkillRunRequestId,
@@ -151,9 +150,7 @@ function projectAcpSkillRunPendingInteraction(
 ) {
   const pending = record.pendingInteraction;
   if (!pending) return null;
-  const interactionToken = deriveAcpSkillRunPendingInteractionToken(record);
   return projectAssistantPendingInteractionFromHints({
-    interactionToken,
     pendingKind: pending.uiHints.kind,
     uiHints: pending.uiHints,
     fileReply: {

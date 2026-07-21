@@ -280,14 +280,21 @@ SkillRunner SHALL normalize Assistant replacement identity and Thought/Tool proc
 - **THEN** its last current and cumulative category values are restored
 - **AND** foreground observation and critical-state behavior remain unchanged.
 
-### Requirement: SkillRunner waiting-user replies are canonical and token-bound
+### Requirement: SkillRunner waiting-user replies are canonical and interaction-id-bound
 
-The SkillRunner Assistant host SHALL prefer a valid `ui_hints.kind` over a degraded pending kind, bind controls to `pendingInteractionId`, and submit quick replies through `reply-run` with typed response values.
+The SkillRunner host runtime SHALL route Assistant waiting-user actions through the current selected run and preserve the backend-native numeric interaction id required by the SkillRunner API. The Assistant DTO and child action SHALL NOT expose a duplicate interaction token.
 
-#### Scenario: Backend degrades an upload interaction kind
+#### Scenario: Current quick reply is submitted
 
-- **WHEN** pending kind is open text but valid UI hints declare `upload_files`
-- **THEN** the Assistant interaction SHALL render the file declaration
+- **WHEN** the user submits text or a typed option for the selected waiting run
+- **THEN** the host SHALL read the current pending `interactionId`
+- **AND** submit that id and the canonical response to the backend.
+
+#### Scenario: File interaction changes during selection
+
+- **WHEN** the native picker completes after the current pending interaction id or waiting state changed
+- **THEN** the host SHALL not upload the selected files
+- **AND** the Assistant child SHALL not need to echo an interaction token.
 
 ### Requirement: SkillRunner file replies are capability-gated
 
@@ -382,4 +389,3 @@ The SkillRunner host runtime MUST distinguish temporary host detachment from com
 #### Scenario: Runtime is completely destroyed
 - **WHEN** plugin shutdown, test reset, or standalone dialog destruction performs complete runtime teardown
 - **THEN** the runtime clears its transcript publication clock and published transcript cache.
-

@@ -237,17 +237,17 @@ export const ASSISTANT_WORKSPACE_ACTION_REGISTRY = {
   "reply-run": {
     scope: "selected-owner",
     sources: ["acp-skills"],
-    payloadKeys: ["message", "interactionToken"],
+    payloadKeys: ["message"],
   },
   "select-interaction-option": {
     scope: "selected-owner",
     sources: ["acp-skills"],
-    payloadKeys: ["interactionToken", "responseValue", "responseLabel"],
+    payloadKeys: ["responseValue", "responseLabel"],
   },
   "submit-interaction-files": {
     scope: "selected-owner",
     sources: ["acp-skills"],
-    payloadKeys: ["interactionToken"],
+    payloadKeys: [],
   },
   "resolve-permission": {
     scope: "selected-owner",

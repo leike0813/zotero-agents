@@ -474,7 +474,6 @@ describe("skillrunner run dialog ui behavior contract", function () {
         await harness.dispatch("reply-run", {
           mode: "interaction",
           interactionId,
-          interactionToken: String(interactionId),
           responseValue: "continue_value",
         });
         // submitReply returns running while the management endpoint still
@@ -593,7 +592,6 @@ describe("skillrunner run dialog ui behavior contract", function () {
         await harness.dispatch("reply-run", {
           mode: "interaction",
           interactionId: 77,
-          interactionToken: "77",
           responseValue: "continue_value",
         });
         await capture.waitFor(
@@ -618,9 +616,9 @@ describe("skillrunner run dialog ui behavior contract", function () {
           (snapshot) => snapshot.session?.pendingInteractionId === 78,
         );
         assert.equal(nextWaiting.session?.status, "waiting_user");
-        assert.equal(
-          nextWaiting.session?.pendingInteraction?.interactionToken,
-          "78",
+        assert.notProperty(
+          nextWaiting.session?.pendingInteraction || {},
+          "interactionToken",
         );
       } finally {
         await harness.reset();

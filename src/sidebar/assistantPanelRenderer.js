@@ -9,18 +9,6 @@ function safeText(value) {
 
 const replyHistoryByKey = new Map();
 const replyHistoryLimit = 50;
-const replyActionStateByMount = new WeakMap();
-
-function updateAssistantReplyActionState(target, panel) {
-  if (!target) return;
-  const reply =
-    panel && panel.reply && typeof panel.reply === "object" ? panel.reply : {};
-  replyActionStateByMount.set(target, {
-    action: safeText(reply.action || "reply"),
-    payload:
-      reply.payload && typeof reply.payload === "object" ? reply.payload : {},
-  });
-}
 
 function replyHistoryKey(panel) {
   const reply =
@@ -1434,7 +1422,6 @@ function renderAssistantReply(container, snapshot, options) {
     options && options.adoptOnly
       ? container
       : managedMount(container, "reply") || container;
-  updateAssistantReplyActionState(target, panel);
   container.setAttribute(
     "data-assistant-reply-enabled",
     panel.reply.enabled ? "true" : "false",
@@ -1505,17 +1492,10 @@ function renderAssistantReply(container, snapshot, options) {
     event.preventDefault();
     event.stopPropagation();
     if (!interruptAction) rememberReplyHistory(historyKey, input.value);
-    const actionState = replyActionStateByMount.get(target) || {
-      action: replyAction,
-      payload:
-        panel.reply.payload && typeof panel.reply.payload === "object"
-          ? panel.reply.payload
-          : {},
-    };
     emit(
       options,
-      safeText(actionState.action || replyAction || "reply"),
-      Object.assign({}, actionState.payload, {
+      replyAction || "reply",
+      Object.assign({}, panel.reply.payload || {}, {
         message: safeText(input.value),
       }),
     );
@@ -2871,17 +2851,7 @@ function hintRegionSignature(panel) {
     panel && panel.interaction && typeof panel.interaction === "object"
       ? panel.interaction
       : {};
-  const pending =
-    interaction.pendingInteraction &&
-    typeof interaction.pendingInteraction === "object"
-      ? interaction.pendingInteraction
-      : null;
-  if (!pending) return interaction;
-  const visiblePending = Object.assign({}, pending);
-  delete visiblePending.interactionToken;
-  return Object.assign({}, interaction, {
-    pendingInteraction: visiblePending,
-  });
+  return interaction;
 }
 
 function permissionDrawerSignature(panel) {
@@ -2997,10 +2967,6 @@ function renderAssistantPanelSnapshot(snapshot, options) {
   }
   if (shouldManageRegion(opts, "reply")) {
     const replyRegion = opts.regions && opts.regions.reply;
-    updateAssistantReplyActionState(
-      managedMount(replyRegion, "reply") || replyRegion,
-      panel,
-    );
     renderManagedRegionIfChanged(
       replyRegion,
       "reply",

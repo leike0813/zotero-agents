@@ -68,7 +68,6 @@ import {
   disconnectAcpSkillRun,
   endAcpSkillRunSession,
   getAcpSkillRunDiagnostics,
-  getAcpSkillRunPendingInteractionToken,
   getAcpSkillRunWorkspaceReadModel,
   getSelectedAcpSkillRunRequestId,
   interruptAcpSkillRunCurrentTurn,
@@ -2975,34 +2974,36 @@ async function handleAcpSkillRunAction(
       await replyAcpSkillRun({
         requestId: String(payload.requestId || "").trim(),
         message: String(payload.message || ""),
-        interactionToken: String(payload.interactionToken || "").trim(),
       });
       return;
     }
     if (action === "select-interaction-option") {
       const requestId = String(payload.requestId || "").trim();
-      const interactionToken = String(payload.interactionToken || "").trim();
-      if (
-        !interactionToken ||
-        interactionToken !== getAcpSkillRunPendingInteractionToken(requestId)
-      ) {
-        throw new Error("ACP skill run interaction token is stale.");
-      }
-      const responseLabel = String(payload.responseLabel || "").trim();
       const promptMessage = deterministicInteractionResponseText(
         payload.responseValue,
       );
+      const control = await readAcpSkillRunWorkspaceRegions({
+        requestId,
+        kinds: ["owner-control"],
+      });
+      const ownerControl = control["owner-control"];
+      const option = ownerControl?.interaction?.options.find(
+        (candidate) =>
+          deterministicInteractionResponseText(candidate.value) ===
+          promptMessage,
+      );
+      if (ownerControl?.status !== "waiting_user" || !option) {
+        throw new Error("ACP skill run is not waiting for that option.");
+      }
       await replyAcpSkillRun({
         requestId,
-        displayMessage: responseLabel || promptMessage,
+        displayMessage: option.label || promptMessage,
         promptMessage,
-        interactionToken,
       });
       return;
     }
     if (action === "submit-interaction-files") {
       const requestId = String(payload.requestId || "").trim();
-      const interactionToken = String(payload.interactionToken || "").trim();
       const control = await readAcpSkillRunWorkspaceRegions({
         requestId,
         kinds: ["owner-control"],
@@ -3011,13 +3012,12 @@ async function handleAcpSkillRunAction(
       if (
         !interaction ||
         interaction.inputKind !== "upload_files" ||
-        interaction.interactionToken !== interactionToken
+        control["owner-control"]?.status !== "waiting_user"
       ) {
-        throw new Error("ACP skill run interaction token is stale.");
+        throw new Error("ACP skill run is not waiting for file input.");
       }
       await submitAcpSkillRunInteractionFiles({
         requestId,
-        interactionToken,
         slots: interaction.files,
       });
       return;

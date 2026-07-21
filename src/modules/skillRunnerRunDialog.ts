@@ -2503,7 +2503,6 @@ function buildRunDialogSnapshot(
     : null;
   const canonicalPendingInteraction = pending?.interactionId
     ? projectAssistantPendingInteractionFromHints({
-        interactionToken: String(pending.interactionId),
         pendingKind: pending.kind,
         uiHints: pending.uiHints,
         options: pending.options,
@@ -4262,11 +4261,9 @@ async function handleRunDialogActionForEntry(
   if (action === "submit-interaction-files") {
     const pending = entry.session.pendingInteraction;
     const interactionId = Number(pending?.interactionId || 0);
-    const interactionToken = String(payload.interactionToken || "").trim();
     const capability = entry.session.interactionFileCapability;
     const canonical = pending
       ? projectAssistantPendingInteractionFromHints({
-          interactionToken: String(interactionId),
           pendingKind: pending.kind,
           uiHints: pending.uiHints,
           options: pending.options,
@@ -4278,13 +4275,12 @@ async function handleRunDialogActionForEntry(
       !canCurrentRunUseBackend(entry) ||
       !canonical ||
       canonical.inputKind !== "upload_files" ||
-      capability?.supported !== true ||
-      interactionToken !== canonical.interactionToken
+      capability?.supported !== true
     ) {
       pushSnapshot("snapshot");
       return;
     }
-    const flowKey = `${entry.requestId}\n${interactionToken}`;
+    const flowKey = entry.requestId;
     if (skillRunnerInteractionFileFlows.has(flowKey)) return;
     const flow = (async () => {
       const picked = await pickAssistantInteractionFiles({
@@ -4293,7 +4289,7 @@ async function handleRunDialogActionForEntry(
       if (picked.status !== "selected") return;
       const current = entry.session.pendingInteraction;
       if (
-        String(current?.interactionId || "") !== interactionToken ||
+        Number(current?.interactionId || 0) !== interactionId ||
         normalizeStatus(entry.session.status, "running") !== "waiting_user"
       ) {
         return;
@@ -4334,7 +4330,7 @@ async function handleRunDialogActionForEntry(
       await client.submitInteractionFiles({
         requestId: entry.requestId,
         interactionId,
-        idempotencyKey: `${interactionToken}-${Date.now().toString(36)}`,
+        idempotencyKey: `${interactionId}-${Date.now().toString(36)}`,
         metadata: {
           bindings: picked.selections.map((selection, fileIndex) => ({
             slot: selection.slot,
@@ -4504,11 +4500,7 @@ async function handleRunDialogActionForEntry(
     if (!Number.isFinite(interactionId) || interactionId <= 0) {
       return;
     }
-    const interactionToken = String(payload.interactionToken || "").trim();
-    if (
-      interactionToken !== String(interactionId) ||
-      interactionId !== entry.session.pendingInteraction?.interactionId
-    ) {
+    if (interactionId !== entry.session.pendingInteraction?.interactionId) {
       return;
     }
     const resolvedResponse = resolveRunDialogInteractionResponse({

@@ -3,7 +3,6 @@ export const ASSISTANT_PENDING_INTERACTION_FILE_LIMIT = 8;
 export const ASSISTANT_INTERACTION_FILE_MAX_BYTES = 32 * 1024 * 1024;
 export const ASSISTANT_INTERACTION_TOTAL_MAX_BYTES = 64 * 1024 * 1024;
 
-const MAX_TOKEN_LENGTH = 512;
 const MAX_PROMPT_LENGTH = 12_000;
 const MAX_HINT_LENGTH = 4_000;
 const MAX_LABEL_LENGTH = 512;
@@ -47,7 +46,6 @@ export type AssistantInteractionFileReply = {
 };
 
 export type AssistantPendingInteraction = {
-  interactionToken: string;
   inputKind: AssistantInteractionInputKind;
   prompt: string | null;
   hint: string | null;
@@ -64,7 +62,6 @@ const INPUT_KINDS = new Set<AssistantInteractionInputKind>([
 ]);
 
 const ROOT_KEYS = [
-  "interactionToken",
   "inputKind",
   "prompt",
   "hint",
@@ -231,17 +228,12 @@ function normalizeInteraction(
 ): AssistantPendingInteraction | null {
   if (!isObject(value)) return null;
   if (exact && !hasExactKeys(value, ROOT_KEYS)) return null;
-  const interactionToken = boundedText(
-    value.interactionToken,
-    MAX_TOKEN_LENGTH,
-  );
   const inputKind = String(
     value.inputKind || "",
   ).trim() as AssistantInteractionInputKind;
   const prompt = boundedNullableText(value.prompt, MAX_PROMPT_LENGTH);
   const hint = boundedNullableText(value.hint, MAX_HINT_LENGTH);
   if (
-    !interactionToken ||
     !INPUT_KINDS.has(inputKind) ||
     (value.prompt != null && prompt === null) ||
     (value.hint != null && hint === null)
@@ -272,7 +264,6 @@ function normalizeInteraction(
   );
   if (!fileReply) return null;
   return {
-    interactionToken,
     inputKind,
     prompt,
     hint,
@@ -289,7 +280,6 @@ export function projectAssistantPendingInteraction(
 }
 
 export function projectAssistantPendingInteractionFromHints(args: {
-  interactionToken: unknown;
   pendingKind?: unknown;
   uiHints?: unknown;
   options?: unknown;
@@ -361,7 +351,6 @@ export function projectAssistantPendingInteractionFromHints(args: {
     })
     .filter(Boolean);
   return projectAssistantPendingInteraction({
-    interactionToken: String(args.interactionToken || "").trim(),
     inputKind,
     prompt: String(hints.prompt || "").trim() || null,
     hint: String(hints.hint || "").trim() || null,

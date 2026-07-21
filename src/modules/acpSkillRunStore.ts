@@ -262,52 +262,6 @@ export type AcpSkillRunPendingInteraction = {
   candidatePreview?: string;
 };
 
-function canonicalInteractionTokenValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(canonicalInteractionTokenValue);
-  }
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, entry]) => [key, canonicalInteractionTokenValue(entry)]),
-    );
-  }
-  return value;
-}
-
-export function deriveAcpSkillRunPendingInteractionToken(args: {
-  outputRevisionCount?: number;
-  pendingInteraction?: AcpSkillRunPendingInteraction;
-}) {
-  const revision = Math.max(
-    0,
-    Math.floor(Number(args.outputRevisionCount || 0) || 0),
-  );
-  if (revision > 0) return `revision:${revision}`;
-  const pending = args.pendingInteraction;
-  if (!pending) return "";
-  const text = JSON.stringify(
-    canonicalInteractionTokenValue({
-      message: pending.message,
-      uiHints: pending.uiHints,
-      candidateRef: pending.candidateRef || null,
-      candidatePreview: pending.candidatePreview || null,
-    }),
-  );
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return `legacy:${hash.toString(16).padStart(8, "0")}`;
-}
-
-export function getAcpSkillRunPendingInteractionToken(requestIdRaw: string) {
-  const record = getAcpSkillRunRecord(requestIdRaw);
-  return record ? deriveAcpSkillRunPendingInteractionToken(record) : "";
-}
-
 type AcpSkillRunPendingInteractionUpdate = AcpSkillRunPendingInteraction & {
   candidateText?: string;
 };
@@ -5065,7 +5019,6 @@ export async function replyAcpSkillRun(args: {
   message?: string;
   displayMessage?: string;
   promptMessage?: string;
-  interactionToken?: string;
 }) {
   const requestId = normalizeString(args.requestId);
   const displayMessage = String(
@@ -5094,16 +5047,6 @@ export async function replyAcpSkillRun(args: {
     throw new Error(
       "ACP skill run replies are only accepted for waiting or recoverable failed runs.",
     );
-  }
-  if (Object.prototype.hasOwnProperty.call(args, "interactionToken")) {
-    const interactionToken = normalizeString(args.interactionToken);
-    const expectedToken = deriveAcpSkillRunPendingInteractionToken(existing);
-    if (
-      (expectedToken && interactionToken !== expectedToken) ||
-      (!expectedToken && interactionToken)
-    ) {
-      throw new Error("ACP skill run interaction token is stale.");
-    }
   }
   upsertAcpSkillRun({
     requestId,

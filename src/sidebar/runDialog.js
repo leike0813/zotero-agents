@@ -731,13 +731,7 @@ function submitReply(message, payload) {
     return;
   }
   const interactionId = Number(state.snapshot.pendingInteractionId || 0);
-  const interactionToken = safeText(payload && payload.interactionToken).trim();
-  if (
-    !interactionId ||
-    !textValue ||
-    interactionToken !== String(interactionId)
-  )
-    return;
+  if (!interactionId || !textValue) return;
   const matchedOption = pendingOptions().find(function (option) {
     return option.value === textValue || option.label === textValue;
   });
@@ -747,7 +741,6 @@ function submitReply(message, payload) {
     requestId,
     mode: "interaction",
     interactionId,
-    interactionToken,
     responseObject: { text: textValue },
     ...(hasResponseValue
       ? { responseValue: payload.responseValue }

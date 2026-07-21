@@ -882,7 +882,6 @@ export type SkillRunnerReplyRunPayload =
 
 export type SkillRunnerSubmitInteractionFilesPayload = {
   requestId?: string;
-  interactionToken?: string;
   [key: string]: unknown;
 };
 
