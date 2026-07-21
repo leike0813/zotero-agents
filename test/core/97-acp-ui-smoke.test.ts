@@ -1960,6 +1960,242 @@ describe("Assistant Workspace ACP UI v1", function () {
     );
   });
 
+  for (const source of ["acp-chat", "acp-skills"] as const) {
+    it(`preserves ${source} historical pages and keyed gaps across terminal tail patches`, async function () {
+      const document = new FakeDocument();
+      document.transcriptRowHeight = 40;
+      const renderer = await loadTranscriptRenderer(document);
+      const transcript = document.createElement("div");
+      transcript.clientHeight = 10_000;
+      const ownerKey =
+        source === "acp-chat" ? "backend-a\nconversation-a" : "request-a";
+      const message = (index: number, status = "complete") => ({
+        itemId: `message-${index}`,
+        itemKind: "message",
+        role: "assistant",
+        status,
+        text: `message ${index}`,
+        createdAt: "2026-07-16T00:00:00.000Z",
+      });
+      const page = (
+        pageKey: string,
+        startCursor: number,
+        items: ReturnType<typeof message>[],
+        previousCursor: number | null,
+        nextCursor: number | null,
+        revision: number,
+        totalVisibleItemCount = 6,
+      ) => ({
+        ownerKey,
+        pageKey: `${ownerKey}\n${pageKey}`,
+        startCursor,
+        limit: 2,
+        totalVisibleItemCount,
+        previousCursor,
+        nextCursor,
+        sourceEventSeq: revision,
+        transcriptRevision: revision,
+        items,
+      });
+      const renderOptions = {
+        container: transcript,
+        virtualized: true,
+        ownerKey,
+        pageSize: 2,
+        pageCacheLimit: 8,
+        renderWindowLimit: 20,
+        renderBuffer: 0,
+        estimatedRowHeight: 40,
+        mode: "plain",
+        variant: source === "acp-chat" ? "acp-chat" : "skillrunner",
+        renderMarkdown: (value: string) => value,
+      };
+      const tail = page(
+        "tail:2",
+        4,
+        [message(4), message(5, "streaming")],
+        2,
+        null,
+        1,
+      );
+      const oldest = page("page:0:2", 0, [message(0), message(1)], null, 2, 2);
+
+      renderer.renderAssistantTranscript({ ...renderOptions, page: tail });
+      const loadingBeforeHistory = transcript.children.find((node) =>
+        node.classList.contains("assistant-transcript-virtual-loading"),
+      );
+      assert.isOk(loadingBeforeHistory);
+      renderer.renderAssistantTranscript({ ...renderOptions, page: tail });
+      assert.strictEqual(
+        transcript.children.find((node) =>
+          node.classList.contains("assistant-transcript-virtual-loading"),
+        ),
+        loadingBeforeHistory,
+      );
+      renderer.renderAssistantTranscript({ ...renderOptions, page: oldest });
+
+      const gapBeforePatch = transcript.children.find(
+        (node) =>
+          node.getAttribute("data-assistant-virtual-spacer-kind") ===
+          "inter-page",
+      );
+      assert.isOk(gapBeforePatch);
+      assert.equal(gapBeforePatch?.style.height, "80px");
+      const gapIndex = transcript.children.indexOf(gapBeforePatch!);
+      assert.equal(
+        transcript.children[gapIndex - 1]?.getAttribute(
+          "data-assistant-item-id",
+        ),
+        "message-1",
+      );
+      assert.equal(
+        transcript.children[gapIndex + 1]?.getAttribute(
+          "data-assistant-item-id",
+        ),
+        "message-4",
+      );
+
+      const firstTerminalItem = message(5, "complete");
+      firstTerminalItem.text = "terminal one";
+      const firstTerminalTail = page(
+        "tail:2",
+        4,
+        [message(4), firstTerminalItem],
+        2,
+        null,
+        3,
+      );
+      assert.isTrue(
+        renderer.applyAssistantTranscriptEffectsExact({
+          ...renderOptions,
+          page: firstTerminalTail,
+          effect: {
+            kind: "mutations",
+            onSelectedPage: true,
+            mutations: [{ op: "patch_item", itemId: "message-5" }],
+            affectedItems: [firstTerminalItem],
+            pageItems: firstTerminalTail.items,
+            evictedItemIds: [],
+          },
+          affectedItems: [firstTerminalItem],
+        }).ok,
+      );
+      assert.strictEqual(
+        transcript.children.find(
+          (node) =>
+            node.getAttribute("data-assistant-virtual-spacer-kind") ===
+            "inter-page",
+        ),
+        gapBeforePatch,
+      );
+
+      const middle = page("page:2:2", 2, [message(2), message(3)], 0, 4, 4);
+      renderer.renderAssistantTranscript({ ...renderOptions, page: middle });
+      const finalTerminalItem = { ...firstTerminalItem, text: "terminal two" };
+      const finalTail = page(
+        "tail:2",
+        4,
+        [message(4), finalTerminalItem],
+        2,
+        null,
+        5,
+      );
+      assert.isTrue(
+        renderer.applyAssistantTranscriptEffectsExact({
+          ...renderOptions,
+          page: finalTail,
+          effect: {
+            kind: "mutations",
+            onSelectedPage: true,
+            mutations: [{ op: "patch_item", itemId: "message-5" }],
+            affectedItems: [finalTerminalItem],
+            pageItems: finalTail.items,
+            evictedItemIds: [],
+          },
+          affectedItems: [finalTerminalItem],
+        }).ok,
+      );
+
+      const itemIds = transcript
+        .querySelectorAll(":scope > .assistant-transcript-row")
+        .map((row) => row.getAttribute("data-assistant-item-id"));
+      assert.deepEqual(itemIds, [
+        "message-0",
+        "message-1",
+        "message-2",
+        "message-3",
+        "message-4",
+        "message-5",
+      ]);
+      assert.equal(new Set(itemIds).size, itemIds.length);
+      assert.equal(
+        transcript
+          .querySelectorAll(":scope > .assistant-transcript-row")
+          .at(-1)
+          ?.querySelector("[data-assistant-transcript-body]")?.innerHTML,
+        "terminal two",
+      );
+
+      const overlap = page(
+        "page:1:2",
+        1,
+        [
+          { ...message(1), text: "replacement one" },
+          { ...message(2), text: "replacement two" },
+        ],
+        0,
+        3,
+        6,
+      );
+      renderer.renderAssistantTranscript({ ...renderOptions, page: overlap });
+      const overlapIds = transcript
+        .querySelectorAll(":scope > .assistant-transcript-row")
+        .map((row) => row.getAttribute("data-assistant-item-id"));
+      assert.deepEqual(overlapIds, itemIds);
+      assert.equal(new Set(overlapIds).size, overlapIds.length);
+      assert.equal(
+        transcript
+          .querySelectorAll(":scope > .assistant-transcript-row")[1]
+          ?.querySelector("[data-assistant-transcript-body]")?.innerHTML,
+        "replacement one",
+      );
+      assert.equal(
+        transcript
+          .querySelectorAll(":scope > .assistant-transcript-row")[2]
+          ?.querySelector("[data-assistant-transcript-body]")?.innerHTML,
+        "replacement two",
+      );
+
+      const contractedTail = page(
+        "tail:2",
+        3,
+        [message(3), message(4)],
+        1,
+        null,
+        7,
+        5,
+      );
+      renderer.renderAssistantTranscript({
+        ...renderOptions,
+        page: contractedTail,
+      });
+      assert.deepEqual(
+        transcript
+          .querySelectorAll(":scope > .assistant-transcript-row")
+          .map((row) => row.getAttribute("data-assistant-item-id")),
+        ["message-0", "message-1", "message-2", "message-3", "message-4"],
+      );
+      assert.equal(
+        transcript.children.find(
+          (node) =>
+            node.getAttribute("data-assistant-virtual-key") ===
+            "spacer:edge:bottom",
+        )?.style.height,
+        "0px",
+      );
+    });
+  }
+
   it("commits terminal Markdown and measured virtual geometry on the live state", async function () {
     const animationFrames = createAnimationFrameHarness();
     const document = new FakeDocument();
@@ -2152,6 +2388,46 @@ describe("Assistant Workspace ACP UI v1", function () {
     assert.equal(
       transcript.getAttribute("data-assistant-transcript-stick"),
       "true",
+    );
+  });
+
+  it("drops pending bottom-stick work after owner or follow intent changes", async function () {
+    const animationFrames = createAnimationFrameHarness();
+    const document = new FakeDocument();
+    const renderer = await loadTranscriptRenderer(
+      document,
+      animationFrames.requestAnimationFrame,
+    );
+    const transcript = document.createElement("div");
+    transcript.scrollHeight = 20_000;
+    transcript.setAttribute("data-assistant-transcript-owner-key", "owner-a");
+    transcript.setAttribute("data-assistant-transcript-stick", "true");
+    renderer.stickAssistantTranscriptToBottom(transcript);
+
+    transcript.setAttribute("data-assistant-transcript-owner-key", "owner-b");
+    transcript.setAttribute("data-assistant-transcript-stick", "false");
+    transcript.scrollTop = 1_234;
+    animationFrames.flushAll();
+
+    assert.equal(transcript.scrollTop, 1_234);
+    assert.isNull(
+      transcript.getAttribute("data-assistant-transcript-programmatic-scroll"),
+    );
+  });
+
+  it("includes owner identity in transcript loading and empty signatures", async function () {
+    const child = await loadWorkspaceChild();
+    assert.equal(
+      child.transcriptStateSignature("owner-a", "loading", ""),
+      child.transcriptStateSignature("owner-a", "loading", ""),
+    );
+    assert.notEqual(
+      child.transcriptStateSignature("owner-a", "loading", ""),
+      child.transcriptStateSignature("owner-b", "loading", ""),
+    );
+    assert.notEqual(
+      child.transcriptStateSignature("owner-a", "empty", ""),
+      child.transcriptStateSignature("owner-b", "empty", ""),
     );
   });
 

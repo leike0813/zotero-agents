@@ -328,6 +328,10 @@ function errorMessage(region) {
   return text(region && region.error && region.error.message);
 }
 
+function transcriptStateSignature(ownerKey, kind, message) {
+  return [text(ownerKey), text(kind), text(message)].join("\u001f");
+}
+
 function createPageRequest(owner, cursor, limit) {
   if (!owner || typeof owner !== "object" || !text(owner.ownerKey)) {
     return null;
@@ -695,13 +699,24 @@ function createReceiver(options) {
           return rejected(publication, "invalid", snapshot);
         }
         const transcript = clone(publication.payload);
-        next.selection = Object.assign({}, next.selection, {
-          owner: transcript.owner || next.selection.owner,
-          phase: transcriptPhase(transcript),
-          transcript,
-        });
-        nextPageModel = createPageModel(transcript.page);
-        effect = { kind: "snapshot" };
+        if (
+          publication.publicationCause === "page-request" &&
+          transcript.status === "ready" &&
+          transcript.page &&
+          current &&
+          current.status === "ready" &&
+          current.page
+        ) {
+          effect = { kind: "cache-page", region: transcript };
+        } else {
+          next.selection = Object.assign({}, next.selection, {
+            owner: transcript.owner || next.selection.owner,
+            phase: transcriptPhase(transcript),
+            transcript,
+          });
+          nextPageModel = createPageModel(transcript.page);
+          effect = { kind: "snapshot" };
+        }
       } else if (publication.publicationForm === "delta") {
         const payload = publication.payload || {};
         if (
@@ -1334,18 +1349,20 @@ function createChildRuntime(source) {
   }
 
   function showTranscriptState(kind, message) {
-    const existing =
+    const owner = selectedOwner(snapshot);
+    const signature = transcriptStateSignature(
+      owner ? owner.ownerKey : "",
+      kind,
+      message,
+    );
+    const existingSignature =
       elements.transcript.firstElementChild &&
       elements.transcript.firstElementChild.getAttribute(
-        "data-assistant-transcript-state",
+        "data-assistant-transcript-state-signature",
       );
-    if (
-      existing === kind &&
-      text(elements.transcript.firstElementChild.textContent) === text(message)
-    ) {
+    if (existingSignature === signature) {
       return true;
     }
-    const owner = selectedOwner(snapshot);
     transcriptRenderer.resetAssistantTranscriptVirtualState(
       elements.transcript,
       owner ? owner.ownerKey : "",
@@ -1361,6 +1378,7 @@ function createChildRuntime(source) {
         ? "assistant-transcript-loading asst-spinner"
         : "assistant-transcript-empty";
     node.setAttribute("data-assistant-transcript-state", kind);
+    node.setAttribute("data-assistant-transcript-state-signature", signature);
     node.textContent = message || "";
     elements.transcript.appendChild(node);
     return true;
@@ -1391,13 +1409,17 @@ function createChildRuntime(source) {
     }
     const page = rendererPage(region);
     if (!page) return showTranscriptState("loading", "");
+    return renderTranscriptPage(owner, page, region.transcriptRevision);
+  }
+
+  function renderTranscriptPage(owner, page, transcriptRevision) {
     transcriptRenderer.renderAssistantTranscript({
       container: elements.transcript,
       items: page.items,
       virtualized: ui.transcriptPaginationVirtualizationEnabled !== false,
       ownerKey: owner.ownerKey,
       page,
-      transcriptRevision: region.transcriptRevision,
+      transcriptRevision,
       mode: ui.chatDisplayMode,
       variant: source === "acp-chat" ? "acp-chat" : "skillrunner",
       expandedIds: ui.expandedTranscriptRows,
@@ -1696,15 +1718,21 @@ function createChildRuntime(source) {
       if (result.publicationKind === "transcript") {
         return result.effect && result.effect.kind === "mutations"
           ? renderMutationEffect(result, publication)
-          : (function () {
-              const previous = snapshot;
-              snapshot = result.snapshot;
-              try {
-                return renderTranscript();
-              } finally {
-                snapshot = previous;
-              }
-            })();
+          : result.effect && result.effect.kind === "cache-page"
+            ? renderTranscriptPage(
+                selectedOwner(result.snapshot),
+                rendererPage(result.effect.region),
+                result.effect.region.transcriptRevision,
+              )
+            : (function () {
+                const previous = snapshot;
+                snapshot = result.snapshot;
+                try {
+                  return renderTranscript();
+                } finally {
+                  snapshot = previous;
+                }
+              })();
       }
       if (result.publicationKind === "owner-navigation") {
         captureReplyDraft();
@@ -1843,6 +1871,7 @@ export {
   renderResult,
   rendererPage,
   resolvePanelActionEnvelope,
+  transcriptStateSignature,
   wireFieldRegistry,
 };
 

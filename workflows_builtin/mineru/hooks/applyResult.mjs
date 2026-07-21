@@ -512,7 +512,7 @@ async function materializeParts(args) {
   const imagesTargetDir = joinPath(sourceDir, imagesDirName);
   const stagingDir = buildStagingDir(sourceDir, args.source.sourceItemKey);
   const stagedImagesDir = joinPath(stagingDir, imagesDirName);
-  const stagedMdPath = joinPath(stagingDir, mdName);
+  const stagedMdPath = joinPath(stagingDir, "_merged.md");
   let hasImages = false;
   try {
     await ensureDirectory(stagingDir);

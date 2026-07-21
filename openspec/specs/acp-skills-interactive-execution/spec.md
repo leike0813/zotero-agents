@@ -62,7 +62,11 @@ marker SHALL be removed from the visible canonical message.
 Plain-text replies from the ACP Skills panel SHALL be sent as additional
 `session/prompt` requests on the existing ACP session. If the local controller
 is missing but the run has a recoverable `sessionId`, ACP Skills SHALL restore
-that remote session before sending the reply.
+that remote session before sending the reply. Initial execution, same-session
+reply, repair, and recovered execution SHALL use the persisted run-effective
+runtime selection. Lifecycle code SHALL NOT retain a second frozen selection
+after the run is created and SHALL NOT reapply model settings before an ordinary
+same-session reply.
 
 #### Scenario: Reply After Local Controller Loss
 
@@ -101,6 +105,34 @@ that remote session before sending the reply.
 - **AND** a normally completed prompt SHALL settle the run back to `waiting_user`
 - **AND** a failed prompt SHALL settle the run to `failed_retriable` while keeping
   the recovered session available for a later reply.
+
+#### Scenario: Direct reply preserves the session selection
+
+- **GIVEN** a run executed its first prompt with model B and is waiting for user input
+- **WHEN** the user sends a direct reply without editing runtime options
+- **THEN** the runner SHALL send the reply without an additional model setter
+- **AND** the next turn and composer SHALL remain on model B.
+
+#### Scenario: Explicit edit changes the next turn
+
+- **GIVEN** a waiting run uses model B
+- **WHEN** a successful explicit setter changes the run-effective model to C
+- **THEN** exactly that setter SHALL perform the remote change
+- **AND** the next prompt and composer SHALL use model C.
+
+#### Scenario: Recovery reapplies the persisted selection
+
+- **GIVEN** a recoverable run persists model B
+- **AND** the recovered session handshake reports model A
+- **WHEN** ACP Skills reconnects the existing session
+- **THEN** the shared lifecycle applicator SHALL apply model B before recovered execution
+- **AND** the run and composer SHALL continue to display model B.
+
+#### Scenario: Reasoning transport follows catalog provenance
+
+- **WHEN** a run-effective reasoning choice has `explicit` provenance
+- **THEN** the lifecycle applicator SHALL use the independent thought-level transport
+- **AND** when the choice has `model-derived` provenance it SHALL select only the corresponding raw model variant.
 
 ### Requirement: ACP Skill Apply Is Single-Shot
 

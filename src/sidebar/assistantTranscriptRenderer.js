@@ -82,6 +82,8 @@ function getVirtualTranscriptState(container) {
       rowHeights: new Map(),
       itemLocations: new Map(),
       virtualSourceMode: "page",
+      totalVisibleItemCount: 0,
+      sourceEventSeq: 0,
     };
     virtualTranscriptStates.set(container, state);
   }
@@ -115,6 +117,8 @@ function cloneVirtualTranscriptState(source) {
     rowHeights: new Map(source.rowHeights),
     itemLocations,
     virtualSourceMode: source.virtualSourceMode,
+    totalVisibleItemCount: source.totalVisibleItemCount,
+    sourceEventSeq: source.sourceEventSeq,
   };
 }
 
@@ -127,6 +131,8 @@ function commitVirtualTranscriptState(target, source) {
   target.rowHeights = source.rowHeights;
   target.itemLocations = source.itemLocations;
   target.virtualSourceMode = source.virtualSourceMode;
+  target.totalVisibleItemCount = source.totalVisibleItemCount;
+  target.sourceEventSeq = source.sourceEventSeq;
 }
 
 function resetTranscriptScrollState(container) {
@@ -150,6 +156,8 @@ function resetVirtualTranscriptState(state, ownerKey) {
   state.rowHeights = new Map();
   state.itemLocations = new Map();
   state.virtualSourceMode = "page";
+  state.totalVisibleItemCount = 0;
+  state.sourceEventSeq = 0;
 }
 
 function resetAssistantTranscriptVirtualState(container, ownerKey) {
@@ -214,33 +222,112 @@ function mergeVirtualTranscriptPage(state, page, options) {
     positiveInteger(options.pageSize, VIRTUAL_PAGE_SIZE),
   );
   if (!normalized) return null;
+  if (normalized.sourceEventSeq >= state.sourceEventSeq) {
+    state.sourceEventSeq = normalized.sourceEventSeq;
+    state.totalVisibleItemCount = normalized.totalVisibleItemCount;
+  }
+  normalized.totalVisibleItemCount = state.totalVisibleItemCount;
   state.loadingCursors.delete(normalized.startCursor);
-  if (/\ntail:\d+$/.test(normalized.pageKey)) {
-    state.pages.clear();
-    state.itemLocations.clear();
-  }
-  const previousPage = state.pages.get(normalized.startCursor);
-  if (previousPage) {
-    previousPage.items.forEach(function (item) {
-      const itemId = String(item && item.itemId ? item.itemId : "").trim();
-      const location = itemId ? state.itemLocations.get(itemId) : null;
-      if (location && location.page === previousPage) {
-        state.itemLocations.delete(itemId);
-      }
-    });
-  }
+  reconcileVirtualTranscriptPageRanges(state, normalized);
   state.pages.set(normalized.startCursor, normalized);
-  normalized.items.forEach(function (item, index) {
-    const itemId = String(item && item.itemId ? item.itemId : "").trim();
-    if (itemId) {
-      state.itemLocations.set(itemId, { page: normalized, index });
-    }
-  });
   trimVirtualTranscriptPages(state, options);
+  rebuildVirtualTranscriptItemLocations(state);
   if (/\ntail:\d+$/.test(normalized.pageKey)) {
     pruneVirtualTranscriptRowHeights(state);
   }
   return normalized;
+}
+
+function virtualTranscriptPageEnd(page) {
+  return (
+    nonNegativeInteger(page && page.startCursor, 0) +
+    (Array.isArray(page && page.items) ? page.items.length : 0)
+  );
+}
+
+function virtualTranscriptPageFragment(page, start, end, edge) {
+  const pageStart = nonNegativeInteger(page.startCursor, 0);
+  const from = Math.max(0, start - pageStart);
+  const to = Math.max(from, end - pageStart);
+  return Object.assign({}, page, {
+    startCursor: start,
+    items: page.items.slice(from, to),
+    previousCursor: edge === "prefix" ? page.previousCursor : null,
+    nextCursor: edge === "suffix" ? page.nextCursor : null,
+  });
+}
+
+function reconcileVirtualTranscriptPageRanges(state, incoming) {
+  const incomingStart = incoming.startCursor;
+  const incomingEnd = virtualTranscriptPageEnd(incoming);
+  const total = incoming.totalVisibleItemCount;
+  const replacements = [];
+  state.pages.forEach(function (cached, cursor) {
+    const cachedStart = nonNegativeInteger(cached.startCursor, cursor);
+    const cachedEnd = Math.min(total, virtualTranscriptPageEnd(cached));
+    const samePage =
+      cached.pageKey === incoming.pageKey || cachedStart === incomingStart;
+    const overlaps = cachedStart < incomingEnd && incomingStart < cachedEnd;
+    if (!samePage && !overlaps && cachedStart < total) {
+      if (cachedEnd < virtualTranscriptPageEnd(cached)) {
+        replacements.push({
+          cursor,
+          pages: [
+            virtualTranscriptPageFragment(
+              cached,
+              cachedStart,
+              cachedEnd,
+              "prefix",
+            ),
+          ],
+        });
+      }
+      return;
+    }
+    const fragments = [];
+    if (!samePage && cachedStart < incomingStart) {
+      fragments.push(
+        virtualTranscriptPageFragment(
+          cached,
+          cachedStart,
+          Math.min(cachedEnd, incomingStart),
+          "prefix",
+        ),
+      );
+    }
+    if (!samePage && cachedEnd > incomingEnd) {
+      fragments.push(
+        virtualTranscriptPageFragment(
+          cached,
+          Math.max(cachedStart, incomingEnd),
+          cachedEnd,
+          "suffix",
+        ),
+      );
+    }
+    replacements.push({ cursor, pages: fragments });
+  });
+  replacements.forEach(function (replacement) {
+    state.pages.delete(replacement.cursor);
+    replacement.pages.forEach(function (fragment) {
+      if (fragment.items.length > 0) {
+        state.pages.set(fragment.startCursor, fragment);
+      }
+    });
+  });
+  state.pages.forEach(function (page) {
+    page.totalVisibleItemCount = total;
+  });
+}
+
+function rebuildVirtualTranscriptItemLocations(state) {
+  state.itemLocations = new Map();
+  state.pages.forEach(function (page) {
+    page.items.forEach(function (item, index) {
+      const itemId = String(item && item.itemId ? item.itemId : "").trim();
+      if (itemId) state.itemLocations.set(itemId, { page, index });
+    });
+  });
 }
 
 function setVirtualTranscriptItemsSource(state, items, options) {
@@ -251,6 +338,8 @@ function setVirtualTranscriptItemsSource(state, items, options) {
   state.virtualSourceMode = "items";
   const sourceItems = Array.isArray(items) ? items.slice() : [];
   state.loadingCursors.clear();
+  state.totalVisibleItemCount = sourceItems.length;
+  state.sourceEventSeq = nonNegativeInteger(options.transcriptRevision, 0);
   state.pages.set(0, {
     ownerKey,
     pageKey: ownerKey ? ownerKey + "\ntail:" + sourceItems.length : "",
@@ -285,6 +374,7 @@ function trimVirtualTranscriptPages(state, options) {
     });
     state.pages.delete(removeCursor);
   }
+  rebuildVirtualTranscriptItemLocations(state);
   pruneVirtualTranscriptRowHeights(state);
 }
 
@@ -324,10 +414,15 @@ function virtualTranscriptRenderedRowKey(item, index, virtual) {
 function applyVirtualTranscriptRowMetadata(row, item, index, virtual) {
   if (!row || !virtual) return;
   const rowKey = virtualTranscriptRenderedRowKey(item, index, virtual);
+  const position = virtualTranscriptPresentationPosition(item, index, virtual);
   row.setAttribute("data-assistant-virtual-row-key", rowKey);
   row.setAttribute(
     "data-assistant-virtual-row-index",
-    String(nonNegativeInteger(virtual.startIndex, 0) + index),
+    String(
+      position
+        ? position.index
+        : nonNegativeInteger(virtual.startIndex, 0) + index,
+    ),
   );
 }
 
@@ -586,13 +681,12 @@ function virtualTranscriptCacheEntries(state) {
     return a.startCursor - b.startCursor;
   });
   const byIndex = new Map();
-  let totalVisibleItemCount = 0;
+  const totalVisibleItemCount = nonNegativeInteger(
+    state.totalVisibleItemCount,
+    0,
+  );
   let revision = 0;
   pages.forEach(function (page) {
-    totalVisibleItemCount = Math.max(
-      totalVisibleItemCount,
-      nonNegativeInteger(page.totalVisibleItemCount, 0),
-    );
     revision = Math.max(
       revision,
       nonNegativeInteger(page.transcriptRevision || page.sourceEventSeq, 0),
@@ -800,13 +894,20 @@ function requestVirtualTranscriptPage(state, options, cursor) {
     return;
   }
   state.loadingCursors.add(cursorKey);
+  const requestedOwnerKey = state.ownerKey;
+  const requestedLoadingCursors = state.loadingCursors;
   options.onRequestPage({
     ownerKey: state.ownerKey,
     cursor: cursorKey,
     limit: positiveInteger(options.pageSize, VIRTUAL_PAGE_SIZE),
   });
   setTimeout(function () {
-    state.loadingCursors.delete(cursorKey);
+    if (
+      state.ownerKey === requestedOwnerKey &&
+      state.loadingCursors === requestedLoadingCursors
+    ) {
+      state.loadingCursors.delete(cursorKey);
+    }
   }, 5000);
 }
 
@@ -840,18 +941,30 @@ function maybeRequestVirtualTranscriptPages(
   }
 }
 
-function createVirtualTranscriptSpacer(height) {
+function createVirtualTranscriptSpacer(key, kind) {
   const spacer = el("div", "assistant-transcript-virtual-spacer");
-  spacer.style.height = Math.max(0, Math.floor(Number(height) || 0)) + "px";
   spacer.setAttribute("aria-hidden", "true");
+  spacer.setAttribute("data-assistant-virtual-key", key);
+  spacer.setAttribute("data-assistant-virtual-spacer-kind", kind);
   return spacer;
 }
 
-function createVirtualTranscriptLoadingGap(gap, options) {
-  const loading = el(
-    "div",
-    "assistant-transcript-virtual-loading",
-    transcriptLabel(options, "loading", "Loading transcript..."),
+function updateVirtualTranscriptSpacer(spacer, height, kind) {
+  spacer.style.height = Math.max(0, Math.floor(Number(height) || 0)) + "px";
+  spacer.setAttribute("data-assistant-virtual-spacer-kind", kind);
+}
+
+function createVirtualTranscriptLoadingGap(key) {
+  const loading = el("div", "assistant-transcript-virtual-loading", "");
+  loading.setAttribute("data-assistant-virtual-key", key);
+  return loading;
+}
+
+function updateVirtualTranscriptLoadingGap(loading, gap, options) {
+  loading.textContent = transcriptLabel(
+    options,
+    "loading",
+    "Loading transcript...",
   );
   loading.style.height =
     Math.max(24, Math.floor(Number(gap && gap.height) || 0)) + "px";
@@ -865,51 +978,180 @@ function createVirtualTranscriptLoadingGap(gap, options) {
     "data-assistant-virtual-loading-placement",
     String((gap && gap.placement) || ""),
   );
-  return loading;
 }
 
-function appendVirtualTranscriptTopSpacer(container, virtual, options) {
-  if (
-    !virtual ||
-    !virtual.loadingGap ||
-    virtual.loadingGap.placement !== "top"
-  ) {
-    container.appendChild(
-      createVirtualTranscriptSpacer(virtual.topSpacerHeight),
+function virtualTranscriptPresentationPosition(item, index, virtual) {
+  if (!virtual || !Array.isArray(virtual.positions)) return null;
+  const itemIds = new Set(
+    (Array.isArray(item && item.itemIds) ? item.itemIds : []).map(String),
+  );
+  const positions = virtual.positions.filter(function (position) {
+    const itemId = String(
+      position && position.entry && position.entry.item
+        ? position.entry.item.itemId || ""
+        : "",
     );
-    return;
+    return itemId && itemIds.has(itemId);
+  });
+  if (positions.length === 0) {
+    const fallback = virtual.positions.find(function (position) {
+      return position.key === virtual.rowKeys[index];
+    });
+    return fallback
+      ? {
+          top: fallback.top,
+          bottom: fallback.bottom,
+          index: fallback.index,
+          endIndex: fallback.index + 1,
+        }
+      : null;
   }
-  container.appendChild(
-    createVirtualTranscriptSpacer(virtual.loadingGap.before),
-  );
-  container.appendChild(
-    createVirtualTranscriptLoadingGap(virtual.loadingGap, options),
-  );
-  container.appendChild(
-    createVirtualTranscriptSpacer(virtual.loadingGap.after),
-  );
+  return {
+    top: positions[0].top,
+    bottom: positions[positions.length - 1].bottom,
+    index: positions[0].index,
+    endIndex: positions[positions.length - 1].index + 1,
+  };
 }
 
-function appendVirtualTranscriptBottomSpacer(container, virtual, options) {
-  if (
-    !virtual ||
-    !virtual.loadingGap ||
-    virtual.loadingGap.placement !== "bottom"
-  ) {
-    container.appendChild(
-      createVirtualTranscriptSpacer(virtual.bottomSpacerHeight),
-    );
-    return;
+function virtualTranscriptSpacerDescriptor(key, kind, height) {
+  return { type: "spacer", key, kind, height };
+}
+
+function virtualTranscriptEdgeDescriptors(placement, height, virtual) {
+  const gap = virtual && virtual.loadingGap;
+  if (!gap || gap.placement !== placement) {
+    return [
+      virtualTranscriptSpacerDescriptor(
+        "spacer:edge:" + placement,
+        "edge",
+        height,
+      ),
+    ];
   }
-  container.appendChild(
-    createVirtualTranscriptSpacer(virtual.loadingGap.before),
+  return [
+    virtualTranscriptSpacerDescriptor(
+      "spacer:edge:" + placement + ":before",
+      "edge",
+      gap.before,
+    ),
+    {
+      type: "loading",
+      key: "loading:" + placement + ":" + gap.cursor,
+      gap,
+    },
+    virtualTranscriptSpacerDescriptor(
+      "spacer:edge:" + placement + ":after",
+      "edge",
+      gap.after,
+    ),
+  ];
+}
+
+function buildVirtualTranscriptDomDescriptors(rows, virtual) {
+  if (!virtual) {
+    return rows.map(function (row) {
+      return { type: "row", row };
+    });
+  }
+  const positioned = rows.map(function (row, index) {
+    return {
+      row,
+      position: virtualTranscriptPresentationPosition(row, index, virtual),
+    };
+  });
+  const descriptors = virtualTranscriptEdgeDescriptors(
+    "top",
+    positioned[0] && positioned[0].position
+      ? positioned[0].position.top
+      : virtual.topSpacerHeight,
+    virtual,
   );
-  container.appendChild(
-    createVirtualTranscriptLoadingGap(virtual.loadingGap, options),
+  positioned.forEach(function (entry, index) {
+    if (index > 0) {
+      const previous = positioned[index - 1].position;
+      const current = entry.position;
+      const height =
+        previous && current ? Math.max(0, current.top - previous.bottom) : 0;
+      if (height > 0) {
+        descriptors.push(
+          virtualTranscriptSpacerDescriptor(
+            [
+              "spacer:gap",
+              previous ? previous.endIndex : index,
+              current ? current.index : index + 1,
+            ].join(":"),
+            "inter-page",
+            height,
+          ),
+        );
+      }
+    }
+    descriptors.push({ type: "row", row: entry.row });
+  });
+  const last = positioned.at(-1);
+  descriptors.push(
+    ...virtualTranscriptEdgeDescriptors(
+      "bottom",
+      last && last.position
+        ? Math.max(0, virtual.totalHeight - last.position.bottom)
+        : virtual.bottomSpacerHeight,
+      virtual,
+    ),
   );
-  container.appendChild(
-    createVirtualTranscriptSpacer(virtual.loadingGap.after),
-  );
+  return descriptors;
+}
+
+function reconcileVirtualTranscriptChildren(
+  container,
+  rows,
+  nodeMap,
+  virtual,
+  options,
+) {
+  const descriptors = buildVirtualTranscriptDomDescriptors(rows, virtual);
+  const chrome = new Map();
+  Array.from(container.children || []).forEach(function (child) {
+    const key = child.getAttribute("data-assistant-virtual-key");
+    if (key) chrome.set(key, child);
+  });
+  const expected = [];
+  const expectedChromeKeys = new Set();
+  descriptors.forEach(function (descriptor) {
+    if (descriptor.type === "row") {
+      const row = nodeMap.get(String(descriptor.row.rowKey));
+      if (row) expected.push(row);
+      return;
+    }
+    expectedChromeKeys.add(descriptor.key);
+    let node = chrome.get(descriptor.key);
+    if (!node) {
+      node =
+        descriptor.type === "loading"
+          ? createVirtualTranscriptLoadingGap(descriptor.key)
+          : createVirtualTranscriptSpacer(descriptor.key, descriptor.kind);
+    }
+    if (descriptor.type === "loading") {
+      updateVirtualTranscriptLoadingGap(node, descriptor.gap, options);
+    } else {
+      updateVirtualTranscriptSpacer(node, descriptor.height, descriptor.kind);
+    }
+    expected.push(node);
+  });
+  chrome.forEach(function (node, key) {
+    if (!expectedChromeKeys.has(key) && node.parentNode === container) {
+      container.removeChild(node);
+    }
+  });
+  let anchor = null;
+  for (let index = expected.length - 1; index >= 0; index -= 1) {
+    const node = expected[index];
+    const children = Array.from(container.children || []);
+    const nodeIndex = children.indexOf(node);
+    const next = nodeIndex >= 0 ? children[nodeIndex + 1] || null : null;
+    if (nodeIndex < 0 || next !== anchor) container.insertBefore(node, anchor);
+    anchor = node;
+  }
 }
 
 function measuredElementHeight(node, fallback) {
@@ -1179,27 +1421,33 @@ function installAssistantTranscriptStickiness(container, threshold) {
 
 function shouldStickAssistantTranscript(container, threshold) {
   if (!container) return true;
-  if (
-    container.getAttribute("data-assistant-transcript-scroll-render") === "true"
-  ) {
-    return container.getAttribute("data-assistant-transcript-stick") === "true";
-  }
-  if (isAssistantTranscriptNearBottom(container, threshold)) {
-    container.setAttribute("data-assistant-transcript-stick", "true");
-    return true;
-  }
-  return container.getAttribute("data-assistant-transcript-stick") === "true";
+  const stored = container.getAttribute("data-assistant-transcript-stick");
+  if (stored === "true" || stored === "false") return stored === "true";
+  const stick = isAssistantTranscriptNearBottom(container, threshold);
+  container.setAttribute(
+    "data-assistant-transcript-stick",
+    stick ? "true" : "false",
+  );
+  return stick;
 }
 
 function stickAssistantTranscriptToBottom(container) {
   if (!container) return;
   let state = transcriptBottomStickStates.get(container);
   if (!state) {
-    state = { generation: 0, scheduled: false, cancelled: false };
+    state = {
+      generation: 0,
+      scheduled: false,
+      cancelled: false,
+      ownerKey: "",
+    };
     transcriptBottomStickStates.set(container, state);
   }
   state.cancelled = false;
   state.generation += 1;
+  state.ownerKey = String(
+    container.getAttribute("data-assistant-transcript-owner-key") || "",
+  );
   container.setAttribute(
     "data-assistant-transcript-programmatic-scroll",
     "true",
@@ -1227,17 +1475,48 @@ function scheduleAssistantTranscriptBottomStick(container, state) {
   if (state.scheduled || state.cancelled) return;
   state.scheduled = true;
   const scheduledGeneration = state.generation;
+  const scheduledOwnerKey = state.ownerKey;
   transcriptAnimationFrame(function () {
-    if (state.cancelled || scheduledGeneration !== state.generation) {
+    if (scheduledGeneration !== state.generation) {
       state.scheduled = false;
       scheduleAssistantTranscriptBottomStick(container, state);
       return;
     }
+    if (
+      state.cancelled ||
+      scheduledOwnerKey !==
+        String(
+          container.getAttribute("data-assistant-transcript-owner-key") || "",
+        ) ||
+      container.getAttribute("data-assistant-transcript-stick") !== "true"
+    ) {
+      state.scheduled = false;
+      state.cancelled = true;
+      container.removeAttribute(
+        "data-assistant-transcript-programmatic-scroll",
+      );
+      return;
+    }
     finishAssistantTranscriptBottomStick(container);
     transcriptAnimationFrame(function () {
-      if (state.cancelled || scheduledGeneration !== state.generation) {
+      if (scheduledGeneration !== state.generation) {
         state.scheduled = false;
         scheduleAssistantTranscriptBottomStick(container, state);
+        return;
+      }
+      if (
+        state.cancelled ||
+        scheduledOwnerKey !==
+          String(
+            container.getAttribute("data-assistant-transcript-owner-key") || "",
+          ) ||
+        container.getAttribute("data-assistant-transcript-stick") !== "true"
+      ) {
+        state.scheduled = false;
+        state.cancelled = true;
+        container.removeAttribute(
+          "data-assistant-transcript-programmatic-scroll",
+        );
         return;
       }
       state.scheduled = false;
@@ -2092,24 +2371,14 @@ function applyAssistantTranscriptEffectsUnsafe(options) {
       updatedRows += 1;
     }
   });
-  const children = Array.from(container.children || []);
-  let anchor =
-    children.length &&
-    children[children.length - 1].classList &&
-    children[children.length - 1].classList.contains(
-      "assistant-transcript-virtual-spacer",
-    )
-      ? children[children.length - 1]
-      : null;
-  for (let index = rows.length - 1; index >= 0; index -= 1) {
-    const row = nodeMap.get(String(rows[index].rowKey));
-    if (!row) return { ok: false, measuredChanged: false };
-    const currentChildren = Array.from(container.children || []);
-    const rowIndex = currentChildren.indexOf(row);
-    const next = rowIndex >= 0 ? currentChildren[rowIndex + 1] || null : null;
-    if (rowIndex < 0 || next !== anchor) container.insertBefore(row, anchor);
-    anchor = row;
+  if (
+    rows.some(function (row) {
+      return !nodeMap.get(String(row.rowKey));
+    })
+  ) {
+    return { ok: false, measuredChanged: false };
   }
+  reconcileVirtualTranscriptChildren(container, rows, nodeMap, virtual, opts);
   const measuredChanged =
     virtualState && opts.virtualized
       ? measureVirtualTranscriptRows(
@@ -2119,12 +2388,6 @@ function applyAssistantTranscriptEffectsUnsafe(options) {
           dirtyRowKeys,
         )
       : false;
-  if (measuredChanged && virtualState.lastVirtual) {
-    virtualState.lastAnchor = captureVirtualScrollAnchor(
-      container,
-      virtualState.lastVirtual,
-    );
-  }
   if (virtualState && virtual) virtualState.lastVirtual = virtual;
   if (typeof opts.onEffectRendered === "function") {
     opts.onEffectRendered({
@@ -2135,7 +2398,7 @@ function applyAssistantTranscriptEffectsUnsafe(options) {
       measuredRows: dirtyRowKeys.size,
     });
   }
-  return { ok: true, measuredChanged };
+  return { ok: true, measuredChanged, virtual };
 }
 
 function applyAssistantTranscriptEffectsExact(options) {
@@ -2199,6 +2462,11 @@ function applyAssistantTranscriptEffectsExact(options) {
     opts.container,
     opts.stickThreshold,
   );
+  const preservedScrollTop = finiteNumber(opts.container.scrollTop, 0);
+  const scrollAnchor =
+    liveVirtualState && !shouldStick
+      ? captureVirtualScrollAnchor(opts.container, liveVirtualState.lastVirtual)
+      : null;
   try {
     const rendered = applyAssistantTranscriptEffectsUnsafe(
       Object.assign({}, opts, {
@@ -2230,11 +2498,23 @@ function applyAssistantTranscriptEffectsExact(options) {
       delete latestOptions.virtualState;
       liveVirtualState.latestOptions = latestOptions;
       if (rendered.measuredChanged) {
+        liveVirtualState.lastAnchor = scrollAnchor;
         scheduleVirtualTranscriptRender(opts.container, liveVirtualState);
+      } else {
+        liveVirtualState.lastAnchor = null;
       }
     }
     if (shouldStick) {
       stickAssistantTranscriptToBottom(opts.container);
+    } else if (
+      liveVirtualState &&
+      !restoreVirtualScrollAnchor(
+        opts.container,
+        rendered.virtual,
+        scrollAnchor,
+      )
+    ) {
+      opts.container.scrollTop = preservedScrollTop;
     }
     return { ok: true, renderPath: "incremental", failure: null };
   } catch (_error) {
@@ -2273,6 +2553,19 @@ function renderAssistantTranscript(options) {
     previousVirtual = virtualState.lastVirtual;
   }
   installAssistantTranscriptStickiness(container, opts.stickThreshold);
+  const shouldStick = shouldStickAssistantTranscript(
+    container,
+    opts.stickThreshold,
+  );
+  const preservedScrollTop = finiteNumber(container.scrollTop, 0);
+  const scrollAnchor =
+    virtualized && virtualState && !shouldStick
+      ? virtualState.lastAnchor ||
+        captureVirtualScrollAnchor(container, previousVirtual)
+      : null;
+  if (shouldStick && virtualState) {
+    virtualState.lastAnchor = null;
+  }
   if (virtualized) {
     const hasIncomingPage =
       opts.page &&
@@ -2312,20 +2605,7 @@ function renderAssistantTranscript(options) {
   } else {
     container.removeAttribute("data-assistant-transcript-scroll-render");
   }
-  const shouldStick = shouldStickAssistantTranscript(
-    container,
-    opts.stickThreshold,
-  );
   container.removeAttribute("data-assistant-transcript-scroll-render");
-  const preservedScrollTop = finiteNumber(container.scrollTop, 0);
-  const scrollAnchor =
-    virtualized && virtualState && !shouldStick
-      ? virtualState.lastAnchor ||
-        captureVirtualScrollAnchor(container, previousVirtual || virtual)
-      : null;
-  if (shouldStick && virtualState) {
-    virtualState.lastAnchor = null;
-  }
   if (items.length === 0) {
     clearNode(container);
     const emptyNodeMap = transcriptNodeMap(container, opts.nodeMap);
@@ -2364,8 +2644,6 @@ function renderAssistantTranscript(options) {
   const previousSeparator = previousOrder.indexOf("\u001e");
   const previousContext =
     previousSeparator >= 0 ? previousOrder.slice(0, previousSeparator) : "";
-  const previousItemOrder =
-    previousSeparator >= 0 ? previousOrder.slice(previousSeparator + 1) : "";
   const needsFullRender =
     previousContext !== contextKey ||
     String(
@@ -2377,19 +2655,19 @@ function renderAssistantTranscript(options) {
   if (needsFullRender) {
     clearNode(container);
     if (canDiff) nodeMap.clear();
-    if (virtualized && virtual) {
-      appendVirtualTranscriptTopSpacer(container, virtual, opts);
-    }
     items.forEach(function (item, index) {
       const row = createRow(item, { variant });
       applyVirtualTranscriptRowMetadata(row, item, index, virtual);
       if (canDiff) nodeMap.set(String(item.rowKey || ""), row);
       renderAssistantTranscriptItemIfChanged(row, item, opts);
-      container.appendChild(row);
     });
-    if (virtualized && virtual) {
-      appendVirtualTranscriptBottomSpacer(container, virtual, opts);
-    }
+    reconcileVirtualTranscriptChildren(
+      container,
+      items,
+      nodeMap,
+      virtualized ? virtual : null,
+      opts,
+    );
   } else {
     const desiredIds = new Set(
       items.map(function (item) {
@@ -2407,23 +2685,17 @@ function renderAssistantTranscript(options) {
       if (!row) {
         row = createRow(item, { variant });
         nodeMap.set(rowKey, row);
-        container.appendChild(row);
       }
       applyVirtualTranscriptRowMetadata(row, item, index, virtual);
       renderAssistantTranscriptItemIfChanged(row, item, opts);
     });
-    if (previousItemOrder !== itemOrderKey) {
-      let anchor = null;
-      for (let index = items.length - 1; index >= 0; index -= 1) {
-        const row = nodeMap.get(String(items[index].rowKey || ""));
-        if (!row) continue;
-        const children = Array.from(container.children || []);
-        const rowIndex = children.indexOf(row);
-        const next = rowIndex >= 0 ? children[rowIndex + 1] || null : null;
-        if (next !== anchor) container.insertBefore(row, anchor);
-        anchor = row;
-      }
-    }
+    reconcileVirtualTranscriptChildren(
+      container,
+      items,
+      nodeMap,
+      virtualized ? virtual : null,
+      opts,
+    );
   }
   const measuredChanged =
     virtualized && virtualState && virtual

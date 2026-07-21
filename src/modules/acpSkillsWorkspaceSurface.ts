@@ -197,6 +197,19 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
     const options = record.runtimeOptions;
     const modelConfigurationEditable =
       canEditAcpSkillRunModelConfiguration(record);
+    const selectedModeId = record.acpModeId || "";
+    const selectedModelId = record.acpModelId || record.acpRawModelId || "";
+    const selectedReasoningEffort = record.acpReasoningEffort || "";
+    const includeSelection = <T extends { id: string; label: string }>(
+      entries: T[] | undefined,
+      selectedId: string,
+    ) => {
+      const normalized = [...(entries || [])];
+      if (selectedId && !normalized.some((entry) => entry.id === selectedId)) {
+        normalized.push({ id: selectedId, label: selectedId } as T);
+      }
+      return normalized;
+    };
     const modelOptions = options?.displayModelOptions?.length
       ? options.displayModelOptions
       : options?.modelOptions;
@@ -216,20 +229,27 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
       },
       runtimeOptions: {
         mode: projectAssistantWorkspaceOptionGroup(
-          connected ? options?.modeOptions : [],
-          options?.currentMode?.id,
+          connected
+            ? includeSelection(options?.modeOptions, selectedModeId)
+            : [],
+          selectedModeId,
           connected && Boolean(options?.modeOptions.length),
         ),
         model: projectAssistantWorkspaceOptionGroup(
-          connected ? modelOptions : [],
-          options?.currentDisplayModel?.id || options?.currentModel?.id,
+          connected ? includeSelection(modelOptions, selectedModelId) : [],
+          selectedModelId,
           connected &&
             modelConfigurationEditable &&
             Boolean(modelOptions?.length),
         ),
         reasoningEffort: projectAssistantWorkspaceOptionGroup(
-          connected ? options?.reasoningEffortOptions : [],
-          options?.currentReasoningEffort?.id,
+          connected
+            ? includeSelection(
+                options?.reasoningEffortOptions,
+                selectedReasoningEffort,
+              )
+            : [],
+          selectedReasoningEffort,
           connected &&
             modelConfigurationEditable &&
             Boolean(options?.reasoningEffortOptions.length),

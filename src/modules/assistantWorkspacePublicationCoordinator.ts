@@ -150,6 +150,21 @@ export class AssistantWorkspacePublicationCoordinator {
       return undefined;
     }
     const state = this.transcriptLane(args.owner);
+    if (args.cause === "page-request") {
+      if (!state.page || args.region.status !== "ready" || !args.region.page) {
+        return undefined;
+      }
+      const publication = this.createPublication({
+        owner: args.owner,
+        publicationKind: "transcript",
+        publicationForm: "snapshot",
+        publicationCause: args.cause,
+        payload: args.region,
+      });
+      state.pendingSnapshots.push(publication);
+      this.pumpTranscriptLane(state);
+      return publication;
+    }
     state.accumulator.drain();
     state.pendingMetadata = false;
     state.page = args.region.page;
