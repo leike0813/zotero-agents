@@ -83,6 +83,7 @@ export const ASSISTANT_WORKSPACE_PUBLICATION_PAYLOAD_KEYS: Record<
     "status",
     "busy",
     "hint",
+    "interaction",
     "connection",
     "execution",
     "authentication",
@@ -296,6 +297,7 @@ export const SKILLRUNNER_LEGACY_ACTIONS = {
   CLOSE_DIALOG: "close-dialog",
   AUTH_IMPORT_RUN: "auth-import-run",
   REPLY_RUN: "reply-run",
+  SUBMIT_INTERACTION_FILES: "submit-interaction-files",
   RESOLVE_PERMISSION: "resolve-permission",
   CANCEL_RUN: "cancel-run",
   ARCHIVE_RUN: "archive-run",
@@ -303,10 +305,4 @@ export const SKILLRUNNER_LEGACY_ACTIONS = {
   COPY_DIAGNOSTICS: "copy-diagnostics",
   OPEN_BACKEND_MANAGER: "open-backend-manager",
   OPEN_WORKSPACE: "open-workspace",
-} as const;
-
-/** Legacy alias vocabulary accepted by the child-side action handler. */
-export const SKILLRUNNER_LEGACY_ACTION_ALIASES = {
-  reply: SKILLRUNNER_LEGACY_ACTIONS.REPLY_RUN,
-  cancel: SKILLRUNNER_LEGACY_ACTIONS.CANCEL_RUN,
 } as const;

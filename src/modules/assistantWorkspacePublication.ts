@@ -18,6 +18,10 @@ export {
   ASSISTANT_WORKSPACE_TRANSCRIPT_DELTA_KEYS,
   ASSISTANT_WORKSPACE_TRANSCRIPT_SNAPSHOT_KEYS,
 } from "../shared/assistantWireContract";
+import {
+  parseAssistantPendingInteraction,
+  type AssistantPendingInteraction,
+} from "../shared/assistantInteractionContract";
 
 // Shared wire identity types (AssistantWorkspaceOwner,
 // AssistantWorkspacePublicationAck, ...) also live in the shared wire
@@ -233,7 +237,17 @@ export const ASSISTANT_WORKSPACE_ACTION_REGISTRY = {
   "reply-run": {
     scope: "selected-owner",
     sources: ["acp-skills"],
-    payloadKeys: ["message"],
+    payloadKeys: ["message", "interactionToken"],
+  },
+  "select-interaction-option": {
+    scope: "selected-owner",
+    sources: ["acp-skills"],
+    payloadKeys: ["interactionToken", "responseValue", "responseLabel"],
+  },
+  "submit-interaction-files": {
+    scope: "selected-owner",
+    sources: ["acp-skills"],
+    payloadKeys: ["interactionToken"],
   },
   "resolve-permission": {
     scope: "selected-owner",
@@ -407,6 +421,7 @@ export type AssistantWorkspaceOwnerControl = {
       | "notice";
     message: string | null;
   };
+  interaction: AssistantPendingInteraction | null;
   connection: {
     status: string;
     sessionAvailable: boolean;
@@ -1241,6 +1256,12 @@ function assertPublicationPayloadInvariant(
       ["kind", "message"],
       "assistant-workspace-owner-control-hint",
     );
+    if (
+      baseline.interaction !== null &&
+      !parseAssistantPendingInteraction(baseline.interaction)
+    ) {
+      throw new Error("assistant-workspace-owner-control-interaction");
+    }
     if (
       ![
         "hidden",

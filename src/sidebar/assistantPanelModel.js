@@ -1,3 +1,8 @@
+import {
+  parseAssistantPendingInteraction,
+  projectAssistantPendingInteractionFromHints,
+} from "../shared/assistantInteractionContract.js";
+
 const PANEL_KINDS = ["acp-chat", "acp-skills", "skillrunner"];
 const TERMINAL_STATES = new Set([
   "succeeded",
@@ -877,7 +882,7 @@ function normalizeSkillRunnerOptionList(raw) {
         typeof option === "boolean"
       ) {
         const text = safeText(option);
-        return text ? { label: text, value: text } : null;
+        return text ? { label: text, value: option, description: null } : null;
       }
       if (!option || typeof option !== "object") return null;
       const label =
@@ -885,43 +890,46 @@ function normalizeSkillRunnerOptionList(raw) {
         safeText(option.name) ||
         safeText(option.title) ||
         safeText(option.value);
-      const value =
-        safeText(option.value) ||
-        safeText(option.reply) ||
-        safeText(option.message) ||
-        label;
-      return label && value ? { label, value } : null;
+      const value = Object.prototype.hasOwnProperty.call(option, "value")
+        ? option.value
+        : Object.prototype.hasOwnProperty.call(option, "reply")
+          ? option.reply
+          : Object.prototype.hasOwnProperty.call(option, "message")
+            ? option.message
+            : label;
+      return label
+        ? {
+            label,
+            value,
+            description: safeText(option.description) || null,
+          }
+        : null;
     })
     .filter(Boolean);
 }
 
 function buildSkillRunnerPendingInteraction(session, status, source) {
   const normalized = normalizeStatusToken(status);
-  const askUser =
-    session &&
-    session.pendingAskUser &&
-    typeof session.pendingAskUser === "object"
-      ? session.pendingAskUser
-      : null;
-  const uiHints =
-    session &&
-    session.pendingUiHints &&
-    typeof session.pendingUiHints === "object"
-      ? session.pendingUiHints
-      : askUser && askUser.ui_hints && typeof askUser.ui_hints === "object"
-        ? askUser.ui_hints
-        : {};
   if (normalized === "waiting-user") {
-    return {
-      kind: "waiting_user",
-      title: labelFrom(
-        source,
-        "interaction.userInputRequired",
-        "User input required",
-      ),
-      pendingInteraction: {
-        interactionId: Number((session && session.pendingInteractionId) || 0),
-        kind: safeText(
+    let projected = parseAssistantPendingInteraction(
+      session.pendingInteraction,
+    );
+    if (!projected) {
+      const askUser =
+        session.pendingAskUser && typeof session.pendingAskUser === "object"
+          ? session.pendingAskUser
+          : null;
+      const uiHints =
+        session.pendingUiHints && typeof session.pendingUiHints === "object"
+          ? session.pendingUiHints
+          : askUser && askUser.ui_hints && typeof askUser.ui_hints === "object"
+            ? askUser.ui_hints
+            : {};
+      projected = projectAssistantPendingInteractionFromHints({
+        interactionToken: String(
+          Number((session && session.pendingInteractionId) || 0),
+        ),
+        pendingKind: safeText(
           (askUser && askUser.kind) || session.pendingKind || "open_text",
         ),
         uiHints: Object.assign({}, uiHints, {
@@ -933,15 +941,51 @@ function buildSkillRunnerPendingInteraction(session, status, source) {
               "interaction.waitingReply",
               "The agent is waiting for your reply.",
             ),
-          hint: safeText(uiHints.hint || (askUser && askUser.hint)),
-          options: normalizeSkillRunnerOptionList(
-            askUser && Array.isArray(askUser.options)
-              ? askUser.options
-              : session.pendingOptions,
-          ),
-          files: uiHints.files || session.pendingRequiredFields || [],
         }),
-      },
+        options:
+          askUser && Array.isArray(askUser.options)
+            ? askUser.options
+            : session.pendingOptions,
+        files: session.pendingRequiredFields,
+        fileReply: {
+          supported: false,
+          maxFiles: 8,
+          maxFileBytes: 32 * 1024 * 1024,
+          maxTotalBytes: 64 * 1024 * 1024,
+        },
+      });
+    }
+    return {
+      kind: "waiting_user",
+      title: labelFrom(
+        source,
+        "interaction.userInputRequired",
+        "User input required",
+      ),
+      pendingInteraction: projected
+        ? Object.assign({}, projected, {
+            options: projected.options.map(function (option) {
+              return Object.assign({}, option, {
+                action: "reply-run",
+                responseValue: option.value,
+                payload: {
+                  mode: "interaction",
+                  interactionId: Number(projected.interactionToken || 0),
+                  interactionToken: projected.interactionToken,
+                  responseValue: option.value,
+                  responseLabel: option.label,
+                  message: option.label,
+                },
+              });
+            }),
+            fileAction: projected.fileReply.supported
+              ? {
+                  action: "submit-interaction-files",
+                  payload: { interactionToken: projected.interactionToken },
+                }
+              : null,
+          })
+        : null,
     };
   }
   if (normalized === "waiting-auth") {
@@ -1821,6 +1865,14 @@ function projectSkillRunnerPanelSnapshot(snapshot) {
             : labelFrom(envelope, "actions.send", "Send"),
       sending: skillRunnerAuthActionPending,
       action: skillRunnerBusy ? "cancel-run" : "reply-run",
+      payload:
+        status === "waiting-user" && interaction.pendingInteraction
+          ? {
+              interactionToken: safeText(
+                interaction.pendingInteraction.interactionToken,
+              ),
+            }
+          : {},
       tone: skillRunnerBusy ? "danger" : "primary",
       clearOnSend: !skillRunnerBusy,
       hint: labelFrom(
@@ -2725,6 +2777,10 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
         ? control.hint
         : { kind: "hidden", message: null };
     const kind = safeText(hint.kind) || "hidden";
+    const sharedPending =
+      control.interaction && typeof control.interaction === "object"
+        ? control.interaction
+        : null;
     let message = safeText(hint.message);
     if (!message) {
       if (kind === "auth") {
@@ -2776,6 +2832,37 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
           "Backend unavailable",
         );
       }
+    }
+    if (kind === "waiting_user" && sharedPending) {
+      const interactionToken = safeText(sharedPending.interactionToken);
+      return {
+        kind,
+        message: "",
+        pendingInteraction: Object.assign({}, sharedPending, {
+          options: (Array.isArray(sharedPending.options)
+            ? sharedPending.options
+            : []
+          ).map(function (option) {
+            return Object.assign({}, option, {
+              action: "select-interaction-option",
+              responseValue: option.value,
+              payload: {
+                interactionToken,
+                responseValue: option.value,
+                responseLabel: safeText(option.label),
+              },
+            });
+          }),
+          fileAction:
+            sharedPending.fileReply &&
+            sharedPending.fileReply.supported === true
+              ? {
+                  action: "submit-interaction-files",
+                  payload: { interactionToken },
+                }
+              : null,
+        }),
+      };
     }
     return kind === "hidden" || (kind === "notice" && !message)
       ? { kind: "hidden" }
@@ -2906,6 +2993,15 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
         : source.source === "acp-chat"
           ? "send-prompt"
           : "reply-run",
+      payload:
+        source.source === "acp-skills"
+          ? {
+              interactionToken: safeText(
+                interaction.pendingInteraction &&
+                  interaction.pendingInteraction.interactionToken,
+              ),
+            }
+          : {},
       tone: replyBusy ? "danger" : "primary",
       controls: [
         exactWorkspaceOptionGroup(

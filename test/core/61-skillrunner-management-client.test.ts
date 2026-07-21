@@ -8,6 +8,71 @@ import { SkillRunnerHttpError } from "../../src/providers/skillrunner/errors";
 import { resolveSkillRunnerManagementResponseSemantic } from "../../src/modules/skillRunnerRunSettlement";
 
 describe("skillrunner management client", function () {
+  it("posts token-bound interaction files as metadata plus repeated multipart parts", async function () {
+    let request: {
+      url: string;
+      body: FormData;
+      contentType: string | null;
+    } | null = null;
+    const client = new SkillRunnerManagementClient({
+      baseUrl: "http://127.0.0.1:8030",
+      fetchImpl: async (url, init) => {
+        request = {
+          url,
+          body: init?.body as FormData,
+          contentType: new Headers(init?.headers).get("content-type"),
+        };
+        return new Response(
+          JSON.stringify({
+            request_id: "req-files",
+            status: "running",
+            accepted: true,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    });
+
+    await client.submitInteractionFiles({
+      requestId: "req-files",
+      interactionId: 17,
+      idempotencyKey: "idem-files-1",
+      metadata: {
+        bindings: [
+          { slot: "paper", fileIndex: 0 },
+          { slot: "notes", fileIndex: 1 },
+        ],
+      },
+      files: [
+        {
+          name: "paper.pdf",
+          bytes: new Uint8Array([1, 2, 3]),
+          type: "application/pdf",
+        },
+        {
+          name: "notes.txt",
+          bytes: new Uint8Array([4, 5]),
+          type: "text/plain",
+        },
+      ],
+    });
+
+    assert.equal(
+      request?.url,
+      "http://127.0.0.1:8030/v1/jobs/req-files/interaction/reply/files",
+    );
+    assert.isNull(request?.contentType);
+    const metadata = JSON.parse(String(request?.body.get("metadata")));
+    assert.deepEqual(metadata, {
+      interaction_id: 17,
+      idempotency_key: "idem-files-1",
+      bindings: [
+        { slot: "paper", file_index: 0 },
+        { slot: "notes", file_index: 1 },
+      ],
+    });
+    assert.lengthOf(request?.body.getAll("files") || [], 2);
+  });
   it("classifies accepted=false terminal cancel responses as terminal reconciliation", function () {
     const semantic = resolveSkillRunnerManagementResponseSemantic({
       response: {

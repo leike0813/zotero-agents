@@ -21,6 +21,7 @@ import {
   ASSISTANT_WORKSPACE_TRANSCRIPT_DELTA_KEYS,
   ASSISTANT_WORKSPACE_TRANSCRIPT_SNAPSHOT_KEYS,
 } from "../shared/assistantWireContract.js";
+import { parseAssistantPendingInteraction } from "../shared/assistantInteractionContract.js";
 
 function text(value) {
   return String(value || "").trim();
@@ -109,6 +110,8 @@ function validPublicationPayload(publication) {
   if (publication.publicationKind === "owner-control") {
     return (
       hasExactKeys(payload.hint, ["kind", "message"]) &&
+      (payload.interaction === null ||
+        Boolean(parseAssistantPendingInteraction(payload.interaction))) &&
       [
         "hidden",
         "auth",

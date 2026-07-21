@@ -30,6 +30,7 @@ import {
 import {
   upsertAcpSkillRun,
   recordAcpSkillRunSessionUpdate,
+  projectAcpSkillRunOutputEnvelopeToTranscript,
   resetAcpSkillRunsForTests,
   selectAcpSkillRun,
   readAcpSkillRunTranscriptRegionFromMemoryForTests,
@@ -198,6 +199,47 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
       ASSISTANT_WORKSPACE_REGION_REGISTRY.composer.managedRegions,
       "hint",
     );
+  });
+
+  it("publishes ACP ui_hints as a token-bound interaction without duplicating the pending message", async function () {
+    projectAcpSkillRunOutputEnvelopeToTranscript({
+      requestId: "request-1",
+      kind: "pending",
+      message: "Transcript-only pending message",
+      candidateText: '{"__SKILL_DONE__":false}',
+      repairRound: 0,
+    });
+    upsertAcpSkillRun({
+      requestId: "request-1",
+      status: "waiting_user",
+      activePrompt: false,
+      pendingInteraction: {
+        message: "Transcript-only pending message",
+        uiHints: {
+          kind: "choose_one",
+          prompt: "Choose a typed value",
+          hint: "Any value is accepted",
+          options: [
+            { label: "Approve", value: true },
+            { label: "Configure", value: { mode: "deep" } },
+          ],
+        },
+      },
+    });
+
+    const regions = await readAcpSkillRunWorkspaceRegions({
+      requestId: "request-1",
+      kinds: ["owner-control"],
+    });
+    const control = regions["owner-control"]!;
+
+    assert.equal(control.hint.kind, "waiting_user");
+    assert.isNull(control.hint.message);
+    assert.equal(control.interaction?.interactionToken, "revision:1");
+    assert.equal(control.interaction?.inputKind, "choose_one");
+    assert.equal(control.interaction?.prompt, "Choose a typed value");
+    assert.strictEqual(control.interaction?.options[0].value, true);
+    assert.deepEqual(control.interaction?.options[1].value, { mode: "deep" });
   });
 
   it("accepts only the exact v1 envelope and rejects removed versions and aliases", function () {

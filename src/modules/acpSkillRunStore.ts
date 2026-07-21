@@ -262,6 +262,52 @@ export type AcpSkillRunPendingInteraction = {
   candidatePreview?: string;
 };
 
+function canonicalInteractionTokenValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalInteractionTokenValue);
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalInteractionTokenValue(entry)]),
+    );
+  }
+  return value;
+}
+
+export function deriveAcpSkillRunPendingInteractionToken(args: {
+  outputRevisionCount?: number;
+  pendingInteraction?: AcpSkillRunPendingInteraction;
+}) {
+  const revision = Math.max(
+    0,
+    Math.floor(Number(args.outputRevisionCount || 0) || 0),
+  );
+  if (revision > 0) return `revision:${revision}`;
+  const pending = args.pendingInteraction;
+  if (!pending) return "";
+  const text = JSON.stringify(
+    canonicalInteractionTokenValue({
+      message: pending.message,
+      uiHints: pending.uiHints,
+      candidateRef: pending.candidateRef || null,
+      candidatePreview: pending.candidatePreview || null,
+    }),
+  );
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `legacy:${hash.toString(16).padStart(8, "0")}`;
+}
+
+export function getAcpSkillRunPendingInteractionToken(requestIdRaw: string) {
+  const record = getAcpSkillRunRecord(requestIdRaw);
+  return record ? deriveAcpSkillRunPendingInteractionToken(record) : "";
+}
+
 type AcpSkillRunPendingInteractionUpdate = AcpSkillRunPendingInteraction & {
   candidateText?: string;
 };
@@ -335,6 +381,7 @@ export type AcpSkillRunRecord = {
   lastTurnOutput?: string;
   lastTurnOutputPreview?: string;
   pendingInteraction?: AcpSkillRunPendingInteraction;
+  outputRevisionCount?: number;
   conversationState?: AcpSkillRunConversationState;
   conversationRecoveryState?: AcpSkillRunRecoveryState;
   conversationError?: string;
@@ -352,7 +399,6 @@ export type AcpSkillRunRecord = {
   resultJson?: unknown;
   transcriptItems?: AcpSkillRunTranscriptItem[];
   outputRevisionsPath?: string;
-  outputRevisionCount?: number;
   outputRevisionPreview?: string;
   error?: string;
   usage?: {
@@ -550,6 +596,7 @@ type AcpSkillRunController = {
   cancel: () => Promise<void>;
   interruptTurn?: () => Promise<void>;
   reply?: (message: string) => Promise<void>;
+  replyRequest?: (request: AcpSkillRunReplyRequest) => Promise<void>;
   disconnect?: () => Promise<void>;
   endSession?: () => Promise<void>;
   setConfigOption?: (args: {
@@ -559,6 +606,11 @@ type AcpSkillRunController = {
   }) => Promise<boolean>;
   setMode?: (args: { sessionId: string; modeId: string }) => Promise<void>;
   setModel?: (args: { sessionId: string; modelId: string }) => Promise<void>;
+};
+
+export type AcpSkillRunReplyRequest = {
+  displayMessage: string;
+  promptMessage: string;
 };
 
 type AcpSkillRunWorkspaceListener = (
@@ -4998,14 +5050,22 @@ export function archiveAcpSkillRun(requestIdRaw: string) {
 
 export async function replyAcpSkillRun(args: {
   requestId: string;
-  message: string;
+  message?: string;
+  displayMessage?: string;
+  promptMessage?: string;
+  interactionToken?: string;
 }) {
   const requestId = normalizeString(args.requestId);
-  const message = String(args.message || "").trim();
+  const displayMessage = String(
+    args.displayMessage ?? args.message ?? args.promptMessage ?? "",
+  ).trim();
+  const promptMessage = String(
+    args.promptMessage ?? args.message ?? args.displayMessage ?? "",
+  ).trim();
   if (!requestId) {
     throw new Error("requestId is required");
   }
-  if (!message) {
+  if (!displayMessage || !promptMessage) {
     throw new Error("reply message is required");
   }
   const existing = getAcpSkillRunRecord(requestId);
@@ -5023,6 +5083,16 @@ export async function replyAcpSkillRun(args: {
       "ACP skill run replies are only accepted for waiting or recoverable failed runs.",
     );
   }
+  if (Object.prototype.hasOwnProperty.call(args, "interactionToken")) {
+    const interactionToken = normalizeString(args.interactionToken);
+    const expectedToken = deriveAcpSkillRunPendingInteractionToken(existing);
+    if (
+      (expectedToken && interactionToken !== expectedToken) ||
+      (!expectedToken && interactionToken)
+    ) {
+      throw new Error("ACP skill run interaction token is stale.");
+    }
+  }
   upsertAcpSkillRun({
     requestId,
     replyState: "submitted",
@@ -5037,7 +5107,7 @@ export async function replyAcpSkillRun(args: {
     },
   });
   let controller = controllers.get(requestId);
-  if (!controller?.reply && recoveryHandler) {
+  if (!controller?.reply && !controller?.replyRequest && recoveryHandler) {
     try {
       await recoveryHandler({ requestId, reason: "reply" });
       controller = controllers.get(requestId);
@@ -5061,7 +5131,7 @@ export async function replyAcpSkillRun(args: {
       throw error;
     }
   }
-  if (!controller?.reply) {
+  if (!controller?.reply && !controller?.replyRequest) {
     upsertAcpSkillRun({
       requestId,
       conversationState: "closed",
@@ -5095,7 +5165,11 @@ export async function replyAcpSkillRun(args: {
     },
   });
   try {
-    await controller.reply(message);
+    if (controller.replyRequest) {
+      await controller.replyRequest({ displayMessage, promptMessage });
+    } else {
+      await controller.reply?.(promptMessage);
+    }
     upsertAcpSkillRun({
       requestId,
       replyState: "idle",
@@ -6014,6 +6088,7 @@ export function getAcpSkillRunWorkspaceReadModel(
     pendingInteraction: run.pendingInteraction
       ? parsePendingInteraction(run.pendingInteraction)
       : undefined,
+    outputRevisionCount: Math.max(0, run.outputRevisionCount || 0),
     conversationState: run.conversationState,
     conversationRecoveryState: run.conversationRecoveryState,
     conversationError: run.conversationError,

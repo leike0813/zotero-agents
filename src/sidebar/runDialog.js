@@ -11,7 +11,6 @@ import {
   ASSISTANT_WORKSPACE_MESSAGE_TYPES,
   RUN_DIALOG_BRIDGE_TYPES,
   SKILLRUNNER_LEGACY_ACTIONS,
-  SKILLRUNNER_LEGACY_ACTION_ALIASES,
   SKILLRUNNER_SIDEBAR_BRIDGE_KEY,
   resolveRunDialogMessageType,
 } from "../shared/assistantWireContract.js";
@@ -732,16 +731,29 @@ function submitReply(message, payload) {
     return;
   }
   const interactionId = Number(state.snapshot.pendingInteractionId || 0);
-  if (!interactionId || !textValue) return;
+  const interactionToken = safeText(payload && payload.interactionToken).trim();
+  if (
+    !interactionId ||
+    !textValue ||
+    interactionToken !== String(interactionId)
+  )
+    return;
   const matchedOption = pendingOptions().find(function (option) {
     return option.value === textValue || option.label === textValue;
   });
+  const hasResponseValue =
+    payload && Object.prototype.hasOwnProperty.call(payload, "responseValue");
   sendAction(SKILLRUNNER_LEGACY_ACTIONS.REPLY_RUN, {
     requestId,
     mode: "interaction",
     interactionId,
+    interactionToken,
     responseObject: { text: textValue },
-    ...(matchedOption ? { responseValue: matchedOption.value } : {}),
+    ...(hasResponseValue
+      ? { responseValue: payload.responseValue }
+      : matchedOption
+        ? { responseValue: matchedOption.value }
+        : {}),
   });
 }
 
@@ -779,6 +791,12 @@ function readAuthImportFiles() {
 }
 
 function handleAssistantPanelAction(action, payload) {
+  action =
+    action === "reply"
+      ? SKILLRUNNER_LEGACY_ACTIONS.REPLY_RUN
+      : action === "cancel"
+        ? SKILLRUNNER_LEGACY_ACTIONS.CANCEL_RUN
+        : action;
   const data = payload && typeof payload === "object" ? payload : {};
   if (action === "open-context-drawer") {
     state.drawerOpen = true;
@@ -819,10 +837,7 @@ function handleAssistantPanelAction(action, payload) {
     sendAction(SKILLRUNNER_LEGACY_ACTIONS.SELECT_TASK, { taskKey });
     return;
   }
-  if (
-    action === SKILLRUNNER_LEGACY_ACTION_ALIASES.cancel ||
-    action === SKILLRUNNER_LEGACY_ACTIONS.CANCEL_RUN
-  ) {
+  if (action === SKILLRUNNER_LEGACY_ACTIONS.CANCEL_RUN) {
     const requestId = currentRequestId();
     if (!requestId) return;
     sendAction(SKILLRUNNER_LEGACY_ACTIONS.CANCEL_RUN, { requestId });
@@ -851,10 +866,7 @@ function handleAssistantPanelAction(action, payload) {
     sendAction(SKILLRUNNER_LEGACY_ACTIONS.OPEN_BACKEND_MANAGER, {});
     return;
   }
-  if (
-    action === SKILLRUNNER_LEGACY_ACTION_ALIASES.reply ||
-    action === SKILLRUNNER_LEGACY_ACTIONS.REPLY_RUN
-  ) {
+  if (action === SKILLRUNNER_LEGACY_ACTIONS.REPLY_RUN) {
     submitReply(data.message || data.value || "", data);
     return;
   }

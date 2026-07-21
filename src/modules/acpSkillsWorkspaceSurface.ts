@@ -1,7 +1,14 @@
 import { getAssistantExecutionDisplayMode } from "./assistantExecutionDisplayPolicy";
+import {
+  ASSISTANT_INTERACTION_FILE_MAX_BYTES,
+  ASSISTANT_INTERACTION_TOTAL_MAX_BYTES,
+  ASSISTANT_PENDING_INTERACTION_FILE_LIMIT,
+  projectAssistantPendingInteractionFromHints,
+} from "../shared/assistantInteractionContract";
 import { snapshotAcpMessageCounts } from "./acpExecutionProgress";
 import {
   canEditAcpSkillRunModelConfiguration,
+  deriveAcpSkillRunPendingInteractionToken,
   getAcpSkillRunWorkspaceReadModel,
   getAcpSkillRunWorkspaceDetailsReadModel,
   getSelectedAcpSkillRunRequestId,
@@ -106,7 +113,7 @@ function acpSkillRunHint(
   if (interactionState.waitingForUser) {
     return {
       kind: "waiting_user" as const,
-      message: record.pendingInteraction?.message || null,
+      message: null,
     };
   }
   const recoverableDisconnected =
@@ -137,6 +144,25 @@ function acpSkillRunHint(
     return { kind: "error" as const, message: null };
   }
   return { kind: "hidden" as const, message: null };
+}
+
+function projectAcpSkillRunPendingInteraction(
+  record: AcpSkillRunWorkspaceRecord,
+) {
+  const pending = record.pendingInteraction;
+  if (!pending) return null;
+  const interactionToken = deriveAcpSkillRunPendingInteractionToken(record);
+  return projectAssistantPendingInteractionFromHints({
+    interactionToken,
+    pendingKind: pending.uiHints.kind,
+    uiHints: pending.uiHints,
+    fileReply: {
+      supported: String(pending.uiHints.kind || "").trim() === "upload_files",
+      maxFiles: ASSISTANT_PENDING_INTERACTION_FILE_LIMIT,
+      maxFileBytes: ASSISTANT_INTERACTION_FILE_MAX_BYTES,
+      maxTotalBytes: ASSISTANT_INTERACTION_TOTAL_MAX_BYTES,
+    },
+  });
 }
 
 function acpSkillRunSecondaryLabel(value: {
@@ -404,6 +430,9 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
         record.replyState === "submitted" ||
         record.replyState === "accepted",
       hint: acpSkillRunHint(record, connected, interactionState),
+      interaction: interactionState.waitingForUser
+        ? projectAcpSkillRunPendingInteraction(record)
+        : null,
       connection: {
         status: String(
           record.connectionActionState ||

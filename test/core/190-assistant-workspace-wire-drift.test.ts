@@ -17,10 +17,16 @@ import {
   RUN_DIALOG_BRIDGE_TYPES,
   RUN_DIALOG_PHASES,
   SKILLRUNNER_LEGACY_ACTIONS,
-  SKILLRUNNER_LEGACY_ACTION_ALIASES,
   SKILLRUNNER_SIDEBAR_BRIDGE_KEY,
   resolveRunDialogMessageType,
 } from "../../src/shared/assistantWireContract";
+import * as assistantWireContract from "../../src/shared/assistantWireContract";
+import {
+  ASSISTANT_PENDING_INTERACTION_FILE_LIMIT,
+  ASSISTANT_PENDING_INTERACTION_OPTION_LIMIT,
+  parseAssistantPendingInteraction,
+  projectAssistantPendingInteraction,
+} from "../../src/shared/assistantInteractionContract";
 import {
   ASSISTANT_WORKSPACE_FORBIDDEN_WIRE_FIELDS as MODULE_FORBIDDEN_WIRE_FIELDS,
   ASSISTANT_WORKSPACE_PERMISSION_REQUEST_KEYS as MODULE_PERMISSION_REQUEST_KEYS,
@@ -217,13 +223,68 @@ describe("assistant wire contract shared registry", function () {
     );
     assert.equal(SKILLRUNNER_LEGACY_ACTIONS.REPLY_RUN, "reply-run");
     assert.equal(SKILLRUNNER_LEGACY_ACTIONS.CANCEL_RUN, "cancel-run");
-    assert.equal(
-      SKILLRUNNER_LEGACY_ACTION_ALIASES.reply,
-      SKILLRUNNER_LEGACY_ACTIONS.REPLY_RUN,
+    assert.notProperty(
+      assistantWireContract,
+      "SKILLRUNNER_LEGACY_ACTION_ALIASES",
     );
-    assert.equal(
-      SKILLRUNNER_LEGACY_ACTION_ALIASES.cancel,
-      SKILLRUNNER_LEGACY_ACTIONS.CANCEL_RUN,
+  });
+
+  it("bounds and validates the shared pending-interaction DTO", function () {
+    const optionValue = { approved: true, mode: "deep" };
+    const interaction = projectAssistantPendingInteraction({
+      interactionToken: "revision:7",
+      inputKind: "choose_one",
+      prompt: "Choose a mode",
+      hint: "The value remains typed",
+      options: [
+        {
+          label: "Deep review",
+          description: "Run every check",
+          value: optionValue,
+        },
+        { label: "Skip", value: false },
+      ],
+      files: [],
+      fileReply: {
+        supported: false,
+        maxFiles: 8,
+        maxFileBytes: 32 * 1024 * 1024,
+        maxTotalBytes: 64 * 1024 * 1024,
+      },
+    });
+
+    assert.isOk(interaction);
+    assert.deepEqual(interaction?.options[0].value, optionValue);
+    assert.strictEqual(interaction?.options[1].value, false);
+    assert.deepEqual(
+      parseAssistantPendingInteraction(interaction),
+      interaction,
+    );
+    assert.isNull(
+      parseAssistantPendingInteraction({
+        ...interaction,
+        unknown: true,
+      }),
+    );
+    assert.isNull(
+      projectAssistantPendingInteraction({
+        interactionToken: "too-many-options",
+        inputKind: "choose_one",
+        options: Array.from(
+          { length: ASSISTANT_PENDING_INTERACTION_OPTION_LIMIT + 1 },
+          (_, index) => ({ label: String(index), value: index }),
+        ),
+      }),
+    );
+    assert.isNull(
+      projectAssistantPendingInteraction({
+        interactionToken: "too-many-files",
+        inputKind: "upload_files",
+        files: Array.from(
+          { length: ASSISTANT_PENDING_INTERACTION_FILE_LIMIT + 1 },
+          (_, index) => ({ name: `slot-${index}`, required: false }),
+        ),
+      }),
     );
   });
 

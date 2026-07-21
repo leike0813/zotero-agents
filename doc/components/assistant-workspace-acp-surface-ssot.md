@@ -128,6 +128,11 @@ appending raw runtime values such as `idle`, `running`, or `waiting_user`.
 It carries a bounded kind plus optional user-facing detail; raw workflow or
 backend status strings do not cross into the visible hint. The composer reply
 region owns enablement only and does not duplicate hint text in its footer.
+When the hint kind is `waiting_user`, `owner-control.interaction` carries the
+strict `AssistantPendingInteraction` DTO. Pending message text remains in the
+transcript, while interaction prompt, hint, typed options, and file slots remain
+inside the managed hint region. Transcript revision, page, loading, streaming,
+and event-count changes are excluded from the hint and reply signatures.
 Owner presentation contains only stable banner metadata: Chat backend,
 workspace, and a real live session title/id when present; Skills backend and
 workspace. Runtime option groups carry their own enabled state, and a disabled

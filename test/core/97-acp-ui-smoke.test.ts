@@ -1429,6 +1429,135 @@ describe("Assistant Workspace ACP UI v1", function () {
     assert.equal(panel.reply.hint, "");
   });
 
+  it("routes a rendered typed option through its canonical model action", async function () {
+    const document = new FakeDocument();
+    const renderer = await loadPanelRenderer(document);
+    const panel = AssistantPanelModel.projectSkillRunnerPanelSnapshot({
+      title: "SkillRunner",
+      labels: {},
+      workspace: { selectedTaskKey: "run:1", groups: [] },
+      session: {
+        title: "Run",
+        backendTitle: "SkillRunner",
+        requestId: "request-option",
+        status: "waiting_user",
+        statusSemantics: {
+          normalized: "waiting_user",
+          terminal: false,
+          waiting: true,
+        },
+        pendingInteractionId: 7,
+        pendingInteraction: {
+          interactionToken: "7",
+          inputKind: "choose_one",
+          prompt: "Choose",
+          hint: null,
+          options: [
+            {
+              label: "Continue deeply",
+              value: { depth: 2, continue: true },
+              description: null,
+            },
+          ],
+          files: [],
+          fileReply: {
+            supported: false,
+            maxFiles: 8,
+            maxFileBytes: 32 * 1024 * 1024,
+            maxTotalBytes: 64 * 1024 * 1024,
+          },
+        },
+        pendingKind: "choose_one",
+        pendingUiHints: {},
+        pendingOptions: [],
+        pendingRequiredFields: [],
+        authAvailableMethods: [],
+        loading: false,
+        messages: [],
+        labels: {},
+      },
+    });
+    const hint = document.createElement("div");
+    const actions: Array<{ action: string; payload: unknown }> = [];
+    renderer.renderAssistantHint(hint, panel, {
+      onAction(action: string, payload: unknown) {
+        actions.push({ action, payload });
+      },
+    });
+    const button = hint.querySelector(".assistant-panel-hint-option");
+    assert.ok(button);
+    button?.listeners.get("click")?.[0]?.({});
+    assert.deepEqual(actions, [
+      {
+        action: "reply-run",
+        payload: {
+          mode: "interaction",
+          interactionId: 7,
+          interactionToken: "7",
+          responseValue: { depth: 2, continue: true },
+          responseLabel: "Continue deeply",
+          message: "Continue deeply",
+        },
+      },
+    ]);
+  });
+
+  it("retains the interaction token when the managed text reply is submitted", async function () {
+    const document = new FakeDocument();
+    const renderer = await loadPanelRenderer(document);
+    const state = canonicalState("acp-skills");
+    state.selection.control = {
+      ...state.selection.control,
+      status: "waiting_user",
+      busy: false,
+      hint: { kind: "waiting_user", message: null },
+      interaction: {
+        interactionToken: "revision:8",
+        inputKind: "open_text",
+        prompt: "Reply",
+        hint: null,
+        options: [],
+        files: [],
+        fileReply: {
+          supported: false,
+          maxFiles: 8,
+          maxFileBytes: 32 * 1024 * 1024,
+          maxTotalBytes: 64 * 1024 * 1024,
+        },
+      },
+    };
+    const panel = AssistantPanelModel.projectAssistantWorkspacePanel(
+      state,
+      {},
+      {},
+    );
+    const reply = document.createElement("div");
+    const actions: Array<{ action: string; payload: unknown }> = [];
+    renderer.renderAssistantReply(reply, panel, {
+      onAction(action: string, payload: unknown) {
+        actions.push({ action, payload });
+      },
+    });
+    const input = reply.querySelector(".assistant-panel-reply-input");
+    const button = reply.querySelector(".assistant-panel-reply-submit");
+    assert.ok(input);
+    assert.ok(button);
+    (input as any).value = "Continue";
+    button?.listeners.get("click")?.[0]?.({
+      preventDefault() {},
+      stopPropagation() {},
+    });
+    assert.deepEqual(actions, [
+      {
+        action: "reply-run",
+        payload: {
+          interactionToken: "revision:8",
+          message: "Continue",
+        },
+      },
+    ]);
+  });
+
   it("bounds the Chat selector to eight recent sessions, retains active, and appends Show more", async function () {
     const model = await loadPanelModel();
     const state = canonicalState("acp-chat");
@@ -1653,11 +1782,18 @@ describe("Assistant Workspace ACP UI v1", function () {
       },
       {
         action: "reply-run",
-        data: { message: "continue", requestId: "wrong-owner" },
+        data: {
+          message: "continue",
+          interactionToken: "revision:4",
+          requestId: "wrong-owner",
+        },
         selected: skillSelected,
         expected: {
           owner: skillSelected,
-          payload: { message: "continue" },
+          payload: {
+            message: "continue",
+            interactionToken: "revision:4",
+          },
         },
       },
     ];
@@ -1804,6 +1940,28 @@ describe("Assistant Workspace ACP UI v1", function () {
       permissionRequestOpen: false,
       replyDraft: "draft",
     };
+    state.selection.control = {
+      ...state.selection.control,
+      status: "waiting_user",
+      busy: false,
+      hint: { kind: "waiting_user", message: null },
+      interaction: {
+        interactionToken: "revision:1",
+        inputKind: "choose_one",
+        prompt: "Choose the next step",
+        hint: "Select one option",
+        options: [
+          { label: "Continue", value: { mode: "deep" }, description: null },
+        ],
+        files: [],
+        fileReply: {
+          supported: true,
+          maxFiles: 8,
+          maxFileBytes: 32 * 1024 * 1024,
+          maxTotalBytes: 64 * 1024 * 1024,
+        },
+      },
+    };
     const render = () => {
       const panel = model.projectAssistantWorkspacePanel(state, ui, {});
       renderer.renderAssistantPanelSnapshot(panel, {
@@ -1814,6 +1972,11 @@ describe("Assistant Workspace ACP UI v1", function () {
       });
     };
     render();
+    assert.equal(
+      regions.hint.querySelector(".assistant-panel-interaction-hint")
+        ?.textContent,
+      "Select one option",
+    );
     const regionSubtrees = captureRegionSubtrees(regions);
     state.selection.transcript = {
       ...state.selection.transcript,
@@ -1832,6 +1995,19 @@ describe("Assistant Workspace ACP UI v1", function () {
     };
     render();
     assertRegionSubtreesPreserved(regions, regionSubtrees);
+
+    const afterTranscript = captureRegionSubtrees(regions);
+    state.selection.control.interaction.hint = "Updated guidance";
+    render();
+    assert.equal(
+      regions.hint.querySelector(".assistant-panel-interaction-hint")
+        ?.textContent,
+      "Updated guidance",
+    );
+    const nonHintRegions = Object.fromEntries(
+      Object.entries(regions).filter(([key]) => key !== "hint"),
+    );
+    assertRegionSubtreesPreserved(nonHintRegions, afterTranscript);
   });
 
   it("preserves the selected ACP Skills DOM when background owner publications arrive", async function () {

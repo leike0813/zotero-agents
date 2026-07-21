@@ -127,6 +127,7 @@ import {
   setAcpSkillRunRecoveryHandler,
   setAcpSkillRunRuntimeCatalog,
   type AcpSkillRunStatus,
+  type AcpSkillRunReplyRequest,
   updateAcpSkillRunRuntimeSelection,
   upsertAcpSkillRun,
 } from "./acpSkillRunStore";
@@ -2737,20 +2738,24 @@ export async function recoverAcpSkillRunConversation(args: {
     }
   };
   const convergeRecoveredReply = async (
-    message: string,
+    reply: string | AcpSkillRunReplyRequest,
     options?: {
       appendUserReply?: boolean;
       startedStage?: string;
       startedMessage?: string;
     },
   ) => {
+    const displayMessage =
+      typeof reply === "string" ? reply : reply.displayMessage;
+    const promptMessage =
+      typeof reply === "string" ? reply : reply.promptMessage;
     const latest = getAcpSkillRunRecord(requestId);
     if (!latest) {
       throw new Error(`ACP skill run not found: ${requestId}`);
     }
     const shouldContinueWorkflow = canContinueRecoveredWorkflowTask(latest);
     if (options?.appendUserReply !== false) {
-      appendAcpSkillRunUserReply({ requestId, message });
+      appendAcpSkillRunUserReply({ requestId, message: displayMessage });
     }
     markAcpSkillRunContinuationRunning({
       requestId,
@@ -2828,7 +2833,7 @@ export async function recoverAcpSkillRunConversation(args: {
         throw error;
       }
     };
-    let promptOutcome = await promptRecoveredReply(message);
+    let promptOutcome = await promptRecoveredReply(promptMessage);
     if (recoveredInterruptionForced) {
       return;
     }
@@ -3340,10 +3345,10 @@ export async function recoverAcpSkillRunConversation(args: {
           );
         }
       },
-      reply: async (message) => {
+      replyRequest: async (reply) => {
         const nextPrompt = promptChain
           .catch(() => undefined)
-          .then(() => convergeRecoveredReply(message));
+          .then(() => convergeRecoveredReply(reply));
         promptChain = nextPrompt;
         try {
           await nextPrompt;
@@ -4590,9 +4595,10 @@ export async function executeAcpSkillRunnerJob(args: {
         );
       }
     },
-    reply: async (message) => {
-      const text = String(message || "").trim();
-      if (!text) {
+    replyRequest: async (reply) => {
+      const displayMessage = String(reply.displayMessage || "").trim();
+      const promptMessage = String(reply.promptMessage || "").trim();
+      if (!displayMessage || !promptMessage) {
         throw new Error("reply message is required");
       }
       if (!liveSessionId) {
@@ -4601,9 +4607,9 @@ export async function executeAcpSkillRunnerJob(args: {
       if (pendingReplyResolver) {
         appendAcpSkillRunUserReply({
           requestId: workspace.requestId,
-          message: text,
+          message: displayMessage,
         });
-        resolvePendingReply(text);
+        resolvePendingReply(promptMessage);
         return;
       }
       const nextPrompt = promptChain
@@ -4611,7 +4617,7 @@ export async function executeAcpSkillRunnerJob(args: {
         .then(async () => {
           appendAcpSkillRunUserReply({
             requestId: workspace.requestId,
-            message: text,
+            message: displayMessage,
           });
           markAcpSkillRunContinuationRunning({
             requestId: workspace.requestId,
@@ -4624,7 +4630,7 @@ export async function executeAcpSkillRunnerJob(args: {
           });
           try {
             interruptionRequested = false;
-            const promptOutcome = await promptExistingSession(text);
+            const promptOutcome = await promptExistingSession(promptMessage);
             if (!continueDetachedInteractiveReply) {
               throw new Error(
                 "ACP skill run output convergence is not available for replies.",

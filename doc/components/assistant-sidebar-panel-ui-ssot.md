@@ -256,6 +256,14 @@ content and the same approval actions.
 Waiting `ui_hints` SHALL drive prompt text, hint text, options, and future
 controls. The message body itself belongs in the conversation window.
 
+`AssistantPendingInteraction` is the shared waiting-user DTO for ACP Skills and
+SkillRunner. It owns the interaction token, input kind, prompt, hint, typed
+options, file slots, and file-reply capability. The wire validator requires
+exact keys, bounds options to 16 and file slots to 8, and bounds nested JSON
+option values by depth and encoded size. Option values remain JSON values until
+the host action boundary; the renderer never invents a reply action or converts
+the value to display text.
+
 The canonical `interaction` states are:
 
 - `permission`: ACP permission or command approval; highest priority
@@ -276,9 +284,31 @@ The shared `ui_hints` shape supports:
 - `prompt`: primary reply prompt
 - `hint`: secondary instruction or explanation
 - `options`: quick reply options; string options and `{ label, value }` options
-  normalize to plain-text replies
-- `files`: file-related hints; v1 only displays these hints and does not add
-  file upload behavior
+  preserve the typed `value` while the label remains presentation-only
+- `files`: ordered required or optional native-picker slots
+
+Every waiting-user action carries the current interaction token. The host SHALL
+revalidate owner, waiting status, and token immediately before submission, so a
+control projected from an older snapshot cannot answer a later interaction.
+SkillRunner actions use canonical `reply-run`; literal `reply` and `cancel` are
+accepted only at the run-dialog host boundary.
+
+ACP Skills file replies use one native single-file picker per declared slot.
+Selected files are copied into the run workspace under the flat managed path
+`.acp-inputs/<turnKey>-<submissionKey>/<safeFileName>`. A sibling temporary
+directory is atomically promoted after every file and the privacy-safe manifest
+have been written. The transcript contains display filenames only; the ACP
+prompt contains shallow workspace-relative paths only. Accepted submissions
+remain staged if continuation fails so the existing recovery state machine can
+reuse them.
+
+SkillRunner exposes the same picker only when the handshake declares
+`skillrunner.interaction-files.v1`. Without that capability the file slots and
+localized unavailable state remain visible and the text composer remains
+available. With the capability, the host sends multipart metadata and repeated
+file parts directly to the management route; paths and bytes never cross the
+child wire or transcript boundary. Plugin ceilings are 8 files, 32 MiB per
+file, and 64 MiB total, reduced when the backend declares lower limits.
 
 ### Reply Zone
 

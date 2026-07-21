@@ -68,6 +68,7 @@ import {
   disconnectAcpSkillRun,
   endAcpSkillRunSession,
   getAcpSkillRunDiagnostics,
+  getAcpSkillRunPendingInteractionToken,
   getAcpSkillRunWorkspaceReadModel,
   getSelectedAcpSkillRunRequestId,
   interruptAcpSkillRunCurrentTurn,
@@ -80,7 +81,12 @@ import {
   setAcpSkillRunReasoningEffort,
   subscribeAcpSkillRunWorkspaceChanges,
 } from "./acpSkillRunStore";
-import { ACP_SKILLS_WORKSPACE_ADAPTER } from "./acpSkillsWorkspaceSurface";
+import { deterministicInteractionResponseText } from "../shared/assistantInteractionContract";
+import {
+  ACP_SKILLS_WORKSPACE_ADAPTER,
+  readAcpSkillRunWorkspaceRegions,
+} from "./acpSkillsWorkspaceSurface";
+import { submitAcpSkillRunInteractionFiles } from "./acpSkillRunInteractionFiles";
 import {
   attachSkillRunnerSidebarHost,
   detachSkillRunnerSidebarHost,
@@ -2969,6 +2975,50 @@ async function handleAcpSkillRunAction(
       await replyAcpSkillRun({
         requestId: String(payload.requestId || "").trim(),
         message: String(payload.message || ""),
+        interactionToken: String(payload.interactionToken || "").trim(),
+      });
+      return;
+    }
+    if (action === "select-interaction-option") {
+      const requestId = String(payload.requestId || "").trim();
+      const interactionToken = String(payload.interactionToken || "").trim();
+      if (
+        !interactionToken ||
+        interactionToken !== getAcpSkillRunPendingInteractionToken(requestId)
+      ) {
+        throw new Error("ACP skill run interaction token is stale.");
+      }
+      const responseLabel = String(payload.responseLabel || "").trim();
+      const promptMessage = deterministicInteractionResponseText(
+        payload.responseValue,
+      );
+      await replyAcpSkillRun({
+        requestId,
+        displayMessage: responseLabel || promptMessage,
+        promptMessage,
+        interactionToken,
+      });
+      return;
+    }
+    if (action === "submit-interaction-files") {
+      const requestId = String(payload.requestId || "").trim();
+      const interactionToken = String(payload.interactionToken || "").trim();
+      const control = await readAcpSkillRunWorkspaceRegions({
+        requestId,
+        kinds: ["owner-control"],
+      });
+      const interaction = control["owner-control"]?.interaction;
+      if (
+        !interaction ||
+        interaction.inputKind !== "upload_files" ||
+        interaction.interactionToken !== interactionToken
+      ) {
+        throw new Error("ACP skill run interaction token is stale.");
+      }
+      await submitAcpSkillRunInteractionFiles({
+        requestId,
+        interactionToken,
+        slots: interaction.files,
       });
       return;
     }

@@ -108,6 +108,16 @@ import {
   type RunDialogActionEnvelope,
 } from "../shared/skillRunnerSnapshotContract";
 import { isSkillRunnerSnapshotWireAssertAvailable } from "./debugMode";
+import {
+  projectAssistantPendingInteractionFromHints,
+  type AssistantInteractionFileReply,
+  type AssistantPendingInteraction,
+} from "../shared/assistantInteractionContract";
+import { resolveSkillRunnerBackendCapabilities } from "./skillRunnerHandshake";
+import { resolveSkillRunnerInteractionFileCapability } from "./skillRunnerHandshakeProtocol";
+import { pickAssistantInteractionFiles } from "./acpSkillRunInteractionFiles";
+import { readRuntimeBytes } from "./runtimePersistence";
+import { inspectRuntimeFileSource } from "./runtimeFileTransfer";
 
 export type RunDialogMessageRole = "assistant" | "user" | "system";
 export type RunDialogMessageKind =
@@ -171,6 +181,7 @@ type RunSessionState = {
   model?: string;
   pendingOwner?: string;
   pendingInteraction?: RunDialogPendingInteraction;
+  interactionFileCapability?: AssistantInteractionFileReply;
   pendingAuth?: RunDialogPendingAuth;
   pendingPermission?: AcpPendingPermissionRequest | null;
   authControlPending?: boolean;
@@ -223,6 +234,7 @@ type RunDialogSnapshot = {
   model?: string;
   pendingOwner?: string;
   pendingInteractionId?: number;
+  pendingInteraction?: AssistantPendingInteraction | null;
   pendingKind?: string;
   pendingPrompt?: string;
   pendingOptions: RunDialogChoiceOption[];
@@ -579,6 +591,7 @@ const runWorkspaceState: RunWorkspaceState = {
 };
 
 const runDialogMap = new Map<string, RunDialogEntry>();
+const skillRunnerInteractionFileFlows = new Map<string, Promise<void>>();
 const runDialogProbeState = {
   observerInflightTaskCount: 0,
   waitingAuthTimerCount: 0,
@@ -2523,6 +2536,16 @@ function buildRunDialogSnapshot(
         requestId,
       })
     : null;
+  const canonicalPendingInteraction = pending?.interactionId
+    ? projectAssistantPendingInteractionFromHints({
+        interactionToken: String(pending.interactionId),
+        pendingKind: pending.kind,
+        uiHints: pending.uiHints,
+        options: pending.options,
+        files: pending.requiredFields,
+        fileReply: entry.session.interactionFileCapability,
+      })
+    : null;
   return {
     title: String(displayTitle || "").trim() || resolveRunWorkspaceTitle(),
     backendTitle: backendDisplayName,
@@ -2577,6 +2600,7 @@ function buildRunDialogSnapshot(
     model: entry.session.model,
     pendingOwner: entry.session.pendingOwner,
     pendingInteractionId: pending?.interactionId,
+    pendingInteraction: canonicalPendingInteraction,
     pendingKind: pending?.kind,
     pendingPrompt: pending?.prompt,
     pendingOptions: pending?.options || [],
@@ -3441,6 +3465,22 @@ async function startRunObserver(entry: RunDialogEntry) {
   entry.session.loading = true;
   entry.session.error = undefined;
   pushSnapshotForRunDialogEntry(entry);
+  try {
+    const capabilities = await resolveSkillRunnerBackendCapabilities({
+      backend: entry.backend,
+      client,
+      requestOptions: { lane: "foreground-query" },
+    });
+    entry.session.interactionFileCapability =
+      resolveSkillRunnerInteractionFileCapability(capabilities);
+  } catch {
+    entry.session.interactionFileCapability = {
+      supported: false,
+      maxFiles: 8,
+      maxFileBytes: 32 * 1024 * 1024,
+      maxTotalBytes: 64 * 1024 * 1024,
+    };
+  }
 
   const isObserverActive = (generation: number) =>
     !stopped && generation === observerGeneration;
@@ -4212,6 +4252,109 @@ async function handleRunDialogActionForEntry(
     pushSnapshot("snapshot");
     return;
   }
+  if (action === "submit-interaction-files") {
+    const pending = entry.session.pendingInteraction;
+    const interactionId = Number(pending?.interactionId || 0);
+    const interactionToken = String(payload.interactionToken || "").trim();
+    const capability = entry.session.interactionFileCapability;
+    const canonical = pending
+      ? projectAssistantPendingInteractionFromHints({
+          interactionToken: String(interactionId),
+          pendingKind: pending.kind,
+          uiHints: pending.uiHints,
+          options: pending.options,
+          files: pending.requiredFields,
+          fileReply: capability,
+        })
+      : null;
+    if (
+      !canCurrentRunUseBackend(entry) ||
+      !canonical ||
+      canonical.inputKind !== "upload_files" ||
+      capability?.supported !== true ||
+      interactionToken !== canonical.interactionToken
+    ) {
+      pushSnapshot("snapshot");
+      return;
+    }
+    const flowKey = `${entry.requestId}\n${interactionToken}`;
+    if (skillRunnerInteractionFileFlows.has(flowKey)) return;
+    const flow = (async () => {
+      const picked = await pickAssistantInteractionFiles({
+        slots: canonical.files,
+      });
+      if (picked.status !== "selected") return;
+      const current = entry.session.pendingInteraction;
+      if (
+        String(current?.interactionId || "") !== interactionToken ||
+        normalizeStatus(entry.session.status, "running") !== "waiting_user"
+      ) {
+        return;
+      }
+      const files: Array<{
+        name: string;
+        bytes: Uint8Array;
+        type: string;
+      }> = [];
+      let totalBytes = 0;
+      for (const selection of picked.selections) {
+        const source = await inspectRuntimeFileSource(selection.sourcePath);
+        if (source.size > capability.maxFileBytes) {
+          throw new Error("interaction file exceeds the backend limit");
+        }
+        totalBytes += source.size;
+        if (totalBytes > capability.maxTotalBytes) {
+          throw new Error("interaction files exceed the backend total limit");
+        }
+        const bytes = await readRuntimeBytes(source.path);
+        if (bytes.byteLength !== source.size) {
+          throw new Error("interaction file changed while it was being read");
+        }
+        files.push({
+          name: selection.displayName,
+          bytes,
+          type: "application/octet-stream",
+        });
+      }
+      if (files.length > capability.maxFiles) {
+        throw new Error("interaction file count exceeds the backend limit");
+      }
+      const client = buildSkillRunnerManagementClient({
+        backend: entry.backend,
+        alertWindow: entry.alertWindow || undefined,
+        localize,
+      });
+      await client.submitInteractionFiles({
+        requestId: entry.requestId,
+        interactionId,
+        idempotencyKey: `${interactionToken}-${Date.now().toString(36)}`,
+        metadata: {
+          bindings: picked.selections.map((selection, fileIndex) => ({
+            slot: selection.slot,
+            fileIndex,
+          })),
+        },
+        files,
+      });
+      if (entry.refreshDisplay) await entry.refreshDisplay();
+      else pushSnapshot("snapshot");
+    })()
+      .catch((error) => {
+        entry.alertWindow?.alert?.(
+          localize(
+            "task-dashboard-skillrunner-reply-failed",
+            "Failed to submit reply: {error}",
+            { args: { error: compactError(error) } },
+          ),
+        );
+      })
+      .finally(() => {
+        skillRunnerInteractionFileFlows.delete(flowKey);
+      });
+    skillRunnerInteractionFileFlows.set(flowKey, flow);
+    await flow;
+    return;
+  }
   if (action === "reply-run") {
     if (!canCurrentRunUseBackend(entry)) {
       pushSnapshot("snapshot");
@@ -4352,6 +4495,13 @@ async function handleRunDialogActionForEntry(
         0,
     );
     if (!Number.isFinite(interactionId) || interactionId <= 0) {
+      return;
+    }
+    const interactionToken = String(payload.interactionToken || "").trim();
+    if (
+      interactionToken !== String(interactionId) ||
+      interactionId !== entry.session.pendingInteraction?.interactionId
+    ) {
       return;
     }
     const resolvedResponse = resolveRunDialogInteractionResponse({

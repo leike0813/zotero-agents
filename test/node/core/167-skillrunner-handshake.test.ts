@@ -9,9 +9,12 @@ import {
 } from "../../../src/modules/skillRunnerHandshake";
 import {
   createLegacySkillRunnerCapabilities,
+  resolveSkillRunnerInteractionFileCapability,
+  SKILLRUNNER_INTERACTION_FILES_PROTOCOL,
   SKILLRUNNER_JOB_PROTOCOL,
   SKILLRUNNER_SEQUENCE_PROTOCOL,
   type SkillRunnerBackendCapabilities,
+  type SkillRunnerHandshakeProtocolSupport,
 } from "../../../src/modules/skillRunnerHandshakeProtocol";
 import {
   resetSkillRunnerConnectionGovernorForTests,
@@ -33,7 +36,7 @@ function backend(args?: Partial<BackendInstance>): BackendInstance {
 }
 
 function remoteCapabilities(
-  protocols: Record<string, { supported: boolean }>,
+  protocols: Record<string, SkillRunnerHandshakeProtocolSupport>,
 ): SkillRunnerBackendCapabilities {
   return {
     source: "remote",
@@ -113,6 +116,30 @@ describe("skillrunner handshake capabilities", function () {
       capabilities.protocols[SKILLRUNNER_SEQUENCE_PROTOCOL]?.supported,
       false,
     );
+    assert.equal(
+      capabilities.protocols[SKILLRUNNER_INTERACTION_FILES_PROTOCOL]?.supported,
+      false,
+    );
+  });
+
+  it("applies lower remote interaction-file limits and plugin ceilings", function () {
+    const capability = resolveSkillRunnerInteractionFileCapability(
+      remoteCapabilities({
+        [SKILLRUNNER_INTERACTION_FILES_PROTOCOL]: {
+          supported: true,
+          max_files: 3,
+          max_file_bytes: 1024,
+          max_total_bytes: 2048,
+        },
+      }),
+    );
+
+    assert.deepEqual(capability, {
+      supported: true,
+      maxFiles: 3,
+      maxFileBytes: 1024,
+      maxTotalBytes: 2048,
+    });
   });
 
   it("uses the requested lane for legacy reachability fallback", async function () {

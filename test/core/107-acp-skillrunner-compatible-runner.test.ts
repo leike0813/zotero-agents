@@ -28,6 +28,7 @@ import {
   endAcpSkillRunSession,
   flushAcpSkillRunRuntimeFileWritesForTests,
   getAcpSkillRunRecord,
+  getAcpSkillRunPendingInteractionToken,
   getAcpSkillRunRuntimeCatalog,
   getSelectedAcpSkillRunRequestId,
   getAcpSkillRunTranscriptMirrorDiagnosticsForTests,
@@ -37,6 +38,7 @@ import {
   listAcpSkillRunSummaries,
   listAcpSkillRuns,
   projectAcpSkillRunOutputEnvelopeToTranscript,
+  readAcpSkillRunTranscriptRegionFromMemoryForTests,
   recordAcpSkillRunSessionUpdate,
   reconcileAcpSkillRunWorkflowTasksOnStartup,
   registerAcpSkillRunController,
@@ -56,6 +58,12 @@ import {
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import { readAcpSkillRunOutputRevisions } from "../../src/modules/acpSkillRunPayloadStore";
+import {
+  pickAssistantInteractionFiles,
+  resetAcpSkillRunInteractionFileFlowsForTests,
+  stageAcpSkillRunInteractionFiles,
+  submitAcpSkillRunInteractionFiles,
+} from "../../src/modules/acpSkillRunInteractionFiles";
 import { insertAcpSkillProxyPatchBlock } from "../../src/modules/acpSkillReferenceRewriter";
 import {
   buildAcpRuntimeDependencyPlan,
@@ -3709,6 +3717,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         "acp_skills_startup_preamble",
         "mcp_required_guard",
         "recovered_continuation_guard",
+        "interaction_file_reply",
       ],
     );
     for (const template of ACP_RUNTIME_PROMPT_TEMPLATES) {
@@ -8518,6 +8527,293 @@ describe("ACP SkillRunner-compatible runner", function () {
       (record?.events || []).map((event) => event.stage),
       ["reply-submitted", "reply-accepted"],
     );
+  });
+
+  it("separates visible and transport replies and rejects stale interaction tokens", async function () {
+    resetAcpSkillRunsForTests();
+    const requestId = "run-token-bound-reply";
+    upsertAcpSkillRun({
+      requestId,
+      status: "waiting_user",
+      backendId: "backend-acp",
+      backendType: "acp",
+      sessionId: "session-1",
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+      pendingInteraction: {
+        message: "Choose",
+        uiHints: { kind: "choose_one", options: ["Visible label"] },
+        candidateText: '{"__SKILL_DONE__":false}',
+      },
+    });
+    const token = getAcpSkillRunPendingInteractionToken(requestId);
+    const received: Array<{ displayMessage: string; promptMessage: string }> =
+      [];
+    registerAcpSkillRunController(requestId, {
+      cancel: async () => undefined,
+      replyRequest: async (request) => {
+        received.push(request);
+        appendAcpSkillRunUserReply({
+          requestId,
+          message: request.displayMessage,
+        });
+      },
+    });
+
+    let staleError: unknown;
+    try {
+      await replyAcpSkillRun({
+        requestId,
+        displayMessage: "Old label",
+        promptMessage: "old-value",
+        interactionToken: `${token}-stale`,
+      });
+    } catch (error) {
+      staleError = error;
+    }
+    assert.match(String(staleError), /interaction token is stale/);
+    await replyAcpSkillRun({
+      requestId,
+      displayMessage: "Visible label",
+      promptMessage: '{"depth":2,"mode":"deep"}',
+      interactionToken: token,
+    });
+
+    assert.deepEqual(received, [
+      {
+        displayMessage: "Visible label",
+        promptMessage: '{"depth":2,"mode":"deep"}',
+      },
+    ]);
+    const userMessages = readAcpSkillRunTranscriptRegionFromMemoryForTests({
+      requestId,
+    }).page.items.filter(
+      (item) => item.itemKind === "message" && item.role === "user",
+    );
+    assert.equal(userMessages.at(-1)?.text, "Visible label");
+  });
+
+  it("atomically stages flat collision-safe ACP interaction files without source-path leakage", async function () {
+    const root = await mkTempRoot();
+    try {
+      const workspaceDir = path.join(root, "workspace");
+      const firstDir = path.join(root, "source-a");
+      const secondDir = path.join(root, "source-b");
+      await fs.mkdir(firstDir, { recursive: true });
+      await fs.mkdir(secondDir, { recursive: true });
+      const firstPath = path.join(firstDir, "paper.pdf");
+      const secondPath = path.join(secondDir, "paper.pdf");
+      await fs.writeFile(firstPath, "first");
+      await fs.writeFile(secondPath, "second");
+
+      const staged = await stageAcpSkillRunInteractionFiles({
+        requestId: `request-${"x".repeat(300)}`,
+        interactionToken: `token-${"y".repeat(300)}`,
+        workspaceDir,
+        submissionKey: "abc12345",
+        selections: [
+          { slot: "primary", sourcePath: firstPath, displayName: "paper.pdf" },
+          {
+            slot: "secondary",
+            sourcePath: secondPath,
+            displayName: "paper.pdf",
+          },
+        ],
+      });
+
+      assert.match(
+        staged.directoryRelativePath,
+        /^\.acp-inputs\/[a-f0-9]{12}-abc12345$/,
+      );
+      assert.deepEqual(
+        staged.files.map((entry) => entry.relativePath.split("/").length),
+        [3, 3],
+      );
+      assert.deepEqual(
+        staged.files.map((entry) => path.posix.basename(entry.relativePath)),
+        ["paper.pdf", "paper-2.pdf"],
+      );
+      const manifest = await fs.readFile(
+        path.join(staged.directoryPath, "manifest.json"),
+        "utf8",
+      );
+      assert.notInclude(manifest, firstPath);
+      assert.notInclude(manifest, secondPath);
+      assert.notInclude(manifest, staged.directoryPath);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("applies required and optional cancellation semantics to sequential file picking", async function () {
+    const slots = [
+      { name: "primary", required: true, hint: null, accept: ".pdf" },
+      { name: "notes", required: false, hint: null, accept: null },
+    ];
+    const requiredCancelled = await pickAssistantInteractionFiles({
+      slots,
+      pickFile: async () => null,
+    });
+    assert.deepEqual(requiredCancelled, {
+      status: "cancelled",
+      selections: [],
+    });
+
+    let pickIndex = 0;
+    const optionalSkipped = await pickAssistantInteractionFiles({
+      slots,
+      pickFile: async () => ["/tmp/paper.pdf", null][pickIndex++] || null,
+    });
+    assert.equal(optionalSkipped.status, "selected");
+    assert.deepEqual(optionalSkipped.selections, [
+      {
+        slot: "primary",
+        sourcePath: "/tmp/paper.pdf",
+        displayName: "paper.pdf",
+      },
+    ]);
+  });
+
+  it("cleans a temporary staging directory after a copy source fails", async function () {
+    const root = await mkTempRoot();
+    try {
+      const workspaceDir = path.join(root, "workspace");
+      let caught: unknown;
+      try {
+        await stageAcpSkillRunInteractionFiles({
+          requestId: "request-copy-failure",
+          interactionToken: "revision:1",
+          workspaceDir,
+          submissionKey: "deadbeef",
+          selections: [
+            {
+              slot: "primary",
+              sourcePath: path.join(root, "missing.pdf"),
+              displayName: "missing.pdf",
+            },
+          ],
+        });
+      } catch (error) {
+        caught = error;
+      }
+      assert.ok(caught);
+      let temporaryDirectoryExists = true;
+      try {
+        await fs.stat(path.join(workspaceDir, ".acp-inputs", ".tmp-deadbeef"));
+      } catch {
+        temporaryDirectoryExists = false;
+      }
+      assert.isFalse(temporaryDirectoryExists);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects stale file flows and permits only one picker per owner token", async function () {
+    resetAcpSkillRunsForTests();
+    resetAcpSkillRunInteractionFileFlowsForTests();
+    const requestId = "run-file-flow-guard";
+    upsertAcpSkillRun({
+      requestId,
+      status: "waiting_user",
+      backendId: "backend-acp",
+      backendType: "acp",
+      workspaceDir: "/tmp/file-flow-workspace",
+      pendingInteraction: {
+        message: "Upload",
+        uiHints: { kind: "upload_files" },
+      },
+    });
+    const token = getAcpSkillRunPendingInteractionToken(requestId);
+    let staleError: unknown;
+    try {
+      await submitAcpSkillRunInteractionFiles({
+        requestId,
+        interactionToken: `${token}-stale`,
+        slots: [{ name: "primary", required: true, hint: null, accept: null }],
+        pickFile: async () => null,
+      });
+    } catch (error) {
+      staleError = error;
+    }
+    assert.match(String(staleError), /interaction token is stale/);
+
+    let releasePicker: ((value: string | null) => void) | undefined;
+    const picker = new Promise<string | null>((resolve) => {
+      releasePicker = resolve;
+    });
+    const first = submitAcpSkillRunInteractionFiles({
+      requestId,
+      interactionToken: token,
+      slots: [{ name: "primary", required: true, hint: null, accept: null }],
+      pickFile: async () => picker,
+    });
+    const duplicate = await submitAcpSkillRunInteractionFiles({
+      requestId,
+      interactionToken: token,
+      slots: [{ name: "primary", required: true, hint: null, accept: null }],
+      pickFile: async () => "/tmp/should-not-open.pdf",
+    });
+    assert.deepEqual(duplicate, { status: "in-flight" });
+    releasePicker?.(null);
+    assert.deepEqual(await first, { status: "cancelled" });
+  });
+
+  it("retains promoted ACP files when continuation fails after staging", async function () {
+    const root = await mkTempRoot();
+    try {
+      resetAcpSkillRunsForTests();
+      resetAcpSkillRunInteractionFileFlowsForTests();
+      const requestId = "run-file-recovery";
+      const workspaceDir = path.join(root, "workspace");
+      const sourcePath = path.join(root, "paper.pdf");
+      await fs.writeFile(sourcePath, "recovery input");
+      upsertAcpSkillRun({
+        requestId,
+        status: "waiting_user",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir,
+        sessionId: "session-recovery",
+        conversationState: "active",
+        conversationRecoveryState: "connected",
+        pendingInteraction: {
+          message: "Upload",
+          uiHints: { kind: "upload_files" },
+        },
+      });
+      registerAcpSkillRunController(requestId, {
+        cancel: async () => undefined,
+        replyRequest: async () => {
+          throw new Error("transport lost after acceptance");
+        },
+      });
+      const token = getAcpSkillRunPendingInteractionToken(requestId);
+      let caught: unknown;
+      try {
+        await submitAcpSkillRunInteractionFiles({
+          requestId,
+          interactionToken: token,
+          slots: [
+            { name: "primary", required: true, hint: null, accept: ".pdf" },
+          ],
+          pickFile: async () => sourcePath,
+        });
+      } catch (error) {
+        caught = error;
+      }
+      assert.match(String(caught), /transport lost after acceptance/);
+      const entries = await fs.readdir(path.join(workspaceDir, ".acp-inputs"));
+      const promoted = entries.filter((entry) => !entry.startsWith(".tmp-"));
+      assert.lengthOf(promoted, 1);
+      assert.include(
+        await fs.readdir(path.join(workspaceDir, ".acp-inputs", promoted[0])),
+        "manifest.json",
+      );
+      assert.equal(getAcpSkillRunRecord(requestId)?.replyState, "rejected");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("publishes a busy Skills composer while an accepted reply is active", async function () {

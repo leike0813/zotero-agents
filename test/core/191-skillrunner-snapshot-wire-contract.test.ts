@@ -349,6 +349,18 @@ describe("skillrunner snapshot wire contract (v1)", function () {
       expectRejectedSnapshot(snapshot, "snapshot\\.session\\.surpriseField");
     });
 
+    it("rejects an unknown pending interaction key", function () {
+      const snapshot = mutatedSnapshot((draft) => {
+        const session = draft.session as Record<string, unknown>;
+        (session.pendingInteraction as Record<string, unknown>).surpriseField =
+          1;
+      });
+      expectRejectedSnapshot(
+        snapshot,
+        "snapshot\\.session\\.pendingInteraction",
+      );
+    });
+
     it("rejects a broken statusSemantics", function () {
       const snapshot = mutatedSnapshot((draft) => {
         const session = draft.session as Record<string, unknown>;
