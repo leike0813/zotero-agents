@@ -463,9 +463,12 @@ result content.
 
 ACP Skills task cards use workflow-task state as their main status SSOT. Run
 lifecycle, backend status, apply state, attention, recovery, and connection are
-independent axes. A missing backend/apply value stays absent and is never
-replaced with run status. Selecting or archiving a task targets the clicked run
-owner and preserves unrelated keyed task-card DOM identity.
+independent axes. Explicit backend and apply facts take priority. A missing
+backend state uses the main task state; a successful task with no required Apply
+uses `not-required`, while other missing Apply states use `idle`. Selected
+SkillRunner cards prefer the full run record; unselected cards preserve these
+axes from the lightweight run projection. Selecting or archiving a task targets
+the clicked run owner and preserves unrelated keyed task-card DOM identity.
 
 ### SkillRunner
 

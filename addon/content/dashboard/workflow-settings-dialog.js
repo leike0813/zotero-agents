@@ -262,6 +262,7 @@
         workflow.id || workflow.workflowId || workflow.key || workflow.label,
       ),
       providerId: toText(workflow.providerId),
+      selectedProfile: toText(form.selectedProfile),
       requiresBackendProfile: form.requiresBackendProfile === true,
       profileEditable: form.profileEditable === true,
       profiles: Array.isArray(form.profiles)
@@ -545,6 +546,8 @@
           });
         },
       );
+      selectedValue = toText(customSelect.getValue());
+      setDraftFieldValue(args, selectedValue);
       customSelect.element.setAttribute(
         "data-workflow-settings-control-key",
         controlKey,

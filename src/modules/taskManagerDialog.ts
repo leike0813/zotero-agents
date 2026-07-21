@@ -59,6 +59,7 @@ import { joinPath } from "../utils/path";
 import {
   buildWorkflowSettingsUiDescriptor,
   getWorkflowSettingsRevision,
+  rebaseWorkflowProviderOptionsForBackendChange,
   updateWorkflowSettings,
   type WorkflowSettingsUiDescriptor,
 } from "./workflowSettings";
@@ -3564,13 +3565,39 @@ export async function openTaskManagerDialog(args?: {
       if (!workflowId) {
         return;
       }
+      const workflow = getVisibleLoadedWorkflowEntries().find(
+        (entry) => entry.manifest.id === workflowId,
+      );
+      let providerOptions = executionOptions.providerOptions || {};
+      if (
+        workflow &&
+        changedSection === "backend" &&
+        changedKey === "backendId"
+      ) {
+        const candidateBackends = filterWorkflowSubmitVisibleBackends(
+          state.backends,
+        );
+        const previousDescriptor = await buildWorkflowSettingsUiDescriptor({
+          workflow,
+          candidateBackends,
+          draft: state.workflowSettingsDraftById.get(workflowId),
+          resolveDynamicOptions: false,
+        });
+        providerOptions = rebaseWorkflowProviderOptionsForBackendChange({
+          workflow,
+          previousBackendId: previousDescriptor.selectedProfile,
+          nextBackendId: executionOptions.backendId,
+          options: providerOptions,
+          candidateBackends,
+        });
+      }
       state.workflowSettingsDraftById.set(workflowId, {
         backendId:
           typeof executionOptions.backendId === "string"
             ? executionOptions.backendId
             : undefined,
         workflowParams: executionOptions.workflowParams || {},
-        providerOptions: executionOptions.providerOptions || {},
+        providerOptions,
       });
       clearWorkflowSettingsSaveTimer(state, workflowId, getRuntimeWindow());
       state.workflowSettingsSaveStateById.set(workflowId, "saving");

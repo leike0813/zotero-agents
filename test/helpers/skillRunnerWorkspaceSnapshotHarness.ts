@@ -1,4 +1,4 @@
-import { createServer, type Server } from "node:http";
+import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import {
   attachSkillRunnerSidebarHost,
@@ -105,6 +105,20 @@ export type SkillRunnerWorkspaceSnapshotHarness = {
     requestId: string,
     events: Array<Record<string, unknown>>,
   ) => void;
+  setBackendStatus: (
+    requestId: string,
+    status: MockRunChannel["status"],
+  ) => void;
+  setPendingInteraction: (
+    requestId: string,
+    pending: Record<string, unknown>,
+  ) => void;
+  getChatStreamState: (requestId: string) => {
+    openCount: number;
+    requestCount: number;
+    cursors: number[];
+  };
+  closeChatStreams: (requestId: string) => void;
   attach: (args?: {
     selectRunKey?: string;
     handleHostAction?: (
@@ -126,6 +140,12 @@ type MockRunChannel = {
   pendingAuthMethodSelection?: Record<string, unknown>;
   authSession?: Record<string, unknown>;
   chatEvents: Array<Record<string, unknown>>;
+  chatStreams: Set<{
+    response: ServerResponse;
+    cursor: number;
+  }>;
+  chatStreamRequestCount: number;
+  chatStreamCursors: number[];
 };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -180,6 +200,19 @@ function resolveAuthSessionBody(channel: MockRunChannel) {
 }
 
 async function startMockManagementServer(runs: Map<string, MockRunChannel>) {
+  const writeChatEvent = (
+    stream: { response: ServerResponse; cursor: number },
+    event: Record<string, unknown>,
+  ) => {
+    const seq = Number(event.seq || 0);
+    if (!Number.isFinite(seq) || seq <= stream.cursor) {
+      return;
+    }
+    stream.response.write(
+      `event: chat_event\ndata: ${JSON.stringify(event)}\n\n`,
+    );
+    stream.cursor = seq;
+  };
   const server: Server = createServer((req, res) => {
     void (async () => {
       const method = req.method || "GET";
@@ -224,6 +257,22 @@ async function startMockManagementServer(runs: Map<string, MockRunChannel>) {
         });
         return;
       }
+      const replyMatch = pathname.match(
+        /^\/v1\/jobs\/([^/]+)\/interaction\/reply$/,
+      );
+      if (method === "POST" && replyMatch) {
+        const channel = runs.get(decodeURIComponent(replyMatch[1]));
+        if (!channel) {
+          jsonResponse(res, 404, { error: "job not found" });
+          return;
+        }
+        jsonResponse(res, 200, {
+          request_id: channel.requestId,
+          accepted: true,
+          status: "running",
+        });
+        return;
+      }
       const historyMatch = pathname.match(
         /^\/v1\/jobs\/([^/]+)\/chat\/history$/,
       );
@@ -257,11 +306,33 @@ async function startMockManagementServer(runs: Map<string, MockRunChannel>) {
       }
       const chatStreamMatch = pathname.match(/^\/v1\/jobs\/([^/]+)\/chat$/);
       if (method === "GET" && chatStreamMatch) {
-        // Close the SSE stream immediately; the observer retries in the
-        // background and is stopped by the harness reset.
+        const channel = runs.get(decodeURIComponent(chatStreamMatch[1]));
+        if (!channel) {
+          jsonResponse(res, 404, { error: "job not found" });
+          return;
+        }
+        const rawCursor = Number(url.searchParams.get("cursor") || 0);
+        const cursor = Number.isFinite(rawCursor) ? Math.max(0, rawCursor) : 0;
         res.statusCode = 200;
         res.setHeader("content-type", "text/event-stream");
-        res.end("");
+        res.setHeader("cache-control", "no-cache");
+        res.setHeader("connection", "keep-alive");
+        res.write(
+          `event: snapshot\ndata: ${JSON.stringify({
+            status: channel.status,
+            cursor,
+          })}\n\n`,
+        );
+        const stream = { response: res, cursor };
+        channel.chatStreams.add(stream);
+        channel.chatStreamRequestCount += 1;
+        channel.chatStreamCursors.push(cursor);
+        for (const event of channel.chatEvents) {
+          writeChatEvent(stream, event);
+        }
+        req.on("close", () => {
+          channel.chatStreams.delete(stream);
+        });
         return;
       }
       jsonResponse(res, 404, { error: "not found" });
@@ -378,6 +449,9 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
           pendingAuthMethodSelection: seed.pendingAuthMethodSelection,
           authSession: seed.authSession,
           chatEvents: Array.isArray(seed.chatEvents) ? seed.chatEvents : [],
+          chatStreams: new Set(),
+          chatStreamRequestCount: 0,
+          chatStreamCursors: [],
         });
       }
       return { runKey, requestId };
@@ -388,6 +462,54 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
         throw new Error(`unknown SkillRunner harness request: ${requestId}`);
       }
       channel.chatEvents.push(...events);
+      for (const stream of channel.chatStreams) {
+        for (const event of events) {
+          const seq = Number(event.seq || 0);
+          if (!Number.isFinite(seq) || seq <= stream.cursor) {
+            continue;
+          }
+          stream.response.write(
+            `event: chat_event\ndata: ${JSON.stringify(event)}\n\n`,
+          );
+          stream.cursor = seq;
+        }
+      }
+    },
+    setBackendStatus(requestId, status) {
+      const channel = runs.get(String(requestId || "").trim());
+      if (!channel) {
+        throw new Error(`unknown SkillRunner harness request: ${requestId}`);
+      }
+      channel.status = status;
+    },
+    setPendingInteraction(requestId, pending) {
+      const channel = runs.get(String(requestId || "").trim());
+      if (!channel) {
+        throw new Error(`unknown SkillRunner harness request: ${requestId}`);
+      }
+      channel.status = "waiting_user";
+      channel.pending = pending;
+    },
+    getChatStreamState(requestId) {
+      const channel = runs.get(String(requestId || "").trim());
+      if (!channel) {
+        throw new Error(`unknown SkillRunner harness request: ${requestId}`);
+      }
+      return {
+        openCount: channel.chatStreams.size,
+        requestCount: channel.chatStreamRequestCount,
+        cursors: [...channel.chatStreamCursors],
+      };
+    },
+    closeChatStreams(requestId) {
+      const channel = runs.get(String(requestId || "").trim());
+      if (!channel) {
+        throw new Error(`unknown SkillRunner harness request: ${requestId}`);
+      }
+      for (const stream of [...channel.chatStreams]) {
+        stream.response.end();
+      }
+      channel.chatStreams.clear();
     },
     async attach(args = {}) {
       const snapshots: SkillRunnerWorkspaceCapture["snapshots"] = [];
@@ -474,6 +596,12 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
       resetTaskDashboardHistory();
       clearPref("backendsConfigJson");
       resetSkillRunnerBackendHealthRegistryForTests();
+      for (const channel of runs.values()) {
+        for (const stream of [...channel.chatStreams]) {
+          stream.response.end();
+        }
+        channel.chatStreams.clear();
+      }
       await server.close();
     },
   };

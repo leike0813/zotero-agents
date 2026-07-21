@@ -31,30 +31,35 @@ export class AcpProvider implements Provider {
     return {
       acpModeId: {
         type: "string" as const,
+        retention: "backend" as const,
         title: "ACP mode",
         description:
           "ACP session mode for this workflow run. Values come from the backend connection test cache.",
       },
       acpModelProvider: {
         type: "string" as const,
+        retention: "backend" as const,
         title: "ACP Model Provider",
         description:
           "Model provider segment parsed from ACP model ids that use provider/model notation.",
       },
       acpModelId: {
         type: "string" as const,
+        retention: "backend" as const,
         title: "ACP model",
         description:
           "Display model for this workflow run. Reasoning variants are folded into the reasoning option.",
       },
       acpReasoningEffort: {
         type: "string" as const,
+        retention: "backend" as const,
         title: "Reasoning effort",
         description:
           "Reasoning effort derived from ACP model variants. The runner resolves it to the raw ACP model id before prompting.",
       },
       autoApproveAcpPermissions: {
         type: "boolean" as const,
+        retention: "workflow" as const,
         title: "Auto-approve ACP permission requests",
         description:
           "Automatically approve ACP backend tool permission requests for this ACP Skill run.",
@@ -62,6 +67,7 @@ export class AcpProvider implements Provider {
       },
       hard_timeout_seconds: {
         type: "number" as const,
+        retention: "workflow" as const,
         title: "Job Timeout (sec)",
         description:
           "Optional positive integer timeout in seconds. Empty means backend default.",

@@ -226,16 +226,6 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
     const selectedModeId = record.acpModeId || "";
     const selectedModelId = record.acpModelId || record.acpRawModelId || "";
     const selectedReasoningEffort = record.acpReasoningEffort || "";
-    const includeSelection = <T extends { id: string; label: string }>(
-      entries: T[] | undefined,
-      selectedId: string,
-    ) => {
-      const normalized = [...(entries || [])];
-      if (selectedId && !normalized.some((entry) => entry.id === selectedId)) {
-        normalized.push({ id: selectedId, label: selectedId } as T);
-      }
-      return normalized;
-    };
     const modelOptions = options?.displayModelOptions?.length
       ? options.displayModelOptions
       : options?.modelOptions;
@@ -255,26 +245,19 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
       },
       runtimeOptions: {
         mode: projectAssistantWorkspaceOptionGroup(
-          connected
-            ? includeSelection(options?.modeOptions, selectedModeId)
-            : [],
+          connected ? options?.modeOptions || [] : [],
           selectedModeId,
           connected && Boolean(options?.modeOptions.length),
         ),
         model: projectAssistantWorkspaceOptionGroup(
-          connected ? includeSelection(modelOptions, selectedModelId) : [],
+          connected ? modelOptions || [] : [],
           selectedModelId,
           connected &&
             modelConfigurationEditable &&
             Boolean(modelOptions?.length),
         ),
         reasoningEffort: projectAssistantWorkspaceOptionGroup(
-          connected
-            ? includeSelection(
-                options?.reasoningEffortOptions,
-                selectedReasoningEffort,
-              )
-            : [],
+          connected ? options?.reasoningEffortOptions || [] : [],
           selectedReasoningEffort,
           connected &&
             modelConfigurationEditable &&

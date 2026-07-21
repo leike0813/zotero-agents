@@ -1675,6 +1675,7 @@
           });
         },
       );
+      args.values[args.entry.key] = customSelect.getValue();
       control = customSelect.element;
       if (args.entry.required === true) {
         control.setAttribute("aria-required", "true");

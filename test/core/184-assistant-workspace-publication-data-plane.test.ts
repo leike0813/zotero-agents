@@ -201,6 +201,35 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
     );
   });
 
+  it("preserves nullable ACP Skills status facts in owner navigation", function () {
+    const entry = skillsNavigation.entries.find(
+      (candidate) => candidate.owner.ownerKey === skillsOwner.ownerKey,
+    );
+    assert.isOk(entry);
+    assert.deepInclude(entry, {
+      status: "running",
+      backendStatus: null,
+      applyState: null,
+    });
+
+    const publication = assistantWorkspaceTestPublication({
+      owner: createAssistantWorkspaceUnownedScope("acp-skills"),
+      kind: "owner-navigation",
+      payload: skillsNavigation,
+    });
+    assert.doesNotThrow(() => assertAssistantWorkspacePublication(publication));
+    const publishedEntry = (
+      publication.payload as AssistantWorkspaceOwnerNavigation
+    ).entries.find(
+      (candidate) => candidate.owner.ownerKey === skillsOwner.ownerKey,
+    );
+    assert.deepInclude(publishedEntry, {
+      status: "running",
+      backendStatus: null,
+      applyState: null,
+    });
+  });
+
   it("publishes ACP ui_hints as a token-bound interaction without duplicating the pending message", async function () {
     projectAcpSkillRunOutputEnvelopeToTranscript({
       requestId: "request-1",

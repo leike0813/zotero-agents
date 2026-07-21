@@ -9,12 +9,98 @@ import {
   normalizeSavedWorkflowSettings,
   normalizeWorkflowParamsBySchema,
   parseSettingsRecord,
+  rebaseProviderOptionsForBackendChange,
   serializeSettingsRecord,
   type WorkflowExecutionOptions,
 } from "../../src/modules/workflowSettingsDomain";
 import type { WorkflowManifest } from "../../src/workflows/types";
+import type { ProviderRuntimeOptionSchema } from "../../src/providers/types";
+import { AcpProvider } from "../../src/providers/acp/provider";
+import { SkillRunnerProvider } from "../../src/providers/skillrunner/provider";
 
 describe("workflow settings domain", function () {
+  it("classifies backend identity fields separately from workflow behavior options", function () {
+    for (const { schema, backendKeys, workflowKeys } of [
+      {
+        schema: new AcpProvider().getRuntimeOptionSchema(),
+        backendKeys: [
+          "acpModeId",
+          "acpModelProvider",
+          "acpModelId",
+          "acpReasoningEffort",
+        ],
+        workflowKeys: ["autoApproveAcpPermissions", "hard_timeout_seconds"],
+      },
+      {
+        schema: new SkillRunnerProvider().getRuntimeOptionSchema(),
+        backendKeys: ["engine", "provider_id", "model", "effort"],
+        workflowKeys: [
+          "no_cache",
+          "interactive_auto_reply",
+          "interactive_reply_timeout_sec",
+          "hard_timeout_seconds",
+        ],
+      },
+    ]) {
+      assert.deepEqual(
+        backendKeys.filter((key) => schema[key]?.retention !== "backend"),
+        [],
+      );
+      assert.deepEqual(
+        workflowKeys.filter((key) => schema[key]?.retention !== "workflow"),
+        [],
+      );
+    }
+  });
+
+  it("drops backend-scoped and foreign provider options when backend identity changes", function () {
+    const schema: ProviderRuntimeOptionSchema = {
+      acpModeId: { type: "string", retention: "backend" },
+      acpModelProvider: { type: "string", retention: "backend" },
+      acpModelId: { type: "string", retention: "backend" },
+      acpReasoningEffort: { type: "string", retention: "backend" },
+      autoApproveAcpPermissions: { type: "boolean", retention: "workflow" },
+      hard_timeout_seconds: { type: "number", retention: "workflow" },
+    };
+
+    const rebased = rebaseProviderOptionsForBackendChange({
+      previousBackendId: "acp-kilo",
+      nextBackendId: "acp-opencode",
+      targetSchema: schema,
+      options: {
+        acpModeId: "code",
+        acpModelProvider: "openai",
+        acpModelId: "gpt-5-codex",
+        acpRawModelId: "gpt-5-codex@high",
+        acpReasoningEffort: "high",
+        autoApproveAcpPermissions: true,
+        hard_timeout_seconds: 900,
+        engine: "opencode",
+      },
+    });
+
+    assert.deepEqual(rebased, {
+      autoApproveAcpPermissions: true,
+      hard_timeout_seconds: 900,
+    });
+  });
+
+  it("preserves backend-scoped options while the backend owner is unchanged", function () {
+    const schema: ProviderRuntimeOptionSchema = {
+      acpModeId: { type: "string", retention: "backend" },
+      hard_timeout_seconds: { type: "number", retention: "workflow" },
+    };
+    assert.deepEqual(
+      rebaseProviderOptionsForBackendChange({
+        previousBackendId: "acp-kilo",
+        nextBackendId: "acp-kilo",
+        targetSchema: schema,
+        options: { acpModeId: "code", hard_timeout_seconds: 900 },
+      }),
+      { acpModeId: "code", hard_timeout_seconds: 900 },
+    );
+  });
+
   it("merges run-once overrides over persisted settings deterministically", function () {
     const base: WorkflowExecutionOptions = {
       backendId: "skillrunner-local",

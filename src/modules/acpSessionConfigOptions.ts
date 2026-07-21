@@ -255,29 +255,53 @@ export function normalizeAcpSkillRuntimeSelection(args: {
 }): AcpSkillRuntimeSelection {
   const options = args.options || {};
   const cache = args.cache || {};
-  const modeId =
-    normalizeString(options.acpModeId) || normalizeString(cache.currentModeId);
-  const modelId =
-    normalizeString(options.acpModelId) ||
-    normalizeString(cache.currentDisplayModelId);
-  const reasoningEffort =
-    normalizeAcpEffortId(options.acpReasoningEffort) ||
-    normalizeAcpEffortId(cache.currentReasoningEffortId);
-  const explicitRawModelId = normalizeString(options.acpRawModelId);
-  const rawModelId =
-    explicitRawModelId ||
-    (modelId
-      ? resolveAcpRawModelIdForSelection({
-          modelOptions: normalizeSelectableOptions(cache.rawModels),
-          displayModelId: modelId,
-          effortId: reasoningEffort,
-          currentRawModelId: normalizeString(cache.currentRawModelId),
-        })
-      : "");
+  const modes = normalizeSelectableOptions(cache.modes);
+  const displayModels = normalizeSelectableOptions(cache.displayModels);
+  const rawModels = normalizeSelectableOptions(cache.rawModels);
+  const reasoningEfforts = normalizeSelectableOptions(cache.reasoningEfforts);
+  const selectCatalogMember = (
+    catalog: AcpSelectableOption[],
+    candidates: unknown[],
+    normalize: (value: unknown) => string = normalizeString,
+  ) => {
+    for (const candidate of candidates) {
+      const id = normalize(candidate);
+      if (id && catalog.some((entry) => entry.id === id)) {
+        return id;
+      }
+    }
+    return "";
+  };
+  const modeId = selectCatalogMember(modes, [
+    options.acpModeId,
+    cache.currentModeId,
+  ]);
+  const modelId = selectCatalogMember(displayModels, [
+    options.acpModelId,
+    cache.currentDisplayModelId,
+  ]);
+  const reasoningEffort = selectCatalogMember(
+    reasoningEfforts,
+    [options.acpReasoningEffort, cache.currentReasoningEffortId],
+    normalizeAcpEffortId,
+  );
+  const rawModelId = modelId
+    ? resolveAcpRawModelIdForSelection({
+        modelOptions: rawModels,
+        displayModelId: modelId,
+        effortId: reasoningEffort,
+        currentRawModelId: selectCatalogMember(rawModels, [
+          cache.currentRawModelId,
+        ]),
+      })
+    : "";
+  const verifiedRawModelId = rawModels.some((entry) => entry.id === rawModelId)
+    ? rawModelId
+    : "";
   return {
     ...(modeId ? { modeId } : {}),
     ...(modelId ? { modelId } : {}),
-    ...(rawModelId ? { rawModelId } : {}),
+    ...(verifiedRawModelId ? { rawModelId: verifiedRawModelId } : {}),
     ...(reasoningEffort ? { reasoningEffort } : {}),
   };
 }

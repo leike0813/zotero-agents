@@ -1354,33 +1354,31 @@ function refreshAcpSkillRunRuntimeCatalogFromSession(args: {
     reasoningEffortOptions: sessionState.reasoningEfforts,
     reasoningSource: sessionState.reasoningSource,
   });
-  const modelId = normalizeString(
-    run.acpModelId || observed.currentDisplayModelId,
-  );
-  const reasoningEffort = normalizeString(
-    run.acpReasoningEffort || observed.currentReasoningEffortId,
-  );
-  const resolvedRawModelId = modelId
-    ? resolveAcpRawModelIdForSelection({
-        modelOptions: sessionState.rawModels,
-        displayModelId: modelId,
-        effortId: reasoningEffort,
-        currentRawModelId:
-          normalizeString(run.acpRawModelId) || observed.currentRawModelId,
-      })
-    : "";
-  const rawModelId = sessionState.rawModels.some(
-    (entry) => entry.id === resolvedRawModelId,
-  )
-    ? resolvedRawModelId
-    : normalizeString(run.acpRawModelId || observed.currentRawModelId);
+  const selection = normalizeAcpSkillRuntimeSelection({
+    options: {
+      acpModeId: run.acpModeId,
+      acpModelId: run.acpModelId,
+      acpReasoningEffort: run.acpReasoningEffort,
+    },
+    cache: {
+      ...sessionState,
+      currentModeId: observed.currentModeId || sessionState.currentModeId,
+      currentRawModelId:
+        observed.currentRawModelId || sessionState.currentRawModelId,
+      currentDisplayModelId:
+        observed.currentDisplayModelId || sessionState.currentDisplayModelId,
+      currentReasoningEffortId:
+        observed.currentReasoningEffortId ||
+        sessionState.currentReasoningEffortId,
+    },
+  });
   updateAcpSkillRunRuntimeSelection({
     requestId: args.requestId,
     selection: {
-      modeId: normalizeString(run.acpModeId || observed.currentModeId),
-      modelId,
-      rawModelId,
-      ...(reasoningEffort ? { reasoningEffort } : {}),
+      modeId: selection.modeId || "",
+      modelId: selection.modelId || "",
+      rawModelId: selection.rawModelId || "",
+      reasoningEffort: selection.reasoningEffort || null,
     },
   });
 }
@@ -1409,11 +1407,21 @@ async function applyAcpSkillRunRuntimeSelection(args: {
   const rawModelId = normalizeString(run.acpRawModelId);
   const reasoningEffort = normalizeString(run.acpReasoningEffort);
   const catalog = getAcpSkillRunRuntimeCatalog(args.requestId);
-  if (modeId) {
+  const modeAllowed =
+    !!modeId && !!catalog?.modeOptions.some((entry) => entry.id === modeId);
+  const rawModelAllowed =
+    !!rawModelId &&
+    !!catalog?.modelOptions.some((entry) => entry.id === rawModelId);
+  const reasoningAllowed =
+    !!reasoningEffort &&
+    !!catalog?.reasoningEffortOptions.some(
+      (entry) => entry.id === reasoningEffort,
+    );
+  if (modeAllowed) {
     await args.adapter.setMode({ sessionId: args.sessionId, modeId });
   }
   if (
-    rawModelId &&
+    rawModelAllowed &&
     !shouldSkipInitialAcpModelSet({
       targetRawModelId: rawModelId,
       sessionCurrentModelId: args.sessionCurrentModelId,
@@ -1426,7 +1434,7 @@ async function applyAcpSkillRunRuntimeSelection(args: {
   }
   const reasoningSource = catalog?.reasoningSource || "none";
   if (
-    reasoningEffort &&
+    reasoningAllowed &&
     (reasoningSource === "explicit" ||
       (reasoningSource === "none" && !rawModelId))
   ) {

@@ -3530,8 +3530,21 @@ export function upsertAcpSkillRun(update: {
   assignString("runtimeDir", update.runtimeDir);
   assignString("inputManifestPath", update.inputManifestPath);
   assignString("resultJsonPath", update.resultJsonPath);
-  assignString("acpModeId", update.acpModeId);
-  assignString("acpModelId", update.acpModelId);
+  for (const [key, value] of [
+    ["acpModeId", update.acpModeId],
+    ["acpModelId", update.acpModelId],
+    ["acpRawModelId", update.acpRawModelId],
+  ] as const) {
+    if (!Object.prototype.hasOwnProperty.call(update, key)) {
+      continue;
+    }
+    const normalized = normalizeString(value);
+    if (normalized) {
+      next[key] = normalized;
+    } else {
+      delete next[key];
+    }
+  }
   if (Object.prototype.hasOwnProperty.call(update, "acpReasoningEffort")) {
     const effort = normalizeString(update.acpReasoningEffort);
     if (effort) {
@@ -3540,7 +3553,6 @@ export function upsertAcpSkillRun(update: {
       delete next.acpReasoningEffort;
     }
   }
-  assignString("acpRawModelId", update.acpRawModelId);
   assignString("agentFamily", update.agentFamily);
   assignString("sharedSkillCatalogPath", update.sharedSkillCatalogPath);
   assignString("requestedSkillId", update.requestedSkillId);
@@ -5294,6 +5306,10 @@ export async function setAcpSkillRunMode(args: {
       "No active ACP skill run session is available for mode changes.",
     );
   }
+  const runtimeCatalog = runtimeCatalogForRun(run);
+  if (!runtimeCatalog.modeOptions.some((entry) => entry.id === modeId)) {
+    throw new Error("ACP skill run mode is not available for this session.");
+  }
   const controller = requireRuntimeController(requestId, "setMode");
   await controller.setMode({ sessionId, modeId });
   updateAcpSkillRunRuntimeSelection({
@@ -5330,12 +5346,21 @@ export async function setAcpSkillRunModel(args: {
     );
   }
   const runtimeCatalog = runtimeCatalogForRun(run);
+  const displayModelOptions = runtimeCatalog.displayModelOptions.length
+    ? runtimeCatalog.displayModelOptions
+    : runtimeCatalog.modelOptions;
+  if (!displayModelOptions.some((entry) => entry.id === modelId)) {
+    throw new Error("ACP skill run model is not available for this session.");
+  }
   const rawModelId = resolveAcpRawModelIdForSelection({
     modelOptions: runtimeCatalog.modelOptions,
     displayModelId: modelId,
     effortId: normalizeString(run.acpReasoningEffort),
     currentRawModelId: run.acpRawModelId,
   });
+  if (!runtimeCatalog.modelOptions.some((entry) => entry.id === rawModelId)) {
+    throw new Error("ACP skill run model is not available for this session.");
+  }
   const controller = requireRuntimeController(requestId, "setModel");
   await controller.setModel({ sessionId, modelId: rawModelId });
   const effortId =
@@ -5384,6 +5409,15 @@ export async function setAcpSkillRunReasoningEffort(args: {
     );
   }
   const runtimeCatalog = runtimeCatalogForRun(run);
+  if (
+    !runtimeCatalog.reasoningEffortOptions.some(
+      (entry) => entry.id === effortId,
+    )
+  ) {
+    throw new Error(
+      "ACP skill run reasoning effort is not available for this session.",
+    );
+  }
   const displayModelId =
     normalizeString(run.acpModelId) || normalizeString(run.acpRawModelId);
   const rawModelId = displayModelId
@@ -5394,6 +5428,12 @@ export async function setAcpSkillRunReasoningEffort(args: {
         currentRawModelId: run.acpRawModelId,
       })
     : "";
+  if (
+    runtimeCatalog.reasoningSource === "model-derived" &&
+    !runtimeCatalog.modelOptions.some((entry) => entry.id === rawModelId)
+  ) {
+    throw new Error("ACP skill run model is not available for this session.");
+  }
   const controller = requireRuntimeController(requestId, "setModel");
   if (runtimeCatalog.reasoningSource === "explicit") {
     const applied = await controller.setConfigOption?.({

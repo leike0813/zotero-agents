@@ -4,7 +4,10 @@ import { getString } from "../utils/locale";
 import { resolveAddonRef } from "../utils/runtimeBridge";
 import type { LoadedWorkflow } from "../workflows/types";
 import type { WorkflowExecutionOptions } from "./workflowSettingsDomain";
-import { buildWorkflowSettingsUiDescriptor } from "./workflowSettings";
+import {
+  buildWorkflowSettingsUiDescriptor,
+  rebaseWorkflowProviderOptionsForBackendChange,
+} from "./workflowSettings";
 import type { BackendInstance } from "../backends/types";
 import { ACP_BACKEND_TYPE, DEFAULT_BACKEND_TYPE } from "../config/defaults";
 import { loadBackendsRegistry } from "../backends/registry";
@@ -374,10 +377,15 @@ export async function openWorkflowSettingsWebDialog(args: {
   initialDraft?: WorkflowExecutionOptions;
   candidateBackends?: BackendInstance[];
 }): Promise<WorkflowSettingsDialogResult> {
+  let candidateBackends: BackendInstance[] = Array.isArray(
+    args.candidateBackends,
+  )
+    ? args.candidateBackends
+    : (await loadBackendsRegistry()).backends;
   let descriptor = await buildWorkflowSettingsUiDescriptor({
     workflow: args.workflow,
     draft: args.initialDraft,
-    candidateBackends: args.candidateBackends,
+    candidateBackends,
     autoSelectFallbackProfile: true,
   });
   if (descriptor.blockedReason) {
@@ -393,7 +401,6 @@ export async function openWorkflowSettingsWebDialog(args: {
     providerOptions: { ...descriptor.providerOptions },
     runOptions: normalizeWorkflowRunOptions(descriptor.runOptions),
   };
-  let candidateBackends = args.candidateBackends;
   let persistChecked = true;
   let result: WorkflowSettingsDialogResult = { status: "canceled" };
   let dialog: DialogHelper | undefined;
@@ -632,11 +639,28 @@ export async function openWorkflowSettingsWebDialog(args: {
       }
       if (action === "update-draft") {
         const payload = envelope.payload || {};
-        draft = normalizeExecutionOptions(payload.executionOptions);
         const changedSection = normalizeDraftChangedSection(
           payload.changedSection,
         );
         const changedKey = normalizeDraftChangedKey(payload.changedKey);
+        const previousBackendId = String(
+          draft.backendId || descriptor.selectedProfile || "",
+        ).trim();
+        const nextDraft = normalizeExecutionOptions(payload.executionOptions);
+        const nextBackendId = String(nextDraft.backendId || "").trim();
+        draft =
+          changedSection === "backend" && changedKey === "backendId"
+            ? {
+                ...nextDraft,
+                providerOptions: rebaseWorkflowProviderOptionsForBackendChange({
+                  workflow: args.workflow,
+                  previousBackendId,
+                  nextBackendId,
+                  options: nextDraft.providerOptions,
+                  candidateBackends,
+                }),
+              }
+            : nextDraft;
         if (
           isStructuralDraftChange({
             changedSection,

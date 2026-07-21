@@ -820,6 +820,8 @@ function createRuntimeModelAdapter(args: {
 function createBackendWithRuntimeModels(args: {
   currentRawModelId: string;
   currentDisplayModelId?: string;
+  additionalRawModelIds?: string[];
+  reasoningEffortIds?: string[];
 }) {
   return createBackend({
     acp: {
@@ -832,6 +834,10 @@ function createBackendWithRuntimeModels(args: {
             id: args.currentRawModelId,
             label: args.currentRawModelId,
           },
+          ...(args.additionalRawModelIds || []).map((modelId) => ({
+            id: modelId,
+            label: modelId,
+          })),
           {
             id: "alibaba-coding-plan:qwen3.6-plus",
             label: "qwen3.6-plus",
@@ -850,7 +856,10 @@ function createBackendWithRuntimeModels(args: {
         ],
         currentDisplayModelId:
           args.currentDisplayModelId || args.currentRawModelId,
-        reasoningEfforts: [],
+        reasoningEfforts: (args.reasoningEffortIds || []).map((effortId) => ({
+          id: effortId,
+          label: effortId,
+        })),
         currentReasoningEffortId: "",
       },
     },
@@ -969,7 +978,15 @@ describe("ACP SkillRunner-compatible runner", function () {
         root,
         entry,
         adapter,
-        backend: createBackend({ acp: { agentFamily: "kilo" } }),
+        backend: createBackend({
+          acp: {
+            agentFamily: "kilo",
+            runtimeOptionsCache: {
+              reasoningEfforts: [{ id: "none", label: "None" }],
+              reasoningSource: "explicit",
+            },
+          },
+        }),
         providerOptions: { acpReasoningEffort: "none" },
       });
 
@@ -1004,7 +1021,18 @@ describe("ACP SkillRunner-compatible runner", function () {
               effortId,
               errorCode,
             }),
-            backend: createBackend({ acp: { agentFamily: "kilo" } }),
+            backend: createBackend({
+              acp: {
+                agentFamily: "kilo",
+                runtimeOptionsCache: {
+                  reasoningEfforts: [
+                    { id: "high", label: "High" },
+                    { id: "none", label: "None" },
+                  ],
+                  reasoningSource: "explicit",
+                },
+              },
+            }),
             providerOptions: { acpReasoningEffort: effortId },
           });
         } catch (error) {
@@ -6066,6 +6094,63 @@ describe("ACP SkillRunner-compatible runner", function () {
         status,
       );
     }
+  });
+
+  it("rejects catalog-external runtime actions before controller transport", async function () {
+    const requestId = "run-runtime-invalid-action";
+    const transported: string[] = [];
+    upsertAcpSkillRun({
+      requestId,
+      status: "waiting_user",
+      sessionId: "session-runtime-invalid-action",
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+      activePrompt: false,
+      acpModeId: "code",
+      acpModelId: "model-a",
+      acpRawModelId: "model-a",
+      acpReasoningEffort: "low",
+    });
+    setAcpSkillRunRuntimeCatalog(requestId, {
+      modeOptions: [{ id: "code", label: "Code" }],
+      modelOptions: [{ id: "model-a", label: "Model A" }],
+      displayModelOptions: [{ id: "model-a", label: "Model A" }],
+      reasoningEffortOptions: [{ id: "low", label: "Low" }],
+      reasoningSource: "explicit",
+    });
+    registerAcpSkillRunController(requestId, {
+      cancel: async () => undefined,
+      setMode: async ({ modeId }) => {
+        transported.push(`mode:${modeId}`);
+      },
+      setModel: async ({ modelId }) => {
+        transported.push(`model:${modelId}`);
+      },
+      setConfigOption: async ({ category, value }) => {
+        transported.push(`${category}:${value}`);
+        return true;
+      },
+    });
+
+    for (const action of [
+      () => setAcpSkillRunMode({ requestId, modeId: "plan" }),
+      () => setAcpSkillRunModel({ requestId, modelId: "model-b" }),
+      () => setAcpSkillRunReasoningEffort({ requestId, effortId: "high" }),
+    ]) {
+      let caught: unknown;
+      try {
+        await action();
+      } catch (error) {
+        caught = error;
+      }
+      assert.instanceOf(caught, Error);
+    }
+    assert.deepEqual(transported, []);
+    const record = getAcpSkillRunRecord(requestId);
+    assert.equal(record?.acpModeId, "code");
+    assert.equal(record?.acpModelId, "model-a");
+    assert.equal(record?.acpRawModelId, "model-a");
+    assert.equal(record?.acpReasoningEffort, "low");
   });
 
   it("routes independent Skills reasoning through thought_level without folding plain models", async function () {
@@ -11648,6 +11733,8 @@ describe("ACP SkillRunner-compatible runner", function () {
       backend: createBackendWithRuntimeModels({
         currentRawModelId: "gpt-5@high",
         currentDisplayModelId: "gpt-5",
+        additionalRawModelIds: ["gpt-5@medium"],
+        reasoningEffortIds: ["medium", "high"],
       }),
       providerOptions: {
         acpModelId: "gpt-5",

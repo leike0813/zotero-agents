@@ -2175,7 +2175,8 @@ function exactWorkspaceTask(entry, selectedOwner, labelSource) {
       ? entry.owner
       : null;
   const key = safeText(owner && owner.ownerKey);
-  const status = safeText(entry && entry.status) || "idle";
+  const statusFields = taskStatusFields(entry, labelSource);
+  const status = statusFields.mainStatus;
   const terminal = isTerminalStatus(status);
   const archiveEligible =
     owner && owner.source === "acp-chat"
@@ -2194,22 +2195,10 @@ function exactWorkspaceTask(entry, selectedOwner, labelSource) {
         entry && (entry.subtitle || entry.groupLabel || entry.groupId),
       ) || "-",
     status,
-    stateLabel: statusLabel(labelSource, status),
-    mainStatus: status,
-    mainStatusLabel: statusLabel(labelSource, status),
-    mainStatusTone: statusTone(status),
-    backendStatus: safeText(entry && entry.backendStatus),
-    backendStatusLabel: safeText(entry && entry.backendStatus)
-      ? statusLabel(labelSource, entry.backendStatus)
-      : "",
-    backendStatusTone: statusTone(entry && entry.backendStatus),
-    showBackendStatusBadge: Boolean(safeText(entry && entry.backendStatus)),
-    applyStatus: safeText(entry && entry.applyState),
-    applyStatusLabel: safeText(entry && entry.applyState)
-      ? statusLabel(labelSource, entry.applyState)
-      : "",
-    applyStatusTone: statusTone(entry && entry.applyState),
-    showApplyStatusBadge: Boolean(safeText(entry && entry.applyState)),
+    stateLabel: statusFields.mainStatusLabel,
+    ...statusFields,
+    showBackendStatusBadge: true,
+    showApplyStatusBadge: !owner || owner.source !== "acp-chat",
     updatedAt: safeText(entry && entry.updatedAt),
     backendId: safeText(entry && entry.groupId),
     backendDisplayName: safeText(entry && (entry.groupLabel || entry.groupId)),
@@ -3048,6 +3037,7 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
       contexts: [],
       sections: drawerSections,
       selectedTaskKey: safeText(owner && owner.ownerKey),
+      labels: assistantDrawerLabels(labelSource),
       details,
       detailsLoading: local.detailsDrawerOpen === true && !detailsState,
       permissionRequest: request
