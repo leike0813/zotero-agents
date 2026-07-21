@@ -22,6 +22,7 @@ import {
   resolveAcpDisplayModelIdForProviderSelection,
 } from "../../modules/acpModelOptionFolding";
 import type { BackendInstance } from "../../backends/types";
+import { normalizeAcpSkillRuntimeSelection } from "../../modules/acpSessionConfigOptions";
 
 export class AcpProvider implements Provider {
   readonly id = ACP_BACKEND_TYPE;
@@ -30,30 +31,35 @@ export class AcpProvider implements Provider {
     return {
       acpModeId: {
         type: "string" as const,
+        retention: "backend" as const,
         title: "ACP mode",
         description:
           "ACP session mode for this workflow run. Values come from the backend connection test cache.",
       },
       acpModelProvider: {
         type: "string" as const,
+        retention: "backend" as const,
         title: "ACP Model Provider",
         description:
           "Model provider segment parsed from ACP model ids that use provider/model notation.",
       },
       acpModelId: {
         type: "string" as const,
+        retention: "backend" as const,
         title: "ACP model",
         description:
           "Display model for this workflow run. Reasoning variants are folded into the reasoning option.",
       },
       acpReasoningEffort: {
         type: "string" as const,
+        retention: "backend" as const,
         title: "Reasoning effort",
         description:
           "Reasoning effort derived from ACP model variants. The runner resolves it to the raw ACP model id before prompting.",
       },
       autoApproveAcpPermissions: {
         type: "boolean" as const,
+        retention: "workflow" as const,
         title: "Auto-approve ACP permission requests",
         description:
           "Automatically approve ACP backend tool permission requests for this ACP Skill run.",
@@ -61,6 +67,7 @@ export class AcpProvider implements Provider {
       },
       hard_timeout_seconds: {
         type: "number" as const,
+        retention: "workflow" as const,
         title: "Job Timeout (sec)",
         description:
           "Optional positive integer timeout in seconds. Empty means backend default.",
@@ -131,6 +138,10 @@ export class AcpProvider implements Provider {
       options: source,
       currentDisplayModelId: cache?.currentDisplayModelId,
     });
+    const explicitModelId = String(source.acpModelId || "").trim();
+    if (explicitModelId && !String(source.acpModelProvider || "").trim()) {
+      normalizedSource.acpModelId = explicitModelId;
+    }
     const autoApproveAcpPermissions =
       normalizedSource.autoApproveAcpPermissions === true
         ? { autoApproveAcpPermissions: true }
@@ -142,67 +153,16 @@ export class AcpProvider implements Provider {
       typeof normalizedHardTimeout === "number"
         ? { hard_timeout_seconds: normalizedHardTimeout }
         : {};
-    if (!cache) {
-      return {
-        ...autoApproveAcpPermissions,
-        ...hardTimeout,
-      };
-    }
-    const modeIds = new Set((cache.modes || []).map((entry) => entry.id));
-    const modelGroups = buildAcpFoldedModelGroups(cache.rawModels || []);
-    const modelIds = new Set([
-      ...(cache.displayModels || []).map((entry) => entry.id),
-      ...Array.from(modelGroups.keys()),
-    ]);
-    const selectedMode = String(
-      normalizedSource.acpModeId || cache.currentModeId || "",
-    ).trim();
-    const selectedModel = String(
-      normalizedSource.acpModelId || cache.currentDisplayModelId || "",
-    ).trim();
-    const selectedDisplayModel = resolveAcpDisplayModelIdForProviderSelection({
-      modelOptions: cache.displayModels || [],
-      provider: source.acpModelProvider,
-      modelId: selectedModel,
-      currentDisplayModelId: cache.currentDisplayModelId,
+    const selection = normalizeAcpSkillRuntimeSelection({
+      options: normalizedSource,
+      cache,
     });
-    const model =
-      (selectedDisplayModel && modelIds.has(selectedDisplayModel)
-        ? selectedDisplayModel
-        : "") ||
-      cache.currentDisplayModelId ||
-      Array.from(modelGroups.keys())[0] ||
-      "";
-    const group = modelGroups.get(model);
-    const effortIds =
-      group && group.variants.length > 0
-        ? new Set((group.variants || []).map((entry) => entry.effortId))
-        : new Set((cache.reasoningEfforts || []).map((entry) => entry.id));
-    const normalizedEffort = normalizeAcpEffortId(
-      normalizedSource.acpReasoningEffort,
-    );
-    const fallbackEffort =
-      group && group.variants.length > 0
-        ? normalizeAcpEffortId(cache.currentReasoningEffortId) ||
-          group.variants[0]?.effortId ||
-          ""
-        : (cache.reasoningEfforts || []).length > 0
-          ? normalizeAcpEffortId(cache.currentReasoningEffortId) ||
-            normalizeAcpEffortId(cache.reasoningEfforts?.[0]?.id) ||
-            ""
-          : "";
     return {
-      ...(selectedMode && modeIds.has(selectedMode)
-        ? { acpModeId: selectedMode }
-        : cache.currentModeId
-          ? { acpModeId: cache.currentModeId }
-          : {}),
-      ...(model ? { acpModelId: model } : {}),
-      ...(normalizedEffort && effortIds.has(normalizedEffort)
-        ? { acpReasoningEffort: normalizedEffort }
-        : fallbackEffort
-          ? { acpReasoningEffort: fallbackEffort }
-          : {}),
+      ...(selection.modeId ? { acpModeId: selection.modeId } : {}),
+      ...(selection.modelId ? { acpModelId: selection.modelId } : {}),
+      ...(selection.reasoningEffort
+        ? { acpReasoningEffort: selection.reasoningEffort }
+        : {}),
       ...autoApproveAcpPermissions,
       ...hardTimeout,
     };

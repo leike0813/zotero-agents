@@ -18,6 +18,7 @@ import {
   SKILLRUNNER_LEGACY_ACTIONS,
   type RunDialogMessageType,
 } from "./assistantWireContract";
+import { parseAssistantPendingInteraction } from "./assistantInteractionContract";
 
 // ---------------------------------------------------------------------------
 // Wire identity
@@ -109,6 +110,7 @@ export const SKILLRUNNER_SNAPSHOT_SESSION_OPTIONAL_KEYS: readonly string[] = [
   "model",
   "pendingOwner",
   "pendingInteractionId",
+  "pendingInteraction",
   "pendingKind",
   "pendingPrompt",
   "pendingUiHints",
@@ -435,6 +437,13 @@ function validateSession(
   if (!Array.isArray(session.messages)) {
     return `${path}.messages`;
   }
+  if (
+    session.pendingInteraction !== undefined &&
+    session.pendingInteraction !== null &&
+    !parseAssistantPendingInteraction(session.pendingInteraction)
+  ) {
+    return `${path}.pendingInteraction`;
+  }
   for (let index = 0; index < session.messages.length; index += 1) {
     const failure = validateMessageItem(
       session.messages[index],
@@ -699,10 +708,6 @@ export const SKILLRUNNER_SNAPSHOT_COMPAT_ALIAS_PATHS: readonly string[] = [
   "session.authAskUser.ui_hints",
   "session.authUiHints.files",
   "session.authUiHints.risk_notice_required",
-  "session.pendingAskUser.hint",
-  "session.pendingUiHints.files",
-  "session.pendingUiHints.hint",
-  "session.pendingUiHints.prompt",
   // transcript 条目兼容字段：快照 messages 只产
   // seq/ts/role/kind/text/displayText/displayFormat/attempt/correlation，
   // skillRunnerMessageText/skillRunnerProcessType/buildSkillRunnerToolItem
@@ -744,12 +749,8 @@ export const SKILLRUNNER_SNAPSHOT_COMPAT_ALIAS_PATHS: readonly string[] = [
   "drawer.sections[].groups[].activeTasks[].active",
   "drawer.sections[].groups[].activeTasks[].applyResultState",
   "drawer.sections[].groups[].activeTasks[].apply_result_state",
-  "drawer.sections[].groups[].activeTasks[].backendStatus",
-  "drawer.sections[].groups[].activeTasks[].backend_status",
   "drawer.sections[].groups[].activeTasks[].mainStatus",
   "drawer.sections[].groups[].activeTasks[].main_status",
-  "drawer.sections[].groups[].activeTasks[].providerStatus",
-  "drawer.sections[].groups[].activeTasks[].provider_status",
   "drawer.sections[].groups[].activeTasks[].role",
   "drawer.sections[].groups[].activeTasks[].selected",
   "drawer.sections[].groups[].activeTasks[].sequence",
@@ -785,6 +786,8 @@ export const SKILLRUNNER_SNAPSHOT_REQUIRED_CONSUMED_PATHS: readonly string[] = [
   "drawer",
   "drawer.sections",
   "drawer.notice",
+  "drawer.sections[].groups[].activeTasks[].backendStatus",
+  "drawer.sections[].groups[].activeTasks[].applyState",
   "session",
   "session.status",
   "session.title",
@@ -877,6 +880,11 @@ export type SkillRunnerReplyRunPayload =
   | SkillRunnerReplyRunAuthPayload
   | SkillRunnerReplyRunInteractionPayload;
 
+export type SkillRunnerSubmitInteractionFilesPayload = {
+  requestId?: string;
+  [key: string]: unknown;
+};
+
 export type SkillRunnerSelectTaskPayload = {
   taskKey?: string;
   runKey?: string;
@@ -945,6 +953,7 @@ export type SkillRunnerAuthImportRunPayload = {
 export type SkillRunnerRunDialogActionPayloadMap = {
   [ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.READY]: Record<string, unknown>;
   [SKILLRUNNER_LEGACY_ACTIONS.SELECT_TASK]: SkillRunnerSelectTaskPayload;
+  [SKILLRUNNER_LEGACY_ACTIONS.SUBMIT_INTERACTION_FILES]: SkillRunnerSubmitInteractionFilesPayload;
   [SKILLRUNNER_LEGACY_ACTIONS.TOGGLE_DRAWER]: Record<string, unknown>;
   [SKILLRUNNER_LEGACY_ACTIONS.CLOSE_DRAWER]: Record<string, unknown>;
   [SKILLRUNNER_LEGACY_ACTIONS.TOGGLE_GROUP_COLLAPSE]: SkillRunnerToggleGroupCollapsePayload;

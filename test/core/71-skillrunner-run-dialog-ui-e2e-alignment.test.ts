@@ -29,7 +29,10 @@
 import { assert } from "chai";
 import * as AssistantPanelModel from "../../src/sidebar/assistantPanelModel.js";
 import { adaptLegacyTranscriptItem } from "../../src/sidebar/assistantTranscriptRenderer.js";
-import { getSkillRunnerRunRecord } from "../../src/modules/skillRunnerRunStore";
+import {
+  getSkillRunnerRunRecord,
+  updateSkillRunnerRunApplyState,
+} from "../../src/modules/skillRunnerRunStore";
 import { clearPref, setPref } from "../../src/utils/prefs";
 import {
   SKILLRUNNER_SNAPSHOT_COMPAT_ALIAS_PATHS,
@@ -175,14 +178,14 @@ describe("skillrunner run dialog ui behavior contract", function () {
   this.timeout(20_000);
 
   describe("layer A: snapshot production contract", function () {
-    it("publishes backend history on the first affected live snapshot after local notices", async function () {
+    it("attaches a queued selected run and publishes its first live SSE event without task reselection", async function () {
       setPref("assistantExecutionDisplayMode", "live");
       const harness = await startSkillRunnerWorkspaceSnapshotHarness();
       try {
         const seeded = harness.seedTask({
           taskName: "Live History Catch-up",
           requestId: "req-live-history-catch-up",
-          status: "running",
+          status: "queued",
         });
         const capture = await harness.attach({ selectRunKey: seeded.runKey });
         const localOnly = await capture.waitFor(
@@ -194,6 +197,7 @@ describe("skillrunner run dialog ui behavior contract", function () {
         const localRevision = localOnly.transcriptRevision;
         const afterIndex = capture.snapshots.length - 1;
 
+        harness.setBackendStatus(seeded.requestId, "running");
         harness.appendChatEvents(seeded.requestId, [
           {
             seq: 1,
@@ -207,7 +211,6 @@ describe("skillrunner run dialog ui behavior contract", function () {
             },
           },
         ]);
-        await harness.dispatch("select-task", { taskKey: seeded.runKey });
 
         const affected = await capture.waitForAfter(
           afterIndex,
@@ -223,6 +226,154 @@ describe("skillrunner run dialog ui behavior contract", function () {
           affected.snapshot.transcriptRevision,
           localRevision,
           "the backend transcript must advance the receiver revision",
+        );
+        assert.isAtLeast(
+          harness.getChatStreamState(seeded.requestId).requestCount,
+          1,
+          "the selected queued owner must attach its own chat stream",
+        );
+      } finally {
+        await harness.reset();
+        clearPref("assistantExecutionDisplayMode");
+      }
+    });
+
+    it("preserves transcript revision and catches up history on the first same-owner reattach", async function () {
+      setPref("assistantExecutionDisplayMode", "live");
+      const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+      try {
+        const seeded = harness.seedTask({
+          taskName: "Same Owner Reactivation",
+          requestId: "req-same-owner-reactivation",
+          status: "running",
+        });
+        const capture = await harness.attach({ selectRunKey: seeded.runKey });
+        await capture.waitFor(
+          () => harness.getChatStreamState(seeded.requestId).openCount === 1,
+        );
+        harness.appendChatEvents(seeded.requestId, [
+          {
+            seq: 1,
+            role: "assistant",
+            kind: "assistant_process",
+            text: "before detach",
+          },
+        ]);
+        const beforeDetach = await capture.waitFor(
+          (snapshot) =>
+            snapshot.session?.messages.some((message) => message.seq === 1) ===
+            true,
+        );
+        const beforeRevision = beforeDetach.transcriptRevision;
+        const afterIndex = capture.snapshots.length - 1;
+
+        capture.detach();
+        harness.appendChatEvents(seeded.requestId, [
+          {
+            seq: 2,
+            role: "assistant",
+            kind: "assistant_final",
+            text: "while detached",
+            display_text: "while detached",
+          },
+        ]);
+        await capture.reattach();
+
+        const reactivated = await capture.waitForAfter(
+          afterIndex,
+          (snapshot) =>
+            snapshot.session?.messages.some((message) => message.seq === 2) ===
+            true,
+        );
+        assert.isAbove(
+          reactivated.snapshot.transcriptRevision,
+          beforeRevision,
+          "new history must continue the retained publication clock",
+        );
+        assert.deepEqual(
+          reactivated.snapshot.session?.messages
+            .filter((message) => message.seq > 0)
+            .map((message) => message.seq),
+          [1, 2],
+        );
+        assert.equal(
+          harness.getChatStreamState(seeded.requestId).requestCount,
+          1,
+          "temporary host detach must retain the foreground history cursor",
+        );
+      } finally {
+        await harness.reset();
+        clearPref("assistantExecutionDisplayMode");
+      }
+    });
+
+    it("publishes A history once on the first A to B to A return", async function () {
+      setPref("assistantExecutionDisplayMode", "live");
+      const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+      try {
+        const taskA = harness.seedTask({
+          taskName: "Warm Task A",
+          requestId: "req-warm-task-a",
+          status: "running",
+          chatEvents: [
+            {
+              seq: 1,
+              role: "assistant",
+              kind: "assistant_process",
+              text: "A before switch",
+            },
+          ],
+        });
+        const taskB = harness.seedTask({
+          taskName: "Warm Task B",
+          requestId: "req-warm-task-b",
+          status: "running",
+        });
+        const capture = await harness.attach({ selectRunKey: taskA.runKey });
+        const firstA = await capture.waitFor(
+          (snapshot) =>
+            snapshot.workspace.selectedTaskKey === taskA.runKey &&
+            snapshot.session?.messages.some((message) => message.seq === 1) ===
+              true,
+        );
+        const firstARevision = firstA.transcriptRevision;
+
+        await harness.dispatch("select-task", { taskKey: taskB.runKey });
+        await capture.waitFor(
+          (snapshot) => snapshot.workspace.selectedTaskKey === taskB.runKey,
+        );
+        await capture.waitFor(
+          () => harness.getChatStreamState(taskA.requestId).openCount === 1,
+        );
+        harness.appendChatEvents(taskA.requestId, [
+          {
+            seq: 2,
+            role: "assistant",
+            kind: "assistant_final",
+            text: "A while B selected",
+            display_text: "A while B selected",
+          },
+        ]);
+        const afterIndex = capture.snapshots.length - 1;
+
+        await harness.dispatch("select-task", { taskKey: taskA.runKey });
+        const returnedA = await capture.waitForAfter(
+          afterIndex,
+          (snapshot) =>
+            snapshot.workspace.selectedTaskKey === taskA.runKey &&
+            snapshot.session?.messages.some((message) => message.seq === 2) ===
+              true,
+        );
+        const visibleSequences = returnedA.snapshot.session?.messages
+          .filter((message) => message.seq > 0)
+          .map((message) => message.seq);
+        assert.deepEqual(visibleSequences, [1, 2]);
+        assert.equal(new Set(visibleSequences).size, visibleSequences?.length);
+        assert.isAbove(returnedA.snapshot.transcriptRevision, firstARevision);
+        assert.equal(
+          harness.getChatStreamState(taskA.requestId).requestCount,
+          1,
+          "the warm A observer must continue rather than restart its cursor",
         );
       } finally {
         await harness.reset();
@@ -247,6 +398,9 @@ describe("skillrunner run dialog ui behavior contract", function () {
             snapshot.session.messages.every((message) => message.seq < 0),
         );
         const localRevision = localOnly.transcriptRevision;
+        await capture.waitFor(
+          () => harness.getChatStreamState(seeded.requestId).openCount === 1,
+        );
 
         harness.appendChatEvents(seeded.requestId, [
           {
@@ -261,17 +415,12 @@ describe("skillrunner run dialog ui behavior contract", function () {
             },
           },
         ]);
-        let afterIndex = capture.snapshots.length - 1;
-        await harness.dispatch("select-task", { taskKey: seeded.runKey });
-        const toolOnly = await capture.waitForAfter(
-          afterIndex,
-          (snapshot) => snapshot.messageCounts?.cumulative.tool === 1,
-        );
-        assert.equal(toolOnly.snapshot.transcriptRevision, localRevision);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        assert.equal(capture.latest()?.transcriptRevision, localRevision);
         assert.isFalse(
-          toolOnly.snapshot.session?.messages.some(
-            (message) => message.seq === 1,
-          ),
+          capture
+            .latest()
+            ?.session?.messages.some((message) => message.seq === 1),
           "tool-only history remains unpublished until a semantic boundary",
         );
 
@@ -285,8 +434,7 @@ describe("skillrunner run dialog ui behavior contract", function () {
             display_text: "backend result",
           },
         ]);
-        afterIndex = capture.snapshots.length - 1;
-        await harness.dispatch("select-task", { taskKey: seeded.runKey });
+        const afterIndex = capture.snapshots.length - 1;
         const released = await capture.waitForAfter(
           afterIndex,
           (snapshot) => snapshot.messageCounts?.cumulative.assistant === 1,
@@ -297,6 +445,181 @@ describe("skillrunner run dialog ui behavior contract", function () {
           [1, 2],
         );
         assert.isAbove(released.snapshot.transcriptRevision, localRevision);
+      } finally {
+        await harness.reset();
+        clearPref("assistantExecutionDisplayMode");
+      }
+    });
+
+    it("rearms the selected live stream after an interaction reply despite a stale waiting response", async function () {
+      setPref("assistantExecutionDisplayMode", "live");
+      const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+      try {
+        const seeded = harness.seedTask({
+          taskName: "Waiting Reply Rearm",
+          requestId: "req-waiting-reply-rearm",
+          status: "waiting_user",
+          pending: WAITING_USER_PENDING,
+        });
+        const capture = await harness.attach({ selectRunKey: seeded.runKey });
+        const waiting = await capture.waitFor(
+          (snapshot) =>
+            snapshot.session?.status === "waiting_user" &&
+            snapshot.session.pendingInteractionId === 77,
+        );
+        const interactionId = waiting.session!.pendingInteractionId!;
+        const beforeRevision = waiting.transcriptRevision;
+        const afterIndex = capture.snapshots.length - 1;
+
+        await harness.dispatch("reply-run", {
+          mode: "interaction",
+          interactionId,
+          responseValue: "continue_value",
+        });
+        // submitReply returns running while the management endpoint still
+        // reports the answered waiting interaction during refreshDisplay.
+        harness.setBackendStatus(seeded.requestId, "running");
+        await capture.waitFor(
+          () => harness.getChatStreamState(seeded.requestId).openCount === 1,
+        );
+        harness.appendChatEvents(seeded.requestId, [
+          {
+            seq: 1,
+            ts: "2026-07-18T00:04:00.000Z",
+            role: "assistant",
+            kind: "assistant_final",
+            text: "continued after reply",
+            display_text: "continued after reply",
+          },
+        ]);
+
+        const continued = await capture.waitForAfter(
+          afterIndex,
+          (snapshot) =>
+            snapshot.session?.messages.some((message) => message.seq === 1) ===
+            true,
+        );
+        assert.isAbove(continued.snapshot.transcriptRevision, beforeRevision);
+        assert.notEqual(continued.snapshot.session?.status, "waiting_user");
+        assert.isAtLeast(
+          harness.getChatStreamState(seeded.requestId).requestCount,
+          1,
+        );
+      } finally {
+        await harness.reset();
+        clearPref("assistantExecutionDisplayMode");
+      }
+    });
+
+    it("catches up the disconnect window and reconnects from the last unique sequence", async function () {
+      setPref("assistantExecutionDisplayMode", "live");
+      const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+      try {
+        const seeded = harness.seedTask({
+          taskName: "Reconnect Catch-up",
+          requestId: "req-reconnect-catch-up",
+          status: "running",
+        });
+        const capture = await harness.attach({ selectRunKey: seeded.runKey });
+        await capture.waitFor(
+          () => harness.getChatStreamState(seeded.requestId).openCount === 1,
+        );
+        harness.appendChatEvents(seeded.requestId, [
+          {
+            seq: 1,
+            role: "assistant",
+            kind: "assistant_process",
+            text: "before disconnect",
+          },
+        ]);
+        await capture.waitFor(
+          (snapshot) =>
+            snapshot.session?.messages.some((message) => message.seq === 1) ===
+            true,
+        );
+
+        harness.closeChatStreams(seeded.requestId);
+        harness.appendChatEvents(seeded.requestId, [
+          {
+            seq: 2,
+            role: "assistant",
+            kind: "assistant_final",
+            text: "during disconnect",
+            display_text: "during disconnect",
+          },
+        ]);
+        const converged = await capture.waitFor(
+          (snapshot) =>
+            snapshot.session?.messages.some((message) => message.seq === 2) ===
+            true,
+        );
+        assert.deepEqual(
+          converged.session?.messages
+            .filter((message) => message.seq > 0)
+            .map((message) => message.seq),
+          [1, 2],
+        );
+        await capture.waitFor(
+          () =>
+            harness.getChatStreamState(seeded.requestId).requestCount >= 2 &&
+            harness.getChatStreamState(seeded.requestId).openCount === 1,
+        );
+        const streamState = harness.getChatStreamState(seeded.requestId);
+        assert.isAtLeast(streamState.requestCount, 2);
+        assert.equal(streamState.cursors.at(-1), 2);
+        assert.equal(streamState.openCount, 1);
+      } finally {
+        await harness.reset();
+        clearPref("assistantExecutionDisplayMode");
+      }
+    });
+
+    it("replaces the reply handoff guard when the backend publishes a different interaction", async function () {
+      setPref("assistantExecutionDisplayMode", "live");
+      const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+      try {
+        const seeded = harness.seedTask({
+          taskName: "Next Waiting Interaction",
+          requestId: "req-next-waiting-interaction",
+          status: "waiting_user",
+          pending: WAITING_USER_PENDING,
+        });
+        const capture = await harness.attach({ selectRunKey: seeded.runKey });
+        await capture.waitFor(
+          (snapshot) => snapshot.session?.pendingInteractionId === 77,
+        );
+
+        await harness.dispatch("reply-run", {
+          mode: "interaction",
+          interactionId: 77,
+          responseValue: "continue_value",
+        });
+        await capture.waitFor(
+          () => harness.getChatStreamState(seeded.requestId).openCount === 1,
+        );
+        harness.setPendingInteraction(seeded.requestId, {
+          interaction_id: 78,
+          kind: "open_text",
+          prompt: "Provide another value",
+        });
+        harness.appendChatEvents(seeded.requestId, [
+          {
+            seq: 1,
+            type: "interaction.pending.created",
+            role: "system",
+            kind: "unknown",
+            text: "next interaction",
+          },
+        ]);
+
+        const nextWaiting = await capture.waitFor(
+          (snapshot) => snapshot.session?.pendingInteractionId === 78,
+        );
+        assert.equal(nextWaiting.session?.status, "waiting_user");
+        assert.notProperty(
+          nextWaiting.session?.pendingInteraction || {},
+          "interactionToken",
+        );
       } finally {
         await harness.reset();
         clearPref("assistantExecutionDisplayMode");
@@ -365,6 +688,115 @@ describe("skillrunner run dialog ui behavior contract", function () {
         assert.equal(snapshot.session?.statusSemantics.terminal, true);
         assert.equal(snapshot.session?.statusSemantics.waiting, false);
         assert.equal(snapshot.session?.canCancelBackendRun, false);
+      } finally {
+        await harness.reset();
+      }
+    });
+
+    it("preserves persisted status axes for selected and unselected task cards", async function () {
+      const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+      try {
+        const applied = harness.seedTask({
+          taskName: "Applied Task",
+          requestId: "req-card-applied",
+          status: "succeeded",
+        });
+        const skipped = harness.seedTask({
+          taskName: "Skipped Task",
+          requestId: "req-card-skipped",
+          status: "succeeded",
+        });
+        const applyFailed = harness.seedTask({
+          taskName: "Apply Failed Task",
+          requestId: "req-card-apply-failed",
+          status: "succeeded",
+        });
+        const notRequired = harness.seedTask({
+          taskName: "Not Required Task",
+          requestId: "req-card-not-required",
+          status: "succeeded",
+        });
+        updateSkillRunnerRunApplyState({
+          backendId: harness.backendId,
+          requestId: applied.requestId,
+          state: "succeeded",
+          attempt: 1,
+          updatedAt: "2026-07-18T00:01:01.000Z",
+        });
+        updateSkillRunnerRunApplyState({
+          backendId: harness.backendId,
+          requestId: skipped.requestId,
+          state: "skipped",
+          attempt: 1,
+          updatedAt: "2026-07-18T00:01:02.000Z",
+        });
+        updateSkillRunnerRunApplyState({
+          backendId: harness.backendId,
+          requestId: applyFailed.requestId,
+          state: "failed",
+          attempt: 2,
+          nextRetryAt: "2026-07-18T00:03:03.000Z",
+          error: "apply write failed",
+          updatedAt: "2026-07-18T00:01:03.000Z",
+        });
+
+        const capture = await harness.attach({
+          selectRunKey: applied.runKey,
+        });
+        const taskByKey = (snapshot: any, runKey: string) =>
+          snapshot.workspace.groups
+            .flatMap((group: any) => [
+              ...group.activeTasks,
+              ...group.finishedTasks,
+            ])
+            .find((task: any) => task.key === runKey);
+        const assertStatusAxes = (snapshot: any) => {
+          assert.deepInclude(taskByKey(snapshot, applied.runKey), {
+            status: "succeeded",
+            backendStatus: "succeeded",
+            applyState: "succeeded",
+          });
+          assert.deepInclude(taskByKey(snapshot, skipped.runKey), {
+            status: "succeeded",
+            backendStatus: "succeeded",
+            applyState: "skipped",
+          });
+          assert.deepInclude(taskByKey(snapshot, applyFailed.runKey), {
+            status: "failed",
+            backendStatus: "succeeded",
+            applyState: "failed",
+            applyError: "apply write failed",
+            applyNextRetryAt: "2026-07-18T00:03:03.000Z",
+          });
+          assert.deepInclude(taskByKey(snapshot, notRequired.runKey), {
+            status: "succeeded",
+            backendStatus: "succeeded",
+            applyState: "idle",
+          });
+        };
+
+        let snapshot = await capture.waitFor(
+          (entry) =>
+            entry.workspace.selectedTaskKey === applied.runKey &&
+            entry.workspace.groups.reduce(
+              (count, group) =>
+                count + group.activeTasks.length + group.finishedTasks.length,
+              0,
+            ) === 4,
+        );
+        assertStatusAxes(snapshot);
+
+        for (const runKey of [skipped.runKey, applyFailed.runKey]) {
+          const afterIndex = capture.snapshots.length - 1;
+          await harness.dispatch("select-task", { taskKey: runKey });
+          snapshot = (
+            await capture.waitForAfter(
+              afterIndex,
+              (entry) => entry.workspace.selectedTaskKey === runKey,
+            )
+          ).snapshot;
+          assertStatusAxes(snapshot);
+        }
       } finally {
         await harness.reset();
       }

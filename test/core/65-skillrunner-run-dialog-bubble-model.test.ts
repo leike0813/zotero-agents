@@ -15,8 +15,144 @@ import {
   type SkillRunnerConversationEntry,
   toRunDialogConversationEntry,
 } from "../../src/modules/skillRunnerRunDialog";
+import { projectSkillRunnerPanelSnapshot } from "../../src/sidebar/assistantPanelModel.js";
 
 describe("skillrunner run dialog bubble message model", function () {
+  it("projects typed waiting-user options into canonical actions", function () {
+    const responseValue = { decision: "continue", depth: 2 };
+    const panel = projectSkillRunnerPanelSnapshot({
+      title: "SkillRunner",
+      labels: {},
+      workspace: { selectedTaskKey: "run:1", groups: [] },
+      session: {
+        title: "Run",
+        backendTitle: "SkillRunner",
+        requestId: "request-1",
+        status: "waiting_user",
+        statusSemantics: {
+          normalized: "waiting_user",
+          terminal: false,
+          waiting: true,
+        },
+        pendingInteractionId: 42,
+        pendingKind: "open_text",
+        pendingUiHints: {
+          kind: "choose_one",
+          prompt: "Continue?",
+          options: [{ label: "Continue deeply", value: responseValue }],
+        },
+        pendingOptions: [],
+        pendingRequiredFields: [],
+        authAvailableMethods: [],
+        loading: false,
+        messages: [],
+        labels: {},
+      },
+    });
+
+    assert.equal(panel.interaction.pendingInteraction.inputKind, "choose_one");
+    assert.notProperty(
+      panel.interaction.pendingInteraction,
+      "interactionToken",
+    );
+    assert.deepEqual(
+      panel.interaction.pendingInteraction.options[0].responseValue,
+      responseValue,
+    );
+    assert.deepInclude(panel.interaction.pendingInteraction.options[0], {
+      action: "reply-run",
+      label: "Continue deeply",
+    });
+  });
+
+  it("projects every canonical waiting-user input kind and capability-gates file actions", function () {
+    const baseSession = {
+      title: "Run",
+      backendTitle: "SkillRunner",
+      requestId: "request-kinds",
+      status: "waiting_user",
+      statusSemantics: {
+        normalized: "waiting_user",
+        terminal: false,
+        waiting: true,
+      },
+      pendingInteractionId: 9,
+      pendingKind: "open_text",
+      pendingUiHints: {},
+      pendingOptions: [],
+      pendingRequiredFields: [],
+      authAvailableMethods: [],
+      loading: false,
+      messages: [],
+      labels: {},
+    };
+    for (const inputKind of ["open_text", "choose_one", "confirm"] as const) {
+      const panel = projectSkillRunnerPanelSnapshot({
+        title: "SkillRunner",
+        labels: {},
+        workspace: { selectedTaskKey: "run:1", groups: [] },
+        session: {
+          ...baseSession,
+          pendingInteraction: {
+            inputKind,
+            prompt: "Respond",
+            hint: null,
+            options:
+              inputKind === "choose_one"
+                ? [{ label: "Yes", value: true, description: null }]
+                : [],
+            files: [],
+            fileReply: {
+              supported: false,
+              maxFiles: 8,
+              maxFileBytes: 32 * 1024 * 1024,
+              maxTotalBytes: 64 * 1024 * 1024,
+            },
+          },
+        },
+      });
+      assert.equal(panel.interaction.pendingInteraction.inputKind, inputKind);
+      assert.notProperty(panel.reply.payload, "interactionToken");
+    }
+
+    const projectUpload = (supported: boolean) =>
+      projectSkillRunnerPanelSnapshot({
+        title: "SkillRunner",
+        labels: {},
+        workspace: { selectedTaskKey: "run:1", groups: [] },
+        session: {
+          ...baseSession,
+          pendingInteraction: {
+            inputKind: "upload_files",
+            prompt: "Upload the paper",
+            hint: "PDF only",
+            options: [],
+            files: [
+              {
+                name: "paper",
+                required: true,
+                hint: "Published version",
+                accept: ".pdf",
+              },
+            ],
+            fileReply: {
+              supported,
+              maxFiles: 4,
+              maxFileBytes: 1024,
+              maxTotalBytes: 2048,
+            },
+          },
+        },
+      });
+    const unsupported = projectUpload(false);
+    assert.isNull(unsupported.interaction.pendingInteraction.fileAction);
+    assert.isTrue(unsupported.reply.inputEnabled);
+    const supported = projectUpload(true);
+    assert.deepEqual(supported.interaction.pendingInteraction.fileAction, {
+      action: "submit-interaction-files",
+      payload: {},
+    });
+  });
   it("projects silent conversations as semantic counts plus final and user content", function () {
     const base = {
       ts: "2026-07-11T00:00:00Z",

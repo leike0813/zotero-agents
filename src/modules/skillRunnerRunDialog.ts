@@ -40,8 +40,6 @@ import {
   isTerminal,
   isWaiting,
   normalizeStatus,
-  normalizeStatusWithGuard,
-  type SkillRunnerStateMachineViolation,
 } from "./skillRunnerProviderStateMachine";
 import { delay } from "../utils/runtimeCompatibility";
 import {
@@ -64,10 +62,7 @@ import {
   subscribeSkillRunnerBackendHealth,
 } from "./skillRunnerBackendHealthRegistry";
 import { showSkillRunnerBackendToast } from "./skillRunnerBackendToasts";
-import {
-  stopSessionSync,
-  subscribeSkillRunnerSessionState,
-} from "./skillRunnerSessionSyncManager";
+import { stopSessionSync } from "./skillRunnerSessionSyncManager";
 import { continueSkillRunnerForegroundRun } from "./skillRunnerForegroundContinuation";
 import {
   resolveSkillRunnerManagementResponseSemantic,
@@ -108,6 +103,16 @@ import {
   type RunDialogActionEnvelope,
 } from "../shared/skillRunnerSnapshotContract";
 import { isSkillRunnerSnapshotWireAssertAvailable } from "./debugMode";
+import {
+  projectAssistantPendingInteractionFromHints,
+  type AssistantInteractionFileReply,
+  type AssistantPendingInteraction,
+} from "../shared/assistantInteractionContract";
+import { resolveSkillRunnerBackendCapabilities } from "./skillRunnerHandshake";
+import { resolveSkillRunnerInteractionFileCapability } from "./skillRunnerHandshakeProtocol";
+import { pickAssistantInteractionFiles } from "./acpSkillRunInteractionFiles";
+import { readRuntimeBytes } from "./runtimePersistence";
+import { inspectRuntimeFileSource } from "./runtimeFileTransfer";
 
 export type RunDialogMessageRole = "assistant" | "user" | "system";
 export type RunDialogMessageKind =
@@ -171,6 +176,7 @@ type RunSessionState = {
   model?: string;
   pendingOwner?: string;
   pendingInteraction?: RunDialogPendingInteraction;
+  interactionFileCapability?: AssistantInteractionFileReply;
   pendingAuth?: RunDialogPendingAuth;
   pendingPermission?: AcpPendingPermissionRequest | null;
   authControlPending?: boolean;
@@ -223,6 +229,7 @@ type RunDialogSnapshot = {
   model?: string;
   pendingOwner?: string;
   pendingInteractionId?: number;
+  pendingInteraction?: AssistantPendingInteraction | null;
   pendingKind?: string;
   pendingPrompt?: string;
   pendingOptions: RunDialogChoiceOption[];
@@ -347,9 +354,10 @@ type RunDialogEntry = {
   stopObserver?: () => Promise<void>;
   refreshState?: () => Promise<void>;
   refreshDisplay?: () => Promise<void>;
-  unsubscribeSessionState?: () => void;
   streamLastFocusedAt?: number;
   observerStarting?: boolean;
+  observerOwnsSessionState?: boolean;
+  answeredInteractionId?: number;
   historyHydrating?: boolean;
   pendingTranscriptBoundary?: boolean;
   messageCounts: AssistantMessageCountsSnapshot;
@@ -370,6 +378,7 @@ export type RunWorkspaceTaskItem = {
   sequenceStepIndex?: number;
   workflowLabel?: string;
   status: string;
+  backendStatus?: string;
   stateLabel: string;
   applyState?: SkillRunnerRunApplyState;
   applyAttempt?: number;
@@ -579,6 +588,7 @@ const runWorkspaceState: RunWorkspaceState = {
 };
 
 const runDialogMap = new Map<string, RunDialogEntry>();
+const skillRunnerInteractionFileFlows = new Map<string, Promise<void>>();
 const runDialogProbeState = {
   observerInflightTaskCount: 0,
   waitingAuthTimerCount: 0,
@@ -615,10 +625,9 @@ function scheduleSnapshotFlushForRunDialogEntry(
 }
 
 function canRunDialogEntryHoldStream(entry: RunDialogEntry) {
+  const status = normalizeStatus(entry.session.status, "running");
   return (
-    !!entry.stopObserver &&
-    normalizeStatus(entry.session.status, "running") === "running" &&
-    !isTerminalStatus(entry.session.status)
+    !!entry.stopObserver && !isWaiting(status) && !isTerminalStatus(status)
   );
 }
 
@@ -945,42 +954,6 @@ export function validateRunDialogAuthImportFiles(args: {
 
 function isTerminalStatus(status: string) {
   return isTerminal(status);
-}
-
-function appendStateMachineViolation(args: {
-  entry: RunDialogEntry;
-  violation?: SkillRunnerStateMachineViolation;
-}) {
-  if (!args.violation) {
-    return;
-  }
-  appendRuntimeLog({
-    level: "warn",
-    scope: "state-machine",
-    workflowId: undefined,
-    jobId: undefined,
-    requestId: args.entry.requestId,
-    stage: "state-machine-guard",
-    message: "run dialog status normalized by state machine guard",
-    details: args.violation,
-  });
-}
-
-function applyRunDialogSessionStatus(args: {
-  entry: RunDialogEntry;
-  rawStatus: unknown;
-}) {
-  const fallback = normalizeStatus(args.entry.session.status || "", "running");
-  const normalized = normalizeStatusWithGuard({
-    value: args.rawStatus,
-    fallback,
-    requestId: args.entry.requestId,
-  });
-  appendStateMachineViolation({
-    entry: args.entry,
-    violation: normalized.violation,
-  });
-  args.entry.session.status = normalized.status;
 }
 
 async function sleep(ms: number) {
@@ -1836,7 +1809,9 @@ function startRunDialogEntryForegroundContinuation(
     },
   })
     .then(async () => {
-      syncSessionStateFromRunStore(entry);
+      if (!entry.observerOwnsSessionState) {
+        syncSessionStateFromRunStore(entry);
+      }
       maybeObserveSkillRunnerAutoReplyRun({
         backend: entry.backend,
         requestId: entry.requestId,
@@ -1849,7 +1824,9 @@ function startRunDialogEntryForegroundContinuation(
       }
     })
     .catch((error) => {
-      syncSessionStateFromRunStore(entry);
+      if (!entry.observerOwnsSessionState) {
+        syncSessionStateFromRunStore(entry);
+      }
       entry.session.error = compactError(error);
       pushSnapshotForRunDialogEntry(entry);
     });
@@ -2206,15 +2183,16 @@ async function buildRunWorkspaceModel(args: {
         status:
           String(row.skillRunnerLifecycleState || "").trim() ||
           normalizedStatus,
+        backendStatus: runRecord?.backendStatus || row.backendStatus,
         stateLabel: resolveRunWorkspaceStatusLabel(
           String(row.skillRunnerLifecycleState || "").trim() ||
             normalizedStatus,
         ),
-        applyState: runRecord?.apply.state,
+        applyState: runRecord?.apply.state || row.applyState,
         applyAttempt: runRecord?.apply.attempt,
         applyMaxAttempt: runRecord?.apply.maxAttempt,
-        applyNextRetryAt: runRecord?.apply.nextRetryAt,
-        applyError: runRecord?.apply.error,
+        applyNextRetryAt: runRecord?.apply.nextRetryAt || row.applyNextRetryAt,
+        applyError: runRecord?.apply.error || row.applyError,
         applyUpdatedAt: runRecord?.apply.updatedAt,
         autoReplyEnabled: autoReplyObserverState?.enabled,
         autoReplyObserverActive: autoReplyObserverState?.active,
@@ -2523,6 +2501,15 @@ function buildRunDialogSnapshot(
         requestId,
       })
     : null;
+  const canonicalPendingInteraction = pending?.interactionId
+    ? projectAssistantPendingInteractionFromHints({
+        pendingKind: pending.kind,
+        uiHints: pending.uiHints,
+        options: pending.options,
+        files: pending.requiredFields,
+        fileReply: entry.session.interactionFileCapability,
+      })
+    : null;
   return {
     title: String(displayTitle || "").trim() || resolveRunWorkspaceTitle(),
     backendTitle: backendDisplayName,
@@ -2577,6 +2564,7 @@ function buildRunDialogSnapshot(
     model: entry.session.model,
     pendingOwner: entry.session.pendingOwner,
     pendingInteractionId: pending?.interactionId,
+    pendingInteraction: canonicalPendingInteraction,
     pendingKind: pending?.kind,
     pendingPrompt: pending?.prompt,
     pendingOptions: pending?.options || [],
@@ -3074,7 +3062,9 @@ function pushSnapshot(
     return;
   }
   if (runWorkspaceState.currentEntry) {
-    syncSessionStateFromRunStore(runWorkspaceState.currentEntry);
+    if (!runWorkspaceState.currentEntry.observerOwnsSessionState) {
+      syncSessionStateFromRunStore(runWorkspaceState.currentEntry);
+    }
   }
   const selectedTask = runWorkspaceState.taskIndex.get(
     runWorkspaceState.selectedTaskKey,
@@ -3283,6 +3273,12 @@ function clearRunWorkspaceHostState() {
     runWorkspaceState.snapshotFlushTimer = null;
     runWorkspaceState.pendingSnapshotType = undefined;
   }
+  if (runWorkspaceState.refreshFlushTimer) {
+    clearTimeout(runWorkspaceState.refreshFlushTimer);
+    runWorkspaceState.refreshFlushTimer = null;
+  }
+  runWorkspaceState.pendingRefreshArgs = undefined;
+  runWorkspaceState.pendingRefreshReason = undefined;
   if (runWorkspaceState.removeMessageListener) {
     runWorkspaceState.removeMessageListener();
     runWorkspaceState.removeMessageListener = undefined;
@@ -3304,11 +3300,19 @@ function clearRunWorkspaceHostState() {
   runWorkspaceState.groups = [];
   runWorkspaceState.historyTruncated = false;
   runWorkspaceState.historyNotice = "";
+}
+
+function resetRunWorkspaceTranscriptPublicationState() {
   runWorkspaceState.transcriptRevision = 0;
   runWorkspaceState.publishedTranscriptEntryKey = "";
   runWorkspaceState.publishedTranscriptMessages = [];
   runWorkspaceState.lastPublishedTranscriptSignature = "";
   runWorkspaceState.lastTranscriptPublishedAt = 0;
+}
+
+function clearRunWorkspaceRuntimeState() {
+  clearRunWorkspaceHostState();
+  resetRunWorkspaceTranscriptPublicationState();
 }
 
 function ensureRunWorkspaceSubscriptions() {
@@ -3438,9 +3442,26 @@ async function startRunObserver(entry: RunDialogEntry) {
     alertWindow: entry.alertWindow || undefined,
     localize,
   });
+  entry.observerOwnsSessionState = true;
   entry.session.loading = true;
   entry.session.error = undefined;
   pushSnapshotForRunDialogEntry(entry);
+  try {
+    const capabilities = await resolveSkillRunnerBackendCapabilities({
+      backend: entry.backend,
+      client,
+      requestOptions: { lane: "foreground-query" },
+    });
+    entry.session.interactionFileCapability =
+      resolveSkillRunnerInteractionFileCapability(capabilities);
+  } catch {
+    entry.session.interactionFileCapability = {
+      supported: false,
+      maxFiles: 8,
+      maxFileBytes: 32 * 1024 * 1024,
+      maxTotalBytes: 64 * 1024 * 1024,
+    };
+  }
 
   const isObserverActive = (generation: number) =>
     !stopped && generation === observerGeneration;
@@ -3450,9 +3471,10 @@ async function startRunObserver(entry: RunDialogEntry) {
     chatStreamAbortController = null;
   };
 
-  const shouldOpenForegroundStream = () =>
-    normalizeStatus(entry.session.status, "running") === "running" &&
-    !isTerminalStatus(entry.session.status);
+  const shouldOpenForegroundStream = () => {
+    const status = normalizeStatus(entry.session.status, "running");
+    return !isWaiting(status) && !isTerminalStatus(status);
+  };
 
   const settleObserverTerminalError = (error: unknown, source: string) => {
     if (!settleRunDialogEntryAsFailed({ entry, error, source })) {
@@ -3462,8 +3484,7 @@ async function startRunObserver(entry: RunDialogEntry) {
     observerGeneration += 1;
     abortCurrentChatStream();
     stopWaitingAuthObserver();
-    entry.unsubscribeSessionState?.();
-    entry.unsubscribeSessionState = undefined;
+    entry.observerOwnsSessionState = false;
     entry.refreshState = undefined;
     entry.refreshDisplay = undefined;
     return true;
@@ -3507,8 +3528,49 @@ async function startRunObserver(entry: RunDialogEntry) {
         String(responseSemantic.message || "").trim() || undefined;
       const currentError =
         String(entry.session.error || "").trim() || undefined;
+      const answeredInteractionPending =
+        Number(entry.answeredInteractionId || 0) > 0;
+      let staleAnsweredWaiting =
+        answeredInteractionPending && isWaiting(observedStatus);
+      if (staleAnsweredWaiting) {
+        try {
+          const pending = (await client.getPending({
+            requestId: entry.requestId,
+          })) as SkillRunnerManagementPending;
+          if (!isObserverActive(generation)) {
+            return;
+          }
+          const normalizedPending = normalizeRunDialogPendingState(pending);
+          const nextInteractionId = Number(
+            normalizedPending.pendingInteraction?.interactionId || 0,
+          );
+          const pendingOwner = String(
+            normalizedPending.pendingOwner || "",
+          ).trim();
+          if (
+            (nextInteractionId > 0 &&
+              nextInteractionId !== entry.answeredInteractionId) ||
+            (pendingOwner && pendingOwner !== "waiting_user")
+          ) {
+            entry.answeredInteractionId = undefined;
+            staleAnsweredWaiting = false;
+          }
+        } catch {
+          // Keep suppressing the answered interaction until it can be
+          // distinguished from a new pending request.
+        }
+      }
+      if (
+        answeredInteractionPending &&
+        (observedStatus === "running" || isTerminal(observedStatus))
+      ) {
+        entry.answeredInteractionId = undefined;
+      }
       const shouldConverge =
-        (isTerminal(observedStatus) || isWaiting(observedStatus)) &&
+        !staleAnsweredWaiting &&
+        (observedStatus === "running" ||
+          isTerminal(observedStatus) ||
+          isWaiting(observedStatus)) &&
         (observedStatus !== normalizedStatus ||
           (observedStatus === "failed" &&
             !!observedMessage &&
@@ -3521,6 +3583,11 @@ async function startRunObserver(entry: RunDialogEntry) {
           message: observedMessage,
         });
         if (isTerminal(status) || isWaiting(status)) {
+          try {
+            await syncHistory();
+          } catch {
+            // A later refresh or reconnect repeats the cursor catch-up.
+          }
           abortCurrentChatStream();
           stopSessionSync({
             backendId: entry.backend.id,
@@ -3826,7 +3893,6 @@ async function startRunObserver(entry: RunDialogEntry) {
       return;
     }
     try {
-      syncSessionStateFromRunStore(entry);
       if (normalizeStatus(entry.session.status, "running") === "waiting_auth") {
         await executeWaitingAuthObserverTick();
       } else {
@@ -3875,43 +3941,6 @@ async function startRunObserver(entry: RunDialogEntry) {
     return refreshChain;
   };
 
-  entry.unsubscribeSessionState = subscribeSkillRunnerSessionState({
-    backendId: entry.backend.id,
-    requestId: entry.requestId,
-    listener: (payload) => {
-      refreshChain = refreshChain.then(async () => {
-        if (stopped) {
-          return;
-        }
-        const previous = normalizeStatus(entry.session.status, "running");
-        applyRunDialogSessionStatus({
-          entry,
-          rawStatus: payload.status,
-        });
-        if (payload.updatedAt) {
-          entry.session.updatedAt = payload.updatedAt;
-        }
-        await syncRunMeta();
-        const next = normalizeStatus(entry.session.status, "running");
-        if (next !== "running") {
-          abortCurrentChatStream();
-        }
-        if (previous === "waiting_auth" && next !== "waiting_auth") {
-          clearPendingState();
-          entry.session.error = undefined;
-          handoffWaitingAuthExit(next);
-        } else if (isWaiting(next) && !isWaiting(previous)) {
-          await syncPendingState();
-        } else if (!isWaiting(next) && isWaiting(previous)) {
-          clearPendingState();
-          entry.session.error = undefined;
-        }
-        syncWaitingAuthObserver();
-        pushSnapshotForRunDialogEntry(entry);
-      });
-    },
-  });
-
   const handleSseFrame = (frame: SkillRunnerManagementSseFrame) => {
     if (stopped) {
       return;
@@ -3941,6 +3970,7 @@ async function startRunObserver(entry: RunDialogEntry) {
         });
       } else {
         void queueObserverRefresh(async () => {
+          await syncRunMeta();
           await syncPendingState();
           await syncHistory();
           pushSnapshotForRunDialogEntry(entry);
@@ -4031,6 +4061,13 @@ async function startRunObserver(entry: RunDialogEntry) {
         chatStreamAbortController = null;
         chatRetryDelayMs = 800;
         if (!stopped && !isTerminalStatus(entry.session.status)) {
+          await syncHistory();
+          await syncRunMeta();
+          pushSnapshotForRunDialogEntry(
+            entry,
+            "snapshot",
+            entry.pendingTranscriptBoundary ? "boundary" : "live",
+          );
           await sleep(chatRetryDelayMs);
           chatRetryDelayMs = Math.min(10000, chatRetryDelayMs * 2);
         }
@@ -4039,6 +4076,16 @@ async function startRunObserver(entry: RunDialogEntry) {
         if (isAbortErrorLike(error)) {
           if (stopped) {
             break;
+          }
+          try {
+            await syncHistory();
+            pushSnapshotForRunDialogEntry(
+              entry,
+              "snapshot",
+              entry.pendingTranscriptBoundary ? "boundary" : "live",
+            );
+          } catch {
+            // Reconnect repeats the same cursor-based catch-up.
           }
           await sleep(chatRetryDelayMs);
           chatRetryDelayMs = Math.min(10000, chatRetryDelayMs * 2);
@@ -4077,8 +4124,7 @@ async function startRunObserver(entry: RunDialogEntry) {
       }
       abortCurrentChatStream();
       stopWaitingAuthObserver();
-      entry.unsubscribeSessionState?.();
-      entry.unsubscribeSessionState = undefined;
+      entry.observerOwnsSessionState = false;
       entry.refreshState = undefined;
       entry.refreshDisplay = undefined;
       if (supportsAbortController) {
@@ -4210,6 +4256,106 @@ async function handleRunDialogActionForEntry(
       );
     }
     pushSnapshot("snapshot");
+    return;
+  }
+  if (action === "submit-interaction-files") {
+    const pending = entry.session.pendingInteraction;
+    const interactionId = Number(pending?.interactionId || 0);
+    const capability = entry.session.interactionFileCapability;
+    const canonical = pending
+      ? projectAssistantPendingInteractionFromHints({
+          pendingKind: pending.kind,
+          uiHints: pending.uiHints,
+          options: pending.options,
+          files: pending.requiredFields,
+          fileReply: capability,
+        })
+      : null;
+    if (
+      !canCurrentRunUseBackend(entry) ||
+      !canonical ||
+      canonical.inputKind !== "upload_files" ||
+      capability?.supported !== true
+    ) {
+      pushSnapshot("snapshot");
+      return;
+    }
+    const flowKey = entry.requestId;
+    if (skillRunnerInteractionFileFlows.has(flowKey)) return;
+    const flow = (async () => {
+      const picked = await pickAssistantInteractionFiles({
+        slots: canonical.files,
+      });
+      if (picked.status !== "selected") return;
+      const current = entry.session.pendingInteraction;
+      if (
+        Number(current?.interactionId || 0) !== interactionId ||
+        normalizeStatus(entry.session.status, "running") !== "waiting_user"
+      ) {
+        return;
+      }
+      const files: Array<{
+        name: string;
+        bytes: Uint8Array;
+        type: string;
+      }> = [];
+      let totalBytes = 0;
+      for (const selection of picked.selections) {
+        const source = await inspectRuntimeFileSource(selection.sourcePath);
+        if (source.size > capability.maxFileBytes) {
+          throw new Error("interaction file exceeds the backend limit");
+        }
+        totalBytes += source.size;
+        if (totalBytes > capability.maxTotalBytes) {
+          throw new Error("interaction files exceed the backend total limit");
+        }
+        const bytes = await readRuntimeBytes(source.path);
+        if (bytes.byteLength !== source.size) {
+          throw new Error("interaction file changed while it was being read");
+        }
+        files.push({
+          name: selection.displayName,
+          bytes,
+          type: "application/octet-stream",
+        });
+      }
+      if (files.length > capability.maxFiles) {
+        throw new Error("interaction file count exceeds the backend limit");
+      }
+      const client = buildSkillRunnerManagementClient({
+        backend: entry.backend,
+        alertWindow: entry.alertWindow || undefined,
+        localize,
+      });
+      await client.submitInteractionFiles({
+        requestId: entry.requestId,
+        interactionId,
+        idempotencyKey: `${interactionId}-${Date.now().toString(36)}`,
+        metadata: {
+          bindings: picked.selections.map((selection, fileIndex) => ({
+            slot: selection.slot,
+            fileIndex,
+          })),
+        },
+        files,
+      });
+      if (entry.refreshDisplay) await entry.refreshDisplay();
+      else pushSnapshot("snapshot");
+    })()
+      .catch((error) => {
+        entry.alertWindow?.alert?.(
+          localize(
+            "task-dashboard-skillrunner-reply-failed",
+            "Failed to submit reply: {error}",
+            { args: { error: compactError(error) } },
+          ),
+        );
+      })
+      .finally(() => {
+        skillRunnerInteractionFileFlows.delete(flowKey);
+      });
+    skillRunnerInteractionFileFlows.set(flowKey, flow);
+    await flow;
     return;
   }
   if (action === "reply-run") {
@@ -4354,6 +4500,9 @@ async function handleRunDialogActionForEntry(
     if (!Number.isFinite(interactionId) || interactionId <= 0) {
       return;
     }
+    if (interactionId !== entry.session.pendingInteraction?.interactionId) {
+      return;
+    }
     const resolvedResponse = resolveRunDialogInteractionResponse({
       replyText: payload.replyText,
       ...(Object.prototype.hasOwnProperty.call(payload, "responseValue")
@@ -4416,6 +4565,9 @@ async function handleRunDialogActionForEntry(
         fallbackStatus: normalizeStatus(entry.session.status, "running"),
       });
       submitted = semantic.accepted !== false;
+      if (submitted) {
+        entry.answeredInteractionId = interactionId;
+      }
       if (submitted || semantic.shouldClearPending) {
         stopSkillRunnerAutoReplyObserver({
           backendId: entry.backend.id,
@@ -4620,10 +4772,7 @@ async function stopRunDialogEntryObserver(entry: RunDialogEntry | undefined) {
     await entry.stopObserver();
     entry.stopObserver = undefined;
   }
-  if (entry.unsubscribeSessionState) {
-    entry.unsubscribeSessionState();
-    entry.unsubscribeSessionState = undefined;
-  }
+  entry.observerOwnsSessionState = false;
   entry.refreshState = undefined;
   entry.refreshDisplay = undefined;
 }
@@ -4711,7 +4860,7 @@ async function shutdownRunDialogRuntime() {
   runWorkspaceState.taskIndex.clear();
   runWorkspaceState.groupCollapsed.clear();
   runWorkspaceState.finishedCollapsed.clear();
-  clearRunWorkspaceHostState();
+  clearRunWorkspaceRuntimeState();
   runDialogMap.clear();
 }
 
@@ -4882,6 +5031,9 @@ function syncLocalRunDialogEntryFromTask(
   if (requestId && entry.requestId !== requestId) {
     entry.requestId = requestId;
     entry.session.requestId = requestId;
+  }
+  if (entry.observerOwnsSessionState) {
+    return;
   }
   entry.session.status =
     String(task.status || "").trim() || normalizeStatus(task.status, "running");
@@ -5569,7 +5721,7 @@ export async function openSkillRunnerRunDialog(args?: { runKey?: string }) {
       runWorkspaceState.groups = [];
       runWorkspaceState.taskIndex.clear();
       runDialogMap.clear();
-      clearRunWorkspaceHostState();
+      clearRunWorkspaceRuntimeState();
     },
   };
 
@@ -5603,12 +5755,8 @@ export async function shutdownSkillRunnerRunDialogRuntime() {
 }
 
 export function getSkillRunnerRunDialogRuntimeForTests() {
-  let sessionStateSubscriptionCount = 0;
   let foregroundStreamEntryCount = 0;
   for (const entry of runDialogMap.values()) {
-    if (entry.unsubscribeSessionState) {
-      sessionStateSubscriptionCount += 1;
-    }
     if (canRunDialogEntryHoldStream(entry)) {
       foregroundStreamEntryCount += 1;
     }
@@ -5618,6 +5766,6 @@ export function getSkillRunnerRunDialogRuntimeForTests() {
     foregroundStreamEntryCount,
     observerInflightTaskCount: runDialogProbeState.observerInflightTaskCount,
     waitingAuthTimerCount: runDialogProbeState.waitingAuthTimerCount,
-    sessionStateSubscriptionCount,
+    sessionStateSubscriptionCount: 0,
   };
 }

@@ -366,6 +366,22 @@ Transcript loading indicators SHALL be scoped by the selected transcript owner, 
 - **THEN** the Assistant Workspace host snapshot signature SHALL remain unchanged for the selected loading snapshot
 - **AND** the child panel SHALL NOT receive a repost that can rebuild owner `A` loading DOM.
 
+### Requirement: Waiting-user regions are independently signature-guarded
+
+Toolbar, banner, plan, hint, reply, context drawer, details drawer, permission drawer, and file-interaction regions SHALL each use stable signatures limited to their visible content and open/collapsed state. Transcript revisions, pages, chunks, counts, loading state, prompting tails, and log tails SHALL NOT enter those signatures.
+
+#### Scenario: Transcript-only snapshot arrives during waiting-user state
+
+- **WHEN** the selected owner's transcript changes but waiting-user content does not
+- **THEN** only the transcript region SHALL render
+- **AND** all non-transcript managed-region DOM identities SHALL be preserved
+
+#### Scenario: Interaction hint changes
+
+- **WHEN** only a visible interaction hint changes
+- **THEN** only the hint region SHALL update
+- **AND** reply and transcript DOM identities SHALL be preserved
+
 ### Requirement: Message counter preserves managed-region identity
 
 Assistant message counts SHALL be rendered only by the message-counter managed region. Its owner, category values, activity, completeness, and revision SHALL NOT enter transcript, toolbar, banner, plan, hint, reply, context drawer, details drawer, or permission drawer render signatures.

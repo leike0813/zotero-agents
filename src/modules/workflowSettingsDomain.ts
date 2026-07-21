@@ -1,4 +1,5 @@
 import type { WorkflowManifest } from "../workflows/types";
+import type { ProviderRuntimeOptionSchema } from "../providers/types";
 import {
   type WorkflowRunOptions,
   normalizeWorkflowRunOptions,
@@ -31,6 +32,29 @@ export type WorkflowSettingsDialogInitialState = {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+export function rebaseProviderOptionsForBackendChange(args: {
+  previousBackendId?: string;
+  nextBackendId?: string;
+  targetSchema: ProviderRuntimeOptionSchema;
+  options?: Record<string, unknown>;
+}) {
+  const previousBackendId = String(args.previousBackendId || "").trim();
+  const nextBackendId = String(args.nextBackendId || "").trim();
+  const backendChanged = previousBackendId !== nextBackendId;
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(args.options || {})) {
+    const schemaEntry = args.targetSchema[key];
+    if (!schemaEntry) {
+      continue;
+    }
+    if (backendChanged && schemaEntry.retention === "backend") {
+      continue;
+    }
+    result[key] = value;
+  }
+  return result;
 }
 
 function parseWorkflowSettingsEntry(

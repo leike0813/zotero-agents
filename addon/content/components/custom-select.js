@@ -15,6 +15,7 @@
       return toText(opt.value) === toText(currentValue);
     }) ||
       options[0] || { value: "", label: "" };
+    let selectedValue = toText(currentOption.value);
     const triggerLabel = document.createElement("span");
     triggerLabel.className = "custom-select-trigger-label";
     trigger.appendChild(triggerLabel);
@@ -80,7 +81,7 @@
     options.forEach(function (opt) {
       const optionEl = document.createElement("div");
       optionEl.className = "custom-select-option";
-      if (toText(opt.value) === toText(currentValue)) {
+      if (toText(opt.value) === selectedValue) {
         optionEl.classList.add("selected");
       }
       optionEl.textContent = opt.label;
@@ -95,7 +96,9 @@
         if (previousSelected) previousSelected.classList.remove("selected");
         optionEl.classList.add("selected");
         closeMenu();
-        if (toText(opt.value) !== toText(currentValue)) {
+        const nextValue = toText(opt.value);
+        if (nextValue !== selectedValue) {
+          selectedValue = nextValue;
           onChange(opt.value);
         }
       });
@@ -111,11 +114,15 @@
 
     return {
       element: wrap,
+      getValue: function () {
+        return selectedValue;
+      },
       setValue: function (val) {
         const opt = options.find(function (o) {
           return toText(o.value) === toText(val);
         });
         if (opt) {
+          selectedValue = toText(opt.value);
           triggerLabel.textContent = opt.label;
           trigger.title = opt.label;
           const opts = menu.querySelectorAll(".custom-select-option");

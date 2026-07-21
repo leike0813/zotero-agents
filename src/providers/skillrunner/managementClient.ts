@@ -14,6 +14,11 @@ import {
   normalizeSkillRunnerHandshakeResponse,
   type SkillRunnerBackendCapabilities,
 } from "../../modules/skillRunnerHandshakeProtocol";
+import {
+  ASSISTANT_INTERACTION_FILE_MAX_BYTES,
+  ASSISTANT_INTERACTION_TOTAL_MAX_BYTES,
+  ASSISTANT_PENDING_INTERACTION_FILE_LIMIT,
+} from "../../shared/assistantInteractionContract";
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -107,6 +112,17 @@ export type SkillRunnerManagementReplyResponse = {
   status: string;
   accepted: boolean;
   mode?: "interaction" | "auth";
+};
+
+export type SkillRunnerInteractionReplyFile = {
+  name: string;
+  bytes: Uint8Array;
+  type?: string;
+};
+
+export type SkillRunnerInteractionReplyMetadata = {
+  bindings: Array<{ slot: string; fileIndex: number }>;
+  message?: string;
 };
 
 export type SkillRunnerManagementCancelResponse = {
@@ -856,6 +872,85 @@ export class SkillRunnerManagementClient {
     });
     if (!isObject(body)) {
       throw new Error("management reply response must be object");
+    }
+    return body as SkillRunnerManagementReplyResponse;
+  }
+
+  async submitInteractionFiles(
+    args: {
+      requestId: string;
+      interactionId: number;
+      idempotencyKey: string;
+      metadata: SkillRunnerInteractionReplyMetadata;
+      files: SkillRunnerInteractionReplyFile[];
+    } & SkillRunnerManagementRequestOptions,
+  ) {
+    const requestId = normalizeString(args.requestId);
+    const interactionId = Math.floor(Number(args.interactionId || 0));
+    const idempotencyKey = normalizeString(args.idempotencyKey);
+    const files = Array.isArray(args.files) ? args.files : [];
+    if (!requestId || interactionId <= 0 || !idempotencyKey) {
+      throw new Error(
+        "requestId, interactionId, and idempotencyKey are required",
+      );
+    }
+    if (
+      files.length === 0 ||
+      files.length > ASSISTANT_PENDING_INTERACTION_FILE_LIMIT
+    ) {
+      throw new Error("interaction file count exceeds the client limit");
+    }
+    let totalBytes = 0;
+    for (const file of files) {
+      const size = file?.bytes?.byteLength || 0;
+      if (
+        !normalizeString(file?.name) ||
+        size <= 0 ||
+        size > ASSISTANT_INTERACTION_FILE_MAX_BYTES
+      ) {
+        throw new Error("interaction file exceeds the client per-file limit");
+      }
+      totalBytes += size;
+    }
+    if (totalBytes > ASSISTANT_INTERACTION_TOTAL_MAX_BYTES) {
+      throw new Error("interaction files exceed the client total limit");
+    }
+    const bindings = (
+      Array.isArray(args.metadata?.bindings) ? args.metadata.bindings : []
+    ).map((binding) => ({
+      slot: normalizeString(binding.slot),
+      file_index: Math.max(0, Math.floor(Number(binding.fileIndex) || 0)),
+    }));
+    const metadata = {
+      interaction_id: interactionId,
+      idempotency_key: idempotencyKey,
+      ...(normalizeString(args.metadata?.message)
+        ? { message: normalizeString(args.metadata.message) }
+        : {}),
+      bindings,
+    };
+    const form = new FormData();
+    form.append("metadata", JSON.stringify(metadata));
+    for (const file of files) {
+      const bytes = file.bytes.slice();
+      const blob = new Blob([bytes], {
+        type: normalizeString(file.type) || "application/octet-stream",
+      });
+      form.append("files", blob, normalizeString(file.name));
+    }
+    const body = await this.requestWithAuthRetry({
+      method: "POST",
+      path: `/v1/jobs/${encodeURIComponent(requestId)}/interaction/reply/files`,
+      body: form,
+      lane: args.lane || "foreground-query",
+      timeoutMs: args.timeoutMs,
+      signal: args.signal,
+      requestId,
+    });
+    if (!isObject(body)) {
+      throw new Error(
+        "management interaction file reply response must be object",
+      );
     }
     return body as SkillRunnerManagementReplyResponse;
   }

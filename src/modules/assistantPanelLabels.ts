@@ -294,6 +294,16 @@ export function buildAssistantPanelLabels() {
         "assistant-panel-interaction-waiting-reply",
         "The agent is waiting for your reply.",
       ),
+      fileRequired: l("assistant-panel-interaction-file-required", "Required"),
+      fileOptional: l("assistant-panel-interaction-file-optional", "Optional"),
+      chooseFiles: l(
+        "assistant-panel-interaction-choose-files",
+        "Choose files",
+      ),
+      fileReplyUnavailable: l(
+        "assistant-panel-interaction-file-reply-unavailable",
+        "File replies are unavailable for this backend.",
+      ),
       authenticationRequiredTitle: l(
         "assistant-panel-interaction-authentication-required-title",
         "Authentication required",

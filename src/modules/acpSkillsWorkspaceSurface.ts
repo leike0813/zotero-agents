@@ -1,4 +1,10 @@
 import { getAssistantExecutionDisplayMode } from "./assistantExecutionDisplayPolicy";
+import {
+  ASSISTANT_INTERACTION_FILE_MAX_BYTES,
+  ASSISTANT_INTERACTION_TOTAL_MAX_BYTES,
+  ASSISTANT_PENDING_INTERACTION_FILE_LIMIT,
+  projectAssistantPendingInteractionFromHints,
+} from "../shared/assistantInteractionContract";
 import { snapshotAcpMessageCounts } from "./acpExecutionProgress";
 import {
   canEditAcpSkillRunModelConfiguration,
@@ -106,7 +112,7 @@ function acpSkillRunHint(
   if (interactionState.waitingForUser) {
     return {
       kind: "waiting_user" as const,
-      message: record.pendingInteraction?.message || null,
+      message: null,
     };
   }
   const recoverableDisconnected =
@@ -137,6 +143,23 @@ function acpSkillRunHint(
     return { kind: "error" as const, message: null };
   }
   return { kind: "hidden" as const, message: null };
+}
+
+function projectAcpSkillRunPendingInteraction(
+  record: AcpSkillRunWorkspaceRecord,
+) {
+  const pending = record.pendingInteraction;
+  if (!pending) return null;
+  return projectAssistantPendingInteractionFromHints({
+    pendingKind: pending.uiHints.kind,
+    uiHints: pending.uiHints,
+    fileReply: {
+      supported: String(pending.uiHints.kind || "").trim() === "upload_files",
+      maxFiles: ASSISTANT_PENDING_INTERACTION_FILE_LIMIT,
+      maxFileBytes: ASSISTANT_INTERACTION_FILE_MAX_BYTES,
+      maxTotalBytes: ASSISTANT_INTERACTION_TOTAL_MAX_BYTES,
+    },
+  });
 }
 
 function acpSkillRunSecondaryLabel(value: {
@@ -197,6 +220,9 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
     const options = record.runtimeOptions;
     const modelConfigurationEditable =
       canEditAcpSkillRunModelConfiguration(record);
+    const selectedModeId = record.acpModeId || "";
+    const selectedModelId = record.acpModelId || record.acpRawModelId || "";
+    const selectedReasoningEffort = record.acpReasoningEffort || "";
     const modelOptions = options?.displayModelOptions?.length
       ? options.displayModelOptions
       : options?.modelOptions;
@@ -216,20 +242,20 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
       },
       runtimeOptions: {
         mode: projectAssistantWorkspaceOptionGroup(
-          connected ? options?.modeOptions : [],
-          options?.currentMode?.id,
+          connected ? options?.modeOptions || [] : [],
+          selectedModeId,
           connected && Boolean(options?.modeOptions.length),
         ),
         model: projectAssistantWorkspaceOptionGroup(
-          connected ? modelOptions : [],
-          options?.currentDisplayModel?.id || options?.currentModel?.id,
+          connected ? modelOptions || [] : [],
+          selectedModelId,
           connected &&
             modelConfigurationEditable &&
             Boolean(modelOptions?.length),
         ),
         reasoningEffort: projectAssistantWorkspaceOptionGroup(
-          connected ? options?.reasoningEffortOptions : [],
-          options?.currentReasoningEffort?.id,
+          connected ? options?.reasoningEffortOptions || [] : [],
+          selectedReasoningEffort,
           connected &&
             modelConfigurationEditable &&
             Boolean(options?.reasoningEffortOptions.length),
@@ -384,6 +410,9 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
         record.replyState === "submitted" ||
         record.replyState === "accepted",
       hint: acpSkillRunHint(record, connected, interactionState),
+      interaction: interactionState.waitingForUser
+        ? projectAcpSkillRunPendingInteraction(record)
+        : null,
       connection: {
         status: String(
           record.connectionActionState ||

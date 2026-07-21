@@ -1177,6 +1177,51 @@ summary,
   font-size: 12px;
 }
 
+.assistant-panel-interaction-hint {
+  margin-top: 6px;
+  color: var(--asst-muted);
+  font-size: 12px;
+}
+
+.assistant-panel-interaction-files {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.assistant-panel-interaction-file {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  padding: 8px;
+  border: 1px solid var(--asst-line);
+  border-radius: 6px;
+  background: var(--asst-surface-soft);
+}
+
+.assistant-panel-interaction-file-label {
+  overflow: hidden;
+  color: var(--asst-text);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-panel-interaction-file-state,
+.assistant-panel-interaction-file-hint,
+.assistant-panel-interaction-file-unavailable {
+  color: var(--asst-muted);
+  font-size: 11px;
+}
+
+.assistant-panel-interaction-file-hint {
+  grid-column: 1 / -1;
+}
+
+.assistant-panel-interaction-file-submit {
+  justify-self: start;
+}
+
 .assistant-panel-permission-summary {
   display: grid;
   gap: 6px;

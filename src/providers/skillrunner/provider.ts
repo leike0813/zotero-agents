@@ -141,6 +141,7 @@ export class SkillRunnerProvider implements Provider {
     return {
       engine: {
         type: "string" as const,
+        retention: "backend" as const,
         title: "Engine",
         description: "Skill-Runner execution engine.",
         default: defaultEngine,
@@ -148,6 +149,7 @@ export class SkillRunnerProvider implements Provider {
       },
       provider_id: {
         type: "string" as const,
+        retention: "backend" as const,
         title: "Model Provider",
         description:
           "Model provider for the selected engine. Model-provider-aware engines require an explicit model provider.",
@@ -155,12 +157,14 @@ export class SkillRunnerProvider implements Provider {
       },
       model: {
         type: "string" as const,
+        retention: "backend" as const,
         title: "Model",
         description: "Optional model override for selected engine.",
         default: "",
       },
       effort: {
         type: "string" as const,
+        retention: "backend" as const,
         title: "Effort",
         description:
           "Reasoning effort for the selected model. Unsupported models stay on default.",
@@ -168,12 +172,14 @@ export class SkillRunnerProvider implements Provider {
       },
       no_cache: {
         type: "boolean" as const,
+        retention: "workflow" as const,
         title: "Bypass Cache",
         description: "When true, force backend execution without cache.",
         default: false,
       },
       interactive_auto_reply: {
         type: "boolean" as const,
+        retention: "workflow" as const,
         title: "Auto Reply",
         description:
           "Interactive mode only. Automatically continue after waiting timeout.",
@@ -181,12 +187,14 @@ export class SkillRunnerProvider implements Provider {
       },
       interactive_reply_timeout_sec: {
         type: "number" as const,
+        retention: "workflow" as const,
         title: "Auto Reply Timeout (sec)",
         description:
           "Interactive auto reply timeout in seconds. Empty means backend default.",
       },
       hard_timeout_seconds: {
         type: "number" as const,
+        retention: "workflow" as const,
         title: "Job Timeout (sec)",
         description:
           "Optional positive integer timeout in seconds. Empty means backend default.",

@@ -2098,11 +2098,13 @@ describe("acp session manager", function () {
       "status",
       "busy",
       "hint",
+      "interaction",
       "connection",
       "execution",
       "authentication",
       "permissionPolicy",
     ]);
+    assert.isNull(baseline?.interaction);
     assert.hasAllKeys(baseline?.connection, [
       "status",
       "sessionAvailable",

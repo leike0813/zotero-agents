@@ -256,6 +256,15 @@ content and the same approval actions.
 Waiting `ui_hints` SHALL drive prompt text, hint text, options, and future
 controls. The message body itself belongs in the conversation window.
 
+`AssistantPendingInteraction` is the shared waiting-user DTO for ACP Skills and
+SkillRunner. It owns the input kind, prompt, hint, typed options, file slots,
+and file-reply capability. The wire validator requires exact keys, bounds
+options to 16 and file slots to 8, and bounds nested JSON option values by depth
+and encoded size. Option values remain JSON values until the host action
+boundary; the renderer never invents a reply action or converts the value to
+display text. The shared DTO SHALL NOT add an interaction identity that the
+backend protocol does not define.
+
 The canonical `interaction` states are:
 
 - `permission`: ACP permission or command approval; highest priority
@@ -276,9 +285,42 @@ The shared `ui_hints` shape supports:
 - `prompt`: primary reply prompt
 - `hint`: secondary instruction or explanation
 - `options`: quick reply options; string options and `{ label, value }` options
-  normalize to plain-text replies
-- `files`: file-related hints; v1 only displays these hints and does not add
-  file upload behavior
+  preserve the typed `value` while the label remains presentation-only
+- `files`: ordered required or optional native-picker slots
+
+Waiting-user actions carry only the response data required by the action. The
+host SHALL revalidate the selected owner and waiting status immediately before
+submission. ACP text replies preserve the pre-token reply lifecycle:
+`replyState` records submission acknowledgement but is not a turn identity or a
+cross-turn lock. The existing one-shot pending resolver and serialized prompt
+chain route replies. A later waiting turn remains replyable even while an outer
+detached continuation is still settling. SkillRunner retains its backend-native
+numeric `interactionId`; it SHALL NOT mirror that id as a second Assistant
+identity. SkillRunner actions use canonical `reply-run`; literal `reply` and
+`cancel` are accepted only at the run-dialog host boundary.
+
+The managed reply textarea and button SHALL remain stable across equivalent
+publications. Transcript-only updates SHALL NOT rebuild the reply region or any
+other unchanged managed region. A sequential waiting turn dispatches the
+current typed text to the currently selected owner without a synthetic turn
+identity.
+
+ACP Skills file replies use one native single-file picker per declared slot.
+Selected files are copied into the run workspace under the flat managed path
+`.acp-inputs/<requestKey>-<submissionKey>/<safeFileName>`. A sibling temporary
+directory is atomically promoted after every file and the privacy-safe manifest
+have been written. The transcript contains display filenames only; the ACP
+prompt contains shallow workspace-relative paths only. Accepted submissions
+remain staged if continuation fails so the existing recovery state machine can
+reuse them.
+
+SkillRunner exposes the same picker only when the handshake declares
+`skillrunner.interaction-files.v1`. Without that capability the file slots and
+localized unavailable state remain visible and the text composer remains
+available. With the capability, the host sends multipart metadata and repeated
+file parts directly to the management route; paths and bytes never cross the
+child wire or transcript boundary. Plugin ceilings are 8 files, 32 MiB per
+file, and 64 MiB total, reduced when the backend declares lower limits.
 
 ### Reply Zone
 
@@ -294,6 +336,8 @@ Common rules:
 - keep send/reply action visually stable
 - show keyboard shortcut hints near the action controls
 - do not let transient hints or status messages resize the reply controls
+- keep dynamic action payloads outside structural and visible-live signatures
+  so the existing textarea and send control survive token-only publications
 - do not wrap the whole reply zone in an extra framed surface; the textarea and
   footer SHALL align horizontally with the conversation window
 
@@ -433,9 +477,12 @@ result content.
 
 ACP Skills task cards use workflow-task state as their main status SSOT. Run
 lifecycle, backend status, apply state, attention, recovery, and connection are
-independent axes. A missing backend/apply value stays absent and is never
-replaced with run status. Selecting or archiving a task targets the clicked run
-owner and preserves unrelated keyed task-card DOM identity.
+independent axes. Explicit backend and apply facts take priority. A missing
+backend state uses the main task state; a successful task with no required Apply
+uses `not-required`, while other missing Apply states use `idle`. Selected
+SkillRunner cards prefer the full run record; unselected cards preserve these
+axes from the lightweight run projection. Selecting or archiving a task targets
+the clicked run owner and preserves unrelated keyed task-card DOM identity.
 
 ### SkillRunner
 
@@ -469,6 +516,13 @@ pre-request notices. In boundary mode, HTTP history catch-up and foreground SSE
 use the same normalized semantic-boundary classifier so accumulated history is
 released once at the boundary. Silent mode continues to publish only its
 eligible projection; metadata snapshots must not expose suppressed content.
+Temporary sidebar or tab detach SHALL release host bindings, transient
+materialization, and pending render timers without resetting the transcript
+publication clock or published mirror state. Reattaching the same runtime,
+including the first A→B→A task return, SHALL therefore keep revisions monotonic
+and publish accumulated eligible history on the first return. Only complete
+runtime teardown such as plugin shutdown, test reset, or standalone dialog
+destruction SHALL clear the publication clock and mirror cache.
 
 The refactor SHALL NOT rewrite SkillRunner backend protocol, output
 convergence, reply/cancel semantics, or backend observation contracts.

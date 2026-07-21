@@ -345,6 +345,145 @@ describe("provider/backend registry", function () {
     ]);
   });
 
+  it("rejects unverifiable or catalog-external ACP runtime selections while preserving workflow-scoped options", function () {
+    const provider = resolveProviderById("acp");
+    const normalized = provider.normalizeRuntimeOptions?.(
+      {
+        acpModeId: "plan",
+        acpModelId: "provider/model-b",
+        acpReasoningEffort: "high",
+        autoApproveAcpPermissions: true,
+        hard_timeout_seconds: 45,
+      },
+      {
+        id: "acp-cold-cache",
+        type: "acp",
+        baseUrl: "local://acp-cold-cache",
+      },
+    );
+
+    assert.deepEqual(normalized, {
+      autoApproveAcpPermissions: true,
+      hard_timeout_seconds: 45,
+    });
+
+    const incompleteCache = provider.normalizeRuntimeOptions?.(
+      {
+        acpModeId: "plan",
+        acpModelId: "provider/model-b",
+        acpReasoningEffort: "high",
+      },
+      {
+        id: "acp-incomplete-cache",
+        type: "acp",
+        baseUrl: "local://acp-incomplete-cache",
+        acp: {
+          runtimeOptionsCache: {
+            modes: [{ id: "code", label: "Code" }],
+            currentModeId: "code",
+            rawModels: [{ id: "provider/model-a", label: "Model A" }],
+            currentRawModelId: "provider/model-a",
+            displayModels: [{ id: "provider/model-a", label: "Model A" }],
+            currentDisplayModelId: "provider/model-a",
+            reasoningEfforts: [{ id: "low", label: "Low" }],
+            currentReasoningEffortId: "low",
+            reasoningSource: "explicit",
+          },
+        },
+      },
+    );
+    assert.deepEqual(incompleteCache, {
+      acpModeId: "code",
+      acpModelId: "provider/model-a",
+      acpReasoningEffort: "low",
+    });
+  });
+
+  it("keeps legal explicit ACP selections ahead of a different backend current", function () {
+    const provider = resolveProviderById("acp");
+    const normalized = provider.normalizeRuntimeOptions?.(
+      {
+        acpModeId: "build",
+        acpModelId: "provider/model-b",
+        acpReasoningEffort: "high",
+      },
+      {
+        id: "acp-valid-explicit",
+        type: "acp",
+        baseUrl: "local://acp-valid-explicit",
+        acp: {
+          runtimeOptionsCache: {
+            modes: [
+              { id: "ask", label: "Ask" },
+              { id: "build", label: "Build" },
+            ],
+            currentModeId: "ask",
+            rawModels: [
+              { id: "provider/model-a@low", label: "Model A Low" },
+              { id: "provider/model-b@high", label: "Model B High" },
+            ],
+            currentRawModelId: "provider/model-a@low",
+            displayModels: [
+              { id: "provider/model-a", label: "Model A" },
+              { id: "provider/model-b", label: "Model B" },
+            ],
+            currentDisplayModelId: "provider/model-a",
+            reasoningEfforts: [
+              { id: "low", label: "Low" },
+              { id: "high", label: "High" },
+            ],
+            currentReasoningEffortId: "low",
+            reasoningSource: "explicit",
+          },
+        },
+      },
+    );
+
+    assert.deepInclude(normalized, {
+      acpModeId: "build",
+      acpModelId: "provider/model-b",
+      acpReasoningEffort: "high",
+    });
+  });
+
+  it("preserves ACP reasoning provenance when the backend registry reloads", async function () {
+    setBackendsConfig({
+      schemaVersion: 2,
+      backends: [
+        {
+          id: "acp-explicit-reasoning",
+          type: "acp",
+          baseUrl: "local://acp-explicit-reasoning",
+          command: "fake-acp",
+          acp: {
+            runtimeOptionsCache: {
+              refreshedAt: "2026-07-21T00:00:00.000Z",
+              modes: [],
+              currentModeId: "",
+              rawModels: [{ id: "model-a", label: "Model A" }],
+              currentRawModelId: "model-a",
+              displayModels: [{ id: "model-a", label: "Model A" }],
+              currentDisplayModelId: "model-a",
+              reasoningEfforts: [
+                { id: "low", label: "Low" },
+                { id: "high", label: "High" },
+              ],
+              currentReasoningEffortId: "high",
+              reasoningSource: "explicit",
+            },
+          },
+        },
+      ],
+    });
+
+    const loaded = await loadBackendsRegistry();
+    assert.equal(
+      loaded.backends.find((entry) => entry.id === "acp-explicit-reasoning")
+        ?.acp?.runtimeOptionsCache?.reasoningSource,
+      "explicit",
+    );
+  });
+
   it("resolves first provider-compatible backend when no preferred profile is set", async function () {
     const loaded = await loadWorkflowManifests(workflowsPath());
     const workflow = loaded.workflows.find(

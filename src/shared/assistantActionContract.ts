@@ -81,6 +81,11 @@ export type AssistantWorkspaceActionPayloadMap = {
   "interrupt-run-turn": AssistantWorkspaceEmptyActionPayload;
   "cancel-run": AssistantWorkspaceEmptyActionPayload;
   "reply-run": { message: string };
+  "select-interaction-option": {
+    responseValue: unknown;
+    responseLabel: string;
+  };
+  "submit-interaction-files": AssistantWorkspaceEmptyActionPayload;
   "resolve-permission": {
     permissionRequestId: string;
     // Senders emit exactly these two outcomes; host handlers stay tolerant
@@ -145,6 +150,8 @@ export type AcpSkillsOnlyAction =
   | "interrupt-run-turn"
   | "cancel-run"
   | "reply-run"
+  | "select-interaction-option"
+  | "submit-interaction-files"
   | "copy-request-id";
 
 export type AcpChatAction = AcpChatOnlyAction | AcpSharedAction;

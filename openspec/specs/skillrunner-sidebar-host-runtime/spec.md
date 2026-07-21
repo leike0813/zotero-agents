@@ -280,6 +280,39 @@ SkillRunner SHALL normalize Assistant replacement identity and Thought/Tool proc
 - **THEN** its last current and cumulative category values are restored
 - **AND** foreground observation and critical-state behavior remain unchanged.
 
+### Requirement: SkillRunner waiting-user replies are canonical and interaction-id-bound
+
+The SkillRunner host runtime SHALL route Assistant waiting-user actions through the current selected run and preserve the backend-native numeric interaction id required by the SkillRunner API. The Assistant DTO and child action SHALL NOT expose a duplicate interaction token.
+
+#### Scenario: Current quick reply is submitted
+
+- **WHEN** the user submits text or a typed option for the selected waiting run
+- **THEN** the host SHALL read the current pending `interactionId`
+- **AND** submit that id and the canonical response to the backend.
+
+#### Scenario: File interaction changes during selection
+
+- **WHEN** the native picker completes after the current pending interaction id or waiting state changed
+- **THEN** the host SHALL not upload the selected files
+- **AND** the Assistant child SHALL not need to echo an interaction token.
+
+### Requirement: SkillRunner file replies are capability-gated
+
+The plugin SHALL treat file reply as unsupported unless handshake capability `skillrunner.interaction-files.v1` is present. It SHALL retain a text composer and show a localized unsupported state when disabled. When enabled, it SHALL enforce the lower of plugin and advertised limits and submit multipart metadata and repeated file parts through the management client.
+
+#### Scenario: Existing backend requests files
+
+- **WHEN** the handshake omits the file-reply capability
+- **THEN** the Assistant SHALL display the requested slots and unsupported status
+- **AND** SHALL NOT issue a multipart request
+
+#### Scenario: Capable backend accepts files
+
+- **WHEN** the capability is present and selected files fit effective limits
+- **THEN** the client SHALL POST to `/v1/jobs/{requestId}/interaction/reply/files`
+- **AND** metadata SHALL bind interaction id, idempotency key, slots, and file indexes
+- **AND** the multipart body SHALL carry repeated `files` parts
+
 ### Requirement: Run-workspace snapshot boundary is verified behaviorally
 
 The SkillRunner run-workspace snapshot contract SHALL be verified by tests
@@ -345,3 +378,14 @@ fields (hostMode, badges, sidebar, renderHints) SHALL remain optional.
 - **THEN** they SHALL accept or reject identically, because both call the
   same shared validate implementation.
 
+### Requirement: Temporary SkillRunner host detach MUST preserve transcript publication continuity
+The SkillRunner host runtime MUST distinguish temporary host detachment from complete runtime teardown. Temporary detachment MUST preserve the owner transcript revision and published transcript cache, while complete runtime teardown MUST clear them.
+
+#### Scenario: Same owner reattaches after backend history advances
+- **WHEN** a selected SkillRunner owner publishes revision N, its host temporarily detaches, backend history advances, and the same runtime reattaches to the retained consumer
+- **THEN** the reattached publication revision is not lower than N
+- **AND** the first eligible transcript update advances the revision and displays the new history without another owner switch.
+
+#### Scenario: Runtime is completely destroyed
+- **WHEN** plugin shutdown, test reset, or standalone dialog destruction performs complete runtime teardown
+- **THEN** the runtime clears its transcript publication clock and published transcript cache.

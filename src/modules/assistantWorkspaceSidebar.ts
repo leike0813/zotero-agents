@@ -80,7 +80,12 @@ import {
   setAcpSkillRunReasoningEffort,
   subscribeAcpSkillRunWorkspaceChanges,
 } from "./acpSkillRunStore";
-import { ACP_SKILLS_WORKSPACE_ADAPTER } from "./acpSkillsWorkspaceSurface";
+import { deterministicInteractionResponseText } from "../shared/assistantInteractionContract";
+import {
+  ACP_SKILLS_WORKSPACE_ADAPTER,
+  readAcpSkillRunWorkspaceRegions,
+} from "./acpSkillsWorkspaceSurface";
+import { submitAcpSkillRunInteractionFiles } from "./acpSkillRunInteractionFiles";
 import {
   attachSkillRunnerSidebarHost,
   detachSkillRunnerSidebarHost,
@@ -2969,6 +2974,51 @@ async function handleAcpSkillRunAction(
       await replyAcpSkillRun({
         requestId: String(payload.requestId || "").trim(),
         message: String(payload.message || ""),
+      });
+      return;
+    }
+    if (action === "select-interaction-option") {
+      const requestId = String(payload.requestId || "").trim();
+      const promptMessage = deterministicInteractionResponseText(
+        payload.responseValue,
+      );
+      const control = await readAcpSkillRunWorkspaceRegions({
+        requestId,
+        kinds: ["owner-control"],
+      });
+      const ownerControl = control["owner-control"];
+      const option = ownerControl?.interaction?.options.find(
+        (candidate) =>
+          deterministicInteractionResponseText(candidate.value) ===
+          promptMessage,
+      );
+      if (ownerControl?.status !== "waiting_user" || !option) {
+        throw new Error("ACP skill run is not waiting for that option.");
+      }
+      await replyAcpSkillRun({
+        requestId,
+        displayMessage: option.label || promptMessage,
+        promptMessage,
+      });
+      return;
+    }
+    if (action === "submit-interaction-files") {
+      const requestId = String(payload.requestId || "").trim();
+      const control = await readAcpSkillRunWorkspaceRegions({
+        requestId,
+        kinds: ["owner-control"],
+      });
+      const interaction = control["owner-control"]?.interaction;
+      if (
+        !interaction ||
+        interaction.inputKind !== "upload_files" ||
+        control["owner-control"]?.status !== "waiting_user"
+      ) {
+        throw new Error("ACP skill run is not waiting for file input.");
+      }
+      await submitAcpSkillRunInteractionFiles({
+        requestId,
+        slots: interaction.files,
       });
       return;
     }

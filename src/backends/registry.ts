@@ -185,6 +185,18 @@ function normalizeAcpOptionArray(value: unknown) {
     .filter((entry) => entry.id && entry.label);
 }
 
+function normalizeAcpReasoningSource(
+  value: unknown,
+): NonNullable<
+  NonNullable<
+    NonNullable<BackendInstance["acp"]>["runtimeOptionsCache"]
+  >["reasoningSource"]
+> | null {
+  return value === "explicit" || value === "model-derived" || value === "none"
+    ? value
+    : null;
+}
+
 function normalizeBackendsSchemaVersion(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Math.max(0, Math.floor(value));
@@ -609,6 +621,10 @@ function normalizeBackendEntry(
           currentReasoningEffortId: String(
             runtimeOptionsCacheRaw.currentReasoningEffortId || "",
           ).trim(),
+          reasoningSource:
+            normalizeAcpReasoningSource(
+              runtimeOptionsCacheRaw.reasoningSource,
+            ) || undefined,
         }
       : undefined;
     acp = {

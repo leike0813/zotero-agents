@@ -7,7 +7,8 @@ export type AcpRuntimePromptTemplateId =
   | "acp_chat_startup_preamble"
   | "acp_skills_startup_preamble"
   | "mcp_required_guard"
-  | "recovered_continuation_guard";
+  | "recovered_continuation_guard"
+  | "interaction_file_reply";
 
 export type AcpRuntimePromptTemplate = {
   id: AcpRuntimePromptTemplateId;
@@ -33,6 +34,10 @@ export const ACP_RUNTIME_PROMPT_TEMPLATES = [
   {
     id: "recovered_continuation_guard",
     filename: "recovered_continuation_guard.md",
+  },
+  {
+    id: "interaction_file_reply",
+    filename: "interaction_file_reply.md",
   },
 ] satisfies AcpRuntimePromptTemplate[];
 

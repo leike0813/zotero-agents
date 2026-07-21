@@ -479,6 +479,7 @@ export async function readAcpChatWorkspaceRegions(args: {
       status: String(snapshot.status || "idle"),
       busy: snapshot.busy === true,
       hint: acpChatHint(snapshot),
+      interaction: null,
       connection: {
         status: String(snapshot.status || "idle"),
         sessionAvailable: Boolean(

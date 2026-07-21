@@ -42,6 +42,7 @@ import {
   assertRequiredWorkflowParameters,
   listMissingRequiredWorkflowParameters,
   mergeExecutionOptions,
+  rebaseProviderOptionsForBackendChange,
   normalizeWorkflowParamsBySchema,
   parseSettingsRecord,
   serializeSettingsRecord,
@@ -99,6 +100,36 @@ type WorkflowSettingsSchemaEntry = {
   min?: number;
   max?: number;
 };
+
+export function rebaseWorkflowProviderOptionsForBackendChange(args: {
+  workflow: LoadedWorkflow;
+  previousBackendId?: string;
+  nextBackendId?: string;
+  options?: Record<string, unknown>;
+  candidateBackends: BackendInstance[];
+}) {
+  const nextBackendId = String(args.nextBackendId || "").trim();
+  const nextBackend = args.candidateBackends.find(
+    (backend) => String(backend.id || "").trim() === nextBackendId,
+  );
+  const providerId = resolveProviderIdForBackend({
+    workflow: args.workflow,
+    backend: nextBackend,
+  });
+  const provider = resolveProviderById(providerId);
+  const targetSchema = provider.getRuntimeOptionSchema?.() || {};
+  const rebased = rebaseProviderOptionsForBackendChange({
+    previousBackendId: args.previousBackendId,
+    nextBackendId,
+    targetSchema,
+    options: args.options,
+  });
+  return normalizeProviderRuntimeOptions({
+    providerId,
+    options: rebased,
+    backend: nextBackend,
+  });
+}
 
 type WorkflowSettingsProfileOption = {
   id: string;
