@@ -91,6 +91,6 @@ When reporting results, include the Zotero item keys, topic IDs, workflow IDs, r
 
 ## Maintenance Handling
 
-Use `synthesis cache status` and `synthesis index status` for read-only maintenance diagnostics. Use `synthesis cache invalidate` only for supported scopes and only when an approval-gated cache maintenance action is appropriate. Keep citation graph metric repair on `synthesis graph refresh-metrics`.
+Use `synthesis cache status` and `synthesis index status` for read-only maintenance diagnostics. Run `synthesis cache refresh-reference-sidecar` and `synthesis graph update` as separate approval-gated operations, preserve both operation ids, and never treat sidecar completion as graph completion. Use `synthesis cache invalidate` only for supported scopes. Keep citation graph metric repair on `synthesis graph refresh-metrics`.
 
 Use `scripts/zotero_librarian_notification_service.py sync` for non-blocking notification inbox refresh. Do not run long-polling waits from cron or from the agent loop.

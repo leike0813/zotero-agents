@@ -1,6 +1,8 @@
 {
   "id": "debug-sequence-countdown-probe",
   "label": "Debug: Sequence Countdown Probe",
+  "description": "Run the Debug: Sequence Countdown Probe diagnostic workflow to verify its named workflow-engine behavior.",
+  "executionModes": ["auto"],
   "version": "0.1.0",
   "provider": "skillrunner",
   "debug_only": true,

@@ -51,6 +51,7 @@ const REQUIRED_FILES = [
   "cron/library-hygiene.yaml",
   "cron/attention-queue.yaml",
   "assets/host-bridge/profile.example.json",
+  "assets/agent-helper-surface.json",
   "assets/profile-manifest-source.json",
 ];
 const SEMANTIC_SOURCE_FILES = [
@@ -350,6 +351,92 @@ function checkHostBridgeSurface(errors: string[]) {
   }
 }
 
+function checkHelperSurface(errors: string[]) {
+  const surface = json(join(PROFILE_ROOT, "assets/agent-helper-surface.json"));
+  if (surface.schema !== "agent-helper-surface.v1") {
+    fail(errors, "Librarian helper surface has an unsupported schema");
+    return;
+  }
+  for (const helper of surface.helpers || []) {
+    const source = read(join(PROFILE_ROOT, String(helper.executable || "")));
+    const commands = (helper.commands || []) as Array<{
+      command?: string;
+      options?: string[];
+      positionals?: string[];
+      result?: string;
+      errors?: string[];
+      effects?: string[];
+    }>;
+    const names = commands.map((entry) => entry.command || "");
+    if (!helper.description || new Set(names).size !== names.length) {
+      fail(errors, `Librarian helper descriptor is incomplete: ${helper.id}`);
+    }
+    for (const command of commands) {
+      if (
+        !command.command ||
+        !command.result ||
+        !Array.isArray(command.errors) ||
+        !Array.isArray(command.effects)
+      ) {
+        fail(
+          errors,
+          `Librarian helper command is incomplete: ${helper.id}/${command.command}`,
+        );
+      }
+    }
+    const parserCommands = new Set(
+      Array.from(
+        source.matchAll(/\.add_parser\(\s*["']([^"']+)["']/g),
+        (match) => match[1],
+      ),
+    );
+    const descriptorCommands = new Set(
+      names.filter((name) => name !== "install"),
+    );
+    if (
+      JSON.stringify([...parserCommands].sort()) !==
+      JSON.stringify([...descriptorCommands].sort())
+    ) {
+      fail(
+        errors,
+        `Librarian helper command inventory differs from argparse: ${helper.id}`,
+      );
+    }
+    const parserOptions = new Set(
+      Array.from(
+        source.matchAll(/\.add_argument\(\s*["'](--[^"']+)["']/g),
+        (match) => match[1],
+      ),
+    );
+    const descriptorOptions = new Set([
+      ...(helper.globalOptions || []),
+      ...commands.flatMap((entry) => entry.options || []),
+    ]);
+    if (
+      JSON.stringify([...parserOptions].sort()) !==
+      JSON.stringify([...descriptorOptions].sort())
+    ) {
+      fail(
+        errors,
+        `Librarian helper option inventory differs from argparse: ${helper.id}`,
+      );
+    }
+    const optionDescriptions = helper.optionDescriptions || {};
+    if (
+      JSON.stringify(Object.keys(optionDescriptions).sort()) !==
+        JSON.stringify([...descriptorOptions].sort()) ||
+      Object.values(optionDescriptions).some(
+        (description) => !String(description).trim(),
+      )
+    ) {
+      fail(
+        errors,
+        `Librarian helper options require exact non-empty descriptions: ${helper.id}`,
+      );
+    }
+  }
+}
+
 function checkWorkflowCatalog(errors: string[]) {
   const workflowReference = readProfile(
     "skills/zotero-librarian/references/workflows.md",
@@ -628,6 +715,7 @@ checkControlInvariantsReference(errors);
 checkProfileVersion(errors);
 checkSecrets(errors);
 checkHostBridgeSurface(errors);
+checkHelperSurface(errors);
 checkWorkflowCatalog(errors);
 checkCronAndScripts(errors);
 checkBinaries(errors);

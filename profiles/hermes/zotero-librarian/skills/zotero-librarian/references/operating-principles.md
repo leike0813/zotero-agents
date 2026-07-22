@@ -66,4 +66,4 @@ When attaching an agent-produced artifact, upload it first with `file upload`, t
 
 Recurring maintenance should stay small and observable. Read the attention queue with `synthesis insight attention-queue`, refresh only the needed local state, and leave broad changes to reviewed workflows.
 
-Use `synthesis cache status` and `synthesis index status` for read-only maintenance diagnostics. Use `synthesis cache invalidate` only for supported scopes and only as an approval-gated operation. Keep citation graph metric repair on `synthesis graph refresh-metrics`.
+Use `synthesis cache status` and `synthesis index status` for read-only maintenance diagnostics. Run `synthesis cache refresh-reference-sidecar` and `synthesis graph update` as separate approval-gated operations with separate receipts; a sidecar receipt is only an input basis for graph update. Use `synthesis cache invalidate` only for supported scopes. Keep citation graph metric repair on `synthesis graph refresh-metrics`.

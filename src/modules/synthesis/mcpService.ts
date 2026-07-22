@@ -60,6 +60,9 @@ export type SynthesisMcpService = {
   refreshCitationGraphMetricsNow?: (
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;
+  startReferenceSidecarRefresh?: SynthesisMcpServiceMethodHandler;
+  startCitationGraphUpdate?: SynthesisMcpServiceMethodHandler;
+  getPublicMaintenanceOperation?: SynthesisMcpServiceMethodHandler;
   getPaperArtifactManifest?: (
     args: Record<string, unknown>,
   ) => unknown | Promise<unknown>;

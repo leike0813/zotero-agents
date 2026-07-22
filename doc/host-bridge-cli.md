@@ -62,9 +62,11 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `citation_graph.rank_external_references` | citation_graph | `none` | `object` | `synthesis graph rank-external-references` | cache-view, response:paged, mcp-mirror |
 | `citation_graph.rank_library_papers` | citation_graph | `none` | `object` | `synthesis graph rank-library-papers` | cache-view, response:paged, mcp-mirror |
 | `citation_graph.refresh_metrics` | citation_graph | `zotero-ui-required` | `object` | `synthesis graph refresh-metrics` | dangerous, mcp-mirror |
+| `citation_graph.update` | citation_graph | `zotero-ui-required` | `object` | `synthesis graph update` | dangerous, mcp-mirror |
 | `library_index.get` | library_index | `none` | `object` | `synthesis index library get` | cache-view, response:paged, mcp-mirror |
 | `resolvers.resolve` | resolvers | `none` | `object` | `synthesis resolver resolve` | response:paged, mcp-mirror |
 | `reference_index.get` | reference_index | `none` | `object` | `synthesis index reference get` | cache-view, response:paged, mcp-mirror |
+| `reference_sidecar.refresh` | reference_index | `zotero-ui-required` | `object` | `synthesis cache refresh-reference-sidecar` | dangerous, mcp-mirror |
 | `paper_artifacts.export_filtered` | paper_artifacts | `none` | `object` | `synthesis artifact export-filtered` | response:file-output, mcp-mirror |
 | `paper_artifacts.get_manifest` | paper_artifacts | `none` | `object` | `synthesis artifact manifest` | response:selector-bounded, mcp-mirror |
 | `paper_artifacts.read` | paper_artifacts | `none` | `object` | `synthesis artifact read` | response:selector-bounded, mcp-mirror |
@@ -74,6 +76,7 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `mutation.preview` | mutation | `none` | `mutation-preview required` | `mutation preview` | mcp-mirror |
 | `workflow_products.remove` | mutation | `zotero-ui-required` | `object required` | `product remove` | mcp-mirror |
 | `diagnostic.get_status` | diagnostic | `none` | `none` | `raw call only` | raw-only, mcp-mirror |
+| `synthesis.operation.get` | diagnostic | `none` | `object required` | `synthesis cache status` | mcp-mirror |
 
 #### CLI mappings
 
@@ -105,7 +108,9 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `synthesis artifact read` | `paper_artifacts.read` | capability | - |
 | `synthesis artifact resolve-topic-digest` | `paper_artifacts.resolve_topic_digest` | capability | - |
 | `synthesis cache invalidate` | `POST /bridge/v1/synthesis/cache/invalidate` | endpoint | - |
+| `synthesis cache refresh-reference-sidecar` | `reference_sidecar.refresh` | capability | dangerous |
 | `synthesis cache status` | `GET /bridge/v1/synthesis/cache/status` | endpoint | - |
+| `synthesis cache status` | `synthesis.operation.get` | capability | - |
 | `synthesis concept query` | `concepts.query` | capability | - |
 | `synthesis graph get-layout` | `citation_graph.get_layout` | capability | cache-view |
 | `synthesis graph get-metrics` | `citation_graph.get_metrics` | capability | cache-view |
@@ -115,6 +120,7 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `synthesis graph rank-external-references` | `citation_graph.rank_external_references` | capability | cache-view |
 | `synthesis graph rank-library-papers` | `citation_graph.rank_library_papers` | capability | cache-view |
 | `synthesis graph refresh-metrics` | `citation_graph.refresh_metrics` | capability | dangerous |
+| `synthesis graph update` | `citation_graph.update` | capability | dangerous |
 | `synthesis index library get` | `library_index.get` | capability | cache-view |
 | `synthesis index reference get` | `reference_index.get` | capability | cache-view |
 | `synthesis index status` | `GET /bridge/v1/synthesis/index/status` | endpoint | - |
@@ -131,6 +137,9 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `workflow agent-run` | `POST /bridge/v1/workflows/agent-run` | endpoint | - |
 | `workflow describe` | `POST /bridge/v1/workflows/describe` | endpoint | - |
 | `workflow list` | `GET /bridge/v1/workflows` | endpoint | - |
+| `workflow profile describe` | `POST /bridge/v1/workflows/provider-profiles/describe` | endpoint | - |
+| `workflow profile list` | `GET /bridge/v1/workflows/provider-profiles` | endpoint | - |
+| `workflow profile validate` | `POST /bridge/v1/workflows/provider-profiles/validate` | endpoint | - |
 | `workflow requirements` | `POST /bridge/v1/workflows/requirements` | endpoint | - |
 | `workflow submit` | `POST /bridge/v1/workflows/submit` | endpoint | - |
 | `workflow validate` | `POST /bridge/v1/workflows/validate` | endpoint | - |

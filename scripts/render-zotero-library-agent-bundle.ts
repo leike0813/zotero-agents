@@ -9,6 +9,11 @@ import {
 } from "./zotero-library-agent-bundle-version";
 
 const ROOT = process.cwd();
+const outputRootIndex = process.argv.indexOf("--output-root");
+const OUTPUT_ROOT =
+  outputRootIndex >= 0 && process.argv[outputRootIndex + 1]
+    ? process.argv[outputRootIndex + 1]
+    : ROOT;
 const SOURCE_ROOT = "skills_src/zotero-library-agent/semantic";
 const RUNTIME_SOURCE_ROOT = "skills_src/zotero-library-agent";
 const TARGET_ROOT = "skills_builtin/zotero-library-agent";
@@ -42,8 +47,10 @@ export const ZOTERO_LIBRARY_AGENT_SEMANTIC_FILES = [
   "references/journeys/agent-owned-handoff.md",
   "references/journeys/concrete-writeback.md",
   "references/journeys/products-and-files.md",
+  "references/journeys/research-lifecycle.md",
   "assets/evidence-bundle.schema.json",
   "assets/evidence-input.example.json",
+  "assets/agent-helper-surface.json",
   "scripts/zotero_library_agent.py",
 ] as const;
 
@@ -66,8 +73,11 @@ function writeOrCheck(
   check: boolean,
   diffs: string[],
 ) {
-  const absolute = join(ROOT, path);
-  const current = existsSync(absolute) ? readFileSync(absolute, "utf8") : "";
+  const sourceAbsolute = join(ROOT, path);
+  const absolute = join(OUTPUT_ROOT, path);
+  const current = existsSync(sourceAbsolute)
+    ? readFileSync(sourceAbsolute, "utf8")
+    : "";
   if (current === next) {
     return;
   }
@@ -119,7 +129,9 @@ function renderManifestSource(
         cliVersion: release.version,
         cliIdentity: {
           schema:
-            agentSurface.cliSchema === "zotero-bridge.cli.v2"
+            agentSurface.cliSchema === "zotero-bridge.cli.v3"
+              ? "host-bridge.surface-identity.v3"
+              : agentSurface.cliSchema === "zotero-bridge.cli.v2"
               ? "host-bridge.surface-identity.v2"
               : "host-bridge.surface-identity.v1",
           protocol: agentSurface.protocol,

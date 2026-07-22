@@ -1,6 +1,8 @@
 {
   "id": "literature-metadata-curator",
   "label": "Literature Metadata Curator",
+  "description": "Audit and repair bibliographic metadata for selected literature using identifier and search evidence.",
+  "executionModes": ["auto"],
   "provider": "skillrunner",
   "version": "0.3.0",
   "display": {

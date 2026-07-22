@@ -15,7 +15,9 @@ scripts/zotero_librarian_workflow_service.py parent-selection --items .\items.js
 
 ## Provider Runtime Profile
 
-A provider is the workflow runtime family; a backend is its configured concrete instance selected by `backendId`; and a provider profile is an external workflow preset supplied in a single Host Bridge request. The profile carries that backend selection and non-sensitive provider-specific options. Host Bridge validates it for the request and does not save or manage it.
+A provider is a runtime family; a backend is its configured concrete instance selected by `backendId`; and a provider profile is a workflow-independent backend selection plus non-sensitive provider-specific options. Discover and validate it with `workflow profile list|describe|validate`, without a workflow id. Discover and validate workflow selection/options separately. Only `workflow submit` combines both contracts and checks compatibility; Host Bridge does not save named profiles.
+
+The resident process may set `ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE` to inline JSON or `@` plus an absolute profile path. An explicit `--provider-profile`, including `{}`, takes precedence. Treat this as process configuration: do not claim Zotero persisted it, do not print its contents in logs, and do not apply it to `workflow agent-run`.
 
 For a pre-authorized ACP workflow, submit `{"providerOptions":{"autoApproveAcpPermissions":true}}` through the workflow provider profile. This controls ACP backend tool-permission handling only for that run. It is not Zotero write approval, `autoApproveZoteroWrites`, or a direct action on a pending permission request.
 

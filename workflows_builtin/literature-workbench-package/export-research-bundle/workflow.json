@@ -1,6 +1,8 @@
 {
   "id": "export-research-bundle",
   "label": "Export Research Bundle",
+  "description": "Export manuscript-oriented research materials, analyzed literature artifacts, and synthesis evidence into a portable bundle.",
+  "executionModes": ["auto"],
   "provider": "skillrunner",
   "version": "0.1.0",
   "display": { "core": true, "emoji": "🧰" },

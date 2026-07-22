@@ -13,6 +13,8 @@ from typing import Any
 
 EVIDENCE_SCHEMA = "zotero-library-agent.evidence-bundle.v1"
 OUTPUT_CONTRACT_SCHEMA = "zotero-bridge.agent-run.output-contract.v1"
+PROVIDER_PROFILE_SCHEMA = "zotero-bridge.provider-profile.v1"
+DEFAULT_PROVIDER_PROFILE_ENV = "ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE"
 SENSITIVE_KEYS = {
     "authorization",
     "cookie",
@@ -247,27 +249,119 @@ def workflow_validate_result(args: argparse.Namespace) -> dict[str, Any]:
         reader.close()
 
 
+def validate_provider_profile(value: Any) -> dict[str, Any]:
+    profile = require_record(value, "provider profile")
+    reject_sensitive(profile)
+    unsupported = sorted(set(profile) - {"schema", "backendId", "providerOptions"})
+    if unsupported:
+        raise HelperError(
+            "invalid_provider_profile",
+            "provider profile contains unsupported fields",
+            {"fields": unsupported},
+        )
+    schema = profile.get("schema") or PROVIDER_PROFILE_SCHEMA
+    if schema != PROVIDER_PROFILE_SCHEMA:
+        raise HelperError(
+            "invalid_provider_profile",
+            f"schema must be {PROVIDER_PROFILE_SCHEMA}",
+        )
+    backend_id = require_string(profile.get("backendId"), "backendId")
+    provider_options = require_record(
+        profile.get("providerOptions", {}), "providerOptions"
+    )
+    return {
+        "schema": PROVIDER_PROFILE_SCHEMA,
+        "backendId": backend_id,
+        "providerOptions": provider_options,
+    }
+
+
+def provider_profile_validate(args: argparse.Namespace) -> dict[str, Any]:
+    validate_provider_profile(read_json(Path(args.input).expanduser()))
+    return {
+        "ok": True,
+        "schema": PROVIDER_PROFILE_SCHEMA,
+        "nextCommand": "zotero-bridge workflow profile validate --provider-profile @<absolute-path>",
+    }
+
+
+def provider_profile_prepare(args: argparse.Namespace) -> dict[str, Any]:
+    profile = validate_provider_profile(read_json(Path(args.input).expanduser()))
+    output = Path(args.output).expanduser().resolve()
+    write_json(output, profile)
+    return {
+        "ok": True,
+        "schema": PROVIDER_PROFILE_SCHEMA,
+        "output": str(output),
+        "environment": {
+            "name": DEFAULT_PROVIDER_PROFILE_ENV,
+            "value": f"@{output}",
+        },
+        "nextCommand": f"zotero-bridge workflow profile validate --provider-profile @{output}",
+    }
+
+
 def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser(description="Stateless Zotero Library Agent bundle helpers")
+    root = argparse.ArgumentParser(
+        description="Build auditable evidence, inspect workflow handoffs, and prepare non-sensitive default provider profiles for Zotero Library Agent tasks."
+    )
     families = root.add_subparsers(dest="family", required=True)
-    evidence = families.add_parser("evidence")
+    evidence = families.add_parser(
+        "evidence", help="Build or validate a portable, hash-bound evidence bundle."
+    )
     evidence_commands = evidence.add_subparsers(dest="command", required=True)
-    build = evidence_commands.add_parser("build")
-    build.add_argument("--input", required=True)
-    build.add_argument("--output", required=True)
+    build = evidence_commands.add_parser(
+        "build", help="Build evidence JSON and hash every declared local artifact."
+    )
+    build.add_argument("--input", required=True, help="Evidence source JSON path.")
+    build.add_argument("--output", required=True, help="Evidence JSON output path.")
     build.set_defaults(handler=evidence_build)
-    validate = evidence_commands.add_parser("validate")
-    validate.add_argument("--input", required=True)
+    validate = evidence_commands.add_parser(
+        "validate", help="Validate evidence shape and recheck available artifact hashes."
+    )
+    validate.add_argument("--input", required=True, help="Evidence JSON path.")
     validate.set_defaults(handler=evidence_validate)
-    workflow = families.add_parser("workflow")
+    workflow = families.add_parser(
+        "workflow", help="Inspect an agent-run handoff or validate a result bundle."
+    )
     workflow_commands = workflow.add_subparsers(dest="command", required=True)
-    inspect = workflow_commands.add_parser("inspect")
-    inspect.add_argument("--bundle", required=True)
+    inspect = workflow_commands.add_parser(
+        "inspect", help="Read handoff request ids and output contracts from a directory or ZIP."
+    )
+    inspect.add_argument("--bundle", required=True, help="Agent-run handoff directory or ZIP.")
     inspect.set_defaults(handler=workflow_inspect)
-    result = workflow_commands.add_parser("validate-result")
-    result.add_argument("--contract", required=True)
-    result.add_argument("--result", required=True)
+    result = workflow_commands.add_parser(
+        "validate-result", help="Validate one result bundle against its output contract."
+    )
+    result.add_argument("--contract", required=True, help="Output-contract JSON path.")
+    result.add_argument("--result", required=True, help="Result bundle directory or ZIP.")
     result.set_defaults(handler=workflow_validate_result)
+    provider_profile = families.add_parser(
+        "provider-profile",
+        help="Validate or prepare a workflow-independent default provider profile.",
+    )
+    provider_profile_commands = provider_profile.add_subparsers(
+        dest="command", required=True
+    )
+    profile_validate = provider_profile_commands.add_parser(
+        "validate",
+        help="Validate the local safe profile envelope before backend-aware CLI validation.",
+    )
+    profile_validate.add_argument(
+        "--input", required=True, help="Provider profile JSON path."
+    )
+    profile_validate.set_defaults(handler=provider_profile_validate)
+    profile_prepare = provider_profile_commands.add_parser(
+        "prepare-default",
+        help="Write a normalized profile file and return the environment value used by the CLI.",
+    )
+    profile_prepare.add_argument(
+        "--input", required=True, help="Provider profile source JSON path."
+    )
+    profile_prepare.add_argument(
+        "--output", required=True, help="Provider profile output path; resolved to absolute."
+    )
+    profile_prepare.set_defaults(handler=provider_profile_prepare)
     return root
 
 

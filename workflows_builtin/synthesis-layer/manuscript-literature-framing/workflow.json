@@ -1,6 +1,8 @@
 {
   "id": "manuscript-literature-framing",
   "label": "Manuscript Literature Framing",
+  "description": "Generate manuscript introduction and related-work framing from selected synthesis topics and library evidence.",
+  "executionModes": ["auto"],
   "provider": "skillrunner",
   "version": "0.2.0",
   "display": {

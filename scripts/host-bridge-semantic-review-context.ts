@@ -97,6 +97,7 @@ function isAgentControlContract(path: string) {
     path === "cli/zotero-bridge/src/error.rs" ||
     path === "scripts/host-bridge-agent-surface.ts" ||
     path === "schemas/host-bridge.agent-surface.v2.schema.json" ||
+    path === "schemas/host-bridge.agent-surface.v3.schema.json" ||
     path === "src/modules/hostBridgeWorkflowAgentRunStore.ts"
   );
 }

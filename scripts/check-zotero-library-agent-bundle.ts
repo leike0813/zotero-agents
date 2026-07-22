@@ -200,6 +200,86 @@ function checkSchemaAndHelper(errors: string[]) {
       );
     }
   }
+  const surface = readJson(
+    join(TARGET_ROOT, "assets/agent-helper-surface.json"),
+  );
+  if (surface.schema !== "agent-helper-surface.v1") {
+    fail(errors, "Library Agent helper surface has an unsupported schema");
+    return;
+  }
+  const commands = (surface.helpers?.[0]?.commands || []) as Array<{
+    command?: string;
+    options?: string[];
+    result?: string;
+    errors?: string[];
+    effects?: string[];
+  }>;
+  const commandNames = commands.map((entry) => entry.command || "");
+  if (new Set(commandNames).size !== commandNames.length) {
+    fail(errors, "Library Agent helper surface contains duplicate commands");
+  }
+  for (const command of commands) {
+    if (
+      !command.command ||
+      !command.result ||
+      !Array.isArray(command.errors) ||
+      !Array.isArray(command.effects)
+    ) {
+      fail(
+        errors,
+        `Library Agent helper command is incomplete: ${command.command}`,
+      );
+    }
+  }
+  const parserTokens = new Set(
+    Array.from(
+      helper.matchAll(/\.add_parser\(\s*["']([^"']+)["']/g),
+      (match) => match[1],
+    ),
+  );
+  const descriptorTokens = new Set(
+    commandNames.flatMap((name) => name.split(" ")),
+  );
+  if (
+    JSON.stringify([...parserTokens].sort()) !==
+    JSON.stringify([...descriptorTokens].sort())
+  ) {
+    fail(
+      errors,
+      "Library Agent helper descriptor command inventory differs from argparse",
+    );
+  }
+  const parserOptions = new Set(
+    Array.from(
+      helper.matchAll(/\.add_argument\(\s*["'](--[^"']+)["']/g),
+      (match) => match[1],
+    ),
+  );
+  const descriptorOptions = new Set(
+    commands.flatMap((entry) => entry.options || []),
+  );
+  if (
+    JSON.stringify([...parserOptions].sort()) !==
+    JSON.stringify([...descriptorOptions].sort())
+  ) {
+    fail(
+      errors,
+      "Library Agent helper descriptor option inventory differs from argparse",
+    );
+  }
+  const optionDescriptions = surface.helpers?.[0]?.optionDescriptions || {};
+  if (
+    JSON.stringify(Object.keys(optionDescriptions).sort()) !==
+      JSON.stringify([...descriptorOptions].sort()) ||
+    Object.values(optionDescriptions).some(
+      (description) => !String(description).trim(),
+    )
+  ) {
+    fail(
+      errors,
+      "Library Agent helper options require exact non-empty descriptions",
+    );
+  }
 }
 
 function checkVersionAndManifest(errors: string[]) {

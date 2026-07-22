@@ -1,6 +1,8 @@
 {
   "id": "mineru",
   "label": "MinerU",
+  "description": "Convert selected PDF attachments into structured Markdown and image artifacts and attach the result to Zotero.",
+  "executionModes": ["auto"],
   "provider": "generic-http",
   "version": "0.1.0",
   "display": {

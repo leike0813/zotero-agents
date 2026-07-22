@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import os
 import sqlite3
 import subprocess
 import sys
@@ -301,8 +302,6 @@ def workflow_options_args(args: argparse.Namespace) -> list[str]:
     extra: list[str] = []
     if getattr(args, "workflow_options", None):
         extra.extend(["--workflow-options", args.workflow_options])
-    if getattr(args, "provider_profile", None):
-        extra.extend(["--provider-profile", args.provider_profile])
     return extra
 
 
@@ -337,6 +336,7 @@ def plan(args: argparse.Namespace) -> int:
         ]
     )
     validation: Any = None
+    provider_validation: Any = None
     if args.mode == "host":
         command = ["workflow", "validate", "--workflow", args.workflow]
         if selection_kind == "none":
@@ -345,6 +345,17 @@ def plan(args: argparse.Namespace) -> int:
             command.extend(["--items", json.dumps(items, ensure_ascii=False)])
         command.extend(workflow_options_args(args))
         validation = unwrap_bridge_data(call_bridge(args.bridge, command))
+        if args.provider_profile or os.environ.get(
+            "ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE"
+        ):
+            profile_command = ["workflow", "profile", "validate"]
+            if args.provider_profile:
+                profile_command.extend(
+                    ["--provider-profile", args.provider_profile]
+                )
+            provider_validation = unwrap_bridge_data(
+                call_bridge(args.bridge, profile_command)
+            )
     result = {
         "schema": SCHEMA,
         "generatedAt": utc_now(),
@@ -357,6 +368,7 @@ def plan(args: argparse.Namespace) -> int:
         "providerProfile": read_json_arg(args.provider_profile, {}) if args.provider_profile else {},
         "submissions": submissions,
         "validation": validation,
+        "providerValidation": provider_validation,
         "requiresConcurrencyConfirmation": len(submissions) > 1,
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -467,36 +479,45 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bridge", default="zotero-bridge", help="zotero-bridge executable")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    parent = sub.add_parser("parent-selection")
+    parent = sub.add_parser(
+        "parent-selection",
+        help="Normalize explicit or current Zotero selection to top-level parent item refs.",
+    )
     parent_group = parent.add_mutually_exclusive_group(required=True)
-    parent_group.add_argument("--items")
-    parent_group.add_argument("--from-context", action="store_true")
-    parent.add_argument("--workflow")
+    parent_group.add_argument("--items", help="Item refs as JSON, file path, or @file.")
+    parent_group.add_argument(
+        "--from-context", action="store_true", help="Read the current Zotero selection."
+    )
+    parent.add_argument("--workflow", help="Optional workflow id for selection diagnostics.")
     parent.set_defaults(func=parent_selection)
 
-    readiness = sub.add_parser("readiness-plan")
-    readiness.add_argument("--check", required=True, choices=["missing-pdf", "missing-markdown", "missing-analysis"])
-    readiness.add_argument("--input", default="{}")
-    readiness.add_argument("--workflow")
-    readiness.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
+    readiness = sub.add_parser(
+        "readiness-plan", help="Build parent-item batches from one library readiness check."
+    )
+    readiness.add_argument("--check", required=True, choices=["missing-pdf", "missing-markdown", "missing-analysis"], help="Readiness gap to query.")
+    readiness.add_argument("--input", default="{}", help="Readiness query JSON, file path, or @file.")
+    readiness.add_argument("--workflow", help="Workflow id to recommend for each batch.")
+    readiness.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE, help="Maximum parent refs in each planned batch.")
     readiness.set_defaults(func=readiness_plan)
 
-    plan_parser = sub.add_parser("plan")
-    plan_parser.add_argument("--workflow", required=True)
-    plan_parser.add_argument("--mode", choices=["host", "agent"], required=True)
+    plan_parser = sub.add_parser(
+        "plan", help="Validate independent workflow/profile inputs and create a deterministic submission plan."
+    )
+    plan_parser.add_argument("--workflow", required=True, help="Workflow id.")
+    plan_parser.add_argument("--mode", choices=["host", "agent"], required=True, help="Host-owned submit or agent-owned handoff.")
     group = plan_parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--items")
-    group.add_argument("--from-context", action="store_true")
-    group.add_argument("--none", action="store_true")
-    plan_parser.add_argument("--workflow-options")
-    plan_parser.add_argument("--provider-profile")
+    group.add_argument("--items", help="Item refs as JSON, file path, or @file.")
+    group.add_argument("--from-context", action="store_true", help="Use current Zotero selection.")
+    group.add_argument("--none", action="store_true", help="Use an explicit no-selection workflow input.")
+    plan_parser.add_argument("--workflow-options", help="Workflow-owned options JSON, file path, or @file.")
+    plan_parser.add_argument("--provider-profile", help="Backend-owned provider profile JSON, file path, or @file; host mode only.")
     plan_parser.set_defaults(func=plan)
 
-    submit_parser = sub.add_parser("submit")
-    submit_parser.add_argument("--plan", required=True)
-    submit_parser.add_argument("--concurrency", type=int, default=1)
-    submit_parser.add_argument("--confirm-concurrency", action="store_true")
-    submit_parser.add_argument("--output-dir")
+    submit_parser = sub.add_parser("submit", help="Launch bounded submissions from a validated plan.")
+    submit_parser.add_argument("--plan", required=True, help="Plan JSON produced by this helper.")
+    submit_parser.add_argument("--concurrency", type=int, default=1, help="Maximum plan entries to launch now; defaults to one.")
+    submit_parser.add_argument("--confirm-concurrency", action="store_true", help="Confirm an explicitly requested concurrency greater than one.")
+    submit_parser.add_argument("--output-dir", help="Agent-run handoff download directory.")
     submit_parser.set_defaults(func=submit)
     return parser
 

@@ -45,6 +45,9 @@ zotero-bridge bridge backend list
 zotero-bridge bridge backend status <backendId>
 zotero-bridge workflow requirements --workflow <workflowId>
 zotero-bridge workflow validate --workflow <workflowId> --selection <JSON_OR_FILE>
+zotero-bridge workflow profile list
+zotero-bridge workflow profile describe --backend <backendId>
+zotero-bridge workflow profile validate --provider-profile <JSON_OR_FILE>
 ```
 
 Diagnostics are lightweight projections for agent decisions. They must not be treated as sources for tokens, private backend payloads, complete local paths, transcripts, or unrestricted backend error text.
@@ -147,7 +150,9 @@ Use `product list --limit <n>` and returned cursor metadata for bounded Product 
 
 ## Request-Level Provider Profiles
 
-Use `--provider-profile` only for a request-level provider preset supplied by the calling agent or workflow. It selects a configured backend and non-sensitive provider options; it does not select or modify the Host Bridge connection profile.
+Use `--provider-profile` only for a workflow-independent backend profile supplied by the caller or by `ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE`. It selects a configured backend and non-sensitive provider options; it does not select or modify the Host Bridge connection profile. Workflow describe and validate reject it. Profile describe/validate never accept a workflow id, and submission is the sole compatibility join point.
+
+Use `synthesis cache refresh-reference-sidecar` and `synthesis graph update` as separate approval-gated operations. Preserve each returned operation id, poll it with `synthesis cache status --operation-id`, and pass the committed sidecar basis hash to graph update when freshness must be enforced.
 
 For an ACP workflow whose contract allows it, `{"providerOptions":{"autoApproveAcpPermissions":true}}` automates ACP backend tool-permission requests for that submitted run. It does not approve Zotero writes and does not decide pending requests exposed by `run permission`.
 

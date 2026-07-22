@@ -472,12 +472,63 @@ export class SkillRunnerProvider implements Provider {
         `Unsupported request kind for SkillRunner: ${args.requestKind}`,
       );
     }
-    const normalizedProviderOptions = this.normalizeRuntimeOptions(
-      args.providerOptions || {},
-      backend || undefined,
-    );
+    const normalizedProviderOptions: Record<string, unknown> =
+      this.normalizeRuntimeOptions(
+        args.providerOptions || {},
+        backend || undefined,
+      );
     const backendId = backend?.id;
     const backendType = backend?.type || "skillrunner";
+    for (const [optionKey, requested] of Object.entries(
+      args.providerOptions || {},
+    )) {
+      const applied = normalizedProviderOptions[optionKey];
+      const allowedValues =
+        this.getRuntimeOptionEnumValues({
+          key: optionKey,
+          options: args.providerOptions || {},
+          backend: backend || undefined,
+        }) || [];
+      if (
+        !Object.prototype.hasOwnProperty.call(
+          normalizedProviderOptions,
+          optionKey,
+        ) ||
+        (typeof requested === "string" &&
+          requested.trim() &&
+          allowedValues.length > 0 &&
+          !allowedValues.includes(requested)) ||
+        (typeof requested === "string" &&
+          requested.trim() &&
+          typeof applied === "string" &&
+          (!applied.trim() ||
+            (["engine", "provider_id", "model", "effort"].includes(optionKey) &&
+              applied !== requested)))
+      ) {
+        appendRuntimeLog({
+          level: "error",
+          scope: "provider",
+          backendId,
+          backendType,
+          providerId: this.id,
+          component: "skillrunner-provider",
+          operation: "execute",
+          phase: "terminal",
+          stage: "provider-profile-option-rejected",
+          message: "skillrunner provider profile option was rejected",
+          details: {
+            optionKey,
+            reasonCode: "provider_profile_option_unavailable",
+          },
+        });
+        const error = new Error(
+          `Provider profile option is unavailable: ${optionKey}`,
+        );
+        (error as { code?: string }).code =
+          "provider_profile_option_unavailable";
+        throw error;
+      }
+    }
     if (backend && backend.type === "skillrunner") {
       const ensureResult = await ensureManagedLocalRuntimeForBackend(
         backend.id,
@@ -544,6 +595,21 @@ export class SkillRunnerProvider implements Provider {
         model: normalizedProviderOptions.model,
       },
     });
+    for (const optionKey of Object.keys(args.providerOptions || {})) {
+      appendRuntimeLog({
+        level: "info",
+        scope: "provider",
+        backendId,
+        backendType,
+        providerId: this.id,
+        component: "skillrunner-provider",
+        operation: "execute",
+        phase: "start",
+        stage: "provider-profile-option-applied",
+        message: "skillrunner provider profile option was applied",
+        details: { optionKey },
+      });
+    }
     const client =
       this.staticClient ||
       new SkillRunnerClient({

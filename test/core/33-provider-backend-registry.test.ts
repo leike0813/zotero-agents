@@ -345,7 +345,7 @@ describe("provider/backend registry", function () {
     ]);
   });
 
-  it("rejects unverifiable or catalog-external ACP runtime selections while preserving workflow-scoped options", function () {
+  it("preserves explicit ACP selections so dispatch can reject unavailable values", function () {
     const provider = resolveProviderById("acp");
     const normalized = provider.normalizeRuntimeOptions?.(
       {
@@ -363,6 +363,9 @@ describe("provider/backend registry", function () {
     );
 
     assert.deepEqual(normalized, {
+      acpModeId: "plan",
+      acpModelId: "provider/model-b",
+      acpReasoningEffort: "high",
       autoApproveAcpPermissions: true,
       hard_timeout_seconds: 45,
     });
@@ -393,9 +396,9 @@ describe("provider/backend registry", function () {
       },
     );
     assert.deepEqual(incompleteCache, {
-      acpModeId: "code",
-      acpModelId: "provider/model-a",
-      acpReasoningEffort: "low",
+      acpModeId: "plan",
+      acpModelId: "provider/model-b",
+      acpReasoningEffort: "high",
     });
   });
 

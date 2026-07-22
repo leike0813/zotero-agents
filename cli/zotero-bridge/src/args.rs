@@ -657,13 +657,28 @@ pub enum SynthesisCacheCommand {
         about = "Read Synthesis cache maintenance status",
         long_about = "Call GET /bridge/v1/synthesis/cache/status."
     )]
-    Status,
+    Status(SynthesisCacheStatusArgs),
+
+    #[command(
+        about = "Start a reference-sidecar refresh",
+        long_about = "Map to Host Bridge capability reference_sidecar.refresh. Use --input for a library scope or bounded same-library paper_refs scope. This mutation requires its own Zotero-side approval and returns a persistent operation handle; it never updates the citation graph."
+    )]
+    RefreshReferenceSidecar(BridgeInputArgs),
 
     #[command(
         about = "Invalidate a constrained Synthesis cache scope",
         long_about = "Call POST /bridge/v1/synthesis/cache/invalidate. Scope must be topic, graph, or index and requires Zotero-side approval."
     )]
     Invalidate(SynthesisCacheInvalidateArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct SynthesisCacheStatusArgs {
+    #[arg(
+        long,
+        help = "Persistent maintenance operation id to read; omit for general cache status"
+    )]
+    pub operation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -811,6 +826,12 @@ pub enum CitationGraphCommand {
         long_about = "Map to Host Bridge capability citation_graph.refresh_metrics. This diagnostic repair command requires Zotero-side approval and refreshes persisted complex metrics from the current graph cache without rebuilding graph structure."
     )]
     RefreshMetrics(BridgeInputArgs),
+
+    #[command(
+        about = "Start a citation graph update",
+        long_about = "Map to Host Bridge capability citation_graph.update. Use --input for a library scope or bounded paper_refs closure and optional expected_reference_basis_hash. This mutation requires a separate Zotero-side approval and returns a persistent operation handle."
+    )]
+    Update(BridgeInputArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1119,22 +1140,28 @@ pub enum WorkflowCommand {
     Submit(WorkflowSubmitArgs),
 
     #[command(
-        about = "Describe workflow selection, option, and provider profile requirements",
-        long_about = "Call POST /bridge/v1/workflows/describe. This read-only command returns selection requirements, workflow option schema, compatible backend profiles, provider option schema, and normalized draft values."
+        about = "Describe workflow selection and workflow options",
+        long_about = "Call POST /bridge/v1/workflows/describe. This read-only command returns workflow-owned selection, option, execution-mode, and provider-requirement facts. Use workflow profile commands for backend-owned provider options."
     )]
     Describe(WorkflowDescribeArgs),
 
     #[command(
         about = "Validate workflow input without starting execution",
-        long_about = "Validate a workflow request without starting a task. Uses the same selection, workflow option, and provider profile payload shape as workflow submit."
+        long_about = "Validate workflow-owned selection and workflow options without resolving a provider profile or starting a task."
     )]
-    Validate(WorkflowSubmitArgs),
+    Validate(WorkflowValidateArgs),
 
     #[command(
         about = "Read workflow requirements",
-        long_about = "Call POST /bridge/v1/workflows/requirements. This returns selection, workflow option, and provider profile requirements without starting a task."
+        long_about = "Call POST /bridge/v1/workflows/requirements. This returns workflow-owned selection, option, execution-mode, and provider-requirement facts without starting a task."
     )]
     Requirements(WorkflowRequirementsArgs),
+
+    #[command(
+        about = "Discover and validate backend-owned provider profiles",
+        long_about = "Provider profile commands are backend-scoped and do not accept a workflow id. Workflow submit is the only command that combines a workflow with a provider profile."
+    )]
+    Profile(WorkflowProfileArgs),
 
     #[command(
         about = "Prepare a self-owned agent workflow handoff bundle",
@@ -1203,11 +1230,69 @@ pub struct WorkflowDescribeArgs {
         help = "Draft workflow options JSON object, file path, @file, or '-' for stdin"
     )]
     pub workflow_options: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowValidateArgs {
+    #[arg(long, help = "Workflow id to validate")]
+    pub workflow: String,
+
+    #[arg(
+        long = "selection",
+        alias = "items",
+        value_name = "JSON_OR_FILE",
+        conflicts_with = "none",
+        required_unless_present = "none",
+        help = "Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin"
+    )]
+    pub selection: Option<String>,
+
+    #[arg(
+        long,
+        conflicts_with = "selection",
+        help = "Validate a no-selection workflow"
+    )]
+    pub none: bool,
 
     #[arg(
         long,
         value_name = "JSON_OR_FILE",
-        help = "Draft provider profile JSON object with backendId and providerOptions"
+        help = "Workflow options JSON object, file path, @file, or '-' for stdin"
+    )]
+    pub workflow_options: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowProfileArgs {
+    #[command(subcommand)]
+    pub command: WorkflowProfileCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum WorkflowProfileCommand {
+    #[command(about = "List configured backend provider profiles")]
+    List,
+    #[command(about = "Describe the provider profile contract for one backend")]
+    Describe(WorkflowProfileDescribeArgs),
+    #[command(about = "Validate and normalize one backend provider profile")]
+    Validate(WorkflowProfileValidateArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowProfileDescribeArgs {
+    #[arg(
+        long,
+        help = "Configured backend id whose provider profile is described"
+    )]
+    pub backend: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowProfileValidateArgs {
+    #[arg(
+        long,
+        value_name = "JSON_OR_FILE",
+        help = "Provider profile JSON object; when omitted, use ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE"
     )]
     pub provider_profile: Option<String>,
 }
@@ -1802,14 +1887,15 @@ mod tests {
     use clap::{CommandFactory, Parser};
 
     use super::{
-        AnnotationCommand, BridgeBackendCommand, BridgeCommand, BridgeProfileCommand, Cli, Command,
-        ContextCollectionCommand, ContextCommand, ContextItemCommand, ContextNoteCommand,
-        ContextSelectionCommand, FileCommand, ItemCommand, LibraryCommand, LibraryItemsCommand,
-        LibraryReadinessCommand, MutationCollectionCommand, MutationCommand, MutationItemCommand,
-        MutationNoteCommand, MutationTagCommand, NotificationCommand, ProductCommand, RunArgs,
-        RunCommand, RunPermissionCommand, RunWorkflowCommand, SkillRunCommand, SurfaceCommand,
-        SynthesisCacheCommand, SynthesisCommand, SynthesisIndexCommand, TopicsCommand,
-        WorkflowCommand,
+        AnnotationCommand, BridgeBackendCommand, BridgeCommand, BridgeProfileCommand,
+        CitationGraphCommand, Cli, Command, ContextCollectionCommand, ContextCommand,
+        ContextItemCommand, ContextNoteCommand, ContextSelectionCommand, FileCommand, ItemCommand,
+        LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand, MutationCollectionCommand,
+        MutationCommand, MutationItemCommand, MutationNoteCommand, MutationTagCommand,
+        NotificationCommand, ProductCommand, RunArgs, RunCommand, RunPermissionCommand,
+        RunWorkflowCommand, SkillRunCommand, SurfaceCommand, SynthesisCacheCommand,
+        SynthesisCommand, SynthesisIndexCommand, TopicsCommand, WorkflowCommand,
+        WorkflowProfileCommand,
     };
 
     #[test]
@@ -2274,6 +2360,28 @@ mod tests {
             },
             _ => panic!("expected synthesis command"),
         }
+
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "synthesis",
+            "graph",
+            "update",
+            "--input",
+            r#"{"scope":"papers","paper_refs":["1:ABCD1234"]}"#,
+        ]);
+        match cli.command {
+            Command::Synthesis(args) => match args.command {
+                SynthesisCommand::Graph(args) => match args.command {
+                    CitationGraphCommand::Update(input) => assert!(input
+                        .input
+                        .as_deref()
+                        .is_some_and(|value| value.contains("paper_refs"))),
+                    _ => panic!("expected citation graph update"),
+                },
+                _ => panic!("expected synthesis graph"),
+            },
+            _ => panic!("expected synthesis command"),
+        }
     }
 
     #[test]
@@ -2305,8 +2413,31 @@ mod tests {
         match cli.command {
             Command::Synthesis(args) => match args.command {
                 SynthesisCommand::Cache(args) => match args.command {
-                    SynthesisCacheCommand::Status => {}
+                    SynthesisCacheCommand::Status(input) => {
+                        assert!(input.operation_id.is_none());
+                    }
                     _ => panic!("expected synthesis cache status"),
+                },
+                _ => panic!("expected synthesis cache"),
+            },
+            _ => panic!("expected synthesis command"),
+        }
+
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "synthesis",
+            "cache",
+            "refresh-reference-sidecar",
+            "--input",
+            r#"{"scope":"library"}"#,
+        ]);
+        match cli.command {
+            Command::Synthesis(args) => match args.command {
+                SynthesisCommand::Cache(args) => match args.command {
+                    SynthesisCacheCommand::RefreshReferenceSidecar(input) => {
+                        assert_eq!(input.input.as_deref(), Some(r#"{"scope":"library"}"#));
+                    }
+                    _ => panic!("expected reference sidecar refresh"),
                 },
                 _ => panic!("expected synthesis cache"),
             },
@@ -2549,7 +2680,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_workflow_describe_with_profile_inputs() {
+    fn parses_workflow_describe_with_workflow_options_only() {
         let cli = Cli::parse_from([
             "zotero-bridge",
             "workflow",
@@ -2558,8 +2689,6 @@ mod tests {
             "literature-analysis",
             "--workflow-options",
             "{\"language\":\"zh-CN\"}",
-            "--provider-profile",
-            "{\"backendId\":\"acp-opencode\"}",
         ]);
 
         match cli.command {
@@ -2570,15 +2699,71 @@ mod tests {
                         input.workflow_options.as_deref(),
                         Some("{\"language\":\"zh-CN\"}")
                     );
-                    assert_eq!(
-                        input.provider_profile.as_deref(),
-                        Some("{\"backendId\":\"acp-opencode\"}")
-                    );
                 }
                 _ => panic!("expected workflow describe"),
             },
             _ => panic!("expected workflow command"),
         }
+    }
+
+    #[test]
+    fn parses_backend_scoped_workflow_profile_commands() {
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "workflow",
+            "profile",
+            "describe",
+            "--backend",
+            "acp-opencode",
+        ]);
+        match cli.command {
+            Command::Workflow(args) => match args.command {
+                WorkflowCommand::Profile(args) => match args.command {
+                    WorkflowProfileCommand::Describe(input) => {
+                        assert_eq!(input.backend, "acp-opencode");
+                    }
+                    _ => panic!("expected workflow profile describe"),
+                },
+                _ => panic!("expected workflow profile"),
+            },
+            _ => panic!("expected workflow command"),
+        }
+
+        let cli = Cli::parse_from([
+            "zotero-bridge",
+            "workflow",
+            "profile",
+            "validate",
+            "--provider-profile",
+            "{\"backendId\":\"acp-opencode\"}",
+        ]);
+        match cli.command {
+            Command::Workflow(args) => match args.command {
+                WorkflowCommand::Profile(args) => match args.command {
+                    WorkflowProfileCommand::Validate(input) => assert_eq!(
+                        input.provider_profile.as_deref(),
+                        Some("{\"backendId\":\"acp-opencode\"}")
+                    ),
+                    _ => panic!("expected workflow profile validate"),
+                },
+                _ => panic!("expected workflow profile"),
+            },
+            _ => panic!("expected workflow command"),
+        }
+    }
+
+    #[test]
+    fn workflow_describe_rejects_provider_profile_flag() {
+        let result = Cli::try_parse_from([
+            "zotero-bridge",
+            "workflow",
+            "describe",
+            "--workflow",
+            "literature-analysis",
+            "--provider-profile",
+            "{}",
+        ]);
+        assert!(result.is_err());
     }
 
     #[test]

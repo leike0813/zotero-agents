@@ -1245,7 +1245,7 @@ Distinguish from:
 
 ## `zotero-bridge workflow describe`
 
-Describe workflow selection, option, and provider profile requirements
+Describe workflow selection and workflow options
 
 ### Backend and freshness
 
@@ -1255,7 +1255,7 @@ Describe workflow selection, option, and provider profile requirements
 ### Choose this command
 
 Use when:
-- Use workflow describe when the required operation is: Describe workflow selection, option, and provider profile requirements.
+- Use workflow describe when the required operation is: Describe workflow selection and workflow options.
 - The task is reusable multi-step behavior governed by a workflow contract.
 
 Avoid when:
@@ -1277,15 +1277,12 @@ Distinguish from:
 - Exact argv bindings:
 - `workflow` → option `--workflow` (required, takes a value).
 - `workflow-options` → option `--workflow-options` (optional, takes a value).
-- `provider-profile` → option `--provider-profile` (optional, takes a value).
 - CLI invocation fields:
 - `workflow` (string): Workflow id to describe
 - `workflow-options` (string): Draft workflow options JSON object, file path, @file, or '-' for stdin
-- `provider-profile` (string): Draft provider profile JSON object with backendId and providerOptions
 - Decoded payload fields:
 - `workflow` (string): Workflow id to describe
 - `workflow_options` (string): Draft workflow options JSON object, file path, @file, or '-' for stdin
-- `provider_profile` (string): Draft provider profile JSON object with backendId and providerOptions
 
 ### Result and evidence
 
@@ -1352,6 +1349,180 @@ Distinguish from:
 - `result` (object): Stable result from GET /bridge/v1/workflows.
 - Completion evidence:
 - The structured workflow list result and the exact invocation inputs used to obtain it.
+- executionModes, validation result, workflowRunId, agentRunId, or apply receipt
+
+### Approval, effects, and handles
+
+- Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
+- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- No typed handle transition.
+
+### Failure and recovery
+
+- The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+
+## `zotero-bridge workflow profile describe`
+
+Describe the provider profile contract for one backend
+
+### Backend and freshness
+
+- Targets: `endpoint:POST /bridge/v1/workflows/provider-profiles/describe`.
+- Freshness: live Host Bridge response for this invocation.
+
+### Choose this command
+
+Use when:
+- Use workflow profile describe when the required operation is: Describe the provider profile contract for one backend.
+- The task is reusable multi-step behavior governed by a workflow contract.
+
+Avoid when:
+- Do not use workflow profile describe when the task needs a different sibling result, control plane, or freshness guarantee.
+- Do not use agent-run for workflows that require Host-owned options or provider profiles.
+
+Distinguish from:
+- workflow agent-apply: choose it only when its narrower result matches the task.
+- workflow agent-apply-status: choose it only when its narrower result matches the task.
+- workflow agent-run: choose it only when its narrower result matches the task.
+- workflow describe: choose it only when its narrower result matches the task.
+
+### Invocation and payload
+
+- Canonical argv: `zotero-bridge workflow profile describe`.
+- Example: `zotero-bridge workflow profile describe --backend 'backend'`.
+- Preconditions:
+- Verify the exact CLI identity and a reachable Host Bridge before relying on live results.
+- Exact argv bindings:
+- `backend` → option `--backend` (required, takes a value).
+- CLI invocation fields:
+- `backend` (string): Configured backend id whose provider profile is described
+- Decoded payload fields:
+- `backend` (string): Configured backend id whose provider profile is described
+
+### Result and evidence
+
+- Delivery: `none`.
+- Stable result fields:
+- `result` (object): Stable result from POST /bridge/v1/workflows/provider-profiles/describe.
+- Completion evidence:
+- The structured workflow profile describe result and the exact invocation inputs used to obtain it.
+- executionModes, validation result, workflowRunId, agentRunId, or apply receipt
+
+### Approval, effects, and handles
+
+- Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
+- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- No typed handle transition.
+
+### Failure and recovery
+
+- The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+
+## `zotero-bridge workflow profile list`
+
+List configured backend provider profiles
+
+### Backend and freshness
+
+- Targets: `endpoint:GET /bridge/v1/workflows/provider-profiles`.
+- Freshness: live Host Bridge response for this invocation.
+
+### Choose this command
+
+Use when:
+- Use workflow profile list when the required operation is: List configured backend provider profiles.
+- The task is reusable multi-step behavior governed by a workflow contract.
+
+Avoid when:
+- Do not use workflow profile list when the task needs a different sibling result, control plane, or freshness guarantee.
+- Do not use agent-run for workflows that require Host-owned options or provider profiles.
+
+Distinguish from:
+- workflow agent-apply: choose it only when its narrower result matches the task.
+- workflow agent-apply-status: choose it only when its narrower result matches the task.
+- workflow agent-run: choose it only when its narrower result matches the task.
+- workflow describe: choose it only when its narrower result matches the task.
+
+### Invocation and payload
+
+- Canonical argv: `zotero-bridge workflow profile list`.
+- Example: `zotero-bridge workflow profile list`.
+- Preconditions:
+- Verify the exact CLI identity and a reachable Host Bridge before relying on live results.
+- Exact argv bindings:
+- No command arguments.
+- CLI invocation fields:
+- No structured fields.
+- Decoded payload fields:
+- No structured fields.
+
+### Result and evidence
+
+- Delivery: `none`.
+- Stable result fields:
+- `result` (object): Stable result from GET /bridge/v1/workflows/provider-profiles.
+- Completion evidence:
+- The structured workflow profile list result and the exact invocation inputs used to obtain it.
+- executionModes, validation result, workflowRunId, agentRunId, or apply receipt
+
+### Approval, effects, and handles
+
+- Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
+- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- No typed handle transition.
+
+### Failure and recovery
+
+- The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+
+## `zotero-bridge workflow profile validate`
+
+Validate and normalize one backend provider profile
+
+### Backend and freshness
+
+- Targets: `endpoint:POST /bridge/v1/workflows/provider-profiles/validate`.
+- Freshness: live Host Bridge response for this invocation.
+
+### Choose this command
+
+Use when:
+- Use workflow profile validate when the required operation is: Validate and normalize one backend provider profile.
+- The task is reusable multi-step behavior governed by a workflow contract.
+
+Avoid when:
+- Do not use workflow profile validate when the task needs a different sibling result, control plane, or freshness guarantee.
+- Do not use agent-run for workflows that require Host-owned options or provider profiles.
+
+Distinguish from:
+- workflow agent-apply: choose it only when its narrower result matches the task.
+- workflow agent-apply-status: choose it only when its narrower result matches the task.
+- workflow agent-run: choose it only when its narrower result matches the task.
+- workflow describe: choose it only when its narrower result matches the task.
+
+### Invocation and payload
+
+- Canonical argv: `zotero-bridge workflow profile validate`.
+- Example: `zotero-bridge workflow profile validate`.
+- Preconditions:
+- Verify the exact CLI identity and a reachable Host Bridge before relying on live results.
+- Exact argv bindings:
+- `provider-profile` → option `--provider-profile` (optional, takes a value).
+- CLI invocation fields:
+- `provider-profile` (string): Provider profile JSON object; when omitted, use ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE
+- Decoded payload fields:
+- `provider_profile` (string): Provider profile JSON object; when omitted, use ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE
+
+### Result and evidence
+
+- Delivery: `none`.
+- Stable result fields:
+- `result` (object): Stable result from POST /bridge/v1/workflows/provider-profiles/validate.
+- Completion evidence:
+- The structured workflow profile validate result and the exact invocation inputs used to obtain it.
 - executionModes, validation result, workflowRunId, agentRunId, or apply receipt
 
 ### Approval, effects, and handles
@@ -1534,18 +1705,15 @@ Distinguish from:
 - `selection` → option `--selection` (optional, takes a value).
 - `none` → option `--none` (optional, flag).
 - `workflow-options` → option `--workflow-options` (optional, takes a value).
-- `provider-profile` → option `--provider-profile` (optional, takes a value).
 - CLI invocation fields:
-- `workflow` (string): Workflow id to submit
+- `workflow` (string): Workflow id to validate
 - `selection` (string): Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin
-- `none` (boolean): Submit a no-selection workflow
+- `none` (boolean): Validate a no-selection workflow
 - `workflow-options` (string): Workflow options JSON object, file path, @file, or '-' for stdin
-- `provider-profile` (string): Provider profile JSON object with backendId and providerOptions
 - Decoded payload fields:
-- `workflow` (string): Workflow id to submit
+- `workflow` (string): Workflow id to validate
 - `selection` (string): Workflow selection item refs as a JSON array, file path, @file, or '-' for stdin
 - `workflow_options` (string): Workflow options JSON object, file path, @file, or '-' for stdin
-- `provider_profile` (string): Provider profile JSON object with backendId and providerOptions
 
 ### Result and evidence
 

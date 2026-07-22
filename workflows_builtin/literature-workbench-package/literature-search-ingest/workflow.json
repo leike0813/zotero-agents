@@ -1,6 +1,8 @@
 {
   "id": "literature-search-ingest",
   "label": "Literature Search Ingest",
+  "description": "Search scholarly sources, review candidates, and ingest deduplicated literature with provenance into the Zotero library.",
+  "executionModes": ["auto"],
   "provider": "skillrunner",
   "version": "0.2.0",
   "display": {

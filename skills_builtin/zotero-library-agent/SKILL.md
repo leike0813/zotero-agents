@@ -26,6 +26,7 @@ Use Host Bridge to inspect Zotero first, keep object and run handles explicit, a
 - `references/journeys/agent-owned-handoff.md`: agent-run bundle execution, result validation, apply-back, and receipt recovery.
 - `references/journeys/concrete-writeback.md`: previewed mutations, semantic write commands, approval, and live verification.
 - `references/journeys/products-and-files.md`: local paths, registered files, Dashboard Products, downloads, and attachment delivery.
+- `references/journeys/research-lifecycle.md`: the ordered search-ingest → analysis → sidecar refresh → graph update → topic synthesis → research-bundle journey.
 - `references/helper-script-contract.md`: deterministic evidence construction, validation, and workflow-bundle inspection.
 
 ## Operating Loop
@@ -66,6 +67,7 @@ Build and validate a hash-bound evidence record with the packaged helper:
 ```sh
 python scripts/zotero_library_agent.py evidence build --input evidence-input.json --output evidence.json
 python scripts/zotero_library_agent.py evidence validate --input evidence.json
+python scripts/zotero_library_agent.py provider-profile prepare-default --input provider-profile.json --output default-provider-profile.json
 ```
 
-Read `references/helper-script-contract.md` before using the helper. The script validates deterministic shape, computes artifact digests, and inspects workflow bundles; the agent remains responsible for command choice, interpretation, evidence sufficiency, and whether a reviewed action is authorized.
+Inspect `assets/agent-helper-surface.json` for the package-local command, option, result, error, and effect inventory, and read `references/helper-script-contract.md` before using the helper. The script validates deterministic shape, computes artifact digests, and inspects workflow bundles; the agent remains responsible for command choice, interpretation, evidence sufficiency, and whether a reviewed action is authorized.

@@ -861,7 +861,7 @@ as read-only commands.
 
 ### Requirement: CLI SHALL expose diagnostics/history/profile canonical commands
 
-The Host Bridge CLI SHALL expose profile/backend diagnostics, workflow validation, permission visibility, recent history, skill-run events, and synthesis maintenance under canonical namespaces.
+The Host Bridge CLI SHALL expose connection diagnostics, independent backend provider-profile discovery and validation, workflow-only validation, permission visibility, recent history, skill-run events, and synthesis maintenance under canonical namespaces.
 
 #### Scenario: Bridge diagnostics commands map to diagnostics endpoints
 
@@ -869,11 +869,17 @@ The Host Bridge CLI SHALL expose profile/backend diagnostics, workflow validatio
 - **THEN** the CLI calls the corresponding Host Bridge diagnostics endpoint
 - **AND** stdout is a single JSON object.
 
-#### Scenario: Workflow validate uses submit-shaped input
+#### Scenario: Workflow validate excludes provider input
 
 - **WHEN** an agent runs `zotero-bridge workflow validate --workflow <id> ...`
-- **THEN** the CLI constructs the same selection/options/provider-profile payload shape as `workflow submit`
-- **AND** Host Bridge validates without starting execution.
+- **THEN** the CLI constructs only the selection and workflow-options payload
+- **AND** Host Bridge validates without resolving a provider profile or starting execution.
+
+#### Scenario: Provider profile commands use backend context only
+
+- **WHEN** an agent runs `workflow profile list`, `workflow profile describe --backend <id>`, or `workflow profile validate`
+- **THEN** the CLI does not send a workflow identifier
+- **AND** the response describes or validates only backend-owned profile facts.
 
 #### Scenario: Run commands expose permission and history
 
@@ -1171,23 +1177,19 @@ Every CLI error envelope SHALL include `retryable`, `stateChanged`, `handleConsu
 - **THEN** the error SHALL not recommend blind retry
 - **AND** `safeNextActions` SHALL direct the agent to inspect the relevant status or receipt.
 
-### Requirement: CLI SHALL publish a complete Agent Surface v2
+### Requirement: CLI SHALL publish a complete Agent Surface v3
+The CLI SHALL expose a `host-bridge.agent-surface.v3` descriptor whose leaf commands and global options exactly match the Rust Clap model and whose workflow entries come from loaded workflow manifests.
 
-The CLI SHALL expose a `host-bridge.agent-surface.v2` descriptor whose leaf commands exactly match the commands accepted by the Rust Clap model and whose behavior facts are bound to canonical Host Bridge backend capabilities.
+#### Scenario: Agent inspects v3 identity
+- **WHEN** an agent runs `surface identity --json`
+- **THEN** identity reports the v3 schema, CLI version, build fingerprint, and command catalog checksum without connecting to Zotero.
 
-#### Scenario: Generator resolves command inventory
-- **WHEN** the Agent Surface is generated
-- **THEN** every accepted leaf command SHALL have exactly one descriptor entry
-- **AND** missing, duplicate, or orphan command bindings SHALL fail generation.
+### Requirement: CLI default provider profile SHALL remain request-local
+The CLI SHALL resolve `ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE` only for provider validation and workflow submission and SHALL never persist it in Host Bridge.
 
-#### Scenario: Agent inspects a command contract
-- **WHEN** an agent describes a canonical command
-- **THEN** the descriptor SHALL provide its argv and request/result schema, command family, backend target, approval, danger, state-change and retry behavior, consumed and returned typed handles, evidence requirements, and safe follow-up actions.
-
-#### Scenario: Agent compares CLI identity
-- **WHEN** an agent runs `zotero-bridge surface identity --json`
-- **THEN** the result SHALL use `host-bridge.surface-identity.v2`
-- **AND** it SHALL identify `zotero-bridge.cli.v2`, build fingerprint, and command catalog checksum without requiring a Zotero connection.
+#### Scenario: Workflow query runs with an environment default
+- **WHEN** the environment default exists and an agent runs workflow list, describe, requirements, or validate
+- **THEN** the command ignores the environment default.
 
 ### Requirement: CLI SHALL provide intent-oriented surface discovery
 

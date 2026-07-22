@@ -1417,20 +1417,82 @@ async function applyAcpSkillRunRuntimeSelection(args: {
     !!catalog?.reasoningEffortOptions.some(
       (entry) => entry.id === reasoningEffort,
     );
-  if (modeAllowed) {
-    await args.adapter.setMode({ sessionId: args.sessionId, modeId });
-  }
-  if (
-    rawModelAllowed &&
-    !shouldSkipInitialAcpModelSet({
-      targetRawModelId: rawModelId,
-      sessionCurrentModelId: args.sessionCurrentModelId,
-    })
-  ) {
-    await args.adapter.setModel({
-      sessionId: args.sessionId,
-      modelId: rawModelId,
+  const rejectUnavailable = (optionKey: string) => {
+    upsertAcpSkillRun({
+      requestId: args.requestId,
+      event: {
+        stage: "provider-profile-option-rejected",
+        message: "A requested provider profile option is unavailable.",
+        level: "error",
+        details: {
+          optionKey,
+          reasonCode: "provider_profile_option_unavailable",
+        },
+      },
     });
+    const error = new Error(
+      `Provider profile option is unavailable: ${optionKey}`,
+    );
+    (error as { code?: string }).code = "provider_profile_option_unavailable";
+    throw error;
+  };
+  if (modeId && !modeAllowed) rejectUnavailable("acpModeId");
+  if (rawModelId && !rawModelAllowed) rejectUnavailable("acpModelId");
+  if (reasoningEffort && !reasoningAllowed) {
+    rejectUnavailable("acpReasoningEffort");
+  }
+  const recordApplied = (optionKey: string) => {
+    upsertAcpSkillRun({
+      requestId: args.requestId,
+      event: {
+        stage: "provider-profile-option-applied",
+        message: "A provider profile option was applied before prompting.",
+        level: "info",
+        details: { optionKey },
+      },
+    });
+  };
+  const recordApplyFailure = (optionKey: string, reasonCode: string) => {
+    upsertAcpSkillRun({
+      requestId: args.requestId,
+      event: {
+        stage: "provider-profile-option-rejected",
+        message: "A provider profile option could not be applied.",
+        level: "error",
+        details: { optionKey, reasonCode },
+      },
+    });
+  };
+  const applyOption = async (
+    optionKey: string,
+    apply: () => Promise<unknown>,
+  ) => {
+    try {
+      await apply();
+      recordApplied(optionKey);
+    } catch (error) {
+      recordApplyFailure(optionKey, "provider_profile_option_apply_failed");
+      throw error;
+    }
+  };
+  if (modeAllowed) {
+    await applyOption("acpModeId", () =>
+      args.adapter.setMode({ sessionId: args.sessionId, modeId }),
+    );
+  }
+  const skipInitialModelSet = shouldSkipInitialAcpModelSet({
+    targetRawModelId: rawModelId,
+    sessionCurrentModelId: args.sessionCurrentModelId,
+  });
+  if (rawModelAllowed && !skipInitialModelSet) {
+    await applyOption("acpModelId", () =>
+      args.adapter.setModel({
+        sessionId: args.sessionId,
+        modelId: rawModelId,
+      }),
+    );
+  } else if (rawModelAllowed) {
+    recordApplied("acpModelId");
   }
   const reasoningSource = catalog?.reasoningSource || "none";
   if (
@@ -1445,22 +1507,16 @@ async function applyAcpSkillRunRuntimeSelection(args: {
       effortId: reasoningEffort,
     });
     if (reasoningResult.kind === "fallback") {
-      updateAcpSkillRunRuntimeSelection({
-        requestId: args.requestId,
-        selection: { reasoningEffort: null },
-        event: {
-          stage: "runtime-reasoning-fallback",
-          message:
-            "Kilo rejected the None reasoning effort; using the model default.",
-          level: "warn",
-          details: {
-            code: reasoningResult.error.code,
-            data: reasoningResult.error.data,
-            requestedEffort: reasoningEffort,
-          },
-        },
-      });
+      recordApplyFailure(
+        "acpReasoningEffort",
+        "provider_profile_option_apply_failed",
+      );
+      throw reasoningResult.error;
+    } else {
+      recordApplied("acpReasoningEffort");
     }
+  } else if (reasoningAllowed && reasoningSource === "model-derived") {
+    recordApplied("acpReasoningEffort");
   }
 }
 

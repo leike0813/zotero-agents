@@ -36,7 +36,9 @@ use crate::{
         SynthesisIndexCommand, SynthesisIndexGetCommand, TaskListArgs, TaskRecentArgs, TopicsArgs,
         TopicsCommand, WorkflowAgentApplyArgs, WorkflowAgentApplyStatusArgs, WorkflowAgentRunArgs,
         WorkflowArgs, WorkflowCancelArgs, WorkflowCommand, WorkflowDescribeArgs,
-        WorkflowRequirementsArgs, WorkflowRunArgs, WorkflowSubmitArgs,
+        WorkflowProfileArgs, WorkflowProfileCommand, WorkflowProfileDescribeArgs,
+        WorkflowProfileValidateArgs, WorkflowRequirementsArgs, WorkflowRunArgs, WorkflowSubmitArgs,
+        WorkflowValidateArgs,
     },
     client,
     config::BridgeConfig,
@@ -228,7 +230,19 @@ pub fn synthesis(config: &BridgeConfig, args: SynthesisArgs) -> Result<Value, Cl
 
 fn synthesis_cache(config: &BridgeConfig, args: SynthesisCacheArgs) -> Result<Value, CliError> {
     match args.command {
-        SynthesisCacheCommand::Status => client::get(config, "/synthesis/cache/status"),
+        SynthesisCacheCommand::Status(args) => {
+            if let Some(operation_id) = args.operation_id {
+                return call_capability(
+                    config,
+                    "synthesis.operation.get",
+                    json!({ "operation_id": operation_id }),
+                );
+            }
+            client::get(config, "/synthesis/cache/status")
+        }
+        SynthesisCacheCommand::RefreshReferenceSidecar(input) => {
+            call_capability(config, "reference_sidecar.refresh", bridge_input(input)?)
+        }
         SynthesisCacheCommand::Invalidate(args) => client::post(
             config,
             "/synthesis/cache/invalidate",
@@ -327,16 +341,23 @@ pub fn concepts(config: &BridgeConfig, args: ConceptsArgs) -> Result<Value, CliE
 }
 
 pub fn citation_graph(config: &BridgeConfig, args: CitationGraphArgs) -> Result<Value, CliError> {
-    if let CitationGraphCommand::RefreshMetrics(input) = args.command {
-        return call_capability(
-            config,
-            "citation_graph.refresh_metrics",
-            bridge_input(input)?,
-        );
+    match args.command {
+        CitationGraphCommand::RefreshMetrics(input) => {
+            return call_capability(
+                config,
+                "citation_graph.refresh_metrics",
+                bridge_input(input)?,
+            );
+        }
+        CitationGraphCommand::Update(input) => {
+            return call_capability(config, "citation_graph.update", bridge_input(input)?);
+        }
+        command => {
+            let capability = citation_graph_capability(&command);
+            let input = bridge_query(citation_graph_input(command))?;
+            return call_capability(config, capability, input);
+        }
     }
-    let capability = citation_graph_capability(&args.command);
-    let input = bridge_query(citation_graph_input(args.command))?;
-    call_capability(config, capability, input)
 }
 
 pub fn resolvers(config: &BridgeConfig, args: ResolversArgs) -> Result<Value, CliError> {
@@ -365,9 +386,11 @@ pub fn workflow(config: &BridgeConfig, args: WorkflowArgs) -> Result<Value, CliE
             "/workflows/describe",
             workflow_describe_input(args)?,
         ),
-        WorkflowCommand::Validate(args) => {
-            client::post(config, "/workflows/validate", workflow_submit_input(args)?)
-        }
+        WorkflowCommand::Validate(args) => client::post(
+            config,
+            "/workflows/validate",
+            workflow_validate_input(args)?,
+        ),
         WorkflowCommand::Requirements(args) => client::post(
             config,
             "/workflows/requirements",
@@ -376,9 +399,31 @@ pub fn workflow(config: &BridgeConfig, args: WorkflowArgs) -> Result<Value, CliE
         WorkflowCommand::Submit(args) => {
             client::post(config, "/workflows/submit", workflow_submit_input(args)?)
         }
+        WorkflowCommand::Profile(args) => workflow_profile(config, args),
         WorkflowCommand::AgentRun(args) => workflow_agent_run(config, args),
         WorkflowCommand::AgentApply(args) => workflow_agent_apply(config, args),
         WorkflowCommand::AgentApplyStatus(args) => workflow_agent_apply_status(config, args),
+    }
+}
+
+fn workflow_profile(config: &BridgeConfig, args: WorkflowProfileArgs) -> Result<Value, CliError> {
+    match args.command {
+        WorkflowProfileCommand::List => client::get(config, "/workflows/provider-profiles"),
+        WorkflowProfileCommand::Describe(args) => client::post(
+            config,
+            "/workflows/provider-profiles/describe",
+            workflow_profile_describe_input(args)?,
+        ),
+        WorkflowProfileCommand::Validate(args) => client::post(
+            config,
+            "/workflows/provider-profiles/validate",
+            workflow_profile_validate_input(
+                args,
+                std::env::var("ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE")
+                    .ok()
+                    .as_deref(),
+            )?,
+        ),
     }
 }
 
@@ -580,6 +625,7 @@ fn citation_graph_capability(command: &CitationGraphCommand) -> &'static str {
         }
         CitationGraphCommand::RankLibraryPapers(_) => "citation_graph.rank_library_papers",
         CitationGraphCommand::RefreshMetrics(_) => "citation_graph.refresh_metrics",
+        CitationGraphCommand::Update(_) => "citation_graph.update",
     }
 }
 
@@ -592,7 +638,9 @@ fn citation_graph_input(command: CitationGraphCommand) -> BridgeQueryArgs {
         | CitationGraphCommand::GetMetrics(args)
         | CitationGraphCommand::RankExternalReferences(args)
         | CitationGraphCommand::RankLibraryPapers(args) => args,
-        CitationGraphCommand::RefreshMetrics(_) => unreachable!("mutation input uses --input"),
+        CitationGraphCommand::RefreshMetrics(_) | CitationGraphCommand::Update(_) => {
+            unreachable!("mutation input uses --input")
+        }
     }
 }
 
@@ -876,12 +924,67 @@ fn provider_profile_arg(input: Option<&str>) -> Result<Value, CliError> {
     )
 }
 
+fn resolved_provider_profile_arg(
+    explicit: Option<&str>,
+    environment_default: Option<&str>,
+) -> Result<Value, CliError> {
+    if let Some(explicit) = explicit {
+        return provider_profile_arg(Some(explicit));
+    }
+    let Some(environment_default) = environment_default else {
+        return provider_profile_arg(None);
+    };
+    let trimmed = environment_default.trim();
+    if trimmed == "-" {
+        return Err(CliError::validation(
+            "invalid_default_provider_profile",
+            "ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE does not accept stdin",
+        ));
+    }
+    if let Some(path) = trimmed.strip_prefix('@') {
+        if !std::path::Path::new(path).is_absolute() {
+            return Err(CliError::validation(
+                "invalid_default_provider_profile",
+                "ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE @file must be absolute",
+            ));
+        }
+    } else if !trimmed.starts_with('{') {
+        return Err(CliError::validation(
+            "invalid_default_provider_profile",
+            "ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE must be inline JSON or @absolute-file",
+        ));
+    }
+    provider_profile_arg(Some(trimmed))
+}
+
 fn workflow_describe_input(args: WorkflowDescribeArgs) -> Result<Value, CliError> {
     let workflow = workflow_id_arg(&args.workflow, "describe")?;
     Ok(json!({
         "workflowId": workflow,
-        "workflowOptions": workflow_options_arg(args.workflow_options.as_deref())?,
-        "providerProfile": provider_profile_arg(args.provider_profile.as_deref())?
+        "workflowOptions": workflow_options_arg(args.workflow_options.as_deref())?
+    }))
+}
+
+fn workflow_profile_describe_input(args: WorkflowProfileDescribeArgs) -> Result<Value, CliError> {
+    let backend = args.backend.trim();
+    if backend.is_empty() {
+        return Err(CliError::validation(
+            "missing_backend_id",
+            "workflow profile describe requires --backend",
+        ));
+    }
+    Ok(json!({ "backendId": backend }))
+}
+
+fn workflow_profile_validate_input(
+    args: WorkflowProfileValidateArgs,
+    environment_default: Option<&str>,
+) -> Result<Value, CliError> {
+    Ok(json!({
+        "providerProfile": resolved_provider_profile_arg(
+            args.provider_profile.as_deref(),
+            environment_default,
+        )?
     }))
 }
 
@@ -922,13 +1025,31 @@ fn workflow_selection(args: &WorkflowSubmitArgs) -> Result<Value, CliError> {
     workflow_selection_from(args.selection.as_deref(), args.none, "submit")
 }
 
+fn workflow_validate_input(args: WorkflowValidateArgs) -> Result<Value, CliError> {
+    let workflow = workflow_id_arg(&args.workflow, "validate")?;
+    Ok(json!({
+        "workflowId": workflow,
+        "selection": workflow_selection_from(
+            args.selection.as_deref(),
+            args.none,
+            "validate",
+        )?,
+        "workflowOptions": workflow_options_arg(args.workflow_options.as_deref())?
+    }))
+}
+
 fn workflow_submit_input(args: WorkflowSubmitArgs) -> Result<Value, CliError> {
     let workflow = workflow_id_arg(&args.workflow, "submit")?;
     Ok(json!({
         "workflowId": workflow,
         "selection": workflow_selection(&args)?,
         "workflowOptions": workflow_options_arg(args.workflow_options.as_deref())?,
-        "providerProfile": provider_profile_arg(args.provider_profile.as_deref())?
+        "providerProfile": resolved_provider_profile_arg(
+            args.provider_profile.as_deref(),
+            std::env::var("ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE")
+                .ok()
+                .as_deref(),
+        )?
     }))
 }
 
@@ -1959,6 +2080,12 @@ mod tests {
             "citation_graph.refresh_metrics"
         );
         assert_eq!(
+            citation_graph_capability(&CitationGraphCommand::Update(BridgeInputArgs {
+                input: None
+            })),
+            "citation_graph.update"
+        );
+        assert_eq!(
             resolvers_capability(&ResolversCommand::Resolve(query())),
             "resolvers.resolve"
         );
@@ -2453,7 +2580,6 @@ mod tests {
         let input = workflow_describe_input(WorkflowDescribeArgs {
             workflow: "topic-synthesis".to_string(),
             workflow_options: Some("{\"language\":\"en-US\"}".to_string()),
-            provider_profile: Some("{\"backendId\":\"skillrunner\"}".to_string()),
         })
         .unwrap();
         assert_eq!(
@@ -2462,11 +2588,46 @@ mod tests {
                 "workflowId": "topic-synthesis",
                 "workflowOptions": {
                     "language": "en-US"
-                },
-                "providerProfile": {
-                    "backendId": "skillrunner"
                 }
             })
+        );
+    }
+
+    #[test]
+    fn maps_workflow_provider_profile_commands_without_workflow_context() {
+        assert_eq!(
+            workflow_profile_describe_input(WorkflowProfileDescribeArgs {
+                backend: "acp-opencode".to_string(),
+            })
+            .unwrap(),
+            json!({ "backendId": "acp-opencode" })
+        );
+        assert_eq!(
+            workflow_profile_validate_input(
+                WorkflowProfileValidateArgs {
+                    provider_profile: Some("{\"backendId\":\"acp-opencode\"}".to_string()),
+                },
+                None,
+            )
+            .unwrap(),
+            json!({
+                "providerProfile": {
+                    "backendId": "acp-opencode"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn resolves_default_provider_profile_only_when_explicit_is_absent() {
+        let default = Some("{\"backendId\":\"default-backend\"}");
+        assert_eq!(
+            resolved_provider_profile_arg(Some("{}"), default).unwrap(),
+            json!({})
+        );
+        assert_eq!(
+            resolved_provider_profile_arg(None, default).unwrap(),
+            json!({ "backendId": "default-backend" })
         );
     }
 

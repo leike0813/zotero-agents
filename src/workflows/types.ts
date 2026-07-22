@@ -262,6 +262,8 @@ export type WorkflowRequestSpec = {
 export type WorkflowManifest = {
   id: string;
   label: string;
+  description?: string;
+  executionModes?: Array<"auto" | "interactive">;
   debug_only?: boolean;
   provider: string;
   version?: string;

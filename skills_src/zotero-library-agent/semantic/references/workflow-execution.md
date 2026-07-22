@@ -15,8 +15,10 @@ Do not choose agent-owned execution when `executionModes.agentOwned.supported` i
 1. Inspect the workflow description and selection contract.
 2. Resolve current Zotero context when the request uses deictic language.
 3. Normalize workflow selection to the required parent item refs.
-4. Put workflow parameter values in workflow options and request-level backend selection in the provider profile.
-5. Default to one backend submission unless the user explicitly authorizes greater concurrency.
+4. Put parameter values only in workflow options. Validate them with `workflow validate`; this command does not accept a provider profile.
+5. Discover and validate backend-owned options separately with `workflow profile list|describe|validate`. Reuse a validated profile only when its backend satisfies the workflow's provider requirements.
+6. Pass both independent inputs only to `workflow submit`. An explicit profile overrides `ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE`; the environment default is current-process state, not Zotero configuration.
+7. Default to one backend submission unless the user explicitly authorizes greater concurrency.
 
 ## Host-Owned Execution
 

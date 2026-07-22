@@ -1,6 +1,8 @@
 {
   "id": "add-digest-representative-image",
   "label": "Add Digest Representative Image",
+  "description": "Choose an image from analyzed literature and attach it as the digest representative image.",
+  "executionModes": ["auto"],
   "version": "1.0.0",
   "provider": "pass-through",
   "debug_only": true,

@@ -37,7 +37,6 @@ fn visit(command: &Command, path: &[String], leaves: &mut Vec<Value>) {
                 .unwrap_or_default(),
             "arguments": command
                 .get_arguments()
-                .filter(|arg| !arg.is_global_set())
                 .map(|arg| {
                     let position = command
                         .get_positionals()
@@ -59,6 +58,11 @@ fn visit(command: &Command, path: &[String], leaves: &mut Vec<Value>) {
 
 fn main() {
     let root = args::Cli::command();
+    let global_arguments = root
+        .get_arguments()
+        .filter(|arg| arg.is_global_set())
+        .map(|arg| argument(arg, None))
+        .collect::<Vec<_>>();
     let mut commands = Vec::new();
     for command in root
         .get_subcommands()
@@ -71,6 +75,7 @@ fn main() {
         "{}",
         serde_json::to_string_pretty(&json!({
             "schema": "zotero-bridge.command-inventory.v1",
+            "globalArguments": global_arguments,
             "commands": commands,
         }))
         .expect("serialize command inventory")

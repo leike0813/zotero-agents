@@ -11,6 +11,18 @@
     "label": {
       "$ref": "#/$defs/nonEmptyString"
     },
+    "description": {
+      "$ref": "#/$defs/nonEmptyString"
+    },
+    "executionModes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["auto", "interactive"]
+      }
+    },
     "provider": {
       "$ref": "#/$defs/nonEmptyString"
     },

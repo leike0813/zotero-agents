@@ -26,6 +26,8 @@ import {
 type WorkflowCatalogEntry = {
   id: string;
   label: string;
+  description: string;
+  declaredExecutionModes: string[];
   provider: string;
   version: string;
   path: string;
@@ -49,6 +51,11 @@ type WorkflowCatalogEntry = {
 };
 
 const ROOT = process.cwd();
+const outputRootIndex = process.argv.indexOf("--output-root");
+const OUTPUT_ROOT =
+  outputRootIndex >= 0 && process.argv[outputRootIndex + 1]
+    ? process.argv[outputRootIndex + 1]
+    : ROOT;
 const PROFILE_ROOT = "profiles/hermes/zotero-librarian";
 const PROFILE_SEMANTIC_ROOT = "profiles_src/hermes/zotero-librarian";
 const PROFILE_DISTRIBUTION_TARGET = join(PROFILE_ROOT, "distribution.yaml");
@@ -102,6 +109,7 @@ const GENERATED_MARKER_EXAMPLES = [
 export const PROFILE_SEMANTIC_COPIES = [
   "README.md",
   "SOUL.md",
+  "assets/agent-helper-surface.json",
   "skills/zotero-librarian/SKILL.md",
   "skills/zotero-librarian/references/operating-principles.md",
   "skills/zotero-librarian/references/workflow-execution-policy.md",
@@ -185,8 +193,11 @@ function writeOrCheck(
   check: boolean,
   diffs: string[],
 ) {
-  const absolute = join(ROOT, path);
-  const current = existsSync(absolute) ? readFileSync(absolute, "utf8") : "";
+  const sourceAbsolute = join(ROOT, path);
+  const absolute = join(OUTPUT_ROOT, path);
+  const current = existsSync(sourceAbsolute)
+    ? readFileSync(sourceAbsolute, "utf8")
+    : "";
   if (current === next) {
     return;
   }
@@ -347,6 +358,10 @@ function loadWorkflowCatalog(): WorkflowCatalogEntry[] {
     entries.push({
       id,
       label: String(workflow.label || id),
+      description: String(workflow.description || ""),
+      declaredExecutionModes: Array.isArray(workflow.executionModes)
+        ? workflow.executionModes.map(String)
+        : ["auto"],
       provider: String(workflow.provider || ""),
       version: String(workflow.version || ""),
       path: file,
@@ -417,6 +432,8 @@ function renderWorkflowReference(entries: WorkflowCatalogEntry[]) {
     ...entries.flatMap((entry) => [
       `## \`${entry.id}\` — ${entry.label}`,
       "",
+      `- Purpose: ${entry.description}`,
+      `- Declared runtime modes: ${entry.declaredExecutionModes.map((mode) => `\`${mode}\``).join(", ")}.`,
       `- Provider: \`${entry.provider}\`; input mode: \`${entry.inputMode}\`; selection required: ${entry.requiresSelection}.`,
       `- Execution: Host-owned supported; agent-owned ${entry.executionModes.agentOwned ? "supported" : "not supported because required workflow options cannot be supplied by agent-run"}.`,
       `- Completion evidence: ${entry.resultEvidence.length ? entry.resultEvidence.map((value) => `\`${value}\``).join(", ") : "terminal run result and any declared Product/output contract"}.`,

@@ -1,6 +1,8 @@
 {
   "id": "tag-regulator",
   "label": "Tag Regulator",
+  "description": "Normalize and infer selected literature tags against the controlled vocabulary.",
+  "executionModes": ["auto"],
   "provider": "skillrunner",
   "version": "0.1.0",
   "display": {

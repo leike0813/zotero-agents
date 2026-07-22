@@ -26,6 +26,9 @@ import {
   getHostBridgeWorkflowRunStatus,
   applyHostBridgeWorkflowAgentRun,
   getHostBridgeWorkflowAgentRunApplyReceipt,
+  describeHostBridgeProviderProfile,
+  listHostBridgeProviderProfiles,
+  validateHostBridgeProviderProfile,
   listHostBridgeActiveTasks,
   listHostBridgeNotifications,
   listHostBridgeRecentSkillRuns,
@@ -40,6 +43,9 @@ import {
   type HostBridgeWorkflowAgentApplyRequest,
   type HostBridgeWorkflowAgentRunRequest,
   type HostBridgeWorkflowDescribeRequest,
+  type HostBridgeWorkflowValidateRequest,
+  type HostBridgeProviderProfileDescribeRequest,
+  type HostBridgeProviderProfileValidateRequest,
   type HostBridgeWorkflowSubmitRequest,
 } from "./hostBridgeWorkflowControl";
 import {
@@ -111,7 +117,10 @@ import {
 import { writeHostBridgeWellKnownProfile } from "./hostBridgeProfileStore";
 import { loadBackendsRegistry } from "../backends/registry";
 import type { BackendInstance } from "../backends/types";
-import { invalidateDefaultSynthesisService } from "./synthesis/service";
+import {
+  invalidateDefaultSynthesisService,
+  SynthesisMaintenanceError,
+} from "./synthesis/service";
 import { getPref, setPref } from "../utils/prefs";
 import {
   beginHostHttpRequestRead,
@@ -641,8 +650,18 @@ function workflowValidationErrorCode(
 ): HostBridgeErrorCode {
   const code = (error as { code?: string })?.code;
   return code === "invalid_workflow_describe_request" ||
+    code === "invalid_workflow_validate_request" ||
     code === "invalid_workflow_agent_run_request" ||
     code === "invalid_workflow_submit_request" ||
+    code === "invalid_provider_profile_request" ||
+    code === "invalid_provider_profile" ||
+    code === "provider_profile_backend_not_found" ||
+    code === "provider_profile_backend_unready" ||
+    code === "provider_profile_provider_unavailable" ||
+    code === "provider_profile_option_unknown" ||
+    code === "provider_profile_option_invalid" ||
+    code === "provider_profile_option_unavailable" ||
+    code === "workflow_provider_incompatible" ||
     code === "missing_required_workflow_parameter"
     ? code
     : fallback;
@@ -1023,6 +1042,39 @@ function buildCapabilityApprovalPrompt(
         "Managed asset files are retained for persistence cleanup and are not deleted immediately.",
     };
   }
+  if (
+    capability.name === "reference_sidecar.refresh" ||
+    capability.name === "citation_graph.update"
+  ) {
+    const object = isRecord(input) ? input : {};
+    const paperRefs = Array.isArray(object.paper_refs || object.paperRefs)
+      ? ((object.paper_refs || object.paperRefs) as unknown[])
+          .map((entry) => String(entry || "").trim())
+          .filter(Boolean)
+      : [];
+    const scope = String(
+      object.scope || (paperRefs.length ? "papers" : "library"),
+    ).trim();
+    const sidecar = capability.name === "reference_sidecar.refresh";
+    return {
+      title: sidecar
+        ? "Refresh the references sidecar?"
+        : "Update the citation graph?",
+      summary: sidecar
+        ? `Refresh reference facts for ${scope === "papers" ? `${paperRefs.length} paper(s)` : "the current library"}.`
+        : `Update the citation graph for ${scope === "papers" ? `${paperRefs.length} paper closure(s)` : "the current library"}.`,
+      detail: [
+        `Capability: ${capability.name}.`,
+        `Scope: ${scope}.`,
+        paperRefs.length
+          ? `Paper refs: ${paperRefs.slice(0, 10).join(", ")}${paperRefs.length > 10 ? ` and ${paperRefs.length - 10} more` : ""}.`
+          : "Paper refs: full library scope.",
+        sidecar
+          ? "This approval does not update the citation graph."
+          : "This approval does not refresh reference-sidecar facts.",
+      ].join("\n"),
+    };
+  }
   return {
     title: "Approve Host Bridge action?",
     summary: `Run "${capability.name}" from zotero-bridge.`,
@@ -1351,6 +1403,26 @@ async function callCapability(request: HttpRequest) {
           ...(error.details || {}),
         }),
         error.code,
+      );
+    }
+    if (error instanceof SynthesisMaintenanceError) {
+      const conflict = error.code === "maintenance_idempotency_conflict";
+      const code = conflict
+        ? "synthesis_maintenance_idempotency_conflict"
+        : "invalid_capability_input";
+      return response(
+        conflict ? 409 : 400,
+        conflict ? "Conflict" : "Bad Request",
+        hostBridgeError(
+          code,
+          "Invalid Synthesis maintenance request",
+          "validation",
+          {
+            capability: capability.name,
+            reasonCode: error.code,
+          },
+        ),
+        code,
       );
     }
     return response(
@@ -1833,19 +1905,19 @@ async function validateWorkflow(request: HttpRequest) {
       "POST",
     );
   }
-  let payload: HostBridgeWorkflowSubmitRequest;
+  let payload: HostBridgeWorkflowValidateRequest;
   try {
-    payload = parseJsonBody(request.body) as HostBridgeWorkflowSubmitRequest;
+    payload = parseJsonBody(request.body) as HostBridgeWorkflowValidateRequest;
   } catch {
     return response(
       400,
       "Bad Request",
       hostBridgeError(
-        "invalid_workflow_submit_request",
+        "invalid_workflow_validate_request",
         "Workflow validate request body must be valid JSON",
         "validation",
       ),
-      "invalid_workflow_submit_request",
+      "invalid_workflow_validate_request",
     );
   }
   try {
@@ -1873,7 +1945,7 @@ async function validateWorkflow(request: HttpRequest) {
     }
     const validationCode = workflowValidationErrorCode(
       error,
-      "invalid_workflow_submit_request",
+      "invalid_workflow_validate_request",
     );
     return response(
       400,
@@ -1885,6 +1957,130 @@ async function validateWorkflow(request: HttpRequest) {
         workflowValidationErrorDetails(error),
       ),
       validationCode,
+    );
+  }
+}
+
+async function listProviderProfiles(request: HttpRequest) {
+  if (request.method !== "GET") {
+    return methodNotAllowed(
+      "Provider profile list endpoint only supports GET",
+      "GET",
+    );
+  }
+  try {
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(await listHostBridgeProviderProfiles()),
+    );
+  } catch (error) {
+    const code = workflowValidationErrorCode(
+      error,
+      "invalid_provider_profile_request",
+    );
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(code, errorMessage(error), "validation"),
+      code,
+    );
+  }
+}
+
+async function describeProviderProfile(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Provider profile describe endpoint only supports POST",
+      "POST",
+    );
+  }
+  let payload: HostBridgeProviderProfileDescribeRequest;
+  try {
+    payload = parseJsonBody(
+      request.body,
+    ) as HostBridgeProviderProfileDescribeRequest;
+  } catch {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "invalid_provider_profile_request",
+        "Provider profile describe request body must be valid JSON",
+        "validation",
+      ),
+      "invalid_provider_profile_request",
+    );
+  }
+  try {
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(await describeHostBridgeProviderProfile(payload)),
+    );
+  } catch (error) {
+    const code = workflowValidationErrorCode(
+      error,
+      "invalid_provider_profile_request",
+    );
+    const status = code === "provider_profile_backend_not_found" ? 404 : 400;
+    return response(
+      status,
+      status === 404 ? "Not Found" : "Bad Request",
+      hostBridgeError(
+        code,
+        errorMessage(error),
+        "validation",
+        (error as { details?: Record<string, unknown> }).details,
+      ),
+      code,
+    );
+  }
+}
+
+async function validateProviderProfile(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Provider profile validate endpoint only supports POST",
+      "POST",
+    );
+  }
+  let payload: HostBridgeProviderProfileValidateRequest;
+  try {
+    payload = parseJsonBody(
+      request.body,
+    ) as HostBridgeProviderProfileValidateRequest;
+  } catch {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "invalid_provider_profile",
+        "Provider profile validate request body must be valid JSON",
+        "validation",
+      ),
+      "invalid_provider_profile",
+    );
+  }
+  try {
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(await validateHostBridgeProviderProfile(payload)),
+    );
+  } catch (error) {
+    const code = workflowValidationErrorCode(error, "invalid_provider_profile");
+    const status = code === "provider_profile_backend_not_found" ? 404 : 400;
+    return response(
+      status,
+      status === 404 ? "Not Found" : "Bad Request",
+      hostBridgeError(
+        code,
+        errorMessage(error),
+        "validation",
+        (error as { details?: Record<string, unknown> }).details,
+      ),
+      code,
     );
   }
 }
@@ -2902,6 +3098,35 @@ async function getSynthesisCacheStatus(request: HttpRequest) {
       "GET",
     );
   }
+  const operationId = String(
+    request.query.operationId || request.query.operation_id || "",
+  ).trim();
+  if (operationId) {
+    const capability = getHostBridgeCapability("synthesis.operation.get");
+    if (!capability) {
+      return response(
+        503,
+        "Service Unavailable",
+        hostBridgeError(
+          "capability_not_found",
+          "Synthesis maintenance operation status is unavailable",
+          "capability",
+        ),
+        "capability_not_found",
+      );
+    }
+    const data = await capability.handler(
+      { operation_id: operationId },
+      {
+        getStatus: getHostBridgeServerStatus,
+        connectionMode: parseConnectionModeHeader(request),
+        ...(synthesisServiceResolverForTests
+          ? { resolveSynthesisService: synthesisServiceResolverForTests }
+          : {}),
+      },
+    );
+    return response(200, "OK", hostBridgeOk(data));
+  }
   return response(200, "OK", hostBridgeOk(synthesisMaintenanceStatus("cache")));
 }
 
@@ -3144,6 +3369,18 @@ async function handleHttpRequestImpl(request: HttpRequest) {
 
   if (request.path === "/bridge/v1/workflows/describe") {
     return describeWorkflow(request);
+  }
+
+  if (request.path === "/bridge/v1/workflows/provider-profiles") {
+    return listProviderProfiles(request);
+  }
+
+  if (request.path === "/bridge/v1/workflows/provider-profiles/describe") {
+    return describeProviderProfile(request);
+  }
+
+  if (request.path === "/bridge/v1/workflows/provider-profiles/validate") {
+    return validateProviderProfile(request);
   }
 
   if (request.path === "/bridge/v1/workflows/validate") {

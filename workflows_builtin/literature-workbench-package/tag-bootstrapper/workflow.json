@@ -1,6 +1,8 @@
 {
   "id": "tag-bootstrapper",
   "label": "Tag Bootstrapper",
+  "description": "Bootstrap the controlled tag vocabulary from current library evidence and reviewable suggestions.",
+  "executionModes": ["auto"],
   "provider": "skillrunner",
   "version": "0.1.0",
   "display": {

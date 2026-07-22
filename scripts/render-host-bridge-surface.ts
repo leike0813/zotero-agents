@@ -25,6 +25,11 @@ import {
 } from "./zotero-bridge-cli-release";
 
 const ROOT = process.cwd();
+const outputRootIndex = process.argv.indexOf("--output-root");
+const OUTPUT_ROOT =
+  outputRootIndex >= 0 && process.argv[outputRootIndex + 1]
+    ? process.argv[outputRootIndex + 1]
+    : ROOT;
 const WRAPPER_SKILL_SOURCE = "skills_src/zotero-bridge-cli/semantic/SKILL.md";
 const WRAPPER_AGENT_GUIDANCE_SOURCE =
   "skills_src/zotero-bridge-cli/semantic/references/agent-guidance.md";
@@ -59,7 +64,7 @@ function read(path: string) {
 }
 
 function write(path: string, text: string) {
-  const absolute = join(ROOT, path);
+  const absolute = join(OUTPUT_ROOT, path);
   mkdirSync(dirname(absolute), { recursive: true });
   writeFileSync(absolute, text, "utf8");
 }
@@ -830,7 +835,7 @@ function main() {
     if (check) {
       console.error(`[host-bridge-surface] ${path} should not exist`);
     } else {
-      rmSync(join(ROOT, path));
+      rmSync(join(OUTPUT_ROOT, path));
       console.log(`[host-bridge-surface] removed ${path}`);
     }
   }

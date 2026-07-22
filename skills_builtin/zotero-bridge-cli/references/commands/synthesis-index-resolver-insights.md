@@ -65,13 +65,77 @@ Distinguish from:
 - The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
 - Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
 
+## `zotero-bridge synthesis cache refresh-reference-sidecar`
+
+Start a reference-sidecar refresh
+
+### Backend and freshness
+
+- Targets: `capability:reference_sidecar.refresh`.
+- Freshness: derived Synthesis state; confirm current Zotero write facts through library/context commands.
+
+### Choose this command
+
+Use when:
+- Use synthesis cache refresh-reference-sidecar when the required operation is: Start a reference-sidecar refresh.
+- The requested fact belongs to the Synthesis model rather than raw Zotero metadata.
+
+Avoid when:
+- Do not use synthesis cache refresh-reference-sidecar when the task needs a different sibling result, control plane, or freshness guarantee.
+- Do not assume cached Synthesis projections are current Zotero write state.
+
+Distinguish from:
+- synthesis artifact export-filtered: choose it only when its narrower result matches the task.
+- synthesis artifact manifest: choose it only when its narrower result matches the task.
+- synthesis artifact read: choose it only when its narrower result matches the task.
+- synthesis artifact resolve-topic-digest: choose it only when its narrower result matches the task.
+
+### Invocation and payload
+
+- Canonical argv: `zotero-bridge synthesis cache refresh-reference-sidecar`.
+- Example: `zotero-bridge synthesis cache refresh-reference-sidecar`.
+- Preconditions:
+- Verify the exact CLI identity and a reachable Host Bridge before relying on live results.
+- Exact argv bindings:
+- `input` → option `--input` (optional, takes a value).
+- CLI invocation fields:
+- `input` (string): Host Bridge capability input as inline JSON, a file path, @file, or '-' for stdin
+- Decoded payload fields:
+- `scope` (string)
+- `library_id` (number | string)
+- `libraryId` (number | string)
+- `paper_refs` (array)
+- `paperRefs` (array)
+- `idempotency_key` (string)
+- `idempotencyKey` (string)
+
+### Result and evidence
+
+- Delivery: `none`.
+- Stable result fields:
+- `result` (object): Stable result from reference_sidecar.refresh.
+- Completion evidence:
+- The structured synthesis cache refresh-reference-sidecar result and the exact invocation inputs used to obtain it.
+- topic, graph, index, resolver, artifact, schema, or insight result with paging metadata
+
+### Approval, effects, and handles
+
+- Approval: `zotero-ui-required` at `before-command`; Zotero UI approval for the described Host-owned effect.
+- Effect `cache-maintenance`: May change cache maintenance state. stateChanged=true.
+- No typed handle transition.
+
+### Failure and recovery
+
+- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+
 ## `zotero-bridge synthesis cache status`
 
 Read Synthesis cache maintenance status
 
 ### Backend and freshness
 
-- Targets: `endpoint:GET /bridge/v1/synthesis/cache/status`.
+- Targets: `capability:synthesis.operation.get`, `endpoint:GET /bridge/v1/synthesis/cache/status`.
 - Freshness: derived Synthesis state; confirm current Zotero write facts through library/context commands.
 
 ### Choose this command
@@ -97,17 +161,18 @@ Distinguish from:
 - Preconditions:
 - Verify the exact CLI identity and a reachable Host Bridge before relying on live results.
 - Exact argv bindings:
-- No command arguments.
+- `operation-id` → option `--operation-id` (optional, takes a value).
 - CLI invocation fields:
-- No structured fields.
+- `operation-id` (string): Persistent maintenance operation id to read; omit for general cache status
 - Decoded payload fields:
-- No structured fields.
+- `operation_id` (string)
+- `operationId` (string)
 
 ### Result and evidence
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/synthesis/cache/status.
+- `result` (object): Stable result from synthesis.operation.get, GET /bridge/v1/synthesis/cache/status.
 - Completion evidence:
 - The structured synthesis cache status result and the exact invocation inputs used to obtain it.
 - topic, graph, index, resolver, artifact, schema, or insight result with paging metadata

@@ -59,6 +59,7 @@ export type HostBridgeCliInventoryEntry = {
 
 export type HostBridgeSurfaceCatalog = {
   capabilities: HostBridgeCapabilityCatalogEntry[];
+  globalArguments: HostBridgeCliInventoryArgument[];
   commandInventory: HostBridgeCliInventoryEntry[];
   cliMappings: HostBridgeCliMapping[];
   endpointMappings: HostBridgeCliMapping[];
@@ -88,17 +89,22 @@ const NO_APPROVAL_CAPABILITIES = new Set([
   "workflow_products.export",
   "mutation.preview",
   "diagnostic.get_status",
+  "synthesis.operation.get",
 ]);
 
 const DANGEROUS_CAPABILITIES = new Set([
   "debug.synthesis.cleanInstallReset",
   "debug.zotero.eval",
   "citation_graph.refresh_metrics",
+  "citation_graph.update",
+  "reference_sidecar.refresh",
 ]);
 
 const ALLOWED_DANGEROUS_SEMANTIC_CLI = new Set([
   "debug.synthesis.cleanInstallReset",
   "citation_graph.refresh_metrics",
+  "citation_graph.update",
+  "reference_sidecar.refresh",
 ]);
 
 const CACHE_VIEW_CAPABILITIES = new Set([
@@ -365,9 +371,10 @@ function debugCliMappings(): HostBridgeCliMapping[] {
   }));
 }
 
-export function loadHostBridgeCliInventory(
-  root = process.cwd(),
-): HostBridgeCliInventoryEntry[] {
+export function loadHostBridgeCliInventory(root = process.cwd()): {
+  globalArguments: HostBridgeCliInventoryArgument[];
+  commands: HostBridgeCliInventoryEntry[];
+} {
   const output = execFileSync(
     "cargo",
     [
@@ -382,12 +389,16 @@ export function loadHostBridgeCliInventory(
   );
   const parsed = JSON.parse(output) as {
     schema: string;
+    globalArguments: HostBridgeCliInventoryArgument[];
     commands: HostBridgeCliInventoryEntry[];
   };
   if (parsed.schema !== "zotero-bridge.command-inventory.v1") {
     throw new Error(`unexpected CLI inventory schema: ${parsed.schema}`);
   }
-  return parsed.commands;
+  return {
+    globalArguments: parsed.globalArguments || [],
+    commands: parsed.commands,
+  };
 }
 
 function coreCliMappings(): HostBridgeCliMapping[] {
@@ -457,6 +468,9 @@ function synthesisCliMappings(): HostBridgeCliMapping[] {
       "citation_graph.rank_library_papers",
     ],
     ["synthesis graph refresh-metrics", "citation_graph.refresh_metrics"],
+    ["synthesis graph update", "citation_graph.update"],
+    ["synthesis cache refresh-reference-sidecar", "reference_sidecar.refresh"],
+    ["synthesis cache status", "synthesis.operation.get"],
     ["synthesis index library get", "library_index.get"],
     ["synthesis index reference get", "reference_index.get"],
     ["synthesis resolver resolve", "resolvers.resolve"],
@@ -538,6 +552,15 @@ function endpointMappings(): HostBridgeCliMapping[] {
     ["run notification list", "GET /bridge/v1/notifications"],
     ["run notification wait", "GET /bridge/v1/notifications"],
     ["run notification ack", "POST /bridge/v1/notifications/ack"],
+    ["workflow profile list", "GET /bridge/v1/workflows/provider-profiles"],
+    [
+      "workflow profile describe",
+      "POST /bridge/v1/workflows/provider-profiles/describe",
+    ],
+    [
+      "workflow profile validate",
+      "POST /bridge/v1/workflows/provider-profiles/validate",
+    ],
     ["synthesis cache status", "GET /bridge/v1/synthesis/cache/status"],
     [
       "synthesis cache invalidate",
@@ -597,9 +620,11 @@ export function buildHostBridgeSurfaceCatalog(
     };
   });
 
+  const cliInventory = loadHostBridgeCliInventory(root);
   return {
     capabilities,
-    commandInventory: loadHostBridgeCliInventory(root),
+    globalArguments: cliInventory.globalArguments,
+    commandInventory: cliInventory.commands,
     cliMappings,
     endpointMappings: endpointMappings(),
   };

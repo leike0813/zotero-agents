@@ -1,6 +1,8 @@
 {
   "id": "literature-translator",
   "label": "Literature Translator",
+  "description": "Translate one literature source and apply the translated artifact while preserving academic structure.",
+  "executionModes": ["auto"],
   "provider": "skillrunner",
   "version": "0.1.0",
   "display": {

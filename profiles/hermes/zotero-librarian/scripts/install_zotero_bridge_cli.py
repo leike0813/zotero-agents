@@ -138,9 +138,9 @@ def link_well_known_profile(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Install the packaged zotero-bridge binary")
-    parser.add_argument("--source-root", default=Path(__file__).resolve().parents[1])
-    parser.add_argument("--install-dir", default=None)
-    parser.add_argument("--print-path", action="store_true")
+    parser.add_argument("--source-root", default=Path(__file__).resolve().parents[1], help="Profile root containing packaged platform binaries.")
+    parser.add_argument("--install-dir", default=None, help="Binary installation directory; defaults to the platform user bin directory.")
+    parser.add_argument("--print-path", action="store_true", help="Print the installed executable path after installation.")
     parser.add_argument(
         "--link-well-known-profile",
         dest="link_well_known_profile",

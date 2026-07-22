@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type {
   HostBridgeCliInventoryEntry,
@@ -92,10 +92,35 @@ export type HostBridgeAgentCommand = {
 };
 
 export type HostBridgeAgentSurfaceDescriptor = {
-  schema: "host-bridge.agent-surface.v2";
+  schema: "host-bridge.agent-surface.v3";
   protocol: "host-bridge.v1";
-  cliSchema: "zotero-bridge.cli.v2";
+  cliSchema: "zotero-bridge.cli.v3";
   commandCatalogChecksum: string;
+  globalOptions: Array<{
+    id: string;
+    token: string;
+    shortToken?: string;
+    takesValue: boolean;
+    valueNames: string[];
+    description: string;
+  }>;
+  workflowCatalog: Array<{
+    id: string;
+    label: string;
+    description: string;
+    providerRequirements: {
+      requestKind?: string;
+      acceptedProviderTypes: string[];
+    };
+    executionModes: Array<"auto" | "interactive">;
+    requiredWorkflowOptions: string[];
+    resultEvidence: {
+      fetchType?: "bundle" | "result";
+      resultJson?: string;
+      artifacts: string[];
+      applyBack: boolean;
+    };
+  }>;
   commands: HostBridgeAgentCommand[];
 };
 
@@ -114,6 +139,22 @@ type GuidanceSource = {
   }>;
 };
 
+type WorkflowSurfaceManifest = {
+  id?: unknown;
+  label?: unknown;
+  description?: unknown;
+  debug_only?: unknown;
+  provider?: unknown;
+  executionModes?: unknown;
+  parameters?: Record<string, { required?: unknown }>;
+  request?: { kind?: unknown };
+  result?: {
+    fetch?: { type?: "bundle" | "result" };
+    expects?: { result_json?: unknown; artifacts?: unknown };
+  };
+  hooks?: { applyResult?: unknown };
+};
+
 const GUIDANCE_SOURCE = "skills_src/host-bridge-shared/semantic/manifest.json";
 
 const NAVIGATION_COMMANDS = new Set([
@@ -125,6 +166,8 @@ const NAVIGATION_COMMANDS = new Set([
 
 const MAINTENANCE_COMMANDS = new Set([
   "synthesis cache invalidate",
+  "synthesis cache refresh-reference-sidecar",
+  "synthesis graph update",
   "synthesis graph refresh-metrics",
   "debug acp-skill-run reapply-result",
   "debug synthesis clean-install-reset",
@@ -780,8 +823,74 @@ export function hostBridgeAgentSurfaceChecksum(
   descriptor: HostBridgeAgentSurfaceDescriptor,
 ) {
   return createHash("sha256")
-    .update(serializeStable(descriptor.commands))
+    .update(
+      serializeStable({
+        globalOptions: descriptor.globalOptions,
+        workflowCatalog: descriptor.workflowCatalog,
+        commands: descriptor.commands,
+      }),
+    )
     .digest("hex");
+}
+
+function readWorkflowCatalog(root: string) {
+  const files: string[] = [];
+  const visit = (directory: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const target = join(directory, entry.name);
+      if (entry.isDirectory()) visit(target);
+      else if (entry.isFile() && entry.name === "workflow.json") {
+        files.push(target);
+      }
+    }
+  };
+  visit(join(root, "workflows_builtin"));
+  return files
+    .map(
+      (path) =>
+        JSON.parse(readFileSync(path, "utf8")) as WorkflowSurfaceManifest,
+    )
+    .filter((manifest) => manifest.debug_only !== true)
+    .map((manifest) => {
+      const requestKind = String(manifest.request?.kind || "").trim();
+      const requiredWorkflowOptions = Object.entries(manifest.parameters || {})
+        .filter(([, schema]) => schema.required === true)
+        .map(([key]) => key)
+        .sort();
+      return {
+        id: String(manifest.id || "").trim(),
+        label: String(manifest.label || "").trim(),
+        description: String(manifest.description || "").trim(),
+        providerRequirements: {
+          ...(requestKind ? { requestKind } : {}),
+          acceptedProviderTypes:
+            requestKind === "skillrunner.sequence.v1"
+              ? ["acp", "skillrunner"]
+              : [String(manifest.provider || "").trim()].filter(Boolean),
+        },
+        executionModes: (Array.isArray(manifest.executionModes)
+          ? manifest.executionModes
+          : ["auto"]) as Array<"auto" | "interactive">,
+        requiredWorkflowOptions,
+        resultEvidence: {
+          ...(manifest.result?.fetch?.type
+            ? { fetchType: manifest.result.fetch.type }
+            : {}),
+          ...(String(manifest.result?.expects?.result_json || "").trim()
+            ? {
+                resultJson: String(
+                  manifest.result?.expects?.result_json,
+                ).trim(),
+              }
+            : {}),
+          artifacts: Array.isArray(manifest.result?.expects?.artifacts)
+            ? manifest.result.expects.artifacts.map(String)
+            : [],
+          applyBack: Boolean(manifest.hooks?.applyResult),
+        },
+      };
+    })
+    .sort((left, right) => left.id.localeCompare(right.id));
 }
 
 export function buildHostBridgeAgentSurfaceDescriptor(
@@ -809,7 +918,7 @@ export function buildHostBridgeAgentSurfaceDescriptor(
     byCommand.set(command, [
       {
         command,
-        target: "embedded host-bridge.agent-surface.v2",
+        target: "embedded host-bridge.agent-surface.v3",
         kind: "service",
       },
     ]);
@@ -968,11 +1077,29 @@ export function buildHostBridgeAgentSurfaceDescriptor(
     }
   }
 
+  const globalOptions = catalog.globalArguments
+    .map((argument) => {
+      if (!argument.help?.trim()) {
+        throw new Error(`global option ${argument.id} has no description`);
+      }
+      return {
+        id: argument.id,
+        token: argument.long ? `--${argument.long}` : argument.id,
+        ...(argument.short ? { shortToken: `-${argument.short}` } : {}),
+        takesValue: argument.takesValue,
+        valueNames: argument.valueNames,
+        description: argument.help.trim(),
+      };
+    })
+    .sort((left, right) => left.token.localeCompare(right.token));
+  const workflowCatalog = readWorkflowCatalog(root);
   const descriptor = {
-    schema: "host-bridge.agent-surface.v2",
+    schema: "host-bridge.agent-surface.v3",
     protocol: "host-bridge.v1",
-    cliSchema: "zotero-bridge.cli.v2",
+    cliSchema: "zotero-bridge.cli.v3",
     commandCatalogChecksum: "",
+    globalOptions,
+    workflowCatalog,
     commands,
   } satisfies HostBridgeAgentSurfaceDescriptor;
   descriptor.commandCatalogChecksum =
@@ -986,7 +1113,7 @@ export function createHostBridgeSurfaceIdentity(args: {
   descriptor: HostBridgeAgentSurfaceDescriptor;
 }) {
   return {
-    schema: "host-bridge.surface-identity.v2" as const,
+    schema: "host-bridge.surface-identity.v3" as const,
     protocol: args.descriptor.protocol,
     cliSchema: args.descriptor.cliSchema,
     version: args.version,

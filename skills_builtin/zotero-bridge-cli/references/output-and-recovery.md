@@ -1,6 +1,6 @@
 # Output And Error Contract
 
-The embedded command contract uses `host-bridge.agent-surface.v2` and `zotero-bridge.cli.v2`.
+The embedded command contract uses `host-bridge.agent-surface.v3` and `zotero-bridge.cli.v3`.
 
 Successful commands emit one JSON envelope with `ok`, `data`, and `meta`. Interpret `data` through the command-specific `resultSchema`; similarly named ids are not interchangeable handles.
 

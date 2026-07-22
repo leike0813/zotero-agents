@@ -1047,10 +1047,12 @@ describe("host bridge workflow control", function () {
       ),
       ["language"],
     );
-    assert.strictEqual(
-      parsed.json.result.providerProfile.requiresBackendProfile,
-      false,
-    );
+    assert.notProperty(parsed.json.result, "providerProfile");
+    assert.property(parsed.json.result, "providerRequirements");
+    assert.deepEqual(parsed.json.result.resultEvidence, {
+      artifacts: [],
+      applyBack: true,
+    });
     assert.deepInclude(parsed.json.result.executionModes.hostOwned, {
       supported: true,
       acceptsWorkflowOptions: true,
@@ -1114,6 +1116,7 @@ describe("host bridge workflow control", function () {
     assert.deepEqual(validate.json.result.workflowOptions, {
       language: "en-US",
     });
+    assert.notProperty(validate.json.result, "providerProfile");
     assert.notInclude(JSON.stringify(validate.json.result), "requestId");
   });
 
@@ -1166,7 +1169,7 @@ describe("host bridge workflow control", function () {
     assert.deepEqual(validate.json.error.details.requiredFields, ["scope"]);
   });
 
-  it("accepts ACP permission auto-approval in an ACP provider profile", async function () {
+  it("lists, describes, and validates ACP provider profiles without workflow context", async function () {
     const previousBackends = getPref("backendsConfigJson");
     try {
       setPref(
@@ -1186,45 +1189,143 @@ describe("host bridge workflow control", function () {
           ],
         }),
       );
-      const entry = workflow("acp-bridge-workflow");
-      entry.manifest.provider = "skillrunner";
-      entry.manifest.request = { kind: "skillrunner.job.v1" };
-      installWorkflowRegistryForTests([entry]);
       const token = configureHostBridgeServerForTests({
         token: "workflow-token",
       });
 
-      const parsed = await bridgeRequest({
+      const listed = await bridgeRequest({
+        token,
+        method: "GET",
+        path: "/bridge/v1/workflows/provider-profiles",
+      });
+      assert.strictEqual(listed.status, 200);
+      assert.deepInclude(listed.json.result.profiles[0], {
+        backendId: "acp-opencode",
+        providerId: "acp",
+      });
+
+      const described = await bridgeRequest({
         token,
         method: "POST",
-        path: "/bridge/v1/workflows/describe",
+        path: "/bridge/v1/workflows/provider-profiles/describe",
         body: {
-          workflowId: "acp-bridge-workflow",
+          backendId: "acp-opencode",
+        },
+      });
+
+      assert.strictEqual(described.status, 200);
+      assert.strictEqual(described.json.status, "ok");
+      assert.strictEqual(described.json.result.providerId, "acp");
+      assert.strictEqual(described.json.result.backend.id, "acp-opencode");
+      assert.notProperty(described.json.result, "workflowId");
+      assert.include(
+        described.json.result.options.map(
+          (entry: { key: string }) => entry.key,
+        ),
+        "autoApproveAcpPermissions",
+      );
+
+      const validated = await bridgeRequest({
+        token,
+        method: "POST",
+        path: "/bridge/v1/workflows/provider-profiles/validate",
+        body: {
           providerProfile: {
             backendId: "acp-opencode",
             providerOptions: { autoApproveAcpPermissions: true },
           },
         },
       });
-
-      assert.strictEqual(parsed.status, 200);
-      assert.strictEqual(parsed.json.status, "ok");
-      assert.strictEqual(parsed.json.result.providerId, "acp");
+      assert.strictEqual(validated.status, 200);
       assert.strictEqual(
-        parsed.json.result.providerProfile.selectedBackendId,
+        validated.json.result.normalizedProfile.backendId,
         "acp-opencode",
       );
       assert.deepEqual(
-        parsed.json.result.providerProfile.normalizedProviderOptions,
+        validated.json.result.normalizedProfile.providerOptions,
         { autoApproveAcpPermissions: true },
+      );
+      assert.notProperty(validated.json.result, "workflowId");
+
+      const unavailable = await bridgeRequest({
+        token,
+        method: "POST",
+        path: "/bridge/v1/workflows/provider-profiles/validate",
+        body: {
+          providerProfile: {
+            backendId: "acp-opencode",
+            providerOptions: { acpModelId: "unverified-model" },
+          },
+        },
+      });
+      assert.strictEqual(unavailable.status, 400);
+      assert.strictEqual(
+        unavailable.json.error.code,
+        "provider_profile_option_unavailable",
       );
     } finally {
       setPref("backendsConfigJson", previousBackends);
     }
   });
 
-  it("rejects unsafe provider profile fields before workflow describe", async function () {
-    installWorkflowRegistryForTests([workflow("bridge-workflow")]);
+  it("describes and validates SkillRunner profiles from the selected backend", async function () {
+    const previousBackends = getPref("backendsConfigJson");
+    try {
+      setPref(
+        "backendsConfigJson",
+        JSON.stringify({
+          schemaVersion: 2,
+          backends: [
+            {
+              id: "skillrunner-local",
+              displayName: "Local SkillRunner",
+              type: "skillrunner",
+              baseUrl: "http://127.0.0.1:8123",
+              auth: { kind: "none" },
+            },
+          ],
+        }),
+      );
+      const token = configureHostBridgeServerForTests({
+        token: "workflow-token",
+      });
+      const described = await bridgeRequest({
+        token,
+        method: "POST",
+        path: "/bridge/v1/workflows/provider-profiles/describe",
+        body: { backendId: "skillrunner-local" },
+      });
+      assert.strictEqual(described.status, 200);
+      assert.strictEqual(described.json.result.providerId, "skillrunner");
+      assert.include(
+        described.json.result.options.map(
+          (entry: { key: string }) => entry.key,
+        ),
+        "engine",
+      );
+
+      const validated = await bridgeRequest({
+        token,
+        method: "POST",
+        path: "/bridge/v1/workflows/provider-profiles/validate",
+        body: {
+          providerProfile: {
+            backendId: "skillrunner-local",
+            providerOptions: { no_cache: true, hard_timeout_seconds: 30 },
+          },
+        },
+      });
+      assert.strictEqual(validated.status, 200);
+      assert.deepInclude(
+        validated.json.result.normalizedProfile.providerOptions,
+        { no_cache: true, hard_timeout_seconds: 30 },
+      );
+    } finally {
+      setPref("backendsConfigJson", previousBackends);
+    }
+  });
+
+  it("rejects unsafe provider profile fields through provider validation", async function () {
     const token = configureHostBridgeServerForTests({
       token: "workflow-token",
     });
@@ -1232,9 +1333,8 @@ describe("host bridge workflow control", function () {
     const parsed = await bridgeRequest({
       token,
       method: "POST",
-      path: "/bridge/v1/workflows/describe",
+      path: "/bridge/v1/workflows/provider-profiles/validate",
       body: {
-        workflowId: "bridge-workflow",
         providerProfile: {
           backendId: "backend-1",
           providerOptions: {
@@ -1246,10 +1346,33 @@ describe("host bridge workflow control", function () {
 
     assert.strictEqual(parsed.status, 400);
     assert.strictEqual(parsed.json.status, "error");
-    assert.strictEqual(
-      parsed.json.error.code,
-      "invalid_workflow_describe_request",
-    );
+    assert.strictEqual(parsed.json.error.code, "invalid_provider_profile");
+  });
+
+  it("rejects provider profile input on workflow describe and validate", async function () {
+    installWorkflowRegistryForTests([workflow("bridge-workflow")]);
+    const token = configureHostBridgeServerForTests({
+      token: "workflow-token",
+    });
+
+    for (const [path, body] of [
+      [
+        "/bridge/v1/workflows/describe",
+        { workflowId: "bridge-workflow", providerProfile: {} },
+      ],
+      [
+        "/bridge/v1/workflows/validate",
+        {
+          workflowId: "bridge-workflow",
+          selection: { items: [{ key: "ABCD1234", libraryId: 1 }] },
+          providerProfile: {},
+        },
+      ],
+    ] as const) {
+      const parsed = await bridgeRequest({ token, method: "POST", path, body });
+      assert.strictEqual(parsed.status, 400);
+      assert.match(parsed.json.error.code, /^invalid_workflow_/);
+    }
   });
 
   it("rejects submit provider profile backend incompatible with workflow", async function () {
@@ -1277,7 +1400,7 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(parsed.json.status, "error");
     assert.strictEqual(
       parsed.json.error.code,
-      "invalid_workflow_submit_request",
+      "workflow_provider_incompatible",
     );
   });
 

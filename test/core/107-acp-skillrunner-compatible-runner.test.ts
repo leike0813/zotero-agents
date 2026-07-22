@@ -967,37 +967,36 @@ describe("ACP SkillRunner-compatible runner", function () {
     seedRecoveredRunBackendsForTests();
   });
 
-  it("continues a Kilo task after none is rejected before the first prompt", async function () {
+  it("fails closed when Kilo rejects explicit reasoning before the first prompt", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root);
     const { adapter, configSelections, getPromptCount } =
       createKiloNoneFallbackAdapter();
     try {
-      const result = await runDemoAcpSkill({
-        root,
-        entry,
-        adapter,
-        backend: createBackend({
-          acp: {
-            agentFamily: "kilo",
-            runtimeOptionsCache: {
-              reasoningEfforts: [{ id: "none", label: "None" }],
-              reasoningSource: "explicit",
+      let caught: unknown;
+      try {
+        await runDemoAcpSkill({
+          root,
+          entry,
+          adapter,
+          backend: createBackend({
+            acp: {
+              agentFamily: "kilo",
+              runtimeOptionsCache: {
+                reasoningEfforts: [{ id: "none", label: "None" }],
+                reasoningSource: "explicit",
+              },
             },
-          },
-        }),
-        providerOptions: { acpReasoningEffort: "none" },
-      });
+          }),
+          providerOptions: { acpReasoningEffort: "none" },
+        });
+      } catch (error) {
+        caught = error;
+      }
 
-      assert.equal(getPromptCount(), 1);
+      assert.instanceOf(caught, Error);
+      assert.equal(getPromptCount(), 0);
       assert.deepEqual(configSelections, ["thought_level:none"]);
-      const record = getAcpSkillRunRecord(result.requestId);
-      assert.isUndefined(record?.acpReasoningEffort);
-      assert.isTrue(
-        (record?.events || []).some(
-          (event) => event.stage === "runtime-reasoning-fallback",
-        ),
-      );
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }

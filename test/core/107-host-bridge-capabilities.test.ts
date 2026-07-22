@@ -436,6 +436,62 @@ describe("host bridge capability calls", function () {
     assert.strictEqual(parsed.json.result.data.connectionMode, "remote");
   });
 
+  it("keeps sidecar refresh and graph update as separate approved operations", async function () {
+    const calls: string[] = [];
+    const token = configureHostBridgeServerForTests({
+      token: "maintenance-operation-token",
+      resolveSynthesisService: () => ({
+        startReferenceSidecarRefresh(input) {
+          calls.push("sidecar");
+          return { operation_id: "sidecar-op", status: "pending", input };
+        },
+        startCitationGraphUpdate(input) {
+          calls.push("graph");
+          return { operation_id: "graph-op", status: "pending", input };
+        },
+        getPublicMaintenanceOperation(input) {
+          calls.push("status");
+          return { operation_id: input.operation_id, status: "completed" };
+        },
+      }),
+    });
+    let approvalCount = 0;
+    configureHostBridgeGlobalApprovalHandlerForTests((request) => {
+      approvalCount += 1;
+      return {
+        outcome: "approved",
+        requestId: request.requestId,
+        channel: "global",
+      };
+    });
+
+    const sidecar = await callBridgeCapability({
+      token,
+      capability: "reference_sidecar.refresh",
+      input: { scope: "papers", paper_refs: ["1:ABCD1234"] },
+    });
+    const graph = await callBridgeCapability({
+      token,
+      capability: "citation_graph.update",
+      input: {
+        scope: "papers",
+        paper_refs: ["1:ABCD1234"],
+        expected_reference_basis_hash: "sha256:basis",
+      },
+    });
+    const status = await callBridgeCapability({
+      token,
+      capability: "synthesis.operation.get",
+      input: { operation_id: "sidecar-op" },
+    });
+
+    assert.strictEqual(sidecar.json.result.data.operation_id, "sidecar-op");
+    assert.strictEqual(graph.json.result.data.operation_id, "graph-op");
+    assert.strictEqual(status.json.result.data.status, "completed");
+    assert.strictEqual(approvalCount, 2);
+    assert.deepEqual(calls, ["sidecar", "graph", "status"]);
+  });
+
   it("decodes UTF-8 byte-counted capability bodies without mojibake", async function () {
     const token = configureHostBridgeServerForTests({
       token: "utf8-call-token",
@@ -514,14 +570,29 @@ describe("host bridge capability calls", function () {
     const graphLayout = manifest.json.result.capabilities.find(
       (entry: { name?: string }) => entry.name === "citation_graph.get_layout",
     );
+    const sidecarRefresh = manifest.json.result.capabilities.find(
+      (entry: { name?: string }) => entry.name === "reference_sidecar.refresh",
+    );
+    const graphUpdate = manifest.json.result.capabilities.find(
+      (entry: { name?: string }) => entry.name === "citation_graph.update",
+    );
+    const maintenanceStatus = manifest.json.result.capabilities.find(
+      (entry: { name?: string }) => entry.name === "synthesis.operation.get",
+    );
     assert.isOk(metricsRefresh);
     assert.isOk(topicReport);
     assert.isOk(topicsByPaperRef);
     assert.isOk(graphLayout);
+    assert.isOk(sidecarRefresh);
+    assert.isOk(graphUpdate);
+    assert.isOk(maintenanceStatus);
     assert.strictEqual(metricsRefresh.approval, "zotero-ui-required");
     assert.strictEqual(topicReport.approval, "none");
     assert.strictEqual(topicsByPaperRef.approval, "none");
     assert.strictEqual(graphLayout.approval, "none");
+    assert.strictEqual(sidecarRefresh.approval, "zotero-ui-required");
+    assert.strictEqual(graphUpdate.approval, "zotero-ui-required");
+    assert.strictEqual(maintenanceStatus.approval, "none");
   });
 
   it("reports canonical resolve-resolver input contract errors", async function () {

@@ -1533,6 +1533,39 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "getReferenceSidecarIndex",
   ),
   synthesisCapability(
+    "reference_sidecar.refresh",
+    "reference_index",
+    "Start an independently approved reference-sidecar refresh for one library or a bounded same-library paper-ref scope and return a persistent operation handle.",
+    "startReferenceSidecarRefresh",
+    {
+      type: "object",
+      required: false,
+      properties: {
+        scope: { type: "string", enum: ["library", "papers"] },
+        library_id: { type: ["number", "string"] },
+        libraryId: { type: ["number", "string"] },
+        paper_refs: { type: "array" },
+        paperRefs: { type: "array" },
+        idempotency_key: { type: "string" },
+        idempotencyKey: { type: "string" },
+      },
+    },
+  ),
+  synthesisCapability(
+    "synthesis.operation.get",
+    "diagnostic",
+    "Read one persistent public Synthesis maintenance operation and its terminal receipt without mutating operation state.",
+    "getPublicMaintenanceOperation",
+    {
+      type: "object",
+      required: true,
+      properties: {
+        operation_id: { type: "string" },
+        operationId: { type: "string" },
+      },
+    },
+  ),
+  synthesisCapability(
     "citation_graph.get_overview",
     "citation_graph",
     "Return paged read-only Synthesis citation graph overview arrays with summary counts.",
@@ -1631,6 +1664,27 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "citation_graph",
     "Diagnostic repair: refresh persisted citation graph complex metrics from the current graph cache without rebuilding graph structure.",
     "refreshCitationGraphMetricsNow",
+  ),
+  synthesisCapability(
+    "citation_graph.update",
+    "citation_graph",
+    "Start an independently approved atomic citation-graph update for one library or a bounded paper closure and return a persistent operation handle.",
+    "startCitationGraphUpdate",
+    {
+      type: "object",
+      required: false,
+      properties: {
+        scope: { type: "string", enum: ["library", "papers"] },
+        library_id: { type: ["number", "string"] },
+        libraryId: { type: ["number", "string"] },
+        paper_refs: { type: "array" },
+        paperRefs: { type: "array" },
+        expected_reference_basis_hash: { type: "string" },
+        expectedReferenceBasisHash: { type: "string" },
+        idempotency_key: { type: "string" },
+        idempotencyKey: { type: "string" },
+      },
+    },
   ),
   synthesisCapability(
     "paper_artifacts.get_manifest",

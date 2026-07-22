@@ -1,6 +1,8 @@
 {
   "id": "literature-deep-reading",
   "label": "Literature Deep Reading",
+  "description": "Produce and apply a detailed, evidence-grounded deep-reading analysis for one literature source.",
+  "executionModes": ["auto"],
   "provider": "skillrunner",
   "version": "0.1.0",
   "display": {

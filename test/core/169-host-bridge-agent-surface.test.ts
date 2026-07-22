@@ -16,9 +16,22 @@ describe("Host Bridge agent surface contract", function () {
     const catalog = buildHostBridgeSurfaceCatalog();
     const descriptor = buildHostBridgeAgentSurfaceDescriptor(catalog);
 
-    assert.strictEqual(descriptor.schema, "host-bridge.agent-surface.v2");
-    assert.strictEqual(descriptor.cliSchema, "zotero-bridge.cli.v2");
-    assert.lengthOf(catalog.commandInventory, 112);
+    assert.strictEqual(descriptor.schema, "host-bridge.agent-surface.v3");
+    assert.strictEqual(descriptor.cliSchema, "zotero-bridge.cli.v3");
+    assert.lengthOf(catalog.commandInventory, 117);
+    assert.isNotEmpty(descriptor.globalOptions);
+    assert.isTrue(
+      descriptor.globalOptions.every((entry) => Boolean(entry.description)),
+    );
+    assert.isNotEmpty(descriptor.workflowCatalog);
+    assert.isTrue(
+      descriptor.workflowCatalog.every(
+        (entry) =>
+          Boolean(entry.description) &&
+          entry.executionModes.length > 0 &&
+          Array.isArray(entry.resultEvidence.artifacts),
+      ),
+    );
     assert.deepEqual(
       descriptor.commands.map((entry) => entry.command),
       catalog.commandInventory.map((entry) => entry.command),
@@ -190,7 +203,7 @@ describe("Host Bridge agent surface contract", function () {
     const ajv = new Ajv({ strict: false });
     for (const [schemaPath, dataPath] of [
       [
-        "schemas/host-bridge.agent-surface.v2.schema.json",
+        "schemas/host-bridge.agent-surface.v3.schema.json",
         "cli/zotero-bridge/src/agent-surface.json",
       ],
       [
@@ -415,7 +428,7 @@ describe("Host Bridge agent surface contract", function () {
       buildFingerprint: "f".repeat(64),
       descriptor,
     });
-    assert.strictEqual(identity.schema, "host-bridge.surface-identity.v2");
+    assert.strictEqual(identity.schema, "host-bridge.surface-identity.v3");
     assert.strictEqual(identity.version, "0.2.2");
     assert.match(identity.commandCatalogChecksum, /^[a-f0-9]{64}$/);
 

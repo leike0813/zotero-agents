@@ -1,6 +1,8 @@
 {
   "id": "workflow-debug-probe",
   "label": "Workflow Debug Probe",
+  "description": "Exercise the workflow request, execution, result-fetch, and apply pipeline with diagnostic fixtures.",
+  "executionModes": ["auto"],
   "version": "0.1.0",
   "provider": "pass-through",
   "debug_only": true,

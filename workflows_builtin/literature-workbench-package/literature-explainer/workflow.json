@@ -1,6 +1,8 @@
 {
   "id": "literature-explainer",
   "label": "Literature Explainer",
+  "description": "Run a stateful question-answering and study-note session for one literature source.",
+  "executionModes": ["auto"],
   "provider": "skillrunner",
   "version": "0.1.0",
   "display": {

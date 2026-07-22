@@ -2,6 +2,8 @@
 
 Profile scripts own deterministic paging, local SQLite updates, plan validation, and stable JSON output. The agent owns task interpretation, workflow/mode choice, evidence judgment, and approval decisions.
 
+Inspect `../../../assets/agent-helper-surface.json` for the profile-local helper command, option, result, error, and effect inventory. Use each helper's `--help` output for the operational meaning of every option; commands from Zotero Library Agent are not installed by this profile descriptor.
+
 ## Index service
 
 ```sh

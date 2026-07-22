@@ -1,6 +1,8 @@
 {
   "id": "collection-collector",
   "label": "Collection Collector",
+  "description": "Find library literature matching a collection meaning and add reviewed matches to that Zotero collection.",
+  "executionModes": ["auto"],
   "provider": "skillrunner",
   "version": "0.1.0",
   "display": { "core": false, "emoji": "🗂️" },

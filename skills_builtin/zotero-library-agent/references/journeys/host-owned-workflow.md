@@ -5,10 +5,13 @@ Use this journey when Host Bridge or its configured backend should own execution
 ## Prepare and submit
 
 1. `workflow list` discovers candidates; it does not prove a workflow accepts the current input.
-2. `workflow describe` or `workflow requirements` returns selection, workflow option, provider profile, and structured `executionModes` facts.
-3. Normalize child refs to top-level item refs. Keep workflow options separate from the provider profile. Never place secrets or local paths in either.
-4. Run `workflow validate` with the same selection/options/profile intended for submission.
-5. Submit only when `executionModes.hostOwned.supported` is true and validation succeeds. Preserve `workflowRunId`.
+2. `workflow describe` or `workflow requirements` returns only workflow-owned selection, workflow options, provider requirements, purpose, and execution-mode facts.
+3. Normalize child refs to top-level item refs and run `workflow validate` with the intended selection and workflow options. Provider profile input is invalid on workflow describe and validate.
+4. Independently use `workflow profile list`, `workflow profile describe --backend <id>`, and `workflow profile validate --provider-profile <JSON_OR_FILE>` for backend-owned provider options. These commands never accept a workflow id.
+5. Check that the validated profile satisfies the workflow's provider requirements. `workflow submit` performs the same compatibility preflight and is the only join point for both contracts.
+6. Submit only when `executionModes.hostOwned.supported` is true. Pass workflow options and provider profile separately and preserve `workflowRunId`.
+
+An explicit `--provider-profile` always wins. Otherwise the CLI may inject `ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE`, whose value is inline JSON or `@` followed by an absolute profile path. The default belongs to the current agent/CLI process; it is not saved by Zotero and is never applied to agent-owned handoffs.
 
 ## Monitor and interact
 

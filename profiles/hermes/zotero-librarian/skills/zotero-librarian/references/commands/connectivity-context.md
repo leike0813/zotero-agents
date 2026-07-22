@@ -709,7 +709,7 @@ Describe one canonical command
 
 ### Backend and freshness
 
-- Targets: `service:embedded host-bridge.agent-surface.v2`.
+- Targets: `service:embedded host-bridge.agent-surface.v3`.
 - Freshness: embedded offline contract; it does not prove Host Bridge reachability.
 
 ### Choose this command
@@ -745,7 +745,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from embedded host-bridge.agent-surface.v2.
+- `result` (object): Stable result from embedded host-bridge.agent-surface.v3.
 - Completion evidence:
 - The structured surface describe result and the exact invocation inputs used to obtain it.
 - surface identity or the described command entry
@@ -767,7 +767,7 @@ Print exact CLI build and command-catalog identity
 
 ### Backend and freshness
 
-- Targets: `service:embedded host-bridge.agent-surface.v2`.
+- Targets: `service:embedded host-bridge.agent-surface.v3`.
 - Freshness: embedded offline contract; it does not prove Host Bridge reachability.
 
 ### Choose this command
@@ -801,7 +801,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from embedded host-bridge.agent-surface.v2.
+- `result` (object): Stable result from embedded host-bridge.agent-surface.v3.
 - Completion evidence:
 - The structured surface identity result and the exact invocation inputs used to obtain it.
 - surface identity or the described command entry
@@ -823,7 +823,7 @@ Search canonical commands by task intent
 
 ### Backend and freshness
 
-- Targets: `service:embedded host-bridge.agent-surface.v2`.
+- Targets: `service:embedded host-bridge.agent-surface.v3`.
 - Freshness: embedded offline contract; it does not prove Host Bridge reachability.
 
 ### Choose this command
@@ -864,7 +864,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from embedded host-bridge.agent-surface.v2.
+- `result` (object): Stable result from embedded host-bridge.agent-surface.v3.
 - Completion evidence:
 - The structured surface search result and the exact invocation inputs used to obtain it.
 - surface identity or the described command entry

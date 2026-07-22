@@ -1,8 +1,428 @@
 {
-  "schema": "host-bridge.agent-surface.v2",
+  "schema": "host-bridge.agent-surface.v3",
   "protocol": "host-bridge.v1",
-  "cliSchema": "zotero-bridge.cli.v2",
-  "commandCatalogChecksum": "9f3f82cc60299963ed2660e1c08a9de46db277ef57e199cbad04dd7e14227b40",
+  "cliSchema": "zotero-bridge.cli.v3",
+  "commandCatalogChecksum": "ec6a8453b531616a28324d192491064b9e24f6b8bf2957e5b8abe4c9f263db13",
+  "globalOptions": [
+    {
+      "id": "endpoint",
+      "token": "--endpoint",
+      "takesValue": true,
+      "valueNames": [
+        "ENDPOINT"
+      ],
+      "description": "Host Bridge endpoint, for example http://127.0.0.1:26570/bridge/v1"
+    },
+    {
+      "id": "profile",
+      "token": "--profile",
+      "takesValue": true,
+      "valueNames": [
+        "PATH"
+      ],
+      "description": "Path to a Host Bridge profile JSON file"
+    }
+  ],
+  "workflowCatalog": [
+    {
+      "id": "collection-collector",
+      "label": "Collection Collector",
+      "description": "Find library literature matching a collection meaning and add reviewed matches to that Zotero collection.",
+      "providerRequirements": {
+        "requestKind": "skillrunner.job.v1",
+        "acceptedProviderTypes": [
+          "skillrunner"
+        ]
+      },
+      "executionModes": [
+        "auto"
+      ],
+      "requiredWorkflowOptions": [
+        "collection",
+        "collectionScope"
+      ],
+      "resultEvidence": {
+        "fetchType": "result",
+        "resultJson": "result/result.json",
+        "artifacts": [],
+        "applyBack": true
+      }
+    },
+    {
+      "id": "create-topic-synthesis",
+      "label": "Create Topic Synthesis",
+      "description": "Create a new topic synthesis from a natural-language seed using the current library, reference, and citation-graph evidence.",
+      "providerRequirements": {
+        "requestKind": "skillrunner.sequence.v1",
+        "acceptedProviderTypes": [
+          "acp",
+          "skillrunner"
+        ]
+      },
+      "executionModes": [
+        "auto"
+      ],
+      "requiredWorkflowOptions": [],
+      "resultEvidence": {
+        "fetchType": "bundle",
+        "resultJson": "result/final-output.candidate.json",
+        "artifacts": [],
+        "applyBack": true
+      }
+    },
+    {
+      "id": "export-literature-bundle",
+      "label": "Export Literature Bundle",
+      "description": "Export selected literature and its generated analysis artifacts into a portable bundle.",
+      "providerRequirements": {
+        "acceptedProviderTypes": [
+          "pass-through"
+        ]
+      },
+      "executionModes": [
+        "auto"
+      ],
+      "requiredWorkflowOptions": [],
+      "resultEvidence": {
+        "artifacts": [],
+        "applyBack": true
+      }
+    },
+    {
+      "id": "export-notes",
+      "label": "Export Notes",
+      "description": "Export supported generated Zotero notes as editable external files.",
+      "providerRequirements": {
+        "acceptedProviderTypes": [
+          "pass-through"
+        ]
+      },
+      "executionModes": [
+        "auto"
+      ],
+      "requiredWorkflowOptions": [],
+      "resultEvidence": {
+        "artifacts": [],
+        "applyBack": true
+      }
+    },
+    {
+      "id": "export-research-bundle",
+      "label": "Export Research Bundle",
+      "description": "Export manuscript-oriented research materials, analyzed literature artifacts, and synthesis evidence into a portable bundle.",
+      "providerRequirements": {
+        "requestKind": "skillrunner.job.v1",
+        "acceptedProviderTypes": [
+          "skillrunner"
+        ]
+      },
+      "executionModes": [
+        "auto"
+      ],
+      "requiredWorkflowOptions": [],
+      "resultEvidence": {
+        "fetchType": "bundle",
+        "resultJson": "result/result.json",
+        "artifacts": [
+          "result/export-research-bundle-artifacts.json"
+        ],
+        "applyBack": true
+      }
+    },
+    {
+      "id": "import-literature-bundle",
+      "label": "Import Literature Bundle",
+      "description": "Import a literature bundle and reconcile its supported Zotero literature artifacts.",
+      "providerRequirements": {
+        "acceptedProviderTypes": [
+          "pass-through"
+        ]
+      },
+      "executionModes": [
+        "auto"
+      ],
+      "requiredWorkflowOptions": [],
+      "resultEvidence": {
+        "artifacts": [],
+        "applyBack": true
+      }
+    },
+    {
+      "id": "import-notes",
+      "label": "Import Notes",
+      "description": "Import supported external analysis files and upsert their generated Zotero notes.",
+      "providerRequirements": {
+        "acceptedProviderTypes": [
+          "pass-through"
+        ]
+      },
+      "executionModes": [
+        "auto"
+      ],
+      "requiredWorkflowOptions": [],
+      "resultEvidence": {
+        "artifacts": [],
+        "applyBack": true
+      }
+    },
+    {
+      "id": "literature-analysis",
+      "label": "Literature Analysis",
+      "description": "Analyze one literature source and apply its digest, structured references, citation analysis, and optional normalized tags to Zotero.",
+      "providerRequirements": {
+        "requestKind": "skillrunner.sequence.v1",
+        "acceptedProviderTypes": [
+          "acp",
+          "skillrunner"
+        ]
+      },
+      "executionModes": [
+        "auto"
+      ],
+      "requiredWorkflowOptions": [],
+      "resultEvidence": {
+        "fetchType": "bundle",
+        "resultJson": "result/result.json",
+        "artifacts": [
+          "artifacts/digest.md",
+          "artifacts/references.json",
+          "artifacts/citation_analysis.json"
+        ],
+        "applyBack": true
+      }
+    },
+    {
+      "id": "literature-deep-reading",
+      "label": "Literature Deep Reading",
+      "description": "Produce and apply a detailed, evidence-grounded deep-reading analysis for one literature source.",
+      "providerRequirements": {
+        "requestKind": "skillrunner.sequence.v1",
+        "acceptedProviderTypes": [
+          "acp",
+          "skillrunner"
+        ]
+      },
+      "executionModes": [
+        "auto"
+      ],
+      "requiredWorkflowOptions": [],
+      "resultEvidence": {
+        "fetchType": "bundle",
+        "resultJson": "literature-deep-reading.result.json",
+        "artifacts": [
+          "result/deep-reading.html",
+          "result/deep-reading-manifest.json"
+        ],
+        "applyBack": true
+      }
+    },
+    {
+      "id": "literature-explainer",
+      "label": "Literature Explainer",
+      "description": "Run a stateful question-answering and study-note session for one literature source.",
+      "providerRequirements": {
+        "requestKind": "skillrunner.job.v1",
+        "acceptedProviderTypes": [
+          "skillrunner"
+        ]
+      },
+      "executionModes": [
+        "auto"
+      ],
+      "requiredWorkflowOptions": [],
+      "resultEvidence": {
+        "fetchType": "bundle",
+        "resultJson": "result/result.json",
+        "artifacts": [],
+        "applyBack": true
+      }
+    },
+    {
+      "id": "literature-metadata-curator",
+      "label": "Literature Metadata Curator",
+      "description": "Audit and repair bibliographic metadata for selected literature using identifier and search evidence.",
+      "providerRequirements": {
+        "requestKind": "skillrunner.job.v1",
+        "acceptedProviderTypes": [
+          "skillrunner"
+        ]
+      },
+      "executionModes": [
+        "auto"
+      ],
+      "requiredWorkflowOptions": [],
+      "resultEvidence": {
+        "fetchType": "result",
+        "resultJson": "result/result.json",
+        "artifacts": [],
+        "applyBack": true
+      }
+    },
+    {
+      "id": "literature-search-ingest",
+      "label": "Literature Search Ingest",
+      "description": "Search scholarly sources, review candidates, and ingest deduplicated literature with provenance into the Zotero library.",
+      "providerRequirements": {
+        "requestKind": "skillrunner.job.v1",
+        "acceptedProviderTypes": [
+          "skillrunner"
+        ]
+      },
+      "executionModes": [
+        "auto"
+      ],
+      "requiredWorkflowOptions": [],
+      "resultEvidence": {
+        "fetchType": "result",
+        "resultJson": "result/result.json",
+        "artifacts": [],
+        "applyBack": true
+      }
+    },
+    {
+      "id": "literature-translator",
+      "label": "Literature Translator",
+      "description": "Translate one literature source and apply the translated artifact while preserving academic structure.",
+      "providerRequirements": {
+        "requestKind": "skillrunner.job.v1",
+        "acceptedProviderTypes": [
+          "skillrunner"
+        ]
+      },
+      "executionModes": [
+        "auto"
+      ],
+      "requiredWorkflowOptions": [],
+      "resultEvidence": {
+        "fetchType": "bundle",
+        "resultJson": "result/result.json",
+        "artifacts": [],
+        "applyBack": true
+      }
+    },
+    {
+      "id": "manuscript-literature-framing",
+      "label": "Manuscript Literature Framing",
+      "description": "Generate manuscript introduction and related-work framing from selected synthesis topics and library evidence.",
+      "providerRequirements": {
+        "requestKind": "skillrunner.job.v1",
+        "acceptedProviderTypes": [
+          "skillrunner"
+        ]
+      },
+      "executionModes": [
+        "auto"
+      ],
+      "requiredWorkflowOptions": [],
+      "resultEvidence": {
+        "fetchType": "bundle",
+        "resultJson": "result/result.json",
+        "artifacts": [
+          "result/manuscript-literature-framing-artifacts.json"
+        ],
+        "applyBack": true
+      }
+    },
+    {
+      "id": "mineru",
+      "label": "MinerU",
+      "description": "Convert selected PDF attachments into structured Markdown and image artifacts and attach the result to Zotero.",
+      "providerRequirements": {
+        "requestKind": "generic-http.steps.v1",
+        "acceptedProviderTypes": [
+          "generic-http"
+        ]
+      },
+      "executionModes": [
+        "auto"
+      ],
+      "requiredWorkflowOptions": [],
+      "resultEvidence": {
+        "artifacts": [],
+        "applyBack": true
+      }
+    },
+    {
+      "id": "tag-auditor",
+      "label": "Tag Auditor",
+      "description": "Audit selected literature tags against the controlled vocabulary without silently changing unrelated metadata.",
+      "providerRequirements": {
+        "acceptedProviderTypes": [
+          "pass-through"
+        ]
+      },
+      "executionModes": [
+        "auto"
+      ],
+      "requiredWorkflowOptions": [],
+      "resultEvidence": {
+        "artifacts": [],
+        "applyBack": true
+      }
+    },
+    {
+      "id": "tag-bootstrapper",
+      "label": "Tag Bootstrapper",
+      "description": "Bootstrap the controlled tag vocabulary from current library evidence and reviewable suggestions.",
+      "providerRequirements": {
+        "requestKind": "skillrunner.job.v1",
+        "acceptedProviderTypes": [
+          "skillrunner"
+        ]
+      },
+      "executionModes": [
+        "auto"
+      ],
+      "requiredWorkflowOptions": [],
+      "resultEvidence": {
+        "fetchType": "result",
+        "artifacts": [],
+        "applyBack": true
+      }
+    },
+    {
+      "id": "tag-regulator",
+      "label": "Tag Regulator",
+      "description": "Normalize and infer selected literature tags against the controlled vocabulary.",
+      "providerRequirements": {
+        "requestKind": "skillrunner.job.v1",
+        "acceptedProviderTypes": [
+          "skillrunner"
+        ]
+      },
+      "executionModes": [
+        "auto"
+      ],
+      "requiredWorkflowOptions": [],
+      "resultEvidence": {
+        "fetchType": "result",
+        "artifacts": [],
+        "applyBack": true
+      }
+    },
+    {
+      "id": "update-topic-synthesis",
+      "label": "Update Topic Synthesis",
+      "description": "Update an existing topic synthesis from its current resolver scope, evidence, and change state.",
+      "providerRequirements": {
+        "requestKind": "skillrunner.sequence.v1",
+        "acceptedProviderTypes": [
+          "acp",
+          "skillrunner"
+        ]
+      },
+      "executionModes": [
+        "auto"
+      ],
+      "requiredWorkflowOptions": [],
+      "resultEvidence": {
+        "fetchType": "bundle",
+        "resultJson": "result/final-output.candidate.json",
+        "artifacts": [],
+        "applyBack": true
+      }
+    }
+  ],
   "commands": [
     {
       "command": "bridge backend list",
@@ -11766,7 +12186,7 @@
         "properties": {
           "result": {
             "type": "object",
-            "description": "Stable result from embedded host-bridge.agent-surface.v2."
+            "description": "Stable result from embedded host-bridge.agent-surface.v3."
           }
         },
         "additionalProperties": false
@@ -11797,7 +12217,7 @@
       "targets": [
         {
           "kind": "service",
-          "target": "embedded host-bridge.agent-surface.v2"
+          "target": "embedded host-bridge.agent-surface.v3"
         }
       ],
       "intents": [
@@ -11886,7 +12306,7 @@
         "properties": {
           "result": {
             "type": "object",
-            "description": "Stable result from embedded host-bridge.agent-surface.v2."
+            "description": "Stable result from embedded host-bridge.agent-surface.v3."
           }
         },
         "additionalProperties": false
@@ -11917,7 +12337,7 @@
       "targets": [
         {
           "kind": "service",
-          "target": "embedded host-bridge.agent-surface.v2"
+          "target": "embedded host-bridge.agent-surface.v3"
         }
       ],
       "intents": [
@@ -12059,7 +12479,7 @@
         "properties": {
           "result": {
             "type": "object",
-            "description": "Stable result from embedded host-bridge.agent-surface.v2."
+            "description": "Stable result from embedded host-bridge.agent-surface.v3."
           }
         },
         "additionalProperties": false
@@ -12090,7 +12510,7 @@
       "targets": [
         {
           "kind": "service",
-          "target": "embedded host-bridge.agent-surface.v2"
+          "target": "embedded host-bridge.agent-surface.v3"
         }
       ],
       "intents": [
@@ -12861,6 +13281,160 @@
       "hiddenFromIntentSearch": false
     },
     {
+      "command": "synthesis cache refresh-reference-sidecar",
+      "argv": [
+        "synthesis",
+        "cache",
+        "refresh-reference-sidecar"
+      ],
+      "summary": "Start a reference-sidecar refresh",
+      "category": "maintenance",
+      "danger": "high",
+      "invocationSchema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "description": "Host Bridge capability input as inline JSON, a file path, @file, or '-' for stdin"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "argvBindings": [
+        {
+          "property": "input",
+          "kind": "option",
+          "token": "--input",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "library",
+              "papers"
+            ]
+          },
+          "library_id": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "libraryId": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "paper_refs": {
+            "type": "array"
+          },
+          "paperRefs": {
+            "type": "array"
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "resultSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "object",
+            "description": "Stable result from reference_sidecar.refresh."
+          }
+        },
+        "additionalProperties": false
+      },
+      "pagination": "none",
+      "effects": [
+        {
+          "kind": "cache-maintenance",
+          "stateChanged": true,
+          "description": "May change cache maintenance state."
+        }
+      ],
+      "approvalContract": {
+        "kind": "zotero-ui-required",
+        "timing": "before-command",
+        "scope": "Zotero UI approval for the described Host-owned effect."
+      },
+      "handleTransitions": [],
+      "recovery": [
+        {
+          "when": "The operation fails or completion is uncertain.",
+          "stateCheck": "none",
+          "requiresHandles": [],
+          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "nextCommand": "surface describe"
+        }
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "reference_sidecar.refresh"
+        }
+      ],
+      "intents": [
+        "read Synthesis topics, graphs, indexes, resolvers, artifacts, schemas, or attention queues"
+      ],
+      "guidance": {
+        "family": "synthesis",
+        "domain": "synthesis",
+        "operation": "synthesis cache",
+        "purpose": "Start a reference-sidecar refresh",
+        "commandSpecific": true,
+        "intents": [
+          "read Synthesis topics, graphs, indexes, resolvers, artifacts, schemas, or attention queues"
+        ],
+        "useWhen": [
+          "Use synthesis cache refresh-reference-sidecar when the required operation is: Start a reference-sidecar refresh.",
+          "The requested fact belongs to the Synthesis model rather than raw Zotero metadata."
+        ],
+        "avoidWhen": [
+          "Do not use synthesis cache refresh-reference-sidecar when the task needs a different sibling result, control plane, or freshness guarantee.",
+          "Do not assume cached Synthesis projections are current Zotero write state."
+        ],
+        "distinguishFrom": [
+          "synthesis artifact export-filtered: choose it only when its narrower result matches the task.",
+          "synthesis artifact manifest: choose it only when its narrower result matches the task.",
+          "synthesis artifact read: choose it only when its narrower result matches the task.",
+          "synthesis artifact resolve-topic-digest: choose it only when its narrower result matches the task."
+        ],
+        "preconditions": [
+          "Verify the exact CLI identity and a reachable Host Bridge before relying on live results."
+        ],
+        "evidence": [
+          "The structured synthesis cache refresh-reference-sidecar result and the exact invocation inputs used to obtain it.",
+          "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
+        ],
+        "failureChecks": [
+          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+        ],
+        "followups": [
+          "library item get",
+          "workflow describe"
+        ],
+        "example": "zotero-bridge synthesis cache refresh-reference-sidecar"
+      },
+      "hiddenFromIntentSearch": false
+    },
+    {
       "command": "synthesis cache status",
       "argv": [
         "synthesis",
@@ -12872,14 +13446,37 @@
       "danger": "none",
       "invocationSchema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "operation-id": {
+            "type": "string",
+            "description": "Persistent maintenance operation id to read; omit for general cache status"
+          }
+        },
         "required": [],
         "additionalProperties": false
       },
-      "argvBindings": [],
+      "argvBindings": [
+        {
+          "property": "operation-id",
+          "kind": "option",
+          "token": "--operation-id",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "OPERATION_ID"
+          ]
+        }
+      ],
       "payloadSchema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "operation_id": {
+            "type": "string"
+          },
+          "operationId": {
+            "type": "string"
+          }
+        },
         "required": [],
         "additionalProperties": false
       },
@@ -12888,7 +13485,7 @@
         "properties": {
           "result": {
             "type": "object",
-            "description": "Stable result from GET /bridge/v1/synthesis/cache/status."
+            "description": "Stable result from synthesis.operation.get, GET /bridge/v1/synthesis/cache/status."
           }
         },
         "additionalProperties": false
@@ -12917,6 +13514,10 @@
         }
       ],
       "targets": [
+        {
+          "kind": "capability",
+          "target": "synthesis.operation.get"
+        },
         {
           "kind": "endpoint",
           "target": "GET /bridge/v1/synthesis/cache/status"
@@ -14390,6 +14991,166 @@
           "workflow describe"
         ],
         "example": "zotero-bridge synthesis graph refresh-metrics"
+      },
+      "hiddenFromIntentSearch": false
+    },
+    {
+      "command": "synthesis graph update",
+      "argv": [
+        "synthesis",
+        "graph",
+        "update"
+      ],
+      "summary": "Start a citation graph update",
+      "category": "maintenance",
+      "danger": "high",
+      "invocationSchema": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "description": "Host Bridge capability input as inline JSON, a file path, @file, or '-' for stdin"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "argvBindings": [
+        {
+          "property": "input",
+          "kind": "option",
+          "token": "--input",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "library",
+              "papers"
+            ]
+          },
+          "library_id": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "libraryId": {
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "paper_refs": {
+            "type": "array"
+          },
+          "paperRefs": {
+            "type": "array"
+          },
+          "expected_reference_basis_hash": {
+            "type": "string"
+          },
+          "expectedReferenceBasisHash": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "idempotencyKey": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "resultSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "object",
+            "description": "Stable result from citation_graph.update."
+          }
+        },
+        "additionalProperties": false
+      },
+      "pagination": "none",
+      "effects": [
+        {
+          "kind": "zotero-library",
+          "stateChanged": true,
+          "description": "May change zotero library state."
+        }
+      ],
+      "approvalContract": {
+        "kind": "zotero-ui-required",
+        "timing": "before-command",
+        "scope": "Zotero UI approval for the described Host-owned effect."
+      },
+      "handleTransitions": [],
+      "recovery": [
+        {
+          "when": "The operation fails or completion is uncertain.",
+          "stateCheck": "none",
+          "requiresHandles": [],
+          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "nextCommand": "surface describe"
+        }
+      ],
+      "targets": [
+        {
+          "kind": "capability",
+          "target": "citation_graph.update"
+        }
+      ],
+      "intents": [
+        "read Synthesis topics, graphs, indexes, resolvers, artifacts, schemas, or attention queues"
+      ],
+      "guidance": {
+        "family": "synthesis",
+        "domain": "synthesis",
+        "operation": "synthesis graph",
+        "purpose": "Start a citation graph update",
+        "commandSpecific": true,
+        "intents": [
+          "read Synthesis topics, graphs, indexes, resolvers, artifacts, schemas, or attention queues"
+        ],
+        "useWhen": [
+          "Use synthesis graph update when the required operation is: Start a citation graph update.",
+          "The requested fact belongs to the Synthesis model rather than raw Zotero metadata."
+        ],
+        "avoidWhen": [
+          "Do not use synthesis graph update when the task needs a different sibling result, control plane, or freshness guarantee.",
+          "Do not assume cached Synthesis projections are current Zotero write state."
+        ],
+        "distinguishFrom": [
+          "synthesis artifact export-filtered: choose it only when its narrower result matches the task.",
+          "synthesis artifact manifest: choose it only when its narrower result matches the task.",
+          "synthesis artifact read: choose it only when its narrower result matches the task.",
+          "synthesis artifact resolve-topic-digest: choose it only when its narrower result matches the task."
+        ],
+        "preconditions": [
+          "Verify the exact CLI identity and a reachable Host Bridge before relying on live results."
+        ],
+        "evidence": [
+          "The structured synthesis graph update result and the exact invocation inputs used to obtain it.",
+          "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
+        ],
+        "failureChecks": [
+          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+        ],
+        "followups": [
+          "library item get",
+          "workflow describe"
+        ],
+        "example": "zotero-bridge synthesis graph update"
       },
       "hiddenFromIntentSearch": false
     },
@@ -16626,7 +17387,7 @@
         "workflow",
         "describe"
       ],
-      "summary": "Describe workflow selection, option, and provider profile requirements",
+      "summary": "Describe workflow selection and workflow options",
       "category": "read",
       "danger": "none",
       "invocationSchema": {
@@ -16639,10 +17400,6 @@
           "workflow-options": {
             "type": "string",
             "description": "Draft workflow options JSON object, file path, @file, or '-' for stdin"
-          },
-          "provider-profile": {
-            "type": "string",
-            "description": "Draft provider profile JSON object with backendId and providerOptions"
           }
         },
         "required": [
@@ -16670,16 +17427,6 @@
           "valueNames": [
             "JSON_OR_FILE"
           ]
-        },
-        {
-          "property": "provider-profile",
-          "kind": "option",
-          "token": "--provider-profile",
-          "takesValue": true,
-          "required": false,
-          "valueNames": [
-            "JSON_OR_FILE"
-          ]
         }
       ],
       "payloadSchema": {
@@ -16692,10 +17439,6 @@
           "workflow_options": {
             "type": "string",
             "description": "Draft workflow options JSON object, file path, @file, or '-' for stdin"
-          },
-          "provider_profile": {
-            "type": "string",
-            "description": "Draft provider profile JSON object with backendId and providerOptions"
           }
         },
         "required": [],
@@ -16747,13 +17490,13 @@
         "family": "workflow",
         "domain": "workflow-run",
         "operation": "workflow describe",
-        "purpose": "Describe workflow selection, option, and provider profile requirements",
+        "purpose": "Describe workflow selection and workflow options",
         "commandSpecific": true,
         "intents": [
           "inspect, validate, submit, or hand off a workflow"
         ],
         "useWhen": [
-          "Use workflow describe when the required operation is: Describe workflow selection, option, and provider profile requirements.",
+          "Use workflow describe when the required operation is: Describe workflow selection and workflow options.",
           "The task is reusable multi-step behavior governed by a workflow contract."
         ],
         "avoidWhen": [
@@ -16886,6 +17629,368 @@
           "workflow agent-apply-status"
         ],
         "example": "zotero-bridge workflow list"
+      },
+      "hiddenFromIntentSearch": false
+    },
+    {
+      "command": "workflow profile describe",
+      "argv": [
+        "workflow",
+        "profile",
+        "describe"
+      ],
+      "summary": "Describe the provider profile contract for one backend",
+      "category": "read",
+      "danger": "none",
+      "invocationSchema": {
+        "type": "object",
+        "properties": {
+          "backend": {
+            "type": "string",
+            "description": "Configured backend id whose provider profile is described"
+          }
+        },
+        "required": [
+          "backend"
+        ],
+        "additionalProperties": false
+      },
+      "argvBindings": [
+        {
+          "property": "backend",
+          "kind": "option",
+          "token": "--backend",
+          "takesValue": true,
+          "required": true,
+          "valueNames": [
+            "BACKEND"
+          ]
+        }
+      ],
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "backend": {
+            "type": "string",
+            "description": "Configured backend id whose provider profile is described"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "resultSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "object",
+            "description": "Stable result from POST /bridge/v1/workflows/provider-profiles/describe."
+          }
+        },
+        "additionalProperties": false
+      },
+      "pagination": "none",
+      "effects": [
+        {
+          "kind": "none",
+          "stateChanged": false,
+          "description": "Reads state without changing Host-owned data."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No Host Bridge UI approval; provider runtimes may still request their own permission."
+      },
+      "handleTransitions": [],
+      "recovery": [
+        {
+          "when": "The read fails or returns incomplete evidence.",
+          "stateCheck": "none",
+          "requiresHandles": [],
+          "action": "Inspect the error and retry only when retryable is true.",
+          "nextCommand": "surface describe"
+        }
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v1/workflows/provider-profiles/describe"
+        }
+      ],
+      "intents": [
+        "inspect, validate, submit, or hand off a workflow"
+      ],
+      "guidance": {
+        "family": "workflow",
+        "domain": "workflow-run",
+        "operation": "workflow profile",
+        "purpose": "Describe the provider profile contract for one backend",
+        "commandSpecific": true,
+        "intents": [
+          "inspect, validate, submit, or hand off a workflow"
+        ],
+        "useWhen": [
+          "Use workflow profile describe when the required operation is: Describe the provider profile contract for one backend.",
+          "The task is reusable multi-step behavior governed by a workflow contract."
+        ],
+        "avoidWhen": [
+          "Do not use workflow profile describe when the task needs a different sibling result, control plane, or freshness guarantee.",
+          "Do not use agent-run for workflows that require Host-owned options or provider profiles."
+        ],
+        "distinguishFrom": [
+          "workflow agent-apply: choose it only when its narrower result matches the task.",
+          "workflow agent-apply-status: choose it only when its narrower result matches the task.",
+          "workflow agent-run: choose it only when its narrower result matches the task.",
+          "workflow describe: choose it only when its narrower result matches the task."
+        ],
+        "preconditions": [
+          "Verify the exact CLI identity and a reachable Host Bridge before relying on live results."
+        ],
+        "evidence": [
+          "The structured workflow profile describe result and the exact invocation inputs used to obtain it.",
+          "executionModes, validation result, workflowRunId, agentRunId, or apply receipt"
+        ],
+        "failureChecks": [
+          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+        ],
+        "followups": [
+          "workflow describe",
+          "workflow agent-apply-status"
+        ],
+        "example": "zotero-bridge workflow profile describe --backend 'backend'"
+      },
+      "hiddenFromIntentSearch": false
+    },
+    {
+      "command": "workflow profile list",
+      "argv": [
+        "workflow",
+        "profile",
+        "list"
+      ],
+      "summary": "List configured backend provider profiles",
+      "category": "read",
+      "danger": "none",
+      "invocationSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "argvBindings": [],
+      "payloadSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "resultSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "object",
+            "description": "Stable result from GET /bridge/v1/workflows/provider-profiles."
+          }
+        },
+        "additionalProperties": false
+      },
+      "pagination": "none",
+      "effects": [
+        {
+          "kind": "none",
+          "stateChanged": false,
+          "description": "Reads state without changing Host-owned data."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No Host Bridge UI approval; provider runtimes may still request their own permission."
+      },
+      "handleTransitions": [],
+      "recovery": [
+        {
+          "when": "The read fails or returns incomplete evidence.",
+          "stateCheck": "none",
+          "requiresHandles": [],
+          "action": "Inspect the error and retry only when retryable is true.",
+          "nextCommand": "surface describe"
+        }
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/workflows/provider-profiles"
+        }
+      ],
+      "intents": [
+        "inspect, validate, submit, or hand off a workflow"
+      ],
+      "guidance": {
+        "family": "workflow",
+        "domain": "workflow-run",
+        "operation": "workflow profile",
+        "purpose": "List configured backend provider profiles",
+        "commandSpecific": true,
+        "intents": [
+          "inspect, validate, submit, or hand off a workflow"
+        ],
+        "useWhen": [
+          "Use workflow profile list when the required operation is: List configured backend provider profiles.",
+          "The task is reusable multi-step behavior governed by a workflow contract."
+        ],
+        "avoidWhen": [
+          "Do not use workflow profile list when the task needs a different sibling result, control plane, or freshness guarantee.",
+          "Do not use agent-run for workflows that require Host-owned options or provider profiles."
+        ],
+        "distinguishFrom": [
+          "workflow agent-apply: choose it only when its narrower result matches the task.",
+          "workflow agent-apply-status: choose it only when its narrower result matches the task.",
+          "workflow agent-run: choose it only when its narrower result matches the task.",
+          "workflow describe: choose it only when its narrower result matches the task."
+        ],
+        "preconditions": [
+          "Verify the exact CLI identity and a reachable Host Bridge before relying on live results."
+        ],
+        "evidence": [
+          "The structured workflow profile list result and the exact invocation inputs used to obtain it.",
+          "executionModes, validation result, workflowRunId, agentRunId, or apply receipt"
+        ],
+        "failureChecks": [
+          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+        ],
+        "followups": [
+          "workflow describe",
+          "workflow agent-apply-status"
+        ],
+        "example": "zotero-bridge workflow profile list"
+      },
+      "hiddenFromIntentSearch": false
+    },
+    {
+      "command": "workflow profile validate",
+      "argv": [
+        "workflow",
+        "profile",
+        "validate"
+      ],
+      "summary": "Validate and normalize one backend provider profile",
+      "category": "read",
+      "danger": "none",
+      "invocationSchema": {
+        "type": "object",
+        "properties": {
+          "provider-profile": {
+            "type": "string",
+            "description": "Provider profile JSON object; when omitted, use ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "argvBindings": [
+        {
+          "property": "provider-profile",
+          "kind": "option",
+          "token": "--provider-profile",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "JSON_OR_FILE"
+          ]
+        }
+      ],
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "provider_profile": {
+            "type": "string",
+            "description": "Provider profile JSON object; when omitted, use ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "resultSchema": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "object",
+            "description": "Stable result from POST /bridge/v1/workflows/provider-profiles/validate."
+          }
+        },
+        "additionalProperties": false
+      },
+      "pagination": "none",
+      "effects": [
+        {
+          "kind": "none",
+          "stateChanged": false,
+          "description": "Reads state without changing Host-owned data."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No Host Bridge UI approval; provider runtimes may still request their own permission."
+      },
+      "handleTransitions": [],
+      "recovery": [
+        {
+          "when": "The read fails or returns incomplete evidence.",
+          "stateCheck": "none",
+          "requiresHandles": [],
+          "action": "Inspect the error and retry only when retryable is true.",
+          "nextCommand": "surface describe"
+        }
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v1/workflows/provider-profiles/validate"
+        }
+      ],
+      "intents": [
+        "inspect, validate, submit, or hand off a workflow"
+      ],
+      "guidance": {
+        "family": "workflow",
+        "domain": "workflow-run",
+        "operation": "workflow profile",
+        "purpose": "Validate and normalize one backend provider profile",
+        "commandSpecific": true,
+        "intents": [
+          "inspect, validate, submit, or hand off a workflow"
+        ],
+        "useWhen": [
+          "Use workflow profile validate when the required operation is: Validate and normalize one backend provider profile.",
+          "The task is reusable multi-step behavior governed by a workflow contract."
+        ],
+        "avoidWhen": [
+          "Do not use workflow profile validate when the task needs a different sibling result, control plane, or freshness guarantee.",
+          "Do not use agent-run for workflows that require Host-owned options or provider profiles."
+        ],
+        "distinguishFrom": [
+          "workflow agent-apply: choose it only when its narrower result matches the task.",
+          "workflow agent-apply-status: choose it only when its narrower result matches the task.",
+          "workflow agent-run: choose it only when its narrower result matches the task.",
+          "workflow describe: choose it only when its narrower result matches the task."
+        ],
+        "preconditions": [
+          "Verify the exact CLI identity and a reachable Host Bridge before relying on live results."
+        ],
+        "evidence": [
+          "The structured workflow profile validate result and the exact invocation inputs used to obtain it.",
+          "executionModes, validation result, workflowRunId, agentRunId, or apply receipt"
+        ],
+        "failureChecks": [
+          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+        ],
+        "followups": [
+          "workflow describe",
+          "workflow agent-apply-status"
+        ],
+        "example": "zotero-bridge workflow profile validate"
       },
       "hiddenFromIntentSearch": false
     },
@@ -17266,7 +18371,7 @@
         "properties": {
           "workflow": {
             "type": "string",
-            "description": "Workflow id to submit"
+            "description": "Workflow id to validate"
           },
           "selection": {
             "type": "string",
@@ -17274,15 +18379,11 @@
           },
           "none": {
             "type": "boolean",
-            "description": "Submit a no-selection workflow"
+            "description": "Validate a no-selection workflow"
           },
           "workflow-options": {
             "type": "string",
             "description": "Workflow options JSON object, file path, @file, or '-' for stdin"
-          },
-          "provider-profile": {
-            "type": "string",
-            "description": "Provider profile JSON object with backendId and providerOptions"
           }
         },
         "required": [
@@ -17330,16 +18431,6 @@
           "valueNames": [
             "JSON_OR_FILE"
           ]
-        },
-        {
-          "property": "provider-profile",
-          "kind": "option",
-          "token": "--provider-profile",
-          "takesValue": true,
-          "required": false,
-          "valueNames": [
-            "JSON_OR_FILE"
-          ]
         }
       ],
       "payloadSchema": {
@@ -17347,7 +18438,7 @@
         "properties": {
           "workflow": {
             "type": "string",
-            "description": "Workflow id to submit"
+            "description": "Workflow id to validate"
           },
           "selection": {
             "type": "string",
@@ -17356,10 +18447,6 @@
           "workflow_options": {
             "type": "string",
             "description": "Workflow options JSON object, file path, @file, or '-' for stdin"
-          },
-          "provider_profile": {
-            "type": "string",
-            "description": "Provider profile JSON object with backendId and providerOptions"
           }
         },
         "required": [],

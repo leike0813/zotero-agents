@@ -36,19 +36,21 @@ Use `zotero-bridge surface describe <command> --json` for argv, approval, typed 
 
 ## Provider Runtime Profiles
 
-`--profile` and `ZOTERO_BRIDGE_PROFILE` select the Host Bridge connection profile; they do not select a workflow provider runtime. A workflow `provider` names the runtime family, `backendId` selects its configured backend, and `--provider-profile` supplies request-level non-sensitive `providerOptions` for that backend.
+`--profile` and `ZOTERO_BRIDGE_PROFILE` select the Host Bridge connection profile; they do not select a workflow provider runtime. A workflow declares provider requirements, while a workflow-independent provider profile selects a concrete `backendId` and its non-sensitive `providerOptions`. Discover and validate those contracts separately. Only `workflow submit` accepts both.
 
 For an ACP workflow whose contract permits tool-permission automation, the calling agent may submit:
 
 ```bash
-zotero-bridge workflow submit ... --provider-profile '{"providerOptions":{"autoApproveAcpPermissions":true}}'
+zotero-bridge workflow profile describe --backend <backendId>
+zotero-bridge workflow profile validate --provider-profile '{"backendId":"<backendId>","providerOptions":{}}'
+zotero-bridge workflow submit ... --provider-profile '{"backendId":"<backendId>","providerOptions":{}}'
 ```
 
 `autoApproveAcpPermissions` applies only to that submitted ACP run. It does not grant Zotero write approval, configure `autoApproveZoteroWrites`, persist in Host Bridge, or approve a pending request shown by `run permission`.
 
 ## Workflow Ownership
 
-- Use `workflow describe`, `workflow requirements`, and `workflow validate` to establish the input, provider, and execution-mode contract before starting uncertain work.
+- Use `workflow describe`, `workflow requirements`, and `workflow validate` for workflow-owned selection, options, purpose, provider requirements, and execution modes. Use `workflow profile list|describe|validate` for backend-owned provider options. `ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE` may supply inline JSON or `@` plus an absolute profile path when submit/validate has no explicit profile.
 - Use `workflow submit` when Host Bridge should execute the workflow and return a `workflowRunId`. Monitor it with `run get`, `run active`, history, notifications, or skill-run events.
 - Use `workflow agent-run` when the calling agent should execute prepared requests. Treat its `agentRunId` as an apply-back session handle, complete each `agentRequestId` contract, and submit the finished bundle with `workflow agent-apply`.
 - Do not use run control-plane commands for an `agentRunId`. They control Host-owned workflow and skill runs.

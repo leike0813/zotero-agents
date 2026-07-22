@@ -88,7 +88,9 @@ zotero-bridge product --help
 | `synthesis artifact read` | `paper_artifacts.read` | capability | - |
 | `synthesis artifact resolve-topic-digest` | `paper_artifacts.resolve_topic_digest` | capability | - |
 | `synthesis cache invalidate` | `POST /bridge/v1/synthesis/cache/invalidate` | endpoint | - |
+| `synthesis cache refresh-reference-sidecar` | `reference_sidecar.refresh` | capability | dangerous |
 | `synthesis cache status` | `GET /bridge/v1/synthesis/cache/status` | endpoint | - |
+| `synthesis cache status` | `synthesis.operation.get` | capability | - |
 | `synthesis concept query` | `concepts.query` | capability | - |
 | `synthesis graph get-layout` | `citation_graph.get_layout` | capability | cache-view |
 | `synthesis graph get-metrics` | `citation_graph.get_metrics` | capability | cache-view |
@@ -98,6 +100,7 @@ zotero-bridge product --help
 | `synthesis graph rank-external-references` | `citation_graph.rank_external_references` | capability | cache-view |
 | `synthesis graph rank-library-papers` | `citation_graph.rank_library_papers` | capability | cache-view |
 | `synthesis graph refresh-metrics` | `citation_graph.refresh_metrics` | capability | dangerous |
+| `synthesis graph update` | `citation_graph.update` | capability | dangerous |
 | `synthesis index library get` | `library_index.get` | capability | cache-view |
 | `synthesis index reference get` | `reference_index.get` | capability | cache-view |
 | `synthesis index status` | `GET /bridge/v1/synthesis/index/status` | endpoint | - |
@@ -114,6 +117,9 @@ zotero-bridge product --help
 | `workflow agent-run` | `POST /bridge/v1/workflows/agent-run` | endpoint | - |
 | `workflow describe` | `POST /bridge/v1/workflows/describe` | endpoint | - |
 | `workflow list` | `GET /bridge/v1/workflows` | endpoint | - |
+| `workflow profile describe` | `POST /bridge/v1/workflows/provider-profiles/describe` | endpoint | - |
+| `workflow profile list` | `GET /bridge/v1/workflows/provider-profiles` | endpoint | - |
+| `workflow profile validate` | `POST /bridge/v1/workflows/provider-profiles/validate` | endpoint | - |
 | `workflow requirements` | `POST /bridge/v1/workflows/requirements` | endpoint | - |
 | `workflow submit` | `POST /bridge/v1/workflows/submit` | endpoint | - |
 | `workflow validate` | `POST /bridge/v1/workflows/validate` | endpoint | - |
@@ -215,6 +221,8 @@ zotero-bridge product --help
 | --- | --- | --- | --- | --- | --- |
 | `workflow_products.read_asset` | workflow_products | `none` | `object required` | `raw call only` | raw-only, response:file-output, mcp-mirror |
 | `citation_graph.refresh_metrics` | citation_graph | `zotero-ui-required` | `object` | `synthesis graph refresh-metrics` | dangerous, mcp-mirror |
+| `citation_graph.update` | citation_graph | `zotero-ui-required` | `object` | `synthesis graph update` | dangerous, mcp-mirror |
+| `reference_sidecar.refresh` | reference_index | `zotero-ui-required` | `object` | `synthesis cache refresh-reference-sidecar` | dangerous, mcp-mirror |
 | `diagnostic.get_status` | diagnostic | `none` | `none` | `raw call only` | raw-only, mcp-mirror |
 | `debug.acpSkillRun.reapplyResult` | debug | `none` | `object` | `debug acp-skill-run reapply-result` | debug-only, mcp-mirror |
 | `debug.persistence.snapshot` | debug | `none` | `object` | `debug persistence` | debug-only, mcp-mirror |

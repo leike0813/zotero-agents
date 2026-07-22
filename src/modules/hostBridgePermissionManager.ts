@@ -563,9 +563,13 @@ export function getHostBridgeApprovalRequirement(
   if (
     capability === "debug.synthesis.cleanInstallReset" ||
     capability === "debug.zotero.eval" ||
-    capability === "citation_graph.refresh_metrics"
+    capability === "citation_graph.refresh_metrics" ||
+    capability === "reference_sidecar.refresh" ||
+    capability === "citation_graph.update"
   ) {
     requirement = "zotero-ui-required";
+  } else if (capability === "synthesis.operation.get") {
+    requirement = "none";
   } else if (capability.startsWith("debug.")) {
     requirement = "none";
   } else if (

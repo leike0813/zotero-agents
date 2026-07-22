@@ -1,6 +1,8 @@
 {
   "id": "literature-analysis",
   "label": "Literature Analysis",
+  "description": "Analyze one literature source and apply its digest, structured references, citation analysis, and optional normalized tags to Zotero.",
+  "executionModes": ["auto"],
   "provider": "skillrunner",
   "version": "0.1.0",
   "display": {

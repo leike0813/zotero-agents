@@ -1,0 +1,495 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zotero-agents.local/schemas/host-bridge.agent-surface.v3.schema.json",
+  "title": "Host Bridge Agent Surface v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "protocol",
+    "cliSchema",
+    "commandCatalogChecksum",
+    "globalOptions",
+    "workflowCatalog",
+    "commands"
+  ],
+  "properties": {
+    "schema": {
+      "const": "host-bridge.agent-surface.v3"
+    },
+    "protocol": {
+      "const": "host-bridge.v1"
+    },
+    "cliSchema": {
+      "const": "zotero-bridge.cli.v3"
+    },
+    "commandCatalogChecksum": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "command",
+          "argv",
+          "summary",
+          "category",
+          "danger",
+          "invocationSchema",
+          "argvBindings",
+          "payloadSchema",
+          "resultSchema",
+          "pagination",
+          "effects",
+          "approvalContract",
+          "handleTransitions",
+          "recovery",
+          "targets",
+          "intents",
+          "guidance",
+          "hiddenFromIntentSearch"
+        ],
+        "properties": {
+          "command": {
+            "type": "string",
+            "minLength": 1
+          },
+          "argv": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "category": {
+            "enum": [
+              "read",
+              "navigation",
+              "write",
+              "maintenance",
+              "debug"
+            ]
+          },
+          "danger": {
+            "enum": [
+              "none",
+              "review",
+              "high"
+            ]
+          },
+          "invocationSchema": {
+            "type": "object"
+          },
+          "argvBindings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "property",
+                "kind",
+                "token",
+                "takesValue",
+                "required",
+                "valueNames"
+              ],
+              "properties": {
+                "property": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "kind": {
+                  "enum": [
+                    "option",
+                    "positional"
+                  ]
+                },
+                "token": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "position": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "shortToken": {
+                  "type": "string",
+                  "pattern": "^-"
+                },
+                "takesValue": {
+                  "type": "boolean"
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "valueNames": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "payloadSchema": {
+            "type": "object"
+          },
+          "resultSchema": {
+            "type": "object"
+          },
+          "pagination": {
+            "enum": [
+              "none",
+              "cursor",
+              "file"
+            ]
+          },
+          "effects": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "kind",
+                "stateChanged",
+                "description"
+              ],
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "none",
+                    "ui-navigation",
+                    "ephemeral-file",
+                    "workflow-control",
+                    "zotero-library",
+                    "product-store",
+                    "cache-maintenance",
+                    "graph-metrics-maintenance",
+                    "debug-repair"
+                  ]
+                },
+                "stateChanged": {
+                  "type": "boolean"
+                },
+                "description": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "approvalContract": {
+            "type": "object",
+            "required": [
+              "kind",
+              "timing",
+              "scope"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "none",
+                  "zotero-ui-required",
+                  "conditional"
+                ]
+              },
+              "timing": {
+                "enum": [
+                  "none",
+                  "before-command",
+                  "during-execution",
+                  "apply-back"
+                ]
+              },
+              "scope": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          "handleTransitions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "handle",
+                "direction",
+                "required",
+                "condition",
+                "lifetime"
+              ],
+              "properties": {
+                "handle": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "direction": {
+                  "enum": [
+                    "consume",
+                    "produce"
+                  ]
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "condition": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "lifetime": {
+                  "enum": [
+                    "caller-owned",
+                    "response",
+                    "short-lived",
+                    "one-shot"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "recovery": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "when",
+                "stateCheck",
+                "requiresHandles",
+                "action"
+              ],
+              "properties": {
+                "when": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "stateCheck": {
+                  "enum": [
+                    "none",
+                    "command-result",
+                    "caller-held-handle"
+                  ]
+                },
+                "requiresHandles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "uniqueItems": true
+                },
+                "action": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "nextCommand": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "kind",
+                "target"
+              ]
+            },
+            "minItems": 1
+          },
+          "intents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "guidance": {
+            "type": "object",
+            "required": [
+              "family",
+              "domain",
+              "operation",
+              "purpose",
+              "commandSpecific",
+              "intents",
+              "useWhen",
+              "avoidWhen",
+              "distinguishFrom",
+              "preconditions",
+              "evidence",
+              "failureChecks",
+              "followups",
+              "example"
+            ],
+            "properties": {
+              "commandSpecific": {
+                "const": true
+              }
+            }
+          },
+          "hiddenFromIntentSearch": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "globalOptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "token",
+          "takesValue",
+          "valueNames",
+          "description"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "token": {
+            "type": "string",
+            "pattern": "^--"
+          },
+          "shortToken": {
+            "type": "string",
+            "pattern": "^-"
+          },
+          "takesValue": {
+            "type": "boolean"
+          },
+          "valueNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "workflowCatalog": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label",
+          "description",
+          "providerRequirements",
+          "executionModes",
+          "requiredWorkflowOptions",
+          "resultEvidence"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "providerRequirements": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "acceptedProviderTypes"
+            ],
+            "properties": {
+              "requestKind": {
+                "type": "string",
+                "minLength": 1
+              },
+              "acceptedProviderTypes": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              }
+            }
+          },
+          "executionModes": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "auto",
+                "interactive"
+              ]
+            }
+          },
+          "requiredWorkflowOptions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          },
+          "resultEvidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "artifacts",
+              "applyBack"
+            ],
+            "properties": {
+              "fetchType": {
+                "enum": [
+                  "bundle",
+                  "result"
+                ]
+              },
+              "resultJson": {
+                "type": "string",
+                "minLength": 1
+              },
+              "artifacts": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "applyBack": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

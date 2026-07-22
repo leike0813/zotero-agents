@@ -1,6 +1,8 @@
 {
   "id": "debug-interactive-then-result",
   "label": "Debug: Interactive Then Result",
+  "description": "Run the Debug: Interactive Then Result diagnostic workflow to verify its named workflow-engine behavior.",
+  "executionModes": ["interactive", "auto"],
   "version": "0.1.0",
   "provider": "skillrunner",
   "debug_only": true,

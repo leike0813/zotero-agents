@@ -127,8 +127,6 @@ const FORBIDDEN_TEXT = [
   "synthesis.export_filtered_paper_artifacts",
   "synthesis.resolve_topic_paper_digest",
   "synthesis.get_review_input",
-  "reference_sidecar",
-  "reference sidecar",
   "debug.synthesis.queue.",
   "debug.synthesis.jobs.",
   "debug.synthesis.worker.run",
@@ -140,7 +138,7 @@ const FORBIDDEN_TEXT = [
 
 const FORBIDDEN_REGEX: Array<[RegExp, string]> = [
   [
-    /\bsynthesis\.(?!cache\.|diff\b|debug\b|jobs\.|maintenance\.|operations\.|paper\.|profiler\.|queue\.|snapshot\b|topic\.|worker\.|cleanInstallReset\b)/,
+    /\bsynthesis\.(?!cache\.|diff\b|debug\b|jobs\.|maintenance\.|operation\.|operations\.|paper\.|profiler\.|queue\.|snapshot\b|topic\.|worker\.|cleanInstallReset\b)/,
     "public synthesis.* capability namespace",
   ],
   [/\bget-reference-sidecar-index\b/, "legacy reference sidecar CLI command"],

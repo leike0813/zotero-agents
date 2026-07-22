@@ -1,6 +1,8 @@
 {
   "id": "debug-digest-apply-fixture",
   "label": "Debug: Digest Apply Fixture",
+  "description": "Run the Debug: Digest Apply Fixture diagnostic workflow to verify its named workflow-engine behavior.",
+  "executionModes": ["auto"],
   "version": "0.1.0",
   "provider": "pass-through",
   "debug_only": true,

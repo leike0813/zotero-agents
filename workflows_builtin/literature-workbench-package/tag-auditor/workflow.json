@@ -1,6 +1,8 @@
 {
   "id": "tag-auditor",
   "label": "Tag Auditor",
+  "description": "Audit selected literature tags against the controlled vocabulary without silently changing unrelated metadata.",
+  "executionModes": ["auto"],
   "provider": "pass-through",
   "version": "0.1.0",
   "display": { "core": false, "emoji": "🔎" },

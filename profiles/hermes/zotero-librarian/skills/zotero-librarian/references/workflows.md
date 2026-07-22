@@ -36,6 +36,8 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 
 ## `add-digest-representative-image` — Add Digest Representative Image
 
+- Purpose: Choose an image from analyzed literature and attach it as the digest representative image.
+- Declared runtime modes: `auto`.
 - Provider: `pass-through`; input mode: `workflow`; selection required: false.
 - Execution: Host-owned supported; agent-owned supported.
 - Completion evidence: terminal run result and any declared Product/output contract.
@@ -45,6 +47,8 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 
 ## `collection-collector` — Collection Collector
 
+- Purpose: Find library literature matching a collection meaning and add reviewed matches to that Zotero collection.
+- Declared runtime modes: `auto`.
 - Provider: `skillrunner`; input mode: `workflow`; selection required: false.
 - Execution: Host-owned supported; agent-owned not supported because required workflow options cannot be supplied by agent-run.
 - Completion evidence: `result/result.json`.
@@ -55,6 +59,8 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 
 ## `create-topic-synthesis` — Create Topic Synthesis
 
+- Purpose: Create a new topic synthesis from a natural-language seed using the current library, reference, and citation-graph evidence.
+- Declared runtime modes: `auto`.
 - Provider: `skillrunner`; input mode: `workflow`; selection required: false.
 - Execution: Host-owned supported; agent-owned supported.
 - Completion evidence: `result/final-output.candidate.json`.
@@ -65,6 +71,8 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 
 ## `export-literature-bundle` — Export Literature Bundle
 
+- Purpose: Export selected literature and its generated analysis artifacts into a portable bundle.
+- Declared runtime modes: `auto`.
 - Provider: `pass-through`; input mode: `workflow`; selection required: false.
 - Execution: Host-owned supported; agent-owned supported.
 - Completion evidence: terminal run result and any declared Product/output contract.
@@ -74,6 +82,8 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 
 ## `export-notes` — Export Notes
 
+- Purpose: Export supported generated Zotero notes as editable external files.
+- Declared runtime modes: `auto`.
 - Provider: `pass-through`; input mode: `workflow`; selection required: false.
 - Execution: Host-owned supported; agent-owned supported.
 - Completion evidence: terminal run result and any declared Product/output contract.
@@ -83,6 +93,8 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 
 ## `export-research-bundle` — Export Research Bundle
 
+- Purpose: Export manuscript-oriented research materials, analyzed literature artifacts, and synthesis evidence into a portable bundle.
+- Declared runtime modes: `auto`.
 - Provider: `skillrunner`; input mode: `workflow`; selection required: false.
 - Execution: Host-owned supported; agent-owned supported.
 - Completion evidence: `result/result.json`, `result/export-research-bundle-artifacts.json`.
@@ -97,6 +109,8 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 
 ## `import-literature-bundle` — Import Literature Bundle
 
+- Purpose: Import a literature bundle and reconcile its supported Zotero literature artifacts.
+- Declared runtime modes: `auto`.
 - Provider: `pass-through`; input mode: `workflow`; selection required: false.
 - Execution: Host-owned supported; agent-owned supported.
 - Completion evidence: terminal run result and any declared Product/output contract.
@@ -106,6 +120,8 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 
 ## `import-notes` — Import Notes
 
+- Purpose: Import supported external analysis files and upsert their generated Zotero notes.
+- Declared runtime modes: `auto`.
 - Provider: `pass-through`; input mode: `parent`; selection required: false.
 - Execution: Host-owned supported; agent-owned supported.
 - Completion evidence: terminal run result and any declared Product/output contract.
@@ -115,6 +131,8 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 
 ## `literature-analysis` — Literature Analysis
 
+- Purpose: Analyze one literature source and apply its digest, structured references, citation analysis, and optional normalized tags to Zotero.
+- Declared runtime modes: `auto`.
 - Provider: `skillrunner`; input mode: `attachment per_parent`; selection required: false.
 - Execution: Host-owned supported; agent-owned supported.
 - Completion evidence: `result/result.json`, `artifacts/digest.md,artifacts/references.json,artifacts/citation_analysis.json`.
@@ -126,6 +144,8 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 
 ## `literature-deep-reading` — Literature Deep Reading
 
+- Purpose: Produce and apply a detailed, evidence-grounded deep-reading analysis for one literature source.
+- Declared runtime modes: `auto`.
 - Provider: `skillrunner`; input mode: `attachment per_parent`; selection required: false.
 - Execution: Host-owned supported; agent-owned supported.
 - Completion evidence: `literature-deep-reading.result.json`, `result/deep-reading.html,result/deep-reading-manifest.json`.
@@ -136,6 +156,8 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 
 ## `literature-explainer` — Literature Explainer
 
+- Purpose: Run a stateful question-answering and study-note session for one literature source.
+- Declared runtime modes: `auto`.
 - Provider: `skillrunner`; input mode: `attachment per_parent`; selection required: false.
 - Execution: Host-owned supported; agent-owned supported.
 - Completion evidence: `result/result.json`.
@@ -145,6 +167,8 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 
 ## `literature-metadata-curator` — Literature Metadata Curator
 
+- Purpose: Audit and repair bibliographic metadata for selected literature using identifier and search evidence.
+- Declared runtime modes: `auto`.
 - Provider: `skillrunner`; input mode: `parent`; selection required: true.
 - Execution: Host-owned supported; agent-owned supported.
 - Completion evidence: `result/result.json`.
@@ -154,6 +178,8 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 
 ## `literature-search-ingest` — Literature Search Ingest
 
+- Purpose: Search scholarly sources, review candidates, and ingest deduplicated literature with provenance into the Zotero library.
+- Declared runtime modes: `auto`.
 - Provider: `skillrunner`; input mode: `workflow`; selection required: false.
 - Execution: Host-owned supported; agent-owned supported.
 - Completion evidence: `result/result.json`.
@@ -167,6 +193,8 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 
 ## `literature-translator` — Literature Translator
 
+- Purpose: Translate one literature source and apply the translated artifact while preserving academic structure.
+- Declared runtime modes: `auto`.
 - Provider: `skillrunner`; input mode: `attachment per_parent`; selection required: false.
 - Execution: Host-owned supported; agent-owned supported.
 - Completion evidence: `result/result.json`.
@@ -177,6 +205,8 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 
 ## `manuscript-literature-framing` — Manuscript Literature Framing
 
+- Purpose: Generate manuscript introduction and related-work framing from selected synthesis topics and library evidence.
+- Declared runtime modes: `auto`.
 - Provider: `skillrunner`; input mode: `workflow`; selection required: false.
 - Execution: Host-owned supported; agent-owned supported.
 - Completion evidence: `result/result.json`, `result/manuscript-literature-framing-artifacts.json`.
@@ -190,6 +220,8 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 
 ## `mineru` — MinerU
 
+- Purpose: Convert selected PDF attachments into structured Markdown and image artifacts and attach the result to Zotero.
+- Declared runtime modes: `auto`.
 - Provider: `generic-http`; input mode: `attachment`; selection required: false.
 - Execution: Host-owned supported; agent-owned supported.
 - Completion evidence: terminal run result and any declared Product/output contract.
@@ -199,6 +231,8 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 
 ## `tag-auditor` — Tag Auditor
 
+- Purpose: Audit selected literature tags against the controlled vocabulary without silently changing unrelated metadata.
+- Declared runtime modes: `auto`.
 - Provider: `pass-through`; input mode: `workflow`; selection required: false.
 - Execution: Host-owned supported; agent-owned supported.
 - Completion evidence: terminal run result and any declared Product/output contract.
@@ -208,6 +242,8 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 
 ## `tag-bootstrapper` — Tag Bootstrapper
 
+- Purpose: Bootstrap the controlled tag vocabulary from current library evidence and reviewable suggestions.
+- Declared runtime modes: `auto`.
 - Provider: `skillrunner`; input mode: `workflow`; selection required: false.
 - Execution: Host-owned supported; agent-owned supported.
 - Completion evidence: terminal run result and any declared Product/output contract.
@@ -217,6 +253,8 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 
 ## `tag-regulator` — Tag Regulator
 
+- Purpose: Normalize and infer selected literature tags against the controlled vocabulary.
+- Declared runtime modes: `auto`.
 - Provider: `skillrunner`; input mode: `parent`; selection required: false.
 - Execution: Host-owned supported; agent-owned supported.
 - Completion evidence: terminal run result and any declared Product/output contract.
@@ -227,6 +265,8 @@ Refresh the runtime catalog with `scripts/zotero_librarian_index_service.py work
 
 ## `update-topic-synthesis` — Update Topic Synthesis
 
+- Purpose: Update an existing topic synthesis from its current resolver scope, evidence, and change state.
+- Declared runtime modes: `auto`.
 - Provider: `skillrunner`; input mode: `workflow`; selection required: false.
 - Execution: Host-owned supported; agent-owned supported.
 - Completion evidence: `result/final-output.candidate.json`.

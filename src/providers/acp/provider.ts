@@ -157,11 +157,26 @@ export class AcpProvider implements Provider {
       options: normalizedSource,
       cache,
     });
+    const explicitModeId = String(source.acpModeId || "").trim();
+    const explicitReasoningEffort = String(
+      source.acpReasoningEffort || "",
+    ).trim();
+    const explicitProvider = String(source.acpModelProvider || "").trim();
+    const selectedModelId = explicitProvider
+      ? String(normalizedSource.acpModelId || source.acpModelId || "").trim()
+      : explicitModelId;
     return {
-      ...(selection.modeId ? { acpModeId: selection.modeId } : {}),
-      ...(selection.modelId ? { acpModelId: selection.modelId } : {}),
-      ...(selection.reasoningEffort
-        ? { acpReasoningEffort: selection.reasoningEffort }
+      ...(explicitModeId || selection.modeId
+        ? { acpModeId: explicitModeId || selection.modeId }
+        : {}),
+      ...(selectedModelId || selection.modelId
+        ? { acpModelId: selectedModelId || selection.modelId }
+        : {}),
+      ...(explicitReasoningEffort || selection.reasoningEffort
+        ? {
+            acpReasoningEffort:
+              explicitReasoningEffort || selection.reasoningEffort,
+          }
         : {}),
       ...autoApproveAcpPermissions,
       ...hardTimeout,

@@ -2,6 +2,19 @@
 
 Use this reference to map common Zotero librarian requests to command paths.
 
+## Ordered Research Lifecycle
+
+For a complete research pass, preserve this order and the receipt from every mutating stage:
+
+1. `literature-search-ingest`: discover, review, deduplicate, and ingest literature; retain successful parent item refs and provenance.
+2. `literature-analysis`: generate digest, references, and citation-analysis artifacts for those refs; carry only successful refs forward.
+3. `synthesis cache refresh-reference-sidecar`: start a separately approved sidecar operation for the committed paper scope and poll its operation id; preserve the reference basis hash and any partial failures.
+4. `synthesis graph update`: request a new approval, pass the expected reference basis hash, and poll a distinct operation id. Do not combine it with sidecar refresh.
+5. `create-topic-synthesis` or `update-topic-synthesis`: choose by topic existence, validate workflow and provider contracts independently, then confirm the resulting topic report.
+6. `export-research-bundle`: export only after the intended artifacts and topic are current; verify the Product and downloaded bundle.
+
+Scheduled passes may identify or report a needed mutating stage, but they do not reuse approval, submit a workflow, refresh sidecar state, update the graph, or apply results without a current reviewed request. Resume from the first stage lacking stable evidence rather than blindly replaying the sequence.
+
 ## Missing Inputs And Artifacts
 
 - Missing PDF: `zotero-bridge library readiness missing-pdf --query <JSON_OR_FILE>`.
@@ -33,6 +46,8 @@ For notes, read the note object with `library note get`, enumerate structured pa
 Use `synthesis graph ...` for citation graph requests and `synthesis topic ...` for topic synthesis requests. Use workflow commands only when the task asks to create or update a synthesis artifact.
 
 Use `synthesis index` for derived index pages, `synthesis resolver` for bounded tag/collection/paper-ref resolution, `synthesis artifact` for paper-owned analysis files, `synthesis concept` or `synthesis schema` for typed semantic models, and `synthesis insight attention-queue` for ranked review work.
+
+Reference-sidecar refresh and citation-graph update are separate asynchronous maintenance controls. Each requires its own Zotero approval and returns its own operation id. Poll with `synthesis cache status --operation-id <id>`; use a sidecar receipt's basis hash when requesting the graph update.
 
 ## Writeback
 

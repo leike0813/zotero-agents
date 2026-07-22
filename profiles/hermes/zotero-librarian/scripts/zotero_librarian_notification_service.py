@@ -250,23 +250,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bridge", default="zotero-bridge", help="zotero-bridge executable")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sync_parser = sub.add_parser("sync")
-    sync_parser.add_argument("--limit", type=int, default=100)
-    sync_parser.add_argument("--report-empty", action="store_true")
+    sync_parser = sub.add_parser("sync", help="Fetch one bounded notification page and persist new events.")
+    sync_parser.add_argument("--limit", type=int, default=100, help="Maximum Host Bridge events to fetch.")
+    sync_parser.add_argument("--report-empty", action="store_true", help="Emit JSON instead of [SILENT] when no events changed.")
     sync_parser.set_defaults(func=sync)
 
-    inbox_parser = sub.add_parser("inbox")
-    inbox_parser.add_argument("--limit", type=int, default=25)
-    inbox_parser.add_argument("--all", action="store_true")
-    inbox_parser.add_argument("--report-empty", action="store_true")
+    inbox_parser = sub.add_parser("inbox", help="Read the local notification projection without network access.")
+    inbox_parser.add_argument("--limit", type=int, default=25, help="Maximum local events to return.")
+    inbox_parser.add_argument("--all", action="store_true", help="Include locally acknowledged events.")
+    inbox_parser.add_argument("--report-empty", action="store_true", help="Emit JSON instead of [SILENT] when empty.")
     inbox_parser.set_defaults(func=inbox)
 
-    summary_parser = sub.add_parser("summary")
-    summary_parser.add_argument("--report-empty", action="store_true")
+    summary_parser = sub.add_parser("summary", help="Summarize local unacknowledged events by lifecycle state.")
+    summary_parser.add_argument("--report-empty", action="store_true", help="Emit JSON instead of [SILENT] when empty.")
     summary_parser.set_defaults(func=summary)
 
-    ack_parser = sub.add_parser("ack")
-    ack_parser.add_argument("--event", required=True, action="append")
+    ack_parser = sub.add_parser("ack", help="Mark explicit event ids acknowledged in the local projection only.")
+    ack_parser.add_argument("--event", required=True, action="append", help="Event id to acknowledge locally; repeatable.")
     ack_parser.set_defaults(func=ack)
     return parser
 
