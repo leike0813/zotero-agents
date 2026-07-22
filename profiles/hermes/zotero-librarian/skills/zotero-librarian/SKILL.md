@@ -15,7 +15,7 @@ Use this skill to operate the Zotero library through Host Bridge with a libraria
 3. Read `references/terminology.md` when the request uses shorthand such as graph, 三件套, digest, references, citation analysis, run handles, or writeback.
 4. Read `references/workflow-execution-policy.md` before preparing or submitting workflows.
 5. Use `references/common-tasks.md` for common literature, readiness, synthesis, and writeback task routing.
-6. Load exactly one matching generated command manual under `references/commands/`; use `references/workflows.md` for the generated workflow catalog and `references/host-bridge.md` only for exhaustive target inspection.
+6. Load one matching generated command manual for the current operation stage. A cross-family workflow may load the next stage's manual when it crosses that boundary; do not preload unrelated cards. Use `references/workflows.md` for the generated workflow catalog and `references/host-bridge.md` only for exhaustive target inspection.
 7. Read the resident references below before index, schedule, monitoring, maintenance, or helper-script work.
 8. Check `zotero-bridge bridge status` when Host Bridge availability is uncertain.
 9. Compare `zotero-bridge --version` with the expected CLI version rendered in `references/host-bridge.md` when the loaded profile path, command help, or CLI error suggests a surface mismatch. A version difference is advisory: use `zotero-bridge <command> --help` before executing that command.

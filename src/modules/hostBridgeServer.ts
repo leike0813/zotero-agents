@@ -25,6 +25,7 @@ import {
   getHostBridgeSkillRun,
   getHostBridgeWorkflowRunStatus,
   applyHostBridgeWorkflowAgentRun,
+  abandonHostBridgeWorkflowAgentRun,
   getHostBridgeWorkflowAgentRunApplyReceipt,
   describeHostBridgeProviderProfile,
   listHostBridgeProviderProfiles,
@@ -38,6 +39,7 @@ import {
   listHostBridgeWorkflowRuns,
   listHostBridgeWorkflows,
   replyHostBridgeSkillRun,
+  renewHostBridgeWorkflowAgentRun,
   submitHostBridgeWorkflow,
   type HostBridgeTaskFilters,
   type HostBridgeWorkflowAgentApplyRequest,
@@ -67,6 +69,17 @@ import {
   type PreparedMemoryHttpResponse,
   type RuntimeMemoryResponseTransfer,
 } from "./runtimeHttpResponse";
+import { createSha256Accumulator } from "../utils/sha256";
+import {
+  completeHostBridgeOperation,
+  getHostBridgeOperation,
+  markHostBridgeOperationOutcomeUnknown,
+  recoverHostBridgeOperationStoreAfterRestart,
+  reserveHostBridgeOperation,
+  resetHostBridgeOperationStoreForTests,
+  type HostBridgeOperationResponse,
+} from "./hostBridgeOperationStore";
+import { recoverHostBridgeAgentRunStoreAfterRestart } from "./hostBridgeWorkflowAgentRunStore";
 import {
   HostBridgePermissionError,
   getHostBridgePermissionProjection,
@@ -99,6 +112,7 @@ import { ZoteroLibraryCursorError } from "./zoteroLibraryPageQuery";
 import { resetHostBridgeAgentRunStoreForTests } from "./hostBridgeWorkflowAgentRunStore";
 import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 import {
+  HOST_BRIDGE_CLI_SCHEMA,
   HOST_BRIDGE_PROTOCOL_VERSION,
   hostBridgeError,
   hostBridgeOk,
@@ -186,6 +200,17 @@ type HttpRequest = {
   parseError?: string;
 };
 
+type HostBridgeTransportContext = {
+  peerHost: string;
+  peerPort: number;
+  peerLocality: "local" | "remote" | "unknown";
+};
+
+const trustedTransportContexts = new WeakMap<
+  HttpRequest,
+  HostBridgeTransportContext
+>();
+
 type HttpResponseArgs = {
   status: number;
   reason: string;
@@ -205,6 +230,7 @@ type RawHttpResponse =
 type AcceptedHostConnection = {
   generation: number;
   transport: any;
+  transportContext: HostBridgeTransportContext;
   outputStream: any;
   requestRead: ProfiledHostBridgeRequestReadOperation;
   responseTransfer?:
@@ -640,6 +666,113 @@ function parseJsonBody(body: string): unknown {
   return JSON.parse(trimmed);
 }
 
+async function hostBridgeOperationRequestDigest(
+  request: HttpRequest,
+  transportContext: HostBridgeTransportContext,
+) {
+  const query = Object.fromEntries(
+    Object.entries(request.query).sort(([left], [right]) =>
+      left.localeCompare(right),
+    ),
+  );
+  const prefix = new TextEncoder().encode(
+    JSON.stringify({
+      method: request.method,
+      path: request.path,
+      query,
+      connectionMode: parseConnectionModeHeader(request, transportContext),
+      contentType: String(request.headers["content-type"] || "").trim(),
+      displayName: String(
+        request.headers["x-zotero-bridge-display-name"] || "",
+      ).trim(),
+    }),
+  );
+  const accumulator = await createSha256Accumulator();
+  if (!accumulator) return undefined;
+  accumulator.update(prefix);
+  accumulator.update(Uint8Array.of(0));
+  accumulator.update(request.bodyBytes);
+  return `sha256:${accumulator.digestHex()}`;
+}
+
+function operationIdFromRequest(request: HttpRequest) {
+  return String(request.headers["x-zotero-bridge-operation-id"] || "").trim();
+}
+
+function isOperationReceiptPath(path: string) {
+  return path.startsWith("/bridge/v1/operations/");
+}
+
+function isStateChangingHostBridgeRequest(request: HttpRequest) {
+  if (request.method === "GET" || isOperationReceiptPath(request.path)) {
+    return false;
+  }
+  if (request.path === "/bridge/v1/call") {
+    try {
+      const payload = parseJsonBody(request.body) as HostBridgeCallRequest;
+      return (
+        getHostBridgeCapability(String(payload.capability || "").trim())
+          ?.requestEffect === "state-change"
+      );
+    } catch {
+      return false;
+    }
+  }
+  const exact = new Set([
+    "/bridge/v1/context/selection/open",
+    "/bridge/v1/context/items/open",
+    "/bridge/v1/context/collections/open",
+    "/bridge/v1/context/notes/open",
+    "/bridge/v1/workflows/submit",
+    "/bridge/v1/workflows/agent-run",
+    "/bridge/v1/notifications/ack",
+    "/bridge/v1/synthesis/cache/invalidate",
+    "/bridge/v1/files/upload",
+  ]);
+  if (exact.has(request.path)) return true;
+  return (
+    /^\/bridge\/v1\/workflows\/agent-runs\/[^/]+\/(apply|renew|abandon)$/.test(
+      request.path,
+    ) ||
+    /^\/bridge\/v1\/workflows\/runs\/[^/]+\/cancel$/.test(request.path) ||
+    /^\/bridge\/v1\/skill-runs\/[^/]+\/(reply|connect)$/.test(request.path)
+  );
+}
+
+function operationResponseFromRaw(
+  raw: RawHttpResponse,
+): HostBridgeOperationResponse | null {
+  if (raw.kind !== "memory") return null;
+  const statusLine = String(raw.headers.split("\r\n", 1)[0] || "");
+  const match = /^HTTP\/1\.1\s+(\d+)\s+(.*)$/.exec(statusLine);
+  if (!match) return null;
+  const text = new TextDecoder().decode(raw.bodyBytes);
+  let body: unknown = null;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    body = text;
+  }
+  return {
+    status: Number(match[1]),
+    reason: match[2] || "OK",
+    body,
+  };
+}
+
+function operationReplayResponse(
+  record: NonNullable<ReturnType<typeof getHostBridgeOperation>>,
+) {
+  if (record.state === "completed" && record.response) {
+    return buildHttpResponse(record.response);
+  }
+  return buildHttpResponse({
+    status: 202,
+    reason: "Accepted",
+    body: hostBridgeOk(record),
+  });
+}
+
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error || "");
 }
@@ -685,7 +818,14 @@ function parsePermissionScopeHeader(request: HttpRequest) {
     return null;
   }
   try {
-    return parseHostBridgePermissionScope(JSON.parse(raw));
+    const scope = parseHostBridgePermissionScope(JSON.parse(raw));
+    const transportContext = trustedTransportContexts.get(request);
+    return scope && transportContext
+      ? {
+          ...scope,
+          connectionMode: parseConnectionModeHeader(request, transportContext),
+        }
+      : scope;
   } catch {
     return null;
   }
@@ -716,11 +856,48 @@ function hostOperationClass(
 
 function parseConnectionModeHeader(
   request: HttpRequest,
+  transportContext: HostBridgeTransportContext,
 ): HostBridgeConnectionMode {
   const value = String(request.headers["x-zotero-bridge-connection-mode"] || "")
     .trim()
     .toLowerCase();
-  return value === "remote" ? "remote" : "local";
+  return transportContext.peerLocality === "local" && value !== "remote"
+    ? "local"
+    : "remote";
+}
+
+function isLoopbackPeerHost(hostRaw: unknown) {
+  const host = String(hostRaw || "")
+    .trim()
+    .replace(/^\[|\]$/g, "")
+    .toLowerCase();
+  if (host === "::1") return true;
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(host)?.[1];
+  const ipv4 = mapped || host;
+  const first = Number(ipv4.split(".")[0]);
+  return /^\d+\.\d+\.\d+\.\d+$/.test(ipv4) && first === 127;
+}
+
+function transportContextFromAcceptedTransport(
+  transport: any,
+): HostBridgeTransportContext {
+  let peerHost = "";
+  let peerPort = 0;
+  try {
+    peerHost = String(transport?.host || "").trim();
+    peerPort = Number(transport?.port || 0);
+  } catch {
+    return { peerHost: "", peerPort: 0, peerLocality: "unknown" };
+  }
+  return {
+    peerHost,
+    peerPort: Number.isInteger(peerPort) && peerPort > 0 ? peerPort : 0,
+    peerLocality: peerHost
+      ? isLoopbackPeerHost(peerHost)
+        ? "local"
+        : "remote"
+      : "unknown",
+  };
 }
 
 function permissionErrorResponse(error: HostBridgePermissionError) {
@@ -1281,7 +1458,7 @@ function manifest(): HostBridgeManifest {
     ...hostAccessRoutes(),
     cli: {
       supported: true,
-      schema: "zotero-bridge.cli.v1",
+      schema: HOST_BRIDGE_CLI_SCHEMA,
     },
   };
 }
@@ -1295,7 +1472,10 @@ function methodNotAllowed(message: string, allow: string) {
   );
 }
 
-async function callCapability(request: HttpRequest) {
+async function callCapability(
+  request: HttpRequest,
+  transportContext: HostBridgeTransportContext,
+) {
   if (request.method !== "POST") {
     return methodNotAllowed(
       "Capability call endpoint only supports POST",
@@ -1367,7 +1547,7 @@ async function callCapability(request: HttpRequest) {
     }
     const data = await capability.handler(payload.input, {
       getStatus: getHostBridgeServerStatus,
-      connectionMode: parseConnectionModeHeader(request),
+      connectionMode: parseConnectionModeHeader(request, transportContext),
       ...(synthesisServiceResolverForTests
         ? { resolveSynthesisService: synthesisServiceResolverForTests }
         : {}),
@@ -1730,7 +1910,10 @@ async function listWorkflows(request: HttpRequest) {
   );
 }
 
-async function inspectProfile(request: HttpRequest) {
+async function inspectProfile(
+  request: HttpRequest,
+  transportContext: HostBridgeTransportContext,
+) {
   if (request.method !== "GET") {
     return methodNotAllowed(
       "Profile inspect endpoint only supports GET",
@@ -1752,7 +1935,7 @@ async function inspectProfile(request: HttpRequest) {
       generatedAt: nowIso(),
       protocol: currentManifest.protocol,
       endpoint: currentManifest.endpoint,
-      connectionMode: parseConnectionModeHeader(request),
+      connectionMode: parseConnectionModeHeader(request, transportContext),
       capabilities: {
         count: capabilities.length,
         fingerprint: stableTextFingerprint(capabilities),
@@ -2344,6 +2527,31 @@ async function applyAgentRunWorkflow(request: HttpRequest) {
   }
 }
 
+async function changeAgentRunWorkflowLifecycle(
+  request: HttpRequest,
+  action: "renew" | "abandon",
+) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      `Workflow agent-run ${action} endpoint only supports POST`,
+      "POST",
+    );
+  }
+  const prefix = "/bridge/v1/workflows/agent-runs/";
+  const suffix = `/${action}`;
+  const encoded = request.path.slice(prefix.length, -suffix.length);
+  const agentRunId = safeDecodeURIComponent(encoded) || "";
+  try {
+    const result =
+      action === "renew"
+        ? renewHostBridgeWorkflowAgentRun(agentRunId)
+        : abandonHostBridgeWorkflowAgentRun(agentRunId);
+    return response(200, "OK", hostBridgeOk(result));
+  } catch (error) {
+    return agentRunApplyErrorResponse(error);
+  }
+}
+
 async function getWorkflowRun(request: HttpRequest) {
   if (request.method !== "GET") {
     return methodNotAllowed("Workflow run endpoint only supports GET", "GET");
@@ -2469,6 +2677,7 @@ function agentRunApplyErrorResponse(error: unknown) {
     workflow_not_found: 404,
     agent_run_expired: 410,
     agent_run_already_consumed: 409,
+    agent_run_lifecycle_conflict: 409,
     unknown_request: 400,
     invalid_bundle: 422,
     apply_not_allowed: 409,
@@ -3091,7 +3300,10 @@ function synthesisMaintenanceStatus(kind: "cache" | "index") {
   };
 }
 
-async function getSynthesisCacheStatus(request: HttpRequest) {
+async function getSynthesisCacheStatus(
+  request: HttpRequest,
+  transportContext: HostBridgeTransportContext,
+) {
   if (request.method !== "GET") {
     return methodNotAllowed(
       "Synthesis cache status endpoint only supports GET",
@@ -3119,7 +3331,7 @@ async function getSynthesisCacheStatus(request: HttpRequest) {
       { operation_id: operationId },
       {
         getStatus: getHostBridgeServerStatus,
-        connectionMode: parseConnectionModeHeader(request),
+        connectionMode: parseConnectionModeHeader(request, transportContext),
         ...(synthesisServiceResolverForTests
           ? { resolveSynthesisService: synthesisServiceResolverForTests }
           : {}),
@@ -3221,7 +3433,10 @@ async function invalidateSynthesisCache(request: HttpRequest) {
   }
 }
 
-async function handleHttpRequestImpl(request: HttpRequest) {
+async function handleHttpRequestImpl(
+  request: HttpRequest,
+  transportContext: HostBridgeTransportContext,
+) {
   updateState({
     requestCount: state.requestCount + 1,
     lastRequestMethod: `${request.method} ${request.path}`,
@@ -3302,190 +3517,325 @@ async function handleHttpRequestImpl(request: HttpRequest) {
     );
   }
 
-  if (request.path === "/bridge/v1/manifest") {
+  if (isOperationReceiptPath(request.path)) {
     if (request.method !== "GET") {
-      return response(
-        405,
-        "Method Not Allowed",
-        hostBridgeError(
-          "method_not_allowed",
-          "Manifest endpoint only supports GET",
-          "routing",
-          { allow: "GET" },
-        ),
-        "method_not_allowed",
+      return methodNotAllowed(
+        "Operation receipt endpoint only supports GET",
+        "GET",
       );
     }
-    return response(200, "OK", hostBridgeOk(manifest()));
+    const prefix = "/bridge/v1/operations/";
+    const operationId =
+      safeDecodeURIComponent(request.path.slice(prefix.length)) || "";
+    const record = getHostBridgeOperation(operationId);
+    if (!record) {
+      return response(
+        404,
+        "Not Found",
+        hostBridgeError(
+          "operation_not_found",
+          "Host Bridge operation not found",
+          "not_found",
+          { operationId },
+        ),
+        "operation_not_found",
+      );
+    }
+    return response(200, "OK", hostBridgeOk(record));
   }
 
-  if (request.path === "/bridge/v1/diagnostics/profile") {
-    return inspectProfile(request);
+  const operationId = operationIdFromRequest(request);
+  let operationReserved = false;
+  const stateChangingRequest = isStateChangingHostBridgeRequest(request);
+  if (stateChangingRequest && !operationId) {
+    return response(
+      428,
+      "Precondition Required",
+      hostBridgeError(
+        "operation_id_required",
+        "State-changing Host Bridge requests require X-Zotero-Bridge-Operation-Id",
+        "validation",
+      ),
+      "operation_id_required",
+    );
+  }
+  if (stateChangingRequest || operationId) {
+    if (operationId.length > 200 || !/^[A-Za-z0-9._:-]+$/.test(operationId)) {
+      return response(
+        400,
+        "Bad Request",
+        hostBridgeError(
+          "invalid_operation_id",
+          "Host Bridge operation id must be an opaque value of at most 200 characters",
+          "validation",
+        ),
+        "invalid_operation_id",
+      );
+    }
+    const requestDigest = await hostBridgeOperationRequestDigest(
+      request,
+      transportContext,
+    );
+    if (!requestDigest) {
+      return response(
+        500,
+        "Internal Server Error",
+        hostBridgeError(
+          "internal_error",
+          "Host Bridge could not calculate the operation request digest",
+          "internal",
+        ),
+        "internal_error",
+      );
+    }
+    const reservation = reserveHostBridgeOperation({
+      operationId,
+      requestDigest,
+      method: request.method,
+      path: request.path,
+    });
+    if (reservation.kind === "conflict") {
+      return response(
+        409,
+        "Conflict",
+        hostBridgeError(
+          "idempotency_conflict",
+          "Host Bridge operation id was already used for different input",
+          "validation",
+          { operationId },
+        ),
+        "idempotency_conflict",
+      );
+    }
+    if (reservation.kind === "replay") {
+      return operationReplayResponse(reservation.record);
+    }
+    operationReserved = true;
   }
 
-  if (request.path === "/bridge/v1/diagnostics/profile/diagnose") {
-    return diagnoseProfile(request);
-  }
+  const dispatchAuthorizedRequest = async (): Promise<RawHttpResponse> => {
+    if (request.path === "/bridge/v1/manifest") {
+      if (request.method !== "GET") {
+        return response(
+          405,
+          "Method Not Allowed",
+          hostBridgeError(
+            "method_not_allowed",
+            "Manifest endpoint only supports GET",
+            "routing",
+            { allow: "GET" },
+          ),
+          "method_not_allowed",
+        );
+      }
+      return response(200, "OK", hostBridgeOk(manifest()));
+    }
 
-  if (request.path === "/bridge/v1/diagnostics/backends") {
-    return listBackends(request);
-  }
+    if (request.path === "/bridge/v1/diagnostics/profile") {
+      return inspectProfile(request, transportContext);
+    }
 
-  if (request.path.startsWith("/bridge/v1/diagnostics/backends/")) {
-    return getBackendStatus(request);
-  }
+    if (request.path === "/bridge/v1/diagnostics/profile/diagnose") {
+      return diagnoseProfile(request);
+    }
 
-  if (request.path === "/bridge/v1/call") {
-    return callCapability(request);
-  }
+    if (request.path === "/bridge/v1/diagnostics/backends") {
+      return listBackends(request);
+    }
 
-  if (request.path === "/bridge/v1/context/current") {
-    return getCurrentContext(request);
-  }
+    if (request.path.startsWith("/bridge/v1/diagnostics/backends/")) {
+      return getBackendStatus(request);
+    }
 
-  if (request.path === "/bridge/v1/context/selection") {
-    return getCurrentSelection(request);
-  }
+    if (request.path === "/bridge/v1/call") {
+      return callCapability(request, transportContext);
+    }
 
-  if (request.path === "/bridge/v1/context/selection/open") {
-    return openContextSelection(request);
-  }
+    if (request.path === "/bridge/v1/context/current") {
+      return getCurrentContext(request);
+    }
 
-  if (request.path === "/bridge/v1/context/items/open") {
-    return openContextItem(request);
-  }
+    if (request.path === "/bridge/v1/context/selection") {
+      return getCurrentSelection(request);
+    }
 
-  if (request.path === "/bridge/v1/context/collections/open") {
-    return openContextCollection(request);
-  }
+    if (request.path === "/bridge/v1/context/selection/open") {
+      return openContextSelection(request);
+    }
 
-  if (request.path === "/bridge/v1/context/notes/open") {
-    return openContextNote(request);
-  }
+    if (request.path === "/bridge/v1/context/items/open") {
+      return openContextItem(request);
+    }
 
-  if (request.path === "/bridge/v1/workflows") {
-    return listWorkflows(request);
-  }
+    if (request.path === "/bridge/v1/context/collections/open") {
+      return openContextCollection(request);
+    }
 
-  if (request.path === "/bridge/v1/workflows/describe") {
-    return describeWorkflow(request);
-  }
+    if (request.path === "/bridge/v1/context/notes/open") {
+      return openContextNote(request);
+    }
 
-  if (request.path === "/bridge/v1/workflows/provider-profiles") {
-    return listProviderProfiles(request);
-  }
+    if (request.path === "/bridge/v1/workflows") {
+      return listWorkflows(request);
+    }
 
-  if (request.path === "/bridge/v1/workflows/provider-profiles/describe") {
-    return describeProviderProfile(request);
-  }
+    if (request.path === "/bridge/v1/workflows/describe") {
+      return describeWorkflow(request);
+    }
 
-  if (request.path === "/bridge/v1/workflows/provider-profiles/validate") {
-    return validateProviderProfile(request);
-  }
+    if (request.path === "/bridge/v1/workflows/provider-profiles") {
+      return listProviderProfiles(request);
+    }
 
-  if (request.path === "/bridge/v1/workflows/validate") {
-    return validateWorkflow(request);
-  }
+    if (request.path === "/bridge/v1/workflows/provider-profiles/describe") {
+      return describeProviderProfile(request);
+    }
 
-  if (request.path === "/bridge/v1/workflows/requirements") {
-    return workflowRequirements(request);
-  }
+    if (request.path === "/bridge/v1/workflows/provider-profiles/validate") {
+      return validateProviderProfile(request);
+    }
 
-  if (request.path === "/bridge/v1/workflows/submit") {
-    return submitWorkflow(request);
-  }
+    if (request.path === "/bridge/v1/workflows/validate") {
+      return validateWorkflow(request);
+    }
 
-  if (request.path === "/bridge/v1/workflows/agent-run") {
-    return agentRunWorkflow(request);
-  }
+    if (request.path === "/bridge/v1/workflows/requirements") {
+      return workflowRequirements(request);
+    }
 
-  if (
-    request.path.startsWith("/bridge/v1/workflows/agent-runs/") &&
-    request.path.endsWith("/apply")
-  ) {
-    return applyAgentRunWorkflow(request);
-  }
+    if (request.path === "/bridge/v1/workflows/submit") {
+      return submitWorkflow(request);
+    }
 
-  if (
-    request.path.startsWith("/bridge/v1/workflows/runs/") &&
-    request.path.endsWith("/cancel")
-  ) {
-    return cancelWorkflowRun(request);
-  }
+    if (request.path === "/bridge/v1/workflows/agent-run") {
+      return agentRunWorkflow(request);
+    }
 
-  if (request.path === "/bridge/v1/workflows/runs") {
-    return listWorkflowRuns(request);
-  }
+    if (
+      request.path.startsWith("/bridge/v1/workflows/agent-runs/") &&
+      request.path.endsWith("/apply")
+    ) {
+      return applyAgentRunWorkflow(request);
+    }
 
-  if (request.path.startsWith("/bridge/v1/workflows/runs/")) {
-    return getWorkflowRun(request);
-  }
+    if (
+      request.path.startsWith("/bridge/v1/workflows/agent-runs/") &&
+      request.path.endsWith("/renew")
+    ) {
+      return changeAgentRunWorkflowLifecycle(request, "renew");
+    }
 
-  if (request.path === "/bridge/v1/tasks/active") {
-    return listActiveTasks(request);
-  }
+    if (
+      request.path.startsWith("/bridge/v1/workflows/agent-runs/") &&
+      request.path.endsWith("/abandon")
+    ) {
+      return changeAgentRunWorkflowLifecycle(request, "abandon");
+    }
 
-  if (request.path === "/bridge/v1/tasks/recent") {
-    return listRecentTasks(request);
-  }
+    if (
+      request.path.startsWith("/bridge/v1/workflows/runs/") &&
+      request.path.endsWith("/cancel")
+    ) {
+      return cancelWorkflowRun(request);
+    }
 
-  if (request.path === "/bridge/v1/tasks") {
-    return listTasks(request);
-  }
+    if (request.path === "/bridge/v1/workflows/runs") {
+      return listWorkflowRuns(request);
+    }
 
-  if (request.path === "/bridge/v1/permissions/pending") {
-    return listPendingPermissions(request);
-  }
+    if (request.path.startsWith("/bridge/v1/workflows/runs/")) {
+      return getWorkflowRun(request);
+    }
 
-  if (request.path.startsWith("/bridge/v1/permissions/")) {
-    return getPermission(request);
-  }
+    if (request.path === "/bridge/v1/tasks/active") {
+      return listActiveTasks(request);
+    }
 
-  if (request.path === "/bridge/v1/notifications") {
-    return listNotifications(request);
-  }
+    if (request.path === "/bridge/v1/tasks/recent") {
+      return listRecentTasks(request);
+    }
 
-  if (request.path === "/bridge/v1/notifications/ack") {
-    return ackNotifications(request);
-  }
+    if (request.path === "/bridge/v1/tasks") {
+      return listTasks(request);
+    }
 
-  if (request.path === "/bridge/v1/skill-runs/recent") {
-    return listRecentSkillRuns(request);
-  }
+    if (request.path === "/bridge/v1/permissions/pending") {
+      return listPendingPermissions(request);
+    }
 
-  if (request.path.startsWith("/bridge/v1/skill-runs/")) {
-    return handleSkillRun(request);
-  }
+    if (request.path.startsWith("/bridge/v1/permissions/")) {
+      return getPermission(request);
+    }
 
-  if (request.path === "/bridge/v1/synthesis/cache/status") {
-    return getSynthesisCacheStatus(request);
-  }
+    if (request.path === "/bridge/v1/notifications") {
+      return listNotifications(request);
+    }
 
-  if (request.path === "/bridge/v1/synthesis/cache/invalidate") {
-    return invalidateSynthesisCache(request);
-  }
+    if (request.path === "/bridge/v1/notifications/ack") {
+      return ackNotifications(request);
+    }
 
-  if (request.path === "/bridge/v1/synthesis/index/status") {
-    return getSynthesisIndexStatus(request);
-  }
+    if (request.path === "/bridge/v1/skill-runs/recent") {
+      return listRecentSkillRuns(request);
+    }
 
-  if (request.path === "/bridge/v1/files/upload") {
-    return uploadFile(request);
-  }
+    if (request.path.startsWith("/bridge/v1/skill-runs/")) {
+      return handleSkillRun(request);
+    }
 
-  if (request.path.startsWith("/bridge/v1/files/")) {
-    return downloadFile(request);
-  }
+    if (request.path === "/bridge/v1/synthesis/cache/status") {
+      return getSynthesisCacheStatus(request, transportContext);
+    }
 
-  return response(
-    404,
-    "Not Found",
-    hostBridgeError("not_found", "Host Bridge route not found", "not_found"),
-    "not_found",
-  );
+    if (request.path === "/bridge/v1/synthesis/cache/invalidate") {
+      return invalidateSynthesisCache(request);
+    }
+
+    if (request.path === "/bridge/v1/synthesis/index/status") {
+      return getSynthesisIndexStatus(request);
+    }
+
+    if (request.path === "/bridge/v1/files/upload") {
+      return uploadFile(request);
+    }
+
+    if (request.path.startsWith("/bridge/v1/files/")) {
+      return downloadFile(request);
+    }
+
+    return response(
+      404,
+      "Not Found",
+      hostBridgeError("not_found", "Host Bridge route not found", "not_found"),
+      "not_found",
+    );
+  };
+
+  let result: RawHttpResponse;
+  try {
+    result = await dispatchAuthorizedRequest();
+  } catch (error) {
+    if (operationReserved) {
+      markHostBridgeOperationOutcomeUnknown(operationId);
+    }
+    throw error;
+  }
+  if (operationReserved) {
+    const completed = operationResponseFromRaw(result);
+    if (completed) {
+      completeHostBridgeOperation({ operationId, response: completed });
+    } else {
+      markHostBridgeOperationOutcomeUnknown(operationId);
+    }
+  }
+  return result;
 }
 
-async function handleHttpRequest(request: HttpRequest) {
+async function handleHttpRequest(
+  request: HttpRequest,
+  transportContext: HostBridgeTransportContext,
+) {
+  trustedTransportContexts.set(request, transportContext);
   if (
     __acp_runtime_performance_profiler_enabled__ &&
     (typeof __debug_mode__ === "undefined"
@@ -3502,7 +3852,7 @@ async function handleHttpRequest(request: HttpRequest) {
       1,
     );
     try {
-      const result = await handleHttpRequestImpl(request);
+      const result = await handleHttpRequestImpl(request, transportContext);
       const responseBytes =
         result.kind === "memory"
           ? result.wireByteLength
@@ -3529,7 +3879,7 @@ async function handleHttpRequest(request: HttpRequest) {
       );
     }
   }
-  return handleHttpRequestImpl(request);
+  return handleHttpRequestImpl(request, transportContext);
 }
 
 function recordHostInputMetrics(
@@ -3708,7 +4058,10 @@ async function processAcceptedConnection(connection: AcceptedHostConnection) {
     if (connection.generation !== serverGeneration) {
       return;
     }
-    const rawResponse = await handleHttpRequest(request);
+    const rawResponse = await handleHttpRequest(
+      request,
+      connection.transportContext,
+    );
     if (connection.generation !== serverGeneration) {
       return;
     }
@@ -3783,6 +4136,7 @@ function listen(serverSocket: any, generation: number) {
         const connection: AcceptedHostConnection = {
           generation,
           transport,
+          transportContext: transportContextFromAcceptedTransport(transport),
           outputStream,
           requestRead,
           outputClosed: false,
@@ -3861,6 +4215,8 @@ async function publishWellKnownProfileAfterListen(args: {
 }
 
 async function startServer() {
+  recoverHostBridgeOperationStoreAfterRestart();
+  recoverHostBridgeAgentRunStoreAfterRestart();
   const config = resolveHostBridgeStartConfig();
   updateState({
     status: "starting",
@@ -4143,6 +4499,8 @@ export function resetHostBridgeServerForTests() {
   acceptedConnections.clear();
   resetHostBridgeWriteAutoApprovalScopesForTests();
   resetHostBridgeAgentRunStoreForTests();
+  resetHostBridgeOperationStoreForTests();
+  hostBridgeTestOperationSequence = 0;
 }
 
 export function configureHostBridgeServerForTests(
@@ -4213,17 +4571,41 @@ function normalizeTestHeaders(headers?: Record<string, unknown>) {
   return normalized;
 }
 
+let hostBridgeTestOperationSequence = 0;
+
+function ensureTestOperationId(request: HttpRequest, disabled: boolean) {
+  if (
+    !disabled &&
+    request.method !== "GET" &&
+    !request.headers["x-zotero-bridge-operation-id"]
+  ) {
+    hostBridgeTestOperationSequence += 1;
+    request.headers["x-zotero-bridge-operation-id"] =
+      `test-operation-${hostBridgeTestOperationSequence}`;
+  }
+  return request;
+}
+
 export async function handleHostBridgeHttpRequestForTests(args: {
   method: string;
   path: string;
   headers?: Record<string, unknown>;
   body?: string;
   rawRequestBytes?: Uint8Array;
+  peerHost?: string;
+  peerPort?: number;
+  disableAutomaticOperationId?: boolean;
 }) {
+  const transportContext = transportContextFromAcceptedTransport({
+    host: args.peerHost === undefined ? "127.0.0.1" : args.peerHost,
+    port: args.peerPort === undefined ? 1 : args.peerPort,
+  });
   if (args.rawRequestBytes) {
-    const raw = await handleHttpRequest(
+    const request = ensureTestOperationId(
       parseHttpRequestBytes(args.rawRequestBytes),
+      args.disableAutomaticOperationId === true,
     );
+    const raw = await handleHttpRequest(request, transportContext);
     if (raw.kind === "memory") {
       return `${raw.headers}${new TextDecoder().decode(raw.bodyBytes)}`;
     }
@@ -4242,7 +4624,10 @@ export async function handleHostBridgeHttpRequestForTests(args: {
     bodyByteLength: utf8ByteLength(body),
     parseError: parsedPath.parseError,
   };
-  const raw = await handleHttpRequest(request);
+  const raw = await handleHttpRequest(
+    ensureTestOperationId(request, args.disableAutomaticOperationId === true),
+    transportContext,
+  );
   if (raw.kind === "memory") {
     return `${raw.headers}${new TextDecoder().decode(raw.bodyBytes)}`;
   }

@@ -1,7 +1,12 @@
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::error::CliError;
+use crate::surface;
+use crate::{client, error::CliError};
+
+fn current_cli_schema() -> String {
+    surface::cli_schema().unwrap_or_else(|_| "zotero-bridge.cli.v3".to_string())
+}
 
 #[derive(Debug, Serialize)]
 struct SuccessOutput {
@@ -23,7 +28,8 @@ pub fn print_success(data: Value) {
         data,
         meta: json!({
             "cli": "zotero-bridge",
-            "schema": "zotero-bridge.cli.v2"
+            "schema": current_cli_schema(),
+            "operationId": client::last_operation_id()
         }),
     };
     println!(
@@ -38,7 +44,7 @@ pub fn print_error(error: CliError) {
         error: error.to_payload(),
         meta: json!({
             "cli": "zotero-bridge",
-            "schema": "zotero-bridge.cli.v2"
+            "schema": current_cli_schema()
         }),
     };
     println!(

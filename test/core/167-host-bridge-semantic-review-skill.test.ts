@@ -17,7 +17,7 @@ describe("Host Bridge semantic surface review skill", function () {
       "scripts/host-bridge-agent-surface.ts",
       "schemas/host-bridge.agent-surface.v3.schema.json",
       "scripts/host-bridge-release-plan.ts",
-      "schemas/host-bridge.release-receipt.v1.schema.json",
+      "schemas/host-bridge.release-receipt.v2.schema.json",
       "workflows_builtin/manifest.json",
       "openspec/specs/host-bridge-cli-interface/spec.md",
       "skills_src/zotero-bridge-cli/semantic/SKILL.md",
@@ -30,7 +30,7 @@ describe("Host Bridge semantic surface review skill", function () {
       "cli/zotero-bridge/src/surface.rs",
       "openspec/specs/host-bridge-cli-interface/spec.md",
       "schemas/host-bridge.agent-surface.v3.schema.json",
-      "schemas/host-bridge.release-receipt.v1.schema.json",
+      "schemas/host-bridge.release-receipt.v2.schema.json",
       "scripts/host-bridge-agent-surface.ts",
       "scripts/host-bridge-release-plan.ts",
       "src/modules/hostBridgeCapabilityRegistry.ts",
@@ -172,7 +172,7 @@ describe("Host Bridge semantic surface review skill", function () {
     assert.include(releaseSkill, "release-host-bridge.yml");
     assert.include(releaseSkill, "releaseSetId");
     assert.include(releaseSkill, "release-receipt.json");
-    assert.include(releaseSkill, "host-bridge.release-receipt.v1");
+    assert.include(releaseSkill, "host-bridge.release-receipt.v2");
     assert.include(releaseSkill, "check:host-bridge-cli-prebuild-freshness");
   });
 
@@ -192,7 +192,7 @@ describe("Host Bridge semantic surface review skill", function () {
     );
     const contract = files.join("\n");
 
-    assert.include(contract, "host-bridge.release-receipt.v1");
+    assert.include(contract, "host-bridge.release-receipt.v2");
     assert.include(contract, "releaseSetId");
     assert.include(contract, "status: complete");
     assert.notInclude(contract, "build-zotero-bridge-cli.yml");

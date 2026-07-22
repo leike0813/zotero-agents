@@ -46,7 +46,6 @@ Distinguish from:
 
 - Delivery: `file`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/files/{fileId}.
 - `file` (object)
 - `delivery` (object): Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.
 - Completion evidence:
@@ -56,13 +55,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - consume `fileId` (caller-owned): Required by the command invocation.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge file upload`
 
@@ -109,7 +108,6 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from POST /bridge/v1/files/upload.
 - `fileId` (string)
 - Completion evidence:
 - The structured file upload result and the exact invocation inputs used to obtain it.
@@ -118,13 +116,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `ephemeral-file`: May change ephemeral file state. stateChanged=true.
+- Effect `ephemeral-file`: May change ephemeral file state. mayChangeState=true.
 - produce `fileId` (short-lived): Returned when the corresponding operation succeeds.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge mutation apply`
 
@@ -168,7 +166,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from mutation.execute.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - Completion evidence:
 - The structured mutation apply result and the exact invocation inputs used to obtain it.
 - preview, approval outcome, applied result, and affected Zotero refs
@@ -176,13 +176,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `zotero-ui-required` at `before-command`; Zotero UI approval for the described Host-owned effect.
-- Effect `zotero-library`: May change zotero library state. stateChanged=true.
+- Effect `zotero-library`: May change zotero library state. mayChangeState=true.
 - No typed handle transition.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge mutation collection add-items`
 
@@ -220,7 +220,7 @@ Distinguish from:
 - `items` → option `--items` (required, takes a value).
 - CLI invocation fields:
 - `collection` (string): Zotero collection ref
-- `items` (string): Target Zotero item refs
+- `items` (array): Target Zotero item refs
 - Decoded payload fields:
 - `collection` (string): Zotero collection ref
 - `items` (string): Target Zotero item refs
@@ -229,7 +229,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from mutation.execute.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - Completion evidence:
 - The structured mutation collection add-items result and the exact invocation inputs used to obtain it.
 - preview, approval outcome, applied result, and affected Zotero refs
@@ -237,13 +239,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `zotero-ui-required` at `before-command`; Zotero UI approval for the described Host-owned effect.
-- Effect `zotero-library`: May change zotero library state. stateChanged=true.
+- Effect `zotero-library`: May change zotero library state. mayChangeState=true.
 - No typed handle transition.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge mutation collection create`
 
@@ -287,7 +289,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from mutation.execute.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - Completion evidence:
 - The structured mutation collection create result and the exact invocation inputs used to obtain it.
 - preview, approval outcome, applied result, and affected Zotero refs
@@ -295,13 +299,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `zotero-ui-required` at `before-command`; Zotero UI approval for the described Host-owned effect.
-- Effect `zotero-library`: May change zotero library state. stateChanged=true.
+- Effect `zotero-library`: May change zotero library state. mayChangeState=true.
 - No typed handle transition.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge mutation collection remove-items`
 
@@ -339,7 +343,7 @@ Distinguish from:
 - `items` → option `--items` (required, takes a value).
 - CLI invocation fields:
 - `collection` (string): Zotero collection ref
-- `items` (string): Target Zotero item refs
+- `items` (array): Target Zotero item refs
 - Decoded payload fields:
 - `collection` (string): Zotero collection ref
 - `items` (string): Target Zotero item refs
@@ -348,7 +352,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from mutation.execute.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - Completion evidence:
 - The structured mutation collection remove-items result and the exact invocation inputs used to obtain it.
 - preview, approval outcome, applied result, and affected Zotero refs
@@ -356,13 +362,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `zotero-ui-required` at `before-command`; Zotero UI approval for the described Host-owned effect.
-- Effect `zotero-library`: May change zotero library state. stateChanged=true.
+- Effect `zotero-library`: May change zotero library state. mayChangeState=true.
 - No typed handle transition.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge mutation item attach-file`
 
@@ -393,22 +399,22 @@ Distinguish from:
 ### Invocation and payload
 
 - Canonical argv: `zotero-bridge mutation item attach-file`.
-- Example: `zotero-bridge mutation item attach-file --item 'item' --file './output'`.
+- Example: `zotero-bridge mutation item attach-file --item 'item' --file-id 'file-id'`.
 - Preconditions:
 - Verify the exact CLI identity and a reachable Host Bridge before relying on live results.
 - Exact argv bindings:
 - `item` → option `--item` (required, takes a value).
-- `file` → option `--file` (required, takes a value).
+- `file-id` → option `--file-id` (required, takes a value).
 - `display-name` → option `--display-name` (optional, takes a value).
 - `content-type` → option `--content-type` (optional, takes a value).
 - CLI invocation fields:
 - `item` (string): Target Zotero item ref
-- `file` (string): Host Bridge uploaded file id
+- `file-id` (string): Host Bridge uploaded file id
 - `display-name` (string): Attachment display name
 - `content-type` (string): Attachment content type
 - Decoded payload fields:
 - `item` (string): Target Zotero item ref
-- `file` (string): Host Bridge uploaded file id
+- `file_id` (string): Host Bridge uploaded file id
 - `display_name` (string): Attachment display name
 - `content_type` (string): Attachment content type
 
@@ -416,7 +422,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from mutation.execute.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - Completion evidence:
 - The structured mutation item attach-file result and the exact invocation inputs used to obtain it.
 - preview, approval outcome, applied result, and affected Zotero refs
@@ -425,14 +433,14 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `zotero-ui-required` at `before-command`; Zotero UI approval for the described Host-owned effect.
-- Effect `zotero-library`: May change zotero library state. stateChanged=true.
+- Effect `zotero-library`: May change zotero library state. mayChangeState=true.
 - consume `itemRef` (caller-owned): Required by the command invocation.
 - consume `fileId` (caller-owned): Required by the command invocation.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge mutation item update`
 
@@ -479,7 +487,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from mutation.execute.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - Completion evidence:
 - The structured mutation item update result and the exact invocation inputs used to obtain it.
 - preview, approval outcome, applied result, and affected Zotero refs
@@ -487,13 +497,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `zotero-ui-required` at `before-command`; Zotero UI approval for the described Host-owned effect.
-- Effect `zotero-library`: May change zotero library state. stateChanged=true.
+- Effect `zotero-library`: May change zotero library state. mayChangeState=true.
 - No typed handle transition.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge mutation literature-ingest`
 
@@ -537,7 +547,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from mutation.execute.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - Completion evidence:
 - The structured mutation literature-ingest result and the exact invocation inputs used to obtain it.
 - preview, approval outcome, applied result, and affected Zotero refs
@@ -545,13 +557,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `zotero-ui-required` at `before-command`; Zotero UI approval for the described Host-owned effect.
-- Effect `zotero-library`: May change zotero library state. stateChanged=true.
+- Effect `zotero-library`: May change zotero library state. mayChangeState=true.
 - No typed handle transition.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge mutation note create`
 
@@ -598,7 +610,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from mutation.execute.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - Completion evidence:
 - The structured mutation note create result and the exact invocation inputs used to obtain it.
 - preview, approval outcome, applied result, and affected Zotero refs
@@ -606,13 +620,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `zotero-ui-required` at `before-command`; Zotero UI approval for the described Host-owned effect.
-- Effect `zotero-library`: May change zotero library state. stateChanged=true.
+- Effect `zotero-library`: May change zotero library state. mayChangeState=true.
 - No typed handle transition.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge mutation note update`
 
@@ -659,7 +673,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from mutation.execute.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - Completion evidence:
 - The structured mutation note update result and the exact invocation inputs used to obtain it.
 - preview, approval outcome, applied result, and affected Zotero refs
@@ -667,13 +683,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `zotero-ui-required` at `before-command`; Zotero UI approval for the described Host-owned effect.
-- Effect `zotero-library`: May change zotero library state. stateChanged=true.
+- Effect `zotero-library`: May change zotero library state. mayChangeState=true.
 - No typed handle transition.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge mutation note upsert-payload`
 
@@ -720,7 +736,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from mutation.execute.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - Completion evidence:
 - The structured mutation note upsert-payload result and the exact invocation inputs used to obtain it.
 - preview, approval outcome, applied result, and affected Zotero refs
@@ -728,13 +746,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `zotero-ui-required` at `before-command`; Zotero UI approval for the described Host-owned effect.
-- Effect `zotero-library`: May change zotero library state. stateChanged=true.
+- Effect `zotero-library`: May change zotero library state. mayChangeState=true.
 - No typed handle transition.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge mutation preview`
 
@@ -778,7 +796,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from mutation.preview.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - Completion evidence:
 - The structured mutation preview result and the exact invocation inputs used to obtain it.
 - preview, approval outcome, applied result, and affected Zotero refs
@@ -787,13 +807,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge mutation tag add`
 
@@ -830,8 +850,8 @@ Distinguish from:
 - `items` → option `--items` (required, takes a value).
 - `tags` → option `--tags` (required, takes a value).
 - CLI invocation fields:
-- `items` (string): Target Zotero item refs
-- `tags` (string): Tags to add or remove
+- `items` (array): Target Zotero item refs
+- `tags` (array): Tags to add or remove
 - Decoded payload fields:
 - `items` (string): Target Zotero item refs
 - `tags` (string): Tags to add or remove
@@ -840,7 +860,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from mutation.execute.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - Completion evidence:
 - The structured mutation tag add result and the exact invocation inputs used to obtain it.
 - preview, approval outcome, applied result, and affected Zotero refs
@@ -848,13 +870,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `zotero-ui-required` at `before-command`; Zotero UI approval for the described Host-owned effect.
-- Effect `zotero-library`: May change zotero library state. stateChanged=true.
+- Effect `zotero-library`: May change zotero library state. mayChangeState=true.
 - No typed handle transition.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge mutation tag remove`
 
@@ -891,8 +913,8 @@ Distinguish from:
 - `items` → option `--items` (required, takes a value).
 - `tags` → option `--tags` (required, takes a value).
 - CLI invocation fields:
-- `items` (string): Target Zotero item refs
-- `tags` (string): Tags to add or remove
+- `items` (array): Target Zotero item refs
+- `tags` (array): Tags to add or remove
 - Decoded payload fields:
 - `items` (string): Target Zotero item refs
 - `tags` (string): Tags to add or remove
@@ -901,7 +923,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from mutation.execute.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - Completion evidence:
 - The structured mutation tag remove result and the exact invocation inputs used to obtain it.
 - preview, approval outcome, applied result, and affected Zotero refs
@@ -909,13 +933,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `zotero-ui-required` at `before-command`; Zotero UI approval for the described Host-owned effect.
-- Effect `zotero-library`: May change zotero library state. stateChanged=true.
+- Effect `zotero-library`: May change zotero library state. mayChangeState=true.
 - No typed handle transition.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge product download`
 
@@ -967,7 +991,9 @@ Distinguish from:
 
 - Delivery: `file`.
 - Stable result fields:
-- `result` (object): Stable result from workflow_products.export.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - `fileId` (string)
 - `file` (object)
 - `delivery` (object): Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.
@@ -978,14 +1004,14 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - consume `productId` (caller-owned): Required by the command invocation.
 - produce `fileId` (short-lived): Returned when the corresponding operation succeeds.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge product get`
 
@@ -1028,7 +1054,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from workflow_products.get.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - `productId` (string)
 - Completion evidence:
 - The structured product get result and the exact invocation inputs used to obtain it.
@@ -1037,14 +1065,14 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - consume `productId` (caller-owned): Required by the command invocation.
 - produce `productId` (response): Returned when the corresponding operation succeeds.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge product list`
 
@@ -1099,7 +1127,9 @@ Distinguish from:
 
 - Delivery: `cursor`.
 - Stable result fields:
-- `result` (object): Stable result from workflow_products.list.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - `products` (array)
 - `nextCursor` (string | number | null)
 - `hasMore` (boolean)
@@ -1110,13 +1140,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge product remove`
 
@@ -1159,7 +1189,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from workflow_products.remove.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - Completion evidence:
 - The structured product remove result and the exact invocation inputs used to obtain it.
 - productId, product metadata, downloaded asset, or removal result
@@ -1167,10 +1199,10 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `zotero-ui-required` at `before-command`; Zotero UI approval for the described Host-owned effect.
-- Effect `product-store`: May change product store state. stateChanged=true.
+- Effect `product-store`: May change product store state. mayChangeState=true.
 - consume `productId` (caller-owned): Required by the command invocation.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.

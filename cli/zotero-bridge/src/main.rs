@@ -6,14 +6,36 @@ mod error;
 mod output;
 mod surface;
 
-use clap::Parser;
+use clap::{error::ErrorKind, Parser};
 
 use args::{Cli, Command};
 use error::CliError;
 use output::{print_error, print_success};
 
 fn main() {
-    let cli = Cli::parse();
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(error)
+            if matches!(
+                error.kind(),
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion
+            ) =>
+        {
+            let _ = error.print();
+            return;
+        }
+        Err(error) => {
+            let kind = format!("{:?}", error.kind());
+            let cli_error = CliError::new(
+                "cli_usage_error",
+                error::ErrorCategory::Usage,
+                "Command arguments are invalid",
+            )
+            .with_details(serde_json::json!({ "kind": kind }));
+            print_error(cli_error);
+            std::process::exit(2);
+        }
+    };
     let result = run(cli);
     match result {
         Ok(data) => {
@@ -46,5 +68,6 @@ fn run(cli: Cli) -> Result<serde_json::Value, CliError> {
         Command::File(args) => commands::file(&config, args),
         Command::Product(args) => commands::product(&config, args),
         Command::Debug(args) => commands::debug(&config, args),
+        Command::Operation(args) => commands::operation(&config, args),
     }
 }

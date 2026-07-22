@@ -4,7 +4,7 @@
 
 ## 准备
 
-先阅读 `workflow describe`。Agent 拥有的交接不能携带 Host 拥有的 workflow 选项或 provider profile。使用显式选择或 `--none` 以及受控输出目录调用 `workflow agent-run`。保留 `agentRunId`、每个 `agentRequestId`、包路径和校验和。
+先阅读 `workflow describe`。Agent 拥有的交接不能携带 Host 拥有的 workflow 选项或 provider profile。使用显式选择或 `workflow agent-run` 以及受控输出目录调用 `--none`。保留 `agentRunId`、每个 `agentRequestId`、包路径和校验和。
 
 ## 执行
 

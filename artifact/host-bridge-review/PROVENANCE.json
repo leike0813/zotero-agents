@@ -1,0 +1,447 @@
+{
+  "schema": "host-bridge.review-mirror.v1",
+  "generatedAt": "2026-07-22T13:07:50.109Z",
+  "sourceCommit": "33c91b7bce7b2ce159d534b5fca6486c7dbd1942",
+  "fileCount": 62,
+  "surfaces": {
+    "cli-wrapper": 17,
+    "library-agent": 17,
+    "librarian-profile": 28
+  },
+  "files": [
+    {
+      "surface": "cli-wrapper",
+      "relativePath": "references/agent-guidance.md",
+      "sourcePath": "skills_builtin/zotero-bridge-cli/references/agent-guidance.md",
+      "sourceSha256": "8e0c3ce803bb25d0cc56b83a4e98242bacaa45696ad1bf04200c7ba9cf07944e",
+      "translatedSha256": "29b5a1153f302a669d67f7e1b0c40d50dcf9e380ae8a7223b18a8a8dc4b665c3"
+    },
+    {
+      "surface": "cli-wrapper",
+      "relativePath": "references/commands/connectivity-context.md",
+      "sourcePath": "skills_builtin/zotero-bridge-cli/references/commands/connectivity-context.md",
+      "sourceSha256": "d992bd8e0b4bb47ad205e8dcbfca138a9f4432aff942f61fa40a815686cbb07d",
+      "translatedSha256": "4507351b4288cd80601b47c36270cf419133d8cd0f1d41c76aaa9d38150fb8fb"
+    },
+    {
+      "surface": "cli-wrapper",
+      "relativePath": "references/commands/diagnostics.md",
+      "sourcePath": "skills_builtin/zotero-bridge-cli/references/commands/diagnostics.md",
+      "sourceSha256": "79ed64cefef2675ab9291768ebbce80756006241587096a157ab45736ce9d024",
+      "translatedSha256": "86e658c2ad60971904f1efe162fbd35f017afd35dd73d61c313bcd48a9a44a03"
+    },
+    {
+      "surface": "cli-wrapper",
+      "relativePath": "references/commands/library-items.md",
+      "sourcePath": "skills_builtin/zotero-bridge-cli/references/commands/library-items.md",
+      "sourceSha256": "ed23f723666dce25c14ea5e23764a00882ed08b544925ddcc8aab88d3494936f",
+      "translatedSha256": "ce7fe1b3a89eee541787235c0f9a899b08c9b62a88d04ef96b8c37985da7a7fb"
+    },
+    {
+      "surface": "cli-wrapper",
+      "relativePath": "references/commands/library-notes-attachments-readiness.md",
+      "sourcePath": "skills_builtin/zotero-bridge-cli/references/commands/library-notes-attachments-readiness.md",
+      "sourceSha256": "bdef1046c9c761da873c90b6dcbd91dddb492e51ac923099ae3bf16b2f726013",
+      "translatedSha256": "1aaf588a957bbfc8dd89a193764a9f5e73878973b07cf568289c93cabd968afa"
+    },
+    {
+      "surface": "cli-wrapper",
+      "relativePath": "references/commands/mutations-files-products.md",
+      "sourcePath": "skills_builtin/zotero-bridge-cli/references/commands/mutations-files-products.md",
+      "sourceSha256": "5c7bd68f824866ac1f760a51e450b01389f68b4b7cf536ea67d16d1bc3c98115",
+      "translatedSha256": "94cde551d9d162cf73e61897543693410d644c12fd2ada509587a996e9b8cf73"
+    },
+    {
+      "surface": "cli-wrapper",
+      "relativePath": "references/commands/synthesis-graph.md",
+      "sourcePath": "skills_builtin/zotero-bridge-cli/references/commands/synthesis-graph.md",
+      "sourceSha256": "9fd3e74b0ae4e9945066925d782b398fd5b88064ac8d98e952f7afa6ce5c8849",
+      "translatedSha256": "d340132d2fdcc7ecdfd2611740e912b63794783bb1d18f321fb7a2db98f5cf9e"
+    },
+    {
+      "surface": "cli-wrapper",
+      "relativePath": "references/commands/synthesis-index-resolver-insights.md",
+      "sourcePath": "skills_builtin/zotero-bridge-cli/references/commands/synthesis-index-resolver-insights.md",
+      "sourceSha256": "9d2aeb86291a693b815a5e013fbf8934f75cb299b2585b6f0e8d674add781bc5",
+      "translatedSha256": "45f74d6e3818b0a4348475bbafe706aa115e50ae80a7344b2088947a8c6ae23b"
+    },
+    {
+      "surface": "cli-wrapper",
+      "relativePath": "references/commands/synthesis-topics-artifacts.md",
+      "sourcePath": "skills_builtin/zotero-bridge-cli/references/commands/synthesis-topics-artifacts.md",
+      "sourceSha256": "b496f59d98c2bf455a9d65f95b5f99f096d79b325665c01f19df6d47cc72cede",
+      "translatedSha256": "cafb4f1d43b3125ff36f4ed398a0a8a9adc66181a2304bfe2abc461b81a280c5"
+    },
+    {
+      "surface": "cli-wrapper",
+      "relativePath": "references/commands/workflows-and-runs.md",
+      "sourcePath": "skills_builtin/zotero-bridge-cli/references/commands/workflows-and-runs.md",
+      "sourceSha256": "13cccc584a5fa75ff0cdb879a1c6e1ea383d270f3b14c732567b597d0bd0d2ac",
+      "translatedSha256": "fa636e190c783afb5840748c1f018b0c67e0cfd51ec6185660e5b2b262a08402"
+    },
+    {
+      "surface": "cli-wrapper",
+      "relativePath": "references/control-invariants.md",
+      "sourcePath": "skills_builtin/zotero-bridge-cli/references/control-invariants.md",
+      "sourceSha256": "0e380e7d476b824c3c52e33d252fecdaaebed227ea83c50007ea78cd7dea0e22",
+      "translatedSha256": "db5c51412fa42c97ee0fa8741c6319e3eb3a97298bad6c761cedd8a3effe95f5"
+    },
+    {
+      "surface": "cli-wrapper",
+      "relativePath": "references/host-bridge-cli.md",
+      "sourcePath": "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
+      "sourceSha256": "762a7e92ef417242cbeb59f797490664a6cb827115626706e2668d49b0de2003",
+      "translatedSha256": "042734afbc8ddaba88fd4923a65686ebc08737e92984d7dd534da10fb1e2df04"
+    },
+    {
+      "surface": "cli-wrapper",
+      "relativePath": "references/identity-and-connection.md",
+      "sourcePath": "skills_builtin/zotero-bridge-cli/references/identity-and-connection.md",
+      "sourceSha256": "247a2b474f7f5fd2e677bf183e3e66a80988402b736e6b1d86208bb3710d1a81",
+      "translatedSha256": "14cea0f1455039330f94a637c6097039ae9c0fc5910872ddcef8f1e163e207b9"
+    },
+    {
+      "surface": "cli-wrapper",
+      "relativePath": "references/invocation-and-json-input.md",
+      "sourcePath": "skills_builtin/zotero-bridge-cli/references/invocation-and-json-input.md",
+      "sourceSha256": "0322ae343ea454114fb6bfaf215c9b1bdec7d3e0fec06f5f2452ed6783b34e54",
+      "translatedSha256": "659281b3afcd8be61cb402517270b8cefaa6f782f10dcb22afcfce4447f5a192"
+    },
+    {
+      "surface": "cli-wrapper",
+      "relativePath": "references/output-and-recovery.md",
+      "sourcePath": "skills_builtin/zotero-bridge-cli/references/output-and-recovery.md",
+      "sourceSha256": "e5c04a09890c56dd1a4844f344a50e4851c04b08c7920129a7c400275692348c",
+      "translatedSha256": "2a269543845f0faad1613fdf056b434a78ff05f9d749678d3324e3b90374ff60"
+    },
+    {
+      "surface": "cli-wrapper",
+      "relativePath": "references/terminology.md",
+      "sourcePath": "skills_builtin/zotero-bridge-cli/references/terminology.md",
+      "sourceSha256": "afe4b17764b6fbd0cd551973cd47a6295caf4ef4826aecc14cd2583e80f85897",
+      "translatedSha256": "d160e73008d9af40fe188a35214364401f5e34782d05c9f18536596dd335b9c4"
+    },
+    {
+      "surface": "cli-wrapper",
+      "relativePath": "SKILL.md",
+      "sourcePath": "skills_builtin/zotero-bridge-cli/SKILL.md",
+      "sourceSha256": "869afc1426d4f439a5cf7d7cee1c3ecacfd55766e3e5f9abe283b3b31e2a5ec2",
+      "translatedSha256": "86212f4ed2aa89572f6b075f5a11fa99f975ec567d9b0b5d4e4cec45feb18992"
+    },
+    {
+      "surface": "library-agent",
+      "relativePath": "README.md",
+      "sourcePath": "skills_builtin/zotero-library-agent/README.md",
+      "sourceSha256": "3451d08206abb2c9e8ed288038a304abac517ea3d5311ca232688317e5718525",
+      "translatedSha256": "54a95ce9e1cc384585cd00ff6652e3d99ac6f3f575052eeae737189be9e68b06"
+    },
+    {
+      "surface": "library-agent",
+      "relativePath": "references/control-invariants.md",
+      "sourcePath": "skills_builtin/zotero-library-agent/references/control-invariants.md",
+      "sourceSha256": "0e380e7d476b824c3c52e33d252fecdaaebed227ea83c50007ea78cd7dea0e22",
+      "translatedSha256": "db5c51412fa42c97ee0fa8741c6319e3eb3a97298bad6c761cedd8a3effe95f5"
+    },
+    {
+      "surface": "library-agent",
+      "relativePath": "references/evidence-handoff.md",
+      "sourcePath": "skills_builtin/zotero-library-agent/references/evidence-handoff.md",
+      "sourceSha256": "3f1b2cb5c41f987b7c4bfb8dcf985b6ebbdfefcf7d0959586195b3c4964b35a9",
+      "translatedSha256": "a095807b9d2f059caa0aaa4257c950866de74a384fad4cbb9c5684e232a78716"
+    },
+    {
+      "surface": "library-agent",
+      "relativePath": "references/helper-script-contract.md",
+      "sourcePath": "skills_builtin/zotero-library-agent/references/helper-script-contract.md",
+      "sourceSha256": "4e136b2dc26e3003886c28be395d96fa86ede7b2d128a5c1352cffd3a9c6df28",
+      "translatedSha256": "096b9aa74467c4e1ae80618424ad1ab4e22372d295679cbbd5ed3e26ce62f042"
+    },
+    {
+      "surface": "library-agent",
+      "relativePath": "references/host-bridge.md",
+      "sourcePath": "skills_builtin/zotero-library-agent/references/host-bridge.md",
+      "sourceSha256": "762a7e92ef417242cbeb59f797490664a6cb827115626706e2668d49b0de2003",
+      "translatedSha256": "042734afbc8ddaba88fd4923a65686ebc08737e92984d7dd534da10fb1e2df04"
+    },
+    {
+      "surface": "library-agent",
+      "relativePath": "references/journeys/agent-owned-handoff.md",
+      "sourcePath": "skills_builtin/zotero-library-agent/references/journeys/agent-owned-handoff.md",
+      "sourceSha256": "862565d1f72af53ecb9cfdde2bd02bb4e69e45a55ed5ef51198ea5ca7b385e71",
+      "translatedSha256": "2bdbc19f4a0286f9f588554e877e167da69c53d3111c354a67866afad33974c5"
+    },
+    {
+      "surface": "library-agent",
+      "relativePath": "references/journeys/concrete-writeback.md",
+      "sourcePath": "skills_builtin/zotero-library-agent/references/journeys/concrete-writeback.md",
+      "sourceSha256": "26adc0e6249ccc34b9883a18e37bee12bd18dd3d14f03cec4b8871a4c3db6a45",
+      "translatedSha256": "3294ace86a3d5d7c3d97f8f2d25eae8cc1886baffe2d188ee2f2195811aa7988"
+    },
+    {
+      "surface": "library-agent",
+      "relativePath": "references/journeys/current-context-and-library-read.md",
+      "sourcePath": "skills_builtin/zotero-library-agent/references/journeys/current-context-and-library-read.md",
+      "sourceSha256": "92d72379a569a44fa3b569dcf50c6ad3f7bcc90434c017489b43bdb448eed12b",
+      "translatedSha256": "e73121197e522979ad4778f6ffb08b56290a5447b034538032234c466c6d6ff8"
+    },
+    {
+      "surface": "library-agent",
+      "relativePath": "references/journeys/host-owned-workflow.md",
+      "sourcePath": "skills_builtin/zotero-library-agent/references/journeys/host-owned-workflow.md",
+      "sourceSha256": "abff257a967df636c838509034dedd914e629c76e390fac5ddbd89123654a021",
+      "translatedSha256": "b0d4e18556fdad65a3bd0c671b6ef3798c13e1a452e41a05f61e4837cf013cf6"
+    },
+    {
+      "surface": "library-agent",
+      "relativePath": "references/journeys/notes-attachments-and-readiness.md",
+      "sourcePath": "skills_builtin/zotero-library-agent/references/journeys/notes-attachments-and-readiness.md",
+      "sourceSha256": "0ed35c1f4373a12aade250b91bb6307c4eb57d1f3b671e5a685c3493db16d59e",
+      "translatedSha256": "a3858469b8435c824cdfde414c3953c33f100bebd3bfdb9a55fd3491ccaaffdb"
+    },
+    {
+      "surface": "library-agent",
+      "relativePath": "references/journeys/products-and-files.md",
+      "sourcePath": "skills_builtin/zotero-library-agent/references/journeys/products-and-files.md",
+      "sourceSha256": "0afa21d7058a8aa64f6f477c90e7a5ecec3b6567e16a58f4f81f4341187800bf",
+      "translatedSha256": "f7345571c280604541e7e39e237701a99940d1a93f038d61300fe28b1bd661d5"
+    },
+    {
+      "surface": "library-agent",
+      "relativePath": "references/journeys/research-lifecycle.md",
+      "sourcePath": "skills_builtin/zotero-library-agent/references/journeys/research-lifecycle.md",
+      "sourceSha256": "63c0e782c84ebf093e10a17f850b353badabffd25cda78ad7a8d538959418e90",
+      "translatedSha256": "a93a9ad0b92543587ab04ea31f6b923cfdb275d90fdf1b13e030b9fdc9f3c016"
+    },
+    {
+      "surface": "library-agent",
+      "relativePath": "references/journeys/synthesis-research-context.md",
+      "sourcePath": "skills_builtin/zotero-library-agent/references/journeys/synthesis-research-context.md",
+      "sourceSha256": "5cd24c46dd9ad56d782888a201979e607608b2a4473237eed6a2ba1f55d04a10",
+      "translatedSha256": "d80cd4f9f6e7a6cefe90b20d4923a85ae9da6b9f623b8a1b926e0fadf8fc995e"
+    },
+    {
+      "surface": "library-agent",
+      "relativePath": "references/task-routing.md",
+      "sourcePath": "skills_builtin/zotero-library-agent/references/task-routing.md",
+      "sourceSha256": "f9d3ebc1707a726c74e2af8a06c865b6fc6c61741560e6f3bde5aab891ad08dc",
+      "translatedSha256": "720063075213dfbea5ad3d90894b19e10cf267812b1334dfb3cd84e7c80d55f3"
+    },
+    {
+      "surface": "library-agent",
+      "relativePath": "references/terminology.md",
+      "sourcePath": "skills_builtin/zotero-library-agent/references/terminology.md",
+      "sourceSha256": "afe4b17764b6fbd0cd551973cd47a6295caf4ef4826aecc14cd2583e80f85897",
+      "translatedSha256": "b361d2789e35a36e4ffa0eea169d0743d2ed30a44ba45471f73cf84c75a5adef"
+    },
+    {
+      "surface": "library-agent",
+      "relativePath": "references/workflow-execution.md",
+      "sourcePath": "skills_builtin/zotero-library-agent/references/workflow-execution.md",
+      "sourceSha256": "977ce611bbb82af2ca1ffe1cb43af7d3d29019937c3c61ff41885edacf6dd409",
+      "translatedSha256": "daa3ecc1a995dd00c5a8ea30a6ebc668119188c3c280b6095d5eebf526069c7b"
+    },
+    {
+      "surface": "library-agent",
+      "relativePath": "SKILL.md",
+      "sourcePath": "skills_builtin/zotero-library-agent/SKILL.md",
+      "sourceSha256": "e8b68add0204e1ab0d49fa96471a1ebd46ba3fa67989f540290b4f4690c0f825",
+      "translatedSha256": "c91c644d17918fb67599cdea1c4907d7d544a9b660554b03697624efd065c5b7"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "README.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/README.md",
+      "sourceSha256": "18740e244508aac8f57aae2f9e9c351c11a510001d9b974baf78cbef29451d54",
+      "translatedSha256": "bd686729b932d9d378606f9162c0bb84c285db962250c8d8bf1d778c4784b445"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/commands/connectivity-context.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/commands/connectivity-context.md",
+      "sourceSha256": "d992bd8e0b4bb47ad205e8dcbfca138a9f4432aff942f61fa40a815686cbb07d",
+      "translatedSha256": "4507351b4288cd80601b47c36270cf419133d8cd0f1d41c76aaa9d38150fb8fb"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/commands/diagnostics.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/commands/diagnostics.md",
+      "sourceSha256": "79ed64cefef2675ab9291768ebbce80756006241587096a157ab45736ce9d024",
+      "translatedSha256": "86e658c2ad60971904f1efe162fbd35f017afd35dd73d61c313bcd48a9a44a03"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/commands/library-items.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/commands/library-items.md",
+      "sourceSha256": "ed23f723666dce25c14ea5e23764a00882ed08b544925ddcc8aab88d3494936f",
+      "translatedSha256": "ce7fe1b3a89eee541787235c0f9a899b08c9b62a88d04ef96b8c37985da7a7fb"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/commands/library-notes-attachments-readiness.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/commands/library-notes-attachments-readiness.md",
+      "sourceSha256": "bdef1046c9c761da873c90b6dcbd91dddb492e51ac923099ae3bf16b2f726013",
+      "translatedSha256": "1aaf588a957bbfc8dd89a193764a9f5e73878973b07cf568289c93cabd968afa"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/commands/mutations-files-products.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/commands/mutations-files-products.md",
+      "sourceSha256": "5c7bd68f824866ac1f760a51e450b01389f68b4b7cf536ea67d16d1bc3c98115",
+      "translatedSha256": "94cde551d9d162cf73e61897543693410d644c12fd2ada509587a996e9b8cf73"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/commands/synthesis-graph.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/commands/synthesis-graph.md",
+      "sourceSha256": "9fd3e74b0ae4e9945066925d782b398fd5b88064ac8d98e952f7afa6ce5c8849",
+      "translatedSha256": "d340132d2fdcc7ecdfd2611740e912b63794783bb1d18f321fb7a2db98f5cf9e"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/commands/synthesis-index-resolver-insights.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/commands/synthesis-index-resolver-insights.md",
+      "sourceSha256": "9d2aeb86291a693b815a5e013fbf8934f75cb299b2585b6f0e8d674add781bc5",
+      "translatedSha256": "45f74d6e3818b0a4348475bbafe706aa115e50ae80a7344b2088947a8c6ae23b"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/commands/synthesis-topics-artifacts.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/commands/synthesis-topics-artifacts.md",
+      "sourceSha256": "b496f59d98c2bf455a9d65f95b5f99f096d79b325665c01f19df6d47cc72cede",
+      "translatedSha256": "cafb4f1d43b3125ff36f4ed398a0a8a9adc66181a2304bfe2abc461b81a280c5"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/commands/workflows-and-runs.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/commands/workflows-and-runs.md",
+      "sourceSha256": "13cccc584a5fa75ff0cdb879a1c6e1ea383d270f3b14c732567b597d0bd0d2ac",
+      "translatedSha256": "fa636e190c783afb5840748c1f018b0c67e0cfd51ec6185660e5b2b262a08402"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/common-tasks.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/common-tasks.md",
+      "sourceSha256": "8e1508fe4f8d58da225f967292a7959b1342316ee90ad70f6be5a0c90a43c8ce",
+      "translatedSha256": "81b8b74682585d7f0677e39f50e049b2d311aee71bb50402e8a7dfe4038cc88a"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/control-invariants.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/control-invariants.md",
+      "sourceSha256": "0e380e7d476b824c3c52e33d252fecdaaebed227ea83c50007ea78cd7dea0e22",
+      "translatedSha256": "db5c51412fa42c97ee0fa8741c6319e3eb3a97298bad6c761cedd8a3effe95f5"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/host-bridge.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/host-bridge.md",
+      "sourceSha256": "db5d2b403d2def47cda0f4b9fe0889dd1c139888787484f1415bb1de9dfc0588",
+      "translatedSha256": "efabadda95b50f6dc294a8a4be7c37511e24655121b9827af1d5cb716f233741"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/library-maintenance.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/library-maintenance.md",
+      "sourceSha256": "106bf31359d9b0a1a06a77bc46d284a37b89898d5f1ac711edce1ee3644391be",
+      "translatedSha256": "4b9690b681a3d72f7d9dd41b5ec671e887c6329d9be964e714e594fb6cd8628e"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/maintenance-and-recovery.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/maintenance-and-recovery.md",
+      "sourceSha256": "f19433a916d82533a080bb28a3fe3cc45c7a9390667444b96186c91b4cbe9359",
+      "translatedSha256": "ece0558a1d395f897d5b11c3f84c9fd90e3206005e8750d5cc62e31c5efe954e"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/monitoring-and-notifications.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/monitoring-and-notifications.md",
+      "sourceSha256": "fb0cd4afa7a04d8458a4f084092549f047e17c3011d85bceceba8c537c040a8c",
+      "translatedSha256": "40a1e76ea896fa36da6942d8cdadd81165ea66b9b4d013addbbe19a264300200"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/operating-principles.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/operating-principles.md",
+      "sourceSha256": "10b6fa316be46cecf6fc647173805a2f7195786ff8716803b04cfbdc3b01f332",
+      "translatedSha256": "da58f52f36089840b9ea7b494ffff7d0741cfae7be2bbd41e90356a6042d62a0"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/output-and-recovery.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/output-and-recovery.md",
+      "sourceSha256": "e5c04a09890c56dd1a4844f344a50e4851c04b08c7920129a7c400275692348c",
+      "translatedSha256": "2a269543845f0faad1613fdf056b434a78ff05f9d749678d3324e3b90374ff60"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/profile-script-contracts.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/profile-script-contracts.md",
+      "sourceSha256": "28908cc394742093f12511eecb06d4d0af577bf90684bfd146093aa70a4ca429",
+      "translatedSha256": "044b538c591f0745b36ab39cb21fc52525fbc7f761b06378ae6c7195d3f86557"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/resident-index.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/resident-index.md",
+      "sourceSha256": "eda009e0480f0bebb5c6bda9cac07d1e3b8c84b0f8af187a1383b6d7837bcaea",
+      "translatedSha256": "9e2174d327ac4c374e1bc1da12a434e33d1e88092b513482e22a0ba375386ffe"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/scheduled-jobs.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/scheduled-jobs.md",
+      "sourceSha256": "16d0b43dc864639053c245122627c2866ffe16d43e4ed97cf6c3fd3a1618d79a",
+      "translatedSha256": "db9c254a47b6164619ab2a4f44233ad8372902fb36bbcbb2424c1e734a45aeb6"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/terminology.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/terminology.md",
+      "sourceSha256": "afe4b17764b6fbd0cd551973cd47a6295caf4ef4826aecc14cd2583e80f85897",
+      "translatedSha256": "f09a8966c6e11a0c9638b555387b90aff29ee1ea19bc00a87bba3f8a237055e1"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/workflow-execution-policy.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/workflow-execution-policy.md",
+      "sourceSha256": "f4a9bb93bf613e86f7cadf3ce750fe64487bacfeec633ddb7372ae407ae7e7ed",
+      "translatedSha256": "c40279fbe4f0c100ce1c11334b4a14b541aa403220ac835d1e287e7daf34c7b4"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/references/workflows.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/workflows.md",
+      "sourceSha256": "18d648b47a8cb9a3c83d2d6f2b5ee06461f7b8a50ef86e3cf579087baf5ebb8a",
+      "translatedSha256": "eb57754fe60e10df3b4abe629b9747954f9641f9104028c91ca1fff6a8d940f5"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-librarian/SKILL.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-librarian/SKILL.md",
+      "sourceSha256": "a07cea5c6c0e378bf76ed0d222d1976e15c0db2a7524601da10be45325c7fee9",
+      "translatedSha256": "5081feb173182ea670e831787870a492463abf76525ae47c378916d72415d45d"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-workflow-agent-runner/references/agent-run-playbook.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-workflow-agent-runner/references/agent-run-playbook.md",
+      "sourceSha256": "94a8f6e209c3b2921f922969681161d3a89330a23216b06b8b4c39d04c8fc1b8",
+      "translatedSha256": "d0e095d293dd3a52743b01d1fbbfdef6f6817d5588fd1b8023ffb0a345c3d5ec"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "skills/zotero-workflow-agent-runner/SKILL.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/skills/zotero-workflow-agent-runner/SKILL.md",
+      "sourceSha256": "ca73b275e85850512881d8f1aa38c9958d5f543e584e66db18079d39351546d3",
+      "translatedSha256": "51749b713e8347b443b3e30effe0482b81ee58a99ddbac2e7c8790e99be8432b"
+    },
+    {
+      "surface": "librarian-profile",
+      "relativePath": "SOUL.md",
+      "sourcePath": "profiles/hermes/zotero-librarian/SOUL.md",
+      "sourceSha256": "9196231abb2409eed309ab06a44ad2a5c7285dc0833d89d349cf851d284cec38",
+      "translatedSha256": "7e3ea862ce86f9d7a840e535748b44f38ead5c72c226c9afb934954b73329ad8"
+    }
+  ]
+}

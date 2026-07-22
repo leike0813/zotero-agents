@@ -2,7 +2,7 @@
 
 ## 选择所有权
 
-从 `workflow describe` 或 `workflow requirements` 中读取 `executionModes`；不要从 provider 名称或说明文字推断所有权支持。
+从 `executionModes` 或 `workflow describe` 中读取 `workflow requirements`；不要从 provider 名称或说明文字推断所有权支持。
 
 当 Host Bridge 和已配置的 backend 应拥有执行时使用 `workflow submit`。保留返回的 `workflowRunId`，并在回复或重连之前获取显式的 `skillRunId` 值。
 
@@ -24,7 +24,7 @@
 
 1. 提交 workflow 并记录其 `workflowRunId`。
 2. 使用有界的 `run get`、近期历史、通知列表或显式 skill-run 事件获取当前状态。
-3. 仅当返回的 `skillRunId` 的操作标志允许该操作时，使用 `run skill reply|connect`。
+3. 仅当返回的 `run skill reply|connect` 的操作标志允许该操作时，使用 `skillRunId`。
 4. 仅使用 workflow handle 进行 `run cancel`，并报告取消意图可能先于终态。
 
 ## Agent 拥有的执行

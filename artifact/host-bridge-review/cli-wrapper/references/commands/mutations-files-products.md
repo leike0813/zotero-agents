@@ -29,7 +29,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge file download`。
-- 示例：`zotero-bridge file download 'file-id' --output './output'`。
+- 示例：`zotero-bridge file download 'file-id' --output './output'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -48,7 +48,6 @@
 
 - 交付方式：`file`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/files/{fileId} 的稳定结果。
 - `file`（object）
 - `delivery`（object）：本地文件或已注册的远程文件交付指引。应按 mode 操作，不要用路径替代 fileId。
 - 完成证据：
@@ -58,13 +57,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 消费 `fileId`（调用方所有）：命令调用所需。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge file upload`
 
@@ -91,7 +90,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge file upload`。
-- 示例：`zotero-bridge file upload './output'`。
+- 示例：`zotero-bridge file upload './output'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -111,7 +110,6 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 POST /bridge/v1/files/upload 的稳定结果。
 - `fileId`（string）
 - 完成证据：
 - 结构化的 file upload 结果及获取该结果所使用的精确调用输入。
@@ -120,13 +118,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `ephemeral-file`：可能改变临时文件状态。stateChanged=true。
+- 副作用 `ephemeral-file`：可能修改 ephemeral file 状态。 mayChangeState=true.
 - 产出 `fileId`（短期有效）：对应操作成功时返回。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge mutation apply`
 
@@ -156,7 +154,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge mutation apply`。
-- 示例：`zotero-bridge mutation apply`。
+- 示例：`zotero-bridge mutation apply`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -170,21 +168,23 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 mutation.execute 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 mutation apply 结果及获取该结果所使用的精确调用输入。
 - 预览、approval 结果、已应用的结果和受影响的 Zotero 引用
 
 ### Approval、副作用与 handle
 
-- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 来确认所描述的 Host 所有副作用。
-- 副作用 `zotero-library`：可能改变 Zotero 文献库状态。stateChanged=true。
+- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 以批准所述 Host 所有的副作用。
+- 副作用 `zotero-library`：可能修改 zotero library 状态。 mayChangeState=true.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge mutation collection add-items`
 
@@ -214,7 +214,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge mutation collection add-items`。
-- 示例：`zotero-bridge mutation collection add-items --collection 'collection' --items 'items'`。
+- 示例：`zotero-bridge mutation collection add-items --collection 'collection' --items 'items'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -231,21 +231,23 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 mutation.execute 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 mutation collection add-items 结果及获取该结果所使用的精确调用输入。
 - 预览、approval 结果、已应用的结果和受影响的 Zotero 引用
 
 ### Approval、副作用与 handle
 
-- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 来确认所描述的 Host 所有副作用。
-- 副作用 `zotero-library`：可能改变 Zotero 文献库状态。stateChanged=true。
+- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 以批准所述 Host 所有的副作用。
+- 副作用 `zotero-library`：可能修改 zotero library 状态。 mayChangeState=true.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge mutation collection create`
 
@@ -275,7 +277,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge mutation collection create`。
-- 示例：`zotero-bridge mutation collection create --input '{}'`。
+- 示例：`zotero-bridge mutation collection create --input '{}'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -289,21 +291,23 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 mutation.execute 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 mutation collection create 结果及获取该结果所使用的精确调用输入。
 - 预览、approval 结果、已应用的结果和受影响的 Zotero 引用
 
 ### Approval、副作用与 handle
 
-- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 来确认所描述的 Host 所有副作用。
-- 副作用 `zotero-library`：可能改变 Zotero 文献库状态。stateChanged=true。
+- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 以批准所述 Host 所有的副作用。
+- 副作用 `zotero-library`：可能修改 zotero library 状态。 mayChangeState=true.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge mutation collection remove-items`
 
@@ -333,7 +337,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge mutation collection remove-items`。
-- 示例：`zotero-bridge mutation collection remove-items --collection 'collection' --items 'items'`。
+- 示例：`zotero-bridge mutation collection remove-items --collection 'collection' --items 'items'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -350,21 +354,23 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 mutation.execute 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 mutation collection remove-items 结果及获取该结果所使用的精确调用输入。
 - 预览、approval 结果、已应用的结果和受影响的 Zotero 引用
 
 ### Approval、副作用与 handle
 
-- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 来确认所描述的 Host 所有副作用。
-- 副作用 `zotero-library`：可能改变 Zotero 文献库状态。stateChanged=true。
+- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 以批准所述 Host 所有的副作用。
+- 副作用 `zotero-library`：可能修改 zotero library 状态。 mayChangeState=true.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge mutation item attach-file`
 
@@ -395,22 +401,22 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge mutation item attach-file`。
-- 示例：`zotero-bridge mutation item attach-file --item 'item' --file './output'`。
+- 示例：`zotero-bridge mutation item attach-file --item 'item' --file-id 'file-id'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
 - `item` → 选项 `--item`（必需，接受值）。
-- `file` → 选项 `--file`（必需，接受值）。
+- `file-id` → 选项 `--file-id`（必需，接受值）。
 - `display-name` → 选项 `--display-name`（可选，接受值）。
 - `content-type` → 选项 `--content-type`（可选，接受值）。
 - CLI 调用字段：
 - `item`（string）：Target Zotero item ref
-- `file`（string）：Host Bridge uploaded file id
+- `file-id`（string）：Host Bridge uploaded file id
 - `display-name`（string）：Attachment display name
 - `content-type`（string）：Attachment content type
 - 解码后的载荷字段：
 - `item`（string）：Target Zotero item ref
-- `file`（string）：Host Bridge uploaded file id
+- `file_id`（string）：Host Bridge uploaded file id
 - `display_name`（string）：Attachment display name
 - `content_type`（string）：Attachment content type
 
@@ -418,7 +424,9 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 mutation.execute 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 mutation item attach-file 结果及获取该结果所使用的精确调用输入。
 - 预览、approval 结果、已应用的结果和受影响的 Zotero 引用
@@ -426,15 +434,15 @@
 
 ### Approval、副作用与 handle
 
-- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 来确认所描述的 Host 所有副作用。
-- 副作用 `zotero-library`：可能改变 Zotero 文献库状态。stateChanged=true。
+- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 以批准所述 Host 所有的副作用。
+- 副作用 `zotero-library`：可能修改 zotero library 状态。 mayChangeState=true.
 - 消费 `itemRef`（调用方所有）：命令调用所需。
 - 消费 `fileId`（调用方所有）：命令调用所需。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge mutation item update`
 
@@ -464,7 +472,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge mutation item update`。
-- 示例：`zotero-bridge mutation item update --item 'item' --patch 'patch'`。
+- 示例：`zotero-bridge mutation item update --item 'item' --patch 'patch'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -481,21 +489,23 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 mutation.execute 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 mutation item update 结果及获取该结果所使用的精确调用输入。
 - 预览、approval 结果、已应用的结果和受影响的 Zotero 引用
 
 ### Approval、副作用与 handle
 
-- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 来确认所描述的 Host 所有副作用。
-- 副作用 `zotero-library`：可能改变 Zotero 文献库状态。stateChanged=true。
+- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 以批准所述 Host 所有的副作用。
+- 副作用 `zotero-library`：可能修改 zotero library 状态。 mayChangeState=true.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge mutation literature-ingest`
 
@@ -525,7 +535,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge mutation literature-ingest`。
-- 示例：`zotero-bridge mutation literature-ingest --input '{}'`。
+- 示例：`zotero-bridge mutation literature-ingest --input '{}'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -539,21 +549,23 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 mutation.execute 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 mutation literature-ingest 结果及获取该结果所使用的精确调用输入。
 - 预览、approval 结果、已应用的结果和受影响的 Zotero 引用
 
 ### Approval、副作用与 handle
 
-- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 来确认所描述的 Host 所有副作用。
-- 副作用 `zotero-library`：可能改变 Zotero 文献库状态。stateChanged=true。
+- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 以批准所述 Host 所有的副作用。
+- 副作用 `zotero-library`：可能修改 zotero library 状态。 mayChangeState=true.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge mutation note create`
 
@@ -583,7 +595,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge mutation note create`。
-- 示例：`zotero-bridge mutation note create --item 'item' --input '{}'`。
+- 示例：`zotero-bridge mutation note create --item 'item' --input '{}'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -600,21 +612,23 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 mutation.execute 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 mutation note create 结果及获取该结果所使用的精确调用输入。
 - 预览、approval 结果、已应用的结果和受影响的 Zotero 引用
 
 ### Approval、副作用与 handle
 
-- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 来确认所描述的 Host 所有副作用。
-- 副作用 `zotero-library`：可能改变 Zotero 文献库状态。stateChanged=true。
+- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 以批准所述 Host 所有的副作用。
+- 副作用 `zotero-library`：可能修改 zotero library 状态。 mayChangeState=true.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge mutation note update`
 
@@ -644,7 +658,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge mutation note update`。
-- 示例：`zotero-bridge mutation note update --note 'note' --input '{}'`。
+- 示例：`zotero-bridge mutation note update --note 'note' --input '{}'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -661,21 +675,23 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 mutation.execute 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 mutation note update 结果及获取该结果所使用的精确调用输入。
 - 预览、approval 结果、已应用的结果和受影响的 Zotero 引用
 
 ### Approval、副作用与 handle
 
-- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 来确认所描述的 Host 所有副作用。
-- 副作用 `zotero-library`：可能改变 Zotero 文献库状态。stateChanged=true。
+- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 以批准所述 Host 所有的副作用。
+- 副作用 `zotero-library`：可能修改 zotero library 状态。 mayChangeState=true.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge mutation note upsert-payload`
 
@@ -705,7 +721,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge mutation note upsert-payload`。
-- 示例：`zotero-bridge mutation note upsert-payload --note 'note' --input '{}'`。
+- 示例：`zotero-bridge mutation note upsert-payload --note 'note' --input '{}'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -722,21 +738,23 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 mutation.execute 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 mutation note upsert-payload 结果及获取该结果所使用的精确调用输入。
 - 预览、approval 结果、已应用的结果和受影响的 Zotero 引用
 
 ### Approval、副作用与 handle
 
-- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 来确认所描述的 Host 所有副作用。
-- 副作用 `zotero-library`：可能改变 Zotero 文献库状态。stateChanged=true。
+- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 以批准所述 Host 所有的副作用。
+- 副作用 `zotero-library`：可能修改 zotero library 状态。 mayChangeState=true.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge mutation preview`
 
@@ -766,7 +784,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge mutation preview`。
-- 示例：`zotero-bridge mutation preview`。
+- 示例：`zotero-bridge mutation preview`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -780,7 +798,9 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 mutation.preview 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 mutation preview 结果及获取该结果所使用的精确调用输入。
 - 预览、approval 结果、已应用的结果和受影响的 Zotero 引用
@@ -789,13 +809,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge mutation tag add`
 
@@ -825,7 +845,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge mutation tag add`。
-- 示例：`zotero-bridge mutation tag add --items 'items' --tags 'tags'`。
+- 示例：`zotero-bridge mutation tag add --items 'items' --tags 'tags'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -842,21 +862,23 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 mutation.execute 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 mutation tag add 结果及获取该结果所使用的精确调用输入。
 - 预览、approval 结果、已应用的结果和受影响的 Zotero 引用
 
 ### Approval、副作用与 handle
 
-- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 来确认所描述的 Host 所有副作用。
-- 副作用 `zotero-library`：可能改变 Zotero 文献库状态。stateChanged=true。
+- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 以批准所述 Host 所有的副作用。
+- 副作用 `zotero-library`：可能修改 zotero library 状态。 mayChangeState=true.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge mutation tag remove`
 
@@ -886,7 +908,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge mutation tag remove`。
-- 示例：`zotero-bridge mutation tag remove --items 'items' --tags 'tags'`。
+- 示例：`zotero-bridge mutation tag remove --items 'items' --tags 'tags'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -903,21 +925,23 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 mutation.execute 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 mutation tag remove 结果及获取该结果所使用的精确调用输入。
 - 预览、approval 结果、已应用的结果和受影响的 Zotero 引用
 
 ### Approval、副作用与 handle
 
-- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 来确认所描述的 Host 所有副作用。
-- 副作用 `zotero-library`：可能改变 Zotero 文献库状态。stateChanged=true。
+- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 以批准所述 Host 所有的副作用。
+- 副作用 `zotero-library`：可能修改 zotero library 状态。 mayChangeState=true.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge product download`
 
@@ -946,7 +970,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge product download`。
-- 示例：`zotero-bridge product download 'product-id' --output-dir './output'`。
+- 示例：`zotero-bridge product download 'product-id' --output-dir './output'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -969,7 +993,9 @@
 
 - 交付方式：`file`。
 - 稳定结果字段：
-- `result`（object）：来自 workflow_products.export 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - `fileId`（string）
 - `file`（object）
 - `delivery`（object）：本地文件或已注册的远程文件交付指引。应按 mode 操作，不要用路径替代 fileId。
@@ -980,14 +1006,14 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 消费 `productId`（调用方所有）：命令调用所需。
 - 产出 `fileId`（短期有效）：对应操作成功时返回。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge product get`
 
@@ -1016,7 +1042,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge product get`。
-- 示例：`zotero-bridge product get 'product-id'`。
+- 示例：`zotero-bridge product get 'product-id'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -1030,7 +1056,9 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 workflow_products.get 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - `productId`（string）
 - 完成证据：
 - 结构化的 product get 结果及获取该结果所使用的精确调用输入。
@@ -1039,14 +1067,14 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 消费 `productId`（调用方所有）：命令调用所需。
 - 产出 `productId`（响应）：对应操作成功时返回。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge product list`
 
@@ -1075,7 +1103,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge product list`。
-- 示例：`zotero-bridge product list`。
+- 示例：`zotero-bridge product list`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -1101,7 +1129,9 @@
 
 - 交付方式：`cursor`。
 - 稳定结果字段：
-- `result`（object）：来自 workflow_products.list 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - `products`（array）
 - `nextCursor`（string | number | null）
 - `hasMore`（boolean）
@@ -1112,13 +1142,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge product remove`
 
@@ -1147,7 +1177,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge product remove`。
-- 示例：`zotero-bridge product remove 'product-id'`。
+- 示例：`zotero-bridge product remove 'product-id'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -1161,18 +1191,20 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 workflow_products.remove 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 product remove 结果及获取该结果所使用的精确调用输入。
 - productId、产品元数据、已下载的资产或移除结果
 
 ### Approval、副作用与 handle
 
-- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 来确认所描述的 Host 所有副作用。
-- 副作用 `product-store`：可能改变产品存储状态。stateChanged=true。
+- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 以批准所述 Host 所有的副作用。
+- 副作用 `product-store`：可能修改 product store 状态。 mayChangeState=true.
 - 消费 `productId`（调用方所有）：命令调用所需。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。

@@ -49,12 +49,16 @@ import {
   type HostBridgeWorkflowAgentRunResult,
 } from "./hostBridgeWorkflowAgentRun";
 import {
+  acquireHostBridgeAgentRunApplyLease,
+  abandonHostBridgeAgentRunRecord,
   createHostBridgeAgentRunRecord,
   finishHostBridgeAgentRunRecord,
   getExpiredHostBridgeAgentRunRecord,
   getHostBridgeAgentRunApplyReceipt,
   getHostBridgeAgentRunRecord,
   recordHostBridgeAgentRunApplyReceipt,
+  releaseHostBridgeAgentRunApplyLease,
+  renewHostBridgeAgentRunRecord,
   sealHostBridgeAgentRunRecord,
   type HostBridgeAgentRunPreparedRequest,
 } from "./hostBridgeWorkflowAgentRunStore";
@@ -199,6 +203,20 @@ export type HostBridgeWorkflowAgentApplyResult = {
     error?: string;
   }>;
   warnings: string[];
+  stateChange: "unchanged" | "changed";
+  handleConsumption: "consumed";
+};
+
+export type HostBridgeWorkflowAgentRunLifecycleResult = {
+  agentRunId: string;
+  workflowId: string;
+  state: string;
+  leaseExpiresAt: string;
+  retentionExpiresAt: string;
+  renewable: boolean;
+  abandonable: boolean;
+  renewedAt?: string;
+  abandonedAt?: string;
 };
 
 export type HostBridgeWorkflowSubmitPlan = {
@@ -220,7 +238,7 @@ export type HostBridgeWorkflowAgentRunPlan = {
 export type HostBridgeWorkflowSubmitResult = {
   workflowId: string;
   workflowLabel: string;
-  runId: string;
+  workflowRunId: string;
   jobIds: string[];
   totalJobs: number;
   tasks: HostBridgeWorkflowTaskDto[];
@@ -1547,20 +1565,14 @@ export async function applyHostBridgeWorkflowAgentRun(args: {
     }
   }
 
-  const selectedItems = resolveSelectedItemsForSelection(record.selection);
-  const selectionContext = await buildSelectionContext(selectedItems);
-  const applyStatus = await evaluateAgentRunApplyStatus({
-    workflow,
-    selectionContext,
-  });
-  if (!applyStatus.allowed) {
+  const lease = acquireHostBridgeAgentRunApplyLease(agentRunId);
+  if (!lease) {
     throw codedAgentApplyError(
-      "apply_not_allowed",
-      applyStatus.message ||
-        "workflow agent-run apply is not currently allowed",
-      {
-        reasonCode: applyStatus.reasonCode,
-      },
+      record.state === "applying" || record.sealedAt
+        ? "agent_run_already_consumed"
+        : "agent_run_lifecycle_conflict",
+      "agent-run is not available for apply",
+      { agentRunId, state: record.state },
     );
   }
 
@@ -1569,34 +1581,60 @@ export async function applyHostBridgeWorkflowAgentRun(args: {
     prepared: HostBridgeAgentRunPreparedRequest;
     bundleReader: BundleReader;
   }>;
-  for (const result of results) {
-    const prepared = preparedById.get(result.agentRequestId)!;
-    const bundleReader = createAgentApplyBundleReader(result.bundle.path);
-    await validateAgentApplyBundle({ bundleReader, prepared });
-    preflight.push({ result, prepared, bundleReader });
+  let permission: HostBridgePermissionDecision;
+  try {
+    const selectedItems = resolveSelectedItemsForSelection(record.selection);
+    const selectionContext = await buildSelectionContext(selectedItems);
+    const applyStatus = await evaluateAgentRunApplyStatus({
+      workflow,
+      selectionContext,
+    });
+    if (!applyStatus.allowed) {
+      throw codedAgentApplyError(
+        "apply_not_allowed",
+        applyStatus.message ||
+          "workflow agent-run apply is not currently allowed",
+        { reasonCode: applyStatus.reasonCode },
+      );
+    }
+    for (const result of results) {
+      const prepared = preparedById.get(result.agentRequestId)!;
+      const bundleReader = createAgentApplyBundleReader(result.bundle.path);
+      await validateAgentApplyBundle({ bundleReader, prepared });
+      preflight.push({ result, prepared, bundleReader });
+    }
+    recordHostBridgeAgentRunApplyReceipt(agentRunId, {
+      agentRunId,
+      workflowId: record.workflowId,
+      status: "preflight",
+      stateChange: "unchanged",
+      handleConsumption: "unconsumed",
+      recoverable: true,
+      results: [],
+    });
+    permission = await requestAgentRunApplyPermission({
+      workflow,
+      resultCount: results.length,
+      scope: args.scope,
+    });
+  } catch (error) {
+    releaseHostBridgeAgentRunApplyLease(agentRunId);
+    throw error;
+  }
+  if (!sealHostBridgeAgentRunRecord(agentRunId)) {
+    releaseHostBridgeAgentRunApplyLease(agentRunId);
+    throw codedAgentApplyError(
+      "agent_run_already_consumed",
+      "agent-run apply lease was lost before write-back",
+      { agentRunId },
+    );
   }
   recordHostBridgeAgentRunApplyReceipt(agentRunId, {
     agentRunId,
     workflowId: record.workflowId,
-    status: "preflight",
-    stateChanged: false,
-    handleConsumed: false,
-    recoverable: true,
-    results: [],
-  });
-
-  const permission = await requestAgentRunApplyPermission({
-    workflow,
-    resultCount: results.length,
-    scope: args.scope,
-  });
-  sealHostBridgeAgentRunRecord(agentRunId);
-  recordHostBridgeAgentRunApplyReceipt(agentRunId, {
-    agentRunId,
-    workflowId: record.workflowId,
     status: "applying",
-    stateChanged: false,
-    handleConsumed: true,
+    stateChange: "unchanged",
+    handleConsumption: "consumed",
     recoverable: false,
     results: [],
   });
@@ -1685,20 +1723,26 @@ export async function applyHostBridgeWorkflowAgentRun(args: {
     failed === 0 ? "succeeded" : succeeded > 0 ? "partial" : "failed";
   finishHostBridgeAgentRunRecord({
     agentRunId,
-    outcome: failed === 0 ? "succeeded" : "failed",
+    outcome: receiptStatus,
     ...(failed > 0 ? { error: `${failed} apply-back request(s) failed` } : {}),
   });
   recordHostBridgeAgentRunApplyReceipt(agentRunId, {
     agentRunId,
     workflowId: record.workflowId,
     status: receiptStatus,
-    stateChanged: succeeded > 0,
-    handleConsumed: true,
+    stateChange: succeeded > 0 ? "changed" : "unchanged",
+    handleConsumption: "consumed",
     recoverable: false,
     results: perRequest.map((entry) => ({
       agentRequestId: entry.agentRequestId,
-      succeeded: entry.succeeded,
+      status: entry.succeeded ? "succeeded" : "failed",
       ...(entry.error ? { error: entry.error } : {}),
+      ...(!entry.succeeded
+        ? {
+            safeNextAction:
+              "Inspect this receipt before preparing a new agent run.",
+          }
+        : {}),
     })),
   });
 
@@ -1714,11 +1758,65 @@ export async function applyHostBridgeWorkflowAgentRun(args: {
     },
     results: perRequest,
     warnings,
+    stateChange: succeeded > 0 ? "changed" : "unchanged",
+    handleConsumption: "consumed",
   };
 }
 
 export function getHostBridgeWorkflowAgentRunApplyReceipt(agentRunId: string) {
   return getHostBridgeAgentRunApplyReceipt(normalizeString(agentRunId));
+}
+
+function projectAgentRunLifecycle(
+  record: NonNullable<ReturnType<typeof getHostBridgeAgentRunRecord>>,
+): HostBridgeWorkflowAgentRunLifecycleResult {
+  const mutable = record.state === "prepared" || record.state === "expired";
+  return {
+    agentRunId: record.agentRunId,
+    workflowId: record.workflowId,
+    state: record.state,
+    leaseExpiresAt: record.expiresAt,
+    retentionExpiresAt: record.retentionExpiresAt,
+    renewable: mutable,
+    abandonable: mutable,
+    ...(record.renewedAt ? { renewedAt: record.renewedAt } : {}),
+    ...(record.abandonedAt ? { abandonedAt: record.abandonedAt } : {}),
+  };
+}
+
+function changeHostBridgeWorkflowAgentRunLifecycle(
+  agentRunIdInput: string,
+  action: "renew" | "abandon",
+) {
+  const agentRunId = normalizeString(agentRunIdInput);
+  const existing =
+    getHostBridgeAgentRunRecord(agentRunId) ||
+    getExpiredHostBridgeAgentRunRecord(agentRunId);
+  if (!existing) {
+    throw codedAgentApplyError("agent_run_not_found", "agent-run not found", {
+      agentRunId,
+    });
+  }
+  const updated =
+    action === "renew"
+      ? renewHostBridgeAgentRunRecord(agentRunId)
+      : abandonHostBridgeAgentRunRecord(agentRunId);
+  if (!updated) {
+    throw codedAgentApplyError(
+      "agent_run_lifecycle_conflict",
+      `agent-run cannot be ${action === "renew" ? "renewed" : "abandoned"} from its current state`,
+      { agentRunId, state: existing.state },
+    );
+  }
+  return projectAgentRunLifecycle(updated);
+}
+
+export function renewHostBridgeWorkflowAgentRun(agentRunId: string) {
+  return changeHostBridgeWorkflowAgentRunLifecycle(agentRunId, "renew");
+}
+
+export function abandonHostBridgeWorkflowAgentRun(agentRunId: string) {
+  return changeHostBridgeWorkflowAgentRunLifecycle(agentRunId, "abandon");
 }
 
 function selectionArray(
@@ -2036,7 +2134,7 @@ export async function submitHostBridgeWorkflow(args: {
   return {
     workflowId: workflow.manifest.id,
     workflowLabel: localizeWorkflowLabel(workflow),
-    runId: runState.runId,
+    workflowRunId: runState.runId,
     jobIds: runState.jobIds,
     totalJobs: runState.totalJobs,
     tasks: listHostBridgeTasks({

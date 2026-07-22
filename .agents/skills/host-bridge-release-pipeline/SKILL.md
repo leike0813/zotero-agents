@@ -6,7 +6,7 @@ description: Prepare, validate, manually dispatch, resume, and verify the unifie
 # Host Bridge Release Pipeline
 
 Run from the repository root on `main`. One prepared
-`host-bridge.release-set.v1` governs all three surfaces.
+`host-bridge.release-set.v2` governs all three surfaces, and release preparation emits v2 documents only.
 
 ## Review Feature Content
 
@@ -58,14 +58,21 @@ npm run check:zotero-librarian-profile
 npx tsx node_modules/mocha/bin/mocha "test/core/108-host-bridge-workflow-control.test.ts" "test/core/139-host-bridge-cli-packaging.test.ts" "test/core/165-zotero-librarian-profile.test.ts" "test/core/167-host-bridge-semantic-review-skill.test.ts" "test/core/168-host-bridge-release-coordinator.test.ts" "test/core/169-host-bridge-agent-surface.test.ts" --require test/setup/zotero-mock.ts
 ```
 
-When the plan reports `prebuildRequired: false`, also run:
+The formal release set is prebuild-first. Before preparation, the exact CLI
+fingerprint must already have a complete build-only set on
+`host-bridge-cli-prebuilds`. If the plan reports `prebuildRequired: true`,
+dispatch `build-host-bridge-cli-prebuilds.yml`, then synchronize and record that
+exact aggregate locally before preparing the release set. The build-only
+workflow does not publish any semantic surface.
+
+When the plan reports `prebuildRequired: false`, run:
 
 ```powershell
 npm run check:host-bridge-cli-prebuild-freshness
 ```
 
-When it reports `true`, only the release workflow can replace the complete
-seven-platform prebuild set. Do not build selected platforms locally.
+Do not dispatch `release-host-bridge.yml` while prebuild freshness is false,
+and do not build selected platforms locally.
 
 ## Dispatch Or Resume Manually
 
@@ -81,7 +88,7 @@ run of `release-host-bridge.yml`. After success it fast-forwards local `main` to
 the workflow's finalize commit. Host publication has no push or ordinary CI
 trigger.
 
-The workflow builds only when required, otherwise restores the exact binary
+The formal workflow never builds CLI binaries; it restores the exact verified
 aggregate from the `host-bridge-cli-prebuilds` branch. The branch stores
 immutable sets under `sets/<binaryAggregateSha256>`; GitHub Releases are not a
 Host CLI prebuild store.
@@ -96,7 +103,7 @@ Publication is complete only after the workflow:
 
 1. verifies all three immutable surface manifests;
 2. advances all three mutable branches;
-3. writes `host-bridge.release-receipt.v1` with `status: complete`;
+3. continuously records `host-bridge.release-receipt.v2` progress and writes `status: complete` only after immutable surfaces, mutable pointers, and source-main finalization succeed;
 4. commits the seven prebuilds, four release-set copies, CLI manifest, and
    `host-bridge/latest-complete-release-receipt.json` back to `main`.
 

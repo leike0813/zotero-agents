@@ -30,12 +30,6 @@ import {
   type WorkflowProductRecord,
 } from "./workflowProductStore";
 import { scanPersistenceIntegrity } from "./persistenceIntegrity";
-import {
-  listActiveWorkflowTaskSummaries,
-  listWorkflowTasks,
-} from "./taskRuntime";
-import { listAcpSkillRunSummaries } from "./acpSkillRunStore";
-import { reapplyAcpSkillRunResult } from "./acpSkillRunnerOrchestrator";
 import type {
   HostBridgeApprovalRequirement,
   HostBridgeCapabilityCategory,
@@ -239,6 +233,7 @@ function capability(
   summary: string,
   input: HostBridgeCapabilityManifestEntry["input"],
   handler: HostBridgeCapabilityHandler,
+  requestEffect: HostBridgeCapabilityManifestEntry["requestEffect"] = "read",
 ): HostBridgeCapabilityDefinition {
   const approval = getHostBridgeApprovalRequirement(name);
   return {
@@ -246,6 +241,7 @@ function capability(
     category,
     summary,
     approval,
+    requestEffect,
     input,
     handler: async (rawInput, context) =>
       (await handler(rawInput, context)) ?? null,
@@ -262,6 +258,7 @@ function debugCapability(
   name: string,
   summary: string,
   handler: HostBridgeCapabilityHandler,
+  requestEffect: HostBridgeCapabilityManifestEntry["requestEffect"] = "read",
 ): HostBridgeCapabilityDefinition {
   return capability(
     name,
@@ -272,6 +269,7 @@ function debugCapability(
       assertDebugModeEnabled();
       return handler(input, context);
     },
+    requestEffect,
   );
 }
 
@@ -840,6 +838,12 @@ async function debugStatus(
   context: HostBridgeCapabilityContext,
 ) {
   const object = asObject(input);
+  const [taskRuntime, acpSkillRunStore] = await Promise.all([
+    import("./taskRuntime"),
+    import("./acpSkillRunStore"),
+  ]);
+  const { listActiveWorkflowTaskSummaries, listWorkflowTasks } = taskRuntime;
+  const { listAcpSkillRunSummaries } = acpSkillRunStore;
   const tasks = listWorkflowTasks();
   const activeTasks = listActiveWorkflowTaskSummaries();
   const runs = listAcpSkillRunSummaries();
@@ -892,6 +896,12 @@ async function debugPersistenceSnapshot(input: unknown) {
 async function debugTasksSnapshot(input: unknown) {
   const object = asObject(input);
   const limit = debugLimit(object);
+  const [taskRuntime, acpSkillRunStore] = await Promise.all([
+    import("./taskRuntime"),
+    import("./acpSkillRunStore"),
+  ]);
+  const { listActiveWorkflowTaskSummaries, listWorkflowTasks } = taskRuntime;
+  const { listAcpSkillRunSummaries } = acpSkillRunStore;
   const tasks = listWorkflowTasks();
   const activeTasks = listActiveWorkflowTaskSummaries({ limit });
   const runs = listAcpSkillRunSummaries({ limit });
@@ -932,23 +942,31 @@ function synthesisCapability(
     type: "object",
     required: false,
   },
+  requestEffect: HostBridgeCapabilityManifestEntry["requestEffect"] = "read",
 ): HostBridgeCapabilityDefinition {
-  return capability(name, category, summary, input, async (input, context) => {
-    const service =
-      context.resolveSynthesisService?.() ||
-      (getDefaultSynthesisService() as unknown as SynthesisMcpService);
-    const method = service?.[methodName];
-    if (typeof method !== "function") {
-      throw new Error(
-        `Synthesis service method is unavailable: ${String(methodName)}`,
-      );
-    }
-    return method(asObject(input), {
-      hostBridge: {
-        connectionMode: context.connectionMode,
-      },
-    });
-  });
+  return capability(
+    name,
+    category,
+    summary,
+    input,
+    async (input, context) => {
+      const service =
+        context.resolveSynthesisService?.() ||
+        (getDefaultSynthesisService() as unknown as SynthesisMcpService);
+      const method = service?.[methodName];
+      if (typeof method !== "function") {
+        throw new Error(
+          `Synthesis service method is unavailable: ${String(methodName)}`,
+        );
+      }
+      return method(asObject(input), {
+        hostBridge: {
+          connectionMode: context.connectionMode,
+        },
+      });
+    },
+    requestEffect,
+  );
 }
 
 async function callSynthesisDebugService(methodName: string, input: unknown) {
@@ -1269,6 +1287,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
       }
       return { productId: product.productId, removed: true };
     },
+    "state-change",
   ),
   capability(
     "mutation.preview",
@@ -1289,6 +1308,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
       resolveHostBridgeApis(context).mutations.execute(
         asObject(input) as ZoteroHostMutationRequest,
       ),
+    "state-change",
   ),
   capability(
     "diagnostic.get_status",
@@ -1325,8 +1345,10 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
   debugCapability(
     "debug.acpSkillRun.reapplyResult",
     "Debug-only operation: re-run applyResult for an existing ACP skill run result.",
-    (input) => {
+    async (input) => {
       const object = asObject(input);
+      const { reapplyAcpSkillRunResult } =
+        await import("./acpSkillRunnerOrchestrator");
       return reapplyAcpSkillRunResult({
         requestId: object.requestId as string | undefined,
         runId: object.runId as string | undefined,
@@ -1346,11 +1368,13 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
             : undefined,
       });
     },
+    "state-change",
   ),
   debugCapability(
     "debug.zotero.eval",
     "Debug-only operation: execute approved JavaScript in the Zotero host context.",
     (input) => debugZoteroEval(input),
+    "state-change",
   ),
   debugCapability(
     "debug.synthesis.snapshot",
@@ -1392,6 +1416,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "Dangerous debug operation: reset Synthesis DB state and delete data/synthesis.",
     (input) =>
       callSynthesisDebugService("debugSynthesisCleanInstallReset", input),
+    "state-change",
   ),
   synthesisCapability(
     "topics.list",
@@ -1406,6 +1431,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
         limit: { type: ["number", "string"], minimum: 1 },
       },
     },
+    "state-change",
   ),
   synthesisCapability(
     "topics.find_by_paper_ref",
@@ -1664,6 +1690,8 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "citation_graph",
     "Diagnostic repair: refresh persisted citation graph complex metrics from the current graph cache without rebuilding graph structure.",
     "refreshCitationGraphMetricsNow",
+    { type: "object", required: false },
+    "state-change",
   ),
   synthesisCapability(
     "citation_graph.update",
@@ -1685,6 +1713,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
         idempotencyKey: { type: "string" },
       },
     },
+    "state-change",
   ),
   synthesisCapability(
     "paper_artifacts.get_manifest",

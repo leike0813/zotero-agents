@@ -32,7 +32,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge library annotation export`。
-- 示例：`zotero-bridge library annotation export --item 'item'`。
+- 示例：`zotero-bridge library annotation export --item 'item'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -49,7 +49,9 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 library.export_annotations 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 library annotation export 结果及获取该结果所使用的精确调用输入。
 - 稳定的条目或笔记引用、当前元数据和游标元数据
@@ -57,13 +59,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge library annotation list`
 
@@ -93,7 +95,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge library annotation list`。
-- 示例：`zotero-bridge library annotation list --item 'item'`。
+- 示例：`zotero-bridge library annotation list --item 'item'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -107,7 +109,9 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 library.list_annotations 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 library annotation list 结果及获取该结果所使用的精确调用输入。
 - 稳定的条目或笔记引用、当前元数据和游标元数据
@@ -115,13 +119,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge library note get`
 
@@ -151,7 +155,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge library note get`。
-- 示例：`zotero-bridge library note get`。
+- 示例：`zotero-bridge library note get --key 'key'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -180,7 +184,9 @@
 
 - 交付方式：`cursor`。
 - 稳定结果字段：
-- `result`（object）：来自 library.get_note_detail 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - `items`（array）
 - `nextCursor`（string | number | null）
 - `hasMore`（boolean）
@@ -191,13 +197,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge library note payload`
 
@@ -228,7 +234,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge library note payload`。
-- 示例：`zotero-bridge library note payload`。
+- 示例：`zotero-bridge library note payload --key 'key'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -257,7 +263,9 @@
 
 - 交付方式：`cursor`。
 - 稳定结果字段：
-- `result`（object）：来自 library.get_note_payload 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - `items`（array）
 - `nextCursor`（string | number | null）
 - `hasMore`（boolean）
@@ -268,13 +276,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge library note payloads`
 
@@ -304,7 +312,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge library note payloads`。
-- 示例：`zotero-bridge library note payloads`。
+- 示例：`zotero-bridge library note payloads --key 'key'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -324,7 +332,9 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 library.list_note_payloads 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 library note payloads 结果及获取该结果所使用的精确调用输入。
 - 稳定的条目或笔记引用、当前元数据和游标元数据
@@ -332,13 +342,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge library readiness audit`
 
@@ -368,7 +378,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge library readiness audit`。
-- 示例：`zotero-bridge library readiness audit`。
+- 示例：`zotero-bridge library readiness audit`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -394,7 +404,9 @@
 
 - 交付方式：`cursor`。
 - 稳定结果字段：
-- `result`（object）：来自 library.readiness_audit 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - `items`（array）
 - `nextCursor`（string | number | null）
 - `hasMore`（boolean）
@@ -405,13 +417,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge library readiness missing-analysis`
 
@@ -441,7 +453,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge library readiness missing-analysis`。
-- 示例：`zotero-bridge library readiness missing-analysis`。
+- 示例：`zotero-bridge library readiness missing-analysis`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -467,7 +479,9 @@
 
 - 交付方式：`cursor`。
 - 稳定结果字段：
-- `result`（object）：来自 library.readiness_audit 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - `items`（array）
 - `nextCursor`（string | number | null）
 - `hasMore`（boolean）
@@ -478,13 +492,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge library readiness missing-markdown`
 
@@ -514,7 +528,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge library readiness missing-markdown`。
-- 示例：`zotero-bridge library readiness missing-markdown`。
+- 示例：`zotero-bridge library readiness missing-markdown`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -540,7 +554,9 @@
 
 - 交付方式：`cursor`。
 - 稳定结果字段：
-- `result`（object）：来自 library.readiness_audit 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - `items`（array）
 - `nextCursor`（string | number | null）
 - `hasMore`（boolean）
@@ -551,13 +567,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge library readiness missing-pdf`
 
@@ -587,7 +603,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge library readiness missing-pdf`。
-- 示例：`zotero-bridge library readiness missing-pdf`。
+- 示例：`zotero-bridge library readiness missing-pdf`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -613,7 +629,9 @@
 
 - 交付方式：`cursor`。
 - 稳定结果字段：
-- `result`（object）：来自 library.readiness_audit 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - `items`（array）
 - `nextCursor`（string | number | null）
 - `hasMore`（boolean）
@@ -624,13 +642,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge library snapshot`
 
@@ -660,7 +678,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge library snapshot`。
-- 示例：`zotero-bridge library snapshot`。
+- 示例：`zotero-bridge library snapshot`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -683,7 +701,9 @@
 
 - 交付方式：`cursor`。
 - 稳定结果字段：
-- `result`（object）：来自 library.sync_snapshot 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - `items`（array）
 - `nextCursor`（string | number | null）
 - `hasMore`（boolean）
@@ -694,10 +714,10 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。

@@ -59,6 +59,6 @@ The generated cards are the operational manual. `references/host-bridge-cli.md` 
 
 Use canonical commands and preserve returned typed handles across workflow, run, file, Product, and apply-back boundaries. Writes still require the Host-owned approval path; do not bypass Host Bridge by reading or modifying the Zotero database or storage directly.
 
-On failure, inspect the structured error fields before retrying: `retryable`, `stateChanged`, `handleConsumed`, `safeNextActions`, and optional `nextCommand`. Re-read state when a response reports a possible state change, and do not reuse a consumed handle.
+On failure, inspect the structured error fields before retrying: `retryable`, `stateChange`, `handleConsumption`, `safeNextActions`, and optional `nextCommand`. Inspect `operation get <operationId>` after an uncertain state-changing response, re-read domain state when the outcome is changed or unknown, and do not reuse a consumed or unknown handle.
 
 The release repository root `manifest.json` is the authority for the published bytes. Verify its `releaseSetId`, `cliIdentity`, and platform checksum before vendoring or installing the bundle.

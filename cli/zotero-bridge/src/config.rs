@@ -14,6 +14,7 @@ pub struct BridgeConfig {
     pub token: Option<String>,
     pub scope: Option<Value>,
     pub connection_mode: Option<String>,
+    pub operation_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -107,6 +108,10 @@ impl BridgeConfig {
             token,
             scope,
             connection_mode,
+            operation_id: cli
+                .operation_id
+                .clone()
+                .filter(|value| !value.trim().is_empty()),
         })
     }
 
@@ -269,6 +274,7 @@ mod tests {
         let cli = Cli {
             endpoint: None,
             profile: Some(PathBuf::from(&profile)),
+            operation_id: None,
             command: bridge_status_command(),
         };
         let config = BridgeConfig::load(&cli).unwrap();
@@ -306,6 +312,7 @@ mod tests {
         let cli = Cli {
             endpoint: None,
             profile: Some(PathBuf::from(&profile)),
+            operation_id: None,
             command: bridge_status_command(),
         };
         let config = BridgeConfig::load(&cli).unwrap();
@@ -350,6 +357,7 @@ mod tests {
         let cli = Cli {
             endpoint: None,
             profile: Some(PathBuf::from(&profile)),
+            operation_id: None,
             command: bridge_status_command(),
         };
         let config = BridgeConfig::load(&cli).unwrap();
@@ -396,6 +404,7 @@ mod tests {
         let cli = Cli {
             endpoint: None,
             profile: Some(PathBuf::from(&profile)),
+            operation_id: None,
             command: bridge_status_command(),
         };
         let config = BridgeConfig::load(&cli).unwrap();
@@ -445,6 +454,7 @@ mod tests {
         let cli = Cli {
             endpoint: None,
             profile: Some(PathBuf::from(&profile)),
+            operation_id: None,
             command: bridge_status_command(),
         };
         let config = BridgeConfig::load(&cli).unwrap();

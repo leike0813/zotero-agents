@@ -41,6 +41,7 @@ zotero-bridge mutation --help
 zotero-bridge file --help
 zotero-bridge call --help
 zotero-bridge context --help
+zotero-bridge operation --help
 zotero-bridge product --help
 ```
 
@@ -98,8 +99,10 @@ zotero-bridge product --help
 | `synthesis topic get-report` | `topics.get_report` | capability | - |
 | `synthesis topic get-review-input` | `topics.get_review_input` | capability | - |
 | `synthesis topic list` | `topics.list` | capability | - |
+| `workflow agent-abandon` | `POST /bridge/v1/workflows/agent-runs/{agentRunId}/abandon` | endpoint | - |
 | `workflow agent-apply` | `POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply` | endpoint | - |
 | `workflow agent-apply-status` | `GET /bridge/v1/workflows/agent-runs/{agentRunId}/apply` | endpoint | - |
+| `workflow agent-renew` | `POST /bridge/v1/workflows/agent-runs/{agentRunId}/renew` | endpoint | - |
 | `workflow agent-run` | `POST /bridge/v1/workflows/agent-run` | endpoint | - |
 | `workflow describe` | `POST /bridge/v1/workflows/describe` | endpoint | - |
 | `workflow list` | `GET /bridge/v1/workflows` | endpoint | - |
@@ -149,6 +152,7 @@ zotero-bridge product --help
 | `context selection get` | `GET /bridge/v1/context/selection` | endpoint | - |
 | `context selection get` | `context.get_selected_items` | capability | - |
 | `context selection open` | `POST /bridge/v1/context/selection/open` | endpoint | - |
+| `operation get` | `GET /bridge/v1/operations/{operationId}` | endpoint | - |
 | `product download` | `workflow_products.export` | capability | - |
 | `product get` | `workflow_products.get` | capability | - |
 | `product list` | `workflow_products.list` | capability | - |
@@ -228,5 +232,5 @@ zotero-bridge product --help
 
 ## 远程导出包
 
-- 使用远程 profile 时，带 `outputPath` 的 `synthesis topic get-context` 返回 `delivery.mode="bridge-download"` 而不是写入调用者路径。运行 `delivery.downloadCommand`，然后运行 `delivery.unpackHint`。
+- 使用远程 profile 时，带 `synthesis topic get-context` 的 `outputPath` 返回 `delivery.mode="bridge-download"` 而不是写入调用者路径。运行 `delivery.downloadCommand`，然后运行 `delivery.unpackHint`。
 - 使用远程 profile 时，`synthesis artifact export-filtered` 返回相同类型的 zip 包。将 `manifest_file` 视为解压后 zip 内的路径。

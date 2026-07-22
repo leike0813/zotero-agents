@@ -6,7 +6,7 @@
 
 当 workflow 为本地 Agent 工作准备交接、请求不需要 backend 队列所有权、且用户期望 Agent 直接完成工作时，使用 Agent 拥有的执行。好的候选包括 workflow 级别的输入、搜索或摄入准备，以及输出可在 apply-back 之前本地检查的任务。
 
-当 backend 应拥有执行、workflow 需要 backend 运行时状态、或进度应作为 `workflowRunId` 跟踪时，使用 Host 拥有的 `workflow submit`。
+当 backend 应拥有执行、workflow 需要 backend 运行时状态、或进度应作为 `workflow submit` 跟踪时，使用 Host 拥有的 `workflowRunId`。
 
 ## 执行交接
 

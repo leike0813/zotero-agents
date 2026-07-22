@@ -68,20 +68,10 @@
             "minLength": 1
           },
           "category": {
-            "enum": [
-              "read",
-              "navigation",
-              "write",
-              "maintenance",
-              "debug"
-            ]
+            "enum": ["read", "navigation", "write", "maintenance", "debug"]
           },
           "danger": {
-            "enum": [
-              "none",
-              "review",
-              "high"
-            ]
+            "enum": ["none", "review", "high"]
           },
           "invocationSchema": {
             "type": "object"
@@ -104,10 +94,7 @@
                   "minLength": 1
                 },
                 "kind": {
-                  "enum": [
-                    "option",
-                    "positional"
-                  ]
+                  "enum": ["option", "positional"]
                 },
                 "token": {
                   "type": "string",
@@ -144,22 +131,14 @@
             "type": "object"
           },
           "pagination": {
-            "enum": [
-              "none",
-              "cursor",
-              "file"
-            ]
+            "enum": ["none", "cursor", "file"]
           },
           "effects": {
             "type": "array",
             "minItems": 1,
             "items": {
               "type": "object",
-              "required": [
-                "kind",
-                "stateChanged",
-                "description"
-              ],
+              "required": ["kind", "stateChanged", "description"],
               "properties": {
                 "kind": {
                   "enum": [
@@ -187,18 +166,10 @@
           },
           "approvalContract": {
             "type": "object",
-            "required": [
-              "kind",
-              "timing",
-              "scope"
-            ],
+            "required": ["kind", "timing", "scope"],
             "properties": {
               "kind": {
-                "enum": [
-                  "none",
-                  "zotero-ui-required",
-                  "conditional"
-                ]
+                "enum": ["none", "zotero-ui-required", "conditional"]
               },
               "timing": {
                 "enum": [
@@ -228,14 +199,24 @@
               ],
               "properties": {
                 "handle": {
-                  "type": "string",
-                  "minLength": 1
+                  "enum": [
+                    "itemRef",
+                    "noteRef",
+                    "collectionKey",
+                    "workflowRunId",
+                    "skillRunId",
+                    "agentRunId",
+                    "agentRequestId",
+                    "permissionRequestId",
+                    "eventId",
+                    "fileId",
+                    "productId",
+                    "operationId",
+                    "applyReceipt"
+                  ]
                 },
                 "direction": {
-                  "enum": [
-                    "consume",
-                    "produce"
-                  ]
+                  "enum": ["consume", "produce"]
                 },
                 "required": {
                   "type": "boolean"
@@ -261,23 +242,14 @@
             "minItems": 1,
             "items": {
               "type": "object",
-              "required": [
-                "when",
-                "stateCheck",
-                "requiresHandles",
-                "action"
-              ],
+              "required": ["when", "stateCheck", "requiresHandles", "action"],
               "properties": {
                 "when": {
                   "type": "string",
                   "minLength": 1
                 },
                 "stateCheck": {
-                  "enum": [
-                    "none",
-                    "command-result",
-                    "caller-held-handle"
-                  ]
+                  "enum": ["none", "command-result", "caller-held-handle"]
                 },
                 "requiresHandles": {
                   "type": "array",
@@ -302,10 +274,7 @@
             "type": "array",
             "items": {
               "type": "object",
-              "required": [
-                "kind",
-                "target"
-              ]
+              "required": ["kind", "target"]
             },
             "minItems": 1
           },
@@ -353,13 +322,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "id",
-          "token",
-          "takesValue",
-          "valueNames",
-          "description"
-        ],
+        "required": ["id", "token", "takesValue", "valueNames", "description"],
         "properties": {
           "id": {
             "type": "string",
@@ -419,9 +382,7 @@
           "providerRequirements": {
             "type": "object",
             "additionalProperties": false,
-            "required": [
-              "acceptedProviderTypes"
-            ],
+            "required": ["acceptedProviderTypes"],
             "properties": {
               "requestKind": {
                 "type": "string",
@@ -443,10 +404,7 @@
             "minItems": 1,
             "uniqueItems": true,
             "items": {
-              "enum": [
-                "auto",
-                "interactive"
-              ]
+              "enum": ["auto", "interactive"]
             }
           },
           "requiredWorkflowOptions": {
@@ -460,16 +418,10 @@
           "resultEvidence": {
             "type": "object",
             "additionalProperties": false,
-            "required": [
-              "artifacts",
-              "applyBack"
-            ],
+            "required": ["artifacts", "applyBack"],
             "properties": {
               "fetchType": {
-                "enum": [
-                  "bundle",
-                  "result"
-                ]
+                "enum": ["bundle", "result"]
               },
               "resultJson": {
                 "type": "string",

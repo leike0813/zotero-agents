@@ -111,6 +111,9 @@ function isReleaseContract(path: string) {
     path === "scripts/prepare-host-bridge-release.ts" ||
     path === "schemas/host-bridge.release-set.v1.schema.json" ||
     path === "schemas/host-bridge.release-receipt.v1.schema.json" ||
+    path === "schemas/host-bridge.release-set.v2.schema.json" ||
+    path === "schemas/host-bridge.release-receipt.v2.schema.json" ||
+    path === ".github/workflows/build-host-bridge-cli-prebuilds.yml" ||
     path === ".github/workflows/release-host-bridge.yml"
   );
 }

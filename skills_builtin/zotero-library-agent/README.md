@@ -42,4 +42,4 @@ The task is complete only when the requested result and its evidence are observa
 
 Reads and diagnostics may be retried only when the command contract marks them retryable. Writes, apply-back, file consumption, and Product operations must respect approval, typed-handle, and state-change contracts.
 
-On error, inspect `retryable`, `stateChanged`, `handleConsumed`, `safeNextActions`, and `nextCommand`. Re-read current state after an uncertain write, query the applicable receipt after partial apply-back, and never reuse a consumed handle. Do not bypass Host Bridge by accessing Zotero storage directly.
+On error, inspect `retryable`, `stateChange`, `handleConsumption`, `safeNextActions`, and `nextCommand`. Query the durable operation receipt after an uncertain write, query the applicable domain receipt after partial apply-back, and never reuse a consumed or unknown handle. Do not bypass Host Bridge by accessing Zotero storage directly.

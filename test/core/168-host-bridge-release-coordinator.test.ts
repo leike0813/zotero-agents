@@ -29,9 +29,123 @@ import {
   readImmutablePublicationSource,
   selectDispatchedHostBridgeRun,
 } from "../../scripts/dispatch-host-bridge-release";
+import {
+  advanceHostBridgeReleaseReceipt,
+  createHostBridgeReleaseReceipt,
+} from "../../scripts/host-bridge-release-controller";
+
+function releaseBinaries(buildFingerprint = "f".repeat(64)) {
+  return [
+    "darwin-arm64",
+    "darwin-x64",
+    "linux-arm",
+    "linux-arm64",
+    "linux-x64",
+    "linux-x86",
+    "win32-x64",
+  ].map((platform, index) => ({
+    platform,
+    binary: platform.startsWith("win32")
+      ? "zotero-bridge.exe"
+      : "zotero-bridge",
+    sha256: String(index + 1).repeat(64),
+    bytes: 12 + index,
+    buildFingerprint,
+  }));
+}
 
 describe("Host Bridge release coordinator", function () {
   this.timeout(30_000);
+
+  it("advances a resumable v2 receipt only from verified remote facts", function () {
+    const releaseSet = {
+      schema: "host-bridge.release-set.v2" as const,
+      releaseSetId: `hbrs-${"a".repeat(24)}`,
+      payloadDigest: `sha256:${"b".repeat(64)}`,
+      source: { commit: "abc1234" },
+      surfaces: {
+        cliBundle: { contentDigest: "1".repeat(64) },
+        libraryAgent: { contentDigest: "2".repeat(64) },
+        librarianProfile: { contentDigest: "3".repeat(64) },
+      },
+    };
+    let receipt = createHostBridgeReleaseReceipt({
+      releaseSet,
+      sourceCommit: "abc1234",
+      workflowRun: "run-1",
+      pipelineRevision: "workflow-sha",
+      prebuildCommit: "prebuild-sha",
+      now: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(receipt.status, "partial");
+    receipt = advanceHostBridgeReleaseReceipt(receipt, {
+      step: "publish",
+      status: "pending",
+      surfaces: {
+        cliBundle: {
+          status: "published",
+          commit: "cli-sha",
+          contentDigest: "1".repeat(64),
+        },
+      },
+    });
+    assert.strictEqual(receipt.surfaces.cliBundle.status, "published");
+    assert.strictEqual(receipt.surfaces.libraryAgent.status, "pending");
+    assert.throws(
+      () =>
+        advanceHostBridgeReleaseReceipt(receipt, {
+          step: "publish",
+          status: "complete",
+        }),
+      /all immutable surface facts/,
+    );
+    receipt = advanceHostBridgeReleaseReceipt(receipt, {
+      step: "publish",
+      status: "complete",
+      surfaces: {
+        libraryAgent: {
+          status: "published",
+          commit: "library-sha",
+          contentDigest: "2".repeat(64),
+        },
+        librarianProfile: {
+          status: "published",
+          commit: "profile-sha",
+          contentDigest: "3".repeat(64),
+        },
+      },
+    });
+    receipt = advanceHostBridgeReleaseReceipt(receipt, {
+      step: "verify",
+      status: "complete",
+      surfaces: {
+        cliBundle: {
+          status: "verified",
+          commit: "cli-sha",
+          contentDigest: "1".repeat(64),
+        },
+        libraryAgent: {
+          status: "verified",
+          commit: "library-sha",
+          contentDigest: "2".repeat(64),
+        },
+        librarianProfile: {
+          status: "verified",
+          commit: "profile-sha",
+          contentDigest: "3".repeat(64),
+        },
+      },
+    });
+    receipt = advanceHostBridgeReleaseReceipt(receipt, {
+      step: "mutablePointers",
+      status: "complete",
+    });
+    receipt = advanceHostBridgeReleaseReceipt(receipt, {
+      step: "finalize",
+      status: "complete",
+    });
+    assert.strictEqual(receipt.status, "complete");
+  });
 
   it("collects committed feature changes from a clean checkout", function () {
     const root = mkdtempSync(join(tmpdir(), "host-bridge-plan-"));
@@ -220,7 +334,7 @@ describe("Host Bridge release coordinator", function () {
       "utf8",
     );
     assert.notMatch(workflow, /GITEE_TOKEN|gitee\.com/i);
-    assert.include(workflow, "host-bridge.release-receipt.v1");
+    assert.include(workflow, "host-bridge-release-controller.ts");
     assert.notInclude(workflow, "  push:");
     assert.include(workflow, "workflow_dispatch:");
   });
@@ -315,21 +429,14 @@ describe("Host Bridge release coordinator", function () {
     const input = {
       sourceCommit: "abc123",
       protocol: "host-bridge.v1",
-      cliSchema: "zotero-bridge.cli.v1",
+      cliSchema: "zotero-bridge.cli.v3",
       cli: {
         version: "0.2.2",
         buildFingerprint: "f".repeat(64),
         commandCatalogChecksum: "c".repeat(64),
         binaryAggregateSha256: "b".repeat(64),
         binariesBuildFingerprint: "f".repeat(64),
-        binaries: [
-          {
-            platform: "linux-x64",
-            binary: "zotero-bridge",
-            sha256: "a".repeat(64),
-            bytes: 12,
-          },
-        ],
+        binaries: releaseBinaries(),
       },
       surfaces: {
         cliBundle: {
@@ -352,7 +459,7 @@ describe("Host Bridge release coordinator", function () {
 
     const first = buildHostBridgeReleaseSet(input);
     const second = buildHostBridgeReleaseSet(input);
-    assert.strictEqual(first.schema, "host-bridge.release-set.v1");
+    assert.strictEqual(first.schema, "host-bridge.release-set.v2");
     assert.strictEqual(first.releaseSetId, second.releaseSetId);
     assert.match(first.releaseSetId, /^hbrs-[a-f0-9]{24}$/);
     assert.strictEqual(
@@ -367,7 +474,11 @@ describe("Host Bridge release coordinator", function () {
 
     const changed = buildHostBridgeReleaseSet({
       ...input,
-      cli: { ...input.cli, buildFingerprint: "e".repeat(64) },
+      cli: {
+        ...input.cli,
+        buildFingerprint: "e".repeat(64),
+        binariesBuildFingerprint: "e".repeat(64),
+      },
     });
     assert.notStrictEqual(changed.releaseSetId, first.releaseSetId);
   });
@@ -376,14 +487,14 @@ describe("Host Bridge release coordinator", function () {
     const releaseSet = buildHostBridgeReleaseSet({
       sourceCommit: "abc123",
       protocol: "host-bridge.v1",
-      cliSchema: "zotero-bridge.cli.v1",
+      cliSchema: "zotero-bridge.cli.v3",
       cli: {
         version: "0.2.2",
         buildFingerprint: "f".repeat(64),
         commandCatalogChecksum: "c".repeat(64),
         binaryAggregateSha256: "b".repeat(64),
         binariesBuildFingerprint: "f".repeat(64),
-        binaries: [],
+        binaries: releaseBinaries(),
       },
       surfaces: {
         cliBundle: {

@@ -29,7 +29,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge call`。
-- 示例：`zotero-bridge call 'capability'`。
+- 示例：`zotero-bridge call 'capability'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -46,7 +46,7 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 POST /bridge/v1/call 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 call 结果及获取该结果所使用的精确调用输入。
 - capability 名称、approval 元数据和返回数据
@@ -54,13 +54,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge debug acp-skill-run reapply-result`
 
@@ -90,7 +90,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge debug acp-skill-run reapply-result`。
-- 示例：`zotero-bridge debug acp-skill-run reapply-result`。
+- 示例：`zotero-bridge debug acp-skill-run reapply-result`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -104,7 +104,9 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 debug.acpSkillRun.reapplyResult 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 debug acp-skill-run reapply-result 结果及获取该结果所使用的精确调用输入。
 - 有界的诊断快照及所需的 approval 结果
@@ -112,13 +114,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `debug-repair`：可能改变 debug 修复状态。stateChanged=true。
+- 副作用 `debug-repair`：可能修改 debug repair 状态。 mayChangeState=true.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge debug persistence`
 
@@ -148,7 +150,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge debug persistence`。
-- 示例：`zotero-bridge debug persistence`。
+- 示例：`zotero-bridge debug persistence`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -162,7 +164,9 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 debug.persistence.snapshot 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 debug persistence 结果及获取该结果所使用的精确调用输入。
 - 有界的诊断快照及所需的 approval 结果
@@ -170,13 +174,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge debug status`
 
@@ -206,7 +210,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge debug status`。
-- 示例：`zotero-bridge debug status`。
+- 示例：`zotero-bridge debug status`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -220,7 +224,9 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 debug.status 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 debug status 结果及获取该结果所使用的精确调用输入。
 - 有界的诊断快照及所需的 approval 结果
@@ -228,13 +234,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge debug synthesis cache`
 
@@ -264,7 +270,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge debug synthesis cache`。
-- 示例：`zotero-bridge debug synthesis cache`。
+- 示例：`zotero-bridge debug synthesis cache`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -278,7 +284,9 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 debug.synthesis.cache.list 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 debug synthesis cache 结果及获取该结果所使用的精确调用输入。
 - 有界的诊断快照及所需的 approval 结果
@@ -286,13 +294,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge debug synthesis clean-install-reset`
 
@@ -322,7 +330,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge debug synthesis clean-install-reset`。
-- 示例：`zotero-bridge debug synthesis clean-install-reset`。
+- 示例：`zotero-bridge debug synthesis clean-install-reset`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -336,21 +344,23 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 debug.synthesis.cleanInstallReset 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 debug synthesis clean-install-reset 结果及获取该结果所使用的精确调用输入。
 - 有界的诊断快照及所需的 approval 结果
 
 ### Approval、副作用与 handle
 
-- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 来确认所描述的 Host 所有副作用。
-- 副作用 `debug-repair`：可能改变 debug 修复状态。stateChanged=true。
+- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 以批准所述 Host 所有的副作用。
+- 副作用 `debug-repair`：可能修改 debug repair 状态。 mayChangeState=true.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge debug synthesis diff`
 
@@ -380,7 +390,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge debug synthesis diff`。
-- 示例：`zotero-bridge debug synthesis diff`。
+- 示例：`zotero-bridge debug synthesis diff`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -394,7 +404,9 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 debug.synthesis.diff 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 debug synthesis diff 结果及获取该结果所使用的精确调用输入。
 - 有界的诊断快照及所需的 approval 结果
@@ -402,13 +414,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge debug synthesis inspect-paper`
 
@@ -438,7 +450,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge debug synthesis inspect-paper`。
-- 示例：`zotero-bridge debug synthesis inspect-paper`。
+- 示例：`zotero-bridge debug synthesis inspect-paper`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -452,7 +464,9 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 debug.synthesis.paper.inspect 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 debug synthesis inspect-paper 结果及获取该结果所使用的精确调用输入。
 - 有界的诊断快照及所需的 approval 结果
@@ -460,13 +474,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge debug synthesis inspect-topic`
 
@@ -496,7 +510,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge debug synthesis inspect-topic`。
-- 示例：`zotero-bridge debug synthesis inspect-topic`。
+- 示例：`zotero-bridge debug synthesis inspect-topic`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -510,7 +524,9 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 debug.synthesis.topic.inspect 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 debug synthesis inspect-topic 结果及获取该结果所使用的精确调用输入。
 - 有界的诊断快照及所需的 approval 结果
@@ -518,13 +534,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge debug synthesis operations`
 
@@ -554,7 +570,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge debug synthesis operations`。
-- 示例：`zotero-bridge debug synthesis operations`。
+- 示例：`zotero-bridge debug synthesis operations`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -568,7 +584,9 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 debug.synthesis.operations.list 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 debug synthesis operations 结果及获取该结果所使用的精确调用输入。
 - 有界的诊断快照及所需的 approval 结果
@@ -576,13 +594,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge debug synthesis profiler`
 
@@ -612,7 +630,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge debug synthesis profiler`。
-- 示例：`zotero-bridge debug synthesis profiler`。
+- 示例：`zotero-bridge debug synthesis profiler`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -626,7 +644,9 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 debug.synthesis.profiler.list 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 debug synthesis profiler 结果及获取该结果所使用的精确调用输入。
 - 有界的诊断快照及所需的 approval 结果
@@ -634,13 +654,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge debug synthesis snapshot`
 
@@ -670,7 +690,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge debug synthesis snapshot`。
-- 示例：`zotero-bridge debug synthesis snapshot`。
+- 示例：`zotero-bridge debug synthesis snapshot`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -684,7 +704,9 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 debug.synthesis.snapshot 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 debug synthesis snapshot 结果及获取该结果所使用的精确调用输入。
 - 有界的诊断快照及所需的 approval 结果
@@ -692,13 +714,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge debug tasks`
 
@@ -728,7 +750,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge debug tasks`。
-- 示例：`zotero-bridge debug tasks`。
+- 示例：`zotero-bridge debug tasks`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -742,7 +764,9 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 debug.tasks.snapshot 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 debug tasks 结果及获取该结果所使用的精确调用输入。
 - 有界的诊断快照及所需的 approval 结果
@@ -750,10 +774,10 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。

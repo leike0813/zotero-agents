@@ -2,7 +2,7 @@
   "schema": "host-bridge.agent-surface.v3",
   "protocol": "host-bridge.v1",
   "cliSchema": "zotero-bridge.cli.v3",
-  "commandCatalogChecksum": "ec6a8453b531616a28324d192491064b9e24f6b8bf2957e5b8abe4c9f263db13",
+  "commandCatalogChecksum": "0f5905353c25cf74d8415fee520065889cfa0dd6307d85c5d0cad5d1fd95b784",
   "globalOptions": [
     {
       "id": "endpoint",
@@ -12,6 +12,15 @@
         "ENDPOINT"
       ],
       "description": "Host Bridge endpoint, for example http://127.0.0.1:26570/bridge/v1"
+    },
+    {
+      "id": "operation_id",
+      "token": "--operation-id",
+      "takesValue": true,
+      "valueNames": [
+        "ID"
+      ],
+      "description": "Opaque idempotency id for a state-changing Host Bridge request"
     },
     {
       "id": "profile",
@@ -449,13 +458,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/diagnostics/backends."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -522,7 +526,7 @@
           "health, manifest, profile, or backend diagnostic result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "context current",
@@ -582,13 +586,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/diagnostics/backends/{backendId}."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -655,7 +654,7 @@
           "health, manifest, profile, or backend diagnostic result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "context current",
@@ -689,13 +688,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/manifest."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -762,7 +756,7 @@
           "health, manifest, profile, or backend diagnostic result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "context current",
@@ -797,13 +791,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/diagnostics/profile/diagnose."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -870,7 +859,7 @@
           "health, manifest, profile, or backend diagnostic result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "context current",
@@ -905,13 +894,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/diagnostics/profile."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -978,7 +962,7 @@
           "health, manifest, profile, or backend diagnostic result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "context current",
@@ -1012,13 +996,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/health."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -1085,7 +1064,7 @@
           "health, manifest, profile, or backend diagnostic result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "context current",
@@ -1161,13 +1140,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from POST /bridge/v1/call."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -1188,7 +1162,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -1229,7 +1203,7 @@
           "capability name, approval metadata, and returned data"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "surface search",
@@ -1307,13 +1281,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from POST /bridge/v1/context/collections/open."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -1342,7 +1311,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -1388,7 +1357,7 @@
           "current view, stable Zotero refs, or navigation result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -1423,9 +1392,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from context.get_current_view, GET /bridge/v1/context/current."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -1499,7 +1473,7 @@
           "current view, stable Zotero refs, or navigation result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -1559,13 +1533,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from POST /bridge/v1/context/items/open."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -1594,7 +1563,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -1640,7 +1609,7 @@
           "current view, stable Zotero refs, or navigation result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -1700,13 +1669,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from POST /bridge/v1/context/notes/open."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -1735,7 +1699,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -1781,7 +1745,7 @@
           "current view, stable Zotero refs, or navigation result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -1817,9 +1781,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from context.get_selected_items, GET /bridge/v1/context/selection."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "itemRef": {
             "type": "string"
@@ -1911,7 +1880,7 @@
           "ordered top-level item refs and selection summaries"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -1935,7 +1904,10 @@
         "type": "object",
         "properties": {
           "item_refs": {
-            "type": "string",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "description": "Zotero item refs",
             "position": 1
           }
@@ -1971,13 +1943,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from POST /bridge/v1/context/selection/open."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -2006,7 +1973,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -2052,7 +2019,7 @@
           "current view, stable Zotero refs, or navigation result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -2109,9 +2076,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from debug.acpSkillRun.reapplyResult."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -2135,7 +2107,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -2179,7 +2151,7 @@
           "bounded diagnostic snapshot and any required approval result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "bridge status",
@@ -2235,9 +2207,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from debug.persistence.snapshot."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -2261,7 +2238,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -2305,7 +2282,7 @@
           "bounded diagnostic snapshot and any required approval result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "bridge status",
@@ -2340,9 +2317,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from debug.status."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -2366,7 +2348,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -2410,7 +2392,7 @@
           "bounded diagnostic snapshot and any required approval result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "bridge status",
@@ -2467,9 +2449,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from debug.synthesis.cache.list."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -2493,7 +2480,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -2537,7 +2524,7 @@
           "bounded diagnostic snapshot and any required approval result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "bridge status",
@@ -2594,9 +2581,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from debug.synthesis.cleanInstallReset."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -2620,7 +2612,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -2664,7 +2656,7 @@
           "bounded diagnostic snapshot and any required approval result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "bridge status",
@@ -2721,9 +2713,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from debug.synthesis.diff."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -2747,7 +2744,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -2791,7 +2788,7 @@
           "bounded diagnostic snapshot and any required approval result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "bridge status",
@@ -2848,9 +2845,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from debug.synthesis.paper.inspect."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -2874,7 +2876,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -2918,7 +2920,7 @@
           "bounded diagnostic snapshot and any required approval result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "bridge status",
@@ -2975,9 +2977,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from debug.synthesis.topic.inspect."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -3001,7 +3008,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -3045,7 +3052,7 @@
           "bounded diagnostic snapshot and any required approval result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "bridge status",
@@ -3102,9 +3109,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from debug.synthesis.operations.list."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -3128,7 +3140,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -3172,7 +3184,7 @@
           "bounded diagnostic snapshot and any required approval result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "bridge status",
@@ -3229,9 +3241,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from debug.synthesis.profiler.list."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -3255,7 +3272,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -3299,7 +3316,7 @@
           "bounded diagnostic snapshot and any required approval result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "bridge status",
@@ -3356,9 +3373,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from debug.synthesis.snapshot."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -3382,7 +3404,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -3426,7 +3448,7 @@
           "bounded diagnostic snapshot and any required approval result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "bridge status",
@@ -3482,9 +3504,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from debug.tasks.snapshot."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -3508,7 +3535,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -3552,7 +3579,7 @@
           "bounded diagnostic snapshot and any required approval result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "bridge status",
@@ -3645,10 +3672,6 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/files/{fileId}."
-          },
           "file": {
             "type": "object",
             "properties": {
@@ -3715,7 +3738,7 @@
             "additionalProperties": false
           }
         },
-        "additionalProperties": false
+        "additionalProperties": true
       },
       "pagination": "file",
       "effects": [
@@ -3785,7 +3808,7 @@
           "fileId, checksum, byte count, and verified output path"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "mutation item attach-file",
@@ -3881,15 +3904,11 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from POST /bridge/v1/files/upload."
-          },
           "fileId": {
             "type": "string"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -3918,7 +3937,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "command-result",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -3959,7 +3978,7 @@
           "fileId, checksum, byte count, and verified output path"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "mutation item attach-file",
@@ -4036,9 +4055,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from library.export_annotations."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -4108,7 +4132,7 @@
           "stable item or note refs, current metadata, and cursor metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "file download",
@@ -4167,9 +4191,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from library.list_annotations."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -4239,7 +4268,7 @@
           "stable item or note refs, current metadata, and cursor metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "file download",
@@ -4276,6 +4305,30 @@
           }
         },
         "required": [],
+        "allOf": [
+          {
+            "not": {
+              "required": [
+                "key",
+                "id"
+              ]
+            }
+          },
+          {
+            "oneOf": [
+              {
+                "required": [
+                  "key"
+                ]
+              },
+              {
+                "required": [
+                  "id"
+                ]
+              }
+            ]
+          }
+        ],
         "additionalProperties": false
       },
       "argvBindings": [
@@ -4332,9 +4385,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from library.get_item_attachments."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -4404,13 +4462,13 @@
           "stable item or note refs, current metadata, and cursor metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "file download",
           "workflow describe"
         ],
-        "example": "zotero-bridge library item attachments"
+        "example": "zotero-bridge library item attachments --key 'key'"
       },
       "hiddenFromIntentSearch": false
     },
@@ -4441,6 +4499,30 @@
           }
         },
         "required": [],
+        "allOf": [
+          {
+            "not": {
+              "required": [
+                "key",
+                "id"
+              ]
+            }
+          },
+          {
+            "oneOf": [
+              {
+                "required": [
+                  "key"
+                ]
+              },
+              {
+                "required": [
+                  "id"
+                ]
+              }
+            ]
+          }
+        ],
         "additionalProperties": false
       },
       "argvBindings": [
@@ -4497,9 +4579,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from library.get_item_detail."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -4569,13 +4656,13 @@
           "stable item or note refs, current metadata, and cursor metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "file download",
           "workflow describe"
         ],
-        "example": "zotero-bridge library item get"
+        "example": "zotero-bridge library item get --key 'key'"
       },
       "hiddenFromIntentSearch": false
     },
@@ -4618,6 +4705,30 @@
           }
         },
         "required": [],
+        "allOf": [
+          {
+            "not": {
+              "required": [
+                "key",
+                "id"
+              ]
+            }
+          },
+          {
+            "oneOf": [
+              {
+                "required": [
+                  "key"
+                ]
+              },
+              {
+                "required": [
+                  "id"
+                ]
+              }
+            ]
+          }
+        ],
         "additionalProperties": false
       },
       "argvBindings": [
@@ -4716,9 +4827,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from library.get_item_notes."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "items": {
             "type": "array"
@@ -4801,13 +4917,13 @@
           "stable item or note refs, current metadata, and cursor metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "file download",
           "workflow describe"
         ],
-        "example": "zotero-bridge library item notes"
+        "example": "zotero-bridge library item notes --key 'key'"
       },
       "hiddenFromIntentSearch": false
     },
@@ -4876,9 +4992,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from library.search_items."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -4956,7 +5077,7 @@
           "stable item or note refs, current metadata, and cursor metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "file download",
@@ -5050,9 +5171,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from library.list_items."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "items": {
             "type": "array"
@@ -5135,7 +5261,7 @@
           "stable item or note refs, current metadata, and cursor metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "file download",
@@ -5184,6 +5310,30 @@
           }
         },
         "required": [],
+        "allOf": [
+          {
+            "not": {
+              "required": [
+                "key",
+                "id"
+              ]
+            }
+          },
+          {
+            "oneOf": [
+              {
+                "required": [
+                  "key"
+                ]
+              },
+              {
+                "required": [
+                  "id"
+                ]
+              }
+            ]
+          }
+        ],
         "additionalProperties": false
       },
       "argvBindings": [
@@ -5282,9 +5432,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from library.get_note_detail."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "items": {
             "type": "array"
@@ -5367,13 +5522,13 @@
           "stable item or note refs, current metadata, and cursor metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "file download",
           "workflow describe"
         ],
-        "example": "zotero-bridge library note get"
+        "example": "zotero-bridge library note get --key 'key'"
       },
       "hiddenFromIntentSearch": false
     },
@@ -5416,6 +5571,30 @@
           }
         },
         "required": [],
+        "allOf": [
+          {
+            "not": {
+              "required": [
+                "key",
+                "id"
+              ]
+            }
+          },
+          {
+            "oneOf": [
+              {
+                "required": [
+                  "key"
+                ]
+              },
+              {
+                "required": [
+                  "id"
+                ]
+              }
+            ]
+          }
+        ],
         "additionalProperties": false
       },
       "argvBindings": [
@@ -5514,9 +5693,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from library.get_note_payload."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "items": {
             "type": "array"
@@ -5602,13 +5786,13 @@
           "stable item or note refs, current metadata, and cursor metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "file download",
           "workflow describe"
         ],
-        "example": "zotero-bridge library note payload"
+        "example": "zotero-bridge library note payload --key 'key'"
       },
       "hiddenFromIntentSearch": false
     },
@@ -5639,6 +5823,30 @@
           }
         },
         "required": [],
+        "allOf": [
+          {
+            "not": {
+              "required": [
+                "key",
+                "id"
+              ]
+            }
+          },
+          {
+            "oneOf": [
+              {
+                "required": [
+                  "key"
+                ]
+              },
+              {
+                "required": [
+                  "id"
+                ]
+              }
+            ]
+          }
+        ],
         "additionalProperties": false
       },
       "argvBindings": [
@@ -5695,9 +5903,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from library.list_note_payloads."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -5767,13 +5980,13 @@
           "stable item or note refs, current metadata, and cursor metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "file download",
           "workflow describe"
         ],
-        "example": "zotero-bridge library note payloads"
+        "example": "zotero-bridge library note payloads --key 'key'"
       },
       "hiddenFromIntentSearch": false
     },
@@ -5876,9 +6089,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from library.readiness_audit."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "items": {
             "type": "array"
@@ -5961,7 +6179,7 @@
           "stable item or note refs, current metadata, and cursor metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "file download",
@@ -6070,9 +6288,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from library.readiness_audit."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "items": {
             "type": "array"
@@ -6155,7 +6378,7 @@
           "stable item or note refs, current metadata, and cursor metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "file download",
@@ -6264,9 +6487,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from library.readiness_audit."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "items": {
             "type": "array"
@@ -6349,7 +6577,7 @@
           "stable item or note refs, current metadata, and cursor metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "file download",
@@ -6458,9 +6686,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from library.readiness_audit."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "items": {
             "type": "array"
@@ -6543,7 +6776,7 @@
           "stable item or note refs, current metadata, and cursor metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "file download",
@@ -6636,9 +6869,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from library.sync_snapshot."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "items": {
             "type": "array"
@@ -6721,7 +6959,7 @@
           "stable item or note refs, current metadata, and cursor metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "file download",
@@ -6777,9 +7015,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from mutation.execute."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -6803,7 +7046,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -6847,7 +7090,7 @@
           "preview, approval outcome, applied result, and affected Zotero refs"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -6875,7 +7118,10 @@
             "description": "Zotero collection ref"
           },
           "items": {
-            "type": "string",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "description": "Target Zotero item refs"
           }
         },
@@ -6925,9 +7171,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from mutation.execute."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -6951,7 +7202,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -6995,7 +7246,7 @@
           "preview, approval outcome, applied result, and affected Zotero refs"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -7054,9 +7305,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from mutation.execute."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -7080,7 +7336,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -7124,7 +7380,7 @@
           "preview, approval outcome, applied result, and affected Zotero refs"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -7152,7 +7408,10 @@
             "description": "Zotero collection ref"
           },
           "items": {
-            "type": "string",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "description": "Target Zotero item refs"
           }
         },
@@ -7202,9 +7461,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from mutation.execute."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -7228,7 +7492,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -7272,7 +7536,7 @@
           "preview, approval outcome, applied result, and affected Zotero refs"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -7299,7 +7563,7 @@
             "type": "string",
             "description": "Target Zotero item ref"
           },
-          "file": {
+          "file-id": {
             "type": "string",
             "description": "Host Bridge uploaded file id"
           },
@@ -7314,7 +7578,7 @@
         },
         "required": [
           "item",
-          "file"
+          "file-id"
         ],
         "additionalProperties": false
       },
@@ -7330,13 +7594,13 @@
           ]
         },
         {
-          "property": "file",
+          "property": "file-id",
           "kind": "option",
-          "token": "--file",
+          "token": "--file-id",
           "takesValue": true,
           "required": true,
           "valueNames": [
-            "FILE"
+            "FILE_ID"
           ]
         },
         {
@@ -7367,7 +7631,7 @@
             "type": "string",
             "description": "Target Zotero item ref"
           },
-          "file": {
+          "file_id": {
             "type": "string",
             "description": "Host Bridge uploaded file id"
           },
@@ -7386,9 +7650,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from mutation.execute."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -7427,7 +7696,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -7475,13 +7744,13 @@
           "upload checksum, fileId, target item ref, approval, and attachment result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
           "library note get"
         ],
-        "example": "zotero-bridge mutation item attach-file --item 'item' --file './output'"
+        "example": "zotero-bridge mutation item attach-file --item 'item' --file-id 'file-id'"
       },
       "hiddenFromIntentSearch": false
     },
@@ -7553,9 +7822,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from mutation.execute."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -7579,7 +7853,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -7623,7 +7897,7 @@
           "preview, approval outcome, applied result, and affected Zotero refs"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -7681,9 +7955,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from mutation.execute."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -7707,7 +7986,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -7751,7 +8030,7 @@
           "preview, approval outcome, applied result, and affected Zotero refs"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -7829,9 +8108,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from mutation.execute."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -7855,7 +8139,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -7899,7 +8183,7 @@
           "preview, approval outcome, applied result, and affected Zotero refs"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -7977,9 +8261,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from mutation.execute."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -8003,7 +8292,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -8047,7 +8336,7 @@
           "preview, approval outcome, applied result, and affected Zotero refs"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -8125,9 +8414,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from mutation.execute."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -8151,7 +8445,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -8195,7 +8489,7 @@
           "preview, approval outcome, applied result, and affected Zotero refs"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -8251,9 +8545,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from mutation.preview."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -8326,7 +8625,7 @@
           "read-only preview with affected refs and proposed effects"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -8350,11 +8649,17 @@
         "type": "object",
         "properties": {
           "items": {
-            "type": "string",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "description": "Target Zotero item refs"
           },
           "tags": {
-            "type": "string",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "description": "Tags to add or remove"
           }
         },
@@ -8404,9 +8709,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from mutation.execute."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -8430,7 +8740,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -8474,7 +8784,7 @@
           "preview, approval outcome, applied result, and affected Zotero refs"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -8498,11 +8808,17 @@
         "type": "object",
         "properties": {
           "items": {
-            "type": "string",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "description": "Target Zotero item refs"
           },
           "tags": {
-            "type": "string",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "description": "Tags to add or remove"
           }
         },
@@ -8552,9 +8868,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from mutation.execute."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -8578,7 +8899,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -8622,13 +8943,216 @@
           "preview, approval outcome, applied result, and affected Zotero refs"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
           "library note get"
         ],
         "example": "zotero-bridge mutation tag remove --items 'items' --tags 'tags'"
+      },
+      "hiddenFromIntentSearch": false
+    },
+    {
+      "command": "operation get",
+      "argv": [
+        "operation",
+        "get"
+      ],
+      "summary": "Read one durable Host Bridge operation receipt",
+      "category": "read",
+      "danger": "none",
+      "invocationSchema": {
+        "type": "object",
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "description": "Operation id returned by or supplied to a state-changing command",
+            "position": 1
+          }
+        },
+        "required": [
+          "operation_id"
+        ],
+        "additionalProperties": false
+      },
+      "argvBindings": [
+        {
+          "property": "operation_id",
+          "kind": "positional",
+          "token": "OPERATION_ID",
+          "position": 1,
+          "takesValue": true,
+          "required": true,
+          "valueNames": [
+            "OPERATION_ID"
+          ]
+        }
+      ],
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "description": "Operation id returned by or supplied to a state-changing command"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "resultSchema": {
+        "type": "object",
+        "properties": {
+          "schema": {
+            "const": "host-bridge.operation-receipt.v1"
+          },
+          "operationId": {
+            "type": "string"
+          },
+          "requestDigest": {
+            "type": "string"
+          },
+          "attemptId": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "in_progress",
+              "completed",
+              "outcome_unknown"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "retentionExpiresAt": {
+            "type": "string"
+          },
+          "stateChange": {
+            "enum": [
+              "unchanged",
+              "changed",
+              "unknown"
+            ]
+          },
+          "handleConsumption": {
+            "enum": [
+              "unconsumed",
+              "consumed",
+              "unknown"
+            ]
+          },
+          "response": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "schema",
+          "operationId",
+          "requestDigest",
+          "attemptId",
+          "method",
+          "path",
+          "state",
+          "createdAt",
+          "updatedAt",
+          "retentionExpiresAt",
+          "stateChange",
+          "handleConsumption"
+        ],
+        "additionalProperties": false
+      },
+      "pagination": "none",
+      "effects": [
+        {
+          "kind": "none",
+          "stateChanged": false,
+          "description": "Reads state without changing Host-owned data."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No Host Bridge UI approval; provider runtimes may still request their own permission."
+      },
+      "handleTransitions": [
+        {
+          "handle": "operationId",
+          "direction": "consume",
+          "required": true,
+          "condition": "Required by the command invocation.",
+          "lifetime": "caller-owned"
+        }
+      ],
+      "recovery": [
+        {
+          "when": "The read fails or returns incomplete evidence.",
+          "stateCheck": "none",
+          "requiresHandles": [],
+          "action": "Inspect the error and retry only when retryable is true.",
+          "nextCommand": "surface describe"
+        }
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "GET /bridge/v1/operations/{operationId}"
+        }
+      ],
+      "intents": [
+        "inspect a durable operation receipt",
+        "resolve an uncertain write outcome",
+        "get operation receipt",
+        "check uncertain mutation"
+      ],
+      "guidance": {
+        "family": "operation",
+        "domain": "connectivity",
+        "operation": "operation get",
+        "purpose": "Read one durable Host Bridge operation receipt",
+        "commandSpecific": true,
+        "intents": [
+          "inspect a durable operation receipt",
+          "resolve an uncertain write outcome",
+          "get operation receipt",
+          "check uncertain mutation"
+        ],
+        "useWhen": [
+          "Use operation get when the required operation is: Read one durable Host Bridge operation receipt.",
+          "A state-changing command returned an operationId or reported unknown state or handle outcomes."
+        ],
+        "avoidWhen": [
+          "Do not use operation get when the task needs a different sibling result, control plane, or freshness guarantee.",
+          "Do not infer operation completion from transport status when a receipt is available."
+        ],
+        "distinguishFrom": [
+          "No semantic sibling exists; use surface search before falling back to a raw capability call."
+        ],
+        "preconditions": [
+          "Verify the exact CLI identity and a reachable Host Bridge before relying on live results."
+        ],
+        "evidence": [
+          "The structured operation get result and the exact invocation inputs used to obtain it.",
+          "operation state, request digest, stateChange, handleConsumption, and original response",
+          "the exact operationId-bound durable receipt"
+        ],
+        "failureChecks": [
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
+        ],
+        "followups": [
+          "surface describe",
+          "bridge status"
+        ],
+        "example": "zotero-bridge operation get 'operation-id'"
       },
       "hiddenFromIntentSearch": false
     },
@@ -8735,9 +9259,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from workflow_products.export."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "fileId": {
             "type": "string"
@@ -8887,7 +9416,7 @@
           "productId, product metadata, downloaded asset, or removal result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "file download",
@@ -8948,9 +9477,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from workflow_products.get."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "productId": {
             "type": "string"
@@ -9035,7 +9569,7 @@
           "productId, product metadata, downloaded asset, or removal result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "file download",
@@ -9161,9 +9695,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from workflow_products.list."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "products": {
             "type": "array"
@@ -9243,7 +9782,7 @@
           "productId, product metadata, downloaded asset, or removal result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "file download",
@@ -9304,9 +9843,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from workflow_products.remove."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -9338,7 +9882,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -9381,7 +9925,7 @@
           "productId, product metadata, downloaded asset, or removal result"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "file download",
@@ -9415,13 +9959,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/tasks/active."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -9486,7 +10025,7 @@
           "current lifecycle state and the exact runtime handle used"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -9581,13 +10120,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from POST /bridge/v1/workflows/runs/{workflowRunId}/cancel."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -9616,7 +10150,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -9660,7 +10194,7 @@
           "current lifecycle state and the exact runtime handle used"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -9720,15 +10254,11 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/workflows/runs/{workflowRunId}."
-          },
           "skillRunId": {
             "type": "string"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -9808,7 +10338,7 @@
           "current lifecycle state and the exact runtime handle used"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -9968,10 +10498,6 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/tasks."
-          },
           "items": {
             "type": "array"
           },
@@ -9986,7 +10512,7 @@
             "type": "boolean"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": true
       },
       "pagination": "cursor",
       "effects": [
@@ -10051,7 +10577,7 @@
           "current lifecycle state and the exact runtime handle used"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -10075,7 +10601,10 @@
         "type": "object",
         "properties": {
           "event": {
-            "type": "string",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "description": "Notification event id"
           },
           "client-id": {
@@ -10127,13 +10656,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from POST /bridge/v1/notifications/ack."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -10162,7 +10686,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -10206,7 +10730,7 @@
           "current lifecycle state and the exact runtime handle used"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -10371,24 +10895,34 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/notifications."
+          "notifications": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
           },
-          "events": {
-            "type": "array"
-          },
-          "nextCursor": {
+          "nextSinceEventId": {
             "type": [
               "string",
-              "number",
               "null"
             ]
           },
+          "returned": {
+            "type": "integer"
+          },
           "hasMore": {
+            "type": "boolean"
+          },
+          "truncated": {
             "type": "boolean"
           }
         },
+        "required": [
+          "notifications",
+          "returned",
+          "hasMore",
+          "truncated"
+        ],
         "additionalProperties": false
       },
       "pagination": "cursor",
@@ -10454,7 +10988,7 @@
           "current lifecycle state and the exact runtime handle used"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -10655,24 +11189,34 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/notifications."
+          "notifications": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
           },
-          "events": {
-            "type": "array"
-          },
-          "nextCursor": {
+          "nextSinceEventId": {
             "type": [
               "string",
-              "number",
               "null"
             ]
           },
+          "returned": {
+            "type": "integer"
+          },
           "hasMore": {
+            "type": "boolean"
+          },
+          "truncated": {
             "type": "boolean"
           }
         },
+        "required": [
+          "notifications",
+          "returned",
+          "hasMore",
+          "truncated"
+        ],
         "additionalProperties": false
       },
       "pagination": "cursor",
@@ -10738,7 +11282,7 @@
           "current lifecycle state and the exact runtime handle used"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -10798,13 +11342,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/permissions/{permissionRequestId}."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -10877,7 +11416,7 @@
           "current lifecycle state and the exact runtime handle used"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -10912,13 +11451,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/permissions/pending."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -10983,7 +11517,7 @@
           "current lifecycle state and the exact runtime handle used"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -11093,10 +11627,6 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/tasks/recent."
-          },
           "items": {
             "type": "array"
           },
@@ -11111,7 +11641,7 @@
             "type": "boolean"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": true
       },
       "pagination": "cursor",
       "effects": [
@@ -11176,7 +11706,7 @@
           "current lifecycle state and the exact runtime handle used"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -11236,13 +11766,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from POST /bridge/v1/skill-runs/{skillRunId}/connect."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -11271,7 +11796,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -11315,7 +11840,7 @@
           "current lifecycle state and the exact runtime handle used"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -11412,10 +11937,6 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/skill-runs/{skillRunId}/events."
-          },
           "events": {
             "type": "array"
           },
@@ -11430,7 +11951,7 @@
             "type": "boolean"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": true
       },
       "pagination": "cursor",
       "effects": [
@@ -11495,7 +12016,7 @@
           "current lifecycle state and the exact runtime handle used"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -11555,13 +12076,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/skill-runs/{skillRunId}."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -11634,7 +12150,7 @@
           "current lifecycle state and the exact runtime handle used"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -11709,10 +12225,6 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/skill-runs/recent."
-          },
           "skillRuns": {
             "type": "array"
           },
@@ -11727,7 +12239,7 @@
             "type": "boolean"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": true
       },
       "pagination": "cursor",
       "effects": [
@@ -11792,7 +12304,7 @@
           "current lifecycle state and the exact runtime handle used"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -11871,13 +12383,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from POST /bridge/v1/skill-runs/{skillRunId}/reply."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -11906,7 +12413,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -11950,7 +12457,7 @@
           "current lifecycle state and the exact runtime handle used"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -12027,10 +12534,6 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/workflows/runs."
-          },
           "runs": {
             "type": "array"
           },
@@ -12045,7 +12548,7 @@
             "type": "boolean"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": true
       },
       "pagination": "cursor",
       "effects": [
@@ -12110,7 +12613,7 @@
           "current lifecycle state and the exact runtime handle used"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -12133,7 +12636,10 @@
         "type": "object",
         "properties": {
           "command": {
-            "type": "string",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "description": "Canonical command, for example workflow submit",
             "position": 1
           },
@@ -12183,13 +12689,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from embedded host-bridge.agent-surface.v3."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -12210,8 +12711,7 @@
           "when": "The read fails or returns incomplete evidence.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect the error and retry only when retryable is true.",
-          "nextCommand": "surface identity"
+          "action": "Inspect the error and retry only when retryable is true."
         }
       ],
       "targets": [
@@ -12254,7 +12754,7 @@
           "surface identity or the described command entry"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "bridge status"
@@ -12303,13 +12803,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from embedded host-bridge.agent-surface.v3."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -12330,8 +12825,7 @@
           "when": "The read fails or returns incomplete evidence.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect the error and retry only when retryable is true.",
-          "nextCommand": "surface identity"
+          "action": "Inspect the error and retry only when retryable is true."
         }
       ],
       "targets": [
@@ -12374,7 +12868,7 @@
           "surface identity or the described command entry"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "bridge status"
@@ -12476,13 +12970,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from embedded host-bridge.agent-surface.v3."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -12503,8 +12992,7 @@
           "when": "The read fails or returns incomplete evidence.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect the error and retry only when retryable is true.",
-          "nextCommand": "surface identity"
+          "action": "Inspect the error and retry only when retryable is true."
         }
       ],
       "targets": [
@@ -12547,7 +13035,7 @@
           "surface identity or the described command entry"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "bridge status"
@@ -12603,9 +13091,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from paper_artifacts.export_filtered."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "file": {
             "type": "object",
@@ -12738,7 +13231,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -12795,9 +13288,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from paper_artifacts.get_manifest."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -12865,7 +13363,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -12922,9 +13420,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from paper_artifacts.read."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -12992,7 +13495,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -13049,9 +13552,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from paper_artifacts.resolve_topic_digest."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -13119,7 +13627,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -13195,13 +13703,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from POST /bridge/v1/synthesis/cache/invalidate."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -13222,7 +13725,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -13270,13 +13773,13 @@
           "pre-invalidation status, approval outcome, and post-invalidation status"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
           "workflow describe"
         ],
-        "example": "zotero-bridge synthesis cache invalidate --scope 'scope'"
+        "example": "zotero-bridge synthesis cache invalidate --scope 'topic'"
       },
       "hiddenFromIntentSearch": false
     },
@@ -13354,9 +13857,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from reference_sidecar.refresh."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -13380,7 +13888,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -13424,7 +13932,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -13483,9 +13991,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from synthesis.operation.get, GET /bridge/v1/synthesis/cache/status."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -13557,7 +14070,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -13614,9 +14127,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from concepts.query."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -13684,7 +14202,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -13741,9 +14259,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from citation_graph.get_layout."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -13811,7 +14334,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -13889,9 +14412,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from citation_graph.get_metrics."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "graph": {
             "type": "array"
@@ -13972,7 +14500,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -14029,9 +14557,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from citation_graph.get_slice."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -14099,7 +14632,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -14269,9 +14802,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from citation_graph.get_overview."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "graph": {
             "type": "array"
@@ -14352,7 +14890,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -14471,9 +15009,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from citation_graph.query_cluster."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -14541,7 +15084,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -14613,9 +15156,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from citation_graph.rank_external_references."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "graph": {
             "type": "array"
@@ -14696,7 +15244,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -14774,9 +15322,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from citation_graph.rank_library_papers."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "graph": {
             "type": "array"
@@ -14857,7 +15410,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -14914,9 +15467,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from citation_graph.refresh_metrics."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -14940,7 +15498,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -14984,7 +15542,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -15074,9 +15632,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from citation_graph.update."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -15100,7 +15663,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "none",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -15144,7 +15707,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -15278,9 +15841,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from library_index.get."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "entries": {
             "type": "array"
@@ -15361,7 +15929,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -15419,9 +15987,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from reference_index.get."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "entries": {
             "type": "array"
@@ -15502,7 +16075,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -15537,13 +16110,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/synthesis/index/status."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -15608,7 +16176,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -15665,9 +16233,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from insights.get_attention_queue."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -15735,7 +16308,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -15814,9 +16387,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from resolvers.resolve."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "items": {
             "type": "array"
@@ -15900,7 +16478,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -15957,9 +16535,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from schemas.get."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -16027,7 +16610,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -16084,9 +16667,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from topics.find_by_paper_ref."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -16154,7 +16742,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -16283,9 +16871,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from topics.get_context."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "file": {
             "type": "object",
@@ -16418,7 +17011,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -16475,9 +17068,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from topics.get_report."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -16545,7 +17143,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -16602,9 +17200,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from topics.get_review_input."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           }
         },
         "additionalProperties": false
@@ -16672,7 +17275,7 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
@@ -16738,9 +17341,14 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from topics.list."
+          "capability": {
+            "type": "string"
+          },
+          "approval": {
+            "type": "object"
+          },
+          "data": {
+            "description": "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision."
           },
           "topics": {
             "type": "array"
@@ -16821,13 +17429,187 @@
           "topic, graph, index, resolver, artifact, schema, or insight result with paging metadata"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "library item get",
           "workflow describe"
         ],
         "example": "zotero-bridge synthesis topic list"
+      },
+      "hiddenFromIntentSearch": false
+    },
+    {
+      "command": "workflow agent-abandon",
+      "argv": [
+        "workflow",
+        "agent-abandon"
+      ],
+      "summary": "Abandon an unconsumed agent run",
+      "category": "write",
+      "danger": "review",
+      "invocationSchema": {
+        "type": "object",
+        "properties": {
+          "agent_run_id": {
+            "type": "string",
+            "description": "Agent run id returned by workflow agent-run",
+            "position": 1
+          }
+        },
+        "required": [
+          "agent_run_id"
+        ],
+        "additionalProperties": false
+      },
+      "argvBindings": [
+        {
+          "property": "agent_run_id",
+          "kind": "positional",
+          "token": "AGENT_RUN_ID",
+          "position": 1,
+          "takesValue": true,
+          "required": true,
+          "valueNames": [
+            "AGENT_RUN_ID"
+          ]
+        }
+      ],
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "agent_run_id": {
+            "type": "string",
+            "description": "Agent run id returned by workflow agent-run"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "resultSchema": {
+        "type": "object",
+        "properties": {
+          "agentRunId": {
+            "type": "string"
+          },
+          "workflowId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "leaseExpiresAt": {
+            "type": "string"
+          },
+          "retentionExpiresAt": {
+            "type": "string"
+          },
+          "renewable": {
+            "type": "boolean"
+          },
+          "abandonable": {
+            "type": "boolean"
+          },
+          "renewedAt": {
+            "type": "string"
+          },
+          "abandonedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "agentRunId",
+          "workflowId",
+          "state",
+          "leaseExpiresAt",
+          "retentionExpiresAt",
+          "renewable",
+          "abandonable"
+        ],
+        "additionalProperties": false
+      },
+      "pagination": "none",
+      "effects": [
+        {
+          "kind": "workflow-control",
+          "stateChanged": true,
+          "description": "May change workflow control state."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No Host Bridge UI approval; provider runtimes may still request their own permission."
+      },
+      "handleTransitions": [
+        {
+          "handle": "agentRunId",
+          "direction": "consume",
+          "required": true,
+          "condition": "Required by the command invocation.",
+          "lifetime": "one-shot"
+        }
+      ],
+      "recovery": [
+        {
+          "when": "The operation fails or completion is uncertain.",
+          "stateCheck": "none",
+          "requiresHandles": [],
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
+          "nextCommand": "surface describe"
+        }
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v1/workflows/agent-runs/{agentRunId}/abandon"
+        }
+      ],
+      "intents": [
+        "inspect, validate, submit, or hand off a workflow",
+        "abandon agent handoff"
+      ],
+      "guidance": {
+        "family": "workflow",
+        "domain": "workflow-run",
+        "operation": "workflow agent-abandon",
+        "purpose": "Abandon an unconsumed agent run",
+        "commandSpecific": true,
+        "intents": [
+          "inspect, validate, submit, or hand off a workflow",
+          "abandon agent handoff"
+        ],
+        "useWhen": [
+          "Use workflow agent-abandon when the required operation is: Abandon an unconsumed agent run.",
+          "The task is reusable multi-step behavior governed by a workflow contract.",
+          "The caller will not apply the prepared handoff and wants to close it explicitly."
+        ],
+        "avoidWhen": [
+          "Do not use workflow agent-abandon when the task needs a different sibling result, control plane, or freshness guarantee.",
+          "Do not use agent-run for workflows that require Host-owned options or provider profiles."
+        ],
+        "distinguishFrom": [
+          "workflow agent-apply: choose it only when its narrower result matches the task.",
+          "workflow agent-apply-status: choose it only when its narrower result matches the task.",
+          "workflow agent-renew: choose it only when its narrower result matches the task.",
+          "workflow agent-run: choose it only when its narrower result matches the task."
+        ],
+        "preconditions": [
+          "Verify the exact CLI identity and a reachable Host Bridge before relying on live results."
+        ],
+        "evidence": [
+          "The structured workflow agent-abandon result and the exact invocation inputs used to obtain it.",
+          "executionModes, validation result, workflowRunId, agentRunId, or apply receipt",
+          "abandoned state and disabled lifecycle actions"
+        ],
+        "failureChecks": [
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
+        ],
+        "followups": [
+          "workflow describe",
+          "workflow agent-apply-status"
+        ],
+        "example": "zotero-bridge workflow agent-abandon 'agent-run-id'"
       },
       "hiddenFromIntentSearch": false
     },
@@ -16849,7 +17631,10 @@
             "position": 1
           },
           "result": {
-            "type": "string",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "description": "Apply-back result mapping. Repeat for multiple request bundles."
           }
         },
@@ -16900,15 +17685,11 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply."
-          },
           "applyReceipt": {
             "type": "string"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -16916,6 +17697,11 @@
           "kind": "workflow-control",
           "stateChanged": true,
           "description": "May change workflow control state."
+        },
+        {
+          "kind": "zotero-library",
+          "stateChanged": true,
+          "description": "May apply finalized Agent results to the Zotero library."
         }
       ],
       "approvalContract": {
@@ -16988,10 +17774,10 @@
           "Do not use agent-run for workflows that require Host-owned options or provider profiles."
         ],
         "distinguishFrom": [
+          "workflow agent-abandon: choose it only when its narrower result matches the task.",
           "workflow agent-apply-status: choose it only when its narrower result matches the task.",
-          "workflow agent-run: choose it only when its narrower result matches the task.",
-          "workflow describe: choose it only when its narrower result matches the task.",
-          "workflow list: choose it only when its narrower result matches the task."
+          "workflow agent-renew: choose it only when its narrower result matches the task.",
+          "workflow agent-run: choose it only when its narrower result matches the task."
         ],
         "preconditions": [
           "Verify the exact CLI identity and a reachable Host Bridge before relying on live results."
@@ -17002,7 +17788,7 @@
           "apply receipt and per-request applied or failed state"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -17062,14 +17848,51 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/workflows/agent-runs/{agentRunId}/apply."
+          "schema": {
+            "const": "host-bridge.agent-apply-receipt.v2"
           },
-          "applyReceipt": {
+          "agentRunId": {
             "type": "string"
+          },
+          "workflowId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "stateChange": {
+            "enum": [
+              "unchanged",
+              "changed",
+              "unknown"
+            ]
+          },
+          "handleConsumption": {
+            "enum": [
+              "unconsumed",
+              "consumed",
+              "unknown"
+            ]
+          },
+          "recoverable": {
+            "type": "boolean"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
           }
         },
+        "required": [
+          "schema",
+          "agentRunId",
+          "status",
+          "results"
+        ],
         "additionalProperties": false
       },
       "pagination": "none",
@@ -17137,10 +17960,10 @@
           "Do not use agent-run for workflows that require Host-owned options or provider profiles."
         ],
         "distinguishFrom": [
+          "workflow agent-abandon: choose it only when its narrower result matches the task.",
           "workflow agent-apply: choose it only when its narrower result matches the task.",
-          "workflow agent-run: choose it only when its narrower result matches the task.",
-          "workflow describe: choose it only when its narrower result matches the task.",
-          "workflow list: choose it only when its narrower result matches the task."
+          "workflow agent-renew: choose it only when its narrower result matches the task.",
+          "workflow agent-run: choose it only when its narrower result matches the task."
         ],
         "preconditions": [
           "Verify the exact CLI identity and a reachable Host Bridge before relying on live results."
@@ -17150,13 +17973,187 @@
           "executionModes, validation result, workflowRunId, agentRunId, or apply receipt"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
           "workflow agent-apply-status"
         ],
         "example": "zotero-bridge workflow agent-apply-status 'agent-run-id'"
+      },
+      "hiddenFromIntentSearch": false
+    },
+    {
+      "command": "workflow agent-renew",
+      "argv": [
+        "workflow",
+        "agent-renew"
+      ],
+      "summary": "Renew an unconsumed agent-run lease",
+      "category": "write",
+      "danger": "review",
+      "invocationSchema": {
+        "type": "object",
+        "properties": {
+          "agent_run_id": {
+            "type": "string",
+            "description": "Agent run id returned by workflow agent-run",
+            "position": 1
+          }
+        },
+        "required": [
+          "agent_run_id"
+        ],
+        "additionalProperties": false
+      },
+      "argvBindings": [
+        {
+          "property": "agent_run_id",
+          "kind": "positional",
+          "token": "AGENT_RUN_ID",
+          "position": 1,
+          "takesValue": true,
+          "required": true,
+          "valueNames": [
+            "AGENT_RUN_ID"
+          ]
+        }
+      ],
+      "payloadSchema": {
+        "type": "object",
+        "properties": {
+          "agent_run_id": {
+            "type": "string",
+            "description": "Agent run id returned by workflow agent-run"
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "resultSchema": {
+        "type": "object",
+        "properties": {
+          "agentRunId": {
+            "type": "string"
+          },
+          "workflowId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "leaseExpiresAt": {
+            "type": "string"
+          },
+          "retentionExpiresAt": {
+            "type": "string"
+          },
+          "renewable": {
+            "type": "boolean"
+          },
+          "abandonable": {
+            "type": "boolean"
+          },
+          "renewedAt": {
+            "type": "string"
+          },
+          "abandonedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "agentRunId",
+          "workflowId",
+          "state",
+          "leaseExpiresAt",
+          "retentionExpiresAt",
+          "renewable",
+          "abandonable"
+        ],
+        "additionalProperties": false
+      },
+      "pagination": "none",
+      "effects": [
+        {
+          "kind": "workflow-control",
+          "stateChanged": true,
+          "description": "May change workflow control state."
+        }
+      ],
+      "approvalContract": {
+        "kind": "none",
+        "timing": "none",
+        "scope": "No Host Bridge UI approval; provider runtimes may still request their own permission."
+      },
+      "handleTransitions": [
+        {
+          "handle": "agentRunId",
+          "direction": "consume",
+          "required": true,
+          "condition": "Required by the command invocation.",
+          "lifetime": "caller-owned"
+        }
+      ],
+      "recovery": [
+        {
+          "when": "The operation fails or completion is uncertain.",
+          "stateCheck": "none",
+          "requiresHandles": [],
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
+          "nextCommand": "surface describe"
+        }
+      ],
+      "targets": [
+        {
+          "kind": "endpoint",
+          "target": "POST /bridge/v1/workflows/agent-runs/{agentRunId}/renew"
+        }
+      ],
+      "intents": [
+        "inspect, validate, submit, or hand off a workflow",
+        "renew agent handoff lease"
+      ],
+      "guidance": {
+        "family": "workflow",
+        "domain": "workflow-run",
+        "operation": "workflow agent-renew",
+        "purpose": "Renew an unconsumed agent-run lease",
+        "commandSpecific": true,
+        "intents": [
+          "inspect, validate, submit, or hand off a workflow",
+          "renew agent handoff lease"
+        ],
+        "useWhen": [
+          "Use workflow agent-renew when the required operation is: Renew an unconsumed agent-run lease.",
+          "The task is reusable multi-step behavior governed by a workflow contract.",
+          "The agent run remains prepared or expired and more bounded processing time is required."
+        ],
+        "avoidWhen": [
+          "Do not use workflow agent-renew when the task needs a different sibling result, control plane, or freshness guarantee.",
+          "Do not use agent-run for workflows that require Host-owned options or provider profiles."
+        ],
+        "distinguishFrom": [
+          "workflow agent-abandon: choose it only when its narrower result matches the task.",
+          "workflow agent-apply: choose it only when its narrower result matches the task.",
+          "workflow agent-apply-status: choose it only when its narrower result matches the task.",
+          "workflow agent-run: choose it only when its narrower result matches the task."
+        ],
+        "preconditions": [
+          "Verify the exact CLI identity and a reachable Host Bridge before relying on live results."
+        ],
+        "evidence": [
+          "The structured workflow agent-renew result and the exact invocation inputs used to obtain it.",
+          "executionModes, validation result, workflowRunId, agentRunId, or apply receipt",
+          "renewedAt, leaseExpiresAt, and retentionExpiresAt"
+        ],
+        "failureChecks": [
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
+        ],
+        "followups": [
+          "workflow describe",
+          "workflow agent-apply-status"
+        ],
+        "example": "zotero-bridge workflow agent-renew 'agent-run-id'"
       },
       "hiddenFromIntentSearch": false
     },
@@ -17191,6 +18188,30 @@
         },
         "required": [
           "workflow"
+        ],
+        "allOf": [
+          {
+            "not": {
+              "required": [
+                "selection",
+                "none"
+              ]
+            }
+          },
+          {
+            "oneOf": [
+              {
+                "required": [
+                  "selection"
+                ]
+              },
+              {
+                "required": [
+                  "none"
+                ]
+              }
+            ]
+          }
         ],
         "additionalProperties": false
       },
@@ -17258,20 +18279,53 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from POST /bridge/v1/workflows/agent-run."
-          },
           "agentRunId": {
             "type": "string"
           },
-          "agentRequestId": {
+          "workflowId": {
             "type": "string"
           },
-          "fileId": {
+          "workflowLabel": {
             "type": "string"
+          },
+          "generatedAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "requests": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "instruction": {
+            "type": "string"
+          },
+          "applyStatus": {
+            "type": "object"
+          },
+          "bundle": {
+            "type": "object"
+          },
+          "contents": {
+            "type": "object"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
+        "required": [
+          "agentRunId",
+          "workflowId",
+          "expiresAt",
+          "requests",
+          "bundle"
+        ],
         "additionalProperties": false
       },
       "pagination": "none",
@@ -17357,10 +18411,10 @@
           "Do not use agent-run for workflows that require Host-owned options or provider profiles."
         ],
         "distinguishFrom": [
+          "workflow agent-abandon: choose it only when its narrower result matches the task.",
           "workflow agent-apply: choose it only when its narrower result matches the task.",
           "workflow agent-apply-status: choose it only when its narrower result matches the task.",
-          "workflow describe: choose it only when its narrower result matches the task.",
-          "workflow list: choose it only when its narrower result matches the task."
+          "workflow agent-renew: choose it only when its narrower result matches the task."
         ],
         "preconditions": [
           "Verify the exact CLI identity and a reachable Host Bridge before relying on live results."
@@ -17371,13 +18425,13 @@
           "executionModes.agentOwned, agentRunId, agentRequestIds, and verified bundles"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
           "workflow agent-apply-status"
         ],
-        "example": "zotero-bridge workflow agent-run --workflow 'workflow'"
+        "example": "zotero-bridge workflow agent-run --workflow 'workflow' --selection '[]'"
       },
       "hiddenFromIntentSearch": false
     },
@@ -17446,13 +18500,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from POST /bridge/v1/workflows/describe."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -17504,10 +18553,10 @@
           "Do not use agent-run for workflows that require Host-owned options or provider profiles."
         ],
         "distinguishFrom": [
+          "workflow agent-abandon: choose it only when its narrower result matches the task.",
           "workflow agent-apply: choose it only when its narrower result matches the task.",
           "workflow agent-apply-status: choose it only when its narrower result matches the task.",
-          "workflow agent-run: choose it only when its narrower result matches the task.",
-          "workflow list: choose it only when its narrower result matches the task."
+          "workflow agent-renew: choose it only when its narrower result matches the task."
         ],
         "preconditions": [
           "Verify the exact CLI identity and a reachable Host Bridge before relying on live results."
@@ -17517,7 +18566,7 @@
           "executionModes, validation result, workflowRunId, agentRunId, or apply receipt"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -17551,13 +18600,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/workflows."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -17609,10 +18653,10 @@
           "Do not use agent-run for workflows that require Host-owned options or provider profiles."
         ],
         "distinguishFrom": [
+          "workflow agent-abandon: choose it only when its narrower result matches the task.",
           "workflow agent-apply: choose it only when its narrower result matches the task.",
           "workflow agent-apply-status: choose it only when its narrower result matches the task.",
-          "workflow agent-run: choose it only when its narrower result matches the task.",
-          "workflow describe: choose it only when its narrower result matches the task."
+          "workflow agent-renew: choose it only when its narrower result matches the task."
         ],
         "preconditions": [
           "Verify the exact CLI identity and a reachable Host Bridge before relying on live results."
@@ -17622,7 +18666,7 @@
           "executionModes, validation result, workflowRunId, agentRunId, or apply receipt"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -17680,13 +18724,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from POST /bridge/v1/workflows/provider-profiles/describe."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -17738,10 +18777,10 @@
           "Do not use agent-run for workflows that require Host-owned options or provider profiles."
         ],
         "distinguishFrom": [
+          "workflow agent-abandon: choose it only when its narrower result matches the task.",
           "workflow agent-apply: choose it only when its narrower result matches the task.",
           "workflow agent-apply-status: choose it only when its narrower result matches the task.",
-          "workflow agent-run: choose it only when its narrower result matches the task.",
-          "workflow describe: choose it only when its narrower result matches the task."
+          "workflow agent-renew: choose it only when its narrower result matches the task."
         ],
         "preconditions": [
           "Verify the exact CLI identity and a reachable Host Bridge before relying on live results."
@@ -17751,7 +18790,7 @@
           "executionModes, validation result, workflowRunId, agentRunId, or apply receipt"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -17786,13 +18825,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from GET /bridge/v1/workflows/provider-profiles."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -17844,10 +18878,10 @@
           "Do not use agent-run for workflows that require Host-owned options or provider profiles."
         ],
         "distinguishFrom": [
+          "workflow agent-abandon: choose it only when its narrower result matches the task.",
           "workflow agent-apply: choose it only when its narrower result matches the task.",
           "workflow agent-apply-status: choose it only when its narrower result matches the task.",
-          "workflow agent-run: choose it only when its narrower result matches the task.",
-          "workflow describe: choose it only when its narrower result matches the task."
+          "workflow agent-renew: choose it only when its narrower result matches the task."
         ],
         "preconditions": [
           "Verify the exact CLI identity and a reachable Host Bridge before relying on live results."
@@ -17857,7 +18891,7 @@
           "executionModes, validation result, workflowRunId, agentRunId, or apply receipt"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -17913,13 +18947,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from POST /bridge/v1/workflows/provider-profiles/validate."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -17971,10 +19000,10 @@
           "Do not use agent-run for workflows that require Host-owned options or provider profiles."
         ],
         "distinguishFrom": [
+          "workflow agent-abandon: choose it only when its narrower result matches the task.",
           "workflow agent-apply: choose it only when its narrower result matches the task.",
           "workflow agent-apply-status: choose it only when its narrower result matches the task.",
-          "workflow agent-run: choose it only when its narrower result matches the task.",
-          "workflow describe: choose it only when its narrower result matches the task."
+          "workflow agent-renew: choose it only when its narrower result matches the task."
         ],
         "preconditions": [
           "Verify the exact CLI identity and a reachable Host Bridge before relying on live results."
@@ -17984,7 +19013,7 @@
           "executionModes, validation result, workflowRunId, agentRunId, or apply receipt"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
@@ -18016,6 +19045,30 @@
           }
         },
         "required": [],
+        "allOf": [
+          {
+            "not": {
+              "required": [
+                "workflow",
+                "legacy_workflow"
+              ]
+            }
+          },
+          {
+            "oneOf": [
+              {
+                "required": [
+                  "workflow"
+                ]
+              },
+              {
+                "required": [
+                  "legacy_workflow"
+                ]
+              }
+            ]
+          }
+        ],
         "additionalProperties": false
       },
       "argvBindings": [
@@ -18057,13 +19110,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from POST /bridge/v1/workflows/requirements."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -18115,10 +19163,10 @@
           "Do not use agent-run for workflows that require Host-owned options or provider profiles."
         ],
         "distinguishFrom": [
+          "workflow agent-abandon: choose it only when its narrower result matches the task.",
           "workflow agent-apply: choose it only when its narrower result matches the task.",
           "workflow agent-apply-status: choose it only when its narrower result matches the task.",
-          "workflow agent-run: choose it only when its narrower result matches the task.",
-          "workflow describe: choose it only when its narrower result matches the task."
+          "workflow agent-renew: choose it only when its narrower result matches the task."
         ],
         "preconditions": [
           "Verify the exact CLI identity and a reachable Host Bridge before relying on live results."
@@ -18128,13 +19176,13 @@
           "executionModes, validation result, workflowRunId, agentRunId, or apply receipt"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
           "workflow agent-apply-status"
         ],
-        "example": "zotero-bridge workflow requirements"
+        "example": "zotero-bridge workflow requirements --workflow 'workflow'"
       },
       "hiddenFromIntentSearch": false
     },
@@ -18173,6 +19221,30 @@
         },
         "required": [
           "workflow"
+        ],
+        "allOf": [
+          {
+            "not": {
+              "required": [
+                "selection",
+                "none"
+              ]
+            }
+          },
+          {
+            "oneOf": [
+              {
+                "required": [
+                  "selection"
+                ]
+              },
+              {
+                "required": [
+                  "none"
+                ]
+              }
+            ]
+          }
         ],
         "additionalProperties": false
       },
@@ -18254,14 +19326,41 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from POST /bridge/v1/workflows/submit."
+          "workflowId": {
+            "type": "string"
+          },
+          "workflowLabel": {
+            "type": "string"
           },
           "workflowRunId": {
             "type": "string"
+          },
+          "jobIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "totalJobs": {
+            "type": "integer"
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "permission": {
+            "type": "object"
           }
         },
+        "required": [
+          "workflowId",
+          "workflowRunId",
+          "jobIds",
+          "totalJobs",
+          "tasks"
+        ],
         "additionalProperties": false
       },
       "pagination": "none",
@@ -18298,7 +19397,7 @@
           "when": "The operation fails or completion is uncertain.",
           "stateCheck": "command-result",
           "requiresHandles": [],
-          "action": "Inspect stateChanged and handleConsumed before repeating the operation.",
+          "action": "Inspect stateChange and handleConsumption before repeating the operation.",
           "nextCommand": "surface describe"
         }
       ],
@@ -18311,7 +19410,8 @@
       "intents": [
         "inspect, validate, submit, or hand off a workflow",
         "host owned workflow",
-        "submit workflow"
+        "submit workflow",
+        "提交工作流"
       ],
       "guidance": {
         "family": "workflow",
@@ -18322,7 +19422,8 @@
         "intents": [
           "inspect, validate, submit, or hand off a workflow",
           "host owned workflow",
-          "submit workflow"
+          "submit workflow",
+          "提交工作流"
         ],
         "useWhen": [
           "Use workflow submit when the required operation is: Submit a workflow with explicit JSON input.",
@@ -18333,10 +19434,10 @@
           "Do not use agent-run for workflows that require Host-owned options or provider profiles."
         ],
         "distinguishFrom": [
+          "workflow agent-abandon: choose it only when its narrower result matches the task.",
           "workflow agent-apply: choose it only when its narrower result matches the task.",
           "workflow agent-apply-status: choose it only when its narrower result matches the task.",
-          "workflow agent-run: choose it only when its narrower result matches the task.",
-          "workflow describe: choose it only when its narrower result matches the task."
+          "workflow agent-renew: choose it only when its narrower result matches the task."
         ],
         "preconditions": [
           "Verify the exact CLI identity and a reachable Host Bridge before relying on live results."
@@ -18347,13 +19448,13 @@
           "executionModes.hostOwned and workflowRunId"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
           "workflow agent-apply-status"
         ],
-        "example": "zotero-bridge workflow submit --workflow 'workflow'"
+        "example": "zotero-bridge workflow submit --workflow 'workflow' --selection '[]'"
       },
       "hiddenFromIntentSearch": false
     },
@@ -18388,6 +19489,30 @@
         },
         "required": [
           "workflow"
+        ],
+        "allOf": [
+          {
+            "not": {
+              "required": [
+                "selection",
+                "none"
+              ]
+            }
+          },
+          {
+            "oneOf": [
+              {
+                "required": [
+                  "selection"
+                ]
+              },
+              {
+                "required": [
+                  "none"
+                ]
+              }
+            ]
+          }
         ],
         "additionalProperties": false
       },
@@ -18454,13 +19579,8 @@
       },
       "resultSchema": {
         "type": "object",
-        "properties": {
-          "result": {
-            "type": "object",
-            "description": "Stable result from POST /bridge/v1/workflows/validate."
-          }
-        },
-        "additionalProperties": false
+        "properties": {},
+        "additionalProperties": true
       },
       "pagination": "none",
       "effects": [
@@ -18512,10 +19632,10 @@
           "Do not use agent-run for workflows that require Host-owned options or provider profiles."
         ],
         "distinguishFrom": [
+          "workflow agent-abandon: choose it only when its narrower result matches the task.",
           "workflow agent-apply: choose it only when its narrower result matches the task.",
           "workflow agent-apply-status: choose it only when its narrower result matches the task.",
-          "workflow agent-run: choose it only when its narrower result matches the task.",
-          "workflow describe: choose it only when its narrower result matches the task."
+          "workflow agent-renew: choose it only when its narrower result matches the task."
         ],
         "preconditions": [
           "Verify the exact CLI identity and a reachable Host Bridge before relying on live results."
@@ -18525,13 +19645,13 @@
           "executionModes, validation result, workflowRunId, agentRunId, or apply receipt"
         ],
         "failureChecks": [
-          "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing."
+          "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing."
         ],
         "followups": [
           "workflow describe",
           "workflow agent-apply-status"
         ],
-        "example": "zotero-bridge workflow validate --workflow 'workflow'"
+        "example": "zotero-bridge workflow validate --workflow 'workflow' --selection '[]'"
       },
       "hiddenFromIntentSearch": false
     }

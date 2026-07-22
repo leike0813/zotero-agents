@@ -24,7 +24,7 @@ Choose the narrowest Host Bridge command family that owns the requested behavior
 
 - Use `context current` or `context selection get` when the request refers to the current Zotero selection, collection, tab, item, note, or attachment.
 - Normalize child items, notes, and attachments to parent item refs before workflows that operate on literature items.
-- Use resolver commands when the user supplies titles, citekeys, DOIs, or mixed identifiers. Preserve returned stable refs instead of repeating fuzzy lookup.
+- Resolve titles, citekeys, DOIs, ISBNs, and mixed bibliographic identifiers with `library item search`, then confirm the bounded candidates with `library item get`. Use `synthesis resolver resolve` only for tag, collection-key, and paper-ref selector sets. Preserve returned stable refs instead of repeating fuzzy lookup.
 
 ## Library Reads
 

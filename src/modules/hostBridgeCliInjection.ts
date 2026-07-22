@@ -19,7 +19,10 @@ import {
   ensureRuntimeDirectory,
   writeRuntimeTextFile,
 } from "./runtimePersistence";
-import { registerHostBridgeWriteAutoApprovalScope } from "./hostBridgeWriteAutoApprovalRegistry";
+import {
+  issueHostBridgeWriteAutoApprovalGrant,
+  revokeHostBridgeWriteAutoApprovalGrant,
+} from "./hostBridgeWriteAutoApprovalRegistry";
 
 export type HostBridgeCliRunInjection = {
   available: boolean;
@@ -42,6 +45,7 @@ type MaterializeArgs = {
   requestId: string;
   scopeKind?: "acp-chat" | "acp-skill-run";
   autoApproveWrites?: boolean;
+  grantId?: string;
   resolveCli?: () => Promise<HostBridgeCliResolution>;
   ensureServer?: () => Promise<HostBridgeStatusSnapshot>;
   getToken?: () => string;
@@ -95,6 +99,7 @@ function buildProfileJson(args: {
   requestId: string;
   scopeKind?: "acp-chat" | "acp-skill-run";
   autoApproveWrites?: boolean;
+  grantId?: string;
 }) {
   const scopeKind =
     args.scopeKind === "acp-chat" ? "acp-chat" : "acp-skill-run";
@@ -112,6 +117,7 @@ function buildProfileJson(args: {
       requestId: args.requestId,
       runId: args.requestId,
       ...(args.autoApproveWrites ? { autoApproveWrites: true } : {}),
+      ...(args.grantId ? { grantId: args.grantId } : {}),
     },
   };
 }
@@ -189,45 +195,48 @@ export async function materializeHostBridgeCliRunInjection(
 
   await ensureRuntimeDirectory(bridgeDir);
   await ensureRuntimeDirectory(shimDir);
-  await writeRuntimeTextFile(
-    profilePath,
-    `${JSON.stringify(
-      buildProfileJson({
+  const grantId =
+    available && autoApproveWrites
+      ? issueHostBridgeWriteAutoApprovalGrant({ requestId, runId: requestId })
+      : undefined;
+  try {
+    await writeRuntimeTextFile(
+      profilePath,
+      `${JSON.stringify(
+        buildProfileJson({
+          endpoint,
+          requestId,
+          scopeKind: args.scopeKind,
+          autoApproveWrites,
+          grantId,
+        }),
+        null,
+        2,
+      )}\n`,
+    );
+    await writeRuntimeTextFile(
+      readmePath,
+      buildReadme({
+        available,
+        fallbackReason,
         endpoint,
-        requestId,
-        scopeKind: args.scopeKind,
+        profilePath,
         autoApproveWrites,
       }),
-      null,
-      2,
-    )}\n`,
-  );
-  if (autoApproveWrites) {
-    registerHostBridgeWriteAutoApprovalScope({
-      requestId,
-      runId: requestId,
-    });
-  }
-
-  await writeRuntimeTextFile(
-    readmePath,
-    buildReadme({
-      available,
-      fallbackReason,
-      endpoint,
-      profilePath,
-      autoApproveWrites,
-    }),
-  );
-  if (cli.available) {
-    await writeRuntimeTextFile(
-      joinPath(shimDir, "zotero-bridge"),
-      buildShellShim(cli.binaryPath),
     );
-    await writeRuntimeTextFile(
-      joinPath(shimDir, "zotero-bridge.cmd"),
-      buildCmdShim(cli.binaryPath),
-    );
+    if (cli.available) {
+      await writeRuntimeTextFile(
+        joinPath(shimDir, "zotero-bridge"),
+        buildShellShim(cli.binaryPath),
+      );
+      await writeRuntimeTextFile(
+        joinPath(shimDir, "zotero-bridge.cmd"),
+        buildCmdShim(cli.binaryPath),
+      );
+    }
+  } catch (error) {
+    if (grantId) revokeHostBridgeWriteAutoApprovalGrant(grantId);
+    throw error;
   }
 
   const env: Record<string, string> = {

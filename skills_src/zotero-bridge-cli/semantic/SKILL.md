@@ -69,11 +69,11 @@ Read `references/control-invariants.md` before using handles, approvals, file tr
 
 ## Output And Failure
 
-Stdout is one JSON envelope. On failure, use `retryable`, `stateChanged`, `handleConsumed`, `safeNextActions`, and `nextCommand` before retrying. When apply-back status is uncertain, query `workflow agent-apply-status <agentRunId>`; never infer safety from an error message alone.
+Stdout is one JSON envelope. On failure, use `retryable`, `stateChange`, `handleConsumption`, `safeNextActions`, and `nextCommand` before retrying. When a state-changing request loses its response, query `operation get <operationId>`; when apply-back status is uncertain, also query `workflow agent-apply-status <agentRunId>`. Never infer safety from an error message alone.
 
 - Retry the same command only when `retryable` is true and the current state still permits it.
-- If `stateChanged` is true, query the relevant current state before deciding whether another write is necessary.
-- If `handleConsumed` is true, do not reuse that handle.
+- If `stateChange` is `changed` or `unknown`, query the relevant current state before deciding whether another write is necessary.
+- If `handleConsumption` is `consumed` or `unknown`, do not reuse that handle until its receipt proves reuse is safe.
 - When a run is waiting for user input, locate its explicit `skillRunId` and use `run skill reply` only when the action is allowed.
 - When a failed skill run advertises recovery, use `run skill connect` only for the returned `skillRunId` and permitted action.
 - If a mutation or apply command is denied or invalid, report the structured code and safe next action; do not retry the write through raw `call`.

@@ -44,7 +44,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/diagnostics/backends.
+- No structured fields.
 - Completion evidence:
 - The structured bridge backend list result and the exact invocation inputs used to obtain it.
 - health, manifest, profile, or backend diagnostic result
@@ -52,13 +52,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge bridge backend status`
 
@@ -102,7 +102,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/diagnostics/backends/{backendId}.
+- No structured fields.
 - Completion evidence:
 - The structured bridge backend status result and the exact invocation inputs used to obtain it.
 - health, manifest, profile, or backend diagnostic result
@@ -110,13 +110,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge bridge manifest`
 
@@ -160,7 +160,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/manifest.
+- No structured fields.
 - Completion evidence:
 - The structured bridge manifest result and the exact invocation inputs used to obtain it.
 - health, manifest, profile, or backend diagnostic result
@@ -168,13 +168,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge bridge profile diagnose`
 
@@ -218,7 +218,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/diagnostics/profile/diagnose.
+- No structured fields.
 - Completion evidence:
 - The structured bridge profile diagnose result and the exact invocation inputs used to obtain it.
 - health, manifest, profile, or backend diagnostic result
@@ -226,13 +226,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge bridge profile inspect`
 
@@ -276,7 +276,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/diagnostics/profile.
+- No structured fields.
 - Completion evidence:
 - The structured bridge profile inspect result and the exact invocation inputs used to obtain it.
 - health, manifest, profile, or backend diagnostic result
@@ -284,13 +284,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge bridge status`
 
@@ -334,7 +334,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/health.
+- No structured fields.
 - Completion evidence:
 - The structured bridge status result and the exact invocation inputs used to obtain it.
 - health, manifest, profile, or backend diagnostic result
@@ -342,13 +342,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge context collection open`
 
@@ -395,7 +395,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from POST /bridge/v1/context/collections/open.
+- No structured fields.
 - Completion evidence:
 - The structured context collection open result and the exact invocation inputs used to obtain it.
 - current view, stable Zotero refs, or navigation result
@@ -403,13 +403,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `ui-navigation`: May change ui navigation state. stateChanged=true.
+- Effect `ui-navigation`: May change ui navigation state. mayChangeState=true.
 - consume `collectionKey` (caller-owned): Required by the command invocation.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge context current`
 
@@ -453,7 +453,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from context.get_current_view, GET /bridge/v1/context/current.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - Completion evidence:
 - The structured context current result and the exact invocation inputs used to obtain it.
 - current view, stable Zotero refs, or navigation result
@@ -461,13 +463,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge context item open`
 
@@ -511,7 +513,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from POST /bridge/v1/context/items/open.
+- No structured fields.
 - Completion evidence:
 - The structured context item open result and the exact invocation inputs used to obtain it.
 - current view, stable Zotero refs, or navigation result
@@ -519,13 +521,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `ui-navigation`: May change ui navigation state. stateChanged=true.
+- Effect `ui-navigation`: May change ui navigation state. mayChangeState=true.
 - consume `itemRef` (caller-owned): Required by the command invocation.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge context note open`
 
@@ -569,7 +571,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from POST /bridge/v1/context/notes/open.
+- No structured fields.
 - Completion evidence:
 - The structured context note open result and the exact invocation inputs used to obtain it.
 - current view, stable Zotero refs, or navigation result
@@ -577,13 +579,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `ui-navigation`: May change ui navigation state. stateChanged=true.
+- Effect `ui-navigation`: May change ui navigation state. mayChangeState=true.
 - consume `noteRef` (caller-owned): Required by the command invocation.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge context selection get`
 
@@ -627,7 +629,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from context.get_selected_items, GET /bridge/v1/context/selection.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - `itemRef` (string)
 - Completion evidence:
 - The structured context selection get result and the exact invocation inputs used to obtain it.
@@ -637,13 +641,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - produce `itemRef` (response): Returned when the corresponding operation succeeds.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge context selection open`
 
@@ -679,7 +683,7 @@ Distinguish from:
 - Exact argv bindings:
 - `item_refs` → positional 1 as `ITEM_REFS` (required, takes a value).
 - CLI invocation fields:
-- `item_refs` (string): Zotero item refs
+- `item_refs` (array): Zotero item refs
 - Decoded payload fields:
 - `item_refs` (string): Zotero item refs
 
@@ -687,7 +691,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from POST /bridge/v1/context/selection/open.
+- No structured fields.
 - Completion evidence:
 - The structured context selection open result and the exact invocation inputs used to obtain it.
 - current view, stable Zotero refs, or navigation result
@@ -695,13 +699,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `ui-navigation`: May change ui navigation state. stateChanged=true.
+- Effect `ui-navigation`: May change ui navigation state. mayChangeState=true.
 - consume `itemRef` (caller-owned): Required by the command invocation.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge surface describe`
 
@@ -736,7 +740,7 @@ Distinguish from:
 - `command` → positional 1 as `COMMAND` (required, takes a value).
 - `json` → option `--json` (optional, flag).
 - CLI invocation fields:
-- `command` (string): Canonical command, for example workflow submit
+- `command` (array): Canonical command, for example workflow submit
 - `json` (boolean): Emit JSON (the CLI output contract is always JSON)
 - Decoded payload fields:
 - `command` (string): Canonical command, for example workflow submit
@@ -745,7 +749,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from embedded host-bridge.agent-surface.v3.
+- No structured fields.
 - Completion evidence:
 - The structured surface describe result and the exact invocation inputs used to obtain it.
 - surface identity or the described command entry
@@ -753,13 +757,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
-- The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface identity`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge surface identity`
 
@@ -801,7 +805,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from embedded host-bridge.agent-surface.v3.
+- No structured fields.
 - Completion evidence:
 - The structured surface identity result and the exact invocation inputs used to obtain it.
 - surface identity or the described command entry
@@ -809,13 +813,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
-- The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface identity`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge surface search`
 
@@ -864,7 +868,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from embedded host-bridge.agent-surface.v3.
+- No structured fields.
 - Completion evidence:
 - The structured surface search result and the exact invocation inputs used to obtain it.
 - surface identity or the described command entry
@@ -872,10 +876,10 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
-- The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface identity`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.

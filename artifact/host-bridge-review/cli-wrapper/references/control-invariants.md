@@ -31,6 +31,20 @@
 - 在 Host mutation 中引用本地文件之前先上传；不要将任意本地路径作为 Zotero mutation 目标。
 - 将生成的路径和证据位置视为定位器。稳定的引用和摘要在交接中承载身份。
 
+## Operation Receipt 与恢复
+
+- 每个状态变更请求都携带不透明的 `operationId`。在持久化 operation receipt 终止前一直保留它。
+- 响应传输失败后，在重试前检查 `operation get <operationId>`。缺少响应意味着 `stateChange: unknown`，并非 unchanged。
+- 将 `stateChange` 解读为 `unchanged`、`changed` 或 `unknown`，将 `handleConsumption` 解读为 `unconsumed`、`consumed` 或 `unknown`。不得把 unknown 折叠成 Boolean 默认值。
+- 一个 `operationId` 不得用于不同输入。`fileId`、`agentRunId` 等领域 handle 与 operation receipt handle 彼此独立。
+
+## Surface 身份
+
+- SemVer 差异仅供参考。用当前 CLI help 确认所需命令。
+- build fingerprint 或 command catalog checksum 不同，意味着内置命令卡可能过期。对当前任务所需命令使用当前 CLI 的 `surface describe` 和 `surface search`。
+- protocol 或 CLI schema 不同，需要逐命令确认 argv、approval、handle、effect 和 recovery。仅在所需命令缺失或其控制合约无法确认时停止。
+- Effect 可以有多个。例如，`workflow agent-apply` 同时修改 workflow-control 状态和 Zotero 文献库；approval 本身不能描述完整 effect。
+
 ## 隐私与输出
 
 - 将凭证、授权头、完整 transcript、provider 私有 payload 和 Agent 私有状态排除在可移植证据之外。

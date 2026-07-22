@@ -55,6 +55,7 @@ zotero-bridge mutation --help
 zotero-bridge file --help
 zotero-bridge call --help
 zotero-bridge context --help
+zotero-bridge operation --help
 zotero-bridge product --help
 ```
 
@@ -112,8 +113,10 @@ zotero-bridge product --help
 | `synthesis topic get-report` | `topics.get_report` | capability | - |
 | `synthesis topic get-review-input` | `topics.get_review_input` | capability | - |
 | `synthesis topic list` | `topics.list` | capability | - |
+| `workflow agent-abandon` | `POST /bridge/v1/workflows/agent-runs/{agentRunId}/abandon` | endpoint | - |
 | `workflow agent-apply` | `POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply` | endpoint | - |
 | `workflow agent-apply-status` | `GET /bridge/v1/workflows/agent-runs/{agentRunId}/apply` | endpoint | - |
+| `workflow agent-renew` | `POST /bridge/v1/workflows/agent-runs/{agentRunId}/renew` | endpoint | - |
 | `workflow agent-run` | `POST /bridge/v1/workflows/agent-run` | endpoint | - |
 | `workflow describe` | `POST /bridge/v1/workflows/describe` | endpoint | - |
 | `workflow list` | `GET /bridge/v1/workflows` | endpoint | - |
@@ -163,6 +166,7 @@ zotero-bridge product --help
 | `context selection get` | `GET /bridge/v1/context/selection` | endpoint | - |
 | `context selection get` | `context.get_selected_items` | capability | - |
 | `context selection open` | `POST /bridge/v1/context/selection/open` | endpoint | - |
+| `operation get` | `GET /bridge/v1/operations/{operationId}` | endpoint | - |
 | `product download` | `workflow_products.export` | capability | - |
 | `product get` | `workflow_products.get` | capability | - |
 | `product list` | `workflow_products.list` | capability | - |

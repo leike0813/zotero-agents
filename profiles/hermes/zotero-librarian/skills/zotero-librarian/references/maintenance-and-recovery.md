@@ -11,6 +11,6 @@ Maintenance actions repair derived or diagnostic state; they are not ordinary ta
 
 ## Recovery rules
 
-Preserve the pre-action status, approval outcome, affected scope, structured error, and post-action status. If `stateChanged` is true, query the corresponding status before repeating. If `handleConsumed` is true, do not reuse the handle. If a resident refresh fails, keep the previous cache/index/catalog state instead of replacing it with an incomplete result.
+Preserve the `operationId`, pre-action status, approval outcome, affected scope, structured error, and post-action status. If `stateChange` is `changed` or `unknown`, query the operation receipt and corresponding live status before repeating. If `handleConsumption` is `consumed` or `unknown`, do not reuse the handle without a confirming domain receipt. If a resident refresh fails, keep the previous cache/index/catalog state instead of replacing it with an incomplete result.
 
 Scheduled work stops at a reviewable proposal for every maintenance write. A normal empty result is not evidence that maintenance is required.

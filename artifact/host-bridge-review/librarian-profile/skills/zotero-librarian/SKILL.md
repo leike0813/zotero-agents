@@ -15,7 +15,7 @@ license: AGPL-3.0-or-later
 3. 当请求使用图谱、三件套、digest、references、citation analysis、run handle 或 writeback 等简称时，阅读 `references/terminology.md`。
 4. 在准备或提交 workflow 之前，阅读 `references/workflow-execution-policy.md`。
 5. 使用 `references/common-tasks.md` 进行常见文献、readiness、synthesis 和 writeback 任务路由。
-6. 加载 `references/commands/` 下恰好一个匹配的生成命令手册；使用 `references/workflows.md` 获取生成的 workflow catalog，仅在需要详尽目标检查时使用 `references/host-bridge.md`。
+6. 为当前操作阶段加载一份匹配的生成命令手册。跨 family 的 workflow 在跨越阶段边界时可以加载下一阶段手册；不要预加载无关卡片。使用 `references/workflows.md` 获取生成的 workflow catalog，仅在需要详尽目标检查时使用 `references/host-bridge.md`。
 7. 在进行索引、调度、监控、维护或辅助脚本工作之前，阅读下面的常驻参考。
 8. 当 Host Bridge 可用性不确定时，检查 `zotero-bridge bridge status`。
 9. 当加载的 profile 路径、命令帮助或 CLI 错误提示 surface 不匹配时，将 `zotero-bridge --version` 与 `references/host-bridge.md` 中呈现的预期 CLI 版本进行比较。版本差异仅为建议性质：在执行该命令之前使用 `zotero-bridge <command> --help`。
@@ -31,7 +31,7 @@ license: AGPL-3.0-or-later
 - 对于可复用的多步骤行为，使用 `workflow describe` 检查 workflow。
 - 对于从同一文献库中已有文献对现有 collection 进行范围驱动的策展，提交 Host 拥有的 `collection-collector` workflow 并附带显式 workflow 选项，而不是发出推断的逐条目 collection mutation 或使用无选项的 agent-run 交接。
 - 对于草稿 workflow 输入，当就绪状态不确定时，在执行之前使用 `workflow requirements` 或 `workflow validate`。
-- 对于 Host 拥有的执行，提交 workflow 并通过 `run` 监控返回的 `workflowRunId`。
+- 对于 Host 拥有的执行，提交 workflow 并通过 `workflowRunId` 监控返回的 `run`。
 - 对于 Agent 拥有的交接，使用 `$zotero-workflow-agent-runner`；将 `agentRunId` 视为 apply-back session handle，完成返回的请求，并使用 `workflow agent-apply` 执行。
 - 对于写入操作，使用 preview/apply、mutation 支持的语义命令或 workflow apply-back。在任务记录中保留 preview、已应用结果、上传的 `fileId` 或结果包路径。
 - 对于精确的命令区分，加载下面直接链接的命令手册；在任何失败或不确定状态更改之后加载 `references/output-and-recovery.md`。
@@ -67,7 +67,7 @@ license: AGPL-3.0-or-later
 
 ## Writeback 处理
 
-对于 tag、collection、item field、note、payload 和 attachment 更改，先检查目标，然后使用 `mutation` 命令。在通过 `mutation item attach-file` 附加本地 artifact 之前，使用 `file upload` 上传它们。使用 `library annotation ...` 命令进行 annotation 读取和导出；annotation 写入不属于此 surface。
+对于 tag、collection、item field、note、payload 和 attachment 更改，先检查目标，然后使用 `mutation` 命令。在通过 `file upload` 附加本地 artifact 之前，使用 `mutation item attach-file` 上传它们。使用 `library annotation ...` 命令进行 annotation 读取和导出；annotation 写入不属于此 surface。
 
 ## 运行处理
 

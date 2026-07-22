@@ -1,0 +1,125 @@
+name: Build Host Bridge CLI Prebuilds
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact source commit whose CLI fingerprint will be built
+        required: true
+        type: string
+
+concurrency:
+  group: host-bridge-cli-prebuilds
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      build_matrix: ${{ steps.recipe.outputs.build_matrix }}
+      rust_toolchain: ${{ steps.recipe.outputs.rust_toolchain }}
+      zig_version: ${{ steps.recipe.outputs.zig_version }}
+      cargo_zigbuild_version: ${{ steps.recipe.outputs.cargo_zigbuild_version }}
+      node_version: ${{ steps.recipe.outputs.node_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+      - id: recipe
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ inputs.source_sha }}"
+          node scripts/host-bridge-cli-release-governance.mjs recipe --json > recipe.json
+          echo "build_matrix=$(jq -c .targets recipe.json)" >> "$GITHUB_OUTPUT"
+          echo "node_version=$(jq -r .toolchain.node recipe.json)" >> "$GITHUB_OUTPUT"
+          echo "rust_toolchain=$(jq -r .toolchain.rust recipe.json)" >> "$GITHUB_OUTPUT"
+          echo "zig_version=$(jq -r .toolchain.zig recipe.json)" >> "$GITHUB_OUTPUT"
+          echo "cargo_zigbuild_version=$(jq -r .toolchain.cargoZigbuild recipe.json)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.build_matrix) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ needs.plan.outputs.node_version }}
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ needs.plan.outputs.rust_toolchain }}
+          targets: ${{ matrix.target }}
+      - if: startsWith(matrix.platform, 'linux-')
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ needs.plan.outputs.zig_version }}
+      - if: startsWith(matrix.platform, 'linux-')
+        run: cargo install cargo-zigbuild --locked --version "${{ needs.plan.outputs.cargo_zigbuild_version }}"
+      - run: npm ci
+      - run: node scripts/build-zotero-bridge-cli.mjs --platform=${{ matrix.platform }} --target=${{ matrix.target }}
+      - if: ${{ !matrix.runtimeIdentity }}
+        run: node scripts/check-zotero-bridge-cli-binary-identity.mjs --platform=${{ matrix.platform }} --binary=${{ matrix.binary }}
+      - if: matrix.runtimeIdentity
+        shell: bash
+        run: addon/bin/${{ matrix.platform }}/${{ matrix.binary }} surface identity --json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zotero-bridge-${{ matrix.platform }}
+          path: addon/bin/${{ matrix.platform }}
+          if-no-files-found: error
+
+  publish-prebuild:
+    needs: [plan, build]
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.HOST_BRIDGE_RELEASE_TOKEN || github.token }}
+      PREBUILD_BRANCH: host-bridge-cli-prebuilds
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ needs.plan.outputs.node_version }}
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: zotero-bridge-*
+          path: prebuild-downloads
+      - shell: bash
+        run: |
+          set -euo pipefail
+          for artifact in prebuild-downloads/zotero-bridge-*; do
+            platform="${artifact##*/zotero-bridge-}"
+            mkdir -p "addon/bin/$platform"
+            cp -a "$artifact/." "addon/bin/$platform/"
+          done
+          chmod +x addon/bin/darwin-*/zotero-bridge addon/bin/linux-*/zotero-bridge
+          node scripts/host-bridge-cli-release-governance.mjs record-binaries --write --dispatch-reason=prebuild-only
+          npm run check:host-bridge-cli-prebuild-freshness
+          git clone --branch "$PREBUILD_BRANCH" "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" prebuild-store || {
+            git init prebuild-store
+            git -C prebuild-store checkout --orphan "$PREBUILD_BRANCH"
+            git -C prebuild-store remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          }
+          git -C prebuild-store config user.name github-actions[bot]
+          git -C prebuild-store config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          npx tsx scripts/stage-host-bridge-cli-prebuilds.ts --output-root=prebuild-store
+          aggregate="$(jq -r .binaryAggregateSha256 cli/zotero-bridge/release.json)"
+          git -C prebuild-store add "sets/$aggregate"
+          if ! git -C prebuild-store diff --cached --quiet; then
+            git -C prebuild-store commit -m "Store Host Bridge CLI prebuild $aggregate"
+            git -C prebuild-store push origin "HEAD:refs/heads/$PREBUILD_BRANCH"
+          fi

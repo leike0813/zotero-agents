@@ -6,7 +6,7 @@
 
 优先使用当前工作区附带的本地运行 shim。如果不存在，使用与本 skill 同一发布仓库中打包的 CLI 二进制。不要混用来自不同 Release Set 的 wrapper、二进制、manifest 或 profile。
 
-在连接之前运行 `zotero-bridge surface identity --json`。将 `protocol`、`cliSchema`、`version`、`buildFingerprint` 和 `commandCatalogChecksum` 与发布信封进行对比。任何不匹配都意味着命令合约未知；停止操作，不要从 SemVer 推断兼容性。
+在连接之前运行 `zotero-bridge surface identity --json`。将 `protocol`、`cliSchema`、`version`、`buildFingerprint` 和 `commandCatalogChecksum` 与发布信封进行对比。应用 `references/control-invariants.md` 中的字段级不匹配策略：SemVer 本身仅供参考；catalog 或 build 不匹配时需用当前 CLI 确认命令；protocol/schema 不匹配仅在无法确认所需命令合约时构成阻断。
 
 ## 选择唯一 Profile
 

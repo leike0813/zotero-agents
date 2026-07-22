@@ -9,9 +9,15 @@ import {
 } from "../../src/modules/hostBridgeServer";
 import {
   configureHostBridgeGlobalApprovalHandlerForTests,
+  getHostBridgePermissionProjection,
   resetHostBridgePermissionManagerForTests,
 } from "../../src/modules/hostBridgePermissionManager";
-import { resetHostBridgeWriteAutoApprovalScopesForTests } from "../../src/modules/hostBridgeWriteAutoApprovalRegistry";
+import {
+  issueHostBridgeWriteAutoApprovalGrant,
+  isHostBridgeWriteAutoApprovalScope,
+  revokeHostBridgeWriteAutoApprovalGrant,
+  resetHostBridgeWriteAutoApprovalScopesForTests,
+} from "../../src/modules/hostBridgeWriteAutoApprovalRegistry";
 import {
   setDebugModeOverrideForTests,
   setSkillRunnerConnectionAuditSourceOverrideForTests,
@@ -77,6 +83,7 @@ async function callBridgeCapability(args: {
   input?: unknown;
   scope?: unknown;
   connectionMode?: "local" | "remote";
+  peerHost?: string;
 }) {
   const headers: Record<string, string> = {};
   if (args.token) {
@@ -97,6 +104,7 @@ async function callBridgeCapability(args: {
         capability: args.capability,
         input: args.input,
       }),
+      peerHost: args.peerHost,
     }),
   );
 }
@@ -413,7 +421,7 @@ describe("host bridge capability calls", function () {
     assert.notInclude(JSON.stringify(item), "D:\\Private");
   });
 
-  it("passes connection mode headers into synthesis capability context", async function () {
+  it("derives connection mode from the socket peer and only permits conservative header downgrade", async function () {
     const token = configureHostBridgeServerForTests({
       token: "mode-token",
       resolveSynthesisService: () => ({
@@ -425,15 +433,83 @@ describe("host bridge capability calls", function () {
       }),
     });
 
-    const parsed = await callBridgeCapability({
+    const remote = await callBridgeCapability({
+      token,
+      capability: "topics.get_context",
+      input: { topicId: "object-detection" },
+      connectionMode: "local",
+      peerHost: "192.0.2.10",
+    });
+    const downgraded = await callBridgeCapability({
       token,
       capability: "topics.get_context",
       input: { topicId: "object-detection" },
       connectionMode: "remote",
+      peerHost: "127.0.0.1",
+    });
+    const local = await callBridgeCapability({
+      token,
+      capability: "topics.get_context",
+      input: { topicId: "object-detection" },
+      connectionMode: "local",
+      peerHost: "::1",
+    });
+    const unknown = await callBridgeCapability({
+      token,
+      capability: "topics.get_context",
+      input: { topicId: "object-detection" },
+      connectionMode: "local",
+      peerHost: "",
     });
 
-    assert.strictEqual(parsed.status, 200);
-    assert.strictEqual(parsed.json.result.data.connectionMode, "remote");
+    assert.strictEqual(remote.json.result.data.connectionMode, "remote");
+    assert.strictEqual(downgraded.json.result.data.connectionMode, "remote");
+    assert.strictEqual(local.json.result.data.connectionMode, "local");
+    assert.strictEqual(unknown.json.result.data.connectionMode, "remote");
+  });
+
+  it("rotates, binds, revokes, and redacts auto-approval grants", function () {
+    upsertAcpSkillRun({
+      requestId: "grant-run",
+      runId: "grant-run",
+      hostBridgeCli: {
+        available: true,
+        pathInjected: true,
+        autoApproveWrites: true,
+      },
+    });
+    const first = issueHostBridgeWriteAutoApprovalGrant({
+      requestId: "grant-run",
+      runId: "grant-run",
+    });
+    const second = issueHostBridgeWriteAutoApprovalGrant({
+      requestId: "grant-run",
+      runId: "grant-run",
+    });
+    const scope = {
+      kind: "acp-skill-run",
+      requestId: "grant-run",
+      runId: "grant-run",
+      autoApproveWrites: true,
+      connectionMode: "local" as const,
+    };
+    assert.isFalse(
+      isHostBridgeWriteAutoApprovalScope({ ...scope, grantId: first }),
+    );
+    assert.isTrue(
+      isHostBridgeWriteAutoApprovalScope({ ...scope, grantId: second }),
+    );
+    assert.isFalse(
+      isHostBridgeWriteAutoApprovalScope({
+        ...scope,
+        grantId: second,
+        connectionMode: "remote",
+      }),
+    );
+    revokeHostBridgeWriteAutoApprovalGrant(second);
+    assert.isFalse(
+      isHostBridgeWriteAutoApprovalScope({ ...scope, grantId: second }),
+    );
   });
 
   it("keeps sidecar refresh and graph update as separate approved operations", async function () {
@@ -1145,12 +1221,6 @@ describe("host bridge capability calls", function () {
   it("auto-approves mutation execute only for registered ACP run write scopes", async function () {
     const token = configureHostBridgeServerForTests({ token: "execute-token" });
     const item = await createParentItem("Bridge Auto Approve Before");
-    const scope = {
-      kind: "acp-skill-run",
-      requestId: "auto-approve-run",
-      runId: "auto-approve-run",
-      autoApproveWrites: true,
-    };
     upsertAcpSkillRun({
       requestId: "auto-approve-run",
       runId: "auto-approve-run",
@@ -1160,6 +1230,16 @@ describe("host bridge capability calls", function () {
         autoApproveWrites: true,
       },
     });
+    const scope = {
+      kind: "acp-skill-run",
+      requestId: "auto-approve-run",
+      runId: "auto-approve-run",
+      autoApproveWrites: true,
+      grantId: issueHostBridgeWriteAutoApprovalGrant({
+        requestId: "auto-approve-run",
+        runId: "auto-approve-run",
+      }),
+    };
     let approvalRequest: any = null;
     configureHostBridgeGlobalApprovalHandlerForTests((request) => {
       approvalRequest = request;
@@ -1209,6 +1289,7 @@ describe("host bridge capability calls", function () {
         requestId: "forged-run",
         runId: "forged-run",
         autoApproveWrites: true,
+        grantId: "forged-secret-grant",
       },
       capability: "mutation.execute",
       input: {
@@ -1223,6 +1304,12 @@ describe("host bridge capability calls", function () {
     assert.strictEqual(parsed.status, 200);
     assert.strictEqual(parsed.json.result.approval, "zotero-ui-required");
     assert.isOk(approvalRequest);
+    assert.notInclude(
+      JSON.stringify(
+        getHostBridgePermissionProjection(approvalRequest.requestId),
+      ),
+      "forged-secret-grant",
+    );
     assert.strictEqual(item.getField("title"), "Bridge Forged Scope After");
   });
 

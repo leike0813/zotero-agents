@@ -1,109 +1,84 @@
-# Host Bridge 审阅镜像
+# Host Bridge 三发布面中文审阅镜像
 
-> 生成时间：2026-07-22
-> 本目录包含 Host Bridge 三个发布面的中文翻译镜像，供人工审阅。
-> 每次执行 `/host-bridge-review-mirror` 会完全替换本目录内容。
+生成时间：2026-07-22T13:07:49.301Z
 
----
+本镜像共 62 个 Markdown 文件：CLI wrapper 17 个、Zotero Library Agent 17 个、Zotero Librarian profile 28 个。
 
-## 发布面 1：CLI Wrapper（cli-wrapper）
+## 发布面说明
 
-Host Bridge CLI 包装器 Skill，定义了 `zotero-bridge` CLI 的命令入口、调用约定、输出契约和命令手册。
+- CLI wrapper：CLI 身份、调用、输出、恢复与命令卡。
+- Zotero Library Agent：任务路由、证据交接与 workflow 旅程。
+- Zotero Librarian profile：常驻 profile、维护策略、workflow 与命令卡。
 
-源目录：`skills_builtin/zotero-bridge-cli/`
+## 文件清单
 
-| 文件 | 说明 |
-|------|------|
-| `SKILL.md` | Skill 主入口，运行时命令入口和 CLI 版本检查指引 |
-| `references/agent-guidance.md` | Agent 调用指引，命令族选择和 MCP 使用说明 |
-| `references/control-invariants.md` | 控制面不变量，approval/handle/retry 语义约束 |
-| `references/host-bridge-cli.md` | 完整 capability 参考，含公开能力表和 CLI 映射 |
-| `references/identity-and-connection.md` | CLI 身份识别和连接检查指引 |
-| `references/invocation-and-json-input.md` | 调用约定和 JSON 输入格式说明 |
-| `references/output-and-recovery.md` | 输出信封、错误处理和恢复策略 |
-| `references/terminology.md` | 术语表 |
-| `references/commands/connectivity-context.md` | 命令手册：连接性和上下文 |
-| `references/commands/diagnostics.md` | 命令手册：诊断和调试 |
-| `references/commands/library-items.md` | 命令手册：文献条目操作 |
-| `references/commands/library-notes-attachments-readiness.md` | 命令手册：笔记、附件和就绪检查 |
-| `references/commands/mutations-files-products.md` | 命令手册：变更、文件和产品 |
-| `references/commands/synthesis-graph.md` | 命令手册：Synthesis 引用图谱 |
-| `references/commands/synthesis-index-resolver-insights.md` | 命令手册：Synthesis 索引、解析器和洞察 |
-| `references/commands/synthesis-topics-artifacts.md` | 命令手册：Synthesis 主题和产物 |
-| `references/commands/workflows-and-runs.md` | 命令手册：workflow 和 run 控制 |
+### CLI wrapper
 
----
+- [references/agent-guidance.md](cli-wrapper/references/agent-guidance.md)：CLI 身份、调用、输出、恢复与命令卡的当前中文审阅稿。
+- [references/commands/connectivity-context.md](cli-wrapper/references/commands/connectivity-context.md)：CLI 身份、调用、输出、恢复与命令卡的当前中文审阅稿。
+- [references/commands/diagnostics.md](cli-wrapper/references/commands/diagnostics.md)：CLI 身份、调用、输出、恢复与命令卡的当前中文审阅稿。
+- [references/commands/library-items.md](cli-wrapper/references/commands/library-items.md)：CLI 身份、调用、输出、恢复与命令卡的当前中文审阅稿。
+- [references/commands/library-notes-attachments-readiness.md](cli-wrapper/references/commands/library-notes-attachments-readiness.md)：CLI 身份、调用、输出、恢复与命令卡的当前中文审阅稿。
+- [references/commands/mutations-files-products.md](cli-wrapper/references/commands/mutations-files-products.md)：CLI 身份、调用、输出、恢复与命令卡的当前中文审阅稿。
+- [references/commands/synthesis-graph.md](cli-wrapper/references/commands/synthesis-graph.md)：CLI 身份、调用、输出、恢复与命令卡的当前中文审阅稿。
+- [references/commands/synthesis-index-resolver-insights.md](cli-wrapper/references/commands/synthesis-index-resolver-insights.md)：CLI 身份、调用、输出、恢复与命令卡的当前中文审阅稿。
+- [references/commands/synthesis-topics-artifacts.md](cli-wrapper/references/commands/synthesis-topics-artifacts.md)：CLI 身份、调用、输出、恢复与命令卡的当前中文审阅稿。
+- [references/commands/workflows-and-runs.md](cli-wrapper/references/commands/workflows-and-runs.md)：CLI 身份、调用、输出、恢复与命令卡的当前中文审阅稿。
+- [references/control-invariants.md](cli-wrapper/references/control-invariants.md)：CLI 身份、调用、输出、恢复与命令卡的当前中文审阅稿。
+- [references/host-bridge-cli.md](cli-wrapper/references/host-bridge-cli.md)：CLI 身份、调用、输出、恢复与命令卡的当前中文审阅稿。
+- [references/identity-and-connection.md](cli-wrapper/references/identity-and-connection.md)：CLI 身份、调用、输出、恢复与命令卡的当前中文审阅稿。
+- [references/invocation-and-json-input.md](cli-wrapper/references/invocation-and-json-input.md)：CLI 身份、调用、输出、恢复与命令卡的当前中文审阅稿。
+- [references/output-and-recovery.md](cli-wrapper/references/output-and-recovery.md)：CLI 身份、调用、输出、恢复与命令卡的当前中文审阅稿。
+- [references/terminology.md](cli-wrapper/references/terminology.md)：CLI 身份、调用、输出、恢复与命令卡的当前中文审阅稿。
+- [SKILL.md](cli-wrapper/SKILL.md)：CLI 身份、调用、输出、恢复与命令卡的当前中文审阅稿。
 
-## 发布面 2：Library Agent（library-agent）
+### Zotero Library Agent
 
-Zotero Library Agent 独立 Skill 包，定义了 Agent 如何通过 evidence-based 工作流操作 Zotero 文献库。
+- [README.md](library-agent/README.md)：任务路由、证据交接与 workflow 旅程的当前中文审阅稿。
+- [references/control-invariants.md](library-agent/references/control-invariants.md)：任务路由、证据交接与 workflow 旅程的当前中文审阅稿。
+- [references/evidence-handoff.md](library-agent/references/evidence-handoff.md)：任务路由、证据交接与 workflow 旅程的当前中文审阅稿。
+- [references/helper-script-contract.md](library-agent/references/helper-script-contract.md)：任务路由、证据交接与 workflow 旅程的当前中文审阅稿。
+- [references/host-bridge.md](library-agent/references/host-bridge.md)：任务路由、证据交接与 workflow 旅程的当前中文审阅稿。
+- [references/journeys/agent-owned-handoff.md](library-agent/references/journeys/agent-owned-handoff.md)：任务路由、证据交接与 workflow 旅程的当前中文审阅稿。
+- [references/journeys/concrete-writeback.md](library-agent/references/journeys/concrete-writeback.md)：任务路由、证据交接与 workflow 旅程的当前中文审阅稿。
+- [references/journeys/current-context-and-library-read.md](library-agent/references/journeys/current-context-and-library-read.md)：任务路由、证据交接与 workflow 旅程的当前中文审阅稿。
+- [references/journeys/host-owned-workflow.md](library-agent/references/journeys/host-owned-workflow.md)：任务路由、证据交接与 workflow 旅程的当前中文审阅稿。
+- [references/journeys/notes-attachments-and-readiness.md](library-agent/references/journeys/notes-attachments-and-readiness.md)：任务路由、证据交接与 workflow 旅程的当前中文审阅稿。
+- [references/journeys/products-and-files.md](library-agent/references/journeys/products-and-files.md)：任务路由、证据交接与 workflow 旅程的当前中文审阅稿。
+- [references/journeys/research-lifecycle.md](library-agent/references/journeys/research-lifecycle.md)：任务路由、证据交接与 workflow 旅程的当前中文审阅稿。
+- [references/journeys/synthesis-research-context.md](library-agent/references/journeys/synthesis-research-context.md)：任务路由、证据交接与 workflow 旅程的当前中文审阅稿。
+- [references/task-routing.md](library-agent/references/task-routing.md)：任务路由、证据交接与 workflow 旅程的当前中文审阅稿。
+- [references/terminology.md](library-agent/references/terminology.md)：任务路由、证据交接与 workflow 旅程的当前中文审阅稿。
+- [references/workflow-execution.md](library-agent/references/workflow-execution.md)：任务路由、证据交接与 workflow 旅程的当前中文审阅稿。
+- [SKILL.md](library-agent/SKILL.md)：任务路由、证据交接与 workflow 旅程的当前中文审阅稿。
 
-源目录：`skills_builtin/zotero-library-agent/`
+### Zotero Librarian profile
 
-| 文件 | 说明 |
-|------|------|
-| `README.md` | 包说明和安装指引 |
-| `SKILL.md` | Skill 主入口，任务路由和执行策略 |
-| `references/control-invariants.md` | 控制面不变量 |
-| `references/evidence-handoff.md` | 证据交接契约，输入输出 schema |
-| `references/helper-script-contract.md` | 辅助脚本 `zotero_library_agent.py` 的调用契约 |
-| `references/host-bridge.md` | Host Bridge 能力参考 |
-| `references/task-routing.md` | 任务路由指引，场景到命令的映射 |
-| `references/terminology.md` | 术语表 |
-| `references/workflow-execution.md` | workflow 执行策略和模式选择 |
-| `references/journeys/agent-owned-handoff.md` | 旅程：Agent 自有交接执行 |
-| `references/journeys/concrete-writeback.md` | 旅程：具体写回操作 |
-| `references/journeys/current-context-and-library-read.md` | 旅程：当前上下文和文献库读取 |
-| `references/journeys/host-owned-workflow.md` | 旅程：Host 自有 workflow 提交 |
-| `references/journeys/notes-attachments-and-readiness.md` | 旅程：笔记、附件和就绪检查 |
-| `references/journeys/products-and-files.md` | 旅程：产物和文件管理 |
-| `references/journeys/research-lifecycle.md` | 旅程：研究生命周期 |
-| `references/journeys/synthesis-research-context.md` | 旅程：Synthesis 研究上下文 |
-
----
-
-## 发布面 3：Librarian Profile（librarian-profile）
-
-Zotero Librarian Hermes Profile，定义了驻馆 Agent 的人格、技能、定时任务和服务脚本。
-
-源目录：`profiles/hermes/zotero-librarian/`
-
-| 文件 | 说明 |
-|------|------|
-| `README.md` | Profile 说明和安装方式 |
-| `SOUL.md` | Agent 人格定义和操作姿态 |
-| `skills/zotero-librarian/SKILL.md` | 主 Skill 入口，启动流程和工具选择 |
-| `skills/zotero-librarian/references/common-tasks.md` | 常见任务指引 |
-| `skills/zotero-librarian/references/control-invariants.md` | 控制面不变量 |
-| `skills/zotero-librarian/references/host-bridge.md` | Host Bridge 能力参考（含 CLI 命令表和 workflow 目录） |
-| `skills/zotero-librarian/references/library-maintenance.md` | 文献库维护指引 |
-| `skills/zotero-librarian/references/maintenance-and-recovery.md` | 维护和故障恢复 |
-| `skills/zotero-librarian/references/monitoring-and-notifications.md` | 监控和通知指引 |
-| `skills/zotero-librarian/references/operating-principles.md` | 操作原则 |
-| `skills/zotero-librarian/references/output-and-recovery.md` | 输出和恢复策略 |
-| `skills/zotero-librarian/references/profile-script-contracts.md` | Profile 脚本调用契约 |
-| `skills/zotero-librarian/references/resident-index.md` | 驻留本地索引使用指引 |
-| `skills/zotero-librarian/references/scheduled-jobs.md` | 定时任务说明 |
-| `skills/zotero-librarian/references/terminology.md` | 术语表 |
-| `skills/zotero-librarian/references/workflow-execution-policy.md` | Workflow 执行策略 |
-| `skills/zotero-librarian/references/workflows.md` | 内置 workflow 目录参考 |
-| `skills/zotero-librarian/references/commands/connectivity-context.md` | 命令手册：连接性和上下文 |
-| `skills/zotero-librarian/references/commands/diagnostics.md` | 命令手册：诊断和调试 |
-| `skills/zotero-librarian/references/commands/library-items.md` | 命令手册：文献条目操作 |
-| `skills/zotero-librarian/references/commands/library-notes-attachments-readiness.md` | 命令手册：笔记、附件和就绪检查 |
-| `skills/zotero-librarian/references/commands/mutations-files-products.md` | 命令手册：变更、文件和产品 |
-| `skills/zotero-librarian/references/commands/synthesis-graph.md` | 命令手册：Synthesis 引用图谱 |
-| `skills/zotero-librarian/references/commands/synthesis-index-resolver-insights.md` | 命令手册：Synthesis 索引、解析器和洞察 |
-| `skills/zotero-librarian/references/commands/synthesis-topics-artifacts.md` | 命令手册：Synthesis 主题和产物 |
-| `skills/zotero-librarian/references/commands/workflows-and-runs.md` | 命令手册：workflow 和 run 控制 |
-| `skills/zotero-workflow-agent-runner/SKILL.md` | Workflow Agent Runner Skill 入口 |
-| `skills/zotero-workflow-agent-runner/references/agent-run-playbook.md` | Agent 自有执行 playbook |
-
----
-
-## 统计
-
-- **cli-wrapper**：17 个文件
-- **library-agent**：17 个文件
-- **librarian-profile**：28 个文件
-- **合计**：62 个文件
+- [README.md](librarian-profile/README.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/commands/connectivity-context.md](librarian-profile/skills/zotero-librarian/references/commands/connectivity-context.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/commands/diagnostics.md](librarian-profile/skills/zotero-librarian/references/commands/diagnostics.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/commands/library-items.md](librarian-profile/skills/zotero-librarian/references/commands/library-items.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/commands/library-notes-attachments-readiness.md](librarian-profile/skills/zotero-librarian/references/commands/library-notes-attachments-readiness.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/commands/mutations-files-products.md](librarian-profile/skills/zotero-librarian/references/commands/mutations-files-products.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/commands/synthesis-graph.md](librarian-profile/skills/zotero-librarian/references/commands/synthesis-graph.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/commands/synthesis-index-resolver-insights.md](librarian-profile/skills/zotero-librarian/references/commands/synthesis-index-resolver-insights.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/commands/synthesis-topics-artifacts.md](librarian-profile/skills/zotero-librarian/references/commands/synthesis-topics-artifacts.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/commands/workflows-and-runs.md](librarian-profile/skills/zotero-librarian/references/commands/workflows-and-runs.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/common-tasks.md](librarian-profile/skills/zotero-librarian/references/common-tasks.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/control-invariants.md](librarian-profile/skills/zotero-librarian/references/control-invariants.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/host-bridge.md](librarian-profile/skills/zotero-librarian/references/host-bridge.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/library-maintenance.md](librarian-profile/skills/zotero-librarian/references/library-maintenance.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/maintenance-and-recovery.md](librarian-profile/skills/zotero-librarian/references/maintenance-and-recovery.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/monitoring-and-notifications.md](librarian-profile/skills/zotero-librarian/references/monitoring-and-notifications.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/operating-principles.md](librarian-profile/skills/zotero-librarian/references/operating-principles.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/output-and-recovery.md](librarian-profile/skills/zotero-librarian/references/output-and-recovery.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/profile-script-contracts.md](librarian-profile/skills/zotero-librarian/references/profile-script-contracts.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/resident-index.md](librarian-profile/skills/zotero-librarian/references/resident-index.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/scheduled-jobs.md](librarian-profile/skills/zotero-librarian/references/scheduled-jobs.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/terminology.md](librarian-profile/skills/zotero-librarian/references/terminology.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/workflow-execution-policy.md](librarian-profile/skills/zotero-librarian/references/workflow-execution-policy.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/references/workflows.md](librarian-profile/skills/zotero-librarian/references/workflows.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-librarian/SKILL.md](librarian-profile/skills/zotero-librarian/SKILL.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-workflow-agent-runner/references/agent-run-playbook.md](librarian-profile/skills/zotero-workflow-agent-runner/references/agent-run-playbook.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [skills/zotero-workflow-agent-runner/SKILL.md](librarian-profile/skills/zotero-workflow-agent-runner/SKILL.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。
+- [SOUL.md](librarian-profile/SOUL.md)：常驻 profile、维护策略、workflow 与命令卡的当前中文审阅稿。

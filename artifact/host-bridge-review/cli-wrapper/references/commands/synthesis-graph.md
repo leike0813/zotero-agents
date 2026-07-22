@@ -32,7 +32,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge synthesis graph get-layout`。
-- 示例：`zotero-bridge synthesis graph get-layout`。
+- 示例：`zotero-bridge synthesis graph get-layout`.
 - 前置条件：
 - 在依赖实时结果前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -46,21 +46,23 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：稳定结果来自 citation_graph.get_layout。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 synthesis graph get-layout 结果及用于获取它的确切调用输入。
 - 带分页元数据的 topic、graph、index、resolver、artifact、schema 或 insight 结果
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无 Host Bridge UI approval；provider 运行时可能仍会请求自身权限。
-- 效果 `none`：读取状态，不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，继续前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，继续前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge synthesis graph get-metrics`
 
@@ -90,7 +92,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge synthesis graph get-metrics`。
-- 示例：`zotero-bridge synthesis graph get-metrics`。
+- 示例：`zotero-bridge synthesis graph get-metrics`.
 - 前置条件：
 - 在依赖实时结果前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -109,7 +111,9 @@
 
 - 交付方式：`cursor`。
 - 稳定结果字段：
-- `result`（object）：稳定结果来自 citation_graph.get_metrics。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - `graph`（array）
 - `nextCursor`（string | number | null）
 - `hasMore`（boolean）
@@ -119,14 +123,14 @@
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无 Host Bridge UI approval；provider 运行时可能仍会请求自身权限。
-- 效果 `none`：读取状态，不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，继续前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，继续前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge synthesis graph get-slice`
 
@@ -156,7 +160,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge synthesis graph get-slice`。
-- 示例：`zotero-bridge synthesis graph get-slice`。
+- 示例：`zotero-bridge synthesis graph get-slice`.
 - 前置条件：
 - 在依赖实时结果前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -170,21 +174,23 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：稳定结果来自 citation_graph.get_slice。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 synthesis graph get-slice 结果及用于获取它的确切调用输入。
 - 带分页元数据的 topic、graph、index、resolver、artifact、schema 或 insight 结果
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无 Host Bridge UI approval；provider 运行时可能仍会请求自身权限。
-- 效果 `none`：读取状态，不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，继续前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，继续前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge synthesis graph overview`
 
@@ -214,7 +220,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge synthesis graph overview`。
-- 示例：`zotero-bridge synthesis graph overview`。
+- 示例：`zotero-bridge synthesis graph overview`.
 - 前置条件：
 - 在依赖实时结果前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -245,7 +251,9 @@
 
 - 交付方式：`cursor`。
 - 稳定结果字段：
-- `result`（object）：稳定结果来自 citation_graph.get_overview。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - `graph`（array）
 - `nextCursor`（string | number | null）
 - `hasMore`（boolean）
@@ -255,14 +263,14 @@
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无 Host Bridge UI approval；provider 运行时可能仍会请求自身权限。
-- 效果 `none`：读取状态，不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，继续前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，继续前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge synthesis graph query-cluster`
 
@@ -292,7 +300,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge synthesis graph query-cluster`。
-- 示例：`zotero-bridge synthesis graph query-cluster`。
+- 示例：`zotero-bridge synthesis graph query-cluster`.
 - 前置条件：
 - 在依赖实时结果前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -319,21 +327,23 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：稳定结果来自 citation_graph.query_cluster。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 synthesis graph query-cluster 结果及用于获取它的确切调用输入。
 - 带分页元数据的 topic、graph、index、resolver、artifact、schema 或 insight 结果
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无 Host Bridge UI approval；provider 运行时可能仍会请求自身权限。
-- 效果 `none`：读取状态，不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，继续前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，继续前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge synthesis graph rank-external-references`
 
@@ -363,7 +373,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge synthesis graph rank-external-references`。
-- 示例：`zotero-bridge synthesis graph rank-external-references`。
+- 示例：`zotero-bridge synthesis graph rank-external-references`.
 - 前置条件：
 - 在依赖实时结果前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -380,7 +390,9 @@
 
 - 交付方式：`cursor`。
 - 稳定结果字段：
-- `result`（object）：稳定结果来自 citation_graph.rank_external_references。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - `graph`（array）
 - `nextCursor`（string | number | null）
 - `hasMore`（boolean）
@@ -390,14 +402,14 @@
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无 Host Bridge UI approval；provider 运行时可能仍会请求自身权限。
-- 效果 `none`：读取状态，不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，继续前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，继续前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge synthesis graph rank-library-papers`
 
@@ -427,7 +439,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge synthesis graph rank-library-papers`。
-- 示例：`zotero-bridge synthesis graph rank-library-papers`。
+- 示例：`zotero-bridge synthesis graph rank-library-papers`.
 - 前置条件：
 - 在依赖实时结果前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -446,7 +458,9 @@
 
 - 交付方式：`cursor`。
 - 稳定结果字段：
-- `result`（object）：稳定结果来自 citation_graph.rank_library_papers。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - `graph`（array）
 - `nextCursor`（string | number | null）
 - `hasMore`（boolean）
@@ -456,14 +470,14 @@
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无 Host Bridge UI approval；provider 运行时可能仍会请求自身权限。
-- 效果 `none`：读取状态，不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，继续前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，继续前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge synthesis graph refresh-metrics`
 
@@ -493,7 +507,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge synthesis graph refresh-metrics`。
-- 示例：`zotero-bridge synthesis graph refresh-metrics`。
+- 示例：`zotero-bridge synthesis graph refresh-metrics`.
 - 前置条件：
 - 在依赖实时结果前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -507,21 +521,23 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：稳定结果来自 citation_graph.refresh_metrics。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 synthesis graph refresh-metrics 结果及用于获取它的确切调用输入。
 - 带分页元数据的 topic、graph、index、resolver、artifact、schema 或 insight 结果
 
 ### Approval、效果与句柄
 
-- Approval：`zotero-ui-required` at `before-command`；对所描述的 Host 所有效果的 Zotero UI approval。
-- 效果 `graph-metrics-maintenance`：可能更改图指标维护状态。stateChanged=true。
+- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 以批准所述 Host 所有的副作用。
+- 副作用 `graph-metrics-maintenance`：可能修改 graph metrics maintenance 状态。 mayChangeState=true.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 操作失败或完成状态不确定。重复操作前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，继续前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，继续前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge synthesis graph update`
 
@@ -551,7 +567,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge synthesis graph update`。
-- 示例：`zotero-bridge synthesis graph update`。
+- 示例：`zotero-bridge synthesis graph update`.
 - 前置条件：
 - 在依赖实时结果前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -573,18 +589,20 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：稳定结果来自 citation_graph.update。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 synthesis graph update 结果及用于获取它的确切调用输入。
 - 带分页元数据的 topic、graph、index、resolver、artifact、schema 或 insight 结果
 
 ### Approval、效果与句柄
 
-- Approval：`zotero-ui-required` at `before-command`；对所描述的 Host 所有效果的 Zotero UI approval。
-- 效果 `zotero-library`：可能更改 Zotero 库状态。stateChanged=true。
+- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 以批准所述 Host 所有的副作用。
+- 副作用 `zotero-library`：可能修改 zotero library 状态。 mayChangeState=true.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 操作失败或完成状态不确定。重复操作前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，继续前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，继续前检查 retryable、stateChange 和 handleConsumption。

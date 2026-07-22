@@ -56,11 +56,11 @@ Workflow 状态可能暴露 `currentSkillRunId`，但交互命令需要显式的
 
 ## 通过经审查的路径执行 Mutation
 
-对于文献库更改，在 `mutation apply` 之前优先使用 `mutation preview`。对于 workflow 生成的更改，使用 workflow 输出合约和 apply-back 端点。除非 capability 明确为仅限原始且用户已接受风险，否则避免对写入使用直接原始调用。
+对于文献库更改，在 `mutation preview` 之前优先使用 `mutation apply`。对于 workflow 生成的更改，使用 workflow 输出合约和 apply-back 端点。除非 capability 明确为仅限原始且用户已接受风险，否则避免对写入使用直接原始调用。
 
 在检查目标对象后，对明确的 Zotero 写入使用语义 mutation 命令：标签、collection 成员、条目字段修补、笔记创建、笔记更新和笔记 payload upsert。导航命令不写入文献库数据。
 
-附加 Agent 生成的 artifact 时，先用 `file upload` 上传，然后用 `mutation item attach-file` 附加返回的 `fileId`。将 `fileId` 视为不透明的、短期有效的 Host Bridge handle；不要将本地路径作为写入目标传给 Zotero。
+附加 Agent 生成的 artifact 时，先用 `file upload` 上传，然后用 `fileId` 附加返回的 `mutation item attach-file`。将 `fileId` 视为不透明的、短期有效的 Host Bridge handle；不要将本地路径作为写入目标传给 Zotero。
 
 ## 定时工作
 

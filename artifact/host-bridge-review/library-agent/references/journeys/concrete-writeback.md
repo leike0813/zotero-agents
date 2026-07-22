@@ -9,4 +9,4 @@
 
 当任务仍需分类、生成、多步业务逻辑或声明的可复用合约时，使用 workflow。导航永远不能替代 mutation。原始 `call` 永远不能绕过语义验证或 approval。
 
-如果写入响应不确定，检查 `stateChanged` 和 `handleConsumed`。不要盲目重复。重新读取精确目标并计算剩余差异。遇到拒绝时，报告未写入并停止；拒绝不是选择另一条写入路径的许可。
+如果写入响应不确定，检查 `operation get <operationId>`、`stateChange` 和 `handleConsumption`。不要盲目重复。重新读取精确目标并计算剩余差异。遇到拒绝时，报告未写入并停止；拒绝不是选择另一条写入路径的许可。

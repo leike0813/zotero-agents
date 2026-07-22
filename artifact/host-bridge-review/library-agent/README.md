@@ -42,4 +42,4 @@ zotero-bridge surface identity --json
 
 读取和诊断命令仅在命令合约标记为可重试时才可重试。写入、apply-back、文件消费和 Product 操作必须遵守 approval、typed-handle 和状态变更合约。
 
-发生错误时，检查 `retryable`、`stateChanged`、`handleConsumed`、`safeNextActions` 和 `nextCommand`。在不确定写入后重新读取当前状态，在部分 apply-back 后查询适用的 receipt，绝不重用已消费的 handle。不要通过直接访问 Zotero 存储来绕过 Host Bridge。
+发生错误时，检查 `retryable`、`stateChange`、`handleConsumption`、`safeNextActions` 和 `nextCommand`。在不确定写入后重新读取当前状态，在部分 apply-back 后查询适用的 receipt，绝不重用已消费的 handle。不要通过直接访问 Zotero 存储来绕过 Host Bridge。

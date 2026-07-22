@@ -6,7 +6,7 @@ Read this reference before trusting command help or live Host Bridge results.
 
 Prefer the run-local shim supplied with the current workspace. If it is absent, use the CLI binary packaged in the same release repository as this skill. Do not combine a wrapper, binary, manifest, or profile copied from different Release Sets.
 
-Run `zotero-bridge surface identity --json` before connecting. Compare `protocol`, `cliSchema`, `version`, `buildFingerprint`, and `commandCatalogChecksum` with the release envelope. Any mismatch means the command contract is unknown; stop instead of inferring compatibility from SemVer.
+Run `zotero-bridge surface identity --json` before connecting. Compare `protocol`, `cliSchema`, `version`, `buildFingerprint`, and `commandCatalogChecksum` with the release envelope. Apply the field-level mismatch policy in `references/control-invariants.md`: SemVer alone is advisory, catalog or build mismatch requires active-CLI command confirmation, and protocol/schema mismatch blocks only when the required command contract cannot be confirmed.
 
 ## Select one profile
 

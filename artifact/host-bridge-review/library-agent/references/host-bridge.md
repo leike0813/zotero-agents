@@ -1,32 +1,32 @@
 # Host Bridge CLI 参考
 
-本参考文档从 Host Bridge surface 目录生成。编辑 Host Bridge capability 注册表或 Rust CLI 源码后，运行 `npm run render:host-bridge-surface`。
+本参考从 Host Bridge surface 目录生成。编辑 Host Bridge capability 注册表或 Rust CLI 源码，然后运行 `npm run render:host-bridge-surface`。
 
-已发布的发布包包含 `install.ps1`、`install.sh` 和 `assets/profile.template.json`。在 Windows 上使用 `.\install.ps1 --yes --json`，在 POSIX 系统上使用 `./install.sh --yes --json` 进行安装或升级，无需 Node 依赖。安装器自动检测平台，不接受平台覆盖参数。将模板复制到 Host Bridge 的已知 profile 位置，或设置 `ZOTERO_BRIDGE_PROFILE` 指向其路径。在运行时通过 `ZOTERO_BRIDGE_ENDPOINT`、`ZOTERO_BRIDGE_TOKEN`、`ZOTERO_BRIDGE_SCOPE` 和 `ZOTERO_BRIDGE_CONNECTION_MODE=local|remote` 覆盖模板。`ZOTERO_BRIDGE_SCOPE` 可包含 `{"kind":"skillrunner-run","frontendScopeId":"..."}`，使 Host Bridge 写入 approval 返回到 SkillRunner 面板。
+发布的包包含 `install.ps1`、`install.sh` 和 `assets/profile.template.json`。在 Windows 上使用 `.\install.ps1 --yes --json`，在 POSIX 上使用 `./install.sh --yes --json` 来安装或升级，无需 Node 依赖。安装器自动检测平台，不接受平台覆盖。将模板复制到 Host Bridge 的知名 profile 位置，或设置 `ZOTERO_BRIDGE_PROFILE` 为其路径。在运行时使用 `ZOTERO_BRIDGE_ENDPOINT`、`ZOTERO_BRIDGE_TOKEN`、`ZOTERO_BRIDGE_SCOPE` 和 `ZOTERO_BRIDGE_CONNECTION_MODE=local|remote` 覆盖模板。`ZOTERO_BRIDGE_SCOPE` 可包含 `{"kind":"skillrunner-run","frontendScopeId":"..."}` 以使 Host Bridge 写入 approval 返回到 SkillRunner 面板。
 
 ## Resolver Payload
 
 对于 resolver 命令，传递直接的 resolver 字段：`tag`、`collection_key`、`paper_refs`、可选的 `combine` 和可选的分页字段。不要将它们包装在顶层 `resolver` 对象中。`topic_resolver`、`mode`、`query`、`include` 和 `exclude` 是不受支持的字段，会被 `synthesis resolver resolve` 拒绝。
 
 <!-- host-bridge-surface:wrapper-reference:start -->
-本节从 Host Bridge surface 目录生成。
+This section is generated from the Host Bridge surface catalog.
 
-### 运行时命令入口
+### Runtime command entry
 
-- 优先使用本地运行 shim（如存在）：Windows `.\.zotero-bridge\bin\zotero-bridge.cmd`；POSIX `./.zotero-bridge/bin/zotero-bridge`。
-- 当 Skill 指令显示 `<zotero-bridge>` 时，将其替换为当前操作系统的本地运行 shim；仅在 shim 不存在时使用 PATH 命令 `zotero-bridge`。
-- 保留注入环境中的 `ZOTERO_BRIDGE_PROFILE` 和 `ZOTERO_BRIDGE_TOKEN`；绝不打印令牌值。
+- Prefer the run-local shim when it exists: Windows `.\.zotero-bridge\bin\zotero-bridge.cmd`; POSIX `./.zotero-bridge/bin/zotero-bridge`.
+- When skill instructions show `<zotero-bridge>`, replace it with the run-local shim for the current OS; use PATH command `zotero-bridge` only when the shim is absent.
+- Keep `ZOTERO_BRIDGE_PROFILE` and `ZOTERO_BRIDGE_TOKEN` from the injected environment; never print token values.
 
-### CLI 版本检查
+### CLI release check
 
-- 本生成表面的预期 `zotero-bridge` CLI 版本：`0.3.0`。
-- 当已加载的 Skill 路径、命令帮助或 CLI 错误表明活动命令表面可能不同时，运行 `<zotero-bridge> --version`。
-- 版本不匹配本身不是阻塞问题。当版本不同时，在执行命令前检查 `<zotero-bridge> <command> --help`；当规范命令或 argv 仍不确定时，使用离线的 `surface search` 或 `surface describe`。
-- 在依赖已加载的命令合约之前，运行 `<zotero-bridge> surface identity --json`。
-- 将 CLI schema、构建 fingerprint 和命令目录校验和与当前表面一同发布的发布信封进行比对。仅凭 SemVer 不足以作为兼容性证据。
-- 仅在所需命令不可用、其 argv 或控制合约无法确认，或观察到的 approval、handle、状态变更或恢复语义不兼容时停止。使用同一 release set 中的包装器、CLI shim 和发布信封进行恢复。
+- Expected `zotero-bridge` CLI version for this generated surface: `0.3.0`.
+- Run `<zotero-bridge> --version` when the loaded skill path, command help, or a CLI error suggests that the active command surface may differ.
+- Version mismatch alone is not a blocker. When versions differ, inspect `<zotero-bridge> <command> --help` before executing that command; use offline `surface search` or `surface describe` when the canonical command or argv remains uncertain.
+- Run `<zotero-bridge> surface identity --json` before relying on a loaded command contract.
+- Compare CLI schema, build fingerprint, and command catalog checksum with the release envelope shipped beside the current surface. SemVer alone is not compatibility evidence.
+- Stop only when the required command is unavailable, its argv or control contract cannot be confirmed, or the observed approval, handle, state-change, or recovery semantics are incompatible. Recover with the wrapper, CLI shim, and release envelope from one release set.
 
-### 发现命令
+### Discovery commands
 
 ```text
 zotero-bridge bridge status
@@ -41,12 +41,13 @@ zotero-bridge mutation --help
 zotero-bridge file --help
 zotero-bridge call --help
 zotero-bridge context --help
+zotero-bridge operation --help
 zotero-bridge product --help
 ```
 
-### 语义映射
+### Semantic mappings
 
-| CLI 命令 | 目标 | 类型 | 标志 |
+| CLI command | Target | Kind | Flags |
 | --- | --- | --- | --- |
 | `bridge backend list` | `GET /bridge/v1/diagnostics/backends` | endpoint | - |
 | `bridge backend status` | `GET /bridge/v1/diagnostics/backends/{backendId}` | endpoint | - |
@@ -98,8 +99,10 @@ zotero-bridge product --help
 | `synthesis topic get-report` | `topics.get_report` | capability | - |
 | `synthesis topic get-review-input` | `topics.get_review_input` | capability | - |
 | `synthesis topic list` | `topics.list` | capability | - |
+| `workflow agent-abandon` | `POST /bridge/v1/workflows/agent-runs/{agentRunId}/abandon` | endpoint | - |
 | `workflow agent-apply` | `POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply` | endpoint | - |
 | `workflow agent-apply-status` | `GET /bridge/v1/workflows/agent-runs/{agentRunId}/apply` | endpoint | - |
+| `workflow agent-renew` | `POST /bridge/v1/workflows/agent-runs/{agentRunId}/renew` | endpoint | - |
 | `workflow agent-run` | `POST /bridge/v1/workflows/agent-run` | endpoint | - |
 | `workflow describe` | `POST /bridge/v1/workflows/describe` | endpoint | - |
 | `workflow list` | `GET /bridge/v1/workflows` | endpoint | - |
@@ -149,61 +152,62 @@ zotero-bridge product --help
 | `context selection get` | `GET /bridge/v1/context/selection` | endpoint | - |
 | `context selection get` | `context.get_selected_items` | capability | - |
 | `context selection open` | `POST /bridge/v1/context/selection/open` | endpoint | - |
+| `operation get` | `GET /bridge/v1/operations/{operationId}` | endpoint | - |
 | `product download` | `workflow_products.export` | capability | - |
 | `product get` | `workflow_products.get` | capability | - |
 | `product list` | `workflow_products.list` | capability | - |
 | `product remove` | `workflow_products.remove` | capability | - |
 
-### 文献库使用指引
+### Library guidance
 
-- 默认使用 `--query` 内联 JSON。仅在有意为之时使用 stdin、`@file` 或裸 JSON 文件路径。
-- 使用 `zotero-bridge library item search --query '{"text":"graph","limit":10}'` 进行有限候选发现。
-- 使用 `zotero-bridge library items list --query '{"limit":50,"collectionKey":"COLL"}'` 获取有界的文献库清单页。
-- 使用 `zotero-bridge library snapshot --query '{"limit":200}'` 获取首个本地元数据索引页。
-- 在安排 PDF 获取、Markdown 转换或文献分析工作之前，使用 `zotero-bridge library readiness missing-pdf|missing-markdown|missing-analysis --query '{"limit":100}'`。
-- `library items list` 在 `--query` 中接受 `collectionKey`、`tag`、`itemType`、`query`、`cursor` 和 `limit`。
-- `library snapshot` 在 `--query` 中接受 `collectionKey`、`collectionId`、`tag`、`itemType`、`query`、`cursor` 和 `limit`。
-- `library readiness audit` 接受相同的文献库过滤器以及 `checks` 和 `missingOnly`；Markdown 和分析就绪状态复用 Zotero Artifacts 列规则。
-- 首个文献库、快照或就绪状态页省略 `cursor`。当 `hasMore` 为 true 时，传递精确返回的不透明 `nextCursor`；绝不构造或递增游标。
+- Use inline JSON with `--query` by default. Use stdin, `@file`, or a bare JSON file path only when that source is intentional.
+- Use `zotero-bridge library item search --query '{"text":"graph","limit":10}'` for finite candidate discovery.
+- Use `zotero-bridge library items list --query '{"limit":50,"collectionKey":"COLL"}'` for bounded library inventory pages.
+- Use `zotero-bridge library snapshot --query '{"limit":200}'` for the first local metadata index page.
+- Use `zotero-bridge library readiness missing-pdf|missing-markdown|missing-analysis --query '{"limit":100}'` before scheduling PDF retrieval, Markdown conversion, or literature-analysis work.
+- `library items list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--query`.
+- `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--query`.
+- `library readiness audit` accepts the same library filters plus `checks` and `missingOnly`; Markdown and analysis readiness reuse the Zotero Artifacts column rules.
+- Omit `cursor` on the first library, snapshot, or readiness page. When `hasMore` is true, pass the exact returned opaque `nextCursor`; never construct or increment a cursor.
 
-### 大响应分页
+### Large response pagination
 
-- 将 `response:paged` capability 视为单页读取。迭代返回的游标元数据，而非假设一次调用返回整个集合。
-- `synthesis graph overview` 返回摘要以及分页的 `nodes`、`edges`、`hover_only_nodes` 和 `hover_only_edges`。对所有部分一起使用 `cursor`/`limit`，或使用部分游标如 `nodeCursor`、`edgeCursor`、`hoverNodeCursor` 和 `hoverEdgeCursor`。
-- 当任务需要一致的有界子图、布局或排序指标页而非完整引文图谱时，使用 `synthesis graph get-slice`、`synthesis graph get-layout` 或 `synthesis graph get-metrics`。
-- `synthesis topic list`、`synthesis index library get`、图谱指标和图谱排名是分页读取。不要构建依赖 stdout 在单个响应中包含所有主题、索引行、图节点、边或排名项的 workflow。
+- Treat `response:paged` capabilities as one-page reads. Iterate the returned cursor metadata instead of assuming one call returns the whole collection.
+- `synthesis graph overview` returns summary plus paged `nodes`, `edges`, `hover_only_nodes`, and `hover_only_edges`. Use `cursor`/`limit` for all sections together or section cursors such as `nodeCursor`, `edgeCursor`, `hoverNodeCursor`, and `hoverEdgeCursor`.
+- Use `synthesis graph get-slice`, `synthesis graph get-layout`, or `synthesis graph get-metrics` when the task needs a coherent bounded subgraph, layout, or ranked metric page instead of the entire citation graph.
+- `synthesis topic list`, `synthesis index library get`, graph metrics, and graph rankings are paged reads. Do not build workflows that rely on stdout containing every topic, index row, graph node, edge, or rank item in one response.
 
-### 主题上下文 Payload
+### Topic context payloads
 
-- `synthesis topic get-context` 通过 `--query` JSON 接受 `view` 值 `digest`、`semantic`、`audit` 和 `full`。
-- 仅在需要扁平主题上下文响应时省略 `view`。
-- 对于大型 `semantic` 或 `full` 主题上下文，传递 `outputPath` 或 `output_path` 及可选的 `overwrite`；此时 stdout 仅包含紧凑的文件信封。
-- 示例：`zotero-bridge synthesis topic get-context --query '{"topicId":"topic-id","view":"semantic","outputPath":"runtime/topic-context.semantic.json"}'`。
+- `synthesis topic get-context` accepts `view` values `digest`, `semantic`, `audit`, and `full` through `--query` JSON.
+- Omit `view` only when the flat topic context response is required.
+- For large `semantic` or `full` topic contexts, pass `outputPath` or `output_path` and optional `overwrite`; stdout then contains only a compact file envelope.
+- Example: `zotero-bridge synthesis topic get-context --query '{"topicId":"topic-id","view":"semantic","outputPath":"runtime/topic-context.semantic.json"}'`.
 
-### Resolver Payload
+### Resolver payloads
 
-- `synthesis resolver resolve` 在 `--query` 中接受直接的 resolver 字段；不要将它们包装在顶层 `resolver` 对象中。
-- 允许的选择器字段为 `tag`、`collection_key` 和 `paper_refs`；至少需要一个选择器。
-- `combine` 为可选，默认为 `union`；当每个提供的选择器类型都必须匹配时使用 `intersection`。
-- `tag` 接受标签字符串、标签数组或 `{ and, or, not }` 对象。`collection_key` 接受字符串或字符串数组。`paper_refs` 接受规范的 `libraryId:itemKey` 引用。
-- 示例：`zotero-bridge synthesis resolver resolve --query '{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}'`；`zotero-bridge synthesis resolver resolve --query '{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}'`。
-- 以下不受支持的字段会被拒绝：`resolver`、`topic_resolver`、`mode`、`query`、`include` 和 `exclude`。
+- `synthesis resolver resolve` accepts direct resolver fields in `--query`; do not wrap them in a top-level `resolver` object.
+- Allowed selector fields are `tag`, `collection_key`, and `paper_refs`; at least one selector is required.
+- `combine` is optional and defaults to `union`; use `intersection` when every provided selector type must match.
+- `tag` accepts a tag string, a tag array, or an `{ and, or, not }` object. `collection_key` accepts a string or string array. `paper_refs` accepts canonical `libraryId:itemKey` refs.
+- Examples: `zotero-bridge synthesis resolver resolve --query '{"tag":{"and":["object-detection"],"not":["nlp-transformer"]}}'`; `zotero-bridge synthesis resolver resolve --query '{"tag":"topic:vision","collection_key":["COLL_A"],"combine":"intersection"}'`.
+- Unsupported fields are rejected: `resolver`, `topic_resolver`, `mode`, `query`, `include`, and `exclude`.
 
-### Workflow Payload
+### Workflow payloads
 
-- 当选择、workflow 选项或 provider profile 需求不明确时，在提交前使用 `workflow describe --workflow <id>` 或 `workflow requirements --workflow <id>`。
-- `workflow submit` 和 `workflow validate` 使用 `--selection <JSON_OR_FILE>` 传递条目引用数组，或使用 `--none` 表示无选择 workflow。
-- 将 manifest 参数值放入 `--workflow-options`；仅在 `--provider-profile` 中放入 `schema`、`backendId` 和 `providerOptions`。
-- 绝不在 provider profile 文件中放入 bearer 令牌、backend 认证、基础 URL 或本地路径。
-- 当调用 Agent 应从下载的交接包中自行执行 workflow 时，使用 `workflow agent-run --workflow <id> (--selection <JSON_OR_FILE> | --none) --output-dir <DIR>`。
-- `workflow agent-run` 不接受 workflow 选项、provider profile 或 Agent 引擎标志，也不启动 Host backend 任务；Host 仅为交接准备请求上下文。
-- `workflow agent-run` 仅基于 `inputs` 控制包创建；`validateSelection` 作为 `applyStatus` 建议值返回，在提交 apply-back 时重新计算。
-- 在从交接输出合约最终确定 SkillRunner 兼容的输出包后，使用 `workflow agent-apply <agentRunId> --result <agentRequestId>=<bundlePath>`。
-- Agent-run 的 apply-back 是一次性的。Approval 拒绝不消费 agentRunId，但一旦 applyResult 启动，agentRunId 不可重用。
+- Use `workflow describe --workflow <id>` or `workflow requirements --workflow <id>` before submit when selection, workflow options, or provider profile requirements are unclear.
+- `workflow submit` and `workflow validate` use `--selection <JSON_OR_FILE>` for an item ref array or `--none` for no-selection workflows.
+- Put manifest parameter values in `--workflow-options`; put only `schema`, `backendId`, and `providerOptions` in `--provider-profile`.
+- Never put bearer tokens, backend auth, base URLs, or local paths in provider profile files.
+- Use `workflow agent-run --workflow <id> (--selection <JSON_OR_FILE> | --none) --output-dir <DIR>` when the calling agent should execute the workflow itself from a downloaded handoff bundle.
+- `workflow agent-run` does not accept workflow options, provider profiles, or agent-engine flags, and it does not start a Host backend task; the host only prepares request context for the handoff.
+- `workflow agent-run` gates bundle creation only on `inputs`; `validateSelection` is returned as `applyStatus` advisory and is recalculated when apply-back is submitted.
+- Use `workflow agent-apply <agentRunId> --result <agentRequestId>=<bundlePath>` after finalizing a SkillRunner-compatible output bundle from the handoff output contract.
+- Agent-run apply-back is one-shot. Approval denial does not consume the agentRunId, but once applyResult starts the agentRunId cannot be reused.
 
-### 仅限原始模式和调试 capability
+### Raw-only and debug capabilities
 
-| Capability | 类别 | Approval | 输入 | CLI 暴露 | 标志 |
+| Capability | Category | Approval | Input | CLI exposure | Flags |
 | --- | --- | --- | --- | --- | --- |
 | `workflow_products.read_asset` | workflow_products | `none` | `object required` | `raw call only` | raw-only, response:file-output, mcp-mirror |
 | `citation_graph.refresh_metrics` | citation_graph | `zotero-ui-required` | `object` | `synthesis graph refresh-metrics` | dangerous, mcp-mirror |
@@ -228,5 +232,5 @@ zotero-bridge product --help
 
 ## 远程导出包
 
-- 使用远程 profile 时，带 `outputPath` 的 `synthesis topic get-context` 返回 `delivery.mode="bridge-download"` 而非写入调用者路径。运行 `delivery.downloadCommand`，然后运行 `delivery.unpackHint`。
+- 使用远程 profile 时，带 `synthesis topic get-context` 的 `outputPath` 返回 `delivery.mode="bridge-download"` 而不是写入调用者路径。运行 `delivery.downloadCommand`，然后运行 `delivery.unpackHint`。
 - 使用远程 profile 时，`synthesis artifact export-filtered` 返回相同类型的 zip 包。将 `manifest_file` 视为解压后 zip 内的路径。

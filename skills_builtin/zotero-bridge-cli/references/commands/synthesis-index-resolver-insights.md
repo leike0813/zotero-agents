@@ -31,7 +31,7 @@ Distinguish from:
 ### Invocation and payload
 
 - Canonical argv: `zotero-bridge synthesis cache invalidate`.
-- Example: `zotero-bridge synthesis cache invalidate --scope 'scope'`.
+- Example: `zotero-bridge synthesis cache invalidate --scope 'topic'`.
 - Preconditions:
 - Verify the exact CLI identity and a reachable Host Bridge before relying on live results.
 - Exact argv bindings:
@@ -48,7 +48,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from POST /bridge/v1/synthesis/cache/invalidate.
+- No structured fields.
 - Completion evidence:
 - The structured synthesis cache invalidate result and the exact invocation inputs used to obtain it.
 - topic, graph, index, resolver, artifact, schema, or insight result with paging metadata
@@ -57,13 +57,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `zotero-ui-required` at `before-command`; Zotero UI approval for the described Host-owned effect.
-- Effect `cache-maintenance`: May change cache maintenance state. stateChanged=true.
+- Effect `cache-maintenance`: May change cache maintenance state. mayChangeState=true.
 - No typed handle transition.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge synthesis cache refresh-reference-sidecar`
 
@@ -113,7 +113,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from reference_sidecar.refresh.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - Completion evidence:
 - The structured synthesis cache refresh-reference-sidecar result and the exact invocation inputs used to obtain it.
 - topic, graph, index, resolver, artifact, schema, or insight result with paging metadata
@@ -121,13 +123,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `zotero-ui-required` at `before-command`; Zotero UI approval for the described Host-owned effect.
-- Effect `cache-maintenance`: May change cache maintenance state. stateChanged=true.
+- Effect `cache-maintenance`: May change cache maintenance state. mayChangeState=true.
 - No typed handle transition.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge synthesis cache status`
 
@@ -172,7 +174,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from synthesis.operation.get, GET /bridge/v1/synthesis/cache/status.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - Completion evidence:
 - The structured synthesis cache status result and the exact invocation inputs used to obtain it.
 - topic, graph, index, resolver, artifact, schema, or insight result with paging metadata
@@ -180,13 +184,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge synthesis index library get`
 
@@ -243,7 +247,9 @@ Distinguish from:
 
 - Delivery: `cursor`.
 - Stable result fields:
-- `result` (object): Stable result from library_index.get.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - `entries` (array)
 - `nextCursor` (string | number | null)
 - `hasMore` (boolean)
@@ -254,13 +260,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge synthesis index reference get`
 
@@ -304,7 +310,9 @@ Distinguish from:
 
 - Delivery: `cursor`.
 - Stable result fields:
-- `result` (object): Stable result from reference_index.get.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - `entries` (array)
 - `nextCursor` (string | number | null)
 - `hasMore` (boolean)
@@ -315,13 +323,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge synthesis index status`
 
@@ -365,7 +373,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/synthesis/index/status.
+- No structured fields.
 - Completion evidence:
 - The structured synthesis index status result and the exact invocation inputs used to obtain it.
 - topic, graph, index, resolver, artifact, schema, or insight result with paging metadata
@@ -373,13 +381,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge synthesis insight attention-queue`
 
@@ -423,7 +431,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from insights.get_attention_queue.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - Completion evidence:
 - The structured synthesis insight attention-queue result and the exact invocation inputs used to obtain it.
 - topic, graph, index, resolver, artifact, schema, or insight result with paging metadata
@@ -431,13 +441,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge synthesis resolver resolve`
 
@@ -485,7 +495,9 @@ Distinguish from:
 
 - Delivery: `cursor`.
 - Stable result fields:
-- `result` (object): Stable result from resolvers.resolve.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - `items` (array)
 - `nextCursor` (string | number | null)
 - `hasMore` (boolean)
@@ -496,10 +508,10 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.

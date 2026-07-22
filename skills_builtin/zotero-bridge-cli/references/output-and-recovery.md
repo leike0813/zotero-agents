@@ -4,16 +4,17 @@ The embedded command contract uses `host-bridge.agent-surface.v3` and `zotero-br
 
 Successful commands emit one JSON envelope with `ok`, `data`, and `meta`. Interpret `data` through the command-specific `resultSchema`; similarly named ids are not interchangeable handles.
 
-Retry only when `retryable` is true. Query current state before repeating an operation when `stateChanged` is true, and never reuse a consumed handle.
+Retry only when `retryable` is true. For state-changing commands, use `operation get <operationId>` when `stateChange` or `handleConsumption` is `unknown`; never infer safety from HTTP status alone.
 
 ## Failure decision matrix
 
-| retryable | stateChanged | handleConsumed | Safe response |
+| retryable | stateChange | handleConsumption | Safe response |
 | --- | --- | --- | --- |
-| true | false | false | Recheck connectivity, then retry the same bounded command. |
-| false | false | false | Correct input, authorization, or capability choice before a new invocation. |
-| any | true | false | Query the command-specific current-state endpoint before deciding whether another write is needed. |
-| any | any | true | Do not reuse the handle; inspect its receipt/status and create a new operation only when allowed. |
+| true | unchanged | unconsumed | Recheck connectivity, then retry the same bounded command. |
+| false | unchanged | unconsumed | Correct input, authorization, or capability choice before a new invocation. |
+| any | changed | unconsumed | Query the command-specific current-state endpoint before deciding whether another write is needed. |
+| any | any | consumed | Do not reuse the handle; inspect its receipt/status and create a new operation only when allowed. |
+| any | unknown | unknown | Read the durable operation receipt before deciding whether retry is safe. |
 
 ## Partial apply-back
 

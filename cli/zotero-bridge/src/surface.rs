@@ -28,11 +28,25 @@ fn command_entries(descriptor: &Value) -> Result<&Vec<Value>, CliError> {
         })
 }
 
+pub fn cli_schema() -> Result<String, CliError> {
+    descriptor()?
+        .get("cliSchema")
+        .and_then(Value::as_str)
+        .filter(|value| *value == "zotero-bridge.cli.v3")
+        .map(str::to_string)
+        .ok_or_else(|| {
+            CliError::internal(
+                "invalid_embedded_agent_surface",
+                "Embedded agent surface is missing the current CLI schema",
+            )
+        })
+}
+
 fn identity(descriptor: &Value) -> Value {
     json!({
-        "schema": "host-bridge.surface-identity.v2",
-        "protocol": descriptor.get("protocol").and_then(Value::as_str).unwrap_or("host-bridge.v1"),
-        "cliSchema": descriptor.get("cliSchema").and_then(Value::as_str).unwrap_or("zotero-bridge.cli.v2"),
+        "schema": "host-bridge.surface-identity.v3",
+        "protocol": descriptor.get("protocol").and_then(Value::as_str).unwrap_or(""),
+        "cliSchema": descriptor.get("cliSchema").and_then(Value::as_str).unwrap_or(""),
         "version": env!("CARGO_PKG_VERSION"),
         "buildFingerprint": option_env!("ZOTERO_BRIDGE_BUILD_FINGERPRINT").unwrap_or("development"),
         "commandCatalogChecksum": descriptor.get("commandCatalogChecksum").and_then(Value::as_str).unwrap_or(""),
@@ -69,7 +83,7 @@ fn search(descriptor: &Value, args: SurfaceSearchArgs) -> Result<Value, CliError
         ));
     }
     let tokens: Vec<&str> = intent
-        .split(|character: char| !character.is_ascii_alphanumeric())
+        .split(|character: char| !character.is_alphanumeric())
         .filter(|token| !token.is_empty())
         .collect();
     let mut matches: Vec<(usize, Vec<String>, Value)> = command_entries(descriptor)?
@@ -142,5 +156,70 @@ pub fn run(args: SurfaceArgs) -> Result<Value, CliError> {
         SurfaceCommand::Identity(_) => Ok(identity(&descriptor)),
         SurfaceCommand::Describe(args) => describe(&descriptor, args),
         SurfaceCommand::Search(args) => search(&descriptor, args),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{descriptor, identity, search};
+    use crate::args::{Cli, SurfaceSearchArgs};
+    use clap::Parser;
+
+    fn example_argv(example: &str) -> Vec<String> {
+        let mut argv = Vec::new();
+        let mut current = String::new();
+        let mut quote = None;
+        for character in example.chars() {
+            match (quote, character) {
+                (Some(active), value) if value == active => quote = None,
+                (Some(_), value) => current.push(value),
+                (None, '\'' | '"') => quote = Some(character),
+                (None, value) if value.is_whitespace() => {
+                    if !current.is_empty() {
+                        argv.push(std::mem::take(&mut current));
+                    }
+                }
+                (None, value) => current.push(value),
+            }
+        }
+        assert!(quote.is_none(), "unclosed quote in {example}");
+        if !current.is_empty() {
+            argv.push(current);
+        }
+        argv
+    }
+
+    #[test]
+    fn identity_uses_embedded_v3_contract() {
+        let value = identity(&descriptor().unwrap());
+        assert_eq!(value["schema"], "host-bridge.surface-identity.v3");
+        assert_eq!(value["cliSchema"], "zotero-bridge.cli.v3");
+    }
+
+    #[test]
+    fn search_matches_non_ascii_semantic_intents() {
+        let value = search(
+            &descriptor().unwrap(),
+            SurfaceSearchArgs {
+                intent: "工作流".to_string(),
+                limit: 10,
+                include_debug: false,
+                json: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(value["matches"][0]["command"]["command"], "workflow submit");
+        assert_eq!(value["matches"][0]["matchReasons"][0], "phrase:工作流");
+    }
+
+    #[test]
+    fn every_generated_example_passes_the_real_parser() {
+        for command in descriptor().unwrap()["commands"].as_array().unwrap() {
+            let example = command["guidance"]["example"].as_str().unwrap();
+            let argv = example_argv(example);
+            if let Err(error) = Cli::try_parse_from(argv) {
+                panic!("invalid generated example {example}: {error}");
+            }
+        }
     }
 }

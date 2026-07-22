@@ -44,7 +44,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/tasks/active.
+- No structured fields.
 - Completion evidence:
 - The structured run active result and the exact invocation inputs used to obtain it.
 - current lifecycle state and the exact runtime handle used
@@ -52,13 +52,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge run cancel`
 
@@ -108,7 +108,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from POST /bridge/v1/workflows/runs/{workflowRunId}/cancel.
+- No structured fields.
 - Completion evidence:
 - The structured run cancel result and the exact invocation inputs used to obtain it.
 - current lifecycle state and the exact runtime handle used
@@ -116,13 +116,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `zotero-ui-required` at `before-command`; Zotero UI approval for the described Host-owned effect.
-- Effect `workflow-control`: May change workflow control state. stateChanged=true.
+- Effect `workflow-control`: May change workflow control state. mayChangeState=true.
 - consume `workflowRunId` (caller-owned): Required by the command invocation.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge run get`
 
@@ -166,7 +166,6 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/workflows/runs/{workflowRunId}.
 - `skillRunId` (string)
 - Completion evidence:
 - The structured run get result and the exact invocation inputs used to obtain it.
@@ -175,14 +174,14 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - consume `workflowRunId` (caller-owned): Required by the command invocation.
 - produce `skillRunId` (response): Returned when the corresponding operation succeeds.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge run list`
 
@@ -243,7 +242,6 @@ Distinguish from:
 
 - Delivery: `cursor`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/tasks.
 - `items` (array)
 - `nextCursor` (string | number | null)
 - `hasMore` (boolean)
@@ -254,13 +252,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge run notification ack`
 
@@ -297,7 +295,7 @@ Distinguish from:
 - `event` → option `--event` (required, takes a value).
 - `client-id` → option `--client-id` (optional, takes a value).
 - CLI invocation fields:
-- `event` (string): Notification event id
+- `event` (array): Notification event id
 - `client-id` (string): Best-effort Host Bridge notification client id
 - Decoded payload fields:
 - `event` (string): Notification event id
@@ -307,7 +305,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from POST /bridge/v1/notifications/ack.
+- No structured fields.
 - Completion evidence:
 - The structured run notification ack result and the exact invocation inputs used to obtain it.
 - current lifecycle state and the exact runtime handle used
@@ -315,13 +313,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `workflow-control`: May change workflow control state. stateChanged=true.
+- Effect `workflow-control`: May change workflow control state. mayChangeState=true.
 - consume `eventId` (caller-owned): Required by the command invocation.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge run notification list`
 
@@ -383,10 +381,11 @@ Distinguish from:
 
 - Delivery: `cursor`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/notifications.
-- `events` (array)
-- `nextCursor` (string | number | null)
+- `notifications` (array)
+- `nextSinceEventId` (string | null)
+- `returned` (integer)
 - `hasMore` (boolean)
+- `truncated` (boolean)
 - Completion evidence:
 - The structured run notification list result and the exact invocation inputs used to obtain it.
 - current lifecycle state and the exact runtime handle used
@@ -394,13 +393,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge run notification wait`
 
@@ -468,10 +467,11 @@ Distinguish from:
 
 - Delivery: `cursor`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/notifications.
-- `events` (array)
-- `nextCursor` (string | number | null)
+- `notifications` (array)
+- `nextSinceEventId` (string | null)
+- `returned` (integer)
 - `hasMore` (boolean)
+- `truncated` (boolean)
 - Completion evidence:
 - The structured run notification wait result and the exact invocation inputs used to obtain it.
 - current lifecycle state and the exact runtime handle used
@@ -479,13 +479,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge run permission get`
 
@@ -529,7 +529,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/permissions/{permissionRequestId}.
+- No structured fields.
 - Completion evidence:
 - The structured run permission get result and the exact invocation inputs used to obtain it.
 - current lifecycle state and the exact runtime handle used
@@ -537,13 +537,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - consume `permissionRequestId` (caller-owned): Required by the command invocation.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge run permission pending`
 
@@ -587,7 +587,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/permissions/pending.
+- No structured fields.
 - Completion evidence:
 - The structured run permission pending result and the exact invocation inputs used to obtain it.
 - current lifecycle state and the exact runtime handle used
@@ -595,13 +595,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge run recent`
 
@@ -654,7 +654,6 @@ Distinguish from:
 
 - Delivery: `cursor`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/tasks/recent.
 - `items` (array)
 - `nextCursor` (string | number | null)
 - `hasMore` (boolean)
@@ -665,13 +664,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge run skill connect`
 
@@ -715,7 +714,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from POST /bridge/v1/skill-runs/{skillRunId}/connect.
+- No structured fields.
 - Completion evidence:
 - The structured run skill connect result and the exact invocation inputs used to obtain it.
 - current lifecycle state and the exact runtime handle used
@@ -723,13 +722,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `workflow-control`: May change workflow control state. stateChanged=true.
+- Effect `workflow-control`: May change workflow control state. mayChangeState=true.
 - consume `skillRunId` (caller-owned): Required by the command invocation.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge run skill events`
 
@@ -779,7 +778,6 @@ Distinguish from:
 
 - Delivery: `cursor`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/skill-runs/{skillRunId}/events.
 - `events` (array)
 - `nextCursor` (string | number | null)
 - `hasMore` (boolean)
@@ -790,13 +788,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge run skill get`
 
@@ -840,7 +838,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/skill-runs/{skillRunId}.
+- No structured fields.
 - Completion evidence:
 - The structured run skill get result and the exact invocation inputs used to obtain it.
 - current lifecycle state and the exact runtime handle used
@@ -848,13 +846,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - consume `skillRunId` (caller-owned): Required by the command invocation.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge run skill recent`
 
@@ -901,7 +899,6 @@ Distinguish from:
 
 - Delivery: `cursor`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/skill-runs/recent.
 - `skillRuns` (array)
 - `nextCursor` (string | number | null)
 - `hasMore` (boolean)
@@ -912,13 +909,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge run skill reply`
 
@@ -965,7 +962,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from POST /bridge/v1/skill-runs/{skillRunId}/reply.
+- No structured fields.
 - Completion evidence:
 - The structured run skill reply result and the exact invocation inputs used to obtain it.
 - current lifecycle state and the exact runtime handle used
@@ -973,13 +970,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `workflow-control`: May change workflow control state. stateChanged=true.
+- Effect `workflow-control`: May change workflow control state. mayChangeState=true.
 - consume `skillRunId` (caller-owned): Required by the command invocation.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge run workflow recent`
 
@@ -1026,7 +1023,6 @@ Distinguish from:
 
 - Delivery: `cursor`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/workflows/runs.
 - `runs` (array)
 - `nextCursor` (string | number | null)
 - `hasMore` (boolean)
@@ -1037,13 +1033,81 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
+
+## `zotero-bridge workflow agent-abandon`
+
+Abandon an unconsumed agent run
+
+### Backend and freshness
+
+- Targets: `endpoint:POST /bridge/v1/workflows/agent-runs/{agentRunId}/abandon`.
+- Freshness: live Host Bridge response for this invocation.
+
+### Choose this command
+
+Use when:
+- Use workflow agent-abandon when the required operation is: Abandon an unconsumed agent run.
+- The task is reusable multi-step behavior governed by a workflow contract.
+- The caller will not apply the prepared handoff and wants to close it explicitly.
+
+Avoid when:
+- Do not use workflow agent-abandon when the task needs a different sibling result, control plane, or freshness guarantee.
+- Do not use agent-run for workflows that require Host-owned options or provider profiles.
+
+Distinguish from:
+- workflow agent-apply: choose it only when its narrower result matches the task.
+- workflow agent-apply-status: choose it only when its narrower result matches the task.
+- workflow agent-renew: choose it only when its narrower result matches the task.
+- workflow agent-run: choose it only when its narrower result matches the task.
+
+### Invocation and payload
+
+- Canonical argv: `zotero-bridge workflow agent-abandon`.
+- Example: `zotero-bridge workflow agent-abandon 'agent-run-id'`.
+- Preconditions:
+- Verify the exact CLI identity and a reachable Host Bridge before relying on live results.
+- Exact argv bindings:
+- `agent_run_id` → positional 1 as `AGENT_RUN_ID` (required, takes a value).
+- CLI invocation fields:
+- `agent_run_id` (string): Agent run id returned by workflow agent-run
+- Decoded payload fields:
+- `agent_run_id` (string): Agent run id returned by workflow agent-run
+
+### Result and evidence
+
+- Delivery: `none`.
+- Stable result fields:
+- `agentRunId` (string)
+- `workflowId` (string)
+- `state` (string)
+- `leaseExpiresAt` (string)
+- `retentionExpiresAt` (string)
+- `renewable` (boolean)
+- `abandonable` (boolean)
+- `renewedAt` (string)
+- `abandonedAt` (string)
+- Completion evidence:
+- The structured workflow agent-abandon result and the exact invocation inputs used to obtain it.
+- executionModes, validation result, workflowRunId, agentRunId, or apply receipt
+- abandoned state and disabled lifecycle actions
+
+### Approval, effects, and handles
+
+- Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
+- Effect `workflow-control`: May change workflow control state. mayChangeState=true.
+- consume `agentRunId` (one-shot): Required by the command invocation.
+
+### Failure and recovery
+
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge workflow agent-apply`
 
@@ -1065,10 +1129,10 @@ Avoid when:
 - Do not use agent-run for workflows that require Host-owned options or provider profiles.
 
 Distinguish from:
+- workflow agent-abandon: choose it only when its narrower result matches the task.
 - workflow agent-apply-status: choose it only when its narrower result matches the task.
+- workflow agent-renew: choose it only when its narrower result matches the task.
 - workflow agent-run: choose it only when its narrower result matches the task.
-- workflow describe: choose it only when its narrower result matches the task.
-- workflow list: choose it only when its narrower result matches the task.
 
 ### Invocation and payload
 
@@ -1081,7 +1145,7 @@ Distinguish from:
 - `result` → option `--result` (required, takes a value).
 - CLI invocation fields:
 - `agent_run_id` (string): Agent run id returned by workflow agent-run
-- `result` (string): Apply-back result mapping. Repeat for multiple request bundles.
+- `result` (array): Apply-back result mapping. Repeat for multiple request bundles.
 - Decoded payload fields:
 - `agent_run_id` (string): Agent run id returned by workflow agent-run
 - `result` (string): Apply-back result mapping. Repeat for multiple request bundles.
@@ -1090,7 +1154,6 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply.
 - `applyReceipt` (string)
 - Completion evidence:
 - The structured workflow agent-apply result and the exact invocation inputs used to obtain it.
@@ -1100,7 +1163,8 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `conditional` at `apply-back`; Each result request is preflighted before any approval or handle consumption.
-- Effect `workflow-control`: May change workflow control state. stateChanged=true.
+- Effect `workflow-control`: May change workflow control state. mayChangeState=true.
+- Effect `zotero-library`: May apply finalized Agent results to the Zotero library. mayChangeState=true.
 - consume `agentRunId` (one-shot): Required by the command invocation.
 - consume `agentRequestId` (caller-owned): Required by the command invocation.
 - produce `applyReceipt` (response): Returned when the corresponding operation succeeds.
@@ -1108,7 +1172,7 @@ Distinguish from:
 ### Failure and recovery
 
 - Apply-back fails after preflight or may have partially written results. Read the persisted per-request apply receipt before retrying any result. Next: `workflow agent-apply-status`. Requires: `agentRunId`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge workflow agent-apply-status`
 
@@ -1130,10 +1194,10 @@ Avoid when:
 - Do not use agent-run for workflows that require Host-owned options or provider profiles.
 
 Distinguish from:
+- workflow agent-abandon: choose it only when its narrower result matches the task.
 - workflow agent-apply: choose it only when its narrower result matches the task.
+- workflow agent-renew: choose it only when its narrower result matches the task.
 - workflow agent-run: choose it only when its narrower result matches the task.
-- workflow describe: choose it only when its narrower result matches the task.
-- workflow list: choose it only when its narrower result matches the task.
 
 ### Invocation and payload
 
@@ -1152,8 +1216,15 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/workflows/agent-runs/{agentRunId}/apply.
-- `applyReceipt` (string)
+- `schema` (object)
+- `agentRunId` (string)
+- `workflowId` (string)
+- `status` (string)
+- `updatedAt` (string)
+- `stateChange` (object)
+- `handleConsumption` (object)
+- `recoverable` (boolean)
+- `results` (array)
 - Completion evidence:
 - The structured workflow agent-apply-status result and the exact invocation inputs used to obtain it.
 - executionModes, validation result, workflowRunId, agentRunId, or apply receipt
@@ -1161,14 +1232,82 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - consume `agentRunId` (caller-owned): Required to read persisted apply status; the read does not consume it.
 - produce `applyReceipt` (response): Returned when the corresponding operation succeeds.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
+
+## `zotero-bridge workflow agent-renew`
+
+Renew an unconsumed agent-run lease
+
+### Backend and freshness
+
+- Targets: `endpoint:POST /bridge/v1/workflows/agent-runs/{agentRunId}/renew`.
+- Freshness: live Host Bridge response for this invocation.
+
+### Choose this command
+
+Use when:
+- Use workflow agent-renew when the required operation is: Renew an unconsumed agent-run lease.
+- The task is reusable multi-step behavior governed by a workflow contract.
+- The agent run remains prepared or expired and more bounded processing time is required.
+
+Avoid when:
+- Do not use workflow agent-renew when the task needs a different sibling result, control plane, or freshness guarantee.
+- Do not use agent-run for workflows that require Host-owned options or provider profiles.
+
+Distinguish from:
+- workflow agent-abandon: choose it only when its narrower result matches the task.
+- workflow agent-apply: choose it only when its narrower result matches the task.
+- workflow agent-apply-status: choose it only when its narrower result matches the task.
+- workflow agent-run: choose it only when its narrower result matches the task.
+
+### Invocation and payload
+
+- Canonical argv: `zotero-bridge workflow agent-renew`.
+- Example: `zotero-bridge workflow agent-renew 'agent-run-id'`.
+- Preconditions:
+- Verify the exact CLI identity and a reachable Host Bridge before relying on live results.
+- Exact argv bindings:
+- `agent_run_id` → positional 1 as `AGENT_RUN_ID` (required, takes a value).
+- CLI invocation fields:
+- `agent_run_id` (string): Agent run id returned by workflow agent-run
+- Decoded payload fields:
+- `agent_run_id` (string): Agent run id returned by workflow agent-run
+
+### Result and evidence
+
+- Delivery: `none`.
+- Stable result fields:
+- `agentRunId` (string)
+- `workflowId` (string)
+- `state` (string)
+- `leaseExpiresAt` (string)
+- `retentionExpiresAt` (string)
+- `renewable` (boolean)
+- `abandonable` (boolean)
+- `renewedAt` (string)
+- `abandonedAt` (string)
+- Completion evidence:
+- The structured workflow agent-renew result and the exact invocation inputs used to obtain it.
+- executionModes, validation result, workflowRunId, agentRunId, or apply receipt
+- renewedAt, leaseExpiresAt, and retentionExpiresAt
+
+### Approval, effects, and handles
+
+- Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
+- Effect `workflow-control`: May change workflow control state. mayChangeState=true.
+- consume `agentRunId` (caller-owned): Required by the command invocation.
+
+### Failure and recovery
+
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge workflow agent-run`
 
@@ -1190,15 +1329,15 @@ Avoid when:
 - Do not use agent-run for workflows that require Host-owned options or provider profiles.
 
 Distinguish from:
+- workflow agent-abandon: choose it only when its narrower result matches the task.
 - workflow agent-apply: choose it only when its narrower result matches the task.
 - workflow agent-apply-status: choose it only when its narrower result matches the task.
-- workflow describe: choose it only when its narrower result matches the task.
-- workflow list: choose it only when its narrower result matches the task.
+- workflow agent-renew: choose it only when its narrower result matches the task.
 
 ### Invocation and payload
 
 - Canonical argv: `zotero-bridge workflow agent-run`.
-- Example: `zotero-bridge workflow agent-run --workflow 'workflow'`.
+- Example: `zotero-bridge workflow agent-run --workflow 'workflow' --selection '[]'`.
 - Preconditions:
 - Verify the exact CLI identity and a reachable Host Bridge before relying on live results.
 - Exact argv bindings:
@@ -1220,10 +1359,17 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from POST /bridge/v1/workflows/agent-run.
 - `agentRunId` (string)
-- `agentRequestId` (string)
-- `fileId` (string)
+- `workflowId` (string)
+- `workflowLabel` (string)
+- `generatedAt` (string)
+- `expiresAt` (string)
+- `requests` (array)
+- `instruction` (string)
+- `applyStatus` (object)
+- `bundle` (object)
+- `contents` (object)
+- `notes` (array)
 - Completion evidence:
 - The structured workflow agent-run result and the exact invocation inputs used to obtain it.
 - executionModes, validation result, workflowRunId, agentRunId, or apply receipt
@@ -1232,7 +1378,7 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `workflow-control`: May change workflow control state. stateChanged=true.
+- Effect `workflow-control`: May change workflow control state. mayChangeState=true.
 - consume `itemRef` (caller-owned): Required only for an explicit --selection input; --none carries no itemRef.
 - produce `agentRunId` (one-shot): Returned when the corresponding operation succeeds.
 - produce `agentRequestId` (response): Returned when the corresponding operation succeeds.
@@ -1241,7 +1387,7 @@ Distinguish from:
 ### Failure and recovery
 
 - Handoff preparation fails or its response is uncertain. Inspect the structured error; do not enter the Host-owned run plane. Next: `workflow describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge workflow describe`
 
@@ -1263,10 +1409,10 @@ Avoid when:
 - Do not use agent-run for workflows that require Host-owned options or provider profiles.
 
 Distinguish from:
+- workflow agent-abandon: choose it only when its narrower result matches the task.
 - workflow agent-apply: choose it only when its narrower result matches the task.
 - workflow agent-apply-status: choose it only when its narrower result matches the task.
-- workflow agent-run: choose it only when its narrower result matches the task.
-- workflow list: choose it only when its narrower result matches the task.
+- workflow agent-renew: choose it only when its narrower result matches the task.
 
 ### Invocation and payload
 
@@ -1288,7 +1434,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from POST /bridge/v1/workflows/describe.
+- No structured fields.
 - Completion evidence:
 - The structured workflow describe result and the exact invocation inputs used to obtain it.
 - executionModes, validation result, workflowRunId, agentRunId, or apply receipt
@@ -1296,13 +1442,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge workflow list`
 
@@ -1324,10 +1470,10 @@ Avoid when:
 - Do not use agent-run for workflows that require Host-owned options or provider profiles.
 
 Distinguish from:
+- workflow agent-abandon: choose it only when its narrower result matches the task.
 - workflow agent-apply: choose it only when its narrower result matches the task.
 - workflow agent-apply-status: choose it only when its narrower result matches the task.
-- workflow agent-run: choose it only when its narrower result matches the task.
-- workflow describe: choose it only when its narrower result matches the task.
+- workflow agent-renew: choose it only when its narrower result matches the task.
 
 ### Invocation and payload
 
@@ -1346,7 +1492,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/workflows.
+- No structured fields.
 - Completion evidence:
 - The structured workflow list result and the exact invocation inputs used to obtain it.
 - executionModes, validation result, workflowRunId, agentRunId, or apply receipt
@@ -1354,13 +1500,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge workflow profile describe`
 
@@ -1382,10 +1528,10 @@ Avoid when:
 - Do not use agent-run for workflows that require Host-owned options or provider profiles.
 
 Distinguish from:
+- workflow agent-abandon: choose it only when its narrower result matches the task.
 - workflow agent-apply: choose it only when its narrower result matches the task.
 - workflow agent-apply-status: choose it only when its narrower result matches the task.
-- workflow agent-run: choose it only when its narrower result matches the task.
-- workflow describe: choose it only when its narrower result matches the task.
+- workflow agent-renew: choose it only when its narrower result matches the task.
 
 ### Invocation and payload
 
@@ -1404,7 +1550,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from POST /bridge/v1/workflows/provider-profiles/describe.
+- No structured fields.
 - Completion evidence:
 - The structured workflow profile describe result and the exact invocation inputs used to obtain it.
 - executionModes, validation result, workflowRunId, agentRunId, or apply receipt
@@ -1412,13 +1558,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge workflow profile list`
 
@@ -1440,10 +1586,10 @@ Avoid when:
 - Do not use agent-run for workflows that require Host-owned options or provider profiles.
 
 Distinguish from:
+- workflow agent-abandon: choose it only when its narrower result matches the task.
 - workflow agent-apply: choose it only when its narrower result matches the task.
 - workflow agent-apply-status: choose it only when its narrower result matches the task.
-- workflow agent-run: choose it only when its narrower result matches the task.
-- workflow describe: choose it only when its narrower result matches the task.
+- workflow agent-renew: choose it only when its narrower result matches the task.
 
 ### Invocation and payload
 
@@ -1462,7 +1608,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from GET /bridge/v1/workflows/provider-profiles.
+- No structured fields.
 - Completion evidence:
 - The structured workflow profile list result and the exact invocation inputs used to obtain it.
 - executionModes, validation result, workflowRunId, agentRunId, or apply receipt
@@ -1470,13 +1616,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge workflow profile validate`
 
@@ -1498,10 +1644,10 @@ Avoid when:
 - Do not use agent-run for workflows that require Host-owned options or provider profiles.
 
 Distinguish from:
+- workflow agent-abandon: choose it only when its narrower result matches the task.
 - workflow agent-apply: choose it only when its narrower result matches the task.
 - workflow agent-apply-status: choose it only when its narrower result matches the task.
-- workflow agent-run: choose it only when its narrower result matches the task.
-- workflow describe: choose it only when its narrower result matches the task.
+- workflow agent-renew: choose it only when its narrower result matches the task.
 
 ### Invocation and payload
 
@@ -1520,7 +1666,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from POST /bridge/v1/workflows/provider-profiles/validate.
+- No structured fields.
 - Completion evidence:
 - The structured workflow profile validate result and the exact invocation inputs used to obtain it.
 - executionModes, validation result, workflowRunId, agentRunId, or apply receipt
@@ -1528,13 +1674,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge workflow requirements`
 
@@ -1556,15 +1702,15 @@ Avoid when:
 - Do not use agent-run for workflows that require Host-owned options or provider profiles.
 
 Distinguish from:
+- workflow agent-abandon: choose it only when its narrower result matches the task.
 - workflow agent-apply: choose it only when its narrower result matches the task.
 - workflow agent-apply-status: choose it only when its narrower result matches the task.
-- workflow agent-run: choose it only when its narrower result matches the task.
-- workflow describe: choose it only when its narrower result matches the task.
+- workflow agent-renew: choose it only when its narrower result matches the task.
 
 ### Invocation and payload
 
 - Canonical argv: `zotero-bridge workflow requirements`.
-- Example: `zotero-bridge workflow requirements`.
+- Example: `zotero-bridge workflow requirements --workflow 'workflow'`.
 - Preconditions:
 - Verify the exact CLI identity and a reachable Host Bridge before relying on live results.
 - Exact argv bindings:
@@ -1581,7 +1727,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from POST /bridge/v1/workflows/requirements.
+- No structured fields.
 - Completion evidence:
 - The structured workflow requirements result and the exact invocation inputs used to obtain it.
 - executionModes, validation result, workflowRunId, agentRunId, or apply receipt
@@ -1589,13 +1735,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge workflow submit`
 
@@ -1617,15 +1763,15 @@ Avoid when:
 - Do not use agent-run for workflows that require Host-owned options or provider profiles.
 
 Distinguish from:
+- workflow agent-abandon: choose it only when its narrower result matches the task.
 - workflow agent-apply: choose it only when its narrower result matches the task.
 - workflow agent-apply-status: choose it only when its narrower result matches the task.
-- workflow agent-run: choose it only when its narrower result matches the task.
-- workflow describe: choose it only when its narrower result matches the task.
+- workflow agent-renew: choose it only when its narrower result matches the task.
 
 ### Invocation and payload
 
 - Canonical argv: `zotero-bridge workflow submit`.
-- Example: `zotero-bridge workflow submit --workflow 'workflow'`.
+- Example: `zotero-bridge workflow submit --workflow 'workflow' --selection '[]'`.
 - Preconditions:
 - Verify the exact CLI identity and a reachable Host Bridge before relying on live results.
 - Exact argv bindings:
@@ -1650,8 +1796,13 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from POST /bridge/v1/workflows/submit.
+- `workflowId` (string)
+- `workflowLabel` (string)
 - `workflowRunId` (string)
+- `jobIds` (array)
+- `totalJobs` (integer)
+- `tasks` (array)
+- `permission` (object)
 - Completion evidence:
 - The structured workflow submit result and the exact invocation inputs used to obtain it.
 - executionModes, validation result, workflowRunId, agentRunId, or apply receipt
@@ -1660,14 +1811,14 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `zotero-ui-required` at `before-command`; Zotero UI approval for the described Host-owned effect.
-- Effect `workflow-control`: May change workflow control state. stateChanged=true.
+- Effect `workflow-control`: May change workflow control state. mayChangeState=true.
 - consume `itemRef` (caller-owned): Required only for an explicit --selection input; --none carries no itemRef.
 - produce `workflowRunId` (response): Returned when the corresponding operation succeeds.
 
 ### Failure and recovery
 
-- The operation fails or completion is uncertain. Inspect stateChanged and handleConsumed before repeating the operation. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge workflow validate`
 
@@ -1689,15 +1840,15 @@ Avoid when:
 - Do not use agent-run for workflows that require Host-owned options or provider profiles.
 
 Distinguish from:
+- workflow agent-abandon: choose it only when its narrower result matches the task.
 - workflow agent-apply: choose it only when its narrower result matches the task.
 - workflow agent-apply-status: choose it only when its narrower result matches the task.
-- workflow agent-run: choose it only when its narrower result matches the task.
-- workflow describe: choose it only when its narrower result matches the task.
+- workflow agent-renew: choose it only when its narrower result matches the task.
 
 ### Invocation and payload
 
 - Canonical argv: `zotero-bridge workflow validate`.
-- Example: `zotero-bridge workflow validate --workflow 'workflow'`.
+- Example: `zotero-bridge workflow validate --workflow 'workflow' --selection '[]'`.
 - Preconditions:
 - Verify the exact CLI identity and a reachable Host Bridge before relying on live results.
 - Exact argv bindings:
@@ -1719,7 +1870,7 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from POST /bridge/v1/workflows/validate.
+- No structured fields.
 - Completion evidence:
 - The structured workflow validate result and the exact invocation inputs used to obtain it.
 - executionModes, validation result, workflowRunId, agentRunId, or apply receipt
@@ -1727,10 +1878,10 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.

@@ -32,7 +32,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge run active`。
-- 示例：`zotero-bridge run active`。
+- 示例：`zotero-bridge run active`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -46,21 +46,21 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/tasks/active 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 run active 结果及用于获取它的确切调用输入。
 - 当前生命周期状态及所使用的确切运行时句柄
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `none`：读取状态而不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整的证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge run cancel`
 
@@ -90,7 +90,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge run cancel`。
-- 示例：`zotero-bridge run cancel 'run-id'`。
+- 示例：`zotero-bridge run cancel 'run-id'`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -110,21 +110,21 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 POST /bridge/v1/workflows/runs/{workflowRunId}/cancel 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 run cancel 结果及用于获取它的确切调用输入。
 - 当前生命周期状态及所使用的确切运行时句柄
 
 ### Approval、效果与句柄
 
-- Approval：`zotero-ui-required` at `before-command`；对所描述的 Host 所有效果需要 Zotero UI approval。
-- 效果 `workflow-control`：可能更改 workflow 控制状态。stateChanged=true。
+- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 以批准所述 Host 所有的副作用。
+- 副作用 `workflow-control`：可能修改 workflow control 状态。 mayChangeState=true.
 - 消费 `workflowRunId`（调用方所有）：命令调用所必需。
 
 ### 失败与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge run get`
 
@@ -154,7 +154,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge run get`。
-- 示例：`zotero-bridge run get 'run-id'`。
+- 示例：`zotero-bridge run get 'run-id'`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -168,7 +168,6 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/workflows/runs/{workflowRunId} 的稳定结果。
 - `skillRunId`（string）
 - 完成证据：
 - 结构化的 run get 结果及用于获取它的确切调用输入。
@@ -176,15 +175,15 @@
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `none`：读取状态而不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 消费 `workflowRunId`（调用方所有）：命令调用所必需。
 - 产出 `skillRunId`（响应）：对应操作成功时返回。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整的证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge run list`
 
@@ -214,7 +213,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge run list`。
-- 示例：`zotero-bridge run list`。
+- 示例：`zotero-bridge run list`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -245,7 +244,6 @@
 
 - 交付方式：`cursor`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/tasks 的稳定结果。
 - `items`（array）
 - `nextCursor`（string | number | null）
 - `hasMore`（boolean）
@@ -255,14 +253,14 @@
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `none`：读取状态而不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整的证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge run notification ack`
 
@@ -292,7 +290,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge run notification ack`。
-- 示例：`zotero-bridge run notification ack --event 'event'`。
+- 示例：`zotero-bridge run notification ack --event 'event'`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -309,21 +307,21 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 POST /bridge/v1/notifications/ack 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 run notification ack 结果及用于获取它的确切调用输入。
 - 当前生命周期状态及所使用的确切运行时句柄
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `workflow-control`：可能更改 workflow 控制状态。stateChanged=true。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `workflow-control`：可能修改 workflow control 状态。 mayChangeState=true.
 - 消费 `eventId`（调用方所有）：命令调用所必需。
 
 ### 失败与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge run notification list`
 
@@ -353,7 +351,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge run notification list`。
-- 示例：`zotero-bridge run notification list`。
+- 示例：`zotero-bridge run notification list`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -385,24 +383,25 @@
 
 - 交付方式：`cursor`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/notifications 的稳定结果。
-- `events`（array）
-- `nextCursor`（string | number | null）
+- `notifications`（array）
+- `nextSinceEventId`（string | null）
+- `returned`（integer）
 - `hasMore`（boolean）
+- `truncated`（boolean）
 - 完成证据：
 - 结构化的 run notification list 结果及用于获取它的确切调用输入。
 - 当前生命周期状态及所使用的确切运行时句柄
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `none`：读取状态而不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整的证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge run notification wait`
 
@@ -432,7 +431,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge run notification wait`。
-- 示例：`zotero-bridge run notification wait`。
+- 示例：`zotero-bridge run notification wait`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -470,24 +469,25 @@
 
 - 交付方式：`cursor`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/notifications 的稳定结果。
-- `events`（array）
-- `nextCursor`（string | number | null）
+- `notifications`（array）
+- `nextSinceEventId`（string | null）
+- `returned`（integer）
 - `hasMore`（boolean）
+- `truncated`（boolean）
 - 完成证据：
 - 结构化的 run notification wait 结果及用于获取它的确切调用输入。
 - 当前生命周期状态及所使用的确切运行时句柄
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `none`：读取状态而不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整的证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge run permission get`
 
@@ -517,7 +517,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge run permission get`。
-- 示例：`zotero-bridge run permission get 'permission-request-id'`。
+- 示例：`zotero-bridge run permission get 'permission-request-id'`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -531,21 +531,21 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/permissions/{permissionRequestId} 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 run permission get 结果及用于获取它的确切调用输入。
 - 当前生命周期状态及所使用的确切运行时句柄
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `none`：读取状态而不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 消费 `permissionRequestId`（调用方所有）：命令调用所必需。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整的证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge run permission pending`
 
@@ -575,7 +575,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge run permission pending`。
-- 示例：`zotero-bridge run permission pending`。
+- 示例：`zotero-bridge run permission pending`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -589,21 +589,21 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/permissions/pending 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 run permission pending 结果及用于获取它的确切调用输入。
 - 当前生命周期状态及所使用的确切运行时句柄
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `none`：读取状态而不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整的证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge run recent`
 
@@ -633,7 +633,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge run recent`。
-- 示例：`zotero-bridge run recent`。
+- 示例：`zotero-bridge run recent`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -656,7 +656,6 @@
 
 - 交付方式：`cursor`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/tasks/recent 的稳定结果。
 - `items`（array）
 - `nextCursor`（string | number | null）
 - `hasMore`（boolean）
@@ -666,14 +665,14 @@
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `none`：读取状态而不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整的证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge run skill connect`
 
@@ -703,7 +702,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge run skill connect`。
-- 示例：`zotero-bridge run skill connect 'skill-run-id'`。
+- 示例：`zotero-bridge run skill connect 'skill-run-id'`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -717,21 +716,21 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 POST /bridge/v1/skill-runs/{skillRunId}/connect 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 run skill connect 结果及用于获取它的确切调用输入。
 - 当前生命周期状态及所使用的确切运行时句柄
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `workflow-control`：可能更改 workflow 控制状态。stateChanged=true。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `workflow-control`：可能修改 workflow control 状态。 mayChangeState=true.
 - 消费 `skillRunId`（调用方所有）：命令调用所必需。
 
 ### 失败与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge run skill events`
 
@@ -761,7 +760,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge run skill events`。
-- 示例：`zotero-bridge run skill events 'skill-run-id'`。
+- 示例：`zotero-bridge run skill events 'skill-run-id'`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -781,7 +780,6 @@
 
 - 交付方式：`cursor`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/skill-runs/{skillRunId}/events 的稳定结果。
 - `events`（array）
 - `nextCursor`（string | number | null）
 - `hasMore`（boolean）
@@ -791,14 +789,14 @@
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `none`：读取状态而不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整的证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge run skill get`
 
@@ -828,7 +826,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge run skill get`。
-- 示例：`zotero-bridge run skill get 'skill-run-id'`。
+- 示例：`zotero-bridge run skill get 'skill-run-id'`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -842,21 +840,21 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/skill-runs/{skillRunId} 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 run skill get 结果及用于获取它的确切调用输入。
 - 当前生命周期状态及所使用的确切运行时句柄
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `none`：读取状态而不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 消费 `skillRunId`（调用方所有）：命令调用所必需。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整的证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge run skill recent`
 
@@ -886,7 +884,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge run skill recent`。
-- 示例：`zotero-bridge run skill recent`。
+- 示例：`zotero-bridge run skill recent`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -903,7 +901,6 @@
 
 - 交付方式：`cursor`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/skill-runs/recent 的稳定结果。
 - `skillRuns`（array）
 - `nextCursor`（string | number | null）
 - `hasMore`（boolean）
@@ -913,14 +910,14 @@
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `none`：读取状态而不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整的证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge run skill reply`
 
@@ -950,7 +947,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge run skill reply`。
-- 示例：`zotero-bridge run skill reply 'skill-run-id' --message 'message'`。
+- 示例：`zotero-bridge run skill reply 'skill-run-id' --message 'message'`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -967,21 +964,21 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 POST /bridge/v1/skill-runs/{skillRunId}/reply 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 run skill reply 结果及用于获取它的确切调用输入。
 - 当前生命周期状态及所使用的确切运行时句柄
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `workflow-control`：可能更改 workflow 控制状态。stateChanged=true。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `workflow-control`：可能修改 workflow control 状态。 mayChangeState=true.
 - 消费 `skillRunId`（调用方所有）：命令调用所必需。
 
 ### 失败与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge run workflow recent`
 
@@ -1011,7 +1008,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge run workflow recent`。
-- 示例：`zotero-bridge run workflow recent --workflow 'workflow'`。
+- 示例：`zotero-bridge run workflow recent --workflow 'workflow'`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -1028,7 +1025,6 @@
 
 - 交付方式：`cursor`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/workflows/runs 的稳定结果。
 - `runs`（array）
 - `nextCursor`（string | number | null）
 - `hasMore`（boolean）
@@ -1038,14 +1034,82 @@
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `none`：读取状态而不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整的证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
+
+## `zotero-bridge workflow agent-abandon`
+
+Abandon an unconsumed agent run
+
+### Backend 与数据新鲜度
+
+- Targets: `endpoint:POST /bridge/v1/workflows/agent-runs/{agentRunId}/abandon`.
+- 新鲜度：live Host Bridge response for this invocation.
+
+### 选择此命令
+
+使用场景：
+- Use workflow agent-abandon when the required operation is: Abandon an unconsumed agent run.
+- The task is reusable multi-step behavior governed by a workflow contract.
+- The caller will not apply the prepared handoff and wants to close it explicitly.
+
+避免场景：
+- Do not use workflow agent-abandon when the task needs a different sibling result, control plane, or freshness guarantee.
+- Do not use agent-run for workflows that require Host-owned options or provider profiles.
+
+与其他命令的区别：
+- workflow agent-apply: choose it only when its narrower result matches the task.
+- workflow agent-apply-status: choose it only when its narrower result matches the task.
+- workflow agent-renew: choose it only when its narrower result matches the task.
+- workflow agent-run: choose it only when its narrower result matches the task.
+
+### 调用方式与载荷
+
+- 标准 argv：`zotero-bridge workflow agent-abandon`.
+- 示例：`zotero-bridge workflow agent-abandon 'agent-run-id'`.
+- 前置条件：
+- 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
+- 精确的 argv 绑定：
+- `agent_run_id` → positional 1 as `AGENT_RUN_ID` (required, takes a value).
+- CLI 调用字段：
+- `agent_run_id`（string）：Agent run id returned by workflow agent-run
+- 解码后的载荷字段：
+- `agent_run_id`（string）：Agent run id returned by workflow agent-run
+
+### 结果与证据
+
+- 交付方式：`none`.
+- 稳定结果字段：
+- `agentRunId`（string）
+- `workflowId`（string）
+- `state`（string）
+- `leaseExpiresAt`（string）
+- `retentionExpiresAt`（string）
+- `renewable`（boolean）
+- `abandonable`（boolean）
+- `renewedAt`（string）
+- `abandonedAt`（string）
+- 完成证据：
+- 结构化的 workflow agent-abandon 结果及获取该结果所使用的精确调用输入。
+- executionModes, validation result, workflowRunId, agentRunId, or apply receipt
+- abandoned state and disabled lifecycle actions
+
+### Approval、副作用与 handle
+
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- Effect `workflow-control`: May change workflow control state. mayChangeState=true.
+- consume `agentRunId` (one-shot): Required by the command invocation.
+
+### 故障与恢复
+
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge workflow agent-apply`
 
@@ -1075,7 +1139,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge workflow agent-apply`。
-- 示例：`zotero-bridge workflow agent-apply 'agent-run-id' --result 'result'`。
+- 示例：`zotero-bridge workflow agent-apply 'agent-run-id' --result 'result'`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -1092,7 +1156,6 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply 的稳定结果。
 - `applyReceipt`（string）
 - 完成证据：
 - 结构化的 workflow agent-apply 结果及用于获取它的确切调用输入。
@@ -1101,8 +1164,9 @@
 
 ### Approval、效果与句柄
 
-- Approval：`conditional` at `apply-back`；每个结果请求在任何 approval 或句柄消费之前都会进行预检。
-- 效果 `workflow-control`：可能更改 workflow 控制状态。stateChanged=true。
+- Approval：`conditional` at `apply-back`；每个结果请求都会在任何 approval 或 handle 消耗前完成 preflight。
+- 副作用 `workflow-control`：可能修改 workflow control 状态。 mayChangeState=true.
+- 副作用 `zotero-library`：可能将最终 Agent 结果应用到 Zotero 文献库。 mayChangeState=true.
 - 消费 `agentRunId`（一次性）：命令调用所必需。
 - 消费 `agentRequestId`（调用方所有）：命令调用所必需。
 - 产出 `applyReceipt`（响应）：对应操作成功时返回。
@@ -1110,7 +1174,7 @@
 ### 失败与恢复
 
 - 预检后 apply-back 失败，或可能已部分写入结果。在重试任何结果之前，先读取已持久化的每个请求的 apply receipt。下一步：`workflow agent-apply-status`。需要：`agentRunId`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge workflow agent-apply-status`
 
@@ -1140,7 +1204,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge workflow agent-apply-status`。
-- 示例：`zotero-bridge workflow agent-apply-status 'agent-run-id'`。
+- 示例：`zotero-bridge workflow agent-apply-status 'agent-run-id'`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -1154,23 +1218,98 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/workflows/agent-runs/{agentRunId}/apply 的稳定结果。
-- `applyReceipt`（string）
+- `schema`（object）
+- `agentRunId`（string）
+- `workflowId`（string）
+- `status`（string）
+- `updatedAt`（string）
+- `stateChange`（object）
+- `handleConsumption`（object）
+- `recoverable`（boolean）
+- `results`（array）
 - 完成证据：
 - 结构化的 workflow agent-apply-status 结果及用于获取它的确切调用输入。
 - executionModes、验证结果、workflowRunId、agentRunId 或 apply receipt
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `none`：读取状态而不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 消费 `agentRunId`（调用方所有）：读取已持久化的 apply 状态所必需；读取操作本身不会消费它。
 - 产出 `applyReceipt`（响应）：对应操作成功时返回。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整的证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
+
+## `zotero-bridge workflow agent-renew`
+
+Renew an unconsumed agent-run lease
+
+### Backend 与数据新鲜度
+
+- Targets: `endpoint:POST /bridge/v1/workflows/agent-runs/{agentRunId}/renew`.
+- 新鲜度：live Host Bridge response for this invocation.
+
+### 选择此命令
+
+使用场景：
+- Use workflow agent-renew when the required operation is: Renew an unconsumed agent-run lease.
+- The task is reusable multi-step behavior governed by a workflow contract.
+- The agent run remains prepared or expired and more bounded processing time is required.
+
+避免场景：
+- Do not use workflow agent-renew when the task needs a different sibling result, control plane, or freshness guarantee.
+- Do not use agent-run for workflows that require Host-owned options or provider profiles.
+
+与其他命令的区别：
+- workflow agent-abandon: choose it only when its narrower result matches the task.
+- workflow agent-apply: choose it only when its narrower result matches the task.
+- workflow agent-apply-status: choose it only when its narrower result matches the task.
+- workflow agent-run: choose it only when its narrower result matches the task.
+
+### 调用方式与载荷
+
+- 标准 argv：`zotero-bridge workflow agent-renew`.
+- 示例：`zotero-bridge workflow agent-renew 'agent-run-id'`.
+- 前置条件：
+- 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
+- 精确的 argv 绑定：
+- `agent_run_id` → positional 1 as `AGENT_RUN_ID` (required, takes a value).
+- CLI 调用字段：
+- `agent_run_id`（string）：Agent run id returned by workflow agent-run
+- 解码后的载荷字段：
+- `agent_run_id`（string）：Agent run id returned by workflow agent-run
+
+### 结果与证据
+
+- 交付方式：`none`.
+- 稳定结果字段：
+- `agentRunId`（string）
+- `workflowId`（string）
+- `state`（string）
+- `leaseExpiresAt`（string）
+- `retentionExpiresAt`（string）
+- `renewable`（boolean）
+- `abandonable`（boolean）
+- `renewedAt`（string）
+- `abandonedAt`（string）
+- 完成证据：
+- 结构化的 workflow agent-renew 结果及获取该结果所使用的精确调用输入。
+- executionModes, validation result, workflowRunId, agentRunId, or apply receipt
+- renewedAt, leaseExpiresAt, and retentionExpiresAt
+
+### Approval、副作用与 handle
+
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- Effect `workflow-control`: May change workflow control state. mayChangeState=true.
+- consume `agentRunId` (caller-owned): Required by the command invocation.
+
+### 故障与恢复
+
+- The operation fails or completion is uncertain. Inspect stateChange and handleConsumption before repeating the operation. Next: `surface describe`.
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge workflow agent-run`
 
@@ -1200,7 +1339,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge workflow agent-run`。
-- 示例：`zotero-bridge workflow agent-run --workflow 'workflow'`。
+- 示例：`zotero-bridge workflow agent-run --workflow 'workflow' --selection '[]'`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -1222,10 +1361,17 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 POST /bridge/v1/workflows/agent-run 的稳定结果。
 - `agentRunId`（string）
-- `agentRequestId`（string）
-- `fileId`（string）
+- `workflowId`（string）
+- `workflowLabel`（string）
+- `generatedAt`（string）
+- `expiresAt`（string）
+- `requests`（array）
+- `instruction`（string）
+- `applyStatus`（object）
+- `bundle`（object）
+- `contents`（object）
+- `notes`（array）
 - 完成证据：
 - 结构化的 workflow agent-run 结果及用于获取它的确切调用输入。
 - executionModes、验证结果、workflowRunId、agentRunId 或 apply receipt
@@ -1233,8 +1379,8 @@
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `workflow-control`：可能更改 workflow 控制状态。stateChanged=true。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `workflow-control`：可能修改 workflow control 状态。 mayChangeState=true.
 - 消费 `itemRef`（调用方所有）：仅在显式 --selection 输入时需要；--none 不携带 itemRef。
 - 产出 `agentRunId`（一次性）：对应操作成功时返回。
 - 产出 `agentRequestId`（响应）：对应操作成功时返回。
@@ -1243,7 +1389,7 @@
 ### 失败与恢复
 
 - 交接准备失败或响应不确定。检查结构化错误；不要进入 Host 所有运行平面。下一步：`workflow describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge workflow describe`
 
@@ -1273,7 +1419,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge workflow describe`。
-- 示例：`zotero-bridge workflow describe --workflow 'workflow'`。
+- 示例：`zotero-bridge workflow describe --workflow 'workflow'`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -1290,21 +1436,21 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 POST /bridge/v1/workflows/describe 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 workflow describe 结果及用于获取它的确切调用输入。
 - executionModes、验证结果、workflowRunId、agentRunId 或 apply receipt
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `none`：读取状态而不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整的证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge workflow list`
 
@@ -1334,7 +1480,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge workflow list`。
-- 示例：`zotero-bridge workflow list`。
+- 示例：`zotero-bridge workflow list`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -1348,21 +1494,21 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/workflows 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 workflow list 结果及用于获取它的确切调用输入。
 - executionModes、验证结果、workflowRunId、agentRunId 或 apply receipt
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `none`：读取状态而不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整的证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge workflow profile describe`
 
@@ -1392,7 +1538,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge workflow profile describe`。
-- 示例：`zotero-bridge workflow profile describe --backend 'backend'`。
+- 示例：`zotero-bridge workflow profile describe --backend 'backend'`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -1406,21 +1552,21 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 POST /bridge/v1/workflows/provider-profiles/describe 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 workflow profile describe 结果及用于获取它的确切调用输入。
 - executionModes、验证结果、workflowRunId、agentRunId 或 apply receipt
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `none`：读取状态而不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整的证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge workflow profile list`
 
@@ -1450,7 +1596,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge workflow profile list`。
-- 示例：`zotero-bridge workflow profile list`。
+- 示例：`zotero-bridge workflow profile list`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -1464,21 +1610,21 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/workflows/provider-profiles 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 workflow profile list 结果及用于获取它的确切调用输入。
 - executionModes、验证结果、workflowRunId、agentRunId 或 apply receipt
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `none`：读取状态而不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整的证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge workflow profile validate`
 
@@ -1508,7 +1654,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge workflow profile validate`。
-- 示例：`zotero-bridge workflow profile validate`。
+- 示例：`zotero-bridge workflow profile validate`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -1522,21 +1668,21 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 POST /bridge/v1/workflows/provider-profiles/validate 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 workflow profile validate 结果及用于获取它的确切调用输入。
 - executionModes、验证结果、workflowRunId、agentRunId 或 apply receipt
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `none`：读取状态而不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整的证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge workflow requirements`
 
@@ -1566,7 +1712,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge workflow requirements`。
-- 示例：`zotero-bridge workflow requirements`。
+- 示例：`zotero-bridge workflow requirements --workflow 'workflow'`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -1583,21 +1729,21 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 POST /bridge/v1/workflows/requirements 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 workflow requirements 结果及用于获取它的确切调用输入。
 - executionModes、验证结果、workflowRunId、agentRunId 或 apply receipt
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `none`：读取状态而不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整的证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge workflow submit`
 
@@ -1627,7 +1773,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge workflow submit`。
-- 示例：`zotero-bridge workflow submit --workflow 'workflow'`。
+- 示例：`zotero-bridge workflow submit --workflow 'workflow' --selection '[]'`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -1652,8 +1798,13 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 POST /bridge/v1/workflows/submit 的稳定结果。
+- `workflowId`（string）
+- `workflowLabel`（string）
 - `workflowRunId`（string）
+- `jobIds`（array）
+- `totalJobs`（integer）
+- `tasks`（array）
+- `permission`（object）
 - 完成证据：
 - 结构化的 workflow submit 结果及用于获取它的确切调用输入。
 - executionModes、验证结果、workflowRunId、agentRunId 或 apply receipt
@@ -1661,15 +1812,15 @@
 
 ### Approval、效果与句柄
 
-- Approval：`zotero-ui-required` at `before-command`；对所描述的 Host 所有效果需要 Zotero UI approval。
-- 效果 `workflow-control`：可能更改 workflow 控制状态。stateChanged=true。
+- Approval：`zotero-ui-required` at `before-command`；需要 Zotero UI approval 以批准所述 Host 所有的副作用。
+- 副作用 `workflow-control`：可能修改 workflow control 状态。 mayChangeState=true.
 - 消费 `itemRef`（调用方所有）：仅在显式 --selection 输入时需要；--none 不携带 itemRef。
 - 产出 `workflowRunId`（响应）：对应操作成功时返回。
 
 ### 失败与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge workflow validate`
 
@@ -1699,7 +1850,7 @@
 ### 调用与载荷
 
 - 标准 argv：`zotero-bridge workflow validate`。
-- 示例：`zotero-bridge workflow validate --workflow 'workflow'`。
+- 示例：`zotero-bridge workflow validate --workflow 'workflow' --selection '[]'`.
 - 前置条件：
 - 在依赖实时结果之前，验证确切的 CLI 身份和可达的 Host Bridge。
 - 精确 argv 绑定：
@@ -1721,18 +1872,18 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 POST /bridge/v1/workflows/validate 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 workflow validate 结果及用于获取它的确切调用输入。
 - executionModes、验证结果、workflowRunId、agentRunId 或 apply receipt
 
 ### Approval、效果与句柄
 
-- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求其自身的权限。
-- 效果 `none`：读取状态而不更改 Host 所有数据。stateChanged=false。
+- Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化句柄转换。
 
 ### 失败与恢复
 
 - 读取失败或返回不完整的证据。检查错误，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。

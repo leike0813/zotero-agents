@@ -34,7 +34,7 @@ When triggered:
    `releaseSetId` and CLI identity, all seven CLI platform checksums are present,
    and mutable pointers advanced only after immutable verification.
 5. Rerun the release gate with `--host-bridge-done` only when a
-   `host-bridge.release-receipt.v1` for that `releaseSetId` reports
+   `host-bridge.release-receipt.v2` for that `releaseSetId` reports
    `status: complete`.
 
 Do not inline or paraphrase the Host Bridge release commands here; the dedicated

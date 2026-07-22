@@ -196,13 +196,41 @@ function sha256(value: string) {
 }
 
 export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
+  const expectedPlatforms = [
+    "darwin-arm64",
+    "darwin-x64",
+    "linux-arm",
+    "linux-arm64",
+    "linux-x64",
+    "linux-x86",
+    "win32-x64",
+  ];
+  const actualPlatforms = input.cli.binaries
+    .map((entry) => entry.platform)
+    .sort((left, right) => left.localeCompare(right));
+  if (
+    actualPlatforms.length !== expectedPlatforms.length ||
+    actualPlatforms.some(
+      (platform, index) => platform !== expectedPlatforms[index],
+    ) ||
+    input.cli.binaries.some(
+      (entry) =>
+        !entry.sha256 ||
+        !Number.isInteger(entry.bytes) ||
+        Number(entry.bytes) <= 0,
+    )
+  ) {
+    throw new Error(
+      "Host Bridge release set requires the exact seven-platform prebuild with byte counts",
+    );
+  }
+  if (input.cli.binariesBuildFingerprint !== input.cli.buildFingerprint) {
+    throw new Error(
+      "Host Bridge release set requires a verified prebuild for the current CLI fingerprint",
+    );
+  }
   const cliIdentity: HostBridgeCliIdentity = {
-    schema:
-      input.cliSchema === "zotero-bridge.cli.v3"
-        ? "host-bridge.surface-identity.v3"
-        : input.cliSchema === "zotero-bridge.cli.v2"
-        ? "host-bridge.surface-identity.v2"
-        : "host-bridge.surface-identity.v1",
+    schema: "host-bridge.surface-identity.v3",
     protocol: input.protocol,
     cliSchema: input.cliSchema,
     version: input.cli.version,
@@ -216,9 +244,19 @@ export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
       version: input.cli.version,
       buildFingerprint: input.cli.buildFingerprint,
       commandCatalogChecksum: input.cli.commandCatalogChecksum,
+      binaryAggregateSha256: input.cli.binaryAggregateSha256,
+      binaries: input.cli.binaries.map(
+        ({ platform, binary, sha256, bytes }) => ({
+          platform,
+          binary,
+          sha256,
+          bytes,
+        }),
+      ),
     },
     surfaces: input.surfaces,
   };
+  const payloadDigest = `sha256:${sha256(stableJson(identityInput))}`;
   const releaseSetId = `hbrs-${sha256(stableJson(identityInput)).slice(0, 24)}`;
   const surfaces = Object.fromEntries(
     Object.entries(input.surfaces).map(([name, surface]) => [
@@ -231,9 +269,10 @@ export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
     ]),
   ) as Record<keyof HostBridgeReleaseSetInput["surfaces"], unknown>;
   return {
-    schema: "host-bridge.release-set.v1" as const,
+    schema: "host-bridge.release-set.v2" as const,
     releaseSetId,
     status: "planned" as const,
+    payloadDigest,
     source: {
       repository: "leike0813/zotero-agents",
       commit: input.sourceCommit,
@@ -242,9 +281,13 @@ export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
     cliSchema: input.cliSchema,
     cli: {
       ...input.cli,
-      prebuildRequired:
-        input.cli.binariesBuildFingerprint !== input.cli.buildFingerprint,
       identity: cliIdentity,
+      prebuild: {
+        verified: true as const,
+        branch: "host-bridge-cli-prebuilds" as const,
+        buildFingerprint: input.cli.binariesBuildFingerprint,
+        binaryAggregateSha256: input.cli.binaryAggregateSha256,
+      },
     },
     surfaces,
   };

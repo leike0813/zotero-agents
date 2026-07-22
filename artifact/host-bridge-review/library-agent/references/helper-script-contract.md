@@ -33,6 +33,6 @@ python scripts/zotero_library_agent.py workflow validate-result \
   --result result-dir-or.zip
 ```
 
-`workflow inspect` 返回在准备好的交接中发现的 `agentRunId`、请求标识符和合约位置。对每个最终确定的请求结果及其对应的 `output-contract.json` 分别运行 `workflow validate-result`。这些命令验证确定性结构和命名空间；它们不授权 apply-back，也不证明语义正确性。
+`workflow inspect` 返回在准备好的交接中发现的 `agentRunId`、请求标识符和合约位置。对每个最终确定的请求结果及其对应的 `workflow validate-result` 分别运行 `output-contract.json`。这些命令验证确定性结构和命名空间；它们不授权 apply-back，也不证明语义正确性。
 
 如果任何辅助命令失败，保留其结构化错误，修正输入或包，然后重新运行同一命令。不要使用辅助工具伪造缺失的 Host Bridge 证据、规范化不兼容的 handle 类型，或绕过 `workflow agent-apply` 的 approval 和 receipt 规则。

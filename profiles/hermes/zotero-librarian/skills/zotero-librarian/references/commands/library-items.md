@@ -30,7 +30,7 @@ Distinguish from:
 ### Invocation and payload
 
 - Canonical argv: `zotero-bridge library item attachments`.
-- Example: `zotero-bridge library item attachments`.
+- Example: `zotero-bridge library item attachments --key 'key'`.
 - Preconditions:
 - Verify the exact CLI identity and a reachable Host Bridge before relying on live results.
 - Exact argv bindings:
@@ -50,7 +50,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from library.get_item_attachments.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - Completion evidence:
 - The structured library item attachments result and the exact invocation inputs used to obtain it.
 - stable item or note refs, current metadata, and cursor metadata
@@ -58,13 +60,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge library item get`
 
@@ -94,7 +96,7 @@ Distinguish from:
 ### Invocation and payload
 
 - Canonical argv: `zotero-bridge library item get`.
-- Example: `zotero-bridge library item get`.
+- Example: `zotero-bridge library item get --key 'key'`.
 - Preconditions:
 - Verify the exact CLI identity and a reachable Host Bridge before relying on live results.
 - Exact argv bindings:
@@ -114,7 +116,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from library.get_item_detail.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - Completion evidence:
 - The structured library item get result and the exact invocation inputs used to obtain it.
 - stable item or note refs, current metadata, and cursor metadata
@@ -122,13 +126,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge library item notes`
 
@@ -158,7 +162,7 @@ Distinguish from:
 ### Invocation and payload
 
 - Canonical argv: `zotero-bridge library item notes`.
-- Example: `zotero-bridge library item notes`.
+- Example: `zotero-bridge library item notes --key 'key'`.
 - Preconditions:
 - Verify the exact CLI identity and a reachable Host Bridge before relying on live results.
 - Exact argv bindings:
@@ -187,7 +191,9 @@ Distinguish from:
 
 - Delivery: `cursor`.
 - Stable result fields:
-- `result` (object): Stable result from library.get_item_notes.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - `items` (array)
 - `nextCursor` (string | number | null)
 - `hasMore` (boolean)
@@ -198,13 +204,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge library item search`
 
@@ -252,7 +258,9 @@ Distinguish from:
 
 - Delivery: `none`.
 - Stable result fields:
-- `result` (object): Stable result from library.search_items.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - Completion evidence:
 - The structured library item search result and the exact invocation inputs used to obtain it.
 - stable item or note refs, current metadata, and cursor metadata
@@ -260,13 +268,13 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.
 
 ## `zotero-bridge library items list`
 
@@ -319,7 +327,9 @@ Distinguish from:
 
 - Delivery: `cursor`.
 - Stable result fields:
-- `result` (object): Stable result from library.list_items.
+- `capability` (string)
+- `approval` (object)
+- `data` (object): Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.
 - `items` (array)
 - `nextCursor` (string | number | null)
 - `hasMore` (boolean)
@@ -330,10 +340,10 @@ Distinguish from:
 ### Approval, effects, and handles
 
 - Approval: `none` at `none`; No Host Bridge UI approval; provider runtimes may still request their own permission.
-- Effect `none`: Reads state without changing Host-owned data. stateChanged=false.
+- Effect `none`: Reads state without changing Host-owned data. mayChangeState=false.
 - No typed handle transition.
 
 ### Failure and recovery
 
 - The read fails or returns incomplete evidence. Inspect the error and retry only when retryable is true. Next: `surface describe`.
-- Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.
+- Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.

@@ -9,4 +9,4 @@ Use this journey only after the intended Zotero change is concrete and no semant
 
 Use a workflow instead when the task still requires classification, generation, multi-step business logic, or a declared reusable contract. Navigation never substitutes for a mutation. Raw `call` never bypasses semantic validation or approval.
 
-If a write response is uncertain, inspect `stateChanged` and `handleConsumed`. Do not blindly repeat. Reread the exact target and calculate the remaining delta. On denial, report no write and stop; a denial is not permission to choose another write path.
+If a write response is uncertain, inspect `operation get <operationId>`, `stateChange`, and `handleConsumption`. Do not blindly repeat. Reread the exact target and calculate the remaining delta. On denial, report no write and stop; a denial is not permission to choose another write path.

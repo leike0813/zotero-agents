@@ -26,15 +26,16 @@ use crate::{
         MutationNoteArgs, MutationNoteCommand, MutationNoteCreateArgs, MutationNotePayloadArgs,
         MutationNoteUpdateArgs, MutationTagArgs, MutationTagCommand, MutationTagsArgs, NoteArgs,
         NoteCommand, NoteDetailArgs, NotePayloadArgs, NotificationAckArgs, NotificationCommand,
-        NotificationListArgs, NotificationWaitArgs, PaperArtifactsArgs, PaperArtifactsCommand,
-        PermissionRequestIdArgs, ProductArgs, ProductCommand, ProductDownloadArgs, ProductIdArgs,
-        ProductListArgs, ResolversArgs, ResolversCommand, RunArgs, RunCommand, RunPermissionArgs,
-        RunPermissionCommand, RunWorkflowArgs, RunWorkflowCommand, RunWorkflowRecentArgs,
-        SchemasArgs, SchemasCommand, SkillRunCommand, SkillRunEventsArgs, SkillRunIdArgs,
-        SkillRunRecentArgs, SkillRunReplyArgs, SynthesisArgs, SynthesisCacheArgs,
-        SynthesisCacheCommand, SynthesisCacheInvalidateArgs, SynthesisCommand,
-        SynthesisIndexCommand, SynthesisIndexGetCommand, TaskListArgs, TaskRecentArgs, TopicsArgs,
-        TopicsCommand, WorkflowAgentApplyArgs, WorkflowAgentApplyStatusArgs, WorkflowAgentRunArgs,
+        NotificationListArgs, NotificationWaitArgs, OperationArgs, OperationCommand,
+        PaperArtifactsArgs, PaperArtifactsCommand, PermissionRequestIdArgs, ProductArgs,
+        ProductCommand, ProductDownloadArgs, ProductIdArgs, ProductListArgs, ResolversArgs,
+        ResolversCommand, RunArgs, RunCommand, RunPermissionArgs, RunPermissionCommand,
+        RunWorkflowArgs, RunWorkflowCommand, RunWorkflowRecentArgs, SchemasArgs, SchemasCommand,
+        SkillRunCommand, SkillRunEventsArgs, SkillRunIdArgs, SkillRunRecentArgs, SkillRunReplyArgs,
+        SynthesisArgs, SynthesisCacheArgs, SynthesisCacheCommand, SynthesisCacheInvalidateArgs,
+        SynthesisCommand, SynthesisIndexCommand, SynthesisIndexGetCommand, TaskListArgs,
+        TaskRecentArgs, TopicsArgs, TopicsCommand, WorkflowAgentApplyArgs,
+        WorkflowAgentApplyStatusArgs, WorkflowAgentRunArgs, WorkflowAgentRunLifecycleArgs,
         WorkflowArgs, WorkflowCancelArgs, WorkflowCommand, WorkflowDescribeArgs,
         WorkflowProfileArgs, WorkflowProfileCommand, WorkflowProfileDescribeArgs,
         WorkflowProfileValidateArgs, WorkflowRequirementsArgs, WorkflowRunArgs, WorkflowSubmitArgs,
@@ -63,6 +64,24 @@ pub fn bridge(config: &BridgeConfig, args: BridgeArgs) -> Result<Value, CliError
         BridgeCommand::Manifest => manifest(config),
         BridgeCommand::Profile(args) => bridge_profile(config, args),
         BridgeCommand::Backend(args) => bridge_backend(config, args),
+    }
+}
+
+pub fn operation(config: &BridgeConfig, args: OperationArgs) -> Result<Value, CliError> {
+    match args.command {
+        OperationCommand::Get(args) => {
+            let operation_id = args.operation_id.trim();
+            if operation_id.is_empty() {
+                return Err(CliError::validation(
+                    "invalid_operation_id",
+                    "operation get requires an operation id",
+                ));
+            }
+            client::get(
+                config,
+                &format!("/operations/{}", percent_encode_path(operation_id)),
+            )
+        }
     }
 }
 
@@ -403,6 +422,10 @@ pub fn workflow(config: &BridgeConfig, args: WorkflowArgs) -> Result<Value, CliE
         WorkflowCommand::AgentRun(args) => workflow_agent_run(config, args),
         WorkflowCommand::AgentApply(args) => workflow_agent_apply(config, args),
         WorkflowCommand::AgentApplyStatus(args) => workflow_agent_apply_status(config, args),
+        WorkflowCommand::AgentRenew(args) => workflow_agent_run_lifecycle(config, args, "renew"),
+        WorkflowCommand::AgentAbandon(args) => {
+            workflow_agent_run_lifecycle(config, args, "abandon")
+        }
     }
 }
 
@@ -840,7 +863,7 @@ fn mutation_item_update_input(args: MutationItemUpdateArgs) -> Result<Value, Cli
 }
 
 fn mutation_item_attach_file_input(args: MutationItemAttachFileArgs) -> Result<Value, CliError> {
-    let file_id = normalize_file_id(&args.file)?;
+    let file_id = normalize_file_id(&args.file_id)?;
     let mut object = Map::new();
     object.insert(
         "operation".to_string(),
@@ -1181,6 +1204,29 @@ fn workflow_agent_apply_status(
     )
 }
 
+fn workflow_agent_run_lifecycle(
+    config: &BridgeConfig,
+    args: WorkflowAgentRunLifecycleArgs,
+    action: &str,
+) -> Result<Value, CliError> {
+    let agent_run_id = args.agent_run_id.trim();
+    if agent_run_id.is_empty() {
+        return Err(CliError::validation(
+            "missing_agent_run_id",
+            format!("workflow agent-{action} requires an agent run id"),
+        ));
+    }
+    client::post(
+        config,
+        &format!(
+            "/workflows/agent-runs/{}/{}",
+            percent_encode_path(agent_run_id),
+            action
+        ),
+        json!({}),
+    )
+}
+
 fn workflow_run_path(args: WorkflowRunArgs) -> Result<String, CliError> {
     let run_id = args.run_id.trim();
     if run_id.is_empty() {
@@ -1471,7 +1517,7 @@ fn notification_ack_input(args: NotificationAckArgs) -> Result<Value, CliError> 
 
 fn notification_response_has_events(value: &Value) -> bool {
     value
-        .pointer("/result/notifications")
+        .pointer("/notifications")
         .and_then(Value::as_array)
         .map(|entries| !entries.is_empty())
         .unwrap_or(false)
@@ -2365,7 +2411,7 @@ mod tests {
         assert_eq!(
             mutation_item_attach_file_input(MutationItemAttachFileArgs {
                 item: "ABC123".to_string(),
-                file: "file-abc".to_string(),
+                file_id: "file-abc".to_string(),
                 display_name: Some("artifact.md".to_string()),
                 content_type: Some("text/markdown".to_string()),
             })
@@ -2406,7 +2452,7 @@ mod tests {
 
         let attach_error = mutation_item_attach_file_input(MutationItemAttachFileArgs {
             item: "ABC123".to_string(),
-            file: "../artifact.md".to_string(),
+            file_id: "../artifact.md".to_string(),
             display_name: None,
             content_type: None,
         })
@@ -2415,7 +2461,7 @@ mod tests {
 
         let non_handle_error = mutation_item_attach_file_input(MutationItemAttachFileArgs {
             item: "ABC123".to_string(),
-            file: "artifact-md".to_string(),
+            file_id: "artifact-md".to_string(),
             display_name: None,
             content_type: None,
         })
@@ -2717,14 +2763,10 @@ mod tests {
     #[test]
     fn detects_notification_response_events() {
         assert!(notification_response_has_events(&json!({
-            "result": {
-                "notifications": [{ "eventId": "event-1" }]
-            }
+            "notifications": [{ "eventId": "event-1" }]
         })));
         assert!(!notification_response_has_events(&json!({
-            "result": {
-                "notifications": []
-            }
+            "notifications": []
         })));
     }
 

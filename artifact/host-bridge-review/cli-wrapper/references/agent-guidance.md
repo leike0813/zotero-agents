@@ -75,7 +75,7 @@ zotero-bridge library readiness missing-analysis --query '{"tag":"to-review","li
 
 ## 大响应分页
 
-将文献库、主题、索引、排名和图的集合结果视为分页。当结果大小可能随文献库增长时，始终传递显式 `limit`。首页省略 cursor，然后在 `hasMore` 为 true 时传递精确返回的不透明 `nextCursor`；绝不构造或递增 cursor。
+将文献库、主题、索引、排名和图的集合结果视为分页。当结果大小可能随文献库增长时，始终传递显式 `limit`。首页省略 cursor，然后在 `nextCursor` 为 true 时传递精确返回的不透明 `hasMore`；绝不构造或递增 cursor。
 
 `synthesis graph overview` 返回摘要计数加上分别分页的 `nodes`、`edges`、`hover_only_nodes` 和 `hover_only_edges`。独立推进时使用分区 cursor。当任务需要一致的有界邻域、布局或排名指标分页时，优先使用 `synthesis graph get-slice`、`get-layout` 或 `get-metrics`。
 
@@ -150,7 +150,7 @@ zotero-bridge mutation item attach-file --item <itemRef> --file <fileId>
 
 ## 请求级 Provider Profile
 
-仅在调用者或 `ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE` 提供 workflow 无关的 backend profile 时使用 `--provider-profile`。它选择已配置的 backend 和非敏感 provider 选项；不选择或修改 Host Bridge 连接 profile。Workflow describe 和 validate 会拒绝它。Profile describe/validate 不接受 workflow id，提交是唯一的兼容连接点。
+仅在调用者或 `--provider-profile` 提供 workflow 无关的 backend profile 时使用 `ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE`。它选择已配置的 backend 和非敏感 provider 选项；不选择或修改 Host Bridge 连接 profile。Workflow describe 和 validate 会拒绝它。Profile describe/validate 不接受 workflow id，提交是唯一的兼容连接点。
 
 使用 `synthesis cache refresh-reference-sidecar` 和 `synthesis graph update` 作为独立的 approval 管理操作。保留每个返回的操作 id，使用 `synthesis cache status --operation-id` 轮询，并在需要强制执行新鲜度时将已提交的 sidecar basis hash 传递给图更新。
 
@@ -223,8 +223,8 @@ zotero-bridge synthesis cache invalidate --scope <topic|graph|index> --id <optio
 将 JSON 错误信封视为权威来源：
 
 - 仅在 `retryable` 为 true 时重试。
-- 如果 `stateChanged` 为 true，在发出另一次写入之前检查当前状态。
-- 如果 `handleConsumed` 为 true，不要复用该 handle。
+- 如果 `stateChange` 为 `changed` 或 `unknown`，在发出另一次写入之前检查持久化 operation receipt 和当前领域状态。
+- 如果 `handleConsumption` 为 `consumed` 或 `unknown`，在领域 receipt 证明可安全复用之前，不要复用该 handle。
 - 选择合适的 `safeNextActions` 条目，优先使用提供的 `nextCommand`。
 - 在解决部分 apply-back、分页中断、文件验证或不确定的 mutation 状态时，保留原始 handle 和 receipt。
 - 如果安全操作需要用户 approval、缺失权限或新的输入选择，停止并报告该边界。

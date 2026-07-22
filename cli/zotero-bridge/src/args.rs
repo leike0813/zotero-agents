@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{ArgGroup, Args, Parser, Subcommand};
 
 #[derive(Debug, Clone, Parser)]
 #[command(
@@ -29,8 +29,33 @@ pub struct Cli {
     )]
     pub profile: Option<PathBuf>,
 
+    #[arg(
+        long,
+        global = true,
+        env = "ZOTERO_BRIDGE_OPERATION_ID",
+        value_name = "ID",
+        value_parser = parse_operation_id,
+        help = "Opaque idempotency id for a state-changing Host Bridge request"
+    )]
+    pub operation_id: Option<String>,
+
     #[command(subcommand)]
     pub command: Command,
+}
+
+fn parse_operation_id(value: &str) -> Result<String, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty()
+        || trimmed.len() > 200
+        || !trimmed
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | ':' | '-'))
+    {
+        return Err(
+            "operation id must be 1-200 ASCII letters, digits, '.', '_', ':', or '-'".to_string(),
+        );
+    }
+    Ok(trimmed.to_string())
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -79,6 +104,30 @@ pub enum Command {
 
     #[command(about = "Debug-only Host Bridge diagnostics and controls")]
     Debug(DebugArgs),
+
+    #[command(about = "Inspect durable Host Bridge operation receipts")]
+    Operation(OperationArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct OperationArgs {
+    #[command(subcommand)]
+    pub command: OperationCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum OperationCommand {
+    #[command(about = "Read one durable Host Bridge operation receipt")]
+    Get(OperationGetArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct OperationGetArgs {
+    #[arg(
+        value_parser = parse_operation_id,
+        help = "Operation id returned by or supplied to a state-changing command"
+    )]
+    pub operation_id: String,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -385,11 +434,27 @@ pub struct ItemSearchArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+#[command(group(
+    ArgGroup::new("item_ref")
+        .required(true)
+        .multiple(false)
+        .args(["key", "id"])
+))]
 pub struct ItemRefArgs {
-    #[arg(long, conflicts_with = "id", help = "Zotero item key")]
+    #[arg(
+        long,
+        conflicts_with = "id",
+        required_unless_present = "id",
+        help = "Zotero item key"
+    )]
     pub key: Option<String>,
 
-    #[arg(long, conflicts_with = "key", help = "Zotero item numeric id")]
+    #[arg(
+        long,
+        conflicts_with = "key",
+        required_unless_present = "key",
+        help = "Zotero item numeric id"
+    )]
     pub id: Option<u64>,
 
     #[arg(long, help = "Zotero library id for key lookup")]
@@ -1065,7 +1130,7 @@ pub struct MutationItemAttachFileArgs {
     pub item: String,
 
     #[arg(long, help = "Host Bridge uploaded file id")]
-    pub file: String,
+    pub file_id: String,
 
     #[arg(long, help = "Attachment display name")]
     pub display_name: Option<String>,
@@ -1180,9 +1245,21 @@ pub enum WorkflowCommand {
         about = "Read the auditable apply-back receipt for an agent run"
     )]
     AgentApplyStatus(WorkflowAgentApplyStatusArgs),
+
+    #[command(name = "agent-renew", about = "Renew an unconsumed agent-run lease")]
+    AgentRenew(WorkflowAgentRunLifecycleArgs),
+
+    #[command(name = "agent-abandon", about = "Abandon an unconsumed agent run")]
+    AgentAbandon(WorkflowAgentRunLifecycleArgs),
 }
 
 #[derive(Debug, Clone, Args)]
+#[command(group(
+    ArgGroup::new("workflow_submit_selection")
+        .required(true)
+        .multiple(false)
+        .args(["selection", "none"])
+))]
 pub struct WorkflowSubmitArgs {
     #[arg(long, help = "Workflow id to submit")]
     pub workflow: String,
@@ -1233,6 +1310,12 @@ pub struct WorkflowDescribeArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+#[command(group(
+    ArgGroup::new("workflow_validate_selection")
+        .required(true)
+        .multiple(false)
+        .args(["selection", "none"])
+))]
 pub struct WorkflowValidateArgs {
     #[arg(long, help = "Workflow id to validate")]
     pub workflow: String,
@@ -1298,6 +1381,12 @@ pub struct WorkflowProfileValidateArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+#[command(group(
+    ArgGroup::new("workflow_requirement_id")
+        .required(true)
+        .multiple(false)
+        .args(["workflow", "legacy_workflow"])
+))]
 pub struct WorkflowRequirementsArgs {
     #[arg(
         long,
@@ -1316,6 +1405,12 @@ pub struct WorkflowRequirementsArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+#[command(group(
+    ArgGroup::new("workflow_agent_selection")
+        .required(true)
+        .multiple(false)
+        .args(["selection", "none"])
+))]
 pub struct WorkflowAgentRunArgs {
     #[arg(long, help = "Workflow id to prepare for self-owned agent execution")]
     pub workflow: String,
@@ -1362,6 +1457,12 @@ pub struct WorkflowAgentApplyArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct WorkflowAgentApplyStatusArgs {
+    #[arg(help = "Agent run id returned by workflow agent-run")]
+    pub agent_run_id: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowAgentRunLifecycleArgs {
     #[arg(help = "Agent run id returned by workflow agent-run")]
     pub agent_run_id: String,
 }
@@ -2240,7 +2341,7 @@ mod tests {
             "attach-file",
             "--item",
             "ABC123",
-            "--file",
+            "--file-id",
             "file-1",
             "--display-name",
             "digest.md",
@@ -2252,7 +2353,7 @@ mod tests {
                 MutationCommand::Item(args) => match args.command {
                     MutationItemCommand::AttachFile(input) => {
                         assert_eq!(input.item, "ABC123");
-                        assert_eq!(input.file, "file-1");
+                        assert_eq!(input.file_id, "file-1");
                         assert_eq!(input.display_name.as_deref(), Some("digest.md"));
                         assert_eq!(input.content_type.as_deref(), Some("text/markdown"));
                     }

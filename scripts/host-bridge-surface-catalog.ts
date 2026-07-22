@@ -48,6 +48,10 @@ export type HostBridgeCliInventoryArgument = {
   global: boolean;
   help: string | null;
   valueNames: string[];
+  possibleValues: string[];
+  conflictsWith: string[];
+  repeatable: boolean;
+  numArgs: string | null;
 };
 
 export type HostBridgeCliInventoryEntry = {
@@ -55,6 +59,11 @@ export type HostBridgeCliInventoryEntry = {
   argv: string[];
   about: string;
   arguments: HostBridgeCliInventoryArgument[];
+  argumentGroups: Array<{
+    id: string;
+    arguments: string[];
+    required: boolean;
+  }>;
 };
 
 export type HostBridgeSurfaceCatalog = {
@@ -501,6 +510,7 @@ function endpointMappings(): HostBridgeCliMapping[] {
   > = [
     ["bridge status", "GET /bridge/v1/health"],
     ["bridge manifest", "GET /bridge/v1/manifest"],
+    ["operation get", "GET /bridge/v1/operations/{operationId}"],
     ["bridge profile inspect", "GET /bridge/v1/diagnostics/profile"],
     ["bridge profile diagnose", "GET /bridge/v1/diagnostics/profile/diagnose"],
     ["bridge backend list", "GET /bridge/v1/diagnostics/backends"],
@@ -531,6 +541,14 @@ function endpointMappings(): HostBridgeCliMapping[] {
     [
       "workflow agent-apply-status",
       "GET /bridge/v1/workflows/agent-runs/{agentRunId}/apply",
+    ],
+    [
+      "workflow agent-renew",
+      "POST /bridge/v1/workflows/agent-runs/{agentRunId}/renew",
+    ],
+    [
+      "workflow agent-abandon",
+      "POST /bridge/v1/workflows/agent-runs/{agentRunId}/abandon",
     ],
     ["run get", "GET /bridge/v1/workflows/runs/{workflowRunId}"],
     [

@@ -32,7 +32,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge bridge backend list`。
-- 示例：`zotero-bridge bridge backend list`。
+- 示例：`zotero-bridge bridge backend list`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -46,7 +46,7 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/diagnostics/backends 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 bridge backend list 结果及获取该结果所使用的精确调用输入。
 - health、manifest、profile 或 backend 诊断结果
@@ -54,13 +54,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge bridge backend status`
 
@@ -90,7 +90,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge bridge backend status`。
-- 示例：`zotero-bridge bridge backend status 'backend-id'`。
+- 示例：`zotero-bridge bridge backend status 'backend-id'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -104,7 +104,7 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/diagnostics/backends/{backendId} 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 bridge backend status 结果及获取该结果所使用的精确调用输入。
 - health、manifest、profile 或 backend 诊断结果
@@ -112,13 +112,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge bridge manifest`
 
@@ -148,7 +148,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge bridge manifest`。
-- 示例：`zotero-bridge bridge manifest`。
+- 示例：`zotero-bridge bridge manifest`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -162,7 +162,7 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/manifest 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 bridge manifest 结果及获取该结果所使用的精确调用输入。
 - health、manifest、profile 或 backend 诊断结果
@@ -170,13 +170,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge bridge profile diagnose`
 
@@ -206,7 +206,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge bridge profile diagnose`。
-- 示例：`zotero-bridge bridge profile diagnose`。
+- 示例：`zotero-bridge bridge profile diagnose`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -220,7 +220,7 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/diagnostics/profile/diagnose 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 bridge profile diagnose 结果及获取该结果所使用的精确调用输入。
 - health、manifest、profile 或 backend 诊断结果
@@ -228,13 +228,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge bridge profile inspect`
 
@@ -264,7 +264,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge bridge profile inspect`。
-- 示例：`zotero-bridge bridge profile inspect`。
+- 示例：`zotero-bridge bridge profile inspect`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -278,7 +278,7 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/diagnostics/profile 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 bridge profile inspect 结果及获取该结果所使用的精确调用输入。
 - health、manifest、profile 或 backend 诊断结果
@@ -286,13 +286,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge bridge status`
 
@@ -322,7 +322,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge bridge status`。
-- 示例：`zotero-bridge bridge status`。
+- 示例：`zotero-bridge bridge status`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -336,7 +336,7 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 GET /bridge/v1/health 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 bridge status 结果及获取该结果所使用的精确调用输入。
 - health、manifest、profile 或 backend 诊断结果
@@ -344,13 +344,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge context collection open`
 
@@ -380,7 +380,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge context collection open`。
-- 示例：`zotero-bridge context collection open 'collection-key'`。
+- 示例：`zotero-bridge context collection open 'collection-key'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -397,7 +397,7 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 POST /bridge/v1/context/collections/open 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 context collection open 结果及获取该结果所使用的精确调用输入。
 - 当前视图、稳定的 Zotero 引用或导航结果
@@ -405,13 +405,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `ui-navigation`：可能改变 UI 导航状态。stateChanged=true。
+- 副作用 `ui-navigation`：可能修改 ui navigation 状态。 mayChangeState=true.
 - 消费 `collectionKey`（调用方所有）：命令调用所需。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge context current`
 
@@ -441,7 +441,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge context current`。
-- 示例：`zotero-bridge context current`。
+- 示例：`zotero-bridge context current`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -455,7 +455,9 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 context.get_current_view、GET /bridge/v1/context/current 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
 - 完成证据：
 - 结构化的 context current 结果及获取该结果所使用的精确调用输入。
 - 当前视图、稳定的 Zotero 引用或导航结果
@@ -463,13 +465,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge context item open`
 
@@ -499,7 +501,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge context item open`。
-- 示例：`zotero-bridge context item open 'object-ref'`。
+- 示例：`zotero-bridge context item open 'object-ref'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -513,7 +515,7 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 POST /bridge/v1/context/items/open 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 context item open 结果及获取该结果所使用的精确调用输入。
 - 当前视图、稳定的 Zotero 引用或导航结果
@@ -521,13 +523,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `ui-navigation`：可能改变 UI 导航状态。stateChanged=true。
+- 副作用 `ui-navigation`：可能修改 ui navigation 状态。 mayChangeState=true.
 - 消费 `itemRef`（调用方所有）：命令调用所需。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge context note open`
 
@@ -557,7 +559,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge context note open`。
-- 示例：`zotero-bridge context note open 'object-ref'`。
+- 示例：`zotero-bridge context note open 'object-ref'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -571,7 +573,7 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 POST /bridge/v1/context/notes/open 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 context note open 结果及获取该结果所使用的精确调用输入。
 - 当前视图、稳定的 Zotero 引用或导航结果
@@ -579,13 +581,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `ui-navigation`：可能改变 UI 导航状态。stateChanged=true。
+- 副作用 `ui-navigation`：可能修改 ui navigation 状态。 mayChangeState=true.
 - 消费 `noteRef`（调用方所有）：命令调用所需。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge context selection get`
 
@@ -615,7 +617,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge context selection get`。
-- 示例：`zotero-bridge context selection get`。
+- 示例：`zotero-bridge context selection get`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -629,7 +631,10 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 context.get_selected_items、GET /bridge/v1/context/selection 的稳定结果。
+- `capability`（string）
+- `approval`（object）
+- `data`（object）：capability 所有的结果数据。后续 surface 修订可通过命令专属输出契约进一步收窄此对象。
+- `itemRef`（string）
 - 完成证据：
 - 结构化的 context selection get 结果及获取该结果所使用的精确调用输入。
 - 当前视图、稳定的 Zotero 引用或导航结果
@@ -638,13 +643,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 产出 `itemRef`（响应）：对应操作成功时返回。
 
 ### 故障与恢复
 
 - 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge context selection open`
 
@@ -674,7 +679,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge context selection open`。
-- 示例：`zotero-bridge context selection open 'item-refs'`。
+- 示例：`zotero-bridge context selection open 'item-refs'`.
 - 前置条件：
 - 在依赖实时结果之前，验证精确的 CLI 身份和可达的 Host Bridge。
 - 精确的 argv 绑定：
@@ -688,7 +693,7 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 POST /bridge/v1/context/selection/open 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 context selection open 结果及获取该结果所使用的精确调用输入。
 - 当前视图、稳定的 Zotero 引用或导航结果
@@ -696,13 +701,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `ui-navigation`：可能改变 UI 导航状态。stateChanged=true。
+- 副作用 `ui-navigation`：可能修改 ui navigation 状态。 mayChangeState=true.
 - 消费 `itemRef`（调用方所有）：命令调用所需。
 
 ### 故障与恢复
 
 - 操作失败或完成状态不确定。在重复操作之前检查 stateChanged 和 handleConsumed。下一步：`surface describe`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge surface describe`
 
@@ -730,7 +735,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge surface describe`。
-- 示例：`zotero-bridge surface describe 'surface identity'`。
+- 示例：`zotero-bridge surface describe 'surface identity'`.
 - 前置条件：
 - 无需 Zotero 连接。
 - 精确的 argv 绑定：
@@ -746,7 +751,7 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 embedded host-bridge.agent-surface.v3 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 surface describe 结果及获取该结果所使用的精确调用输入。
 - surface 身份或所描述的命令条目
@@ -754,13 +759,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
-- 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface identity`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge surface identity`
 
@@ -788,7 +793,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge surface identity`。
-- 示例：`zotero-bridge surface identity`。
+- 示例：`zotero-bridge surface identity`.
 - 前置条件：
 - 无需 Zotero 连接。
 - 精确的 argv 绑定：
@@ -802,7 +807,7 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 embedded host-bridge.agent-surface.v3 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 surface identity 结果及获取该结果所使用的精确调用输入。
 - surface 身份或所描述的命令条目
@@ -810,13 +815,13 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
-- 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface identity`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。
 
 ## `zotero-bridge surface search`
 
@@ -844,7 +849,7 @@
 ### 调用方式与载荷
 
 - 标准 argv：`zotero-bridge surface search`。
-- 示例：`zotero-bridge surface search --intent 'inspect current selection'`。
+- 示例：`zotero-bridge surface search --intent 'inspect current selection'`.
 - 前置条件：
 - 无需 Zotero 连接。
 - 精确的 argv 绑定：
@@ -865,7 +870,7 @@
 
 - 交付方式：`none`。
 - 稳定结果字段：
-- `result`（object）：来自 embedded host-bridge.agent-surface.v3 的稳定结果。
+- No structured fields.
 - 完成证据：
 - 结构化的 surface search 结果及获取该结果所使用的精确调用输入。
 - surface 身份或所描述的命令条目
@@ -873,10 +878,10 @@
 ### Approval、副作用与 handle
 
 - Approval：`none` at `none`；无需 Host Bridge UI approval；provider 运行时仍可能请求自身权限。
-- 副作用 `none`：读取状态，不修改 Host 所有数据。stateChanged=false。
+- 副作用 `none`：读取状态，不修改 Host 所有的数据。 mayChangeState=false.
 - 无类型化 handle 转换。
 
 ### 故障与恢复
 
-- 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。下一步：`surface identity`。
-- 保留结构化错误信封，在继续之前检查 retryable、stateChanged 和 handleConsumed。
+- 读取失败或返回不完整的证据。检查错误信息，仅在 retryable 为 true 时重试。
+- 保留结构化错误信封，在继续之前检查 retryable、stateChange 和 handleConsumption。

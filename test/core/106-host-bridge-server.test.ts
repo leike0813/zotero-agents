@@ -418,7 +418,7 @@ describe("host bridge server phase 1", function () {
     });
     assert.deepEqual(parsed.json.result.cli, {
       supported: true,
-      schema: "zotero-bridge.cli.v1",
+      schema: "zotero-bridge.cli.v3",
     });
     assert.strictEqual(
       parsed.json.result.auth.tokenMasked,

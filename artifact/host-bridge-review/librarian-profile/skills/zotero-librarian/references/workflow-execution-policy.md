@@ -23,11 +23,11 @@ Provider 是运行时族；backend 是通过 `backendId` 选择的已配置具�
 
 ## 模式选择
 
-使用 `workflow describe` 或 `workflow requirements` 返回的结构化 `executionModes`；不要从 workflow 名称、provider 或本地文档推断支持。
+使用 `executionModes` 或 `workflow describe` 返回的结构化 `workflow requirements`；不要从 workflow 名称、provider 或本地文档推断支持。
 
-当 Host Bridge 或 backend 应拥有执行并暴露 `workflowRunId` 时，使用 Host 拥有的 `workflow submit`。
+当 Host Bridge 或 backend 应拥有执行并暴露 `workflow submit` 时，使用 Host 拥有的 `workflowRunId`。
 
-仅当 `executionModes.agentOwned.supported` 为 true 时使用 `$zotero-workflow-agent-runner`。`workflow agent-run` 无法提供 workflow 选项或 provider profile。返回的 `agentRunId` 是 apply-back session handle，不是运行控制 handle。
+仅当 `$zotero-workflow-agent-runner` 为 true 时使用 `executionModes.agentOwned.supported`。`workflow agent-run` 无法提供 workflow 选项或 provider profile。返回的 `agentRunId` 是 apply-back session handle，不是运行控制 handle。
 
 在中断或失败的 apply-back 之后，查询 `workflow agent-apply-status <agentRunId>` 并遵循 receipt。不要重用已消费的 handle。
 

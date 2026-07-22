@@ -20,8 +20,10 @@
     }
   },
   "commands": {
-    "workflow submit": { "intents": ["host owned workflow", "submit workflow"], "evidence": ["executionModes.hostOwned and workflowRunId"] },
+    "workflow submit": { "intents": ["host owned workflow", "submit workflow", "提交工作流"], "evidence": ["executionModes.hostOwned and workflowRunId"] },
     "workflow agent-run": { "intents": ["agent owned workflow", "handoff workflow"], "evidence": ["executionModes.agentOwned, agentRunId, agentRequestIds, and verified bundles"] },
-    "workflow agent-apply": { "intents": ["apply agent results", "write back handoff"], "evidence": ["apply receipt and per-request applied or failed state"] }
+    "workflow agent-apply": { "intents": ["apply agent results", "write back handoff"], "evidence": ["apply receipt and per-request applied or failed state"] },
+    "workflow agent-renew": { "intents": ["renew agent handoff lease"], "useWhen": ["The agent run remains prepared or expired and more bounded processing time is required."], "evidence": ["renewedAt, leaseExpiresAt, and retentionExpiresAt"] },
+    "workflow agent-abandon": { "intents": ["abandon agent handoff"], "useWhen": ["The caller will not apply the prepared handoff and wants to close it explicitly."], "evidence": ["abandoned state and disabled lifecycle actions"] }
   }
 }

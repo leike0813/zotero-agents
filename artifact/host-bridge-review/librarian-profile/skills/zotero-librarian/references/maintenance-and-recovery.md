@@ -11,6 +11,6 @@
 
 ## 恢复规则
 
-保留操作前的状态、approval 结果、受影响的作用域、结构化错误和操作后状态。如果 `stateChanged` 为 true，在重复之前查询相应状态。如果 `handleConsumed` 为 true，不要重用 handle。如果常驻刷新失败，保留先前的缓存/索引/catalog 状态，而不是用不完整的结果替换它。
+保留 `operationId`、操作前状态、approval 结果、受影响作用域、结构化错误和操作后状态。如果 `stateChange` 为 `changed` 或 `unknown`，重复前查询 operation receipt 和对应实时状态。如果 `handleConsumption` 为 `consumed` 或 `unknown`，没有领域 receipt 确认时不要重用 handle。如果常驻刷新失败，保留先前的缓存/索引/catalog 状态，而不是用不完整的结果替换它。
 
 定时工作在每次维护写入时停在可审查的提案处。正常的空结果不是需要维护的证据。

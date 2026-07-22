@@ -1802,6 +1802,10 @@ describe("host bridge cli packaging and install", function () {
       ".github/workflows/release-host-bridge.yml",
       "utf8",
     );
+    const prebuildWorkflow = await fs.readFile(
+      ".github/workflows/build-host-bridge-cli-prebuilds.yml",
+      "utf8",
+    );
     const releaseWorkflow = await fs.readFile(
       ".github/workflows/release.yml",
       "utf8",
@@ -1832,18 +1836,24 @@ describe("host bridge cli packaging and install", function () {
     ]) {
       assert.include(JSON.stringify(recipe), rustTarget);
     }
-    assert.include(workflow, "cargo install cargo-zigbuild --locked --version");
-    assert.include(workflow, "goto-bus-stop/setup-zig@v2");
     assert.include(
-      workflow,
+      prebuildWorkflow,
+      "cargo install cargo-zigbuild --locked --version",
+    );
+    assert.include(prebuildWorkflow, "goto-bus-stop/setup-zig@v2");
+    assert.include(
+      prebuildWorkflow,
       "node scripts/check-zotero-bridge-cli-binary-identity.mjs",
     );
-    assert.include(workflow, "fromJSON(needs.plan.outputs.build_matrix)");
-    assert.include(workflow, "if: ${{ !matrix.runtimeIdentity }}");
-    assert.include(workflow, "if: matrix.runtimeIdentity");
+    assert.include(
+      prebuildWorkflow,
+      "fromJSON(needs.plan.outputs.build_matrix)",
+    );
+    assert.include(prebuildWorkflow, "if: ${{ !matrix.runtimeIdentity }}");
+    assert.include(prebuildWorkflow, "if: matrix.runtimeIdentity");
     assert.include(workflow, "group: host-bridge-release");
     assert.include(workflow, "--output=.host-bridge-plan.json");
-    assert.include(workflow, "record-binaries --write");
+    assert.include(prebuildWorkflow, "record-binaries --write");
     assert.include(workflow, "npm run render:host-bridge-surface");
     assert.include(
       workflow,
@@ -1865,27 +1875,18 @@ describe("host bridge cli packaging and install", function () {
       workflow,
       "advance_mutable_pointer .publish/cli host-bridge/zotero-bridge-cli-bundle",
     );
-    assert.include(workflow, "resume_prebuild");
-    assert.include(workflow, "needs.plan.outputs.resume_prebuild != 'true'");
-    assert.include(workflow, "needs_build=false");
+    assert.notInclude(workflow, "cargo zigbuild");
+    assert.notInclude(workflow, "needs.build");
     assert.include(
       workflow,
-      "record-binaries --write --dispatch-reason=resume",
+      'test "$(jq -r .prebuildRequired .host-bridge-plan.json)" = "false"',
     );
     assert.include(
       workflow,
       'aggregate="${{ needs.plan.outputs.cli_aggregate }}"',
     );
-    assert.include(
-      workflow,
-      '[ "${{ needs.plan.outputs.resume_prebuild }}" != "true" ] && [ "${{ needs.plan.outputs.needs_build }}" != "true" ]',
-    );
-    assert.include(workflow, "host-bridge.release-receipt.v1");
+    assert.include(workflow, "host-bridge-release-controller.ts");
     assert.notInclude(workflow, "bump-patch --write");
-    assert.isBelow(
-      workflow.indexOf("record-binaries --write"),
-      workflow.indexOf("npm run render:host-bridge-surface"),
-    );
     assert.isBelow(
       workflow.indexOf("npm run check:host-bridge-cli-prebuild-freshness"),
       workflow.indexOf("materialize-host-bridge-surfaces.ts"),
@@ -1910,12 +1911,11 @@ describe("host bridge cli packaging and install", function () {
       'checkout -B "$PREBUILD_BRANCH" "origin/$PREBUILD_BRANCH"',
     );
     assert.include(
-      workflow,
-      'push origin "HEAD:refs/heads/${PREBUILD_BRANCH}"',
+      prebuildWorkflow,
+      'push origin "HEAD:refs/heads/$PREBUILD_BRANCH"',
     );
     assert.notInclude(workflow, "gh release create");
     assert.notInclude(workflow, "gh release download");
-    assert.include(workflow, "needs.build.result == 'skipped'");
     assert.include(workflow, "Finalize source main");
     assert.include(workflow, "latest-complete-release-receipt.json");
     assert.include(workflow, "npm run sync:host-bridge-cli-prebuilds");
@@ -2004,7 +2004,6 @@ describe("host bridge cli packaging and install", function () {
     );
     assert.include(releaseSkill, "npm run check:zotero-librarian-profile");
     assert.include(workflow, "leike0813/zotero-librarian-profile");
-    assert.include(releaseSkill, "seven-platform prebuild set");
     assert.include(releaseSkill, "check:host-bridge-cli-prebuild-freshness");
     assert.include(releaseSkill, "release-host-bridge.yml");
     assert.include(releaseSkill, "release:host-bridge:dispatch");

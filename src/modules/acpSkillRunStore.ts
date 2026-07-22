@@ -97,7 +97,10 @@ import {
   registerAcpSkillRunPermissionRequestHandler,
   type AcpSkillRunPermissionRequestWithResolver,
 } from "./acpSkillRunPermissionFacade";
-import { registerAcpSkillRunAutoApprovalResolver } from "./hostBridgeWriteAutoApprovalRegistry";
+import {
+  registerAcpSkillRunAutoApprovalResolver,
+  revokeHostBridgeWriteAutoApprovalGrantsForRun,
+} from "./hostBridgeWriteAutoApprovalRegistry";
 import {
   createAcpSkillsWorkspaceOwner,
   createFailedTranscriptRegion,
@@ -1672,6 +1675,9 @@ function setAcpSkillRunRecord(record: AcpSkillRunRecord) {
   delete (next as Record<string, unknown>).outputRevisions;
   runRecords.set(record.requestId, next);
   syncAcpSkillRunActiveIndex(next);
+  if (!isActiveAcpSkillRunRecordForSummary(next)) {
+    revokeHostBridgeWriteAutoApprovalGrantsForRun(next.requestId);
+  }
   syncWaitingUserDetachTimer(next);
 }
 
@@ -6164,10 +6170,19 @@ export function getAcpSkillRunDiagnostics(
   });
 }
 
-registerAcpSkillRunAutoApprovalResolver(
-  (requestId) =>
-    getAcpSkillRunRecord(requestId)?.hostBridgeCli?.autoApproveWrites === true,
-);
+registerAcpSkillRunAutoApprovalResolver((requestId) => {
+  const record = getAcpSkillRunRecord(requestId);
+  return !!(
+    record?.hostBridgeCli?.autoApproveWrites === true &&
+    [
+      "queued",
+      "running",
+      "waiting_user",
+      "repairing",
+      "failed_retriable",
+    ].includes(record.status)
+  );
+});
 
 function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
   return {

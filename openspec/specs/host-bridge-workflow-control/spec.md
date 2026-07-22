@@ -104,35 +104,22 @@ skill run handles, and the CLI SHALL expose those operations under
 - **THEN** the bridge SHALL return a stable structured error.
 
 ### Requirement: Host Bridge exposes agent-owned workflow handoff and apply-back
+Host Bridge SHALL persist prepared agent runs and their apply lifecycle, and SHALL expose apply, status, renew, and abandon operations for explicit agent-owned handoff.
 
-Host Bridge SHALL let authenticated agents prepare workflow handoff context and
-later submit finalized local SkillRunner-style bundles for explicit apply-back.
-
-#### Scenario: Agent-run prepares request context without backend dispatch
-
+#### Scenario: Agent-run prepares durable request context
 - **WHEN** Host Bridge receives a valid workflow agent-run request
-- **THEN** it SHALL build prepared workflow requests from the explicit selection
-- **AND** it SHALL return `agentRunId`, `expiresAt`, and lightweight request metadata
-- **AND** it SHALL include prepared request context in the handoff bundle
-- **AND** it SHALL NOT dispatch backend jobs or apply workflow results.
+- **THEN** it SHALL persist the agent run and return `agentRunId`, lease and retention timestamps, request metadata, and the handoff bundle
+- **AND** SHALL NOT dispatch a backend or apply results.
 
-#### Scenario: Agent-run apply-back applies a finalized bundle once
+#### Scenario: Concurrent apply attempts race
+- **WHEN** two apply requests target one prepared agentRunId
+- **THEN** exactly one SHALL acquire the durable apply lease before asynchronous work
+- **AND** the other SHALL receive a lifecycle conflict without applying a result.
 
-- **WHEN** an authenticated client submits finalized result bundles for a known
-  unexpired `agentRunId`
-- **THEN** Host Bridge SHALL validate each bundle against its stored request namespace
-- **AND** it SHALL re-evaluate current apply readiness before requesting approval
-- **AND** it SHALL request Zotero-side write approval before invoking `applyResult`
-- **AND** it SHALL seal the agent-run record before side effects begin
-- **AND** it SHALL reject later apply attempts for the same `agentRunId`.
-
-#### Scenario: Apply-back rejects invalid state
-
-- **WHEN** the agent run is unknown, expired, already consumed, references an
-  unknown request id, supplies an invalid bundle, or current apply readiness is
-  not allowed
-- **THEN** Host Bridge SHALL return a stable structured error
-- **AND** it SHALL NOT invoke `applyResult`.
+#### Scenario: Agent renews or abandons a run
+- **WHEN** an eligible prepared or expired run is renewed or abandoned
+- **THEN** Host Bridge SHALL perform one atomic lifecycle transition
+- **AND** a consumed or terminal run SHALL NOT be revived.
 
 ### Requirement: Host Bridge exposes a notification inbox
 
@@ -407,26 +394,21 @@ Workflow describe and requirements responses SHALL include structured `execution
 - **THEN** the response SHALL identify request-bundle parameters, the returned agent-run handle, monitoring behavior, and apply-back requirement.
 
 ### Requirement: Agent apply-back SHALL preflight and retain receipts
-
-Host Bridge SHALL validate every supplied result bundle before requesting approval or consuming `agentRunId`. After consumption begins, it SHALL retain a per-request apply receipt that reports applied results, failures, state change, handle consumption, and recoverability. Receipt lookup SHALL remain read-only and safe after terminal or interrupted apply-back.
+Host Bridge SHALL retain agent-run and per-request apply receipts for 30 days after the latest lifecycle transition. Receipt reads SHALL not extend retention.
 
 #### Scenario: One bundle is invalid
-
 - **WHEN** any supplied result bundle fails preflight
-- **THEN** no approval SHALL be requested
-- **AND** no result SHALL be applied
-- **AND** the agent run handle SHALL remain recoverable.
+- **THEN** no approval or write SHALL occur
+- **AND** the durable run SHALL remain recoverable.
 
 #### Scenario: One result fails after another applies
+- **WHEN** one result succeeds and a later result fails
+- **THEN** the v2 receipt SHALL identify each request as pending, succeeded, failed, or unknown with structured recovery facts.
 
-- **WHEN** apply-back mutates one result and a later result fails
-- **THEN** the receipt SHALL identify each applied and failed result
-- **AND** it SHALL report state change, handle consumption, and safe recovery without presenting the operation as wholly unapplied.
-
-#### Scenario: Agent inspects an interrupted apply
-
-- **WHEN** the caller queries apply status after interruption
-- **THEN** Host Bridge SHALL return the retained receipt without consuming another handle or repeating writes.
+#### Scenario: Host restarts during apply
+- **WHEN** startup finds an agent run left in applying
+- **THEN** Host Bridge SHALL mark it outcome_unknown and consumed
+- **AND** SHALL NOT automatically repeat any result.
 
 ### Requirement: Workflow submission SHALL join independently validated contracts
 Workflow submission SHALL independently validate workflow input and the submitted provider profile, then check workflow provider requirements against backend capabilities before requesting approval or dispatching execution.

@@ -45,6 +45,8 @@ export type HostBridgePermissionScope = {
   requestId?: string;
   runId?: string;
   autoApproveWrites?: boolean;
+  grantId?: string;
+  connectionMode?: "local" | "remote";
 };
 
 export type HostBridgePermissionRequest = {
@@ -247,13 +249,22 @@ function registerPermissionProjection(
   request: HostBridgePermissionRequest & { requestId: string },
 ) {
   const createdAt = nowIso();
+  const projectedScope = request.scope
+    ? {
+        kind: request.scope.kind,
+        ...(request.scope.requestId
+          ? { requestId: request.scope.requestId }
+          : {}),
+        ...(request.scope.runId ? { runId: request.scope.runId } : {}),
+      }
+    : null;
   permissionProjections.set(request.requestId, {
     permissionRequestId: request.requestId,
     action: normalizeString(request.action),
     title: normalizeString(request.title),
     summary: normalizeString(request.summary),
     source: normalizeString(request.source) || "host-bridge",
-    scope: request.scope || null,
+    scope: projectedScope,
     workflowRunId: relatedWorkflowRunId(request.scope),
     skillRunId: relatedSkillRunId(request.scope),
     requestId:
@@ -616,6 +627,7 @@ export function parseHostBridgePermissionScope(
     requestId: normalizeString(source.requestId) || undefined,
     runId: normalizeString(source.runId) || undefined,
     autoApproveWrites: source.autoApproveWrites === true,
+    grantId: normalizeString(source.grantId) || undefined,
   };
 }
 

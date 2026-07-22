@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readZoteroBridgeCliRelease } from "./zotero-bridge-cli-release";
+import { HOST_BRIDGE_SURFACE_IDENTITY_SCHEMA } from "../src/shared/hostBridgeAgentContract";
 import {
   inspectZoteroLibraryAgentBundleVersion,
   ZOTERO_LIBRARY_AGENT_BUNDLE_VERSION_SOURCE_PATH,
@@ -128,12 +129,7 @@ function renderManifestSource(
         bundleVersion: bundleVersion.version,
         cliVersion: release.version,
         cliIdentity: {
-          schema:
-            agentSurface.cliSchema === "zotero-bridge.cli.v3"
-              ? "host-bridge.surface-identity.v3"
-              : agentSurface.cliSchema === "zotero-bridge.cli.v2"
-              ? "host-bridge.surface-identity.v2"
-              : "host-bridge.surface-identity.v1",
+          schema: HOST_BRIDGE_SURFACE_IDENTITY_SCHEMA,
           protocol: agentSurface.protocol,
           cliSchema: agentSurface.cliSchema,
           version: release.version,

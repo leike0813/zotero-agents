@@ -2320,6 +2320,76 @@ export function listPluginTaskContextEntries(domainRaw: string) {
   }));
 }
 
+export function getPluginTaskContextEntry(
+  domainRaw: string,
+  contextIdRaw: string,
+) {
+  const domain = normalizeString(domainRaw);
+  const contextId = normalizeString(contextIdRaw);
+  if (!domain || !contextId) return null;
+  const row = getAdapter().get(
+    `
+      SELECT context_id, request_id, backend_id, state, updated_at, payload_json
+      FROM plugin_task_contexts
+      WHERE domain=@domain AND context_id=@context_id
+    `,
+    { domain, context_id: contextId },
+  );
+  if (!row) return null;
+  return {
+    contextId: normalizeString(row.context_id),
+    requestId: normalizeString(row.request_id),
+    backendId: normalizeString(row.backend_id),
+    state: normalizeString(row.state),
+    updatedAt: normalizeString(row.updated_at),
+    payload: ensureJsonPayload(normalizeString(row.payload_json)),
+  } satisfies PluginTaskContextEntry;
+}
+
+export function compareAndSetPluginTaskContextEntry(args: {
+  domain: string;
+  contextId: string;
+  expectedStates: Array<string | null>;
+  next: PluginTaskContextEntry;
+}) {
+  const domain = normalizeString(args.domain);
+  const contextId = normalizeString(args.contextId);
+  if (
+    !domain ||
+    !contextId ||
+    contextId !== normalizeString(args.next.contextId)
+  ) {
+    return { updated: false, current: null };
+  }
+  const db = getAdapter();
+  return db.transaction(() => {
+    const current = getPluginTaskContextEntry(domain, contextId);
+    const currentState = current?.state || null;
+    if (!args.expectedStates.includes(currentState)) {
+      return { updated: false, current };
+    }
+    upsertPluginTaskContextEntry(domain, args.next);
+    return {
+      updated: true,
+      current: getPluginTaskContextEntry(domain, contextId),
+    };
+  });
+}
+
+export function deletePluginTaskContextDomain(domainRaw: string) {
+  const domain = normalizeString(domainRaw);
+  if (!domain) return 0;
+  const db = getAdapter();
+  const before = Number(
+    db.get(
+      "SELECT COUNT(*) AS value FROM plugin_task_contexts WHERE domain=@domain",
+      { domain },
+    )?.value || 0,
+  );
+  db.run("DELETE FROM plugin_task_contexts WHERE domain=@domain", { domain });
+  return Number.isFinite(before) ? before : 0;
+}
+
 export function upsertPluginTaskContextEntry(
   domainRaw: string,
   entry: PluginTaskContextEntry,

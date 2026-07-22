@@ -24,7 +24,7 @@
 
 - 当请求涉及当前 Zotero 选择、集合、标签页、条目、笔记或附件时，使用 `context current` 或 `context selection get`。
 - 在操作文献条目的 workflow 之前，将子条目、笔记和附件规范化为父条目引用。
-- 当用户提供标题、citekey、DOI 或混合标识符时，使用 resolver 命令。保留返回的稳定引用，而非重复模糊查找。
+- 使用 `library item search` 解析标题、citekey、DOI、ISBN 和混合书目标识符，再用 `library item get` 确认有界候选。`synthesis resolver resolve` 仅用于 tag、collection-key 和 paper-ref 选择器集合。保留返回的稳定引用，而非重复模糊查找。
 
 ## 文献库读取
 

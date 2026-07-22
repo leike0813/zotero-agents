@@ -31,6 +31,20 @@ Use these protocol-level rules in every Host Bridge agent-facing surface.
 - Upload local files before referencing them in Host mutations; do not pass arbitrary local paths as Zotero mutation targets.
 - Treat generated paths and evidence locations as locators. Stable refs and digests carry identity across handoffs.
 
+## Operation Receipts And Recovery
+
+- Every state-changing request carries an opaque `operationId`. Preserve it until the durable operation receipt is terminal.
+- After a response transport failure, inspect `operation get <operationId>` before retrying. A missing response means `stateChange: unknown`, not unchanged.
+- Interpret `stateChange` as `unchanged`, `changed`, or `unknown`, and `handleConsumption` as `unconsumed`, `consumed`, or `unknown`. Never collapse unknown into a Boolean default.
+- An `operationId` cannot be reused for different input. Domain handles such as `fileId` and `agentRunId` remain distinct from the operation receipt handle.
+
+## Surface Identity
+
+- A SemVer difference is advisory. Confirm the required command with active CLI help.
+- A build fingerprint or command catalog checksum difference means bundled command cards may be stale. Use the active CLI's `surface describe` and `surface search` for the commands needed by the current task.
+- A protocol or CLI schema difference requires command-level confirmation of argv, approval, handles, effects, and recovery. Stop only when the required command is absent or its control contract cannot be confirmed.
+- Effects are multi-valued. For example, `workflow agent-apply` changes both workflow-control state and the Zotero library; approval alone does not describe its complete effect.
+
 ## Privacy And Output
 
 - Keep credentials, authorization headers, full transcripts, provider-private payloads, and agent-private state out of portable evidence.

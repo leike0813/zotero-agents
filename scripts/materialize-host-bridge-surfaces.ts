@@ -10,7 +10,7 @@ import {
 import { dirname, join, resolve } from "node:path";
 
 type ReleaseSet = {
-  schema: "host-bridge.release-set.v1";
+  schema: "host-bridge.release-set.v1" | "host-bridge.release-set.v2";
   releaseSetId: string;
   source: { commit: string };
   cli: {
@@ -63,7 +63,7 @@ function commonManifest(
   surfaceName: keyof ReleaseSet["surfaces"],
 ) {
   return {
-    schema: "host-bridge.surface-release.v1",
+    schema: "host-bridge.surface-release.v2",
     releaseSetId: releaseSet.releaseSetId,
     releaseSet,
     surface: {
@@ -103,7 +103,10 @@ export function materializeHostBridgeSurfaces(args: {
   const releaseSet = readJson(
     join(root, "host-bridge/release-set.json"),
   ) as ReleaseSet;
-  if (releaseSet.schema !== "host-bridge.release-set.v1") {
+  if (
+    releaseSet.schema !== "host-bridge.release-set.v1" &&
+    releaseSet.schema !== "host-bridge.release-set.v2"
+  ) {
     throw new Error("Host Bridge release set schema mismatch");
   }
   const outputRoot = resolve(args.outputRoot);

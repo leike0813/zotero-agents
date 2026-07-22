@@ -1,26 +1,27 @@
 # 输出与错误合约
 
-嵌入的命令合约使用 `host-bridge.agent-surface.v3` 和 `zotero-bridge.cli.v3`。
+内置命令合约使用 `host-bridge.agent-surface.v3` 和 `zotero-bridge.cli.v3`。
 
-成功的命令发出一个包含 `ok`、`data` 和 `meta` 的 JSON 信封。通过命令特定的 `resultSchema` 解释 `data`；名称相似的 id 不是可互换的 handle。
+成功命令输出一个包含 `ok`、`data` 和 `meta` 的 JSON 信封。通过命令专属的 `data` 解读 `resultSchema`；名称相近的 id 不能互换为同一种 handle。
 
-仅当 `retryable` 为 true 时重试。当 `stateChanged` 为 true 时，在重复操作之前查询当前状态，永远不要重用已消费的 handle。
+仅在 `retryable` 为 true 时重试。对于状态变更命令，当 `operation get <operationId>` 或 `stateChange` 为 `handleConsumption` 时使用 `unknown`；绝不能仅根据 HTTP 状态推断安全性。
 
-## 失败决策矩阵
+## 故障决策矩阵
 
-| retryable | stateChanged | handleConsumed | 安全响应 |
+| retryable | stateChange | handleConsumption | 安全响应 |
 | --- | --- | --- | --- |
-| true | false | false | 重新检查连接，然后重试相同的有界命令。 |
-| false | false | false | 在新的调用之前修正输入、授权或 capability 选择。 |
-| any | true | false | 在决定是否需要另一次写入之前，查询命令特定的当前状态端点。 |
-| any | any | true | 不要重用 handle；检查其 receipt/状态，仅在允许时创建新操作。 |
+| true | unchanged | unconsumed | 重新检查连接，然后重试同一个有界命令。 |
+| false | unchanged | unconsumed | 在新调用前修正输入、授权或 capability 选择。 |
+| any | changed | unconsumed | 在决定是否需要再次写入前查询命令专属的当前状态端点。 |
+| any | any | consumed | 不要复用 handle；检查其 receipt/status，仅在允许时创建新操作。 |
+| any | unknown | unknown | 在判断重试是否安全前读取持久化 operation receipt。 |
 
-## 部分 Apply-back
+## 部分 apply-back
 
-对于 `workflow agent-apply`，在 approval 之前预检所有包。如果执行报告混合结果，保留 `agentRunId`，运行 `workflow agent-apply-status`，并使用 receipt 作为已应用、失败和可恢复请求的权威来源。
+对于 `workflow agent-apply`，在 approval 前 preflight 所有 bundle。如果执行结果混合，保留 `agentRunId`，运行 `workflow agent-apply-status`，并以 receipt 作为已应用、失败和可恢复请求的权威依据。
 
 ## 文件与分页恢复
 
-持久化最后接受的页面，从 `nextCursor` 恢复，不要将同一页合并两次。在使用之前验证文件校验和和字节数。本地路径、`fileId`、`productId` 和 workflow artifact 是不同的对象。
+保存最后一个已接受页面，从 `nextCursor` 恢复且不得重复合并页面。使用前验证文件 checksum 和字节数。本地路径、`fileId`、`productId` 和 workflow artifact 是不同对象。
 
-对于远程交付，遵循返回的 `delivery.mode`，使用不透明的 `fileId` 执行其 `downloadCommand`，并遵循 `unpackHint`。信封中的 Host 本地路径对远程 Agent 不可读。
+远程交付时，遵循返回的 `delivery.mode`，使用不透明的 `downloadCommand` 执行其 `fileId`，并遵循 `unpackHint`。信封中的 Host 本地路径不能由此证明远程 Agent 可读取该路径。

@@ -1,6 +1,14 @@
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import {
+  HOST_BRIDGE_AGENT_SURFACE_SCHEMA,
+  HOST_BRIDGE_CLI_SCHEMA,
+  HOST_BRIDGE_HANDLE_KINDS,
+  HOST_BRIDGE_PROTOCOL,
+  HOST_BRIDGE_SURFACE_IDENTITY_SCHEMA,
+} from "../src/shared/hostBridgeAgentContract";
+import type { HostBridgeHandleKind } from "../src/shared/hostBridgeAgentContract";
 import type {
   HostBridgeCliInventoryEntry,
   HostBridgeCliMapping,
@@ -40,7 +48,7 @@ export type HostBridgeAgentEffect = {
 };
 
 export type HostBridgeAgentHandleTransition = {
-  handle: string;
+  handle: HostBridgeHandleKind;
   direction: "consume" | "produce";
   required: boolean;
   condition: string;
@@ -179,6 +187,8 @@ const STATE_CHANGING_COMMANDS = new Set([
   "workflow submit",
   "workflow agent-run",
   "workflow agent-apply",
+  "workflow agent-renew",
+  "workflow agent-abandon",
   "run cancel",
   "run skill reply",
   "run skill connect",
@@ -200,7 +210,7 @@ const STATE_CHANGING_COMMANDS = new Set([
 ]);
 
 function consumeHandle(
-  handle: string,
+  handle: HostBridgeHandleKind,
   options: Partial<
     Pick<HostBridgeAgentHandleTransition, "required" | "condition" | "lifetime">
   > = {},
@@ -215,7 +225,7 @@ function consumeHandle(
 }
 
 function produceHandle(
-  handle: string,
+  handle: HostBridgeHandleKind,
   lifetime: HostBridgeAgentHandleTransition["lifetime"] = "response",
 ): HostBridgeAgentHandleTransition {
   return {
@@ -264,6 +274,11 @@ const COMMAND_HANDLE_TRANSITIONS: Record<
     }),
     produceHandle("applyReceipt"),
   ],
+  "workflow agent-renew": [consumeHandle("agentRunId")],
+  "workflow agent-abandon": [
+    consumeHandle("agentRunId", { lifetime: "one-shot" }),
+  ],
+  "operation get": [consumeHandle("operationId")],
   "run get": [consumeHandle("workflowRunId"), produceHandle("skillRunId")],
   "run cancel": [consumeHandle("workflowRunId")],
   "run permission get": [consumeHandle("permissionRequestId")],
@@ -367,8 +382,24 @@ function exampleValue(name: string) {
 }
 
 function commandExample(inventory: HostBridgeCliInventoryEntry) {
+  const selectedArgumentIds = new Set(
+    inventory.arguments
+      .filter((argument) => argument.required)
+      .map((argument) => argument.id),
+  );
+  for (const group of inventory.argumentGroups || []) {
+    if (
+      group.required &&
+      !group.arguments.some((id) => selectedArgumentIds.has(id))
+    ) {
+      const first = group.arguments.find((id) =>
+        inventory.arguments.some((argument) => argument.id === id),
+      );
+      if (first) selectedArgumentIds.add(first);
+    }
+  }
   const argumentsText = inventory.arguments
-    .filter((argument) => argument.required)
+    .filter((argument) => selectedArgumentIds.has(argument.id))
     .map((argument) => {
       const name = argument.long || argument.id;
       if (argument.position) return exampleValue(name);
@@ -381,7 +412,11 @@ function commandExample(inventory: HostBridgeCliInventoryEntry) {
         throw new Error(`argument ${argument.id} has no argv binding`);
       }
       if (!argument.takesValue) return option;
-      return `${option} ${exampleValue(name)}`;
+      return `${option} ${
+        argument.possibleValues[0]
+          ? `'${argument.possibleValues[0]}'`
+          : exampleValue(name)
+      }`;
     })
     .join(" ");
   return `zotero-bridge ${inventory.command}${argumentsText ? ` ${argumentsText}` : ""}`;
@@ -449,7 +484,7 @@ function effectiveGuidance(
       ...(override.evidence || []),
     ]),
     failureChecks: unique([
-      "Preserve the structured error envelope and inspect retryable, stateChanged, and handleConsumed before continuing.",
+      "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.",
       ...(defaults.failureChecks || []),
       ...(override.failureChecks || []),
     ]),
@@ -479,19 +514,51 @@ function effectiveGuidance(
 function invocationSchema(inventory: HostBridgeCliInventoryEntry) {
   const properties: Record<string, unknown> = {};
   const required: string[] = [];
+  const propertyById = new Map<string, string>();
   for (const argument of inventory.arguments) {
     const name = argument.long || argument.id;
+    propertyById.set(argument.id, name);
     properties[name] = {
-      type: argument.takesValue ? "string" : "boolean",
+      type: argument.repeatable
+        ? "array"
+        : argument.takesValue
+          ? "string"
+          : "boolean",
+      ...(argument.repeatable
+        ? { items: { type: argument.takesValue ? "string" : "boolean" } }
+        : {}),
       ...(argument.help ? { description: argument.help } : {}),
       ...(argument.position ? { position: argument.position } : {}),
     };
     if (argument.required) required.push(name);
   }
+  const allOf: Record<string, unknown>[] = [];
+  const conflictPairs = new Set<string>();
+  for (const argument of inventory.arguments) {
+    const left = propertyById.get(argument.id);
+    if (!left) continue;
+    for (const conflictId of argument.conflictsWith || []) {
+      const right = propertyById.get(conflictId);
+      if (!right) continue;
+      const pair = [left, right].sort().join("\n");
+      if (conflictPairs.has(pair)) continue;
+      conflictPairs.add(pair);
+      allOf.push({ not: { required: [left, right] } });
+    }
+  }
+  for (const group of inventory.argumentGroups || []) {
+    const members = group.arguments
+      .map((id) => propertyById.get(id))
+      .filter((value): value is string => !!value);
+    if (group.required && members.length > 0) {
+      allOf.push({ oneOf: members.map((member) => ({ required: [member] })) });
+    }
+  }
   return {
     type: "object",
     properties,
     required,
+    ...(allOf.length ? { allOf } : {}),
     additionalProperties: false,
   };
 }
@@ -630,12 +697,152 @@ function resultSchema(
   pagination: HostBridgeAgentCommand["pagination"],
   handles: { consumes?: string[]; returns?: string[] },
 ) {
-  const properties: Record<string, unknown> = {
-    result: {
+  if (
+    command === "run notification list" ||
+    command === "run notification wait"
+  ) {
+    return {
       type: "object",
-      description: `Stable result from ${mappings.map((entry) => entry.target).join(", ")}.`,
-    },
-  };
+      properties: {
+        notifications: { type: "array", items: { type: "object" } },
+        nextSinceEventId: { type: ["string", "null"] },
+        returned: { type: "integer" },
+        hasMore: { type: "boolean" },
+        truncated: { type: "boolean" },
+      },
+      required: ["notifications", "returned", "hasMore", "truncated"],
+      additionalProperties: false,
+    };
+  }
+  if (command === "workflow submit") {
+    return {
+      type: "object",
+      properties: {
+        workflowId: { type: "string" },
+        workflowLabel: { type: "string" },
+        workflowRunId: { type: "string" },
+        jobIds: { type: "array", items: { type: "string" } },
+        totalJobs: { type: "integer" },
+        tasks: { type: "array", items: { type: "object" } },
+        permission: { type: "object" },
+      },
+      required: ["workflowId", "workflowRunId", "jobIds", "totalJobs", "tasks"],
+      additionalProperties: false,
+    };
+  }
+  if (command === "workflow agent-run") {
+    return {
+      type: "object",
+      properties: {
+        agentRunId: { type: "string" },
+        workflowId: { type: "string" },
+        workflowLabel: { type: "string" },
+        generatedAt: { type: "string" },
+        expiresAt: { type: "string" },
+        requests: { type: "array", items: { type: "object" } },
+        instruction: { type: "string" },
+        applyStatus: { type: "object" },
+        bundle: { type: "object" },
+        contents: { type: "object" },
+        notes: { type: "array", items: { type: "string" } },
+      },
+      required: ["agentRunId", "workflowId", "expiresAt", "requests", "bundle"],
+      additionalProperties: false,
+    };
+  }
+  if (command === "workflow agent-apply-status") {
+    return {
+      type: "object",
+      properties: {
+        schema: { const: "host-bridge.agent-apply-receipt.v2" },
+        agentRunId: { type: "string" },
+        workflowId: { type: "string" },
+        status: { type: "string" },
+        updatedAt: { type: "string" },
+        stateChange: { enum: ["unchanged", "changed", "unknown"] },
+        handleConsumption: { enum: ["unconsumed", "consumed", "unknown"] },
+        recoverable: { type: "boolean" },
+        results: { type: "array", items: { type: "object" } },
+      },
+      required: ["schema", "agentRunId", "status", "results"],
+      additionalProperties: false,
+    };
+  }
+  if (
+    command === "workflow agent-renew" ||
+    command === "workflow agent-abandon"
+  ) {
+    return {
+      type: "object",
+      properties: {
+        agentRunId: { type: "string" },
+        workflowId: { type: "string" },
+        state: { type: "string" },
+        leaseExpiresAt: { type: "string" },
+        retentionExpiresAt: { type: "string" },
+        renewable: { type: "boolean" },
+        abandonable: { type: "boolean" },
+        renewedAt: { type: "string" },
+        abandonedAt: { type: "string" },
+      },
+      required: [
+        "agentRunId",
+        "workflowId",
+        "state",
+        "leaseExpiresAt",
+        "retentionExpiresAt",
+        "renewable",
+        "abandonable",
+      ],
+      additionalProperties: false,
+    };
+  }
+  if (command === "operation get") {
+    return {
+      type: "object",
+      properties: {
+        schema: { const: "host-bridge.operation-receipt.v1" },
+        operationId: { type: "string" },
+        requestDigest: { type: "string" },
+        attemptId: { type: "string" },
+        method: { type: "string" },
+        path: { type: "string" },
+        state: { enum: ["in_progress", "completed", "outcome_unknown"] },
+        createdAt: { type: "string" },
+        updatedAt: { type: "string" },
+        retentionExpiresAt: { type: "string" },
+        stateChange: { enum: ["unchanged", "changed", "unknown"] },
+        handleConsumption: { enum: ["unconsumed", "consumed", "unknown"] },
+        response: { type: "object" },
+      },
+      required: [
+        "schema",
+        "operationId",
+        "requestDigest",
+        "attemptId",
+        "method",
+        "path",
+        "state",
+        "createdAt",
+        "updatedAt",
+        "retentionExpiresAt",
+        "stateChange",
+        "handleConsumption",
+      ],
+      additionalProperties: false,
+    };
+  }
+  const capability = mappings.some((entry) => entry.kind === "capability");
+  const properties: Record<string, unknown> = capability
+    ? {
+        capability: { type: "string" },
+        approval: { type: "object" },
+        data: {
+          description:
+            "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.",
+        },
+      }
+    : {};
   for (const handle of handles.returns || []) {
     properties[handle] = { type: "string" };
   }
@@ -682,7 +889,7 @@ function resultSchema(
   return {
     type: "object",
     properties,
-    additionalProperties: false,
+    additionalProperties: !capability,
   };
 }
 
@@ -714,13 +921,21 @@ function effectsFor(
               : command.startsWith("debug ")
                 ? "debug-repair"
                 : "zotero-library";
-  return [
+  const effects: HostBridgeAgentEffect[] = [
     {
       kind,
       stateChanged: true,
       description: `May change ${kind.replace(/-/g, " ")} state.`,
     },
   ];
+  if (command === "workflow agent-apply") {
+    effects.push({
+      kind: "zotero-library",
+      stateChanged: true,
+      description: "May apply finalized Agent results to the Zotero library.",
+    });
+  }
+  return effects;
 }
 
 function recoveryFor(
@@ -764,10 +979,10 @@ function recoveryFor(
       action:
         category === "read"
           ? "Inspect the error and retry only when retryable is true."
-          : "Inspect stateChanged and handleConsumed before repeating the operation.",
-      nextCommand: command.startsWith("surface ")
-        ? "surface identity"
-        : "surface describe",
+          : "Inspect stateChange and handleConsumption before repeating the operation.",
+      ...(command.startsWith("surface ")
+        ? {}
+        : { nextCommand: "surface describe" }),
     },
   ];
 }
@@ -1052,6 +1267,13 @@ export function buildHostBridgeAgentSurfaceDescriptor(
     commands.map((command) => [command.command, command]),
   );
   for (const command of commands) {
+    for (const transition of command.handleTransitions) {
+      if (!HOST_BRIDGE_HANDLE_KINDS.includes(transition.handle)) {
+        throw new Error(
+          `${command.command} names unsupported handle ${transition.handle}`,
+        );
+      }
+    }
     const produced = new Set(
       command.handleTransitions
         .filter((transition) => transition.direction === "produce")
@@ -1094,9 +1316,9 @@ export function buildHostBridgeAgentSurfaceDescriptor(
     .sort((left, right) => left.token.localeCompare(right.token));
   const workflowCatalog = readWorkflowCatalog(root);
   const descriptor = {
-    schema: "host-bridge.agent-surface.v3",
-    protocol: "host-bridge.v1",
-    cliSchema: "zotero-bridge.cli.v3",
+    schema: HOST_BRIDGE_AGENT_SURFACE_SCHEMA,
+    protocol: HOST_BRIDGE_PROTOCOL,
+    cliSchema: HOST_BRIDGE_CLI_SCHEMA,
     commandCatalogChecksum: "",
     globalOptions,
     workflowCatalog,
@@ -1113,7 +1335,7 @@ export function createHostBridgeSurfaceIdentity(args: {
   descriptor: HostBridgeAgentSurfaceDescriptor;
 }) {
   return {
-    schema: "host-bridge.surface-identity.v3" as const,
+    schema: HOST_BRIDGE_SURFACE_IDENTITY_SCHEMA,
     protocol: args.descriptor.protocol,
     cliSchema: args.descriptor.cliSchema,
     version: args.version,
@@ -1127,8 +1349,8 @@ export function searchHostBridgeAgentSurface(
   intent: string,
   options: { limit?: number; includeDebug?: boolean } = {},
 ) {
-  const normalized = intent.trim().toLowerCase();
-  const tokens = normalized.split(/[^a-z0-9]+/).filter(Boolean);
+  const normalized = intent.trim().normalize("NFKC").toLowerCase();
+  const tokens = normalized.match(/[\p{L}\p{N}]+/gu) || [];
   const limit = Math.max(1, Math.min(options.limit || 10, 100));
   return descriptor.commands
     .filter(
@@ -1142,10 +1364,12 @@ export function searchHostBridgeAgentSurface(
         ...command.guidance.useWhen,
       ];
       const phraseFields = fields.filter((field) =>
-        field.toLowerCase().includes(normalized),
+        field.normalize("NFKC").toLowerCase().includes(normalized),
       );
       const tokenMatches = tokens.filter((token) =>
-        fields.some((field) => field.toLowerCase().includes(token)),
+        fields.some((field) =>
+          field.normalize("NFKC").toLowerCase().includes(token),
+        ),
       );
       const score = (phraseFields.length ? 100 : 0) + tokenMatches.length;
       const matchReasons = unique([

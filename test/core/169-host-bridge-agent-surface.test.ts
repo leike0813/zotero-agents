@@ -18,7 +18,7 @@ describe("Host Bridge agent surface contract", function () {
 
     assert.strictEqual(descriptor.schema, "host-bridge.agent-surface.v3");
     assert.strictEqual(descriptor.cliSchema, "zotero-bridge.cli.v3");
-    assert.lengthOf(catalog.commandInventory, 117);
+    assert.lengthOf(catalog.commandInventory, 120);
     assert.isNotEmpty(descriptor.globalOptions);
     assert.isTrue(
       descriptor.globalOptions.every((entry) => Boolean(entry.description)),
@@ -48,6 +48,9 @@ describe("Host Bridge agent surface contract", function () {
       "workflow submit",
       "workflow agent-run",
       "workflow agent-apply",
+      "workflow agent-renew",
+      "workflow agent-abandon",
+      "operation get",
       "mutation apply",
     ]) {
       assert.isTrue(commands.has(command), command);
@@ -66,6 +69,50 @@ describe("Host Bridge agent surface contract", function () {
         .map((entry) => entry.handle),
       "agentRunId",
     );
+    assert.deepEqual(
+      commands
+        .get("workflow submit")!
+        .handleTransitions.filter((entry) => entry.direction === "produce")
+        .map((entry) => entry.handle),
+      ["workflowRunId"],
+    );
+    assert.containsAllKeys(
+      commands.get("run notification wait")!.resultSchema.properties as object,
+      ["notifications", "returned", "hasMore", "truncated"],
+    );
+    assert.notProperty(
+      commands.get("run notification wait")!.resultSchema.properties,
+      "result",
+    );
+    assert.includeMembers(
+      commands.get("workflow agent-apply")!.effects.map((entry) => entry.kind),
+      ["workflow-control", "zotero-library"],
+    );
+    assert.deepInclude(commands.get("workflow agent-renew")!, {
+      category: "write",
+    });
+    assert.deepInclude(commands.get("workflow agent-abandon")!, {
+      category: "write",
+    });
+    assert.containsAllKeys(
+      commands.get("operation get")!.resultSchema.properties as object,
+      ["operationId", "state", "stateChange", "handleConsumption"],
+    );
+    assert.isUndefined(
+      commands.get("surface identity")!.recovery[0].nextCommand,
+    );
+    const workflowSubmitConstraints = commands.get("workflow submit")!
+      .invocationSchema.allOf as Array<{
+      not?: { required?: string[] };
+      oneOf?: Array<{ required?: string[] }>;
+    }>;
+    assert.includeMembers(
+      workflowSubmitConstraints.find((entry) => entry.not)?.not?.required || [],
+      ["none", "selection"],
+    );
+    assert.deepInclude(workflowSubmitConstraints, {
+      oneOf: [{ required: ["selection"] }, { required: ["none"] }],
+    });
     assert.include(
       commands
         .get("workflow agent-apply")!
@@ -144,7 +191,7 @@ describe("Host Bridge agent surface contract", function () {
     for (const command of descriptor.commands) {
       assert.deepEqual(command.invocationSchema.additionalProperties, false);
       assert.deepEqual(command.payloadSchema.additionalProperties, false);
-      assert.deepEqual(command.resultSchema.additionalProperties, false);
+      assert.isBoolean(command.resultSchema.additionalProperties);
       assert.lengthOf(
         command.argvBindings,
         Object.keys(command.invocationSchema.properties || {}).length,
@@ -436,6 +483,10 @@ describe("Host Bridge agent surface contract", function () {
     assert.strictEqual(matches[0]?.command.command, "context selection get");
     assert.include(matches[0]?.matchReasons, "phrase:selected items");
     assert.isAtMost(matches.length, 10);
+
+    const localized = searchHostBridgeAgentSurface(descriptor, "工作流");
+    assert.strictEqual(localized[0]?.command.command, "workflow submit");
+    assert.include(localized[0]?.matchReasons, "phrase:工作流");
 
     const ordinary = searchHostBridgeAgentSurface(
       descriptor,

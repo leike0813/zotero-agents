@@ -223,8 +223,8 @@ Cache and index status are read-only. Cache invalidation is approval-gated and a
 Treat the JSON error envelope as authoritative:
 
 - Retry only when `retryable` is true.
-- If `stateChanged` is true, inspect current state before issuing another write.
-- If `handleConsumed` is true, do not reuse the handle.
+- If `stateChange` is `changed` or `unknown`, inspect the durable operation receipt and current domain state before issuing another write.
+- If `handleConsumption` is `consumed` or `unknown`, do not reuse the handle until its domain receipt proves reuse is safe.
 - Choose a suitable `safeNextActions` entry and prefer `nextCommand` when supplied.
 - Preserve the original handle and receipt while resolving partial apply-back, paging interruption, file verification, or uncertain mutation state.
 - If the safe action requires user approval, missing authority, or a new input choice, stop and report that boundary.

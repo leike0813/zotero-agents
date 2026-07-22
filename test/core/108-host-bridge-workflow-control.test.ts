@@ -12,6 +12,7 @@ import {
   configureHostBridgeGlobalApprovalHandlerForTests,
   resetHostBridgePermissionManagerForTests,
 } from "../../src/modules/hostBridgePermissionManager";
+import { issueHostBridgeWriteAutoApprovalGrant } from "../../src/modules/hostBridgeWriteAutoApprovalRegistry";
 import {
   recordWorkflowTaskUpdate,
   resetWorkflowTasks,
@@ -64,6 +65,20 @@ import type { LoadedWorkflow } from "../../src/workflows/types";
 import type { JobRecord } from "../../src/jobQueue/manager";
 import { getPref, setPref } from "../../src/utils/prefs";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
+import {
+  acquireHostBridgeAgentRunApplyLease,
+  createHostBridgeAgentRunRecord,
+  getHostBridgeAgentRunRecord,
+  hostBridgeAgentRunStoreInternalsForTests,
+  recoverHostBridgeAgentRunStoreAfterRestart,
+  sealHostBridgeAgentRunRecord,
+} from "../../src/modules/hostBridgeWorkflowAgentRunStore";
+import {
+  getHostBridgeOperation,
+  hostBridgeOperationStoreInternalsForTests,
+  markHostBridgeOperationOutcomeUnknown,
+  reserveHostBridgeOperation,
+} from "../../src/modules/hostBridgeOperationStore";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -604,6 +619,196 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(second.json.error.code, "agent_run_already_consumed");
   });
 
+  it("replays a durable operation receipt without repeating an apply", async function () {
+    const entry = workflow("bridge-workflow");
+    let applyCalls = 0;
+    entry.hooks.applyResult = async () => {
+      applyCalls += 1;
+    };
+    installWorkflowRegistryForTests([entry]);
+    const token = configureHostBridgeServerForTests({
+      token: "operation-token",
+    });
+    configureHostBridgeGlobalApprovalHandlerForTests((request) => ({
+      outcome: "approved",
+      requestId: request.requestId,
+      channel: "global",
+    }));
+    const parent = new Zotero.Item("journalArticle");
+    parent.setField("title", "Durable Operation Parent");
+    await parent.saveTx();
+    const handoff = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/agent-run",
+      headers: { "x-zotero-bridge-operation-id": "prepare-operation-1" },
+      body: {
+        workflowId: "bridge-workflow",
+        selection: { items: [{ id: parent.id }] },
+      },
+    });
+    const path = `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`;
+    const body = createAgentRunApplyBody(handoff.json.result.requests[0]);
+    const headers = { "x-zotero-bridge-operation-id": "apply-operation-1" };
+    const first = await bridgeRequest({
+      token,
+      method: "POST",
+      path,
+      headers,
+      body,
+    });
+    const replay = await bridgeRequest({
+      token,
+      method: "POST",
+      path,
+      headers,
+      body,
+    });
+    assert.strictEqual(first.status, 200);
+    assert.deepEqual(replay.json, first.json);
+    assert.strictEqual(applyCalls, 1);
+
+    const receipt = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/operations/apply-operation-1",
+    });
+    assert.strictEqual(receipt.status, 200);
+    assert.strictEqual(receipt.json.result.state, "completed");
+    assert.strictEqual(receipt.json.result.stateChange, "changed");
+
+    const conflict = await bridgeRequest({
+      token,
+      method: "POST",
+      path,
+      headers,
+      body: { results: [] },
+    });
+    assert.strictEqual(conflict.status, 409);
+    assert.strictEqual(conflict.json.error.code, "idempotency_conflict");
+  });
+
+  it("retains operation and agent-run recovery records for thirty days", function () {
+    const reserved = reserveHostBridgeOperation({
+      operationId: "retained-operation",
+      requestDigest: "request-digest",
+      method: "POST",
+      path: "/bridge/v1/workflows/agent-run",
+    });
+    assert.strictEqual(reserved.kind, "reserved");
+    const unknown = markHostBridgeOperationOutcomeUnknown("retained-operation");
+    assert.strictEqual(unknown?.state, "outcome_unknown");
+    assert.strictEqual(unknown?.stateChange, "unknown");
+
+    const agentRun = createHostBridgeAgentRunRecord({
+      workflowId: "bridge-workflow",
+      selection: { kind: "none" },
+      requests: [],
+    });
+    const afterRetention =
+      Date.now() + hostBridgeOperationStoreInternalsForTests.RETENTION_MS + 1;
+    hostBridgeOperationStoreInternalsForTests.cleanup(afterRetention);
+    hostBridgeAgentRunStoreInternalsForTests.cleanupRetained(afterRetention);
+
+    assert.isNull(getHostBridgeOperation("retained-operation"));
+    assert.isNull(getHostBridgeAgentRunRecord(agentRun.agentRunId));
+    assert.strictEqual(
+      hostBridgeOperationStoreInternalsForTests.RETENTION_MS,
+      30 * 24 * 60 * 60 * 1000,
+    );
+    assert.strictEqual(
+      hostBridgeAgentRunStoreInternalsForTests.RETENTION_MS,
+      hostBridgeOperationStoreInternalsForTests.RETENTION_MS,
+    );
+  });
+
+  it("prevents a concurrent apply after the first apply seals the handle", async function () {
+    const entry = workflow("bridge-workflow");
+    let applyCalls = 0;
+    let releaseApply!: () => void;
+    let markEntered!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      markEntered = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseApply = resolve;
+    });
+    entry.hooks.applyResult = async () => {
+      applyCalls += 1;
+      markEntered();
+      await release;
+    };
+    installWorkflowRegistryForTests([entry]);
+    const token = configureHostBridgeServerForTests({
+      token: "concurrent-token",
+    });
+    configureHostBridgeGlobalApprovalHandlerForTests((request) => ({
+      outcome: "approved",
+      requestId: request.requestId,
+      channel: "global",
+    }));
+    const parent = new Zotero.Item("journalArticle");
+    parent.setField("title", "Concurrent Apply Parent");
+    await parent.saveTx();
+    const handoff = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/agent-run",
+      body: {
+        workflowId: "bridge-workflow",
+        selection: { items: [{ id: parent.id }] },
+      },
+    });
+    const path = `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`;
+    const body = createAgentRunApplyBody(handoff.json.result.requests[0]);
+    const firstPending = bridgeRequest({ token, method: "POST", path, body });
+    await entered;
+    const second = await bridgeRequest({ token, method: "POST", path, body });
+    releaseApply();
+    const first = await firstPending;
+
+    assert.strictEqual(first.status, 200);
+    assert.strictEqual(second.status, 409);
+    assert.strictEqual(second.json.error.code, "agent_run_already_consumed");
+    assert.strictEqual(second.json.error.handleConsumption, "consumed");
+    assert.strictEqual(applyCalls, 1);
+  });
+
+  it("recovers durable preflight and sealed apply states after restart", async function () {
+    installWorkflowRegistryForTests([workflow("bridge-workflow")]);
+    const token = configureHostBridgeServerForTests({
+      token: "recovery-token",
+    });
+    const parent = new Zotero.Item("journalArticle");
+    parent.setField("title", "Restart Recovery Parent");
+    await parent.saveTx();
+    const handoff = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/agent-run",
+      body: {
+        workflowId: "bridge-workflow",
+        selection: { items: [{ id: parent.id }] },
+      },
+    });
+    const agentRunId = handoff.json.result.agentRunId;
+
+    assert.isOk(acquireHostBridgeAgentRunApplyLease(agentRunId));
+    recoverHostBridgeAgentRunStoreAfterRestart();
+    assert.strictEqual(
+      getHostBridgeAgentRunRecord(agentRunId)?.state,
+      "prepared",
+    );
+
+    assert.isOk(acquireHostBridgeAgentRunApplyLease(agentRunId));
+    assert.isOk(sealHostBridgeAgentRunRecord(agentRunId));
+    recoverHostBridgeAgentRunStoreAfterRestart();
+    const recovered = getHostBridgeAgentRunRecord(agentRunId);
+    assert.strictEqual(recovered?.state, "outcome_unknown");
+    assert.strictEqual(recovered?.applyReceipt?.stateChange, "unknown");
+    assert.strictEqual(recovered?.applyReceipt?.handleConsumption, "consumed");
+  });
+
   it("preflights every agent-run bundle before approval or handle consumption", async function () {
     const entry = workflow("bridge-workflow");
     let applyCalls = 0;
@@ -663,7 +868,7 @@ describe("host bridge workflow control", function () {
       path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
     });
     assert.strictEqual(receipt.status, 200);
-    assert.isFalse(receipt.json.result.handleConsumed);
+    assert.strictEqual(receipt.json.result.handleConsumption, "unconsumed");
     assert.isTrue(receipt.json.result.recoverable);
 
     const retry = await bridgeRequest({
@@ -727,9 +932,60 @@ describe("host bridge workflow control", function () {
       path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
     });
     assert.strictEqual(receipt.json.result.status, "partial");
-    assert.isTrue(receipt.json.result.stateChanged);
-    assert.isTrue(receipt.json.result.handleConsumed);
+    assert.strictEqual(receipt.json.result.stateChange, "changed");
+    assert.strictEqual(receipt.json.result.handleConsumption, "consumed");
     assert.isFalse(receipt.json.result.recoverable);
+  });
+
+  it("renews or abandons an unconsumed agent run through explicit lifecycle endpoints", async function () {
+    installWorkflowRegistryForTests([workflow("bridge-workflow")]);
+    const token = configureHostBridgeServerForTests({
+      token: "agent-run-lifecycle-token",
+    });
+    const parent = new Zotero.Item("journalArticle");
+    parent.setField("title", "Agent Run Lifecycle Parent");
+    await parent.saveTx();
+    const handoff = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/agent-run",
+      body: {
+        workflowId: "bridge-workflow",
+        selection: { items: [{ id: parent.id }] },
+      },
+    });
+    const agentRunId = handoff.json.result.agentRunId;
+
+    const renewed = await bridgeRequest({
+      token,
+      method: "POST",
+      path: `/bridge/v1/workflows/agent-runs/${agentRunId}/renew`,
+      body: {},
+    });
+    assert.strictEqual(renewed.status, 200);
+    assert.strictEqual(renewed.json.result.agentRunId, agentRunId);
+    assert.isTrue(renewed.json.result.renewable);
+    assert.isTrue(renewed.json.result.abandonable);
+
+    const abandoned = await bridgeRequest({
+      token,
+      method: "POST",
+      path: `/bridge/v1/workflows/agent-runs/${agentRunId}/abandon`,
+      body: {},
+    });
+    assert.strictEqual(abandoned.status, 200);
+    assert.strictEqual(abandoned.json.result.state, "abandoned");
+    assert.isFalse(abandoned.json.result.renewable);
+    assert.isFalse(abandoned.json.result.abandonable);
+
+    const apply = await bridgeRequest({
+      token,
+      method: "POST",
+      path: `/bridge/v1/workflows/agent-runs/${agentRunId}/apply`,
+      body: createAgentRunApplyBody(handoff.json.result.requests[0]),
+    });
+    assert.strictEqual(apply.status, 409);
+    assert.strictEqual(apply.json.error.code, "agent_run_lifecycle_conflict");
   });
 
   it("can disable workflow agent-run apply approval from the Host Bridge preference switch", async function () {
@@ -1460,7 +1716,8 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(parsed.status, 200);
     assert.strictEqual(parsed.json.status, "ok");
     assert.strictEqual(parsed.json.result.workflowId, "bridge-workflow");
-    assert.isString(parsed.json.result.runId);
+    assert.isString(parsed.json.result.workflowRunId);
+    assert.notProperty(parsed.json.result, "runId");
     assert.lengthOf(parsed.json.result.jobIds, 1);
     assert.strictEqual(parsed.json.result.permission.channel, "global");
     assert.notInclude(parsed.body, "attachment-path:");
@@ -1771,6 +2028,9 @@ describe("host bridge workflow control", function () {
     const parent = new Zotero.Item("journalArticle");
     parent.setField("title", "Bridge ACP Auto Approved Submit Parent");
     await parent.saveTx();
+    const grantId = issueHostBridgeWriteAutoApprovalGrant({
+      requestId: "acp-run-auto-approval-1",
+    });
 
     const parsed = await bridgeRequest({
       token,
@@ -1781,6 +2041,7 @@ describe("host bridge workflow control", function () {
           kind: "acp-skill-run",
           requestId: "acp-run-auto-approval-1",
           autoApproveWrites: true,
+          grantId,
         }),
       },
       body: {

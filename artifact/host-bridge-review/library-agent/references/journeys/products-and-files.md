@@ -4,7 +4,7 @@
 
 ## 上传与附加
 
-先验证本地制品，然后使用显示名称/内容类型执行 `file upload`。保留校验和和返回的短生命周期 `fileId`。使用当前父条目引用和 `fileId` 调用 `mutation item attach-file`，通过 approval，然后刷新 `library item attachments` 以证明新附件存在。
+先验证本地制品，然后使用显示名称/内容类型执行 `file upload`。保留校验和和返回的短生命周期 `fileId`。使用当前父条目引用和 `mutation item attach-file` 调用 `fileId`，通过 approval，然后刷新 `library item attachments` 以证明新附件存在。
 
 ## 下载
 

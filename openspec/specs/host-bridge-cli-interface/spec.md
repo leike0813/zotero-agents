@@ -1159,30 +1159,36 @@ The CLI SHALL expose `surface identity --json`, `surface describe <command> --js
 
 ### Requirement: CLI errors SHALL expose safe recovery state
 
-Every CLI error envelope SHALL include `retryable`, `stateChanged`, `handleConsumed`, and `safeNextActions`, with optional `nextCommand` when one exact recovery command is known. Error recovery fields SHALL reflect operation state rather than infer safety from an HTTP status alone.
+Every CLI v3 error envelope SHALL include `retryable`, `stateChange`, `handleConsumption`, and `safeNextActions`, with optional `operationId` and `nextCommand`. `stateChange` and `handleConsumption` SHALL each represent unchanged/unconsumed, changed/consumed, or unknown rather than infer safety from status alone.
 
-#### Scenario: Apply-back state is uncertain
-
-- **WHEN** agent apply-back fails or is interrupted
-- **THEN** the agent SHALL be able to run `workflow agent-apply-status <agentRunId>` and inspect an auditable receipt before retrying.
+#### Scenario: Request outcome is uncertain
+- **WHEN** a state-changing request was transmitted but its response was not read
+- **THEN** the CLI SHALL report unknown state and handle outcomes
+- **AND** SHALL direct the agent to `operation get <operationId>`.
 
 #### Scenario: Read fails before state change
-
 - **WHEN** a read command fails without consuming a handle or mutating state
-- **THEN** the error SHALL report `stateChanged: false`, `handleConsumed: false`, and a safe retry or inspection action.
+- **THEN** the error SHALL report unchanged state, unconsumed handle, and a safe retry or inspection action.
 
-#### Scenario: Mutation outcome requires inspection
-
-- **WHEN** a mutating request fails after state may have changed
-- **THEN** the error SHALL not recommend blind retry
-- **AND** `safeNextActions` SHALL direct the agent to inspect the relevant status or receipt.
+#### Scenario: Clap rejects argv
+- **WHEN** a command has an unknown or invalid argument
+- **THEN** stdout SHALL contain a v3 JSON usage error and the process SHALL exit with code 2
+- **AND** help and version output SHALL remain human-readable success paths.
 
 ### Requirement: CLI SHALL publish a complete Agent Surface v3
-The CLI SHALL expose a `host-bridge.agent-surface.v3` descriptor whose leaf commands and global options exactly match the Rust Clap model and whose workflow entries come from loaded workflow manifests.
+The CLI SHALL expose one `host-bridge.agent-surface.v3` descriptor whose identity, leaf argv, conditional argument relationships, result data contracts, handles, effects, examples, and recovery edges match runtime behavior.
 
 #### Scenario: Agent inspects v3 identity
 - **WHEN** an agent runs `surface identity --json`
-- **THEN** identity reports the v3 schema, CLI version, build fingerprint, and command catalog checksum without connecting to Zotero.
+- **THEN** stdout meta, identity data, embedded descriptor, Host manifest, and release envelope SHALL agree on v3 schema and CLI identity.
+
+#### Scenario: Generated example is validated
+- **WHEN** a command card supplies an example
+- **THEN** its argv SHALL pass the real Clap parser and invocation schema.
+
+#### Scenario: Agent searches localized intent
+- **WHEN** an agent searches a configured non-ASCII intent
+- **THEN** Rust and TypeScript search SHALL return the same ordered canonical commands and match reasons.
 
 ### Requirement: CLI default provider profile SHALL remain request-local
 The CLI SHALL resolve `ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE` only for provider validation and workflow submission and SHALL never persist it in Host Bridge.
@@ -1210,17 +1216,16 @@ Surface discovery SHALL compose generated command facts with family defaults and
 - **THEN** search SHALL return at most the requested positive bounded number of matches.
 
 ### Requirement: Agent Surface schemas SHALL describe stable observable contracts
+Each command result schema SHALL describe CLI stdout `.data` and SHALL use explicit DTO contracts for handle, paging, workflow, notification, file, and operation results.
 
-Public command entries SHALL use the narrowest stable request and result schemas supported by their CLI and backend contracts instead of one global catch-all object schema.
+#### Scenario: Capability command returns data
+- **WHEN** the CLI invokes a capability
+- **THEN** the result schema SHALL describe `{capability, approval, data}` without inventing a `result` wrapper.
 
-#### Scenario: Command accepts structured input
-- **WHEN** a command accepts named arguments, JSON input, pagination, or file output
-- **THEN** its descriptor SHALL identify those stable fields and constraints
-- **AND** SHALL NOT represent every command with an unconstrained object schema.
-
-#### Scenario: Command consumes or returns a handle
-- **WHEN** backend behavior consumes or returns a workflow, skill, agent request, permission, file, or product handle
-- **THEN** the descriptor SHALL name the typed handle and whether failure can occur after consumption or state change.
+#### Scenario: Workflow submit succeeds
+- **WHEN** workflow submission succeeds
+- **THEN** the public DTO SHALL return `workflowRunId`
+- **AND** SHALL NOT expose `runId` as an alias.
 
 ### Requirement: CLI bundle README SHALL select the integration surface
 
