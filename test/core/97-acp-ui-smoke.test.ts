@@ -3045,6 +3045,58 @@ describe("Assistant Workspace ACP UI v1", function () {
     );
   });
 
+  it("preserves local drawers for same-owner navigation and closes them only when the owner changes", async function () {
+    const child = await loadWorkspaceChild();
+    const ui = {
+      contextDrawerOpen: true,
+      detailsDrawerOpen: true,
+      permissionRequestOpen: true,
+      replyDraft: "draft-a",
+      replyDraftByOwner: new Map([
+        ["request-a", "draft-a"],
+        ["request-b", "draft-b"],
+      ]),
+    };
+    assert.isFalse(
+      child.applyOwnerNavigationUiTransition(
+        ui,
+        false,
+        owner("acp-skills", "request-a"),
+      ),
+    );
+    assert.deepInclude(ui, {
+      contextDrawerOpen: true,
+      detailsDrawerOpen: true,
+      permissionRequestOpen: true,
+      replyDraft: "draft-a",
+    });
+
+    assert.isTrue(
+      child.applyOwnerNavigationUiTransition(
+        ui,
+        true,
+        owner("acp-skills", "request-b"),
+      ),
+    );
+    assert.deepInclude(ui, {
+      contextDrawerOpen: false,
+      detailsDrawerOpen: false,
+      permissionRequestOpen: false,
+      replyDraft: "draft-b",
+    });
+
+    ui.contextDrawerOpen = true;
+    ui.detailsDrawerOpen = true;
+    ui.permissionRequestOpen = true;
+    assert.isTrue(child.applyOwnerNavigationUiTransition(ui, true, null));
+    assert.deepInclude(ui, {
+      contextDrawerOpen: false,
+      detailsDrawerOpen: false,
+      permissionRequestOpen: false,
+      replyDraft: "",
+    });
+  });
+
   it("commits canonical state only after render success and preserves bounded failure details", async function () {
     const child = await loadWorkspaceChild();
     const selectedOwner = owner("acp-skills", "request-a");

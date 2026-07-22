@@ -136,8 +136,8 @@
 - [x] ACP Chat 在 prompting 状态不显示模式、模型（推理强度显示“默认”，应该也有问题）。这里应该和ACP Skills对齐，除断开状态外，任何时候都应该显示这些选项的值，然后在prompting状态禁用模型和推理强度的下拉菜单（当然后端也禁用切换）；模式应该可以随时切换
 - [x] **Agent-facing 的界面需要大幅优化**：1. 提交workflow时的provider profile格式需要按具体的backend来查询，因为每个backend的profile格式、允许的选项都不一样；2. provider profile应该有校验接口，并且支持环境变量指定默认的provider profile；3. 存在provider profile不生效的问题（在ACP Skills任务中复现，SkillRunner未知）；4. 所有的CLI接口都应该有自解释性，例如所有的选项的含义、所有的workflow的功能描述，否则agent只能靠猜
 - [ ] 解决ACP后端在windows下运行时powershell在提交json payload或输出json时频繁出现的编码问题（一般出现在中文论文中）
-- [ ] Dashboard/popover对于SkillRunner任务的显示有问题（运行中任务只显示一个，waiting状态任务不显示）
-- [ ] ACP Skills任务提交后，到agent真正开始执行的这个时间窗口内，任务抽屉会被反复关闭
+- [x] Dashboard/popover对于SkillRunner任务的显示有问题（运行中任务只显示一个，waiting状态任务不显示）
+- [x] ACP Skills任务提交后，到agent真正开始执行的这个时间窗口内，任务抽屉会被反复关闭
 - [ ] **初次启动时的使用指导demo**
 - [ ] mock skillrunner 改为 mock acp backend，规避端口问题
 - [ ] **独立的 Rust 服务程序，卸载重计算到这个服务程序上，避免界面阻塞**

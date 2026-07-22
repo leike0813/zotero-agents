@@ -817,6 +817,7 @@ function createReceiver(options) {
       reason: null,
       snapshot: next,
       publicationKind: publication.publicationKind,
+      ownerChanged,
       effect,
       commit: function () {
         if (ownerChanged) revisions.clear();
@@ -1097,6 +1098,17 @@ function canonicalActionOwner(source, value) {
     return clone(owner);
   }
   return null;
+}
+
+function applyOwnerNavigationUiTransition(ui, ownerChanged, nextOwner) {
+  if (ownerChanged !== true) return false;
+  ui.replyDraft = nextOwner
+    ? ui.replyDraftByOwner.get(text(nextOwner.ownerKey)) || ""
+    : "";
+  ui.contextDrawerOpen = false;
+  ui.detailsDrawerOpen = false;
+  ui.permissionRequestOpen = false;
+  return true;
 }
 
 function resolvePanelActionEnvelope(
@@ -1740,12 +1752,7 @@ function createChildRuntime(source) {
       if (result.publicationKind === "owner-navigation") {
         captureReplyDraft();
         const nextOwner = selectedOwner(result.snapshot);
-        ui.replyDraft = nextOwner
-          ? ui.replyDraftByOwner.get(nextOwner.ownerKey) || ""
-          : "";
-        ui.contextDrawerOpen = false;
-        ui.detailsDrawerOpen = false;
-        ui.permissionRequestOpen = false;
+        applyOwnerNavigationUiTransition(ui, result.ownerChanged, nextOwner);
       }
       const previous = snapshot;
       snapshot = result.snapshot;
@@ -1862,6 +1869,7 @@ function boot() {
 }
 
 export {
+  applyOwnerNavigationUiTransition,
   boot,
   createClient,
   createController,

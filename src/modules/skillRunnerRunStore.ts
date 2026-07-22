@@ -1180,7 +1180,7 @@ export function listSkillRunnerRunProjectionSummaries(
   let rows = listSkillRunnerRunRecords({
     backendId: options.backendId,
     requestId: options.requestId,
-    limit: options.limit,
+    limit: options.activeOnly ? undefined : options.limit,
   })
     .filter((record) =>
       options.activeOnly
