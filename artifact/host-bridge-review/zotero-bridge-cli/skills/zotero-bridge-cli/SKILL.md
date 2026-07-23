@@ -21,7 +21,7 @@ license: AGPL-3.0-or-later
 
 1. 按下述规则选择一个可执行文件和一个连接 profile，并确保 binary、内嵌合同、profile 与 release envelope 属于同一 release set。
 2. 运行 `zotero-bridge surface identity --json`。将 `protocol`、`cliSchema`、`version`、`buildFingerprint` 和 `commandCatalogChecksum` 与当前 release envelope 比较；任一不一致都必须停止。
-3. 若尚不清楚规范操作，运行 `surface search --intent '<operational terms>' --json`。执行前运行 `surface describe '<canonical command>' --json`，并阅读生成的命令参考以获取完整离线 command card。
+3. 若尚不清楚规范操作，运行 `surface search --intent '<operational terms>' --json`。执行前运行 `surface describe '<canonical command>' --json`，并且只阅读拥有该命令首个 token 的生成命令分面参考。
 4. 由外而内确认实时身份与就绪状态：先检查服务健康状态，再检查已认证的 manifest/profile，必要时检查 backend 就绪状态，最后检查领域对象或工作流合同。
 5. 仅准备命令 descriptor 声明的输入；工作流选项、provider profile、selection、payload、不透明 handle 和输出路径必须保持各自独立的 binding。
 6. 调用前检查 effect、approval 时机、类型化 handle 转移、分页、目标与恢复规则。显示 Zotero 端要求的 approval，不得把有效输入视为授权。
@@ -55,7 +55,7 @@ license: AGPL-3.0-or-later
 - 工作流 selection、工作流选项和 provider profile 必须是独立值；
 - 命令或 profile helper 要求时使用绝对输出路径。
 
-不得依据名称相似的其他命令重新解释 CLI 选项。生成的参考会公开全部 binding；若已加载 artifact 与可执行文件不一致，则以当前 binary 的 `surface describe` 结果为准。
+不得依据名称相似的其他命令重新解释 CLI 选项。生成的命令分面参考会公开全部 binding；若已加载 artifact 与可执行文件不一致，则以当前 binary 的 `surface describe` 结果为准。
 
 ## 身份、分页与新鲜度
 
@@ -119,7 +119,7 @@ Zotero 端路径并不自动可供 Agent 读取。附件、Product、artifact �
 
 - Agent 负责操作选择、语义解读、考虑 approval 的决策、证据使用和恢复选择。
 - CLI 负责准确解析 argv、向 Zotero Bridge 服务发送请求、传输类型化 handle、返回结构化错误，以及进行本地 bundle/结果校验。
-- renderer 负责生成命令参考和内嵌 Agent Surface；不得手工拼装任一 artifact，也不得虚构 handle、receipt、checksum 或结果 envelope。
+- renderer 负责生成命令分面参考和内嵌 Agent Surface；不得手工拼装这些 artifact，也不得虚构 handle、receipt、checksum 或结果 envelope。
 
 ## 完成条件
 
@@ -138,4 +138,13 @@ Zotero 端路径并不自动可供 Agent 读取。附件、Product、artifact �
 
 ## 参考资料
 
-- 选定命令后，以及需要精确 argv、schema、分页、effect、approval、handle、目标或恢复信息时，阅读[生成的命令参考](references/command-reference.md)。这是完整的离线命令清单；实时操作前使用 `surface describe` 确认当前可执行文件。
+选定规范命令后，只阅读列出的 root 与命令首个 token 匹配的参考。每个文件都是其所列 root 的完整清单；实时操作前以当前可执行文件的 `surface describe` 结果为准。
+
+- 命令以 `surface`、`bridge` 或 `context` 开头时，阅读[连接与上下文命令](references/commands/connection-and-context.md)。
+- 命令以 `library` 开头时，阅读[文献库命令](references/commands/library.md)。
+- 命令以 `mutation` 开头时，阅读[变更命令](references/commands/mutation.md)。
+- 命令以 `file`、`product` 或 `operation` 开头时，阅读[文件、Product 与操作命令](references/commands/files-products-and-operations.md)。
+- 命令以 `workflow` 开头时，阅读[workflow 命令](references/commands/workflow.md)。
+- 命令以 `run` 开头时，阅读[run 命令](references/commands/run.md)。
+- 命令以 `synthesis` 开头时，阅读[Synthesis 命令](references/commands/synthesis.md)。
+- 命令以 `debug` 或 `call` 开头时，阅读[诊断命令](references/commands/diagnostics.md)。

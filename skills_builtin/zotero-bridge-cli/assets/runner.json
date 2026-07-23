@@ -11,7 +11,7 @@
   },
   "entrypoint": {
     "prompts": {
-      "common": "Read SKILL.md first. Read references/operating-contract.md for live operations or recovery, and references/command-reference.md for an exact command. Never expose bearer tokens. Return one JSON object that preserves the CLI result or structured failure."
+      "common": "Read SKILL.md first. After selecting a canonical command, read only its matching reference under references/commands/. Never expose bearer tokens. Return one JSON object that preserves the CLI result or structured failure."
     }
   }
 }

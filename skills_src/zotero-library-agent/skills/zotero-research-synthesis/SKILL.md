@@ -17,12 +17,23 @@ Relate a bounded set of verified Zotero sources and derived research structures 
 
 ## Workflow
 
-1. Read [the synthesis playbook](references/playbook.md), state the research question, and resolve the exact source boundary and derived model through live reads.
-2. Establish freshness, inclusion/exclusion rules, and the distinction among source claims, Zotero facts, computed relationships, generated artifacts, interpretation, disagreement, and gaps.
-3. Choose direct synthesis from supported reads or a live-described workflow. Validate workflow input and provider profile separately, and retain per-stage handles and evidence.
-4. When derived maintenance is required, diagnose and execute cache, sidecar, graph, index, or metric operations as separate approved stages with separate receipts.
-5. Verify the requested topic report, graph result, artifact, Product, export, or live Zotero effect. Submit, persist, or apply output only through its current authority boundary.
-6. Return `zotero-library-task.result.v1` with traceable evidence, declared artifacts, unresolved disagreement, and any failed or skipped source scope.
+### Establish source and model boundary
+
+1. State the research question, inclusion and exclusion rule, required freshness, and intended deliverable. Resolve every source ref and the exact topic, graph, index, resolver selector, artifact, Product, or schema used.
+2. Select the derived model that actually answers the question. Record its identity, scope, paging completion, freshness status, and any missing source coverage before interpreting it.
+3. Distinguish direct source claims, current Zotero facts, notes/annotations, computed relationships, workflow-produced interpretation, your inference, disagreement, and evidence gaps.
+
+### Separate read, workflow, and maintenance
+
+4. Synthesize directly from supported reads when no reusable execution contract is needed. Use a live-described workflow when it owns the requested provider execution or multi-artifact output; validate workflow input and provider profile separately.
+5. Treat sidecar refresh, citation-graph update, graph-metric repair, cache invalidation, and index status as separate maintenance contracts. Diagnose the exact stale model and scope before proposing one.
+6. Preserve each workflow or maintenance stage's handle, approval, source scope, pre-state, post-state, successful and failed refs, retryability, and basis hash. One receipt never completes another stage.
+
+### Verify each requested output
+
+7. Verify the requested topic identity/report, graph result, resolver scope, artifact, Product, downloaded export, or live Zotero effect independently of terminal run state.
+8. Submit, persist, attach, or apply a synthesis output only through a new current authority boundary. A local artifact is not proof of Zotero state.
+9. Return `zotero-library-task.result.v1` with traceable evidence, declared artifacts, explicit disagreement and gaps, and every failed, skipped, or unavailable source subject.
 
 ## Hard constraints
 
@@ -49,4 +60,4 @@ Report the source set, topic/model identity, run and operation handles, committe
 
 ## References
 
-Read [the synthesis playbook](references/playbook.md) before selecting a topic/graph/index/resolver/artifact model, judging freshness, invoking synthesis workflows, performing derived-state maintenance, exporting outputs, or recovering a staged lifecycle.
+Consult [the comprehensive synthesis playbook](references/playbook.md) when the task needs a detailed derived-model choice, freshness decision record, workflow/maintenance precondition, basis-hash lifecycle, multi-stage literature-to-topic sequence, Product/export verification, or staged recovery.

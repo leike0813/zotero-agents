@@ -21,7 +21,7 @@ Use the installed `zotero-bridge` CLI safely and deterministically for Zotero li
 
 1. Select one executable and one connection profile using the rules below. Keep the binary, embedded contract, profile, and release envelope in one release set.
 2. Run `zotero-bridge surface identity --json`. Compare `protocol`, `cliSchema`, `version`, `buildFingerprint`, and `commandCatalogChecksum` with the active release envelope; stop on any mismatch.
-3. If the canonical operation is unknown, run `surface search --intent '<operational terms>' --json`. Run `surface describe '<canonical command>' --json` before execution and read the generated command reference for the complete offline card.
+3. If the canonical operation is unknown, run `surface search --intent '<operational terms>' --json`. Run `surface describe '<canonical command>' --json` before execution and read only the generated command-surface reference that owns the command's first token.
 4. Resolve live identity and readiness from the outside in: service health, authenticated manifest/profile, backend readiness when relevant, then the domain object or workflow contract.
 5. Prepare only the inputs declared by the command descriptor. Keep workflow options, provider profile, selection, payload, opaque handles, and output path in their distinct bindings.
 6. Inspect effects, approval timing, typed handle transitions, pagination, targets, and recovery before the call. Present any requested Zotero-side approval without treating valid input as authorization.
@@ -55,7 +55,7 @@ Choose an input channel only when the descriptor permits it:
 - keep workflow selection, workflow options, and provider profile as separate values;
 - use absolute output paths when a command or profile helper requires them.
 
-Do not reinterpret a CLI option from a similarly named command. The generated reference exposes all bindings, but the active binary's `surface describe` result wins when the loaded artifact and executable differ.
+Do not reinterpret a CLI option from a similarly named command. The generated command-surface references expose all bindings, but the active binary's `surface describe` result wins when the loaded artifact and executable differ.
 
 ## Identity, paging, and freshness
 
@@ -119,7 +119,7 @@ Use cache and index status reads before proposing maintenance. Reference-sidecar
 
 - The agent owns operation selection, semantic interpretation, approval-aware decisions, evidence use, and recovery choices.
 - The CLI owns exact argv parsing, Zotero Bridge service requests, typed-handle transport, structured errors, and local bundle/result validation.
-- The renderer owns the command reference and embedded Agent Surface; do not hand-assemble either artifact or invent a handle, receipt, checksum, or result envelope.
+- The renderer owns the command-surface references and embedded Agent Surface; do not hand-assemble those artifacts or invent a handle, receipt, checksum, or result envelope.
 
 ## Completion
 
@@ -138,4 +138,13 @@ The Skill is complete when the requested operation has returned a valid JSON env
 
 ## References
 
-- Read the [generated command reference](references/command-reference.md) after selecting a command and whenever exact argv, schemas, pagination, effects, approvals, handles, targets, or recovery are needed. It is the exhaustive offline command inventory; confirm the active executable with `surface describe` before a live operation.
+After selecting a canonical command, read only the reference whose listed root matches the command's first token. Each file is exhaustive for its roots; the active executable's `surface describe` result wins before a live operation.
+
+- Read [connection and context commands](references/commands/connection-and-context.md) when the command begins with `surface`, `bridge`, or `context`.
+- Read [library commands](references/commands/library.md) when the command begins with `library`.
+- Read [mutation commands](references/commands/mutation.md) when the command begins with `mutation`.
+- Read [file, Product, and operation commands](references/commands/files-products-and-operations.md) when the command begins with `file`, `product`, or `operation`.
+- Read [workflow commands](references/commands/workflow.md) when the command begins with `workflow`.
+- Read [run commands](references/commands/run.md) when the command begins with `run`.
+- Read [Synthesis commands](references/commands/synthesis.md) when the command begins with `synthesis`.
+- Read [diagnostic commands](references/commands/diagnostics.md) when the command begins with `debug` or `call`.

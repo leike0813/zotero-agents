@@ -17,12 +17,23 @@ description: 将边界明确的 Zotero 文献综合为可追溯的研究上下�
 
 ## 工作流
 
-1. 阅读[综合操作手册](references/playbook.md)，陈述研究问题，并通过实时读取解析确切来源边界与派生模型。
-2. 确立新鲜度、纳入/排除规则，并区分来源主张、Zotero 事实、计算关系、生成 artifact、解释、分歧与 gap。
-3. 选择基于受支持读取的直接综合，或实时描述的工作流。分别校验工作流输入与 provider profile，并保留逐阶段 handle 和证据。
-4. 需要派生维护时，把 cache、sidecar、graph、index 或 metric operation 作为分别获批、分别出具 receipt 的独立阶段进行诊断和执行。
-5. 验证请求的 topic report、graph 结果、artifact、Product、export 或实时 Zotero effect。只能通过其当前权限边界 submit、persist 或 apply 输出。
-6. 返回 `zotero-library-task.result.v1`，包含可追溯证据、已声明 artifact、未解决分歧，以及任何失败或跳过的来源 scope。
+### 确立来源与模型边界
+
+1. 陈述研究问题、纳入与排除规则、所需新鲜度与预期交付物。解析每个 source ref 及所用的确切 topic、graph、index、resolver selector、artifact、Product 或 schema。
+2. 选择真正回答问题的派生模型。在解释之前，记录其 identity、scope、分页完成情况、freshness 状态及缺失的来源覆盖。
+3. 区分直接来源主张、当前 Zotero 事实、note/annotation、计算关系、workflow 生成解释、自身 inference、分歧与 evidence gap。
+
+### 分离读取、workflow 与 maintenance
+
+4. 不需要可复用执行合同时，直接从受支持读取进行综合。workflow 负责请求的 provider 执行或多 artifact 输出时，使用实时描述的 workflow；分别校验 workflow input 与 provider profile。
+5. 将 sidecar refresh、citation-graph update、graph-metric repair、cache invalidation 与 index status 视为独立 maintenance 合同。提出操作前，先诊断准确的过期模型与 scope。
+6. 保留每个 workflow 或 maintenance 阶段的 handle、approval、source scope、pre-state、post-state、成功与失败 ref、retryability 与 basis hash。一份 receipt 绝不能完成另一个阶段。
+
+### 验证每项请求输出
+
+7. 独立于 terminal run 状态验证请求的 topic identity/report、graph result、resolver scope、artifact、Product、downloaded export 或实时 Zotero effect。
+8. 只有经过新的当前权限边界，才能 submit、persist、attach 或 apply 综合输出。本地 artifact 不证明 Zotero 状态。
+9. 返回 `zotero-library-task.result.v1`，包含可追溯证据、已声明 artifact、明确的分歧与 gap，以及每个失败、跳过或不可用的来源对象。
 
 ## 硬约束
 
@@ -49,4 +60,4 @@ LLM 负责来源边界、模型选择、关系解释、证据充分性、分歧�
 
 ## 参考资料
 
-选择 topic/graph/index/resolver/artifact 模型、判断新鲜度、调用综合工作流、执行派生状态维护、export 输出或恢复分阶段生命周期前，阅读[综合操作手册](references/playbook.md)。
+当任务需要详细派生模型选择、freshness 决策记录、workflow/maintenance 前置条件、basis-hash 生命周期、多阶段 literature-to-topic 序列、Product/export 验证或分阶段恢复时，查阅[完整综合操作手册](references/playbook.md)。

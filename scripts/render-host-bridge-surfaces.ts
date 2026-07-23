@@ -21,6 +21,10 @@ import {
   type HostBridgeSurfaceDefinition,
   type HostBridgeSurfaceSkillDefinition,
 } from "./host-bridge-surface-model";
+import {
+  loadBuiltinWorkflowCatalog,
+  renderBuiltinWorkflowCatalog,
+} from "./host-bridge-workflow-catalog";
 
 type ContentMap = Map<string, string>;
 type RenderMode = "content" | "release";
@@ -61,11 +65,62 @@ function replaceVersion(source: string, version: string) {
 
 function frontmatterField(source: string, field: string) {
   const match = new RegExp(`^${field}:\\s*(.+?)\\s*$`, "m").exec(source);
-  return match?.[1]?.replace(/^['\"]|['\"]$/g, "") || "";
+  return match?.[1]?.replace(/^['"]|['"]$/g, "") || "";
 }
 
-function renderCommandReference(template: string, descriptor: ReturnType<typeof buildHostBridgeAgentSurfaceDescriptor>) {
-  const entries = descriptor.commands.flatMap((command) => [
+export const COMMAND_REFERENCE_PARTITIONS = [
+  {
+    path: "references/commands/connection-and-context.md",
+    title: "Connection and context",
+    roots: ["surface", "bridge", "context"],
+  },
+  {
+    path: "references/commands/library.md",
+    title: "Library",
+    roots: ["library"],
+  },
+  {
+    path: "references/commands/mutation.md",
+    title: "Mutation",
+    roots: ["mutation"],
+  },
+  {
+    path: "references/commands/files-products-and-operations.md",
+    title: "Files, Products, and operations",
+    roots: ["file", "product", "operation"],
+  },
+  {
+    path: "references/commands/workflow.md",
+    title: "Workflow",
+    roots: ["workflow"],
+  },
+  {
+    path: "references/commands/run.md",
+    title: "Run",
+    roots: ["run"],
+  },
+  {
+    path: "references/commands/synthesis.md",
+    title: "Synthesis",
+    roots: ["synthesis"],
+  },
+  {
+    path: "references/commands/diagnostics.md",
+    title: "Diagnostics",
+    roots: ["debug", "call"],
+  },
+] as const;
+
+const COMMAND_REFERENCE_MARKER =
+  "<!-- host-bridge-command-reference:entries -->";
+
+function renderCommandCards(
+  template: string,
+  commands: ReturnType<
+    typeof buildHostBridgeAgentSurfaceDescriptor
+  >["commands"],
+) {
+  const entries = commands.flatMap((command) => [
     `## \`zotero-bridge ${command.command}\``,
     "",
     command.summary,
@@ -86,7 +141,77 @@ function renderCommandReference(template: string, descriptor: ReturnType<typeof 
     `- Intent search: \`${command.hiddenFromIntentSearch ? "hidden" : "visible"}\`.`,
     "",
   ]);
-  return template.replace("<!-- host-bridge-command-reference:entries -->", entries.join("\n"));
+  if (template.split(COMMAND_REFERENCE_MARKER).length !== 2) {
+    throw new Error(
+      "Command reference template must contain exactly one entry marker",
+    );
+  }
+  return template.replace(COMMAND_REFERENCE_MARKER, entries.join("\n"));
+}
+
+function renderCommandReferences(
+  content: ContentMap,
+  descriptor: ReturnType<typeof buildHostBridgeAgentSurfaceDescriptor>,
+) {
+  const ownerByRoot = new Map<
+    string,
+    (typeof COMMAND_REFERENCE_PARTITIONS)[number]
+  >();
+  for (const partition of COMMAND_REFERENCE_PARTITIONS) {
+    for (const root of partition.roots) {
+      const previous = ownerByRoot.get(root);
+      if (previous) {
+        throw new Error(
+          `Command root ${root} belongs to both ${previous.path} and ${partition.path}`,
+        );
+      }
+      ownerByRoot.set(root, partition);
+    }
+  }
+
+  const commandsByPath = new Map<
+    string,
+    ReturnType<typeof buildHostBridgeAgentSurfaceDescriptor>["commands"]
+  >();
+  const seenCommands = new Set<string>();
+  for (const command of descriptor.commands) {
+    const root = command.command.trim().split(/\s+/)[0] || "";
+    const partition = ownerByRoot.get(root);
+    if (!partition) {
+      throw new Error(
+        `No command reference partition owns ${command.command} (root ${root || "<empty>"})`,
+      );
+    }
+    if (seenCommands.has(command.command)) {
+      throw new Error(`Duplicate canonical command ${command.command}`);
+    }
+    seenCommands.add(command.command);
+    const commands = commandsByPath.get(partition.path) || [];
+    commands.push(command);
+    commandsByPath.set(partition.path, commands);
+  }
+
+  if (seenCommands.size !== descriptor.commands.length) {
+    throw new Error(
+      `Command reference coverage mismatch: ${seenCommands.size}/${descriptor.commands.length}`,
+    );
+  }
+
+  for (const partition of COMMAND_REFERENCE_PARTITIONS) {
+    const template = content.get(partition.path);
+    if (!template) {
+      throw new Error(
+        `Missing ${partition.title} command reference template: ${partition.path}`,
+      );
+    }
+    const commands = commandsByPath.get(partition.path) || [];
+    if (commands.length === 0) {
+      throw new Error(
+        `Command reference partition ${partition.path} contains no commands`,
+      );
+    }
+    content.set(partition.path, renderCommandCards(template, commands));
+  }
 }
 
 function coreSkillContent(args: {
@@ -97,23 +222,24 @@ function coreSkillContent(args: {
 }) {
   const content: ContentMap = new Map();
   const sourceRoot = args.surface.sourceRoot;
-  copyTree(content, args.root, join(sourceRoot, args.skill.source), "", (path) =>
-    path === "SKILL.md" || path.startsWith("references/"),
+  copyTree(
+    content,
+    args.root,
+    join(sourceRoot, args.skill.source),
+    "",
+    (path) => path === "SKILL.md" || path.startsWith("references/"),
   );
   const descriptor = buildHostBridgeAgentSurfaceDescriptor(
     buildHostBridgeSurfaceCatalog(args.root),
     args.root,
   );
-  const templatePath = "references/command-reference.md";
-  const template = content.get(templatePath);
-  if (!template) throw new Error(`Missing core command reference template: ${templatePath}`);
-  content.set(
-    "references/command-reference.md",
-    renderCommandReference(template, descriptor),
-  );
+  renderCommandReferences(content, descriptor);
   content.set(
     "assets/runner.json",
-    replaceVersion(read(args.root, join(sourceRoot, "runner.json")), args.version),
+    replaceVersion(
+      read(args.root, join(sourceRoot, "runner.json")),
+      args.version,
+    ),
   );
   content.set(
     "assets/output.schema.json",
@@ -123,7 +249,10 @@ function coreSkillContent(args: {
     "assets/profile.template.json",
     read(args.root, join(sourceRoot, "profile.template.json")),
   );
-  content.set("assets/agent-surface.json", serializeHostBridgeAgentSurface(descriptor));
+  content.set(
+    "assets/agent-surface.json",
+    serializeHostBridgeAgentSurface(descriptor),
+  );
   return content;
 }
 
@@ -136,9 +265,32 @@ function genericSkillContent(args: {
   const content: ContentMap = new Map();
   const sourceRoot = args.surface.sourceRoot;
   const source = join(sourceRoot, args.skill.source);
-  copyTree(content, args.root, source, "", (path) =>
-    path === "SKILL.md" || path.startsWith("references/") || path.startsWith("agents/"),
+  copyTree(
+    content,
+    args.root,
+    source,
+    "",
+    (path) =>
+      path === "SKILL.md" ||
+      path.startsWith("references/") ||
+      path.startsWith("agents/"),
   );
+  if (args.skill.id === "zotero-library-agent") {
+    const catalogPath = "references/workflow-catalog.md";
+    const catalogTemplate = content.get(catalogPath);
+    if (!catalogTemplate) {
+      throw new Error(
+        `Missing built-in workflow catalog template: ${catalogPath}`,
+      );
+    }
+    content.set(
+      catalogPath,
+      renderBuiltinWorkflowCatalog(
+        catalogTemplate,
+        loadBuiltinWorkflowCatalog(args.root),
+      ),
+    );
+  }
   const skillText = content.get("SKILL.md");
   if (!skillText) throw new Error(`Missing Skill source: ${source}/SKILL.md`);
   const runnerPath = join(source, "runner.json");
@@ -147,7 +299,10 @@ function genericSkillContent(args: {
     : read(args.root, join(sourceRoot, "shared/task-runner.template.json"))
         .replaceAll("__SKILL_ID__", args.skill.id)
         .replaceAll("__SKILL_NAME__", frontmatterField(skillText, "name"))
-        .replaceAll("__DESCRIPTION__", frontmatterField(skillText, "description"));
+        .replaceAll(
+          "__DESCRIPTION__",
+          frontmatterField(skillText, "description"),
+        );
   const parsed = JSON.parse(runner) as Record<string, unknown>;
   parsed.version = args.version;
   delete parsed.schema;
@@ -217,13 +372,19 @@ function profileContent(args: {
   inheritedSkills: Array<{ mount: string; content: ContentMap }>;
 }) {
   const content: ContentMap = new Map();
-  copyTree(content, args.root, args.surface.sourceRoot, "", (path) =>
-    !path.startsWith("skills/") && path !== "profile-version.json",
+  copyTree(
+    content,
+    args.root,
+    args.surface.sourceRoot,
+    "",
+    (path) => !path.startsWith("skills/") && path !== "profile-version.json",
   );
   content.set("distribution.yaml", profileDistribution(args.version));
   content.set(
     ".gitignore",
-    ["state.sqlite", "*.sqlite", "runs/", "logs/", ".zotero-bridge/", ""].join("\n"),
+    ["state.sqlite", "*.sqlite", "runs/", "logs/", ".zotero-bridge/", ""].join(
+      "\n",
+    ),
   );
   merge(content, args.ownSkill, "skills/zotero-librarian");
   for (const inherited of args.inheritedSkills) {
@@ -259,7 +420,8 @@ function applyContent(args: {
       changes.push(existing);
       if (!args.check) rmSync(join(args.outputRoot, existing));
     }
-    if (!args.check) removeEmptyDirectories(join(args.outputRoot, args.targetRoot));
+    if (!args.check)
+      removeEmptyDirectories(join(args.outputRoot, args.targetRoot));
   }
   return changes;
 }
@@ -272,21 +434,32 @@ function removeEmptyDirectories(path: string) {
   if (readdirSync(path).length === 0) rmSync(path, { recursive: true });
 }
 
-export function renderHostBridgeSurfaces(args: {
-  root?: string;
-  outputRoot?: string;
-  check?: boolean;
-  mode?: RenderMode;
-} = {}) {
+export function renderHostBridgeSurfaces(
+  args: {
+    root?: string;
+    outputRoot?: string;
+    check?: boolean;
+    mode?: RenderMode;
+  } = {},
+) {
   const root = args.root || process.cwd();
   const outputRoot = args.outputRoot || root;
   const check = args.check === true;
   const definitions = loadHostBridgeSurfaceDefinitions(
     join(root, "host-bridge/surfaces.json"),
   );
-  const minimum = resolveHostBridgeSurface(definitions, "zotero-bridge-cli").surface;
-  const generic = resolveHostBridgeSurface(definitions, "zotero-library-agent").surface;
-  const hermes = resolveHostBridgeSurface(definitions, "zotero-librarian").surface;
+  const minimum = resolveHostBridgeSurface(
+    definitions,
+    "zotero-bridge-cli",
+  ).surface;
+  const generic = resolveHostBridgeSurface(
+    definitions,
+    "zotero-library-agent",
+  ).surface;
+  const hermes = resolveHostBridgeSurface(
+    definitions,
+    "zotero-librarian",
+  ).surface;
   const minimumVersion = inspectHostBridgeSurfaceVersion({
     definitionsPath: join(root, "host-bridge/surfaces.json"),
     surfaceId: minimum.id,
@@ -308,7 +481,12 @@ export function renderHostBridgeSurfaces(args: {
   });
   const genericSkills = generic.skills.map((skill) => ({
     skill,
-    content: genericSkillContent({ root, surface: generic, skill, version: genericVersion }),
+    content: genericSkillContent({
+      root,
+      surface: generic,
+      skill,
+      version: genericVersion,
+    }),
   }));
   const ownLibrarian = hostedSkillContent({
     root,
@@ -328,7 +506,14 @@ export function renderHostBridgeSurfaces(args: {
       ]),
       check,
     }),
-    ...applyContent({ root, outputRoot, targetRoot: minimum.generatedRoot, content: core, check, prune: true }),
+    ...applyContent({
+      root,
+      outputRoot,
+      targetRoot: minimum.generatedRoot,
+      content: core,
+      check,
+      prune: true,
+    }),
     ...genericSkills.flatMap(({ skill, content }) =>
       applyContent({
         root,
@@ -350,7 +535,10 @@ export function renderHostBridgeSurfaces(args: {
         ownSkill: ownLibrarian,
         inheritedSkills: [
           { mount: minimum.skills[0].mount, content: core },
-          ...genericSkills.map(({ skill, content }) => ({ mount: skill.mount, content })),
+          ...genericSkills.map(({ skill, content }) => ({
+            mount: skill.mount,
+            content,
+          })),
         ],
       }),
       check,
@@ -358,7 +546,9 @@ export function renderHostBridgeSurfaces(args: {
     }),
   ];
   if (check && changes.length) {
-    throw new Error(`Host Bridge generated surfaces are stale:\n${changes.map((path) => `- ${path}`).join("\n")}`);
+    throw new Error(
+      `Host Bridge generated surfaces are stale:\n${changes.map((path) => `- ${path}`).join("\n")}`,
+    );
   }
   return { schema: "host-bridge.surface-render.v1", changes };
 }

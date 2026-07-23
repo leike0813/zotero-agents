@@ -17,11 +17,23 @@ Resolve a bounded question against current Zotero library, UI, attachment, and S
 
 ## Workflow
 
-1. Read [the query playbook](references/playbook.md), state the bounded question, and decide whether the request names an object, describes a candidate search, or depends on current UI context.
-2. Resolve current context and stable object identity before choosing item detail, notes, payloads, annotations, attachments, readiness, Product, run, or Synthesis reads.
-3. Use the narrowest live operation that can answer the question. Complete required cursor or offset paging and preserve the filters, refs, locators, freshness facts, and file delivery evidence.
-4. Separate extracted facts, source quotations, derived structure, and your interpretation. Do not strengthen a claim beyond the available metadata, abstract, annotation, or full text.
-5. Return `zotero-library-task.result.v1` with source-oriented inline evidence for each material conclusion and declared artifacts only when the answer produces a separate deliverable.
+### Classify and resolve scope
+
+1. State the bounded question, required freshness, source depth, result limit, and evidence format. Decide whether it depends on current UI context, a known object, candidate discovery, or an exhaustive bounded inventory.
+2. Resolve deictic context first. For a known ref, read the live object; for a title, citation, or description, search candidates and choose only after stable identity evidence; for an inventory, preserve the complete filter and paging boundary.
+3. Keep note, attachment, parent item, collection, topic, Product, artifact, run, and operation identities distinct. Derive a top-level parent only when the selected read contract requires it.
+
+### Collect live evidence
+
+4. Use the narrowest current operation that can answer the question, then expand only when required: item detail before children, note metadata before body/payload, attachment metadata before bytes, and derived-model status before freshness-sensitive interpretation.
+5. Complete required cursor, offset, or content paging. Preserve accepted pages, filters, refs, locators, returned freshness facts, and the last safe resume position without merging a page twice.
+6. When bytes are required, obtain access from the owning attachment, Product, or artifact and verify the delivered checksum and byte count. Never infer a readable local path from Zotero-side metadata.
+7. Separate direct Zotero facts, source text, plugin-derived structure, workflow state, and your interpretation. Limit every claim to the strongest evidence actually delivered.
+
+### State the bounded answer
+
+8. Answer from the smallest sufficient evidence set. State untraversed scope, unavailable content, stale derived views, or asymmetric source depth wherever they affect the conclusion.
+9. Return `zotero-library-task.result.v1` with source-oriented inline evidence for each material conclusion and declared artifacts only when the answer produces a separate deliverable.
 
 ## Hard constraints
 
@@ -47,4 +59,4 @@ Preserve accepted pages, last cursor or offset, source identity, file owner, and
 
 ## References
 
-Read [the query playbook](references/playbook.md) before resolving current context, choosing search versus list, reading notes or attachments, auditing readiness, interpreting Synthesis state, or recovering pagination and file access.
+Consult [the comprehensive query playbook](references/playbook.md) when the request needs a detailed search/list/snapshot decision, note payload or annotation handling, attachment-byte delivery, readiness interpretation, Synthesis model selection, privacy minimization, or interrupted paging/file recovery.

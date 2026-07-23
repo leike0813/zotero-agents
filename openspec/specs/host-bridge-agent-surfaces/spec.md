@@ -33,6 +33,43 @@ Every instruction file under a governed Skill's `references/` directory SHALL be
 - **WHEN** a governed reference is not directly linked from `SKILL.md`
 - **THEN** deterministic Host Bridge content validation fails before materialization
 
+### Requirement: Minimum command references SHALL be partitioned by operational surface
+The Minimum Skill SHALL publish exhaustive generated command cards in disjoint references selected by canonical command root. Primary library, mutation, workflow, run, and synthesis roots SHALL each have one reference; supporting connection/context, file/Product/operation, and diagnostic roots MAY be coherently grouped.
+
+#### Scenario: Agent needs one command
+- **WHEN** an agent selects a canonical command
+- **THEN** `SKILL.md` identifies exactly one directly linked reference containing that command
+- **AND** the agent does not need to load unrelated command roots
+
+#### Scenario: Command catalog changes
+- **WHEN** a new canonical command root is added
+- **THEN** rendering fails until the root has exactly one declared partition
+
+### Requirement: Generic references SHALL provide optional execution depth
+Every Generic Skill SHALL begin and complete its primary workflow from `SKILL.md` alone. A reference SHALL be loaded only when a named complex branch, detailed decision table, worked path, or recovery case is relevant.
+
+#### Scenario: Simple task starts directly
+- **WHEN** an agent loads a Generic task Skill for a bounded ordinary request
+- **THEN** the first workflow action operates on the request rather than requiring a reference read
+
+### Requirement: Generic SHALL publish a built-in workflow selection catalog
+The Generic coordinator SHALL directly link a generated catalog of official built-in workflows whose manifests are not marked `debug_only`. The catalog SHALL expose each workflow's purpose, declared invocation inputs, provider requirements, execution modes, selection facts, parameters, and result evidence while identifying live workflow description as runtime authority.
+
+#### Scenario: Agent selects a likely built-in workflow
+- **WHEN** a bounded research task may match a built-in workflow
+- **THEN** the agent can inspect the optional catalog before performing live list, describe, validation, and submission
+
+#### Scenario: Debug workflow is shipped
+- **WHEN** an official workflow manifest declares `debug_only: true`
+- **THEN** it is absent from the Generic catalog
+
+### Requirement: Runtime and rendered workflow facts SHALL share one projection
+Provider compatibility, required workflow options, execution modes, selection facts, and result evidence exposed by the generated catalog SHALL be derived from the same pure manifest projection used by runtime workflow description.
+
+#### Scenario: Workflow manifest changes
+- **WHEN** a catalog-relevant manifest field changes
+- **THEN** runtime description and rendered catalog expose the same static contract after rendering
+
 ### Requirement: Redesigned guidance SHALL be a semantic superset
 The governed guidance SHALL preserve every unique execution-relevant semantic unit from the pinned clean baseline, including goals, decisions, procedures, constraints, evidence, completion, failures, recovery, examples, and near misses. Replaced implementation entities SHALL map to an equivalent current capability rather than justify silent removal.
 
@@ -53,6 +90,25 @@ Semantic sources and templates SHALL live outside generated roots. Renderers SHA
 #### Scenario: Generated roots are reproducible
 - **WHEN** governed targets are removed and rendered from a clean checkout
 - **THEN** the renderer recreates the same normalized content without reading prior target bytes
+
+### Requirement: Generic task references SHALL use progressive disclosure
+The coordinator and each bounded task Skill SHALL contain a complete executable primary contract in `SKILL.md`. Direct references SHALL expand named complex scenarios and SHALL NOT be a mandatory first workflow step.
+
+#### Scenario: Task has no complex branch
+- **WHEN** a request can be completed by the task Skill's primary workflow
+- **THEN** the agent completes it without loading the task playbook
+
+#### Scenario: Complex branch is encountered
+- **WHEN** the request requires a detailed object model, decision matrix, worked path, or recovery analysis
+- **THEN** `SKILL.md` identifies the directly linked comprehensive reference and the applicable section
+
+### Requirement: Generic coordinator SHALL expose official built-in workflows
+The coordinator SHALL own one generated catalog of the official non-debug built-in workflows and one separate cross-task research model. The catalog SHALL own inventory and declared invocation inputs; the research model SHALL own cross-task execution, authority, evidence, and recovery policy.
+
+#### Scenario: Catalog and policy remain non-duplicative
+- **WHEN** a workflow entry is rendered
+- **THEN** its manifest facts appear in the catalog
+- **AND** cross-task execution policy remains in the coordinator contract and research model
 
 ### Requirement: Agent-facing prose SHALL use Zotero task language
 Skill descriptions and human-readable guidance across the three surfaces SHALL describe Zotero library needs, research tasks, Zotero-side authority, Zotero-managed state, or the public `zotero-bridge` command. They SHALL NOT require knowledge of the project's internal `Host Bridge` name. Formal protocol, schema, route, environment-variable, command, and code identifiers SHALL remain stable.

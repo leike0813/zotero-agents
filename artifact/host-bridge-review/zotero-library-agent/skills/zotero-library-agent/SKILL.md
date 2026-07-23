@@ -17,14 +17,24 @@ description: 路由和协调有明确边界的 Zotero 文献库研究任务。�
 
 ## 工作流
 
-1. 将请求转化为有边界的结果、来源或候选范围、预期新鲜度，以及请求的 Zotero 状态变更。只有缺失选择会实质改变这些维度时才提问。
-2. 使用[研究任务模型](references/research-task-model.md)选择查询、获取、分析、综合或策展。若一个任务 Skill 能独立负责完整结果，就只调用该 Skill。
-3. 对多阶段工作，声明有序任务序列，以及每个阶段在下一阶段开始前必须生成的证据。复用稳定 Zotero ref 和 bridge 签发的 handle，不改变其类型。
-4. 当工作流可执行任务时，根据实时工作流描述选择 Zotero 托管或 Agent 自主执行。工作流选项与 provider profile 必须按各自独立合同校验。
-5. 遇到每个新权限边界都必须停止。读取、候选报告、本地校验、既往 approval 或已完成前置任务都不授权 submission、acquisition、mutation 或 apply-back。
-6. 要求每个阶段返回 `zotero-library-task.result.v1`。跨阶段只传递面向来源的证据、已声明 artifact、结构化诊断及下一阶段所需 handle。
-7. 任何意在改变 Zotero 的操作之后，必须重新读取受影响的实时对象或持久 receipt，才能声明该阶段完成。
-8. 精确 argv、输入通道、分页、文件传输、effect、approval、handle 与恢复信息应查阅随附 `zotero-bridge-cli` Skill。不得在此重构其命令目录。
+### 界定并路由请求
+
+1. 将请求转化为一个有边界的结果、来源或候选范围、所需新鲜度、预期交付物，以及任何请求的 Zotero 状态变更。只有缺失选择会实质改变这些维度时才提问。
+2. 按结果路由：query 负责检索和回答；acquisition 负责发现或获取来源；analysis 负责提取或解释；synthesis 负责关联来源与派生模型；curation 负责变更明确的文献库状态。
+3. 若一个任务 Skill 的完成条件能满足整个请求，就只选择该 Skill。仅当一个阶段经过验证的结果是下一阶段声明的输入时，才组合多个 Skill。
+
+### 组合并执行阶段
+
+4. 对多阶段工作，声明有序的任务所有者、每个阶段的有边界结果、跨越各边界的稳定身份与证据，以及继续之前所需的完成证据。
+5. 当 workflow 可执行某个阶段时，读取其实时描述，并且只有相应模式受支持时，才选择 Zotero 托管执行或 Agent 自主执行。工作流选项与 provider profile 必须保持在各自独立的校验合同中。
+6. 遇到每个新权限边界都必须停止。读取、候选报告、本地校验、既往 approval 或已完成前置任务都不授权 submission、acquisition、mutation、maintenance 或 apply-back。
+7. 要求每个阶段返回 `zotero-library-task.result.v1`。跨阶段只传递成功的来源对象、面向来源的证据、已声明 artifact、结构化诊断及下一阶段所需的类型化 handle；失败或排除的对象仍须可见。
+
+### 验证并返回
+
+8. 任何意在改变 Zotero 的操作之后，必须检查持久 receipt 并重新读取受影响的实时对象，才能声明该阶段完成。run 进入 terminal 状态不等于输出已验证。
+9. 后续阶段失败时，从第一个缺少稳定完成证据的阶段恢复。不得重放已接受的 acquisition、submission、mutation、maintenance operation 或 apply-back。
+10. 精确 argv、输入通道、分页、文件传输、effect、approval、handle 与恢复信息应查阅随附 `zotero-bridge-cli` Skill。不得在此重构其命令目录。
 
 ## 硬约束
 
@@ -60,4 +70,5 @@ LLM 负责任务路由、scope、证据充分性、工作流模式判断、解�
 
 ## 参考资料
 
-进行路由、阶段组合、工作流所有权选择、Agent 自主 handoff、证据或文件传递，或多阶段请求恢复前，阅读[研究任务模型](references/research-task-model.md)。该文档包含完整的跨任务决策模型；任务特定决策仍归所选任务 Skill 所有。
+- 当请求跨越任务领域、需要决定 Zotero 托管还是 Agent 自主执行、跨阶段传递 Product/file/artifact，或需要多阶段恢复时，查阅[研究任务模型](references/research-task-model.md)。
+- 需要在 Zotero 插件随附的 workflow 中进行选择，或说明内建 workflow 所声明的 selection、option、provider 与结果合同时，查阅[内建 workflow 目录](references/workflow-catalog.md)。实际可用性与真实合同必须通过实时 workflow 命令确认。

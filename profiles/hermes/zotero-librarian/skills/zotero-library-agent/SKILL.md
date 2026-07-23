@@ -17,14 +17,24 @@ Route a bounded Zotero research request to the smallest capable task Skill, or c
 
 ## Workflow
 
-1. Translate the request into a bounded outcome, source or candidate scope, expected freshness, and any requested Zotero state change. Ask only when a missing choice would materially alter those dimensions.
-2. Use [the research task model](references/research-task-model.md) to select query, acquisition, analysis, synthesis, or curation. Invoke one task Skill when it can own the complete outcome.
-3. For multi-stage work, declare the ordered task sequence and the evidence each stage must produce before the next begins. Reuse stable Zotero refs and bridge-issued handles without changing their type.
-4. When a workflow may execute the task, choose Zotero-managed or self-owned agent execution from the live workflow description. Validate workflow options and provider profile in their separate contracts.
-5. Stop at every new authority boundary. A read, candidate report, local validation, prior approval, or completed predecessor task does not authorize submission, acquisition, mutation, or apply-back.
-6. Require each stage to return `zotero-library-task.result.v1`. Carry only source-oriented evidence, declared artifacts, structured diagnostics, and the handles required by the next stage.
-7. After any operation that is meant to change Zotero, re-read the affected live object or durable receipt before declaring the stage complete.
-8. Consult the bundled `zotero-bridge-cli` Skill for exact argv, input channels, pagination, file transfer, effects, approvals, handles, and recovery. Never reconstruct its command catalog here.
+### Bound and route the request
+
+1. Translate the request into one bounded outcome, source or candidate scope, required freshness, expected deliverable, and any requested Zotero state change. Ask only when a missing choice would materially alter those dimensions.
+2. Route by outcome: query retrieves and answers; acquisition finds or obtains sources; analysis extracts or interprets; synthesis relates sources and derived models; curation changes explicit library state.
+3. Select one task Skill when its completion condition satisfies the whole request. Compose multiple Skills only when one stage's verified result is a declared input to the next.
+
+### Compose and execute stages
+
+4. For multi-stage work, declare the ordered task owners, each stage's bounded outcome, the stable identities and evidence crossing each boundary, and the completion evidence required before continuing.
+5. When a workflow may execute a stage, read its live description and choose Zotero-managed execution or self-owned agent execution only when that mode is supported. Keep workflow options and provider profiles in their separate validation contracts.
+6. Stop at every new authority boundary. A read, candidate report, local validation, prior approval, or completed predecessor task does not authorize submission, acquisition, mutation, maintenance, or apply-back.
+7. Require every stage to return `zotero-library-task.result.v1`. Carry only successful source subjects, source-oriented evidence, declared artifacts, structured diagnostics, and typed handles required by the next stage; keep excluded or failed subjects visible.
+
+### Verify and return
+
+8. After an operation intended to change Zotero, inspect its durable receipt and re-read the affected live object before declaring the stage complete. A terminal run is not output verification.
+9. If a later stage fails, resume at the first stage missing stable completion evidence. Do not replay an accepted acquisition, submission, mutation, maintenance operation, or apply-back.
+10. Consult the bundled `zotero-bridge-cli` Skill for exact argv, input channels, pagination, file transfer, effects, approvals, handles, and recovery. Never reconstruct its command catalog here.
 
 ## Hard constraints
 
@@ -60,4 +70,5 @@ Preserve the last completed stage, stable source refs, structured errors, operat
 
 ## References
 
-Read [the research task model](references/research-task-model.md) before routing, composing stages, choosing workflow ownership, executing a self-owned handoff, transferring evidence or files, or recovering a multi-stage request. It contains the complete cross-task decision model; task-specific decisions remain in the selected task Skill.
+- Consult [the research task model](references/research-task-model.md) when a request spans task domains, requires a Zotero-managed versus self-owned execution decision, transfers Products/files/artifacts across stages, or needs multi-stage recovery.
+- Consult [the built-in workflow catalog](references/workflow-catalog.md) when selecting among workflows shipped with the Zotero plugin or explaining a built-in workflow's declared selection, options, provider, and result contract. Confirm availability and the actual contract through live workflow commands.

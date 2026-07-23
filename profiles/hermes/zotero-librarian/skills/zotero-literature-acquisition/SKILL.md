@@ -17,11 +17,24 @@ Turn a bounded literature need into a traceable candidate assessment or a live-v
 
 ## Workflow
 
-1. Read [the acquisition playbook](references/playbook.md), convert the request into explicit selection criteria, and clarify any missing choice that would materially change the candidate set.
-2. Search the requested sources and the current Zotero library. Keep external provenance separate from live Zotero identity and explain why each retained candidate meets the criteria.
-3. Inspect likely duplicates, editions, existing attachments, target collection, and readiness before proposing an import, merge, retrieval, or preparation action.
-4. For candidate-only work, return the bounded assessment. For a requested write, present the exact target and effect, then execute only the approved operation through the bundled CLI contract.
-5. Re-read the acquired item, collection membership, duplicate result, or attachment state. Return `zotero-library-task.result.v1` with candidate evidence or the operation receipt plus live verification.
+### Establish candidate boundary
+
+1. Convert the request into explicit concepts, inclusion and exclusion criteria, date/language/venue/source constraints, desired breadth, stopping rule, and intended outcome: candidate report, import, attachment acquisition, deduplication, or analysis-ready set.
+2. Clarify only a choice that would materially change which works qualify, the target library/collection, or the requested write effect.
+3. Search the requested external sources and record identifiers, bibliographic facts, provider provenance, search limits, and inclusion rationale. Keep every external result in candidate state.
+
+### Resolve live identity and duplicates
+
+4. Search the current Zotero library for each retained candidate. Compare strong identifiers first, then title, authors, year, venue, edition, translation, preprint, and publication relationships.
+5. Read probable live matches and inspect their attachments, collection membership, notes, tags, and readiness facts needed for the acquisition decision. Do not collapse related versions into a duplicate decision.
+6. For candidate-only work, return the bounded assessment with unresolved identity or access questions. Do not manufacture a write stage.
+
+### Propose, authorize, and verify
+
+7. For a requested write, present the exact target, candidate set, duplicate effect, metadata source, attachment source, collection effect, expected outputs, and smallest reviewable batch.
+8. Choose a described acquisition workflow for provider interaction or reusable multi-step ingest; use a direct semantic operation only when identity and desired effect are already concrete. Validate workflow options and provider profile separately.
+9. Execute the current approved scope once. Re-read each acquired item, collection membership, duplicate outcome, or attachment state and keep successful, failed, and unattempted candidates separate.
+10. Return `zotero-library-task.result.v1` with candidate provenance or the durable operation/workflow receipt plus live verification.
 
 ## Hard constraints
 
@@ -47,4 +60,4 @@ Preserve candidate provenance, duplicate alternatives, target refs, accepted wor
 
 ## References
 
-Read [the acquisition playbook](references/playbook.md) before external discovery, duplicate resolution, import or attachment planning, acquisition workflow selection, and partial-outcome recovery.
+Consult [the comprehensive acquisition playbook](references/playbook.md) when the task needs a detailed search-plan template, identifier/version comparison, duplicate decision record, licensing or provider-boundary analysis, workflow/provider selection, attachment-readiness path, or batch and partial-outcome recovery.

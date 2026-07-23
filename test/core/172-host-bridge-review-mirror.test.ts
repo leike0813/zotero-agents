@@ -146,17 +146,29 @@ describe("Host Bridge review mirror", function () {
         0,
       ),
     );
-    assert.deepEqual(
-      inventory.surfaces.map((surface) => [
-        surface.id,
-        surface.ownedFileCount,
-        surface.effectiveFileCount,
-      ]),
-      [
-        ["zotero-bridge-cli", 2, 2],
-        ["zotero-library-agent", 12, 14],
-        ["zotero-librarian", 6, 20],
-      ],
+    const byId = new Map(
+      inventory.surfaces.map((surface) => [surface.id, surface]),
+    );
+    const minimum = byId.get("zotero-bridge-cli");
+    const generic = byId.get("zotero-library-agent");
+    const hosted = byId.get("zotero-librarian");
+    assert.isDefined(minimum);
+    assert.isDefined(generic);
+    assert.isDefined(hosted);
+    assert.strictEqual(generic?.ownedFileCount, 13);
+    assert.strictEqual(
+      generic?.effectiveFileCount,
+      (minimum?.ownedFileCount || 0) + (generic?.ownedFileCount || 0),
+    );
+    assert.strictEqual(
+      hosted?.effectiveFileCount,
+      (minimum?.ownedFileCount || 0) +
+        (generic?.ownedFileCount || 0) +
+        (hosted?.ownedFileCount || 0),
+    );
+    assert.include(
+      inventory.files.map((entry) => entry.sourcePath),
+      "skills_builtin/zotero-library-agent/references/workflow-catalog.md",
     );
     assert.lengthOf(
       new Set(inventory.files.map((entry) => entry.sourcePath)),

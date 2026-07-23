@@ -1,7 +1,7 @@
 # zotero-library-agent-bundle Specification
 
 ## Purpose
-TBD - created by syncing change add-zotero-library-agent-bundle. Update Purpose after archive.
+Defines the bounded Generic Zotero research surface, including its coordinator, task Skills, shared result contract, optional deep references, built-in workflow catalog, Minimum inheritance, and standalone publication identity.
 
 ## Requirements
 
@@ -109,12 +109,16 @@ The bundle SHALL publish `zotero-library-agent` as the routing and composition S
 - **WHEN** a request spans multiple task domains
 - **THEN** the coordinator orders the task Skills, carries verified evidence between stages, and returns one final result
 
-### Requirement: Every Generic task Skill SHALL be independently executable
-Each task Skill SHALL contain its goal, inputs, primary workflow, hard constraints, completion criteria, and failure handling in `SKILL.md`, and SHALL use its directly linked comprehensive playbook only for deeper decision tables, examples, and edge cases.
+### Requirement: Generic task references SHALL use progressive disclosure
+The coordinator and each bounded task Skill SHALL contain a complete executable primary contract in `SKILL.md`. Direct references SHALL expand named complex scenarios and SHALL NOT be a mandatory first workflow step.
 
-#### Scenario: Task Skill runs directly
-- **WHEN** an agent invokes a task Skill without first loading the coordinator
-- **THEN** the Skill can execute using the declared Minimum dependency and its own contract
+#### Scenario: Task has no complex branch
+- **WHEN** a request can be completed by the task Skill's primary workflow
+- **THEN** the agent completes it without loading the task playbook
+
+#### Scenario: Complex branch is encountered
+- **WHEN** the request requires a detailed object model, decision matrix, worked path, or recovery analysis
+- **THEN** `SKILL.md` identifies the directly linked comprehensive reference and the applicable section
 
 ### Requirement: Generic Skills SHALL share one inline-evidence result contract
 All six Generic Skills SHALL use `zotero-library-task.result.v1` with required `schema`, `status`, and `summary`; status SHALL be `completed`, `canceled`, or `failed`; and evidence, artifacts, and diagnostics SHALL be represented in optional structured arrays in the same result.
@@ -136,3 +140,11 @@ The coordinator reference SHALL define Zotero-managed workflow selection and mon
 #### Scenario: Hermes delegates a self-owned handoff
 - **WHEN** a hosted task selects a workflow whose self-owned mode is supported
 - **THEN** the inherited Generic coordinator supplies request inspection, result validation, apply-back, and durable receipt semantics
+
+### Requirement: Generic coordinator SHALL expose official built-in workflows
+The coordinator SHALL own one generated catalog of the official non-debug built-in workflows and one separate cross-task research model. The catalog SHALL own inventory and declared invocation inputs; the research model SHALL own cross-task execution, authority, evidence, and recovery policy.
+
+#### Scenario: Catalog and policy remain non-duplicative
+- **WHEN** a workflow entry is rendered
+- **THEN** its manifest facts appear in the catalog
+- **AND** cross-task execution policy remains in the coordinator contract and research model

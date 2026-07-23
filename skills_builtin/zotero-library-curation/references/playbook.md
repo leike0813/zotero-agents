@@ -63,6 +63,84 @@ An accepted request or terminal workflow does not prove the desired field change
 
 For partial results, never replay the original batch. Remove live-verified successes from the remaining proposal and request new authority if the residual effect differs materially from the reviewed scope.
 
+## Batch proposal records
+
+Group changes only when they share target type, evidence basis, operation, and risk. Represent each batch as:
+
+```text
+batch_id:
+change_kind:
+targets:
+evidence_source:
+before_state:
+proposed_delta:
+unchanged_fields:
+expected_side_effects:
+verification_read:
+risk_class: additive | corrective | destructive
+```
+
+For field correction, `proposed_delta` is a per-item field map rather than a shared patch when current values differ. For tags and collections, separate additions from removals. For files, include source artifact identity, checksum, target parents, expected attachment names, and whether an existing attachment might conflict.
+
+Split a proposal when:
+
+- one target has weaker correction evidence;
+- one item requires a different survivor, collection, or parent;
+- additive and destructive effects are mixed;
+- a subset can be expressed by a direct mutation while another needs workflow semantics;
+- verification differs enough that one receipt cannot explain the result.
+
+The review summary can aggregate counts, but approval and outcome records retain exact target refs and deltas.
+
+## Destructive-change review
+
+Before merge, deletion, removal, replacement, or relinking, answer:
+
+1. Is every live target identified independently of display text?
+2. Which child attachments, notes, annotations, collections, tags, relations, Products, or workflow artifacts may become unreachable or change ownership?
+3. What record survives, and which fields or links are expected to win?
+4. Is the effect reversible through an exposed operation, or only recoverable from external evidence?
+5. Does current state still match the proposal preflight?
+6. Can a narrower additive or corrective operation satisfy the request?
+7. What exact live read will prove the destructive effect?
+
+Use these review patterns:
+
+| Operation | Required comparison |
+| --- | --- |
+| Duplicate merge | Survivor and every candidate, conflicting metadata, child-state disposition |
+| Item or note deletion | Target identity, parent/child reachability, requested scope |
+| Tag or collection removal | Exact membership delta and whether the removal is global or item-scoped |
+| Attachment replacement/removal | Existing child identity, source file evidence, downstream references |
+| Product removal | Product record and selected asset facts; managed-file lifecycle remains separate |
+| Relinking | Old and new parent/target identities plus all affected relationships |
+
+If any consequence cannot be established, narrow the proposal or return it for human review. Do not use a workflow as a way around missing destructive-operation evidence.
+
+## Residual-delta recovery
+
+After a partial or uncertain outcome, derive the next proposal from live state:
+
+1. read every target named by the prior receipt;
+2. compare current state with the approved desired state;
+3. remove satisfied deltas and unchanged no-ops;
+4. classify conflicts, denied targets, and unverifiable targets separately;
+5. verify whether consumed file handles or workflow inputs need regeneration;
+6. create a new residual proposal only for remaining effects.
+
+| Residual class | Meaning | Recovery |
+| --- | --- | --- |
+| Verified success | Desired state is live | Preserve evidence; exclude from retry |
+| Verified no-op | State already matched before or during execution | Report unchanged; exclude from retry |
+| Denied/canceled | Approval did not permit the effect | Stop; do not reframe the same write |
+| Conflict | Live state diverged from reviewed preflight | Re-read evidence and request a new decision |
+| Failed, retryable | No desired state observed and receipt permits retry | Rebuild the smallest valid request |
+| Failed, non-retryable | Contract says another attempt is unsafe or unsupported | Return diagnostics and alternative path |
+| Applied, unverified | Receipt suggests change but live read is unavailable | Do not retry; recover verification first |
+| Handle consumed, state uncertain | Transfer/apply handle may no longer be reusable | Inspect durable receipt and target before obtaining a new handle |
+
+If a later reporting or attachment stage fails after metadata was applied, recover only that later stage. The remaining delta is defined by current Zotero state, not by the original request payload.
+
 ## Recovery and near misses
 
 - A title match or generated report is insufficient target identity; resolve the live object first.

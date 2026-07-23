@@ -50,6 +50,55 @@
 
 用最小充分证据集构建答案。分别标明直接 Zotero 事实、引用来源文本、插件派生状态和自身推断。简洁答案中，一条 evidence 可支持一项实质主张；比较时必须携带每个被比较来源及其 locator 或已检查字段。
 
+## 查询决策矩阵
+
+当一个请求可能映射到多个读取面时，使用此矩阵：
+
+| 用户意图 | 首选首次读取 | 仅在以下情况扩展 | 证据边界 |
+| --- | --- | --- | --- |
+| 识别当前论文或 selection | 当前 context 与 selection | 返回对象是 child、已过期或详情不足 | 当前 pane 事实与有序实时 ref |
+| 查找已知文献 | 直接 key/ID lookup，失败后进行有界搜索 | 仍有多个合理候选项 | 所选候选项的确切身份字段 |
+| 清点 collection、tag 或 type | 确定性 list | 分页未完成或另行请求 child object | filter、sort、已接受页面、终止 cursor |
+| 回答内容问题 | 解析 item 与 attachment，随后读取已交付内容 | 答案需要 note、annotation 或其他 attachment | 已验证文件及 section/page/chunk locator |
+| 总结读者活动 | Note 与 annotation | 请求 embedded payload 或可移植 export | Child identity、author/reader 区分、position |
+| 说明 topic 或关系 | 与问题匹配的 topic、resolver、graph 或 index 模型 | freshness 或 provenance 影响结论 | Model identity、scope、cursor 与 status |
+| 定位生成输出 | Product 或 artifact discovery | 用户需要内容或字节，而非仅 identity | Record/manifest identity，随后是选定 asset 证据 |
+| 检查工作是否就绪 | 聚焦 readiness read 或组合 audit | 用户另行请求 remediation | 已声明检查项与有界缺失集合 |
+
+多个行同时适用时，只解析一次身份并复用返回 ref。不得因为较窄结果为空，就把有界查询扩张为全库清单。
+
+## 证据交付合同
+
+对于事实性答案，以能够复现每项实质主张的粒度携带证据记录：
+
+```text
+claim: the bounded statement supported by this record
+source_kind: live-item | note | annotation | attachment-bytes | derived-model | workflow-artifact
+source_identity: stable item/note/attachment/topic/artifact ref
+locator: field, page, section, chunk, annotation position, or model query
+retrieval_boundary: filters, cursor completion, file checksum, or model scope
+interpretation: none, comparison, or explicit agent inference
+limitation: unavailable pages, stale status, mixed source levels, or unresolved identity
+```
+
+对于清单，一条 query-level 记录可以覆盖分页与 filter，而每个异常 item 单独记录。对于引文或贴近原文的转述，即使最终回复很短，也要保留 source locator。对于以字节为基础的内容，把 checksum 与 size 附在文件证据上，不要在每项主张中重复。对于否定性发现，证据是已经完成的搜索边界，而不是记忆中缺少某个 item。
+
+来源相互冲突时，分别输出记录并说明比较规则。当派生模型指向某篇论文时，把模型结果作为发现证据；凡主张依赖当前书目或文本内容，则使用实时 item 或来源读取。
+
+## 升级与任务交接
+
+只交接尚未解决的操作，并携带已经确立的读取证据：
+
+| 跨越的边界 | 目标任务 | 交接 payload |
+| --- | --- | --- |
+| 候选发现转为 import 或 attachment 获取 | 文献采集 | 搜索边界、candidate ID、实时重复项检查、请求目标 |
+| 事实查询转为精读或比较 | 文献分析 | 已解析 ref、可用来源层级、分析问题、已检查 locator |
+| 文献库事实转为 topic/graph/report 构建 | 研究综合 | 有界 paper set、问题、当前派生模型状态、所需输出 |
+| 读取结果转为 metadata、tag、collection、note、file 或 Product 变更 | 文献库整理 | 确切实时 target、当前值、proposal effect、修正证据 |
+| 用户请求周期性观察或无人值守修复 | Hosted monitoring facet | Watch scope、cadence 或 trigger、alert threshold、允许的 action |
+
+交接不继承写入、workflow submission 或 maintenance 权限。如果目标任务无法保留已经确立的身份，应返回歧义，而不是悄然重新解析。读取本身已经完成、但后续操作受阻时，应交付答案并说明另行受阻的阶段。
+
 ## 恢复与易错边界
 
 - 条目无可访问全文时，只有明确标注基于摘要，摘要答案才可使用。

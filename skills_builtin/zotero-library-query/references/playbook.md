@@ -50,6 +50,55 @@ Record topic IDs, paper refs, graph/index cursor completion, resolver selectors 
 
 Build the answer from the smallest sufficient evidence set. Mark direct Zotero facts, quoted source text, derived plugin state, and your inference separately. For a concise answer, one evidence entry may support a material claim; for comparison, carry every compared source and its locator or inspected field.
 
+## Query decision matrix
+
+Use this matrix when a request can plausibly map to several read surfaces:
+
+| User intent | Preferred first read | Expand only when | Evidence boundary |
+| --- | --- | --- | --- |
+| Identify the current paper or selection | Current context and selection | The returned object is a child, stale, or insufficiently detailed | Current pane facts plus ordered live refs |
+| Find a known work | Direct key/ID lookup, then bounded search on miss | Several candidates remain plausible | Exact identity fields for the selected candidate |
+| Inventory a collection, tag, or type | Deterministic list | Paging is incomplete or child objects are separately requested | Filters, sort, accepted pages, terminal cursor |
+| Answer a content question | Item and attachment resolution, then delivered content | The answer needs notes, annotations, or another attachment | Verified file plus section/page/chunk locators |
+| Summarize reader activity | Notes and annotations | Embedded payloads or portable export are requested | Child identity, author/reader distinction, positions |
+| Explain a topic or relationship | Topic, resolver, graph, or index model matching the question | Freshness or provenance affects the conclusion | Model identity, scope, cursor and status |
+| Locate a generated output | Product or artifact discovery | The user needs content or bytes rather than identity | Record/manifest identity followed by selected asset evidence |
+| Check whether work is ready | Focused readiness read or combined audit | The user separately asks for remediation | Declared checks and bounded missing set |
+
+When several rows apply, resolve identity once and reuse the returned refs. Do not broaden from a bounded query into a library-wide inventory merely because a narrower result is empty.
+
+## Evidence delivery contracts
+
+For a factual answer, carry an evidence record at the granularity needed to reproduce each material claim:
+
+```text
+claim: the bounded statement supported by this record
+source_kind: live-item | note | annotation | attachment-bytes | derived-model | workflow-artifact
+source_identity: stable item/note/attachment/topic/artifact ref
+locator: field, page, section, chunk, annotation position, or model query
+retrieval_boundary: filters, cursor completion, file checksum, or model scope
+interpretation: none, comparison, or explicit agent inference
+limitation: unavailable pages, stale status, mixed source levels, or unresolved identity
+```
+
+For inventories, one query-level record may cover paging and filters while each exceptional item gets its own note. For quotations or close paraphrases, preserve the source locator even when the final response is short. For byte-backed content, attach checksum and size to the file evidence rather than repeating them on every claim. For negative findings, the evidence is the completed search boundary, not the absence of a remembered item.
+
+When sources disagree, emit separate records and state the comparison rule. When a derived model points to a paper, treat the model result as discovery evidence and use a live item or source read for claims that depend on current bibliographic or textual content.
+
+## Escalation and handoff
+
+Hand off only the unresolved operation and carry the read evidence already established:
+
+| Boundary crossed | Destination task | Handoff payload |
+| --- | --- | --- |
+| Candidate discovery becomes import or attachment acquisition | Literature acquisition | Search boundary, candidate IDs, live duplicate checks, requested target |
+| Factual lookup becomes close reading or comparison | Literature analysis | Resolved refs, available source levels, analytical question, inspected locators |
+| Library facts become topic/graph/report construction | Research synthesis | Bounded paper set, question, current derived-model status, required output |
+| Read result becomes metadata, tag, collection, note, file, or Product change | Library curation | Exact live targets, current values, proposed effect, correction evidence |
+| The user requests recurring observation or unattended remediation | Hosted monitoring facet | Watch scope, cadence or trigger, alert threshold, allowed actions |
+
+The handoff does not inherit write, workflow-submission, or maintenance authority. If the target task cannot preserve the established identity, return the ambiguity instead of re-resolving silently. When the read itself is complete but the follow-on operation is blocked, deliver the answer and describe the separately blocked stage.
+
 ## Recovery and near misses
 
 - If an item has no accessible full text, an abstract answer may still be useful only when labeled as abstract-based.

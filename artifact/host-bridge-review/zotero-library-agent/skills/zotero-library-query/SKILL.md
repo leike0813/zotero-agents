@@ -17,11 +17,23 @@ description: 检索当前 Zotero 文献库内容，并回答有明确边界且�
 
 ## 工作流
 
-1. 阅读[查询操作手册](references/playbook.md)，陈述有边界的问题，并判断请求是指定对象、描述候选搜索，还是依赖当前 UI 上下文。
-2. 在选择条目详情、笔记、payload、批注、附件、readiness、Product、run 或 Synthesis 读取前，先解析当前上下文和稳定对象身份。
-3. 使用能够回答问题的最窄实时操作。完成必要的 cursor 或 offset 分页，并保留 filter、ref、locator、新鲜度事实和文件交付证据。
-4. 区分提取事实、来源引文、派生结构与自身解释。主张强度不得超过可用元数据、摘要、批注或全文所支持的范围。
-5. 返回 `zotero-library-task.result.v1`，为每项实质结论提供面向来源的内联证据；只有答案生成单独交付物时才声明 artifact。
+### 分类并解析范围
+
+1. 陈述有边界的问题、所需新鲜度、来源深度、结果上限与证据格式。判断它依赖当前 UI 上下文、已知对象、候选发现，还是穷尽式有界清单。
+2. 优先解析指示性上下文。对于已知 ref，读取实时对象；对于标题、引文或描述，先搜索候选项，再依据稳定身份证据选择；对于清单，保留完整 filter 与分页边界。
+3. 区分 note、attachment、parent item、collection、topic、Product、artifact、run 与 operation 身份。只有所选读取合同要求时才推导顶层 parent。
+
+### 收集实时证据
+
+4. 使用能够回答问题的最窄当前操作，并且只在需要时扩展：先读 item 详情再读 child，先读 note 元数据再读 body/payload，先读 attachment 元数据再读字节，进行新鲜度敏感解释前先读派生模型状态。
+5. 完成必要的 cursor、offset 或内容分页。保留已接受页面、filter、ref、locator、返回的新鲜度事实与最后一个安全恢复位置，不得重复合并同一页。
+6. 需要字节时，从所属 attachment、Product 或 artifact 获取访问能力，并验证交付的 checksum 与 byte count。不得从 Zotero 端元数据推断可读本地路径。
+7. 区分直接 Zotero 事实、来源文本、插件派生结构、workflow 状态与自身解释。每项主张都不得超过实际交付的最强证据。
+
+### 陈述有边界的答案
+
+8. 使用最小充分证据集回答。凡未遍历范围、不可用内容、过期派生视图或不对称来源深度会影响结论，都必须明确说明。
+9. 返回 `zotero-library-task.result.v1`，为每项实质结论提供面向来源的内联证据；只有答案生成单独交付物时才声明 artifact。
 
 ## 硬约束
 
@@ -47,4 +59,4 @@ LLM 负责查询 scope、候选选择、证据充分性、来源比较、解释�
 
 ## 参考资料
 
-解析当前上下文、选择 search 或 list、读取笔记或附件、审计 readiness、解释 Synthesis 状态，或恢复分页与文件访问前，阅读[查询操作手册](references/playbook.md)。
+当请求需要详细的 search/list/snapshot 决策、note payload 或 annotation 处理、attachment 字节交付、readiness 解释、Synthesis 模型选择、隐私最小化，或中断后的分页/文件恢复时，查阅[完整查询操作手册](references/playbook.md)。

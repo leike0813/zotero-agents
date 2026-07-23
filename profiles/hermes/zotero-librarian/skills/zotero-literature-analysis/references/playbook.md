@@ -52,6 +52,67 @@ Declare file artifacts with path, role, and media type. When the mechanism suppl
 
 Completion requires the requested analytical dimensions, explicit unavailable evidence, traceable conclusions, and a clear distinction between extraction and inference. A smaller truthful answer is preferable to a broad report that implies unread content.
 
+## Analytical deliverable patterns
+
+Select a pattern by the decision the user needs:
+
+| Deliverable | Internal structure | Evidence emphasis |
+| --- | --- | --- |
+| Focused paper digest | Question, answer, supporting passages, limitations | Strongest available source level and exact locators |
+| Method extraction | Population/data, design, variables, procedure, analysis, validity limits | Parallel fields; `not available` where absent |
+| Result extraction | Outcome, estimate/direction, conditions, uncertainty, author interpretation | Tables/figures/sections and unit of analysis |
+| Cross-paper comparison | Stable dimensions, per-paper entries, convergences, contradictions | Equivalent source levels or visible asymmetry |
+| Claim-evidence map | Claim, source statement, evidence type, support/challenge relation | Separate author claims from agent inference |
+| Annotation synthesis | Reader theme, quoted/marked passages, comments, open questions | Annotation identity, position, and parent source |
+| Workflow artifact audit | Expected output, schema validity, source basis, content adequacy | Run identity plus each inspected artifact |
+
+A deliverable can combine patterns, but each section should retain one evidence grammar. For example, a comparison may contain short digests, yet its conclusions must still point to the shared comparison dimensions rather than the prose summaries alone.
+
+For structured outputs, choose stable field names before extraction. For narrative outputs, create an internal evidence table first when the answer spans multiple papers or source levels; this prevents polished prose from hiding missing support.
+
+## Comparison and contradiction handling
+
+Build a comparison frame before interpreting results:
+
+```text
+comparison question:
+unit of comparison:
+dimensions:
+source level per item:
+normalization decisions:
+missing-value policy:
+contradiction test:
+```
+
+Classify apparent disagreement before calling it a contradiction:
+
+| Difference | Diagnostic question | Reporting treatment |
+| --- | --- | --- |
+| Population or corpus | Were different subjects, datasets, or periods studied? | Conditional difference, not direct contradiction |
+| Construct or measure | Do similar labels represent different variables? | Preserve definitions and avoid numeric comparison |
+| Method or model | Could design choices explain the result? | Compare assumptions and sensitivity |
+| Outcome direction | Are estimates about the same outcome and scale? | Direct contradiction only after alignment |
+| Interpretation | Do authors infer different mechanisms from compatible findings? | Separate empirical agreement from interpretive disagreement |
+| Version or edition | Did the source change between versions? | Attribute claims to the exact version |
+| Evidence level | Is one conclusion abstract-only or annotation-derived? | Mark asymmetry; do not equalize confidence |
+
+When contradictions remain after alignment, present the strongest support for each side, relevant methodological differences, and what additional evidence could discriminate them. Do not resolve disagreement by vote count unless the task explicitly defines a systematic aggregation method.
+
+## Evidence-gap matrix
+
+| Gap | What remains supportable | What is not supportable | Next useful evidence |
+| --- | --- | --- | --- |
+| Bibliographic record only | Identity and indexed publication facts | Methods, findings, argument | Abstract or full text |
+| Abstract only | Abstract-stated purpose and headline result | Detailed procedure, robustness, nuanced limits | Full text or verified analysis artifact |
+| Missing pages/chunks | Claims in inspected portions | Continuity across the gap | Complete delivery or page-specific source |
+| OCR uncertainty | Approximate visible content with confidence note | Exact quotation of corrupted text | Native PDF/text or manual check |
+| Notes without source locator | Reader interpretation | Attribution to the paper | Located passage or annotation |
+| Mixed versions | Version-specific claims | Unified paper-level conclusion | Version resolution and comparison |
+| Workflow artifact lacks source basis | Artifact contents as an object of analysis | Claims that it faithfully represents papers | Manifest/source mapping or direct reads |
+| One failed item in a comparison | Conclusions about successful items | Complete-set comparison | Recover that item or narrow declared scope |
+
+Gap handling is part of the deliverable, not merely a failure appendix. State whether the answer was narrowed, the claim was weakened, or the task is blocked. If the missing evidence changes only one dimension, preserve the rest of the analysis and isolate that dimension.
+
 ## Recovery and near misses
 
 - An abstract-only source cannot answer a full-text method or result question; request the missing source or return a bounded abstract analysis.

@@ -63,6 +63,84 @@ artifact 报告可记录 proposal 或结果，但只有实时对象读取或持�
 
 部分结果绝不能重放原始批次。从剩余 proposal 中移除经实时验证的成功项；若残余 effect 与已审阅 scope 存在实质差异，则请求新权限。
 
+## 批次 proposal 记录
+
+只有变更的 target type、evidence basis、operation 与风险相同时，才将其分组。每个批次表示为：
+
+```text
+batch_id:
+change_kind:
+targets:
+evidence_source:
+before_state:
+proposed_delta:
+unchanged_fields:
+expected_side_effects:
+verification_read:
+risk_class: additive | corrective | destructive
+```
+
+对于 field correction，当当前值不同时，`proposed_delta` 应是逐 item field map，而不是共享 patch。对于 tag 与 collection，分别表示 add 和 remove。对于 file，包含 source artifact identity、checksum、target parent、预期 attachment name，以及是否可能与现有 attachment 冲突。
+
+以下情况应拆分 proposal：
+
+- 某个 target 的修正证据更弱；
+- 某个 item 需要不同的 survivor、collection 或 parent；
+- additive 与 destructive effect 混在一起；
+- 一部分可由 direct mutation 表达，另一部分需要 workflow 语义；
+- verification 差异过大，一份 receipt 无法解释结果。
+
+审阅摘要可以聚合数量，但 approval 与 outcome record 必须保留确切 target ref 与 delta。
+
+## 破坏性变更审阅
+
+在 merge、delete、remove、replace 或 relink 前，回答：
+
+1. 每个实时 target 是否都独立于显示文本完成身份确认？
+2. 哪些 child attachment、note、annotation、collection、tag、relation、Product 或 workflow artifact 可能变得不可达或改变所有权？
+3. 哪个 record 将存续，预期哪些 field 或 link 胜出？
+4. Effect 能否通过已公开 operation 撤销，还是只能依据外部证据恢复？
+5. 当前状态是否仍与 proposal preflight 一致？
+6. 更窄的 additive 或 corrective operation 能否满足请求？
+7. 哪项确切实时读取能够证明破坏性 effect？
+
+使用以下审阅模式：
+
+| Operation | 必需比较 |
+| --- | --- |
+| Duplicate merge | Survivor 与每个 candidate、冲突 metadata、child-state 去向 |
+| Item 或 note deletion | Target identity、parent/child 可达性、请求 scope |
+| Tag 或 collection removal | 确切 membership delta，以及 removal 是全局还是 item-scoped |
+| Attachment replacement/removal | 现有 child identity、source file evidence、下游 reference |
+| Product removal | Product record 与所选 asset 事实；managed-file 生命周期仍然独立 |
+| Relinking | 旧、新 parent/target identity 及所有受影响关系 |
+
+如果任何后果无法确立，应收窄 proposal 或交回人工审阅。不得用 workflow 绕过缺失的破坏性 operation 证据。
+
+## 剩余 delta 恢复
+
+发生部分或不确定结果后，从实时状态推导下一份 proposal：
+
+1. 读取前一份 receipt 命名的每个 target；
+2. 比较当前状态与获批期望状态；
+3. 删除已满足 delta 与不改变状态的 no-op；
+4. 分别分类 conflict、denied target 与 unverifiable target；
+5. 确认已消费 file handle 或 workflow input 是否需要重新生成；
+6. 仅为剩余 effect 创建新的 residual proposal。
+
+| 剩余类别 | 含义 | 恢复方式 |
+| --- | --- | --- |
+| Verified success | 期望状态已实时存在 | 保留证据；从 retry 排除 |
+| Verified no-op | 执行前或执行中状态已经匹配 | 报告 unchanged；从 retry 排除 |
+| Denied/canceled | Approval 不允许该 effect | 停止；不得换一种说法重试同一写入 |
+| Conflict | 实时状态偏离已审阅 preflight | 重新读取证据并请求新决策 |
+| Failed, retryable | 未观察到期望状态，且 receipt 允许 retry | 重建最小有效请求 |
+| Failed, non-retryable | 合同指出再次尝试不安全或不受支持 | 返回诊断与备选路径 |
+| Applied, unverified | Receipt 表明可能变更，但实时读取不可用 | 不得 retry；先恢复 verification |
+| Handle consumed, state uncertain | Transfer/apply handle 可能不能复用 | 获取新 handle 前检查持久 receipt 与 target |
+
+如果 metadata 已应用，但后续 report 或 attachment 阶段失败，只恢复后续阶段。Remaining delta 由当前 Zotero 状态定义，而不是由原始 request payload 定义。
+
 ## 恢复与易错边界
 
 - 标题匹配或生成报告不足以证明目标身份；先解析实时对象。

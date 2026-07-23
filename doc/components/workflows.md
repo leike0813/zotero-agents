@@ -364,6 +364,26 @@ child 的 request、runResult、resultContext、bundleReader 和 preflight conte
   - `true`：workflow 仅在调试模式下可见（右键菜单不显示）；
   - `false` 或缺省：正常显示。
 
+### Agent-facing 内建 Workflow Catalog
+
+Generic Zotero research surface 在
+`zotero-library-agent/references/workflow-catalog.md` 中发布内建 workflow
+目录，帮助 agent 在执行实时发现之前缩小候选范围。目录不是独立维护的
+workflow 清单：`scripts/host-bridge-workflow-catalog.ts` 从
+`workflows_builtin/manifest.json`、各 package manifest 及其 `workflow.json`
+读取正式发布闭包，并排除 `debug_only: true` 的 workflow。
+
+目录与运行时 `workflow list` / `workflow describe` 共同使用
+`src/workflows/manifestContract.ts` 的纯投影，统一导出 provider
+兼容性、execution modes、selection、必填参数和结果证据。新增或修改这些
+manifest 字段时，不得在 renderer 或 Host Bridge 控制器中复制一套映射；
+应修改共享投影，并同时验证运行时描述与生成目录。
+
+生成目录只陈述 manifest 的静态选择事实。实际可用性、当前输入、provider
+profile、校验结果和提交条件始终以实时的 `workflow list`、`workflow
+describe`、`workflow validate-input`、`workflow profile describe` 与
+`workflow profile validate` 为准。
+
 ## 已废弃字段（会被视为非法 manifest）
 
 下列字段已弃用，出现即视为无效 workflow：

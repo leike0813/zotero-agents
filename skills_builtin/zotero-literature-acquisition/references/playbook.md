@@ -51,6 +51,88 @@ Use a direct semantic mutation only when the target and desired effect are alrea
 
 An explicit provider profile applies only to the current submission. Do not conflate it with the connection profile, silently reuse it for a self-owned handoff, or assume a configured backend is compatible without validation. Default to serial workflow submissions unless the user or an approved policy explicitly permits bounded concurrency.
 
+## Search-plan templates
+
+Choose the smallest template that exposes the decision boundary:
+
+### Exploratory field scan
+
+```text
+question:
+concept groups and synonyms:
+sources/providers:
+date/language/type limits:
+ranking preference:
+review budget:
+stop rule:
+output: landscape report | candidate shortlist
+```
+
+Use this when vocabulary and canonical works are uncertain. Record which concept group produced each candidate so later narrowing is explainable.
+
+### Targeted evidence search
+
+```text
+claim or subquestion:
+required study/document characteristics:
+must-include and must-exclude signals:
+known seed works:
+identifier and citation expansion rules:
+stop rule:
+output: candidate shortlist | reviewed import set
+```
+
+Use this when the question is stable and false positives matter more than breadth. A rejected candidate keeps a compact exclusion reason.
+
+### Known-record acquisition
+
+```text
+external identifiers or complete citations:
+target library and collection:
+duplicate policy to review:
+required attachments:
+metadata source priority:
+output: import proposal | analysis-ready set
+```
+
+Use this for a finite declared list. Do not add discovery expansion unless the user separately asks for related works.
+
+## Candidate decision records
+
+Maintain one decision record per candidate so search results, Zotero identity, and acquisition outcome remain separable:
+
+```text
+candidate_id:
+provider_and_query:
+bibliographic_identity:
+external_identifiers:
+inclusion_decision: include | exclude | unresolved
+rationale:
+live_zotero_matches:
+identity_conflicts:
+requested_destination:
+attachment_expectation:
+next_action: report | import-proposal | acquire-file | human-review
+```
+
+For an included candidate with a probable Zotero match, keep the candidate and live item refs in the same record but do not collapse them into one identity. For exclusions, store only the fields needed to explain the decision and prevent immediate rediscovery. For unresolved cases, name the missing discriminator—edition, author, year, document type, or identifier—instead of assigning a confidence score without a decision consequence.
+
+Batch summaries should derive from these records: included-new, included-existing, excluded, unresolved, imported, attached, and failed. The summary never replaces the per-candidate provenance needed for a retry or duplicate review.
+
+## Batch and partial-outcome matrix
+
+| Observed batch state | Stable completed scope | Residual scope | Safe next action |
+| --- | --- | --- | --- |
+| Search completed; no writes requested | Reviewed candidate records | Unresolved candidates only | Ask for missing discriminators or finish with limitations |
+| Some candidates already exist | Confirmed live matches | New and ambiguous candidates | Exclude existing items from import; review ambiguous records |
+| Import partially succeeded | Live-verified new item refs | Failed or unverified candidate IDs | Rebuild a residual proposal from current state |
+| Items imported but collection placement failed | Verified item creation | Missing memberships | Propose only the collection delta |
+| Attachment acquisition partially succeeded | Verified child attachment refs | Items still missing required files | Re-read readiness and retry only missing files |
+| Workflow terminal but outputs are missing | Run receipt and any live results found | Promised items, attachments, or provenance | Preserve diagnostics; do not resubmit until duplication risk is resolved |
+| User or Zotero denies a write | Candidate report and preflight remain valid | Entire denied mutation scope | Return report; require a new request before another write |
+
+A residual batch gets a new preflight when target collections, duplicate state, provider inputs, or expected effects changed. Preserve successful live identities even when a later stage fails, because rerunning the original batch can create duplicates or duplicate attachments.
+
 ## Recovery and near misses
 
 - If a useful candidate is found without write authority, return the report and leave Zotero unchanged.

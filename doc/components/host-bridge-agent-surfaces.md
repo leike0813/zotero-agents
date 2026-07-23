@@ -64,10 +64,14 @@ research task.
 The `zotero-bridge-cli` Skill is the complete operating contract for this
 layer. Its `SKILL.md` defines the command loop, approval and handle behavior,
 output recovery, and failure path without requiring a prose reference. It
-directly links only the exhaustive source-generated command reference. Every
+directly links eight exhaustive source-generated command references selected
+by canonical command root: connection/context, library, mutation,
+files/Products/operations, workflow, run, synthesis, and diagnostics. The
+renderer rejects unassigned or multiply assigned roots and commands. Every
 command card contains argv bindings, invocation/payload/result schemas,
 pagination, effects and state-change facts, approval scope, handle
-transitions, recovery, targets, aliases, and intent-search visibility.
+transitions, recovery, targets, aliases, and intent-search visibility, so an
+agent can load one operational surface without loading the full command set.
 
 This layer also exposes the local, read-only commands
 `workflow agent-bundle inspect` and `workflow agent-result validate`. They
@@ -85,7 +89,7 @@ Skills:
 | --- | --- |
 | `zotero-library-agent` | Route one bounded request or compose a multi-stage request |
 | `zotero-library-query` | Query and answer questions from the library with bounded evidence |
-| `zotero-literature-acquisition` | Identify, prepare, and ingest literature through approved Host actions |
+| `zotero-literature-acquisition` | Identify, prepare, and ingest literature through approved Zotero-side actions |
 | `zotero-literature-analysis` | Produce and maintain structured literature analysis |
 | `zotero-research-synthesis` | Build synthesis-oriented research outputs from verified sources |
 | `zotero-library-curation` | Maintain metadata, organization, readiness, and library quality |
@@ -93,10 +97,20 @@ Skills:
 The coordinator selects exactly one task Skill for a single-domain request. It
 orders task Skills for a multi-domain request, carries verified evidence across
 the boundaries, owns Zotero-managed versus self-owned workflow policy, and
-returns one final result. Its comprehensive model covers agent handoff,
-Product/file/artifact evidence, and ordered research recovery. Each task Skill
-obtains exact arguments, approval behavior, handles, and recovery details from
-Minimum instead of duplicating them.
+returns one final result. Its optional research-task model covers agent handoff,
+Product/file/artifact evidence, and ordered research recovery. Its separate
+source-generated workflow catalog inventories every official non-debug
+built-in workflow with purpose, invocation inputs, provider requirements,
+execution modes, selection, parameters, and result evidence. The catalog is a
+selection aid; live workflow list, describe, and validation remain runtime
+authority.
+
+Each task `SKILL.md` contains the complete ordinary workflow and all mandatory
+constraints. Its directly linked playbook is optional depth for named complex
+branches, decision matrices, record templates, evidence models, and partial
+outcome recovery. A simple task therefore starts without reading a playbook.
+Each task obtains exact arguments, approval behavior, handles, and recovery
+details from Minimum instead of duplicating them.
 
 All six Skills produce `zotero-library-task.result.v1`. It requires `schema`,
 `status`, and `summary`; `status` is `completed`, `canceled`, or `failed`.
@@ -171,10 +185,11 @@ a summary.
 Implementation entities may be consolidated only after their behavior is
 re-homed. The unified resident service therefore absorbs the former resident
 helper capabilities; Generic absorbs finite self-owned workflow guidance; the
-inline result contract absorbs portable task evidence; live workflow discovery
-replaces a static catalog; and the generated command reference replaces
-repeated command manuals while preserving all descriptor fields. Word and line
-counts are not used as a proxy for semantic completeness.
+inline result contract absorbs portable task evidence; the generated built-in
+workflow catalog provides static selection facts while live discovery and
+description remain runtime authority; and the partitioned generated command
+references replace repeated command manuals while preserving all descriptor
+fields. Word and line counts are not used as a proxy for semantic completeness.
 
 ## Human review mirror
 

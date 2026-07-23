@@ -1,5 +1,5 @@
 import { assert } from "chai";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import Ajv from "ajv";
 
@@ -52,6 +52,62 @@ const PLAYBOOK_SECTIONS: Record<(typeof TASKS)[number], string[]> = {
   ],
 };
 
+const PLAYBOOK_DEEP_SECTIONS: Record<(typeof TASKS)[number], string[]> = {
+  "zotero-library-query": [
+    "Query decision matrix",
+    "Evidence delivery contracts",
+    "Escalation and handoff",
+  ],
+  "zotero-literature-acquisition": [
+    "Search-plan templates",
+    "Candidate decision records",
+    "Batch and partial-outcome matrix",
+  ],
+  "zotero-literature-analysis": [
+    "Analytical deliverable patterns",
+    "Comparison and contradiction handling",
+    "Evidence-gap matrix",
+  ],
+  "zotero-research-synthesis": [
+    "Derived-model decision records",
+    "Maintenance preconditions and receipts",
+    "Export evidence matrix",
+  ],
+  "zotero-library-curation": [
+    "Batch proposal records",
+    "Destructive-change review",
+    "Residual-delta recovery",
+  ],
+};
+
+const TASK_WORKFLOW_STAGES: Record<(typeof TASKS)[number], string[]> = {
+  "zotero-library-query": [
+    "Classify and resolve scope",
+    "Collect live evidence",
+    "State the bounded answer",
+  ],
+  "zotero-literature-acquisition": [
+    "Establish candidate boundary",
+    "Resolve live identity and duplicates",
+    "Propose, authorize, and verify",
+  ],
+  "zotero-literature-analysis": [
+    "Establish source basis",
+    "Analyze with locators",
+    "Validate workflow deliverables",
+  ],
+  "zotero-research-synthesis": [
+    "Establish source and model boundary",
+    "Separate read, workflow, and maintenance",
+    "Verify each requested output",
+  ],
+  "zotero-library-curation": [
+    "Resolve target and proposal",
+    "Choose and authorize the write",
+    "Verify and recover outcomes",
+  ],
+};
+
 function read(relative: string) {
   return readFileSync(join(SOURCE_ROOT, relative), "utf8");
 }
@@ -67,6 +123,66 @@ function referencesLinkedFrom(skill: string) {
   );
 }
 
+function section(markdown: string, heading: string) {
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return (
+    new RegExp(
+      `^## ${escaped}\\s*$([\\s\\S]*?)(?=^##\\s|(?![\\s\\S]))`,
+      "m",
+    ).exec(markdown)?.[1] || ""
+  );
+}
+
+function assertReferenceIsOnDemand(
+  skill: string,
+  reference: string,
+  label: string,
+) {
+  assert.notInclude(section(skill, "Workflow"), reference, label);
+  const references = section(skill, "References");
+  assert.include(references, reference, label);
+  const escaped = reference.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  assert.match(
+    references,
+    new RegExp(
+      `(?:read|use|load|consult)[\\s\\S]{0,180}${escaped}[\\s\\S]{0,180}\\bwhen\\b`,
+      "i",
+    ),
+    label,
+  );
+  assert.notMatch(
+    references,
+    /(?:read|use|load|consult)[\s\S]{0,120}\b(?:before|first|at the start)\b/i,
+    label,
+  );
+}
+
+function builtinWorkflowManifests(
+  root = join(process.cwd(), "workflows_builtin"),
+) {
+  const manifests: Array<Record<string, unknown>> = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const target = join(root, entry.name);
+    if (entry.isDirectory()) {
+      manifests.push(...builtinWorkflowManifests(target));
+    } else if (entry.name === "workflow.json") {
+      const manifest = JSON.parse(readFileSync(target, "utf8"));
+      if (manifest.debug_only !== true) manifests.push(manifest);
+    }
+  }
+  return manifests.sort((left, right) =>
+    String(left.id).localeCompare(String(right.id)),
+  );
+}
+
+function catalogEntry(catalog: string, workflowId: string) {
+  const escaped = workflowId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(
+    `^### \`${escaped}\`\\s*$([\\s\\S]*?)(?=^### \`|(?![\\s\\S]))`,
+    "m",
+  ).exec(catalog)?.[1];
+}
+
 describe("zotero library agent source suite", function () {
   it("defines one coordinator and five independently executable research tasks", function () {
     const coordinator = read("SKILL.md");
@@ -74,7 +190,18 @@ describe("zotero library agent source suite", function () {
     assert.include(coordinator, "## Routing");
     assert.deepEqual(referencesLinkedFrom(coordinator), [
       "references/research-task-model.md",
+      "references/workflow-catalog.md",
     ]);
+    assertReferenceIsOnDemand(
+      coordinator,
+      "references/research-task-model.md",
+      "coordinator task model",
+    );
+    assertReferenceIsOnDemand(
+      coordinator,
+      "references/workflow-catalog.md",
+      "coordinator workflow catalog",
+    );
 
     for (const task of TASKS) {
       const skillPath = `skills/${task}/SKILL.md`;
@@ -99,6 +226,10 @@ describe("zotero library agent source suite", function () {
         assert.include(skill, `## ${heading}`, `${task} lacks ${heading}`);
       }
       assert.deepEqual(referencesLinkedFrom(skill), ["references/playbook.md"]);
+      assertReferenceIsOnDemand(skill, "references/playbook.md", task);
+      for (const stage of TASK_WORKFLOW_STAGES[task]) {
+        assert.include(section(skill, "Workflow"), `### ${stage}`, task);
+      }
       assert.include(skill, "zotero-library-task.result.v1");
       assert.include(skill, "`schema`");
       assert.include(skill, "`status`");
@@ -111,10 +242,45 @@ describe("zotero library agent source suite", function () {
         join(GENERIC_ROOT, playbook),
         "utf8",
       );
-      for (const section of PLAYBOOK_SECTIONS[task]) {
-        assert.include(playbookContent, `## ${section}`, `${task}: ${section}`);
+      for (const playbookSection of [
+        ...PLAYBOOK_SECTIONS[task],
+        ...PLAYBOOK_DEEP_SECTIONS[task],
+      ]) {
+        assert.include(
+          playbookContent,
+          `## ${playbookSection}`,
+          `${task}: ${playbookSection}`,
+        );
       }
     }
+  });
+
+  it("renders every official non-debug built-in workflow into one optional catalog", function () {
+    const catalog = readFileSync(
+      join(
+        process.cwd(),
+        "skills_builtin/zotero-library-agent/references/workflow-catalog.md",
+      ),
+      "utf8",
+    );
+    const workflows = builtinWorkflowManifests();
+    assert.lengthOf(workflows, 19);
+    for (const workflow of workflows) {
+      const workflowId = String(workflow.id);
+      const entry = catalogEntry(catalog, workflowId);
+      assert.isDefined(entry, `catalog omits ${workflowId}`);
+      assert.include(entry || "", String(workflow.label), workflowId);
+      assert.include(entry || "", String(workflow.description), workflowId);
+      assert.include(entry || "", "Provider requirements", workflowId);
+      assert.include(entry || "", "Selection", workflowId);
+      assert.include(entry || "", "Result evidence", workflowId);
+    }
+    assert.include(catalog, "workflow list");
+    assert.include(catalog, "workflow describe");
+    assert.include(catalog, "workflow validate");
+    assert.include(catalog, "workflow profile validate");
+    assert.include(catalog, "workflow submit");
+    assert.notMatch(catalog, /^### `debug-/m);
   });
 
   it("keeps complete cross-task and workflow policy in the coordinator reference", function () {

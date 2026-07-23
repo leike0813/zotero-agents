@@ -51,6 +51,88 @@
 
 显式 provider profile 只适用于当前 submission。不得与连接 profile 混淆，不得为 Agent 自主 handoff 静默复用，也不得未经校验就假设已配置 backend 兼容。除非用户或已批准政策明确允许有界并发，否则默认串行提交工作流。
 
+## 搜索计划模板
+
+选择能够公开决策边界的最小模板：
+
+### 探索性领域扫描
+
+```text
+question:
+concept groups and synonyms:
+sources/providers:
+date/language/type limits:
+ranking preference:
+review budget:
+stop rule:
+output: landscape report | candidate shortlist
+```
+
+在术语与经典文献尚不确定时使用。记录每个候选项由哪个 concept group 产生，以便后续收窄过程可解释。
+
+### 定向证据搜索
+
+```text
+claim or subquestion:
+required study/document characteristics:
+must-include and must-exclude signals:
+known seed works:
+identifier and citation expansion rules:
+stop rule:
+output: candidate shortlist | reviewed import set
+```
+
+在问题稳定且误报控制比广度更重要时使用。每个被拒候选项保留简洁的排除理由。
+
+### 已知记录获取
+
+```text
+external identifiers or complete citations:
+target library and collection:
+duplicate policy to review:
+required attachments:
+metadata source priority:
+output: import proposal | analysis-ready set
+```
+
+对有限且已声明的列表使用。除非用户另行请求相关文献，否则不要扩展发现范围。
+
+## 候选决策记录
+
+为每个候选项维护一份决策记录，使搜索结果、Zotero 身份与获取结果始终可区分：
+
+```text
+candidate_id:
+provider_and_query:
+bibliographic_identity:
+external_identifiers:
+inclusion_decision: include | exclude | unresolved
+rationale:
+live_zotero_matches:
+identity_conflicts:
+requested_destination:
+attachment_expectation:
+next_action: report | import-proposal | acquire-file | human-review
+```
+
+对于存在可能 Zotero 匹配的已纳入候选项，在同一记录中保留 candidate 与实时 item ref，但不得折叠为一个身份。对于排除项，只保存说明决策并避免立即重复发现所需的字段。对于未解决项，明确缺失的判别信息——edition、author、year、document type 或 identifier——而不要给出没有决策后果的置信分数。
+
+批次摘要应从这些记录推导：included-new、included-existing、excluded、unresolved、imported、attached 与 failed。摘要绝不能取代重试或重复项审阅所需的逐候选 provenance。
+
+## 批次与部分结果矩阵
+
+| 观察到的批次状态 | 稳定完成的范围 | 剩余范围 | 安全下一步 |
+| --- | --- | --- | --- |
+| 搜索完成；未请求写入 | 已审阅 candidate record | 仅未解决候选项 | 请求缺失判别信息，或带限制完成 |
+| 部分候选项已经存在 | 已确认实时匹配 | 新候选与歧义候选 | 从 import 中排除已有 item；审阅歧义记录 |
+| Import 部分成功 | 已实时验证的新 item ref | 失败或未验证的 candidate ID | 根据当前状态重建 residual proposal |
+| Item 已 import，但 collection 放置失败 | 已验证 item 创建 | 缺失 membership | 仅提出 collection delta |
+| Attachment 获取部分成功 | 已验证 child attachment ref | 仍缺少所需文件的 item | 重新读取 readiness，仅重试缺失文件 |
+| Workflow 已终止但输出缺失 | Run receipt 与任何已找到实时结果 | 承诺的 item、attachment 或 provenance | 保留诊断；解决重复风险前不得重新提交 |
+| 用户或 Zotero 拒绝写入 | Candidate report 与 preflight 仍有效 | 全部被拒 mutation scope | 返回报告；再次写入前需要新请求 |
+
+当 target collection、重复项状态、provider input 或预期 effect 发生变化时，剩余批次需要新的 preflight。即使后续阶段失败，也要保留成功的实时身份，因为重跑原始批次可能产生重复 item 或 attachment。
+
 ## 恢复与易错边界
 
 - 找到有用候选项但无写权限时，返回报告并保持 Zotero 不变。

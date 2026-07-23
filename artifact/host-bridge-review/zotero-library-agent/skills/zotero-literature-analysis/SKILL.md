@@ -17,11 +17,23 @@ description: 使用可追溯的来源证据分析边界明确的 Zotero 文献�
 
 ## 工作流
 
-1. 阅读[分析操作手册](references/playbook.md)，解析确切来源集，并陈述请求视角、来源深度与交付物。
-2. 检查可用元数据、摘要、笔记、批注、受支持内容视图和附件。只能通过随附 CLI 文件合同获取交付字节。
-3. 判断直接分析还是已声明文献分析工作流最适合请求。校验所选工作流，并逐条目保留成功与失败证据。
-4. 区分 extraction、quotation、comparison、inference 与 synthesis。每项实质发现都必须关联稳定条目身份及最佳可用 page、section、chunk、annotation 或 field locator。
-5. 返回 `zotero-library-task.result.v1`；将生成报告声明为 artifact，并保留其来源基础，但不得暗示已回写 Zotero。
+### 确立来源基础
+
+1. 解析确切的 item、note、annotation、attachment、version 与 edition 集合。陈述分析问题、稳定比较维度、所需来源深度与交付物。
+2. 确定每个来源最强的可用证据层级：metadata、abstract、note/annotation、部分 OCR/content view、已交付全文或既有生成分析。
+3. 只通过受支持的 Zotero 读取与文件交付获得内容。记录每个已检查 passage 来自哪个 attachment 与 locator，并在分析前明确缺失或不对称证据。
+
+### 使用 locator 分析
+
+4. 提取与已声明视角相关的 field、passage、annotation 或 observation。区分 quotation/extraction 与 comparison、方法评估、inference、synthesis。
+5. 对所有比较来源应用相同的已声明维度。记录不可用证据，不得悄然更改标准；并依据矛盾内容和来源版本差异检验结论。
+6. 有界材料已经可用时选择直接分析；任务需要稳定的多 artifact 合同、provider 执行或逐篇重复处理时选择已声明 workflow。
+
+### 验证 workflow 交付物
+
+7. 对 workflow 执行，校验来源 selection、workflow option 与 provider profile；分别保留每个已提交 parent ref 及其 run 结果。
+8. 检查每个承诺的 digest、structured reference set、citation analysis、translation、deep-reading output 或 report。结构化结果成功并不证明分析质量或 Zotero 回写。
+9. 返回 `zotero-library-task.result.v1`；将生成报告声明为 artifact，为实质结论附加带来源 locator 的证据，并把任何另行请求的 Zotero 变更交给 curation。
 
 ## 硬约束
 
@@ -47,4 +59,4 @@ LLM 负责分析视角、比较模型、证据充分性、带来源定位的解�
 
 ## 参考资料
 
-选择证据深度、比较论文、调用分析工作流、校验分析 artifact 或恢复混合来源可用性前，阅读[分析操作手册](references/playbook.md)。
+当任务需要详细 evidence-level 决策、extraction 或 quotation 协议、comparison/contradiction 模式、混合版本或混合深度分析、多篇 workflow artifact 校验、OCR 处理或 evidence-gap 恢复时，查阅[完整分析操作手册](references/playbook.md)。

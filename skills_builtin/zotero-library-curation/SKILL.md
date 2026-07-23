@@ -17,12 +17,23 @@ Safely inspect, propose, apply, and live-verify a bounded change to Zotero metad
 
 ## Workflow
 
-1. Read [the curation playbook](references/playbook.md), resolve every live target, and inspect only the fields, memberships, notes, attachments, Products, or readiness facts relevant to the requested change.
-2. Build a concrete proposal containing current state, desired state, correction source, affected objects, expected side effects, alternatives, and the smallest reviewable batch.
-3. Choose a direct semantic mutation for a concrete operation, a generic preview/apply path for a reviewed payload, or a workflow when classification/generation/multi-step business logic remains.
-4. Present the exact proposed effect at the current Zotero-side authority boundary. Execute the approved scope once and preserve operation, workflow, file, Product, and apply-back receipts.
-5. Re-read every affected live object and classify completed, unchanged, partial, denied, failed, and unverified outcomes separately.
-6. Return `zotero-library-task.result.v1` with before/after identity evidence, durable receipts, and any artifact produced for review.
+### Resolve target and proposal
+
+1. Resolve every live target and inspect only the current fields, memberships, notes, payloads, attachments, Products, relations, or readiness facts relevant to the requested change.
+2. State the desired state and correction evidence. Expose conflicts, alternatives, affected children or related records, and consequences that would make a target ambiguous or destructive.
+3. Build the smallest reviewable proposal with per-target before/after state, exact effect, correction source, expected side effects, artifact/file flow, and batch boundary.
+
+### Choose and authorize the write
+
+4. Use a direct semantic mutation when the target and effect are concrete; use generic preview/apply for a reviewed payload; use a workflow only while classification, generation, provider execution, or reusable multi-step business logic remains.
+5. For file writeback, verify the local artifact, upload it, preserve the issued `fileId`, attach it to the resolved parent through the approved mutation, and keep each identity separate.
+6. Present the exact proposal at the current Zotero-side authority boundary. Execute the approved scope once and preserve the preview, operation/workflow handle, approval outcome, file/Product facts, and apply-back receipt.
+
+### Verify and recover outcomes
+
+7. Re-read every affected live object and compare it with the approved proposal. Classify completed, unchanged, partial, denied, failed, unattempted, and unverified outcomes separately.
+8. For partial or uncertain state, use the durable receipt and live target to calculate only the residual delta. Do not replay verified successes or begin a compensating write without a new reviewed proposal.
+9. Return `zotero-library-task.result.v1` with before/after identity evidence, durable receipts, remaining delta, and any artifact produced for review.
 
 ## Hard constraints
 
@@ -49,4 +60,4 @@ Keep preview, operation/apply receipt, uploaded-file facts, affected refs, pre-c
 
 ## References
 
-Read [the curation playbook](references/playbook.md) before selecting mutation versus workflow, changing notes/tags/collections/files, handling Products or readiness, batching a change, or recovering a partial or uncertain outcome.
+Consult [the comprehensive curation playbook](references/playbook.md) when the task needs a change-type decision matrix, note/payload/file/Product identity flow, destructive-change review, heterogeneous batching, operation-receipt interpretation, partial execution analysis, or residual-delta recovery.

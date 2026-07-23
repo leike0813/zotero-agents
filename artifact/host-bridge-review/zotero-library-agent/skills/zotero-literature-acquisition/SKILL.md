@@ -17,11 +17,24 @@ description: 为 Zotero 文献库发现、评估并采集文献。当用户要�
 
 ## 工作流
 
-1. 阅读[获取操作手册](references/playbook.md)，将请求转化为显式选择标准，并澄清会实质改变候选集的缺失选择。
-2. 搜索请求来源和当前 Zotero 文献库。区分外部 provenance 与实时 Zotero 身份，并说明每个保留候选项为何符合标准。
-3. 在提出 import、merge、retrieval 或 preparation 动作前，检查可能的重复项、版本、现有附件、目标 collection 与 readiness。
-4. 仅候选项工作返回有界评估。对于请求写入，先呈现精确目标与 effect，再通过随附 CLI 合同只执行已批准操作。
-5. 重新读取已获取条目、collection membership、重复处理结果或附件状态。返回 `zotero-library-task.result.v1`，包含候选证据，或 operation receipt 加实时验证。
+### 确立候选边界
+
+1. 将请求转化为明确概念、纳入与排除标准、日期/语言/venue/source 约束、所需广度、停止规则与预期结果：候选报告、import、attachment 获取、去重或分析就绪集合。
+2. 只有某项选择会实质改变合格文献、目标 library/collection 或请求写入效果时，才要求澄清。
+3. 搜索请求的外部来源，并记录 identifier、书目事实、provider provenance、搜索限制与纳入理由。所有外部结果都保持 candidate 状态。
+
+### 解析实时身份与重复项
+
+4. 对每个保留候选项搜索当前 Zotero 文献库。优先比较强 identifier，再比较 title、author、year、venue、edition、translation、preprint 与 publication 关系。
+5. 读取可能的实时匹配项，并检查其 attachment、collection membership、note、tag 与获取决策所需的 readiness 事实。不得把相关版本直接折叠为重复项决策。
+6. 仅候选项工作返回有边界评估，并列出未解决的身份或访问问题。不得虚构写入阶段。
+
+### 提议、授权并验证
+
+7. 对请求写入，呈现精确 target、candidate set、重复项影响、metadata 来源、attachment 来源、collection 影响、预期输出及最小可审阅批次。
+8. 需要 provider 交互或可复用多步 ingest 时，选择已经描述的 acquisition workflow；只有身份与期望效果均已明确时才使用直接语义 operation。分别校验 workflow option 与 provider profile。
+9. 将当前获批范围执行一次。重新读取每个已获取 item、collection membership、重复项结果或 attachment 状态，并区分成功、失败与未尝试 candidate。
+10. 返回 `zotero-library-task.result.v1`，包含 candidate provenance，或持久 operation/workflow receipt 加实时验证。
 
 ## 硬约束
 
@@ -47,4 +60,4 @@ LLM 负责搜索策略、纳入判断、provenance 比较、重复评估、readi
 
 ## 参考资料
 
-进行外部发现、重复项处理、import 或附件 planning、获取工作流选择及部分结果恢复前，阅读[获取操作手册](references/playbook.md)。
+当任务需要详细 search-plan 模板、identifier/version 比较、重复项决策记录、licensing 或 provider 边界分析、workflow/provider 选择、attachment-readiness 路径，或批次与部分结果恢复时，查阅[完整获取操作手册](references/playbook.md)。

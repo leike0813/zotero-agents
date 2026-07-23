@@ -32,6 +32,46 @@ import { stageHostBridgeCliPrebuildSet } from "../../scripts/stage-host-bridge-c
 
 const execFileAsync = promisify(execFile);
 
+const COMMAND_REFERENCE_PARTITIONS = [
+  {
+    path: "commands/connection-and-context.md",
+    roots: ["surface", "bridge", "context"],
+  },
+  { path: "commands/library.md", roots: ["library"] },
+  { path: "commands/mutation.md", roots: ["mutation"] },
+  {
+    path: "commands/files-products-and-operations.md",
+    roots: ["file", "product", "operation"],
+  },
+  { path: "commands/workflow.md", roots: ["workflow"] },
+  { path: "commands/run.md", roots: ["run"] },
+  { path: "commands/synthesis.md", roots: ["synthesis"] },
+  { path: "commands/diagnostics.md", roots: ["debug", "call"] },
+] as const;
+
+async function pathExists(target: string) {
+  try {
+    await fs.access(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readCommandReferences(packageRoot: string) {
+  const result = new Map<string, string>();
+  for (const partition of COMMAND_REFERENCE_PARTITIONS) {
+    result.set(
+      partition.path,
+      await fs.readFile(
+        path.join(packageRoot, "references", partition.path),
+        "utf8",
+      ),
+    );
+  }
+  return result;
+}
+
 function encodeText(value: string) {
   return new TextEncoder().encode(value);
 }
@@ -144,12 +184,11 @@ describe("host bridge cli packaging and install", function () {
     const runner = JSON.parse(
       await fs.readFile(path.join(root, "runner.json"), "utf8"),
     );
-    const references = (await fs.readdir(path.join(root, "references"))).sort();
+    const references = (
+      await fs.readdir(path.join(root, "references", "commands"))
+    ).sort();
 
-    assert.match(
-      skill,
-      /^---\nname: zotero-bridge-cli\ndescription: .+\n/m,
-    );
+    assert.match(skill, /^---\nname: zotero-bridge-cli\ndescription: .+\n/m);
     const description = skill.match(/^description: (.+)$/m)?.[1] || "";
     assert.isAtMost([...description].length, 240);
     assert.match(description, /Use when/i);
@@ -164,15 +203,28 @@ describe("host bridge cli packaging and install", function () {
     ]) {
       assert.include(skill, heading);
     }
-    assert.include(
-      skill,
-      "[generated command reference](references/command-reference.md)",
+    for (const partition of COMMAND_REFERENCE_PARTITIONS) {
+      assert.include(skill, `references/${partition.path}`);
+    }
+    assert.deepEqual(
+      references,
+      COMMAND_REFERENCE_PARTITIONS.map(({ path: referencePath }) =>
+        path.basename(referencePath),
+      ).sort(),
     );
-    assert.deepEqual(references, ["command-reference.md"]);
     assert.notInclude(skill, "operating-contract.md");
     assert.notInclude(skill, "zotero-library-agent");
     assert.notInclude(skill, "host-bridge-shared");
     assert.strictEqual(runner.version, "__HOST_BRIDGE_SURFACE_VERSION__");
+    assert.notInclude(
+      runner.entrypoint.prompts.common,
+      "operating-contract.md",
+    );
+    assert.notInclude(
+      runner.entrypoint.prompts.common,
+      "references/command-reference.md",
+    );
+    assert.include(runner.entrypoint.prompts.common, "references/commands/");
     const profileTemplate = await fs.readFile(
       path.join(root, "profile.template.json"),
       "utf8",
@@ -322,33 +374,45 @@ describe("host bridge cli packaging and install", function () {
     }
   });
 
-  it("renders the exhaustive mechanism command reference from the embedded descriptor", async function () {
-    const embedded = await fs.readFile(
-      "cli/zotero-bridge/src/agent-surface.json",
-      "utf8",
+  it("renders exhaustive disjoint mechanism command references from the embedded descriptor", async function () {
+    const descriptor = JSON.parse(
+      await fs.readFile("cli/zotero-bridge/src/agent-surface.json", "utf8"),
     );
-    const reference = await fs.readFile(
-      "skills_builtin/zotero-bridge-cli/references/command-reference.md",
-      "utf8",
+    const references = await readCommandReferences(
+      "skills_builtin/zotero-bridge-cli",
     );
-    assert.strictEqual(
-      reference,
-      await fs.readFile(
-        "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/references/command-reference.md",
-        "utf8",
+    const hermesReferences = await readCommandReferences(
+      "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli",
+    );
+    const renderedCommands: string[] = [];
+    for (const partition of COMMAND_REFERENCE_PARTITIONS) {
+      const reference = references.get(partition.path) || "";
+      assert.strictEqual(reference, hermesReferences.get(partition.path));
+      const commands = [
+        ...reference.matchAll(/^## `zotero-bridge (.+)`$/gm),
+      ].map((match) => match[1]);
+      renderedCommands.push(...commands);
+      for (const command of commands) {
+        assert.include(
+          partition.roots,
+          command.split(" ")[0] as (typeof partition.roots)[number],
+          `${command} is rendered in ${partition.path}`,
+        );
+      }
+    }
+    assert.deepEqual(
+      [...renderedCommands].sort(),
+      descriptor.commands
+        .map((entry: { command: string }) => entry.command)
+        .sort(),
+    );
+    assert.strictEqual(new Set(renderedCommands).size, renderedCommands.length);
+    assert.isFalse(
+      await pathExists(
+        "skills_builtin/zotero-bridge-cli/references/command-reference.md",
       ),
     );
-    for (const command of [
-      "library items list",
-      "library snapshot",
-      "workflow submit",
-      "workflow agent-bundle inspect",
-      "workflow agent-result validate",
-    ]) {
-      assert.include(reference, `zotero-bridge ${command}`);
-      assert.include(embedded, command);
-    }
-    assert.notInclude(embedded, "workflowCatalog");
+    assert.notProperty(descriptor, "workflowCatalog");
   });
 
   it("covers library commands in the generated command reference", async function () {
@@ -357,7 +421,7 @@ describe("host bridge cli packaging and install", function () {
       "utf8",
     );
     const wrapperReference = await fs.readFile(
-      "skills_builtin/zotero-bridge-cli/references/command-reference.md",
+      "skills_builtin/zotero-bridge-cli/references/commands/library.md",
       "utf8",
     );
     for (const command of [
@@ -382,13 +446,16 @@ describe("host bridge cli packaging and install", function () {
       "utf8",
     );
     const wrapperReference = await fs.readFile(
-      "skills_builtin/zotero-bridge-cli/references/command-reference.md",
+      "skills_builtin/zotero-bridge-cli/references/commands/synthesis.md",
       "utf8",
     );
 
     assert.include(cliArgs, "topics.get_context");
     assert.include(cliArgs, "get-context");
-    assert.include(wrapperReference, "zotero-bridge synthesis topic get-context");
+    assert.include(
+      wrapperReference,
+      "zotero-bridge synthesis topic get-context",
+    );
   });
 
   it("declares remote Host Bridge profile and master token preference controls", async function () {
@@ -2086,21 +2153,23 @@ describe("host bridge cli packaging and install", function () {
       assert.include(source, "ZOTERO_BRIDGE_TOKEN");
       assert.include(source, "Platform override is not supported");
     }
-    assert.include(wrapperSkill, "references/command-reference.md");
+    for (const partition of COMMAND_REFERENCE_PARTITIONS) {
+      assert.include(wrapperSkill, `references/${partition.path}`);
+    }
     assert.notInclude(wrapperSkill, "references/operating-contract.md");
   });
 
-  it("renders every public Agent Surface command field into the offline command reference", async function () {
+  it("renders every public Agent Surface command field into the offline command references", async function () {
     const descriptor = JSON.parse(
       await fs.readFile(
         "skills_builtin/zotero-bridge-cli/assets/agent-surface.json",
         "utf8",
       ),
     );
-    const reference = await fs.readFile(
-      "skills_builtin/zotero-bridge-cli/references/command-reference.md",
-      "utf8",
+    const references = await readCommandReferences(
+      "skills_builtin/zotero-bridge-cli",
     );
+    const reference = [...references.values()].join("\n");
     const count = (label: string) => reference.split(label).length - 1;
 
     assert.lengthOf(descriptor.commands, 122);

@@ -17,11 +17,23 @@ Produce a bounded digest, extraction, comparison, or interpretation from verifie
 
 ## Workflow
 
-1. Read [the analysis playbook](references/playbook.md), resolve the exact source set, and state the requested lens, source depth, and deliverable.
-2. Inspect available metadata, abstracts, notes, annotations, supported content views, and attachments. Obtain delivered bytes only through the bundled CLI file contract.
-3. Decide whether direct analysis or a declared literature-analysis workflow best satisfies the request. Validate the selected workflow and preserve per-item success and failure evidence.
-4. Separate extraction, quotation, comparison, inference, and synthesis. Tie every material finding to stable item identity and the best available page, section, chunk, annotation, or field locator.
-5. Return `zotero-library-task.result.v1`; declare generated reports as artifacts and retain their source basis without implying Zotero writeback.
+### Establish source basis
+
+1. Resolve the exact item, note, annotation, attachment, version, and edition set. State the analytical question, stable comparison dimensions, required source depth, and deliverable.
+2. Determine the strongest available evidence level for every source: metadata, abstract, note/annotation, partial OCR/content view, delivered full text, or prior generated analysis.
+3. Obtain content only through supported Zotero reads and file delivery. Record which attachment and locator supplied each inspected passage, and make missing or asymmetric evidence visible before analysis.
+
+### Analyze with locators
+
+4. Extract the fields, passages, annotations, or observations relevant to the declared lens. Separate quotation and extraction from comparison, methodological assessment, inference, and synthesis.
+5. Apply the same declared dimensions to every compared source. Record unavailable evidence instead of silently changing criteria, and test conclusions against contradictions and source-version differences.
+6. Choose direct analysis when the bounded material is already available. Choose a declared workflow when the task needs a stable multi-artifact contract, provider execution, or repeated per-paper processing.
+
+### Validate workflow deliverables
+
+7. For workflow execution, validate the source selection, workflow options, and provider profile; retain each submitted parent ref and its run outcome separately.
+8. Inspect every promised digest, structured reference set, citation analysis, translation, deep-reading output, or report. Structural result success does not establish analytical quality or Zotero writeback.
+9. Return `zotero-library-task.result.v1`; declare generated reports as artifacts, attach source-located evidence to material conclusions, and route any separately requested Zotero change to curation.
 
 ## Hard constraints
 
@@ -47,4 +59,4 @@ Retain the source identity, available evidence level, accepted content, artifact
 
 ## References
 
-Read [the analysis playbook](references/playbook.md) before choosing evidence depth, comparing papers, invoking an analysis workflow, validating analysis artifacts, or recovering mixed source availability.
+Consult [the comprehensive analysis playbook](references/playbook.md) when the task needs a detailed evidence-level decision, extraction or quotation protocol, comparison/contradiction pattern, mixed-version or mixed-depth analysis, multi-paper workflow artifact validation, OCR handling, or evidence-gap recovery.

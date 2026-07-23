@@ -39,7 +39,6 @@ import { createLocalizedMessageFormatter } from "./workflowExecution/messageForm
 import { buildWorkflowSettingsUiDescriptor } from "./workflowSettings";
 import {
   assertRequiredWorkflowParameters,
-  listMissingRequiredWorkflowParameters,
   type WorkflowExecutionOptions,
 } from "./workflowSettingsDomain";
 import { buildSelectionContext } from "./selectionContext";
@@ -68,6 +67,7 @@ import { localizeWorkflowLabel } from "../workflows/localization";
 import { evaluateWorkflowSelection } from "../workflows/workflowSelectionValidation";
 import { executeApplyResult, executeBuildRequests } from "../workflows/runtime";
 import { ZipBundleReader } from "../workflows/zipBundleReader";
+import { projectWorkflowManifestContract } from "../workflows/manifestContract";
 import {
   createDirectoryBundleReader,
   type BundleReader,
@@ -507,21 +507,6 @@ function normalizeNumber(value: unknown) {
   return undefined;
 }
 
-function workflowResultEvidence(
-  workflow: LoadedWorkflow,
-): HostBridgeWorkflowSummary["resultEvidence"] {
-  return {
-    ...(workflow.manifest.result?.fetch?.type
-      ? { fetchType: workflow.manifest.result.fetch.type }
-      : {}),
-    ...(workflow.manifest.result?.expects?.result_json
-      ? { resultJson: workflow.manifest.result.expects.result_json }
-      : {}),
-    artifacts: [...(workflow.manifest.result?.expects?.artifacts || [])],
-    applyBack: Boolean(workflow.manifest.hooks?.applyResult),
-  };
-}
-
 export function getHostBridgeWorkflowControlManifest(): HostBridgeWorkflowControlManifest {
   return {
     supported: true,
@@ -560,30 +545,23 @@ export function getHostBridgeWorkflowControlManifest(): HostBridgeWorkflowContro
 export function listHostBridgeWorkflows(): HostBridgeWorkflowSummary[] {
   return getVisibleLoadedWorkflowEntries().map((entry) => {
     const manifest = entry.manifest;
+    const manifestContract = projectWorkflowManifestContract(manifest);
     return {
       id: manifest.id,
       label: localizeWorkflowLabel(entry),
       description: normalizeString(manifest.description),
-      executionModes: manifest.executionModes || ["auto"],
+      executionModes: manifestContract.executionModes,
       provider: manifest.provider,
       version: manifest.version,
       sourceKind:
         entry.workflowSourceKind || getLoadedWorkflowSourceById(manifest.id),
       packageId: entry.packageId,
       configurable: Object.keys(manifest.parameters || {}).length > 0,
-      acceptsNoSelection: canWorkflowRunWithoutSelection(manifest),
-      inputUnit: manifest.inputs?.unit,
-      selectionValidation: manifest.validateSelection
-        ? {
-            policy: manifest.validateSelection.select?.policy,
-            excludes: (manifest.validateSelection.exclude || []).map(
-              (entry) => entry.kind,
-            ),
-            derives: manifest.validateSelection.derive || [],
-          }
-        : undefined,
+      acceptsNoSelection: manifestContract.selection.acceptsNoSelection,
+      inputUnit: manifestContract.selection.inputUnit,
+      selectionValidation: manifestContract.selection.validation,
       parameters: Object.keys(manifest.parameters || {}),
-      resultEvidence: workflowResultEvidence(entry),
+      resultEvidence: manifestContract.resultEvidence,
     };
   });
 }
@@ -904,29 +882,6 @@ export function parseHostBridgeWorkflowAgentRunRequest(
   };
 }
 
-function workflowSelectionValidationSummary(workflow: LoadedWorkflow) {
-  const validateSelection = workflow.manifest.validateSelection;
-  return validateSelection
-    ? {
-        policy: validateSelection.select?.policy,
-        excludes: (validateSelection.exclude || []).map((entry) => entry.kind),
-        derives: validateSelection.derive || [],
-      }
-    : undefined;
-}
-
-function workflowProviderRequirements(workflow: LoadedWorkflow) {
-  const providerType = String(workflow.manifest.provider || "").trim();
-  const requestKind = String(workflow.manifest.request?.kind || "").trim();
-  const acceptedProviderTypes =
-    providerType === "skillrunner" ? ["skillrunner", "acp"] : [providerType];
-  return {
-    requestKind,
-    acceptedProviderTypes: acceptedProviderTypes.filter(Boolean),
-    requiredCapabilities: requestKind ? [requestKind] : [],
-  };
-}
-
 export async function describeHostBridgeWorkflow(
   payload: HostBridgeWorkflowDescribeRequest,
 ): Promise<HostBridgeWorkflowDescribeResult> {
@@ -948,26 +903,29 @@ export async function describeHostBridgeWorkflow(
     autoSelectFallbackProfile: false,
     ignoreSavedSettings: true,
   });
-  const agentRequiredParameters = listMissingRequiredWorkflowParameters(
-    workflow.manifest,
-    {},
-  );
+  const manifestContract = projectWorkflowManifestContract(workflow.manifest);
+  const agentRequiredParameters = manifestContract.requiredWorkflowOptions;
   return {
     workflowId: workflow.manifest.id,
     workflowLabel: localizeWorkflowLabel(workflow),
     description: normalizeString(workflow.manifest.description),
-    declaredExecutionModes: workflow.manifest.executionModes || ["auto"],
-    resultEvidence: workflowResultEvidence(workflow),
+    declaredExecutionModes: manifestContract.executionModes,
+    resultEvidence: manifestContract.resultEvidence,
     selection: {
-      acceptsNoSelection: canWorkflowRunWithoutSelection(workflow.manifest),
-      inputUnit: workflow.manifest.inputs?.unit,
-      selectionValidation: workflowSelectionValidationSummary(workflow),
+      acceptsNoSelection: manifestContract.selection.acceptsNoSelection,
+      inputUnit: manifestContract.selection.inputUnit,
+      selectionValidation: manifestContract.selection.validation,
     },
     workflowOptions: {
       schema: descriptor.workflowSchemaEntries,
       normalized: descriptor.workflowParams,
     },
-    providerRequirements: workflowProviderRequirements(workflow),
+    providerRequirements: {
+      ...manifestContract.providerRequirements,
+      requiredCapabilities: manifestContract.providerRequirements.requestKind
+        ? [manifestContract.providerRequirements.requestKind]
+        : [],
+    },
     executionModes: {
       hostOwned: {
         supported: true,

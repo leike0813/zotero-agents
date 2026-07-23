@@ -63,6 +63,65 @@ Topic 创建与更新有不同身份要求：从明确新 seed 创建；只更�
 
 只有当前证据已满足前置条件时，才能跳过某阶段。从首个缺失稳定 receipt 或 artifact 处恢复；绝不能仅因后续 export 失败而重跑更早 mutation 或 maintenance。
 
+## 派生模型决策记录
+
+当多个 Synthesis 模型都可能回答问题时，使用决策记录：
+
+```text
+research_question:
+selected_model:
+alternative_models_considered:
+selection_reason:
+source_scope:
+model_identity_or_schema:
+freshness_status:
+paging_or_slice_boundary:
+excluded_interpretations:
+follow_on_read:
+```
+
+可用于判别的典型选择：
+
+- 选择 topic membership 建立 paper set，再选择 topic report 进行叙述性综合；
+- 选择 graph slice 获取有界 neighborhood，选择 metrics 获取计算结构属性，选择 source read 进行学术解释；
+- 当 paper set 由 tag、collection 与 ref 组合定义，而非来自现有 topic 时，选择 resolver；
+- 在 artifact read 前选择 artifact manifest；内容选择会影响结果时，在 export 前先 read；
+- 仅使用 attention queue 排定 review candidate 优先级，提出 maintenance 前先诊断所属模型。
+
+只有备选方案确实合理且会改变解释时才记录被拒方案。这样既能审计决策，也不会把每次简单读取都变成 planning artifact。
+
+## Maintenance 前置条件与 receipt
+
+| Maintenance operation | 所需前置证据 | 需保留的 receipt field | 需检查的 postcondition |
+| --- | --- | --- | --- |
+| Reference-sidecar refresh | 明确 paper scope 与当前 sidecar 诊断 | Operation ID、successful/failed ref、retryability、basis hash | Sidecar status 与逐论文结果 |
+| Citation-graph update | 已提交 scope 与兼容的预期 reference basis | Operation ID、scope、basis comparison、result partition | Graph status 与请求的 slice/overview |
+| Graph metric refresh | 现有 graph state 与缺失/过期 metric 诊断 | Operation ID、metric scope、approval、failure | 请求的持久 metrics |
+| 受支持的 cache invalidation | 已命名 cache scope，以及无法安全读取过期状态的原因 | Operation ID、invalidated scope、state change | 对所属模型进行 fresh read |
+| Topic create/update workflow | Create 使用 new seed；update 使用现有 topic identity | Workflow run、interaction、terminal state | Topic identity、membership、report |
+
+保守解释 receipt：
+
+- `stateChange: applied` 表示已声明 operation 改变了状态，不表示每个下游 model 或 export 都已完成；
+- partial success 只确立成功 partition，失败 ref 不得进入依赖 freshness 的主张；
+- handle consumption 不确定时，重试前必须查询 receipt；
+- terminal workflow receipt 仍需检查承诺的 topic、Product、report 或 artifact；
+- basis mismatch 是诊断边界，不是省略 expected basis 的许可。
+
+如果 operation 报告没有变更，应区分“已经最新”“scope 为空”与“请求被拒”。只有第一种可以在不采取其他操作的情况下满足 freshness 前置条件。
+
+## Export 证据矩阵
+
+| Export 路径 | 传输前身份 | 字节级证据 | 允许的持久性主张 |
+| --- | --- | --- | --- |
+| Product asset download | Product ID 与所选 asset | 返回的 filename/media type、size，以及提供时的 checksum | 该 Product asset 的已验证本地副本 |
+| Synthesis artifact export | Artifact manifest entry 与请求的 format/filter | Export handle 加已验证字节 | 已命名 artifact 的本地 export |
+| Workflow output file | Workflow run 与 output/artifact mapping | Output schema 加 file checksum/size | 已生成 workflow artifact |
+| Zotero attachment delivery | 实时 parent 与 attachment ref | 签发的 file handle 加已验证字节 | 现有 attachment 的读取副本 |
+| 将 export 结果附加到 Zotero | Source Product/artifact、uploaded file handle、target parent | Source 与 upload checksum 加实时 child ref | 仅在实时确认后的持久 Zotero attachment |
+
+Export manifest 或 file path 证明已经发现，不证明交付成功。已验证本地文件证明交付，不证明 Zotero attachment。如果最终 bundle 包含多个 asset，逐一清点 role 与 checksum，并说明哪些 asset 被有意排除。
+
 ## 恢复与易错边界
 
 - graph edge、cluster 或 ranking 都只是计算关系，除非来源证据支持更强主张。

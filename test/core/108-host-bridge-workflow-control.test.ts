@@ -62,6 +62,10 @@ import {
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { ZipBundleReader } from "../../src/workflows/zipBundleReader";
 import type { LoadedWorkflow } from "../../src/workflows/types";
+import {
+  compatibleBackendTypesForManifest,
+  projectWorkflowManifestContract,
+} from "../../src/workflows/manifestContract";
 import type { JobRecord } from "../../src/jobQueue/manager";
 import { getPref, setPref } from "../../src/utils/prefs";
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
@@ -238,6 +242,74 @@ describe("host bridge workflow control", function () {
     resetRuntimeBridgeOverrideForTests();
     setDebugModeOverrideForTests();
     setPref("hostBridgeDisableWriteApproval", false);
+  });
+
+  it("projects one static workflow manifest contract for runtime and catalog consumers", function () {
+    const entry = workflow("catalog-contract");
+    entry.manifest.provider = "skillrunner";
+    entry.manifest.request = {
+      kind: "skillrunner.sequence.v1",
+      sequence: { steps: [] },
+    };
+    entry.manifest.executionModes = ["interactive"];
+    entry.manifest.parameters = {
+      scope: { type: "string", required: true },
+      language: { type: "string", default: "en-US" },
+    };
+    entry.manifest.result = {
+      fetch: { type: "bundle" },
+      expects: {
+        result_json: "result/result.json",
+        artifacts: ["artifacts/report.md"],
+      },
+    };
+
+    assert.deepEqual(compatibleBackendTypesForManifest(entry.manifest), [
+      "skillrunner",
+      "acp",
+    ]);
+    assert.deepEqual(projectWorkflowManifestContract(entry.manifest), {
+      executionModes: ["interactive"],
+      providerRequirements: {
+        requestKind: "skillrunner.sequence.v1",
+        acceptedProviderTypes: ["skillrunner", "acp"],
+      },
+      requiredWorkflowOptions: ["scope"],
+      resultEvidence: {
+        fetchType: "bundle",
+        resultJson: "result/result.json",
+        artifacts: ["artifacts/report.md"],
+        applyBack: true,
+      },
+      selection: {
+        acceptsNoSelection: false,
+        inputUnit: "parent",
+        accepts: undefined,
+        perParent: undefined,
+        validation: undefined,
+      },
+    });
+    assert.deepEqual(
+      compatibleBackendTypesForManifest({
+        ...entry.manifest,
+        provider: "acp",
+      }),
+      ["acp", "skillrunner"],
+    );
+    assert.deepEqual(
+      compatibleBackendTypesForManifest({
+        ...entry.manifest,
+        provider: "generic-http",
+      }),
+      ["generic-http"],
+    );
+    assert.deepEqual(
+      compatibleBackendTypesForManifest({
+        ...entry.manifest,
+        provider: "pass-through",
+      }),
+      ["pass-through"],
+    );
   });
 
   it("lists loaded workflows without exposing implementation paths", async function () {
@@ -1321,6 +1393,59 @@ describe("host bridge workflow control", function () {
       monitorable: false,
       requiresApplyBack: true,
     });
+  });
+
+  it("uses the shared static projection in workflow list and describe", async function () {
+    const entry = workflow("projected-workflow");
+    entry.manifest.provider = "skillrunner";
+    entry.manifest.request = {
+      kind: "skillrunner.job.v1",
+      skill_id: "projected-workflow",
+    };
+    entry.manifest.parameters = {
+      scope: { type: "string", required: true },
+    };
+    entry.manifest.result = {
+      fetch: { type: "result" },
+      expects: {
+        result_json: "result/result.json",
+        artifacts: ["artifacts/report.md"],
+      },
+    };
+    const projection = projectWorkflowManifestContract(entry.manifest);
+    installWorkflowRegistryForTests([entry]);
+    const token = configureHostBridgeServerForTests({
+      token: "workflow-token",
+    });
+
+    const listed = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/workflows",
+    });
+    const described = await bridgeRequest({
+      token,
+      method: "POST",
+      path: "/bridge/v1/workflows/describe",
+      body: { workflowId: "projected-workflow" },
+    });
+
+    assert.deepEqual(
+      listed.json.result.workflows[0].resultEvidence,
+      projection.resultEvidence,
+    );
+    assert.deepEqual(
+      described.json.result.resultEvidence,
+      projection.resultEvidence,
+    );
+    assert.deepInclude(
+      described.json.result.providerRequirements,
+      projection.providerRequirements,
+    );
+    assert.deepEqual(
+      described.json.result.executionModes.agentOwned.requiredParameters,
+      projection.requiredWorkflowOptions,
+    );
   });
 
   it("validates workflow input and reports requirements without starting a run", async function () {

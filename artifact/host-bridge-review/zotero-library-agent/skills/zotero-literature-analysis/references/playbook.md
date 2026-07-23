@@ -52,6 +52,67 @@ Agent 自主执行遵循协调器 handoff 合同：检查每个请求、按各�
 
 完成需要覆盖请求分析维度，明确不可用证据，保证结论可追溯，并清楚区分 extraction 与 inference。宁可给出较小但真实的答案，也不要给出暗示阅读了未读内容的宽泛报告。
 
+## 分析交付物模式
+
+依据用户需要做出的决策选择模式：
+
+| 交付物 | 内部结构 | 证据重点 |
+| --- | --- | --- |
+| 聚焦论文摘要 | 问题、答案、支持段落、局限 | 最强可用来源层级与精确 locator |
+| 方法提取 | Population/data、design、variable、procedure、analysis、validity limit | 平行 field；缺失处填写 `not available` |
+| 结果提取 | Outcome、estimate/direction、condition、uncertainty、author interpretation | Table/figure/section 与分析单位 |
+| 跨论文比较 | 稳定维度、逐论文条目、一致点、矛盾点 | 等价来源层级，或显式的不对称 |
+| 主张—证据图 | Claim、source statement、evidence type、support/challenge relation | 区分作者主张与 Agent inference |
+| 批注综合 | Reader theme、引用/标记段落、comment、开放问题 | Annotation identity、position 与 parent source |
+| Workflow artifact 审计 | Expected output、schema validity、source basis、content adequacy | Run identity 加每个已检查 artifact |
+
+一份交付物可以组合多种模式，但每个 section 应保持一种证据语法。例如，比较可以包含短摘要，但结论仍须指向共享比较维度，而不能仅依赖叙述摘要。
+
+对于结构化输出，在提取前选择稳定 field name。对于叙述输出，当答案跨越多篇论文或多个来源层级时，应先构建内部证据表，避免流畅文字掩盖支持缺失。
+
+## 比较与矛盾处理
+
+解释结果前先建立比较框架：
+
+```text
+comparison question:
+unit of comparison:
+dimensions:
+source level per item:
+normalization decisions:
+missing-value policy:
+contradiction test:
+```
+
+在认定矛盾之前，先对表面分歧分类：
+
+| 差异 | 诊断问题 | 报告方式 |
+| --- | --- | --- |
+| Population 或 corpus | 研究对象、dataset 或 period 是否不同？ | 条件性差异，而非直接矛盾 |
+| Construct 或 measure | 相似 label 是否代表不同 variable？ | 保留 definition，避免数值比较 |
+| Method 或 model | Design choice 能否解释结果？ | 比较 assumption 与 sensitivity |
+| Outcome direction | Estimate 是否针对相同 outcome 与 scale？ | 对齐后才可认定直接矛盾 |
+| Interpretation | 作者是否从兼容 finding 推导出不同 mechanism？ | 区分实证一致与解释分歧 |
+| Version 或 edition | 来源是否在版本之间变化？ | 把主张归于确切版本 |
+| Evidence level | 某项结论是否仅基于 abstract 或 annotation？ | 标出不对称；不得拉平置信度 |
+
+完成对齐后矛盾仍存在时，呈现各方最强支持、相关方法差异，以及能够判别它们的额外证据。除非任务明确定义系统聚合方法，否则不得以票数解决分歧。
+
+## 证据缺口矩阵
+
+| 缺口 | 仍可支持的内容 | 不可支持的内容 | 下一项有用证据 |
+| --- | --- | --- | --- |
+| 仅书目记录 | Identity 与已索引出版事实 | Method、finding、argument | Abstract 或 full text |
+| 仅 abstract | Abstract 陈述的目的与概括性结果 | 详细 procedure、robustness、细致 limitation | Full text 或已验证 analysis artifact |
+| Page/chunk 缺失 | 已检查部分中的主张 | 跨缺口的连续性 | 完整交付或特定页面来源 |
+| OCR 不确定 | 带置信说明的近似可见内容 | 对损坏文本的精确引用 | Native PDF/text 或人工检查 |
+| Note 缺少 source locator | Reader interpretation | 归因于论文 | 已定位 passage 或 annotation |
+| 混合版本 | 特定版本主张 | 统一的论文级结论 | 版本解析与比较 |
+| Workflow artifact 缺少 source basis | 把 artifact 内容作为分析对象 | 声称其忠实代表论文 | Manifest/source mapping 或直接读取 |
+| 比较中一个 item 失败 | 对成功 item 的结论 | 完整集合比较 | 恢复该 item 或收窄已声明 scope |
+
+缺口处理属于交付物本身，而非仅是失败附录。说明答案是被收窄、主张被削弱，还是任务受阻。如果缺失证据只影响一个维度，应保留其余分析并隔离该维度。
+
 ## 恢复与易错边界
 
 - 仅有摘要的来源不能回答全文方法或结果问题；应请求缺失来源，或返回有界摘要分析。

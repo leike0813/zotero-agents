@@ -63,6 +63,65 @@ For a complete bounded research bundle, maintain independent stage evidence:
 
 Each stage may be skipped only when current evidence already satisfies its precondition. Resume from the first missing stable receipt or artifact; never rerun earlier mutation or maintenance merely because a later export failed.
 
+## Derived-model decision records
+
+Use a decision record when more than one Synthesis model could answer the question:
+
+```text
+research_question:
+selected_model:
+alternative_models_considered:
+selection_reason:
+source_scope:
+model_identity_or_schema:
+freshness_status:
+paging_or_slice_boundary:
+excluded_interpretations:
+follow_on_read:
+```
+
+Examples of discriminating choices:
+
+- choose topic membership to establish the paper set, then topic report for narrative synthesis;
+- choose graph slice for a bounded neighborhood, metrics for computed structural properties, and source reads for scholarly interpretation;
+- choose resolver when the paper set is defined by combined tags, collections, and refs rather than an existing topic;
+- choose artifact manifest before artifact read, and read before export when content selection matters;
+- choose attention queue only to prioritize review candidates, then diagnose the owning model before proposing maintenance.
+
+Record rejected alternatives only when they were plausible and would have changed the interpretation. This keeps the decision auditable without turning every simple read into a planning artifact.
+
+## Maintenance preconditions and receipts
+
+| Maintenance operation | Required precondition evidence | Receipt fields to retain | Postcondition to inspect |
+| --- | --- | --- | --- |
+| Reference-sidecar refresh | Explicit paper scope and current sidecar diagnosis | Operation ID, successful/failed refs, retryability, basis hash | Sidecar status and per-paper result |
+| Citation-graph update | Committed scope and compatible expected reference basis | Operation ID, scope, basis comparison, result partition | Graph status and requested slice/overview |
+| Graph metric refresh | Existing graph state and missing/stale metric diagnosis | Operation ID, metric scope, approval, failures | Requested persisted metrics |
+| Supported cache invalidation | Named cache scope and reason stale state cannot be read safely | Operation ID, invalidated scope, state change | Fresh read of the owning model |
+| Topic create/update workflow | New seed for create or existing topic identity for update | Workflow run, interactions, terminal state | Topic identity, membership, report |
+
+Interpret receipts conservatively:
+
+- `stateChange: applied` means the declared operation changed state, not that every downstream model or export is now complete;
+- partial success establishes only the successful partition and leaves failed refs outside freshness-sensitive claims;
+- uncertain handle consumption requires receipt lookup before retry;
+- a terminal workflow receipt still needs the promised topic, Product, report, or artifact inspection;
+- a basis mismatch is a diagnostic boundary, not permission to omit the expected basis.
+
+If the operation reports no change, distinguish “already current” from “scope empty” and “request rejected”. Only the first can satisfy a freshness precondition without another action.
+
+## Export evidence matrix
+
+| Export path | Identity before transfer | Byte-level evidence | Persistence claim allowed |
+| --- | --- | --- | --- |
+| Product asset download | Product ID and selected asset | Returned filename/media type, size, checksum when supplied | Local verified copy of that Product asset |
+| Synthesis artifact export | Artifact manifest entry and requested format/filter | Export handle plus verified bytes | Local export of the named artifact |
+| Workflow output file | Workflow run and output/artifact mapping | Output schema plus file checksum/size | Produced workflow artifact |
+| Zotero attachment delivery | Live parent and attachment ref | Issued file handle plus verified bytes | Read copy of the existing attachment |
+| Attach exported result to Zotero | Source Product/artifact, uploaded file handle, target parent | Source and upload checksums plus live child ref | Persisted Zotero attachment only after live confirmation |
+
+An export manifest or file path proves discovery, not successful delivery. A verified local file proves delivery, not Zotero attachment. If the final bundle contains several assets, inventory each role and checksum and state which assets were intentionally excluded.
+
 ## Recovery and near misses
 
 - A graph edge, cluster, or ranking is a computed relationship until source evidence supports a stronger claim.

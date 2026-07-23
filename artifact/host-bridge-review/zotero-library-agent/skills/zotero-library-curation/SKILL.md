@@ -17,12 +17,23 @@ description: 规划并执行已获批准、边界明确的 Zotero 文献库维�
 
 ## 工作流
 
-1. 阅读[策展操作手册](references/playbook.md)，解析每个实时目标，并且只检查与请求变更相关的字段、membership、笔记、附件、Product 或 readiness 事实。
-2. 构建具体 proposal，包含当前状态、期望状态、修正来源、受影响对象、预期副作用、备选方案及最小可审阅批次。
-3. 对具体操作选择直接语义 mutation；对已审阅 payload 选择通用 preview/apply 路径；仍需分类、生成或多步业务逻辑时选择工作流。
-4. 在当前 Zotero 端权限边界呈现建议的精确 effect。将获批 scope 执行一次，并保留 operation、workflow、file、Product 与 apply-back receipt。
-5. 重新读取每个受影响实时对象，并分别分类 completed、unchanged、partial、denied、failed 与 unverified 结果。
-6. 返回 `zotero-library-task.result.v1`，包含变更前后身份证据、持久 receipt 以及为审阅生成的任何 artifact。
+### 解析目标与 proposal
+
+1. 解析每个实时目标，并且只检查与请求变更相关的当前 field、membership、note、payload、attachment、Product、relation 或 readiness 事实。
+2. 陈述期望状态与修正证据。公开 conflict、alternative、受影响 child 或相关 record，以及任何会使 target 产生歧义或具有破坏性的后果。
+3. 构建最小可审阅 proposal，包含逐 target 的 before/after 状态、精确 effect、修正来源、预期副作用、artifact/file 流程与 batch 边界。
+
+### 选择并授权写入
+
+4. target 与 effect 明确时使用直接语义 mutation；对已审阅 payload 使用通用 preview/apply；只有仍需 classification、generation、provider execution 或可复用多步业务逻辑时才使用 workflow。
+5. 对文件回写，验证本地 artifact，上传并保留签发的 `fileId`，通过获批 mutation 把它附加到已解析 parent，并区分每个身份。
+6. 在当前 Zotero 端权限边界呈现精确 proposal。将获批 scope 执行一次，并保留 preview、operation/workflow handle、approval outcome、file/Product 事实与 apply-back receipt。
+
+### 验证并恢复结果
+
+7. 重新读取每个受影响实时对象，并与获批 proposal 比较。分别分类 completed、unchanged、partial、denied、failed、unattempted 与 unverified 结果。
+8. 对部分或不确定状态，使用持久 receipt 与实时 target，只计算 residual delta。不得重放已验证成功项，也不得在没有新审阅 proposal 时开始补偿性写入。
+9. 返回 `zotero-library-task.result.v1`，包含 before/after 身份证据、持久 receipt、remaining delta 以及为审阅生成的任何 artifact。
 
 ## 硬约束
 
@@ -49,4 +60,4 @@ LLM 负责目标解释、期望状态推理、修正证据、批次划分、muta
 
 ## 参考资料
 
-选择 mutation 或 workflow、修改 notes/tags/collections/files、处理 Product 或 readiness、划分变更批次，或恢复部分/不确定结果前，阅读[策展操作手册](references/playbook.md)。
+当任务需要 change-type 决策矩阵、note/payload/file/Product 身份流程、破坏性变更审阅、异构 batching、operation-receipt 解释、部分执行分析或 residual-delta 恢复时，查阅[完整策展操作手册](references/playbook.md)。
