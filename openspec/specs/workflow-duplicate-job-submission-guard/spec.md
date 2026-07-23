@@ -85,3 +85,24 @@ pending 执行单元参与重复判定；已结束任务、已取消的 Host 排
 - **WHEN** 用户正在处理重复确认，且原 Host 排队单元已进入正式提交流程
 - **THEN** 系统 SHALL 以正式任务身份进行最终重复校验
 - **AND** 同一原单元 SHALL NOT 被重复报告为两个冲突
+
+### Requirement: Duplicate protection SHALL treat a prepared group atomically
+The duplicate guard SHALL compare every prepared-unit member identity against active and queued identity indexes. Any conflict SHALL produce one confirmation for the entire immutable group.
+
+#### Scenario: One member of a group conflicts
+- **WHEN** one member identity in a multi-member unit is already active or queued
+- **THEN** the system asks once for the group and either accepts or skips the whole unit without deleting individual members
+
+### Requirement: Queue identity indexes SHALL include all group members
+Internal Host queue indexes SHALL associate every stable member identity with its top-level unit, while public queue snapshots SHALL expose only a safe group label and member count.
+
+#### Scenario: Public queue state is read
+- **WHEN** a grouped unit is queued
+- **THEN** conflict lookup can find each internal member identity but the public snapshot omits the full selection payload and identity list
+
+### Requirement: Accepted duplicate groups SHALL be rechecked without regrouping
+After the user allows a duplicate group, admission SHALL recheck current conflicts and SHALL retain the exact confirmed membership.
+
+#### Scenario: Queue state changes during confirmation
+- **WHEN** a conflicting queued unit is canceled or admitted while confirmation is open
+- **THEN** the guard rechecks current identity indexes and does not replan or partially rewrite the candidate group

@@ -99,7 +99,7 @@ For comparison:
 
 For workflow-produced analysis:
 
-1. Verify the workflow selection matches its declared input unit.
+1. Verify the workflow selection matches its declared candidate-production and execution-input contracts.
 2. Validate options and provider profile separately.
 3. Preserve one run outcome per submitted source.
 4. Inspect every promised artifact.
@@ -125,7 +125,7 @@ Analytical method:
 
 Workflow output:
 
-- Selection matches the workflow input unit.
+- Selection matches the workflow candidate-production and execution-input contracts.
 - Options and provider readiness were validated.
 - Each source has its own run outcome.
 - Every promised artifact exists and was inspected.

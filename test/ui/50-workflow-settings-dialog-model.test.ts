@@ -107,11 +107,13 @@ describe("workflow Host settings dialog model", function () {
           unitId: "unit-1",
           taskName: "First",
           inputUnitIdentity: "parent-id:1",
+          memberCount: 1,
         }),
         Object.freeze({
           unitId: "unit-2",
           taskName: "Second",
           inputUnitIdentity: "parent-id:2",
+          memberCount: 1,
         }),
       ]),
     });
@@ -143,14 +145,14 @@ describe("workflow Host settings dialog model", function () {
     const twoUnits = Object.freeze({
       status: "success" as const,
       units: Object.freeze([
-        Object.freeze({ unitId: "unit-1", taskName: "First" }),
-        Object.freeze({ unitId: "unit-2", taskName: "Second" }),
+        Object.freeze({ unitId: "unit-1", taskName: "First", memberCount: 1 }),
+        Object.freeze({ unitId: "unit-2", taskName: "Second", memberCount: 1 }),
       ]),
     });
     const oneUnit = Object.freeze({
       status: "success" as const,
       units: Object.freeze([
-        Object.freeze({ unitId: "unit-1", taskName: "Only" }),
+        Object.freeze({ unitId: "unit-1", taskName: "Only", memberCount: 3 }),
       ]),
     });
 

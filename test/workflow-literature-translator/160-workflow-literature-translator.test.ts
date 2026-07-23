@@ -7,7 +7,7 @@ import {
   executeApplyResult,
   executeBuildRequests,
 } from "../../src/workflows/runtime";
-import { evaluateWorkflowSelection } from "../../src/workflows/workflowSelectionValidation";
+import { evaluateWorkflowSelection } from "../../src/workflows/workflowInputPlanning";
 import {
   ensureDir,
   existsPath,
@@ -113,8 +113,8 @@ describe("workflow: literature-translator", function () {
       "fast",
       "high_quality",
     ]);
-    assert.equal(workflow.manifest.inputs?.unit, "attachment");
-    assert.deepEqual(workflow.manifest.inputs?.accepts?.mime, [
+    assert.equal(workflow.manifest.inputs.member.kind, "attachment");
+    assert.deepEqual(workflow.manifest.inputs.member.accepts?.mime, [
       "text/markdown",
       "text/x-markdown",
       "text/plain",
@@ -187,9 +187,10 @@ describe("workflow: literature-translator", function () {
         ...loadedWorkflow.manifest,
         validateSelection: {
           ...loadedWorkflow.manifest.validateSelection,
-          exclude: [
+          filters: [
             {
-              kind: "artifact-exists" as const,
+              kind: "artifact-absent" as const,
+              phase: "execute" as const,
               target: "translator-markdown" as const,
               parameter: "output_variant",
             },
@@ -276,14 +277,17 @@ describe("workflow: literature-translator", function () {
       __stats?: {
         totalUnits?: number;
         skippedUnits?: number;
+        candidateStats?: { total?: number; skipped?: number };
       };
     };
 
     assert.lengthOf(requests, 1);
     assert.equal(requests[0].sourceAttachmentPaths?.[0], keep.filePath);
     assert.notEqual(requests[0].sourceAttachmentPaths?.[0], skip.filePath);
-    assert.equal(requests.__stats?.totalUnits, 2);
-    assert.equal(requests.__stats?.skippedUnits, 1);
+    assert.equal(requests.__stats?.totalUnits, 1);
+    assert.equal(requests.__stats?.skippedUnits, 0);
+    assert.equal(requests.__stats?.candidateStats?.total, 2);
+    assert.equal(requests.__stats?.candidateStats?.skipped, 1);
   });
 
   it("reports no valid input units when every selected source already has target markdown", async function () {
@@ -316,8 +320,10 @@ describe("workflow: literature-translator", function () {
 
     assert.isOk(thrown, "expected all existing translations to be skipped");
     assert.equal((thrown as { code?: string }).code, "NO_VALID_INPUT_UNITS");
-    assert.equal((thrown as { totalUnits?: number }).totalUnits, 1);
-    assert.equal((thrown as { skippedUnits?: number }).skippedUnits, 1);
+    assert.equal((thrown as { totalUnits?: number }).totalUnits, 0);
+    assert.equal((thrown as { skippedUnits?: number }).skippedUnits, 0);
+    assert.equal((thrown as { candidateTotal?: number }).candidateTotal, 1);
+    assert.equal((thrown as { candidateSkipped?: number }).candidateSkipped, 1);
   });
 
   it("materializes translated markdown next to source and does not duplicate linked attachment", async function () {

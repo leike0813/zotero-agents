@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 2,
   "id": "mineru",
   "label": "MinerU",
   "description": "Convert selected PDF attachments into structured Markdown and image artifacts and attach the result to Zotero.",
@@ -44,19 +45,35 @@
       }
     }
   },
+  "trigger": {
+    "requiresSelection": true
+  },
   "inputs": {
-    "unit": "attachment",
-    "accepts": {
-      "mime": ["application/pdf"]
+    "member": {
+      "kind": "attachment",
+      "accepts": {
+        "mime": [
+          "application/pdf"
+        ]
+      }
+    },
+    "grouping": {
+      "mode": "each"
     }
   },
   "validateSelection": {
     "select": {
-      "policy": "pdf-attachment"
+      "policy": "input-member",
+      "source": "related"
     },
-    "exclude": [
+    "filters": [
       {
-        "kind": "artifact-exists",
+        "kind": "source-file-exists",
+        "phase": "availability"
+      },
+      {
+        "kind": "artifact-absent",
+        "phase": "availability",
         "target": "mineru-markdown"
       }
     ]

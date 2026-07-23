@@ -155,7 +155,7 @@ Gitee feed mirror 是可用性 fallback，发布失败或滞后不应阻断 GitH
   `y` 表示向后兼容能力新增，`z` 表示 bugfix、UI、安装器或订阅逻辑修复。
 - 官方 Workflow 包版本：独立 semver。仅 Workflow 包升级时只 bump 内容包版本，
   不 bump 插件版本。
-- 内容运行时协议版本：`content_api`。当前插件支持版本为 `2.0.0`。Workflow
+- 内容运行时协议版本：`content_api`。当前插件支持版本为 `3.0.0`。Workflow
   包需要新运行时能力时，优先通过 `requires.content_api` 表达。
 
 ### Feed 与兼容性字段
@@ -168,10 +168,10 @@ Gitee feed mirror 是可用性 fallback，发布失败或滞后不应阻断 GitH
   "version": "0.1.0",
   "channel": "stable",
   "debug_content": false,
-  "content_api": "1.0.0",
+  "content_api": "3.0.0",
   "requires": {
     "plugin": ">=0.4.0 <0.5.0",
-    "content_api": "^1.0.0",
+    "content_api": "^3.0.0",
     "zotero": ">=7 <10"
   },
   "artifact": {
@@ -218,12 +218,12 @@ Manifest 契约由以下 schema 唯一定义（SSOT）：
 
 ### hooks.preflight
 
-`hooks.preflight` 是执行阶段的可选规划钩子，运行位置在 SelectionContext
-按 workflow 输入规则拆分之后、`buildRequest` 或声明式 request 编译之前。
+`hooks.preflight` 是执行阶段的可选规划钩子，运行位置在 v2 planner 生成
+不可变顶层执行单元之后、`buildRequest` 或声明式 request 编译之前。
 
 职责边界：
 
-- 只做读侧判断、计划生成、输入单元替换或短路 apply 输入生成。
+- 只做当前顶层单元内的读侧判断、request 展开或短路 apply 输入生成。
 - 不直接写 Zotero；所有写入仍必须走 `applyResult + handlers`。
 - 不生成 provider request；provider request 的唯一事实源仍是 `buildRequest` 或声明式 `request`。
 - 不参与菜单启用、debug 分类或 Host Bridge readiness。可见性仍由 manifest selection policy 和 validation metadata 决定。
@@ -239,8 +239,8 @@ type PreflightOutcome =
   | { kind: "skip"; reason?: string };
 ```
 
-`replace-units` 可把一个输入单元展开成多个虚拟单元；每个虚拟单元仍然走普通
-`buildRequest`。当同时声明 aggregate v1：
+`replace-units` 可把一个顶层单元展开成多个 request；这些 request 仍共同占用
+一个 Host 并发槽，并分别走普通 `buildRequest`。当同时声明 aggregate v1：
 
 ```json
 {
@@ -277,9 +277,19 @@ child 的 request、runResult、resultContext、bundleReader 和 preflight conte
 
 ```json
 {
+  "schemaVersion": 2,
   "id": "minimal-pass-through",
   "label": "Minimal Pass Through",
   "provider": "pass-through",
+  "trigger": { "requiresSelection": true },
+  "inputs": {
+    "member": { "kind": "parent" },
+    "grouping": { "mode": "each" }
+  },
+  "validateSelection": {
+    "select": { "policy": "input-member", "source": "selected" },
+    "filters": []
+  },
   "hooks": {
     "applyResult": "hooks/applyResult.js"
   }
@@ -290,9 +300,11 @@ child 的 request、runResult、resultContext、bundleReader 和 preflight conte
 
 ```json
 {
+  "schemaVersion": 2,
   "id": "declarative-skillrunner",
   "label": "Declarative SkillRunner",
   "provider": "skillrunner",
+  "trigger": { "requiresSelection": true },
   "parameters": {
     "language": {
       "type": "string",
@@ -302,10 +314,23 @@ child 的 request、runResult、resultContext、bundleReader 和 preflight conte
     }
   },
   "inputs": {
-    "unit": "attachment",
-    "accepts": {
-      "mime": ["text/markdown"]
-    }
+    "member": {
+      "kind": "attachment",
+      "accepts": { "mime": ["text/markdown"] }
+    },
+    "grouping": { "mode": "each" }
+  },
+  "validateSelection": {
+    "require": {
+      "selection": {
+        "counts": { "attachments": { "min": 1 } },
+        "allowMixed": false
+      }
+    },
+    "select": { "policy": "input-member", "source": "selected" },
+    "filters": [
+      { "kind": "source-file-exists", "phase": "availability" }
+    ]
   },
   "execution": {
     "mode": "auto",
@@ -333,7 +358,6 @@ child 的 request、runResult、resultContext、bundleReader 和 preflight conte
     }
   },
   "hooks": {
-    "filterInputs": "hooks/filterInputs.js",
     "applyResult": "hooks/applyResult.js"
   }
 }
@@ -346,7 +370,7 @@ child 的 request、runResult、resultContext、bundleReader 和 preflight conte
 - buildRequest 能力必需，但实现方式二选一：
   - `hooks.buildRequest`
   - `request`（声明式）
-- 例外：当 `provider = "pass-through"` 时，允许最小声明（仅 `hooks.applyResult`，可选 `hooks.filterInputs`），runtime 会补全 request。
+- 例外：当 `provider = "pass-through"` 时，允许省略 `request`，runtime 会补全请求；v2 的 trigger、inputs 与 validateSelection 仍须显式声明。
 - 两者同时存在时，优先 `hooks.buildRequest`。
 - `provider` 必须显式声明，是 workflow 可用 backend 类型的唯一推断来源；`request.kind` 只描述请求协议/形状，不参与 backend 兼容性推断。
 - `execution.feedback.showNotifications`（可选，默认 `true`）语义：
@@ -414,9 +438,8 @@ describe`、`workflow validate-input`、`workflow profile describe` 与
   - 完整 `selectionContext`
   - `parameter`（workflow 参数）
   - `targetParentID/taskName/sourceAttachmentPaths`
-- 对未声明 `inputs.unit` 的 pass-through workflow，默认按整份选择上下文执行；
-  - 若过滤后仅包含 `notes` 且数量 > 1，会按“每 note 一单元”拆分；
-  - 若过滤后仅包含 `parents` 且数量 > 1，会按“每 parent 一单元”拆分。
+- pass-through 不再隐式推断或拆分输入单元；它与其他 provider 共同消费 v2 planner 产出的顶层执行单元。
+- `inputs.grouping.mode` 决定顶层单元：`each` 逐候选、`all` 聚合全部候选、`parent` 按稳定 parent identity 分组。
 
 ### skillrunner.job.v1 关键约束
 
@@ -440,11 +463,16 @@ describe`、`workflow validate-input`、`workflow profile describe` 与
   本身通过 registry 校验
 - `result.final_step_id` 必须指向其中一个 step
 
-## 输入筛选策略
+## 输入规划协议
 
-- 声明式 `inputs` 负责一阶筛选（unit/mime/per_parent）
-- 复杂裁决放到 `hooks.filterInputs`
-- 若最终合法输入单元为 0，执行阶段会报“无合法输入”并进入跳过提示
+`inputs` 与 `validateSelection` 是两个不能互换的契约：
+
+- `inputs` 是消费方契约。`member.kind` 唯一声明 request/preflight 接收的原子成员类型；`member.accepts.mime` 仅约束 attachment 成员；`grouping.mode` 决定成员如何组成顶层执行单元。
+- `validateSelection` 是生产方契约。`require.selection` 对原始选择校验一次，`select` 产生有序候选，`filters` 按顺序过滤候选，`require.candidates` 再校验过滤后的候选数量。
+- `trigger.requiresSelection` 只控制空选择是否允许进入规划，不替代 selection requirements。
+- `preflight` 在 grouping 之后运行，可以为当前顶层单元 replace/expand request，但不能改变顶层单元或 Host 并发槽。
+
+confirmed planning 是执行正确性的唯一事实源；menu/preview 只应用 availability-safe 规则。即使未声明 candidate count，零候选也会以“无合法输入”结束。
 
 ## 运行时兼容
 
@@ -511,7 +539,7 @@ Hook 接收的 `runtime` 对象包含：
 
 ## 失败语义
 
-- 当输入经声明式规则与 `filterInputs` 处理后为空：workflow 跳过并返回 `no valid input units`。
+- 当候选经 member compatibility 与声明式 filters 处理后为空：workflow 跳过并返回 `no valid input units`。
 - 当最小声明 workflow 既无 `request` 又非 `pass-through`：loader 视为无效并跳过。
 - 当 provider/请求种类不匹配：执行期失败并进入任务失败汇总。
 
@@ -563,10 +591,10 @@ Hook 接收的 `runtime` 对象包含：
 
 ### 输入约束
 
-- 输入单元是 PDF 附件；每个 PDF 独立一条请求任务。
+- `inputs.member.kind` 为 attachment，MIME 仅接受 PDF，`grouping.mode` 为 `each`；每个 PDF 形成一个顶层执行单元。
 - 直接选 PDF：一附件一任务。
 - 选父条目：自动展开其子 PDF 附件并一附件一任务。
-- 仅当目标目录存在同名 `<pdfBaseName>.md` 时，输入在 `filterInputs` 阶段被跳过。
+- 仅当目标目录存在同名 `<pdfBaseName>.md` 时，候选在 execute-phase `artifact-absent` filter 中被跳过。
 - 若本次触发所有候选 PDF 都命中该冲突，则 workflow 不提交任何 job，执行汇总中 `skipped` 等于候选输入总数。
 - 若仅部分候选命中冲突，则仅提交未冲突 PDF，执行汇总中 `skipped` 为被剔除数量。
 - 若仅存在 `Images_<itemKey>` 目录而无同名 `.md`，不跳过。

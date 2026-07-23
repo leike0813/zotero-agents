@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 2,
   "id": "tag-regulator",
   "label": "Tag Regulator",
   "description": "Normalize and infer selected literature tags against the controlled vocabulary.",
@@ -9,8 +10,23 @@
     "core": true,
     "emoji": "🏷️"
   },
+  "trigger": {
+    "requiresSelection": true
+  },
   "inputs": {
-    "unit": "parent"
+    "member": {
+      "kind": "parent"
+    },
+    "grouping": {
+      "mode": "each"
+    }
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "input-member",
+      "source": "selected"
+    },
+    "filters": []
   },
   "request": {
     "kind": "skillrunner.job.v1",

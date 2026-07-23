@@ -121,6 +121,7 @@ describe("skillrunner model catalog", function () {
       } as any,
     );
     assert.deepEqual(normalizedWithoutCache, {
+      acpModeId: "ignored-without-cache",
       autoApproveAcpPermissions: true,
       hard_timeout_seconds: 30,
     });

@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 2,
   "id": "debug-apply-result-then-bundle",
   "label": "Debug: Apply Result Then Bundle",
   "description": "Run the Debug: Apply Result Then Bundle diagnostic workflow to verify its named workflow-engine behavior.",
@@ -10,7 +11,12 @@
     "requiresSelection": false
   },
   "inputs": {
-    "unit": "workflow"
+    "member": {
+      "kind": "selection"
+    },
+    "grouping": {
+      "mode": "all"
+    }
   },
   "parameters": {
     "skip_result_step": {
@@ -18,6 +24,12 @@
       "title": "Skip result step",
       "default": false
     }
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "selection"
+    },
+    "filters": []
   },
   "request": {
     "kind": "skillrunner.sequence.v1",

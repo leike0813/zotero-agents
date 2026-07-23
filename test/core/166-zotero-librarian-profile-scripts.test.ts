@@ -59,7 +59,17 @@ if (args.join(" ") === "context selection get") {
 } else if (args.join(" ").startsWith("workflow describe")) {
   out({ result: {
     workflowId: args[args.indexOf("--workflow") + 1],
-    selection: { inputUnit: "attachment", acceptsNoSelection: false },
+    selection: {
+      acceptsNoSelection: false,
+      inputs: {
+        member: { kind: "attachment" },
+        grouping: { mode: "each" }
+      },
+      validateSelection: {
+        select: { policy: "input-member", source: "selected" },
+        filters: []
+      }
+    },
     provider: { required: false },
     options: { required: [] }
   } });
@@ -157,6 +167,7 @@ describe("zotero-librarian resident service", function () {
     assert.deepEqual(selected.data.selectionRefs, [
       { key: "ATT1", libraryId: 1 },
       { key: "ATT2", libraryId: 1 },
+      { key: "NOTE1", libraryId: 1 },
     ]);
     assert.strictEqual(selected.data.path, planPath);
     assert.deepEqual(
@@ -169,13 +180,30 @@ describe("zotero-librarian resident service", function () {
     );
     assert.isString(selected.data.plan.planId);
     assert.isString(selected.data.plan.planDigest);
+    assert.deepEqual(selected.data.inputs, {
+      member: { kind: "attachment" },
+      grouping: { mode: "each" },
+    });
+    assert.deepEqual(selected.data.validateSelection, {
+      select: { policy: "input-member", source: "selected" },
+      filters: [],
+    });
+    assert.deepEqual(selected.data.plan.submissions, [
+      {
+        itemRefs: [
+          { key: "ATT1", libraryId: 1 },
+          { key: "ATT2", libraryId: 1 },
+          { key: "NOTE1", libraryId: 1 },
+        ],
+      },
+    ]);
     const validateCalls = fs
       .readFileSync(log, "utf8")
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line))
       .filter((args) => args[0] === "workflow" && args[1] === "validate");
-    assert.lengthOf(validateCalls, 2);
+    assert.lengthOf(validateCalls, 1);
     for (const args of validateCalls) assert.include(args, "--selection");
 
     const relative = runPython(
@@ -235,28 +263,6 @@ describe("zotero-librarian resident service", function () {
     assert.strictEqual(
       submitted.data.launched[0].workflowRunId,
       "workflow-run-ATT1",
-    );
-    const second = payload(
-      runPython(
-        [
-          "--bridge",
-          bridge,
-          "--db",
-          db,
-          "workflow",
-          "submit",
-          "--plan",
-          planPath,
-          "--allow-submit",
-          "--concurrency",
-          "1",
-        ],
-        { FAKE_BRIDGE_LOG: log },
-      ),
-    );
-    assert.strictEqual(
-      second.data.launched[0].workflowRunId,
-      "workflow-run-ATT2",
     );
     const exhausted = runPython(
       [
@@ -344,16 +350,13 @@ describe("zotero-librarian resident service", function () {
         ],
         {
           FAKE_BRIDGE_LOG: log,
-          FAKE_BRIDGE_FAIL_SUBMIT_KEY: "ATT2",
+          FAKE_BRIDGE_FAIL_SUBMIT_KEY: "ATT1",
         },
       ),
     );
     assert.strictEqual(attention.status, "attention");
-    assert.strictEqual(
-      attention.data.launched[0].workflowRunId,
-      "workflow-run-ATT1",
-    );
-    assert.strictEqual(attention.data.unknown.ordinal, 1);
+    assert.deepEqual(attention.data.launched, []);
+    assert.strictEqual(attention.data.unknown.ordinal, 0);
     const retry = runPython(
       [
         "--bridge",

@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 2,
   "id": "debug-host-bridge-connectivity-sequence-probe",
   "label": "Debug: Host Bridge Connectivity Sequence Probe",
   "description": "Run the Debug: Host Bridge Connectivity Sequence Probe diagnostic workflow to verify its named workflow-engine behavior.",
@@ -10,7 +11,12 @@
     "requiresSelection": false
   },
   "inputs": {
-    "unit": "workflow"
+    "member": {
+      "kind": "selection"
+    },
+    "grouping": {
+      "mode": "all"
+    }
   },
   "parameters": {
     "probeDepth": {
@@ -25,6 +31,12 @@
       "default": "auto",
       "enum": ["auto", "local", "remote"]
     }
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "selection"
+    },
+    "filters": []
   },
   "execution": {
     "zoteroHostAccess": {

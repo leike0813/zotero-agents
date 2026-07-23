@@ -394,10 +394,19 @@ async function createRecoveryApplyWorkflowRoot(
   await fs.writeFile(
     path.join(workflowDir, "workflow.json"),
     JSON.stringify({
+      schemaVersion: 2,
       id: workflowId,
       label: "Recovered Sequence Apply Workflow",
       provider: "acp",
       trigger: { requiresSelection: false },
+      inputs: {
+        member: { kind: "selection" },
+        grouping: { mode: "all" },
+      },
+      validateSelection: {
+        select: { policy: "selection" },
+        filters: [],
+      },
       request: {
         kind: "skillrunner.sequence.v1",
         sequence: {
@@ -483,25 +492,31 @@ function createFinalOutputAdapter(resultJson: Record<string, unknown>) {
   } satisfies AcpConnectionAdapter;
 }
 
-function createKiloNoneFallbackAdapter() {
+function createKiloRejectedReasoningAdapter(args: {
+  effortId: string;
+  errorCode: number;
+}) {
   const base = createFinalOutputAdapter({ ok: true });
   const configSelections: string[] = [];
   let promptCount = 0;
   return {
     adapter: {
       ...base,
-      prompt: async (args: { sessionId: string; message: string }) => {
+      prompt: async (request: { sessionId: string; message: string }) => {
         promptCount += 1;
-        return base.prompt(args);
+        return base.prompt(request);
       },
-      setConfigOption: async (args: {
+      setConfigOption: async (request: {
         sessionId: string;
         category: string;
         value: string;
       }) => {
-        configSelections.push(`${args.category}:${args.value}`);
-        if (args.category === "thought_level" && args.value === "none") {
-          throw new RequestError(-32602, "invalid reasoning effort");
+        configSelections.push(`${request.category}:${request.value}`);
+        if (
+          request.category === "thought_level" &&
+          request.value === args.effortId
+        ) {
+          throw new RequestError(args.errorCode, "rejected reasoning effort");
         }
         return true;
       },
@@ -509,29 +524,6 @@ function createKiloNoneFallbackAdapter() {
     configSelections,
     getPromptCount: () => promptCount,
   };
-}
-
-function createKiloRejectedReasoningAdapter(args: {
-  effortId: string;
-  errorCode: number;
-}) {
-  const base = createFinalOutputAdapter({ ok: true });
-  return {
-    ...base,
-    setConfigOption: async (request: {
-      sessionId: string;
-      category: string;
-      value: string;
-    }) => {
-      if (
-        request.category === "thought_level" &&
-        request.value === args.effortId
-      ) {
-        throw new RequestError(args.errorCode, "rejected reasoning effort");
-      }
-      return true;
-    },
-  } satisfies AcpConnectionAdapter;
 }
 
 function createPromptStopAdapter(args: {
@@ -967,11 +959,59 @@ describe("ACP SkillRunner-compatible runner", function () {
     seedRecoveredRunBackendsForTests();
   });
 
-  it("fails closed when Kilo rejects explicit reasoning before the first prompt", async function () {
+  for (const effortId of ["none", "high"] as const) {
+    it(`falls back when Kilo rejects explicit ${effortId} reasoning`, async function () {
+      const root = await mkTempRoot();
+      const { entry } = await createSkill(root);
+      const { adapter, configSelections, getPromptCount } =
+        createKiloRejectedReasoningAdapter({
+          effortId,
+          errorCode: -32602,
+        });
+      try {
+        const result = await runDemoAcpSkill({
+          root,
+          entry,
+          adapter,
+          backend: createBackend({
+            acp: {
+              agentFamily: "kilo",
+              runtimeOptionsCache: {
+                reasoningEfforts: [
+                  { id: "high", label: "High" },
+                  { id: "none", label: "None" },
+                ],
+                reasoningSource: "explicit",
+              },
+            },
+          }),
+          providerOptions: { acpReasoningEffort: effortId },
+        });
+        const fallback = getAcpSkillRunRecord(result.requestId)?.events.find(
+          (event) => event.stage === "provider-profile-option-fallback",
+        );
+
+        assert.equal(result.status, "succeeded");
+        assert.equal(getPromptCount(), 1);
+        assert.deepEqual(configSelections, [`thought_level:${effortId}`]);
+        assert.equal(
+          fallback?.details?.reasonCode,
+          "provider_profile_reasoning_effort_fallback",
+        );
+      } finally {
+        await fs.rm(root, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it("preserves Kilo reasoning errors outside the fallback boundary", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root);
     const { adapter, configSelections, getPromptCount } =
-      createKiloNoneFallbackAdapter();
+      createKiloRejectedReasoningAdapter({
+        effortId: "none",
+        errorCode: -32000,
+      });
     try {
       let caught: unknown;
       try {
@@ -983,7 +1023,10 @@ describe("ACP SkillRunner-compatible runner", function () {
             acp: {
               agentFamily: "kilo",
               runtimeOptionsCache: {
-                reasoningEfforts: [{ id: "none", label: "None" }],
+                reasoningEfforts: [
+                  { id: "high", label: "High" },
+                  { id: "none", label: "None" },
+                ],
                 reasoningSource: "explicit",
               },
             },
@@ -993,7 +1036,6 @@ describe("ACP SkillRunner-compatible runner", function () {
       } catch (error) {
         caught = error;
       }
-
       assert.instanceOf(caught, Error);
       assert.equal(getPromptCount(), 0);
       assert.deepEqual(configSelections, ["thought_level:none"]);
@@ -1001,47 +1043,6 @@ describe("ACP SkillRunner-compatible runner", function () {
       await fs.rm(root, { recursive: true, force: true });
     }
   });
-
-  for (const { effortId, errorCode } of [
-    { effortId: "high", errorCode: -32602 },
-    { effortId: "none", errorCode: -32000 },
-  ]) {
-    it(`preserves Kilo reasoning errors for ${effortId} with ${errorCode}`, async function () {
-      const root = await mkTempRoot();
-      const { entry } = await createSkill(root);
-      try {
-        let caught: unknown;
-        try {
-          await runDemoAcpSkill({
-            root,
-            entry,
-            adapter: createKiloRejectedReasoningAdapter({
-              effortId,
-              errorCode,
-            }),
-            backend: createBackend({
-              acp: {
-                agentFamily: "kilo",
-                runtimeOptionsCache: {
-                  reasoningEfforts: [
-                    { id: "high", label: "High" },
-                    { id: "none", label: "None" },
-                  ],
-                  reasoningSource: "explicit",
-                },
-              },
-            }),
-            providerOptions: { acpReasoningEffort: effortId },
-          });
-        } catch (error) {
-          caught = error;
-        }
-        assert.instanceOf(caught, Error);
-      } finally {
-        await fs.rm(root, { recursive: true, force: true });
-      }
-    });
-  }
 
   afterEach(async function () {
     await flushAcpSkillRunAuditTrailWritesForTests();
@@ -1702,9 +1703,19 @@ describe("ACP SkillRunner-compatible runner", function () {
     await fs.writeFile(
       path.join(workflowRoot, "workflow.json"),
       JSON.stringify({
+        schemaVersion: 2,
         id: workflowId,
         label: "Localized ACP Skill Workflow",
         provider: "acp",
+        trigger: { requiresSelection: false },
+        inputs: {
+          member: { kind: "selection" },
+          grouping: { mode: "all" },
+        },
+        validateSelection: {
+          select: { policy: "selection" },
+          filters: [],
+        },
         request: {
           kind: "skillrunner.job.v1",
           create: {

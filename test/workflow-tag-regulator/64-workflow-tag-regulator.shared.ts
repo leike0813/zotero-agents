@@ -744,7 +744,8 @@ function registerTagRegulatorRequestBuildingSegmentOne() {
   it("loads tag-regulator workflow manifest with buildRequest/applyResult hooks", async function () {
     const workflow = await getTagRegulatorWorkflow();
     assert.equal(workflow.manifest.provider, "skillrunner");
-    assert.equal(workflow.manifest.inputs?.unit, "parent");
+    assert.equal(workflow.manifest.inputs.member.kind, "parent");
+    assert.equal(workflow.manifest.inputs.grouping.mode, "each");
     assert.equal(workflow.manifest.request?.kind, "skillrunner.job.v1");
     assert.isFunction(workflow.hooks.buildRequest);
     assert.isFunction(workflow.hooks.applyResult);

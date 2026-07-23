@@ -40,18 +40,36 @@ async function createGenericWorkflowRoot() {
     joinPath(root, "workflow.json"),
     JSON.stringify(
       {
+        schemaVersion: 2,
         id: "generic-http-echo",
         label: "Generic HTTP Echo",
         provider: "generic-http",
+        trigger: {
+          requiresSelection: true,
+        },
         inputs: {
-          unit: "attachment",
-          accepts: {
-            mime: ["text/markdown", "text/x-markdown", "text/plain"],
+          member: {
+            kind: "attachment",
+            accepts: {
+              mime: ["text/markdown", "text/x-markdown", "text/plain"],
+            },
           },
-          per_parent: {
-            min: 1,
-            max: 1,
+          grouping: {
+            mode: "each",
           },
+        },
+        validateSelection: {
+          select: {
+            policy: "input-member",
+            source: "related",
+          },
+          filters: [
+            {
+              kind: "candidates-per-parent",
+              phase: "availability",
+              counts: { min: 1, max: 1 },
+            },
+          ],
         },
         request: {
           kind: "generic-http.request.v1",

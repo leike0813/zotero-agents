@@ -65,7 +65,10 @@ export function applyResult({ parent, bundleReader, runtime }) {
 
 ### Selection Validation Skips Every Unit
 
-If declarative `validateSelection` or `preflight` skips every input unit, the workflow will not submit any provider request. Check the selection policy, exclusion rules, and any `preflight` outcome that returns `kind: "skip"`.
+If declarative planning or `preflight` skips every top-level unit, the workflow
+will not submit a provider request. Check raw selection requirements, the
+selector/member compatibility, ordered filters, candidate requirements, and
+any `preflight` outcome that returns `kind: "skip"`.
 
 ### Conflict Between buildRequest and Declarative Request
 

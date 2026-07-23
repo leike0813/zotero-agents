@@ -292,6 +292,70 @@ describe("workflow Host submission queue", function () {
     await handle.completion;
   });
 
+  it("indexes every grouped member while exposing only label and count", async function () {
+    const queue = createQueue();
+    const gate = deferred<WorkflowExecutionUnitOutcome>();
+    const config = createConfig([{ id: "group" }], () => gate.promise);
+    const handle = queue.enqueueSubmission({
+      ...config,
+      units: [
+        {
+          unit: { id: "group" },
+          display: {
+            unitId: "group",
+            order: 0,
+            taskName: "Two papers",
+            inputUnitIdentity: "group:paper-a+paper-b",
+            memberIdentities: ["paper-a", "paper-b"],
+            memberCount: 2,
+          },
+        },
+      ],
+    });
+
+    assert.isTrue(
+      queue.hasActiveOrQueuedWorkflowInput({
+        workflowId: "workflow-a",
+        inputUnitIdentity: "paper-a",
+      }),
+    );
+    assert.isTrue(
+      queue.hasActiveOrQueuedWorkflowInput({
+        workflowId: "workflow-a",
+        inputUnitIdentity: "paper-b",
+      }),
+    );
+    assert.deepInclude(queue.listQueued()[0], {
+      taskName: "Two papers",
+      memberCount: 2,
+    });
+    assert.notProperty(queue.listQueued()[0], "inputUnitIdentity");
+    assert.notProperty(queue.listQueued()[0], "memberIdentities");
+
+    await flushMicrotasks();
+    assert.deepEqual(queue.listQueued(), []);
+    assert.isTrue(
+      queue.hasActiveOrQueuedWorkflowInput({
+        workflowId: "workflow-a",
+        inputUnitIdentity: "paper-a",
+      }),
+    );
+    assert.isTrue(
+      queue.hasActiveOrQueuedWorkflowInput({
+        workflowId: "workflow-a",
+        inputUnitIdentity: "paper-b",
+      }),
+    );
+    gate.resolve({ status: "succeeded" });
+    await handle.completion;
+    assert.isFalse(
+      queue.hasActiveOrQueuedWorkflowInput({
+        workflowId: "workflow-a",
+        inputUnitIdentity: "paper-a",
+      }),
+    );
+  });
+
   it("stops admission and discards pending units during shutdown", async function () {
     const queue = createQueue();
     const gate = deferred<WorkflowExecutionUnitOutcome>();

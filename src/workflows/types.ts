@@ -117,8 +117,22 @@ export type WorkflowSelectionCountRule = {
   exact?: number;
 };
 
-export type WorkflowValidateSelectionSpec = {
-  require?: {
+export type WorkflowInputMemberKind =
+  | "selection"
+  | "parent"
+  | "child"
+  | "attachment"
+  | "note"
+  | "generated-note"
+  | "digest-image-target";
+
+export type WorkflowInputGrouping =
+  | { mode: "each" }
+  | { mode: "all" }
+  | { mode: "parent" };
+
+export type WorkflowSelectionRequirements = {
+  selection?: {
     counts?: {
       parents?: WorkflowSelectionCountRule;
       attachments?: WorkflowSelectionCountRule;
@@ -128,49 +142,70 @@ export type WorkflowValidateSelectionSpec = {
     };
     allowMixed?: boolean;
   };
-  select?: {
-    policy?:
-      | "input-unit"
-      | "literature-source"
-      | "literature-parent"
-      | "pdf-attachment"
-      | "selected-parent"
-      | "generated-note-candidates"
-      | "digest-representative-image";
-    unit?: "attachment" | "parent" | "note" | "workflow";
-  };
-  exclude?: Array<
-    | {
-        kind: "generated-notes-all";
-        noteKinds: string[];
-      }
-    | {
-        kind: "artifact-exists";
-        target: "deep-reading-html" | "mineru-markdown";
-        parameter?: never;
-      }
-    | {
-        kind: "artifact-exists";
-        target: "translator-markdown";
-        parameter: string;
-      }
-  >;
-  derive?: Array<"exportCandidates" | "digestRepresentativeImageTarget">;
+  candidates?: WorkflowSelectionCountRule;
+};
+
+export type WorkflowSelectionSelector =
+  | {
+      policy: "input-member";
+      source: "selected" | "related";
+    }
+  | {
+      policy: "selection";
+    }
+  | {
+      policy: "literature-source";
+    }
+  | {
+      policy: "generated-note-candidates";
+    }
+  | {
+      policy: "digest-representative-image";
+    };
+
+export type WorkflowSelectionFilter =
+  | {
+      kind: "source-file-exists";
+      phase: "availability";
+    }
+  | {
+      kind: "candidates-per-parent";
+      phase: "availability";
+      counts: WorkflowSelectionCountRule;
+    }
+  | {
+      kind: "generated-note-kinds-absent";
+      phase: "availability";
+      noteKinds: string[];
+    }
+  | {
+      kind: "artifact-absent";
+      phase: "availability" | "execute";
+      target:
+        | "deep-reading-html"
+        | "mineru-markdown"
+        | "translator-markdown";
+      parameter?: string;
+    };
+
+export type WorkflowValidateSelectionSpec = {
+  require?: WorkflowSelectionRequirements;
+  select: WorkflowSelectionSelector;
+  filters: WorkflowSelectionFilter[];
 };
 
 export type WorkflowInputsSpec = {
-  unit: "attachment" | "parent" | "note" | "workflow";
-  accepts?: {
-    mime?: string[];
+  member: {
+    kind: WorkflowInputMemberKind;
+    accepts?: {
+      mime?: string[];
+    };
   };
-  per_parent?: {
-    min?: number;
-    max?: number;
-  };
+  grouping: WorkflowInputGrouping;
 };
 
 export type WorkflowTriggerSpec = {
-  requiresSelection?: boolean;
+  requiresSelection: boolean;
 };
 
 export type WorkflowExecutionSpec = {
@@ -265,6 +300,7 @@ export type WorkflowRequestSpec = {
 };
 
 export type WorkflowManifest = {
+  schemaVersion: 2;
   id: string;
   label: string;
   description?: string;
@@ -276,9 +312,9 @@ export type WorkflowManifest = {
   taskNameTemplate?: string;
   i18n?: WorkflowI18nSpec;
   parameters?: Record<string, WorkflowParameterSchema>;
-  inputs?: WorkflowInputsSpec;
-  validateSelection?: WorkflowValidateSelectionSpec;
-  trigger?: WorkflowTriggerSpec;
+  inputs: WorkflowInputsSpec;
+  validateSelection: WorkflowValidateSelectionSpec;
+  trigger: WorkflowTriggerSpec;
   execution?: WorkflowExecutionSpec;
   result?: WorkflowResultSpec;
   request?: WorkflowRequestSpec;

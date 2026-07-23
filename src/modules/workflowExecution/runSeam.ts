@@ -847,6 +847,14 @@ export function runWorkflowExecutionSeam(
     const taskName = resolveTaskNameFromRequest(request, index);
     const inputUnitIdentity = resolveInputUnitIdentityFromRequest(request);
     const inputUnitLabel = resolveInputUnitLabelFromRequest(request, index);
+    const inputMemberIdentities =
+      args.prepared.unit?.memberIdentities?.length > 0
+        ? [...args.prepared.unit.memberIdentities]
+        : inputUnitIdentity
+          ? [inputUnitIdentity]
+          : [];
+    const inputMemberCount =
+      args.prepared.unit?.memberCount || inputMemberIdentities.length;
     const skillId = resolveSkillIdFromRequest(request);
     const skillDisplay = resolveSkillRunnerSkillDisplay({
       skillDisplayById: args.prepared.skillDisplayById,
@@ -865,6 +873,8 @@ export function runWorkflowExecutionSeam(
         taskName,
         inputUnitIdentity,
         inputUnitLabel,
+        inputMemberIdentities,
+        inputMemberCount,
         targetParentID: resolveTargetParentIDFromRequest(request) ?? undefined,
         providerId: args.prepared.executionContext.providerId,
         providerOptions: args.prepared.executionContext.providerOptions,

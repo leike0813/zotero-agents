@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 2,
   "id": "tag-auditor",
   "label": "Tag Auditor",
   "description": "Audit selected literature tags against the controlled vocabulary without silently changing unrelated metadata.",
@@ -6,7 +7,22 @@
   "provider": "pass-through",
   "version": "0.1.0",
   "display": { "core": false, "emoji": "🔎" },
-  "trigger": { "requiresSelection": false },
-  "inputs": { "unit": "workflow" },
+  "trigger": {
+    "requiresSelection": false
+  },
+  "inputs": {
+    "member": {
+      "kind": "selection"
+    },
+    "grouping": {
+      "mode": "all"
+    }
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "selection"
+    },
+    "filters": []
+  },
   "hooks": { "applyResult": "hooks/applyResult.mjs" }
 }

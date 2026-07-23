@@ -154,63 +154,63 @@ export function preflight({ selectionContext }) {
 }
 ```
 
-### 첨부파일 필터링
-
-일반적인 첨부파일 필터링에는 선언적 `validateSelection`을 사용하세요:
+### Attachment Candidate Planning
 
 ```json
 {
+  "inputs": {
+    "member": {
+      "kind": "attachment",
+      "accepts": { "mime": ["application/pdf"] }
+    },
+    "grouping": { "mode": "each" }
+  },
   "validateSelection": {
-    "select": { "policy": "pdf-attachment" },
     "require": {
-      "counts": { "attachments": 1 },
-      "allowMixed": false
-    }
-  }
-}
-```
-
-해석된 유닛에 의존하는 런타임 전용 결정에는 `preflight`를 사용하여 건너뛰거나 계속 진행하세요:
-
-```js
-export function preflight({ selectionContext, runtime }) {
-  const { helpers } = runtime;
-
-  const hasPdf = selectionContext.items.attachments.some(
-    a => helpers.isPdfAttachment(a)
-  );
-
-  if (!hasPdf) {
-    return { kind: "skip", reason: "no PDF attachments" };
-  }
-
-  return { kind: "continue" };
-}
-```
-
-### 항목이 선택되지 않았을 때의 Workflow
-
-`inputs.unit: "workflow"`이고 `trigger.requiresSelection: false`일 때, 항목이 선택되지 않아도 Workflow를 트리거할 수 있습니다. 이 경우 `selectionContext.selectionType`은 `"none"`이고, `items`의 모든 배열이 비어 있습니다. 이 모드는 전역 작업(예: "주제 종합 생성")을 만드는 데 적합합니다.
-
-## 선언적 선택 검증
-
-Workflow에서 **이미 결과가 있는 항목을 건너뛰기** 또는 **특정 타입의 입력 필터링**만 필요하면, JavaScript 훅을 작성하지 않고도 선언적 `validateSelection` 필드를 사용할 수 있습니다.
-
-```json
-{
-  "validateSelection": {
-    "select": { "policy": "literature-source" },
-    "exclude": [
-      { "kind": "generated-notes-all", "noteKinds": ["digest"] }
+      "selection": {
+        "counts": { "attachments": { "min": 1 } },
+        "allowMixed": false
+      }
+    },
+    "select": { "policy": "input-member", "source": "selected" },
+    "filters": [
+      { "kind": "source-file-exists", "phase": "availability" }
     ]
   }
 }
 ```
 
-전체 문서는 [매니페스트 작성하기](manifest#selection-validation)를 참조하세요.
+`require.selection` reads the original SelectionContext once. The selector
+produces ordered candidates, attachment MIME compatibility runs before filters,
+and `inputs.grouping` creates immutable top-level units.
 
-> **선택 가이드:** 가능할 때마다 선언적 `validateSelection`을 사용하세요 — JavaScript가 필요 없고 유지보수도 필요 없습니다. 복잡한 선택 로직은 `buildRequest` 훅에서 구현할 수 있습니다.
+### Workflows Without Selected Items
 
+Use `member.kind: "selection"`, `grouping.mode: "all"`, the `selection`
+selector, and `trigger.requiresSelection: false`. The selector then produces
+the complete empty SelectionContext as the single member. Selection
+requirements remain active and must not make the empty selection impossible.
+
+## Declarative Candidate Filters
+
+```json
+{
+  "validateSelection": {
+    "select": { "policy": "generated-note-candidates" },
+    "filters": [
+      {
+        "kind": "generated-note-kinds-absent",
+        "phase": "availability",
+        "noteKinds": ["digest"]
+      }
+    ]
+  }
+}
+```
+
+`validateSelection` owns candidate production and filtering. `inputs` owns
+the execution member and grouping. Hooks consume the prepared unit and must not
+reconstruct selection planning.
 ## 다음 단계
 
 - [호스트 API 레퍼런스](host-api) — 훅에서 Zotero 데이터를 조작하기 위한 완전한 API

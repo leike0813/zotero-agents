@@ -16,7 +16,7 @@ The normal JSON shape is `zotero-librarian.operation-receipt.v1` with `operation
 | `index stats` | Local item count and refresh metadata | None | `ok` with `itemCount` and `lastRefresh` |
 | `workflow catalog-refresh` | Live workflow list and changed descriptions | Atomically upserts changed catalog entries | Number of `updated` definitions |
 | `workflow show <workflow-id>` | One cached workflow definition | None | `ok` with cached `workflow`; live describe is still required before execution |
-| `workflow plan --workflow ID --from-context --output ABS` | Live workflow description, current selection, and per-entry validation | Atomically writes and registers an immutable plan | Selection refs, input unit, plan/digests, and absolute `path` |
+| `workflow plan --workflow ID --from-context --output ABS` | Live workflow description, current selection, and batch validation | Atomically writes and registers an immutable plan | Selection refs, input and validation contracts, plan/digests, and absolute `path` |
 | `workflow submit --plan ABS --allow-submit [--concurrency N]` | Registered plan, live workflow contract, entry validation, and submit results | Reserves entries and registers launched runs | `launched`, `remaining`, or one `unknown` entry requiring attention |
 | `run register --run-id ID --workflow-id ID [--state S]` | Supplied identifiers | Upserts one watched run | Registered `runId` |
 | `run watch` | One live status read per non-terminal watched run | Updates changed run states | Current `runs`; unchanged means no transition |
@@ -42,7 +42,7 @@ For a library question, locate candidates locally, then invoke the inherited Que
 
 Catalog refresh lists current workflows and fetches descriptions only for new or changed summary digests. `workflow show` is fast local discovery; execution still requires a live workflow description, current execution modes, input validation, and any provider-profile validation owned by Generic.
 
-Resident planning reads the live workflow selection contract, preserves attachments for attachment workflows, normalizes children only for parent workflows, validates every actual entry, and writes `zotero-librarian.workflow-plan.v2` to an absolute path. Inspect the persisted file rather than reconstructing it from terminal output. The plan contains one validated submission per supported selected object, immutable identity/digests, and a default concurrency of one.
+Resident planning reads the live workflow selection contract, freezes the raw current selection as one batch, validates that batch, and writes `zotero-librarian.workflow-plan.v2` to an absolute path. Inspect the persisted file rather than reconstructing it from terminal output. Host planning remains responsible for candidate production, filtering, and immutable unit grouping. The plan contains one validated submission, immutable identity/digests, and a default concurrency of one.
 
 Submission launches only the first `--concurrency` entries in the reviewed plan during the current pass, records returned `workflowRunId` values, and reports the remainder. Later submissions require another current operator instruction. A run created outside the service can be added with `run register`; use only a real `workflowRunId` and its workflow ID.
 
@@ -221,12 +221,12 @@ scripts/zotero_librarian_service.py workflow plan \
 Before:
 
 - Confirm the workflow is the correct Generic task candidate.
-- Ensure current selection contains objects accepted by its live input unit.
-- Route required options, provider profiles, no-selection, grouped selections, and self-owned mode to Generic.
+- Ensure the current selection is the intended raw input for the live candidate-production contract.
+- Route required options, provider profiles, no-selection, and self-owned mode to Generic.
 
 Receipt:
 
-- `changed` with `selectionRefs`, `inputUnit`, plan object, and absolute `path`.
+- `changed` with `selectionRefs`, separate `inputs` and `validateSelection` contracts, plan object, and absolute `path`.
 - Plan includes `planId`, `planDigest`, workflow-description digest, entries, and concurrency one.
 
 Next:

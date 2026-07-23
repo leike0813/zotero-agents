@@ -13,7 +13,7 @@ import {
 } from "../providers/requestContracts";
 import { canWorkflowRunWithoutSelection } from "./triggerPolicy";
 import type { WorkflowManifest, WorkflowRequestSpec } from "./types";
-import type { WorkflowScopedSelectionContext } from "./workflowSelectionValidation";
+import type { WorkflowScopedSelectionContext } from "./workflowInputPlanning";
 
 type AttachmentLike = {
   filePath?: string | null;

@@ -41,6 +41,8 @@ export type WorkflowTaskRecord = {
   taskName: string;
   inputUnitIdentity?: string;
   inputUnitLabel?: string;
+  inputMemberIdentities?: string[];
+  inputMemberCount?: number;
   providerId?: string;
   requestKind?: string;
   backendId?: string;
@@ -121,6 +123,16 @@ const PREVIOUS_SESSION_INTERRUPTED_ERROR =
 function normalizeMetaString(meta: Record<string, unknown>, key: string) {
   const value = meta[key];
   return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeMetaStringList(meta: Record<string, unknown>, key: string) {
+  const value = meta[key];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return Array.from(
+    new Set(value.map((entry) => String(entry || "").trim()).filter(Boolean)),
+  );
 }
 
 function getTaskIdFromJob(job: JobRecord) {
@@ -283,6 +295,10 @@ export function buildWorkflowTaskRecordFromJob(
   const inputUnitIdentity = normalizeMetaString(job.meta, "inputUnitIdentity");
   const inputUnitLabel =
     normalizeMetaString(job.meta, "inputUnitLabel") || taskName;
+  const inputMemberIdentities = normalizeMetaStringList(
+    job.meta,
+    "inputMemberIdentities",
+  );
   const requestId = resolveRequestIdFromJob(job);
   const localRunId = resolveLocalRunIdFromJob(job);
   const skillName = normalizeMetaString(job.meta, "skillName");
@@ -349,6 +365,13 @@ export function buildWorkflowTaskRecordFromJob(
     taskName,
     inputUnitIdentity: inputUnitIdentity || undefined,
     inputUnitLabel: inputUnitLabel || undefined,
+    inputMemberIdentities:
+      inputMemberIdentities.length > 0 ? inputMemberIdentities : undefined,
+    inputMemberCount:
+      typeof job.meta.inputMemberCount === "number" &&
+      Number.isFinite(job.meta.inputMemberCount)
+        ? Math.max(0, Math.floor(job.meta.inputMemberCount))
+        : undefined,
     providerId: providerId || undefined,
     requestKind: requestKind || undefined,
     backendId: backendId || undefined,
@@ -475,6 +498,15 @@ function parsePersistedTaskRecord(raw: unknown): WorkflowTaskRecord | null {
     taskName,
     inputUnitIdentity: String(raw.inputUnitIdentity || "").trim() || undefined,
     inputUnitLabel: String(raw.inputUnitLabel || "").trim() || undefined,
+    inputMemberIdentities: normalizeMetaStringList(
+      raw,
+      "inputMemberIdentities",
+    ),
+    inputMemberCount:
+      typeof raw.inputMemberCount === "number" &&
+      Number.isFinite(raw.inputMemberCount)
+        ? Math.max(0, Math.floor(raw.inputMemberCount))
+        : undefined,
     providerId: String(raw.providerId || "").trim() || undefined,
     requestKind: String(raw.requestKind || "").trim() || undefined,
     backendId: String(raw.backendId || "").trim() || undefined,

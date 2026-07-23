@@ -2,7 +2,7 @@ import { assert } from "chai";
 import { handlers } from "../../src/handlers";
 import { createHookHelpers } from "../../src/workflows/helpers";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
-import { evaluateWorkflowSelection } from "../../src/workflows/workflowSelectionValidation";
+import { evaluateWorkflowSelection } from "../../src/workflows/workflowInputPlanning";
 import type { LoadedWorkflow } from "../../src/workflows/types";
 import { workflowsPath } from "./workflow-test-utils";
 

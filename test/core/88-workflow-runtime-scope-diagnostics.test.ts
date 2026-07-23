@@ -49,9 +49,19 @@ describe("workflow runtime scope diagnostics", function () {
     ensureWorkflowRuntimeBridgeInstalled();
     const workflow: LoadedWorkflow = {
       manifest: {
+        schemaVersion: 2,
         id: "diagnostic-build-request",
         label: "Diagnostic Build Request",
         provider: "pass-through",
+        trigger: { requiresSelection: true },
+        inputs: {
+          member: { kind: "parent" },
+          grouping: { mode: "each" },
+        },
+        validateSelection: {
+          select: { policy: "input-member", source: "selected" },
+          filters: [],
+        },
         hooks: {
           applyResult: "hooks/applyResult.js",
           buildRequest: "hooks/buildRequest.js",

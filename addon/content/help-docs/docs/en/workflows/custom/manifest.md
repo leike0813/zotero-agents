@@ -6,6 +6,7 @@
 
 ```json
 {
+  "schemaVersion": 2,
   "id": "my-workflow",
   "label": "My Workflow",
   "version": "1.0.0",
@@ -14,7 +15,15 @@
     "core": false,
     "emoji": "🔧"
   },
-  "inputs": { "unit": "parent" },
+  "trigger": { "requiresSelection": true },
+  "inputs": {
+    "member": { "kind": "parent" },
+    "grouping": { "mode": "each" }
+  },
+  "validateSelection": {
+    "select": { "policy": "input-member", "source": "selected" },
+    "filters": []
+  },
   "parameters": {},
   "execution": {},
   "request": { "kind": "pass-through.run.v1" },
@@ -69,49 +78,60 @@
 
 ### Input Definition
 
+`inputs` is the consumer contract: it declares the atomic member received by
+request construction and preflight, plus how members form top-level execution
+units. It does not validate the raw Zotero selection.
+
 ```json
 {
   "inputs": {
-    "unit": "attachment",
-    "accepts": {
-      "mime": ["text/markdown", "text/x-markdown", "application/pdf"]
+    "member": {
+      "kind": "attachment",
+      "accepts": {
+        "mime": ["text/markdown", "text/x-markdown", "application/pdf"]
+      }
     },
-    "per_parent": {
-      "min": 1,
-      "max": 1
-    }
+    "grouping": { "mode": "parent" }
   }
 }
 ```
 
 | Field | Description |
 |-------|-------------|
-| `unit` | **Input unit type**. `"attachment"` (attachment), `"parent"` (parent item), `"note"` (note), `"workflow"` (no item selection needed, triggered directly from Dashboard) |
-| `accepts.mime` | Accepted MIME types (only applicable when `unit: "attachment"`). If not specified, all types are accepted |
-| `per_parent.min` | Minimum number of attachments per parent item |
-| `per_parent.max` | Maximum number of attachments per parent item |
+| `member.kind` | Atomic candidate type: `selection`, `parent`, `child`, `attachment`, `note`, `generated-note`, or `digest-image-target` |
+| `member.accepts.mime` | MIME types accepted by an attachment execution member. Invalid for other member kinds |
+| `grouping.mode` | `each` creates one unit per candidate; `all` creates one aggregate unit; `parent` creates stable parent groups |
 
-When `unit: "workflow"`, no user-selected items are required to trigger (e.g., "Create Topic Synthesis").
+For `grouping: parent`, candidates without a stable parent identity are skipped
+as `missing-parent`; they are never merged into an anonymous group.
 
 ### validateSelection — Selection Validation {#selection-validation}
 
-`validateSelection` is declarative selection validation. It covers common scenarios like "skip items that already have results" or "only accept selections of specific types" — without writing any JavaScript.
+`validateSelection` is the candidate-production contract. It validates the raw
+selection once, produces ordered atomic candidates, applies ordered filters,
+then validates the remaining candidate count. It does not declare grouping.
 
 ```json
 {
   "validateSelection": {
-    "select": {
-      "policy": "literature-source"
-    },
     "require": {
-      "counts": {
-        "parents": 1
+      "selection": {
+        "counts": {
+          "parents": { "min": 1 },
+          "total": { "min": 1 }
+        },
+        "allowMixed": false
       },
-      "allowMixed": false
+      "candidates": { "min": 1 }
     },
-    "exclude": [
+    "select": {
+      "policy": "input-member",
+      "source": "related"
+    },
+    "filters": [
       {
-        "kind": "generated-notes-all",
+        "kind": "generated-note-kinds-absent",
+        "phase": "availability",
         "noteKinds": ["digest", "references", "citation-analysis"]
       }
     ]
@@ -124,16 +144,15 @@ When `unit: "workflow"`, no user-selected items are required to trigger (e.g., "
 | Field | Type | Description |
 |-------|------|-------------|
 | `select.policy` | string | Selection policy. Supported values below |
-| `select.unit` | string | Override the input unit for selection validation. `"attachment"` / `"parent"` / `"note"` / `"workflow"` |
+| `select.source` | string | For `input-member`, use only explicit `selected` members or expand stable `related` members |
 
 **Supported `select.policy` values:**
 
 | Policy | Description |
 |--------|-------------|
-| `input-unit` | Accept items matching the input unit |
-| `literature-source` | Accept literature sources (attachments or parent items with expandable attachments) |
-| `pdf-attachment` | Accept only PDF attachments |
-| `selected-parent` | Accept parent items from the selection |
+| `input-member` | Produce the member kind declared by `inputs.member.kind` from `selected` or `related` context |
+| `selection` | Produce the entire SelectionContext; requires `member.kind: selection` and `grouping.mode: all` |
+| `literature-source` | Produce one representative attachment for each literature source |
 | `generated-note-candidates` | Accept candidate items for generated notes |
 | `digest-representative-image` | Target items for representative image extraction |
 
@@ -141,31 +160,25 @@ When `unit: "workflow"`, no user-selected items are required to trigger (e.g., "
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `require.counts.parents` | number | Minimum required parent items |
-| `require.counts.attachments` | number | Minimum required attachment items |
-| `require.counts.notes` | number | Minimum required note items |
-| `require.counts.children` | number | Minimum required child items |
-| `require.counts.total` | number | Minimum total required items |
-| `require.allowMixed` | boolean | Whether mixing different item types in selection is allowed |
+| `require.selection.counts.<kind>` | CountRule | Raw selection cardinality for parents, children, attachments, notes, or total |
+| `require.selection.allowMixed` | boolean | Whether multiple raw selection kinds are allowed |
+| `require.candidates` | CountRule | Cardinality after selection, compatibility, and filters |
 
-### `exclude` — Exclusion Rules
+A CountRule is either `{ "exact": n }` or `{ "min": n, "max": n }`, using
+non-negative integers. `exact` cannot be combined with `min` or `max`.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `exclude[]` | array | List of exclusion rules. If any rule matches, the current item is skipped |
+### `filters` — Ordered Candidate Filters
 
-**Supported `exclude.kind` values:**
+Filters record the first skip reason for each candidate. Availability filters
+run in preview and again during confirmed execution; execute filters run only
+after settings are confirmed.
 
-| kind | Description | Additional Parameters |
-|------|-------------|----------------------|
-| `generated-notes-all` | The item already has generated notes of the specified type | `noteKinds`: list of note types, e.g., `["digest", "references", "citation-analysis"]` |
-| `artifact-exists` | The item already has the specified artifact (to avoid redundant execution) | `target`: `"deep-reading-html"` / `"translator-markdown"` / `"mineru-markdown"`; `parameter`: optional language parameter for artifact matching |
-
-### `derive` — Derived Selections
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `derive[]` | array | Derived selection operations. `"exportCandidates"` — derive candidates for note export; `"digestRepresentativeImageTarget"` — derive representative image targets from digest notes |
+| kind | Purpose |
+|------|---------|
+| `source-file-exists` | Require the source attachment file to exist |
+| `candidates-per-parent` | Enforce candidate cardinality independently for each parent |
+| `generated-note-kinds-absent` | Keep candidates whose parent does not already contain every declared generated-note kind |
+| `artifact-absent` | Keep candidates whose declared artifact is absent; parameter-dependent rules require `phase: "execute"` |
 
 **Example:**
 
@@ -173,14 +186,19 @@ When `unit: "workflow"`, no user-selected items are required to trigger (e.g., "
 {
   "validateSelection": {
     "select": { "policy": "literature-source" },
-    "exclude": [
-      { "kind": "artifact-exists", "target": "deep-reading-html" }
+    "filters": [
+      {
+        "kind": "artifact-absent",
+        "phase": "availability",
+        "target": "deep-reading-html"
+      }
     ]
   }
 }
 ```
 
-> In this example, items that already have the deep reading HTML artifact are automatically skipped, without requiring manual filtering by the user.
+> In this example, candidates that already have the deep-reading HTML artifact
+> are skipped before grouping.
 
 ### Trigger Control
 
@@ -194,7 +212,7 @@ When `unit: "workflow"`, no user-selected items are required to trigger (e.g., "
 
 | Field | Description |
 |-------|-------------|
-| `requiresSelection` | Whether user-selected items are required to trigger. Defaults to `true`. When set to `false`, the workflow can be run from the Dashboard without selecting any items. Usually set to `false` when `inputs.unit: "workflow"` |
+| `requiresSelection` | Required in schema v2. It controls only the empty-selection trigger gate; selection requirements may still reject a concrete selection |
 
 ### Execution Control
 
@@ -298,13 +316,14 @@ For detailed information on each `kind`, see [Request Kinds](#doc/workflows%2Fcu
 | Field | Required | Description |
 |-------|----------|-------------|
 | `applyResult` | ✅ | **Required**. Script path for post-execution result handling |
-| `preflight` | | Optional. Runs after selection resolution and before request construction. It can continue, skip, short-circuit to `applyResult`, or replace one input unit with virtual request units |
+| `preflight` | | Optional. Runs after grouping and before request construction. It can continue, skip, short-circuit to `applyResult`, or expand requests inside the same top-level unit |
 | `buildRequest` | | Optional. Build the request to be sent to the backend. Mutually exclusive with the `request` field |
 | `normalizeSettings` | | Optional. Normalize user-set parameters |
 
-> **Input filtering** has been replaced by the declarative `validateSelection` mechanism — see [Selection Validation](#selection-validation) below.
-
-`preflight` does not participate in menu enablement, debug-probe selection classification, or Host Bridge readiness checks. Keep selection constraints in `validateSelection`, keep provider request construction in `buildRequest` or `request`, and keep Zotero writes in `applyResult`.
+`preflight` does not participate in menu enablement, debug-probe selection
+classification, or Host Bridge readiness checks. Keep candidate production in
+`validateSelection`, grouping in `inputs`, provider request construction in
+`buildRequest` or `request`, and Zotero writes in `applyResult`.
 
 Paths are relative to the directory containing `workflow.json`.
 
@@ -330,15 +349,31 @@ See the [Localization](#doc/workflows%2Fcustom%2Flocalization) page for detailed
 
 ```json
 {
+  "schemaVersion": 2,
   "id": "my-literature-analysis",
   "label": "My Literature Analysis",
   "version": "1.0.0",
   "provider": "skillrunner",
   "display": { "emoji": "📄" },
+  "trigger": { "requiresSelection": true },
   "inputs": {
-    "unit": "attachment",
-    "accepts": { "mime": ["application/pdf"] },
-    "per_parent": { "min": 1, "max": 1 }
+    "member": {
+      "kind": "attachment",
+      "accepts": { "mime": ["application/pdf"] }
+    },
+    "grouping": { "mode": "each" }
+  },
+  "validateSelection": {
+    "require": {
+      "selection": {
+        "counts": { "attachments": { "min": 1 } },
+        "allowMixed": false
+      }
+    },
+    "select": { "policy": "input-member", "source": "selected" },
+    "filters": [
+      { "kind": "source-file-exists", "phase": "availability" }
+    ]
   },
   "parameters": {
     "language": {

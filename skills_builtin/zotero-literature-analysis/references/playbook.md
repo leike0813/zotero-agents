@@ -199,7 +199,7 @@ Preparation:
 
 1. Resolve each selected bibliographic item and attachment.
 2. Read the live workflow description.
-3. Confirm the workflow input unit and accepted media.
+3. Confirm the workflow member kind, grouping mode, and accepted media.
 4. Validate each selection.
 5. Validate options and provider profile separately.
 6. Present submission scope and current authority.

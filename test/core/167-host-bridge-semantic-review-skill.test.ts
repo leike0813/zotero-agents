@@ -207,23 +207,6 @@ describe("Host Bridge semantic surface review skill", function () {
     assert.notInclude(skill, "semantic/SKILL.md");
   });
 
-  it("pins the pre-refactor semantic baseline and requires zero-loss mapping", async function () {
-    const parity = await fs.readFile(
-      projectPath(
-        "openspec",
-        "changes",
-        "deepen-host-bridge-third-party-agent-guidance",
-        "semantic-parity.md",
-      ),
-      "utf8",
-    );
-    assert.include(parity, "4b9a3b4b0fab7fdcce54571ba07dd770b4d3219f");
-    assert.include(parity, "8b7dfd8ecb6063f5dd24a8dda3b09179a6d2817a");
-    assert.include(parity, "Unmapped semantic count: `0`");
-    assert.include(parity, "Downgraded semantic count: `0`");
-    assert.notMatch(parity, /\|\s*dropped\s*\|/i);
-  });
-
   it("requires semantic review before Host Bridge surface rendering in the release pipeline", async function () {
     const releaseSkill = await fs.readFile(
       projectPath(

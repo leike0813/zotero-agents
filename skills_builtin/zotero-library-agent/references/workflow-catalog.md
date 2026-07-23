@@ -28,7 +28,7 @@ Start from the research outcome, not from a workflow name:
 Then compare:
 
 1. **Outcome:** Does the description promise the deliverable the user requested?
-2. **Selection:** Does the live input unit accept the resolved items, parents, attachments, or no-selection form?
+2. **Selection:** Do the live execution-input contract and candidate-production contract accept the resolved selection?
 3. **Execution mode:** Is execution Zotero-managed or self-owned, and can the current agent satisfy that mode?
 4. **Options:** Which options are required, which have defaults, and which materially change scope or output?
 5. **Provider:** Is a backend profile required, compatible, configured, and separately validated?
@@ -62,7 +62,7 @@ Find library literature matching a collection meaning and add reviewed matches t
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/collection-collector/workflow.json`; core: `false`.
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
-- Selection: `{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
+- Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `["collection","collectionScope"]`.
 - Workflow options:
   - `collection`: `{"type":"string","required":true,"title":"Collection","description":"Existing Zotero collection that will receive matching literature.","allowCustom":false,"optionsSource":{"kind":"zotero.collections","library":"current","includeEmpty":false,"valueFormat":"collectionRef","labelFormat":"path"}}`.
@@ -79,11 +79,11 @@ Export selected literature and its generated analysis artifacts into a portable 
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/export-literature-bundle/workflow.json`; core: `false`.
 - Provider requirements: `{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
 - Execution modes: `["auto"]`.
-- Selection: `{"acceptsNoSelection":true,"inputUnit":"workflow","validation":{"excludes":[],"derives":[]}}`.
+- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"require":{"selection":{"allowMixed":false,"counts":{"parents":{"min":1},"attachments":{"exact":0},"notes":{"exact":0},"children":{"exact":0}}}},"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options: none declared.
 - Result evidence: `{"artifacts":[],"applyBack":true}`.
-- Invocation inputs: use workflow id `export-literature-bundle`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- Invocation inputs: use workflow id `export-literature-bundle`, validated `selection` members grouped by `all`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
 
 ### `export-research-bundle`
 
@@ -94,7 +94,7 @@ Export manuscript-oriented research materials, analyzed literature artifacts, an
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/export-research-bundle/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
-- Selection: `{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
+- Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
   - `paperTitle`: `{"type":"string","title":"Paper Title","description":"Working manuscript title used to find research materials."}`.
@@ -115,11 +115,11 @@ Export supported generated Zotero notes as editable external files.
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/export-notes/workflow.json`; core: `false`.
 - Provider requirements: `{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
 - Execution modes: `["auto"]`.
-- Selection: `{"acceptsNoSelection":true,"inputUnit":"workflow","validation":{"policy":"generated-note-candidates","excludes":[],"derives":["exportCandidates"]}}`.
+- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"generated-note"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"generated-note-candidates"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options: none declared.
 - Result evidence: `{"artifacts":[],"applyBack":true}`.
-- Invocation inputs: use workflow id `export-notes`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- Invocation inputs: use workflow id `export-notes`, validated `generated-note` members grouped by `all`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
 
 ### `import-literature-bundle`
 
@@ -130,7 +130,7 @@ Import a literature bundle and reconcile its supported Zotero literature artifac
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/import-literature-bundle/workflow.json`; core: `false`.
 - Provider requirements: `{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
 - Execution modes: `["auto"]`.
-- Selection: `{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
+- Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options: none declared.
 - Result evidence: `{"artifacts":[],"applyBack":true}`.
@@ -145,11 +145,11 @@ Import supported external analysis files and upsert their generated Zotero notes
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/import-notes/workflow.json`; core: `false`.
 - Provider requirements: `{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
 - Execution modes: `["auto"]`.
-- Selection: `{"acceptsNoSelection":false,"inputUnit":"parent","validation":{"policy":"selected-parent","excludes":[],"derives":[]}}`.
+- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"parent"},"grouping":{"mode":"each"}},"validation":{"require":{"selection":{"allowMixed":false,"counts":{"parents":{"exact":1},"attachments":{"exact":0},"notes":{"exact":0},"children":{"exact":0}}}},"select":{"policy":"input-member","source":"selected"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options: none declared.
 - Result evidence: `{"artifacts":[],"applyBack":true}`.
-- Invocation inputs: use workflow id `import-notes`, a validated `parent` selection, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- Invocation inputs: use workflow id `import-notes`, validated `parent` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
 
 ### `literature-explainer`
 
@@ -160,12 +160,12 @@ Run a stateful question-answering and study-note session for one literature sour
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-explainer/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
-- Selection: `{"acceptsNoSelection":false,"inputUnit":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]},"perParent":{"min":1,"max":1},"validation":{"policy":"literature-source","excludes":[],"derives":[]}}`.
+- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
   - `language`: `{"type":"string","title":"Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
 - Result evidence: `{"fetchType":"bundle","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
-- Invocation inputs: use workflow id `literature-explainer`, a validated `attachment` selection, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- Invocation inputs: use workflow id `literature-explainer`, validated `attachment` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
 
 ### `literature-deep-reading`
 
@@ -176,13 +176,13 @@ Produce and apply a detailed, evidence-grounded deep-reading analysis for one li
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-deep-reading/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
-- Selection: `{"acceptsNoSelection":false,"inputUnit":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]},"perParent":{"min":1,"max":1},"validation":{"policy":"literature-source","excludes":["artifact-exists"],"derives":[]}}`.
+- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[{"kind":"artifact-absent","phase":"availability","target":"deep-reading-html"}]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
   - `target_language`: `{"type":"string","title":"Target Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
   - `mode`: `{"type":"string","title":"Translation Mode","enum":["fast","high_quality"],"default":"fast"}`.
 - Result evidence: `{"fetchType":"bundle","resultJson":"literature-deep-reading.result.json","artifacts":["result/deep-reading.html","result/deep-reading-manifest.json"],"applyBack":true}`.
-- Invocation inputs: use workflow id `literature-deep-reading`, a validated `attachment` selection, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- Invocation inputs: use workflow id `literature-deep-reading`, validated `attachment` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
 
 ### `literature-analysis`
 
@@ -193,14 +193,14 @@ Analyze one literature source and apply its digest, structured references, citat
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-analysis/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
-- Selection: `{"acceptsNoSelection":false,"inputUnit":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]},"perParent":{"min":1,"max":1},"validation":{"policy":"literature-source","excludes":["generated-notes-all"],"derives":[]}}`.
+- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[{"kind":"generated-note-kinds-absent","phase":"availability","noteKinds":["digest","references","citation-analysis"]}]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
   - `language`: `{"type":"string","title":"Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
   - `auto_tag_regulator`: `{"type":"boolean","title":"Auto Tag Regulator","default":true}`.
   - `auto_tag_infer_tag`: `{"type":"boolean","title":"Infer tags","default":true,"visible_if":{"parameter":"auto_tag_regulator","equals":true}}`.
 - Result evidence: `{"fetchType":"bundle","resultJson":"result/result.json","artifacts":["artifacts/digest.md","artifacts/references.json","artifacts/citation_analysis.json"],"applyBack":true}`.
-- Invocation inputs: use workflow id `literature-analysis`, a validated `attachment` selection, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- Invocation inputs: use workflow id `literature-analysis`, validated `attachment` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
 
 ### `literature-translator`
 
@@ -211,13 +211,13 @@ Translate one literature source and apply the translated artifact while preservi
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-translator/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
-- Selection: `{"acceptsNoSelection":false,"inputUnit":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]},"perParent":{"min":1,"max":1},"validation":{"policy":"literature-source","excludes":["artifact-exists"],"derives":[]}}`.
+- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[{"kind":"artifact-absent","phase":"execute","target":"translator-markdown","parameter":"target_language"}]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
   - `target_language`: `{"type":"string","title":"Target Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
   - `mode`: `{"type":"string","title":"Mode","enum":["fast","high_quality"],"default":"fast"}`.
 - Result evidence: `{"fetchType":"bundle","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
-- Invocation inputs: use workflow id `literature-translator`, a validated `attachment` selection, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- Invocation inputs: use workflow id `literature-translator`, validated `attachment` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
 
 ### `literature-metadata-curator`
 
@@ -228,12 +228,12 @@ Audit and repair bibliographic metadata for selected literature using identifier
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-metadata-curator/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
-- Selection: `{"acceptsNoSelection":false,"inputUnit":"parent","validation":{"policy":"literature-parent","excludes":[],"derives":[]}}`.
+- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"parent"},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"input-member","source":"related"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
   - `skip_identifier_fast_path`: `{"type":"boolean","title":"Skip identifier fast path","description":"Bypass Zotero identifier lookup and run literature-metadata-search directly.","default":false}`.
 - Result evidence: `{"fetchType":"result","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
-- Invocation inputs: use workflow id `literature-metadata-curator`, a validated `parent` selection, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- Invocation inputs: use workflow id `literature-metadata-curator`, validated `parent` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
 
 ### `literature-search-ingest`
 
@@ -244,7 +244,7 @@ Search scholarly sources, review candidates, and ingest deduplicated literature 
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-search-ingest/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
-- Selection: `{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
+- Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
   - `query`: `{"type":"string","title":"Search Query","description":"Optional search query or seed. Leave blank with auto mode to start a guided search-planning conversation.","default":""}`.
@@ -264,7 +264,7 @@ Bootstrap the controlled tag vocabulary from current library evidence and review
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/tag-bootstrapper/workflow.json`; core: `false`.
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
-- Selection: `{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
+- Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
   - `tag_note_language`: `{"type":"string","title":"Tag Note Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
@@ -280,7 +280,7 @@ Audit selected literature tags against the controlled vocabulary without silentl
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/tag-auditor/workflow.json`; core: `false`.
 - Provider requirements: `{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
 - Execution modes: `["auto"]`.
-- Selection: `{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
+- Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options: none declared.
 - Result evidence: `{"artifacts":[],"applyBack":true}`.
@@ -295,13 +295,13 @@ Normalize and infer selected literature tags against the controlled vocabulary.
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/tag-regulator/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
-- Selection: `{"acceptsNoSelection":false,"inputUnit":"parent"}`.
+- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"parent"},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"input-member","source":"selected"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
   - `infer_tag`: `{"type":"boolean","title":"Infer Tag","default":true}`.
   - `tag_note_language`: `{"type":"string","title":"Tag Note Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
 - Result evidence: `{"fetchType":"result","artifacts":[],"applyBack":true}`.
-- Invocation inputs: use workflow id `tag-regulator`, a validated `parent` selection, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- Invocation inputs: use workflow id `tag-regulator`, validated `parent` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
 
 ### `mineru`
 
@@ -312,11 +312,11 @@ Convert selected PDF attachments into structured Markdown and image artifacts an
 - Package: `mineru`; manifest: `workflows_builtin/mineru/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"generic-http.steps.v1","acceptedProviderTypes":["generic-http"]}`.
 - Execution modes: `["auto"]`.
-- Selection: `{"acceptsNoSelection":false,"inputUnit":"attachment","accepts":{"mime":["application/pdf"]},"validation":{"policy":"pdf-attachment","excludes":["artifact-exists"],"derives":[]}}`.
+- Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"input-member","source":"related"},"filters":[{"kind":"source-file-exists","phase":"availability"},{"kind":"artifact-absent","phase":"availability","target":"mineru-markdown"}]}}`.
 - Required workflow options: `[]`.
 - Workflow options: none declared.
 - Result evidence: `{"artifacts":[],"applyBack":true}`.
-- Invocation inputs: use workflow id `mineru`, a validated `attachment` selection, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
+- Invocation inputs: use workflow id `mineru`, validated `attachment` members grouped by `each`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
 
 ### `create-topic-synthesis`
 
@@ -327,7 +327,7 @@ Create a new topic synthesis from a natural-language seed using the current libr
 - Package: `synthesis-layer`; manifest: `workflows_builtin/synthesis-layer/create-topic-synthesis/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
-- Selection: `{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
+- Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
   - `topicSeed`: `{"type":"string","title":"Topic Seed","description":"Natural-language topic seed for a new synthesis topic."}`.
@@ -344,7 +344,7 @@ Update an existing topic synthesis from its current resolver scope, evidence, an
 - Package: `synthesis-layer`; manifest: `workflows_builtin/synthesis-layer/update-topic-synthesis/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
-- Selection: `{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
+- Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
   - `topicId`: `{"type":"string","title":"Topic ID","description":"Existing synthesis topic id. The host derives update scope, mode, reason, and language from the selected topic.","allowCustom":false,"optionsSource":{"kind":"synthesis.topics","valueFormat":"topicId","labelFormat":"title","filter":"updatable"}}`.
@@ -360,7 +360,7 @@ Generate manuscript introduction and related-work framing from selected synthesi
 - Package: `synthesis-layer`; manifest: `workflows_builtin/synthesis-layer/manuscript-literature-framing/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - Execution modes: `["auto"]`.
-- Selection: `{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
+- Selection: `{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
 - Workflow options:
   - `paperTitle`: `{"type":"string","title":"Paper Title","description":"Working manuscript title used to frame the Introduction and Related Work."}`.

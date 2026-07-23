@@ -288,7 +288,6 @@ export async function executeWorkflowFromCurrentSelection(args: {
     units: preparation.prepared.plan.units,
   });
   const skippedByGuard = duplicateGuard.skippedByDuplicate;
-  const totalSkipped = preparation.prepared.skippedByFilter + skippedByGuard;
 
   if (duplicateGuard.allowedUnits.length === 0) {
     appendRuntimeLog({
@@ -298,7 +297,7 @@ export async function executeWorkflowFromCurrentSelection(args: {
       stage: "trigger-no-requests-after-duplicate-guard",
       message: "workflow trigger halted after duplicate guard",
       details: {
-        skippedByFilter: preparation.prepared.skippedByFilter,
+        candidateSkipped: preparation.prepared.candidateSkipped,
         skippedByDuplicate: skippedByGuard,
       },
     });
@@ -308,7 +307,7 @@ export async function executeWorkflowFromCurrentSelection(args: {
         workflowLabel,
         succeeded: 0,
         failed: 0,
-        skipped: totalSkipped,
+        skipped: skippedByGuard,
         failureReasons: [],
         messageFormatter,
       },
@@ -365,7 +364,7 @@ export async function executeWorkflowFromCurrentSelection(args: {
     return result.outcome;
   };
   const initialOutcomes: WorkflowExecutionUnitOutcome[] = Array.from(
-    { length: totalSkipped },
+    { length: skippedByGuard },
     () => ({
       status: "skipped",
       reasonCode: "workflow-unit-filtered-or-duplicate",
@@ -392,6 +391,8 @@ export async function executeWorkflowFromCurrentSelection(args: {
           order: unit.order,
           taskName: unit.taskName,
           inputUnitIdentity: unit.inputUnitIdentity,
+          memberIdentities: unit.memberIdentities,
+          memberCount: unit.memberCount,
         },
       })),
       maxConcurrency:
@@ -438,7 +439,7 @@ export async function executeWorkflowFromCurrentSelection(args: {
   const jobToastOutcomes = selectWorkflowJobOutcomesForToasts({
     outcomes: jobOutcomes,
     totalJobs,
-    skipped: totalSkipped,
+    skipped: submissionSummary.skipped,
   });
   if (jobToastOutcomes.length > 0) {
     emitWorkflowJobToasts(
@@ -465,6 +466,7 @@ export async function executeWorkflowFromCurrentSelection(args: {
       failed: submissionSummary.failed,
       pending: 0,
       skipped: submissionSummary.skipped,
+      candidateSkipped: preparation.prepared.candidateSkipped,
       failureCount: failureReasons.length,
     },
   });

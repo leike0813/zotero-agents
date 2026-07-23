@@ -17,7 +17,8 @@ Preparation -> Duplicate Guard -> Run -> Provider Dispatch -> Apply Summary -> F
 
 ## Preparation Seam
 
-Preparation builds `SelectionContext`, executes workflow `buildRequests`,
+Preparation builds `SelectionContext`, runs the v2 input planner once, executes
+workflow request construction for the resulting immutable prepared units,
 resolves backend/profile/runtime options, adapts request shape for the selected
 backend, and returns either a ready execution or a halted workflow.
 
@@ -25,25 +26,28 @@ Request adaptation is limited to the selected backend context. Workflow
 `provider` remains the backend compatibility source; `request.kind` describes
 payload shape after a backend is selected.
 
-## Selection Validation Phases
+## Input Planning Phases
 
-`evaluateWorkflowSelection()` uses its mode to distinguish availability from
+`planWorkflowExecutionUnits()` distinguishes availability preview from
 confirmed execution:
 
-- `menu` mode applies parameter-independent selection and artifact rules.
-  An `artifact-exists` rule with `parameter` is deferred because workflow
-  settings are not confirmed yet.
-- `execute` mode applies every declared selection rule before request
-  construction. A parameterized artifact target reads its value only from
-  `executionOptions.workflowParams[rule.parameter]`.
-- `handoff` mode retains the workflow handoff selection bypass.
+- availability planning applies only filters declared with
+  `phase: "availability"`;
+- execute planning reapplies availability filters and also applies
+  `phase: "execute"` filters after settings are confirmed;
+- parameter-dependent `artifact-absent` filters must declare
+  `phase: "execute"` and read only their named workflow parameter.
 
-The manifest owns every artifact parameter dependency. Targets whose path
-depends on a workflow parameter must declare a non-empty `parameter`; the Host
-does not infer parameter names from workflow ids, target kinds, or values.
-Static artifact targets omit `parameter` and apply in both menu and execute
-modes. Applicable rules retain manifest order, and excluded units contribute to
-the existing total, valid, and skipped execution statistics.
+The planner validates raw selection requirements once, then selects ordered
+candidates, applies member/MIME compatibility, filters, candidate cardinality,
+and grouping. Candidate skips and top-level unit outcomes remain separate
+statistics.
+
+`buildPreparedWorkflowUnitExecution()` consumes an already prepared unit and
+must not invoke selection planning again. This preserves global requirements
+such as `parents.min: 2` after `grouping: each`. Preflight runs after grouping
+and may expand requests inside the unit, but all resulting requests retain one
+top-level queue/admission slot.
 
 ## Run Seam
 

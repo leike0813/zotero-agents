@@ -6,6 +6,19 @@ import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import { joinPath, mkTempDir, writeUtf8 } from "./workflow-test-utils";
 
+const parentInputPlanningV2 = {
+  schemaVersion: 2,
+  trigger: { requiresSelection: true },
+  inputs: {
+    member: { kind: "parent" },
+    grouping: { mode: "each" },
+  },
+  validateSelection: {
+    select: { policy: "input-member", source: "selected" },
+    filters: [],
+  },
+} as const;
+
 async function createPassThroughWorkflowRoot() {
   const root = await mkTempDir("zotero-skills-pass-through");
   const workflowRoot = joinPath(root, "pass-through-local-test");
@@ -16,6 +29,7 @@ async function createPassThroughWorkflowRoot() {
         id: "pass-through-local-test",
         label: "Pass Through Local Test",
         provider: "pass-through",
+        ...parentInputPlanningV2,
         hooks: {
           applyResult: "hooks/applyResult.js",
         },
@@ -52,6 +66,7 @@ describe("pass-through provider", function () {
           id: "legacy-filterinputs",
           label: "Legacy Filter Inputs",
           provider: "pass-through",
+          ...parentInputPlanningV2,
           hooks: {
             filterInputs: "hooks/filterInputs.js",
             applyResult: "hooks/applyResult.js",
@@ -89,10 +104,12 @@ describe("pass-through provider", function () {
           id: "unknown-selection-policy",
           label: "Unknown Selection Policy",
           provider: "pass-through",
+          ...parentInputPlanningV2,
           validateSelection: {
             select: {
               policy: "arbitrary-js-expression",
             },
+            filters: [],
           },
           hooks: {
             applyResult: "hooks/applyResult.js",
@@ -136,13 +153,18 @@ describe("pass-through provider", function () {
           id: "static-artifact-rule",
           label: "Static Artifact Rule",
           provider: "pass-through",
+          schemaVersion: 2,
+          trigger: { requiresSelection: true },
+          inputs: {
+            member: { kind: "attachment" },
+            grouping: { mode: "each" },
+          },
           validateSelection: {
-            select: {
-              policy: "pdf-attachment",
-            },
-            exclude: [
+            select: { policy: "input-member", source: "selected" },
+            filters: [
               {
-                kind: "artifact-exists",
+                kind: "artifact-absent",
+                phase: "availability",
                 target: "mineru-markdown",
               },
             ],
@@ -166,14 +188,20 @@ describe("pass-through provider", function () {
           id: "missing-parameter-artifact-rule",
           label: "Missing Parameter Artifact Rule",
           provider: "pass-through",
+          schemaVersion: 2,
+          trigger: { requiresSelection: true },
+          inputs: {
+            member: { kind: "attachment" },
+            grouping: { mode: "each" },
+          },
           validateSelection: {
-            select: {
-              policy: "literature-source",
-            },
-            exclude: [
+            select: { policy: "literature-source" },
+            filters: [
               {
-                kind: "artifact-exists",
+                kind: "artifact-absent",
+                phase: "execute",
                 target: "translator-markdown",
+                parameter: "target_language",
               },
             ],
           },

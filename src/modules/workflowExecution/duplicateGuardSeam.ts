@@ -13,7 +13,7 @@ import type { PreparedWorkflowUnit } from "./contracts";
 
 type DuplicateGuardDeps = {
   listActiveWorkflowTasks: () => WorkflowTaskRecord[];
-  hasQueuedWorkflowInput: (args: {
+  hasActiveOrQueuedWorkflowInput: (args: {
     workflowId: string;
     inputUnitIdentity: string;
   }) => boolean;
@@ -29,8 +29,8 @@ type DuplicateGuardDeps = {
 
 const defaultDuplicateGuardDeps: DuplicateGuardDeps = {
   listActiveWorkflowTasks: listActiveWorkflowTaskSummaries,
-  hasQueuedWorkflowInput: (args) =>
-    workflowSubmissionQueue.hasQueuedWorkflowInput(args),
+  hasActiveOrQueuedWorkflowInput: (args) =>
+    workflowSubmissionQueue.hasActiveOrQueuedWorkflowInput(args),
   appendRuntimeLog,
   confirmDuplicateSubmission: ({ win, title, message, yesLabel, noLabel }) => {
     const runtime = globalThis as {
@@ -90,23 +90,33 @@ export type WorkflowUnitDuplicateGuardResult = {
 
 function findDuplicateState(args: {
   workflowId: string;
-  inputUnitIdentity: string;
+  inputUnitIdentities: ReadonlyArray<string>;
   deps: Pick<
     DuplicateGuardDeps,
-    "listActiveWorkflowTasks" | "hasQueuedWorkflowInput"
+    "listActiveWorkflowTasks" | "hasActiveOrQueuedWorkflowInput"
   >;
 }) {
-  const activeDuplicates = findRunningDuplicates({
-    workflowId: args.workflowId,
-    inputUnitIdentity: args.inputUnitIdentity,
-    activeTasks: args.deps.listActiveWorkflowTasks(),
+  const activeTasks = args.deps.listActiveWorkflowTasks();
+  const activeDuplicates = activeTasks.filter((entry) => {
+    if (entry.workflowId !== args.workflowId) {
+      return false;
+    }
+    const activeIdentities = new Set([
+      String(entry.inputUnitIdentity || "").trim(),
+      ...(entry.inputMemberIdentities || []),
+    ]);
+    return args.inputUnitIdentities.some((identity) =>
+      activeIdentities.has(identity),
+    );
   });
   return {
     activeDuplicates,
-    queued: args.deps.hasQueuedWorkflowInput({
-      workflowId: args.workflowId,
-      inputUnitIdentity: args.inputUnitIdentity,
-    }),
+    queued: args.inputUnitIdentities.some((inputUnitIdentity) =>
+      args.deps.hasActiveOrQueuedWorkflowInput({
+        workflowId: args.workflowId,
+        inputUnitIdentity,
+      }),
+    ),
   };
 }
 
@@ -138,13 +148,18 @@ export async function runWorkflowUnitDuplicateGuardSeam(
   for (let index = 0; index < args.units.length; index++) {
     const unit = args.units[index];
     const inputUnitIdentity = String(unit.inputUnitIdentity || "").trim();
-    if (!inputUnitIdentity) {
+    const inputUnitIdentities = Array.from(
+      new Set(
+        [...(unit.memberIdentities || []), inputUnitIdentity].filter(Boolean),
+      ),
+    );
+    if (inputUnitIdentities.length === 0) {
       allowedUnits.push(unit);
       continue;
     }
     const firstRead = findDuplicateState({
       workflowId: args.workflowId,
-      inputUnitIdentity,
+      inputUnitIdentities,
       deps: resolved,
     });
     if (firstRead.activeDuplicates.length === 0 && firstRead.queued === false) {
@@ -194,7 +209,7 @@ export async function runWorkflowUnitDuplicateGuardSeam(
 
     const finalRead = findDuplicateState({
       workflowId: args.workflowId,
-      inputUnitIdentity,
+      inputUnitIdentities,
       deps: resolved,
     });
     if (finalRead.activeDuplicates.length === 0 && finalRead.queued === false) {

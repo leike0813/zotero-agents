@@ -21,6 +21,8 @@ export type WorkflowQueueDisplayIdentity = Readonly<{
   order: number;
   taskName: string;
   inputUnitIdentity?: string;
+  memberIdentities?: ReadonlyArray<string>;
+  memberCount?: number;
 }>;
 
 export type WorkflowQueueWorkflowIdentity = Readonly<{
@@ -49,7 +51,7 @@ export type QueuedWorkflowUnitSnapshot = Readonly<{
   workflowId: string;
   workflowLabel: string;
   taskName: string;
-  inputUnitIdentity?: string;
+  memberCount: number;
   backendType: WorkflowQueueBackendType;
   backendId: string;
   createdAt: string;

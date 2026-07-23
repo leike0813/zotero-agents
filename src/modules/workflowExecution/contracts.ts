@@ -1,6 +1,9 @@
 import type { JobQueueManager } from "../../jobQueue/manager";
 import type { LoadedWorkflow } from "../../workflows/types";
-import type { WorkflowScopedSelectionContext } from "../../workflows/workflowSelectionValidation";
+import type {
+  PreparedWorkflowInputUnit,
+  WorkflowScopedSelectionContext,
+} from "../../workflows/workflowInputPlanning";
 import type { WorkflowMessageFormatter } from "../workflowExecuteMessage";
 import type { resolveWorkflowExecutionContext } from "../workflowSettings";
 
@@ -8,14 +11,7 @@ export type WorkflowExecutionContext = Awaited<
   ReturnType<typeof resolveWorkflowExecutionContext>
 >;
 
-export type PreparedWorkflowUnit = Readonly<{
-  unitId: string;
-  order: number;
-  taskName: string;
-  inputUnitIdentity?: string;
-  targetParentID?: number;
-  selectionContext: WorkflowScopedSelectionContext;
-}>;
+export type PreparedWorkflowUnit = PreparedWorkflowInputUnit;
 
 export type WorkflowRequestBuildPlan = Readonly<{
   units: ReadonlyArray<PreparedWorkflowUnit>;
@@ -23,6 +19,12 @@ export type WorkflowRequestBuildPlan = Readonly<{
     totalUnits: number;
     executableUnits: number;
     skippedUnits: number;
+    candidateStats: Readonly<{
+      total: number;
+      accepted: number;
+      skipped: number;
+      reasons: Readonly<Record<string, number>>;
+    }>;
   }>;
 }>;
 
@@ -36,7 +38,7 @@ export type PreparedWorkflowExecution = {
     runOptions?: import("../../workflows/zoteroHostAccessOptions").WorkflowRunOptions;
     hostOptions?: import("../workflowSettingsDomain").WorkflowHostOptions;
   }>;
-  skippedByFilter: number;
+  candidateSkipped: number;
   executionContext: WorkflowExecutionContext;
 };
 

@@ -75,9 +75,19 @@ function makePackageZip(args?: {
       name: "workflows/demo/workflow.json",
       data: utf8(
         JSON.stringify({
+          schemaVersion: 2,
           id: "demo",
           label: "Demo",
           provider: "pass-through",
+          trigger: { requiresSelection: false },
+          inputs: {
+            member: { kind: "selection" },
+            grouping: { mode: "all" },
+          },
+          validateSelection: {
+            select: { policy: "selection" },
+            filters: [],
+          },
           hooks: { applyResult: "hooks/applyResult.js" },
         }),
       ),
@@ -358,19 +368,19 @@ describe("content package subscription", function () {
 
   it("accepts mirror feeds with different artifact URLs when package semantics match", async function () {
     const zip = makePackageZip({
-      contentApi: "2.0.0",
-      requires: { plugin: ">=0.5.0", content_api: "^2.0.0" },
+      contentApi: "3.0.0",
+      requires: { plugin: ">=0.5.0", content_api: "^3.0.0" },
     });
     const primaryFeed = makeFeed({
       zip,
-      contentApi: "2.0.0",
-      requires: { plugin: ">=0.5.0", content_api: "^2.0.0" },
+      contentApi: "3.0.0",
+      requires: { plugin: ">=0.5.0", content_api: "^3.0.0" },
       artifactUrl: "https://github.example/releases/official-content.zip",
     });
     const mirrorFeed = makeFeed({
       zip,
-      contentApi: "2.0.0",
-      requires: { plugin: ">=0.5.0", content_api: "^2.0.0" },
+      contentApi: "3.0.0",
+      requires: { plugin: ">=0.5.0", content_api: "^3.0.0" },
       artifactUrl: "https://gitee.example/releases/official-content.zip",
     });
     globalThis.fetch = (async (url: RequestInfo | URL) => {
@@ -395,9 +405,9 @@ describe("content package subscription", function () {
   });
 
   it("rejects packages that require a newer plugin version", async function () {
-    const requires = { plugin: ">=99.0.0", content_api: "^2.0.0" };
-    const zip = makePackageZip({ contentApi: "2.0.0", requires });
-    const feed = makeFeed({ zip, contentApi: "2.0.0", requires });
+    const requires = { plugin: ">=99.0.0", content_api: "^3.0.0" };
+    const zip = makePackageZip({ contentApi: "3.0.0", requires });
+    const feed = makeFeed({ zip, contentApi: "3.0.0", requires });
     globalThis.fetch = (async (url: RequestInfo | URL) => {
       const href = String(url);
       if (href.endsWith("/stable/feed.json")) {

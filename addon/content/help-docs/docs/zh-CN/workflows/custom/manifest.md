@@ -6,6 +6,7 @@
 
 ```json
 {
+  "schemaVersion": 2,
   "id": "my-workflow",
   "label": "我的 Workflow",
   "version": "1.0.0",
@@ -14,7 +15,15 @@
     "core": false,
     "emoji": "🔧"
   },
-  "inputs": { "unit": "parent" },
+  "trigger": { "requiresSelection": true },
+  "inputs": {
+    "member": { "kind": "parent" },
+    "grouping": { "mode": "each" }
+  },
+  "validateSelection": {
+    "select": { "policy": "input-member", "source": "selected" },
+    "filters": []
+  },
   "parameters": {},
   "execution": {},
   "request": { "kind": "pass-through.run.v1" },
@@ -67,135 +76,92 @@
 | `taskNameTemplate` | string | 任务名称模板，用 `{参数名}` 占位，执行时将替换为实际值 |
 | `debug_only` | boolean | `true` 时仅在调试模式下可见 |
 
-### 输入定义
+### Input Planning Contracts
+
+`inputs` and `validateSelection` have separate, non-interchangeable roles.
+`inputs` is the consumer contract for prepared execution members and grouping;
+`validateSelection` is the producer contract for raw-selection validation,
+candidate selection, ordered filtering, and candidate cardinality.
+
+#### `inputs` — Execution Input Contract
 
 ```json
 {
   "inputs": {
-    "unit": "attachment",
-    "accepts": {
-      "mime": ["text/markdown", "text/x-markdown", "application/pdf"]
+    "member": {
+      "kind": "attachment",
+      "accepts": {
+        "mime": ["text/markdown", "text/x-markdown", "application/pdf"]
+      }
     },
-    "per_parent": {
-      "min": 1,
-      "max": 1
-    }
+    "grouping": { "mode": "parent" }
   }
 }
 ```
 
-| 字段 | 说明 |
-|------|------|
-| `unit` | **输入单元类型**。`"attachment"`（附件）、`"parent"`（父条目）、`"note"`（笔记）、`"workflow"`（无需选择条目，从 Dashboard 直接触发） |
-| `accepts.mime` | 接受的 MIME 类型（仅 `unit: "attachment"` 时适用）。不指定则接受所有类型 |
-| `per_parent.min` | 每个父条目最小附件数 |
-| `per_parent.max` | 每个父条目最大附件数 |
+- `member.kind`: `selection`, `parent`, `child`, `attachment`,
+  `note`, `generated-note`, or `digest-image-target`.
+- `member.accepts.mime` applies only to attachment execution members.
+- `grouping.mode: "each"` creates one unit per candidate.
+- `grouping.mode: "all"` creates one unit containing all candidates.
+- `grouping.mode: "parent"` creates stable parent groups. Candidates without
+  parent identity are skipped as `missing-parent`.
 
-当 `unit: "workflow"` 时，不需要用户选中任何条目即可触发（如"创建 Topic 综合"）。
-
-### validateSelection — 选择验证 {#selection-validation}
-
-`validateSelection` 是声明式的选择验证，覆盖常见的"跳过已有结果的条目"或"只接受特定类型的选择"等场景——无需编写任何 JavaScript。
+#### `validateSelection` — Candidate Production Contract {#selection-validation}
 
 ```json
 {
   "validateSelection": {
-    "select": {
-      "policy": "literature-source"
-    },
     "require": {
-      "counts": {
-        "parents": 1
+      "selection": {
+        "counts": {
+          "parents": { "min": 1 },
+          "total": { "min": 1 }
+        },
+        "allowMixed": false
       },
-      "allowMixed": false
+      "candidates": { "min": 1 }
     },
-    "exclude": [
+    "select": {
+      "policy": "input-member",
+      "source": "related"
+    },
+    "filters": [
       {
-        "kind": "generated-notes-all",
-        "noteKinds": ["digest", "references", "citation-analysis"]
+        "kind": "source-file-exists",
+        "phase": "availability"
       }
     ]
   }
 }
 ```
 
-### `select` — 选择策略
+`require.selection` checks the raw SelectionContext exactly once.
+`select` then produces ordered atomic candidates. MIME compatibility and
+`filters` run before `require.candidates`. Count rules use either
+`{ "exact": n }` or non-negative `min`/`max` values.
 
-| 字段 | 类型 | 说明 |
-|-------|------|-------------|
-| `select.policy` | string | 选择策略。支持以下值 |
-| `select.unit` | string | 覆盖选择验证的输入单元类型：`"attachment"` / `"parent"` / `"note"` / `"workflow"` |
+Supported selectors are `input-member` (`source: selected|related`),
+`selection`, `literature-source`, `generated-note-candidates`, and
+`digest-representative-image`. Supported filters are
+`source-file-exists`, `candidates-per-parent`,
+`generated-note-kinds-absent`, and `artifact-absent`. Parameter-dependent
+artifact checks require `phase: "execute"`; availability filters run during
+preview and are reapplied during confirmed planning.
 
-**支持的 `select.policy` 值：**
-
-| 策略 | 说明 |
-|--------|-------------|
-| `input-unit` | 接受与输入单元匹配的条目 |
-| `literature-source` | 接受文献来源（附件或可展开附件的父条目） |
-| `pdf-attachment` | 仅接受 PDF 附件 |
-| `selected-parent` | 接受选中条目中的父条目 |
-| `generated-note-candidates` | 接受生成笔记的候选条目 |
-| `digest-representative-image` | 代表图提取的目标条目 |
-
-### `require` — 选择要求
-
-| 字段 | 类型 | 说明 |
-|-------|------|-------------|
-| `require.counts.parents` | number | 最少要求的父条目数 |
-| `require.counts.attachments` | number | 最少要求的附件数 |
-| `require.counts.notes` | number | 最少要求的笔记数 |
-| `require.counts.children` | number | 最少要求的子条目数 |
-| `require.counts.total` | number | 最少要求的总条目数 |
-| `require.allowMixed` | boolean | 是否允许混合选择不同类型的条目 |
-
-### `exclude` — 排除规则
-
-| 字段 | 类型 | 说明 |
-|-------|------|-------------|
-| `exclude[]` | array | 排除规则列表。命中任一规则则跳过当前条目 |
-
-**支持的 `exclude.kind` 值：**
-
-| kind | 说明 | 附加参数 |
-|------|-------------|----------------------|
-| `generated-notes-all` | 条目下已有指定类型的生成笔记 | `noteKinds`：笔记类型列表，如 `["digest", "references", "citation-analysis"]` |
-| `artifact-exists` | 条目下已有指定产物（避免重复执行） | `target`：`"deep-reading-html"` / `"translator-markdown"` / `"mineru-markdown"`；`parameter`：用于产物匹配的可选语言参数 |
-
-### `derive` — 派生选择
-
-| 字段 | 类型 | 说明 |
-|-------|------|-------------|
-| `derive[]` | array | 派生选择操作。`"exportCandidates"` — 派生笔记导出候选；`"digestRepresentativeImageTarget"` — 从摘要笔记派生代表图目标 |
-
-**示例：**
-
-```json
-{
-  "validateSelection": {
-    "select": { "policy": "literature-source" },
-    "exclude": [
-      { "kind": "artifact-exists", "target": "deep-reading-html" }
-    ]
-  }
-}
-```
-
-> 此例中，已有深度阅读 HTML 产物的条目会被自动跳过，无需用户手动筛选。
-
-### 触发控制
+#### `trigger` — Empty-selection Gate
 
 ```json
 {
   "trigger": {
-    "requiresSelection": false
+    "requiresSelection": true
   }
 }
 ```
 
-| 字段 | 说明 |
-|------|------|
-| `requiresSelection` | 是否需要用户选中条目才能触发。默认 `true`。设为 `false` 后不需要选条目即可从 Dashboard 运行。当 `inputs.unit: "workflow"` 时通常设为 `false` |
-
+`trigger.requiresSelection` is required in schema v2. It controls only whether
+an empty selection may enter planning; it does not replace
+`require.selection`.
 ### 执行控制
 
 ```json
@@ -330,15 +296,31 @@
 
 ```json
 {
+  "schemaVersion": 2,
   "id": "my-literature-analysis",
   "label": "我的文献分析",
   "version": "1.0.0",
   "provider": "skillrunner",
   "display": { "emoji": "📄" },
+  "trigger": { "requiresSelection": true },
   "inputs": {
-    "unit": "attachment",
-    "accepts": { "mime": ["application/pdf"] },
-    "per_parent": { "min": 1, "max": 1 }
+    "member": {
+      "kind": "attachment",
+      "accepts": { "mime": ["application/pdf"] }
+    },
+    "grouping": { "mode": "each" }
+  },
+  "validateSelection": {
+    "require": {
+      "selection": {
+        "counts": { "attachments": { "min": 1 } },
+        "allowMixed": false
+      }
+    },
+    "select": { "policy": "input-member", "source": "selected" },
+    "filters": [
+      { "kind": "source-file-exists", "phase": "availability" }
+    ]
   },
   "parameters": {
     "language": {

@@ -95,11 +95,11 @@ function applyManifestInputFilter(
     selectionContext && typeof selectionContext === "object"
       ? toCopy(selectionContext as SelectionLike)
       : {};
-  if (manifest.inputs?.unit && manifest.inputs.unit !== "attachment") {
+  if (manifest.inputs.member.kind !== "attachment") {
     return copied;
   }
 
-  const allowedMimes = manifest.inputs?.accepts?.mime || [];
+  const allowedMimes = manifest.inputs.member.accepts?.mime || [];
   if (!copied.items) {
     copied.items = {};
   }
@@ -163,10 +163,13 @@ function shouldCallFilterHook(
   selection: SelectionLike,
   manifest: WorkflowManifest,
 ) {
-  if (manifest.inputs?.unit && manifest.inputs.unit !== "attachment") {
+  if (manifest.inputs.member.kind !== "attachment") {
     return false;
   }
-  const max = manifest.inputs?.per_parent?.max;
+  const perParentFilter = manifest.validateSelection.filters.find(
+    (filter) => filter.kind === "candidates-per-parent",
+  );
+  const max = perParentFilter?.counts.exact ?? perParentFilter?.counts.max;
   if (typeof max !== "number" || max < 0) {
     return false;
   }

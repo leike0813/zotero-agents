@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { normalizeManifestInputTriggerDefaults } from "../src/workflows/loaderContracts";
 import {
   projectWorkflowManifestContract,
   type WorkflowManifestContract,
@@ -58,9 +57,7 @@ export function loadBuiltinWorkflowCatalog(
       const repositoryPath = normalizedPath(
         join("workflows_builtin", shippedPath),
       );
-      const manifest = normalizeManifestInputTriggerDefaults(
-        readJson<WorkflowManifest>(root, repositoryPath),
-      );
+      const manifest = readJson<WorkflowManifest>(root, repositoryPath);
       if (manifest.debug_only === true) {
         continue;
       }
@@ -124,7 +121,7 @@ export function renderBuiltinWorkflowCatalog(
       `- Required workflow options: ${inlineJson(contract.requiredWorkflowOptions)}.`,
       ...renderParameters(manifest),
       `- Result evidence: ${inlineJson(contract.resultEvidence)}.`,
-      `- Invocation inputs: use workflow id \`${manifest.id}\`, ${contract.selection.acceptsNoSelection ? "the declared no-selection form" : `a validated \`${contract.selection.inputUnit || "item"}\` selection`}, declared workflow options, and a separately validated compatible provider profile when the provider requires one.`,
+      `- Invocation inputs: use workflow id \`${manifest.id}\`, ${contract.selection.acceptsNoSelection ? "the declared no-selection form" : `validated \`${contract.selection.inputs.member.kind}\` members grouped by \`${contract.selection.inputs.grouping.mode}\``}, declared workflow options, and a separately validated compatible provider profile when the provider requires one.`,
       "",
     ],
   );

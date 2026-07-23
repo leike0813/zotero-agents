@@ -28,7 +28,7 @@ Start from the research outcome, not from a workflow name:
 Then compare:
 
 1. **Outcome:** Does the description promise the deliverable the user requested?
-2. **Selection:** Does the live input unit accept the resolved items, parents, attachments, or no-selection form?
+2. **Selection:** Do the live execution-input contract and candidate-production contract accept the resolved selection?
 3. **Execution mode:** Is execution Zotero-managed or self-owned, and can the current agent satisfy that mode?
 4. **Options:** Which options are required, which have defaults, and which materially change scope or output?
 5. **Provider:** Is a backend profile required, compatible, configured, and separately validated?

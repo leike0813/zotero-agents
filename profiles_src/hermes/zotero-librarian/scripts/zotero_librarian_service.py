@@ -270,26 +270,24 @@ def workflow_description(bridge: str, workflow_id: str) -> dict[str, Any]:
     return value
 
 
-def workflow_input_unit(description: dict[str, Any]) -> str:
+def workflow_selection_contract(description: dict[str, Any]) -> dict[str, Any]:
     selection = description.get("selection")
     if not isinstance(selection, dict):
         raise ServiceError(
             "unsupported_workflow_selection",
             "workflow description does not declare a selection contract",
         )
-    unit = str(selection.get("inputUnit") or "").strip()
-    if unit not in {"attachment", "parent", "item"}:
+    inputs = selection.get("inputs")
+    validation = selection.get("validateSelection")
+    if not isinstance(inputs, dict) or not isinstance(validation, dict):
         raise ServiceError(
             "unsupported_workflow_selection",
-            "resident planning supports attachment, parent, or item selection only",
-            {"inputUnit": unit},
+            "workflow description must expose separate inputs and validation contracts",
         )
-    return unit
+    return {"inputs": inputs, "validateSelection": validation}
 
 
-def selection_refs(
-    bridge: str, from_context: bool, input_unit: str
-) -> list[dict[str, Any]]:
+def selection_refs(bridge: str, from_context: bool) -> list[dict[str, Any]]:
     if not from_context:
         return []
     data = unwrap(call_bridge(bridge, ["context", "selection", "get"]))
@@ -299,20 +297,7 @@ def selection_refs(
     for item in selected:
         if not isinstance(item, dict):
             continue
-        item_type = str(item.get("itemType") or "")
-        if input_unit == "attachment":
-            if item_type != "attachment":
-                continue
-            target = item
-        elif input_unit == "parent":
-            target = (
-                item.get("parent")
-                if isinstance(item.get("parent"), dict)
-                else item
-            )
-        else:
-            target = item
-        key = str(target.get("key") or "").strip()
+        key = str(item.get("key") or "").strip()
         library_id = item.get("libraryId") or item.get("libraryID")
         if not key:
             continue
@@ -395,19 +380,16 @@ def parse_plan_file(raw_path: str) -> tuple[Path, dict[str, Any]]:
 
 def workflow_plan(args: argparse.Namespace) -> dict[str, Any]:
     description = workflow_description(args.bridge, args.workflow)
-    input_unit = workflow_input_unit(description)
-    refs = selection_refs(args.bridge, args.from_context, input_unit)
+    selection_contract = workflow_selection_contract(description)
+    refs = selection_refs(args.bridge, args.from_context)
     if not refs:
         raise ServiceError(
             "empty_selection",
-            "workflow plan requires a current selection matching the workflow input unit",
-            {"fromContext": args.from_context, "inputUnit": input_unit},
+            "workflow plan requires a current selection",
+            {"fromContext": args.from_context},
         )
-    submissions = []
-    for ref in refs:
-        item_refs = [ref]
-        validate_workflow_entry(args.bridge, args.workflow, item_refs)
-        submissions.append({"itemRefs": item_refs})
+    validate_workflow_entry(args.bridge, args.workflow, refs)
+    submissions = [{"itemRefs": refs}]
     output = Path(args.output).expanduser()
     if not output.is_absolute():
         raise ServiceError("absolute_output_required", "workflow plan --output must be an absolute file path", {"output": args.output})
@@ -484,7 +466,8 @@ def workflow_plan(args: argparse.Namespace) -> dict[str, Any]:
         "changed",
         {
             "selectionRefs": refs,
-            "inputUnit": input_unit,
+            "inputs": selection_contract["inputs"],
+            "validateSelection": selection_contract["validateSelection"],
             "plan": plan,
             "path": str(output),
         },

@@ -101,14 +101,14 @@ scripts/zotero_librarian_service.py workflow plan \
   --output <absolute-plan.json>
 ```
 
-Inspect the returned selection refs, input unit, `planId`, `planDigest`, workflow contract digest, entries, and absolute plan path. Only after the operator explicitly authorizes launching that exact reviewed plan, submit the same file:
+Inspect the returned selection refs, separate `inputs` and `validateSelection` contracts, `planId`, `planDigest`, workflow contract digest, entries, and absolute plan path. Only after the operator explicitly authorizes launching that exact reviewed plan, submit the same file:
 
 ```sh
 scripts/zotero_librarian_service.py workflow submit \
   --plan <absolute-plan.json> --allow-submit
 ```
 
-The service uses the workflow's live selection contract: attachment workflows retain selected attachments, parent workflows normalize children to parents, and unsupported selection/options/provider requirements are rejected for Generic handling. The plan records one entry per validated selection and `defaultConcurrency: 1`. `workflow submit --concurrency <n>` launches at most that many pending entries in the current pass and reports `remaining`; it never replays launched or unknown entries and does not authorize later passes. Provider-profile selection or a self-owned execution mode uses the inherited Generic workflow contract rather than the resident plan helper.
+The service freezes the raw current selection as one immutable submission and delegates candidate production, filtering, and grouping to the live Host planner. The plan records `defaultConcurrency: 1`; workflow-level concurrency still applies to the prepared units inside the resulting Host batch. `workflow submit --concurrency <n>` limits pending plan entries in the current pass; it never replays launched or unknown entries and does not authorize later passes. Required workflow options, provider-profile selection, no-selection execution, or self-owned mode use the inherited Generic workflow contract rather than the resident plan helper.
 
 ## Hard constraints
 

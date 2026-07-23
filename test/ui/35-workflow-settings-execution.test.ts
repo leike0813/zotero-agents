@@ -1549,9 +1549,19 @@ describe("workflow settings execution", function () {
       joinPath(workflowRoot, "workflow.json"),
       JSON.stringify(
         {
+          schemaVersion: 2,
           id: "pass-through-minimal",
           label: "Pass Through Minimal",
           provider: "pass-through",
+          trigger: { requiresSelection: true },
+          inputs: {
+            member: { kind: "parent" },
+            grouping: { mode: "each" },
+          },
+          validateSelection: {
+            select: { policy: "input-member", source: "selected" },
+            filters: [],
+          },
           hooks: {
             applyResult: "hooks/applyResult.js",
           },
@@ -1621,9 +1631,19 @@ describe("workflow settings execution", function () {
         joinPath(workflowRoot, "workflow.json"),
         JSON.stringify(
           {
+            schemaVersion: 2,
             id: "pass-through-settings",
             label: "Pass Through Settings",
             provider: "pass-through",
+            trigger: { requiresSelection: true },
+            inputs: {
+              member: { kind: "parent" },
+              grouping: { mode: "each" },
+            },
+            validateSelection: {
+              select: { policy: "input-member", source: "selected" },
+              filters: [],
+            },
             parameters: {
               github_owner: { type: "string", default: "" },
               github_repo: { type: "string", default: "" },

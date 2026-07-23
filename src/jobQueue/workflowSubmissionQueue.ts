@@ -37,6 +37,8 @@ type InternalQueuedUnit = {
   readonly unitOrder: number;
   readonly taskName: string;
   readonly inputUnitIdentity?: string;
+  readonly memberIdentities: ReadonlyArray<string>;
+  readonly memberCount: number;
   readonly createdAt: string;
   readonly ordinal: number;
   readonly execute: () => Promise<WorkflowExecutionUnitOutcome>;
@@ -117,6 +119,10 @@ function summarize(
 
 export class WorkflowSubmissionQueue {
   private readonly pendingByQueueId = new Map<
+    WorkflowQueueEntryId,
+    InternalQueuedUnit
+  >();
+  private readonly activeByQueueId = new Map<
     WorkflowQueueEntryId,
     InternalQueuedUnit
   >();
@@ -217,6 +223,22 @@ export class WorkflowSubmissionQueue {
         unitOrder: queuedUnit.display.order,
         taskName: queuedUnit.display.taskName,
         inputUnitIdentity: queuedUnit.display.inputUnitIdentity,
+        memberIdentities: Object.freeze(
+          Array.from(
+            new Set(
+              [
+                ...(queuedUnit.display.memberIdentities || []),
+                queuedUnit.display.inputUnitIdentity,
+              ].filter((value): value is string => Boolean(value)),
+            ),
+          ),
+        ),
+        memberCount: Math.max(
+          1,
+          queuedUnit.display.memberCount ||
+            queuedUnit.display.memberIdentities?.length ||
+            0,
+        ),
         createdAt: this.now(),
         ordinal: ++this.ordinalSequence,
         execute: () => config.executeUnit(queuedUnit.unit),
@@ -252,7 +274,7 @@ export class WorkflowSubmissionQueue {
     return Object.freeze(items.map((item) => this.toSnapshot(item)));
   }
 
-  hasQueuedWorkflowInput(query: WorkflowQueueIdentityQuery) {
+  hasActiveOrQueuedWorkflowInput(query: WorkflowQueueIdentityQuery) {
     return (this.queueIdsByIdentity.get(identityKey(query))?.size ?? 0) > 0;
   }
 
@@ -316,6 +338,7 @@ export class WorkflowSubmissionQueue {
     }
     this.emit(Object.freeze({ type: "reset" }));
     this.pendingByQueueId.clear();
+    this.activeByQueueId.clear();
     this.queueIdsByBackend.clear();
     this.queueIdsByIdentity.clear();
     this.submissions.clear();
@@ -353,31 +376,40 @@ export class WorkflowSubmissionQueue {
       backendKey(item.backend),
       item.queueId,
     );
-    if (item.inputUnitIdentity) {
+    for (const inputUnitIdentity of item.memberIdentities) {
       this.addIndex(
         this.queueIdsByIdentity,
         identityKey({
           workflowId: item.workflowId,
-          inputUnitIdentity: item.inputUnitIdentity,
+          inputUnitIdentity,
         }),
         item.queueId,
       );
     }
   }
 
-  private removePendingIndexes(item: InternalQueuedUnit) {
+  private removePendingIndexes(
+    item: InternalQueuedUnit,
+    options: { preserveIdentity?: boolean } = {},
+  ) {
     this.pendingByQueueId.delete(item.queueId);
     this.removeIndex(
       this.queueIdsByBackend,
       backendKey(item.backend),
       item.queueId,
     );
-    if (item.inputUnitIdentity) {
+    if (!options.preserveIdentity) {
+      this.removeIdentityIndexes(item);
+    }
+  }
+
+  private removeIdentityIndexes(item: InternalQueuedUnit) {
+    for (const inputUnitIdentity of item.memberIdentities) {
       this.removeIndex(
         this.queueIdsByIdentity,
         identityKey({
           workflowId: item.workflowId,
-          inputUnitIdentity: item.inputUnitIdentity,
+          inputUnitIdentity,
         }),
         item.queueId,
       );
@@ -436,7 +468,8 @@ export class WorkflowSubmissionQueue {
         break;
       }
       item.state = "admitted";
-      this.removePendingIndexes(item);
+      this.removePendingIndexes(item, { preserveIdentity: true });
+      this.activeByQueueId.set(item.queueId, item);
       this.emitRemoved(item, "admitted");
       controller.active += 1;
       this.log("admit", {
@@ -474,6 +507,8 @@ export class WorkflowSubmissionQueue {
     item: InternalQueuedUnit,
     outcome: WorkflowExecutionUnitOutcome,
   ) {
+    this.activeByQueueId.delete(item.queueId);
+    this.removeIdentityIndexes(item);
     controller.active -= 1;
     controller.settled += 1;
     controller.outcomes.push(outcome);
@@ -517,9 +552,7 @@ export class WorkflowSubmissionQueue {
       workflowId: item.workflowId,
       workflowLabel: item.workflowLabel,
       taskName: item.taskName,
-      ...(item.inputUnitIdentity
-        ? { inputUnitIdentity: item.inputUnitIdentity }
-        : {}),
+      memberCount: item.memberCount,
       backendType: item.backend.backendType,
       backendId: item.backend.backendId,
       createdAt: item.createdAt,

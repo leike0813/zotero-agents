@@ -2027,7 +2027,14 @@ GET <endpoint>/workflows
       "packageId": "package-id",
       "configurable": true,
       "acceptsNoSelection": false,
-      "inputUnit": "item",
+      "inputs": {
+        "member": { "kind": "parent" },
+        "grouping": { "mode": "each" }
+      },
+      "validateSelection": {
+        "select": { "policy": "input-member", "source": "selected" },
+        "filters": []
+      },
       "parameters": ["language"]
     }
   ]
@@ -2100,9 +2107,10 @@ CLI agent-run 只发送 `workflowId`、`selection` 和 `delivery`。它返回 ha
 bundle 的下载句柄；传入 `--output-dir` 时，CLI 会把 zip 下载到该目录并在
 stdout JSON 中加入 `download.outputPath`。
 
-agent-run 发包只要求 selection 满足 manifest `inputs`。`validateSelection`
-结果只体现在 `applyStatus`；当 `applyStatus.allowed=false` 时，agent 可以继续
-self-owned 执行，但不得假定可以写回 Zotero。
+agent-run 发包根据 manifest `validateSelection` 生成候选，并按 `inputs`
+描述的成员类型与 grouping 规划输入。`applyStatus` 仍是写回边界；当
+`applyStatus.allowed=false` 时，agent 可以继续 self-owned 执行，但不得假定
+可以写回 Zotero。
 
 `--items` 必须是 item ref 数组，每个 ref 必须且只能包含 `id` 或 `key`；
 `libraryId` 只用于 `key` 查找：
@@ -2116,8 +2124,10 @@ self-owned 执行，但不得假定可以写回 Zotero。
 ]
 ```
 
-`workflow submit --none` 只允许 no-selection workflow。`workflow agent-run --none`
-只在 workflow 的 `inputs.unit` 为 `workflow` 时可发包：
+`workflow submit --none` 只允许 `trigger.requiresSelection=false` 且其 selection
+requirements 允许空选择的 workflow。`workflow agent-run --none` 使用同一空选择
+门禁；典型契约为 `member.kind=selection`、`grouping.mode=all` 与
+`select.policy=selection`：
 
 ```json
 {

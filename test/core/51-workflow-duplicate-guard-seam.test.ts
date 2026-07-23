@@ -10,6 +10,7 @@ function makeActiveTask(args: {
   workflowId: string;
   inputUnitIdentity: string;
   taskName: string;
+  inputMemberIdentities?: string[];
   state?: "queued" | "running";
 }): WorkflowTaskRecord {
   return {
@@ -21,6 +22,7 @@ function makeActiveTask(args: {
     taskName: args.taskName,
     inputUnitIdentity: args.inputUnitIdentity,
     inputUnitLabel: args.taskName,
+    inputMemberIdentities: args.inputMemberIdentities,
     state: args.state || "running",
     createdAt: "2026-02-14T00:00:00.000Z",
     updatedAt: "2026-02-14T00:00:00.000Z",
@@ -36,6 +38,9 @@ function makePreparedUnit(
     order: 0,
     taskName,
     inputUnitIdentity,
+    memberIdentities: [inputUnitIdentity],
+    memberCount: 1,
+    members: [],
     selectionContext: {},
   };
 }
@@ -193,7 +198,7 @@ describe("workflow duplicate guard seam", function () {
       },
       {
         listActiveWorkflowTasks: () => [],
-        hasQueuedWorkflowInput: ({ inputUnitIdentity }) =>
+        hasActiveOrQueuedWorkflowInput: ({ inputUnitIdentity }) =>
           inputUnitIdentity === unit.inputUnitIdentity,
         appendRuntimeLog: () => undefined,
         confirmDuplicateSubmission: () => {
@@ -220,7 +225,7 @@ describe("workflow duplicate guard seam", function () {
       },
       {
         listActiveWorkflowTasks: () => [],
-        hasQueuedWorkflowInput: () => queued,
+        hasActiveOrQueuedWorkflowInput: () => queued,
         appendRuntimeLog: () => undefined,
         confirmDuplicateSubmission: () => {
           queued = false;
@@ -246,7 +251,7 @@ describe("workflow duplicate guard seam", function () {
       },
       {
         listActiveWorkflowTasks: () => active,
-        hasQueuedWorkflowInput: () => queued,
+        hasActiveOrQueuedWorkflowInput: () => queued,
         appendRuntimeLog: () => undefined,
         confirmDuplicateSubmission: () => {
           queued = false;
@@ -264,5 +269,53 @@ describe("workflow duplicate guard seam", function () {
 
     assert.deepEqual(result.allowedUnits, []);
     assert.equal(result.skippedByDuplicate, 1);
+  });
+
+  it("confirms one immutable group when any member identity conflicts", async function () {
+    const unit = {
+      ...makePreparedUnit("group:paper-a+paper-b", "Two papers"),
+      memberIdentities: [
+        "attachment-path:D:/paper-a.pdf",
+        "attachment-path:D:/paper-b.pdf",
+      ],
+      memberCount: 2,
+      members: [],
+    } as PreparedWorkflowUnit;
+    let confirmations = 0;
+    const result = await runWorkflowUnitDuplicateGuardSeam(
+      {
+        win: {} as _ZoteroTypes.MainWindow,
+        workflowId: "mineru",
+        workflowLabel: "MinerU",
+        units: [unit],
+      },
+      {
+        listActiveWorkflowTasks: () => [
+          makeActiveTask({
+            workflowId: "mineru",
+            inputUnitIdentity: "group:another-pair",
+            inputMemberIdentities: [
+              "attachment-path:D:/paper-b.pdf",
+              "attachment-path:D:/paper-c.pdf",
+            ],
+            taskName: "Another pair",
+          }),
+        ],
+        hasActiveOrQueuedWorkflowInput: () => false,
+        appendRuntimeLog: () => undefined,
+        confirmDuplicateSubmission: () => {
+          confirmations += 1;
+          return false;
+        },
+      },
+    );
+
+    assert.equal(confirmations, 1);
+    assert.deepEqual(result.allowedUnits, []);
+    assert.equal(result.skippedByDuplicate, 1);
+    assert.deepEqual(unit.memberIdentities, [
+      "attachment-path:D:/paper-a.pdf",
+      "attachment-path:D:/paper-b.pdf",
+    ]);
   });
 });

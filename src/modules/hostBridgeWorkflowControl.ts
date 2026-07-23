@@ -67,7 +67,7 @@ import {
 import type { SelectionContext } from "./selectionContext";
 import type { LoadedWorkflow } from "../workflows/types";
 import { localizeWorkflowLabel } from "../workflows/localization";
-import { evaluateWorkflowSelection } from "../workflows/workflowSelectionValidation";
+import { evaluateWorkflowSelection } from "../workflows/workflowInputPlanning";
 import { executeApplyResult, executeBuildRequests } from "../workflows/runtime";
 import { ZipBundleReader } from "../workflows/zipBundleReader";
 import { projectWorkflowManifestContract } from "../workflows/manifestContract";
@@ -118,12 +118,8 @@ export type HostBridgeWorkflowSummary = {
   packageId?: string;
   configurable: boolean;
   acceptsNoSelection: boolean;
-  inputUnit?: string;
-  selectionValidation?: {
-    policy?: string;
-    excludes?: string[];
-    derives?: string[];
-  };
+  inputs: LoadedWorkflow["manifest"]["inputs"];
+  validateSelection: LoadedWorkflow["manifest"]["validateSelection"];
   parameters: string[];
   resultEvidence: {
     fetchType?: "bundle" | "result";
@@ -261,8 +257,8 @@ export type HostBridgeWorkflowDescribeResult = {
   resultEvidence: HostBridgeWorkflowSummary["resultEvidence"];
   selection: {
     acceptsNoSelection: boolean;
-    inputUnit?: string;
-    selectionValidation?: HostBridgeWorkflowSummary["selectionValidation"];
+    inputs: HostBridgeWorkflowSummary["inputs"];
+    validateSelection: HostBridgeWorkflowSummary["validateSelection"];
   };
   workflowOptions: {
     schema: unknown[];
@@ -561,8 +557,8 @@ export function listHostBridgeWorkflows(): HostBridgeWorkflowSummary[] {
       packageId: entry.packageId,
       configurable: Object.keys(manifest.parameters || {}).length > 0,
       acceptsNoSelection: manifestContract.selection.acceptsNoSelection,
-      inputUnit: manifestContract.selection.inputUnit,
-      selectionValidation: manifestContract.selection.validation,
+      inputs: manifestContract.selection.inputs,
+      validateSelection: manifestContract.selection.validation,
       parameters: Object.keys(manifest.parameters || {}),
       resultEvidence: manifestContract.resultEvidence,
     };
@@ -916,8 +912,8 @@ export async function describeHostBridgeWorkflow(
     resultEvidence: manifestContract.resultEvidence,
     selection: {
       acceptsNoSelection: manifestContract.selection.acceptsNoSelection,
-      inputUnit: manifestContract.selection.inputUnit,
-      selectionValidation: manifestContract.selection.validation,
+      inputs: manifestContract.selection.inputs,
+      validateSelection: manifestContract.selection.validation,
     },
     workflowOptions: {
       schema: descriptor.workflowSchemaEntries,
@@ -1297,16 +1293,6 @@ export async function buildHostBridgeWorkflowAgentRun(args: {
   );
   const selectedItems = resolveSelectedItemsForSelection(plan.selection);
   const selectionContext = await buildSelectionContext(selectedItems);
-  const inputCompatibility = evaluateAgentRunInputCompatibility({
-    workflow,
-    selectionContext,
-  });
-  if (!inputCompatibility.compatible) {
-    throw codedWorkflowValidationError(
-      "invalid_workflow_agent_run_request",
-      inputCompatibility.message,
-    );
-  }
   const applyStatus = await evaluateAgentRunApplyStatus({
     workflow,
     selectionContext,
@@ -1780,180 +1766,6 @@ export function abandonHostBridgeWorkflowAgentRun(agentRunId: string) {
   return changeHostBridgeWorkflowAgentRunLifecycle(agentRunId, "abandon");
 }
 
-function selectionArray(
-  selectionContext: SelectionContext,
-  key: keyof SelectionContext["items"],
-) {
-  const value = selectionContext.items?.[key];
-  return Array.isArray(value) ? value : [];
-}
-
-type AgentRunAttachment = Record<string, unknown> & {
-  item?: Record<string, unknown> & {
-    id?: unknown;
-    parentItemID?: unknown;
-    data?: Record<string, unknown>;
-  };
-  parent?: Record<string, unknown> & { id?: unknown };
-  filePath?: unknown;
-  mimeType?: unknown;
-};
-
-function attachmentParentId(entry: AgentRunAttachment) {
-  const candidates = [entry.parent?.id, entry.item?.parentItemID];
-  for (const candidate of candidates) {
-    const value = Number(candidate);
-    if (Number.isInteger(value) && value > 0) {
-      return value;
-    }
-  }
-  return 0;
-}
-
-function attachmentMime(entry: AgentRunAttachment) {
-  return String(entry.mimeType || entry.item?.data?.contentType || "").trim();
-}
-
-function attachmentFilePath(entry: AgentRunAttachment) {
-  return String(entry.filePath || entry.item?.data?.path || "").toLowerCase();
-}
-
-function attachmentMatchesMime(entry: AgentRunAttachment, mimes?: string[]) {
-  if (!mimes?.length) {
-    return true;
-  }
-  const mime = attachmentMime(entry);
-  if (mime && mimes.includes(mime)) {
-    return true;
-  }
-  const filePath = attachmentFilePath(entry);
-  if (
-    filePath.endsWith(".md") &&
-    (mimes.includes("text/markdown") ||
-      mimes.includes("text/x-markdown") ||
-      mimes.includes("text/plain"))
-  ) {
-    return true;
-  }
-  return filePath.endsWith(".pdf") && mimes.includes("application/pdf");
-}
-
-function collectAgentRunAttachmentCandidates(
-  selectionContext: SelectionContext,
-) {
-  const direct = selectionArray(selectionContext, "attachments");
-  const source =
-    direct.length > 0
-      ? direct
-      : [
-          ...selectionArray(selectionContext, "parents").flatMap((entry) =>
-            Array.isArray(entry.attachments) ? entry.attachments : [],
-          ),
-          ...selectionArray(selectionContext, "children").flatMap((entry) =>
-            Array.isArray(entry.attachments) ? entry.attachments : [],
-          ),
-        ];
-  const seen = new Set<string>();
-  const output: AgentRunAttachment[] = [];
-  for (const raw of source) {
-    if (!raw || typeof raw !== "object") {
-      continue;
-    }
-    const entry = raw as AgentRunAttachment;
-    const id = typeof entry.item?.id === "number" ? `id:${entry.item.id}` : "";
-    const key =
-      id ||
-      `file:${String(entry.filePath || entry.item?.data?.path || "")}|parent:${attachmentParentId(entry)}`;
-    if (!key || seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    output.push(entry);
-  }
-  return output;
-}
-
-function countValidAgentRunAttachments(args: {
-  workflow: LoadedWorkflow;
-  selectionContext: SelectionContext;
-}) {
-  const inputs = args.workflow.manifest.inputs;
-  const candidates = collectAgentRunAttachmentCandidates(args.selectionContext);
-  const mimeMatched = candidates.filter((entry) =>
-    attachmentMatchesMime(entry, inputs?.accepts?.mime),
-  );
-  const perParentMin = Math.max(0, inputs?.per_parent?.min ?? 0);
-  const rawMax = inputs?.per_parent?.max ?? Number.POSITIVE_INFINITY;
-  const perParentMax = Math.max(perParentMin, rawMax);
-  const byParent = new Map<number, number>();
-  for (const entry of mimeMatched) {
-    const parentId = attachmentParentId(entry);
-    if (!parentId) {
-      continue;
-    }
-    byParent.set(parentId, (byParent.get(parentId) || 0) + 1);
-  }
-  let valid = 0;
-  for (const count of byParent.values()) {
-    if (count >= perParentMin && count <= perParentMax) {
-      valid += count;
-    }
-  }
-  return {
-    candidates: candidates.length,
-    mimeMatched: mimeMatched.length,
-    valid,
-  };
-}
-
-function evaluateAgentRunInputCompatibility(args: {
-  workflow: LoadedWorkflow;
-  selectionContext: SelectionContext;
-}) {
-  const unit = args.workflow.manifest.inputs?.unit || "attachment";
-  if (unit === "workflow") {
-    return {
-      compatible: true,
-      message: "workflow input is compatible",
-    };
-  }
-  if (unit === "parent") {
-    const count = selectionArray(args.selectionContext, "parents").length;
-    return {
-      compatible: count > 0,
-      message:
-        count > 0
-          ? "parent input is compatible"
-          : "workflow agent-run requires at least one parent input",
-    };
-  }
-  if (unit === "note") {
-    const count = selectionArray(args.selectionContext, "notes").length;
-    return {
-      compatible: count > 0,
-      message:
-        count > 0
-          ? "note input is compatible"
-          : "workflow agent-run requires at least one note input",
-    };
-  }
-  const counts = countValidAgentRunAttachments(args);
-  let message = "attachment input is compatible";
-  if (counts.candidates === 0) {
-    message = "workflow agent-run requires at least one attachment input";
-  } else if (counts.mimeMatched === 0) {
-    message =
-      "workflow agent-run attachment inputs do not match inputs.accepts.mime";
-  } else if (counts.valid === 0) {
-    message =
-      "workflow agent-run attachment inputs do not satisfy inputs.per_parent";
-  }
-  return {
-    compatible: counts.valid > 0,
-    message,
-  };
-}
-
 async function evaluateAgentRunApplyStatus(args: {
   workflow: LoadedWorkflow;
   selectionContext: SelectionContext;
@@ -2074,6 +1886,7 @@ export async function submitHostBridgeWorkflow(args: {
 
   const built = await buildPreparedWorkflowBatchExecution({
     prepared: preparation.prepared,
+    units: duplicateGuard.allowedUnits,
   });
   if (built.status !== "ready") {
     throw new Error("workflow submission produced no executable requests");

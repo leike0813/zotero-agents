@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 2,
   "id": "add-digest-representative-image",
   "label": "Add Digest Representative Image",
   "description": "Choose an image from analyzed literature and attach it as the digest representative image.",
@@ -6,14 +7,22 @@
   "version": "1.0.0",
   "provider": "pass-through",
   "debug_only": true,
+  "trigger": {
+    "requiresSelection": true
+  },
   "inputs": {
-    "unit": "workflow"
+    "member": {
+      "kind": "digest-image-target"
+    },
+    "grouping": {
+      "mode": "all"
+    }
   },
   "validateSelection": {
     "select": {
       "policy": "digest-representative-image"
     },
-    "derive": ["digestRepresentativeImageTarget"]
+    "filters": []
   },
   "parameters": {
     "markdown_src": {

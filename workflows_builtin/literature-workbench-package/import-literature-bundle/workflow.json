@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 2,
   "id": "import-literature-bundle",
   "label": "Import Literature Bundle",
   "description": "Import a literature bundle and reconcile its supported Zotero literature artifacts.",
@@ -9,7 +10,18 @@
     "requiresSelection": false
   },
   "inputs": {
-    "unit": "workflow"
+    "member": {
+      "kind": "selection"
+    },
+    "grouping": {
+      "mode": "all"
+    }
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "selection"
+    },
+    "filters": []
   },
   "hooks": {
     "applyResult": "hooks/applyResult.mjs"

@@ -105,12 +105,15 @@ the specified parameter equals the specified value.
 
 ## Execution-unit preview and Host queue control
 
-The submit dialog receives one immutable `WorkflowExecutionUnitPreview` built
-from the selection in menu/availability mode. When an ACP or SkillRunner
-submission has more than one legal unit, the dialog shows one multi-unit region
+The submit dialog receives ordered immutable `WorkflowExecutionUnitPreview`
+rows built from the v2 plan in menu/availability mode. Each row represents one
+top-level prepared unit and exposes only its safe group label and member count.
+When an ACP or SkillRunner submission has more than one legal unit, the dialog shows one multi-unit region
 to the left of the existing workflow/provider options. That region contains
 the ordered compact unit list and, directly below it, the Maximum concurrency
-control. Form edits do not recompute or replace the preview.
+control. Form edits do not recompute or replace the preview. `grouping: all`
+therefore produces at most one row, while `grouping: parent` produces one row
+per stable parent group.
 
 The Maximum concurrency row uses the same bounded field-control structure as
 the main form. Its label, input, and validation message stay inside a

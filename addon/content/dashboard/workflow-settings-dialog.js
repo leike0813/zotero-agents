@@ -481,11 +481,11 @@
       taskName.className = "workflow-execution-unit-task";
       taskName.textContent = toText(unit.taskName);
       row.appendChild(taskName);
-      const identity = toText(unit.inputUnitIdentity).trim();
-      if (identity) {
+      const memberCount = Number(unit.memberCount || 0);
+      if (Number.isSafeInteger(memberCount) && memberCount > 1) {
         const input = document.createElement("span");
         input.className = "workflow-execution-unit-input";
-        input.textContent = identity;
+        input.textContent = `×${memberCount}`;
         row.appendChild(input);
       }
       list.appendChild(row);

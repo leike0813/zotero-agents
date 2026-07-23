@@ -140,12 +140,21 @@ function installWorkflowRegistryForTests(workflows: LoadedWorkflow[]) {
 function workflow(id: string): LoadedWorkflow {
   return {
     manifest: {
+      schemaVersion: 2,
       id,
       label: "Bridge Workflow",
       provider: "pass-through",
       version: "1.0.0",
+      trigger: {
+        requiresSelection: true,
+      },
       inputs: {
-        unit: "parent",
+        member: { kind: "parent" },
+        grouping: { mode: "each" },
+      },
+      validateSelection: {
+        select: { policy: "input-member", source: "selected" },
+        filters: [],
       },
       hooks: {
         applyResult: "apply",
@@ -283,10 +292,8 @@ describe("host bridge workflow control", function () {
       },
       selection: {
         acceptsNoSelection: false,
-        inputUnit: "parent",
-        accepts: undefined,
-        perParent: undefined,
-        validation: undefined,
+        inputs: entry.manifest.inputs,
+        validation: entry.manifest.validateSelection,
       },
     });
     assert.deepEqual(
@@ -491,7 +498,14 @@ describe("host bridge workflow control", function () {
   it("prepares a workflow agent-run handoff bundle without approval or backend submit", async function () {
     this.timeout(5000);
     const entry = workflow("bridge-workflow");
-    delete (entry.manifest as { inputs?: unknown }).inputs;
+    entry.manifest.inputs = {
+      member: { kind: "attachment" },
+      grouping: { mode: "each" },
+    };
+    entry.manifest.validateSelection = {
+      select: { policy: "input-member", source: "selected" },
+      filters: [],
+    };
     (entry.manifest as any).request = {
       sequence: {
         steps: [
@@ -1117,12 +1131,16 @@ describe("host bridge workflow control", function () {
     const entry = workflow("bridge-workflow");
     entry.manifest.validateSelection = {
       require: {
-        counts: {
-          notes: {
-            min: 1,
+        selection: {
+          counts: {
+            notes: {
+              min: 1,
+            },
           },
         },
       },
+      select: { policy: "input-member", source: "selected" },
+      filters: [],
     };
     installWorkflowRegistryForTests([entry]);
     const token = configureHostBridgeServerForTests({
@@ -1220,10 +1238,11 @@ describe("host bridge workflow control", function () {
     );
   });
 
-  it("rejects workflow agent-run when selection does not satisfy inputs unit", async function () {
+  it("rejects workflow agent-run when selection does not produce an input member", async function () {
     const entry = workflow("bridge-workflow");
     entry.manifest.inputs = {
-      unit: "attachment",
+      member: { kind: "attachment" },
+      grouping: { mode: "each" },
     };
     installWorkflowRegistryForTests([entry]);
     const token = configureHostBridgeServerForTests({
@@ -1253,10 +1272,15 @@ describe("host bridge workflow control", function () {
     );
   });
 
-  it("allows workflow-unit agent-run without applying workflow trigger policy", async function () {
+  it("allows selection-member agent-run without applying workflow trigger policy", async function () {
     const entry = workflow("bridge-workflow");
     entry.manifest.inputs = {
-      unit: "workflow",
+      member: { kind: "selection" },
+      grouping: { mode: "all" },
+    };
+    entry.manifest.validateSelection = {
+      select: { policy: "selection" },
+      filters: [],
     };
     installWorkflowRegistryForTests([entry]);
     const token = configureHostBridgeServerForTests({
@@ -1284,19 +1308,26 @@ describe("host bridge workflow control", function () {
   it("allows workflow agent-run when inputs match but validateSelection disables apply", async function () {
     const entry = workflow("bridge-workflow");
     entry.manifest.inputs = {
-      unit: "attachment",
-      accepts: {
-        mime: ["text/plain"],
+      member: {
+        kind: "attachment",
+        accepts: {
+          mime: ["text/plain"],
+        },
       },
+      grouping: { mode: "each" },
     };
     entry.manifest.validateSelection = {
       require: {
-        counts: {
-          notes: {
-            min: 1,
+        selection: {
+          counts: {
+            notes: {
+              min: 1,
+            },
           },
         },
       },
+      select: { policy: "input-member", source: "selected" },
+      filters: [],
     };
     installWorkflowRegistryForTests([entry]);
     const token = configureHostBridgeServerForTests({
@@ -1365,7 +1396,10 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(parsed.status, 200);
     assert.strictEqual(parsed.json.status, "ok");
     assert.strictEqual(parsed.json.result.workflowId, "bridge-workflow");
-    assert.strictEqual(parsed.json.result.selection.inputUnit, "parent");
+    assert.strictEqual(
+      parsed.json.result.selection.inputs.member.kind,
+      "parent",
+    );
     assert.deepEqual(parsed.json.result.workflowOptions.normalized, {
       language: "en-US",
     });
@@ -1472,7 +1506,10 @@ describe("host bridge workflow control", function () {
     });
     assert.strictEqual(requirements.status, 200);
     assert.strictEqual(requirements.json.result.workflowId, "bridge-workflow");
-    assert.strictEqual(requirements.json.result.selection.inputUnit, "parent");
+    assert.strictEqual(
+      requirements.json.result.selection.inputs.member.kind,
+      "parent",
+    );
 
     const validate = await bridgeRequest({
       token,

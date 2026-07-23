@@ -34,6 +34,8 @@ export type JobRecordMeta = {
   taskName?: string;
   inputUnitIdentity?: string;
   inputUnitLabel?: string;
+  inputMemberIdentities?: string[];
+  inputMemberCount?: number;
   skillName?: string;
   skillLabel?: string;
   skillId?: string;
@@ -142,6 +144,7 @@ const JOB_META_STRING_FIELDS = [
 const JOB_META_INTEGER_FIELDS = [
   "sequenceStepIndex",
   "targetParentID",
+  "inputMemberCount",
 ] as const;
 
 const JOB_META_BOOLEAN_FIELDS = [
@@ -211,6 +214,17 @@ export function normalizeJobRecordMeta(meta: JobRecordMeta | undefined) {
     } else if (typeof normalized[key] !== "undefined") {
       delete normalized[key];
     }
+  }
+  if (Array.isArray(normalized.inputMemberIdentities)) {
+    normalized.inputMemberIdentities = Array.from(
+      new Set(
+        normalized.inputMemberIdentities
+          .map((value) => String(value || "").trim())
+          .filter(Boolean),
+      ),
+    );
+  } else if (typeof normalized.inputMemberIdentities !== "undefined") {
+    delete normalized.inputMemberIdentities;
   }
   return normalized;
 }

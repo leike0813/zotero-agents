@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 2,
   "id": "debug-interactive-choice-probe",
   "label": "Debug: Interactive Choice Probe",
   "description": "Run the Debug: Interactive Choice Probe diagnostic workflow to verify its named workflow-engine behavior.",
@@ -10,7 +11,18 @@
     "requiresSelection": false
   },
   "inputs": {
-    "unit": "workflow"
+    "member": {
+      "kind": "selection"
+    },
+    "grouping": {
+      "mode": "all"
+    }
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "selection"
+    },
+    "filters": []
   },
   "request": {
     "kind": "skillrunner.job.v1",

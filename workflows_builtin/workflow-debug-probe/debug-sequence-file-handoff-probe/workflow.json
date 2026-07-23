@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 2,
   "id": "debug-sequence-file-handoff-probe",
   "label": "Debug: Sequence File Handoff Probe",
   "description": "Run the Debug: Sequence File Handoff Probe diagnostic workflow to verify its named workflow-engine behavior.",
@@ -10,7 +11,18 @@
     "requiresSelection": false
   },
   "inputs": {
-    "unit": "workflow"
+    "member": {
+      "kind": "selection"
+    },
+    "grouping": {
+      "mode": "all"
+    }
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "selection"
+    },
+    "filters": []
   },
   "execution": {
     "feedback": {

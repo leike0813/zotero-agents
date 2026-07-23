@@ -28,11 +28,18 @@ my-workflow/
 
 ```json
 {
+  "schemaVersion": 2,
   "id": "hello-world",
   "label": "Hello World",
   "provider": "pass-through",
+  "trigger": { "requiresSelection": true },
   "inputs": {
-    "unit": "parent"
+    "member": { "kind": "parent" },
+    "grouping": { "mode": "each" }
+  },
+  "validateSelection": {
+    "select": { "policy": "input-member", "source": "selected" },
+    "filters": []
   },
   "hooks": {
     "applyResult": "hooks/applyResult.mjs"
@@ -96,7 +103,12 @@ Según el método de ejecución y el tipo de backend, los workflows pueden clasi
   "id": "identificador único",
   "label": "nombre para mostrar",
   "provider": "tipo de backend",
-  "inputs": { "unit": "tipo de unidad de entrada" },
+  "trigger": { "requiresSelection": true },
+  "inputs": {
+    "member": { "kind": "execution member type" },
+    "grouping": { "mode": "each | all | parent" }
+  },
+  "validateSelection": { /* candidate production contract */ },
   "parameters": { /* parámetros configurables */ },
   "execution": { /* control de ejecución */ },
   "request": { "kind": "tipo de solicitud" },

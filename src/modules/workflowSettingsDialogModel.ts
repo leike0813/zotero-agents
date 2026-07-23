@@ -42,6 +42,7 @@ export type WorkflowExecutionUnitPreview = Readonly<{
   unitId: string;
   taskName: string;
   inputUnitIdentity?: string;
+  memberCount: number;
 }>;
 
 export type WorkflowExecutionUnitPreviewState =

@@ -137,5 +137,5 @@ invariants:
     doc_refs:
       - doc/components/skillrunner-provider-global-run-workspace-tabs-ssot.md
     spec_refs:
-      - openspec/changes/add-native-workflow-queue-management/specs/skillrunner-provider-global-run-workspace-tabs/spec.md
+      - openspec/specs/skillrunner-provider-global-run-workspace-tabs/spec.md
     must: Host queued workflow units must remain source-level non-selectable rows whose only cancellation identity is queueId.

@@ -28,11 +28,18 @@ my-workflow/
 
 ```json
 {
+  "schemaVersion": 2,
   "id": "hello-world",
   "label": "Hello World",
   "provider": "pass-through",
+  "trigger": { "requiresSelection": true },
   "inputs": {
-    "unit": "parent"
+    "member": { "kind": "parent" },
+    "grouping": { "mode": "each" }
+  },
+  "validateSelection": {
+    "select": { "policy": "input-member", "source": "selected" },
+    "filters": []
   },
   "hooks": {
     "applyResult": "hooks/applyResult.mjs"
@@ -96,7 +103,12 @@ Workflow Manager — Discover, load, validate
   "id": "unique identifier",
   "label": "display name",
   "provider": "backend type",
-  "inputs": { "unit": "input unit type" },
+  "trigger": { "requiresSelection": true },
+  "inputs": {
+    "member": { "kind": "execution member type" },
+    "grouping": { "mode": "each | all | parent" }
+  },
+  "validateSelection": { /* candidate production contract */ },
   "parameters": { /* 設定可能なパラメータ */ },
   "execution": { /* 実行制御 */ },
   "request": { "kind": "リクエスト種別" },

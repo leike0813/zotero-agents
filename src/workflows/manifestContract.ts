@@ -24,16 +24,8 @@ export type WorkflowManifestContract = {
   resultEvidence: WorkflowResultEvidence;
   selection: {
     acceptsNoSelection: boolean;
-    inputUnit?: NonNullable<WorkflowManifest["inputs"]>["unit"];
-    accepts?: NonNullable<WorkflowManifest["inputs"]>["accepts"];
-    perParent?: NonNullable<WorkflowManifest["inputs"]>["per_parent"];
-    validation?: {
-      policy?: NonNullable<
-        NonNullable<WorkflowManifest["validateSelection"]>["select"]
-      >["policy"];
-      excludes: string[];
-      derives: string[];
-    };
+    inputs: WorkflowManifest["inputs"];
+    validation: WorkflowManifest["validateSelection"];
   };
 };
 
@@ -86,19 +78,9 @@ export function projectWorkflowManifestContract(
       applyBack: Boolean(manifest.hooks?.applyResult),
     },
     selection: {
-      acceptsNoSelection: manifest.trigger?.requiresSelection === false,
-      inputUnit: manifest.inputs?.unit,
-      accepts: manifest.inputs?.accepts,
-      perParent: manifest.inputs?.per_parent,
-      validation: manifest.validateSelection
-        ? {
-            policy: manifest.validateSelection.select?.policy,
-            excludes: (manifest.validateSelection.exclude || []).map(
-              (entry) => entry.kind,
-            ),
-            derives: [...(manifest.validateSelection.derive || [])],
-          }
-        : undefined,
+      acceptsNoSelection: manifest.trigger.requiresSelection === false,
+      inputs: manifest.inputs,
+      validation: manifest.validateSelection,
     },
   };
 }

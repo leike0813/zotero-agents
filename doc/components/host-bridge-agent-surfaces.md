@@ -143,8 +143,10 @@ The service covers library indexing, workflow catalog refresh, watched-run
 monitoring, notification synchronization, maintenance analysis, synthesis
 attention, and scheduled operations. It can prepare a
 `zotero-librarian.workflow-plan.v2` from a live selection by first describing
-the workflow, deriving its declared input unit, and validating every planned
-entry. The plan file is immutable and content-digested; SQLite records its
+the workflow, freezing the raw selection as one batch, and delegating candidate
+production, filtering, and grouping to Host validation. The live description
+projects `inputs` and `validateSelection` separately. The plan file is immutable
+and content-digested; SQLite records its
 identity and every entry transition before submission. A remote submission
 with an uncertain outcome is recorded as `unknown` and is never replayed
 automatically. Every non-silent operation returns

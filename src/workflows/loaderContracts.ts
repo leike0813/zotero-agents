@@ -189,22 +189,222 @@ export function normalizeManifestProvider(manifest: WorkflowManifest) {
   return manifest;
 }
 
-export function normalizeManifestInputTriggerDefaults(
-  manifest: WorkflowManifest,
-) {
+type CountRule = {
+  min?: number;
+  max?: number;
+  exact?: number;
+};
+
+function countBounds(rule?: CountRule) {
+  if (typeof rule?.exact === "number") {
+    return { min: rule.exact, max: rule.exact };
+  }
+  return {
+    min: typeof rule?.min === "number" ? rule.min : 0,
+    max:
+      typeof rule?.max === "number"
+        ? rule.max
+        : Number.POSITIVE_INFINITY,
+  };
+}
+
+function validateCountRule(rule: CountRule | undefined, path: string) {
+  if (!rule) {
+    return "";
+  }
   if (
-    manifest.inputs?.unit === "workflow" &&
-    manifest.trigger?.requiresSelection === undefined
+    typeof rule.exact === "number" &&
+    (typeof rule.min === "number" || typeof rule.max === "number")
   ) {
-    manifest.trigger = {
-      ...(manifest.trigger || {}),
-      requiresSelection: false,
-    };
+    return `${path}/exact is mutually exclusive with min and max`;
   }
-  if (manifest.trigger?.requiresSelection === false && !manifest.inputs) {
-    manifest.inputs = { unit: "workflow" };
+  const bounds = countBounds(rule);
+  if (bounds.min > bounds.max) {
+    return `${path}/min must be less than or equal to max`;
   }
-  return manifest;
+  return "";
+}
+
+function rangesOverlap(
+  left: ReturnType<typeof countBounds>,
+  right: ReturnType<typeof countBounds>,
+) {
+  return Math.max(left.min, right.min) <= Math.min(left.max, right.max);
+}
+
+function zeroAllowed(rule: CountRule | undefined) {
+  const bounds = countBounds(rule);
+  return bounds.min === 0;
+}
+
+function validateSelectionCountSemantics(manifest: WorkflowManifest) {
+  const selection = manifest.validateSelection.require?.selection;
+  const rules = selection?.counts || {};
+  const entries = [
+    ["parents", rules.parents],
+    ["children", rules.children],
+    ["attachments", rules.attachments],
+    ["notes", rules.notes],
+    ["total", rules.total],
+  ] as const;
+  for (const [name, rule] of entries) {
+    const error = validateCountRule(
+      rule,
+      `/validateSelection/require/selection/counts/${name}`,
+    );
+    if (error) {
+      return error;
+    }
+  }
+  const candidateError = validateCountRule(
+    manifest.validateSelection.require?.candidates,
+    "/validateSelection/require/candidates",
+  );
+  if (candidateError) {
+    return candidateError;
+  }
+
+  const itemRules = [
+    rules.parents,
+    rules.children,
+    rules.attachments,
+    rules.notes,
+  ];
+  const itemBounds = itemRules.map(countBounds);
+  const totalBounds = countBounds(rules.total);
+  const itemMin = itemBounds.reduce((sum, entry) => sum + entry.min, 0);
+  const itemMax = itemBounds.reduce(
+    (sum, entry) => sum + entry.max,
+    0,
+  );
+  if (
+    itemMin > totalBounds.max ||
+    itemMax < totalBounds.min
+  ) {
+    return "/validateSelection/require/selection/counts has no satisfiable total";
+  }
+
+  if (selection?.allowMixed === false) {
+    const requiredKinds = itemBounds.filter((entry) => entry.min > 0).length;
+    if (requiredKinds > 1) {
+      return "/validateSelection/require/selection disallows mixed input but requires multiple item kinds";
+    }
+    const hasSingleKindSolution = itemRules.some((rule, index) => {
+      if (
+        itemRules.some(
+          (other, otherIndex) =>
+            otherIndex !== index && !zeroAllowed(other),
+        )
+      ) {
+        return false;
+      }
+      return rangesOverlap(countBounds(rule), totalBounds);
+    });
+    const hasEmptySolution =
+      itemRules.every(zeroAllowed) && zeroAllowed(rules.total);
+    if (!hasSingleKindSolution && !hasEmptySolution) {
+      return "/validateSelection/require/selection has no satisfiable non-mixed solution";
+    }
+  }
+
+  const emptySelectionAllowed =
+    itemRules.every(zeroAllowed) && zeroAllowed(rules.total);
+  if (
+    manifest.trigger.requiresSelection === false &&
+    !emptySelectionAllowed
+  ) {
+    return "/trigger/requiresSelection conflicts with positive selection lower bounds";
+  }
+  if (
+    manifest.trigger.requiresSelection === true &&
+    (totalBounds.max === 0 || itemMax === 0)
+  ) {
+    return "/trigger/requiresSelection conflicts with a zero-only selection total";
+  }
+  return "";
+}
+
+function validateInputPlanningSemantics(manifest: WorkflowManifest) {
+  const countError = validateSelectionCountSemantics(manifest);
+  if (countError) {
+    return countError;
+  }
+
+  const memberKind = manifest.inputs.member.kind;
+  const grouping = manifest.inputs.grouping.mode;
+  const selector = manifest.validateSelection.select;
+  const fixedSelectorKinds: Partial<
+    Record<typeof selector.policy, typeof memberKind>
+  > = {
+    selection: "selection",
+    "literature-source": "attachment",
+    "generated-note-candidates": "generated-note",
+    "digest-representative-image": "digest-image-target",
+  };
+  const selectorKind = fixedSelectorKinds[selector.policy] || memberKind;
+  if (selectorKind !== memberKind) {
+    return `/validateSelection/select policy ${selector.policy} produces ${selectorKind}, not ${memberKind}`;
+  }
+  if (
+    selector.policy === "selection" &&
+    (memberKind !== "selection" || grouping !== "all")
+  ) {
+    return "/validateSelection/select selection requires selection members grouped with all";
+  }
+  if (
+    memberKind === "selection" &&
+    selector.policy !== "selection"
+  ) {
+    return "/inputs/member selection requires the selection selector";
+  }
+  if (
+    manifest.trigger.requiresSelection === false &&
+    selector.policy !== "selection"
+  ) {
+    return "/trigger/requiresSelection false requires a selector that can produce an empty SelectionContext";
+  }
+  if (selector.policy === "selection") {
+    const candidateBounds = countBounds(
+      manifest.validateSelection.require?.candidates,
+    );
+    if (candidateBounds.min > 1 || candidateBounds.max < 1) {
+      return "/validateSelection/require/candidates cannot accept the selection selector's single candidate";
+    }
+  }
+  if (
+    manifest.inputs.member.accepts?.mime &&
+    memberKind !== "attachment"
+  ) {
+    return "/inputs/member/accepts/mime is only valid for attachment members";
+  }
+
+  for (let index = 0; index < manifest.validateSelection.filters.length; index++) {
+    const filter = manifest.validateSelection.filters[index];
+    const path = `/validateSelection/filters/${index}`;
+    if (
+      (filter.kind === "source-file-exists" ||
+        filter.kind === "generated-note-kinds-absent" ||
+        filter.kind === "artifact-absent") &&
+      memberKind !== "attachment"
+    ) {
+      return `${path} requires attachment members`;
+    }
+    if (
+      filter.kind === "candidates-per-parent" &&
+      (memberKind === "selection" || memberKind === "digest-image-target")
+    ) {
+      return `${path} requires parent-addressable members`;
+    }
+    if (filter.kind === "artifact-absent" && filter.parameter) {
+      if (filter.phase !== "execute") {
+        return `${path}/parameter requires phase execute`;
+      }
+      if (!manifest.parameters?.[filter.parameter]) {
+        return `${path}/parameter references an undeclared workflow parameter`;
+      }
+    }
+  }
+  return "";
 }
 
 export function resolveBuildStrategy(manifest: WorkflowManifest) {
@@ -254,7 +454,7 @@ export function parseWorkflowManifestFromText(args: {
   }
   const semanticError = validateSequenceManifestSemantics(
     parsed as WorkflowManifest,
-  );
+  ) || validateInputPlanningSemantics(parsed as WorkflowManifest);
   if (semanticError) {
     return {
       manifest: null,
@@ -268,9 +468,7 @@ export function parseWorkflowManifestFromText(args: {
     };
   }
   return {
-    manifest: normalizeManifestInputTriggerDefaults(
-      normalizeManifestProvider(parsed),
-    ),
+    manifest: normalizeManifestProvider(parsed),
     diagnostic: null,
   };
 }

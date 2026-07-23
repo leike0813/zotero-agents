@@ -6,6 +6,7 @@
 
 ```json
 {
+  "schemaVersion": 2,
   "id": "my-workflow",
   "label": "My Workflow",
   "version": "1.0.0",
@@ -14,7 +15,15 @@
     "core": false,
     "emoji": "🔧"
   },
-  "inputs": { "unit": "parent" },
+  "trigger": { "requiresSelection": true },
+  "inputs": {
+    "member": { "kind": "parent" },
+    "grouping": { "mode": "each" }
+  },
+  "validateSelection": {
+    "select": { "policy": "input-member", "source": "selected" },
+    "filters": []
+  },
   "parameters": {},
   "execution": {},
   "request": { "kind": "pass-through.run.v1" },
@@ -67,135 +76,92 @@
 | `taskNameTemplate` | string | `{パラメータ名}` プレースホルダーを使用するタスク名テンプレート。実行時に実際の値に置換される |
 | `debug_only` | boolean | `true` の場合、デバッグモードでのみ表示 |
 
-### 入力の定義
+### Input Planning Contracts
+
+`inputs` and `validateSelection` have separate, non-interchangeable roles.
+`inputs` is the consumer contract for prepared execution members and grouping;
+`validateSelection` is the producer contract for raw-selection validation,
+candidate selection, ordered filtering, and candidate cardinality.
+
+#### `inputs` — Execution Input Contract
 
 ```json
 {
   "inputs": {
-    "unit": "attachment",
-    "accepts": {
-      "mime": ["text/markdown", "text/x-markdown", "application/pdf"]
+    "member": {
+      "kind": "attachment",
+      "accepts": {
+        "mime": ["text/markdown", "text/x-markdown", "application/pdf"]
+      }
     },
-    "per_parent": {
-      "min": 1,
-      "max": 1
-    }
+    "grouping": { "mode": "parent" }
   }
 }
 ```
 
-| フィールド | 説明 |
-|-----------|------|
-| `unit` | **入力ユニット種別**。`"attachment"`（添付ファイル）、`"parent"`（親アイテム）、`"note"`（ノート）、`"workflow"`（アイテム選択不要、Dashboard から直接トリガー） |
-| `accepts.mime` | 受け付ける MIME タイプ（`unit: "attachment"` の場合のみ適用）。未指定の場合はすべての種別を受け付ける |
-| `per_parent.min` | 親アイテムあたりの最小添付ファイル数 |
-| `per_parent.max` | 親アイテムあたりの最大添付ファイル数 |
+- `member.kind`: `selection`, `parent`, `child`, `attachment`,
+  `note`, `generated-note`, or `digest-image-target`.
+- `member.accepts.mime` applies only to attachment execution members.
+- `grouping.mode: "each"` creates one unit per candidate.
+- `grouping.mode: "all"` creates one unit containing all candidates.
+- `grouping.mode: "parent"` creates stable parent groups. Candidates without
+  parent identity are skipped as `missing-parent`.
 
-`unit: "workflow"` の場合、トリガーにユーザーのアイテム選択を必要としない（例：「トピック合成の作成」）。
-
-### validateSelection — 選択の検証 {#selection-validation}
-
-`validateSelection` は宣言的な選択検証である。「すでに結果を持つアイテムをスキップする」や「特定の種別の選択のみを受け付ける」といった一般的なシナリオを、JavaScript を書かずにカバーする。
+#### `validateSelection` — Candidate Production Contract {#selection-validation}
 
 ```json
 {
   "validateSelection": {
-    "select": {
-      "policy": "literature-source"
-    },
     "require": {
-      "counts": {
-        "parents": 1
+      "selection": {
+        "counts": {
+          "parents": { "min": 1 },
+          "total": { "min": 1 }
+        },
+        "allowMixed": false
       },
-      "allowMixed": false
+      "candidates": { "min": 1 }
     },
-    "exclude": [
+    "select": {
+      "policy": "input-member",
+      "source": "related"
+    },
+    "filters": [
       {
-        "kind": "generated-notes-all",
-        "noteKinds": ["digest", "references", "citation-analysis"]
+        "kind": "source-file-exists",
+        "phase": "availability"
       }
     ]
   }
 }
 ```
 
-### `select` — 選択ポリシー
+`require.selection` checks the raw SelectionContext exactly once.
+`select` then produces ordered atomic candidates. MIME compatibility and
+`filters` run before `require.candidates`. Count rules use either
+`{ "exact": n }` or non-negative `min`/`max` values.
 
-| フィールド | 型 | 説明 |
-|-----------|-----|------|
-| `select.policy` | string | 選択ポリシー。サポートされる値は以下 |
-| `select.unit` | string | 選択検証のための入力ユニットを上書きする。`"attachment"` / `"parent"` / `"note"` / `"workflow"` |
+Supported selectors are `input-member` (`source: selected|related`),
+`selection`, `literature-source`, `generated-note-candidates`, and
+`digest-representative-image`. Supported filters are
+`source-file-exists`, `candidates-per-parent`,
+`generated-note-kinds-absent`, and `artifact-absent`. Parameter-dependent
+artifact checks require `phase: "execute"`; availability filters run during
+preview and are reapplied during confirmed planning.
 
-**サポートされる `select.policy` の値：**
-
-| ポリシー | 説明 |
-|----------|------|
-| `input-unit` | 入力ユニットに一致するアイテムを受け付ける |
-| `literature-source` | 文献ソースを受け付ける（展開可能な添付ファイルを持つ添付ファイルまたは親アイテム） |
-| `pdf-attachment` | PDF 添付ファイルのみを受け付ける |
-| `selected-parent` | 選択から親アイテムを受け付ける |
-| `generated-note-candidates` | 生成ノートの候補アイテムを受け付ける |
-| `digest-representative-image` | 代表画像抽出の対象アイテム |
-
-### `require` — 選択の要件
-
-| フィールド | 型 | 説明 |
-|-----------|-----|------|
-| `require.counts.parents` | number | 必要な最小親アイテム数 |
-| `require.counts.attachments` | number | 必要な最小添付ファイル数 |
-| `require.counts.notes` | number | 必要な最小ノート数 |
-| `require.counts.children` | number | 必要な最小子アイテム数 |
-| `require.counts.total` | number | 必要な最小合計アイテム数 |
-| `require.allowMixed` | boolean | 選択内で異なるアイテム種別を混在させることを許可するかどうか |
-
-### `exclude` — 除外ルール
-
-| フィールド | 型 | 説明 |
-|-----------|-----|------|
-| `exclude[]` | array | 除外ルールのリスト。いずれかのルールに一致した場合、現在のアイテムはスキップされる |
-
-**サポートされる `exclude.kind` の値：**
-
-| kind | 説明 | 追加パラメータ |
-|------|------|---------------|
-| `generated-notes-all` | アイテムがすでに指定種別の生成ノートを持っている | `noteKinds`：ノート種別のリスト。例：`["digest", "references", "citation-analysis"]` |
-| `artifact-exists` | アイテムがすでに指定のアーティファクトを持っている（冗長な実行を避けるため） | `target`：`"deep-reading-html"` / `"translator-markdown"` / `"mineru-markdown"`。`parameter`：アーティファクト照合のためのオプションの言語パラメータ |
-
-### `derive` — 派生選択
-
-| フィールド | 型 | 説明 |
-|-----------|-----|------|
-| `derive[]` | array | 派生選択操作。`"exportCandidates"`：ノートエクスポートの候補を派生する。`"digestRepresentativeImageTarget"`：ダイジェストノートから代表画像対象を派生する |
-
-**例：**
-
-```json
-{
-  "validateSelection": {
-    "select": { "policy": "literature-source" },
-    "exclude": [
-      { "kind": "artifact-exists", "target": "deep-reading-html" }
-    ]
-  }
-}
-```
-
-> この例では、すでに deep reading HTML アーティファクトを持つアイテムは自動的にスキップされ、ユーザーによる手動フィルタリングは不要である。
-
-### トリガー制御
+#### `trigger` — Empty-selection Gate
 
 ```json
 {
   "trigger": {
-    "requiresSelection": false
+    "requiresSelection": true
   }
 }
 ```
 
-| フィールド | 説明 |
-|-----------|------|
-| `requiresSelection` | トリガーにユーザーのアイテム選択が必要かどうか。デフォルトは `true`。`false` に設定すると、Dashboard からアイテムを選択せずに Workflow を実行できる。通常 `inputs.unit: "workflow"` の場合に `false` を設定する |
-
+`trigger.requiresSelection` is required in schema v2. It controls only whether
+an empty selection may enter planning; it does not replace
+`require.selection`.
 ### 実行制御
 
 ```json
@@ -330,15 +296,31 @@
 
 ```json
 {
+  "schemaVersion": 2,
   "id": "my-literature-analysis",
   "label": "My Literature Analysis",
   "version": "1.0.0",
   "provider": "skillrunner",
   "display": { "emoji": "📄" },
+  "trigger": { "requiresSelection": true },
   "inputs": {
-    "unit": "attachment",
-    "accepts": { "mime": ["application/pdf"] },
-    "per_parent": { "min": 1, "max": 1 }
+    "member": {
+      "kind": "attachment",
+      "accepts": { "mime": ["application/pdf"] }
+    },
+    "grouping": { "mode": "each" }
+  },
+  "validateSelection": {
+    "require": {
+      "selection": {
+        "counts": { "attachments": { "min": 1 } },
+        "allowMixed": false
+      }
+    },
+    "select": { "policy": "input-member", "source": "selected" },
+    "filters": [
+      { "kind": "source-file-exists", "phase": "availability" }
+    ]
   },
   "parameters": {
     "language": {

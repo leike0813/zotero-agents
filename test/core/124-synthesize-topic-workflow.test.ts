@@ -166,8 +166,14 @@ describe("Synthesize topic workflow contract", function () {
         );
       }
     }
-    assert.equal(createWorkflow.inputs?.unit, "workflow");
-    assert.equal(updateWorkflow.inputs?.unit, "workflow");
+    assert.deepInclude(createWorkflow.inputs, {
+      member: { kind: "selection" },
+      grouping: { mode: "all" },
+    });
+    assert.deepInclude(updateWorkflow.inputs, {
+      member: { kind: "selection" },
+      grouping: { mode: "all" },
+    });
     assert.equal(
       createWorkflow.taskNameTemplate,
       "Create synthesis: {topic seed}",

@@ -838,12 +838,12 @@ async function debugStatus(
   context: HostBridgeCapabilityContext,
 ) {
   const object = asObject(input);
-  const [taskRuntime, acpSkillRunStore] = await Promise.all([
+  const [taskRuntime, acpSkillRunDashboard] = await Promise.all([
     import("./taskRuntime"),
-    import("./acpSkillRunStore"),
+    import("./acpSkillRunDashboardFacade"),
   ]);
   const { listActiveWorkflowTaskSummaries, listWorkflowTasks } = taskRuntime;
-  const { listAcpSkillRunSummaries } = acpSkillRunStore;
+  const { listAcpSkillRunSummaries } = acpSkillRunDashboard;
   const tasks = listWorkflowTasks();
   const activeTasks = listActiveWorkflowTaskSummaries();
   const runs = listAcpSkillRunSummaries();
@@ -896,12 +896,12 @@ async function debugPersistenceSnapshot(input: unknown) {
 async function debugTasksSnapshot(input: unknown) {
   const object = asObject(input);
   const limit = debugLimit(object);
-  const [taskRuntime, acpSkillRunStore] = await Promise.all([
+  const [taskRuntime, acpSkillRunDashboard] = await Promise.all([
     import("./taskRuntime"),
-    import("./acpSkillRunStore"),
+    import("./acpSkillRunDashboardFacade"),
   ]);
   const { listActiveWorkflowTaskSummaries, listWorkflowTasks } = taskRuntime;
-  const { listAcpSkillRunSummaries } = acpSkillRunStore;
+  const { listAcpSkillRunSummaries } = acpSkillRunDashboard;
   const tasks = listWorkflowTasks();
   const activeTasks = listActiveWorkflowTaskSummaries({ limit });
   const runs = listAcpSkillRunSummaries({ limit });

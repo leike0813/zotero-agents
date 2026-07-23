@@ -35,7 +35,7 @@ scripts/zotero_librarian_service.py workflow plan \
   --output <absolute-plan.json>
 ```
 
-Inspect `receipt.data.selectionRefs`, `inputUnit`, workflow ID, `planId`, `planDigest`, workflow contract digest, `defaultConcurrency`, entries, and the file returned in `receipt.data.path`. If the selection is empty, stale, or contains unintended objects, correct the Zotero selection and produce a new plan. Do not hand-edit the file and represent it as service-validated.
+Inspect `receipt.data.selectionRefs`, the separate `inputs` and `validateSelection` contracts, workflow ID, `planId`, `planDigest`, workflow contract digest, `defaultConcurrency`, entries, and the file returned in `receipt.data.path`. If the selection is empty, stale, or contains unintended objects, correct the Zotero selection and produce a new plan. Do not hand-edit the file and represent it as service-validated.
 
 After the operator authorizes that exact plan, submit it:
 
@@ -160,9 +160,9 @@ Classify the failure and return the next safe check. Never turn the word “auto
 A plan is prepared only when:
 
 - the live workflow description is available;
-- the selection contract uses an input unit supported by the helper;
-- each selected object is normalized according to that input unit;
-- every entry passes live workflow validation;
+- the live description exposes separate execution-input and candidate-production contracts;
+- the raw current selection is frozen without local candidate or grouping inference;
+- the complete selection entry passes live workflow validation;
 - no unsupported required workflow option or provider input is hidden;
 - the absolute output path is accepted;
 - the plan file and database registry share the same identity.
@@ -184,7 +184,8 @@ The operator reviews:
 
 - workflow outcome;
 - exact selected refs;
-- input unit;
+- execution member and grouping contract;
+- candidate selection and validation contract;
 - number of entries;
 - expected provider/execution boundary;
 - plan path and digest;
@@ -246,17 +247,15 @@ This receipt proves local recording of the returned result. It does not prove wo
 
 ## Provider, options, and unsupported plans
 
-The resident plan helper intentionally handles only the simple current-selection join it can validate safely. Route to Generic when:
+The resident plan helper freezes one raw current-selection batch and delegates candidate production and grouping to Host validation. Route to Generic when:
 
 - required workflow options are not represented by the helper;
 - a provider profile must be chosen or validated;
 - the workflow uses self-owned agent execution;
-- the selection contract accepts a unit the helper does not support;
 - no-selection execution is required;
-- one workflow entry needs a multi-item grouping not represented by one selected ref;
 - the task needs custom result handling or apply-back.
 
-Do not strip required options, choose a default provider silently, convert a self-owned workflow into a Zotero-managed one, or split a grouped selection merely to make the helper accept it.
+Do not strip required options, choose a default provider silently, convert a self-owned workflow into a Zotero-managed one, or locally reconstruct the Host's prepared units.
 
 ## Concurrency decisions
 

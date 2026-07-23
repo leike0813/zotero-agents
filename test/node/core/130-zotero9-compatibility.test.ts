@@ -60,11 +60,20 @@ async function createMinimalWorkflowPackage(root: string) {
     workflows: ["runtime-workflow/workflow.json"],
   });
   await writeJson(path.join(packageRoot, "runtime-workflow", "workflow.json"), {
+    schemaVersion: 2,
     id: "runtime-workflow",
     label: "Runtime Workflow",
     provider: "acp",
     version: "1.0.0",
-    inputs: { unit: "workflow" },
+    trigger: { requiresSelection: false },
+    inputs: {
+      member: { kind: "selection" },
+      grouping: { mode: "all" },
+    },
+    validateSelection: {
+      select: { policy: "selection" },
+      filters: [],
+    },
     request: { kind: "acp.workflow.v1" },
     hooks: { applyResult: "../hooks/apply.mjs" },
   });

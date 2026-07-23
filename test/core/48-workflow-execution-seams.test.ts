@@ -50,6 +50,19 @@ import {
 import { loadAcpRuntimeSemanticTrace } from "../../src/modules/acpRuntimeSemanticTrace";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 
+const parentInputPlanningV2 = {
+  schemaVersion: 2,
+  trigger: { requiresSelection: true },
+  inputs: {
+    member: { kind: "parent" },
+    grouping: { mode: "each" },
+  },
+  validateSelection: {
+    select: { policy: "input-member", source: "selected" },
+    filters: [],
+  },
+} as const;
+
 async function planSingleWorkflowUnit(args: { selectionContext: unknown }) {
   return {
     units: [
@@ -57,6 +70,10 @@ async function planSingleWorkflowUnit(args: { selectionContext: unknown }) {
         unitId: "unit-1",
         order: 0,
         taskName: "Test unit",
+        inputUnitIdentity: "parent:1",
+        memberIdentities: ["parent:1"],
+        memberCount: 1,
+        members: [],
         selectionContext: args.selectionContext as any,
       },
     ],
@@ -64,6 +81,12 @@ async function planSingleWorkflowUnit(args: { selectionContext: unknown }) {
       totalUnits: 1,
       executableUnits: 1,
       skippedUnits: 0,
+      candidateStats: {
+        total: 1,
+        accepted: 1,
+        skipped: 0,
+        reasons: {},
+      },
     },
   } as any;
 }
@@ -85,6 +108,7 @@ async function createWorkflowRoot(args: {
         id: args.id,
         label: `Seam ${args.id}`,
         provider: "pass-through",
+        ...parentInputPlanningV2,
         ...(args.execution ? { execution: args.execution } : {}),
         ...(args.parameters ? { parameters: args.parameters } : {}),
         hooks: {
@@ -154,7 +178,7 @@ describe("workflow execution seams", function () {
         id: "deferred-unit-plan",
         label: "Deferred Unit Plan",
         provider: "pass-through",
-        inputs: { unit: "parent" },
+        ...parentInputPlanningV2,
         hooks: {
           preflight: "hooks/preflight.js",
           buildRequest: "hooks/buildRequest.js",
@@ -216,6 +240,12 @@ describe("workflow execution seams", function () {
       totalUnits: 2,
       executableUnits: 2,
       skippedUnits: 0,
+      candidateStats: {
+        total: 2,
+        accepted: 2,
+        skipped: 0,
+        reasons: {},
+      },
     });
     assert.isFalse(preflightCalled);
     assert.isFalse(buildCalled);
@@ -228,7 +258,7 @@ describe("workflow execution seams", function () {
         id: "preflight-continue",
         label: "Preflight Continue",
         provider: "pass-through",
-        inputs: { unit: "parent" },
+        ...parentInputPlanningV2,
         hooks: {
           preflight: "hooks/preflight.js",
           buildRequest: "hooks/buildRequest.js",
@@ -279,7 +309,7 @@ describe("workflow execution seams", function () {
         id: "preflight-replace",
         label: "Preflight Replace",
         provider: "pass-through",
-        inputs: { unit: "parent" },
+        ...parentInputPlanningV2,
         hooks: {
           preflight: "hooks/preflight.js",
           buildRequest: "hooks/buildRequest.js",
@@ -346,7 +376,7 @@ describe("workflow execution seams", function () {
         id: "preflight-short-circuit",
         label: "Preflight Short Circuit",
         provider: "pass-through",
-        inputs: { unit: "parent" },
+        ...parentInputPlanningV2,
         hooks: {
           preflight: "hooks/preflight.js",
           buildRequest: "hooks/buildRequest.js",
@@ -494,7 +524,7 @@ describe("workflow execution seams", function () {
         id: "preflight-skip",
         label: "Preflight Skip",
         provider: "pass-through",
-        inputs: { unit: "parent" },
+        ...parentInputPlanningV2,
         hooks: {
           preflight: "hooks/preflight.js",
           buildRequest: "hooks/buildRequest.js",
@@ -2330,7 +2360,7 @@ describe("workflow execution seams", function () {
             },
           } as any,
           requests: [{ id: 1 }, { id: 2 }, { id: 3 }],
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "skillrunner",
             requestKind: "skillrunner.job.v1",
@@ -2389,7 +2419,7 @@ describe("workflow execution seams", function () {
               skillName: "Literature Analysis",
             },
           },
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "skillrunner",
             requestKind: "skillrunner.job.v1",
@@ -2752,7 +2782,7 @@ describe("workflow execution seams", function () {
               skillName: "Tag Regulator",
             },
           },
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "skillrunner",
             requestKind: "skillrunner.sequence.v1",
@@ -2912,7 +2942,7 @@ describe("workflow execution seams", function () {
               final_step_id: "digest",
             },
           ],
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "acp",
             requestKind: "skillrunner.sequence.v1",
@@ -3031,7 +3061,7 @@ describe("workflow execution seams", function () {
               final_step_id: "interactive",
             },
           ],
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "skillrunner",
             requestKind: "skillrunner.sequence.v1",
@@ -3104,7 +3134,7 @@ describe("workflow execution seams", function () {
               skill_id: "debug-host-bridge-connectivity-probe",
             },
           ],
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "skillrunner",
             requestKind: "acp.skill.run.v1",
@@ -3267,7 +3297,7 @@ describe("workflow execution seams", function () {
             },
           } as any,
           requests: [{ id: 1 }, { id: 2 }],
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "generic-http",
             requestKind: "generic-http.request.v1",
@@ -3312,7 +3342,7 @@ describe("workflow execution seams", function () {
             },
           } as any,
           requests: [{ id: 1 }, { id: 2 }, { id: 3 }],
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "pass-through",
             requestKind: "pass-through.run.v1",
@@ -3361,7 +3391,7 @@ describe("workflow execution seams", function () {
           requests: [
             { targetParentID: 3, runtime_options: { execution_mode: "auto" } },
           ],
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "skillrunner",
             requestKind: "skillrunner.job.v1",
@@ -3491,7 +3521,7 @@ describe("workflow execution seams", function () {
               runtime_options: { execution_mode: "interactive" },
             },
           ],
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "skillrunner",
             requestKind: "skillrunner.job.v1",
@@ -3623,7 +3653,7 @@ describe("workflow execution seams", function () {
           requests: [
             { targetParentID: 3, runtime_options: { execution_mode: "auto" } },
           ],
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "acp",
             requestKind: "acp.skill.run.v1",
@@ -3705,7 +3735,7 @@ describe("workflow execution seams", function () {
               runtime_options: { execution_mode: "interactive" },
             },
           ],
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "acp",
             requestKind: "acp.skill.run.v1",
@@ -3780,7 +3810,7 @@ describe("workflow execution seams", function () {
               { skill_id: "skill-a", requestId: "request-a" },
               { skill_id: "skill-b", requestId: "request-b" },
             ],
-            skippedByFilter: 0,
+            candidateSkipped: 0,
             executionContext: {
               providerId: "acp",
               requestKind: "acp.skill.run.v1",
@@ -3898,7 +3928,7 @@ describe("workflow execution seams", function () {
                 final_step_id: "finalize",
               },
             ],
-            skippedByFilter: 0,
+            candidateSkipped: 0,
             executionContext: {
               providerId: "acp",
               requestKind: "skillrunner.sequence.v1",
@@ -3995,7 +4025,7 @@ describe("workflow execution seams", function () {
                 },
               } as any,
               requests: [{ skill_id: `${outcome}-skill`, requestId: outcome }],
-              skippedByFilter: 0,
+              candidateSkipped: 0,
               executionContext: {
                 providerId: "acp",
                 requestKind: "acp.skill.run.v1",
@@ -4063,7 +4093,7 @@ describe("workflow execution seams", function () {
               },
             } as any,
             requests: [],
-            skippedByFilter: 0,
+            candidateSkipped: 0,
             executionContext: {
               providerId: "acp",
               requestKind: "acp.skill.run.v1",

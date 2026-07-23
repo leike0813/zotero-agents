@@ -160,12 +160,22 @@ Use declarative `validateSelection` for common attachment filtering:
 
 ```json
 {
+  "inputs": {
+    "member": {
+      "kind": "attachment",
+      "accepts": { "mime": ["application/pdf"] }
+    },
+    "grouping": { "mode": "each" }
+  },
   "validateSelection": {
-    "select": { "policy": "pdf-attachment" },
+    "select": { "policy": "input-member", "source": "selected" },
     "require": {
-      "counts": { "attachments": 1 },
-      "allowMixed": false
-    }
+      "selection": {
+        "counts": { "attachments": { "min": 1 } },
+        "allowMixed": false
+      }
+    },
+    "filters": []
   }
 }
 ```
@@ -190,7 +200,11 @@ export function preflight({ selectionContext, runtime }) {
 
 ### Workflows When No Items Are Selected
 
-When `inputs.unit: "workflow"` and `trigger.requiresSelection: false`, the workflow can be triggered without any items selected. In this case, `selectionContext.selectionType` is `"none"`, and all arrays in `items` are empty. This mode is suitable for creating global operations (e.g., "Create Topic Synthesis").
+When `inputs.member.kind: "selection"`, `inputs.grouping.mode: "all"`, and
+`trigger.requiresSelection: false`, a workflow can be triggered without any
+items selected. Its `selection` selector produces the complete empty
+SelectionContext as the single member. Selection requirements remain active and
+must not make the empty selection impossible.
 
 ## Declarative Selection Validation
 
@@ -199,9 +213,13 @@ If your workflow only needs to **skip items that already have results** or **fil
 ```json
 {
   "validateSelection": {
-    "select": { "policy": "literature-source" },
-    "exclude": [
-      { "kind": "generated-notes-all", "noteKinds": ["digest"] }
+    "select": { "policy": "generated-note-candidates" },
+    "filters": [
+      {
+        "kind": "generated-note-kinds-absent",
+        "phase": "availability",
+        "noteKinds": ["digest"]
+      }
     ]
   }
 }
@@ -209,9 +227,12 @@ If your workflow only needs to **skip items that already have results** or **fil
 
 See the full documentation in [Writing the Manifest](#doc/workflows%2Fcustom%2Fmanifest#selection-validation).
 
-> **Selection Guide:** Use declarative `validateSelection` whenever possible — it requires zero JavaScript and zero maintenance. Complex selection logic can be implemented in the `buildRequest` Hook.
+> **Contract boundary:** `validateSelection` produces and filters candidates;
+> `inputs` declares what request construction consumes and how candidates are
+> grouped. `buildRequest` consumes the prepared unit and must not reimplement
+> selection planning.
 
 ## Next Steps
 
 - [Host API Reference](#doc/workflows%2Fcustom%2Fhost-api) — Complete API for manipulating Zotero data in hooks
-- [Writing the Manifest](#doc/workflows%2Fcustom%2Fmanifest) — Define the workflow's input unit types
+- [Writing the Manifest](#doc/workflows%2Fcustom%2Fmanifest) — Define candidate production and execution grouping

@@ -314,9 +314,12 @@ function resolveSkippedUnitsFromNoValidInputError(error: unknown) {
     code?: unknown;
     skippedUnits?: unknown;
     totalUnits?: unknown;
+    candidateSkipped?: unknown;
   };
   if (typed.code === "NO_VALID_INPUT_UNITS") {
-    const raw = Number(typed.skippedUnits ?? typed.totalUnits ?? 0);
+    const raw = Number(
+      typed.candidateSkipped ?? typed.skippedUnits ?? typed.totalUnits ?? 0,
+    );
     if (Number.isFinite(raw) && raw > 0) {
       return Math.floor(raw);
     }
@@ -411,7 +414,7 @@ export async function runWorkflowPreparationSeam(
   let plan: WorkflowRequestBuildPlan | null = null;
   let selectionContext: PreparedWorkflowExecution["selectionContext"] | null =
     null;
-  let skippedByFilter = 0;
+  let candidateSkipped = 0;
   let preview: PreparedWorkflowExecution["executionOptions"] = {
     workflowParams: {},
     providerOptions: {},
@@ -468,7 +471,7 @@ export async function runWorkflowPreparationSeam(
         runOptions: preview.runOptions,
       },
     });
-    skippedByFilter = plan.stats.skippedUnits;
+    candidateSkipped = plan.stats.candidateStats.skipped;
     resolved.appendRuntimeLog({
       level: "info",
       scope: "workflow-trigger",
@@ -477,7 +480,7 @@ export async function runWorkflowPreparationSeam(
       message: "build requests finished",
       details: {
         requestCount: plan.units.length,
-        skippedUnits: skippedByFilter,
+        candidateSkipped,
         allowWriteApprovalBypass:
           args.workflow.manifest.execution?.zoteroHostAccess
             ?.allowWriteApprovalBypass === true,
@@ -570,7 +573,7 @@ export async function runWorkflowPreparationSeam(
       stage: "trigger-no-requests",
       message: "workflow trigger produced zero requests",
       details: {
-        skippedUnits: Math.max(1, skippedByFilter),
+        candidateSkipped: Math.max(1, candidateSkipped),
       },
     });
     if (
@@ -584,7 +587,7 @@ export async function runWorkflowPreparationSeam(
             workflowLabel,
             succeeded: 0,
             failed: 0,
-            skipped: Math.max(1, skippedByFilter),
+            skipped: Math.max(1, candidateSkipped),
             failureReasons: [],
           },
           args.messageFormatter,
@@ -706,7 +709,7 @@ export async function runWorkflowPreparationSeam(
       plan,
       selectionContext,
       executionOptions: preview,
-      skippedByFilter,
+      candidateSkipped,
       executionContext,
     },
   };
@@ -758,6 +761,7 @@ export async function buildWorkflowExecutionUnitPreview(
           Object.freeze({
             unitId: unit.unitId,
             taskName: unit.taskName,
+            memberCount: unit.memberCount,
             ...(unit.inputUnitIdentity
               ? { inputUnitIdentity: unit.inputUnitIdentity }
               : {}),
@@ -796,6 +800,7 @@ export async function buildPreparedWorkflowUnitExecution(
       workflow: args.prepared.workflow,
       selectionContext: args.unit.selectionContext,
       executionOptions: args.prepared.executionOptions,
+      preparedUnit: args.unit,
     });
   } catch (error) {
     if (isNoValidInputUnitsError(error)) {
@@ -849,29 +854,83 @@ export async function buildPreparedWorkflowUnitExecution(
   };
 }
 
-export function buildPreparedWorkflowBatchExecution(
+export async function buildPreparedWorkflowBatchExecution(
   args: {
     prepared: PreparedWorkflowExecution;
+    units?: ReadonlyArray<PreparedWorkflowUnit>;
   },
   deps: Partial<PreparationDeps> = {},
 ) {
-  const firstUnit = args.prepared.plan.units[0];
-  if (!firstUnit) {
-    return Promise.resolve({
+  const units = args.units || args.prepared.plan.units;
+  if (units.length === 0) {
+    return {
       status: "skipped" as const,
-      skippedUnits: Math.max(1, args.prepared.skippedByFilter),
-    });
+      skippedUnits: Math.max(1, args.prepared.plan.stats.skippedUnits),
+    };
   }
-  return buildPreparedWorkflowUnitExecution(
-    {
-      prepared: args.prepared,
-      unit: {
-        ...firstUnit,
-        unitId: "workflow-batch",
-        order: 0,
-        selectionContext: args.prepared.selectionContext,
-      },
-    },
-    deps,
+  const results = await Promise.all(
+    units.map((unit) =>
+      buildPreparedWorkflowUnitExecution(
+        {
+          prepared: args.prepared,
+          unit,
+        },
+        deps,
+      ),
+    ),
   );
+  const ready = results.flatMap((result) =>
+    result.status === "ready" ? [result.built] : [],
+  );
+  if (ready.length === 0) {
+    return {
+      status: "skipped" as const,
+      skippedUnits: results.reduce(
+        (sum, result) =>
+          sum + (result.status === "skipped" ? result.skippedUnits : 0),
+        0,
+      ),
+    };
+  }
+  const requests: unknown[] = [];
+  const preflight: WorkflowPreflightExecutionState = {
+    requestUnits: [],
+    shortCircuitApplies: [],
+    aggregates: [],
+    skippedUnits: 0,
+  };
+  for (const built of ready) {
+    const requestOffset = requests.length;
+    requests.push(...built.requests);
+    preflight.requestUnits.push(...(built.preflight?.requestUnits || []));
+    preflight.shortCircuitApplies.push(
+      ...(built.preflight?.shortCircuitApplies || []).map((entry) => ({
+        ...entry,
+        index: entry.index + requestOffset,
+      })),
+    );
+    preflight.aggregates.push(
+      ...(built.preflight?.aggregates || []).map((entry) => ({
+        ...entry,
+        requestIndexes: entry.requestIndexes.map(
+          (index) => index + requestOffset,
+        ),
+      })),
+    );
+    preflight.skippedUnits += built.preflight?.skippedUnits || 0;
+  }
+  return {
+    status: "ready" as const,
+    built: {
+      ...ready[0],
+      requests,
+      preflight:
+        preflight.requestUnits.some(Boolean) ||
+        preflight.shortCircuitApplies.length > 0 ||
+        preflight.aggregates.length > 0 ||
+        preflight.skippedUnits > 0
+          ? preflight
+          : undefined,
+    },
+  };
 }
