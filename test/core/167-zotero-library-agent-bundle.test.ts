@@ -1,267 +1,191 @@
 import { assert } from "chai";
-import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { validateAcpSkillFinalPayload } from "../../src/modules/acpSkillOutputValidator";
-import { scanPluginSkillRegistry } from "../../src/modules/pluginSkillRegistry";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import Ajv from "ajv";
 
-const HELPER = join(
-  process.cwd(),
-  "skills_builtin/zotero-library-agent/scripts/zotero_library_agent.py",
-);
+const GENERIC_ROOT = join(process.cwd(), "skills_src/zotero-library-agent");
+const SOURCE_ROOT = join(GENERIC_ROOT, "skills/zotero-library-agent");
 
-function writeJson(path: string, value: unknown) {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+const TASKS = [
+  "zotero-library-query",
+  "zotero-literature-acquisition",
+  "zotero-literature-analysis",
+  "zotero-research-synthesis",
+  "zotero-library-curation",
+] as const;
+
+const PLAYBOOK_SECTIONS: Record<(typeof TASKS)[number], string[]> = {
+  "zotero-library-query": [
+    "Context and identity",
+    "Library discovery and paging",
+    "Notes, attachments, and readiness",
+    "Synthesis and answer evidence",
+    "Recovery and near misses",
+  ],
+  "zotero-literature-acquisition": [
+    "Search boundary and candidates",
+    "Duplicate and identity checks",
+    "Acquisition and readiness",
+    "Workflow and write authority",
+    "Recovery and near misses",
+  ],
+  "zotero-literature-analysis": [
+    "Source availability and evidence levels",
+    "Analysis procedure",
+    "Workflow-produced analysis",
+    "Deliverables and completion evidence",
+    "Recovery and near misses",
+  ],
+  "zotero-research-synthesis": [
+    "Synthesis model selection",
+    "Source and freshness discipline",
+    "Workflow and maintenance boundaries",
+    "Ordered synthesis lifecycle",
+    "Recovery and near misses",
+  ],
+  "zotero-library-curation": [
+    "Change classification and proposal",
+    "Mutation and file workflows",
+    "Products and durable artifacts",
+    "Verification and partial outcomes",
+    "Recovery and near misses",
+  ],
+};
+
+function read(relative: string) {
+  return readFileSync(join(SOURCE_ROOT, relative), "utf8");
 }
 
-function runHelper(args: string[]) {
-  const stdout = execFileSync(
-    process.env.PYTHON || "python3",
-    [HELPER, ...args],
-    {
-      cwd: process.cwd(),
-      encoding: "utf8",
-    },
+function referencesLinkedFrom(skill: string) {
+  return Array.from(
+    new Set(
+      Array.from(
+        skill.matchAll(/\]\((references\/[^)#]+\.md)\)/g),
+        (match) => match[1],
+      ),
+    ),
   );
-  return JSON.parse(stdout);
 }
 
-describe("zotero library agent bundle", function () {
-  it("renders a plugin-executable runner and final result contract", async function () {
-    const sourceRunner = readFileSync(
-      "skills_src/zotero-library-agent/runner.json",
-      "utf8",
-    );
-    const renderedRunner = readFileSync(
-      "skills_builtin/zotero-library-agent/assets/runner.json",
-      "utf8",
-    );
-    const sourceSchema = readFileSync(
-      "skills_src/zotero-library-agent/output.schema.json",
-      "utf8",
-    );
-    const renderedSchema = readFileSync(
-      "skills_builtin/zotero-library-agent/assets/output.schema.json",
-      "utf8",
-    );
-    assert.strictEqual(renderedRunner, sourceRunner);
-    assert.strictEqual(renderedSchema, sourceSchema);
+describe("zotero library agent source suite", function () {
+  it("defines one coordinator and five independently executable research tasks", function () {
+    const coordinator = read("SKILL.md");
+    assert.include(coordinator, "# Zotero Library Agent");
+    assert.include(coordinator, "## Routing");
+    assert.deepEqual(referencesLinkedFrom(coordinator), [
+      "references/research-task-model.md",
+    ]);
 
-    const runner = JSON.parse(renderedRunner);
-    assert.strictEqual(runner.id, "zotero-library-agent");
-    assert.sameMembers(runner.execution_modes, ["auto", "interactive"]);
-    assert.strictEqual(runner.schemas.output, "assets/output.schema.json");
-
-    const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
-    assert.property(registry.entriesById, "zotero-library-agent");
-    assert.isFalse(
-      registry.diagnostics.some(
-        (entry) =>
-          entry.level === "error" &&
-          entry.path.replace(/\\/g, "/").includes("zotero-library-agent"),
-      ),
-      JSON.stringify(registry.diagnostics),
-    );
-
-    const validation = await validateAcpSkillFinalPayload({
-      payload: {
-        status: "completed",
-        summary: "Inspected the requested Zotero context.",
-      },
-      runnerJson: runner,
-      primarySkillDir: join(
-        process.cwd(),
-        "skills_builtin/zotero-library-agent",
-      ),
-    });
-    assert.isTrue(validation.ok, validation.errors.join("\n"));
-  });
-
-  it("renders its repository README from bounded-task semantic source", function () {
-    const source = readFileSync(
-      "skills_src/zotero-library-agent/semantic/README.md",
-      "utf8",
-    );
-    const rendered = readFileSync(
-      "skills_builtin/zotero-library-agent/README.md",
-      "utf8",
-    );
-    assert.strictEqual(rendered, source);
-    assert.include(rendered, "surface identity --json");
-    assert.include(rendered, "bounded");
-    assert.notMatch(rendered, /cron|SQLite|HERMES_HOME/);
-  });
-
-  it("renders non-blocking CLI version guidance from the release SSOT", function () {
-    const release = JSON.parse(
-      readFileSync("cli/zotero-bridge/release.json", "utf8"),
-    );
-    const hostBridge = readFileSync(
-      "skills_builtin/zotero-library-agent/references/host-bridge.md",
-      "utf8",
-    );
-    assert.include(hostBridge, release.version);
-    assert.include(hostBridge, "--version");
-    assert.include(hostBridge, "--help");
-    assert.include(hostBridge, "Version mismatch alone is not a blocker");
-    assert.include(hostBridge, "surface identity --json");
-  });
-
-  it("documents only helper commands exposed by the packaged parser", function () {
-    const skill = readFileSync(
-      "skills_builtin/zotero-library-agent/SKILL.md",
-      "utf8",
-    );
-    const contract = readFileSync(
-      "skills_builtin/zotero-library-agent/references/helper-script-contract.md",
-      "utf8",
-    );
-    const guidance = `${skill}\n${contract}`;
-    assert.include(guidance, "zotero_library_agent.py evidence build");
-    assert.include(guidance, "zotero_library_agent.py evidence validate");
-    assert.notInclude(guidance, "zotero_library_agent.py validate-input");
-    assert.notInclude(guidance, "zotero_library_agent.py render-evidence");
-  });
-
-  it("builds and validates hash-bound evidence without persistent state", async function () {
-    const root = mkdtempSync(join(tmpdir(), "zla-evidence-"));
-    try {
-      const artifactPath = join(root, "digest.md");
-      writeFileSync(artifactPath, "# Digest\n", "utf8");
-      const inputPath = join(root, "input.json");
-      const outputPath = join(root, "evidence.json");
-      writeJson(inputPath, {
-        producer: { surfaceVersion: "0.2.0", cliVersion: "0.2.1" },
-        operation: {
-          kind: "library-read",
-          command: ["zotero-bridge", "library", "items", "list"],
-        },
-        subjects: [
-          { kind: "zotero-item", ref: { libraryId: 1, key: "ABCD1234" } },
-        ],
-        artifacts: [
-          { path: artifactPath, role: "result", mediaType: "text/markdown" },
-        ],
-        writeback: { state: "not-requested" },
-      });
-
-      const built = runHelper([
-        "evidence",
-        "build",
-        "--input",
-        inputPath,
-        "--output",
-        outputPath,
-      ]);
-      assert.isTrue(built.ok);
-      const evidence = JSON.parse(readFileSync(outputPath, "utf8"));
-      assert.strictEqual(
-        evidence.schema,
-        "zotero-library-agent.evidence-bundle.v1",
+    for (const task of TASKS) {
+      const skillPath = `skills/${task}/SKILL.md`;
+      const playbook = `skills/${task}/references/playbook.md`;
+      const skill = readFileSync(join(GENERIC_ROOT, skillPath), "utf8");
+      assert.match(skill, new RegExp(`name: ${task}`));
+      assert.match(skill, /description: .+Use when /);
+      assert.isAtMost(
+        skill.match(/^description: (.+)$/m)?.[1].length || Infinity,
+        240,
       );
-      assert.strictEqual(
-        evidence.artifacts[0].sha256,
-        createHash("sha256").update("# Digest\n").digest("hex"),
-      );
-      const validated = runHelper([
-        "evidence",
-        "validate",
-        "--input",
-        outputPath,
-      ]);
-      assert.isTrue(validated.ok);
-      assert.notProperty(evidence, "stateDir");
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it("rejects evidence credential fields", async function () {
-    const root = mkdtempSync(join(tmpdir(), "zla-secret-"));
-    try {
-      const inputPath = join(root, "input.json");
-      const outputPath = join(root, "evidence.json");
-      writeJson(inputPath, {
-        producer: { surfaceVersion: "0.2.0", cliVersion: "0.2.1" },
-        operation: { kind: "library-read", command: ["zotero-bridge"] },
-        subjects: [],
-        artifacts: [],
-        writeback: { state: "not-requested" },
-        token: "secret",
-      });
-      let stderr = "";
-      try {
-        execFileSync(
-          process.env.PYTHON || "python3",
-          [
-            HELPER,
-            "evidence",
-            "build",
-            "--input",
-            inputPath,
-            "--output",
-            outputPath,
-          ],
-          {
-            cwd: process.cwd(),
-            encoding: "utf8",
-            stdio: ["ignore", "pipe", "pipe"],
-          },
-        );
-        assert.fail("credential-bearing evidence must be rejected");
-      } catch (error) {
-        stderr = String((error as { stderr?: string }).stderr || "");
+      for (const heading of [
+        "Goal",
+        "Inputs",
+        "Workflow",
+        "Hard constraints",
+        "LLM And Tool Responsibilities",
+        "Completion",
+        "Failure handling",
+        "References",
+      ]) {
+        assert.include(skill, `## ${heading}`, `${task} lacks ${heading}`);
       }
-      assert.include(stderr, "sensitive_field");
-    } finally {
-      await rm(root, { recursive: true, force: true });
+      assert.deepEqual(referencesLinkedFrom(skill), ["references/playbook.md"]);
+      assert.include(skill, "zotero-library-task.result.v1");
+      assert.include(skill, "`schema`");
+      assert.include(skill, "`status`");
+      assert.include(skill, "`summary`");
+      assert.include(skill, "`completed`");
+      assert.include(skill, "`canceled`");
+      assert.include(skill, "`failed`");
+      assert.include(skill, "Do not invent handles");
+      const playbookContent = readFileSync(
+        join(GENERIC_ROOT, playbook),
+        "utf8",
+      );
+      for (const section of PLAYBOOK_SECTIONS[task]) {
+        assert.include(playbookContent, `## ${section}`, `${task}: ${section}`);
+      }
     }
   });
 
-  it("inspects prepared agent-run contracts and validates result bundles", async function () {
-    const root = mkdtempSync(join(tmpdir(), "zla-workflow-"));
-    try {
-      const handoff = join(root, "handoff");
-      const result = join(root, "result");
-      writeJson(join(handoff, "agent-run/context.json"), {
-        schema: "zotero-bridge.agent-run.context.v1",
-        agentRunId: "agent-run-1",
-      });
-      const contract = {
-        schema: "zotero-bridge.agent-run.output-contract.v1",
-        agentRequestId: "request-1",
-        namespace: "demo",
-        resultJsonPath: "bundle/demo/result.json",
-        expectedBundleManifestPath: "bundle/demo/manifest.json",
-      };
-      writeJson(
-        join(handoff, "agent-run/requests/request-1/output-contract.json"),
-        contract,
-      );
-      writeJson(join(result, "bundle/demo/result.json"), { ok: true });
-      writeJson(join(result, "bundle/demo/manifest.json"), {
-        namespace: "demo",
-      });
-
-      const inspected = runHelper(["workflow", "inspect", "--bundle", handoff]);
-      assert.strictEqual(inspected.agentRunId, "agent-run-1");
-      assert.deepEqual(inspected.agentRequestIds, ["request-1"]);
-      const validated = runHelper([
-        "workflow",
-        "validate-result",
-        "--contract",
-        join(handoff, "agent-run/requests/request-1/output-contract.json"),
-        "--result",
-        result,
-      ]);
-      assert.isTrue(validated.ok);
-      assert.strictEqual(validated.namespace, "demo");
-    } finally {
-      await rm(root, { recursive: true, force: true });
+  it("keeps complete cross-task and workflow policy in the coordinator reference", function () {
+    const model = read("references/research-task-model.md");
+    for (const section of [
+      "Routing decisions",
+      "Task composition",
+      "Workflow execution ownership",
+      "Agent-owned handoff",
+      "Evidence, files, and Products",
+      "Multi-stage research lifecycle",
+      "Recovery and near misses",
+    ]) {
+      assert.include(model, `## ${section}`, section);
     }
+  });
+
+  it("uses one task result contract with inline evidence", function () {
+    const schema = JSON.parse(
+      readFileSync(join(GENERIC_ROOT, "shared/output.schema.json"), "utf8"),
+    );
+    assert.strictEqual(schema.$id, "zotero-library-task.result.v1");
+    assert.deepEqual(schema.required, ["schema", "status", "summary"]);
+    assert.deepEqual(schema.properties.status.enum, [
+      "completed",
+      "canceled",
+      "failed",
+    ]);
+    assert.property(schema.properties, "evidence");
+    assert.property(schema.properties, "artifacts");
+    assert.property(schema.properties, "diagnostics");
+    assert.notProperty(schema.properties, "evidence_file");
+    assert.doesNotThrow(() =>
+      new Ajv({ allErrors: true, strict: false }).compile(schema),
+    );
+  });
+
+  it("uses the shared runner template and does not retain evidence-helper sources", function () {
+    const runner = JSON.parse(read("runner.json"));
+    const template = JSON.parse(
+      readFileSync(
+        join(GENERIC_ROOT, "shared/task-runner.template.json"),
+        "utf8",
+      ),
+    );
+    assert.strictEqual(runner.id, "zotero-library-agent");
+    assert.strictEqual(runner.schemas.output, "assets/output.schema.json");
+    assert.strictEqual(
+      template.schema,
+      "zotero-library-task.runner-template.v1",
+    );
+    assert.strictEqual(template.schemas.output, "assets/output.schema.json");
+    assert.notInclude(read("SKILL.md"), "evidence_file");
+  });
+
+  it("makes the coordinator independently executable with an explicit tool boundary", function () {
+    const skill = read("SKILL.md");
+    assert.include(skill, "## LLM And Tool Responsibilities");
+    assert.include(skill, "zotero-library-task.result.v1");
+    for (const token of [
+      "`schema`",
+      "`status`",
+      "`summary`",
+      "`completed`",
+      "`canceled`",
+      "`failed`",
+      "Do not invent handles",
+    ]) {
+      assert.include(skill, token);
+    }
+    assert.include(skill, "materially change the candidate set or conclusion");
+    assert.include(skill, "current user decision");
   });
 });

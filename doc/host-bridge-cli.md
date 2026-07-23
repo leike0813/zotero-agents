@@ -1,11 +1,10 @@
 # Host Bridge CLI 说明书
 
-本文档描述当前实现中的 Host Bridge 与 `zotero-bridge` CLI。它面向
-开发者、workflow 作者以及需要理解 ACP run workspace 行为的维护者。
-
-本文档以 `artifact/host_bridge_cli_refactor_design_20260520.md` 为背景，
-但只记录当前代码中已经实现的行为。若设计文档与本文档不一致，以当前
-实现和本文档为准。
+本文档描述 Host Bridge 与 `zotero-bridge` CLI 的机制层接口。它面向开发者、
+workflow 作者以及需要理解 ACP run workspace 行为的维护者。三层发布面的
+所有权、组合、Skill 包约束和发布身份由
+[Host Bridge Agent-facing Surfaces](components/host-bridge-agent-surfaces.md)
+统一定义；本文只覆盖其中的 Minimum 机制层。
 
 ## 1. 定位
 
@@ -20,10 +19,15 @@ MCP server/protocol 作为面向第三方 Agent 的另一种 Host capability bro
 默认 host access 路径仍是 Host Bridge CLI；CLI 不可用时，默认记录诊断并
 继续当前 run 流程，不自动切换到显式 MCP 兼容路径。
 
+Minimum 通过 `host-bridge.agent-surface.v4` 发布命令路径、参数与输出
+schema、副作用、审批、handle、恢复、目标和操作别名。研究任务选择属于
+Generic 层，常驻自动化属于 Hermes 层；两者不进入 CLI 的机制描述符或构建
+身份。
+
 ### 1.1 Generated Host Bridge Surface
 
 <!-- host-bridge-surface:doc-surface:start -->
-This section is generated from the Host Bridge capability registry and Rust CLI mappings. Edit the registry or CLI source, then run `npm run render:host-bridge-surface`.
+This section is generated from the Host Bridge capability registry and Rust CLI mappings. It is the mechanism-only v4 command surface. Edit the registry or CLI source, then run `npm run render:host-bridge-surface`.
 
 #### Public capabilities
 

@@ -138,6 +138,7 @@
 - [ ] 解决ACP后端在windows下运行时powershell在提交json payload或输出json时频繁出现的编码问题（一般出现在中文论文中）
 - [x] Dashboard/popover对于SkillRunner任务的显示有问题（运行中任务只显示一个，waiting状态任务不显示）
 - [x] ACP Skills任务提交后，到agent真正开始执行的这个时间窗口内，任务抽屉会被反复关闭
+- [ ] 之前修复的错误推理强度问题，没完全修好，表现为M3按none提交会报错“low不存在”，但按其他强度提交依然会报错
 - [ ] **初次启动时的使用指导demo**
 - [ ] mock skillrunner 改为 mock acp backend，规避端口问题
 - [ ] **独立的 Rust 服务程序，卸载重计算到这个服务程序上，避免界面阻塞**

@@ -4,52 +4,31 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 
-const PROFILE_ROOT = path.join(
+const PROFILE_SOURCE = path.join(
   process.cwd(),
-  "profiles/hermes/zotero-librarian",
+  "profiles_src/hermes/zotero-librarian",
+);
+const SERVICE = path.join(
+  PROFILE_SOURCE,
+  "scripts/zotero_librarian_service.py",
 );
 
-function ensureUv() {
-  const check = spawnSync("uv", ["--version"], { encoding: "utf8" });
-  if (check.status !== 0) {
-    return null;
-  }
-  return "uv";
-}
-
-function runPython(script: string, args: string[], env: NodeJS.ProcessEnv) {
-  const uv = ensureUv();
-  assert.isNotNull(uv, "uv is required for profile script tests");
+function runPython(args: string[], env: NodeJS.ProcessEnv) {
   return spawnSync(
-    uv!,
-    [
-      "run",
-      "--project",
-      path.join(os.homedir(), ".ar"),
-      "--locked",
-      "--",
-      "python",
-      script,
-      ...args,
-    ],
-    {
-      cwd: process.cwd(),
-      encoding: "utf8",
-      env: { ...process.env, ...env },
-    },
+    "uv",
+    ["run", "--project", path.join(os.homedir(), ".ar"), "--locked", "--", "python", SERVICE, ...args],
+    { cwd: process.cwd(), encoding: "utf8", env: { ...process.env, ...env } },
   );
 }
 
-function parseStdout(proc: ReturnType<typeof spawnSync>) {
+function payload(proc: ReturnType<typeof spawnSync>) {
   assert.strictEqual(proc.status, 0, proc.stderr || proc.stdout);
   return JSON.parse(String(proc.stdout));
 }
 
 function writeFakeBridge(root: string) {
   const bridgeJs = path.join(root, "fake-bridge.js");
-  fs.writeFileSync(
-    bridgeJs,
-    `
+  fs.writeFileSync(bridgeJs, `
 const args = process.argv.slice(2);
 const out = (value) => process.stdout.write(JSON.stringify(value));
 const fail = (message) => { process.stderr.write(message); process.exit(2); };
@@ -59,164 +38,82 @@ if (args.join(" ") === "context selection get") {
     { libraryId: 1, key: "ATT1", id: 101, itemType: "attachment", parent: { id: 11, key: "PARENT1" } },
     { libraryId: 1, key: "NOTE1", id: 102, itemType: "note", parent: { id: 12, key: "PARENT2" } }
   ] } });
-} else if (args[0] === "library" && args[1] === "readiness") {
-  out({ result: { items: [
-    { libraryId: 1, key: "PARENT1", id: 11, itemType: "journalArticle" },
-    { libraryId: 1, key: "PARENT2", id: 12, itemType: "journalArticle" }
-  ] } });
+} else if (args[0] === "library" && args[1] === "snapshot") {
+  out({ result: { items: [{ libraryId: 1, key: "PARENT1", id: 11, itemType: "journalArticle", title: "One" }], hasMore: false } });
 } else if (args.join(" ").startsWith("workflow validate")) {
   out({ result: { ready: true, workflowId: args[args.indexOf("--workflow") + 1] } });
 } else if (args.join(" ").startsWith("workflow submit")) {
   out({ result: { workflowRunId: "workflow-run-1", state: "running" } });
-} else if (args.join(" ").startsWith("workflow agent-run")) {
-  out({ result: { agentRunId: "agent-run-1", requests: [{ agentRequestId: "request-1" }], download: { outputPath: "bundle.zip" } } });
 } else if (args.join(" ").startsWith("run notification list")) {
-  out({ result: { events: [{ eventId: "event-1", workflowRunId: "workflow-run-1", skillRunId: "skill-run-1", type: "completed", acknowledged: false }] } });
+  out({ result: { events: [{ eventId: "event-1", workflowRunId: "workflow-run-1", type: "completed", acknowledged: false }] } });
 } else if (args.join(" ").startsWith("run notification ack")) {
   out({ result: { acknowledged: true } });
 } else if (args.join(" ").startsWith("library item get")) {
   const key = args[args.indexOf("--key") + 1];
   out({ result: { libraryId: 1, key, id: 99, itemType: "journalArticle" } });
-} else {
-  fail("unexpected command: " + args.join(" "));
-}
-`,
-    "utf8",
-  );
-  if (process.platform === "win32") {
-    const cmd = path.join(root, "zotero-bridge.cmd");
-    fs.writeFileSync(
-      cmd,
-      `@echo off\r\nnode "%~dp0fake-bridge.js" %*\r\n`,
-      "utf8",
-    );
-    return cmd;
-  }
+} else if (args.join(" ").startsWith("run get")) {
+  out({ result: { state: "succeeded" } });
+} else if (args.join(" ").startsWith("synthesis insight attention-queue")) {
+  out({ result: { items: [] } });
+} else fail("unexpected command: " + args.join(" "));
+`, "utf8");
   const sh = path.join(root, "zotero-bridge");
-  fs.writeFileSync(
-    sh,
-    `#!/usr/bin/env sh\nnode "$(dirname "$0")/fake-bridge.js" "$@"\n`,
-    "utf8",
-  );
+  fs.writeFileSync(sh, `#!/usr/bin/env sh\nnode "$(dirname "$0")/fake-bridge.js" "$@"\n`, "utf8");
   fs.chmodSync(sh, 0o755);
   return sh;
 }
 
-describe("zotero-librarian profile helper scripts", function () {
-  const workflowScript = path.join(
-    PROFILE_ROOT,
-    "scripts/zotero_librarian_workflow_service.py",
-  );
-  const notificationScript = path.join(
-    PROFILE_ROOT,
-    "scripts/zotero_librarian_notification_service.py",
-  );
-
-  it("normalizes context selection to parent item refs", function () {
-    const temp = fs.mkdtempSync(
-      path.join(os.tmpdir(), "zotero-librarian-scripts-"),
-    );
+describe("zotero-librarian resident service", function () {
+  it("uses one state database and emits operation receipts", function () {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), "zotero-librarian-service-"));
     const bridge = writeFakeBridge(temp);
-    const db = path.join(temp, "index.sqlite");
-    const proc = runPython(
-      workflowScript,
-      ["--bridge", bridge, "--db", db, "parent-selection", "--from-context"],
-      { ZOTERO_LIBRARIAN_STATE_DIR: temp },
-    );
-    const payload = parseStdout(proc);
-    assert.deepEqual(payload.parentItemRefs, [
-      { key: "PARENT1", libraryId: 1 },
-      { key: "PARENT2", libraryId: 1 },
-    ]);
-    assert.deepEqual(payload.unresolved, []);
+    const db = path.join(temp, "state.sqlite");
+    const refreshed = payload(runPython(["--bridge", bridge, "--db", db, "index", "refresh"], {}));
+    assert.strictEqual(refreshed.schema, "zotero-librarian.operation-receipt.v1");
+    assert.strictEqual(refreshed.operation, "index.refresh");
+    assert.strictEqual(refreshed.status, "changed");
+    assert.isTrue(fs.existsSync(db));
+
+    const second = payload(runPython(["--bridge", bridge, "--db", db, "index", "refresh"], {}));
+    assert.strictEqual(second.status, "unchanged");
+    const quiet = runPython(["--bridge", bridge, "--db", db, "--quiet", "index", "refresh"], {});
+    assert.strictEqual(quiet.status, 0);
+    assert.strictEqual(quiet.stdout.trim(), "[SILENT]");
   });
 
-  it("plans host workflow submissions and gates explicit concurrency", function () {
-    const temp = fs.mkdtempSync(
-      path.join(os.tmpdir(), "zotero-librarian-scripts-"),
-    );
+  it("normalizes parent selection and requires explicit submit authority", function () {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), "zotero-librarian-service-"));
     const bridge = writeFakeBridge(temp);
-    const db = path.join(temp, "index.sqlite");
-    const planProc = runPython(
-      workflowScript,
-      [
-        "--bridge",
-        bridge,
-        "--db",
-        db,
-        "plan",
-        "--workflow",
-        "literature-analysis",
-        "--mode",
-        "host",
-        "--from-context",
-      ],
-      { ZOTERO_LIBRARIAN_STATE_DIR: temp },
-    );
-    const plan = parseStdout(planProc);
-    assert.strictEqual(plan.defaultConcurrency, 1);
-    assert.lengthOf(plan.submissions, 2);
-    assert.isTrue(plan.requiresConcurrencyConfirmation);
-
+    const db = path.join(temp, "state.sqlite");
     const planPath = path.join(temp, "plan.json");
-    fs.writeFileSync(planPath, JSON.stringify(plan), "utf8");
-    const submitProc = runPython(
-      workflowScript,
-      ["--bridge", bridge, "--db", db, "submit", "--plan", planPath],
-      { ZOTERO_LIBRARIAN_STATE_DIR: temp },
-    );
-    const submitted = parseStdout(submitProc);
-    assert.strictEqual(submitted.launchedCount, 1);
-    assert.strictEqual(submitted.remainingSubmissions, 1);
-    assert.strictEqual(submitted.launched[0].workflowRunId, "workflow-run-1");
+    const selected = payload(runPython(["--bridge", bridge, "--db", db, "workflow", "plan", "--workflow", "literature-analysis", "--from-context", "--output", planPath], {}));
+    assert.deepEqual(selected.data.parentItemRefs, [{ key: "PARENT1", libraryId: 1 }, { key: "PARENT2", libraryId: 1 }]);
+    assert.strictEqual(selected.data.path, planPath);
+    assert.deepEqual(JSON.parse(fs.readFileSync(planPath, "utf8")), selected.data.plan);
 
-    const blocked = runPython(
-      workflowScript,
-      [
-        "--bridge",
-        bridge,
-        "--db",
-        db,
-        "submit",
-        "--plan",
-        planPath,
-        "--concurrency",
-        "2",
-      ],
-      { ZOTERO_LIBRARIAN_STATE_DIR: temp },
-    );
+    const relative = runPython(["--bridge", bridge, "--db", db, "workflow", "plan", "--workflow", "literature-analysis", "--from-context", "--output", "plan.json"], {});
+    assert.notStrictEqual(relative.status, 0);
+    assert.include(relative.stdout, "absolute_output_required");
+
+    const blocked = runPython(["--bridge", bridge, "--db", db, "workflow", "submit", "--plan", planPath], {});
     assert.notStrictEqual(blocked.status, 0);
-    assert.include(blocked.stdout, "concurrency_confirmation_required");
+    assert.include(blocked.stdout, "submit_authority_required");
+
+    const submitted = payload(runPython(["--bridge", bridge, "--db", db, "workflow", "submit", "--plan", planPath, "--allow-submit"], {}));
+    assert.strictEqual(submitted.status, "changed");
+    assert.strictEqual(submitted.data.launched[0].workflowRunId, "workflow-run-1");
   });
 
-  it("syncs and acknowledges notification inbox events without wait", function () {
-    const temp = fs.mkdtempSync(
-      path.join(os.tmpdir(), "zotero-librarian-scripts-"),
-    );
+  it("projects notifications and keeps scheduled domains one-pass", function () {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), "zotero-librarian-service-"));
     const bridge = writeFakeBridge(temp);
-    const db = path.join(temp, "index.sqlite");
-    const syncProc = runPython(
-      notificationScript,
-      ["--bridge", bridge, "--db", db, "sync", "--report-empty"],
-      { ZOTERO_LIBRARIAN_STATE_DIR: temp },
-    );
-    const synced = parseStdout(syncProc);
-    assert.strictEqual(synced.inserted, 1);
-
-    const inboxProc = runPython(
-      notificationScript,
-      ["--bridge", bridge, "--db", db, "inbox", "--report-empty"],
-      { ZOTERO_LIBRARIAN_STATE_DIR: temp },
-    );
-    const inbox = parseStdout(inboxProc);
-    assert.strictEqual(inbox.events[0].eventId, "event-1");
-
-    const ackProc = runPython(
-      notificationScript,
-      ["--bridge", bridge, "--db", db, "ack", "--event", "event-1"],
-      { ZOTERO_LIBRARIAN_STATE_DIR: temp },
-    );
-    const acked = parseStdout(ackProc);
-    assert.deepEqual(acked.acknowledged, ["event-1"]);
+    const db = path.join(temp, "state.sqlite");
+    const synced = payload(runPython(["--bridge", bridge, "--db", db, "notification", "sync"], {}));
+    assert.strictEqual(synced.status, "changed");
+    assert.strictEqual(synced.data.inserted, 1);
+    const inbox = payload(runPython(["--bridge", bridge, "--db", db, "notification", "inbox"], {}));
+    assert.strictEqual(inbox.data.events[0].eventId, "event-1");
+    const attention = payload(runPython(["--bridge", bridge, "--db", db, "synthesis", "attention-queue"], {}));
+    assert.strictEqual(attention.status, "unchanged");
   });
 });

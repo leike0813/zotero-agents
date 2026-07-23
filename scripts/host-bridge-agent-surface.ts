@@ -1,6 +1,4 @@
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
 import {
   HOST_BRIDGE_AGENT_SURFACE_SCHEMA,
   HOST_BRIDGE_CLI_SCHEMA,
@@ -14,23 +12,6 @@ import type {
   HostBridgeCliMapping,
   HostBridgeSurfaceCatalog,
 } from "./host-bridge-surface-catalog";
-
-export type HostBridgeAgentGuidance = {
-  family: string;
-  domain: string;
-  operation: string;
-  purpose: string;
-  commandSpecific: true;
-  intents: string[];
-  useWhen: string[];
-  avoidWhen: string[];
-  distinguishFrom: string[];
-  preconditions: string[];
-  evidence: string[];
-  failureChecks: string[];
-  followups: string[];
-  example: string;
-};
 
 export type HostBridgeAgentEffect = {
   kind:
@@ -94,13 +75,12 @@ export type HostBridgeAgentCommand = {
   handleTransitions: HostBridgeAgentHandleTransition[];
   recovery: HostBridgeAgentRecovery[];
   targets: Array<{ kind: string; target: string }>;
-  intents: string[];
-  guidance: HostBridgeAgentGuidance;
+  operationalAliases: string[];
   hiddenFromIntentSearch: boolean;
 };
 
 export type HostBridgeAgentSurfaceDescriptor = {
-  schema: "host-bridge.agent-surface.v3";
+  schema: "host-bridge.agent-surface.v4";
   protocol: "host-bridge.v1";
   cliSchema: "zotero-bridge.cli.v3";
   commandCatalogChecksum: string;
@@ -112,58 +92,8 @@ export type HostBridgeAgentSurfaceDescriptor = {
     valueNames: string[];
     description: string;
   }>;
-  workflowCatalog: Array<{
-    id: string;
-    label: string;
-    description: string;
-    providerRequirements: {
-      requestKind?: string;
-      acceptedProviderTypes: string[];
-    };
-    executionModes: Array<"auto" | "interactive">;
-    requiredWorkflowOptions: string[];
-    resultEvidence: {
-      fetchType?: "bundle" | "result";
-      resultJson?: string;
-      artifacts: string[];
-      applyBack: boolean;
-    };
-  }>;
   commands: HostBridgeAgentCommand[];
 };
-
-type GuidanceSource = {
-  schema: "host-bridge.semantic-guidance.v2";
-  families: Record<string, Omit<HostBridgeAgentGuidance, "family">>;
-  commands: Record<
-    string,
-    Partial<Omit<HostBridgeAgentGuidance, "family" | "domain">>
-  >;
-  journeys: Array<{
-    id: string;
-    intent: string;
-    commands: string[];
-    evidence: string[];
-  }>;
-};
-
-type WorkflowSurfaceManifest = {
-  id?: unknown;
-  label?: unknown;
-  description?: unknown;
-  debug_only?: unknown;
-  provider?: unknown;
-  executionModes?: unknown;
-  parameters?: Record<string, { required?: unknown }>;
-  request?: { kind?: unknown };
-  result?: {
-    fetch?: { type?: "bundle" | "result" };
-    expects?: { result_json?: unknown; artifacts?: unknown };
-  };
-  hooks?: { applyResult?: unknown };
-};
-
-const GUIDANCE_SOURCE = "skills_src/host-bridge-shared/semantic/manifest.json";
 
 const NAVIGATION_COMMANDS = new Set([
   "context selection open",
@@ -319,196 +249,6 @@ const CURSOR_ENDPOINTS = new Set([
 
 function unique(values: string[]) {
   return [...new Set(values.filter(Boolean))];
-}
-
-function readGuidance(root: string): GuidanceSource {
-  const manifest = JSON.parse(
-    readFileSync(join(root, GUIDANCE_SOURCE), "utf8"),
-  ) as {
-    schema: GuidanceSource["schema"];
-    domains: string[];
-    journeys: GuidanceSource["journeys"];
-  };
-  if (manifest.schema !== "host-bridge.semantic-guidance.v2") {
-    throw new Error(`unexpected guidance schema: ${manifest.schema}`);
-  }
-  const families: GuidanceSource["families"] = {};
-  const commands: GuidanceSource["commands"] = {};
-  for (const file of manifest.domains) {
-    const domain = JSON.parse(
-      readFileSync(
-        join(root, "skills_src/host-bridge-shared/semantic", file),
-        "utf8",
-      ),
-    ) as {
-      schema: string;
-      families: GuidanceSource["families"];
-      commands: GuidanceSource["commands"];
-    };
-    if (domain.schema !== "host-bridge.semantic-domain.v2") {
-      throw new Error(`unexpected semantic domain schema in ${file}`);
-    }
-    for (const [family, guidance] of Object.entries(domain.families)) {
-      if (families[family])
-        throw new Error(`duplicate guidance family ${family}`);
-      families[family] = guidance;
-    }
-    for (const [command, guidance] of Object.entries(domain.commands)) {
-      if (commands[command])
-        throw new Error(`duplicate command guidance ${command}`);
-      commands[command] = guidance;
-    }
-  }
-  return {
-    schema: manifest.schema,
-    families,
-    commands,
-    journeys: manifest.journeys,
-  };
-}
-
-function commandFamily(command: string) {
-  return command.split(" ")[0] || command;
-}
-
-function exampleValue(name: string) {
-  if (name.includes("query") || name.includes("input")) return "'{}'";
-  if (name.includes("selection")) return "'[]'";
-  if (name.includes("output") || name.includes("path") || name === "file")
-    return "'./output'";
-  if (name === "command") return "'surface identity'";
-  if (name === "intent") return "'inspect current selection'";
-  return `'${name.replace(/_/g, "-")}'`;
-}
-
-function commandExample(inventory: HostBridgeCliInventoryEntry) {
-  const selectedArgumentIds = new Set(
-    inventory.arguments
-      .filter((argument) => argument.required)
-      .map((argument) => argument.id),
-  );
-  for (const group of inventory.argumentGroups || []) {
-    if (
-      group.required &&
-      !group.arguments.some((id) => selectedArgumentIds.has(id))
-    ) {
-      const first = group.arguments.find((id) =>
-        inventory.arguments.some((argument) => argument.id === id),
-      );
-      if (first) selectedArgumentIds.add(first);
-    }
-  }
-  const argumentsText = inventory.arguments
-    .filter((argument) => selectedArgumentIds.has(argument.id))
-    .map((argument) => {
-      const name = argument.long || argument.id;
-      if (argument.position) return exampleValue(name);
-      const option = argument.long
-        ? `--${argument.long}`
-        : argument.short
-          ? `-${argument.short}`
-          : undefined;
-      if (!option) {
-        throw new Error(`argument ${argument.id} has no argv binding`);
-      }
-      if (!argument.takesValue) return option;
-      return `${option} ${
-        argument.possibleValues[0]
-          ? `'${argument.possibleValues[0]}'`
-          : exampleValue(name)
-      }`;
-    })
-    .join(" ");
-  return `zotero-bridge ${inventory.command}${argumentsText ? ` ${argumentsText}` : ""}`;
-}
-
-function effectiveGuidance(
-  command: string,
-  source: GuidanceSource,
-  inventory: HostBridgeCliInventoryEntry,
-  siblingCommands: string[],
-): HostBridgeAgentGuidance {
-  const family = commandFamily(command);
-  const defaults = source.families[family];
-  if (!defaults) throw new Error(`missing guidance family for ${command}`);
-  const override = source.commands[command] || {};
-  const guidance = {
-    family,
-    domain: defaults.domain,
-    operation:
-      override.operation ||
-      defaults.operation ||
-      command.split(" ").slice(0, 2).join(" "),
-    purpose:
-      override.purpose ||
-      defaults.purpose ||
-      inventory.about ||
-      `Run ${command}`,
-    commandSpecific: true as const,
-    intents: unique([...(defaults.intents || []), ...(override.intents || [])]),
-    useWhen: unique([
-      `Use ${command} when the required operation is: ${inventory.about || command}.`,
-      ...(defaults.useWhen || []),
-      ...(override.useWhen || []),
-    ]),
-    avoidWhen: unique([
-      `Do not use ${command} when the task needs a different sibling result, control plane, or freshness guarantee.`,
-      ...(defaults.avoidWhen || []),
-      ...(override.avoidWhen || []),
-    ]),
-    distinguishFrom: unique([
-      ...(siblingCommands.filter((entry) => entry !== command).length
-        ? siblingCommands
-            .filter((entry) => entry !== command)
-            .slice(0, 4)
-            .map(
-              (entry) =>
-                `${entry}: choose it only when its narrower result matches the task.`,
-            )
-        : [
-            "No semantic sibling exists; use surface search before falling back to a raw capability call.",
-          ]),
-      ...(defaults.distinguishFrom || []),
-      ...(override.distinguishFrom || []),
-    ]),
-    preconditions: unique([
-      command.startsWith("surface ")
-        ? "No Zotero connection is required."
-        : "Verify the exact CLI identity and a reachable Host Bridge before relying on live results.",
-      ...(defaults.preconditions || []),
-      ...(override.preconditions || []),
-    ]),
-    evidence: unique([
-      `The structured ${command} result and the exact invocation inputs used to obtain it.`,
-      ...(defaults.evidence || []),
-      ...(override.evidence || []),
-    ]),
-    failureChecks: unique([
-      "Preserve the structured error envelope and inspect retryable, stateChange, and handleConsumption before continuing.",
-      ...(defaults.failureChecks || []),
-      ...(override.failureChecks || []),
-    ]),
-    followups: unique([
-      ...(defaults.followups || []),
-      ...(override.followups || []),
-    ]),
-    example: override.example || commandExample(inventory),
-  };
-  for (const field of [
-    "intents",
-    "useWhen",
-    "avoidWhen",
-    "distinguishFrom",
-    "preconditions",
-    "evidence",
-    "failureChecks",
-    "followups",
-  ] as const) {
-    if (guidance[field].length === 0) {
-      throw new Error(`effective guidance for ${command} has no ${field}`);
-    }
-  }
-  return guidance;
 }
 
 function invocationSchema(inventory: HostBridgeCliInventoryEntry) {
@@ -902,7 +642,7 @@ function effectsFor(
       {
         kind: "none",
         stateChanged: false,
-        description: "Reads state without changing Host-owned data.",
+        description: "Reads state without changing Zotero-managed data.",
       },
     ];
   }
@@ -950,7 +690,7 @@ function recoveryFor(
         stateCheck: "command-result",
         requiresHandles: [],
         action:
-          "Inspect the structured error; do not enter the Host-owned run plane.",
+          "Inspect the structured error; do not enter the Zotero-managed run plane.",
         nextCommand: "workflow describe",
       },
     ];
@@ -1041,78 +781,29 @@ export function hostBridgeAgentSurfaceChecksum(
     .update(
       serializeStable({
         globalOptions: descriptor.globalOptions,
-        workflowCatalog: descriptor.workflowCatalog,
         commands: descriptor.commands,
       }),
     )
     .digest("hex");
 }
 
-function readWorkflowCatalog(root: string) {
-  const files: string[] = [];
-  const visit = (directory: string) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const target = join(directory, entry.name);
-      if (entry.isDirectory()) visit(target);
-      else if (entry.isFile() && entry.name === "workflow.json") {
-        files.push(target);
-      }
-    }
-  };
-  visit(join(root, "workflows_builtin"));
-  return files
-    .map(
-      (path) =>
-        JSON.parse(readFileSync(path, "utf8")) as WorkflowSurfaceManifest,
-    )
-    .filter((manifest) => manifest.debug_only !== true)
-    .map((manifest) => {
-      const requestKind = String(manifest.request?.kind || "").trim();
-      const requiredWorkflowOptions = Object.entries(manifest.parameters || {})
-        .filter(([, schema]) => schema.required === true)
-        .map(([key]) => key)
-        .sort();
-      return {
-        id: String(manifest.id || "").trim(),
-        label: String(manifest.label || "").trim(),
-        description: String(manifest.description || "").trim(),
-        providerRequirements: {
-          ...(requestKind ? { requestKind } : {}),
-          acceptedProviderTypes:
-            requestKind === "skillrunner.sequence.v1"
-              ? ["acp", "skillrunner"]
-              : [String(manifest.provider || "").trim()].filter(Boolean),
-        },
-        executionModes: (Array.isArray(manifest.executionModes)
-          ? manifest.executionModes
-          : ["auto"]) as Array<"auto" | "interactive">,
-        requiredWorkflowOptions,
-        resultEvidence: {
-          ...(manifest.result?.fetch?.type
-            ? { fetchType: manifest.result.fetch.type }
-            : {}),
-          ...(String(manifest.result?.expects?.result_json || "").trim()
-            ? {
-                resultJson: String(
-                  manifest.result?.expects?.result_json,
-                ).trim(),
-              }
-            : {}),
-          artifacts: Array.isArray(manifest.result?.expects?.artifacts)
-            ? manifest.result.expects.artifacts.map(String)
-            : [],
-          applyBack: Boolean(manifest.hooks?.applyResult),
-        },
-      };
-    })
-    .sort((left, right) => left.id.localeCompare(right.id));
+function operationalAliases(inventory: HostBridgeCliInventoryEntry) {
+  return unique([
+    inventory.command,
+    ...inventory.argv,
+    ...inventory.arguments.flatMap((argument) => [
+      argument.id,
+      argument.long || "",
+      argument.short || "",
+      ...argument.valueNames,
+    ]),
+  ]);
 }
 
 export function buildHostBridgeAgentSurfaceDescriptor(
   catalog: HostBridgeSurfaceCatalog,
-  root = process.cwd(),
+  _root = process.cwd(),
 ): HostBridgeAgentSurfaceDescriptor {
-  const guidanceSource = readGuidance(root);
   const byCommand = new Map<string, HostBridgeCliMapping[]>();
   for (const mapping of [...catalog.cliMappings, ...catalog.endpointMappings]) {
     const entries = byCommand.get(mapping.command) || [];
@@ -1129,11 +820,13 @@ export function buildHostBridgeAgentSurfaceDescriptor(
     "surface identity",
     "surface describe",
     "surface search",
+    "workflow agent-bundle inspect",
+    "workflow agent-result validate",
   ]) {
     byCommand.set(command, [
       {
         command,
-        target: "embedded host-bridge.agent-surface.v3",
+        target: "embedded host-bridge.agent-surface.v4",
         kind: "service",
       },
     ]);
@@ -1172,16 +865,6 @@ export function buildHostBridgeAgentSurfaceDescriptor(
           ? "zotero-ui-required"
           : "none";
       const category = categoryFor(inventory.command);
-      const family = commandFamily(inventory.command);
-      const siblingCommands = catalog.commandInventory
-        .filter((entry) => commandFamily(entry.command) === family)
-        .map((entry) => entry.command);
-      const guidance = effectiveGuidance(
-        inventory.command,
-        guidanceSource,
-        inventory,
-        siblingCommands,
-      );
       const handleTransitions =
         COMMAND_HANDLE_TRANSITIONS[inventory.command] || [];
       const handles = {
@@ -1231,8 +914,8 @@ export function buildHostBridgeAgentSurfaceDescriptor(
             inventory.command === "workflow agent-apply"
               ? "Each result request is preflighted before any approval or handle consumption."
               : approval === "zotero-ui-required"
-                ? "Zotero UI approval for the described Host-owned effect."
-                : "No Host Bridge UI approval; provider runtimes may still request their own permission.",
+                ? "Zotero UI approval for the described Zotero-managed effect."
+                : "No Zotero UI approval; provider runtimes may still request their own permission.",
         },
         handleTransitions,
         recovery: recoveryFor(inventory.command, category, handles),
@@ -1240,8 +923,7 @@ export function buildHostBridgeAgentSurfaceDescriptor(
           kind: mapping.kind,
           target: mapping.target,
         })),
-        intents: guidance.intents,
-        guidance,
+        operationalAliases: operationalAliases(inventory),
         hiddenFromIntentSearch:
           inventory.command.startsWith("debug ") ||
           inventory.command === "call",
@@ -1249,20 +931,6 @@ export function buildHostBridgeAgentSurfaceDescriptor(
     },
   );
 
-  for (const journey of guidanceSource.journeys) {
-    for (const command of journey.commands) {
-      if (!inventoryCommands.has(command))
-        throw new Error(
-          `guidance journey ${journey.id} names missing command ${command}`,
-        );
-    }
-  }
-
-  for (const command of Object.keys(guidanceSource.commands)) {
-    if (!inventoryCommands.has(command)) {
-      throw new Error(`orphan command guidance ${command}`);
-    }
-  }
   const descriptorByCommand = new Map(
     commands.map((command) => [command.command, command]),
   );
@@ -1314,14 +982,12 @@ export function buildHostBridgeAgentSurfaceDescriptor(
       };
     })
     .sort((left, right) => left.token.localeCompare(right.token));
-  const workflowCatalog = readWorkflowCatalog(root);
   const descriptor = {
     schema: HOST_BRIDGE_AGENT_SURFACE_SCHEMA,
     protocol: HOST_BRIDGE_PROTOCOL,
     cliSchema: HOST_BRIDGE_CLI_SCHEMA,
     commandCatalogChecksum: "",
     globalOptions,
-    workflowCatalog,
     commands,
   } satisfies HostBridgeAgentSurfaceDescriptor;
   descriptor.commandCatalogChecksum =
@@ -1360,8 +1026,7 @@ export function searchHostBridgeAgentSurface(
       const fields = [
         command.command,
         command.summary,
-        ...command.intents,
-        ...command.guidance.useWhen,
+        ...command.operationalAliases,
       ];
       const phraseFields = fields.filter((field) =>
         field.normalize("NFKC").toLowerCase().includes(normalized),

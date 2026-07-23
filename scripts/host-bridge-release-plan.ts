@@ -10,9 +10,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   classifyHostBridgeReleaseChanges,
-  contentDigest,
-  HOST_BRIDGE_PUBLIC_CONTENT,
 } from "./host-bridge-release-set";
+import { stagedHostBridgePayloadDigests } from "./materialize-host-bridge-surfaces";
 
 function git(args: string[], root: string) {
   try {
@@ -98,15 +97,7 @@ export function createHostBridgeReleasePlan(
 ) {
   const changed = collectHostBridgeReleaseChangedFiles(root);
   const classification = classifyHostBridgeReleaseChanges(changed.files);
-  const digests = {
-    cliBundle: contentDigest(root, [...HOST_BRIDGE_PUBLIC_CONTENT.cliBundle]),
-    libraryAgent: contentDigest(root, [
-      ...HOST_BRIDGE_PUBLIC_CONTENT.libraryAgent,
-    ]),
-    librarianProfile: contentDigest(root, [
-      ...HOST_BRIDGE_PUBLIC_CONTENT.librarianProfile,
-    ]),
-  };
+  const digests = stagedHostBridgePayloadDigests(root);
   const releaseSetPath = resolve(root, "host-bridge/release-set.json");
   const previous = existsSync(releaseSetPath)
     ? JSON.parse(readFileSync(releaseSetPath, "utf8"))

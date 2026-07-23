@@ -22,7 +22,10 @@ import {
   resolveHostBridgeReleaseBase,
   writeHostBridgeReleasePlan,
 } from "../../scripts/host-bridge-release-plan";
-import { materializeHostBridgeSurfaces } from "../../scripts/materialize-host-bridge-surfaces";
+import {
+  materializeHostBridgeSurfaces,
+  stagedHostBridgePayloadDigests,
+} from "../../scripts/materialize-host-bridge-surfaces";
 import { resolveExactCliReleaseIntent } from "../../scripts/host-bridge-version-intent";
 import { renderHostBridgeReleaseSet } from "../../scripts/render-host-bridge-release-set";
 import {
@@ -281,8 +284,7 @@ describe("Host Bridge release coordinator", function () {
     const paths = [
       "cli/zotero-bridge/release.json",
       "skills_src/zotero-bridge-cli/runner.json",
-      "skills_src/zotero-library-agent/bundle-version.json",
-      "profiles_src/hermes/zotero-librarian/profile-version.json",
+      "host-bridge/surfaces.json",
       "host-bridge/release-set.json",
     ];
     const before = paths.map((path) =>
@@ -315,8 +317,7 @@ describe("Host Bridge release coordinator", function () {
     const identityPaths = [
       "cli/zotero-bridge/release.json",
       "skills_src/zotero-bridge-cli/runner.json",
-      "skills_src/zotero-library-agent/bundle-version.json",
-      "profiles_src/hermes/zotero-librarian/profile-version.json",
+      "host-bridge/surfaces.json",
       "host-bridge/release-set.json",
     ];
     const before = identityPaths.map((path) => readFileSync(path, "utf8"));
@@ -372,8 +373,8 @@ describe("Host Bridge release coordinator", function () {
     const plan = classifyHostBridgeReleaseChanges([
       "cli/zotero-bridge/src/commands.rs",
       "cli/zotero-bridge/scripts/install.sh",
-      "skills_src/zotero-bridge-cli/semantic/SKILL.md",
-      "skills_src/zotero-library-agent/semantic/SKILL.md",
+      "skills_src/zotero-bridge-cli/SKILL.md",
+      "skills_src/zotero-library-agent/skills/zotero-library-agent/SKILL.md",
       "profiles_src/hermes/zotero-librarian/SOUL.md",
       "profiles/hermes/zotero-librarian/assets/profile-manifest-source.json",
     ]);
@@ -395,15 +396,15 @@ describe("Host Bridge release coordinator", function () {
         surfaces: {
           cliBundle: true,
           libraryAgent: true,
-          librarianProfile: false,
+          librarianProfile: true,
         },
       },
       {
-        path: "skills_src/zotero-library-agent/semantic/README.md",
+        path: "skills_src/zotero-library-agent/skills/zotero-library-agent/SKILL.md",
         surfaces: {
           cliBundle: false,
           libraryAgent: true,
-          librarianProfile: false,
+          librarianProfile: true,
         },
       },
       {
@@ -563,19 +564,37 @@ describe("Host Bridge release coordinator", function () {
           surface.name,
         );
       }
-      const readmeSources = {
-        cliBundle: "skills_src/zotero-bridge-cli/README.md",
-        libraryAgent: "skills_builtin/zotero-library-agent/README.md",
-        librarianProfile: "profiles/hermes/zotero-librarian/README.md",
-      } as const;
-      for (const surface of result.surfaces) {
-        assert.strictEqual(
-          readFileSync(join(surface.path, "README.md"), "utf8"),
-          readFileSync(readmeSources[surface.name], "utf8"),
-        );
-      }
+      const paths = Object.fromEntries(
+        result.surfaces.map((surface) => [surface.name, surface.path]),
+      ) as Record<string, string>;
+      assert.strictEqual(
+        readFileSync(join(paths.cliBundle, "README.md"), "utf8"),
+        readFileSync("skills_src/zotero-bridge-cli/README.md", "utf8"),
+      );
+      assert.include(
+        readFileSync(join(paths.libraryAgent, "README.md"), "utf8"),
+        "Zotero Library Agent",
+      );
+      assert.strictEqual(
+        readFileSync(join(paths.librarianProfile, "README.md"), "utf8"),
+        readFileSync("profiles/hermes/zotero-librarian/README.md", "utf8"),
+      );
     } finally {
       rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("derives release payload digests from deterministic envelope-free staging", function () {
+    const first = stagedHostBridgePayloadDigests(process.cwd());
+    const second = stagedHostBridgePayloadDigests(process.cwd());
+    assert.deepEqual(second, first);
+    assert.sameMembers(Object.keys(first), [
+      "cliBundle",
+      "libraryAgent",
+      "librarianProfile",
+    ]);
+    for (const digest of Object.values(first)) {
+      assert.match(digest, /^[a-f0-9]{64}$/);
     }
   });
 

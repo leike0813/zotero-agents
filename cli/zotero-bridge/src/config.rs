@@ -197,7 +197,7 @@ fn normalize_endpoint(endpoint: &str) -> Result<String, CliError> {
     if !trimmed.starts_with("http://") {
         return Err(CliError::config(
             "config_unsupported_endpoint",
-            "Only http:// Host Bridge endpoints are supported in v1",
+            "Only http:// Zotero Bridge service endpoints are supported in v1",
         ));
     }
     if !trimmed.contains("/bridge/v1") {

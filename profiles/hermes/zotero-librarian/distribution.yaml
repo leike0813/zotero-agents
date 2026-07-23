@@ -10,7 +10,6 @@ state:
   defaultDir: "$HERMES_HOME/zotero-librarian"
   overrideEnv: ZOTERO_LIBRARIAN_STATE_DIR
 assets:
-  hostBridgeProfileExample: assets/host-bridge/profile.example.json
   zoteroBridgeBinaries: assets/zotero-bridge/bin
 skills:
   - skills/zotero-librarian
@@ -18,6 +17,7 @@ cron:
   - cron/index-refresh.yaml
   - cron/workflow-catalog-refresh.yaml
   - cron/run-monitor.yaml
+  - cron/notification-sync.yaml
   - cron/workflow-status-triage.yaml
   - cron/library-hygiene.yaml
   - cron/attention-queue.yaml

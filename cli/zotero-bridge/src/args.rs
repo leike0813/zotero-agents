@@ -6,16 +6,16 @@ use clap::{ArgGroup, Args, Parser, Subcommand};
 #[command(
     name = "zotero-bridge",
     version,
-    about = "Agent-first CLI for Zotero Agents Host Bridge",
-    long_about = "Call the Zotero Agents Host Bridge over local HTTP JSON.\n\nOutput contract: stdout contains exactly one final JSON object. Use --help on subcommands for input fields and examples."
+    about = "Agent-first CLI for Zotero library, workflows, and Synthesis",
+    long_about = "Access Zotero through the local Zotero Bridge service over HTTP JSON.\n\nOutput contract: stdout contains exactly one final JSON object. Use --help on subcommands for input fields and examples."
 )]
 pub struct Cli {
     #[arg(
         long,
         global = true,
         env = "ZOTERO_BRIDGE_ENDPOINT",
-        help = "Host Bridge endpoint, for example http://127.0.0.1:26570/bridge/v1",
-        long_help = "Host Bridge endpoint base URL. If omitted, the CLI reads ZOTERO_BRIDGE_ENDPOINT or a profile file. The CLI does not guess random bridge ports."
+        help = "Zotero Bridge service endpoint, for example http://127.0.0.1:26570/bridge/v1",
+        long_help = "Zotero Bridge service endpoint base URL. If omitted, the CLI reads ZOTERO_BRIDGE_ENDPOINT or a profile file. The CLI does not guess random bridge ports."
     )]
     pub endpoint: Option<String>,
 
@@ -24,8 +24,8 @@ pub struct Cli {
         global = true,
         env = "ZOTERO_BRIDGE_PROFILE",
         value_name = "PATH",
-        help = "Path to a Host Bridge profile JSON file",
-        long_help = "Path to a Host Bridge profile JSON file. If omitted, the CLI tries the Zotero Agents well-known profile. ACP run profiles usually reference tokenEnv; the local well-known profile may contain a bearer token protected by user-level file permissions."
+        help = "Path to a Zotero Bridge connection-profile JSON file",
+        long_help = "Path to a Zotero Bridge connection-profile JSON file. If omitted, the CLI tries the Zotero Agents well-known profile. ACP run profiles usually reference tokenEnv; the local well-known profile may contain a bearer token protected by user-level file permissions."
     )]
     pub profile: Option<PathBuf>,
 
@@ -35,7 +35,7 @@ pub struct Cli {
         env = "ZOTERO_BRIDGE_OPERATION_ID",
         value_name = "ID",
         value_parser = parse_operation_id,
-        help = "Opaque idempotency id for a state-changing Host Bridge request"
+        help = "Opaque idempotency id for a state-changing Zotero request"
     )]
     pub operation_id: Option<String>,
 
@@ -62,13 +62,13 @@ fn parse_operation_id(value: &str) -> Result<String, String> {
 pub enum Command {
     #[command(
         about = "Inspect the offline machine-readable CLI control surface",
-        long_about = "Read the embedded Host Bridge agent surface without connecting to Zotero."
+        long_about = "Read the embedded Zotero Bridge agent surface without connecting to Zotero."
     )]
     Surface(SurfaceArgs),
 
     #[command(
-        about = "Inspect Host Bridge status and manifest",
-        long_about = "Read Host Bridge health and authenticated manifest metadata."
+        about = "Inspect Zotero Bridge service status and manifest",
+        long_about = "Read Zotero Bridge service health and authenticated manifest metadata."
     )]
     Bridge(BridgeArgs),
 
@@ -87,7 +87,7 @@ pub enum Command {
     #[command(about = "Read Synthesis topics, graph, indexes, artifacts, and insights")]
     Synthesis(SynthesisArgs),
 
-    #[command(about = "Preview and execute approval-gated Host Bridge mutations")]
+    #[command(about = "Preview and execute approval-gated Zotero mutations")]
     Mutation(MutationArgs),
 
     #[command(about = "List, submit, and inspect Zotero workflow runs")]
@@ -96,16 +96,16 @@ pub enum Command {
     #[command(about = "Inspect and control workflow runtime state")]
     Run(RunArgs),
 
-    #[command(about = "Download registered Host Bridge files")]
+    #[command(about = "Download files registered by the Zotero Bridge service")]
     File(FileArgs),
 
     #[command(about = "List, inspect, download, and remove Dashboard Products")]
     Product(ProductArgs),
 
-    #[command(about = "Debug-only Host Bridge diagnostics and controls")]
+    #[command(about = "Debug-only Zotero Bridge service diagnostics and controls")]
     Debug(DebugArgs),
 
-    #[command(about = "Inspect durable Host Bridge operation receipts")]
+    #[command(about = "Inspect durable Zotero operation receipts")]
     Operation(OperationArgs),
 }
 
@@ -117,7 +117,7 @@ pub struct OperationArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum OperationCommand {
-    #[command(about = "Read one durable Host Bridge operation receipt")]
+    #[command(about = "Read one durable Zotero operation receipt")]
     Get(OperationGetArgs),
 }
 
@@ -195,21 +195,21 @@ pub struct BridgeArgs {
 #[derive(Debug, Clone, Subcommand)]
 pub enum BridgeCommand {
     #[command(
-        about = "Check Host Bridge health without authentication",
+        about = "Check Zotero Bridge service health without authentication",
         long_about = "Call GET /bridge/v1/health. This command does not require a bearer token and is useful for checking whether the bridge endpoint is reachable."
     )]
     Status,
 
     #[command(
-        about = "Read authenticated Host Bridge manifest",
+        about = "Read the authenticated Zotero Bridge service manifest",
         long_about = "Call GET /bridge/v1/manifest. Requires ZOTERO_BRIDGE_TOKEN, a profile token/tokenEnv, or the Zotero Agents well-known profile. The response lists bridge protocol metadata and capability names."
     )]
     Manifest,
 
-    #[command(about = "Inspect or diagnose the active Host Bridge profile")]
+    #[command(about = "Inspect or diagnose the active Zotero Bridge connection profile")]
     Profile(BridgeProfileArgs),
 
-    #[command(about = "Inspect configured Host Bridge backend profiles")]
+    #[command(about = "Inspect configured Zotero backend profiles")]
     Backend(BridgeBackendArgs),
 }
 
@@ -222,13 +222,13 @@ pub struct BridgeProfileArgs {
 #[derive(Debug, Clone, Subcommand)]
 pub enum BridgeProfileCommand {
     #[command(
-        about = "Inspect the redacted Host Bridge profile",
+        about = "Inspect the redacted Zotero Bridge connection profile",
         long_about = "Call GET /bridge/v1/diagnostics/profile. The response redacts tokens, local private paths, and backend private payloads."
     )]
     Inspect,
 
     #[command(
-        about = "Diagnose Host Bridge profile readiness",
+        about = "Diagnose Zotero Bridge connection-profile readiness",
         long_about = "Call GET /bridge/v1/diagnostics/profile/diagnose."
     )]
     Diagnose,
@@ -399,25 +399,25 @@ pub struct ItemArgs {
 pub enum ItemCommand {
     #[command(
         about = "Search Zotero library items",
-        long_about = "Map to Host Bridge capability library.search_items. --query must be a JSON object with text and optional limit and libraryId."
+        long_about = "Call Zotero capability library.search_items. --query must be a JSON object with text and optional limit and libraryId."
     )]
     Search(ItemSearchArgs),
 
     #[command(
         about = "Get detailed metadata for one Zotero item",
-        long_about = "Map to Host Bridge capability library.get_item_detail. Provide --key or --id. --library-id disambiguates item keys."
+        long_about = "Call Zotero capability library.get_item_detail. Provide --key or --id. --library-id disambiguates item keys."
     )]
     Get(ItemRefArgs),
 
     #[command(
         about = "List child notes for one Zotero item",
-        long_about = "Map to Host Bridge capability library.get_item_notes. Provide --key or --id. Use --limit, --cursor, and --max-excerpt-chars for bounded reads."
+        long_about = "Call Zotero capability library.get_item_notes. Provide --key or --id. Use --limit, --cursor, and --max-excerpt-chars for bounded reads."
     )]
     Notes(ItemNotesArgs),
 
     #[command(
         about = "List child attachments for one Zotero item",
-        long_about = "Map to Host Bridge capability library.get_item_attachments. This returns metadata and broker-issued file handles when available; use file download to fetch registered files."
+        long_about = "Call Zotero capability library.get_item_attachments. This returns metadata and bridge-issued file handles when available; use file download to fetch registered files."
     )]
     Attachments(ItemRefArgs),
 }
@@ -486,19 +486,19 @@ pub struct NoteArgs {
 pub enum NoteCommand {
     #[command(
         about = "Read one Zotero note body chunk",
-        long_about = "Map to Host Bridge capability library.get_note_detail. Provide --key or --id. Defaults to text format; use --offset and --max-chars for large notes."
+        long_about = "Call Zotero capability library.get_note_detail. Provide --key or --id. Defaults to text format; use --offset and --max-chars for large notes."
     )]
     Get(NoteDetailArgs),
 
     #[command(
         about = "List embedded workflow payloads in one Zotero note",
-        long_about = "Map to Host Bridge capability library.list_note_payloads. Provide --key or --id."
+        long_about = "Call Zotero capability library.list_note_payloads. Provide --key or --id."
     )]
     Payloads(ItemRefArgs),
 
     #[command(
         about = "Read one embedded workflow payload from a Zotero note",
-        long_about = "Map to Host Bridge capability library.get_note_payload. Provide --key or --id and optional --payload-type, --offset, and --max-chars."
+        long_about = "Call Zotero capability library.get_note_payload. Provide --key or --id and optional --payload-type, --offset, and --max-chars."
     )]
     Payload(NotePayloadArgs),
 }
@@ -555,7 +555,7 @@ pub enum LibraryCommand {
 
     #[command(
         about = "Sync a Zotero library metadata snapshot page",
-        long_about = "Map to Host Bridge capability library.sync_snapshot. Use --query for optional filters: libraryId, cursor, limit, collectionId, collectionKey, tag, itemType, or query. The output includes schema, generatedAt, snapshotId, items, nextCursor, hasMore, returned, and totalScanned."
+        long_about = "Call Zotero capability library.sync_snapshot. Use --query for optional filters: libraryId, cursor, limit, collectionId, collectionKey, tag, itemType, or query. The output includes schema, generatedAt, snapshotId, items, nextCursor, hasMore, returned, and totalScanned."
     )]
     Snapshot(BridgeQueryArgs),
 
@@ -573,7 +573,7 @@ pub struct LibraryItemsArgs {
 pub enum LibraryItemsCommand {
     #[command(
         about = "List compact Zotero library item summaries",
-        long_about = "Map to Host Bridge capability library.list_items. Use --query for optional filters: libraryId, cursor, limit, collectionId, collectionKey, tag, itemType, or query."
+        long_about = "Call Zotero capability library.list_items. Use --query for optional filters: libraryId, cursor, limit, collectionId, collectionKey, tag, itemType, or query."
     )]
     List(BridgeQueryArgs),
 }
@@ -588,25 +588,25 @@ pub struct LibraryReadinessArgs {
 pub enum LibraryReadinessCommand {
     #[command(
         about = "Audit PDF, source Markdown, and literature-analysis artifact readiness",
-        long_about = "Map to Host Bridge capability library.readiness_audit. Use --query for optional filters plus checks and missingOnly."
+        long_about = "Call Zotero capability library.readiness_audit. Use --query for optional filters plus checks and missingOnly."
     )]
     Audit(BridgeQueryArgs),
 
     #[command(
         about = "List Zotero items missing a PDF attachment",
-        long_about = "Map to Host Bridge capability library.readiness_audit with checks=[\"pdf\"] and missingOnly=true."
+        long_about = "Call Zotero capability library.readiness_audit with checks=[\"pdf\"] and missingOnly=true."
     )]
     MissingPdf(BridgeQueryArgs),
 
     #[command(
         about = "List Zotero items missing same-stem source Markdown",
-        long_about = "Map to Host Bridge capability library.readiness_audit with checks=[\"markdown\"] and missingOnly=true."
+        long_about = "Call Zotero capability library.readiness_audit with checks=[\"markdown\"] and missingOnly=true."
     )]
     MissingMarkdown(BridgeQueryArgs),
 
     #[command(
         about = "List Zotero items missing literature-analysis generated artifacts",
-        long_about = "Map to Host Bridge capability library.readiness_audit with checks=[\"analysis\"] and missingOnly=true."
+        long_about = "Call Zotero capability library.readiness_audit with checks=[\"analysis\"] and missingOnly=true."
     )]
     MissingAnalysis(BridgeQueryArgs),
 }
@@ -621,13 +621,13 @@ pub struct AnnotationArgs {
 pub enum AnnotationCommand {
     #[command(
         about = "List reader annotations for one Zotero item",
-        long_about = "Map to Host Bridge capability library.list_annotations. Provide --item as a Zotero object ref."
+        long_about = "Call Zotero capability library.list_annotations. Provide --item as a Zotero object ref."
     )]
     List(AnnotationItemArgs),
 
     #[command(
         about = "Export reader annotations for one Zotero item",
-        long_about = "Map to Host Bridge capability library.export_annotations. Format values are markdown or json."
+        long_about = "Call Zotero capability library.export_annotations. Format values are markdown or json."
     )]
     Export(AnnotationExportArgs),
 }
@@ -685,7 +685,7 @@ pub enum SynthesisCommand {
     #[command(name = "artifact", about = "Read and export paper artifact data")]
     Artifact(PaperArtifactsArgs),
 
-    #[command(name = "insight", about = "Read aggregate Host Bridge insight queues")]
+    #[command(name = "insight", about = "Read aggregate Zotero insight queues")]
     Insight(InsightsArgs),
 }
 
@@ -726,7 +726,7 @@ pub enum SynthesisCacheCommand {
 
     #[command(
         about = "Start a reference-sidecar refresh",
-        long_about = "Map to Host Bridge capability reference_sidecar.refresh. Use --input for a library scope or bounded same-library paper_refs scope. This mutation requires its own Zotero-side approval and returns a persistent operation handle; it never updates the citation graph."
+        long_about = "Call Zotero capability reference_sidecar.refresh. Use --input for a library scope or bounded same-library paper_refs scope. This mutation requires its own Zotero-side approval and returns a persistent operation handle; it never updates the citation graph."
     )]
     RefreshReferenceSidecar(BridgeInputArgs),
 
@@ -777,31 +777,31 @@ pub struct TopicsArgs {
 pub enum TopicsCommand {
     #[command(
         about = "List existing topic synthesis topics",
-        long_about = "Map to Host Bridge capability topics.list. Use --query with cursor and limit for paged topic inventory reads; omitted query is {}."
+        long_about = "Call Zotero capability topics.list. Use --query with cursor and limit for paged topic inventory reads; omitted query is {}."
     )]
     List(BridgeQueryArgs),
 
     #[command(
         about = "Find active topic synthesis topics by paper_ref",
-        long_about = "Map to Host Bridge capability topics.find_by_paper_ref. Use --query with paper_ref/paperRef or paper_refs/paperRefs."
+        long_about = "Call Zotero capability topics.find_by_paper_ref. Use --query with paper_ref/paperRef or paper_refs/paperRefs."
     )]
     FindByPaperRef(BridgeQueryArgs),
 
     #[command(
         about = "Read one topic synthesis context",
-        long_about = "Map to Host Bridge capability topics.get_context. Use --query for the topic lookup payload. Explicit view values are digest, semantic, audit, and full. Omitting view keeps the flat response. For large semantic or full contexts, pass outputPath/output_path and optional overwrite in --query. Local profiles write the view JSON directly. Remote profiles with connectionMode:\"remote\" return delivery.mode=\"bridge-download\"; run the returned zotero-bridge file download command and then unzip the bundle."
+        long_about = "Call Zotero capability topics.get_context. Use --query for the topic lookup payload. Explicit view values are digest, semantic, audit, and full. Omitting view keeps the flat response. For large semantic or full contexts, pass outputPath/output_path and optional overwrite in --query. Local profiles write the view JSON directly. Remote profiles with connectionMode:\"remote\" return delivery.mode=\"bridge-download\"; run the returned zotero-bridge file download command and then unzip the bundle."
     )]
     GetContext(BridgeQueryArgs),
 
     #[command(
         about = "Read one topic synthesis report markdown body",
-        long_about = "Map to Host Bridge capability topics.get_report. The report markdown is read from runtime synthesis_report.body."
+        long_about = "Call Zotero capability topics.get_report. The report markdown is read from runtime synthesis_report.body."
     )]
     GetReport(BridgeQueryArgs),
 
     #[command(
         about = "Read review workflow input from Synthesis",
-        long_about = "Map to Host Bridge capability topics.get_review_input."
+        long_about = "Call Zotero capability topics.get_review_input."
     )]
     GetReviewInput(BridgeQueryArgs),
 }
@@ -816,7 +816,7 @@ pub struct SchemasArgs {
 pub enum SchemasCommand {
     #[command(
         about = "Read Synthesis Layer schema metadata",
-        long_about = "Map to Host Bridge capability schemas.get."
+        long_about = "Call Zotero capability schemas.get."
     )]
     Get(BridgeQueryArgs),
 }
@@ -831,7 +831,7 @@ pub struct ConceptsArgs {
 pub enum ConceptsCommand {
     #[command(
         about = "Query Synthesis Concept KB candidates",
-        long_about = "Map to Host Bridge capability concepts.query. Use --query with concept_candidate_labels/labels for bounded read-only alias matching."
+        long_about = "Call Zotero capability concepts.query. Use --query with concept_candidate_labels/labels for bounded read-only alias matching."
     )]
     Query(BridgeQueryArgs),
 }
@@ -846,55 +846,55 @@ pub struct CitationGraphArgs {
 pub enum CitationGraphCommand {
     #[command(
         about = "Read a paged Synthesis citation graph overview",
-        long_about = "Map to Host Bridge capability citation_graph.get_overview. The overview returns summary plus paged nodes, edges, hover_only_nodes, and hover_only_edges; use --query with cursor/limit or nodeCursor/edgeCursor/hoverNodeCursor/hoverEdgeCursor."
+        long_about = "Call Zotero capability citation_graph.get_overview. The overview returns summary plus paged nodes, edges, hover_only_nodes, and hover_only_edges; use --query with cursor/limit or nodeCursor/edgeCursor/hoverNodeCursor/hoverEdgeCursor."
     )]
     Overview(BridgeQueryArgs),
 
     #[command(
         about = "Query a topic-scoped citation graph cluster",
-        long_about = "Map to Host Bridge capability citation_graph.query_cluster. Use --query with source_paper_refs, max_external_nodes, and cluster_policy."
+        long_about = "Call Zotero capability citation_graph.query_cluster. Use --query with source_paper_refs, max_external_nodes, and cluster_policy."
     )]
     QueryCluster(BridgeQueryArgs),
 
     #[command(
         about = "Read a Synthesis citation graph slice",
-        long_about = "Map to Host Bridge capability citation_graph.get_slice."
+        long_about = "Call Zotero capability citation_graph.get_slice."
     )]
     GetSlice(BridgeQueryArgs),
 
     #[command(
         about = "Read persisted citation graph layout coordinates",
-        long_about = "Map to Host Bridge capability citation_graph.get_layout. Use --query with scope:\"full\" for an explicit full graph layout, or with startNodeId/paperRef/nodeIds/paperRefs for a bounded subgraph layout."
+        long_about = "Call Zotero capability citation_graph.get_layout. Use --query with scope:\"full\" for an explicit full graph layout, or with startNodeId/paperRef/nodeIds/paperRefs for a bounded subgraph layout."
     )]
     GetLayout(BridgeQueryArgs),
 
     #[command(
         about = "Read citation graph metrics for selected papers",
-        long_about = "Map to Host Bridge capability citation_graph.get_metrics. Use --query with cursor, limit, and sortBy for paged metric reads. Complex metrics are maintained automatically after citation graph rebuilds and incremental refreshes; if diagnostics report missing metrics, use synthesis graph refresh-metrics."
+        long_about = "Call Zotero capability citation_graph.get_metrics. Use --query with cursor, limit, and sortBy for paged metric reads. Complex metrics are maintained automatically after citation graph rebuilds and incremental refreshes; if diagnostics report missing metrics, use synthesis graph refresh-metrics."
     )]
     GetMetrics(BridgeQueryArgs),
 
     #[command(
         about = "Rank external references from the citation graph",
-        long_about = "Map to Host Bridge capability citation_graph.rank_external_references. Use --query with cursor, limit, and sortBy for paged ranked reads."
+        long_about = "Call Zotero capability citation_graph.rank_external_references. Use --query with cursor, limit, and sortBy for paged ranked reads."
     )]
     RankExternalReferences(BridgeQueryArgs),
 
     #[command(
         about = "Rank library papers from citation graph metrics",
-        long_about = "Map to Host Bridge capability citation_graph.rank_library_papers. Use --query with cursor, limit, and sortBy for paged ranked reads."
+        long_about = "Call Zotero capability citation_graph.rank_library_papers. Use --query with cursor, limit, and sortBy for paged ranked reads."
     )]
     RankLibraryPapers(BridgeQueryArgs),
 
     #[command(
         about = "Refresh persisted citation graph complex metrics",
-        long_about = "Map to Host Bridge capability citation_graph.refresh_metrics. This diagnostic repair command requires Zotero-side approval and refreshes persisted complex metrics from the current graph cache without rebuilding graph structure."
+        long_about = "Call Zotero capability citation_graph.refresh_metrics. This diagnostic repair command requires Zotero-side approval and refreshes persisted complex metrics from the current graph cache without rebuilding graph structure."
     )]
     RefreshMetrics(BridgeInputArgs),
 
     #[command(
         about = "Start a citation graph update",
-        long_about = "Map to Host Bridge capability citation_graph.update. Use --input for a library scope or bounded paper_refs closure and optional expected_reference_basis_hash. This mutation requires a separate Zotero-side approval and returns a persistent operation handle."
+        long_about = "Call Zotero capability citation_graph.update. Use --input for a library scope or bounded paper_refs closure and optional expected_reference_basis_hash. This mutation requires a separate Zotero-side approval and returns a persistent operation handle."
     )]
     Update(BridgeInputArgs),
 }
@@ -909,7 +909,7 @@ pub struct ResolversArgs {
 pub enum ResolversCommand {
     #[command(
         about = "Resolve a topic resolver into a paper set",
-        long_about = "Map to Host Bridge capability resolvers.resolve. --query must be a JSON object with direct resolver fields such as {\"tag\":{\"and\":[\"topic:vision\"]},\"paper_refs\":[\"1:ABCD1234\"],\"combine\":\"union\"}. Do not pass a top-level resolver wrapper, topic_resolver, mode, query, include, or exclude."
+        long_about = "Call Zotero capability resolvers.resolve. --query must be a JSON object with direct resolver fields such as {\"tag\":{\"and\":[\"topic:vision\"]},\"paper_refs\":[\"1:ABCD1234\"],\"combine\":\"union\"}. Do not pass a top-level resolver wrapper, topic_resolver, mode, query, include, or exclude."
     )]
     Resolve(BridgeQueryArgs),
 }
@@ -924,25 +924,25 @@ pub struct PaperArtifactsArgs {
 pub enum PaperArtifactsCommand {
     #[command(
         about = "Read paper artifact manifest metadata",
-        long_about = "Map to Host Bridge capability paper_artifacts.get_manifest."
+        long_about = "Call Zotero capability paper_artifacts.get_manifest."
     )]
     Manifest(BridgeQueryArgs),
 
     #[command(
         about = "Read selected paper artifacts",
-        long_about = "Map to Host Bridge capability paper_artifacts.read."
+        long_about = "Call Zotero capability paper_artifacts.read."
     )]
     Read(BridgeQueryArgs),
 
     #[command(
         about = "Export bounded paper artifacts into the run workspace",
-        long_about = "Map to Host Bridge capability paper_artifacts.export_filtered. Local profiles write runtime/payloads files inside the supplied run_root. Remote profiles with connectionMode:\"remote\" return delivery.mode=\"bridge-download\"; run the returned zotero-bridge file download command and then unzip the bundle before reading manifest_file."
+        long_about = "Call Zotero capability paper_artifacts.export_filtered. Local profiles write runtime/payloads files inside the supplied run_root. Remote profiles with connectionMode:\"remote\" return delivery.mode=\"bridge-download\"; run the returned zotero-bridge file download command and then unzip the bundle before reading manifest_file."
     )]
     ExportFiltered(BridgeQueryArgs),
 
     #[command(
         about = "Resolve a topic paper digest",
-        long_about = "Map to Host Bridge capability paper_artifacts.resolve_topic_digest."
+        long_about = "Call Zotero capability paper_artifacts.resolve_topic_digest."
     )]
     ResolveTopicDigest(BridgeQueryArgs),
 }
@@ -957,7 +957,7 @@ pub struct InsightsArgs {
 pub enum InsightsCommand {
     #[command(
         about = "Read aggregate graph/artifact/reference attention items",
-        long_about = "Map to Host Bridge capability insights.get_attention_queue."
+        long_about = "Call Zotero capability insights.get_attention_queue."
     )]
     AttentionQueue(BridgeQueryArgs),
 }
@@ -967,8 +967,8 @@ pub struct BridgeInputArgs {
     #[arg(
         long,
         value_name = "JSON_OR_FILE",
-        help = "Host Bridge capability input as inline JSON, a file path, @file, or '-' for stdin",
-        long_help = "Host Bridge capability input. Use inline JSON, a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Omit for {}."
+        help = "Zotero capability input as inline JSON, a file path, @file, or '-' for stdin",
+        long_help = "Zotero capability input. Use inline JSON, a file path containing JSON, @file syntax, or '-' to read JSON from stdin. Omit for {}."
     )]
     pub input: Option<String>,
 }
@@ -994,21 +994,21 @@ pub struct MutationArgs {
 #[derive(Debug, Clone, Subcommand)]
 pub enum MutationCommand {
     #[command(
-        about = "Preview a Host Bridge mutation",
-        long_about = "Map to Host Bridge capability mutation.preview. Use --input with the mutation preview payload."
+        about = "Preview a Zotero mutation",
+        long_about = "Call Zotero capability mutation.preview. Use --input with the mutation preview payload."
     )]
     Preview(BridgeInputArgs),
 
     #[command(
-        about = "Apply a Host Bridge mutation",
-        long_about = "Map to Host Bridge capability mutation.execute. Use --input with the mutation execution payload."
+        about = "Apply a Zotero mutation",
+        long_about = "Call Zotero capability mutation.execute. Use --input with the mutation execution payload."
     )]
     Apply(BridgeInputArgs),
 
     #[command(
         name = "literature-ingest",
         about = "Ingest searched literature into Zotero",
-        long_about = "Execute the canonical literature.ingest mutation through Host Bridge approval. Input is a JSON object with one typed paper (itemType, fields, creators, identifiers) and optional collection."
+        long_about = "Execute the canonical literature.ingest mutation through Zotero-side approval. Input is a JSON object with one typed paper (itemType, fields, creators, identifiers) and optional collection."
     )]
     LiteratureIngest(LiteratureIngestArgs),
 
@@ -1110,7 +1110,7 @@ pub enum MutationItemCommand {
 
     #[command(
         name = "attach-file",
-        about = "Attach an uploaded Host Bridge file to a Zotero item"
+        about = "Attach a file uploaded through Zotero Bridge to a Zotero item"
     )]
     AttachFile(MutationItemAttachFileArgs),
 }
@@ -1129,7 +1129,7 @@ pub struct MutationItemAttachFileArgs {
     #[arg(long, help = "Target Zotero item ref")]
     pub item: String,
 
-    #[arg(long, help = "Host Bridge uploaded file id")]
+    #[arg(long, help = "Bridge-issued uploaded file id")]
     pub file_id: String,
 
     #[arg(long, help = "Attachment display name")]
@@ -1200,7 +1200,7 @@ pub enum WorkflowCommand {
 
     #[command(
         about = "Submit a workflow with explicit JSON input",
-        long_about = "Call POST /bridge/v1/workflows/submit. Requires --workflow and either --selection or --none. Use --workflow-options for workflow parameters and --provider-profile for backend/provider runtime options. Workflow submit requires Zotero-side approval unless Host Bridge approvals are globally disabled in Zotero."
+        long_about = "Call POST /bridge/v1/workflows/submit. Requires --workflow and either --selection or --none. Use --workflow-options for workflow parameters and --provider-profile for backend/provider runtime options. Workflow submit requires Zotero-side approval unless approvals are globally disabled in Zotero."
     )]
     Submit(WorkflowSubmitArgs),
 
@@ -1233,6 +1233,18 @@ pub enum WorkflowCommand {
         long_about = "Call POST /bridge/v1/workflows/agent-run. This read-only command returns a downloadable workflow context bundle for the calling agent. Requires --workflow and either --selection or --none. It does not accept workflow options or provider profiles and does not start a backend task."
     )]
     AgentRun(WorkflowAgentRunArgs),
+
+    #[command(
+        about = "Inspect a downloaded self-owned agent handoff bundle locally",
+        long_about = "Read a local agent-run handoff directory or ZIP and report its agent run id, request ids, and output contracts. This command does not contact the Zotero Bridge service, consume a handle, or apply a result."
+    )]
+    AgentBundle(WorkflowAgentBundleArgs),
+
+    #[command(
+        about = "Validate a self-owned agent result bundle locally",
+        long_about = "Validate a local result directory or ZIP against an output-contract JSON file. This command does not contact the Zotero Bridge service, consume a handle, or apply a result."
+    )]
+    AgentResult(WorkflowAgentResultArgs),
 
     #[command(
         about = "Apply finalized self-owned agent workflow result bundles",
@@ -1441,6 +1453,57 @@ pub struct WorkflowAgentRunArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+pub struct WorkflowAgentBundleArgs {
+    #[command(subcommand)]
+    pub command: WorkflowAgentBundleCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum WorkflowAgentBundleCommand {
+    #[command(about = "Inspect a local agent handoff directory")]
+    Inspect(WorkflowAgentBundleInspectArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowAgentBundleInspectArgs {
+    #[arg(
+        long,
+        value_name = "DIR_OR_ZIP",
+        help = "Agent handoff directory or ZIP"
+    )]
+    pub bundle: PathBuf,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowAgentResultArgs {
+    #[command(subcommand)]
+    pub command: WorkflowAgentResultCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum WorkflowAgentResultCommand {
+    #[command(about = "Validate a local agent result directory against an output contract")]
+    Validate(WorkflowAgentResultValidateArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowAgentResultValidateArgs {
+    #[arg(
+        long,
+        value_name = "FILE",
+        help = "Authoritative output-contract JSON file"
+    )]
+    pub contract: PathBuf,
+
+    #[arg(
+        long,
+        value_name = "DIR_OR_ZIP",
+        help = "Agent result directory or ZIP"
+    )]
+    pub result: PathBuf,
+}
+
+#[derive(Debug, Clone, Args)]
 pub struct WorkflowAgentApplyArgs {
     #[arg(help = "Agent run id returned by workflow agent-run")]
     pub agent_run_id: String,
@@ -1532,7 +1595,7 @@ pub enum RunCommand {
     #[command(about = "Read and acknowledge lightweight workflow notifications")]
     Notification(RunNotificationArgs),
 
-    #[command(about = "Read Host Bridge permission requests")]
+    #[command(about = "Read Zotero-side permission requests")]
     Permission(RunPermissionArgs),
 }
 
@@ -1569,13 +1632,13 @@ pub struct RunPermissionArgs {
 #[derive(Debug, Clone, Subcommand)]
 pub enum RunPermissionCommand {
     #[command(
-        about = "List pending Host Bridge permission requests",
+        about = "List pending Zotero-side permission requests",
         long_about = "Call GET /bridge/v1/permissions/pending. This is read-only and cannot approve or reject."
     )]
     Pending,
 
     #[command(
-        about = "Read one Host Bridge permission request",
+        about = "Read one Zotero-side permission request",
         long_about = "Call GET /bridge/v1/permissions/{permissionRequestId}. This is read-only."
     )]
     Get(PermissionRequestIdArgs),
@@ -1649,7 +1712,7 @@ pub struct NotificationListArgs {
     #[arg(long, help = "Return events after this event id")]
     pub since_event_id: Option<String>,
 
-    #[arg(long, help = "Best-effort Host Bridge notification client id")]
+    #[arg(long, help = "Best-effort Zotero notification client id")]
     pub client_id: Option<String>,
 
     #[arg(long, help = "Filter by acknowledgement state")]
@@ -1673,7 +1736,7 @@ pub struct NotificationWaitArgs {
     #[arg(long, help = "Return events after this event id")]
     pub since_event_id: Option<String>,
 
-    #[arg(long, help = "Best-effort Host Bridge notification client id")]
+    #[arg(long, help = "Best-effort Zotero notification client id")]
     pub client_id: Option<String>,
 
     #[arg(long, help = "Filter by acknowledgement state")]
@@ -1702,7 +1765,7 @@ pub struct NotificationAckArgs {
     #[arg(long = "event", required = true, help = "Notification event id")]
     pub events: Vec<String>,
 
-    #[arg(long, help = "Best-effort Host Bridge notification client id")]
+    #[arg(long, help = "Best-effort Zotero notification client id")]
     pub client_id: Option<String>,
 }
 
@@ -1868,7 +1931,7 @@ pub struct DebugArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum DebugCommand {
-    #[command(about = "Read debug-only Host Bridge runtime status")]
+    #[command(about = "Read debug-only Zotero Bridge service runtime status")]
     Status,
 
     #[command(about = "Read debug-only persistence diagnostics")]
@@ -1894,7 +1957,7 @@ pub struct DebugAcpSkillRunArgs {
 pub enum DebugAcpSkillRunCommand {
     #[command(
         about = "Re-run applyResult for one existing ACP skill run result",
-        long_about = "Map to Host Bridge capability debug.acpSkillRun.reapplyResult. Use --input with {\"requestId\":\"...\"}; add resultJsonOverride and overrideMode when the stored result must be corrected before apply."
+        long_about = "Call Zotero capability debug.acpSkillRun.reapplyResult. Use --input with {\"requestId\":\"...\"}; add resultJsonOverride and overrideMode when the stored result must be corrected before apply."
     )]
     ReapplyResult(DebugInputArgs),
 }
@@ -1951,8 +2014,8 @@ pub enum FileCommand {
     Download(FileDownloadArgs),
 
     #[command(
-        about = "Upload one local file to Host Bridge and return a short-lived file handle",
-        long_about = "Call POST /bridge/v1/files/upload. The local source path is used only by the CLI; Host Bridge returns an opaque file handle for later attach-file mutation."
+        about = "Upload one local file through Zotero Bridge and return a short-lived file handle",
+        long_about = "Call POST /bridge/v1/files/upload. The local source path is used only by the CLI; the Zotero Bridge service returns an opaque file handle for later attach-file mutation."
     )]
     Upload(FileUploadArgs),
 }
@@ -1974,7 +2037,7 @@ pub struct FileUploadArgs {
     #[arg(help = "Local file path to upload")]
     pub path: String,
 
-    #[arg(long, help = "Display name stored in the Host Bridge file descriptor")]
+    #[arg(long, help = "Display name stored in the Zotero-side file descriptor")]
     pub display_name: Option<String>,
 
     #[arg(long, help = "Content type for the uploaded file")]
@@ -1995,8 +2058,8 @@ mod tests {
         MutationCommand, MutationItemCommand, MutationNoteCommand, MutationTagCommand,
         NotificationCommand, ProductCommand, RunArgs, RunCommand, RunPermissionCommand,
         RunWorkflowCommand, SkillRunCommand, SurfaceCommand, SynthesisCacheCommand,
-        SynthesisCommand, SynthesisIndexCommand, TopicsCommand, WorkflowCommand,
-        WorkflowProfileCommand,
+        SynthesisCommand, SynthesisIndexCommand, TopicsCommand, WorkflowAgentBundleCommand,
+        WorkflowAgentResultCommand, WorkflowCommand, WorkflowProfileCommand,
     };
 
     #[test]
@@ -2992,6 +3055,54 @@ mod tests {
                     );
                 }
                 _ => panic!("expected workflow agent-run"),
+            },
+            _ => panic!("expected workflow command"),
+        }
+    }
+
+    #[test]
+    fn parses_local_agent_bundle_and_result_commands() {
+        let inspect = Cli::try_parse_from([
+            "zotero-bridge",
+            "workflow",
+            "agent-bundle",
+            "inspect",
+            "--bundle",
+            "./handoff",
+        ])
+        .unwrap();
+        match inspect.command {
+            Command::Workflow(args) => match args.command {
+                WorkflowCommand::AgentBundle(args) => match args.command {
+                    WorkflowAgentBundleCommand::Inspect(input) => {
+                        assert_eq!(input.bundle, PathBuf::from("./handoff"));
+                    }
+                },
+                _ => panic!("expected workflow agent-bundle inspect"),
+            },
+            _ => panic!("expected workflow command"),
+        }
+
+        let validate = Cli::try_parse_from([
+            "zotero-bridge",
+            "workflow",
+            "agent-result",
+            "validate",
+            "--contract",
+            "./contract.json",
+            "--result",
+            "./result",
+        ])
+        .unwrap();
+        match validate.command {
+            Command::Workflow(args) => match args.command {
+                WorkflowCommand::AgentResult(args) => match args.command {
+                    WorkflowAgentResultCommand::Validate(input) => {
+                        assert_eq!(input.contract, PathBuf::from("./contract.json"));
+                        assert_eq!(input.result, PathBuf::from("./result"));
+                    }
+                },
+                _ => panic!("expected workflow agent-result validate"),
             },
             _ => panic!("expected workflow command"),
         }

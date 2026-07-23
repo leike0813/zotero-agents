@@ -1,5 +1,7 @@
 use std::{
-    fs,
+    cell::RefCell,
+    collections::BTreeMap,
+    fs::{self, File},
     io::Read,
     path::{Path, PathBuf},
     thread,
@@ -35,7 +37,9 @@ use crate::{
         SynthesisArgs, SynthesisCacheArgs, SynthesisCacheCommand, SynthesisCacheInvalidateArgs,
         SynthesisCommand, SynthesisIndexCommand, SynthesisIndexGetCommand, TaskListArgs,
         TaskRecentArgs, TopicsArgs, TopicsCommand, WorkflowAgentApplyArgs,
-        WorkflowAgentApplyStatusArgs, WorkflowAgentRunArgs, WorkflowAgentRunLifecycleArgs,
+        WorkflowAgentApplyStatusArgs, WorkflowAgentBundleArgs, WorkflowAgentBundleCommand,
+        WorkflowAgentBundleInspectArgs, WorkflowAgentResultArgs, WorkflowAgentResultCommand,
+        WorkflowAgentResultValidateArgs, WorkflowAgentRunArgs, WorkflowAgentRunLifecycleArgs,
         WorkflowArgs, WorkflowCancelArgs, WorkflowCommand, WorkflowDescribeArgs,
         WorkflowProfileArgs, WorkflowProfileCommand, WorkflowProfileDescribeArgs,
         WorkflowProfileValidateArgs, WorkflowRequirementsArgs, WorkflowRunArgs, WorkflowSubmitArgs,
@@ -47,6 +51,9 @@ use crate::{
 };
 
 const PROTOCOL: &str = "host-bridge.v1";
+const AGENT_RUN_OUTPUT_CONTRACT_SCHEMA: &str = "zotero-bridge.agent-run.output-contract.v1";
+const MAX_BUNDLE_ENTRIES: usize = 4096;
+const MAX_BUNDLE_JSON_BYTES: u64 = 16 * 1024 * 1024;
 
 pub fn status(config: &BridgeConfig) -> Result<Value, CliError> {
     let result = client::health(config)?;
@@ -420,6 +427,8 @@ pub fn workflow(config: &BridgeConfig, args: WorkflowArgs) -> Result<Value, CliE
         }
         WorkflowCommand::Profile(args) => workflow_profile(config, args),
         WorkflowCommand::AgentRun(args) => workflow_agent_run(config, args),
+        WorkflowCommand::AgentBundle(args) => workflow_agent_bundle(args),
+        WorkflowCommand::AgentResult(args) => workflow_agent_result(args),
         WorkflowCommand::AgentApply(args) => workflow_agent_apply(config, args),
         WorkflowCommand::AgentApplyStatus(args) => workflow_agent_apply_status(config, args),
         WorkflowCommand::AgentRenew(args) => workflow_agent_run_lifecycle(config, args, "renew"),
@@ -427,6 +436,480 @@ pub fn workflow(config: &BridgeConfig, args: WorkflowArgs) -> Result<Value, CliE
             workflow_agent_run_lifecycle(config, args, "abandon")
         }
     }
+}
+
+fn workflow_agent_bundle(args: WorkflowAgentBundleArgs) -> Result<Value, CliError> {
+    match args.command {
+        WorkflowAgentBundleCommand::Inspect(args) => workflow_agent_bundle_inspect(args),
+    }
+}
+
+fn workflow_agent_result(args: WorkflowAgentResultArgs) -> Result<Value, CliError> {
+    match args.command {
+        WorkflowAgentResultCommand::Validate(args) => workflow_agent_result_validate(args),
+    }
+}
+
+struct ZipBundle {
+    archive: RefCell<zip::ZipArchive<File>>,
+    entries: BTreeMap<String, usize>,
+}
+
+enum LocalBundle {
+    Directory(PathBuf),
+    Zip(ZipBundle),
+}
+
+fn normalize_bundle_entry(entry: &str, label: &str) -> Result<String, CliError> {
+    let normalized = entry.replace('\\', "/");
+    let normalized = normalized.trim_end_matches('/');
+    if normalized.is_empty() || normalized.starts_with('/') || normalized.contains('\0') {
+        return Err(CliError::validation(
+            "invalid_bundle_path",
+            format!("{label} must be a safe relative bundle path"),
+        ));
+    }
+    let mut parts = Vec::new();
+    for part in normalized.split('/') {
+        if part.is_empty() || part == ".." {
+            return Err(CliError::validation(
+                "invalid_bundle_path",
+                format!("{label} must be a safe relative bundle path"),
+            ));
+        }
+        if part == "." {
+            continue;
+        }
+        if parts.is_empty() && part.ends_with(':') {
+            return Err(CliError::validation(
+                "invalid_bundle_path",
+                format!("{label} must be a safe relative bundle path"),
+            ));
+        }
+        parts.push(part);
+    }
+    if parts.is_empty() {
+        return Err(CliError::validation(
+            "invalid_bundle_path",
+            format!("{label} must be a safe relative bundle path"),
+        ));
+    }
+    Ok(parts.join("/"))
+}
+
+fn invalid_bundle_archive(message: impl Into<String>) -> CliError {
+    CliError::validation("invalid_bundle_archive", message)
+        .with_details(json!({ "inputKind": "zip" }))
+}
+
+impl LocalBundle {
+    fn open(path: &Path) -> Result<Self, CliError> {
+        if path.is_dir() {
+            let root = fs::canonicalize(path).map_err(|_| {
+                CliError::validation(
+                    "invalid_agent_bundle",
+                    "Agent bundle directory cannot be resolved",
+                )
+            })?;
+            return Ok(Self::Directory(root));
+        }
+        let is_zip = path.is_file()
+            && path
+                .extension()
+                .and_then(|value| value.to_str())
+                .is_some_and(|value| value.eq_ignore_ascii_case("zip"));
+        if !is_zip {
+            return Err(CliError::validation(
+                "invalid_agent_bundle",
+                "Agent bundle must be a readable directory or ZIP file",
+            ));
+        }
+        let file = File::open(path)
+            .map_err(|_| invalid_bundle_archive("ZIP agent bundle cannot be opened"))?;
+        let mut archive = zip::ZipArchive::new(file)
+            .map_err(|_| invalid_bundle_archive("ZIP agent bundle is malformed"))?;
+        if archive.len() > MAX_BUNDLE_ENTRIES {
+            return Err(CliError::validation(
+                "bundle_entry_limit_exceeded",
+                "ZIP agent bundle contains too many entries",
+            )
+            .with_details(json!({ "limit": MAX_BUNDLE_ENTRIES })));
+        }
+        let mut entries = BTreeMap::new();
+        for index in 0..archive.len() {
+            let entry = archive
+                .by_index(index)
+                .map_err(|_| invalid_bundle_archive("ZIP agent bundle entry cannot be read"))?;
+            let name = normalize_bundle_entry(entry.name(), "ZIP entry")?;
+            if entry.is_symlink() {
+                return Err(CliError::validation(
+                    "invalid_bundle_path",
+                    "ZIP agent bundle must not contain symbolic links",
+                ));
+            }
+            if entry.is_dir() {
+                continue;
+            }
+            if entries.insert(name, index).is_some() {
+                return Err(invalid_bundle_archive(
+                    "ZIP agent bundle contains duplicate file entries",
+                ));
+            }
+        }
+        Ok(Self::Zip(ZipBundle {
+            archive: RefCell::new(archive),
+            entries,
+        }))
+    }
+
+    fn directory_file(root: &Path, entry: &str, label: &str) -> Result<Option<PathBuf>, CliError> {
+        let relative = normalize_bundle_entry(entry, label)?;
+        let candidate = root.join(relative);
+        let resolved = match fs::canonicalize(&candidate) {
+            Ok(path) => path,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => {
+                return Err(CliError::validation(
+                    "bundle_entry_unreadable",
+                    format!("Bundle entry cannot be resolved: {label}"),
+                ));
+            }
+        };
+        if !resolved.starts_with(root) {
+            return Err(CliError::validation(
+                "invalid_bundle_path",
+                format!("{label} resolves outside the bundle root"),
+            ));
+        }
+        Ok(resolved.is_file().then_some(resolved))
+    }
+
+    fn contains_file(&self, entry: &str, label: &str) -> Result<bool, CliError> {
+        match self {
+            Self::Directory(root) => Ok(Self::directory_file(root, entry, label)?.is_some()),
+            Self::Zip(bundle) => {
+                let entry = normalize_bundle_entry(entry, label)?;
+                Ok(bundle.entries.contains_key(&entry))
+            }
+        }
+    }
+
+    fn read_json(&self, entry: &str, label: &str) -> Result<Value, CliError> {
+        match self {
+            Self::Directory(root) => {
+                let path = Self::directory_file(root, entry, label)?.ok_or_else(|| {
+                    CliError::validation(
+                        "bundle_entry_missing",
+                        format!("Bundle entry is missing: {label}"),
+                    )
+                    .with_details(json!({ "entry": label }))
+                })?;
+                read_local_json(&path, label)
+            }
+            Self::Zip(bundle) => {
+                let normalized = normalize_bundle_entry(entry, label)?;
+                let index = bundle.entries.get(&normalized).copied().ok_or_else(|| {
+                    CliError::validation(
+                        "bundle_entry_missing",
+                        format!("Bundle entry is missing: {label}"),
+                    )
+                    .with_details(json!({ "entry": label }))
+                })?;
+                let mut archive = bundle.archive.borrow_mut();
+                let mut file = archive
+                    .by_index(index)
+                    .map_err(|_| invalid_bundle_archive("ZIP agent bundle entry cannot be read"))?;
+                if file.size() > MAX_BUNDLE_JSON_BYTES {
+                    return Err(CliError::validation(
+                        "bundle_entry_too_large",
+                        format!("Bundle JSON entry exceeds the size limit: {label}"),
+                    )
+                    .with_details(json!({ "entry": label, "limitBytes": MAX_BUNDLE_JSON_BYTES })));
+                }
+                let mut raw = Vec::with_capacity(file.size() as usize);
+                file.by_ref()
+                    .take(MAX_BUNDLE_JSON_BYTES + 1)
+                    .read_to_end(&mut raw)
+                    .map_err(|_| {
+                        invalid_bundle_archive("ZIP agent bundle entry cannot be decompressed")
+                    })?;
+                if raw.len() as u64 > MAX_BUNDLE_JSON_BYTES {
+                    return Err(CliError::validation(
+                        "bundle_entry_too_large",
+                        format!("Bundle JSON entry exceeds the size limit: {label}"),
+                    )
+                    .with_details(json!({ "entry": label, "limitBytes": MAX_BUNDLE_JSON_BYTES })));
+                }
+                serde_json::from_slice(&raw).map_err(|error| {
+                    CliError::validation(
+                        "invalid_bundle_json",
+                        format!("Bundle entry is not valid JSON: {label}"),
+                    )
+                    .with_details(json!({
+                        "entry": label,
+                        "line": error.line(),
+                        "column": error.column()
+                    }))
+                })
+            }
+        }
+    }
+
+    fn output_contract_entries(&self) -> Result<Vec<String>, CliError> {
+        let mut entries = Vec::new();
+        match self {
+            Self::Directory(root) => {
+                let requests = root.join("agent-run/requests");
+                let request_entries = fs::read_dir(&requests).map_err(|_| {
+                    CliError::validation(
+                        "output_contract_missing",
+                        "Agent handoff contains no output contracts",
+                    )
+                })?;
+                for entry in request_entries.flatten() {
+                    if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+                        continue;
+                    }
+                    let request_id = entry.file_name().to_string_lossy().to_string();
+                    let contract_entry =
+                        format!("agent-run/requests/{request_id}/output-contract.json");
+                    if self.contains_file(&contract_entry, "output contract")? {
+                        entries.push(contract_entry);
+                    }
+                }
+            }
+            Self::Zip(bundle) => {
+                for name in bundle.entries.keys() {
+                    let Some(relative) = name.strip_prefix("agent-run/requests/") else {
+                        continue;
+                    };
+                    let Some(request_id) = relative.strip_suffix("/output-contract.json") else {
+                        continue;
+                    };
+                    if !request_id.is_empty() && !request_id.contains('/') {
+                        entries.push(name.clone());
+                    }
+                }
+            }
+        }
+        entries.sort();
+        Ok(entries)
+    }
+}
+
+fn read_local_json(path: &Path, label: &str) -> Result<Value, CliError> {
+    let raw = fs::read_to_string(path).map_err(|error| {
+        CliError::validation(
+            "bundle_entry_missing",
+            format!("Bundle entry is missing: {label}"),
+        )
+        .with_details(json!({ "entry": label, "reason": error.kind().to_string() }))
+    })?;
+    serde_json::from_str(&raw).map_err(|error| {
+        CliError::validation(
+            "invalid_bundle_json",
+            format!("Bundle entry is not valid JSON: {label}"),
+        )
+        .with_details(json!({ "entry": label, "line": error.line(), "column": error.column() }))
+    })
+}
+
+fn required_string(value: &Value, field: &str, error_code: &str) -> Result<String, CliError> {
+    value
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            CliError::validation(error_code, format!("{field} must be a non-empty string"))
+        })
+}
+
+fn required_object<'a>(
+    value: &'a Value,
+    label: &str,
+) -> Result<&'a serde_json::Map<String, Value>, CliError> {
+    value.as_object().ok_or_else(|| {
+        CliError::validation("invalid_bundle", format!("{label} must be a JSON object"))
+    })
+}
+
+fn workflow_agent_bundle_inspect(args: WorkflowAgentBundleInspectArgs) -> Result<Value, CliError> {
+    let bundle = LocalBundle::open(&args.bundle)?;
+    let context = bundle.read_json("agent-run/context.json", "agent-run/context.json")?;
+    let context = required_object(&context, "agent-run/context.json")?;
+    let agent_run_id = required_string(
+        context.get("agentRunId").unwrap_or(&Value::Null),
+        "agentRunId",
+        "invalid_agent_bundle",
+    )?;
+    let mut contracts = Vec::new();
+    for entry in bundle.output_contract_entries()? {
+        let contract = bundle.read_json(&entry, &entry)?;
+        let contract_object = required_object(&contract, "output contract")?;
+        if contract_object.get("schema").and_then(Value::as_str)
+            != Some(AGENT_RUN_OUTPUT_CONTRACT_SCHEMA)
+        {
+            return Err(CliError::validation(
+                "invalid_output_contract",
+                "Agent handoff contains an unsupported output contract schema",
+            ));
+        }
+        required_string(
+            contract_object
+                .get("agentRequestId")
+                .unwrap_or(&Value::Null),
+            "agentRequestId",
+            "invalid_output_contract",
+        )?;
+        contracts.push(contract);
+    }
+    contracts.sort_by(|left, right| {
+        left.get("agentRequestId")
+            .and_then(Value::as_str)
+            .cmp(&right.get("agentRequestId").and_then(Value::as_str))
+    });
+    if contracts.is_empty() {
+        return Err(CliError::validation(
+            "output_contract_missing",
+            "Agent handoff contains no output contracts",
+        ));
+    }
+    let agent_request_ids = contracts
+        .iter()
+        .filter_map(|contract| contract.get("agentRequestId").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    Ok(json!({
+        "schema": "zotero-bridge.agent-bundle-inspection.v1",
+        "agentRunId": agent_run_id,
+        "agentRequestIds": agent_request_ids,
+        "contracts": contracts,
+    }))
+}
+
+fn namespace_from(value: &Value) -> Option<&str> {
+    value
+        .get("namespace")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            value
+                .get("run")
+                .and_then(Value::as_object)
+                .and_then(|run| run.get("namespace"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            value
+                .get("result")
+                .and_then(Value::as_object)
+                .and_then(|result| result.get("namespace"))
+                .and_then(Value::as_str)
+        })
+}
+
+fn validate_contract_artifacts(
+    bundle: &LocalBundle,
+    contract: &serde_json::Map<String, Value>,
+) -> Result<Vec<String>, CliError> {
+    let mut paths = Vec::new();
+    for field in ["artifactManifestPath", "requiredArtifactManifestPath"] {
+        if let Some(path) = contract.get(field).and_then(Value::as_str) {
+            if !bundle.contains_file(path, field)? {
+                return Err(CliError::validation(
+                    "artifact_manifest_missing",
+                    format!("Required artifact manifest is missing: {field}"),
+                ));
+            }
+            bundle.read_json(path, field)?;
+            paths.push(field.to_string());
+        }
+    }
+    if let Some(required) = contract
+        .get("requiredArtifactPaths")
+        .and_then(Value::as_array)
+    {
+        for (index, entry) in required.iter().enumerate() {
+            let raw = required_string(
+                entry,
+                &format!("requiredArtifactPaths[{index}]"),
+                "invalid_output_contract",
+            )?;
+            if !bundle.contains_file(&raw, "requiredArtifactPaths")? {
+                return Err(CliError::validation(
+                    "required_artifact_missing",
+                    format!("Required result artifact is missing: {raw}"),
+                ));
+            }
+            paths.push(raw);
+        }
+    }
+    Ok(paths)
+}
+
+fn workflow_agent_result_validate(
+    args: WorkflowAgentResultValidateArgs,
+) -> Result<Value, CliError> {
+    let contract = read_local_json(&args.contract, "output contract")?;
+    let contract = required_object(&contract, "output contract")?;
+    if contract.get("schema").and_then(Value::as_str) != Some(AGENT_RUN_OUTPUT_CONTRACT_SCHEMA) {
+        return Err(CliError::validation(
+            "invalid_output_contract",
+            "Output contract has an unsupported schema",
+        ));
+    }
+    let agent_request_id = required_string(
+        contract.get("agentRequestId").unwrap_or(&Value::Null),
+        "agentRequestId",
+        "invalid_output_contract",
+    )?;
+    let namespace = required_string(
+        contract.get("namespace").unwrap_or(&Value::Null),
+        "namespace",
+        "invalid_output_contract",
+    )?;
+    let result_json_path = required_string(
+        contract.get("resultJsonPath").unwrap_or(&Value::Null),
+        "resultJsonPath",
+        "invalid_output_contract",
+    )?;
+    let manifest_path = contract
+        .get("expectedBundleManifestPath")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("bundle/{namespace}/manifest.json"));
+    let bundle = LocalBundle::open(&args.result)?;
+    let result = bundle.read_json(&result_json_path, "resultJsonPath")?;
+    required_object(&result, "result JSON")?;
+    let manifest = bundle.read_json(&manifest_path, "expectedBundleManifestPath")?;
+    required_object(&manifest, "bundle manifest")?;
+    for (label, value) in [("result JSON", &result), ("bundle manifest", &manifest)] {
+        let actual = namespace_from(value)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                CliError::validation(
+                    "bundle_namespace_missing",
+                    format!("{label} must declare the result namespace"),
+                )
+            })?;
+        if actual != namespace {
+            return Err(CliError::validation(
+                "bundle_namespace_mismatch",
+                format!("{label} namespace does not match the output contract"),
+            )
+            .with_details(json!({ "expected": namespace, "actual": actual, "source": label })));
+        }
+    }
+    let artifact_requirements = validate_contract_artifacts(&bundle, contract)?;
+    Ok(json!({
+        "schema": "zotero-bridge.agent-result-validation.v1",
+        "agentRequestId": agent_request_id,
+        "namespace": namespace,
+        "resultJsonPath": result_json_path,
+        "manifestPath": manifest_path,
+        "artifactRequirements": artifact_requirements,
+    }))
 }
 
 fn workflow_profile(config: &BridgeConfig, args: WorkflowProfileArgs) -> Result<Value, CliError> {
@@ -540,7 +1023,7 @@ fn ensure_debug_capability(config: &BridgeConfig, capability: &str) -> Result<()
     Err(CliError::new(
         "debug_mode_disabled",
         crate::error::ErrorCategory::Capability,
-        "Host Bridge debug capabilities are not exposed; enable hardcoded debug mode and restart Zotero",
+        "Zotero Bridge debug capabilities are not exposed; enable hardcoded debug mode and restart Zotero",
     )
     .with_details(json!({ "capability": capability })))
 }
@@ -1539,7 +2022,7 @@ fn notification_wait(config: &BridgeConfig, args: NotificationWaitArgs) -> Resul
             return Err(CliError::new(
                 "notification_wait_timeout",
                 ErrorCategory::Workflow,
-                "No matching Host Bridge notification arrived before the timeout",
+                "No matching Zotero notification arrived before the timeout",
             )
             .with_details(json!({
                 "timeoutMs": args.timeout_ms,
@@ -1709,7 +2192,7 @@ fn normalize_file_id(file_id: &str) -> Result<String, CliError> {
     {
         return Err(CliError::validation(
             "invalid_file_id",
-            "file commands require a Host Bridge opaque file-* handle, not a path",
+            "file commands require a bridge-issued opaque file-* handle, not a path",
         ));
     }
     Ok(file_id.to_string())
@@ -1795,7 +2278,7 @@ fn ensure_protocol(value: &Value) -> Result<(), CliError> {
     if protocol != PROTOCOL {
         return Err(CliError::protocol(
             "incompatible_bridge_protocol",
-            "Host Bridge protocol version is incompatible",
+            "Zotero Bridge protocol version is incompatible",
         )
         .with_details(json!({
             "expected": PROTOCOL,
@@ -2007,6 +2490,19 @@ fn read_json_arg(input: Option<&str>) -> Result<Value, CliError> {
 mod tests {
     use super::*;
     use crate::args::{BridgeInputArgs, BridgeQueryArgs};
+    use std::io::Write;
+
+    fn write_test_zip(path: &Path, entries: &[(String, Vec<u8>)]) {
+        let file = fs::File::create(path).unwrap();
+        let mut archive = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for (name, contents) in entries {
+            archive.start_file(name, options).unwrap();
+            archive.write_all(contents).unwrap();
+        }
+        archive.finish().unwrap();
+    }
 
     #[test]
     fn maps_item_search_json_query_to_bridge_input() {
@@ -2852,6 +3348,197 @@ mod tests {
         };
         let error = workflow_agent_apply_input(&args).unwrap_err();
         assert_eq!(error.code, "invalid_agent_apply_result");
+    }
+
+    #[test]
+    fn inspects_and_validates_local_agent_bundles_without_a_bridge_client() {
+        let root = std::env::temp_dir().join(format!(
+            "zotero-bridge-local-agent-bundle-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("agent-run/requests/request-1")).unwrap();
+        fs::write(
+            root.join("agent-run/context.json"),
+            r#"{"agentRunId":"agent-run-1"}"#,
+        )
+        .unwrap();
+        let contract = json!({
+            "schema": AGENT_RUN_OUTPUT_CONTRACT_SCHEMA,
+            "agentRequestId": "request-1",
+            "namespace": "example",
+            "resultJsonPath": "result/result.json",
+            "expectedBundleManifestPath": "bundle/example/manifest.json",
+            "requiredArtifactPaths": ["artifacts/proof.txt"]
+        });
+        fs::write(
+            root.join("agent-run/requests/request-1/output-contract.json"),
+            serde_json::to_vec(&contract).unwrap(),
+        )
+        .unwrap();
+        let inspection = workflow_agent_bundle_inspect(WorkflowAgentBundleInspectArgs {
+            bundle: root.clone(),
+        })
+        .unwrap();
+        assert_eq!(inspection["agentRunId"], "agent-run-1");
+        assert_eq!(inspection["agentRequestIds"], json!(["request-1"]));
+
+        let result_root = root.join("result-bundle");
+        fs::create_dir_all(result_root.join("result")).unwrap();
+        fs::create_dir_all(result_root.join("bundle/example")).unwrap();
+        fs::create_dir_all(result_root.join("artifacts")).unwrap();
+        fs::write(
+            result_root.join("result/result.json"),
+            r#"{"namespace":"example"}"#,
+        )
+        .unwrap();
+        fs::write(
+            result_root.join("bundle/example/manifest.json"),
+            r#"{"namespace":"example"}"#,
+        )
+        .unwrap();
+        fs::write(result_root.join("artifacts/proof.txt"), "proof").unwrap();
+        let contract_path = root.join("contract.json");
+        fs::write(&contract_path, serde_json::to_vec(&contract).unwrap()).unwrap();
+        let validation = workflow_agent_result_validate(WorkflowAgentResultValidateArgs {
+            contract: contract_path,
+            result: result_root,
+        })
+        .unwrap();
+        assert_eq!(validation["namespace"], "example");
+        assert_eq!(validation["agentRequestId"], "request-1");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn inspects_and_validates_zip_agent_bundles_without_a_bridge_client() {
+        let root = std::env::temp_dir().join(format!(
+            "zotero-bridge-local-agent-zip-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let contract = json!({
+            "schema": AGENT_RUN_OUTPUT_CONTRACT_SCHEMA,
+            "agentRequestId": "request-zip",
+            "namespace": "example",
+            "resultJsonPath": "result/result.json",
+            "expectedBundleManifestPath": "bundle/example/manifest.json",
+            "requiredArtifactPaths": ["artifacts/proof.txt"]
+        });
+        let contract_bytes = serde_json::to_vec(&contract).unwrap();
+        let handoff_zip = root.join("handoff.zip");
+        write_test_zip(
+            &handoff_zip,
+            &[
+                (
+                    "agent-run/context.json".to_string(),
+                    br#"{"agentRunId":"agent-run-zip"}"#.to_vec(),
+                ),
+                (
+                    "agent-run/requests/request-zip/output-contract.json".to_string(),
+                    contract_bytes.clone(),
+                ),
+            ],
+        );
+        let inspection = workflow_agent_bundle_inspect(WorkflowAgentBundleInspectArgs {
+            bundle: handoff_zip,
+        })
+        .unwrap();
+        assert_eq!(inspection["agentRunId"], "agent-run-zip");
+        assert_eq!(inspection["agentRequestIds"], json!(["request-zip"]));
+
+        let result_zip = root.join("result.zip");
+        write_test_zip(
+            &result_zip,
+            &[
+                (
+                    "result/result.json".to_string(),
+                    br#"{"namespace":"example"}"#.to_vec(),
+                ),
+                (
+                    "bundle/example/manifest.json".to_string(),
+                    br#"{"namespace":"example"}"#.to_vec(),
+                ),
+                ("artifacts/proof.txt".to_string(), b"proof".to_vec()),
+            ],
+        );
+        let contract_path = root.join("contract.json");
+        fs::write(&contract_path, contract_bytes).unwrap();
+        let validation = workflow_agent_result_validate(WorkflowAgentResultValidateArgs {
+            contract: contract_path,
+            result: result_zip,
+        })
+        .unwrap();
+        assert_eq!(validation["namespace"], "example");
+        assert_eq!(validation["agentRequestId"], "request-zip");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rejects_malformed_zip_agent_bundle_with_structured_error() {
+        let zip = std::env::temp_dir().join(format!(
+            "zotero-bridge-malformed-agent-zip-test-{}.zip",
+            std::process::id()
+        ));
+        fs::write(&zip, b"PK\x03\x04").unwrap();
+        let error = workflow_agent_bundle_inspect(WorkflowAgentBundleInspectArgs {
+            bundle: zip.clone(),
+        })
+        .unwrap_err();
+        assert_eq!(error.code, "invalid_bundle_archive");
+        let _ = fs::remove_file(zip);
+    }
+
+    #[test]
+    fn rejects_zip_entries_that_escape_the_bundle_root() {
+        let zip = std::env::temp_dir().join(format!(
+            "zotero-bridge-unsafe-agent-zip-test-{}.zip",
+            std::process::id()
+        ));
+        write_test_zip(&zip, &[("../outside.json".to_string(), b"{}".to_vec())]);
+        let error = workflow_agent_bundle_inspect(WorkflowAgentBundleInspectArgs {
+            bundle: zip.clone(),
+        })
+        .unwrap_err();
+        assert_eq!(error.code, "invalid_bundle_path");
+        let _ = fs::remove_file(zip);
+    }
+
+    #[test]
+    fn rejects_unsafe_bundle_paths_consistently_across_platforms() {
+        for path in [
+            "../outside.json",
+            "/absolute.json",
+            "C:\\outside.json",
+            "./C:/outside.json",
+            "inside/../../outside.json",
+            "nul\0entry.json",
+        ] {
+            let error = normalize_bundle_entry(path, "test entry").unwrap_err();
+            assert_eq!(error.code, "invalid_bundle_path", "path: {path:?}");
+        }
+    }
+
+    #[test]
+    fn rejects_oversized_json_entries_in_zip_agent_bundles() {
+        let zip = std::env::temp_dir().join(format!(
+            "zotero-bridge-large-agent-zip-test-{}.zip",
+            std::process::id()
+        ));
+        write_test_zip(
+            &zip,
+            &[(
+                "agent-run/context.json".to_string(),
+                vec![b' '; 16 * 1024 * 1024 + 1],
+            )],
+        );
+        let error = workflow_agent_bundle_inspect(WorkflowAgentBundleInspectArgs {
+            bundle: zip.clone(),
+        })
+        .unwrap_err();
+        assert_eq!(error.code, "bundle_entry_too_large");
+        let _ = fs::remove_file(zip);
     }
 
     #[test]

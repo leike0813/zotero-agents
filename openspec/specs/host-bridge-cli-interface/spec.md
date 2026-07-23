@@ -773,38 +773,6 @@ generated Host Bridge wrapper and profile documentation.
 - **AND** every semantic endpoint used by agents SHALL have a canonical CLI
   mapping.
 
-### Requirement: Wrapper skill SHALL compose semantic guidance with generated surface mappings
-
-The `zotero-bridge-cli` wrapper skill SHALL be rendered from a manually
-maintained semantic instruction source plus generated Host Bridge surface
-mappings.
-
-#### Scenario: Wrapper skill is rendered
-
-- **WHEN** the Host Bridge surface render script runs
-- **THEN** the final wrapper skill SHALL include agent-facing command selection,
-  safety, workflow lifecycle, and failure handling guidance from the semantic
-  source
-- **AND** it SHALL include generated command/capability/endpoint mappings from
-  the Host Bridge surface catalog
-- **AND** the semantic source SHALL NOT contain a full generated command table.
-
-#### Scenario: Wrapper skill explains workflow execution modes
-
-- **WHEN** an agent reads the wrapper skill to decide how to run a workflow
-- **THEN** it SHALL distinguish Host-owned `workflow submit`, agent-owned
-  `workflow agent-run`, and apply-back `workflow agent-apply`
-- **AND** it SHALL state that `workflowRunId`, `skillRunId`, `agentRunId`, and
-  `agentRequestId` are distinct handles with distinct valid operations.
-
-#### Scenario: Wrapper skill remains current-state only
-
-- **WHEN** wrapper skill docs are checked
-- **THEN** they SHALL NOT contain historical migration wording such as legacy,
-  deprecated, old command, previous version, or compatibility notes
-- **AND** invalid inputs SHALL be described as invalid or unsupported current
-  behavior.
-
 ### Requirement: Wrapper skill SHALL guide agent-run apply-back
 
 The wrapper skill SHALL give agents enough semantic guidance to use
@@ -1104,21 +1072,6 @@ product output directories from file-download output paths.
 - **AND** `file download <file-id> --output <path>` SHALL remain the file-path
   command.
 
-### Requirement: Generated agent guidance SHALL use canonical argument intent
-
-Generated Host Bridge CLI guidance SHALL demonstrate inline JSON as the default
-JSON-or-file form. The rendered reference, wrapper skill, and Zotero Librarian
-guidance SHALL explain intentional stdin and file use and restrict raw `call`
-to raw-only capabilities or diagnostics.
-
-#### Scenario: Agent follows semantic command guidance
-
-- **WHEN** an agent consults generated Host Bridge CLI guidance
-- **THEN** it SHALL use semantic commands with `--query` for reads and
-  `--input` for requests or mutations
-- **AND** it SHALL not be directed to bypass semantic argument validation with
-  raw `call`.
-
 ### Requirement: CLI guidance treats library cursors as opaque
 
 The generated Host Bridge CLI guidance SHALL instruct agents to omit the cursor for a first library page and pass through only a returned cursor for subsequent pages.
@@ -1174,21 +1127,6 @@ Every CLI v3 error envelope SHALL include `retryable`, `stateChange`, `handleCon
 - **WHEN** a command has an unknown or invalid argument
 - **THEN** stdout SHALL contain a v3 JSON usage error and the process SHALL exit with code 2
 - **AND** help and version output SHALL remain human-readable success paths.
-
-### Requirement: CLI SHALL publish a complete Agent Surface v3
-The CLI SHALL expose one `host-bridge.agent-surface.v3` descriptor whose identity, leaf argv, conditional argument relationships, result data contracts, handles, effects, examples, and recovery edges match runtime behavior.
-
-#### Scenario: Agent inspects v3 identity
-- **WHEN** an agent runs `surface identity --json`
-- **THEN** stdout meta, identity data, embedded descriptor, Host manifest, and release envelope SHALL agree on v3 schema and CLI identity.
-
-#### Scenario: Generated example is validated
-- **WHEN** a command card supplies an example
-- **THEN** its argv SHALL pass the real Clap parser and invocation schema.
-
-#### Scenario: Agent searches localized intent
-- **WHEN** an agent searches a configured non-ASCII intent
-- **THEN** Rust and TypeScript search SHALL return the same ordered canonical commands and match reasons.
 
 ### Requirement: CLI default provider profile SHALL remain request-local
 The CLI SHALL resolve `ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE` only for provider validation and workflow submission and SHALL never persist it in Host Bridge.
@@ -1266,20 +1204,48 @@ Each public leaf command SHALL resolve to exactly one domain-owned operation sup
 - **WHEN** a command has only inherited family guidance, an orphan semantic record, an invalid example, or an impossible recovery command
 - **THEN** content validation SHALL fail.
 
-### Requirement: Agent Surface v2 SHALL separate control dimensions
+### Requirement: CLI SHALL publish a mechanism-only Agent Surface v4
+The offline `surface` command family SHALL publish `host-bridge.agent-surface.v4` with global options and exact command argv, input/output schemas, effects, approval requirements, typed handles, recovery rules, targets, operational summaries, and operational aliases. It SHALL NOT contain research-task guidance or a built-in workflow catalog.
 
-Agent Surface v2 SHALL represent invocation schema, exact property-to-argv bindings, decoded payload schema, result data schema, effects, staged approval, handle transitions, and preconditioned recovery as distinct fields.
+#### Scenario: Generic prose does not change CLI identity
+- **WHEN** only Generic task guidance or built-in workflow descriptions change
+- **THEN** the embedded Agent Surface bytes and CLI build fingerprint remain unchanged
 
-#### Scenario: Invocation contains options and positional values
-- **WHEN** a command property maps to an option or positional CLI argument
-- **THEN** the descriptor SHALL identify the literal option token or positional index and value name
-- **AND** generated examples SHALL use that binding rather than deriving a flag from the property name.
+### Requirement: Surface discovery SHALL remain operational
+`surface identity`, `surface describe`, and `surface search` SHALL retain their public command names. Search SHALL index command identity, path, summary, and operational aliases only.
 
-#### Scenario: Result may use remote file delivery
-- **WHEN** a command can return local or registered remote-file output
-- **THEN** its result schema SHALL identify delivery mode, bundle metadata, download command, and unpack hint fields without treating a local path and `fileId` as interchangeable.
+#### Scenario: Search returns exact mechanism contracts
+- **WHEN** an agent searches for an operational term
+- **THEN** results identify matching commands without returning research-task policy
 
-#### Scenario: Recovery follows a typed handle
-- **WHEN** a recovery action names a next command
-- **THEN** the descriptor SHALL identify the handles required by that action
-- **AND** generation SHALL fail when the current command cannot make those handles available.
+### Requirement: Minimum Skill SHALL be the complete CLI operating contract
+The `zotero-bridge-cli` `SKILL.md` SHALL contain the complete executable CLI loop, installation/profile selection, connection diagnosis, invocation, pagination, files, approvals, handles, workflow control planes, output evidence, and failure recovery. Its only instruction reference SHALL be the source-generated exhaustive command reference. It SHALL NOT select research tasks for the agent.
+
+#### Scenario: Minimum stays task-neutral
+- **WHEN** the Minimum Skill is rendered
+- **THEN** exact commands are complete and no query, acquisition, analysis, synthesis, or curation workflow policy is embedded
+
+#### Scenario: Generated command card is complete
+- **WHEN** one v4 command descriptor is rendered into the offline reference
+- **THEN** its argv bindings, input and result schemas, pagination, effects, approval scope, handles, recovery, targets, aliases, and search visibility remain available
+
+### Requirement: CLI SHALL inspect agent bundles locally
+The CLI SHALL expose `workflow agent-bundle inspect --bundle <DIR_OR_ZIP>` and return the agent run identity, request identities, and declared output contracts without contacting Host Bridge.
+
+#### Scenario: Inspect does not consume a handle
+- **WHEN** an agent inspects a valid downloaded handoff bundle
+- **THEN** the CLI returns its contract inventory without network access, approval, state mutation, or handle consumption
+
+### Requirement: CLI SHALL validate agent results locally
+The CLI SHALL expose `workflow agent-result validate --contract <FILE> --result <DIR_OR_ZIP>` and validate the result namespace, declared result JSON, artifact manifest, and output-contract requirements without applying the result.
+
+#### Scenario: Invalid result is rejected before apply
+- **WHEN** a result bundle does not match its output contract
+- **THEN** validation returns a structured local-input failure and no Host Bridge request is sent
+
+### Requirement: CLI human-readable text SHALL name the public Zotero boundary
+CLI help, summaries, recovery guidance, diagnostics, and Agent Surface human-readable fields SHALL use `Zotero Bridge service`, `Zotero-side approval`, `Zotero-managed state`, or equivalent task-oriented language. They SHALL NOT expose ambiguous `Host Bridge`, `Host-owned`, or `Host-local` prose. Formal machine identifiers SHALL remain unchanged.
+
+#### Scenario: CLI help is understandable without repository context
+- **WHEN** an agent reads CLI help or a command descriptor
+- **THEN** it can identify the Zotero operation and authority boundary without knowing what the repository calls its host-side implementation

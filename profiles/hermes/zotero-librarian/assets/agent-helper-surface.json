@@ -1,103 +1,28 @@
 {
-  "schema": "agent-helper-surface.v1",
+  "schema": "agent-helper-surface.v2",
   "package": "zotero-librarian-profile",
   "helpers": [
     {
       "id": "install-zotero-bridge-cli",
       "executable": "scripts/install_zotero_bridge_cli.py",
-      "description": "Install the packaged Host Bridge CLI and optionally link its well-known profile.",
-      "optionDescriptions": {
-        "--source-root": "Profile root containing packaged platform binaries.",
-        "--install-dir": "Target binary directory; defaults to the platform user bin directory.",
-        "--print-path": "Print the installed executable path.",
-        "--link-well-known-profile": "Link the Hermes well-known Host Bridge profile.",
-        "--no-link-well-known-profile": "Install only the binary without a profile link.",
-        "--host-home": "Host user home used to locate the well-known profile.",
-        "--host-profile": "Explicit Host Bridge profile JSON path.",
-        "--force-profile-link": "Replace an existing Hermes well-known profile path."
-      },
-      "commands": [{"command": "install", "options": ["--source-root", "--install-dir", "--print-path", "--link-well-known-profile", "--no-link-well-known-profile", "--host-home", "--host-profile", "--force-profile-link"], "result": "Installed executable path and profile-link status.", "errors": ["packaged_binary_missing", "profile_link_conflict"], "effects": ["installs a user executable", "may create a well-known profile link"]}]
+      "description": "Install the packaged Zotero Bridge CLI and link its well-known connection profile.",
+      "effects": ["installs a user executable", "may create a well-known profile link"]
     },
     {
-      "id": "zotero-librarian-index-service",
-      "executable": "scripts/zotero_librarian_index_service.py",
-      "description": "Maintain and query the resident bounded library, workflow, and run index.",
-      "globalOptions": ["--db", "--bridge"],
-      "optionDescriptions": {
-        "--db": "SQLite database path for the resident projection.",
-        "--bridge": "zotero-bridge executable to invoke.",
-        "--limit": "Bound the requested or returned item count.",
-        "--library-id": "Restrict refresh to one Zotero library id.",
-        "--collection-id": "Restrict refresh to one collection id.",
-        "--collection-key": "Restrict refresh to one collection key.",
-        "--tag": "Restrict refresh to one exact tag.",
-        "--item-type": "Restrict refresh to one Zotero item type.",
-        "--query": "Apply an optional bounded library text query.",
-        "--run-id": "Register this Host-owned workflow run id.",
-        "--workflow-id": "Associate the registered run with this workflow id.",
-        "--state": "Set the initial registered run state.",
-        "--payload": "Read optional initial status JSON inline, from a path, or from @file."
+      "id": "zotero-librarian-service",
+      "executable": "scripts/zotero_librarian_service.py",
+      "description": "Run one bounded resident operation against the local state projection and live Zotero data.",
+      "globalOptions": ["--db", "--bridge", "--quiet"],
+      "receiptSchema": "zotero-librarian.operation-receipt.v1",
+      "domains": {
+        "index": ["refresh", "search", "item", "stats"],
+        "workflow": ["catalog-refresh", "show", "plan", "submit"],
+        "run": ["register", "watch"],
+        "notification": ["sync", "inbox", "summary", "ack"],
+        "maintenance": ["workflow-status", "library-hygiene"],
+        "synthesis": ["attention-queue"]
       },
-      "commands": [
-        {"command": "refresh", "options": ["--limit", "--library-id", "--collection-id", "--collection-key", "--tag", "--item-type", "--query"], "result": "Atomic local library snapshot receipt.", "errors": ["bridge_call_failed", "invalid_snapshot"], "effects": ["replaces the local library snapshot"]},
-        {"command": "search", "positionals": ["query"], "options": ["--limit"], "result": "Bounded local matches.", "errors": ["invalid_query"], "effects": []},
-        {"command": "item", "positionals": ["ref"], "options": [], "result": "One cached item.", "errors": ["item_not_found"], "effects": []},
-        {"command": "stats", "options": [], "result": "Local index counts and freshness.", "errors": [], "effects": []},
-        {"command": "workflow-refresh", "options": [], "result": "Atomic local workflow catalog receipt.", "errors": ["bridge_call_failed"], "effects": ["replaces the local workflow catalog"]},
-        {"command": "workflow-show", "positionals": ["workflow_id"], "options": [], "result": "One cached workflow descriptor.", "errors": ["workflow_not_found"], "effects": []},
-        {"command": "run-register", "options": ["--run-id", "--workflow-id", "--state", "--payload"], "result": "Registered run projection.", "errors": ["invalid_run"], "effects": ["updates the local run registry"]},
-        {"command": "run-watch", "options": [], "result": "One bounded monitoring-pass receipt.", "errors": ["bridge_call_failed"], "effects": ["updates registered active runs"]}
-      ]
-    },
-    {
-      "id": "zotero-librarian-notification-service",
-      "executable": "scripts/zotero_librarian_notification_service.py",
-      "description": "Synchronize and query the resident bounded notification projection.",
-      "globalOptions": ["--db", "--bridge"],
-      "optionDescriptions": {
-        "--db": "SQLite database path for the resident projection.",
-        "--bridge": "zotero-bridge executable to invoke.",
-        "--limit": "Bound the number of notification events.",
-        "--report-empty": "Emit structured JSON instead of the silent sentinel when nothing changed.",
-        "--all": "Include locally acknowledged events.",
-        "--event": "Acknowledge this explicit event id locally; repeat for more ids."
-      },
-      "commands": [
-        {"command": "sync", "options": ["--limit", "--report-empty"], "result": "Bounded notification synchronization receipt.", "errors": ["bridge_call_failed"], "effects": ["updates the local notification projection"]},
-        {"command": "inbox", "options": ["--limit", "--all", "--report-empty"], "result": "Bounded local notification inbox.", "errors": [], "effects": []},
-        {"command": "summary", "options": ["--report-empty"], "result": "Unacknowledged lifecycle summary.", "errors": [], "effects": []},
-        {"command": "ack", "options": ["--event"], "result": "Local acknowledgement receipt.", "errors": ["event_required"], "effects": ["marks explicit local events acknowledged"]}
-      ]
-    },
-    {
-      "id": "zotero-librarian-workflow-service",
-      "executable": "scripts/zotero_librarian_workflow_service.py",
-      "description": "Plan and launch bounded workflow submissions with independent workflow and provider validation.",
-      "globalOptions": ["--db", "--bridge"],
-      "optionDescriptions": {
-        "--db": "SQLite database path for resident planning state.",
-        "--bridge": "zotero-bridge executable to invoke.",
-        "--items": "Read explicit item refs as inline JSON, a path, or @file.",
-        "--from-context": "Use the current Zotero selection.",
-        "--workflow": "Select or annotate the workflow id.",
-        "--check": "Choose the readiness gap to query.",
-        "--input": "Read readiness query JSON inline, from a path, or @file.",
-        "--batch-size": "Bound parent refs in each planned batch.",
-        "--mode": "Choose Host-owned submit or agent-owned handoff.",
-        "--none": "Use an explicit no-selection workflow input.",
-        "--workflow-options": "Read workflow-owned options inline, from a path, or @file.",
-        "--provider-profile": "Read a workflow-independent backend profile inline, from a path, or @file.",
-        "--plan": "Read the validated plan produced by this helper.",
-        "--concurrency": "Bound the number of plan entries launched now.",
-        "--confirm-concurrency": "Confirm an explicitly requested concurrency greater than one.",
-        "--output-dir": "Write agent-run handoff downloads to this directory."
-      },
-      "commands": [
-        {"command": "parent-selection", "options": ["--items", "--from-context", "--workflow"], "result": "Normalized top-level parent item refs.", "errors": ["invalid_selection"], "effects": []},
-        {"command": "readiness-plan", "options": ["--check", "--input", "--workflow", "--batch-size"], "result": "Deterministic readiness batches.", "errors": ["bridge_call_failed", "invalid_readiness"], "effects": []},
-        {"command": "plan", "options": ["--workflow", "--mode", "--items", "--from-context", "--none", "--workflow-options", "--provider-profile"], "result": "Validated deterministic submission plan.", "errors": ["workflow_validation_failed", "provider_validation_failed"], "effects": []},
-        {"command": "submit", "options": ["--plan", "--concurrency", "--confirm-concurrency", "--output-dir"], "result": "Host-owned run or agent-run handoff handles.", "errors": ["approval_required", "submit_failed"], "effects": ["launches only the bounded plan entries", "may write handoff bundles"]}
-      ]
+      "constraints": ["one pass only", "cron never submits", "submit requires --allow-submit"]
     }
   ]
 }

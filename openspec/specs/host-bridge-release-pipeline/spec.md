@@ -111,29 +111,6 @@ The plugin release workflow SHALL verify restored Host Bridge CLI prebuilds agai
 - **THEN** CLI prebuild freshness is executed as a release workflow step
 - **AND** it is not added to `test:gate:release`
 
-### Requirement: Release pipeline SHALL publish composed semantic and generated Host Bridge guidance
-
-Host Bridge wrapper skill and Zotero Librarian profile release preparation SHALL
-render both semantic instruction sources and generated surface sections before
-publishing.
-
-#### Scenario: Host Bridge CLI bundle is prepared
-
-- **WHEN** the host-bridge-cli-bundle publication pipeline copies the wrapper
-  skill
-- **THEN** the copied package SHALL be the rendered output composed from wrapper
-  semantic source and generated Host Bridge surface sections
-- **AND** release checks SHALL fail if generated output is stale.
-
-#### Scenario: Zotero Librarian profile is prepared
-
-- **WHEN** the Zotero Librarian profile publication pipeline copies profile
-  files
-- **THEN** the profile SHALL be the rendered output composed from profile
-  semantic source, generated Host Bridge reference, and generated workflow
-  catalog reference
-- **AND** release checks SHALL fail if semantic/generated output is stale.
-
 ### Requirement: Release pipeline governs Profile patch decisions
 The Host Bridge release pipeline SHALL classify release inputs before rendering
 the Zotero Librarian profile and SHALL instruct operators to bump the
@@ -304,3 +281,31 @@ Each Host Bridge release surface SHALL publish a root README rendered from its o
 - **WHEN** the unified coordinator materializes the CLI bundle, Library Agent bundle, and Librarian Profile
 - **THEN** every release repository root SHALL contain its surface-owned README
 - **AND** the README SHALL participate in that surface's public content digest.
+
+### Requirement: Surface publication SHALL resolve one composition manifest
+Render, validation, materialization, and release-set generation SHALL resolve the same canonical surface graph, version patches, component identities, and mount paths.
+
+#### Scenario: Impact propagates through inheritance
+- **WHEN** a lower-layer component changes
+- **THEN** every extending surface is rematerialized and records the new inherited component digest
+
+### Requirement: Surface payload identity SHALL use staged bytes
+Each surface payload digest SHALL be computed from a normalized manifest of the final staged files. Generated release-set metadata SHALL NOT be embedded into and recursively hashed as part of the same payload.
+
+#### Scenario: Source digest cannot hide materialization drift
+- **WHEN** staged payload bytes differ while source path lists are unchanged
+- **THEN** the payload digest changes and stale publication is rejected
+
+### Requirement: Surface versions SHALL remain release-line bound
+Each surface version SHALL be the current CLI major/minor plus a surface-owned patch. Exact CLI identity, transitive component digests, payload digest, and release-set identity SHALL be published alongside the human version.
+
+#### Scenario: CLI patch changes inherited payload identity
+- **WHEN** only the CLI patch changes
+- **THEN** downstream human surface versions remain stable while their exact CLI and payload identities change without overwriting prior bytes
+
+### Requirement: Host Bridge publication SHALL validate governed Skill contracts
+The content gate SHALL structurally validate every Skill declared by the three surfaces before materialization and SHALL require semantic-surface review for minimum completeness, semantic-baseline parity, package-local uniqueness, reference coherence, and layer independence.
+
+#### Scenario: Invalid Skill blocks release preparation
+- **WHEN** a governed Skill has a long/missing trigger description, missing mandatory section, orphan reference, duplicated substantive prose, or generated target used as source
+- **THEN** Host Bridge content validation fails before release dispatch can be prepared

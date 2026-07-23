@@ -44,7 +44,7 @@ pub fn cli_schema() -> Result<String, CliError> {
 
 fn identity(descriptor: &Value) -> Value {
     json!({
-        "schema": "host-bridge.surface-identity.v3",
+        "schema": "host-bridge.surface-identity.v4",
         "protocol": descriptor.get("protocol").and_then(Value::as_str).unwrap_or(""),
         "cliSchema": descriptor.get("cliSchema").and_then(Value::as_str).unwrap_or(""),
         "version": env!("CARGO_PKG_VERSION"),
@@ -99,8 +99,7 @@ fn search(descriptor: &Value, args: SurfaceSearchArgs) -> Result<Value, CliError
             let fields = [
                 entry.get("command"),
                 entry.get("summary"),
-                entry.get("intents"),
-                entry.get("guidance").and_then(|value| value.get("useWhen")),
+                entry.get("operationalAliases"),
             ];
             let haystack = fields
                 .iter()
@@ -162,46 +161,21 @@ pub fn run(args: SurfaceArgs) -> Result<Value, CliError> {
 #[cfg(test)]
 mod tests {
     use super::{descriptor, identity, search};
-    use crate::args::{Cli, SurfaceSearchArgs};
-    use clap::Parser;
-
-    fn example_argv(example: &str) -> Vec<String> {
-        let mut argv = Vec::new();
-        let mut current = String::new();
-        let mut quote = None;
-        for character in example.chars() {
-            match (quote, character) {
-                (Some(active), value) if value == active => quote = None,
-                (Some(_), value) => current.push(value),
-                (None, '\'' | '"') => quote = Some(character),
-                (None, value) if value.is_whitespace() => {
-                    if !current.is_empty() {
-                        argv.push(std::mem::take(&mut current));
-                    }
-                }
-                (None, value) => current.push(value),
-            }
-        }
-        assert!(quote.is_none(), "unclosed quote in {example}");
-        if !current.is_empty() {
-            argv.push(current);
-        }
-        argv
-    }
+    use crate::args::SurfaceSearchArgs;
 
     #[test]
-    fn identity_uses_embedded_v3_contract() {
+    fn identity_uses_embedded_v4_contract() {
         let value = identity(&descriptor().unwrap());
-        assert_eq!(value["schema"], "host-bridge.surface-identity.v3");
+        assert_eq!(value["schema"], "host-bridge.surface-identity.v4");
         assert_eq!(value["cliSchema"], "zotero-bridge.cli.v3");
     }
 
     #[test]
-    fn search_matches_non_ascii_semantic_intents() {
+    fn search_matches_operational_terms() {
         let value = search(
             &descriptor().unwrap(),
             SurfaceSearchArgs {
-                intent: "工作流".to_string(),
+                intent: "workflow submit".to_string(),
                 limit: 10,
                 include_debug: false,
                 json: true,
@@ -209,17 +183,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(value["matches"][0]["command"]["command"], "workflow submit");
-        assert_eq!(value["matches"][0]["matchReasons"][0], "phrase:工作流");
-    }
-
-    #[test]
-    fn every_generated_example_passes_the_real_parser() {
-        for command in descriptor().unwrap()["commands"].as_array().unwrap() {
-            let example = command["guidance"]["example"].as_str().unwrap();
-            let argv = example_argv(example);
-            if let Err(error) = Cli::try_parse_from(argv) {
-                panic!("invalid generated example {example}: {error}");
-            }
-        }
+        assert_eq!(
+            value["matches"][0]["matchReasons"][0],
+            "phrase:workflow submit"
+        );
     }
 }

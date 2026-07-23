@@ -169,7 +169,7 @@ pub fn upload(
     if parsed.status == 401 {
         return Err(CliError::auth(
             "unauthorized",
-            "Host Bridge rejected the bearer token",
+            "Zotero Bridge service rejected the bearer token",
         ));
     }
     if parsed.status >= 400 {
@@ -230,7 +230,7 @@ pub fn download(config: &BridgeConfig, path: &str) -> Result<DownloadResponse, C
     Err(CliError::new(
         "download_retry_exhausted",
         ErrorCategory::Download,
-        "Host Bridge download retry was exhausted",
+        "Zotero Bridge download retry was exhausted",
     )
     .with_details(json!({ "attempts": 2 })))
 }
@@ -245,7 +245,7 @@ fn download_once(
     if parsed.status == 401 {
         return Err(CliError::auth(
             "unauthorized",
-            "Host Bridge rejected the bearer token",
+            "Zotero Bridge service rejected the bearer token",
         ));
     }
     if parsed.status >= 400 {
@@ -259,7 +259,7 @@ fn download_once(
                 CliError::new(
                     "download_truncated",
                     ErrorCategory::Download,
-                    "Host Bridge download Content-Length is invalid",
+                    "Zotero Bridge download Content-Length is invalid",
                 )
                 .with_details(json!({
                     "bytesReceived": parsed.body.len(),
@@ -273,7 +273,7 @@ fn download_once(
             return Err(CliError::new(
                 "download_truncated",
                 ErrorCategory::Download,
-                "Host Bridge download body length did not match Content-Length",
+                "Zotero Bridge download body length did not match Content-Length",
             )
             .with_details(json!({
                 "bytesExpected": expected,
@@ -292,7 +292,7 @@ fn download_once(
             return Err(CliError::new(
                 "download_checksum_mismatch",
                 ErrorCategory::Download,
-                "Host Bridge download checksum did not match",
+                "Zotero Bridge download checksum did not match",
             )
             .with_details(json!({
                 "bytesExpected": bytes_expected,
@@ -340,7 +340,7 @@ fn download_retry_exhausted(error: CliError, attempts: usize) -> CliError {
     CliError::new(
         "download_retry_exhausted",
         ErrorCategory::Download,
-        "Host Bridge download retry was exhausted",
+        "Zotero Bridge download retry was exhausted",
     )
     .with_details(Value::Object(details))
 }
@@ -430,7 +430,7 @@ fn request_json(
     if parsed.status == 401 {
         return Err(CliError::auth(
             "unauthorized",
-            "Host Bridge rejected the bearer token",
+            "Zotero Bridge service rejected the bearer token",
         ));
     }
     if parsed.status >= 400 {
@@ -511,7 +511,7 @@ fn bridge_error_from_value(status: u16, json: Value) -> CliError {
     let message = bridge_error
         .get("message")
         .and_then(Value::as_str)
-        .unwrap_or("Host Bridge returned an error");
+        .unwrap_or("Zotero Bridge service returned an error");
     let safe_next_actions = bridge_error
         .get("safeNextActions")
         .and_then(Value::as_array)
@@ -560,7 +560,7 @@ fn check_protocol(result: Value) -> Result<Value, CliError> {
     if protocol != PROTOCOL {
         return Err(CliError::protocol(
             "incompatible_bridge_protocol",
-            "Host Bridge protocol version is incompatible",
+            "Zotero Bridge protocol version is incompatible",
         )
         .with_details(json!({
             "expected": PROTOCOL,
@@ -574,7 +574,7 @@ fn parse_endpoint(endpoint: &str) -> Result<ParsedEndpoint, CliError> {
     let without_scheme = endpoint.strip_prefix("http://").ok_or_else(|| {
         CliError::config(
             "config_unsupported_endpoint",
-            "Only http:// Host Bridge endpoints are supported in v1",
+            "Only http:// Zotero Bridge service endpoints are supported in v1",
         )
     })?;
     let (authority, path) = without_scheme.split_once('/').ok_or_else(|| {
@@ -684,8 +684,11 @@ fn send_http(endpoint: &ParsedEndpoint, request: &str) -> Result<Vec<u8>, CliErr
 fn send_http_bytes(endpoint: &ParsedEndpoint, request: &[u8]) -> Result<Vec<u8>, CliError> {
     let address = format!("{}:{}", endpoint.host, endpoint.port);
     let mut stream = TcpStream::connect(address).map_err(|error| {
-        CliError::connection("bridge_unavailable", "Cannot connect to Host Bridge")
-            .with_details(json!({ "message": error.to_string() }))
+        CliError::connection(
+            "bridge_unavailable",
+            "Cannot connect to the Zotero Bridge service",
+        )
+        .with_details(json!({ "message": error.to_string() }))
     })?;
     stream
         .set_read_timeout(Some(Duration::from_secs(30)))

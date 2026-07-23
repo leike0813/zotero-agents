@@ -1,122 +1,47 @@
 ---
 name: host-bridge-release-pipeline
-description: Prepare, validate, manually dispatch, resume, and verify the unified Host Bridge CLI bundle, Zotero Library Agent bundle, and Zotero Librarian profile release set. Use after CLI, wrapper, bundle, profile, workflow catalog, protocol, schema, or governed documentation changes require Host Bridge publication.
+description: Prepare, validate, dispatch, resume, and verify the three Host Bridge surfaces as one release set. Use when approved Host Bridge source changes need governed publication.
 ---
 
 # Host Bridge Release Pipeline
 
-Run from the repository root on `main`. One prepared
-`host-bridge.release-set.v2` governs all three surfaces, and release preparation emits v2 documents only.
+## Goal
 
-## Review Feature Content
+Publish the manifest-defined minimum-core, Generic, and Hermes surfaces from one exact CLI identity and one complete release set, after local gates and explicit publication authorization.
 
-For feature work, review semantics and render deterministic content without
-preparing a release:
+## Inputs
 
-```powershell
-npm run render:host-bridge-content
-npm run check:host-bridge-content
-```
+- A clean, synchronized `main` checkout with an approved source change.
+- `host-bridge/surfaces.json`, `cli/zotero-bridge/release.json`, and the latest complete release receipt.
+- Explicit publication authorization and, when supplied, an exact CLI version target.
 
-Run `$host-bridge-semantic-surface-review` when its collector reports that
-semantic review is required. Commit reviewed source and generated content
-before release preparation.
+## Workflow
 
-## Prepare Exactly Once
+1. Read [release-set operations](references/release-set-operations.md). Inspect the manifest and run `npm run release:host-bridge:plan`.
+2. Run `$host-bridge-semantic-surface-review` when the collector requires review. Resolve every manifest layer and stop if its handoff is blocked.
+3. Render and validate content with the unified renderer, then run `npm run check:host-bridge-content`, the documentation gate, and the Skill-package validator. Use the manifest to pass every governed Skill root to `scripts/check-host-bridge-skill-packages.ts`. Run `$host-bridge-review-mirror` after semantic changes and require `npm run check:host-bridge-review-mirror` to pass before preparation or dispatch.
+4. Confirm the exact CLI prebuild aggregate on `host-bridge-cli-prebuilds`. When the plan requires it, dispatch only the build-only prebuild workflow, synchronize the exact aggregate, and re-check it locally. Otherwise run `npm run check:host-bridge-cli-prebuild-freshness`.
+5. Prepare exactly once with `npm run prepare:host-bridge-release`, optionally passing the explicit exact CLI target. Commit and push the complete prepared set to `main`.
+6. Re-run `npm run check:host-bridge-content` and the other local gates, then dispatch `npm run release:host-bridge:dispatch -- --release-set-id hbrs-... --watch` only after explicit publication authorization. The command dispatches and watches the exact `release-host-bridge.yml` run.
+7. Verify all immutable surfaces, mutable pointers, source-main finalization, and the complete receipt before reporting success.
 
-Read the accumulated plan from the latest committed complete receipt:
+## Hard constraints
 
-```powershell
-npm run release:host-bridge:plan
-```
+- Use `host-bridge/surfaces.json` as the only surface composition and patch ownership source. Surface versions are CLI major.minor plus the layer-owned patch; exact digests and release-set identity bind bytes.
+- Do not render, prepare, dispatch, resume, or publish while semantic review, the ownership-based review mirror, content gates, Skill-package validation, or prebuild freshness is blocked.
+- The release workflow restores the exact verified seven-platform prebuild aggregate. Do not build selected platforms locally or use GitHub Releases as the prebuild store.
+- Dispatch only the exact prepared `releaseSetId`; retries reuse it and never associate different bytes with an immutable tag or surface version.
+- Host Bridge publication requires an explicit `release:host-bridge:dispatch` action. Do not trigger it from ordinary pushes or CI.
+- Do not invoke Gitee synchronization as part of this pipeline.
 
-Prepare once, using an exact CLI target when the release request specifies one:
+## Completion
 
-```powershell
-npm run prepare:host-bridge-release
-npm run prepare:host-bridge-release -- --cli-version X.Y.Z
-```
+Report semantic-review and review-mirror status, manifest-resolved surface versions, exact CLI identity, releaseSetId, local gate results, prebuild aggregate and commit, workflow run, immutable and mutable surface commits, source finalization commit, and `host-bridge.release-receipt.v2` status `complete`.
 
-Use `--intent minor` only for an explicit protocol or schema line change when
-no exact CLI target was supplied. Read `references/profile-versioning.md` when
-component bump ownership is unclear. Do not rerun preparation to repair a
-workflow, checker, network, or publication failure.
+## Failure handling
 
-Treat the resulting `releaseSetId` as prepared, not published. Commit and push
-the complete prepared change to GitHub `main` before dispatch.
+If any gate, prebuild check, publication verification, or finalization step fails, preserve the exact releaseSetId, receipt, workflow run, and structured failure. Resume the same prepared set only through the documented recovery path. Do not prepare another set to compensate for a failed render, workflow, network, or publication step.
 
-## Verify Locally
+## References
 
-Run:
-
-```powershell
-npm run lint:check
-npm run check:host-bridge-doc-sync
-npm run check:host-bridge-surface
-npm run check:zotero-library-agent-bundle
-npm run check:zotero-librarian-profile
-npx tsx node_modules/mocha/bin/mocha "test/core/108-host-bridge-workflow-control.test.ts" "test/core/139-host-bridge-cli-packaging.test.ts" "test/core/165-zotero-librarian-profile.test.ts" "test/core/167-host-bridge-semantic-review-skill.test.ts" "test/core/168-host-bridge-release-coordinator.test.ts" "test/core/169-host-bridge-agent-surface.test.ts" --require test/setup/zotero-mock.ts
-```
-
-The formal release set is prebuild-first. Before preparation, the exact CLI
-fingerprint must already have a complete build-only set on
-`host-bridge-cli-prebuilds`. If the plan reports `prebuildRequired: true`,
-dispatch `build-host-bridge-cli-prebuilds.yml`, then synchronize and record that
-exact aggregate locally before preparing the release set. The build-only
-workflow does not publish any semantic surface.
-
-When the plan reports `prebuildRequired: false`, run:
-
-```powershell
-npm run check:host-bridge-cli-prebuild-freshness
-```
-
-Do not dispatch `release-host-bridge.yml` while prebuild freshness is false,
-and do not build selected platforms locally.
-
-## Dispatch Or Resume Manually
-
-After explicit publication authorization, dispatch the exact prepared set:
-
-```powershell
-npm run release:host-bridge:dispatch -- --release-set-id hbrs-... --watch
-```
-
-The command verifies clean synchronized `main`, reruns the local gates, supplies
-the exact source SHA and correlation ID, and watches only the resulting Actions
-run of `release-host-bridge.yml`. After success it fast-forwards local `main` to
-the workflow's finalize commit. Host publication has no push or ordinary CI
-trigger.
-
-The formal workflow never builds CLI binaries; it restores the exact verified
-aggregate from the `host-bridge-cli-prebuilds` branch. The branch stores
-immutable sets under `sets/<binaryAggregateSha256>`; GitHub Releases are not a
-Host CLI prebuild store.
-
-A retry must use the same command and existing `releaseSetId`. Reuse verified
-prebuild sets and immutable surface tags. Never associate different bytes with
-an existing immutable tag or component version.
-
-## Verify Completion
-
-Publication is complete only after the workflow:
-
-1. verifies all three immutable surface manifests;
-2. advances all three mutable branches;
-3. continuously records `host-bridge.release-receipt.v2` progress and writes `status: complete` only after immutable surfaces, mutable pointers, and source-main finalization succeed;
-4. commits the seven prebuilds, four release-set copies, CLI manifest, and
-   `host-bridge/latest-complete-release-receipt.json` back to `main`.
-
-If source finalization detects concurrent Host changes, use the uploaded
-finalize artifact to resume the same release set; do not prepare another set.
-
-Gitee is outside this pipeline. Do not call, poll, or report
-`npm run sync:gitee-release` unless the user separately requests Gitee
-synchronization.
-
-## Report
-
-Report semantic-review status, version decisions, `releaseSetId`, exact CLI
-identity, local gates, prebuild branch aggregate and commit, workflow run,
-immutable and mutable surface commits, final source commit, and complete receipt
-status.
+Read [release-set operations](references/release-set-operations.md) before planning, preparing, dispatching, resuming, or verifying publication.

@@ -109,7 +109,6 @@ export function classifyHostBridgeReleaseChanges(
       "cli/zotero-bridge/",
       "skills_src/zotero-bridge-cli/",
       "skills_src/zotero-library-agent/",
-      "skills_src/host-bridge-shared/",
       "skills_builtin/zotero-bridge-cli/",
       "skills_builtin/zotero-library-agent/",
       "profiles_src/hermes/zotero-librarian/",
@@ -117,8 +116,6 @@ export function classifyHostBridgeReleaseChanges(
       "workflows_builtin/",
       "scripts/host-bridge-",
       "scripts/render-host-bridge-",
-      "scripts/render-zotero-library-agent-",
-      "scripts/render-zotero-librarian-",
       "scripts/materialize-host-bridge-",
       "scripts/prepare-host-bridge-",
       "scripts/publish-host-bridge-",
@@ -148,23 +145,21 @@ export function classifyHostBridgeReleaseChanges(
   const cliBundle = sourceFiles.some(
     (path) =>
       path.startsWith("skills_src/zotero-bridge-cli/") ||
-      path.startsWith("skills_src/host-bridge-shared/") ||
       path.startsWith("scripts/host-bridge-") ||
       path.startsWith("scripts/render-host-bridge"),
   );
   const libraryAgent = sourceFiles.some(
     (path) =>
       path.startsWith("skills_src/zotero-library-agent/") ||
-      path.startsWith("skills_src/zotero-bridge-cli/") ||
-      path.startsWith("skills_src/host-bridge-shared/") ||
-      path === "scripts/render-zotero-library-agent-bundle.ts",
+      path.startsWith("skills_src/zotero-bridge-cli/"),
   );
   const librarianProfile = sourceFiles.some(
     (path) =>
       path.startsWith("profiles_src/hermes/zotero-librarian/") ||
-      path.startsWith("skills_src/host-bridge-shared/") ||
+      path.startsWith("skills_src/zotero-library-agent/") ||
+      path.startsWith("skills_src/zotero-bridge-cli/") ||
       path.startsWith("workflows_builtin/") ||
-      path === "scripts/render-zotero-librarian-profile.ts",
+      path === "scripts/render-host-bridge-surfaces.ts",
   );
   return {
     schema: "host-bridge.release-plan.v1",
@@ -342,22 +337,22 @@ export function contentDigest(root: string, paths: string[]) {
 
 export const HOST_BRIDGE_PUBLIC_CONTENT = {
   cliBundle: [
-    "skills_src/zotero-bridge-cli",
-    "skills_src/host-bridge-shared",
+    "skills_builtin/zotero-bridge-cli",
     "cli/zotero-bridge/scripts",
     "cli/zotero-bridge/src/agent-surface.json",
   ],
   libraryAgent: [
-    "skills_src/zotero-library-agent/semantic",
-    "skills_src/host-bridge-shared",
-    "skills_src/zotero-bridge-cli",
+    "skills_builtin/zotero-bridge-cli",
+    "skills_builtin/zotero-library-agent",
+    "skills_builtin/zotero-library-query",
+    "skills_builtin/zotero-literature-acquisition",
+    "skills_builtin/zotero-literature-analysis",
+    "skills_builtin/zotero-research-synthesis",
+    "skills_builtin/zotero-library-curation",
     "cli/zotero-bridge/scripts",
     "cli/zotero-bridge/src/agent-surface.json",
   ],
   librarianProfile: [
-    "profiles_src/hermes/zotero-librarian",
-    "skills_src/host-bridge-shared",
-    "workflows_builtin/manifest.json",
-    "cli/zotero-bridge/src/agent-surface.json",
+    "profiles/hermes/zotero-librarian",
   ],
 } as const;

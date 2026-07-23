@@ -12,14 +12,17 @@ explicitly limits release scope:
   `scripts/*zotero-bridge-cli*` files.
 - Agent-facing sources and generated surfaces under
   `skills_src/zotero-bridge-cli/**`, `skills_src/zotero-library-agent/**`,
-  `skills_src/host-bridge-shared/**`, `skills_builtin/zotero-bridge-cli/**`,
-  `skills_builtin/zotero-library-agent/**`, `profiles_src/hermes/zotero-librarian/**`,
+  `skills_builtin/zotero-bridge-cli/**`, the six manifest-owned Generic Skill
+  roots under `skills_builtin/**`, `profiles_src/hermes/zotero-librarian/**`,
   and `profiles/hermes/zotero-librarian/**`.
 - Host Bridge protocol, capability, broker, workflow, and OpenSpec contracts.
 - Release contracts and coordination under `host-bridge/**`,
   `schemas/host-bridge.*`, `scripts/host-bridge-*`,
-  `scripts/render-host-bridge-*`, the three surface renderers/publishers, and
+  `scripts/render-host-bridge-*`, the unified surface renderer/materializer, and
   `.github/workflows/release-host-bridge.yml`.
+- Human review governance and output under
+  `.agents/skills/host-bridge-review-mirror/**`,
+  `scripts/host-bridge-review-mirror.ts`, and `artifact/host-bridge-review/**`.
 
 ## Required Action
 
