@@ -25,8 +25,11 @@ import {
   type HostBridgePermissionDecision,
   type HostBridgePermissionScope,
 } from "./hostBridgePermissionManager";
-import { runWorkflowPreparationSeam } from "./workflowExecution/preparationSeam";
-import { runWorkflowDuplicateGuardSeam } from "./workflowExecution/duplicateGuardSeam";
+import {
+  buildPreparedWorkflowBatchExecution,
+  runWorkflowPreparationSeam,
+} from "./workflowExecution/preparationSeam";
+import { runWorkflowUnitDuplicateGuardSeam } from "./workflowExecution/duplicateGuardSeam";
 import { runWorkflowExecutionSeam } from "./workflowExecution/runSeam";
 import { runWorkflowApplySeam } from "./workflowExecution/applySeam";
 import {
@@ -2054,31 +2057,29 @@ export async function submitHostBridgeWorkflow(args: {
     throw new Error("workflow preparation halted");
   }
 
-  const duplicateGuard = await runWorkflowDuplicateGuardSeam(
+  const duplicateGuard = await runWorkflowUnitDuplicateGuardSeam(
     {
       win,
       workflowId: workflow.manifest.id,
       workflowLabel: localizeWorkflowLabel(workflow),
-      requests: preparation.prepared.requests,
+      units: preparation.prepared.plan.units,
     },
     {
       confirmDuplicateSubmission: () => true,
     },
   );
-  const shortCircuitApplyCount =
-    preparation.prepared.preflight?.shortCircuitApplies.length || 0;
-  if (
-    duplicateGuard.allowedRequests.length === 0 &&
-    shortCircuitApplyCount === 0
-  ) {
+  if (duplicateGuard.allowedUnits.length === 0) {
     throw new Error("workflow submission produced no allowed requests");
   }
 
+  const built = await buildPreparedWorkflowBatchExecution({
+    prepared: preparation.prepared,
+  });
+  if (built.status !== "ready") {
+    throw new Error("workflow submission produced no executable requests");
+  }
   const runState = runWorkflowExecutionSeam({
-    prepared: {
-      ...preparation.prepared,
-      requests: duplicateGuard.allowedRequests,
-    },
+    prepared: built.built,
   });
   void runState.idlePromise
     .then(() =>

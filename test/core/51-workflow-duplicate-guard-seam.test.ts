@@ -1,5 +1,9 @@
 import { assert } from "chai";
-import { runWorkflowDuplicateGuardSeam } from "../../src/modules/workflowExecution/duplicateGuardSeam";
+import {
+  runWorkflowDuplicateGuardSeam,
+  runWorkflowUnitDuplicateGuardSeam,
+} from "../../src/modules/workflowExecution/duplicateGuardSeam";
+import type { PreparedWorkflowUnit } from "../../src/modules/workflowExecution/contracts";
 import type { WorkflowTaskRecord } from "../../src/modules/taskRuntime";
 
 function makeActiveTask(args: {
@@ -20,6 +24,19 @@ function makeActiveTask(args: {
     state: args.state || "running",
     createdAt: "2026-02-14T00:00:00.000Z",
     updatedAt: "2026-02-14T00:00:00.000Z",
+  };
+}
+
+function makePreparedUnit(
+  inputUnitIdentity: string,
+  taskName = "paper-a.pdf",
+): PreparedWorkflowUnit {
+  return {
+    unitId: "unit-1",
+    order: 0,
+    taskName,
+    inputUnitIdentity,
+    selectionContext: {},
   };
 }
 
@@ -162,5 +179,90 @@ describe("workflow duplicate guard seam", function () {
     assert.lengthOf(result.allowedRequests, 1);
     assert.equal(result.skippedByDuplicate, 0);
     assert.equal(confirmCalls, 0);
+  });
+
+  it("uses queued unit identities without fabricating active tasks", async function () {
+    let confirmCalls = 0;
+    const unit = makePreparedUnit("attachment-path:D:/paper-a.pdf");
+    const result = await runWorkflowUnitDuplicateGuardSeam(
+      {
+        win: {} as _ZoteroTypes.MainWindow,
+        workflowId: "mineru",
+        workflowLabel: "MinerU",
+        units: [unit],
+      },
+      {
+        listActiveWorkflowTasks: () => [],
+        hasQueuedWorkflowInput: ({ inputUnitIdentity }) =>
+          inputUnitIdentity === unit.inputUnitIdentity,
+        appendRuntimeLog: () => undefined,
+        confirmDuplicateSubmission: () => {
+          confirmCalls += 1;
+          return false;
+        },
+      },
+    );
+
+    assert.equal(confirmCalls, 1);
+    assert.deepEqual(result.allowedUnits, []);
+    assert.equal(result.skippedByDuplicate, 1);
+  });
+
+  it("drops a stale queued conflict during the final recheck", async function () {
+    let queued = true;
+    const unit = makePreparedUnit("attachment-path:D:/paper-a.pdf");
+    const result = await runWorkflowUnitDuplicateGuardSeam(
+      {
+        win: {} as _ZoteroTypes.MainWindow,
+        workflowId: "mineru",
+        workflowLabel: "MinerU",
+        units: [unit],
+      },
+      {
+        listActiveWorkflowTasks: () => [],
+        hasQueuedWorkflowInput: () => queued,
+        appendRuntimeLog: () => undefined,
+        confirmDuplicateSubmission: () => {
+          queued = false;
+          return false;
+        },
+      },
+    );
+
+    assert.deepEqual(result.allowedUnits, [unit]);
+    assert.equal(result.skippedByDuplicate, 0);
+  });
+
+  it("rechecks an admitted conflict through the active task identity", async function () {
+    let queued = true;
+    let active: WorkflowTaskRecord[] = [];
+    const unit = makePreparedUnit("attachment-path:D:/paper-a.pdf");
+    const result = await runWorkflowUnitDuplicateGuardSeam(
+      {
+        win: {} as _ZoteroTypes.MainWindow,
+        workflowId: "mineru",
+        workflowLabel: "MinerU",
+        units: [unit],
+      },
+      {
+        listActiveWorkflowTasks: () => active,
+        hasQueuedWorkflowInput: () => queued,
+        appendRuntimeLog: () => undefined,
+        confirmDuplicateSubmission: () => {
+          queued = false;
+          active = [
+            makeActiveTask({
+              workflowId: "mineru",
+              inputUnitIdentity: unit.inputUnitIdentity!,
+              taskName: "admitted-paper-a.pdf",
+            }),
+          ];
+          return false;
+        },
+      },
+    );
+
+    assert.deepEqual(result.allowedUnits, []);
+    assert.equal(result.skippedByDuplicate, 1);
   });
 });

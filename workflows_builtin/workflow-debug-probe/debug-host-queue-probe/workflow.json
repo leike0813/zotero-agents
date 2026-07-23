@@ -1,0 +1,38 @@
+{
+  "id": "debug-host-queue-probe",
+  "label": "Debug: Host Queue Probe",
+  "description": "Run the Debug: Host Queue Probe diagnostic workflow to verify Host queue management behavior.",
+  "executionModes": ["auto"],
+  "version": "0.1.0",
+  "provider": "skillrunner",
+  "debug_only": true,
+  "trigger": {
+    "requiresSelection": true
+  },
+  "inputs": {
+    "unit": "parent"
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "selected-parent"
+    }
+  },
+  "execution": {
+    "feedback": {
+      "showNotifications": true
+    }
+  },
+  "request": {
+    "kind": "skillrunner.job.v1",
+    "create": {
+      "skill_id": "debug-host-queue-probe",
+      "mode": "auto"
+    }
+  },
+  "result": {
+    "fetch": { "type": "result" }
+  },
+  "hooks": {
+    "applyResult": "../hooks/applyHostQueueProbeResult.mjs"
+  }
+}

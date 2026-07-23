@@ -574,6 +574,7 @@ function appendLabeledControlRow(args: {
   row.appendChild(args.control);
 
   args.root.appendChild(row);
+  return row;
 }
 
 async function pickWorkflowIdForSettings(args: {

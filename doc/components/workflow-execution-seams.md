@@ -226,3 +226,17 @@ Host-side failures are ordinary workflow outcomes and must be visible:
 
 No failure path may leave later submit requests waiting on an unbounded
 in-flight SkillRunner operation.
+
+## Execution-unit admission
+
+Preparation produces one ordered `WorkflowRequestBuildPlan`; each
+`PreparedWorkflowUnit` is one legal top-level selection unit and the Host queue
+outcome boundary. Declarative planning and settings preview do not run provider
+preflight, request builders, duplicate prompts, file mutations, or apply hooks.
+
+For ACP Skills and SkillRunner, admission occurs before unit-local provider
+preflight and request construction. The admitted unit owns provider fan-out,
+sequence execution, aggregate/short-circuit apply, and remains active through
+waiting states until provider terminal state and required Host apply settle.
+Generic HTTP remains full-parallel outside the Host queue; pass-through remains
+serialized outside it.

@@ -13,6 +13,7 @@ import {
 } from "../providers/requestContracts";
 import { canWorkflowRunWithoutSelection } from "./triggerPolicy";
 import type { WorkflowManifest, WorkflowRequestSpec } from "./types";
+import type { WorkflowScopedSelectionContext } from "./workflowSelectionValidation";
 
 type AttachmentLike = {
   filePath?: string | null;
@@ -34,30 +35,7 @@ type AttachmentLike = {
   };
 };
 
-type SelectionLike = {
-  items?: {
-    attachments?: AttachmentLike[];
-    parents?: Array<{
-      item?: { id?: number; title?: string; data?: { title?: string } };
-    }>;
-    children?: Array<{
-      parent?: {
-        id?: number | null;
-        title?: string;
-        data?: { title?: string };
-      } | null;
-      item?: { id?: number; title?: string; data?: { title?: string } };
-    }>;
-    notes?: Array<{
-      parent?: {
-        id?: number | null;
-        title?: string;
-        data?: { title?: string };
-      } | null;
-      item?: { id?: number; title?: string; data?: { title?: string } };
-    }>;
-  };
-};
+type SelectionLike = WorkflowScopedSelectionContext;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);

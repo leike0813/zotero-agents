@@ -38,7 +38,7 @@ The plugin currently owns only a short-lived dispatch queue that cannot be inspe
 ## Impact
 
 - Execution contracts and orchestration under `src/modules/workflowExecution/`, `src/workflows/runtime.ts`, and `src/jobQueue/`.
-- Workflow settings parsing, persistence, descriptor construction, submit dialog host/page code, and Dashboard workflow-options editing.
+- Workflow settings parsing, persistence, descriptor construction, and submit dialog host/page code.
 - ACP Skills and SkillRunner drawer projections, shared Assistant Workspace drawer rendering/action routing, and region signatures.
 - Dashboard snapshot construction, ACP/SkillRunner backend tables, backend-tab actions, and refresh subscriptions.
 - Duplicate guard inputs, workflow feedback accounting, runtime logging, localization, component documentation, OpenSpec deltas, and focused execution/UI regression tests.

@@ -213,3 +213,27 @@ snapshot or render key. See
 Replay cadence selection exposes recorded wall-clock, logical-time regression,
 and burst stress modes. Unknown cadence values are rejected by the host rather
 than silently normalized.
+
+## Workflow options
+
+The `workflow-options` tab edits the existing workflow parameters, backend
+selection, and provider options. It does not render a standalone Host maximum
+concurrency field. That control belongs to the submit dialog's multi-unit
+region, where it is meaningful only alongside a visible execution-unit list.
+
+Dashboard saves partial workflow-setting updates through the shared settings
+domain. Editing workflow/provider options therefore preserves any persisted
+`hostOptions` value that was saved from a multi-unit submission.
+
+## Host queue projection
+
+Dashboard reads the in-memory Host queue only after an ACP or SkillRunner
+backend tab is selected. Matching queued rows are prepended in submission/unit
+FIFO order and remain distinguishable from provider `queued` states by their
+`rowKind` and `queueId`. They have no open/details/archive/retry/provider-cancel
+actions; the only action is icon-only Host cancellation.
+
+Host queued rows are excluded from Home, summary counts, running-task popovers,
+history, attention calculation, Generic HTTP tabs, and pass-through surfaces.
+The mounted Dashboard subscribes to queue changes and refreshes only a visible
+matching backend projection.

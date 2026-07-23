@@ -1673,6 +1673,7 @@ function renderAssistantWorkspaceTaskAction(action, options) {
     "button",
     "assistant-workspace-drawer-task-action" +
       (safeText(item.icon) === "archive" ? " is-archive" : "") +
+      (safeText(item.icon) === "cancel" ? " is-cancel" : "") +
       (safeText(item.tone) ? " is-" + safeText(item.tone) : ""),
     "",
   );
@@ -1683,6 +1684,8 @@ function renderAssistantWorkspaceTaskAction(action, options) {
   button.setAttribute("aria-label", label);
   if (safeText(item.icon) === "archive") {
     button.appendChild(el("span", "zs-icon zs-icon-sm zs-icon-archive", ""));
+  } else if (safeText(item.icon) === "cancel") {
+    button.appendChild(el("span", "zs-icon zs-icon-sm zs-icon-close", ""));
   }
   button.addEventListener("click", function (event) {
     event.preventDefault();
@@ -1907,6 +1910,8 @@ function workspaceTaskSignature(task) {
         return [
           safeText(action && action.action),
           safeText(action && action.label),
+          safeText(action && action.icon),
+          safeText(action && action.tone),
           action && action.enabled === false ? "disabled" : "enabled",
         ].join(":");
       })
@@ -2376,15 +2381,15 @@ function renderAssistantWorkspaceTaskDrawer(target, panel, options) {
     const sectionId = safeText(section.id);
     const sectionTitle = safeText(section.title || sectionId || "Tasks");
     const sectionCollapsed =
-      sectionId === "completed" && section.collapsed === true;
+      section.collapsible === true && section.collapsed === true;
+    const sectionTone = ["running", "queued", "completed"].includes(sectionId)
+      ? sectionId
+      : "neutral";
     const sectionBox = el(
       "section",
       "assistant-workspace-drawer-section skillrunner-workspace-section" +
-        (sectionId === "completed"
-          ? " is-completed"
-          : sectionId === "running"
-            ? " is-running"
-            : " is-neutral") +
+        " is-" +
+        sectionTone +
         (sectionCollapsed ? " is-collapsed" : " is-expanded"),
     );
     sectionBox.setAttribute("data-assistant-section-id", sectionId);
@@ -2401,7 +2406,7 @@ function renderAssistantWorkspaceTaskDrawer(target, panel, options) {
       "div",
       "assistant-workspace-drawer-section-body skillrunner-workspace-section-body",
     );
-    if (sectionId === "completed") {
+    if (section.collapsible === true) {
       const toggle = el(
         "button",
         "assistant-workspace-drawer-section-toggle skillrunner-workspace-section-toggle",
@@ -2412,7 +2417,7 @@ function renderAssistantWorkspaceTaskDrawer(target, panel, options) {
       toggle.addEventListener("click", function (event) {
         event.preventDefault();
         event.stopPropagation();
-        emit(options, "toggle-drawer-section", { sectionId: "completed" });
+        emit(options, "toggle-drawer-section", { sectionId });
       });
       sectionBox.appendChild(toggle);
     } else if (section.hideTitle !== true) {

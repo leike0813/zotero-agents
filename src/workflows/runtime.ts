@@ -27,6 +27,8 @@ import {
   summarizeWorkflowExecutionError,
 } from "./errorMeta";
 import { measureAsyncTestPerformanceSpan } from "../modules/testPerformanceProbeBridge";
+import { resolveInputUnitIdentityFromRequest } from "../modules/workflowExecution/requestMeta";
+import type { WorkflowRequestBuildPlan } from "../modules/workflowExecution/contracts";
 import type {
   LoadedWorkflow,
   WorkflowPreflightContext,
@@ -47,7 +49,10 @@ import {
   isSkillRunFeedbackCollectionEnabled,
 } from "../modules/skillRunFeedback";
 import { evaluateWorkflowSelection } from "./workflowSelectionValidation";
-import type { WorkflowSelectionValidationMode } from "./workflowSelectionValidation";
+import type {
+  WorkflowScopedSelectionContext,
+  WorkflowSelectionValidationMode,
+} from "./workflowSelectionValidation";
 import { resolveWorkflowDisplayLocale } from "./localization";
 
 type AttachmentLike = {
@@ -71,24 +76,7 @@ type NoteLike = {
   parent?: { id?: number | null; title?: string } | null;
 };
 
-type SelectionLike = {
-  items?: {
-    attachments?: AttachmentLike[];
-    parents?: Array<ParentLike & { attachments?: AttachmentLike[] }>;
-    children?: Array<{
-      item?: { id?: number; title?: string };
-      parent?: { id?: number | null; title?: string } | null;
-      attachments?: AttachmentLike[];
-    }>;
-    notes?: NoteLike[];
-  };
-  summary?: {
-    parentCount?: number;
-    childCount?: number;
-    attachmentCount?: number;
-    noteCount?: number;
-  };
-};
+type SelectionLike = WorkflowScopedSelectionContext;
 
 type ResolvedSelectionContexts = {
   contexts: SelectionLike[];
@@ -1039,6 +1027,73 @@ async function resolveSelectionContexts(args: {
     contexts: result.scopedSelectionContexts,
     totalUnits: result.stats.totalUnits,
   };
+}
+
+export async function planWorkflowExecutionUnits(args: {
+  workflow: LoadedWorkflow;
+  selectionContext: unknown;
+  executionOptions?: {
+    workflowParams?: Record<string, unknown>;
+    providerOptions?: Record<string, unknown>;
+    runOptions?: WorkflowRunOptions;
+  };
+  validationMode?: WorkflowSelectionValidationMode;
+  runtime?: Partial<WorkflowRuntimeContext>;
+}): Promise<WorkflowRequestBuildPlan> {
+  const runtime = createRuntimeContext(args.runtime);
+  const resolved = await resolveSelectionContexts({
+    workflow: args.workflow,
+    selectionContext: args.selectionContext,
+    executionOptions: args.executionOptions,
+    validationMode: args.validationMode,
+    runtime,
+  });
+
+  if (resolved.contexts.length === 0) {
+    throw createNoValidInputUnitsError({
+      workflowId: args.workflow.manifest.id,
+      totalUnits: resolved.totalUnits,
+    });
+  }
+
+  const units = resolved.contexts.map((selectionContext, order) => {
+    const targetParentID =
+      resolveTargetParentIDFromSelection(selectionContext) || undefined;
+    const sourceAttachmentPaths =
+      resolveSourceAttachmentPathsFromSelection(selectionContext);
+    const sourceAttachment = selectionContext.items?.attachments?.[0];
+    const inputUnitIdentity =
+      resolveInputUnitIdentityFromRequest({
+        context: {
+          source_attachment_item_key: sourceAttachment?.item?.key,
+          source_attachment_item_id: sourceAttachment?.item?.id,
+        },
+        sourceAttachmentPaths,
+        targetParentID,
+      }) || undefined;
+    return Object.freeze({
+      unitId: `unit-${order + 1}`,
+      order,
+      taskName: resolveTaskNameFromSelection({
+        selectionContext,
+        targetParentID: targetParentID ?? null,
+        sourceAttachmentPaths,
+        workflowLabel: args.workflow.manifest.label,
+      }),
+      ...(inputUnitIdentity ? { inputUnitIdentity } : {}),
+      ...(targetParentID ? { targetParentID } : {}),
+      selectionContext,
+    });
+  });
+
+  return Object.freeze({
+    units: Object.freeze(units),
+    stats: Object.freeze({
+      totalUnits: resolved.totalUnits,
+      executableUnits: units.length,
+      skippedUnits: Math.max(0, resolved.totalUnits - units.length),
+    }),
+  });
 }
 
 export async function executeBuildRequests(args: {

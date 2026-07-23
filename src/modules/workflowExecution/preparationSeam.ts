@@ -10,14 +10,21 @@ import {
   resolveWorkflowExecutionContext,
   resolveWorkflowExecutionOptionsPreview,
 } from "../workflowSettings";
-import { executeBuildRequests } from "../../workflows/runtime";
+import {
+  executeBuildRequests,
+  planWorkflowExecutionUnits,
+} from "../../workflows/runtime";
 import { summarizeWorkflowExecutionError } from "../../workflows/errorMeta";
 import type { LoadedWorkflow } from "../../workflows/types";
 import type { WorkflowExecutionOptions } from "../workflowSettingsDomain";
 import type {
+  BuildPreparedWorkflowUnitResult,
   PreparationSeamResult,
+  PreparedWorkflowExecution,
+  PreparedWorkflowUnit,
   WorkflowExecutionContext,
   WorkflowPreflightExecutionState,
+  WorkflowRequestBuildPlan,
 } from "./contracts";
 import { alertWindow } from "./feedbackSeam";
 import { localizeWorkflowText } from "./messageFormatter";
@@ -49,6 +56,7 @@ import {
   scanPluginSkillRegistry,
   type PluginSkillRegistrySnapshot,
 } from "../pluginSkillRegistry";
+import type { WorkflowExecutionUnitPreviewState } from "../workflowSettingsDialogModel";
 
 function isNoValidInputUnitsError(error: unknown) {
   if (
@@ -323,6 +331,7 @@ type PreparationDeps = {
   resolveWorkflowExecutionOptionsPreview: typeof resolveWorkflowExecutionOptionsPreview;
   buildSelectionContext: typeof buildSelectionContext;
   executeBuildRequests: typeof executeBuildRequests;
+  planWorkflowExecutionUnits: typeof planWorkflowExecutionUnits;
   buildSkillRunnerHostBridgeEnv: typeof buildSkillRunnerHostBridgeRuntimeEnv;
   scanPluginSkillRegistry: typeof scanPluginSkillRegistry;
   alertWindow: typeof alertWindow;
@@ -334,6 +343,7 @@ const defaultPreparationDeps: PreparationDeps = {
   resolveWorkflowExecutionOptionsPreview,
   buildSelectionContext,
   executeBuildRequests,
+  planWorkflowExecutionUnits,
   buildSkillRunnerHostBridgeEnv: buildSkillRunnerHostBridgeRuntimeEnv,
   scanPluginSkillRegistry,
   alertWindow,
@@ -398,9 +408,15 @@ export async function runWorkflowPreparationSeam(
     },
   });
 
-  let requests: unknown[] = [];
-  let preflight: WorkflowPreflightExecutionState | undefined;
+  let plan: WorkflowRequestBuildPlan | null = null;
+  let selectionContext: PreparedWorkflowExecution["selectionContext"] | null =
+    null;
   let skippedByFilter = 0;
+  let preview: PreparedWorkflowExecution["executionOptions"] = {
+    workflowParams: {},
+    providerOptions: {},
+    runOptions: {},
+  };
   try {
     resolved.appendRuntimeLog({
       level: "info",
@@ -417,23 +433,18 @@ export async function runWorkflowPreparationSeam(
             ?.autoApproveWrites === true,
       },
     });
-    let preview: {
-      providerId?: string;
-      workflowParams?: Record<string, unknown>;
-      providerOptions?: Record<string, unknown>;
-      runOptions?: WorkflowExecutionOptions["runOptions"];
-    } = {
-      providerId: "",
-      workflowParams: {},
-      providerOptions: {},
-      runOptions: {},
-    };
     try {
-      preview = resolved.resolveWorkflowExecutionOptionsPreview({
+      const resolvedPreview = resolved.resolveWorkflowExecutionOptionsPreview({
         workflow: args.workflow,
         executionOptionsOverride: args.executionOptionsOverride,
         ignoreSavedSettings: args.ignoreSavedWorkflowSettings,
       });
+      preview = {
+        workflowParams: resolvedPreview.workflowParams,
+        providerOptions: resolvedPreview.providerOptions,
+        runOptions: resolvedPreview.runOptions,
+        hostOptions: resolvedPreview.hostOptions,
+      };
     } catch (previewError) {
       resolved.appendRuntimeLog({
         level: "warn",
@@ -445,9 +456,10 @@ export async function runWorkflowPreparationSeam(
         error: previewError,
       });
     }
-    const selectionContext =
-      await resolved.buildSelectionContext(selectedItems);
-    const builtRequests = await resolved.executeBuildRequests({
+    selectionContext = (await resolved.buildSelectionContext(
+      selectedItems,
+    )) as PreparedWorkflowExecution["selectionContext"];
+    plan = await resolved.planWorkflowExecutionUnits({
       workflow: args.workflow,
       selectionContext,
       executionOptions: {
@@ -456,22 +468,7 @@ export async function runWorkflowPreparationSeam(
         runOptions: preview.runOptions,
       },
     });
-    requests = builtRequests;
-    preflight = (
-      builtRequests as unknown as {
-        __preflight?: WorkflowPreflightExecutionState;
-      }
-    ).__preflight;
-    skippedByFilter = Math.max(
-      0,
-      Number(
-        (
-          builtRequests as unknown as {
-            __stats?: { skippedUnits?: number };
-          }
-        ).__stats?.skippedUnits || 0,
-      ),
-    );
+    skippedByFilter = plan.stats.skippedUnits;
     resolved.appendRuntimeLog({
       level: "info",
       scope: "workflow-trigger",
@@ -479,8 +476,7 @@ export async function runWorkflowPreparationSeam(
       stage: "build-requests-finished",
       message: "build requests finished",
       details: {
-        requestCount:
-          requests.length + (preflight?.shortCircuitApplies.length || 0),
+        requestCount: plan.units.length,
         skippedUnits: skippedByFilter,
         allowWriteApprovalBypass:
           args.workflow.manifest.execution?.zoteroHostAccess
@@ -566,10 +562,7 @@ export async function runWorkflowPreparationSeam(
     };
   }
 
-  if (
-    requests.length === 0 &&
-    (preflight?.shortCircuitApplies.length || 0) === 0
-  ) {
+  if (!plan || !selectionContext || plan.units.length === 0) {
     resolved.appendRuntimeLog({
       level: "warn",
       scope: "workflow-trigger",
@@ -706,71 +699,179 @@ export async function runWorkflowPreparationSeam(
     });
   }
 
-  let adaptedRequests: unknown[] = [];
-  try {
-    adaptedRequests = await adaptRequestsForExecutionContext({
-      requests,
+  return {
+    status: "ready",
+    prepared: {
       workflow: args.workflow,
+      plan,
+      selectionContext,
+      executionOptions: preview,
+      skippedByFilter,
       executionContext,
-      buildSkillRunnerHostBridgeEnv: resolved.buildSkillRunnerHostBridgeEnv,
+    },
+  };
+}
+
+export async function buildWorkflowExecutionUnitPreview(
+  args: {
+    win: _ZoteroTypes.MainWindow;
+    workflow: LoadedWorkflow;
+    executionOptionsOverride?: WorkflowExecutionOptions;
+    selectedItemsOverride?: Zotero.Item[];
+  },
+  deps: Partial<PreparationDeps> = {},
+): Promise<WorkflowExecutionUnitPreviewState> {
+  const resolved = {
+    ...defaultPreparationDeps,
+    ...deps,
+  };
+  try {
+    const selectedItems = Array.isArray(args.selectedItemsOverride)
+      ? args.selectedItemsOverride
+      : args.win.ZoteroPane?.getSelectedItems?.() || [];
+    const selectionContext =
+      await resolved.buildSelectionContext(selectedItems);
+    const preview = resolved.resolveWorkflowExecutionOptionsPreview({
+      workflow: args.workflow,
+      executionOptionsOverride: args.executionOptionsOverride,
+    });
+    const plan = await resolved.planWorkflowExecutionUnits({
+      workflow: args.workflow,
+      selectionContext,
+      executionOptions: {
+        workflowParams: preview.workflowParams,
+        providerOptions: preview.providerOptions,
+        runOptions: preview.runOptions,
+      },
+      validationMode: "menu",
+    });
+    if (plan.units.length === 0) {
+      return Object.freeze({
+        status: "empty",
+        units: Object.freeze([]),
+      });
+    }
+    return Object.freeze({
+      status: "success",
+      units: Object.freeze(
+        plan.units.map((unit) =>
+          Object.freeze({
+            unitId: unit.unitId,
+            taskName: unit.taskName,
+            ...(unit.inputUnitIdentity
+              ? { inputUnitIdentity: unit.inputUnitIdentity }
+              : {}),
+          }),
+        ),
+      ),
     });
   } catch (error) {
-    const reason = normalizeErrorMessage(error, args.messageFormatter);
-    const envFailure = getSkillRunnerHostBridgeEnvFailureDetails(error);
-    resolved.appendRuntimeLog({
-      level: "error",
-      scope: "workflow-trigger",
-      workflowId: args.workflow.manifest.id,
-      backendId: executionContext.backend.id,
-      backendType: executionContext.backend.type,
-      providerId: executionContext.providerId,
-      stage: "skillrunner-host-bridge-env-unavailable",
-      message: "SkillRunner Host Bridge env injection failed",
-      details: {
-        reason,
-        code: envFailure.code,
-        diagnostics: envFailure.details,
-      },
-      error,
-    });
-    if (
-      !args.suppressUiFeedback &&
-      shouldShowWorkflowNotifications(args.workflow.manifest)
-    ) {
-      resolved.alertWindow(
-        args.win,
-        localizeWorkflowText(
-          "workflow-execute-cannot-run",
-          `Workflow ${workflowLabel} cannot run: ${reason}`,
-          {
-            workflowLabel,
-            reason,
-          },
-        ),
-      );
+    if (isNoValidInputUnitsError(error)) {
+      return Object.freeze({
+        status: "empty",
+        units: Object.freeze([]),
+      });
     }
+    return Object.freeze({
+      status: "failure",
+      reasonCode: "workflow-unit-preview-failed",
+    });
+  }
+}
+
+export async function buildPreparedWorkflowUnitExecution(
+  args: {
+    prepared: PreparedWorkflowExecution;
+    unit: PreparedWorkflowUnit;
+  },
+  deps: Partial<PreparationDeps> = {},
+): Promise<BuildPreparedWorkflowUnitResult> {
+  const resolved = {
+    ...defaultPreparationDeps,
+    ...deps,
+  };
+  let builtRequests: unknown[];
+  try {
+    builtRequests = await resolved.executeBuildRequests({
+      workflow: args.prepared.workflow,
+      selectionContext: args.unit.selectionContext,
+      executionOptions: args.prepared.executionOptions,
+    });
+  } catch (error) {
+    if (isNoValidInputUnitsError(error)) {
+      return {
+        status: "skipped",
+        skippedUnits: 1,
+      };
+    }
+    throw error;
+  }
+
+  const preflight = (
+    builtRequests as unknown as {
+      __preflight?: WorkflowPreflightExecutionState;
+    }
+  ).__preflight;
+  if (
+    builtRequests.length === 0 &&
+    (preflight?.shortCircuitApplies.length || 0) === 0
+  ) {
     return {
-      status: "halted",
+      status: "skipped",
+      skippedUnits: 1,
     };
   }
 
+  const adaptedRequests = await adaptRequestsForExecutionContext({
+    requests: builtRequests,
+    workflow: args.prepared.workflow,
+    executionContext: args.prepared.executionContext,
+    buildSkillRunnerHostBridgeEnv: resolved.buildSkillRunnerHostBridgeEnv,
+  });
   const skillDisplayById = await resolveSkillRunnerSkillDisplayById({
-    workflow: args.workflow,
+    workflow: args.prepared.workflow,
     requests: adaptedRequests,
-    executionContext,
+    executionContext: args.prepared.executionContext,
     scanPluginSkillRegistry: resolved.scanPluginSkillRegistry,
     appendRuntimeLog: resolved.appendRuntimeLog,
   });
 
   return {
     status: "ready",
-    prepared: {
-      workflow: args.workflow,
+    built: {
+      workflow: args.prepared.workflow,
+      unit: args.unit,
       requests: adaptedRequests,
       preflight,
       skillDisplayById,
-      skippedByFilter,
-      executionContext,
+      executionContext: args.prepared.executionContext,
     },
   };
+}
+
+export function buildPreparedWorkflowBatchExecution(
+  args: {
+    prepared: PreparedWorkflowExecution;
+  },
+  deps: Partial<PreparationDeps> = {},
+) {
+  const firstUnit = args.prepared.plan.units[0];
+  if (!firstUnit) {
+    return Promise.resolve({
+      status: "skipped" as const,
+      skippedUnits: Math.max(1, args.prepared.skippedByFilter),
+    });
+  }
+  return buildPreparedWorkflowUnitExecution(
+    {
+      prepared: args.prepared,
+      unit: {
+        ...firstUnit,
+        unitId: "workflow-batch",
+        order: 0,
+        selectionContext: args.prepared.selectionContext,
+      },
+    },
+    deps,
+  );
 }

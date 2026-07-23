@@ -16,7 +16,10 @@ import { rescanWorkflowRegistry } from "../../src/modules/workflowRuntime";
 import { getPref, setPref } from "../../src/utils/prefs";
 import type { LoadedWorkflow } from "../../src/workflows/types";
 import { createLocalizedMessageFormatter } from "../../src/modules/workflowExecution/messageFormatter";
-import { runWorkflowPreparationSeam } from "../../src/modules/workflowExecution/preparationSeam";
+import {
+  buildPreparedWorkflowUnitExecution,
+  runWorkflowPreparationSeam,
+} from "../../src/modules/workflowExecution/preparationSeam";
 import { runWorkflowExecutionSeam } from "../../src/modules/workflowExecution/runSeam";
 import { runWorkflowApplySeam } from "../../src/modules/workflowExecution/applySeam";
 import type { PreparedWorkflowExecution } from "../../src/modules/workflowExecution/contracts";
@@ -360,12 +363,27 @@ async function prepareDebugApplyWorkflow(args: {
   if (preparation.status !== "ready") {
     throw new Error("single result preparation did not produce requests");
   }
-  assert.lengthOf(preparation.prepared.requests, 1);
+  const unit = preparation.prepared.plan.units[0];
+  assert.isOk(unit);
+  const built = await buildPreparedWorkflowUnitExecution(
+    {
+      prepared: preparation.prepared,
+      unit,
+    },
+    {
+      executeBuildRequests,
+    },
+  );
+  assert.equal(built.status, "ready");
+  if (built.status !== "ready") {
+    throw new Error("single result unit did not produce requests");
+  }
+  assert.lengthOf(built.built.requests, 1);
   return {
     workflow,
     messageFormatter,
-    prepared: preparation.prepared,
-    request: preparation.prepared.requests[0] as Record<string, unknown>,
+    prepared: built.built,
+    request: built.built.requests[0] as Record<string, unknown>,
   };
 }
 

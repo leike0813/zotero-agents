@@ -275,7 +275,10 @@ function statusLabel(source, status) {
     return labelFrom(source, "status.starting", "Starting");
   if (token === "recovering")
     return labelFrom(source, "status.recovering", "Recovering");
-  if (token === "pending" || token === "queued") {
+  if (token === "queued") {
+    return labelFrom(source, "status.queued", "Queued");
+  }
+  if (token === "pending") {
     return labelFrom(source, "status.pending", "Pending");
   }
   if (token === "unavailable") {
@@ -1253,6 +1256,7 @@ function findSkillRunnerPanelTask(envelope) {
 function decorateSkillRunnerWorkspaceTask(task, source) {
   if (!task || typeof task !== "object") return task;
   const taskKey = safeText(task.key || task.taskKey || task.id);
+  const queueId = safeText(task.queueId);
   const canArchiveLocalRun = task.canArchiveLocalRun !== false;
   const terminal =
     task.terminal === true ||
@@ -1274,8 +1278,21 @@ function decorateSkillRunnerWorkspaceTask(task, source) {
     applyState,
     applyStateLabel: applyLabel,
     applyTone: applyStateTone(applyState),
-    itemActions:
-      terminal && canArchiveLocalRun
+    itemActions: queueId
+      ? [
+          {
+            action: "cancel-queued-workflow-unit",
+            label: labelFrom(
+              source,
+              "actions.cancelQueuedWorkflowUnit",
+              "Cancel queued workflow unit",
+            ),
+            icon: "cancel",
+            enabled: true,
+            payload: { queueId },
+          },
+        ]
+      : terminal && canArchiveLocalRun
         ? [archiveItemAction("archive-run", "归档", { runKey: taskKey }, true)]
         : [],
   });
@@ -2214,6 +2231,51 @@ function exactWorkspaceTask(entry, selectedOwner, labelSource) {
   };
 }
 
+function exactWorkspaceQueuedTask(entry, labelSource) {
+  const queueId = safeText(entry && entry.queueId);
+  return {
+    key: queueId ? "host-queue:" + queueId : "",
+    action: "",
+    payload: {},
+    title: safeText(entry && entry.label) || queueId,
+    workflowLabel:
+      safeText(
+        entry && (entry.subtitle || entry.groupLabel || entry.groupId),
+      ) || "-",
+    status: "queued",
+    stateLabel: labelFrom(labelSource, "drawer.queued", "Queued"),
+    mainStatus: "queued",
+    mainStatusLabel: labelFrom(labelSource, "drawer.queued", "Queued"),
+    mainStatusTone: "muted",
+    showBackendStatusBadge: false,
+    showApplyStatusBadge: false,
+    updatedAt: safeText(entry && entry.updatedAt),
+    backendId: safeText(entry && entry.groupId),
+    backendDisplayName: safeText(entry && (entry.groupLabel || entry.groupId)),
+    selectable: false,
+    terminal: false,
+    active: false,
+    attention: "",
+    attentionLabel: "",
+    itemActions:
+      queueId && entry && entry.canCancel !== false
+        ? [
+            {
+              action: "cancel-queued-workflow-unit",
+              label: labelFrom(
+                labelSource,
+                "actions.cancelQueuedWorkflowUnit",
+                "Cancel queued workflow unit",
+              ),
+              icon: "cancel",
+              enabled: true,
+              payload: { queueId },
+            },
+          ]
+        : [],
+  };
+}
+
 function exactWorkspaceDrawerSections(
   navigation,
   selectedOwner,
@@ -2231,8 +2293,9 @@ function exactWorkspaceDrawerSections(
       backendDisplayName: safeText(group.label),
     });
   });
-  function createGroupBucket(groupKey, entry) {
+  function createGroupBucket(sectionId, groupKey, entry) {
     const known = catalog.get(groupKey) || {};
+    const collapseKey = safeText(sectionId) + "\n" + groupKey;
     return {
       groupKey,
       backendId: safeText(known.backendId) || groupKey,
@@ -2244,15 +2307,15 @@ function exactWorkspaceDrawerSections(
       collapsed:
         uiState &&
         uiState.drawerGroupCollapsed &&
-        uiState.drawerGroupCollapsed.get(groupKey) === true,
+        uiState.drawerGroupCollapsed.get(collapseKey) === true,
       activeTasks: [],
       finishedTasks: [],
     };
   }
-  function appendTask(buckets, entry, target, projectedTask) {
+  function appendTask(sectionId, buckets, entry, target, projectedTask) {
     const groupKey = safeText(entry && entry.groupId) || "default";
     if (!buckets.has(groupKey)) {
-      buckets.set(groupKey, createGroupBucket(groupKey, entry));
+      buckets.set(groupKey, createGroupBucket(sectionId, groupKey, entry));
     }
     const group = buckets.get(groupKey);
     group[target].push(
@@ -2265,7 +2328,7 @@ function exactWorkspaceDrawerSections(
   if (source === "acp-chat") {
     const sessionGroups = new Map();
     entries.forEach(function (entry) {
-      appendTask(sessionGroups, entry, "activeTasks");
+      appendTask("sessions", sessionGroups, entry, "activeTasks");
     });
     return [
       {
@@ -2283,26 +2346,52 @@ function exactWorkspaceDrawerSections(
   entries.forEach(function (entry) {
     const task = exactWorkspaceTask(entry, selectedOwner, labelSource);
     appendTask(
+      task.terminal ? "completed" : "running",
       task.terminal ? completedGroups : activeGroups,
       entry,
       task.terminal ? "finishedTasks" : "activeTasks",
       task,
     );
   });
-  return [
+  const queuedGroups = new Map();
+  (Array.isArray(navigation && navigation.queuedEntries)
+    ? navigation.queuedEntries
+    : []
+  ).forEach(function (entry) {
+    appendTask(
+      "queued",
+      queuedGroups,
+      entry,
+      "activeTasks",
+      exactWorkspaceQueuedTask(entry, labelSource),
+    );
+  });
+  const sections = [
     {
-      id: "active",
+      id: "running",
       title: labelFrom(labelSource, "drawer.running", "Running"),
-      collapsed: false,
+      collapsible: true,
+      collapsed: uiState && uiState.runningCollapsed === true,
       groups: Array.from(activeGroups.values()),
     },
-    {
-      id: "completed",
-      title: labelFrom(labelSource, "drawer.completed", "Completed"),
-      collapsed: uiState && uiState.completedCollapsed === true,
-      groups: Array.from(completedGroups.values()),
-    },
   ];
+  if (queuedGroups.size > 0) {
+    sections.push({
+      id: "queued",
+      title: labelFrom(labelSource, "drawer.queued", "Queued"),
+      collapsible: true,
+      collapsed: !uiState || uiState.queuedCollapsed !== false,
+      groups: Array.from(queuedGroups.values()),
+    });
+  }
+  sections.push({
+    id: "completed",
+    title: labelFrom(labelSource, "drawer.completed", "Completed"),
+    collapsible: true,
+    collapsed: !uiState || uiState.completedCollapsed !== false,
+    groups: Array.from(completedGroups.values()),
+  });
+  return sections;
 }
 
 function exactWorkspaceEmptyChrome(source, sourceLabels, labelSource) {

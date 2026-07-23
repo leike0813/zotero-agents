@@ -122,3 +122,20 @@ invariants:
     spec_refs:
       - doc/components/skillrunner-provider-global-run-workspace-tabs-ssot.md
     must: Terminal runs with pending, running, or failed apply must remain visible until apply state settles.
+
+  - id: INV-WS-HOST-QUEUED-SOURCE-ROWS
+    domain: skillrunner-workspace
+    type: host-queue-projection
+    current_value:
+      hostQueuedRowsSourceLevel: true
+      hostQueuedRowsSelectable: false
+      hostQueuedCancelIdentity: queueId
+    code_refs:
+      - SKILLRUNNER_SSOT_FACTS.workspace.hostQueuedRowsSourceLevel
+      - SKILLRUNNER_SSOT_FACTS.workspace.hostQueuedRowsSelectable
+      - SKILLRUNNER_SSOT_FACTS.workspace.hostQueuedCancelIdentity
+    doc_refs:
+      - doc/components/skillrunner-provider-global-run-workspace-tabs-ssot.md
+    spec_refs:
+      - openspec/changes/add-native-workflow-queue-management/specs/skillrunner-provider-global-run-workspace-tabs/spec.md
+    must: Host queued workflow units must remain source-level non-selectable rows whose only cancellation identity is queueId.

@@ -328,6 +328,18 @@ describe("skillrunner snapshot wire contract (v1)", function () {
       expectRejectedSnapshot(snapshot, "snapshot\\.session\\.canReply");
     });
 
+    it("rejects a non-boolean drawer section collapsible flag", function () {
+      const snapshot = mutatedSnapshot((draft) => {
+        const drawer = draft.drawer as Record<string, unknown>;
+        const sections = drawer.sections as Array<Record<string, unknown>>;
+        sections[0].collapsible = "yes";
+      });
+      expectRejectedSnapshot(
+        snapshot,
+        "snapshot\\.drawer\\.sections\\[0\\]\\.collapsible",
+      );
+    });
+
     it("rejects an invalid hostMode", function () {
       const snapshot = mutatedSnapshot((draft) => {
         draft.hostMode = "overlay";

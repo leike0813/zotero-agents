@@ -457,8 +457,9 @@ export type RunWorkspaceSnapshot = {
     notice?: string;
     truncated?: boolean;
     sections: Array<{
-      id: "running" | "completed";
+      id: "running" | "queued" | "completed";
       title: string;
+      collapsible?: boolean;
       collapsed: boolean;
       groups: RunWorkspaceGroup[];
     }>;
@@ -3022,6 +3023,7 @@ function buildRunWorkspaceSnapshot(
             "task-dashboard-run-completed-tasks-title",
             "Completed Tasks",
           ),
+          collapsible: true,
           collapsed: false,
           groups: completedGroups,
         },

@@ -5,6 +5,7 @@ import {
   mergeDashboardTaskRows,
   normalizeDashboardBackends,
   normalizeDashboardTabKey,
+  projectDashboardQueuedRows,
 } from "../../src/modules/taskDashboardSnapshot";
 import type { TaskDashboardHistoryRecord } from "../../src/modules/taskDashboardHistory";
 import type { WorkflowTaskRecord } from "../../src/modules/taskRuntime";
@@ -266,5 +267,49 @@ describe("task dashboard snapshot", function () {
       "My Generic Backend",
     );
     assert.equal(displayName, "My Generic Backend");
+  });
+
+  it("projects only matching backend Host queue rows without provider identities", function () {
+    const rows = projectDashboardQueuedRows({
+      backend: {
+        ...makeBackend("acp-a", "acp"),
+        displayName: "ACP A",
+      },
+      queuedStateLabel: "Queued",
+      queued: [
+        {
+          queueId: "queue-1",
+          submissionId: "submission-1",
+          unitId: "unit-1",
+          unitOrder: 0,
+          workflowId: "workflow-a",
+          workflowLabel: "Workflow A",
+          taskName: "Paper A",
+          backendType: "acp",
+          backendId: "acp-a",
+          createdAt: "2026-07-23T00:00:00.000Z",
+          canCancel: true,
+        },
+        {
+          queueId: "queue-2",
+          submissionId: "submission-2",
+          unitId: "unit-2",
+          unitOrder: 0,
+          workflowId: "workflow-b",
+          workflowLabel: "Workflow B",
+          taskName: "Paper B",
+          backendType: "skillrunner",
+          backendId: "skillrunner-b",
+          createdAt: "2026-07-23T00:00:01.000Z",
+          canCancel: true,
+        },
+      ] as any,
+    });
+    assert.lengthOf(rows, 1);
+    assert.equal(rows[0].id, "host-queue:queue-1");
+    assert.equal(rows[0].queueId, "queue-1");
+    assert.notProperty(rows[0], "requestId");
+    assert.notProperty(rows[0], "runKey");
+    assert.notProperty(rows[0], "jobId");
   });
 });

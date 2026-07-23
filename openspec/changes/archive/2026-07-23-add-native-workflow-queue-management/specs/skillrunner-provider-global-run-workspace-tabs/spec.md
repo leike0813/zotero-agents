@@ -11,8 +11,11 @@ MUST NOT be inserted into the selectable SkillRunner run-session collection.
 - **THEN** running tasks SHALL appear in a `Running` section grouped by backend profile
 - **AND** Host-queued units SHALL appear in a `Queued` section between `Running` and `Completed`, grouped by backend profile
 - **AND** succeeded tasks SHALL appear in a `Completed` section grouped by backend profile
-- **AND** the `Queued` section SHALL be expanded by default and hidden when empty
-- **AND** the `Completed` section SHALL be collapsed by default
+- **AND** all three sections SHALL be independently collapsible
+- **AND** `Running` SHALL be expanded by default while `Queued` and `Completed` SHALL be collapsed by default
+- **AND** the `Queued` section SHALL be hidden when empty
+- **AND** section titles, queued state, and queue cancellation SHALL use the shared localized Assistant labels
+- **AND** Running, Queued, and Completed SHALL use subtle theme-aware blue, amber, and neutral treatments respectively
 - **AND** failed, canceled, disabled, or requestId-less provider placeholder tasks SHALL NOT appear in the sidebar task drawer
 
 #### Scenario: queued backend groups collapse independently
@@ -43,3 +46,6 @@ MUST NOT be inserted into the selectable SkillRunner run-session collection.
 - **AND** Host-queued rows SHALL use their queue display `taskName` with the workflow label as fallback
 - **AND** only provider tasks with requestId SHALL be selectable in sidebar navigation
 
+Invariant anchors:
+
+- `INV-WS-HOST-QUEUED-SOURCE-ROWS`

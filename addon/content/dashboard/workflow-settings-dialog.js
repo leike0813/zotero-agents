@@ -6,6 +6,7 @@
       workflowParams: {},
       providerOptions: {},
       runOptions: {},
+      hostOptions: {},
     },
     fieldCollectors: [],
     refreshingAcpRuntimeCache: false,
@@ -60,6 +61,7 @@
       workflowParams: cloneRecord(state.draft.workflowParams),
       providerOptions: cloneRecord(state.draft.providerOptions),
       runOptions: cloneRecord(state.draft.runOptions),
+      hostOptions: cloneRecord(state.draft.hostOptions),
     };
   }
 
@@ -398,6 +400,7 @@
       workflowParams: cloneRecord(patch.workflowParams),
       providerOptions: cloneRecord(patch.providerOptions),
       runOptions: cloneRecord(patch.runOptions),
+      hostOptions: cloneRecord(patch.hostOptions),
     };
     sendAction("update-draft", {
       executionOptions: state.draft,
@@ -444,6 +447,127 @@
       }
     });
     return !hasError;
+  }
+
+  function createExecutionUnitPreview(form, labels) {
+    const preview = form.executionUnitPreview || {};
+    const units = Array.isArray(preview.units) ? preview.units : [];
+    if (
+      preview.status !== "failure" &&
+      form.layout?.showExecutionUnitPreview !== true
+    ) {
+      return null;
+    }
+    const card = document.createElement("section");
+    card.className = "settings-card workflow-execution-unit-preview";
+    const title = document.createElement("h2");
+    title.className = "settings-card-title";
+    title.textContent = toText(labels.workflowExecutionUnitsTitle);
+    card.appendChild(title);
+    if (preview.status === "failure") {
+      const error = document.createElement("div");
+      error.className = "settings-error";
+      error.textContent = toText(labels.workflowExecutionUnitsUnavailable);
+      card.appendChild(error);
+      return card;
+    }
+    const list = document.createElement("div");
+    list.className = "workflow-execution-unit-list";
+    units.forEach(function (unit) {
+      const row = document.createElement("div");
+      row.className = "workflow-execution-unit-row";
+      row.title = toText(unit.taskName);
+      const taskName = document.createElement("span");
+      taskName.className = "workflow-execution-unit-task";
+      taskName.textContent = toText(unit.taskName);
+      row.appendChild(taskName);
+      const identity = toText(unit.inputUnitIdentity).trim();
+      if (identity) {
+        const input = document.createElement("span");
+        input.className = "workflow-execution-unit-input";
+        input.textContent = identity;
+        row.appendChild(input);
+      }
+      list.appendChild(row);
+    });
+    card.appendChild(list);
+    return card;
+  }
+
+  function createHostQueueOptionsCard(form, labels) {
+    if (!form.hostOptions || form.layout?.showHostMaximumConcurrency !== true) {
+      return null;
+    }
+    const card = document.createElement("section");
+    card.className = "settings-card workflow-host-options";
+    const title = document.createElement("h2");
+    title.className = "settings-card-title";
+    title.textContent = toText(labels.workflowHostOptionsTitle);
+    card.appendChild(title);
+
+    const row = document.createElement("div");
+    row.className = "field-row";
+    const label = document.createElement("label");
+    label.className = "field-label";
+    label.textContent = toText(labels.workflowMaximumConcurrencyLabel);
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "0";
+    input.step = "1";
+    input.inputMode = "numeric";
+    input.placeholder = toText(labels.workflowMaximumConcurrencyUnlimited);
+    input.value =
+      form.hostOptions.maxConcurrency == null
+        ? ""
+        : toText(form.hostOptions.maxConcurrency);
+    input.setAttribute(
+      "data-workflow-settings-control-key",
+      "hostOptions.queue.maxConcurrency",
+    );
+    input.className = "field-control numeric";
+    label.htmlFor = "workflow-host-max-concurrency";
+    input.id = "workflow-host-max-concurrency";
+    const controlWrap = document.createElement("div");
+    controlWrap.className = "field-input-col";
+    const error = document.createElement("div");
+    error.className = "field-error";
+    error.hidden = true;
+
+    function collectHostOptions(notify) {
+      const raw = toText(input.value).trim();
+      const parsed = raw ? Number(raw) : 0;
+      const valid = !raw || (Number.isSafeInteger(parsed) && parsed >= 0);
+      error.hidden = valid;
+      error.textContent = valid
+        ? ""
+        : toText(labels.workflowMaximumConcurrencyInvalid);
+      input.setAttribute("aria-invalid", valid ? "false" : "true");
+      if (!valid) {
+        return false;
+      }
+      state.draft.hostOptions =
+        !raw || parsed === 0 ? {} : { queue: { maxConcurrency: parsed } };
+      if (notify === true) {
+        updateDraft(state.draft, {
+          changedSection: "hostOptions",
+          changedKey: "queue.maxConcurrency",
+        });
+      }
+      return true;
+    }
+
+    input.addEventListener("change", function () {
+      collectHostOptions(true);
+    });
+    registerFieldCollector(function () {
+      return collectHostOptions(false);
+    });
+    row.appendChild(label);
+    controlWrap.appendChild(input);
+    controlWrap.appendChild(error);
+    row.appendChild(controlWrap);
+    card.appendChild(row);
+    return card;
   }
 
   function createField(args) {
@@ -831,6 +955,28 @@
     banner.appendChild(meta);
     shell.appendChild(banner);
 
+    const previewCard = createExecutionUnitPreview(form, snapshot.labels || {});
+    const hostOptionsCard = createHostQueueOptionsCard(
+      form,
+      snapshot.labels || {},
+    );
+    const contentLayout = document.createElement("div");
+    contentLayout.className = "settings-content-layout";
+    const optionsRegion = document.createElement("div");
+    optionsRegion.className = "settings-options-region";
+    const hasMultiUnitRegion =
+      form.layout?.mode === "multi-unit" && !!previewCard && !!hostOptionsCard;
+    if (hasMultiUnitRegion) {
+      contentLayout.classList.add("has-multi-unit-region");
+      const multiUnitColumn = document.createElement("div");
+      multiUnitColumn.className = "settings-multi-unit-column";
+      multiUnitColumn.appendChild(previewCard);
+      multiUnitColumn.appendChild(hostOptionsCard);
+      contentLayout.appendChild(multiUnitColumn);
+    } else if (previewCard) {
+      optionsRegion.appendChild(previewCard);
+    }
+
     const grid = document.createElement("div");
     grid.className = "settings-grid";
 
@@ -879,7 +1025,9 @@
     });
     providerCard.classList.add("settings-card-fill");
     grid.appendChild(providerCard);
-    shell.appendChild(grid);
+    optionsRegion.appendChild(grid);
+    contentLayout.appendChild(optionsRegion);
+    shell.appendChild(contentLayout);
 
     if (form.profileMissing) {
       const error = document.createElement("div");
@@ -946,12 +1094,7 @@
         return;
       }
       sendAction("confirm", {
-        executionOptions: {
-          backendId: toText(state.draft.backendId || "").trim(),
-          workflowParams: cloneRecord(state.draft.workflowParams),
-          providerOptions: cloneRecord(state.draft.providerOptions),
-          runOptions: cloneRecord(state.draft.runOptions),
-        },
+        executionOptions: buildExecutionOptionsPayload(),
       });
     });
     actions.appendChild(confirmBtn);
@@ -983,6 +1126,15 @@
         workflowParams: cloneRecord(form.workflowParams),
         providerOptions: cloneRecord(form.providerOptions),
         runOptions: cloneRecord(form.runOptions),
+        hostOptions:
+          Number.isSafeInteger(form.hostOptions?.maxConcurrency) &&
+          form.hostOptions.maxConcurrency > 0
+            ? {
+                queue: {
+                  maxConcurrency: form.hostOptions.maxConcurrency,
+                },
+              }
+            : {},
       };
     }
     render();

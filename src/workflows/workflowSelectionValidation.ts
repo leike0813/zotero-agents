@@ -20,15 +20,25 @@ type AttachmentLike = {
     title?: string;
     libraryID?: number;
     parentItemID?: number | null;
-    data?: { contentType?: string; path?: string };
+    data?: { title?: string; contentType?: string; path?: string };
   };
   filePath?: string | null;
   mimeType?: string | null;
-  parent?: { id?: number | null; title?: string } | null;
+  parent?: {
+    id?: number | null;
+    title?: string;
+    data?: { title?: string };
+  } | null;
 };
 
 type ParentLike = {
-  item?: { id?: number; key?: string; title?: string; libraryID?: number };
+  item?: {
+    id?: number;
+    key?: string;
+    title?: string;
+    libraryID?: number;
+    data?: { title?: string };
+  };
   attachments?: AttachmentLike[];
   notes?: Array<Record<string, unknown>>;
 };
@@ -41,9 +51,18 @@ type ParentRefLike = {
 };
 
 type NoteLike = {
-  item?: { id?: number; key?: string; title?: string };
+  item?: {
+    id?: number;
+    key?: string;
+    title?: string;
+    data?: { title?: string };
+  };
   note?: string;
-  parent?: { id?: number | null; title?: string } | null;
+  parent?: {
+    id?: number | null;
+    title?: string;
+    data?: { title?: string };
+  } | null;
 };
 
 type SelectionLike = {
@@ -52,8 +71,16 @@ type SelectionLike = {
     attachments?: AttachmentLike[];
     parents?: ParentLike[];
     children?: Array<{
-      item?: { id?: number; title?: string };
-      parent?: { id?: number | null; title?: string } | null;
+      item?: {
+        id?: number;
+        title?: string;
+        data?: { title?: string };
+      };
+      parent?: {
+        id?: number | null;
+        title?: string;
+        data?: { title?: string };
+      } | null;
       attachments?: AttachmentLike[];
     }>;
     notes?: NoteLike[];
@@ -66,6 +93,8 @@ type SelectionLike = {
   };
   [key: string]: unknown;
 };
+
+export type WorkflowScopedSelectionContext = SelectionLike;
 
 export type WorkflowSelectionValidationMode = "menu" | "execute" | "handoff";
 

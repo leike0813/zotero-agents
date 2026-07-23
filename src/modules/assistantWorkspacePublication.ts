@@ -154,6 +154,11 @@ export const ASSISTANT_WORKSPACE_ACTION_REGISTRY = {
     sources: ["acp-skills"],
     payloadKeys: [],
   },
+  "cancel-queued-workflow-unit": {
+    scope: "global",
+    sources: ["acp-skills"],
+    payloadKeys: ["queueId"],
+  },
   "set-active-backend": {
     scope: "navigation-group",
     sources: ["acp-chat"],
@@ -448,6 +453,16 @@ export type AssistantWorkspaceMessageCounts = {
   counts: AssistantMessageCountsSnapshot | null;
 };
 
+export type AssistantWorkspaceQueuedNavigationEntry = {
+  queueId: string;
+  groupId: string;
+  label: string;
+  subtitle: string | null;
+  groupLabel: string | null;
+  updatedAt: string | null;
+  canCancel: boolean;
+};
+
 export type AssistantWorkspaceOwnerNavigation = {
   selectedOwner: AssistantWorkspaceOwner | null;
   selectedGroupId: string | null;
@@ -470,6 +485,7 @@ export type AssistantWorkspaceOwnerNavigation = {
     updatedAt: string | null;
     messageCount: number;
   }>;
+  queuedEntries: AssistantWorkspaceQueuedNavigationEntry[];
   canCreateOwner: boolean;
 };
 

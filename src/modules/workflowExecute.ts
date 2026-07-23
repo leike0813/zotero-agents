@@ -1,9 +1,24 @@
 import type { LoadedWorkflow } from "../workflows/types";
 import { appendRuntimeLog } from "./runtimeLogManager";
-import { runWorkflowPreparationSeam } from "./workflowExecution/preparationSeam";
-import { runWorkflowDuplicateGuardSeam } from "./workflowExecution/duplicateGuardSeam";
+import {
+  buildPreparedWorkflowUnitExecution,
+  buildWorkflowExecutionUnitPreview,
+  runWorkflowPreparationSeam,
+} from "./workflowExecution/preparationSeam";
+import { runWorkflowUnitDuplicateGuardSeam } from "./workflowExecution/duplicateGuardSeam";
 import { runWorkflowExecutionSeam } from "./workflowExecution/runSeam";
 import { runWorkflowApplySeam } from "./workflowExecution/applySeam";
+import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
+import type {
+  WorkflowExecutionUnitOutcome,
+  WorkflowSubmissionSummary,
+} from "../jobQueue/workflowSubmissionQueueContracts";
+import type {
+  PreparedWorkflowExecution,
+  PreparedWorkflowUnit,
+  WorkflowApplySummary,
+  WorkflowRunState,
+} from "./workflowExecution/contracts";
 import type { WorkflowExecutionOptions } from "./workflowSettingsDomain";
 import {
   isWorkflowConfigurable,
@@ -59,6 +74,73 @@ function buildWorkflowCannotRunMessage(args: {
   return `Workflow ${args.workflowLabel} cannot run: ${args.reason}`;
 }
 
+export type PreparedWorkflowUnitExecutionResult = {
+  outcome: WorkflowExecutionUnitOutcome;
+  runState?: WorkflowRunState;
+  applySummary?: WorkflowApplySummary;
+  failureReason?: string;
+};
+
+type WorkflowUnitSubmissionSummary = Pick<
+  WorkflowSubmissionSummary,
+  "total" | "succeeded" | "failed" | "skipped"
+>;
+
+function summarizeWorkflowUnitOutcomes(
+  outcomes: ReadonlyArray<WorkflowExecutionUnitOutcome>,
+): WorkflowUnitSubmissionSummary {
+  return {
+    total: outcomes.length,
+    succeeded: outcomes.filter((entry) => entry.status === "succeeded").length,
+    failed: outcomes.filter((entry) => entry.status === "failed").length,
+    skipped: outcomes.filter((entry) => entry.status === "skipped").length,
+  };
+}
+
+export async function executePreparedWorkflowUnit(args: {
+  prepared: PreparedWorkflowExecution;
+  unit: PreparedWorkflowUnit;
+  messageFormatter: ReturnType<typeof createLocalizedMessageFormatter>;
+}): Promise<PreparedWorkflowUnitExecutionResult> {
+  const buildResult = await buildPreparedWorkflowUnitExecution({
+    prepared: args.prepared,
+    unit: args.unit,
+  });
+  if (buildResult.status === "skipped") {
+    return {
+      outcome: {
+        status: "skipped",
+        reasonCode: "workflow-unit-preflight-skipped",
+      },
+    };
+  }
+  const runState = runWorkflowExecutionSeam({
+    prepared: buildResult.built,
+  });
+  await runState.terminalPromise;
+  const applySummary = await runWorkflowApplySeam({
+    runState,
+    messageFormatter: args.messageFormatter,
+  });
+  const outcome: WorkflowExecutionUnitOutcome =
+    applySummary.failed > 0
+      ? {
+          status: "failed",
+          reasonCode: "workflow-unit-execution-or-apply-failed",
+        }
+      : applySummary.pending > 0
+        ? {
+            status: "failed",
+            reasonCode: "workflow-unit-terminal-result-pending",
+          }
+        : { status: "succeeded" };
+  return {
+    outcome,
+    runState,
+    applySummary,
+  };
+}
+
 export async function executeWorkflowFromCurrentSelection(args: {
   win: _ZoteroTypes.MainWindow;
   workflow: LoadedWorkflow;
@@ -107,11 +189,17 @@ export async function executeWorkflowFromCurrentSelection(args: {
       candidateBackends: submitVisibleBackends,
     });
     if (configurable) {
+      const executionUnitPreview = await buildWorkflowExecutionUnitPreview({
+        win: args.win,
+        workflow: args.workflow,
+        executionOptionsOverride: args.settingsGateInitialOptions,
+      });
       const dialogResult = await openWorkflowSettingsWebDialog({
         workflow: args.workflow,
         ownerWindow: args.win,
         candidateBackends: submitVisibleBackends,
         initialDraft: args.settingsGateInitialOptions,
+        executionUnitPreview,
       });
       if (dialogResult.status !== "confirmed") {
         const canceled = dialogResult.status === "canceled";
@@ -193,21 +281,16 @@ export async function executeWorkflowFromCurrentSelection(args: {
     return;
   }
 
-  const duplicateGuard = await runWorkflowDuplicateGuardSeam({
+  const duplicateGuard = await runWorkflowUnitDuplicateGuardSeam({
     win: args.win,
     workflowId: args.workflow.manifest.id,
     workflowLabel,
-    requests: preparation.prepared.requests,
+    units: preparation.prepared.plan.units,
   });
   const skippedByGuard = duplicateGuard.skippedByDuplicate;
   const totalSkipped = preparation.prepared.skippedByFilter + skippedByGuard;
-  const shortCircuitApplyCount =
-    preparation.prepared.preflight?.shortCircuitApplies.length || 0;
 
-  if (
-    duplicateGuard.allowedRequests.length === 0 &&
-    shortCircuitApplyCount === 0
-  ) {
+  if (duplicateGuard.allowedUnits.length === 0) {
     appendRuntimeLog({
       level: "warn",
       scope: "workflow-trigger",
@@ -234,39 +317,134 @@ export async function executeWorkflowFromCurrentSelection(args: {
     return;
   }
 
-  const runState = runWorkflowExecutionSeam({
-    prepared: {
-      ...preparation.prepared,
-      requests: duplicateGuard.allowedRequests,
-    },
-  });
-
   emitWorkflowStartToast(
     {
       workflowLabel,
-      totalJobs: runState.totalJobs,
+      totalJobs: duplicateGuard.allowedUnits.length,
       messageFormatter,
     },
     hiddenWorkflowToastDeps,
   );
 
-  await runState.idlePromise;
+  const executionResults = new Map<
+    string,
+    PreparedWorkflowUnitExecutionResult
+  >();
+  const executeUnit = async (unit: PreparedWorkflowUnit) => {
+    let result: PreparedWorkflowUnitExecutionResult;
+    try {
+      result = await executePreparedWorkflowUnit({
+        prepared: preparation.prepared,
+        unit,
+        messageFormatter,
+      });
+    } catch (error) {
+      result = {
+        outcome: {
+          status: "failed",
+          reasonCode: "workflow-unit-build-or-execution-failed",
+        },
+        failureReason:
+          error instanceof Error ? error.message : String(error || "unknown"),
+      };
+      appendRuntimeLog({
+        level: "error",
+        scope: "workflow-trigger",
+        workflowId: args.workflow.manifest.id,
+        stage: "workflow-unit-execution-failed",
+        message: "workflow execution unit failed",
+        details: {
+          unitId: unit.unitId,
+          taskName: unit.taskName,
+          reason: result.failureReason,
+        },
+        error,
+      });
+    }
+    executionResults.set(unit.unitId, result);
+    return result.outcome;
+  };
+  const initialOutcomes: WorkflowExecutionUnitOutcome[] = Array.from(
+    { length: totalSkipped },
+    () => ({
+      status: "skipped",
+      reasonCode: "workflow-unit-filtered-or-duplicate",
+    }),
+  );
+  const backendType = String(
+    preparation.prepared.executionContext.backend.type || "",
+  ).trim();
+  let submissionSummary: WorkflowUnitSubmissionSummary;
+  if (backendType === "acp" || backendType === "skillrunner") {
+    const handle = workflowSubmissionQueue.enqueueSubmission({
+      backend: {
+        backendType,
+        backendId: preparation.prepared.executionContext.backend.id,
+      },
+      workflow: {
+        workflowId: args.workflow.manifest.id,
+        workflowLabel,
+      },
+      units: duplicateGuard.allowedUnits.map((unit) => ({
+        unit,
+        display: {
+          unitId: unit.unitId,
+          order: unit.order,
+          taskName: unit.taskName,
+          inputUnitIdentity: unit.inputUnitIdentity,
+        },
+      })),
+      maxConcurrency:
+        preparation.prepared.executionOptions.hostOptions?.queue
+          ?.maxConcurrency,
+      initialOutcomes,
+      executeUnit,
+    });
+    submissionSummary = await handle.completion;
+  } else {
+    const outcomes = [...initialOutcomes];
+    if (backendType === "pass-through") {
+      for (const unit of duplicateGuard.allowedUnits) {
+        outcomes.push(await executeUnit(unit));
+      }
+    } else {
+      outcomes.push(
+        ...(await Promise.all(duplicateGuard.allowedUnits.map(executeUnit))),
+      );
+    }
+    submissionSummary = summarizeWorkflowUnitOutcomes(outcomes);
+  }
 
-  const applySummary = await runWorkflowApplySeam({
-    runState,
-    messageFormatter,
-  });
-
+  const orderedExecutionResults = duplicateGuard.allowedUnits
+    .map((unit) => executionResults.get(unit.unitId))
+    .filter(
+      (entry): entry is PreparedWorkflowUnitExecutionResult =>
+        entry !== undefined,
+    );
+  const totalJobs = orderedExecutionResults.reduce(
+    (sum, entry) => sum + (entry.runState?.totalJobs || 0),
+    0,
+  );
+  const jobOutcomes = orderedExecutionResults
+    .flatMap((entry) => entry.applySummary?.jobOutcomes || [])
+    .map((outcome, index) => ({
+      ...outcome,
+      index,
+    }));
+  const failureReasons = orderedExecutionResults.flatMap((entry) => [
+    ...(entry.applySummary?.failureReasons || []),
+    ...(entry.failureReason ? [entry.failureReason] : []),
+  ]);
   const jobToastOutcomes = selectWorkflowJobOutcomesForToasts({
-    outcomes: applySummary.jobOutcomes,
-    totalJobs: runState.totalJobs,
+    outcomes: jobOutcomes,
+    totalJobs,
     skipped: totalSkipped,
   });
   if (jobToastOutcomes.length > 0) {
     emitWorkflowJobToasts(
       {
         workflowLabel,
-        totalJobs: runState.totalJobs,
+        totalJobs,
         outcomes: jobToastOutcomes,
         messageFormatter,
       },
@@ -275,7 +453,7 @@ export async function executeWorkflowFromCurrentSelection(args: {
   }
 
   appendRuntimeLog({
-    level: applySummary.failed > 0 ? "warn" : "info",
+    level: submissionSummary.failed > 0 ? "warn" : "info",
     scope: "workflow-trigger",
     workflowId: args.workflow.manifest.id,
     providerId: String(args.workflow.manifest.provider || "").trim(),
@@ -283,30 +461,31 @@ export async function executeWorkflowFromCurrentSelection(args: {
     message: "workflow trigger finished",
     details: {
       workflowSource,
-      succeeded: applySummary.succeeded,
-      failed: applySummary.failed,
-      pending: applySummary.pending,
-      skipped: totalSkipped,
-      failureCount: applySummary.failureReasons.length,
+      succeeded: submissionSummary.succeeded,
+      failed: submissionSummary.failed,
+      pending: 0,
+      skipped: submissionSummary.skipped,
+      failureCount: failureReasons.length,
     },
   });
 
   if (
-    applySummary.pending === 0 &&
-    shouldEmitWorkflowFinishSummaryToast({
-      outcomes: applySummary.jobOutcomes,
-      totalJobs: runState.totalJobs,
-      skipped: totalSkipped,
-    })
+    !workflowSubmissionQueue.isShuttingDown &&
+    (failureReasons.length > 0 ||
+      shouldEmitWorkflowFinishSummaryToast({
+        outcomes: jobOutcomes,
+        totalJobs,
+        skipped: submissionSummary.skipped,
+      }))
   ) {
     emitWorkflowFinishSummary(
       {
         win: args.win,
         workflowLabel,
-        succeeded: applySummary.succeeded,
-        failed: applySummary.failed,
-        skipped: totalSkipped,
-        failureReasons: applySummary.failureReasons,
+        succeeded: submissionSummary.succeeded,
+        failed: submissionSummary.failed,
+        skipped: submissionSummary.skipped,
+        failureReasons,
         messageFormatter,
       },
       hiddenWorkflowToastDeps,

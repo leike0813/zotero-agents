@@ -32,6 +32,9 @@ import {
   type AssistantWorkspacePublicationAdapter,
   type AssistantWorkspacePublicationRuntimePayloadByKind,
 } from "./assistantWorkspacePublicationRuntime";
+import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
+import { listBackendInstancesSync } from "../backends/registry";
+import { resolveBackendDisplayName } from "../backends/displayName";
 
 export const ACP_SKILL_RUN_CHANGE_PUBLICATION_MAPPING = {
   run: [
@@ -459,6 +462,9 @@ function prepareAcpSkillsOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
     string,
     { groupId: string; label: string; status: string }
   >();
+  const backendById = new Map(
+    listBackendInstancesSync().map((backend) => [backend.id, backend]),
+  );
   for (const summary of summaries) {
     const groupId = String(summary.backendId || "").trim() || "default";
     if (!groups.has(groupId)) {
@@ -469,6 +475,31 @@ function prepareAcpSkillsOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
       });
     }
   }
+  const queuedEntries = workflowSubmissionQueue
+    .listQueued()
+    .filter((entry) => entry.backendType === "acp")
+    .map((entry) => {
+      const backend = backendById.get(entry.backendId);
+      const groupLabel =
+        resolveBackendDisplayName(entry.backendId, backend?.displayName) ||
+        entry.backendId;
+      if (!groups.has(entry.backendId)) {
+        groups.set(entry.backendId, {
+          groupId: entry.backendId,
+          label: groupLabel,
+          status: "queued",
+        });
+      }
+      return {
+        queueId: entry.queueId,
+        groupId: entry.backendId,
+        label: entry.taskName || entry.workflowLabel || entry.workflowId,
+        subtitle: entry.workflowLabel || null,
+        groupLabel,
+        updatedAt: entry.createdAt || null,
+        canCancel: entry.canCancel,
+      };
+    });
   const selectedSummary = summaries.find(
     (summary) => summary.requestId === selectedRequestId,
   );
@@ -499,6 +530,7 @@ function prepareAcpSkillsOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
       updatedAt: String(summary.updatedAt || "").trim() || null,
       messageCount: Math.max(0, Number(summary.transcriptItemCount) || 0),
     })),
+    queuedEntries,
     canCreateOwner: false,
   };
 }

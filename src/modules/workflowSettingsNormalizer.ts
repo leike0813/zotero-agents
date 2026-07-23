@@ -6,6 +6,27 @@ import {
   type WorkflowExecutionOptions,
 } from "./workflowSettingsDomain";
 
+function stripWorkflowHostOptions(
+  value: WorkflowExecutionOptions | undefined,
+): WorkflowExecutionOptions {
+  if (!value) {
+    return {};
+  }
+  const { hostOptions: _hostOptions, ...workflowOwned } = value;
+  return workflowOwned;
+}
+
+function stripWorkflowHostOptionsFromUnknown(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+  const { hostOptions: _hostOptions, ...workflowOwned } = value as Record<
+    string,
+    unknown
+  >;
+  return workflowOwned;
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -44,14 +65,20 @@ export function applyPersistedWorkflowSettingsNormalizer(args: {
     phase: "persisted",
     workflowId: workflow.manifest.id,
     manifest: workflow.manifest,
-    previous: args.previous || {},
-    incoming: args.incoming,
-    merged: args.merged,
+    previous: stripWorkflowHostOptions(args.previous),
+    incoming: stripWorkflowHostOptions(args.incoming),
+    merged: stripWorkflowHostOptions(args.merged),
   });
-  return mergeExecutionOptions(
-    args.merged,
-    parseExecutionOptionsPatch(normalized),
+  const workflowNormalized = mergeExecutionOptions(
+    stripWorkflowHostOptions(args.merged),
+    parseExecutionOptionsPatch(stripWorkflowHostOptionsFromUnknown(normalized)),
   );
+  return Object.prototype.hasOwnProperty.call(args.merged, "hostOptions")
+    ? {
+        ...workflowNormalized,
+        hostOptions: args.merged.hostOptions,
+      }
+    : workflowNormalized;
 }
 
 export function applyExecutionWorkflowParamsNormalizer(args: {

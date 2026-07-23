@@ -16,9 +16,11 @@ import {
 import { createWorkflowResultContext } from "./resultContext";
 import {
   detachAcpSkillRunControllerAfterApplyResult,
+  getAcpSkillRunRecord,
   markAcpSkillRunApplyResult,
 } from "../acpSkillRunStore";
 import {
+  getSkillRunnerRunRecordByRequest,
   updateSkillRunnerRunApplyState,
   updateSkillRunnerRunResult,
   updateSkillRunnerRunStateByRequest,
@@ -37,6 +39,7 @@ import { buildWorkflowTaskRecordFromJob } from "../taskRuntime";
 import { canWorkflowRunWithoutSelection } from "../workflowSelectionPolicy";
 import { collectSkillRunFeedbackSidecar } from "../skillRunFeedback";
 import { normalizeWorkflowApplyDiagnostics } from "./applyDiagnostics";
+import { getSequenceRunState } from "./sequenceStateStore";
 
 type RunResultLike = {
   status?: string;
@@ -97,6 +100,106 @@ function getJobResultStatus(job?: { result?: unknown }) {
       ? (job.result as { status?: unknown })
       : undefined;
   return String(result?.status || "").trim();
+}
+
+function resolveDeferredTerminalOutcome(args: {
+  runState: WorkflowRunState;
+  jobId: string;
+  requestId: string;
+}) {
+  const job = args.runState.queue.getJob(args.jobId);
+  let terminalRequestId = args.requestId;
+  const requestKind =
+    job?.request &&
+    typeof job.request === "object" &&
+    !Array.isArray(job.request)
+      ? String((job.request as { kind?: unknown }).kind || "").trim()
+      : "";
+  if (requestKind === "skillrunner.sequence.v1") {
+    const sequenceState = getSequenceRunState(
+      `${args.runState.runId}-${args.jobId}`,
+    );
+    if (
+      sequenceState?.status === "failed" ||
+      sequenceState?.status === "canceled"
+    ) {
+      return {
+        status: "failed" as const,
+        terminalState:
+          sequenceState.status === "canceled"
+            ? ("canceled" as const)
+            : ("failed" as const),
+        reason: sequenceState.error || `sequence ${sequenceState.status}`,
+      };
+    }
+    if (sequenceState?.status === "completed") {
+      terminalRequestId =
+        [...sequenceState.steps]
+          .reverse()
+          .map((step) => String(step.requestId || "").trim())
+          .find(Boolean) || terminalRequestId;
+    }
+  }
+
+  const backendType = String(job?.meta.backendType || "").trim();
+  if (backendType === "skillrunner") {
+    const record = getSkillRunnerRunRecordByRequest({
+      backendId: job?.meta.backendId as string | undefined,
+      requestId: terminalRequestId,
+    });
+    if (record?.status === "failed" || record?.status === "canceled") {
+      return {
+        status: "failed" as const,
+        terminalState:
+          record.status === "canceled"
+            ? ("canceled" as const)
+            : ("failed" as const),
+        reason: record.error || `provider ${record.status}`,
+      };
+    }
+    if (
+      record?.status === "succeeded" &&
+      (record.apply.state === "succeeded" || record.apply.state === "skipped")
+    ) {
+      return { status: "succeeded" as const };
+    }
+    if (record?.apply.state === "failed") {
+      return {
+        status: "failed" as const,
+        terminalState: "failed" as const,
+        reason: record.apply.error || "workflow apply failed",
+      };
+    }
+  }
+
+  if (backendType === "acp") {
+    const record = getAcpSkillRunRecord(terminalRequestId);
+    if (record?.status === "failed" || record?.status === "canceled") {
+      return {
+        status: "failed" as const,
+        terminalState:
+          record.status === "canceled"
+            ? ("canceled" as const)
+            : ("failed" as const),
+        reason: record.error || `provider ${record.status}`,
+      };
+    }
+    if (
+      record?.status === "succeeded" &&
+      record.applyResultState === "succeeded"
+    ) {
+      return { status: "succeeded" as const };
+    }
+    if (record?.applyResultState === "failed") {
+      return {
+        status: "failed" as const,
+        terminalState: "failed" as const,
+        reason: record.error || "workflow apply failed",
+      };
+    }
+  }
+
+  return null;
 }
 
 function isPendingWorkflowJobState(state: string) {
@@ -445,6 +548,67 @@ export async function runWorkflowApplySeam(
         continue;
       }
       if (resultStatus === "deferred") {
+        const terminalOutcome = resolveDeferredTerminalOutcome({
+          runState: args.runState,
+          jobId: job.id,
+          requestId: result.requestId,
+        });
+        if (terminalOutcome?.status === "succeeded") {
+          succeeded += 1;
+          jobOutcomes.push({
+            index: i,
+            taskLabel,
+            succeeded: true,
+            terminalState: "succeeded",
+            jobId: job.id,
+            requestId: result.requestId,
+          });
+          resolved.appendRuntimeLog({
+            level: "info",
+            scope: "job",
+            workflowId: args.runState.workflow.manifest.id,
+            jobId: job.id,
+            requestId: result.requestId,
+            stage: "provider-deferred-terminal-applied",
+            message:
+              "deferred provider execution and workflow apply reached terminal success",
+            details: { index: i, taskLabel },
+          });
+          continue;
+        }
+        if (terminalOutcome?.status === "failed") {
+          failed += 1;
+          const reason = terminalOutcome.reason || "deferred execution failed";
+          failureReasons.push(
+            `job-${i} (request_id=${result.requestId}): ${reason}`,
+          );
+          jobOutcomes.push({
+            index: i,
+            taskLabel,
+            succeeded: false,
+            terminalState: terminalOutcome.terminalState,
+            reason,
+            jobId: job.id,
+            requestId: result.requestId,
+          });
+          resolved.appendRuntimeLog({
+            level: "error",
+            scope: "job",
+            workflowId: args.runState.workflow.manifest.id,
+            jobId: job.id,
+            requestId: result.requestId,
+            stage: "provider-deferred-terminal-failed",
+            message:
+              "deferred provider execution or workflow apply reached terminal failure",
+            details: {
+              index: i,
+              taskLabel,
+              terminalState: terminalOutcome.terminalState,
+              reason,
+            },
+          });
+          continue;
+        }
         pending += 1;
         resolved.appendRuntimeLog({
           level: "info",

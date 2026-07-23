@@ -26,7 +26,10 @@ import {
   mergeDashboardTaskRows,
   normalizeDashboardBackends,
   normalizeDashboardTabKey,
+  projectDashboardQueuedRows,
 } from "./taskDashboardSnapshot";
+import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
+import type { WorkflowQueueEntryId } from "../jobQueue/workflowSubmissionQueueContracts";
 import { getLoadedWorkflowSourceById } from "./workflowRuntime";
 import {
   listActiveWorkflowTaskSummaries,
@@ -174,6 +177,8 @@ function normalizeRuntimeLogFilters(
 
 type DashboardRow = {
   id: string;
+  rowKind?: "host-queued-workflow-unit";
+  queueId?: string;
   workflowId: string;
   workflowLabel: string;
   backendId: string;
@@ -195,8 +200,8 @@ type DashboardRow = {
   sequenceStepIndex?: number;
   workflowRunId?: string;
   engine?: string;
-  jobId: string;
-  runId: string;
+  jobId?: string;
+  runId?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -1708,6 +1713,10 @@ async function buildDashboardSnapshot(args: {
     ),
     openRun: localize("task-dashboard-open-run", "Open Run"),
     cancelRun: localize("task-dashboard-skillrunner-cancel", "Cancel Run"),
+    cancelQueuedWorkflowUnit: localize(
+      "workflow-queue-cancel",
+      "Cancel queued workflow unit",
+    ),
     logsTitle: localize("task-dashboard-generic-logs-title", "Runtime Logs"),
     logsEmpty: localize(
       "task-dashboard-generic-logs-empty",
@@ -2374,15 +2383,36 @@ async function buildDashboardSnapshot(args: {
   };
 
   if (isSkillRunnerBackend(selectedBackend)) {
+    backendView.rows = [
+      ...projectDashboardQueuedRows({
+        backend: selectedBackend,
+        queuedStateLabel: resolveStatusLabel("queued"),
+        queued: workflowSubmissionQueue.listQueued({
+          backendType: "skillrunner",
+          backendId: selectedBackend.id,
+        }),
+      }),
+      ...backendView.rows,
+    ];
     snapshot.backendView = backendView;
     return finalizeDashboardSnapshot(snapshot);
   }
 
   if (isAcpBackend(selectedBackend)) {
-    backendView.rows = mergeAcpBackendTaskRows({
-      backendId: selectedBackend.id,
-      backendMetaById,
-    });
+    backendView.rows = [
+      ...projectDashboardQueuedRows({
+        backend: selectedBackend,
+        queuedStateLabel: resolveStatusLabel("queued"),
+        queued: workflowSubmissionQueue.listQueued({
+          backendType: "acp",
+          backendId: selectedBackend.id,
+        }),
+      }),
+      ...mergeAcpBackendTaskRows({
+        backendId: selectedBackend.id,
+        backendMetaById,
+      }),
+    ];
     backendView.emptyRowsText =
       backendView.emptyRowsText ||
       labels.backendNoTasks ||
@@ -2469,6 +2499,7 @@ type RefreshReason =
   | "user-action"
   | "periodic"
   | "task-update"
+  | "queue-update"
   | "backend-health"
   | "backend-load"
   | "diagnostic-update"
@@ -2589,6 +2620,7 @@ export async function openTaskManagerDialog(args?: {
   let unsubscribeTasks: (() => void) | undefined;
   let unsubscribeBackendHealth: (() => void) | undefined;
   let unsubscribeAcpSkillRuns: (() => void) | undefined;
+  let unsubscribeWorkflowQueue: (() => void) | undefined;
   let refreshTimer: number | undefined;
   let deferredDashboardRefreshTimer: number | undefined;
   let dashboardRefreshQueued = false;
@@ -3598,6 +3630,7 @@ export async function openTaskManagerDialog(args?: {
             : undefined,
         workflowParams: executionOptions.workflowParams || {},
         providerOptions,
+        hostOptions: executionOptions.hostOptions || {},
       });
       clearWorkflowSettingsSaveTimer(state, workflowId, getRuntimeWindow());
       state.workflowSettingsSaveStateById.set(workflowId, "saving");
@@ -3909,6 +3942,14 @@ export async function openTaskManagerDialog(args?: {
           ),
         );
       }
+      return;
+    }
+    if (action === "cancel-queued-workflow-unit") {
+      const queueId = String(payload.queueId || "").trim();
+      if (queueId) {
+        workflowSubmissionQueue.cancel(queueId as WorkflowQueueEntryId);
+      }
+      refresh("queue-update");
       return;
     }
     if (action === "cancel-run") {
@@ -4348,6 +4389,10 @@ export async function openTaskManagerDialog(args?: {
       unsubscribeAcpSkillRuns();
       unsubscribeAcpSkillRuns = undefined;
     }
+    if (unsubscribeWorkflowQueue) {
+      unsubscribeWorkflowQueue();
+      unsubscribeWorkflowQueue = undefined;
+    }
     if (removeMessageListener) {
       removeMessageListener();
       removeMessageListener = undefined;
@@ -4428,6 +4473,27 @@ export async function openTaskManagerDialog(args?: {
     unsubscribeAcpSkillRuns = subscribeAcpSkillRunWorkspaceChanges(() => {
       markTaskSummaryDirty();
       refresh("task-update");
+    });
+    unsubscribeWorkflowQueue = workflowSubmissionQueue.subscribe((event) => {
+      const selectedBackendId = fromBackendTabKey(state.selectedTabKey);
+      if (!selectedBackendId) {
+        return;
+      }
+      const eventBackend =
+        event.type === "added"
+          ? event.entry
+          : event.type === "removed"
+            ? event.backend
+            : null;
+      if (
+        event.type === "reset" ||
+        (eventBackend &&
+          eventBackend.backendId === selectedBackendId &&
+          (eventBackend.backendType === "acp" ||
+            eventBackend.backendType === "skillrunner"))
+      ) {
+        refresh("queue-update");
+      }
     });
     registerBackgroundRefreshTimer({
       owner: "task-dashboard-refresh",

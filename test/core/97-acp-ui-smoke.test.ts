@@ -401,6 +401,7 @@ function canonicalState(source: "acp-chat" | "acp-skills") {
           messageCount: 3,
         },
       ],
+      queuedEntries: [],
       canCreateOwner: source === "acp-chat",
     },
     services: {
@@ -1438,21 +1439,173 @@ describe("Assistant Workspace ACP UI v1", function () {
       updatedAt: "2026-07-17T00:00:00.000Z",
       messageCount: 1,
     });
+    skillsState.navigation.queuedEntries.push({
+      queueId: "queue-b",
+      groupId: "backend-b",
+      label: "Queued Paper",
+      subtitle: "Queued Workflow",
+      groupLabel: "Backend B",
+      updatedAt: "2026-07-17T01:00:00.000Z",
+      canCancel: true,
+    });
     const skillsPanel = model.projectAssistantWorkspacePanel(
       skillsState,
-      { completedCollapsed: false },
-      {},
+      {
+        runningCollapsed: false,
+        queuedCollapsed: true,
+        completedCollapsed: true,
+      },
+      {
+        assistantPanel: {
+          drawer: {
+            running: "运行中",
+            queued: "排队中",
+            completed: "已完成",
+          },
+          actions: {
+            cancelQueuedWorkflowUnit: "取消排队任务",
+          },
+        },
+      },
     );
     assert.deepEqual(
       skillsPanel.drawers.sections.map((section: any) => [
         section.id,
+        section.title,
+        section.collapsible,
+        section.collapsed,
         section.groups.map((group: any) => group.backendId),
       ]),
       [
-        ["active", ["backend-a"]],
-        ["completed", ["backend-c"]],
+        ["running", "运行中", true, false, ["backend-a"]],
+        ["queued", "排队中", true, true, ["backend-b"]],
+        ["completed", "已完成", true, true, ["backend-c"]],
       ],
     );
+    const queuedTask = skillsPanel.drawers.sections[1].groups[0].activeTasks[0];
+    assert.isFalse(queuedTask.selectable);
+    assert.equal(queuedTask.stateLabel, "排队中");
+    assert.equal(queuedTask.itemActions[0].label, "取消排队任务");
+    assert.deepEqual(queuedTask.itemActions[0].payload, {
+      queueId: "queue-b",
+    });
+  });
+
+  it("renders semantic task-drawer section classes and routes every collapse toggle", async function () {
+    const document = new FakeDocument();
+    const model = await loadPanelModel();
+    const renderer = await loadPanelRenderer(document);
+    const { root, regions } = createPanelManagedRegions(document);
+    const state = canonicalState("acp-skills") as any;
+    state.navigation.entries.push({
+      owner: owner("acp-skills", "request-c"),
+      groupId: "backend-a",
+      label: "Task Complete",
+      subtitle: "Skill Complete",
+      groupLabel: "Backend A",
+      status: "succeeded",
+      backendStatus: "idle",
+      applyState: "succeeded",
+      updatedAt: "2026-07-17T00:00:00.000Z",
+      messageCount: 1,
+    });
+    state.navigation.queuedEntries.push({
+      queueId: "queue-a",
+      groupId: "backend-a",
+      label: "Queued Paper",
+      subtitle: "Queued Workflow",
+      groupLabel: "Backend A",
+      updatedAt: "2026-07-17T01:00:00.000Z",
+      canCancel: true,
+    });
+    const actions: Array<{ action: string; payload: unknown }> = [];
+    renderer.renderAssistantPanelSnapshot(
+      model.projectAssistantWorkspacePanel(
+        state,
+        {
+          runningCollapsed: false,
+          queuedCollapsed: false,
+          completedCollapsed: false,
+        },
+        {},
+      ),
+      {
+        managed: true,
+        root,
+        regions,
+        onAction(action: string, payload: unknown) {
+          actions.push({ action, payload });
+        },
+      },
+    );
+
+    const sections = regions.drawer.querySelectorAll(
+      ".assistant-workspace-drawer-section",
+    );
+    assert.deepEqual(
+      sections.map((section) =>
+        ["running", "queued", "completed"].find((id) =>
+          section.classList.contains(`is-${id}`),
+        ),
+      ),
+      ["running", "queued", "completed"],
+    );
+    regions.drawer
+      .querySelectorAll(".assistant-workspace-drawer-section-toggle")
+      .forEach((toggle) => {
+        toggle.listeners.get("click")?.[0]?.({
+          preventDefault() {},
+          stopPropagation() {},
+        });
+      });
+    assert.deepEqual(actions, [
+      {
+        action: "toggle-drawer-section",
+        payload: { sectionId: "running" },
+      },
+      {
+        action: "toggle-drawer-section",
+        payload: { sectionId: "queued" },
+      },
+      {
+        action: "toggle-drawer-section",
+        payload: { sectionId: "completed" },
+      },
+    ]);
+  });
+
+  it("preserves non-drawer managed regions across queue-only updates", async function () {
+    const document = new FakeDocument();
+    const model = await loadPanelModel();
+    const renderer = await loadPanelRenderer(document);
+    const { root, regions } = createPanelManagedRegions(document);
+    const state = canonicalState("acp-skills") as any;
+    const render = () =>
+      renderer.renderAssistantPanelSnapshot(
+        model.projectAssistantWorkspacePanel(
+          state,
+          { queuedCollapsed: false, completedCollapsed: true },
+          {},
+        ),
+        { managed: true, root, regions, onAction() {} },
+      );
+
+    render();
+    const stableRegions = Object.fromEntries(
+      Object.entries(regions).filter(([key]) => key !== "drawer"),
+    );
+    const stableSubtrees = captureRegionSubtrees(stableRegions);
+    state.navigation.queuedEntries.push({
+      queueId: "queue-a",
+      groupId: "backend-a",
+      label: "Queued Paper",
+      subtitle: "Queued Workflow",
+      groupLabel: "Backend A",
+      updatedAt: "2026-07-17T01:00:00.000Z",
+      canCancel: true,
+    });
+    render();
+    assertRegionSubtreesPreserved(stableRegions, stableSubtrees);
   });
 
   it("preserves managed drawer identity when only an empty navigation backend is added", async function () {

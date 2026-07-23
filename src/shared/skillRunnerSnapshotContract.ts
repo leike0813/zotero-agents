@@ -189,6 +189,7 @@ export const SKILLRUNNER_SNAPSHOT_DRAWER_KEYS: readonly string[] = [
 export const SKILLRUNNER_SNAPSHOT_DRAWER_SECTION_KEYS: readonly string[] = [
   "id",
   "title",
+  "collapsible",
   "collapsed",
   "groups",
 ];
@@ -510,6 +511,12 @@ function validateDrawer(drawer: unknown, path: string): string | null {
     if (typeof section.title !== "string") {
       return `${sectionPath}.title`;
     }
+    if (
+      section.collapsible !== undefined &&
+      typeof section.collapsible !== "boolean"
+    ) {
+      return `${sectionPath}.collapsible`;
+    }
     if (typeof section.collapsed !== "boolean") {
       return `${sectionPath}.collapsed`;
     }
@@ -749,6 +756,10 @@ export const SKILLRUNNER_SNAPSHOT_COMPAT_ALIAS_PATHS: readonly string[] = [
   "drawer.sections[].groups[].activeTasks[].active",
   "drawer.sections[].groups[].activeTasks[].applyResultState",
   "drawer.sections[].groups[].activeTasks[].apply_result_state",
+  // Host queue rows carry queueId, while ordinary SkillRunner task fixtures
+  // intentionally omit it; the shared projection probes it to select the
+  // queue-only cancellation action.
+  "drawer.sections[].groups[].activeTasks[].queueId",
   "drawer.sections[].groups[].activeTasks[].mainStatus",
   "drawer.sections[].groups[].activeTasks[].main_status",
   "drawer.sections[].groups[].activeTasks[].role",
@@ -964,6 +975,10 @@ export type SkillRunnerRunDialogActionPayloadMap = {
   [SKILLRUNNER_LEGACY_ACTIONS.REPLY_RUN]: SkillRunnerReplyRunPayload;
   [SKILLRUNNER_LEGACY_ACTIONS.RESOLVE_PERMISSION]: SkillRunnerResolvePermissionPayload;
   [SKILLRUNNER_LEGACY_ACTIONS.CANCEL_RUN]: SkillRunnerCancelRunPayload;
+  [SKILLRUNNER_LEGACY_ACTIONS.CANCEL_QUEUED_WORKFLOW_UNIT]: {
+    queueId?: string;
+    [key: string]: unknown;
+  };
   [SKILLRUNNER_LEGACY_ACTIONS.ARCHIVE_RUN]: SkillRunnerArchiveRunPayload;
   [SKILLRUNNER_LEGACY_ACTIONS.COPY_REQUEST_ID]: SkillRunnerCopyRequestIdPayload;
   [SKILLRUNNER_LEGACY_ACTIONS.COPY_DIAGNOSTICS]: SkillRunnerCopyDiagnosticsPayload;

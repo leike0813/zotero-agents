@@ -8,8 +8,10 @@ import type { WorkflowParameterSchema } from "../workflows/types";
 import type { WorkflowParameterOption } from "../workflows/types";
 import type {
   WorkflowExecutionOptions,
+  WorkflowHostOptions,
   WorkflowSettingsDialogInitialState,
 } from "./workflowSettingsDomain";
+import { normalizeHostQueueMaxConcurrency } from "./workflowSettingsDomain";
 
 export type FormSchemaType = "string" | "number" | "boolean" | "array";
 
@@ -36,6 +38,35 @@ export type WorkflowSettingsDialogProfileItem = {
   label: string;
 };
 
+export type WorkflowExecutionUnitPreview = Readonly<{
+  unitId: string;
+  taskName: string;
+  inputUnitIdentity?: string;
+}>;
+
+export type WorkflowExecutionUnitPreviewState =
+  | Readonly<{ status: "loading" }>
+  | Readonly<{
+      status: "success";
+      units: ReadonlyArray<WorkflowExecutionUnitPreview>;
+    }>
+  | Readonly<{
+      status: "empty";
+      units: ReadonlyArray<WorkflowExecutionUnitPreview>;
+    }>
+  | Readonly<{ status: "failure"; reasonCode: string }>;
+
+export type WorkflowSettingsDialogLayout = Readonly<{
+  mode: "single-region" | "multi-unit";
+  showExecutionUnitPreview: boolean;
+  showHostMaximumConcurrency: boolean;
+}>;
+
+export type WorkflowHostOptionDescriptor = Readonly<{
+  queueSupported: boolean;
+  maxConcurrency?: number;
+}>;
+
 export type WorkflowSettingsDialogRenderModel = {
   providerId: string;
   selectedProfile: string;
@@ -45,7 +76,27 @@ export type WorkflowSettingsDialogRenderModel = {
   persistedProviderOptions: Record<string, unknown>;
   runOnceWorkflowParams: Record<string, unknown>;
   runOnceProviderOptions: Record<string, unknown>;
+  hostOptions?: WorkflowHostOptionDescriptor;
+  executionUnitPreview?: WorkflowExecutionUnitPreviewState;
+  layout: WorkflowSettingsDialogLayout;
 };
+
+export function resolveWorkflowSettingsDialogLayout(args: {
+  hostQueueSupported: boolean;
+  executionUnitPreview?: WorkflowExecutionUnitPreviewState;
+}): WorkflowSettingsDialogLayout {
+  const units =
+    args.executionUnitPreview?.status === "success"
+      ? args.executionUnitPreview.units
+      : [];
+  const showMultiUnitRegion =
+    args.hostQueueSupported === true && units.length > 1;
+  return Object.freeze({
+    mode: showMultiUnitRegion ? "multi-unit" : "single-region",
+    showExecutionUnitPreview: showMultiUnitRegion,
+    showHostMaximumConcurrency: showMultiUnitRegion,
+  });
+}
 
 function normalizeEnum(values: unknown): string[] {
   if (!Array.isArray(values)) {
@@ -216,6 +267,8 @@ export function buildWorkflowSettingsDialogRenderModel(args: {
   profileItems: WorkflowSettingsDialogProfileItem[];
   initialState: WorkflowSettingsDialogInitialState;
   workflowParameters?: Record<string, WorkflowParameterSchema>;
+  hostQueueSupported?: boolean;
+  executionUnitPreview?: WorkflowExecutionUnitPreviewState;
 }): WorkflowSettingsDialogRenderModel {
   return {
     providerId: String(args.providerId || "").trim(),
@@ -229,6 +282,53 @@ export function buildWorkflowSettingsDialogRenderModel(args: {
     persistedProviderOptions: { ...args.initialState.persistedProviderOptions },
     runOnceWorkflowParams: { ...args.initialState.runOnceWorkflowParams },
     runOnceProviderOptions: { ...args.initialState.runOnceProviderOptions },
+    ...(typeof args.hostQueueSupported === "boolean"
+      ? {
+          hostOptions: {
+            queueSupported: args.hostQueueSupported,
+            maxConcurrency:
+              args.initialState.runOnceHostOptions?.queue?.maxConcurrency ??
+              args.initialState.persistedHostOptions?.queue?.maxConcurrency,
+          },
+        }
+      : {}),
+    ...(args.executionUnitPreview
+      ? { executionUnitPreview: args.executionUnitPreview }
+      : {}),
+    layout: resolveWorkflowSettingsDialogLayout({
+      hostQueueSupported: args.hostQueueSupported === true,
+      executionUnitPreview: args.executionUnitPreview,
+    }),
+  };
+}
+
+export type WorkflowHostOptionsDraftResult =
+  | Readonly<{
+      status: "valid";
+      hostOptions: WorkflowHostOptions;
+    }>
+  | Readonly<{
+      status: "invalid";
+      reasonCode: "invalid_host_queue_max_concurrency";
+    }>;
+
+export function buildWorkflowHostOptionsDraft(
+  rawMaxConcurrency: unknown,
+): WorkflowHostOptionsDraftResult {
+  const normalized = normalizeHostQueueMaxConcurrency(rawMaxConcurrency);
+  if (normalized.status === "invalid") {
+    return normalized;
+  }
+  return {
+    status: "valid",
+    hostOptions:
+      typeof normalized.maxConcurrency === "number"
+        ? {
+            queue: {
+              maxConcurrency: normalized.maxConcurrency,
+            },
+          }
+        : {},
   };
 }
 
@@ -290,20 +390,46 @@ export function buildWorkflowSettingsDialogDraft(args: {
   persistedProviderFields: HTMLElement;
   onceWorkflowFields: HTMLElement;
   onceProviderFields: HTMLElement;
+  persistedHostMaxConcurrency?: unknown;
+  onceHostMaxConcurrency?: unknown;
 }): {
   persistent: WorkflowExecutionOptions;
   runOnce: WorkflowExecutionOptions;
 } {
+  const hasPersistedHostValue = Object.prototype.hasOwnProperty.call(
+    args,
+    "persistedHostMaxConcurrency",
+  );
+  const hasOnceHostValue = Object.prototype.hasOwnProperty.call(
+    args,
+    "onceHostMaxConcurrency",
+  );
+  const persistedHost = buildWorkflowHostOptionsDraft(
+    args.persistedHostMaxConcurrency,
+  );
+  const onceHost = buildWorkflowHostOptionsDraft(args.onceHostMaxConcurrency);
+  if (hasPersistedHostValue && persistedHost.status === "invalid") {
+    throw new RangeError("Workflow Host queue maximum concurrency is invalid");
+  }
+  if (hasOnceHostValue && onceHost.status === "invalid") {
+    throw new RangeError("Workflow Host queue maximum concurrency is invalid");
+  }
   return {
     persistent: {
       backendId: String(args.persistedProfile || "").trim() || undefined,
       workflowParams: collectSchemaValues(args.persistedWorkflowFields),
       providerOptions: collectSchemaValues(args.persistedProviderFields),
+      ...(hasPersistedHostValue && persistedHost.status === "valid"
+        ? { hostOptions: persistedHost.hostOptions }
+        : {}),
     },
     runOnce: {
       backendId: String(args.onceProfile || "").trim() || undefined,
       workflowParams: collectSchemaValues(args.onceWorkflowFields),
       providerOptions: collectSchemaValues(args.onceProviderFields),
+      ...(hasOnceHostValue && onceHost.status === "valid"
+        ? { hostOptions: onceHost.hostOptions }
+        : {}),
     },
   };
 }

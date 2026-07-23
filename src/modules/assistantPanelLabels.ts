@@ -55,6 +55,10 @@ export function buildAssistantPanelLabels() {
         "assistant-panel-action-copy-diagnostics",
         "Copy Diagnostics",
       ),
+      cancelQueuedWorkflowUnit: l(
+        "workflow-queue-cancel",
+        "Cancel queued workflow unit",
+      ),
       openWorkspace: l(
         "assistant-panel-action-open-workspace",
         "Open Workspace",
@@ -199,6 +203,7 @@ export function buildAssistantPanelLabels() {
     },
     drawer: {
       running: l("assistant-panel-drawer-running", "Running"),
+      queued: l("workflow-queue-section-title", "Queued"),
       completed: l("assistant-panel-drawer-completed", "Completed"),
       emptyTasks: l("assistant-panel-drawer-empty-tasks", "No runs."),
       emptyContexts: l("assistant-panel-drawer-empty-contexts", "No entries."),
@@ -464,6 +469,7 @@ export function buildAssistantPanelLabels() {
       completed: l("assistant-panel-status-completed", "Completed"),
       waiting: l("assistant-panel-status-waiting", "Waiting"),
       pending: l("assistant-panel-status-pending", "Pending"),
+      queued: l("workflow-queue-state", "Queued"),
       succeeded: l("assistant-panel-status-succeeded", "Succeeded"),
       failed: l("assistant-panel-status-failed", "Failed"),
       failedRetriable: l(

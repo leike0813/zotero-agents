@@ -2,18 +2,22 @@
 
 ### Requirement: ACP Skills task drawer SHALL expose Host-queued units as non-owner rows
 
-The ACP Skills task drawer MUST insert a collapsible `Queued` section between
-its running and completed sections. The section MUST be expanded by default,
-hidden when empty, grouped by backend profile with independently collapsible
-backend groups, and populated from the Host queue read model rather than ACP
-task or transcript state.
+The ACP Skills task drawer MUST render collapsible `Running`, `Queued`, and
+`Completed` sections using one shared presentation contract. `Running` MUST be
+expanded by default; `Queued` and `Completed` MUST be collapsed by default.
+The `Queued` section MUST be hidden when empty, grouped by backend profile with
+independently collapsible backend groups, and populated from the Host queue
+read model rather than ACP task or transcript state.
 
 #### Scenario: ACP queued units exist
 
 - **WHEN** the ACP Skills drawer snapshot contains Host-queued units
 - **THEN** the drawer SHALL render `Running`, `Queued`, and `Completed` in that order
+- **AND** all three section headers SHALL toggle only their own local collapse state
 - **AND** queued rows SHALL be grouped under their backend profiles
-- **AND** the queued section and its backend groups SHALL be expanded by default
+- **AND** the queued section SHALL be collapsed by default while its backend groups retain independent state
+- **AND** the section titles, queued state, and cancel action SHALL use localized shared labels
+- **AND** Running, Queued, and Completed SHALL use subtle theme-aware blue, amber, and neutral treatments respectively
 
 #### Scenario: ACP queue is empty
 
@@ -50,4 +54,3 @@ offer the same pending-only cancel action as the task drawer.
 - **WHEN** the row has already been admitted before Dashboard handles its cancel action
 - **THEN** the Dashboard SHALL refresh the queue projection
 - **AND** it SHALL NOT issue ACP backend cancellation on behalf of that stale queued action
-

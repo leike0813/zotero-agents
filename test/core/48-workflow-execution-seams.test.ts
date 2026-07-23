@@ -17,7 +17,10 @@ import {
   shouldEmitWorkflowFinishSummaryToast,
 } from "../../src/modules/workflowExecution/feedbackSeam";
 import { createLocalizedMessageFormatter } from "../../src/modules/workflowExecution/messageFormatter";
-import { runWorkflowPreparationSeam } from "../../src/modules/workflowExecution/preparationSeam";
+import {
+  buildPreparedWorkflowUnitExecution,
+  runWorkflowPreparationSeam,
+} from "../../src/modules/workflowExecution/preparationSeam";
 import { runWorkflowApplySeam } from "../../src/modules/workflowExecution/applySeam";
 import { runWorkflowExecutionSeam } from "../../src/modules/workflowExecution/runSeam";
 import { buildWorkflowTaskRecordFromJob } from "../../src/modules/taskRuntime";
@@ -32,7 +35,10 @@ import {
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import { listHostBridgeNotificationEvents } from "../../src/modules/hostBridgeNotificationInbox";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
-import { executeBuildRequests } from "../../src/workflows/runtime";
+import {
+  executeBuildRequests,
+  planWorkflowExecutionUnits,
+} from "../../src/workflows/runtime";
 import { joinPath, mkTempDir, writeUtf8 } from "./workflow-test-utils";
 import {
   armAcpRuntimeSemanticTraceRecorder,
@@ -43,6 +49,24 @@ import {
 } from "../../src/modules/acpRuntimeSemanticTraceRecorder";
 import { loadAcpRuntimeSemanticTrace } from "../../src/modules/acpRuntimeSemanticTrace";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+
+async function planSingleWorkflowUnit(args: { selectionContext: unknown }) {
+  return {
+    units: [
+      {
+        unitId: "unit-1",
+        order: 0,
+        taskName: "Test unit",
+        selectionContext: args.selectionContext as any,
+      },
+    ],
+    stats: {
+      totalUnits: 1,
+      executableUnits: 1,
+      skippedUnits: 0,
+    },
+  } as any;
+}
 
 async function createWorkflowRoot(args: {
   id: string;
@@ -120,6 +144,81 @@ describe("workflow execution seams", function () {
   beforeEach(function () {
     clearRuntimeLogs();
     resetWorkflowToastStateForTests();
+  });
+
+  it("plans ordered declarative units without running preflight or request hooks", async function () {
+    let preflightCalled = false;
+    let buildCalled = false;
+    const workflow = {
+      manifest: {
+        id: "deferred-unit-plan",
+        label: "Deferred Unit Plan",
+        provider: "pass-through",
+        inputs: { unit: "parent" },
+        hooks: {
+          preflight: "hooks/preflight.js",
+          buildRequest: "hooks/buildRequest.js",
+          applyResult: "hooks/applyResult.js",
+        },
+      },
+      hooks: {
+        preflight: async () => {
+          preflightCalled = true;
+          return { kind: "continue" };
+        },
+        buildRequest: async () => {
+          buildCalled = true;
+          return { kind: "pass-through.run.v1" };
+        },
+        applyResult: async () => ({ ok: true }),
+      },
+    } as any;
+
+    const plan = await planWorkflowExecutionUnits({
+      workflow,
+      selectionContext: {
+        items: {
+          parents: [
+            { item: { id: 101, title: "First Parent" } },
+            { item: { id: 202, title: "Second Parent" } },
+          ],
+        },
+        summary: { parentCount: 2 },
+      },
+    });
+
+    assert.deepEqual(
+      plan.units.map((unit) => ({
+        unitId: unit.unitId,
+        order: unit.order,
+        taskName: unit.taskName,
+        targetParentID: unit.targetParentID,
+        inputUnitIdentity: unit.inputUnitIdentity,
+      })),
+      [
+        {
+          unitId: "unit-1",
+          order: 0,
+          taskName: "First Parent",
+          targetParentID: 101,
+          inputUnitIdentity: "parent-id:101",
+        },
+        {
+          unitId: "unit-2",
+          order: 1,
+          taskName: "Second Parent",
+          targetParentID: 202,
+          inputUnitIdentity: "parent-id:202",
+        },
+      ],
+    );
+    assert.deepEqual(plan.stats, {
+      totalUnits: 2,
+      executableUnits: 2,
+      skippedUnits: 0,
+    });
+    assert.isFalse(preflightCalled);
+    assert.isFalse(buildCalled);
   });
 
   it("passes preflight continue context to buildRequest without mutating selection", async function () {
@@ -470,7 +569,7 @@ describe("workflow execution seams", function () {
         resolveWorkflowExecutionContext: async () =>
           fakeExecutionContext as any,
         buildSelectionContext: async () => ({}),
-        executeBuildRequests: async () => {
+        planWorkflowExecutionUnits: async () => {
           const error = new Error("skip all");
           (error as any).code = "NO_VALID_INPUT_UNITS";
           (error as any).skippedUnits = 2;
@@ -542,6 +641,7 @@ describe("workflow execution seams", function () {
             runOptions: {},
           }) as any,
         buildSelectionContext: async () => ({ items: [] }) as any,
+        planWorkflowExecutionUnits: planSingleWorkflowUnit as any,
         executeBuildRequests: async () =>
           [
             {
@@ -575,7 +675,45 @@ describe("workflow execution seams", function () {
     if (result.status !== "ready") {
       return;
     }
-    assert.deepEqual(result.prepared.skillDisplayById, {
+    const built = await buildPreparedWorkflowUnitExecution(
+      {
+        prepared: result.prepared,
+        unit: result.prepared.plan.units[0],
+      },
+      {
+        executeBuildRequests: async () =>
+          [
+            {
+              kind: "skillrunner.sequence.v1",
+              steps: [
+                { id: "digest", skill_id: "literature-analysis" },
+                { id: "tag", skill_id: "tag-regulator" },
+              ],
+              final_step_id: "tag",
+            },
+          ] as any,
+        scanPluginSkillRegistry: async () =>
+          ({
+            entries: [],
+            entriesById: {
+              "literature-analysis": {
+                skillId: "literature-analysis",
+                skillName: "Literature Analysis",
+              },
+              "tag-regulator": {
+                skillId: "tag-regulator",
+                skillName: "Tag Regulator",
+              },
+            },
+            diagnostics: [],
+          }) as any,
+      },
+    );
+    assert.equal(built.status, "ready");
+    if (built.status !== "ready") {
+      return;
+    }
+    assert.deepEqual(built.built.skillDisplayById, {
       "literature-analysis": {
         skillId: "literature-analysis",
         skillName: "文献分析",
@@ -623,6 +761,7 @@ describe("workflow execution seams", function () {
       },
       {
         buildSelectionContext: async () => ({ items: { attachments: [] } }),
+        planWorkflowExecutionUnits: planSingleWorkflowUnit as any,
         executeBuildRequests: async () =>
           [
             {
@@ -651,7 +790,33 @@ describe("workflow execution seams", function () {
       result.prepared.executionContext.requestKind,
       "acp.skill.run.v1",
     );
-    assert.deepEqual(result.prepared.requests, [
+    const built = await buildPreparedWorkflowUnitExecution(
+      {
+        prepared: result.prepared,
+        unit: result.prepared.plan.units[0],
+      },
+      {
+        executeBuildRequests: async () =>
+          [
+            {
+              kind: "skillrunner.job.v1",
+              skill_id: "literature-analysis",
+              taskName: "Example",
+              upload_files: [
+                { key: "source_path", path: "D:/real/example.md" },
+              ],
+              input: {
+                source_path: "inputs/source_path/example.md",
+              },
+            },
+          ] as any,
+      },
+    );
+    assert.equal(built.status, "ready");
+    if (built.status !== "ready") {
+      return;
+    }
+    assert.deepEqual(built.built.requests, [
       {
         kind: "acp.skill.run.v1",
         skill_id: "literature-analysis",
@@ -716,6 +881,7 @@ describe("workflow execution seams", function () {
       },
       {
         buildSelectionContext: async () => ({ items: { attachments: [] } }),
+        planWorkflowExecutionUnits: planSingleWorkflowUnit as any,
         executeBuildRequests: async () =>
           [
             {
@@ -762,7 +928,55 @@ describe("workflow execution seams", function () {
     if (result.status !== "ready") {
       return;
     }
-    const runtimeOptions = (result.prepared.requests[0] as any).runtime_options;
+    const built = await buildPreparedWorkflowUnitExecution(
+      {
+        prepared: result.prepared,
+        unit: result.prepared.plan.units[0],
+      },
+      {
+        executeBuildRequests: async () =>
+          [
+            {
+              kind: "skillrunner.job.v1",
+              skill_id: "literature-search-ingest",
+              runtime_options: {
+                execution_mode: "interactive",
+                env: {
+                  KEEP_ME: "yes",
+                  ZOTERO_BRIDGE_ENDPOINT: "http://old.example/bridge/v1",
+                  ZOTERO_BRIDGE_CONNECTION_MODE: "local",
+                },
+                zotero_host_access: {
+                  required: true,
+                  auto_approve_writes: true,
+                },
+              },
+              parameter: { query: "exact paper" },
+            },
+          ] as any,
+        buildSkillRunnerHostBridgeEnv: async (args) => {
+          assert.deepEqual(args, { backendUrl: "http://127.0.0.1:8030" });
+          return {
+            ok: true,
+            endpoint: "http://127.0.0.1:27655/bridge/v1",
+            connectionMode: "local",
+            env: {
+              ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+              ZOTERO_BRIDGE_TOKEN: "runtime-token",
+              ZOTERO_BRIDGE_CONNECTION_MODE: "local",
+            },
+          };
+        },
+        appendRuntimeLog: (entry) => {
+          logs.push({ stage: entry.stage, details: entry.details });
+        },
+      },
+    );
+    assert.equal(built.status, "ready");
+    if (built.status !== "ready") {
+      return;
+    }
+    const runtimeOptions = (built.built.requests[0] as any).runtime_options;
     assert.equal(runtimeOptions.execution_mode, "interactive");
     assert.isTrue(runtimeOptions.no_cache);
     assert.notProperty(runtimeOptions, "workspace");
@@ -787,7 +1001,7 @@ describe("workflow execution seams", function () {
       "skillrunner_zotero_host_access_env_injected",
     );
     assert.isUndefined(
-      (result.prepared.requests[0] as any).runtime_options.zotero_host_access,
+      (built.built.requests[0] as any).runtime_options.zotero_host_access,
     );
   });
 
@@ -833,6 +1047,7 @@ describe("workflow execution seams", function () {
       },
       {
         buildSelectionContext: async () => ({ items: { attachments: [] } }),
+        planWorkflowExecutionUnits: planSingleWorkflowUnit as any,
         executeBuildRequests: async () =>
           [
             {
@@ -877,7 +1092,52 @@ describe("workflow execution seams", function () {
     if (result.status !== "ready") {
       return;
     }
-    const runtimeOptions = (result.prepared.requests[0] as any).runtime_options;
+    const built = await buildPreparedWorkflowUnitExecution(
+      {
+        prepared: result.prepared,
+        unit: result.prepared.plan.units[0],
+      },
+      {
+        executeBuildRequests: async () =>
+          [
+            {
+              kind: "skillrunner.sequence.v1",
+              steps: [
+                {
+                  id: "one",
+                  skill_id: "debug-sequence-probe-emit",
+                  mode: "auto",
+                },
+              ],
+              final_step_id: "one",
+              runtime_options: {
+                env: {
+                  KEEP_ME: "yes",
+                  ZOTERO_BRIDGE_TOKEN: "old-token",
+                },
+                zotero_host_access: {
+                  required: true,
+                },
+              },
+            },
+          ] as any,
+        buildSkillRunnerHostBridgeEnv: async () => ({
+          ok: true,
+          endpoint: "http://127.0.0.1:27655/bridge/v1",
+          connectionMode: "local",
+          env: {
+            ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+            ZOTERO_BRIDGE_TOKEN: "runtime-token",
+            ZOTERO_BRIDGE_CONNECTION_MODE: "local",
+          },
+        }),
+      },
+    );
+    assert.equal(built.status, "ready");
+    if (built.status !== "ready") {
+      return;
+    }
+    const runtimeOptions = (built.built.requests[0] as any).runtime_options;
     assert.isTrue(runtimeOptions.no_cache);
     assert.notProperty(runtimeOptions, "workspace");
     const env = runtimeOptions.env;
@@ -941,6 +1201,7 @@ describe("workflow execution seams", function () {
       },
       {
         buildSelectionContext: async () => ({ items: { attachments: [] } }),
+        planWorkflowExecutionUnits: planSingleWorkflowUnit as any,
         executeBuildRequests: async () =>
           [
             {
@@ -976,11 +1237,50 @@ describe("workflow execution seams", function () {
     );
 
     assert.equal(result.status, "ready");
-    assert.equal(envBuilderCalled, false);
     if (result.status !== "ready") {
       return;
     }
-    assert.deepEqual((result.prepared.requests[0] as any).runtime_options, {
+    const built = await buildPreparedWorkflowUnitExecution(
+      {
+        prepared: result.prepared,
+        unit: result.prepared.plan.units[0],
+      },
+      {
+        executeBuildRequests: async () =>
+          [
+            {
+              kind: "skillrunner.sequence.v1",
+              steps: [
+                {
+                  id: "one",
+                  skill_id: "debug-sequence-probe-emit",
+                  mode: "auto",
+                },
+              ],
+              final_step_id: "one",
+              runtime_options: {
+                zotero_host_access: {
+                  required: true,
+                },
+              },
+            },
+          ] as any,
+        buildSkillRunnerHostBridgeEnv: async () => {
+          envBuilderCalled = true;
+          return {
+            ok: false,
+            code: "should_not_be_called",
+            message: "ACP backend must not use SkillRunner env injection",
+          };
+        },
+      },
+    );
+    assert.equal(built.status, "ready");
+    assert.equal(envBuilderCalled, false);
+    if (built.status !== "ready") {
+      return;
+    }
+    assert.deepEqual((built.built.requests[0] as any).runtime_options, {
       zotero_host_access: {
         required: true,
       },
@@ -1032,6 +1332,7 @@ describe("workflow execution seams", function () {
       },
       {
         buildSelectionContext: async () => ({ items: { attachments: [] } }),
+        planWorkflowExecutionUnits: planSingleWorkflowUnit as any,
         executeBuildRequests: async () =>
           [
             {
@@ -1071,8 +1372,50 @@ describe("workflow execution seams", function () {
       },
     );
 
-    assert.equal(result.status, "halted");
-    assert.include(alerts[0], "host_bridge_remote_lan_disabled");
+    assert.equal(result.status, "ready");
+    if (result.status !== "ready") {
+      return;
+    }
+    let thrown: unknown;
+    try {
+      await buildPreparedWorkflowUnitExecution(
+        {
+          prepared: result.prepared,
+          unit: result.prepared.plan.units[0],
+        },
+        {
+          executeBuildRequests: async () =>
+            [
+              {
+                kind: "skillrunner.job.v1",
+                skill_id: "literature-search-ingest",
+                runtime_options: {
+                  zotero_host_access: {
+                    required: true,
+                  },
+                },
+              },
+            ] as any,
+          buildSkillRunnerHostBridgeEnv: async () => ({
+            ok: false,
+            code: "host_bridge_remote_lan_disabled",
+            message: "LAN access is disabled",
+            details: {
+              backendUrl: "http://192.168.13.10:9813",
+              advertisedHostSource: "auto",
+              token: "must-not-appear",
+            },
+          }),
+        },
+      );
+    } catch (error) {
+      thrown = error;
+    }
+    assert.equal(
+      (thrown as { code?: string } | undefined)?.code,
+      "host_bridge_remote_lan_disabled",
+    );
+    assert.lengthOf(alerts, 0);
   });
 
   it("keeps request-build failure messaging parity through seam entrypoint", async function () {
@@ -1140,7 +1483,7 @@ describe("workflow execution seams", function () {
     assert.isTrue(
       toasts.some(
         (entry) =>
-          /cannot run/.test(entry) && /build request exploded/.test(entry),
+          /failed=1/.test(entry) && /build request exploded/.test(entry),
       ),
       `missing build failure toast: ${JSON.stringify(toasts)}`,
     );
@@ -1235,7 +1578,7 @@ describe("workflow execution seams", function () {
           /succeeded=1/.test(entry) &&
           /failed=1/.test(entry) &&
           /Failure reasons:/.test(entry) &&
-          /job-1 .*forced apply failure/.test(entry),
+          /job-[01] .*forced apply failure/.test(entry),
       ),
       `missing summary toast: ${JSON.stringify(toasts)}`,
     );

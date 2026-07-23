@@ -1,0 +1,16 @@
+{
+  "id": "debug-host-queue-probe",
+  "name": "Debug Host Queue Probe",
+  "description": "Debug-only host queue management probe.",
+  "version": "0.1.0",
+  "debug_only": true,
+  "execution_modes": ["auto"],
+  "schemas": {
+    "output": "assets/output.schema.json"
+  },
+  "entrypoint": {
+    "prompts": {
+      "common": "Execute this debug-only probe exactly as described in SKILL.md. Output exactly one JSON object."
+    }
+  }
+}

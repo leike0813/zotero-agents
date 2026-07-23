@@ -1,5 +1,6 @@
 import type { JobQueueManager } from "../../jobQueue/manager";
 import type { LoadedWorkflow } from "../../workflows/types";
+import type { WorkflowScopedSelectionContext } from "../../workflows/workflowSelectionValidation";
 import type { WorkflowMessageFormatter } from "../workflowExecuteMessage";
 import type { resolveWorkflowExecutionContext } from "../workflowSettings";
 
@@ -7,8 +8,41 @@ export type WorkflowExecutionContext = Awaited<
   ReturnType<typeof resolveWorkflowExecutionContext>
 >;
 
+export type PreparedWorkflowUnit = Readonly<{
+  unitId: string;
+  order: number;
+  taskName: string;
+  inputUnitIdentity?: string;
+  targetParentID?: number;
+  selectionContext: WorkflowScopedSelectionContext;
+}>;
+
+export type WorkflowRequestBuildPlan = Readonly<{
+  units: ReadonlyArray<PreparedWorkflowUnit>;
+  stats: Readonly<{
+    totalUnits: number;
+    executableUnits: number;
+    skippedUnits: number;
+  }>;
+}>;
+
 export type PreparedWorkflowExecution = {
   workflow: LoadedWorkflow;
+  plan: WorkflowRequestBuildPlan;
+  selectionContext: WorkflowScopedSelectionContext;
+  executionOptions: Readonly<{
+    workflowParams?: Record<string, unknown>;
+    providerOptions?: Record<string, unknown>;
+    runOptions?: import("../../workflows/zoteroHostAccessOptions").WorkflowRunOptions;
+    hostOptions?: import("../workflowSettingsDomain").WorkflowHostOptions;
+  }>;
+  skippedByFilter: number;
+  executionContext: WorkflowExecutionContext;
+};
+
+export type BuiltPreparedWorkflowUnit = {
+  workflow: LoadedWorkflow;
+  unit: PreparedWorkflowUnit;
   requests: unknown[];
   preflight?: WorkflowPreflightExecutionState;
   skillDisplayById?: Record<
@@ -18,9 +52,18 @@ export type PreparedWorkflowExecution = {
       skillName?: string;
     }
   >;
-  skippedByFilter: number;
   executionContext: WorkflowExecutionContext;
 };
+
+export type BuildPreparedWorkflowUnitResult =
+  | {
+      status: "ready";
+      built: BuiltPreparedWorkflowUnit;
+    }
+  | {
+      status: "skipped";
+      skippedUnits: number;
+    };
 
 export type WorkflowPreflightUnitMeta = {
   planId: string;
@@ -75,6 +118,7 @@ export type PreparationSeamResult =
 
 export type WorkflowRunState = {
   workflow: LoadedWorkflow;
+  unit?: PreparedWorkflowUnit;
   requests: unknown[];
   preflight?: WorkflowPreflightExecutionState;
   queue: JobQueueManager;
@@ -82,6 +126,7 @@ export type WorkflowRunState = {
   runId: string;
   totalJobs: number;
   idlePromise: Promise<void>;
+  terminalPromise: Promise<void>;
 };
 
 export type WorkflowJobOutcome = {

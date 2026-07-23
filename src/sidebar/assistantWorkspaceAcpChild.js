@@ -1246,6 +1246,8 @@ function createChildRuntime(source) {
     detailsDrawerOpen: false,
     permissionRequestOpen: false,
     completedCollapsed: true,
+    queuedCollapsed: true,
+    runningCollapsed: false,
     drawerGroupCollapsed: new Map(),
     expandedTranscriptRows: new Set(),
     replyDraft: "",
@@ -1521,14 +1523,22 @@ function createChildRuntime(source) {
       return;
     }
     if (action === "toggle-drawer-section") {
-      if (text(payload.sectionId) === "completed") {
+      if (text(payload.sectionId) === "running") {
+        ui.runningCollapsed = !ui.runningCollapsed;
+        renderPanel();
+      } else if (text(payload.sectionId) === "completed") {
         ui.completedCollapsed = !ui.completedCollapsed;
+        renderPanel();
+      } else if (text(payload.sectionId) === "queued") {
+        ui.queuedCollapsed = !ui.queuedCollapsed;
         renderPanel();
       }
       return;
     }
     if (action === "toggle-drawer-group") {
-      const key = text(payload.groupKey || payload.backendId);
+      const sectionId = text(payload.sectionId);
+      const groupKey = text(payload.groupKey || payload.backendId);
+      const key = sectionId && groupKey ? sectionId + "\n" + groupKey : "";
       if (key) {
         ui.drawerGroupCollapsed.set(
           key,

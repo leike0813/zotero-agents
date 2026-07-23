@@ -74,6 +74,7 @@ type WorkflowExecutionContext = {
   workflowParams: Record<string, unknown>;
   providerOptions: Record<string, unknown>;
   runOptions: WorkflowRunOptions;
+  hostOptions: WorkflowExecutionOptions["hostOptions"];
   providerId: string;
 };
 
@@ -148,6 +149,8 @@ export type WorkflowSettingsUiDescriptor = {
   workflowParams: Record<string, unknown>;
   providerOptions: Record<string, unknown>;
   runOptions: WorkflowRunOptions;
+  hostOptions: NonNullable<WorkflowExecutionOptions["hostOptions"]>;
+  hostQueueSupported: boolean;
   workflowSchemaEntries: WorkflowSettingsSchemaEntry[];
   providerSchemaEntries: WorkflowSettingsSchemaEntry[];
   runSchemaEntries: WorkflowSettingsSchemaEntry[];
@@ -987,11 +990,15 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
   const profileMissing = requiresBackendProfile && profiles.length === 0;
   const hasProfileConfigDimension =
     requiresBackendProfile && profiles.length !== 1;
+  const hostQueueSupported =
+    String(selectedBackend?.type || "").trim() === "acp" ||
+    String(selectedBackend?.type || "").trim() === "skillrunner";
   const hasConfigurableSettings =
     hasProfileConfigDimension ||
     workflowSchemaEntries.length > 0 ||
     providerSchemaEntries.length > 0 ||
-    runSchemaEntries.length > 0;
+    runSchemaEntries.length > 0 ||
+    hostQueueSupported;
 
   return {
     workflowId: args.workflow.manifest.id,
@@ -1005,6 +1012,10 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     workflowParams,
     providerOptions: uiProviderOptions,
     runOptions,
+    hostOptions: merged.hostOptions?.queue
+      ? { queue: { ...merged.hostOptions.queue } }
+      : {},
+    hostQueueSupported,
     workflowSchemaEntries,
     providerSchemaEntries,
     runSchemaEntries,
@@ -1157,6 +1168,9 @@ export async function resolveWorkflowExecutionContext(args: {
     workflowParams,
     providerOptions: constrainedProviderOptions,
     runOptions,
+    hostOptions: merged.hostOptions?.queue
+      ? { queue: { ...merged.hostOptions.queue } }
+      : {},
     providerId,
   };
 }
@@ -1208,5 +1222,8 @@ export function resolveWorkflowExecutionOptionsPreview(args: {
       manifest: args.workflow.manifest,
       source: normalizeWorkflowRunOptions(merged.runOptions),
     }),
+    hostOptions: merged.hostOptions?.queue
+      ? { queue: { ...merged.hostOptions.queue } }
+      : {},
   };
 }

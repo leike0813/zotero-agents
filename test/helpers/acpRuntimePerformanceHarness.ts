@@ -314,6 +314,7 @@ async function exerciseR3ProductionSeam(
       selectedGroupId: null,
       groups: [],
       entries: [],
+      queuedEntries: [],
       canCreateOwner: false,
     }),
     readOwnerRegions: async () => ({}),

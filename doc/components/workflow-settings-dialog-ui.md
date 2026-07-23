@@ -102,3 +102,37 @@ Each `FormSchemaEntry` maps to a form control:
 
 Conditional visibility is handled by `visibleIf`: the field is shown only when
 the specified parameter equals the specified value.
+
+## Execution-unit preview and Host queue control
+
+The submit dialog receives one immutable `WorkflowExecutionUnitPreview` built
+from the selection in menu/availability mode. When an ACP or SkillRunner
+submission has more than one legal unit, the dialog shows one multi-unit region
+to the left of the existing workflow/provider options. That region contains
+the ordered compact unit list and, directly below it, the Maximum concurrency
+control. Form edits do not recompute or replace the preview.
+
+The Maximum concurrency row uses the same bounded field-control structure as
+the main form. Its label, input, and validation message stay inside a
+single-column container with zero minimum width, so the native number input
+cannot cross the divider into the workflow/provider options region.
+
+While the multi-unit layout displays its three visual columns side by side,
+their background extents share the height of the tallest column. The
+execution-unit preview and Workflow Options card absorb the remaining vertical
+space, leaving Maximum concurrency and Run Options compact at the bottom of
+their columns. At the single-column breakpoint, these height and flex
+constraints reset so every stacked card returns to its natural content height.
+
+The list and Maximum concurrency control share one visibility rule: both are
+hidden when zero or one legal unit exists, when preview construction fails, or
+when the selected provider does not support the Host queue. In that state the
+dialog keeps its existing single options region. The standalone native settings
+dialog and Dashboard Workflow Options page do not expose this Host control.
+
+Blank and `0` mean unlimited; a positive safe integer freezes the
+per-submission limit. Invalid values remain in the dialog with field feedback.
+Selecting Save workflow defaults persists the same normalized value through the
+workflow settings domain. The value belongs to
+`hostOptions.queue.maxConcurrency`, never to workflow/provider schema fields or
+provider request payloads.

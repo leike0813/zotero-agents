@@ -7,7 +7,9 @@ import {
   assertRequiredWorkflowParameters,
   listMissingRequiredWorkflowParameters,
   normalizeSavedWorkflowSettings,
+  normalizeHostQueueMaxConcurrency,
   normalizeWorkflowParamsBySchema,
+  parseExecutionOptionsPatch,
   parseSettingsRecord,
   rebaseProviderOptionsForBackendChange,
   serializeSettingsRecord,
@@ -157,6 +159,83 @@ describe("workflow settings domain", function () {
     assert.equal(merged.workflowParams?.keep, "base");
     assert.notProperty(merged.providerOptions, "hard_timeout_seconds");
     assert.notProperty(merged.providerOptions, "model");
+  });
+
+  it("normalizes Host queue maximum concurrency through one domain contract", function () {
+    const cases: Array<{
+      input: unknown;
+      status: "valid" | "invalid";
+      value?: number;
+    }> = [
+      { input: undefined, status: "valid" },
+      { input: null, status: "valid" },
+      { input: "", status: "valid" },
+      { input: "   ", status: "valid" },
+      { input: 0, status: "valid" },
+      { input: "0", status: "valid" },
+      { input: 1, status: "valid", value: 1 },
+      { input: "3", status: "valid", value: 3 },
+      { input: -1, status: "invalid" },
+      { input: 1.5, status: "invalid" },
+      { input: "not-a-number", status: "invalid" },
+      { input: Number.NaN, status: "invalid" },
+      { input: Number.POSITIVE_INFINITY, status: "invalid" },
+      { input: Number.MAX_SAFE_INTEGER + 1, status: "invalid" },
+    ];
+
+    for (const testCase of cases) {
+      const result = normalizeHostQueueMaxConcurrency(testCase.input);
+      assert.equal(result.status, testCase.status);
+      if (result.status === "valid") {
+        assert.equal(result.maxConcurrency, testCase.value);
+      }
+    }
+  });
+
+  it("persists positive Host limits and treats explicit zero as clearing", function () {
+    const base: WorkflowExecutionOptions = {
+      hostOptions: {
+        queue: {
+          maxConcurrency: 4,
+        },
+      },
+    };
+    assert.deepEqual(
+      mergeExecutionOptions(base, {
+        hostOptions: { queue: { maxConcurrency: 2 } },
+      }).hostOptions,
+      { queue: { maxConcurrency: 2 } },
+    );
+    assert.deepEqual(
+      mergeExecutionOptions(base, {
+        hostOptions: { queue: { maxConcurrency: 0 } },
+      }).hostOptions,
+      {},
+    );
+    assert.deepEqual(mergeExecutionOptions(base, {}).hostOptions, {
+      queue: { maxConcurrency: 4 },
+    });
+  });
+
+  it("ignores invalid stored Host limits and rejects invalid patches", function () {
+    const parsed = parseSettingsRecord({
+      schemaVersion: 1,
+      workflows: {
+        legacy: {
+          workflowParams: { language: "zh-CN" },
+          hostOptions: { queue: { maxConcurrency: -2 } },
+        },
+      },
+    });
+    assert.deepEqual(parsed.legacy?.workflowParams, { language: "zh-CN" });
+    assert.deepEqual(parsed.legacy?.hostOptions, {});
+    assert.throws(
+      () =>
+        parseExecutionOptionsPatch({
+          hostOptions: { queue: { maxConcurrency: 1.5 } },
+        }),
+      /maximum concurrency/i,
+    );
   });
 
   it("keeps persisted normalization workflow-agnostic in domain layer", function () {
@@ -368,6 +447,7 @@ describe("workflow settings domain", function () {
       },
     };
     const document = createWorkflowSettingsDocument(record);
+    assert.equal(WORKFLOW_SETTINGS_SCHEMA_VERSION, 2);
     assert.equal(document.schemaVersion, WORKFLOW_SETTINGS_SCHEMA_VERSION);
     assert.deepEqual(document.workflows, record);
 

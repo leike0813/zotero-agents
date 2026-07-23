@@ -25,20 +25,26 @@ drawer, or whole-runner render signatures.
 - **WHEN** a queue notification does not alter a rendered drawer group's visible content
 - **THEN** that group's signature guard SHALL suppress DOM clear or rebuild
 
-### Requirement: Queued-section collapse state SHALL have a drawer-owned signature
+### Requirement: Task-section collapse state SHALL have a drawer-owned signature
 
-The queued section and its backend groups MUST preserve collapse state through
-unrelated transcript, run-status, and queue updates. Their signatures MUST
-contain only the user-visible rows and drawer-owned open/collapsed state.
+The Running, Queued, and Completed sections and their backend groups MUST
+preserve collapse state through unrelated transcript, run-status, and queue
+updates. Their signatures MUST contain only the user-visible rows and
+drawer-owned open/collapsed state.
 
 #### Scenario: Transcript streams while queued section is collapsed
 
 - **WHEN** transcript-only updates arrive while the user has collapsed a queued section or backend group
 - **THEN** the collapse state and drawer DOM identity SHALL remain stable
 
+#### Scenario: User collapses a running or completed section
+
+- **WHEN** the user toggles the Running or Completed section header
+- **THEN** only that section's drawer-owned collapse state SHALL change
+- **AND** transcript and non-drawer managed-region DOM identities SHALL remain stable
+
 #### Scenario: A row is added to an expanded backend group
 
 - **WHEN** a queued row is added to an expanded backend group
 - **THEN** the group SHALL remain expanded
 - **AND** unrelated backend groups SHALL retain their DOM identity
-

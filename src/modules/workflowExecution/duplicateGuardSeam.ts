@@ -8,9 +8,15 @@ import {
   resolveInputUnitIdentityFromRequest,
   resolveInputUnitLabelFromRequest,
 } from "./requestMeta";
+import { workflowSubmissionQueue } from "../../jobQueue/workflowSubmissionQueue";
+import type { PreparedWorkflowUnit } from "./contracts";
 
 type DuplicateGuardDeps = {
   listActiveWorkflowTasks: () => WorkflowTaskRecord[];
+  hasQueuedWorkflowInput: (args: {
+    workflowId: string;
+    inputUnitIdentity: string;
+  }) => boolean;
   appendRuntimeLog: typeof appendRuntimeLog;
   confirmDuplicateSubmission: (args: {
     win: _ZoteroTypes.MainWindow;
@@ -23,6 +29,8 @@ type DuplicateGuardDeps = {
 
 const defaultDuplicateGuardDeps: DuplicateGuardDeps = {
   listActiveWorkflowTasks: listActiveWorkflowTaskSummaries,
+  hasQueuedWorkflowInput: (args) =>
+    workflowSubmissionQueue.hasQueuedWorkflowInput(args),
   appendRuntimeLog,
   confirmDuplicateSubmission: ({ win, title, message, yesLabel, noLabel }) => {
     const runtime = globalThis as {
@@ -73,6 +81,153 @@ export type DuplicateGuardResult = {
   skippedByDuplicate: number;
   skippedRecords: DuplicateSkipRecord[];
 };
+
+export type WorkflowUnitDuplicateGuardResult = {
+  allowedUnits: PreparedWorkflowUnit[];
+  skippedByDuplicate: number;
+  skippedRecords: DuplicateSkipRecord[];
+};
+
+function findDuplicateState(args: {
+  workflowId: string;
+  inputUnitIdentity: string;
+  deps: Pick<
+    DuplicateGuardDeps,
+    "listActiveWorkflowTasks" | "hasQueuedWorkflowInput"
+  >;
+}) {
+  const activeDuplicates = findRunningDuplicates({
+    workflowId: args.workflowId,
+    inputUnitIdentity: args.inputUnitIdentity,
+    activeTasks: args.deps.listActiveWorkflowTasks(),
+  });
+  return {
+    activeDuplicates,
+    queued: args.deps.hasQueuedWorkflowInput({
+      workflowId: args.workflowId,
+      inputUnitIdentity: args.inputUnitIdentity,
+    }),
+  };
+}
+
+export async function runWorkflowUnitDuplicateGuardSeam(
+  args: {
+    win: _ZoteroTypes.MainWindow;
+    workflowId: string;
+    workflowLabel: string;
+    units: ReadonlyArray<PreparedWorkflowUnit>;
+  },
+  deps: Partial<DuplicateGuardDeps> = {},
+): Promise<WorkflowUnitDuplicateGuardResult> {
+  const resolved = {
+    ...defaultDuplicateGuardDeps,
+    ...deps,
+  };
+  const allowedUnits: PreparedWorkflowUnit[] = [];
+  const skippedRecords: DuplicateSkipRecord[] = [];
+  const yesLabel = localizeWorkflowText(
+    "workflow-duplicate-confirm-yes",
+    "Yes",
+  );
+  const noLabel = localizeWorkflowText("workflow-duplicate-confirm-no", "No");
+  const title = localizeWorkflowText(
+    "workflow-duplicate-confirm-title",
+    "Duplicate running job detected",
+  );
+
+  for (let index = 0; index < args.units.length; index++) {
+    const unit = args.units[index];
+    const inputUnitIdentity = String(unit.inputUnitIdentity || "").trim();
+    if (!inputUnitIdentity) {
+      allowedUnits.push(unit);
+      continue;
+    }
+    const firstRead = findDuplicateState({
+      workflowId: args.workflowId,
+      inputUnitIdentity,
+      deps: resolved,
+    });
+    if (firstRead.activeDuplicates.length === 0 && firstRead.queued === false) {
+      allowedUnits.push(unit);
+      continue;
+    }
+    const duplicateTaskName =
+      String(
+        firstRead.activeDuplicates[0]?.taskName ||
+          firstRead.activeDuplicates[0]?.jobId ||
+          "",
+      ).trim() || unit.taskName;
+    const message = localizeWorkflowText(
+      "workflow-duplicate-confirm-message",
+      `Input "${unit.taskName}" already has a running job in workflow "${args.workflowLabel}" (running task: "${duplicateTaskName}"). Continue and submit another job?`,
+      {
+        inputLabel: unit.taskName,
+        workflowLabel: args.workflowLabel,
+        runningTaskLabel: duplicateTaskName,
+      },
+    );
+    const shouldContinue = resolved.confirmDuplicateSubmission({
+      win: args.win,
+      title,
+      message,
+      yesLabel,
+      noLabel,
+    });
+    if (shouldContinue) {
+      allowedUnits.push(unit);
+      resolved.appendRuntimeLog({
+        level: "warn",
+        scope: "workflow-trigger",
+        workflowId: args.workflowId,
+        stage: "duplicate-running-job-allowed",
+        message: "user allowed duplicate running job submission",
+        details: {
+          index,
+          taskLabel: unit.taskName,
+          inputUnitIdentity,
+          duplicateCount:
+            firstRead.activeDuplicates.length + (firstRead.queued ? 1 : 0),
+        },
+      });
+      continue;
+    }
+
+    const finalRead = findDuplicateState({
+      workflowId: args.workflowId,
+      inputUnitIdentity,
+      deps: resolved,
+    });
+    if (finalRead.activeDuplicates.length === 0 && finalRead.queued === false) {
+      allowedUnits.push(unit);
+      continue;
+    }
+    skippedRecords.push({
+      index,
+      taskLabel: unit.taskName,
+      inputUnitIdentity,
+    });
+    resolved.appendRuntimeLog({
+      level: "warn",
+      scope: "workflow-trigger",
+      workflowId: args.workflowId,
+      stage: "duplicate-running-job-skipped",
+      message: "duplicate running job submission skipped",
+      details: {
+        index,
+        taskLabel: unit.taskName,
+        inputUnitIdentity,
+        duplicateCount:
+          finalRead.activeDuplicates.length + (finalRead.queued ? 1 : 0),
+      },
+    });
+  }
+
+  return {
+    allowedUnits,
+    skippedByDuplicate: skippedRecords.length,
+    skippedRecords,
+  };
+}
 
 function findRunningDuplicates(args: {
   workflowId: string;

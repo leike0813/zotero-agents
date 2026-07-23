@@ -11,9 +11,14 @@ import { recordWorkflowTaskUpdate } from "../taskRuntime";
 import { recordTaskDashboardHistoryFromJob } from "../taskDashboardHistory";
 import { openAssistantWorkspaceSidebar } from "../assistantWorkspaceSidebar";
 import { focusSkillRunnerWorkspace } from "../skillRunnerRunDialog";
-import { selectAcpSkillRun } from "../acpSkillRunStore";
+import {
+  getAcpSkillRunRecord,
+  isTerminalAcpSkillRunStatus,
+  selectAcpSkillRun,
+  subscribeAcpSkillRunWorkspaceChanges,
+} from "../acpSkillRunStore";
 import { requestAcpSkillRunForeground } from "../acpSkillRunForeground";
-import type { PreparedWorkflowExecution, WorkflowRunState } from "./contracts";
+import type { BuiltPreparedWorkflowUnit, WorkflowRunState } from "./contracts";
 import {
   resolveInputUnitIdentityFromRequest,
   resolveInputUnitLabelFromRequest,
@@ -48,12 +53,19 @@ import {
   buildSkillRunnerSequenceRunKey,
   buildSkillRunnerSingleRunKey,
   createSkillRunnerRun,
+  getSkillRunnerRunRecord,
+  getSkillRunnerRunRecordByRequest,
   getSkillRunnerRunProjection,
   recordSkillRunnerProgress,
   registerSkillRunnerSkillDisplaySnapshot,
   settleSkillRunnerRun,
+  subscribeSkillRunnerRunStore,
   updateSkillRunnerRunStateByRequest,
 } from "../skillRunnerRunStore";
+import {
+  getSequenceRunState,
+  subscribeSequenceRunStateStore,
+} from "./sequenceStateStore";
 import { isDebugModeEnabled } from "../debugMode";
 import {
   beginAcpRuntimeSemanticTraceClaimAttempt,
@@ -139,7 +151,7 @@ function requestSkillRunnerSubmitFocus(args: {
 }
 
 function maybeObserveSkillRunnerAutoReplyJob(args: {
-  backend: PreparedWorkflowExecution["executionContext"]["backend"];
+  backend: BuiltPreparedWorkflowUnit["executionContext"]["backend"];
   job: JobRecord;
   source: string;
 }) {
@@ -250,9 +262,168 @@ function recordSequenceStepSkillRunnerProgress(args: {
   );
 }
 
+function observeWorkflowRunTerminal(args: {
+  queue: JobQueueManager;
+  jobIds: ReadonlyArray<string>;
+  runId: string;
+  requestKind: string;
+  backendType: string;
+  idlePromise: Promise<void>;
+}) {
+  return new Promise<void>((resolve) => {
+    if (
+      typeof (args.queue as JobQueueManager & { getJob?: unknown }).getJob !==
+      "function"
+    ) {
+      void args.idlePromise.then(resolve, resolve);
+      return;
+    }
+    let settled = false;
+    let removeSkillRunnerSubscription: () => void = () => {};
+    let removeAcpSubscription: () => void = () => {};
+    let removeSequenceSubscription: () => void = () => {};
+    const cleanup = () => {
+      removeSkillRunnerSubscription();
+      removeAcpSubscription();
+      removeSequenceSubscription();
+    };
+    const settle = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      resolve();
+    };
+    const isTerminal = (jobId: string) => {
+      const job = args.queue.getJob(jobId);
+      if (!job) {
+        return false;
+      }
+      const resultStatus = normalizeText(
+        (job.result as { status?: unknown } | undefined)?.status,
+      );
+      if (resultStatus !== "deferred") {
+        return (
+          job.state === "succeeded" ||
+          job.state === "failed" ||
+          job.state === "canceled"
+        );
+      }
+      if (args.requestKind === SKILLRUNNER_SEQUENCE_REQUEST_KIND) {
+        const sequenceRunId = `${args.runId}-${jobId}`;
+        const state = getSequenceRunState(sequenceRunId);
+        if (state) {
+          if (state.status === "failed" || state.status === "canceled") {
+            return true;
+          }
+          if (state.status !== "completed") {
+            return false;
+          }
+          const terminalStep = [...state.steps]
+            .reverse()
+            .find((step) => normalizeText(step.requestId));
+          const terminalRequestId = normalizeText(terminalStep?.requestId);
+          if (!terminalRequestId) {
+            return false;
+          }
+          if (args.backendType === "skillrunner") {
+            const record = getSkillRunnerRunRecordByRequest({
+              backendId: state.backendId,
+              requestId: terminalRequestId,
+            });
+            if (record?.status === "failed" || record?.status === "canceled") {
+              return true;
+            }
+            return (
+              record?.status === "succeeded" &&
+              (record.apply.state === "succeeded" ||
+                record.apply.state === "failed" ||
+                record.apply.state === "skipped")
+            );
+          }
+          if (args.backendType === ACP_BACKEND_TYPE) {
+            const record = getAcpSkillRunRecord(terminalRequestId);
+            if (record?.status === "failed" || record?.status === "canceled") {
+              return true;
+            }
+            return Boolean(
+              record &&
+              isTerminalAcpSkillRunStatus(record.status) &&
+              (record.applyResultState === "succeeded" ||
+                record.applyResultState === "failed"),
+            );
+          }
+          return true;
+        }
+      }
+      if (
+        args.requestKind === "skillrunner.job.v1" &&
+        args.backendType === "skillrunner"
+      ) {
+        const runKey = buildSkillRunnerSingleRunKey({
+          workflowRunId: args.runId,
+          jobId,
+        });
+        const record = getSkillRunnerRunRecord(runKey);
+        if (record) {
+          if (record.status === "failed" || record.status === "canceled") {
+            return true;
+          }
+          return (
+            record.status === "succeeded" &&
+            (record.apply.state === "succeeded" ||
+              record.apply.state === "failed" ||
+              record.apply.state === "skipped")
+          );
+        }
+      }
+      if (args.backendType === ACP_BACKEND_TYPE) {
+        const requestId = normalizeText(
+          job.meta.requestId ||
+            (job.result as { requestId?: unknown } | undefined)?.requestId,
+        );
+        const record = requestId ? getAcpSkillRunRecord(requestId) : null;
+        if (record) {
+          if (record.status === "failed" || record.status === "canceled") {
+            return true;
+          }
+          return (
+            isTerminalAcpSkillRunStatus(record.status) &&
+            (record.applyResultState === "succeeded" ||
+              record.applyResultState === "failed")
+          );
+        }
+      }
+      return false;
+    };
+    const check = () => {
+      if (!settled && args.jobIds.every(isTerminal)) {
+        settle();
+      }
+    };
+
+    removeSkillRunnerSubscription = subscribeSkillRunnerRunStore(check);
+    removeAcpSubscription = subscribeAcpSkillRunWorkspaceChanges(() => check());
+    removeSequenceSubscription = subscribeSequenceRunStateStore(
+      (sequenceRunId) => {
+        if (
+          args.jobIds.some(
+            (jobId) => sequenceRunId === `${args.runId}-${jobId}`,
+          )
+        ) {
+          check();
+        }
+      },
+    );
+    void args.idlePromise.then(check, check);
+    check();
+  });
+}
+
 export function runWorkflowExecutionSeam(
   args: {
-    prepared: PreparedWorkflowExecution;
+    prepared: BuiltPreparedWorkflowUnit;
   },
   deps: Partial<RunSeamDeps> = {},
 ): WorkflowRunState {
@@ -777,9 +948,18 @@ export function runWorkflowExecutionSeam(
       });
     });
   }
+  const terminalPromise = observeWorkflowRunTerminal({
+    queue,
+    jobIds,
+    runId,
+    requestKind: args.prepared.executionContext.requestKind,
+    backendType: args.prepared.executionContext.backend.type,
+    idlePromise,
+  });
 
   return {
     workflow: args.prepared.workflow,
+    unit: args.prepared.unit,
     requests: args.prepared.requests,
     preflight: args.prepared.preflight,
     queue,
@@ -789,5 +969,6 @@ export function runWorkflowExecutionSeam(
       jobIds.length +
       (args.prepared.preflight?.shortCircuitApplies.length || 0),
     idlePromise,
+    terminalPromise,
   };
 }

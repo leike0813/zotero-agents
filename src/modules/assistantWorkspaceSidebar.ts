@@ -1,4 +1,6 @@
 import { config } from "../../package.json";
+import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
+import type { WorkflowQueueEntryId } from "../jobQueue/workflowSubmissionQueueContracts";
 import { ACP_OPENCODE_DISPLAY_NAME } from "../config/defaults";
 import type { BackendInstance } from "../backends/types";
 import { getStringOrFallback } from "../utils/locale";
@@ -178,7 +180,9 @@ type AssistantWorkspaceHostRuntime = {
   activeTarget: AcpSidebarTarget | null;
   activeTab: AssistantWorkspaceTab;
   drawerOpen: boolean;
+  drawerRunningCollapsed: boolean;
   drawerCompletedCollapsed: boolean;
+  drawerQueuedCollapsed: boolean;
   drawerGroupCollapsed: Map<string, boolean>;
   latestSkillRunnerBaseSnapshot?: RunWorkspaceSnapshot | null;
   latestSkillRunnerSnapshot?: RunWorkspaceSnapshot | null;
@@ -190,6 +194,7 @@ type AssistantWorkspaceHostRuntime = {
   removeAcpChatPanelSubscription?: () => void;
   removeAcpSkillRunSubscription?: () => void;
   removeTaskSubscription?: () => void;
+  removeWorkflowQueueSubscription?: () => void;
   removeStreamingRenderPreferenceSubscription?: () => void;
   postSnapshotTimer?: ReturnType<typeof setTimeout> | null;
   shellHandshakeTimer?: ReturnType<typeof setTimeout> | null;
@@ -622,15 +627,25 @@ function buildDecoratedSkillRunnerSnapshot(
     groups,
     context: null,
     selectedTaskKey: String(snapshot.workspace?.selectedTaskKey || ""),
+    runningCollapsed: host.drawerRunningCollapsed,
     completedCollapsed: host.drawerCompletedCollapsed,
+    queuedCollapsed: host.drawerQueuedCollapsed,
+    queuedEntries: workflowSubmissionQueue
+      .listQueued()
+      .filter((entry) => entry.backendType === "skillrunner"),
   });
+  const drawerLabels = snapshot.labels.assistantPanel?.drawer;
   const decoratedSections = sections.map((section) => ({
-    id: section.id,
+    ...section,
     title:
       section.id === "completed"
-        ? localize("task-dashboard-run-completed-tasks-title", "Completed")
-        : localize("task-dashboard-run-running-tasks-title", "Running"),
-    collapsed: section.collapsed,
+        ? drawerLabels?.completed ||
+          localize("assistant-panel-drawer-completed", "Completed")
+        : section.id === "queued"
+          ? drawerLabels?.queued ||
+            localize("workflow-queue-section-title", "Queued")
+          : drawerLabels?.running ||
+            localize("assistant-panel-drawer-running", "Running"),
     groups: section.groups.map((group) => {
       const collapseKey = skillRunnerDrawerGroupCollapseKey(section.id, group);
       const collapsed = collapseKey
@@ -709,6 +724,14 @@ function createSkillRunnerHostActionHandler(
     payload?: Record<string, unknown>;
   }) => {
     const action = String(envelope.action || "").trim();
+    if (action === "cancel-queued-workflow-unit") {
+      const queueId = String(envelope.payload?.queueId || "").trim();
+      if (queueId) {
+        workflowSubmissionQueue.cancel(queueId as WorkflowQueueEntryId);
+        publishLatestSkillRunnerChromeSnapshot(host);
+      }
+      return true;
+    }
     if (action === "select-task") {
       host.drawerOpen = false;
       return false;
@@ -727,8 +750,18 @@ function createSkillRunnerHostActionHandler(
     }
     if (action === "toggle-drawer-section") {
       const sectionId = String(envelope.payload?.sectionId || "").trim();
+      if (sectionId === "running") {
+        host.drawerRunningCollapsed = !host.drawerRunningCollapsed;
+        publishLatestSkillRunnerChromeSnapshot(host);
+        return true;
+      }
       if (sectionId === "completed") {
         host.drawerCompletedCollapsed = !host.drawerCompletedCollapsed;
+        publishLatestSkillRunnerChromeSnapshot(host);
+        return true;
+      }
+      if (sectionId === "queued") {
+        host.drawerQueuedCollapsed = !host.drawerQueuedCollapsed;
         publishLatestSkillRunnerChromeSnapshot(host);
         return true;
       }
@@ -2889,6 +2922,17 @@ async function handleAcpSkillRunAction(
       setAssistantWorkspaceExecutionDisplayMode(host, payload.mode);
       return;
     }
+    if (action === "cancel-queued-workflow-unit") {
+      const queueId = String(payload.queueId || "").trim();
+      if (queueId) {
+        workflowSubmissionQueue.cancel(queueId as WorkflowQueueEntryId);
+      }
+      scheduleAcpSkillRunPublications(host, {
+        global: true,
+        kinds: ["global"],
+      });
+      return;
+    }
     if (action === "select-run") {
       await selectAcpSkillRun(String(payload.requestId || "").trim());
       return;
@@ -3640,7 +3684,9 @@ export function installAssistantWorkspaceSidebarShell(
     activeTarget: null,
     activeTab: DEFAULT_TAB,
     drawerOpen: false,
+    drawerRunningCollapsed: false,
     drawerCompletedCollapsed: true,
+    drawerQueuedCollapsed: true,
     drawerGroupCollapsed: new Map<string, boolean>(),
     scopeKey: createAssistantSidebarScopeKey("assistant-sidebar-workspace"),
     snapshotRevision: 0,
@@ -3843,6 +3889,23 @@ export function installAssistantWorkspaceSidebarShell(
   host.removeTaskSubscription = subscribeWorkflowTaskChanges(() => {
     updateAssistantAttentionIndicator(host);
   });
+  host.removeWorkflowQueueSubscription = workflowSubmissionQueue.subscribe(
+    () => {
+      if (!host.activeTarget) {
+        return;
+      }
+      if (host.activeTab === "skillrunner") {
+        publishLatestSkillRunnerChromeSnapshot(host);
+        return;
+      }
+      if (host.activeTab === "acp-skills") {
+        scheduleAcpSkillRunPublications(host, {
+          global: true,
+          kinds: ["global"],
+        });
+      }
+    },
+  );
   host.removeStreamingRenderPreferenceSubscription =
     subscribeAssistantExecutionDisplayMode(() => {
       if (!host.streamingRenderPreferenceInitialized) {
@@ -3912,6 +3975,7 @@ export function removeAssistantWorkspaceSidebarShell(
   host.removeAcpChatPanelSubscription?.();
   host.removeAcpSkillRunSubscription?.();
   host.removeTaskSubscription?.();
+  host.removeWorkflowQueueSubscription?.();
   host.removeStreamingRenderPreferenceSubscription?.();
   detachSkillRunnerFromShell(host, "remove-shell");
   if (host.postSnapshotTimer) {

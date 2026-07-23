@@ -641,7 +641,7 @@ describe("provider/backend registry", function () {
       schemaVersion?: number;
       workflows?: Record<string, { backendId?: string }>;
     };
-    assert.equal(persisted.schemaVersion, 1);
+    assert.equal(persisted.schemaVersion, 2);
     assert.equal(
       persisted.workflows?.["literature-analysis"]?.backendId,
       "new-backend",

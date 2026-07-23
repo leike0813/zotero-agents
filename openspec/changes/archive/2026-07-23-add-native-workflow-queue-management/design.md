@@ -247,8 +247,19 @@ and confirmed settings. Existing preparation semantics may omit or expand
 previewed candidates; omitted units never enter the Host queue or provider path
 and retain their existing skipped accounting. If no executable units remain, no
 queue controller is created. The list renders only when more than one
-availability-valid unit exists, but the maximum-concurrency control remains
-available for one-unit submissions and persistent-default editing.
+availability-valid unit exists. The maximum-concurrency control is part of that
+multi-unit preview region and renders below the list; when the list is absent,
+the control is absent as well. Persisted defaults are edited through the
+existing save-workflow-defaults interaction on a multi-unit submission, not as
+a standalone Dashboard workflow option.
+
+At widths where the dialog renders its three visual columns side by side, the
+outer multi-unit grid stretches both regions to the tallest column and the
+nested workflow/provider grid consumes that height. The execution-unit preview
+and workflow-option cards absorb any remaining vertical space, keeping the
+maximum-concurrency and run-option cards compact at the bottom of their
+columns. The responsive single-column layout resets those height constraints so
+stacked cards retain their natural content height.
 
 Alternative considered: run full preflight/build for an exact plan in the dialog. Rejected because it makes non-confirmed dialog interaction execute workflow hooks and can be expensive or behaviorally surprising.
 
@@ -264,17 +275,27 @@ Queued
 Completed
 ```
 
+All three sections share one renderer and localized label source. Running is
+expanded by default; Queued and Completed are collapsed by default. Each
+section is independently collapsible. Running uses a subtle accent-blue
+treatment, Queued uses a subtle warning-amber treatment, and Completed remains
+neutral so failed or canceled terminal entries are not presented as successful.
+The shared theme tokens provide the corresponding light and dark values.
+
 The Queued section:
 
 - is hidden when empty;
-- is expanded by default and independently collapsible;
 - groups entries by backend with independently collapsible groups;
 - renders task name and workflow label;
 - hides backend/apply status axes that would imply submission;
 - disables the main row action;
 - exposes one Material Icon cancel action carrying only `queueId`.
 
-Section and group collapse state remain UI-local. Cancel routing calls the Host queue service and cannot reach ACP/SkillRunner run cancellation.
+Section and group collapse state remain UI-local. ACP Skills and SkillRunner
+use the canonical section ids `running`, `queued`, and `completed`; projection
+layers preserve the complete section DTO instead of reconstructing only a
+subset of its presentation fields. Cancel routing calls the Host queue service
+and cannot reach ACP/SkillRunner run cancellation.
 
 Alternative considered: project pending entries as requestId-less SkillRunner/ACP tasks. Rejected because current run selection, archive, details, transcript, and recovery contracts assume a real owner/run identity and would couple queue work to backend state.
 
@@ -362,7 +383,7 @@ Tests do not lock complete localized strings, timestamps, private callback order
 2. Introduce execution-unit build contracts while preserving existing workflow outcomes and provider dispatch for unsupported backend types.
 3. Add the Host queue service and route only ACP/SkillRunner interactive workflow submissions through it.
 4. Add queue read projections and cancel routing to drawers and backend tabs.
-5. Enable persisted maximum-concurrency editing and the submit preview after execution/UI contracts are present.
+5. Enable the multi-unit submit preview and its persisted maximum-concurrency editing after execution/UI contracts are present.
 6. Ship without persisted queue data, startup recovery, or dependency changes.
 
 Rollback removes Host admission routing and UI projections. Existing persisted `hostOptions` are additive and ignored by older code; backend data requires no migration or cleanup. Any pending in-memory entries disappear with plugin shutdown.

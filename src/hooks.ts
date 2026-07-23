@@ -83,6 +83,7 @@ import { MANAGED_LOCAL_BACKEND_ID } from "./modules/skillRunnerLocalRuntimeConst
 import { isDebugModeEnabled } from "./modules/debugMode";
 import { emitVerboseConsole } from "./modules/diagnosticVerbosity";
 import { untrackSkillRunnerBackendHealth } from "./modules/skillRunnerBackendHealthRegistry";
+import { workflowSubmissionQueue } from "./jobQueue/workflowSubmissionQueue";
 import {
   startSkillRunnerBackendReachabilityCoordinator,
   stopSkillRunnerBackendReachabilityCoordinator,
@@ -843,6 +844,7 @@ async function onStartup() {
   await ensureDefaultWorkflowDirExistsOnStartup();
   await rescanWorkflowRegistry();
   reconcileRecoveredRuntimeTasksOnStartup();
+  workflowSubmissionQueue.start();
   purgeSkillRunnerBackendReconcileState(LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID);
   untrackSkillRunnerBackendHealth(LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID);
   startSkillRunnerModelCacheAutoRefresh();
@@ -1118,6 +1120,9 @@ async function runShutdownStepWithTimeout(
 }
 
 async function onShutdown(): Promise<void> {
+  await runShutdownStepWithTimeout("workflow-submission-queue-shutdown", () =>
+    workflowSubmissionQueue.shutdown(),
+  );
   await runShutdownStepWithTimeout(
     "reachability-coordinator-stop",
     stopSkillRunnerBackendReachabilityCoordinator,

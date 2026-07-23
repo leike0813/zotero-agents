@@ -1232,6 +1232,9 @@
           labelText(labels, "colActions"),
         ],
         renderRow: (tr, row) => {
+          if (row.queueId) {
+            tr.classList.add("host-queued-workflow-row");
+          }
           const taskCell = document.createElement("td");
           taskCell.textContent = row.taskName;
           tr.appendChild(taskCell);
@@ -1263,7 +1266,23 @@
           actionCell.className = "actions-cell";
           const actionsWrap = el("div", "actions-wrap");
           const actionButtons = [];
-          if (row.runKey) {
+          if (row.queueId) {
+            const cancelQueued = el("button", "btn icon-btn", "");
+            const cancelLabel = labelText(
+              labels,
+              "cancelQueuedWorkflowUnit",
+              "Cancel queued workflow unit",
+            );
+            cancelQueued.title = cancelLabel;
+            cancelQueued.setAttribute("aria-label", cancelLabel);
+            cancelQueued.appendChild(icon("zs-icon-sm zs-icon-close"));
+            cancelQueued.addEventListener("click", function () {
+              sendAction("cancel-queued-workflow-unit", {
+                queueId: row.queueId,
+              });
+            });
+            actionButtons.push(cancelQueued);
+          } else if (row.runKey) {
             const openRun = el("button", "btn", labels.openRun);
             openRun.addEventListener("click", function () {
               sendAction("open-run", {
@@ -1367,6 +1386,9 @@
           labelText(labels, "colActions"),
         ],
         renderRow: (tr, row) => {
+          if (row.queueId) {
+            tr.classList.add("host-queued-workflow-row");
+          }
           const taskCell = document.createElement("td");
           taskCell.textContent = row.taskName;
           tr.appendChild(taskCell);
@@ -1397,7 +1419,23 @@
           const actionCell = document.createElement("td");
           actionCell.className = "actions-cell";
           const actionsWrap = el("div", "actions-wrap");
-          if (row.requestId) {
+          if (row.queueId) {
+            const cancelQueued = el("button", "btn icon-btn", "");
+            const cancelLabel = labelText(
+              labels,
+              "cancelQueuedWorkflowUnit",
+              "Cancel queued workflow unit",
+            );
+            cancelQueued.title = cancelLabel;
+            cancelQueued.setAttribute("aria-label", cancelLabel);
+            cancelQueued.appendChild(icon("zs-icon-sm zs-icon-close"));
+            cancelQueued.addEventListener("click", function () {
+              sendAction("cancel-queued-workflow-unit", {
+                queueId: row.queueId,
+              });
+            });
+            actionsWrap.appendChild(cancelQueued);
+          } else if (row.requestId) {
             const openRun = el("button", "btn", labelText(labels, "openRun"));
             openRun.addEventListener("click", function () {
               sendAction("open-run", {
@@ -1889,6 +1927,7 @@
       backendId: String(descriptor.selectedProfile || "").trim(),
       workflowParams: cloneRecord(descriptor.workflowParams),
       providerOptions: cloneRecord(descriptor.providerOptions),
+      hostOptions: cloneRecord(descriptor.hostOptions),
     };
     const emitDraft = function (changeMeta) {
       const meta =

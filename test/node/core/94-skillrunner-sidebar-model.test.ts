@@ -230,6 +230,8 @@ describe("skillrunner sidebar model", function () {
       sections.map((section) => section.id),
       ["running", "completed"],
     );
+    assert.isTrue(sections[0].collapsible);
+    assert.isTrue(sections[1].collapsible);
     assert.isFalse(sections[0].collapsed);
     assert.isTrue(sections[1].collapsed);
     assert.lengthOf(sections[0].groups, 1);
@@ -460,5 +462,63 @@ describe("skillrunner sidebar model", function () {
     );
     assert.equal(second[0].groups[0].activeTasks[0].relationState, "related");
     assert.equal(second[0].groups[0].activeTasks[1].relationState, "focused");
+  });
+
+  it("projects Host queued units as a separate non-selectable section", function () {
+    const sections = buildSkillRunnerSidebarSections({
+      groups: [],
+      queuedEntries: [
+        {
+          queueId: "queue-1",
+          backendId: "skillrunner-a",
+          workflowId: "workflow-a",
+          workflowLabel: "Workflow A",
+          taskName: "Paper A",
+          createdAt: "2026-07-23T00:00:00.000Z",
+          canCancel: true,
+        },
+      ],
+    });
+    assert.deepEqual(
+      sections.map((section) => section.id),
+      ["running", "queued", "completed"],
+    );
+    assert.deepEqual(
+      sections.map((section) => [section.collapsible, section.collapsed]),
+      [
+        [true, false],
+        [true, true],
+        [true, true],
+      ],
+    );
+    const queued = sections[1].groups[0].activeTasks[0];
+    assert.equal(queued.key, "host-queue:queue-1");
+    assert.equal(queued.queueId, "queue-1");
+    assert.isFalse(queued.selectable);
+    assert.isUndefined(queued.requestId);
+  });
+
+  it("accepts independent collapse state for all three drawer sections", function () {
+    const sections = buildSkillRunnerSidebarSections({
+      groups: [],
+      runningCollapsed: true,
+      queuedCollapsed: false,
+      completedCollapsed: false,
+      queuedEntries: [
+        {
+          queueId: "queue-1",
+          backendId: "skillrunner-a",
+          workflowId: "workflow-a",
+          workflowLabel: "Workflow A",
+          taskName: "Paper A",
+          createdAt: "2026-07-23T00:00:00.000Z",
+          canCancel: true,
+        },
+      ],
+    });
+    assert.deepEqual(
+      sections.map((section) => section.collapsed),
+      [true, false, false],
+    );
   });
 });

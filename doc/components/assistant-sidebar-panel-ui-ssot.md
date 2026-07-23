@@ -430,12 +430,12 @@ selection and New conversation use a navigation-group action carrying only
 
 The canonical navigation model SHALL retain every configured backend. Visible
 drawer projection is source-specific: ACP Chat renders one untitled `sessions`
-section and preserves conversation order within backend groups; ACP Skills
-renders active and completed sections. Each visible section SHALL omit backend
-groups that contain no cards in that section. Adding a catalog-only backend
-therefore SHALL NOT change the drawer managed-region signature. The signature
-SHALL include section title visibility plus each visible backend id and display
-name.
+section and preserves conversation order within backend groups; ACP Skills uses
+the canonical `running`, `queued`, and `completed` sections. Each visible
+section SHALL omit backend groups that contain no cards in that section.
+Adding a catalog-only backend therefore SHALL NOT change the drawer
+managed-region signature. The signature SHALL include section title
+visibility plus each visible backend id and display name.
 
 Selecting a valid Chat backend SHALL publish a complete owner atomically. If
 the backend has no selectable unarchived conversation, the session manager
@@ -499,11 +499,11 @@ Mapping:
 - existing thinking, prompt, auth, and final cards map to `hint widget`
 - existing reply box maps to `reply zone`
 
-SkillRunner's Sessions drawer SHALL preserve the pre-migration workspace/task
-organization inside the managed drawer shell. It SHALL render Running and
-Completed sections, backend groups, active/finished task cards, selected/related
-task states, disabled task states, and the Completed-section collapse action.
-It SHALL NOT be flattened into a generic context-entry list.
+SkillRunner's Sessions drawer SHALL preserve its workspace/task organization
+inside the managed drawer shell. It SHALL render Running, Queued, and Completed
+sections, backend groups, active/finished task cards, selected/related task
+states, disabled task states, and independent section collapse actions. It
+SHALL NOT be flattened into a generic context-entry list.
 
 SkillRunner canonical backend history remains in the run-dialog session state;
 the snapshot producer owns a separate, owner-scoped UI-visible transcript
@@ -580,3 +580,22 @@ protocol or state behavior.
 - This SSOT does not introduce a frontend framework.
 - This SSOT does not merge ACP Chat conversation store with ACP Skills run
   store.
+
+## Host queued workflow units
+
+ACP Skills and SkillRunner drawers may show a drawer-owned `Queued` section
+between Running and Completed. Queued rows are source-level DTOs: they do not
+create owners, run keys, request IDs, transcript selection, or provider
+placeholders. Their only action is an icon-only Host cancel carrying `queueId`.
+
+Running, Queued, and Completed are independently collapsible. Running is
+expanded by default; Queued and Completed are collapsed by default. The shared
+Assistant labels localize every section title, queued state, and queue cancel
+action. Running uses a subtle accent-blue treatment, Queued uses a subtle
+warning-amber treatment, and Completed remains neutral; all three derive light
+and dark values from shared theme tokens.
+
+Sections and backend groups have local collapse state and region-level
+signatures. Queue-only add/remove/collapse changes reconcile keyed drawer
+nodes without rebuilding transcript, Runner pane, toolbar, banner, plan, hint,
+reply, context/details drawers, or permission drawer.

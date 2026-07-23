@@ -6,24 +6,25 @@ The submit flow MUST resolve workflow parameters, provider choice, and normalize
 Host queue options into one confirmed snapshot. Execution planning and queue
 creation MUST consume that snapshot rather than re-reading persisted defaults.
 
-#### Scenario: User overrides the persisted maximum for one submit
+#### Scenario: User overrides the persisted maximum for one multi-unit submit
 
-- **WHEN** the dialog opens with persisted maximum concurrency `4` and the user submits with `2`
+- **WHEN** a multi-unit dialog opens with persisted maximum concurrency `4` and the user submits with `2`
 - **THEN** that submission SHALL capture maximum concurrency `2`
 - **AND** changing the persisted default later SHALL NOT alter the active submission
 
 #### Scenario: User submits an empty maximum
 
-- **WHEN** the maximum-concurrency control is empty at confirmation
+- **WHEN** the visible multi-unit maximum-concurrency control is empty at confirmation
 - **THEN** the confirmed snapshot SHALL represent unlimited Host concurrency
 
 ### Requirement: Maximum concurrency SHALL be an optional workflow-level runtime control
 
-The submit dialog MUST expose a maximum-concurrency control for workflows
-submitted through ACP Skills or SkillRunner. It MUST accept only non-negative
-integers, describe `0` and blank as unlimited, default to the workflow's
-persisted Host option, and offer the existing workflow-default persistence
-interaction.
+When a submit dialog for ACP Skills or SkillRunner shows more than one legal
+execution unit, it MUST expose a maximum-concurrency control below that unit
+list. The control MUST accept only non-negative integers, describe `0` and blank
+as unlimited, default to the workflow's persisted Host option, and offer the
+existing workflow-default persistence interaction. When the unit list is
+hidden, the control MUST be hidden as well.
 
 #### Scenario: User enters a fractional or negative value
 
@@ -33,14 +34,15 @@ interaction.
 
 #### Scenario: User persists the submitted value
 
-- **WHEN** the user confirms a valid maximum and chooses to save workflow defaults
+- **WHEN** the user confirms a valid maximum in a multi-unit dialog and chooses to save workflow defaults
 - **THEN** the canonical Host option SHALL be saved through the workflow settings domain
 - **AND** the current submission SHALL use the same normalized value
 
 #### Scenario: Unsupported provider is selected
 
 - **WHEN** a workflow submission targets Generic HTTP or pass-through
-- **THEN** the native Host maximum-concurrency control SHALL not alter that provider's execution
+- **THEN** the native Host maximum-concurrency control SHALL remain hidden
+- **AND** that provider's execution SHALL remain unchanged
 
 ### Requirement: Submit preview SHALL show declaratively legal execution units
 
@@ -85,4 +87,4 @@ provider preflight, request building, provider execution, or apply hooks.
 
 - **WHEN** declarative validation resolves no more than one legal execution unit
 - **THEN** the multi-unit list region SHALL remain hidden
-- **AND** the maximum-concurrency control SHALL remain available for supported providers
+- **AND** the maximum-concurrency control SHALL remain hidden

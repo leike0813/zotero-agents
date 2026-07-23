@@ -43,8 +43,9 @@ MUST produce only unlimited or positive-integer runtime values.
 When multiple legal units exist, the dialog MUST use a two-region layout with
 the compact selection preview on the left and the existing workflow/provider
 controls on the right. The Host maximum-concurrency control MUST appear below
-the preview in the left region when that region is present, and the layout MUST
-remain usable at the dialog's supported narrow width.
+the preview in the left region. The preview and maximum-concurrency control form
+one multi-unit region: they MUST appear together or remain hidden together. The
+layout MUST remain usable at the dialog's supported narrow width.
 
 #### Scenario: Long task names are rendered
 
@@ -52,9 +53,26 @@ remain usable at the dialog's supported narrow width.
 - **THEN** the row SHALL truncate the visible label without increasing row height
 - **AND** all legal units SHALL remain reachable through the list's scrolling behavior
 
+#### Scenario: Maximum concurrency is rendered in the left region
+
+- **WHEN** the multi-unit region renders the maximum-concurrency field below the preview
+- **THEN** its label, input, and validation feedback SHALL remain contained by the left region
+- **AND** the control SHALL NOT cross the boundary into the workflow/provider options region
+
+#### Scenario: Three visual columns render side by side
+
+- **WHEN** the multi-unit dialog is wide enough to render the execution-unit, workflow/run-option, and provider/backend-option columns side by side
+- **THEN** all three column backgrounds SHALL extend to the height of the tallest column
+- **AND** the execution-unit and workflow-option cards SHALL absorb available vertical space while maximum-concurrency and run-option cards remain compact
+
+#### Scenario: Responsive layout collapses to one column
+
+- **WHEN** the dialog reaches its supported single-column breakpoint
+- **THEN** every card SHALL return to its natural content height
+- **AND** equal-height stretching SHALL NOT introduce empty vertical gaps between stacked regions
+
 #### Scenario: Preview region is absent
 
 - **WHEN** zero or one legal execution unit exists
 - **THEN** the dialog SHALL keep its compact single-region layout
-- **AND** the Host maximum-concurrency control SHALL still be rendered with the settings controls
-
+- **AND** the Host maximum-concurrency control SHALL remain hidden

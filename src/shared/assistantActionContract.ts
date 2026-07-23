@@ -59,6 +59,7 @@ export type AssistantWorkspaceActionPayloadMap = {
   "archive-conversation": AssistantWorkspaceEmptyActionPayload;
   "select-run": AssistantWorkspaceEmptyActionPayload;
   "archive-run": AssistantWorkspaceEmptyActionPayload;
+  "cancel-queued-workflow-unit": { queueId: string };
   "set-active-backend": { groupId: string };
   "new-conversation": { groupId: string };
   "open-backend-manager": AssistantWorkspaceEmptyActionPayload;
@@ -145,6 +146,7 @@ export type AcpChatOnlyAction =
 export type AcpSkillsOnlyAction =
   | "select-run"
   | "archive-run"
+  | "cancel-queued-workflow-unit"
   | "connect-run"
   | "disconnect-run"
   | "interrupt-run-turn"

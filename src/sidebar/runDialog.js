@@ -830,6 +830,14 @@ function handleAssistantPanelAction(action, payload) {
     sendAction(SKILLRUNNER_LEGACY_ACTIONS.SELECT_TASK, { taskKey });
     return;
   }
+  if (action === SKILLRUNNER_LEGACY_ACTIONS.CANCEL_QUEUED_WORKFLOW_UNIT) {
+    const queueId = safeText(data.queueId);
+    if (!queueId) return;
+    sendAction(SKILLRUNNER_LEGACY_ACTIONS.CANCEL_QUEUED_WORKFLOW_UNIT, {
+      queueId,
+    });
+    return;
+  }
   if (action === SKILLRUNNER_LEGACY_ACTIONS.CANCEL_RUN) {
     const requestId = currentRequestId();
     if (!requestId) return;

@@ -28,6 +28,7 @@ import { setDebugModeOverrideForTests } from "./debugMode";
 import { setDiagnosticVerboseOverrideForTests } from "./diagnosticVerbosity";
 import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "./skillRunnerInteractiveAutoReply";
 import { resetWorkflowRuntimeForTests } from "./workflowRuntime";
+import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
 
 type CleanupDeps = {
   stopSkillRunnerModelCacheAutoRefresh: () => void;
@@ -56,6 +57,7 @@ type CleanupDeps = {
   setDiagnosticVerboseOverrideForTests: () => void;
   setSkillRunnerInteractiveAutoReplyEnabledForTests: () => void;
   resetWorkflowRuntimeForTests: () => void;
+  resetWorkflowSubmissionQueueForTests: () => void;
 };
 
 const defaultCleanupDeps: CleanupDeps = {
@@ -85,6 +87,8 @@ const defaultCleanupDeps: CleanupDeps = {
   setDiagnosticVerboseOverrideForTests,
   setSkillRunnerInteractiveAutoReplyEnabledForTests,
   resetWorkflowRuntimeForTests,
+  resetWorkflowSubmissionQueueForTests: () =>
+    workflowSubmissionQueue.resetForTests(),
 };
 
 let cleanupDeps: CleanupDeps = defaultCleanupDeps;
@@ -127,4 +131,5 @@ export async function cleanupBackgroundRuntimeForZoteroTests() {
   cleanupDeps.setDiagnosticVerboseOverrideForTests();
   cleanupDeps.setSkillRunnerInteractiveAutoReplyEnabledForTests();
   cleanupDeps.resetWorkflowRuntimeForTests();
+  cleanupDeps.resetWorkflowSubmissionQueueForTests();
 }
