@@ -2,8 +2,8 @@
 
 Use this reference for Stages 60, 70, and terminal output. The runtime owns
 typed payload generation, hashes, state transitions, and receipt binding. The
-agent owns exact command execution, audit-summary writing, and truthful final
-business output.
+agent owns exact command execution and emitting the gate-returned final business
+output. The runtime writes the audit summary and final JSON.
 
 ## Typed Payload Mapping
 
@@ -113,24 +113,20 @@ For each prepared candidate, the gate returns:
 - `receipt_path`;
 - `submit_command`.
 
-Execute the exact command. Write the exact Host response inside the bound
-wrapper:
+Execute the exact command. Write the exact Host response, unchanged and without
+a wrapper, to the bound receipt path:
 
 ```json
 {
-  "candidate_id": "doi:10.5555/tunnel.001",
-  "ingest_payload_hash": "sha256:<gate-issued-hash>",
-  "host_response": {
-    "result": {
-      "ingest": {
-        "status": "created",
-        "item": {
-          "id": 101,
-          "key": "ITEM101",
-          "libraryId": 1
-        },
-        "hasPdfAttachment": true
-      }
+  "result": {
+    "ingest": {
+      "status": "created",
+      "item": {
+        "id": 101,
+        "key": "ITEM101",
+        "libraryId": 1
+      },
+      "hasPdfAttachment": true
     }
   }
 }
@@ -154,21 +150,19 @@ and status-tag results remain those reported for the existing item.
 
 ### Ordinary paper-specific failures
 
-A Host response whose ingest status is `failed` is a terminal outcome for that
-candidate. Submit it and continue to the next prepared candidate. Preserve its
-structured error in the final outcome.
+A Host response whose `result.ingest.status` is `failed` is a terminal outcome
+for that candidate. Submit it and continue to the next prepared candidate. Its
+structured error remains in the receipt and ledger; the final outcome stays
+compact.
 
 ### Fatal execution failures
 
 If the Host command cannot start or authority for remaining writes is absent,
-submit the gate-bound failure wrapper:
+write this minimal fatal receipt:
 
 ```json
 {
-  "candidate_id": "doi:10.5555/tunnel.001",
-  "ingest_payload_hash": "sha256:<gate-issued-hash>",
-  "status": "failed",
-  "reason": "host_unavailable",
+  "failure": "host_unavailable",
   "message": "The required Zotero Host Bridge mutation could not start."
 }
 ```
@@ -185,15 +179,15 @@ invented paper failures.
 
 ## Idempotency And Replay
 
-An exact stage payload or receipt replay is idempotent. The runtime compares
-normalized action identity, discovery round where applicable, file path, and
-content hash.
+An exact stage payload or receipt replay is idempotent. The runtime derives
+action identity, discovery round, candidate, and prepared-payload hash from
+state, then compares the issued path and content hash.
 
 - Exact same bytes at the same issued path return the accepted state.
 - Changed bytes for an accepted action are a conflicting replay and fail.
-- A receipt copied to another candidate fails candidate binding.
+- A receipt copied to another candidate fails cross-candidate item/receipt
+  binding.
 - A correct receipt written to a non-issued path fails.
-- A receipt with a different payload hash fails.
 - A modified generated payload fails before mutation advancement.
 
 When uncertain, rerun the initial gate. Do not resubmit from conversation
@@ -220,7 +214,7 @@ structured blocker. Do not improvise around:
 - missing accepted payload;
 - accepted payload hash mismatch;
 - generated ingest payload hash mismatch;
-- wrong receipt candidate, path, or hash;
+- wrong receipt path, cross-candidate receipt/item reuse, or changed replay;
 - conflicting replay.
 
 ### Corrupt state
@@ -244,8 +238,8 @@ work.
 
 ## Compact Ledger
 
-Write `result/search-ledger.json` only after the terminal gate is reached. The
-ledger is an audit summary and path index, not execution state.
+The runtime writes `result/search-ledger.json` when terminal state is reached.
+The ledger is an audit summary and path index, not execution state.
 
 Minimum useful content:
 
@@ -260,7 +254,7 @@ Minimum useful content:
     {
       "round": 1,
       "queryAttemptCount": 8,
-      "sourceFailureCount": 1,
+      "unavailableOrErrorCount": 1,
       "candidateIds": [
         "doi:10.5555/tunnel.001",
         "source:uncertain-002"
@@ -271,7 +265,7 @@ Minimum useful content:
     {
       "round": 2,
       "queryAttemptCount": 3,
-      "sourceFailureCount": 0,
+      "unavailableOrErrorCount": 0,
       "candidateIds": [
         "doi:10.5555/tunnel.001",
         "source:uncertain-002"
@@ -317,74 +311,35 @@ but must not duplicate full discovery, metadata, PDF, or Host evidence.
 
 ## Completed Output
 
-Emit exactly one JSON object that validates against
-`assets/output.schema.json`. Every important displayed candidate appears in
-`outcomes`; every approved candidate has a terminal ingest status.
+Emit exactly the gate's `final_output`, which validates against
+`assets/output.schema.json`. Only approved candidates appear in `outcomes`, and
+each approved candidate has a terminal ingest status.
 
 ```json
 {
   "kind": "literature_search_ingest",
   "status": "completed",
-  "query": "隧道衬砌视觉检测",
-  "search_mode": "guided",
-  "searchSummary": {
-    "breadth": "broad",
-    "languages": ["zh-CN", "en"],
-    "queryLaneCount": 4,
-    "sourceLaneCount": 7,
-    "uniqueCandidateCount": 2,
-    "selectedCount": 2,
-    "stopReason": "all_applicable_lanes_completed"
+  "summary": {
+    "discovered": 2,
+    "selected": 2,
+    "created": 1,
+    "existing": 0,
+    "failed": 0,
+    "notAttempted": 1
   },
   "outcomes": [
     {
-      "candidateId": "doi:10.5555/tunnel.001",
       "title": "隧道衬砌病害智能识别研究",
-      "candidateTier": "needs_curation",
-      "discoverySources": [
-        {
-          "source": "China DOI",
-          "url": "https://doi.org/10.5555/tunnel.001",
-          "queryLane": "core"
-        }
-      ],
-      "identifiers": {
-        "doi": "10.5555/tunnel.001"
-      },
-      "decision": "approved",
       "ingestStatus": "created",
-      "pdfStatus": "attached",
-      "needsCuration": true,
       "itemRef": {
-        "id": 101,
-        "key": "ITEM101",
-        "libraryId": 1
+        "id": 101
       },
-      "landingUrl": "https://doi.org/10.5555/tunnel.001",
-      "manualSearchLinks": [],
-      "reasonCode": "native_creator_names_unverified"
+      "pdfStatus": "attached",
+      "needsCuration": true
     },
     {
-      "candidateId": "source:uncertain-002",
       "title": "隧道衬砌检测方法研究",
-      "candidateTier": "needs_curation",
-      "discoverySources": [
-        {
-          "source": "University repository",
-          "url": "https://repository.example.org/record/002",
-          "queryLane": "multilingual"
-        }
-      ],
-      "identifiers": {},
-      "decision": "approved",
-      "ingestStatus": "not_attempted",
-      "pdfStatus": "skipped",
-      "needsCuration": true,
-      "landingUrl": "https://repository.example.org/record/002",
-      "manualSearchLinks": [
-        "https://repository.example.org/record/002"
-      ],
-      "reasonCode": "material_conflict_unresolved"
+      "ingestStatus": "not_attempted"
     }
   ],
   "searchLedgerPath": "result/search-ledger.json"
@@ -393,14 +348,14 @@ Emit exactly one JSON object that validates against
 
 Outcome rules:
 
-- `created` and `existing` use the actual Host `itemRef`;
-- `failed` preserves the Host error;
-- `not_attempted` preserves the metadata gate reason;
+- `created` and `existing` expose only `itemRef.id`;
+- `failed` and `not_attempted` expose only title and status;
 - `pdfStatus: "attached"` requires Host attachment confirmation;
 - `missing`, `failed`, or `skipped` remain distinct;
 - `needsCuration` reflects evidence and Host warnings;
-- rejected, unselected, or unresolved displayed candidates retain an honest
-  decision and terminal outcome without fabricated mutation data.
+- detailed errors, reasons, identifiers, URLs, paths, and evidence remain in
+  receipts, accepted payloads, and the compact ledger rather than the terminal
+  envelope.
 
 ## Canceled Output
 
@@ -454,13 +409,13 @@ action; do not update the hash.
 ### Reject: receipt reused for another candidate
 
 The Host response for candidate A is copied into candidate B's issued receipt
-path. Even if both records are `created`, the candidate and payload-hash
-bindings differ. The runtime must fail closed.
+path. Even if both records are `created`, the runtime-owned candidate,
+prepared-payload, and item bindings differ. The runtime must fail closed.
 
 ### Reject: approval denied but reported as paper failure
 
 Write authorization is denied before the remaining mutation can run. Submit
-`reason: "approval_denied"` and return canceled terminal output. Do not invent a
+`failure: "approval_denied"` and return canceled terminal output. Do not invent a
 Host paper result or continue mutations.
 
 ### Reject: Host unavailable but outcomes remain pending

@@ -73,7 +73,7 @@ Examples:
 - publisher or national-library record for a book or edition.
 
 At least one `qualified` payload evidence entry must use
-`source_role: "authoritative"`.
+`role: "authoritative"`.
 
 ### Secondary
 
@@ -109,9 +109,9 @@ Classify the record before mapping fields:
   work it references.
 
 If resolution reveals a different work, use
-`reason_code: "identity_changed"`. If the relation is real but the material
-version remains unresolved, use
-`reason_code: "material_conflict_unresolved"`.
+`reason: "identity_not_verified"` and explain that the available record is not
+the approved direct work. If the relation is real but the material version
+remains unresolved, use `reason: "material_conflict_unresolved"`.
 
 ## Zotero Type And Field Roles
 
@@ -201,27 +201,12 @@ This identifier-path example is structurally complete:
 
 ```json
 {
-  "action": "record_metadata",
-  "candidate_id": "doi:10.5555/tunnel.001",
   "status": "qualified",
-  "identifier_status": "resolved",
-  "checked_sources": ["China DOI", "Official journal landing"],
-  "match": {
-    "method": "identifier",
-    "direct_work": true,
-    "material_conflict": false,
-    "normalized_identifier": {
-      "type": "DOI",
-      "value": "10.5555/tunnel.001"
-    }
-  },
   "metadata": {
     "itemType": "journalArticle",
-    "originalTitle": {
-      "value": "隧道衬砌病害智能识别研究",
-      "language": "zh-CN",
-      "script": "Hans"
-    },
+    "title": "隧道衬砌病害智能识别研究",
+    "language": "zh-CN",
+    "script": "Hans",
     "alternateTitles": [
       {
         "value": "Intelligent Recognition of Tunnel Lining Defects",
@@ -230,51 +215,39 @@ This identifier-path example is structurally complete:
         "script": "Latn"
       }
     ],
-    "language": "zh-CN",
-    "script": "Hans",
-    "creatorCompleteness": "incomplete",
     "fields": {
       "title": "隧道衬砌病害智能识别研究",
       "date": "2024",
       "language": "zh-CN",
       "publicationTitle": "隧道工程学报"
     },
+    "creatorCompleteness": "incomplete",
     "creators": [],
     "identifiers": {
       "doi": "10.5555/tunnel.001"
     },
-    "containers": [
-      {
-        "role": "journal",
-        "title": "隧道工程学报"
-      }
-    ],
     "landingUrl": "https://doi.org/10.5555/tunnel.001"
   },
   "evidence": [
     {
       "source": "China DOI",
       "url": "https://doi.org/10.5555/tunnel.001",
-      "source_role": "authoritative",
-      "raw_title": "隧道衬砌病害智能识别研究",
-      "identifier": "10.5555/tunnel.001",
-      "reason": "The normalized DOI and original Chinese title match.",
+      "role": "authoritative",
       "facts": ["identifier", "original_title", "publication_year"]
     }
   ],
-  "warnings": [
-    {
-      "code": "native_creator_names_unverified",
-      "message": "The complete Chinese creator list was not verified."
-    }
+  "corroborating_signals": [
+    "The normalized DOI and original Chinese title match."
   ],
-  "needs_curation": true
+  "curation_notes": [
+    "The complete Chinese creator list was not verified."
+  ]
 }
 ```
 
-For a title-path payload, omit `match.normalized_identifier`, use
-`identifier_status: "identifier_not_found"`, and include at least two concrete
-`corroborating_signals`.
+For a title-path payload, leave the identifier map empty and include at least
+two concrete `corroborating_signals`. The runtime derives whether the accepted
+record used an identifier-first or title path, as well as `needs_curation`.
 
 ## Not-attempted Payload
 
@@ -282,39 +255,26 @@ Use a stable reason code and preserve the checked evidence:
 
 ```json
 {
-  "action": "record_metadata",
-  "candidate_id": "title:ambiguous-work",
   "status": "not_attempted",
-  "reason_code": "insufficient_same_work_evidence",
-  "reason": "The original title matched, but creators and publication type could not be corroborated.",
-  "checked_sources": ["Publisher search", "Cross-domain index"],
+  "reason": "identity_not_verified",
+  "message": "The original title matched, but creators and publication type could not be corroborated.",
   "evidence": [
     {
       "source": "Cross-domain index",
       "url": "https://example.org/record/ambiguous-work",
-      "source_role": "index",
-      "raw_title": "An Ambiguous Work",
-      "reason": "The index supplies a title but no reliable direct-work identity.",
+      "role": "secondary",
       "facts": ["title_only"]
-    }
-  ],
-  "warnings": [
-    {
-      "code": "weak_identity",
-      "message": "The available record cannot support same-work acceptance."
     }
   ]
 }
 ```
 
-Legal `reason_code` values are:
+Legal `reason` values are:
 
-- `identity_changed`;
+- `identity_not_verified`;
 - `material_conflict_unresolved`;
 - `authoritative_metadata_unavailable`;
-- `metadata_sources_unavailable`;
-- `insufficient_same_work_evidence`;
-- `unsupported_item_type`.
+- `tool_unavailable`.
 
 `not_attempted` is a terminal candidate metadata outcome. It does not trigger a
 replacement prompt and it does not block processing other approved candidates.

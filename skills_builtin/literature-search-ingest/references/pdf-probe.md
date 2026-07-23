@@ -108,8 +108,8 @@ Reject:
   dataset instead of the work;
 - a same-title work by different creators.
 
-Use `status: "mismatch"` and `identity_match: false` when a reachable file is
-not the direct work.
+Use `status: "mismatch"` when a reachable file is not the direct work. Explain
+the conflicting identity facts in `notes`; never put that URL in `pdf_url`.
 
 ## Status Semantics
 
@@ -123,8 +123,10 @@ not the direct work.
 | `error` | The attempt failed because of a concrete network, parsing, or service error |
 
 There is no `not_attempted` status. An empty search summary does not cover a
-route. Record the source, exact query or URL, reachability, legality judgment,
-identity result, and concise notes.
+route. Record the source, exact query or URL, terminal status, and concise
+notes. For `found`, also record the verified PDF URL, PDF content type, and
+concrete identity evidence. These evidence fields replace self-asserted
+reachability, legality, and identity booleans; the source policy still applies.
 
 ## Legal And Prohibited Sources
 
@@ -155,43 +157,31 @@ This payload covers all routes and selects the authoritative file:
 
 ```json
 {
-  "action": "record_pdf_probe",
-  "candidate_id": "doi:10.5555/tunnel.001",
-  "attempts": [
-    {
-      "route": "authoritative_landing",
+  "attempts": {
+    "authoritative_landing": {
       "source": "Official journal landing",
       "query_or_url": "https://doi.org/10.5555/tunnel.001",
       "status": "found",
-      "identity_match": true,
-      "legal_source": true,
-      "reachable": true,
       "pdf_url": "https://journal.example.org/articles/tunnel.001.pdf",
       "content_type": "application/pdf",
-      "landing_url": "https://journal.example.org/articles/tunnel.001",
+      "identity_evidence": [
+        "The DOI, original Chinese title, and creators match the qualified metadata."
+      ],
       "notes": "DOI, Chinese title, and creators match the qualified metadata."
     },
-    {
-      "route": "open_access",
+    "open_access": {
       "source": "Open-access index and institutional repositories",
       "query_or_url": "10.5555/tunnel.001",
       "status": "not_found",
-      "identity_match": false,
-      "legal_source": true,
-      "reachable": true,
       "notes": "No additional public repository copy was found."
     },
-    {
-      "route": "web_search",
+    "web_search": {
       "source": "Public web search",
       "query_or_url": "\"隧道衬砌病害智能识别研究\" filetype:pdf",
       "status": "not_found",
-      "identity_match": false,
-      "legal_source": true,
-      "reachable": true,
       "notes": "Only the already verified publisher file appeared."
     }
-  ]
+  }
 }
 ```
 
@@ -205,40 +195,26 @@ PDF absence is a terminal probe outcome, not a workflow failure:
 
 ```json
 {
-  "action": "record_pdf_probe",
-  "candidate_id": "doi:10.5555/tunnel.001",
-  "attempts": [
-    {
-      "route": "authoritative_landing",
+  "attempts": {
+    "authoritative_landing": {
       "source": "Official journal landing",
       "query_or_url": "https://doi.org/10.5555/tunnel.001",
       "status": "not_found",
-      "identity_match": true,
-      "legal_source": true,
-      "reachable": true,
       "notes": "The page exposes metadata but no public file."
     },
-    {
-      "route": "open_access",
+    "open_access": {
       "source": "Open-access indexes and repositories",
       "query_or_url": "10.5555/tunnel.001",
       "status": "not_found",
-      "identity_match": false,
-      "legal_source": true,
-      "reachable": true,
       "notes": "No repository copy was listed."
     },
-    {
-      "route": "web_search",
+    "web_search": {
       "source": "Public web search",
       "query_or_url": "\"隧道衬砌病害智能识别研究\" filetype:pdf OR \"10.5555/tunnel.001\" pdf",
       "status": "not_found",
-      "identity_match": false,
-      "legal_source": true,
-      "reachable": true,
       "notes": "No legal public copy was found."
     }
-  ]
+  }
 }
 ```
 
@@ -251,15 +227,9 @@ and keeps the authoritative `landingUrl`.
 
 ```json
 {
-  "route": "authoritative_landing",
   "source": "Publisher download",
   "query_or_url": "https://publisher.example.org/download/123",
   "status": "restricted",
-  "identity_match": true,
-  "legal_source": true,
-  "reachable": true,
-  "content_type": "text/html",
-  "landing_url": "https://publisher.example.org/article/123",
   "notes": "The download requires subscriber login."
 }
 ```
@@ -270,14 +240,9 @@ Do not automate the login. Continue through the other routes.
 
 ```json
 {
-  "route": "web_search",
   "source": "Public web search",
   "query_or_url": "\"Shared Article Title\" filetype:pdf",
   "status": "mismatch",
-  "identity_match": false,
-  "legal_source": true,
-  "reachable": true,
-  "content_type": "application/pdf",
   "notes": "The PDF has different creators and a different DOI."
 }
 ```
@@ -288,13 +253,9 @@ Do not put the mismatched URL in `pdf_url`.
 
 ```json
 {
-  "route": "open_access",
   "source": "Open-access index",
   "query_or_url": "10.5555/tunnel.001",
   "status": "unavailable",
-  "identity_match": false,
-  "legal_source": true,
-  "reachable": false,
   "notes": "The public service was unavailable after the actual request."
 }
 ```
@@ -310,8 +271,8 @@ The response content type is `text/html`, but the attempt uses `status:
 
 ### Reject: search summary without a route attempt
 
-“No PDF on the web” does not record the exact query, source, reachability, and
-identity result. The route remains uncovered.
+“No PDF on the web” does not record the exact query, source, terminal status,
+and notes. The route remains uncovered.
 
 ### Reject: missing route
 
@@ -331,6 +292,6 @@ extract session credentials.
 
 ### Reject: illegal source
 
-A file appears on an unauthorized sharing site. `legal_source` is false, so it
-cannot use `found`; record a non-found terminal result for the route and
-continue lawful searches.
+A file appears on an unauthorized sharing site. It cannot use `found`; record
+the outcome of a lawful source attempt and continue lawful searches. The
+absence of a self-asserted `legal_source` boolean never relaxes the policy.

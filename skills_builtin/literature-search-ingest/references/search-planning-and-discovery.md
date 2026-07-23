@@ -82,8 +82,7 @@ The Stage 10 payload is the authoritative plan approved by the user:
 
 ```json
 {
-  "action": "approve_search_plan",
-  "approved": true,
+  "decision": "approve",
   "plan": {
     "search_mode": "topic_expansion",
     "objective": "Find direct empirical studies of tunnel-lining defect recognition.",
@@ -103,9 +102,7 @@ The Stage 10 payload is the authoritative plan approved by the user:
     "seed_artifacts": [
       {
         "ref": "zotero:ABCD1234",
-        "type": "metadata",
-        "used": true,
-        "reason": "Stable DOI and direct relevance to the target setting."
+        "use": "Stable DOI and direct relevance to the target setting."
       }
     ],
     "query_lanes": [
@@ -129,14 +126,12 @@ The Stage 10 payload is the authoritative plan approved by the user:
     "source_lanes": [
       {
         "source": "Crossref",
-        "source_class": "cross_disciplinary_index",
-        "role": "primary",
+        "purpose": "Cross-disciplinary discovery and DOI evidence.",
         "fallback_sources": ["OpenAlex"]
       },
       {
         "source": "China DOI",
-        "source_class": "regional_index",
-        "role": "supplemental",
+        "purpose": "Original Chinese records and regional coverage.",
         "fallback_sources": []
       }
     ],
@@ -146,20 +141,18 @@ The Stage 10 payload is the authoritative plan approved by the user:
     "exclusion_criteria": [
       "Generic defect detection without a tunnel-lining setting."
     ],
-    "candidate_policy": {
-      "tiers": ["ready", "needs_curation", "lead_only"],
-      "material_conflict": "keep_separate",
-      "batch_size": 12
-    },
-    "breadth": "broad",
+    "batch_size": 12,
     "stop_conditions": [
       "The breadth profile is satisfied.",
       "Applicable lanes no longer yield new relevant direct works."
-    ],
-    "pdf_policy": "three_route_public_identity_matched"
+    ]
   }
 }
 ```
+
+The runtime derives the fixed candidate tiers, material-conflict rule, PDF
+policy, effective breadth, approval acknowledgement, and action name. They are
+not agent-authored validation fields.
 
 Every brief must expose:
 
@@ -362,12 +355,14 @@ count.
 
 ## Discovery Round Payload
 
-Every `record_discovery` payload is cumulative:
+Each Stage 20 payload is a semantic delta for the gate-issued round. New
+candidates omit `candidate_id`; the runtime creates a stable id from a strong
+identifier or source identity. Use an existing gate-issued id only for an
+evidence-backed update. The runtime merges the delta into cumulative state and
+derives counts and deduplication summaries:
 
 ```json
 {
-  "action": "record_discovery",
-  "discovery_round": 2,
   "query_attempts": [
     {
       "lane": "gap",
@@ -380,7 +375,7 @@ Every `record_discovery` payload is cumulative:
   ],
   "candidates": [
     {
-      "candidate_id": "doi:10.5555/example",
+      "tier": "ready",
       "title": "隧道衬砌病害识别",
       "alternate_titles": ["Tunnel lining defect recognition"],
       "creators_display": ["张三", "李四"],
@@ -388,53 +383,37 @@ Every `record_discovery` payload is cumulative:
       "container": "隧道建设",
       "original_language": "zh",
       "material_version": "journal article",
-      "tier": "ready",
       "identifiers": {"doi": "10.5555/example"},
-      "identity": {
-        "strong_keys": ["doi:10.5555/example"],
-        "weak_key": "隧道衬砌病害识别|张三|2024|journal article"
-      },
       "landing_url": "https://doi.org/10.5555/example",
       "discovery_sources": [
         {
           "source": "China DOI",
-          "source_role": "authoritative",
           "url": "https://doi.org/10.5555/example",
-          "raw_title": "隧道衬砌病害识别",
-          "identifier": "10.5555/example",
+          "lane": "gap",
           "reason": "Stable direct-work landing evidence.",
           "facts": ["original title", "DOI", "publication year"]
         }
       ],
-      "matching_evidence": [
-        {
-          "field": "doi",
-          "value": "10.5555/example",
-          "source": "China DOI"
-        }
+      "matching_notes": [
+        "The normalized DOI and original title identify the same direct work."
       ],
-      "duplicate_status": "not_in_library",
+      "library_note": "No strong local identifier match.",
       "missing_fields": [],
       "recommendation_reason": "Directly evaluates the requested setting."
     }
   ],
   "uncovered_gaps": [],
-  "source_failures": [],
-  "deduplication_summary": {
-    "source_record_count": 18,
-    "unique_candidate_count": 1,
-    "merged_record_count": 0,
-    "unresolved_conflict_count": 0
-  },
   "stop_reason": "All approved gap lanes were attempted and no material gap remains."
 }
 ```
 
-Round 2 and later must retain every earlier candidate unless the same id is
-present with a documented evidence-based tier change. Candidate evidence cannot
-silently disappear. A false duplicate discovered through stronger identity
-evidence must be represented as separate candidates, with the previous
-relationship explained in evidence or warnings.
+Round 2 and later need not repeat unchanged candidates: the runtime retains
+them. An update cannot silently remove earlier evidence or change a candidate's
+title/year/container/material-version/identifier identity. A false duplicate
+discovered through stronger identity evidence must be submitted as a new
+candidate, with the previous relationship explained in `matching_notes`.
+Unavailable sources belong on the corresponding `query_attempt`, using
+`status: "unavailable"` or `"error"` and a useful `message`.
 
 ## Stage 30 Expansion
 
@@ -443,13 +422,11 @@ stage:
 
 ```json
 {
-  "action": "request_discovery_expansion",
-  "discovery_round": 1,
-  "gap_requests": [
+  "decision": "expand",
+  "gaps": [
     {
-      "gap_type": "language",
       "description": "Add traditional-Chinese terminology and regional sources.",
-      "requested_lanes": ["multilingual", "gap"]
+      "lanes": ["multilingual", "gap"]
     }
   ]
 }

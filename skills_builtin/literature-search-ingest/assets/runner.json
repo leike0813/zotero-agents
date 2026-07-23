@@ -21,7 +21,7 @@
   },
   "entrypoint": {
     "prompts": {
-      "common": "执行 literature-search-ingest 技能。输入 query={{ parameter.query }}，searchMode={{ parameter.searchMode }}，targetCollection={{ parameter.targetCollection }}。本任务始终为 interactive。先完整阅读 SKILL.md，再运行 scripts/gate_runtime.py 的初始 gate；只读取 gate 返回的 required_reads，只执行 gate 返回的 next_action、payload_path 和命令。仅 Stage 10 搜索方案与 Stage 30 入库范围允许等待用户；Stage 30 的补检使用累计候选和下一 discovery_round，范围批准后自动完成元数据、三路线 PDF、typed payload 与逐篇 zotero-bridge mutation。每次状态变化后重新运行初始 gate，最终只返回 gate 指定的 completed 或 canceled JSON。"
+      "common": "执行 literature-search-ingest 技能。输入 query={{ parameter.query }}，searchMode={{ parameter.searchMode }}，targetCollection={{ parameter.targetCollection }}。本任务运行在 interactive 模式。先完整阅读 SKILL.md，再运行 scripts/gate_runtime.py 的初始 gate；只读取 gate 返回的 required_reads，只执行 gate 返回的 next_action、payload_path 和命令。agent 只填写 gate 的 payload_template 与 schema 明确要求的语义字段；action、round、candidate binding、hash、计数和固定策略由 runtime 派生。仅 Stage 10 搜索方案与 Stage 30 入库范围允许等待用户；Stage 30 补检返回下一 discovery round，Stage 20 只提交增量而由 runtime 保留累计候选。范围批准后自动完成元数据、三路线 PDF、typed payload 与逐篇 zotero-bridge mutation。每次状态变化后重新运行初始 gate，最终原样返回 gate 的 final_output。"
     }
   }
 }

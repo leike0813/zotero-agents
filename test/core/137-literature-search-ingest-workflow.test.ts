@@ -13,46 +13,26 @@ import { executeBuildRequests } from "../../src/workflows/runtime";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { applyResult } from "../../workflows_builtin/literature-workbench-package/literature-search-ingest/hooks/applyResult.mjs";
 
-function completedPayload(searchMode = "topic_expansion") {
+function completedPayload() {
   return {
     __SKILL_DONE__: true,
     kind: "literature_search_ingest",
     status: "completed",
-    query: "foundation models for visual inspection",
-    search_mode: searchMode,
-    searchSummary: {
-      breadth: "broad",
-      languages: ["en"],
-      queryLaneCount: 3,
-      sourceLaneCount: 5,
-      uniqueCandidateCount: 1,
-      selectedCount: 1,
-      stopReason: "all_applicable_lanes_completed",
+    summary: {
+      discovered: 1,
+      selected: 1,
+      created: 1,
+      existing: 0,
+      failed: 0,
+      notAttempted: 0,
     },
     outcomes: [
       {
-        candidateId: "doi:10.5555/example",
         title: "A Survey of Visual Inspection Foundation Models",
-        candidateTier: "needs_curation",
-        discoverySources: [
-          {
-            source: "OpenAlex",
-            url: "https://example.test/openalex/example",
-            queryLane: "core",
-          },
-        ],
-        identifiers: { doi: "10.5555/example" },
-        decision: "approved",
         ingestStatus: "created",
         pdfStatus: "missing",
         needsCuration: true,
-        itemRef: { id: 101, key: "ITEM101", libraryId: 1 },
-        landingUrl: "https://doi.org/10.5555/example",
-        manualSearchLinks: [
-          "https://doi.org/10.5555/example",
-          "https://scholar.google.com/scholar?q=%22A%20Survey%20of%20Visual%20Inspection%20Foundation%20Models%22",
-        ],
-        reasonCode: "no_public_pdf_url",
+        itemRef: { id: 101 },
       },
     ],
     searchLedgerPath: "result/search-ledger.json",
@@ -638,19 +618,20 @@ describe("Literature Search Ingest workflow contract", function () {
       primarySkillDir,
     });
 
-    const guided = await validateAcpSkillFinalPayload({
-      payload: completedPayload("guided"),
-      runnerJson,
-      primarySkillDir,
-    });
-
     assert.isTrue(completed.ok, completed.errors.join("; "));
     assert.isTrue(
       completedAfterConvergence.ok,
       completedAfterConvergence.errors.join("; "),
     );
     assert.isTrue(canceled.ok, canceled.errors.join("; "));
-    assert.isTrue(guided.ok, guided.errors.join("; "));
+    const verbose = completedPayload() as any;
+    verbose.outcomes[0].candidateId = "doi:10.5555/example";
+    const rejectedVerbose = await validateAcpSkillFinalPayload({
+      payload: verbose,
+      runnerJson,
+      primarySkillDir,
+    });
+    assert.isFalse(rejectedVerbose.ok);
   });
 
   it("adds the governed metadata-curation tag after final outcomes are known", async function () {
@@ -764,7 +745,6 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.include(prompt, "interactive");
     for (const heading of [
       "## Mission",
-      "## Do Not Use",
       "## Inputs",
       "## Interactive Contract",
       "## Runtime Model",
@@ -781,6 +761,8 @@ describe("Literature Search Ingest workflow contract", function () {
     ]) {
       assert.include(skill, heading, heading);
     }
+    assert.notInclude(skill, "## When To Use");
+    assert.notInclude(skill, "## Do Not Use");
     for (const nextAction of [
       "await_user_input",
       "submit_stage_payload",

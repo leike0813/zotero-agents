@@ -17,6 +17,7 @@ from stage_runtime import (
     prepare_ingest_payloads,
     record_ingest_receipt,
     run_root_for_state,
+    terminal_artifacts,
     validated_prepared_payload,
 )
 
@@ -88,6 +89,118 @@ def action_schema() -> str:
         .parent.parent.joinpath("assets", "runtime-action.schema.json")
         .as_posix()
     )
+
+
+def schema_document() -> dict:
+    return json.loads(Path(action_schema()).read_text(encoding="utf-8"))
+
+
+def resolve_schema_ref(document: dict, schema_ref: str) -> dict:
+    fragment = schema_ref.split("#", 1)[-1]
+    value: object = document
+    for part in fragment.lstrip("/").split("/"):
+        if not part:
+            continue
+        if not isinstance(value, dict) or part not in value:
+            raise ContractError("invalid_schema", f"Unknown schema ref {schema_ref}")
+        value = value[part]
+    if not isinstance(value, dict):
+        raise ContractError(
+            "invalid_schema", f"Schema ref {schema_ref} is not an object"
+        )
+    return value
+
+
+def example_for_schema(document: dict, schema: dict) -> dict:
+    examples = schema.get("examples")
+    if isinstance(examples, list) and examples and isinstance(examples[0], dict):
+        return examples[0]
+    schema_ref = schema.get("$ref")
+    if isinstance(schema_ref, str):
+        return example_for_schema(document, resolve_schema_ref(document, schema_ref))
+    for keyword in ("oneOf", "anyOf"):
+        branches = schema.get(keyword)
+        if isinstance(branches, list):
+            for branch in branches:
+                if isinstance(branch, dict):
+                    example = example_for_schema(document, branch)
+                    if example:
+                        return example
+    return {}
+
+
+def enums_for_schema(
+    document: dict,
+    schema: dict,
+    *,
+    prefix: str = "",
+    seen: set[str] | None = None,
+) -> dict[str, list[object]]:
+    seen = seen or set()
+    schema_ref = schema.get("$ref")
+    if isinstance(schema_ref, str):
+        if schema_ref in seen:
+            return {}
+        seen.add(schema_ref)
+        return enums_for_schema(
+            document,
+            resolve_schema_ref(document, schema_ref),
+            prefix=prefix,
+            seen=seen,
+        )
+    result: dict[str, list[object]] = {}
+    if isinstance(schema.get("enum"), list):
+        result[prefix or "$"] = list(schema["enum"])
+    elif "const" in schema:
+        result[prefix or "$"] = [schema["const"]]
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        for name, child in properties.items():
+            if isinstance(child, dict):
+                child_prefix = f"{prefix}.{name}" if prefix else name
+                result.update(
+                    enums_for_schema(
+                        document,
+                        child,
+                        prefix=child_prefix,
+                        seen=set(seen),
+                    )
+                )
+    items = schema.get("items")
+    if isinstance(items, dict):
+        result.update(
+            enums_for_schema(
+                document,
+                items,
+                prefix=f"{prefix}[]" if prefix else "[]",
+                seen=set(seen),
+            )
+        )
+    for keyword in ("oneOf", "anyOf", "allOf"):
+        branches = schema.get(keyword)
+        if isinstance(branches, list):
+            for branch in branches:
+                if isinstance(branch, dict):
+                    result.update(
+                        enums_for_schema(
+                            document,
+                            branch,
+                            prefix=prefix,
+                            seen=set(seen),
+                        )
+                    )
+    return result
+
+
+def payload_contract(definition: str) -> dict:
+    document = schema_document()
+    fragment = f"#/$defs/{definition}"
+    schema = resolve_schema_ref(document, fragment)
+    return {
+        "payload_schema_ref": f"{action_schema()}{fragment}",
+        "payload_template": example_for_schema(document, schema),
+        "payload_enums": enums_for_schema(document, schema),
+    }
 
 
 def submit_command(state_path: str, input_path: str, target: Path) -> str:
@@ -166,6 +279,8 @@ def payload_gate(
     name: str,
     interaction: dict | None = None,
     candidate_id: str = "",
+    schema_definition: str,
+    payload_variants: dict[str, str] | None = None,
 ) -> dict:
     target = payload_path(state_path, name)
     gate = {
@@ -178,7 +293,13 @@ def payload_gate(
         "payload_path": target.as_posix(),
         "payload_schema": action_schema(),
         "submit_command": submit_command(state_path, input_path, target),
+        **payload_contract(schema_definition),
     }
+    if payload_variants:
+        gate["payload_variants"] = {
+            name: payload_contract(definition)
+            for name, definition in payload_variants.items()
+        }
     if interaction is not None:
         gate["interaction"] = interaction
     if candidate_id:
@@ -239,6 +360,11 @@ def build_gate(state_path: str, input_path: str) -> dict:
                 "decision": "approve_or_cancel",
                 "external_discovery_allowed": False,
             },
+            schema_definition="searchPlanApprovePayload",
+            payload_variants={
+                "approve": "searchPlanApprovePayload",
+                "cancel": "searchPlanCancelPayload",
+            },
         )
     if stage == "stage_20_discovery":
         discovery_round = state["discovery_round"]
@@ -248,6 +374,7 @@ def build_gate(state_path: str, input_path: str) -> dict:
             state,
             stage=stage,
             name=f"discovery-round-{discovery_round:03d}",
+            schema_definition="discoveryPayload",
         )
     if stage == "stage_30_ingest_scope":
         discovery_round = state["discovery_round"]
@@ -262,6 +389,12 @@ def build_gate(state_path: str, input_path: str) -> dict:
                 "decision": "approve_expand_or_cancel",
                 "automatic_after_approval": True,
             },
+            schema_definition="scopeApprovePayload",
+            payload_variants={
+                "approve": "scopeApprovePayload",
+                "expand": "scopeExpandPayload",
+                "cancel": "scopeCancelPayload",
+            },
         )
     if stage == "stage_40_metadata_resolution":
         candidate_id = pending_metadata_candidate(state)
@@ -272,6 +405,7 @@ def build_gate(state_path: str, input_path: str) -> dict:
             stage=stage,
             name=f"metadata-{len(state.get('metadata', {})) + 1:03d}",
             candidate_id=candidate_id,
+            schema_definition="metadataPayload",
         )
     if stage == "stage_50_pdf_probe":
         candidate_id = pending_pdf_candidate(state)
@@ -282,6 +416,7 @@ def build_gate(state_path: str, input_path: str) -> dict:
             stage=stage,
             name=f"pdf-probe-{len(state.get('pdf', {})) + 1:03d}",
             candidate_id=candidate_id,
+            schema_definition="pdfPayload",
         )
         gate["required_pdf_routes"] = state["metadata"][candidate_id][
             "required_pdf_routes"
@@ -331,9 +466,11 @@ def build_gate(state_path: str, input_path: str) -> dict:
             "ingest_payload_hash": prepared["payload_hash"],
             "receipt_path": receipt_path.as_posix(),
             "receipt_contract": {
-                "candidate_id": candidate_id,
-                "ingest_payload_hash": prepared["payload_hash"],
-                "host_response": "<exact Zotero Bridge JSON response>",
+                "success": "<exact Zotero Bridge JSON response>",
+                "fatal": {
+                    "failure": "host_unavailable",
+                    "message": "<why the mutation could not start>",
+                },
             },
             "command": mutation,
             "submit_command": receipt_submit_command(
@@ -342,6 +479,7 @@ def build_gate(state_path: str, input_path: str) -> dict:
                 receipt_path,
             ),
         }
+    _, final_output = terminal_artifacts(state_path, input_path)
     terminal_cancellation = state.get("cancellation", {})
     terminal = {
         **base_gate(state_path, input_path, state),
@@ -355,6 +493,10 @@ def build_gate(state_path: str, input_path: str) -> dict:
             "status": state.get("status", "completed"),
             "cancellation": terminal_cancellation,
         },
+        "search_ledger_path": (
+            run_root_for_state(state_path) / "result" / "search-ledger.json"
+        ).as_posix(),
+        "final_output": final_output,
     }
     if state.get("status") == "canceled":
         terminal["reason"] = terminal_cancellation.get("reason", "")

@@ -9,27 +9,7 @@ description: Conduct guided literature search with multilingual and topic expans
 
 Turn a research question, topic, seed paper, or exact bibliographic clue into a reviewed set of traceable literature records, then ingest only the user-approved direct works into Zotero.
 
-This Skill runs only as an ACP interactive SkillRunner workflow. Use legitimate public discovery sources and `zotero-bridge` for read-only Zotero/Synthesis context and approved Zotero mutation. Do not use browser automation, Zotero Connector, CDP, login sessions, institutional proxies, CAPTCHA bypass, Sci-Hub, LibGen, or other pirated sources.
-
-## When To Use
-
-Use this Skill for:
-
-- guided literature-search planning when the research goal is incomplete;
-- multilingual or topic-based discovery that must cover local-library gaps;
-- expansion from a known paper, Topic, digest, reference list, or citation analysis;
-- exact-record verification and targeted Zotero ingest;
-- candidate review followed by metadata, public-PDF, and typed-ingest gates.
-
-## Do Not Use
-
-Do not use this Skill for:
-
-- editing metadata on an already selected Zotero item without discovery;
-- analyzing, translating, drafting from, or synthesizing already selected papers;
-- bulk migration between Zotero instances;
-- automatic background ingest without user review;
-- importing a bare title, search snippet, or identity-conflicted record.
+This Skill runs in interactive mode. Use legitimate public discovery sources and `zotero-bridge` for read-only Zotero/Synthesis context and approved Zotero mutation. Do not use browser automation, Zotero Connector, CDP, login sessions, institutional proxies, CAPTCHA bypass, Sci-Hub, LibGen, or other pirated sources.
 
 ## Inputs
 
@@ -77,13 +57,13 @@ Authoritative runtime paths:
 - JSON gate state: `runtime/literature-search-ingest-gate.json`;
 - agent-authored stage payloads: the current gate `payload_path` under `runtime/payloads/`;
 - runtime-generated immutable ingest payloads: `runtime/payloads/ingest-paper-NNN.json`;
-- Host receipt wrappers: the current gate `receipt_path` under `runtime/host/`;
-- compact audit summary: `result/search-ledger.json`;
+- exact Host responses or minimal fatal receipts: the current gate `receipt_path` under `runtime/host/`;
+- runtime-generated compact audit summary: `result/search-ledger.json`;
 - final business output: the single assistant JSON validated by `assets/output.schema.json`.
 
 The JSON gate state is the execution source of truth. It stores stage status, discovery round, decisions, candidate ids, payload paths and hashes, prepared payload hashes, and receipt indexes. Stage payloads hold detailed semantic evidence. `result/search-ledger.json` is a compact audit summary and must never be used to infer or advance state.
 
-`scripts/gate_runtime.py` is the only agent-facing runtime entrypoint. `scripts/stage_runtime.py` validates and mutates state behind that entrypoint. `assets/runtime-action.schema.json` is the structural contract for every agent-authored action payload. The runner owns `result/result.json`; do not hand-write it.
+`scripts/gate_runtime.py` is the only agent-facing runtime entrypoint. `scripts/stage_runtime.py` validates and mutates state, derives gate-known fields, merges discovery deltas, writes the compact ledger, and constructs final output behind that entrypoint. `assets/runtime-action.schema.json` is the structural contract for every agent-authored semantic payload. The runner owns `result/result.json`; do not hand-write it.
 
 ## Gate Discipline
 
@@ -101,14 +81,14 @@ Valid `next_action` values are:
 
 | `next_action` | Required behavior |
 | --- | --- |
-| `await_user_input` | Read `required_reads`, present the current decision, wait for a real user response, write one allowed action to `payload_path`, run `submit_command`, then rerun the initial gate. |
-| `submit_stage_payload` | Perform the semantic work for the returned stage/candidate/round, write only `payload_path` against `payload_schema`, run `submit_command`, then rerun the initial gate. |
+| `await_user_input` | Read `required_reads`, present the current decision, wait for a real user response, select its entry in `payload_variants`, write the semantic decision to `payload_path`, run `submit_command`, then rerun the initial gate. |
+| `submit_stage_payload` | Perform the semantic work for the returned stage/candidate/round, follow `payload_schema_ref`, `payload_template`, and `payload_enums`, write only `payload_path`, run `submit_command`, then rerun the initial gate. |
 | `run_stage` | Execute `command` exactly, do not edit generated files, then rerun the initial gate. |
-| `execute_ingest` | Execute the one-paper mutation `command`, write the bound Host receipt wrapper to `receipt_path`, run `submit_command`, then rerun the initial gate. |
+| `execute_ingest` | Execute the one-paper mutation `command`, write the exact Host JSON or the documented fatal failure to `receipt_path`, run `submit_command`, then rerun the initial gate. |
 | `blocked` | Stop state changes. Report the blocker and follow only a gate-issued repair path. |
-| `return_final_output` | Read the terminal state and required recovery/output reference, write the compact ledger, and emit exactly one completed or canceled JSON object. |
+| `return_final_output` | Read the required recovery/output reference and emit the gate's `final_output` exactly. The runtime has already written the compact ledger. |
 
-Use `allowed_actions` as an exhaustive list, not a suggestion. Current action routing is:
+Use `allowed_actions` as an exhaustive list of the runtime decisions behind the semantic payload, not as fields to copy into that payload. Current action routing is:
 
 - Stage 10: `approve_search_plan`, `cancel_workflow`.
 - Stage 20: `record_discovery`.
@@ -120,6 +100,12 @@ Use `allowed_actions` as an exhaustive list, not a suggestion. Current action ro
 - Terminal: `return_final_output`.
 
 Every state-changing command is followed by the initial gate command, even if the mutation command also prints a refreshed gate. Command stdout is a runtime receipt, not final assistant output.
+
+The gate exposes every field and remaining enum needed for the current write:
+
+- single-payload stages return `payload_schema_ref`, `payload_template`, and `payload_enums`;
+- Stage 10 and Stage 30 return decision-specific `payload_variants`;
+- `discovery_round`, `candidate_id`, prepared hashes, receipt binding, fixed tier/material/PDF policy, identity keys, counts, and approval acknowledgements come from gate state or deterministic runtime derivation. Do not add them to an agent-authored payload unless the current schema explicitly exposes the field.
 
 If payload validation fails:
 
@@ -270,8 +256,7 @@ python "<absolute-skill-package>/scripts/gate_runtime.py" \
 
 ```json
 {
-  "action": "approve_search_plan",
-  "approved": true,
+  "decision": "approve",
   "plan": {
     "search_mode": "guided",
     "objective": "Find research on tunnel-lining defect recognition",
@@ -299,21 +284,14 @@ python "<absolute-skill-package>/scripts/gate_runtime.py" \
     "source_lanes": [
       {
         "source": "China DOI",
-        "source_class": "regional_index",
-        "role": "primary",
+        "purpose": "Primary Chinese journal discovery",
         "fallback_sources": ["Crossref"]
       }
     ],
     "inclusion_criteria": ["Directly studies tunnel-lining defects"],
     "exclusion_criteria": ["Generic detection with no tunnel setting"],
-    "candidate_policy": {
-      "tiers": ["ready", "needs_curation", "lead_only"],
-      "material_conflict": "keep_separate",
-      "batch_size": 20
-    },
-    "breadth": "balanced",
-    "stop_conditions": ["Applicable sources no longer yield new relevant works"],
-    "pdf_policy": "three_route_public_identity_matched"
+    "batch_size": 20,
+    "stop_conditions": ["Applicable sources no longer yield new relevant works"]
   }
 }
 ```
@@ -321,14 +299,12 @@ python "<absolute-skill-package>/scripts/gate_runtime.py" \
 Cancellation uses:
 
 ```json
-{
-  "action": "cancel_workflow",
-  "reason": "user_cancelled",
-  "message": "The user canceled search planning."
-}
+{ "decision": "cancel" }
 ```
 
-**Submit/run/mutation command:** Write the chosen action to `payload_path`, execute the gate `submit_command`, then rerun the initial gate.
+The runtime takes breadth from runner input and supplies the fixed tier, material-conflict, and three-route PDF policies. Do not repeat them as approval assertions.
+
+**Submit/run/mutation command:** Follow the chosen `payload_variants` entry, write the decision to `payload_path`, execute the gate `submit_command`, then rerun the initial gate.
 
 **Completion:** An approved plan hash exists, or the gate returns canceled terminal state.
 
@@ -344,7 +320,7 @@ Cancellation uses:
 
 **Agent semantic responsibility:** Run actual public queries, record source failures, preserve original text, deduplicate same-work records, keep material conflicts separate, tier candidates, and explain the stop reason.
 
-**Runtime responsibility:** Require the current `discovery_round`, validate attempts/candidates, reject duplicate ids, reject disappearance of earlier candidates or evidence, and store the round payload hash and summary.
+**Runtime responsibility:** Bind the current `discovery_round`, validate attempts/candidates, derive stable strong/weak identities and counts, merge the round delta into cumulative state without losing earlier candidates/evidence, and store the round payload hash and summary.
 
 **Gate command:** Run the initial gate; confirm `next_action: "submit_stage_payload"` and the returned round.
 
@@ -354,20 +330,18 @@ Cancellation uses:
 
 ```json
 {
-  "action": "record_discovery",
-  "discovery_round": 1,
   "query_attempts": [
     {
       "lane": "core",
       "query": "隧道衬砌 病害 智能识别",
       "source": "China DOI",
       "status": "completed",
-      "result_count": 1
+      "result_count": 1,
+      "message": "One source record was inspected."
     }
   ],
   "candidates": [
     {
-      "candidate_id": "doi:10.5555/tunnel.001",
       "tier": "ready",
       "title": "隧道衬砌病害智能识别研究",
       "alternate_titles": [],
@@ -377,55 +351,38 @@ Cancellation uses:
       "original_language": "zh-CN",
       "material_version": "journal_article",
       "identifiers": { "doi": "10.5555/tunnel.001" },
-      "identity": {
-        "strong_keys": ["doi:10.5555/tunnel.001"],
-        "weak_key": "隧道衬砌病害智能识别研究|2024|张三"
-      },
+      "landing_url": "https://example.org/record/tunnel-001",
       "discovery_sources": [
         {
           "source": "China DOI",
           "url": "https://example.org/record/tunnel-001",
-          "source_role": "index",
-          "query_lane": "core",
-          "raw_title": "隧道衬砌病害智能识别研究",
+          "lane": "core",
           "reason": "The record exposes the original title and year.",
           "facts": ["original_title", "publication_year"]
         }
       ],
-      "matching_evidence": [
-        {
-          "field": "title",
-          "value": "隧道衬砌病害智能识别研究",
-          "source": "China DOI"
-        }
-      ],
-      "landing_url": "https://example.org/record/tunnel-001",
-      "duplicate_status": "not_in_library",
+      "matching_notes": ["The original title, creator, year, and container agree."],
+      "library_note": "No exact local duplicate was found.",
       "missing_fields": [],
       "recommendation_reason": "Directly addresses the approved research target."
     }
   ],
   "uncovered_gaps": [],
-  "source_failures": [],
-  "deduplication_summary": {
-    "source_record_count": 1,
-    "unique_candidate_count": 1,
-    "merged_record_count": 0,
-    "unresolved_conflict_count": 0
-  },
   "stop_reason": "all_applicable_lanes_completed"
 }
 ```
 
-An empty `candidates` array is valid when attempts and the no-result stop reason are honest. A later round submits the full accumulated candidate set, not only new results.
+`query_attempts[].status` is exactly `completed`, `unavailable`, or `error`; put source failure context in `message`. Candidate tier is exactly `ready`, `needs_curation`, or `lead_only`. An empty `candidates` array is valid when attempts and the no-result stop reason are honest.
+
+Each round submits only its new candidates and evidence-backed updates. The runtime generates ids for new candidates, merges the delta, and retains the full accumulated set. Use an optional gate-issued `candidate_id` only to update an existing candidate; an update cannot change title/year/container/material-version identity or identifiers.
 
 **Submit/run/mutation command:** Execute the returned `submit_command`, then rerun the initial gate.
 
-**Completion:** The current round has actual attempts, a cumulative candidate set, deduplication summary, failures/gaps, and stop reason.
+**Completion:** The current round has actual attempts, an accepted delta, runtime-derived cumulative identity/count summaries, uncovered gaps, and a stop reason.
 
 **Forbidden:** Do not mutate Zotero, drop prior candidates/evidence, merge material conflicts, translate before deduplication, or claim source unavailability proves absence.
 
-**Recovery:** Rerun the gate and resubmit the same round. Exact retry is idempotent; changed retry and stale/future round fail.
+**Recovery:** Rerun the gate and resubmit the same issued payload. Exact retry is idempotent; changed retry fails. The gate state, not an agent field, supplies the round.
 
 **Next:** Stage 30.
 
@@ -445,12 +402,8 @@ An empty `candidates` array is valid when attempts and the no-result stop reason
 
 ```json
 {
-  "action": "approve_ingest_scope",
-  "approved": true,
-  "discovery_round": 1,
-  "candidate_ids": ["doi:10.5555/tunnel.001"],
-  "excluded_candidate_ids": [],
-  "authorization_notice_acknowledged": true
+  "decision": "approve",
+  "candidate_ids": ["doi:10.5555/tunnel.001"]
 }
 ```
 
@@ -458,19 +411,17 @@ Expansion uses:
 
 ```json
 {
-  "action": "request_discovery_expansion",
-  "discovery_round": 1,
-  "gap_requests": [
+  "decision": "expand",
+  "gaps": [
     {
-      "gap_type": "literature_type",
       "description": "Add Chinese doctoral theses.",
-      "requested_lanes": ["multilingual", "gap"]
+      "lanes": ["multilingual", "gap"]
     }
   ]
 }
 ```
 
-Cancellation uses the Stage 10 `cancel_workflow` shape.
+Cancellation is `{ "decision": "cancel" }`. Gap lanes are exactly `core`, `multilingual`, `seed`, or `gap`. The runtime binds the current round, derives excluded ids and authorization bookkeeping, and creates the next round after expansion.
 
 **Submit/run/mutation command:** Execute the returned `submit_command`, then rerun the initial gate.
 
@@ -478,7 +429,7 @@ Cancellation uses the Stage 10 `cancel_workflow` shape.
 
 **Forbidden:** Do not approve unknown or `lead_only` ids. Do not turn expansion into a separate confirmation stage. After approval, do not wait again.
 
-**Recovery:** Rerun the gate. If expansion was accepted, use the new round/path and include all accumulated candidates in Stage 20.
+**Recovery:** Rerun the gate. If expansion was accepted, use the new round/path and submit only actual new results or evidence-backed updates; cumulative state remains in the runtime.
 
 **Next:** Stage 40 after approval; Stage 20 after expansion; terminal after cancellation.
 
@@ -488,7 +439,7 @@ Cancellation uses the Stage 10 `cancel_workflow` shape.
 
 **Agent semantic responsibility:** Search identifier-first, then title-path sources; judge direct-work identity, version/container relationships, original publication language, field evidence, creator completeness, and curation needs. If the approved identity changes or evidence is insufficient, record `not_attempted`; never substitute another work.
 
-**Runtime responsibility:** Enforce candidate order, source/evidence structure, exact identifier or title-path acceptance, authoritative landing evidence, original-title roles, complete-or-empty creators, DOI placement, warnings, and terminal `qualified`/`not_attempted`.
+**Runtime responsibility:** Bind candidate order; validate source/evidence structure, identifier consistency or title-path corroboration, authoritative landing evidence, original-title roles, complete-or-empty creators, and DOI placement; derive title projection, identifier status, required PDF routes, warnings/curation status, and terminal `qualified`/`not_attempted`.
 
 **Gate command:** Run the initial gate and process only its `candidate_id`.
 
@@ -498,27 +449,12 @@ Cancellation uses the Stage 10 `cancel_workflow` shape.
 
 ```json
 {
-  "action": "record_metadata",
-  "candidate_id": "doi:10.5555/tunnel.001",
   "status": "qualified",
-  "identifier_status": "resolved",
-  "checked_sources": ["China DOI", "Official journal landing"],
-  "match": {
-    "method": "identifier",
-    "direct_work": true,
-    "material_conflict": false,
-    "normalized_identifier": {
-      "type": "DOI",
-      "value": "10.5555/tunnel.001"
-    }
-  },
   "metadata": {
     "itemType": "journalArticle",
-    "originalTitle": {
-      "value": "隧道衬砌病害智能识别研究",
-      "language": "zh-CN",
-      "script": "Hans"
-    },
+    "title": "隧道衬砌病害智能识别研究",
+    "language": "zh-CN",
+    "script": "Hans",
     "alternateTitles": [
       {
         "value": "Intelligent Recognition of Tunnel Lining Defects",
@@ -527,58 +463,43 @@ Cancellation uses the Stage 10 `cancel_workflow` shape.
         "script": "Latn"
       }
     ],
-    "language": "zh-CN",
-    "script": "Hans",
-    "creatorCompleteness": "incomplete",
     "fields": {
-      "title": "隧道衬砌病害智能识别研究",
       "date": "2024",
       "publicationTitle": "隧道工程学报",
       "language": "zh-CN"
     },
+    "creatorCompleteness": "incomplete",
     "creators": [],
     "identifiers": { "doi": "10.5555/tunnel.001" },
-    "containers": [
-      { "role": "journal", "title": "隧道工程学报" }
-    ],
     "landingUrl": "https://doi.org/10.5555/tunnel.001"
   },
   "evidence": [
     {
       "source": "China DOI",
       "url": "https://doi.org/10.5555/tunnel.001",
-      "source_role": "authoritative",
-      "identifier": "10.5555/tunnel.001",
-      "reason": "The DOI and original Chinese title identify the same direct work.",
+      "role": "authoritative",
       "facts": ["identifier", "original_title", "publication_year"]
     }
   ],
-  "warnings": [
-    {
-      "code": "native_creator_names_unverified",
-      "message": "The complete Chinese creator list was not verified."
-    }
-  ],
-  "needs_curation": true
+  "corroborating_signals": [],
+  "curation_notes": ["The complete Chinese creator list was not verified."]
 }
 ```
 
-For `match.method: "title"`, omit `normalized_identifier` and add at least two unique `corroborating_signals`.
+`creatorCompleteness` is exactly `complete` or `incomplete`: complete requires the full creator list; incomplete requires `creators: []`. Alternate-title roles are `translated`, `romanized`, or `alternate`. Evidence roles are `authoritative` or `secondary`. When no identifier resolves, supply at least two unique `corroborating_signals` for the strict title path. The runtime writes `metadata.title` into typed `fields.title`; do not repeat title, DOI, or Extra in `metadata.fields`.
 
 **Minimal payload — not attempted:**
 
 ```json
 {
-  "action": "record_metadata",
-  "candidate_id": "source:uncertain-002",
   "status": "not_attempted",
-  "reason_code": "material_conflict_unresolved",
-  "reason": "The available sources disagree on whether the record is the thesis or later article.",
-  "checked_sources": ["University repository", "Publisher index"],
-  "evidence": [],
-  "warnings": []
+  "reason": "material_conflict_unresolved",
+  "message": "The available sources disagree on whether the record is the thesis or later article.",
+  "evidence": []
 }
 ```
+
+`reason` is exactly `identity_not_verified`, `material_conflict_unresolved`, `authoritative_metadata_unavailable`, or `tool_unavailable`.
 
 **Submit/run/mutation command:** Execute the returned `submit_command`, rerun the gate, and continue until all approved candidates have terminal metadata status.
 
@@ -586,7 +507,7 @@ For `match.method: "title"`, omit `normalized_identifier` and add at least two u
 
 **Forbidden:** Do not use a translated title as primary title; write partial creator replacement lists; guess item type; use a container as the direct work; place DOI in `fields.DOI` or `fields.extra`; or ask the user for a replacement work.
 
-**Recovery:** Repair only the current metadata payload. If authoritative identity cannot be established, submit `not_attempted` with a stable reason and continue.
+**Recovery:** Repair only the current metadata payload. If authoritative identity cannot be established, submit `not_attempted` with the matching enum, message, and any available evidence; the current candidate comes from the gate.
 
 **Next:** Stage 40 for another candidate; otherwise Stage 50 for qualified candidates.
 
@@ -606,41 +527,30 @@ For `match.method: "title"`, omit `normalized_identifier` and add at least two u
 
 ```json
 {
-  "action": "record_pdf_probe",
-  "candidate_id": "doi:10.5555/tunnel.001",
-  "attempts": [
-    {
-      "route": "authoritative_landing",
+  "attempts": {
+    "authoritative_landing": {
       "source": "DOI landing page",
       "query_or_url": "https://doi.org/10.5555/tunnel.001",
       "status": "not_found",
-      "identity_match": true,
-      "legal_source": true,
-      "reachable": true
+      "notes": "No public PDF link was exposed."
     },
-    {
-      "route": "open_access",
+    "open_access": {
       "source": "OA indexes and repositories",
       "query_or_url": "10.5555/tunnel.001",
       "status": "not_found",
-      "identity_match": false,
-      "legal_source": true,
-      "reachable": true
+      "notes": "No matching repository copy was found."
     },
-    {
-      "route": "web_search",
+    "web_search": {
       "source": "Public web search",
       "query_or_url": "\"隧道衬砌病害智能识别研究\" filetype:pdf",
       "status": "not_found",
-      "identity_match": false,
-      "legal_source": true,
-      "reachable": true
+      "notes": "Results were HTML landing pages."
     }
-  ]
+  }
 }
 ```
 
-A found attempt additionally requires `status: "found"`, `identity_match: true`, `legal_source: true`, `reachable: true`, an HTTP(S) `pdf_url`, and `content_type` beginning with `application/pdf`.
+Each route status is exactly `found`, `not_found`, `restricted`, `unavailable`, `mismatch`, or `error`. A found attempt additionally requires an HTTP(S) `pdf_url`, `content_type` beginning with `application/pdf`, and non-empty `identity_evidence` explaining why the file is the same direct work. Those evidence fields replace self-asserted reachability/legal/identity booleans; the LLM must still verify that the URL is public, legal, reachable, and identity-matched before using `found`.
 
 **Submit/run/mutation command:** Execute the returned `submit_command`, rerun the gate, and continue through all qualified candidates.
 
@@ -648,7 +558,7 @@ A found attempt additionally requires `status: "found"`, `identity_match: true`,
 
 **Forbidden:** Do not count an unattempted route, login/paywall page, search result, HTML landing page, inaccessible URL, illegal source, or wrong-work PDF as found.
 
-**Recovery:** Repair the missing or invalid route in the current payload. `not_found`, `restricted`, `unavailable`, `mismatch`, and `error` are terminal attempts; omission is not.
+**Recovery:** Repair the missing or invalid keyed route in the current payload. `not_found`, `restricted`, `unavailable`, `mismatch`, and `error` are terminal attempts; omission is not. The current candidate comes from the gate.
 
 **Next:** Stage 50 for another candidate; otherwise Stage 60.
 
@@ -707,31 +617,27 @@ The top level contains only `paper` and optional `collection`. `paper` contains 
 
 **Purpose:** Execute exactly one typed mutation for each prepared candidate and persist a candidate/hash-bound Host receipt.
 
-**Agent semantic responsibility:** Execute the exact gate command, preserve the exact Host response, classify fatal infrastructure/approval failures, and continue ordinary per-paper failures without hiding them.
+**Agent semantic responsibility:** Execute the exact gate command, preserve the exact Host response without wrapping or summarizing it, classify fatal infrastructure/approval failures, and continue ordinary per-paper failures without hiding them.
 
-**Runtime responsibility:** Revalidate the prepared payload hash, issue the exact candidate/path/hash/receipt contract, reject wrong paths/candidates/hashes and conflicting replay, index the Host outcome, and advance only after a terminal receipt.
+**Runtime responsibility:** Revalidate the prepared payload hash, bind the gate-issued candidate/path/hash to the receipt path, reject wrong paths, cross-candidate receipt reuse, changed replay, and payload tampering, index the Host outcome, and advance only after a terminal receipt.
 
 **Gate command:** Run the initial gate; when `next_action` is `execute_ingest`, use only the returned fields.
 
 **Payload path:** Read-only `ingest_payload_path`; write only the returned `receipt_path`.
 
-**Minimal payload — receipt wrapper:**
+**Minimal payload — exact Host response:**
 
 ```json
 {
-  "candidate_id": "doi:10.5555/tunnel.001",
-  "ingest_payload_hash": "sha256:<gate-issued-hash>",
-  "host_response": {
-    "result": {
-      "ingest": {
-        "status": "created",
-        "item": {
-          "id": 101,
-          "key": "ITEM101",
-          "libraryId": 1
-        },
-        "hasPdfAttachment": true
-      }
+  "result": {
+    "ingest": {
+      "status": "created",
+      "item": {
+        "id": 101,
+        "key": "ITEM101",
+        "libraryId": 1
+      },
+      "hasPdfAttachment": true
     }
   }
 }
@@ -740,7 +646,7 @@ The top level contains only `paper` and optional `collection`. `paper` contains 
 **Submit/run/mutation command:**
 
 1. Execute the exact `zotero-bridge mutation literature-ingest --input @...` gate `command`.
-2. Write the wrapper with the gate `candidate_id`, `ingest_payload_hash`, and exact JSON response under `host_response`.
+2. Write the exact JSON response, unchanged and without a wrapper, to the gate-issued `receipt_path`.
 3. Execute the gate `submit_command`.
 4. Rerun the initial gate.
 
@@ -748,21 +654,18 @@ For a Host command that cannot run, write:
 
 ```json
 {
-  "candidate_id": "doi:10.5555/tunnel.001",
-  "ingest_payload_hash": "sha256:<gate-issued-hash>",
-  "status": "failed",
-  "reason": "host_unavailable",
+  "failure": "host_unavailable",
   "message": "The required Zotero Host Bridge mutation could not start."
 }
 ```
 
-Fatal `reason` values are `host_unavailable`, `approval_denied`, and `execution_blocked`; they produce canceled terminal state and stop later mutations. A normal paper-specific Host response with `status: "failed"` is recorded and processing continues.
+Fatal `failure` values are `host_unavailable`, `approval_denied`, and `execution_blocked`; they produce canceled terminal state and stop later mutations. A normal paper-specific Host response with `result.ingest.status: "failed"` is recorded and processing continues. The candidate id and payload hash are deliberately absent from the receipt because the runtime already owns that binding.
 
 **Completion:** Every prepared candidate has `created`, `existing`, or `failed`, unless a fatal receipt has moved the workflow to canceled terminal state. Metadata-rejected approved candidates remain `not_attempted`.
 
 **Forbidden:** Do not mutate an unapproved candidate, use a different payload, reuse a receipt across candidates, report `existing` as created, or infer attachment success from `pdfUrl`. `hasPdfAttachment` in the Host receipt is authoritative.
 
-**Recovery:** Exact receipt replay is idempotent. A changed replay, wrong candidate, wrong hash, wrong path, or modified ingest payload fails closed. Rerun the gate and use the current issued contract.
+**Recovery:** Exact receipt replay is idempotent. A changed replay, receipt at the wrong path, cross-candidate item/receipt reuse, or modified ingest payload fails closed. Rerun the gate and use the current issued contract.
 
 **Next:** Stage 70 for another prepared candidate; otherwise terminal.
 
@@ -773,7 +676,7 @@ The gate returns `next_action: "return_final_output"` with:
 - `kind: "literature_search_ingest"` and `status: "completed"`, or
 - `kind: "literature_search_ingest_canceled"` and `status: "canceled"`.
 
-Write `result/search-ledger.json` as the compact audit summary defined below, then emit exactly one final JSON object. Do not add Markdown fences, logs, explanations, or a second object.
+The runtime writes `result/search-ledger.json` and returns the validated business object as `final_output`. Emit that object exactly. Do not reconstruct it, add Markdown fences, logs, explanations, or a second object.
 
 ## Responsibilities
 
@@ -783,11 +686,12 @@ Write `result/search-ledger.json` as the compact audit summary defined below, th
 - Select query/source lanes and execute legitimate public discovery.
 - Judge direct-work identity, material versions, duplicates, relevance, candidate tiers, metadata authority, original publication language, creator completeness, PDF identity, and curation needs.
 - Present the two user decisions and interpret approval, expansion, or cancellation.
-- Produce stage payload semantic content, the compact audit ledger, and the final business JSON.
+- Produce only the evidence-backed semantic content requested by the current payload schema.
+- Emit the gate-returned final business JSON unchanged.
 
 ### Must Be Done By Scripts, Schema, Runner, And Host
 
-- Gate and stage scripts validate action shape, stage order, round, candidate order, evidence counts, route coverage, replay, hashes, state/input drift, payload generation, and receipt binding.
+- Gate and stage scripts validate payload shape, derive the action from the current stage and decision, bind discovery round and candidate, merge discovery deltas, derive ids/counts/policies, enforce route coverage, detect replay and drift, generate typed payloads, bind receipts, write the compact ledger, and construct the final business JSON.
 - `assets/runtime-action.schema.json` defines action fields, enums, conditional metadata rules, and PDF-attempt shape.
 - `assets/output.schema.json` validates completed and canceled final business output.
 - `zotero-bridge` reads local Zotero/Synthesis context and performs each approved typed mutation.
@@ -804,13 +708,13 @@ Write `result/search-ledger.json` as the compact audit summary defined below, th
 
 ## Failure, Cancellation, And Resume
 
-- User cancellation is legal only at Stage 10 or Stage 30 through `cancel_workflow` with `reason: "user_cancelled"`.
+- User cancellation is legal only at Stage 10 or Stage 30 with `{"decision":"cancel"}`. The runtime supplies the stable cancellation reason and stage-specific message.
 - A no-result discovery round is recorded honestly and proceeds to Stage 30, where the user may request a focused expansion or cancel.
-- Source unavailability during discovery is recorded in `source_failures` and a same-class fallback is attempted.
-- Metadata source/tool failure after scope approval becomes per-candidate `not_attempted` with checked sources and a stable reason; it does not reopen user scope.
+- Source unavailability during discovery is recorded directly on the relevant `query_attempt` with `status: "unavailable"` or `"error"` and an explanatory `message`; attempt a same-class fallback.
+- Metadata source/tool failure after scope approval becomes per-candidate `{"status":"not_attempted","reason":"tool_unavailable","message":"...","evidence":[]}`; include any successfully checked source evidence when available. It does not reopen user scope.
 - PDF source/tool failure becomes route status `unavailable` or `error`; all three routes are still required.
 - An ordinary paper-specific Host failure is submitted and processing continues.
-- Host unavailability, write-approval denial, or a runtime condition that prevents remaining mutations is submitted as a fatal Stage 70 receipt. Preserve completed receipts and return canceled output; never return pending.
+- Host unavailability, write-approval denial, or a runtime condition that prevents remaining mutations is submitted as a fatal Stage 70 receipt with `failure` and `message`. Preserve completed receipts and return canceled output; never return pending.
 - A schema or stage error leaves the current stage unchanged. Rerun the gate and repair only the issued payload.
 - Input drift, corrupt state, modified accepted evidence, modified ingest payload, wrong receipt binding, and conflicting replay are blockers. Do not guess progress or rebuild state.
 - On resume, run the initial gate, read `resume_packet`, read the one returned stage reference, and continue only `next_action`.
@@ -819,10 +723,10 @@ Write `result/search-ledger.json` as the compact audit summary defined below, th
 
 ### Compact search ledger
 
-`result/search-ledger.json` contains only:
+The runtime writes `result/search-ledger.json` with only:
 
 - input hash or query summary, effective mode, breadth, and actual languages;
-- discovery-round summaries: attempt counts, source failures, gaps, unique candidate ids, deduplication counts, and stop reasons;
+- discovery-round summaries: attempt counts, unavailable/error counts, gaps, unique candidate ids, deduplication counts, and stop reasons;
 - plan/scope decision summaries and approved/excluded ids;
 - per-candidate paths/hashes for metadata, PDF, prepared payload, and Host receipt;
 - final ingest/PDF/curation status and blocker/cancellation summary.
@@ -831,73 +735,38 @@ Do not duplicate full evidence payloads in the ledger. The JSON gate state remai
 
 ### Completed JSON
 
-Every important displayed candidate appears in `outcomes`. Approved candidates end as `created`, `existing`, `failed`, or `not_attempted`. Attachment outcome comes from Host `hasPdfAttachment`; legal landing/manual-search links remain available when no PDF was attached.
+Only approved candidates appear in `outcomes`. Each entry is intentionally small: successful `created`/`existing` entries contain title, status, numeric item id, attachment status, and the curation flag; `failed`/`not_attempted` entries contain only title and status. Detailed evidence, paths, reasons, identifiers, links, and Host response data remain in the compact ledger and accepted payloads.
 
 ```json
 {
   "kind": "literature_search_ingest",
   "status": "completed",
-  "query": "隧道衬砌视觉检测",
-  "search_mode": "guided",
-  "searchSummary": {
-    "breadth": "broad",
-    "languages": ["zh-CN", "en"],
-    "queryLaneCount": 4,
-    "sourceLaneCount": 7,
-    "uniqueCandidateCount": 18,
-    "selectedCount": 2,
-    "stopReason": "all_applicable_lanes_completed"
+  "summary": {
+    "discovered": 18,
+    "selected": 2,
+    "created": 1,
+    "existing": 0,
+    "failed": 0,
+    "notAttempted": 1
   },
   "outcomes": [
     {
-      "candidateId": "doi:10.5555/tunnel.001",
       "title": "隧道衬砌病害智能识别研究",
-      "candidateTier": "needs_curation",
-      "discoverySources": [
-        {
-          "source": "China DOI",
-          "url": "https://doi.org/10.5555/tunnel.001",
-          "queryLane": "core"
-        }
-      ],
-      "identifiers": { "doi": "10.5555/tunnel.001" },
-      "decision": "approved",
       "ingestStatus": "created",
+      "itemRef": { "id": 101 },
       "pdfStatus": "attached",
-      "needsCuration": true,
-      "itemRef": { "id": 101, "key": "ITEM101", "libraryId": 1 },
-      "landingUrl": "https://doi.org/10.5555/tunnel.001",
-      "manualSearchLinks": [],
-      "reasonCode": "native_creator_names_unverified"
+      "needsCuration": true
     },
     {
-      "candidateId": "source:uncertain-002",
       "title": "隧道衬砌检测方法研究",
-      "candidateTier": "needs_curation",
-      "discoverySources": [
-        {
-          "source": "University repository",
-          "url": "https://repository.example.org/record/002",
-          "queryLane": "multilingual"
-        }
-      ],
-      "identifiers": {},
-      "decision": "approved",
-      "ingestStatus": "not_attempted",
-      "pdfStatus": "skipped",
-      "needsCuration": true,
-      "landingUrl": "https://repository.example.org/record/002",
-      "manualSearchLinks": [
-        "https://repository.example.org/record/002"
-      ],
-      "reasonCode": "material_conflict_unresolved"
+      "ingestStatus": "not_attempted"
     }
   ],
   "searchLedgerPath": "result/search-ledger.json"
 }
 ```
 
-For `created` or `existing` records that still need metadata work, set `needsCuration: true`; the workflow apply hook adds the governed `status:need-metadata-curation` tag. Report `existing` with its actual `itemRef` and never as newly created.
+The runtime derives the six summary counts from state. Their ingest counts sum to `selected`, and `outcomes.length` equals `selected`. For `created` or `existing` records that still need metadata work, the runtime sets `needsCuration: true`; the workflow apply hook adds the governed `status:need-metadata-curation` tag. `itemRef` exposes only the numeric `id` needed by the workflow consumer. Report `existing` as existing, never as newly created.
 
 ### Canceled JSON
 
@@ -934,15 +803,15 @@ Happy path:
 
 1. Run the initial gate.
 2. Build and obtain approval for Stage 10; submit `approve_search_plan`.
-3. Execute Stage 20 round 1 and submit its cumulative discovery payload.
+3. Execute Stage 20 round 1 and submit its discovery delta; the runtime builds the cumulative candidate set.
 4. Present Stage 30; submit approved ingestible ids.
 5. Automatically submit one Stage 40 metadata result per approved candidate.
 6. Automatically submit one three-route Stage 50 result per qualified candidate.
 7. Execute Stage 60 without editing generated payloads.
 8. Execute and receipt each Stage 70 mutation.
-9. When the gate returns `return_final_output`, write the compact ledger and emit one completed JSON object.
+9. When the gate returns `return_final_output`, emit its `final_output` object unchanged.
 
-Expansion path: the user asks for more Chinese theses at Stage 30. Submit `request_discovery_expansion` for round 1, run Stage 20 round 2, include every round-1 candidate plus new candidates/evidence, then return to the same Stage 30 decision.
+Expansion path: the user asks for more Chinese theses at Stage 30. Submit `{"decision":"expand","gaps":[...]}`, run Stage 20 round 2, submit only new candidates and evidence-backed updates, and let the runtime retain round-1 candidates before returning to the same Stage 30 decision.
 
 Near miss — premature discovery: non-blank `auto` appears sufficient, but Stage 10 is unapproved. Use only read-only local context to prepare the brief; do not issue external searches.
 
