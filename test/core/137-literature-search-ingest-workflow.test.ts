@@ -13,46 +13,26 @@ import { executeBuildRequests } from "../../src/workflows/runtime";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { applyResult } from "../../workflows_builtin/literature-workbench-package/literature-search-ingest/hooks/applyResult.mjs";
 
-function completedPayload(searchMode = "topic_expansion") {
+function completedPayload() {
   return {
     __SKILL_DONE__: true,
     kind: "literature_search_ingest",
     status: "completed",
-    query: "foundation models for visual inspection",
-    search_mode: searchMode,
-    searchSummary: {
-      breadth: "broad",
-      languages: ["en"],
-      queryLaneCount: 3,
-      sourceLaneCount: 5,
-      uniqueCandidateCount: 1,
-      selectedCount: 1,
-      stopReason: "all_applicable_lanes_completed",
+    summary: {
+      discovered: 1,
+      selected: 1,
+      created: 1,
+      existing: 0,
+      failed: 0,
+      notAttempted: 0,
     },
     outcomes: [
       {
-        candidateId: "doi:10.5555/example",
         title: "A Survey of Visual Inspection Foundation Models",
-        candidateTier: "needs_curation",
-        discoverySources: [
-          {
-            source: "OpenAlex",
-            url: "https://example.test/openalex/example",
-            queryLane: "core",
-          },
-        ],
-        identifiers: { doi: "10.5555/example" },
-        decision: "approved",
         ingestStatus: "created",
         pdfStatus: "missing",
         needsCuration: true,
-        itemRef: { id: 101, key: "ITEM101", libraryId: 1 },
-        landingUrl: "https://doi.org/10.5555/example",
-        manualSearchLinks: [
-          "https://doi.org/10.5555/example",
-          "https://scholar.google.com/scholar?q=%22A%20Survey%20of%20Visual%20Inspection%20Foundation%20Models%22",
-        ],
-        reasonCode: "no_public_pdf_url",
+        itemRef: { id: 101 },
       },
     ],
     searchLedgerPath: "result/search-ledger.json",
@@ -573,7 +553,14 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.include(files, "assets/runner.json");
     assert.include(files, "assets/parameter.schema.json");
     assert.include(files, "assets/output.schema.json");
-    assert.notInclude(files, "references/search-strategy.md");
+    assert.include(files, "assets/runtime-action.schema.json");
+    assert.include(files, "references/search-planning-and-discovery.md");
+    assert.include(files, "references/metadata-resolution.md");
+    assert.include(files, "references/pdf-probe.md");
+    assert.include(files, "references/ingest-output-recovery.md");
+    assert.notInclude(files, "references/stage-playbooks.md");
+    assert.include(files, "scripts/gate_runtime.py");
+    assert.include(files, "scripts/stage_runtime.py");
   });
 
   it("loads literature workbench workflows after syncing only packaged manifest files", async function () {
@@ -631,19 +618,20 @@ describe("Literature Search Ingest workflow contract", function () {
       primarySkillDir,
     });
 
-    const guided = await validateAcpSkillFinalPayload({
-      payload: completedPayload("guided"),
-      runnerJson,
-      primarySkillDir,
-    });
-
     assert.isTrue(completed.ok, completed.errors.join("; "));
     assert.isTrue(
       completedAfterConvergence.ok,
       completedAfterConvergence.errors.join("; "),
     );
     assert.isTrue(canceled.ok, canceled.errors.join("; "));
-    assert.isTrue(guided.ok, guided.errors.join("; "));
+    const verbose = completedPayload() as any;
+    verbose.outcomes[0].candidateId = "doi:10.5555/example";
+    const rejectedVerbose = await validateAcpSkillFinalPayload({
+      payload: verbose,
+      runnerJson,
+      primarySkillDir,
+    });
+    assert.isFalse(rejectedVerbose.ok);
   });
 
   it("adds the governed metadata-curation tag after final outcomes are known", async function () {
@@ -736,7 +724,7 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.isTrue(result.skipped);
   });
 
-  it("keeps detailed skill rules while delegating runner behavior", async function () {
+  it("ships a complete interactive gate-first skill contract", async function () {
     const skill = await fs.readFile(
       "skills_builtin/literature-search-ingest/SKILL.md",
       "utf8",
@@ -749,95 +737,74 @@ describe("Literature Search Ingest workflow contract", function () {
     );
     const prompt = runner.entrypoint?.prompts?.common || "";
 
-    assert.include(prompt, "必须先阅读 SKILL.md");
-    assert.notInclude(prompt, "China DOI");
-    assert.notInclude(prompt, "attachLandingUrlOnMissingPdf");
-    assert.include(skill, "`guided`");
-    assert.include(skill, "`query.trim()`");
-    assert.include(skill, "本地 Zotero/Synthesis");
-    assert.include(skill, "不得联网、下载、创建或写入条目");
-    assert.match(
-      skill.replace(/\s+/g, " "),
-      /guided.*不得.*重新(?:选择|分类).*其他模式/i,
-    );
-    assert.include(skill, "确认后直接进入候选搜索");
-    assert.include(skill, "open_text");
-    assert.include(skill, "普通 assistant 消息");
-    assert.match(
-      skill.replace(/\s+/g, " "),
-      /waiting state.*确实需要用户输入.*无需.*继续执行/i,
-    );
-    assert.include(skill, "synthesis topic list");
-    assert.include(skill, "synthesis index library get");
-    assert.include(skill, "synthesis artifact read");
-    assert.include(skill, "targeted_ingest");
-    assert.match(
-      skill.replace(/\s+/g, " "),
-      /targeted_ingest.*(?:单个|一个).*目标.*不得.*扩展搜索/i,
-    );
-    assert.match(
-      skill.replace(/\s+/g, " "),
-      /非空.*auto.*(?:初始|首次).*联网/i,
-    );
-    assert.include(skill, "China DOI");
-    assert.include(skill, "知网");
-    assert.include(skill, "万方");
-    assert.include(skill, "PDC");
-    assert.include(skill, "Airiti");
-    assert.include(skill, "TSSCI");
-    assert.include(skill, "core lane");
-    assert.include(skill, "multilingual lane");
-    assert.include(skill, "seed lane");
-    assert.include(skill, "gap lane");
-    assert.match(
-      skill.replace(/\s+/g, " "),
-      /每个关键语言.*索引来源.*(?:原始|长尾)来源/i,
-    );
-    assert.include(skill, "matching evidence");
-    assert.match(
-      skill.replace(/\s+/g, " "),
-      /material conflict.*保持分离.*待核验/i,
-    );
-    assert.include(skill, "ready");
-    assert.include(skill, "needs_curation");
-    assert.include(skill, "lead_only");
-    assert.include(skill, "先去重");
-    assert.include(skill, "用户选择后");
-    assert.include(skill, "filetype:pdf");
-    assert.include(skill, "identifier_not_found");
-    assert.match(skill, /等待用户(?:选择|确认)/);
-    assert.include(skill, "landing URL");
-    assert.include(skill, "metadata source");
-    assert.include(skill, "PDF attempt/status");
-    assert.include(skill, "逐篇调用");
-    assert.match(
-      skill.replace(/\s+/g, " "),
-      /确认.*第一动作.*zotero-bridge mutation literature-ingest/i,
-    );
-    assert.match(
-      skill.replace(/\s+/g, " "),
-      /(?:拒绝|工具不可用|无法继续).*canceled/i,
-    );
-    assert.include(skill, "ingest-paper-001.json");
-    assert.include(skill, "papers[]");
-    assert.include(skill, "最终输出必须是单个合法 JSON object");
-    assert.include(skill, "hasPdfAttachment");
-    assert.include(skill, "manualSearchLinks");
-    assert.include(skill, "不得以仅有标题");
-    assert.include(skill, "`searchSummary`");
-    assert.include(skill, "`outcomes`");
-    assert.include(skill, "`searchLedgerPath`");
-    assert.notInclude(skill, "`ingested_references`");
-    assert.notInclude(skill, "`missing_pdf_references`");
-    assert.include(skill, '"literature_search_ingest"');
-    assert.include(skill, '"literature_search_ingest_canceled"');
-    assert.include(skill, '"user_cancelled"');
-    assert.include(skill, '"name": "张三"');
-    assert.notInclude(skill, '"lastName": "张"');
-    assert.notInclude(skill, '"firstName": "三"');
-    assert.notInclude(skill, "confirmed_references");
-    assert.notInclude(skill, "confirmed-papers.json");
-    assert.notInclude(prompt, "confirmed-papers.json");
+    assert.deepEqual(runner.execution_modes, ["interactive"]);
+    assert.equal(runner.runtime?.language, "python");
+    assert.equal(runner.runtime?.version, "3.11");
+    assert.deepEqual(runner.runtime?.dependencies, []);
+    assert.include(prompt, "scripts/gate_runtime.py");
+    assert.include(prompt, "interactive");
+    for (const heading of [
+      "## Mission",
+      "## Inputs",
+      "## Interactive Contract",
+      "## Runtime Model",
+      "## Gate Discipline",
+      "## Mode Routing",
+      "## High-recall Search",
+      "## Candidate Tiers And Review",
+      "## Stage Contracts",
+      "## Responsibilities",
+      "## Failure, Cancellation, And Resume",
+      "## Final Output",
+      "## Reference Loading Guide",
+      "## Execution Examples",
+    ]) {
+      assert.include(skill, heading, heading);
+    }
+    assert.notInclude(skill, "## When To Use");
+    assert.notInclude(skill, "## Do Not Use");
+    for (const nextAction of [
+      "await_user_input",
+      "submit_stage_payload",
+      "run_stage",
+      "execute_ingest",
+      "blocked",
+      "return_final_output",
+    ]) {
+      assert.include(skill, `\`${nextAction}\``, nextAction);
+    }
+    for (const stage of [
+      "Stage 10",
+      "Stage 20",
+      "Stage 30",
+      "Stage 40",
+      "Stage 50",
+      "Stage 60",
+      "Stage 70",
+    ]) {
+      const start = skill.indexOf(`### ${stage}`);
+      const end = skill.indexOf("\n### ", start + 4);
+      const section = skill.slice(start, end < 0 ? undefined : end);
+      assert.isAtLeast(start, 0, stage);
+      assert.match(section, /\*\*Purpose:\*\*/);
+      assert.match(section, /\*\*Gate command:\*\*/);
+      assert.match(section, /\*\*Payload path:\*\*/);
+      assert.match(section, /\*\*Minimal payload/);
+      assert.match(section, /\*\*Completion:\*\*/);
+      assert.match(section, /\*\*Forbidden:\*\*/);
+      assert.match(section, /\*\*Recovery:\*\*/);
+      assert.match(section, /\*\*Next:\*\*/);
+    }
+    for (const reference of [
+      "references/search-planning-and-discovery.md",
+      "references/metadata-resolution.md",
+      "references/pdf-probe.md",
+      "references/ingest-output-recovery.md",
+    ]) {
+      assert.include(skill, reference);
+    }
+    assert.include(skill, "assets/runtime-action.schema.json");
+    assert.notInclude(skill.toLowerCase(), "sqlite");
     assert.isUndefined(runner.mcp);
     assert.notInclude(skill, "MCP");
     assert.notInclude(prompt, "MCP");

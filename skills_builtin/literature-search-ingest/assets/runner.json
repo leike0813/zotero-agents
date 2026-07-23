@@ -1,8 +1,8 @@
 {
   "id": "literature-search-ingest",
   "name": "🔎 Literature Search Ingest",
-  "description": "Interactive literature search and Zotero ingest through ACP.",
-  "version": "0.2.0",
+  "description": "Gate-driven guided literature search, multilingual and seed-paper expansion, targeted record ingest, candidate review, metadata and public-PDF verification, and typed Zotero ingest through zotero-bridge.",
+  "version": "0.3.0",
   "execution_modes": [
     "interactive"
   ],
@@ -11,9 +11,17 @@
     "parameter": "assets/parameter.schema.json",
     "output": "assets/output.schema.json"
   },
+  "runtime": {
+    "language": "python",
+    "version": "3.11",
+    "dependencies": [],
+    "default_options": {
+      "hard_timeout_seconds": 3600
+    }
+  },
   "entrypoint": {
     "prompts": {
-      "common": "执行 literature-search-ingest 技能。输入 query={{ parameter.query }}，searchMode={{ parameter.searchMode }}，targetCollection={{ parameter.targetCollection }}。本任务为 interactive。必须先阅读 SKILL.md，并以它作为唯一业务流程、交互边界、工具调用、安全约束和最终 JSON 契约来源执行。"
+      "common": "执行 literature-search-ingest 技能。输入 query={{ parameter.query }}，searchMode={{ parameter.searchMode }}，targetCollection={{ parameter.targetCollection }}。本任务运行在 interactive 模式。先完整阅读 SKILL.md，再运行 scripts/gate_runtime.py 的初始 gate；只读取 gate 返回的 required_reads，只执行 gate 返回的 next_action、payload_path 和命令。agent 只填写 gate 的 payload_template 与 schema 明确要求的语义字段；action、round、candidate binding、hash、计数和固定策略由 runtime 派生。仅 Stage 10 搜索方案与 Stage 30 入库范围允许等待用户；Stage 30 补检返回下一 discovery round，Stage 20 只提交增量而由 runtime 保留累计候选。范围批准后自动完成元数据、三路线 PDF、typed payload 与逐篇 zotero-bridge mutation。每次状态变化后重新运行初始 gate，最终原样返回 gate 的 final_output。"
     }
   }
 }
