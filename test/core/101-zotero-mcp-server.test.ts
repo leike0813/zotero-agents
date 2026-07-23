@@ -1623,6 +1623,82 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.include(String(item.getField("extra") || ""), `DOI: ${doi}`);
   });
 
+  it("maps an identifier-only DOI to the native journal article field", async function () {
+    const doi = "10.5555/zs.mcp.native-doi.001";
+    const response = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "ingest-native-doi",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_EXECUTE_MUTATION,
+          arguments: {
+            operation: "literature.ingest",
+            paper: {
+              itemType: "journalArticle",
+              fields: {
+                title: "Identifier-only DOI paper",
+                extra: `DOI: ${doi}\nSource note`,
+              },
+              creators: [],
+              identifiers: { doi },
+            },
+          },
+        },
+      },
+      { requestToolPermission: () => true },
+    );
+
+    const ingest = (response as any).result.structuredContent.data.result
+      .ingest;
+    assert.strictEqual(ingest.status, "created");
+    const item = Zotero.Items.get(ingest.item.id)!;
+    assert.strictEqual(item.getField("DOI"), doi);
+    assert.notInclude(String(item.getField("extra") || ""), "DOI:");
+    assert.include(String(item.getField("extra") || ""), "Source note");
+  });
+
+  it("rejects conflicting typed DOI representations before permission", async function () {
+    let permissionCalls = 0;
+    const response = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "ingest-conflicting-doi",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_EXECUTE_MUTATION,
+          arguments: {
+            operation: "literature.ingest",
+            paper: {
+              itemType: "journalArticle",
+              fields: {
+                title: "Conflicting DOI paper",
+                DOI: "10.5555/zs.mcp.native-doi.fields",
+              },
+              creators: [],
+              identifiers: {
+                doi: "10.5555/zs.mcp.native-doi.identifiers",
+              },
+            },
+          },
+        },
+      },
+      {
+        requestToolPermission: () => {
+          permissionCalls += 1;
+          return true;
+        },
+      },
+    );
+
+    assert.strictEqual((response as any).error?.code, -32602);
+    assert.match(
+      String((response as any).error?.message || ""),
+      /DOI.*conflict/i,
+    );
+    assert.strictEqual(permissionCalls, 0);
+  });
+
   it("attaches a landing URL when requested and no PDF is available", async function () {
     const doi = "10.5555/zs.mcp.ingest.landing.001";
     const landingUrl = "https://example.test/papers/zs-mcp-landing";
