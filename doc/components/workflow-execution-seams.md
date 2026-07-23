@@ -25,6 +25,26 @@ Request adaptation is limited to the selected backend context. Workflow
 `provider` remains the backend compatibility source; `request.kind` describes
 payload shape after a backend is selected.
 
+## Selection Validation Phases
+
+`evaluateWorkflowSelection()` uses its mode to distinguish availability from
+confirmed execution:
+
+- `menu` mode applies parameter-independent selection and artifact rules.
+  An `artifact-exists` rule with `parameter` is deferred because workflow
+  settings are not confirmed yet.
+- `execute` mode applies every declared selection rule before request
+  construction. A parameterized artifact target reads its value only from
+  `executionOptions.workflowParams[rule.parameter]`.
+- `handoff` mode retains the workflow handoff selection bypass.
+
+The manifest owns every artifact parameter dependency. Targets whose path
+depends on a workflow parameter must declare a non-empty `parameter`; the Host
+does not infer parameter names from workflow ids, target kinds, or values.
+Static artifact targets omit `parameter` and apply in both menu and execute
+modes. Applicable rules retain manifest order, and excluded units contribute to
+the existing total, valid, and skipped execution statistics.
+
 ## Run Seam
 
 Run seam creates the job queue, computes dispatch concurrency, enqueues

@@ -459,11 +459,20 @@
                   },
                   "target": {
                     "type": "string",
-                    "enum": [
-                      "deep-reading-html",
-                      "translator-markdown",
-                      "mineru-markdown"
-                    ]
+                    "enum": ["deep-reading-html", "mineru-markdown"]
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": ["kind", "target", "parameter"],
+                "properties": {
+                  "kind": {
+                    "const": "artifact-exists"
+                  },
+                  "target": {
+                    "const": "translator-markdown"
                   },
                   "parameter": {
                     "$ref": "#/$defs/nonEmptyString"

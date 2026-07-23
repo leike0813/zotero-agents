@@ -95,6 +95,11 @@ type EvaluateWorkflowSelectionArgs = {
 
 type RuntimeLike = WorkflowRuntimeContext;
 
+type WorkflowArtifactExistsRule = Extract<
+  NonNullable<WorkflowValidateSelectionSpec["exclude"]>[number],
+  { kind: "artifact-exists" }
+>;
+
 function createSelectionRuntime(
   override?: Partial<WorkflowRuntimeContext>,
 ): RuntimeLike {
@@ -817,10 +822,8 @@ function sanitizeFileNameSegment(value: unknown) {
 }
 
 function resolveArtifactTargetPath(
-  entry: AttachmentLike,
-  target: string,
+  rule: WorkflowArtifactExistsRule,
   args: EvaluateWorkflowSelectionArgs,
-  runtime: RuntimeLike,
   sourcePath: string,
 ) {
   const sourceDir = dirnamePath(sourcePath);
@@ -828,20 +831,19 @@ function resolveArtifactTargetPath(
   if (!sourceDir || !sourceName) {
     return "";
   }
-  if (target === "deep-reading-html") {
+  if (rule.target === "deep-reading-html") {
     return joinPath(sourceDir, replaceExtension(sourceName, ".html"));
   }
-  if (target === "mineru-markdown") {
+  if (rule.target === "mineru-markdown") {
     return joinPath(sourceDir, replaceExtension(sourceName, ".md"));
   }
-  if (target === "translator-markdown") {
-    const parameterName = "target_language";
-    const targetLanguage =
-      String(args.executionOptions?.workflowParams?.[parameterName] || "").trim() ||
-      "zh-CN";
+  if (rule.target === "translator-markdown") {
+    const parameterValue = String(
+      args.executionOptions?.workflowParams?.[rule.parameter] ?? "",
+    ).trim();
     const sourceMarkdownName = replaceExtension(sourceName, ".md");
     const stem = sourceMarkdownName.replace(/\.md$/i, "");
-    const suffix = sanitizeFileNameSegment(targetLanguage);
+    const suffix = sanitizeFileNameSegment(parameterValue);
     if (!stem || !suffix) {
       return "";
     }
@@ -889,8 +891,9 @@ async function filterArtifactConflicts(
 ) {
   const artifactRules = (args.manifest || args.workflow?.manifest)
     ?.validateSelection?.exclude?.filter(
-      (entry) => entry.kind === "artifact-exists",
-    ) as Array<{ kind: "artifact-exists"; target: string }> | undefined;
+      (entry): entry is WorkflowArtifactExistsRule =>
+        entry.kind === "artifact-exists",
+    );
   if (!artifactRules?.length) {
     return attachments;
   }
@@ -902,11 +905,12 @@ async function filterArtifactConflicts(
     }
     let conflict = false;
     for (const rule of artifactRules) {
+      if (args.mode === "menu" && rule.parameter) {
+        continue;
+      }
       const targetPath = resolveArtifactTargetPath(
-        entry,
-        rule.target,
+        rule,
         args,
-        runtime,
         sourcePath,
       );
       if (!targetPath || (await fileExists(targetPath, runtime))) {

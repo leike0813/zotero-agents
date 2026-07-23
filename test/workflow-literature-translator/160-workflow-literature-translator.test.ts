@@ -7,6 +7,7 @@ import {
   executeApplyResult,
   executeBuildRequests,
 } from "../../src/workflows/runtime";
+import { evaluateWorkflowSelection } from "../../src/workflows/workflowSelectionValidation";
 import {
   ensureDir,
   existsPath,
@@ -178,6 +179,71 @@ describe("workflow: literature-translator", function () {
     assert.equal(requests[0].parameter?.mode, "high_quality");
   });
 
+  it("defers parameterized artifact exclusion until the parameter is confirmed for execution", async function () {
+    const loadedWorkflow = await getLiteratureTranslatorWorkflow();
+    const workflow = {
+      ...loadedWorkflow,
+      manifest: {
+        ...loadedWorkflow.manifest,
+        validateSelection: {
+          ...loadedWorkflow.manifest.validateSelection,
+          exclude: [
+            {
+              kind: "artifact-exists" as const,
+              target: "translator-markdown" as const,
+              parameter: "output_variant",
+            },
+          ],
+        },
+      },
+    };
+    const tempDir = await mkTempDir("zotero-skills-translator-phase");
+    const parent = await createParent("Translator Phase Parent");
+    await createAttachment({
+      parent,
+      dirPath: tempDir,
+      name: "paper.pdf",
+      mimeType: "application/pdf",
+    });
+    await writeUtf8(joinPath(tempDir, "paper_variant-a.md"), "exists");
+    const selection = await buildSelectionContext([parent]);
+    const cases = [
+      {
+        label: "menu availability ignores the unconfirmed parameter",
+        mode: "menu" as const,
+        value: "variant-a",
+        expectedState: "enabled",
+      },
+      {
+        label: "execute skips the matching parameter target",
+        mode: "execute" as const,
+        value: "variant-a",
+        expectedState: "disabled",
+      },
+      {
+        label: "execute keeps a different parameter target",
+        mode: "execute" as const,
+        value: "variant-b",
+        expectedState: "enabled",
+      },
+    ];
+
+    for (const entry of cases) {
+      const result = await evaluateWorkflowSelection({
+        workflow,
+        selectionContext: selection,
+        mode: entry.mode,
+        executionOptions: {
+          workflowParams: {
+            output_variant: entry.value,
+          },
+        },
+      });
+
+      assert.equal(result.state, entry.expectedState, entry.label);
+    }
+  });
+
   it("filters selected inputs when translated markdown target already exists", async function () {
     const workflow = await getLiteratureTranslatorWorkflow();
     const tempDir = await mkTempDir("zotero-skills-translator-filter");
@@ -195,12 +261,17 @@ describe("workflow: literature-translator", function () {
       name: "skip.pdf",
       mimeType: "application/pdf",
     });
-    await writeUtf8(joinPath(tempDir, "skip_zh-CN.md"), "already translated");
+    await writeUtf8(joinPath(tempDir, "skip_fr-FR.md"), "already translated");
 
     const selection = await buildSelectionContext([keepParent, skipParent]);
     const requests = (await executeBuildRequests({
       workflow,
       selectionContext: selection,
+      executionOptions: {
+        workflowParams: {
+          target_language: "fr-FR",
+        },
+      },
     })) as Array<{ sourceAttachmentPaths?: string[] }> & {
       __stats?: {
         totalUnits?: number;
@@ -225,7 +296,7 @@ describe("workflow: literature-translator", function () {
       name: "paper.pdf",
       mimeType: "application/pdf",
     });
-    await writeUtf8(joinPath(tempDir, "paper_zh-CN.md"), "already translated");
+    await writeUtf8(joinPath(tempDir, "paper_fr-FR.md"), "already translated");
 
     const selection = await buildSelectionContext([parent]);
     let thrown: unknown = null;
@@ -233,6 +304,11 @@ describe("workflow: literature-translator", function () {
       await executeBuildRequests({
         workflow,
         selectionContext: selection,
+        executionOptions: {
+          workflowParams: {
+            target_language: "fr-FR",
+          },
+        },
       });
     } catch (error) {
       thrown = error;

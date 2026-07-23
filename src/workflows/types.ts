@@ -146,8 +146,13 @@ export type WorkflowValidateSelectionSpec = {
       }
     | {
         kind: "artifact-exists";
-        target: "deep-reading-html" | "translator-markdown" | "mineru-markdown";
-        parameter?: string;
+        target: "deep-reading-html" | "mineru-markdown";
+        parameter?: never;
+      }
+    | {
+        kind: "artifact-exists";
+        target: "translator-markdown";
+        parameter: string;
       }
   >;
   derive?: Array<"exportCandidates" | "digestRepresentativeImageTarget">;

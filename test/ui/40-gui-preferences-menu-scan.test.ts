@@ -4057,6 +4057,71 @@ describe("gui: workflow context menu", function () {
     assert.equal(workflowItem!.getAttribute("disabled"), "true");
   });
 
+  it("context menu ignores parameterized artifact exclusion before settings confirmation", async function () {
+    const tempDir = await mkTempDir("zotero-skills-menu-parameter-artifact");
+    const sourcePath = joinPath(tempDir, "paper.pdf");
+    await writeUtf8(sourcePath, "pdf");
+    await writeUtf8(joinPath(tempDir, "paper_variant-a.md"), "exists");
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Parameterized Artifact Menu Parent" },
+    });
+    await handlers.attachment.createFromPath({
+      parent,
+      path: sourcePath,
+      title: "paper.pdf",
+      mimeType: "application/pdf",
+    });
+    const workflow = makePassThroughWorkflow(
+      "parameterized-artifact-menu",
+      "Parameterized Artifact Menu",
+    );
+    workflow.manifest.inputs = { unit: "attachment" };
+    workflow.manifest.parameters = {
+      target_language: {
+        type: "string",
+        title: "Output Variant",
+        default: "variant-a",
+      },
+    };
+    workflow.manifest.validateSelection = {
+      select: {
+        policy: "literature-source",
+      },
+      exclude: [
+        {
+          kind: "artifact-exists",
+          target: "translator-markdown",
+          parameter: "target_language",
+        },
+      ],
+    };
+    setWorkflowState([workflow]);
+    const win = createMainWindow([parent]);
+    ensureWorkflowMenuForWindow(win);
+    const popup = win.document.getElementById(
+      `${config.addonRef}-workflows-popup`,
+    ) as FakeXULElement;
+
+    await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
+      includeSkillRunnerSidebarItem: false,
+      includeTaskManagerItem: false,
+      includeSynthesisWorkbenchItem: false,
+    });
+
+    const workflowItem = popup.children.find((child) =>
+      (child.getAttribute("label") || "").startsWith(
+        "Parameterized Artifact Menu",
+      ),
+    );
+    assert.isOk(workflowItem);
+    assert.equal(
+      workflowItem!.getAttribute("label"),
+      "Parameterized Artifact Menu",
+    );
+    assert.equal(workflowItem!.getAttribute("disabled"), null);
+  });
+
   it("context menu lets workflow-unit parameterized workflows open settings before request build", async function () {
     const parent = await handlers.item.create({
       itemType: "journalArticle",

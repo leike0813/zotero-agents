@@ -120,6 +120,92 @@ describe("pass-through provider", function () {
     );
   });
 
+  it("accepts static artifact exclusions and rejects a parameterized target without its parameter declaration", async function () {
+    const root = await mkTempDir("zotero-skills-artifact-rule-schema");
+    const staticWorkflowRoot = joinPath(root, "static-artifact-rule");
+    const parameterizedWorkflowRoot = joinPath(
+      root,
+      "missing-parameter-artifact-rule",
+    );
+    const applyHook =
+      "export async function applyResult(){ return { ok: true }; }";
+    await writeUtf8(
+      joinPath(staticWorkflowRoot, "workflow.json"),
+      JSON.stringify(
+        {
+          id: "static-artifact-rule",
+          label: "Static Artifact Rule",
+          provider: "pass-through",
+          validateSelection: {
+            select: {
+              policy: "pdf-attachment",
+            },
+            exclude: [
+              {
+                kind: "artifact-exists",
+                target: "mineru-markdown",
+              },
+            ],
+          },
+          hooks: {
+            applyResult: "hooks/applyResult.js",
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeUtf8(
+      joinPath(staticWorkflowRoot, "hooks", "applyResult.js"),
+      applyHook,
+    );
+    await writeUtf8(
+      joinPath(parameterizedWorkflowRoot, "workflow.json"),
+      JSON.stringify(
+        {
+          id: "missing-parameter-artifact-rule",
+          label: "Missing Parameter Artifact Rule",
+          provider: "pass-through",
+          validateSelection: {
+            select: {
+              policy: "literature-source",
+            },
+            exclude: [
+              {
+                kind: "artifact-exists",
+                target: "translator-markdown",
+              },
+            ],
+          },
+          hooks: {
+            applyResult: "hooks/applyResult.js",
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeUtf8(
+      joinPath(parameterizedWorkflowRoot, "hooks", "applyResult.js"),
+      applyHook,
+    );
+
+    const loaded = await loadWorkflowManifests(root);
+
+    assert.deepEqual(
+      loaded.workflows.map((entry) => entry.manifest.id),
+      ["static-artifact-rule"],
+    );
+    assert.isTrue(
+      (loaded.diagnostics || []).some(
+        (entry) =>
+          entry.category === "manifest_validation_error" &&
+          entry.entry === "missing-parameter-artifact-rule",
+      ),
+      `diagnostics=${JSON.stringify(loaded.diagnostics)}`,
+    );
+  });
+
   it("builds pass-through request without buildRequest/request declarations", async function () {
     const root = await createPassThroughWorkflowRoot();
     const loaded = await loadWorkflowManifests(root);
