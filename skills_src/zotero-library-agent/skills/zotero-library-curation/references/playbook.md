@@ -150,3 +150,252 @@ If a later reporting or attachment stage fails after metadata was applied, recov
 - If a workflow completes without the promised item changes, preserve run output and report the failed verification.
 - If a write succeeded but a later report artifact failed, do not repeat the write; recover only the missing report stage.
 - If a scheduled hygiene or attention result identifies candidates, keep it as a proposal. Recurring maintenance belongs to the hosted facet.
+## End-to-end decision traces
+
+These traces demonstrate how vague cleanup language becomes a reviewable proposal and how partial or uncertain writes produce a residual delta rather than replay.
+
+### Trace 1: “Clean up these tags”
+
+User utterance:
+
+> Clean up the tags on these papers.
+
+Ambiguities:
+
+- target set may depend on current selection;
+- “clean up” may mean spelling normalization, controlled vocabulary mapping, deduplication, removal, or inferred additions;
+- removal can discard user meaning;
+- heterogeneous tags may need different evidence.
+
+First actions:
+
+1. Resolve the selected items.
+2. Read current tags live.
+3. Ask for or identify the controlled vocabulary and allowed transformations.
+4. Separate deterministic normalization from semantic tag inference.
+5. Build a per-item proposal.
+
+Proposal row:
+
+- item ref;
+- current tags;
+- proposed added, replaced, and removed tags;
+- transformation rule or evidence;
+- tags explicitly preserved;
+- expected side effect;
+- approval scope;
+- verification read.
+
+Safe default:
+
+- Produce the proposal without writing.
+- Preserve unknown user tags.
+- Do not infer new semantic tags unless requested.
+
+User-facing proposal:
+
+> I found spelling/case duplicates, mappings to the supplied vocabulary, and six tags whose meaning is ambiguous. The first two groups can be reviewed as one batch; the ambiguous tags will remain unchanged until you decide.
+
+Canceled result before authority:
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "canceled",
+  "summary": "Prepared a reviewable tag-normalization proposal and stopped before mutation because approval and six ambiguous mappings are still required.",
+  "artifacts": [
+    {
+      "path": "/workspace/tag-change-proposal.md",
+      "role": "change-proposal",
+      "mediaType": "text/markdown"
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "tag_decisions_required",
+      "message": "Six existing tags have no unambiguous controlled-vocabulary mapping."
+    }
+  ]
+}
+```
+
+Near miss:
+
+- A tag-regulation analysis result is not approval to mutate live items.
+
+### Trace 2: Merge duplicates with affected children
+
+User utterance:
+
+> Merge these duplicates and keep the better record.
+
+Required inspection:
+
+- stable refs and strong identifiers;
+- version/edition relationship;
+- metadata conflicts;
+- collections;
+- tags;
+- notes and annotations;
+- attachments;
+- relations and linked Products;
+- destructive consequences.
+
+Material decision:
+
+- “better” does not identify a survivor.
+- Related preprint and published versions may not be duplicates.
+- Child content may not merge automatically.
+
+Proposal:
+
+1. Present candidate survivor and reasons.
+2. List fields retained from each record.
+3. List children and relations affected.
+4. Identify any removal.
+5. State expected live post-state.
+6. Separate merge from metadata corrections not required by the merge.
+
+Authority:
+
+- Obtain current destructive approval for the exact pair and survivor.
+- Do not extend approval to other similar records.
+
+Execution and verification:
+
+- Apply once.
+- Preserve operation receipt.
+- Re-read survivor, removed identity status, children, collections, tags, and relations.
+- Report any incomplete transfer.
+
+Failed result for incomplete child transfer:
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "failed",
+  "summary": "The approved duplicate merge changed the library, but one attachment relation was not verified on the survivor, so the requested merge is not fully complete.",
+  "evidence": [
+    {
+      "kind": "operation-receipt",
+      "ref": {
+        "operationId": "merge-operation-1"
+      },
+      "description": "Durable receipt for the one attempted merge."
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "merge_child_unverified",
+      "message": "One attachment relation requires a separate residual proposal after live inspection."
+    }
+  ]
+}
+```
+
+Recovery:
+
+- Do not repeat the merge.
+- Inspect current survivor and attachment state.
+- Prepare only the residual attachment change.
+
+### Trace 3: Unknown state while attaching an analysis artifact
+
+User utterance:
+
+> Attach this analysis to the paper.
+
+Preparation:
+
+1. Verify the local artifact path, bytes, media type, and intended role.
+2. Resolve the exact parent Zotero item.
+3. Read current attachments.
+4. Upload the file.
+5. Preserve the returned `fileId`, checksum, size, and consumption facts.
+6. Preview the attachment mutation.
+7. Obtain current authority.
+
+Failure:
+
+- The attachment mutation call loses transport after submission.
+- Remote effect is unknown.
+
+Required response:
+
+- Preserve upload facts and operation handle.
+- Do not upload again.
+- Do not repeat the attachment mutation.
+- Inspect the durable receipt.
+- Re-read parent attachments.
+
+Possible outcomes:
+
+- Attachment exists and matches checksum: mark the target complete.
+- Receipt proves unchanged: prepare a safe residual mutation using a valid handle if permitted.
+- State remains unknown: return `failed` and require manual/current-state resolution.
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "failed",
+  "summary": "The approved attachment write has an uncertain remote outcome; no retry was attempted while the durable receipt and live parent state remain unresolved.",
+  "evidence": [
+    {
+      "kind": "zotero-item",
+      "ref": {
+        "libraryId": 1,
+        "key": "PARENT01"
+      },
+      "description": "The exact target parent for live recovery."
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "attachment_write_unknown",
+      "message": "Inspect the operation receipt and current attachments before any new write."
+    }
+  ]
+}
+```
+
+Unsafe alternatives:
+
+- retrying because no success response was received;
+- uploading the same bytes again;
+- assuming the local artifact path is a Zotero attachment;
+- attaching to a title match.
+
+## Curation conversation and record patterns
+
+Vague request:
+
+> “Clean up” could mean several different changes. I will first produce a per-target before/after proposal and leave live Zotero state unchanged.
+
+Destructive request:
+
+> This merge would remove one record and affect its notes and attachments. Please confirm the exact survivor and listed child handling.
+
+Partial result:
+
+> Six changes are live-verified, one was denied, and one remains unknown. The residual proposal excludes the six verified successes.
+
+Unknown result:
+
+> The call may have reached Zotero. I will inspect the durable receipt and current target before considering any retry.
+
+Every curation decision record should preserve:
+
+- target ref;
+- before state;
+- desired state;
+- correction evidence;
+- semantic change type;
+- destructive consequences;
+- batch identity;
+- preview;
+- current authority;
+- operation/apply receipt;
+- live after state;
+- residual delta.
+
+Keep the proposal artifact, business result, and live Zotero state distinct. The proposal describes intent, the result describes verified execution, and only the live read proves current state.

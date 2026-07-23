@@ -142,3 +142,240 @@ A residual batch gets a new preflight when target collections, duplicate state, 
 - If attachment access expires, obtain a new handle from the owning item or source; never reuse a guessed storage path.
 - If metadata conflicts appear after acquisition, preserve the imported record and route the proposed correction to curation rather than silently repairing it.
 - If duplicate effects are broader than the reviewed proposal, stop before mutation and present the newly discovered consequences.
+## End-to-end decision traces
+
+These traces demonstrate how a bounded acquisition request moves from human wording to candidates, live duplicate decisions, authority, and verification.
+
+### Trace 1: “Find recent papers on X”
+
+User utterance:
+
+> Find some recent papers on retrieval-augmented scientific agents.
+
+Ambiguities:
+
+- “recent” has no date window;
+- “some” has no result bound;
+- external sources and language are unspecified;
+- the user has not asked for import;
+- preprints and published versions may overlap.
+
+Clarification/default:
+
+Ask for a date window when recency materially controls inclusion. If the user accepts defaults, disclose a concrete window, result cap, language policy, searched sources, and candidate-only outcome.
+
+Candidate plan:
+
+1. Expand the research concept into declared search terms.
+2. Search the named sources.
+3. Record query limits and provider provenance.
+4. Retain candidates meeting the inclusion rule.
+5. Compare strong identifiers and versions.
+6. Search the live Zotero library for every retained candidate.
+7. Label each new, existing, probable duplicate, related version, or ambiguous.
+
+Do not:
+
+- import because the user said “find”;
+- hide unavailable full text;
+- call a preprint and journal article duplicates without a version decision;
+- describe the result as exhaustive beyond the declared sources and stopping rule.
+
+Human-facing result:
+
+> I prepared twelve candidates from the declared 2024–2026 window and sources. Four already exist in the current Zotero library, two are related preprint/published pairs, and six appear new. Nothing has been imported.
+
+Completed result:
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "completed",
+  "summary": "Prepared twelve bounded candidates with provenance and current Zotero duplicate status; no item was imported.",
+  "artifacts": [
+    {
+      "path": "/workspace/candidate-report.md",
+      "role": "candidate-report",
+      "mediaType": "text/markdown"
+    }
+  ]
+}
+```
+
+### Trace 2: Import a reviewed batch into a collection
+
+User utterance:
+
+> Add these papers to my “Agent Research” collection and get the PDFs where possible.
+
+Resolved inputs:
+
+- exact candidate records;
+- target library and collection identity;
+- duplicate alternatives;
+- metadata provenance;
+- lawful attachment sources;
+- smallest reviewable batch.
+
+Proposal per candidate:
+
+- strong identifiers and bibliographic version;
+- current Zotero match;
+- import versus reuse decision;
+- collection membership effect;
+- attachment source and expected readiness;
+- metadata conflicts;
+- unmodified fields;
+- approval and verification path.
+
+Authority:
+
+1. Show the exact batch.
+2. Obtain current authority for import and collection changes.
+3. Keep merge, overwrite, delete, and relink outside the batch unless separately approved.
+4. Validate workflow options and provider profile if a workflow is used.
+
+Execution:
+
+1. Submit or apply the approved batch once.
+2. Preserve operation/workflow handles.
+3. Re-read every resulting item.
+4. Verify collection membership.
+5. Inspect attachment state separately.
+6. Classify successful, existing, failed, unattempted, and ambiguous candidates.
+
+Partial outcome:
+
+- Seven items are imported or reused and live-verified.
+- One provider request fails before item creation.
+- Two PDFs are unavailable.
+
+Result decision:
+
+- The requested overall batch did not completely succeed, so use `failed`.
+- Preserve the seven successful item refs.
+- Diagnose the one failed acquisition and two attachment gaps.
+- Do not replay the whole batch.
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "failed",
+  "summary": "Verified seven of eight requested items in the target collection; one acquisition failed and two verified items still lack requested attachments.",
+  "evidence": [
+    {
+      "kind": "collection",
+      "ref": {
+        "libraryId": 1,
+        "key": "COLLECT1"
+      },
+      "description": "Target collection re-read after the approved batch."
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "residual_acquisition",
+      "message": "One candidate was not created and two attachment requests remain unavailable."
+    }
+  ]
+}
+```
+
+Recovery:
+
+- Prepare a residual proposal for the failed candidate only.
+- Treat missing attachments as distinct from missing bibliographic items.
+- Obtain new authority if a different source or metadata overwrite is proposed.
+
+### Trace 3: Duplicate ambiguity after provider discovery
+
+User utterance:
+
+> Import the best version and remove the duplicate.
+
+Observed candidates:
+
+- one conference paper already in Zotero with annotations;
+- one journal extension from the provider;
+- similar title and overlapping authors;
+- distinct DOI and additional experiments.
+
+Decision:
+
+- These may be related versions rather than duplicates.
+- “Best” is a user preference, not an identity fact.
+- Removing the existing item is destructive and may affect annotations, collections, relations, and attachments.
+
+Clarification:
+
+> The library item and provider result appear to be conference and journal versions with different identifiers. Do you want to keep both, import the journal version and link them, or review a destructive merge/removal proposal?
+
+Canceled result when no decision is supplied:
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "canceled",
+  "summary": "Stopped before import or removal because the two records are related versions and no survivor or linking decision was provided.",
+  "evidence": [
+    {
+      "kind": "zotero-item",
+      "ref": {
+        "libraryId": 1,
+        "key": "CONF2024"
+      },
+      "description": "Existing annotated conference version."
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "version_decision_required",
+      "message": "Choose whether to keep, link, or separately review destructive consolidation."
+    }
+  ]
+}
+```
+
+Unsafe alternatives:
+
+- choosing the journal version because it is newer;
+- deleting the conference record before preserving annotations;
+- overwriting curated metadata from provider fields;
+- treating title similarity as duplicate proof.
+
+Resume:
+
+- Re-read both identities and affected children after the user decides.
+- Route destructive consolidation to a curation proposal.
+
+## Conversation and record patterns
+
+Candidate report language:
+
+> The search covered the declared sources and stopped at the agreed bound. The report separates external candidates, current Zotero matches, related versions, and unresolved identities.
+
+Write proposal language:
+
+> This batch will create six items, reuse three existing items, add all nine to the named collection, and attempt attachments from the listed sources. It will not merge, delete, or overwrite conflicting curated metadata.
+
+Attachment limitation language:
+
+> The bibliographic item is live-verified, but no usable attachment was acquired. I have not labeled it analysis-ready.
+
+Residual recovery language:
+
+> The first batch created five items. The residual proposal contains only the two failed candidates and does not replay verified successes.
+
+Every candidate decision record should preserve:
+
+- external identifier and provenance;
+- searched source and query boundary;
+- inclusion reason;
+- live Zotero candidates;
+- duplicate/version judgment;
+- target effect;
+- attachment state;
+- authority state;
+- final live verification or diagnostic.
+
+Do not collapse “already present,” “newly imported,” “related version,” and “failed acquisition” into one acquired count.

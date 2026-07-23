@@ -51,13 +51,13 @@ Run the deterministic gate after source review:
 npx tsx scripts/check-host-bridge-skill-packages.ts <manifest-resolved-skill-root> [...]
 ```
 
-The gate checks structure, reachability, current-state wording, and exact substantive prose duplication. The reviewer remains responsible for semantic parity, paraphrased overlap, command-policy separation, reference depth, and evidence semantics.
+The gate checks structure, reachability, current-state wording, exact substantive prose duplication, and materialized instruction depth. A materialized `SKILL.md` shorter than 100 lines or reference shorter than 200 lines is a hard error. A materialized `SKILL.md` shorter than 200 lines or reference shorter than 350 lines is reported in the structured `host-bridge.instruction-depth-warnings.v1` advisory output. Apply these thresholds to rendered or materialized packages, not compact source templates that are expanded by a renderer. The reviewer remains responsible for semantic parity, paraphrased overlap, command-policy separation, reference depth, and evidence semantics.
 
 ## Semantic parity and reference depth
 
 A parity review is complete only when the declared matrix names its baseline commit and reports zero unmapped and downgraded semantic units. Inspect the baseline directly with `git show <baseline>:<path>` when a matrix row is broader than the original instructions or when its destination appears thinner.
 
-Treat a reference as comprehensive only when it covers one coherent decision domain with entry conditions, choices, full procedure branches, completion evidence, failure/recovery, and representative near misses. A short reminder, glossary fragment, list of edge cases, or text that every live execution must read belongs in `SKILL.md` or must be expanded. Do not use word or line thresholds as a substitute for this judgment.
+Treat a reference as comprehensive only when it covers one coherent decision domain with entry conditions, choices, full procedure branches, completion evidence, failure/recovery, and representative near misses. A short reminder, glossary fragment, list of edge cases, or text that every live execution must read belongs in `SKILL.md` or must be expanded. Depth thresholds are triage signals rather than proof: hard floors reject unmistakably thin materialized instructions, while advisory warnings require the reviewer to inspect the complete semantic domain and record whether the file is accepted or expanded.
 
 A generated equivalent must expose the complete authoritative data needed by the agent. For the CLI command references, this includes argv bindings, invocation/payload/result schemas, pagination, effects and state change, approval scope, handle transitions, recovery/next command, targets, aliases, and intent-search visibility. The partitions must be exhaustive and disjoint by canonical command root, and `SKILL.md` must map each root to its directly linked reference.
 
@@ -91,6 +91,7 @@ unmapped semantic count: 0|<count>
 downgraded semantic count: 0|<count>
 intra-package duplicate count: 0|<count>
 reference-depth result: aligned|blocked
+instruction-depth warnings: none|<warning and accepted-or-expanded disposition>
 agent control contract result: aligned|blocked
 release identity result: aligned|blocked
 alignment result: aligned|edits applied|blocked

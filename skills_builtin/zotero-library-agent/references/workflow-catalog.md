@@ -15,6 +15,42 @@ Before execution, use live commands in this order:
 
 Consult the bundled `zotero-bridge-cli` Skill's `workflow` and `run` command references for exact argv and structured recovery.
 
+## Choosing among workflows
+
+Start from the research outcome, not from a workflow name:
+
+- Acquisition workflows own external provider interaction, ingest, or repeated candidate preparation.
+- Analysis workflows own per-source digest, translation, extraction, deep reading, or structured analytical artifacts.
+- Synthesis workflows own bounded cross-source topics, framing, graph-aware outputs, or research bundles.
+- Curation workflows own reusable classification or metadata/tag proposal logic, while the final Zotero change still follows its declared authority path.
+- Import/export workflows own declared package transformations, not arbitrary library mutation.
+
+Then compare:
+
+1. **Outcome:** Does the description promise the deliverable the user requested?
+2. **Selection:** Does the live input unit accept the resolved items, parents, attachments, or no-selection form?
+3. **Execution mode:** Is execution Zotero-managed or self-owned, and can the current agent satisfy that mode?
+4. **Options:** Which options are required, which have defaults, and which materially change scope or output?
+5. **Provider:** Is a backend profile required, compatible, configured, and separately validated?
+6. **Evidence:** Does the result contract name the Product, artifact, live change, or request bundle needed for completion?
+7. **Authority:** Does submission, mutation, maintenance, or apply-back introduce a current approval boundary?
+
+If two workflows remain plausible, explain the difference in their declared outcomes or result evidence and ask only when that choice matters. Do not choose by label similarity, emoji, package position, or a cached success from another source.
+
+Typical conversational cues:
+
+- “find and import literature” suggests an acquisition/ingest candidate;
+- “summarize this paper” suggests analysis;
+- “deep read these PDFs” suggests an attachment-oriented analysis workflow;
+- “translate this source” suggests translation with a declared output artifact;
+- “what does this literature say together?” suggests synthesis;
+- “create or update a topic” suggests distinct topic lifecycle workflows;
+- “prepare a manuscript literature frame” suggests a framing workflow;
+- “normalize tags or metadata” suggests curation, with writes independently reviewed;
+- “export the research bundle” suggests an export workflow whose Product/asset must be verified.
+
+A static match is only a candidate. If the live workflow description differs, use the live contract and report the changed assumption before execution.
+
 ## Catalog
 
 ### `collection-collector`

@@ -15,6 +15,42 @@
 
 精确 argv 与结构化恢复方式请查阅随附 `zotero-bridge-cli` Skill 的 `workflow` 和 `run` 命令参考。
 
+## 在 workflow 之间进行选择
+
+从研究成果开始，而不是从 workflow 名字开始：
+
+- 获取 workflows 自己的外部 provider 交互、摄取或重复候选者准备。
+- 分析 workflows 拥有每个来源的摘要、翻译、摘录、深度阅读或结构化分析 artifacts。
+- Synthesis workflows 拥有有限的跨源主题、框架、图形感知输出或研究包。
+- Curation workflows拥有可重用的分类或元数据/标签提议逻辑，而最终的 Zotero 更改仍然遵循其声明的权威路径。
+- 导入/导出workflows自己声明的包转换，而不是任意库写入变更。
+
+然后比较：
+
+1. **结果：** 描述是否承诺用户请求的可交付成果？
+2. **选择：**实时输入单元是否接受已解决的项目、父项、附件或空 selection表格？
+3. **执行模式：**执行 Zotero 是托管还是自有，当前agent是否满足该模式？
+4. **选项：**哪些选项是必需的，哪些有默认值，哪些会实质性地改变范围或输出？
+5. **Provider：** backend profile 是否必需、兼容、配置并单独验证？
+6. **证据：** 结果合约是否命名了完成所需的Product、artifact、实时变更或请求包？
+7. **权威：** 提交、变更、维护或申请返回是否引入了当前的批准边界？
+
+如果两个workflows仍然可信，请解释其声明的结果或结果证据的差异，并仅在该选择重要时询问。不要根据标签相似性、表情符号、包位置或来自其他来源的缓存成功进行选择。
+
+典型的对话线索：
+
+- “查找并导入文献”建议获取/摄取候选者；
+- “总结本文”建议进行分析；
+- “深入阅读这些 PDF”建议进行面向附件的分析 workflow；
+- “翻译此源”建议使用声明的输出artifact进行翻译；
+- “这些文献一起说了什么？”建议综合；
+- “创建或更新主题”表明不同的主题生命周期workflows；
+- “准备手稿文献框架”建议采用框架 workflow；
+- “标准化标签或元数据”建议进行策划，并独立审查写入内容；
+- “导出研究包”建议导出 workflow，其Product/资产必须经过验证。
+
+静态匹配只是一个候选。如果实时 workflow 描述不同，请使用实时合约并在执行前报告更改的假设。
+
 ## 目录
 
 ### `collection-collector`
@@ -29,8 +65,8 @@
 - Selection：`{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
 - 必需 workflow option：`["collection","collectionScope"]`.
 - Workflow option：
-  - `collection`: `{"type":"string","required":true,"title":"Collection","description":"Existing Zotero collection that will receive matching literature.","allowCustom":false,"optionsSource":{"kind":"zotero.collections","library":"current","includeEmpty":false,"valueFormat":"collectionRef","labelFormat":"path"}}`.
-  - `collectionScope`: `{"type":"string","required":true,"title":"Collection Scope","description":"Meaning, research topic, or literature boundary represented by the collection."}`.
+  - `collection`：`{"type":"string","required":true,"title":"Collection","description":"Existing Zotero collection that will receive matching literature.","allowCustom":false,"optionsSource":{"kind":"zotero.collections","library":"current","includeEmpty":false,"valueFormat":"collectionRef","labelFormat":"path"}}`。
+  - `collectionScope`：`{"type":"string","required":true,"title":"Collection Scope","description":"Meaning, research topic, or literature boundary represented by the collection."}`。
 - 结果证据：`{"fetchType":"result","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
 - 调用输入：使用 workflow id `collection-collector`、已声明的 no-selection 形式、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
 
@@ -61,12 +97,12 @@
 - Selection：`{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
-  - `paperTitle`: `{"type":"string","title":"Paper Title","description":"Working manuscript title used to find research materials."}`.
-  - `articleType`: `{"type":"string","title":"Article Type","description":"Manuscript type. v1 is optimized for original research.","default":"original research"}`.
-  - `researchContent`: `{"type":"string","title":"Research Content","description":"Research problem, methods, scope, and intended contribution."}`.
-  - `maxTopics`: `{"type":"number","title":"Maximum Topics","default":5}`.
-  - `maxCorePapers`: `{"type":"number","title":"Maximum Core Papers","default":20}`.
-  - `maxRelatedPapers`: `{"type":"number","title":"Maximum Related Papers","default":80}`.
+  - `paperTitle`：`{"type":"string","title":"Paper Title","description":"Working manuscript title used to find research materials."}`。
+  - `articleType`：`{"type":"string","title":"Article Type","description":"Manuscript type. v1 is optimized for original research.","default":"original research"}`。
+  - `researchContent`：`{"type":"string","title":"Research Content","description":"Research problem, methods, scope, and intended contribution."}`。
+  - `maxTopics`：`{"type":"number","title":"Maximum Topics","default":5}`。
+  - `maxCorePapers`：`{"type":"number","title":"Maximum Core Papers","default":20}`。
+  - `maxRelatedPapers`：`{"type":"number","title":"Maximum Related Papers","default":80}`。
 - 结果证据：`{"fetchType":"bundle","resultJson":"result/result.json","artifacts":["result/export-research-bundle-artifacts.json"],"applyBack":true}`.
 - 调用输入：使用 workflow id `export-research-bundle`、已声明的 no-selection 形式、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
 
@@ -127,7 +163,7 @@
 - Selection：`{"acceptsNoSelection":false,"inputUnit":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]},"perParent":{"min":1,"max":1},"validation":{"policy":"literature-source","excludes":[],"derives":[]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
-  - `language`: `{"type":"string","title":"Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
+  - `language`：`{"type":"string","title":"Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`。
 - 结果证据：`{"fetchType":"bundle","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
 - 调用输入：使用 workflow id `literature-explainer`、经过校验的 `attachment` selection、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
 
@@ -143,8 +179,8 @@
 - Selection：`{"acceptsNoSelection":false,"inputUnit":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]},"perParent":{"min":1,"max":1},"validation":{"policy":"literature-source","excludes":["artifact-exists"],"derives":[]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
-  - `target_language`: `{"type":"string","title":"Target Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
-  - `mode`: `{"type":"string","title":"Translation Mode","enum":["fast","high_quality"],"default":"fast"}`.
+  - `target_language`：`{"type":"string","title":"Target Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`。
+  - `mode`：`{"type":"string","title":"Translation Mode","enum":["fast","high_quality"],"default":"fast"}`。
 - 结果证据：`{"fetchType":"bundle","resultJson":"literature-deep-reading.result.json","artifacts":["result/deep-reading.html","result/deep-reading-manifest.json"],"applyBack":true}`.
 - 调用输入：使用 workflow id `literature-deep-reading`、经过校验的 `attachment` selection、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
 
@@ -160,9 +196,9 @@
 - Selection：`{"acceptsNoSelection":false,"inputUnit":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]},"perParent":{"min":1,"max":1},"validation":{"policy":"literature-source","excludes":["generated-notes-all"],"derives":[]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
-  - `language`: `{"type":"string","title":"Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
-  - `auto_tag_regulator`: `{"type":"boolean","title":"Auto Tag Regulator","default":true}`.
-  - `auto_tag_infer_tag`: `{"type":"boolean","title":"Infer tags","default":true,"visible_if":{"parameter":"auto_tag_regulator","equals":true}}`.
+  - `language`：`{"type":"string","title":"Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`。
+  - `auto_tag_regulator`：`{"type":"boolean","title":"Auto Tag Regulator","default":true}`。
+  - `auto_tag_infer_tag`：`{"type":"boolean","title":"Infer tags","default":true,"visible_if":{"parameter":"auto_tag_regulator","equals":true}}`。
 - 结果证据：`{"fetchType":"bundle","resultJson":"result/result.json","artifacts":["artifacts/digest.md","artifacts/references.json","artifacts/citation_analysis.json"],"applyBack":true}`.
 - 调用输入：使用 workflow id `literature-analysis`、经过校验的 `attachment` selection、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
 
@@ -178,8 +214,8 @@
 - Selection：`{"acceptsNoSelection":false,"inputUnit":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]},"perParent":{"min":1,"max":1},"validation":{"policy":"literature-source","excludes":["artifact-exists"],"derives":[]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
-  - `target_language`: `{"type":"string","title":"Target Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
-  - `mode`: `{"type":"string","title":"Mode","enum":["fast","high_quality"],"default":"fast"}`.
+  - `target_language`：`{"type":"string","title":"Target Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`。
+  - `mode`：`{"type":"string","title":"Mode","enum":["fast","high_quality"],"default":"fast"}`。
 - 结果证据：`{"fetchType":"bundle","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
 - 调用输入：使用 workflow id `literature-translator`、经过校验的 `attachment` selection、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
 
@@ -195,7 +231,7 @@
 - Selection：`{"acceptsNoSelection":false,"inputUnit":"parent","validation":{"policy":"literature-parent","excludes":[],"derives":[]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
-  - `skip_identifier_fast_path`: `{"type":"boolean","title":"Skip identifier fast path","description":"Bypass Zotero identifier lookup and run literature-metadata-search directly.","default":false}`.
+  - `skip_identifier_fast_path`：`{"type":"boolean","title":"Skip identifier fast path","description":"Bypass Zotero identifier lookup and run literature-metadata-search directly.","default":false}`。
 - 结果证据：`{"fetchType":"result","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
 - 调用输入：使用 workflow id `literature-metadata-curator`、经过校验的 `parent` selection、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
 
@@ -211,11 +247,11 @@
 - Selection：`{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
-  - `query`: `{"type":"string","title":"Search Query","description":"Optional search query or seed. Leave blank with auto mode to start a guided search-planning conversation.","default":""}`.
-  - `searchMode`: `{"type":"string","title":"Search Mode","description":"Choose auto detection, guided search planning, topic expansion, paper seed expansion, or exact targeted ingest.","default":"auto","enum":["auto","guided","topic_expansion","paper_seed_expansion","targeted_ingest"]}`.
-  - `searchBreadth`: `{"type":"string","title":"Search Breadth","description":"Choose broad multi-lane discovery, balanced coverage, or a quick first pass.","default":"broad","enum":["broad","balanced","quick"]}`.
-  - `languageHints`: `{"type":"array","title":"Language Hints","description":"Optional BCP 47 language hints such as en, zh-CN, ja, or de. They expand queries and sources but never filter other languages.","items":{"type":"string"},"default":[]}`.
-  - `targetCollection`: `{"type":"string","title":"Target Collection","description":"Optional Zotero collection for created or existing items.","default":"","allowCustom":false,"optionsSource":{"kind":"zotero.collections","library":"current","includeEmpty":true,"valueFormat":"collectionRef","labelFormat":"path"}}`.
+  - `query`：`{"type":"string","title":"Search Query","description":"Optional search query or seed. Leave blank with auto mode to start a guided search-planning conversation.","default":""}`。
+  - `searchMode`：`{"type":"string","title":"Search Mode","description":"Choose auto detection, guided search planning, topic expansion, paper seed expansion, or exact targeted ingest.","default":"auto","enum":["auto","guided","topic_expansion","paper_seed_expansion","targeted_ingest"]}`。
+  - `searchBreadth`：`{"type":"string","title":"Search Breadth","description":"Choose broad multi-lane discovery, balanced coverage, or a quick first pass.","default":"broad","enum":["broad","balanced","quick"]}`。
+  - `languageHints`：`{"type":"array","title":"Language Hints","description":"Optional BCP 47 language hints such as en, zh-CN, ja, or de. They expand queries and sources but never filter other languages.","items":{"type":"string"},"default":[]}`。
+  - `targetCollection`：`{"type":"string","title":"Target Collection","description":"Optional Zotero collection for created or existing items.","default":"","allowCustom":false,"optionsSource":{"kind":"zotero.collections","library":"current","includeEmpty":true,"valueFormat":"collectionRef","labelFormat":"path"}}`。
 - 结果证据：`{"fetchType":"result","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
 - 调用输入：使用 workflow id `literature-search-ingest`、已声明的 no-selection 形式、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
 
@@ -231,7 +267,7 @@
 - Selection：`{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
-  - `tag_note_language`: `{"type":"string","title":"Tag Note Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
+  - `tag_note_language`：`{"type":"string","title":"Tag Note Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`。
 - 结果证据：`{"fetchType":"result","artifacts":[],"applyBack":true}`.
 - 调用输入：使用 workflow id `tag-bootstrapper`、已声明的 no-selection 形式、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
 
@@ -262,8 +298,8 @@
 - Selection：`{"acceptsNoSelection":false,"inputUnit":"parent"}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
-  - `infer_tag`: `{"type":"boolean","title":"Infer Tag","default":true}`.
-  - `tag_note_language`: `{"type":"string","title":"Tag Note Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
+  - `infer_tag`：`{"type":"boolean","title":"Infer Tag","default":true}`。
+  - `tag_note_language`：`{"type":"string","title":"Tag Note Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`。
 - 结果证据：`{"fetchType":"result","artifacts":[],"applyBack":true}`.
 - 调用输入：使用 workflow id `tag-regulator`、经过校验的 `parent` selection、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
 
@@ -294,8 +330,8 @@
 - Selection：`{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
-  - `topicSeed`: `{"type":"string","title":"Topic Seed","description":"Natural-language topic seed for a new synthesis topic."}`.
-  - `language`: `{"type":"string","title":"Language","description":"Output language, such as auto, zh-CN, or en-US.","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`.
+  - `topicSeed`：`{"type":"string","title":"Topic Seed","description":"Natural-language topic seed for a new synthesis topic."}`。
+  - `language`：`{"type":"string","title":"Language","description":"Output language, such as auto, zh-CN, or en-US.","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`。
 - 结果证据：`{"fetchType":"bundle","resultJson":"result/final-output.candidate.json","artifacts":[],"applyBack":true}`.
 - 调用输入：使用 workflow id `create-topic-synthesis`、已声明的 no-selection 形式、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
 
@@ -311,7 +347,7 @@
 - Selection：`{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
-  - `topicId`: `{"type":"string","title":"Topic ID","description":"Existing synthesis topic id. The host derives update scope, mode, reason, and language from the selected topic.","allowCustom":false,"optionsSource":{"kind":"synthesis.topics","valueFormat":"topicId","labelFormat":"title","filter":"updatable"}}`.
+  - `topicId`：`{"type":"string","title":"Topic ID","description":"Existing synthesis topic id. The host derives update scope, mode, reason, and language from the selected topic.","allowCustom":false,"optionsSource":{"kind":"synthesis.topics","valueFormat":"topicId","labelFormat":"title","filter":"updatable"}}`。
 - 结果证据：`{"fetchType":"bundle","resultJson":"result/final-output.candidate.json","artifacts":[],"applyBack":true}`.
 - 调用输入：使用 workflow id `update-topic-synthesis`、已声明的 no-selection 形式、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
 
@@ -327,11 +363,10 @@
 - Selection：`{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
-  - `paperTitle`: `{"type":"string","title":"Paper Title","description":"Working manuscript title used to frame the Introduction and Related Work."}`.
-  - `language`: `{"type":"string","title":"Language","description":"Output language, such as auto, zh-CN, or en-US.","default":"auto"}`.
-  - `targetVenue`: `{"type":"string","title":"Target Venue","description":"Target journal, conference, or style family.","default":""}`.
-  - `articleType`: `{"type":"string","title":"Article Type","description":"Manuscript type. v1 is optimized for original research.","default":"original research"}`.
-  - `stylePreference`: `{"type":"string","title":"Style Preference","description":"Optional writing preference, such as concise, IEEE-like, Nature-like, or Chinese draft.","default":""}`.
+  - `paperTitle`：`{"type":"string","title":"Paper Title","description":"Working manuscript title used to frame the Introduction and Related Work."}`。
+  - `language`：`{"type":"string","title":"Language","description":"Output language, such as auto, zh-CN, or en-US.","default":"auto"}`。
+  - `targetVenue`：`{"type":"string","title":"Target Venue","description":"Target journal, conference, or style family.","default":""}`。
+  - `articleType`：`{"type":"string","title":"Article Type","description":"Manuscript type. v1 is optimized for original research.","default":"original research"}`。
+  - `stylePreference`：`{"type":"string","title":"Style Preference","description":"Optional writing preference, such as concise, IEEE-like, Nature-like, or Chinese draft.","default":""}`。
 - 结果证据：`{"fetchType":"bundle","resultJson":"result/result.json","artifacts":["result/manuscript-literature-framing-artifacts.json"],"applyBack":true}`.
 - 调用输入：使用 workflow id `manuscript-literature-framing`、已声明的 no-selection 形式、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
-

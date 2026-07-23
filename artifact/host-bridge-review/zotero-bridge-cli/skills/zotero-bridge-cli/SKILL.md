@@ -1,10 +1,10 @@
 ---
 name: zotero-bridge-cli
 description: 操作 Zotero Bridge CLI，以精确访问 Zotero 文献库、工作流和 Synthesis。用于 Agent 需要底层 Zotero 操作、命令发现或结构化恢复时。
-license: AGPL-3.0-or-later
+许可证：AGPL-3.0 或更高版本
 ---
 
-# Zotero Bridge CLI
+# Zotero 桥CLI
 
 ## 目标
 
@@ -21,7 +21,7 @@ license: AGPL-3.0-or-later
 
 1. 按下述规则选择一个可执行文件和一个连接 profile，并确保 binary、内嵌合同、profile 与 release envelope 属于同一 release set。
 2. 运行 `zotero-bridge surface identity --json`。将 `protocol`、`cliSchema`、`version`、`buildFingerprint` 和 `commandCatalogChecksum` 与当前 release envelope 比较；任一不一致都必须停止。
-3. 若尚不清楚规范操作，运行 `surface search --intent '<operational terms>' --json`。执行前运行 `surface describe '<canonical command>' --json`，并且只阅读拥有该命令首个 token 的生成命令分面参考。
+3. 如果规范操作未知，请阅读命令目录，选择最接近的任务族，并仅使用`surface search --intent '<operational terms>' --json`来缩小候选范围。在执行之前运行 `surface describe '<canonical command>' --json` 并仅读取拥有该命令的第一个标记的生成的命令表面引用。
 4. 由外而内确认实时身份与就绪状态：先检查服务健康状态，再检查已认证的 manifest/profile，必要时检查 backend 就绪状态，最后检查领域对象或工作流合同。
 5. 仅准备命令 descriptor 声明的输入；工作流选项、provider profile、selection、payload、不透明 handle 和输出路径必须保持各自独立的 binding。
 6. 调用前检查 effect、approval 时机、类型化 handle 转移、分页、目标与恢复规则。显示 Zotero 端要求的 approval，不得把有效输入视为授权。
@@ -46,6 +46,50 @@ license: AGPL-3.0-or-later
 ## 命令发现与调用
 
 使用 `surface search` 发现操作，而不是用它决定研究任务。argv binding、调用与 payload schema、结果形状、分页、effect、approval scope、handle 转移、恢复及目标均以 `surface describe` 为准。只有某项高级诊断能力不存在规范语义命令时，才使用原始 `call`。
+
+### 从用户意图出发
+
+agent 在知道任何 CLI 名称之前，经常会收到诸如“向我展示有关该主题的论文”、“下载分析结果”或“运行深读 workflow”之类的请求。不要让用户将该请求翻译成命令。
+
+使用这个序列：
+
+1. 阅读[命令目录](references/command-catalog.md)。
+2. 确定请求的 Zotero 对象、任务系列、新鲜度、可交付成果和状态更改边界。
+3. 从目录中选择最小的候选命令或有序命令序列。
+4. 仅当多个候选仍然匹配时才使用`surface search`。
+5. 使用`surface describe`获取准确的实时合约。
+6. 阅读一份包含命令根的详细参考资料。
+7. 仅在已知输入、效果、approval、handle、完成证据和恢复后才构建和执行调用。
+
+目录故意紧凑。它拥有用户意图的发现，而命令引用自己的可执行细节。不要仅仅因为其摘要与用户的请求共享关键字而从目录表构造 argv 或复制命令。
+
+### 翻译常见的请求形状
+
+- “本文”、“这些项目”和“当前集合”首先需要 `context` 命令来解析当前 selection。
+- “我的文献库里有什么？”以及“我有关于 X 的论文吗？”需要 `library` 读取和完整的有界分页决策。
+- “更改这些标签”或“将其放入集合中”需要实时身份读取、经过审查的写入变更、当前授权和写入后验证。
+- “获取生成的报告”可能需要读取Product或workflowartifact，然后传送文件；它不会自动读取附件。
+- “运行 workflow X”需要 workflow 发现、描述、选择验证、provider-profile声明时验证以及提交。
+- “workflow 进展如何？”从返回的`workflowRunId`开始并使用`run`，而不是 workflow 发现。
+- “刷新综合图”需要在任何写入之前诊断准确的派生模型和维护范围。
+- “为什么这座桥会塌陷？”从语义健康和profile诊断开始； raw `call` 是最后的手段。
+
+当请求跨越系列时，保留每个结果和下一个输入之间的边界。上下文读取不授权变更，workflow 验证不授权提交，运行终止不证明Product交付，维护receipt不证明不相关的模型是当前的。
+
+### 确认所选命令
+
+在执行之前，请从实时 descriptor和详细参考中回答所有这些问题：
+
+- 将运行什么规范命令？
+- 哪些值是位置、标志、内联 JSON、标准输入或文件？
+- 需要什么对象或类型化的handle身份？
+- 该操作是只读的、导航的、写入变更的、维护的还是诊断的？
+- 批准可以在哪里进行，其具体范围是什么？
+- 结果页面是否发出另一个handle，或者需要稍后的receipt？
+- 哪些活生生的证据可以证明所要求的结果？
+- 如果调用被中断，重试之前必须检查什么状态或handle？
+
+如果没有任何答案，请不要猜测。继续发现、解析实时身份或将丢失的输入或权限返回为当前阻止程序。
 
 仅在 descriptor 允许时选择相应输入通道：
 
@@ -125,6 +169,15 @@ Zotero 端路径并不自动可供 Agent 读取。附件、Product、artifact �
 
 当请求操作已返回有效 JSON envelope、所有必要页面或交付字节均已取得、相关 handle 与 receipt 已保留，且所有请求的状态变更都经实时验证时，本 Skill 完成。若结构化失败已完成分类、给出下一项安全动作，并且未发生不安全重复，同样视为完成。
 
+将证据与操作相匹配：
+
+- 对于有界读取，保留稳定对象ref以及响应请求的字段；
+- 对于分页结果，保留已完成的边界或最后接受的cursor；
+- 对于传递的字节，保留校验和、字节计数和所属对象；
+- 对于写入变更，保留批准结果、操作receipt和实时读后；
+- 对于异步运行，保留最终状态并单独验证请求的可交付成果；
+- 对于本地验证器，仅报告结构有效性，并不暗示远程授权。
+
 ## 失败处理
 
 1. 保留命令、脱敏输入、结构化错误码、相关 handle、已接受页面，以及所有 operation 或输出标识符。
@@ -138,7 +191,7 @@ Zotero 端路径并不自动可供 Agent 读取。附件、Product、artifact �
 
 ## 参考资料
 
-选定规范命令后，只阅读列出的 root 与命令首个 token 匹配的参考。每个文件都是其所列 root 的完整清单；实时操作前以当前可执行文件的 `surface describe` 结果为准。
+当不知道规范命令时，首先阅读[命令目录](references/command-catalog.md)。选择规范命令后，仅读取列出的根与命令的第一个标记匹配的引用。每个文件的根目录都是详尽的；活动可执行文件的 `surface describe` 结果在实时操作之前获胜。
 
 - 命令以 `surface`、`bridge` 或 `context` 开头时，阅读[连接与上下文命令](references/commands/connection-and-context.md)。
 - 命令以 `library` 开头时，阅读[文献库命令](references/commands/library.md)。

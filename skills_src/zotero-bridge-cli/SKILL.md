@@ -21,7 +21,7 @@ Use the installed `zotero-bridge` CLI safely and deterministically for Zotero li
 
 1. Select one executable and one connection profile using the rules below. Keep the binary, embedded contract, profile, and release envelope in one release set.
 2. Run `zotero-bridge surface identity --json`. Compare `protocol`, `cliSchema`, `version`, `buildFingerprint`, and `commandCatalogChecksum` with the active release envelope; stop on any mismatch.
-3. If the canonical operation is unknown, run `surface search --intent '<operational terms>' --json`. Run `surface describe '<canonical command>' --json` before execution and read only the generated command-surface reference that owns the command's first token.
+3. If the canonical operation is unknown, read the command catalog, select the closest task family, and use `surface search --intent '<operational terms>' --json` only to narrow the candidates. Run `surface describe '<canonical command>' --json` before execution and read only the generated command-surface reference that owns the command's first token.
 4. Resolve live identity and readiness from the outside in: service health, authenticated manifest/profile, backend readiness when relevant, then the domain object or workflow contract.
 5. Prepare only the inputs declared by the command descriptor. Keep workflow options, provider profile, selection, payload, opaque handles, and output path in their distinct bindings.
 6. Inspect effects, approval timing, typed handle transitions, pagination, targets, and recovery before the call. Present any requested Zotero-side approval without treating valid input as authorization.
@@ -46,6 +46,50 @@ Offline `surface` commands describe the embedded contract. They do not prove tha
 ## Command discovery and invocation
 
 Use `surface search` to discover operations, not to decide a research task. `surface describe` is authoritative for argv bindings, invocation and payload schemas, result shape, pagination, effects, approval scope, handle transitions, recovery, and targets. Use raw `call` only for an advanced diagnostic capability that has no canonical semantic command.
+
+### Start from user intent
+
+An agent often receives a request such as “show me the papers about this topic,” “download the analysis result,” or “run the deep-reading workflow” before it knows any CLI names. Do not make the user translate that request into a command.
+
+Use this sequence:
+
+1. Read [the command catalog](references/command-catalog.md).
+2. Identify the requested Zotero object, task family, freshness, deliverable, and state-change boundary.
+3. Select the smallest candidate command or ordered command sequence from the catalog.
+4. Use `surface search` only when multiple candidates still match.
+5. Use `surface describe` to obtain the exact live contract.
+6. Read the one detailed reference that owns the command root.
+7. Construct and execute the invocation only after inputs, effects, approval, handles, completion evidence, and recovery are known.
+
+The catalog is intentionally compact. It owns discovery by user intent, while the command references own executable detail. Do not construct argv from the catalog table or copy a command merely because its summary shares a keyword with the user's request.
+
+### Translate common request shapes
+
+- “This paper,” “these items,” and “the current collection” first require `context` commands to resolve the live selection.
+- “What is in my library?” and “do I have papers about X?” require `library` reads and a complete bounded paging decision.
+- “Change these tags” or “put this in a collection” requires a live identity read, a reviewed mutation, current authority, and post-write verification.
+- “Get the generated report” may require a Product or workflow artifact read followed by file delivery; it is not automatically an attachment read.
+- “Run workflow X” requires workflow discovery, description, selection validation, provider-profile validation when declared, and submission.
+- “How is the workflow going?” begins from a returned `workflowRunId` and uses `run`, not workflow discovery.
+- “Refresh the synthesis graph” requires diagnosis of the exact derived model and maintenance scope before any write.
+- “Why is the bridge failing?” begins with semantic health and profile diagnostics; raw `call` is the last resort.
+
+When a request spans families, preserve the boundary between each result and the next input. A context read does not authorize a mutation, workflow validation does not authorize submission, run termination does not prove Product delivery, and a maintenance receipt does not prove an unrelated model is current.
+
+### Confirm the selected command
+
+Before execution, answer all of these questions from the live descriptor and detailed reference:
+
+- What canonical command will run?
+- Which values are positionals, flags, inline JSON, stdin, or files?
+- What object or typed handle identity is required?
+- Is the operation read-only, navigational, mutating, maintenance, or diagnostic?
+- Where can approval occur, and what exact scope does it cover?
+- Does the result page, issue another handle, or require a later receipt?
+- What live evidence proves the requested outcome?
+- If the call is interrupted, what state or handle must be inspected before retry?
+
+If any answer is absent, do not guess. Continue discovery, resolve live identity, or return the missing input or authority as the current blocker.
 
 Choose an input channel only when the descriptor permits it:
 
@@ -125,6 +169,15 @@ Use cache and index status reads before proposing maintenance. Reference-sidecar
 
 The Skill is complete when the requested operation has returned a valid JSON envelope, all required pages or delivered bytes have been obtained, relevant handles and receipts are preserved, and any requested state change is live-verified. It is also complete when a structured failure is classified with the next safe action and no unsafe repeat has occurred.
 
+Match the evidence to the operation:
+
+- for a bounded read, retain the stable object ref and the fields that answer the request;
+- for a paged result, retain the completed boundary or the last accepted cursor;
+- for delivered bytes, retain the checksum, byte count, and owning object;
+- for a mutation, retain the approval outcome, operation receipt, and live post-read;
+- for an asynchronous run, retain terminal state and separately verify the requested deliverable;
+- for a local validator, report only structural validity and do not imply remote authority.
+
 ## Failure handling
 
 1. Preserve the command, sanitized inputs, structured error code, relevant handles, accepted pages, and any operation or output identifiers.
@@ -138,7 +191,7 @@ The Skill is complete when the requested operation has returned a valid JSON env
 
 ## References
 
-After selecting a canonical command, read only the reference whose listed root matches the command's first token. Each file is exhaustive for its roots; the active executable's `surface describe` result wins before a live operation.
+When the canonical command is unknown, first read [the command catalog](references/command-catalog.md). After selecting a canonical command, read only the reference whose listed root matches the command's first token. Each file is exhaustive for its roots; the active executable's `surface describe` result wins before a live operation.
 
 - Read [connection and context commands](references/commands/connection-and-context.md) when the command begins with `surface`, `bridge`, or `context`.
 - Read [library commands](references/commands/library.md) when the command begins with `library`.

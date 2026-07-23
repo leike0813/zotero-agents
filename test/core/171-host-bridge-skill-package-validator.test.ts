@@ -2,7 +2,10 @@ import { assert } from "chai";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { validateHostBridgeSkillPackages } from "../../scripts/check-host-bridge-skill-packages";
+import {
+  inspectHostBridgeSkillPackages,
+  validateHostBridgeSkillPackages,
+} from "../../scripts/check-host-bridge-skill-packages";
 
 function write(path: string, content: string) {
   mkdirSync(join(path, "references"), { recursive: true });
@@ -90,5 +93,38 @@ describe("host bridge skill package validator", function () {
       validateHostBridgeSkillPackages([packageRoot]).join("\n"),
       "duplicated substantive prose",
     );
+  });
+
+  it("enforces hard materialized depth and reports advisory depth separately", function () {
+    const root = mkdtempSync(join(tmpdir(), "host-bridge-skill-depth-"));
+    const packageRoot = join(root, "example-skill");
+    write(packageRoot, completeSkill("example-skill"));
+    const shallow = inspectHostBridgeSkillPackages([packageRoot], {
+      enforceMaterializedDepth: true,
+    });
+    assert.include(shallow.errors.join("\n"), "SKILL.md has");
+    assert.include(shallow.errors.join("\n"), "references/playbook.md has");
+
+    const makeLines = (count: number, prefix: string) =>
+      Array.from(
+        { length: count },
+        (_, index) => `${prefix} ${index + 1}.`,
+      ).join("\n");
+    writeFileSync(
+      join(packageRoot, "SKILL.md"),
+      `${completeSkill("example-skill")}\n${makeLines(110, "Distinct executable guidance")}\n`,
+      "utf8",
+    );
+    writeFileSync(
+      join(packageRoot, "references/playbook.md"),
+      `# Playbook\n\n${makeLines(210, "Distinct decision example")}\n`,
+      "utf8",
+    );
+    const advisory = inspectHostBridgeSkillPackages([packageRoot], {
+      enforceMaterializedDepth: true,
+    });
+    assert.deepEqual(advisory.errors, []);
+    assert.include(advisory.warnings.join("\n"), "SKILL.md has");
+    assert.include(advisory.warnings.join("\n"), "references/playbook.md has");
   });
 });

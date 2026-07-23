@@ -73,46 +73,114 @@ export const COMMAND_REFERENCE_PARTITIONS = [
     path: "references/commands/connection-and-context.md",
     title: "Connection and context",
     roots: ["surface", "bridge", "context"],
+    catalogTitle:
+      "Connect, inspect the current selection, or discover capabilities",
+    taskSummary:
+      "Use this family to establish the live Zotero connection, inspect what the user is referring to in the UI, and discover the current command contract.",
+    cues: [
+      "this item, these papers, the current collection, or what is selected",
+      "can Zotero do this, which command exists, or what input does it need",
+      "connection, profile, endpoint, authentication, or bridge availability",
+    ],
   },
   {
     path: "references/commands/library.md",
     title: "Library",
     roots: ["library"],
+    catalogTitle: "Find, inspect, page through, or export library content",
+    taskSummary:
+      "Use this family for current Zotero items, collections, notes, attachments, readiness, snapshots, and bounded exports.",
+    cues: [
+      "what is in my library, collection, or current research set",
+      "find papers about a topic, inspect one item, or list its children",
+      "read notes, attachments, annotations, readiness, or a paged snapshot",
+    ],
   },
   {
     path: "references/commands/mutation.md",
     title: "Mutation",
     roots: ["mutation"],
+    catalogTitle: "Preview and apply an explicit Zotero data change",
+    taskSummary:
+      "Use this family only after the target identity and desired state are concrete and the current request authorizes a reviewed mutation.",
+    cues: [
+      "change metadata, tags, collections, notes, links, or attachments",
+      "preview a write, apply an approved payload, or inspect mutation status",
+      "merge, delete, relink, or overwrite a known Zotero object",
+    ],
   },
   {
     path: "references/commands/files-products-and-operations.md",
     title: "Files, Products, and operations",
     roots: ["file", "product", "operation"],
+    catalogTitle: "Move bytes, inspect Products, or follow durable operations",
+    taskSummary:
+      "Use this family when a Zotero object or workflow result names a file, Product, asset, or long-running operation that must be transferred or verified.",
+    cues: [
+      "upload or download a file without confusing a path and file handle",
+      "inspect a Product or retrieve one of its declared assets",
+      "resume or verify an operation using its durable receipt",
+    ],
   },
   {
     path: "references/commands/workflow.md",
     title: "Workflow",
     roots: ["workflow"],
+    catalogTitle: "Discover, validate, submit, or apply a workflow",
+    taskSummary:
+      "Use this family to inspect the live workflow contract, validate selection and provider inputs, submit supported execution, or apply agent-owned results.",
+    cues: [
+      "use an installed workflow for analysis, acquisition, synthesis, or curation",
+      "check workflow options, provider profile, selection, or readiness",
+      "submit, inspect artifacts, or apply an agent-owned result",
+    ],
   },
   {
     path: "references/commands/run.md",
     title: "Run",
     roots: ["run"],
+    catalogTitle: "Monitor, interact with, or cancel a workflow run",
+    taskSummary:
+      "Use this family after a workflow has returned a typed run handle and the task needs current status, prompts, notifications, results, or cancellation.",
+    cues: [
+      "what is this workflow doing, did it finish, or what does it need",
+      "answer a run prompt, acknowledge a notification, or cancel a run",
+      "inspect terminal result evidence without treating termination as output proof",
+    ],
   },
   {
     path: "references/commands/synthesis.md",
     title: "Synthesis",
     roots: ["synthesis"],
+    catalogTitle:
+      "Inspect or maintain Synthesis topics, indexes, graphs, and artifacts",
+    taskSummary:
+      "Use this family for the plugin's derived research structures, including topic context, sidecar indexes, citation graphs, resolver state, attention queues, and exports.",
+    cues: [
+      "topic context, synthesis report, graph relation, metric, or evidence gap",
+      "index status, resolver candidates, freshness, or maintenance receipts",
+      "export or inspect a synthesis artifact without confusing it with live library truth",
+    ],
   },
   {
     path: "references/commands/diagnostics.md",
     title: "Diagnostics",
     roots: ["debug", "call"],
+    catalogTitle: "Diagnose the bridge or make an advanced raw call",
+    taskSummary:
+      "Use this family only when the semantic command surface cannot diagnose the problem or an exact low-level capability call is explicitly required.",
+    cues: [
+      "collect a bounded diagnostic report for an unavailable or inconsistent surface",
+      "inspect raw capability behavior while preserving the normal authority boundary",
+      "avoid using diagnostics as a shortcut around semantic validation",
+    ],
   },
 ] as const;
 
 const COMMAND_REFERENCE_MARKER =
   "<!-- host-bridge-command-reference:entries -->";
+const COMMAND_CATALOG_MARKER = "<!-- host-bridge-command-catalog:entries -->";
+const COMMAND_CATALOG_PATH = "references/command-catalog.md";
 
 function renderCommandCards(
   template: string,
@@ -149,8 +217,7 @@ function renderCommandCards(
   return template.replace(COMMAND_REFERENCE_MARKER, entries.join("\n"));
 }
 
-function renderCommandReferences(
-  content: ContentMap,
+function partitionCommands(
   descriptor: ReturnType<typeof buildHostBridgeAgentSurfaceDescriptor>,
 ) {
   const ownerByRoot = new Map<
@@ -196,7 +263,13 @@ function renderCommandReferences(
       `Command reference coverage mismatch: ${seenCommands.size}/${descriptor.commands.length}`,
     );
   }
+  return commandsByPath;
+}
 
+function renderCommandReferences(
+  content: ContentMap,
+  commandsByPath: ReturnType<typeof partitionCommands>,
+) {
   for (const partition of COMMAND_REFERENCE_PARTITIONS) {
     const template = content.get(partition.path);
     if (!template) {
@@ -212,6 +285,48 @@ function renderCommandReferences(
     }
     content.set(partition.path, renderCommandCards(template, commands));
   }
+}
+
+function renderCommandCatalog(
+  template: string,
+  commandsByPath: ReturnType<typeof partitionCommands>,
+) {
+  if (template.split(COMMAND_CATALOG_MARKER).length !== 2) {
+    throw new Error(
+      "Command catalog template must contain exactly one entry marker",
+    );
+  }
+  const sections = COMMAND_REFERENCE_PARTITIONS.flatMap((partition) => {
+    const commands = commandsByPath.get(partition.path) || [];
+    const detailPath = partition.path.replace(/^references\//, "");
+    return [
+      `## ${partition.catalogTitle}`,
+      "",
+      partition.taskSummary,
+      "",
+      "Natural-language cues:",
+      "",
+      ...partition.cues.map((cue) => `- ${cue}.`),
+      "",
+      `Read [the ${partition.title.toLocaleLowerCase()} command reference](${detailPath}) after selecting a candidate command. It contains the exact argv, schemas, effects, approval, handles, and recovery contract.`,
+      "",
+      "| Canonical command | Purpose |",
+      "| --- | --- |",
+      ...commands.map(
+        (command) =>
+          `| \`zotero-bridge ${command.command}\` | ${command.summary.replaceAll("|", "\\|")} |`,
+      ),
+      "",
+      "Selection check:",
+      "",
+      "- Match the user's requested outcome, object type, freshness, and state-change boundary to this family.",
+      "- If several commands remain plausible, use `zotero-bridge surface search --intent <plain-language intent>` to narrow the candidates.",
+      "- Confirm the selected command with `zotero-bridge surface describe '<canonical command>' --json` before constructing the invocation.",
+      "- Read the linked detailed reference before execution; the compact index is not an argv or approval contract.",
+      "",
+    ];
+  });
+  return template.replace(COMMAND_CATALOG_MARKER, sections.join("\n"));
 }
 
 function coreSkillContent(args: {
@@ -233,7 +348,18 @@ function coreSkillContent(args: {
     buildHostBridgeSurfaceCatalog(args.root),
     args.root,
   );
-  renderCommandReferences(content, descriptor);
+  const commandsByPath = partitionCommands(descriptor);
+  renderCommandReferences(content, commandsByPath);
+  const commandCatalogTemplate = content.get(COMMAND_CATALOG_PATH);
+  if (!commandCatalogTemplate) {
+    throw new Error(
+      `Missing minimum-core command catalog template: ${COMMAND_CATALOG_PATH}`,
+    );
+  }
+  content.set(
+    COMMAND_CATALOG_PATH,
+    renderCommandCatalog(commandCatalogTemplate, commandsByPath),
+  );
   content.set(
     "assets/runner.json",
     replaceVersion(

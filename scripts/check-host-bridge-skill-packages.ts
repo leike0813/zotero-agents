@@ -99,11 +99,55 @@ function duplicatedProse(root: string, files: string[]) {
   return duplicates;
 }
 
-function validateSkillRoot(root: string): string[] {
+type SkillPackageInspectionOptions = {
+  enforceMaterializedDepth?: boolean;
+};
+
+export type HostBridgeSkillPackageInspection = {
+  errors: string[];
+  warnings: string[];
+};
+
+function lineCount(content: string) {
+  return content.split(/\r?\n/).length;
+}
+
+function inspectDepth(args: {
+  label: string;
+  path: string;
+  content: string;
+  kind: "skill" | "reference";
+}) {
+  const count = lineCount(args.content);
+  const hardMinimum = args.kind === "skill" ? 100 : 200;
+  const advisoryMinimum = args.kind === "skill" ? 200 : 350;
+  const message = `${args.label}: ${args.path} has ${count} lines`;
+  if (count < hardMinimum) {
+    return {
+      error: `${message}; hard minimum is ${hardMinimum}`,
+      warning: undefined,
+    };
+  }
+  if (count < advisoryMinimum) {
+    return {
+      error: undefined,
+      warning: `${message}; advisory depth is ${advisoryMinimum}, so semantic review must accept or expand it`,
+    };
+  }
+  return { error: undefined, warning: undefined };
+}
+
+function inspectSkillRoot(
+  root: string,
+  options: SkillPackageInspectionOptions,
+): HostBridgeSkillPackageInspection {
   const errors: string[] = [];
+  const warnings: string[] = [];
   const skillPath = join(root, "SKILL.md");
   const label = relative(process.cwd(), root) || root;
-  if (!existsSync(skillPath)) return [`${label}: missing SKILL.md`];
+  if (!existsSync(skillPath)) {
+    return { errors: [`${label}: missing SKILL.md`], warnings };
+  }
   const skill = readFileSync(skillPath, "utf8");
   const meta = frontmatter(skill);
   if (!meta) {
@@ -173,12 +217,49 @@ function validateSkillRoot(root: string): string[] {
       `${label}: duplicated substantive prose between ${duplicate.first} and ${duplicate.second}`,
     );
   }
-  return errors;
+  if (options.enforceMaterializedDepth) {
+    const skillDepth = inspectDepth({
+      label,
+      path: "SKILL.md",
+      content: skill,
+      kind: "skill",
+    });
+    if (skillDepth.error) errors.push(skillDepth.error);
+    if (skillDepth.warning) warnings.push(skillDepth.warning);
+    for (const reference of references) {
+      const relativeReference = relative(root, reference).replace(/\\/g, "/");
+      const referenceDepth = inspectDepth({
+        label,
+        path: relativeReference,
+        content: readFileSync(reference, "utf8"),
+        kind: "reference",
+      });
+      if (referenceDepth.error) errors.push(referenceDepth.error);
+      if (referenceDepth.warning) warnings.push(referenceDepth.warning);
+    }
+  }
+  return { errors, warnings };
+}
+
+export function inspectHostBridgeSkillPackages(
+  roots: string[],
+  options: SkillPackageInspectionOptions = {},
+): HostBridgeSkillPackageInspection {
+  const inspection: HostBridgeSkillPackageInspection = {
+    errors: [],
+    warnings: [],
+  };
+  for (const root of roots) {
+    const result = inspectSkillRoot(resolve(root), options);
+    inspection.errors.push(...result.errors);
+    inspection.warnings.push(...result.warnings);
+  }
+  return inspection;
 }
 
 /** Validate Host Bridge governed skill packages rooted at the supplied directories. */
 export function validateHostBridgeSkillPackages(roots: string[]): string[] {
-  return roots.flatMap((root) => validateSkillRoot(resolve(root)));
+  return inspectHostBridgeSkillPackages(roots).errors;
 }
 
 function isMainModule() {
@@ -194,10 +275,24 @@ if (isMainModule()) {
       "Usage: check-host-bridge-skill-packages.ts <skill-root> [...]",
     );
   }
-  const errors = validateHostBridgeSkillPackages(roots);
-  if (errors.length) {
+  const inspection = inspectHostBridgeSkillPackages(roots, {
+    enforceMaterializedDepth: true,
+  });
+  if (inspection.warnings.length) {
+    console.warn(
+      JSON.stringify(
+        {
+          schema: "host-bridge.instruction-depth-warnings.v1",
+          warnings: inspection.warnings,
+        },
+        null,
+        2,
+      ),
+    );
+  }
+  if (inspection.errors.length) {
     throw new Error(
-      `Host Bridge skill package validation failed:\n${errors.map((error) => `- ${error}`).join("\n")}`,
+      `Host Bridge skill package validation failed:\n${inspection.errors.map((error) => `- ${error}`).join("\n")}`,
     );
   }
 }

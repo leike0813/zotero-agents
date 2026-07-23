@@ -32,9 +32,14 @@ async function read(relativePath: string) {
 }
 
 describe("zotero-librarian hosted source profile", function () {
+  this.timeout(15_000);
+
   it("has one resident service and no legacy runner or fragmented manuals", async function () {
     for (const relativePath of REQUIRED_FILES) {
-      assert.isTrue((await fs.stat(path.join(PROFILE_SOURCE, relativePath))).isFile(), relativePath);
+      assert.isTrue(
+        (await fs.stat(path.join(PROFILE_SOURCE, relativePath))).isFile(),
+        relativePath,
+      );
     }
     for (const removed of [
       "scripts/zotero_librarian_index_service.py",
@@ -57,14 +62,36 @@ describe("zotero-librarian hosted source profile", function () {
     const skill = await read("skills/zotero-librarian/SKILL.md");
     assert.match(skill, /^---\nname: zotero-librarian\ndescription: .+\n---/);
     assert.notInclude(skill, "license:");
-    for (const heading of ["## Goal", "## Inputs", "## Workflow", "## Hard constraints", "## Completion", "## Failure handling", "## References"]) {
+    for (const heading of [
+      "## Goal",
+      "## Inputs",
+      "## Workflow",
+      "## Hard constraints",
+      "## Completion",
+      "## Failure handling",
+      "## References",
+    ]) {
       assert.include(skill, heading);
     }
-    for (const reference of ["resident-operations.md", "automation-policy.md", "state-and-recovery.md"]) {
+    for (const reference of [
+      "resident-operations.md",
+      "automation-policy.md",
+      "state-and-recovery.md",
+    ]) {
       assert.include(skill, `references/${reference}`);
     }
-    const refs = await fs.readdir(path.join(PROFILE_SOURCE, "skills/zotero-librarian/references"));
-    assert.sameMembers(refs, ["automation-policy.md", "resident-operations.md", "state-and-recovery.md"]);
+    const refs = await fs.readdir(
+      path.join(PROFILE_SOURCE, "skills/zotero-librarian/references"),
+    );
+    assert.sameMembers(refs, [
+      "automation-policy.md",
+      "resident-operations.md",
+      "state-and-recovery.md",
+    ]);
+    assert.include(skill, "## Natural-language intake");
+    assert.include(skill, "## Receipt contract");
+    assert.include(skill, "cron");
+    assert.isAtLeast(skill.split(/\r?\n/).length, 200);
   });
 
   it("keeps each resident reference comprehensive and domain-owned", async function () {
@@ -94,22 +121,36 @@ describe("zotero-librarian hosted source profile", function () {
       ],
     };
     for (const [file, sections] of Object.entries(expected)) {
-      const reference = await read(`skills/zotero-librarian/references/${file}`);
+      const reference = await read(
+        `skills/zotero-librarian/references/${file}`,
+      );
       for (const section of sections) {
         assert.include(reference, `## ${section}`, `${file}: ${section}`);
       }
+      assert.isAtLeast(
+        reference.split(/\r?\n/).length,
+        350,
+        `${file} is too shallow for a context-free resident agent`,
+      );
     }
   });
 
   it("keeps resident automation one-pass, receipt-based, and unable to submit from cron", async function () {
     const service = await read("scripts/zotero_librarian_service.py");
-    assert.include(service, 'RECEIPT_SCHEMA = "zotero-librarian.operation-receipt.v1"');
-    assert.include(service, 'STATE_SCHEMA = "zotero-librarian.state.v1"');
+    assert.include(
+      service,
+      'RECEIPT_SCHEMA = "zotero-librarian.operation-receipt.v1"',
+    );
+    assert.include(service, 'STATE_SCHEMA = "zotero-librarian.state.v2"');
     assert.include(service, '"state.sqlite"');
     assert.include(service, '"--allow-submit"');
+    assert.include(service, "workflow_plans");
+    assert.include(service, "workflow_plan_entries");
     assert.notInclude(service, "notification wait");
 
-    for (const relativePath of REQUIRED_FILES.filter((name) => name.startsWith("cron/"))) {
+    for (const relativePath of REQUIRED_FILES.filter((name) =>
+      name.startsWith("cron/"),
+    )) {
       const cron = await read(relativePath);
       assert.include(cron, "scripts/zotero_librarian_service.py", relativePath);
       assert.include(cron, "--quiet", relativePath);
@@ -129,6 +170,9 @@ describe("zotero-librarian hosted source profile", function () {
     assert.notInclude(soul, "zotero-bridge");
     assert.include(config, "scripts/zotero_librarian_service.py");
     assert.strictEqual(helpers.schema, "agent-helper-surface.v2");
-    assert.deepEqual(helpers.helpers.map((helper: { id: string }) => helper.id), ["install-zotero-bridge-cli", "zotero-librarian-service"]);
+    assert.deepEqual(
+      helpers.helpers.map((helper: { id: string }) => helper.id),
+      ["install-zotero-bridge-cli", "zotero-librarian-service"],
+    );
   });
 });

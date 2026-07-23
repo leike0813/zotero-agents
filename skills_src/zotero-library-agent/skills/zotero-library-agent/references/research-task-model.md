@@ -119,3 +119,282 @@ Each approval belongs to its stage. Sidecar completion is not graph completion; 
 - If a file handle expires, reacquire access from its owning attachment, Product, or artifact rather than guessing a path.
 - If a scope change alters candidates or conclusions, request a new decision; do not silently broaden the task.
 - If a user requests continuous surveillance, do not simulate residency with repeated polling. Route ongoing supervision to the hosted facet.
+
+## Natural-language task intake
+
+Use this extended intake when the user's wording combines several plausible research outcomes or when a default could materially alter the result.
+
+### Outcome ladder
+
+Ask what the user wants to possess at the end:
+
+| Desired possession | Task interpretation |
+| --- | --- |
+| A direct answer about current Zotero content | Query |
+| A set of external candidates with provenance | Acquisition, candidate-only |
+| New or updated Zotero sources | Acquisition with a write stage |
+| A digest, extraction, translation, or comparison | Analysis |
+| A cross-source claim map, gap analysis, topic, graph interpretation, or export | Synthesis |
+| Changed metadata, tags, notes, collections, files, links, or applied results | Curation |
+| Recurring reports or ongoing supervision | Hosted facet after any finite task |
+
+Do not infer the desired possession from the verb alone. “Collect” can mean make a reading list, import citations, or obtain attachments. “Analyze” can mean summarize one item, compare a set, or synthesize a field. “Save” can mean return an artifact or persist it in Zotero.
+
+### Scope ladder
+
+Resolve scope from the narrowest stable source:
+
+1. Explicit stable Zotero refs supplied by the user.
+2. Live current selection when deictic wording is used.
+3. Explicit collection or topic identity.
+4. Bounded live library query.
+5. Bounded external search criteria.
+
+Do not fall through to a broader step when a narrower step is ambiguous. An empty current selection requires a question; it does not authorize a whole-library search. An ambiguous title requires candidate disambiguation; it does not authorize selecting the first match.
+
+### Freshness ladder
+
+Choose the freshness basis needed by the conclusion:
+
+- Current library object for present metadata, membership, notes, or attachment state.
+- Current workflow/run/operation receipt for execution claims.
+- Current Product or artifact read for deliverable claims.
+- Current derived-model status for Synthesis interpretation.
+- Historical snapshot only when the user explicitly asks about past state.
+
+Cached indexes and prior task results may narrow discovery but cannot replace a live read where current state controls the answer or write.
+
+### Evidence-depth ladder
+
+State the strongest available basis per source:
+
+1. Metadata only.
+2. Abstract.
+3. Note or annotation.
+4. Partial content or OCR.
+5. Delivered full text.
+6. Workflow-produced analysis inspected against its sources.
+
+Never average these into a vague “papers were analyzed.” Mixed depth must remain visible in comparisons and synthesis. Ask whether the user accepts a weaker basis when it changes what can responsibly be claimed.
+
+### State-change ladder
+
+Escalate authority one boundary at a time:
+
+1. Read.
+2. Candidate or change proposal.
+3. Workflow/provider validation.
+4. Current submission or mutation authority.
+5. Zotero-side approval when declared.
+6. Durable receipt.
+7. Live post-state verification.
+
+Evidence from an earlier rung does not authorize the next. A candidate report does not authorize import, a valid workflow does not authorize submit, an uploaded file does not authorize attachment, and a generated result does not authorize apply-back.
+
+### Default disclosure
+
+When using a safe default, state it in one sentence before execution or in the final answer:
+
+> I will use the current live library, keep this pass read-only, search the named collection, and return a conversational answer; I will report if the available evidence is weaker than full text.
+
+Do not burden the user with defaults that have no material effect. Do expose any default governing scope, freshness, evidence, deliverable, cost/provider, or state change.
+
+## Visible multi-stage plans
+
+Use a stage table when more than one task owner is required.
+
+| Stage | Owner | Input evidence | Output evidence | New authority | Resume point |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Task Skill | Stable sources or criteria | Task-specific verified result | None or exact new effect | First missing fact |
+
+Populate every row before the first state-changing call. A read-only first stage may begin while later write stages remain explicitly pending.
+
+### Composition rules
+
+- A stage has exactly one domain owner.
+- The coordinator owns ordering and handoff, not the domain decision.
+- Each stage has its own bounded completion evidence.
+- A downstream stage consumes only successful, explicitly valid subjects.
+- Failed or excluded subjects remain in diagnostics.
+- Every new state change receives a fresh authority decision.
+- Recovery starts at the first stage lacking durable completion evidence.
+
+### Handoff record
+
+Carry only fields required by the next task:
+
+- stable Zotero refs;
+- selection or collection identity;
+- source-depth record;
+- source locators;
+- candidate provenance;
+- Product/artifact role and verified path;
+- workflow, run, operation, or apply-back handle in its original type;
+- structured diagnostics;
+- the predecessor's declared completion boundary.
+
+Do not carry:
+
+- bearer tokens or provider credentials;
+- private storage paths;
+- speculative refs;
+- prior approval as reusable authority;
+- a title in place of a stable identity;
+- a terminal run state in place of output evidence;
+- a local artifact in place of live Zotero state.
+
+### Plan updates
+
+Update the plan when:
+
+- identity resolution changes the subject set;
+- requested evidence is unavailable;
+- workflow availability or input contract changes the execution path;
+- a batch must be split;
+- a user denies or narrows authority;
+- partial success changes the next valid input set.
+
+Report the update before continuing. Do not silently substitute a new provider, workflow, source set, derived model, target collection, or write effect.
+
+### Completion across stages
+
+The coordinator returns `completed` only when every requested stage is complete. If a finite read or report completed but a later requested write lacks authority, preserve the valid artifact/evidence and return `canceled` for the overall request. If an attempted later stage fails, return `failed` while retaining earlier completed evidence.
+
+Do not invent a `partial` status. Use summary, evidence, artifacts, and diagnostics to preserve the partial facts within the three-state contract.
+
+## End-to-end compositions
+
+### Composition 1: Find, analyze, and add to a collection
+
+User: “Find ten recent papers on multimodal retrieval, summarize their methods, and add them to my project collection.”
+
+Interpretation:
+
+- acquisition criteria need a concrete date window, source coverage, result bound, and preprint policy;
+- analysis needs a verified source set and acceptable evidence depth;
+- collection membership is a separate curation write;
+- import and collection changes require current authority.
+
+Visible plan:
+
+1. Acquisition prepares candidates, checks live duplicates, and obtains approval for any import.
+2. Analysis consumes only verified item/attachment refs and reports method evidence per source.
+3. Curation proposes collection membership for successfully verified items.
+
+Authority:
+
+- Candidate discovery is read-only.
+- Import authority does not automatically include collection changes.
+- Collection approval occurs after the final resolved item set is known.
+
+Completion:
+
+- Candidate set has provenance and duplicate decisions.
+- Imported or existing items are live-verified.
+- Analysis has source locators and visible evidence gaps.
+- Collection membership is re-read after the approved change.
+
+Recovery:
+
+- If two imports fail, analyze the eight valid items only if that still meets a disclosed bounded outcome.
+- Preserve the failed candidates.
+- Do not re-import successful items when retrying the residual two.
+
+### Composition 2: Explain selected papers and save a note
+
+User: “Compare these papers and save the result as a note.”
+
+Interpretation:
+
+- Query resolves the current selection.
+- Analysis compares the resolved sources.
+- Curation writes the verified artifact as a note.
+
+Required clarification:
+
+- If the selection is empty or heterogeneous, ask which papers are intended.
+- If only some full texts are available, ask whether a mixed-depth comparison is acceptable.
+- Resolve the note's target parent and replacement/append behavior.
+
+Completion:
+
+- The comparison artifact exists and is source-grounded.
+- The note proposal names the exact target and content role.
+- Approval is current.
+- The live note is re-read after write.
+
+Near miss:
+
+- A completed comparison does not prove the note exists.
+- A local Markdown artifact is not a Zotero note identity.
+
+### Composition 3: Refresh a topic and export it
+
+User: “The topic looks stale; refresh it and export the latest synthesis.”
+
+Interpretation:
+
+- Query/synthesis first diagnoses topic identity, source scope, and model freshness.
+- Maintenance is a distinct approved operation.
+- Synthesis verifies the refreshed topic report.
+- Export verifies Product or artifact delivery.
+
+Required decisions:
+
+- exact topic;
+- stale model and scope;
+- maintenance effect;
+- export format and destination.
+
+Completion:
+
+- Maintenance receipt identifies changed subjects and committed basis.
+- Topic/report is inspected after maintenance.
+- Expected Product or artifact exists.
+- Download checksum and byte count are verified.
+
+Recovery:
+
+- An empty topic result does not authorize maintenance.
+- Maintenance success does not prove export completion.
+- Retry begins from the first missing receipt or output, not from topic creation.
+
+### Composition 4: Library absence followed by external discovery
+
+User: “If my library does not contain work on X, find some for me.”
+
+Interpretation:
+
+- Query must complete the bounded library search before stating absence.
+- Acquisition begins only if the query supports the condition.
+- “Find” defaults to a candidate report, not import.
+
+Completion:
+
+- Query reports library/collection scope, filters, and paging completion.
+- Acquisition reports external source coverage, candidates, provenance, and live duplicate status.
+
+Near miss:
+
+- A first-page miss does not trigger acquisition.
+- A candidate report does not claim Zotero items were added.
+
+### Composition 5: Persistent monitoring request
+
+User: “Keep an eye on new papers and tell me every week.”
+
+Interpretation:
+
+- Generic may perform one bounded current acquisition query if requested.
+- The recurring schedule and resident state belong to the hosted facet.
+
+Handoff:
+
+- topic criteria;
+- source coverage;
+- reporting threshold;
+- target library/collection;
+- allowed read/write authority;
+- the current finite result.
+
+Do not loop, sleep, poll indefinitely, or claim a schedule was created. The hosted facet must still distinguish its one-pass service from external cron configuration.

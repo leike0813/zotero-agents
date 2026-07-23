@@ -107,3 +107,247 @@ The handoff does not inherit write, workflow-submission, or maintenance authorit
 - If the question crosses into import, repair, writeback, or workflow submission, complete the read evidence and hand the new operation to acquisition, curation, or synthesis with a fresh authority check.
 - If privacy requires withholding attachment text, cite the source identity and locator without exposing unnecessary content.
 - If a cached resident index finds a likely object, use it as a lead and confirm the answer with a live read.
+## End-to-end decision traces
+
+These traces show how to apply the executable query contract when the user's wording, evidence, or recovery path is not straightforward. They are examples of decisions, not alternate hard rules.
+
+### Trace 1: “Help me understand this paper” with no selection
+
+User utterance:
+
+> Help me understand this paper.
+
+Interpretation:
+
+- The task may be a bounded query or a deeper analysis.
+- “This paper” depends on live current selection.
+- No item identity can be inferred from conversation context alone.
+- No state change is requested.
+
+First action:
+
+1. Read current Zotero selection.
+2. If exactly one bibliographic item or one child with a resolvable parent is selected, preserve both child and parent identities.
+3. If selection is empty, ask the user to select or identify the paper.
+4. If several papers are selected, ask whether all are intended and whether the user wants a simple answer or comparison.
+
+Do not:
+
+- search the whole library for a recently mentioned title;
+- choose the first visible item;
+- turn an attachment into its parent without recording the attachment;
+- begin a deep-reading workflow before the intended object and outcome are known.
+
+Possible clarification:
+
+> I do not have an unambiguous current Zotero selection. Which paper should I use, and do you want a concise answer or a source-located analysis?
+
+Pending behavior:
+
+- Use the Runner pending branch because a concrete identity and outcome decision is required.
+- Do not emit a business result while waiting.
+
+Canceled result when the identity cannot be supplied:
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "canceled",
+  "summary": "Stopped before reading because no unambiguous Zotero paper was selected or identified.",
+  "diagnostics": [
+    {
+      "code": "source_identity_required",
+      "message": "Select one paper or provide a stable Zotero item reference."
+    }
+  ]
+}
+```
+
+Resume point:
+
+- Re-read the current selection after the user's answer.
+- Do not reuse a stale empty selection result.
+
+### Trace 2: “My library has no papers about X, right?”
+
+User utterance:
+
+> My library has no papers about federated multimodal retrieval, right?
+
+Interpretation:
+
+- The user asks for a negative conclusion.
+- A first page, cached index, or fuzzy title search is insufficient.
+- The relevant scope may be the whole current library or a named collection.
+- Terms may appear in title, abstract, tags, notes, or full text; the requested search depth must be bounded.
+
+Clarification/default:
+
+- If no collection is named, disclose use of the current library.
+- Ask whether metadata/abstract search is sufficient if full-text coverage would materially change the answer.
+- Declare synonyms and filters used.
+
+Execution:
+
+1. Resolve the live library scope.
+2. Run the narrow semantic search.
+3. Complete all required pages.
+4. Inspect plausible matches rather than rejecting them from snippets.
+5. Record the final cursor/offset completion.
+6. Distinguish “no matches in searched fields” from “no relevant work exists.”
+
+Evidence record:
+
+- library identity;
+- filters and query terms;
+- page count and terminal paging fact;
+- plausible candidates inspected;
+- source fields covered;
+- freshness timestamp or live-read fact.
+
+Human-facing answer:
+
+> I found no matching items in the current library across the declared metadata and abstract fields after completing all pages. This does not establish absence from inaccessible full text or external literature.
+
+Completed result:
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "completed",
+  "summary": "Completed the bounded current-library search and found no matches in the declared metadata and abstract fields.",
+  "evidence": [
+    {
+      "kind": "library-query",
+      "ref": {
+        "scope": "current-library",
+        "pagingComplete": true
+      },
+      "description": "The exhaustive boundary supporting the negative answer."
+    }
+  ]
+}
+```
+
+Near miss:
+
+- If paging stops after one page, return `failed` with the accepted cursor and do not state absence.
+
+### Trace 3: Interrupted attachment delivery
+
+User utterance:
+
+> Read the results section of this PDF and tell me the main numbers.
+
+Interpretation:
+
+- The answer requires delivered full-text bytes, not attachment metadata.
+- The selected attachment and parent item must both remain identifiable.
+- The task is read-only.
+
+Execution:
+
+1. Resolve the selected attachment.
+2. Inspect attachment metadata and confirm readable media type.
+3. Request bridge-mediated file delivery.
+4. Download to the declared local artifact path.
+5. Verify checksum and byte count.
+6. Read only the requested results section and preserve page locators.
+
+Failure:
+
+- The file handle expires after metadata inspection but before verified download.
+
+Recovery decision:
+
+- Preserve the attachment ref and failed transfer diagnostic.
+- Reacquire file access from the same attachment.
+- Do not guess a Zotero storage path.
+- Do not substitute another attachment with a similar filename.
+- If the second delivery fails, return `failed`.
+
+Failed result:
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "failed",
+  "summary": "Could not answer the results-section question because the selected attachment bytes were not successfully delivered and verified.",
+  "evidence": [
+    {
+      "kind": "attachment",
+      "ref": {
+        "libraryId": 1,
+        "key": "ATTACH01"
+      },
+      "description": "The resolved source attachment; its content was not claimed as read."
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "attachment_delivery_failed",
+      "message": "File access expired and safe reacquisition did not complete."
+    }
+  ]
+}
+```
+
+Unsafe alternative:
+
+- Answering from the abstract, a prior digest, or a similarly named local file without obtaining the user's agreement to a weaker basis.
+
+## Conversation and result patterns
+
+Use a short clarification when one user decision unblocks the task:
+
+> I found two Zotero items with that title. Should I use the 2023 conference paper or the 2024 journal version?
+
+Use disclosed defaults when clarification would not materially change the bounded read:
+
+> I will search the current library, keep the task read-only, and return a conversational answer. I will report if only metadata or abstract evidence is available.
+
+Use limitation-first wording when evidence is asymmetric:
+
+> The first two claims are supported by delivered full text. The third paper was available only as an abstract, so I have not compared its implementation details.
+
+Use recovery wording that names the preserved state:
+
+> Three pages were accepted before the cursor failed. I preserved the last accepted cursor and will resume from the returned continuation rather than repeat the completed pages.
+
+Do not use:
+
+- “Zotero says” when the fact came from your interpretation;
+- “I read the PDF” when only metadata was inspected;
+- “there are no papers” when the search boundary is incomplete;
+- “the workflow produced it” when the Product or artifact was not inspected;
+- “the graph proves” for a computed relationship.
+
+Before returning, ensure the summary, inline evidence, optional artifacts, and diagnostics tell the same story. A conversational answer can be richer than the summary, but it cannot contradict the machine result.
+
+## Extended query decision record
+
+For a complex query, keep one compact record while working:
+
+| Field | Record |
+| --- | --- |
+| User question | The exact bounded question |
+| Scope | Library, collection, selection, topic, run, Product, or operation |
+| Identity evidence | Stable refs and candidate-resolution facts |
+| Freshness | Live reads and derived-model status |
+| Source depth | Metadata, abstract, note, partial content, or verified bytes |
+| Paging | Filters, accepted pages, terminal cursor, and resume position |
+| Privacy | Content needed and content deliberately excluded |
+| Claims | Direct facts, source text, derived output, and interpretation |
+| Deliverable | Conversation answer or verified artifact |
+| Status | Completed, canceled, or failed with reason |
+
+This record is working memory, not a second result envelope. Transfer only the relevant evidence, artifact, and diagnostic fields into `zotero-library-task.result.v1`.
+
+If the task hands off:
+
+- to analysis, include exact source refs, attachment identity, delivered evidence level, and question;
+- to synthesis, include the verified source/model boundary and unsupported claims;
+- to curation, include live before-state evidence and requested desired state, but no implied authority;
+- to hosted supervision, include the finite query result and monitoring criteria, not an invented schedule.
+
+Delete speculative candidates from the handoff while retaining a diagnostic explaining why they were excluded.

@@ -15,7 +15,7 @@
 | Readiness 或生成 artifact | 当前缺失输入/分析状态 | 指定工作流或具体修复与预期输出 |
 | Product removal | Product 记录与所选 asset 事实 | 记录 removal effect，不暗示立即删除托管文件 |
 
-使用可靠修正证据。外部元数据与已策展字段冲突时，呈现来源与选择，不得自动选取最新或最完整值。宽泛请求按共同 effect 和风险分批；破坏性或异构变更采用更小审阅组。
+使用可靠修正证据。外部元数据与已整理字段冲突时，呈现来源与选择，不得自动选取最新或最完整值。宽泛请求按共同 effect 和风险分批；破坏性或异构变更采用更小审阅组。
 
 只有不再需要语义推断后才选择直接 mutation。操作仍需分类、内容生成、多步协调、provider 执行或可复用合同时，使用已描述工作流。导航可帮助用户查看目标，但绝不能替代写路径。
 
@@ -150,3 +150,252 @@ risk_class: additive | corrective | destructive
 - 工作流完成但缺少承诺条目变更时，保留 run 输出并报告验证失败。
 - 写入成功但后续报告 artifact 失败时，不得重复写入；只恢复缺失报告阶段。
 - 定时 hygiene 或 attention 结果识别候选项时，将其保留为 proposal。周期性维护属于托管 facet。
+## 端到端决策轨迹
+
+这些痕迹展示了模糊的清理语言如何成为可审查的提案，以及部分或不确定的写入如何产生残留增量而不是重放。
+
+### Trace 1：“清理这些标签”
+
+用户话语：
+
+> 清理这些论文张上的标签。
+
+歧义之处：
+
+- 目标集可能取决于当前的选择；
+- “清理”可能意味着拼写规范化、受控词汇映射、重复数据删除、删除或推断添加；
+- 删除可能会放弃用户含义；
+- 异构标签可能需要不同的证据。
+
+第一个行动：
+
+1. 解决选定的项目。
+2. 实时读取当前标签。
+3. 询问或识别受控词汇和允许的转换。
+4. 将确定性归一化与语义标签推断分开。
+5. 制定每个项目的提案。
+
+提案行：
+
+- 项目ref；
+- 当前标签；
+- 提议添加、替换和删除标签；
+- 变换规则或证据；
+- 明确保留的标签；
+- 预期的副作用；
+- 审批范围；
+- 验证读取。
+
+安全默认值：
+
+- 无需书面即可提出提案。
+- 保留未知的用户标签。
+- 除非有要求，否则不要推断新的语义标签。
+
+面向用户的建议：
+
+> 我发现了拼写/大小写重复、到所提供词汇的映射以及六个含义不明确的标签。前两组可作为一批进行评审；不明确的标签将保持不变，直到您做出决定。
+
+权威前取消的结果：
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "canceled",
+  "summary": "Prepared a reviewable tag-normalization proposal and stopped before mutation because approval and six ambiguous mappings are still required.",
+  "artifacts": [
+    {
+      "path": "/workspace/tag-change-proposal.md",
+      "role": "change-proposal",
+      "mediaType": "text/markdown"
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "tag_decisions_required",
+      "message": "Six existing tags have no unambiguous controlled-vocabulary mapping."
+    }
+  ]
+}
+```
+
+有惊无险：
+
+- 标签调节分析结果并不批准写入变更活体项目。
+
+### Trace 2：合并重复项及其受影响子项
+
+用户话语：
+
+> 合并这些重复项并保留更好的记录。
+
+所需检查：
+
+- 稳定的refs和强大的标识符；
+- 版本/版本关系；
+- 元数据冲突；
+- 收藏品；
+- 标签；
+- 注释和注释；
+- 附件；
+- 关系并链接Products；
+- 破坏性的后果。
+
+重大决定：
+
+- “更好”并不能识别幸存者。
+- 相关预印本和出版版本不得重复。
+- 子内容可能不会自动合并。
+
+建议：
+
+1. 目前的候选幸存者及其理由。
+2. 列出每条记录中保留的字段。
+3. 列出受影响的儿童和亲属。
+4. 识别是否有任何删除。
+5. 状态预计在状态后进行。
+6. 将合并与合并不需要的元数据更正分开。
+
+权威机构：
+
+- 为确切的配对和幸存者获得当前的破坏性批准。
+- 请勿将批准范围扩大到其他类似记录。
+
+执行与验证：
+
+- 申请一次。
+- 保留操作receipt。
+- 重新读取幸存者，删除身份状态、子项、集合、标签和关系。
+- 报告任何不完整的传输。
+
+不完整的子传输失败结果：
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "failed",
+  "summary": "The approved duplicate merge changed the library, but one attachment relation was not verified on the survivor, so the requested merge is not fully complete.",
+  "evidence": [
+    {
+      "kind": "operation-receipt",
+      "ref": {
+        "operationId": "merge-operation-1"
+      },
+      "description": "Durable receipt for the one attempted merge."
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "merge_child_unverified",
+      "message": "One attachment relation requires a separate residual proposal after live inspection."
+    }
+  ]
+}
+```
+
+恢复：
+
+- 不要重复合并。
+- 检查当前幸存者和附件状态。
+- 仅准备剩余的附件更改。
+
+### Trace 3：附加分析 artifact 时出现未知状态
+
+用户话语：
+
+> 将此分析附在论文中。
+
+准备工作：
+
+1. 验证本地 artifact 路径、字节、媒体类型和预期角色。
+2. 解析确切的父项 Zotero 项。
+3. 阅读当前附件。
+4. 上传文件。
+5. 保留返回的`fileId`、校验和、大小和消耗事实。
+6. 预览附件写入变更。
+7. 获得当前授权。
+
+失败：
+
+- 附着写入变更调用在提交后失去传输。
+- 远程影响未知。
+
+所需回应：
+
+- 保留上传事实和操作handle。
+- 请勿再次上传。
+- 不要重复附着写入变更。
+- 检查耐用的receipt。
+- 重新阅读家长附件。
+
+可能的结果：
+
+- 附件存在并匹配校验和：将目标标记为完成。
+- 收据证明未更改：如果允许，使用有效 handle准备安全残留写入变更。
+- 状态仍然未知：返回`failed`并需要手动/当前状态解析。
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "failed",
+  "summary": "The approved attachment write has an uncertain remote outcome; no retry was attempted while the durable receipt and live parent state remain unresolved.",
+  "evidence": [
+    {
+      "kind": "zotero-item",
+      "ref": {
+        "libraryId": 1,
+        "key": "PARENT01"
+      },
+      "description": "The exact target parent for live recovery."
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "attachment_write_unknown",
+      "message": "Inspect the operation receipt and current attachments before any new write."
+    }
+  ]
+}
+```
+
+不安全的替代方案：
+
+- 由于未收到成功响应而重试；
+- 再次上传相同的字节；
+- 假设本地 artifact 路径是 Zotero 附件；
+- 附加到标题匹配。
+
+## 整理对话与记录模板
+
+模糊的要求：
+
+> “清理”可能意味着几种不同的改变。我将首先在提案之前/之后生成每个目标，并保持实时 Zotero 状态不变。
+
+破坏性请求：
+
+> 此合并将删除一条记录并影响其注释和附件。请确认确切的幸存者和列出的儿童处理方式。
+
+部分结果：
+
+> 六项变更已得到实时验证，一项被拒绝，一项仍未知。剩余提案不包括六项已验证的成功。
+
+未知结果：
+
+> 呼叫可能已到达 Zotero。在考虑重试之前，我将检查持久的receipt和当前目标。
+
+每个整理决策记录都应保存：
+
+- 目标ref；
+- 状态之前；
+- 期望的状态；
+- 更正证据；
+- 语义变化类型；
+- 破坏性后果；
+- 批次标识；
+- 预览;
+- 现任权力机构；
+- 操作/应用receipt；
+- 生活在状态之后；
+- 剩余增量。
+
+保持提案artifact、业务结果和当前 Zotero 状态不同。提案描述了意图，结果描述了经过验证的执行，只有实时读取才能证明当前状态。

@@ -11,7 +11,7 @@
   },
   "entrypoint": {
     "prompts": {
-      "common": "Read SKILL.md first. After selecting a canonical command, read only its matching reference under references/commands/. Never expose bearer tokens. Return one JSON object that preserves the CLI result or structured failure."
+      "common": "Read SKILL.md first. If the canonical command is unknown, use references/command-catalog.md to map the Zotero task intent to candidates. After selecting a command, read only its matching reference under references/commands/. Never expose bearer tokens. Return one JSON object that preserves the CLI result or structured failure."
     }
   }
 }

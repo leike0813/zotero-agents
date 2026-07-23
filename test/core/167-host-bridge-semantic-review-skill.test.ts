@@ -190,6 +190,8 @@ describe("Host Bridge semantic surface review skill", function () {
     assert.include(skill, "semantic parity result");
     assert.include(skill, "unmapped semantic count");
     assert.include(skill, "intra-package duplicate count");
+    assert.include(skill, "instruction-depth warnings");
+    assert.include(skill, "accepted or expanded");
     assert.include(skill, "blocker only when blocked");
     for (const heading of [
       "Goal",
@@ -210,12 +212,13 @@ describe("Host Bridge semantic surface review skill", function () {
       projectPath(
         "openspec",
         "changes",
-        "redesign-host-bridge-agent-surfaces",
+        "deepen-host-bridge-third-party-agent-guidance",
         "semantic-parity.md",
       ),
       "utf8",
     );
     assert.include(parity, "4b9a3b4b0fab7fdcce54571ba07dd770b4d3219f");
+    assert.include(parity, "8b7dfd8ecb6063f5dd24a8dda3b09179a6d2817a");
     assert.include(parity, "Unmapped semantic count: `0`");
     assert.include(parity, "Downgraded semantic count: `0`");
     assert.notMatch(parity, /\|\s*dropped\s*\|/i);

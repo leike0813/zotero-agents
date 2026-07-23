@@ -52,7 +52,7 @@ Agent 自主执行遵循协调器 handoff 合同：检查每个请求、按各�
 
 完成需要覆盖请求分析维度，明确不可用证据，保证结论可追溯，并清楚区分 extraction 与 inference。宁可给出较小但真实的答案，也不要给出暗示阅读了未读内容的宽泛报告。
 
-## 分析交付物模式
+## 分析交付物类型
 
 依据用户需要做出的决策选择模式：
 
@@ -122,3 +122,233 @@ contradiction test:
 - 批次中一篇论文失败时，保留成功 artifact，并从需要其证据的结论中排除失败论文。
 - 工作流输出为空或格式错误时，保留 run 和校验诊断；不得制造预期 digest 或 references。
 - 请求回写缺少权限时，将分析作为已完成工作返回，并把写入阶段标记为 canceled，不得修改 Zotero。
+## 端到端决策轨迹
+
+这些痕迹展示了证据深度决策、稳定的分析维度、workflow 输出检查和诚实的部分结果。
+
+### Trace 1：比较三篇来源深度不等的论文
+
+用户话语：
+
+> 比较这三篇论文的方法和实验结果。
+
+已解决的源集：
+
+- 论文 A 有经过验证的 PDF。
+- 论文 B 有经过验证的 PDF。
+- 论文 C 仅包含元数据和摘要。
+
+实质性问题：
+
+- 方法细节和实验数据需要的不仅仅是元数据。
+- 采用不同的隐藏标准会使比较产生误导。
+
+澄清：
+
+> 两篇论文有全文，而第三篇论文只有摘要。我应该进行有限的比较来标记纸 C 不可用的尺寸，还是停止直到全文可用？
+
+接受的有限路径：
+
+1. 在提取之前修复方法和结果维度。
+2. 从A和B中提取第locators页的全文证据。
+3. 仅从 C 中提取抽象支持的声明。
+4. 标记不可用的单元格而不是推断。
+5. 解释证据基础是不对称的。
+
+不要：
+
+- 从标题推断 C 的架构；
+- 使用实验编号的引用记录；
+- 默默地排除C；
+- 短语缺少细节作为 C 缺乏该功能的证据。
+
+当用户接受有限基础时完成的结果：
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "completed",
+  "summary": "Compared the three papers on the declared dimensions, with full-text evidence for two and explicitly limited abstract-only evidence for the third.",
+  "evidence": [
+    {
+      "kind": "attachment",
+      "ref": {
+        "libraryId": 1,
+        "key": "PAPERAPD"
+      },
+      "locator": "pages 4-8",
+      "description": "Method and experiment evidence for Paper A."
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "asymmetric_source_depth",
+      "message": "Paper C was compared only on claims present in its abstract."
+    }
+  ]
+}
+```
+
+### Trace 2：深读 workflow 返回混合结果
+
+用户话语：
+
+> 深入阅读这些论文并向我提供报告。
+
+准备工作：
+
+1. 解析每个选定的书目项目和附件。
+2. 阅读实时 ​​workflow 描述。
+3. 确认 workflow 输入单元和接受的媒体。
+4. 验证每个选择。
+5. 分别验证选项和 provider profile。
+6. 目前提交范围和当前授权。
+
+执行：
+
+- 四个附件作为单独的单元提交。
+- 三跑成功。
+- 一次运行在没有所需报告artifact的情况下终止。
+
+验证：
+
+- 检查三份报告。
+- 验证 artifact 路径和角色。
+- 保留失败的运行 handle 和预期的 artifact 合约。
+- 不要将第四个来源称为已分析。
+
+结果：
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "failed",
+  "summary": "Verified deep-reading reports for three of four requested papers; the fourth run ended without the required report, so the overall batch is incomplete.",
+  "artifacts": [
+    {
+      "path": "/workspace/deep-reading/paper-a.md",
+      "role": "deep-reading-report",
+      "mediaType": "text/markdown"
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "workflow_artifact_missing",
+      "message": "One terminal run did not produce the required deep-reading report."
+    }
+  ]
+}
+```
+
+恢复：
+
+- 检查第四次运行和 workflow 结果。
+- 仅遵循该源声明的重试路径。
+- 不要重新提交三个经过验证的来源。
+- 如果提出provider或选项变更，请获得新的决定。
+
+### Trace 3：带来源 locator 的提取过程中 OCR 中断
+
+用户话语：
+
+> 从这张扫描的论文中提取报告的样本量和置信区间。
+
+证据要求：
+
+- 精确的数字提取需要可检查的内容和页面locators。
+- OCR 的不确定性必须保持可见。
+
+执行：
+
+1. 解析精确的扫描附件。
+2. 传送并验证字节。
+3. 检查 OCR 可用性和页面映射。
+4. 用页和表locators提取候选号码。
+5. 如果支持的话，对照图像交叉检查不明确的 OCR 字符。
+
+失败：
+
+- OCR 提供第 1-6 页，然后处理失败。
+- 请求的结果表位于后面几页。
+
+决定：
+
+- 保留已验证的部分内容。
+- 不要从摘要中推断样本量。
+- 不要将部分数字字段报告为请求的已完成提取。
+- 返回准确的恢复位置和源身份。
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "failed",
+  "summary": "Could not complete the requested numerical extraction because verified OCR stopped before the results tables.",
+  "evidence": [
+    {
+      "kind": "attachment",
+      "ref": {
+        "libraryId": 1,
+        "key": "SCAN0001"
+      },
+      "locator": "verified OCR pages 1-6",
+      "description": "Accepted partial content; it does not contain the requested tables."
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "ocr_incomplete_before_target",
+      "message": "Resume content processing from page 7 before extracting sample sizes or intervals."
+    }
+  ]
+}
+```
+
+有惊无险：
+
+- 先前生成的提及“大样本”的摘要不是源定位数字。
+
+## 分析对话模板
+
+证据深度披露：
+
+> 我有两个来源的全文和一个来源的摘要。我只能根据摘要支持的主张来比较这三个内容，或者对两个全文进行更深入的比较。
+
+版本披露：
+
+> 所选 Zotero 条目包含预印本附件，引用结果为期刊版本。在确认预期来源之前，我会将版本分开。
+
+workflow 披露：
+
+> workflow 可以为每个附件生成摘要和结构化参考。提交是一个单独的权限步骤，运行后我会检查每个承诺的artifact。
+
+故障披露：
+
+> 该报告共三篇论文。第四次运行是终端，但缺少声明的报告，因此我保留了三个 artifacts 并将该批次报告为不完整。
+
+使用分析记录：
+
+- 来源及附件refs；
+- 版本/版本；
+- 证据深度；
+- 分析维度；
+- 检查locators；
+- 提取的观察结果；
+- 矛盾；
+- 不可用的尺寸；
+- workflow 和artifact证据；
+- 状态和诊断。
+
+记录支持一致的推理；它不会取代最终的业务结果或允许 Zotero 写入。
+
+在将分析进行综合之前，保留确切的源集、每个项目的来源深度、声明 locators、矛盾、缺失维度和 artifact 角色。在将 artifact 交给管理之前，请验证 artifact 路径并识别预期的 Zotero 目标，而无需暗示写入权限。
+
+不要手递手：
+
+- 标题而不是 Zotero ref；
+- workflow 终端状态而不是检查的 artifacts；
+- 没有 locator 的报价；
+- OCR 猜测作为已验证的数字；
+- 生成的摘要作为实时笔记状态的证明；
+- 成功的子集，就像请求的完整比较已完成一样。
+
+下游任务可能会缩小到有效受试者，但它必须在诊断中保持排除和失败的受试者可见。

@@ -64,14 +64,17 @@ research task.
 The `zotero-bridge-cli` Skill is the complete operating contract for this
 layer. Its `SKILL.md` defines the command loop, approval and handle behavior,
 output recovery, and failure path without requiring a prose reference. It
-directly links eight exhaustive source-generated command references selected
-by canonical command root: connection/context, library, mutation,
-files/Products/operations, workflow, run, synthesis, and diagnostics. The
-renderer rejects unassigned or multiply assigned roots and commands. Every
-command card contains argv bindings, invocation/payload/result schemas,
-pagination, effects and state-change facts, approval scope, handle
-transitions, recovery, targets, aliases, and intent-search visibility, so an
-agent can load one operational surface without loading the full command set.
+directly links a generated intent-first command catalog plus eight exhaustive
+source-generated command references selected by canonical command root:
+connection/context, library, mutation, files/Products/operations, workflow,
+run, synthesis, and diagnostics. The catalog maps natural-language operating
+intent and all canonical command names to one detail file; it does not repeat
+the full command cards. The renderer rejects unassigned or multiply assigned
+roots and commands. Every command card contains argv bindings,
+invocation/payload/result schemas, pagination, effects and state-change facts,
+approval scope, handle transitions, recovery, targets, aliases, and
+intent-search visibility, so an agent can choose and load one operational
+surface without loading the full command set.
 
 This layer also exposes the local, read-only commands
 `workflow agent-bundle inspect` and `workflow agent-result validate`. They
@@ -106,17 +109,27 @@ selection aid; live workflow list, describe, and validation remain runtime
 authority.
 
 Each task `SKILL.md` contains the complete ordinary workflow and all mandatory
-constraints. Its directly linked playbook is optional depth for named complex
-branches, decision matrices, record templates, evidence models, and partial
-outcome recovery. A simple task therefore starts without reading a playbook.
-Each task obtains exact arguments, approval behavior, handles, and recovery
-details from Minimum instead of duplicating them.
+constraints. It starts with natural-language intake: infer the user's bounded
+research objective, distinguish missing information from safely defaultable
+detail, make the inferred interpretation visible, and clarify only choices
+that would materially change scope, evidence, or mutation authority. Its
+directly linked playbook is optional depth for named complex branches,
+decision matrices, record templates, evidence models, end-to-end conversation
+traces, and partial-outcome recovery. A simple task therefore starts without
+reading a playbook. Each task obtains exact arguments, approval behavior,
+handles, and recovery details from Minimum instead of duplicating them.
 
-All six Skills produce `zotero-library-task.result.v1`. It requires `schema`,
-`status`, and `summary`; `status` is `completed`, `canceled`, or `failed`.
-Evidence, artifact paths, and diagnostics are optional structured arrays in
-the same result. Runner final/pending envelopes remain runner transport rather
-than business-result fields.
+All six Skills produce `zotero-library-task.result.v1`. This is an
+agent-authored business result validated by
+`shared/output.schema.json`; it is not a CLI-generated object. It requires
+`schema`, `status`, and `summary`; `status` is `completed`, `canceled`, or
+`failed`. `evidence[]` records typed source identity and claims,
+`artifacts[]` records durable output paths and media types, and
+`diagnostics[]` records actionable limitations or failures. Each Skill embeds
+a minimal valid example and directly explains these nested fields. The Runner
+removes the terminal `__SKILL_DONE__` marker, parses the preceding JSON, and
+validates it with AJV. Runner final/pending envelopes and the marker remain
+transport framing rather than business-result fields.
 
 ## Hosted: Hermes residency contract
 
@@ -128,17 +141,25 @@ Host Bridge state remain authoritative.
 
 The service covers library indexing, workflow catalog refresh, watched-run
 monitoring, notification synchronization, maintenance analysis, synthesis
-attention, and scheduled operations. Every non-silent operation returns
+attention, and scheduled operations. It can prepare a
+`zotero-librarian.workflow-plan.v2` from a live selection by first describing
+the workflow, deriving its declared input unit, and validating every planned
+entry. The plan file is immutable and content-digested; SQLite records its
+identity and every entry transition before submission. A remote submission
+with an uncertain outcome is recorded as `unknown` and is never replayed
+automatically. Every non-silent operation returns
 `zotero-librarian.operation-receipt.v1` with `schema`, `operation`, `status`,
-and `generatedAt`. Valid statuses are `unchanged`, `changed`, `attention`, and
-`failed`; a failed receipt includes structured error data and exits nonzero.
-A cron adapter may render an unchanged receipt as `[SILENT]`.
+and `generatedAt`. Valid statuses are `ok`, `unchanged`, `changed`,
+`attention`, and `failed`; a failed receipt includes structured error data and
+exits nonzero. A cron adapter may render an unchanged receipt as `[SILENT]`.
 
 Default scheduled work may read, index, monitor, synchronize notifications,
 analyze maintenance, and report. Workflow submission requires an interactive
 request or an enabled named automation policy. Zotero apply-back continues to
 require Host approval, and destructive maintenance requires a current human
-decision.
+decision. The profile ships one-pass cron command definitions but neither the
+service nor installer creates, edits, enables, or removes an operating-system
+schedule; schedule ownership remains with the hosted runtime or operator.
 
 The `zotero-librarian` Skill contains the executable resident workflow and
 directly links three complete references: resident operations, automation
@@ -169,8 +190,12 @@ Every Skill published by the three surfaces follows the same package rule:
 
 The Host Bridge content gate checks the deterministic package structure and
 reference reachability, current-state wording, and exact substantive prose
-duplication. The semantic-surface review checks minimum completeness,
-paraphrased duplication, reference coherence, and separation between layers.
+duplication. On materialized content it also enforces hard depth floors of 100
+lines for `SKILL.md` and 200 lines for references, and emits advisory review
+warnings below 200 and 350 lines respectively. The semantic-surface reviewer
+must explicitly accept or expand every warning; line counts never replace the
+semantic checks for completeness, paraphrased duplication, reference
+coherence, and separation between layers.
 
 ## Semantic preservation
 
@@ -189,7 +214,8 @@ inline result contract absorbs portable task evidence; the generated built-in
 workflow catalog provides static selection facts while live discovery and
 description remain runtime authority; and the partitioned generated command
 references replace repeated command manuals while preserving all descriptor
-fields. Word and line counts are not used as a proxy for semantic completeness.
+fields. Depth thresholds are triage gates, not a proxy for semantic
+completeness.
 
 ## Human review mirror
 

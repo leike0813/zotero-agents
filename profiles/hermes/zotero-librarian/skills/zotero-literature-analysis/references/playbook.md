@@ -122,3 +122,233 @@ Gap handling is part of the deliverable, not merely a failure appendix. State wh
 - If one paper in a batch fails, preserve successful artifacts and exclude the failed paper from conclusions that require its evidence.
 - If workflow output is empty or malformed, retain the run and validation diagnostics; do not manufacture the expected digest or references.
 - If the requested writeback lacks authority, return the analysis as completed work and mark the write stage canceled rather than modifying Zotero.
+## End-to-end decision traces
+
+These traces demonstrate evidence-depth decisions, stable analytical dimensions, workflow output inspection, and honest partial results.
+
+### Trace 1: Compare three papers with unequal source depth
+
+User utterance:
+
+> Compare the methods and experimental results of these three papers.
+
+Resolved source set:
+
+- Paper A has a verified PDF.
+- Paper B has a verified PDF.
+- Paper C has metadata and abstract only.
+
+Material issue:
+
+- Method details and experimental numbers require more than metadata.
+- Applying different hidden standards would make the comparison misleading.
+
+Clarification:
+
+> Two papers have full text, while the third has only an abstract. Should I produce a limited comparison that marks Paper C's unavailable dimensions, or stop until full text is available?
+
+Accepted limited path:
+
+1. Fix method and result dimensions before extraction.
+2. Extract full-text evidence with page locators from A and B.
+3. Extract only abstract-supported claims from C.
+4. Mark unavailable cells rather than inferring.
+5. Explain that the evidence basis is asymmetric.
+
+Do not:
+
+- infer C's architecture from its title;
+- use a citation record for experimental numbers;
+- silently exclude C;
+- phrase missing details as evidence that C lacks the feature.
+
+Completed result when the user accepts the limited basis:
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "completed",
+  "summary": "Compared the three papers on the declared dimensions, with full-text evidence for two and explicitly limited abstract-only evidence for the third.",
+  "evidence": [
+    {
+      "kind": "attachment",
+      "ref": {
+        "libraryId": 1,
+        "key": "PAPERAPD"
+      },
+      "locator": "pages 4-8",
+      "description": "Method and experiment evidence for Paper A."
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "asymmetric_source_depth",
+      "message": "Paper C was compared only on claims present in its abstract."
+    }
+  ]
+}
+```
+
+### Trace 2: Deep-reading workflow with mixed outcomes
+
+User utterance:
+
+> Run deep reading on these papers and give me the reports.
+
+Preparation:
+
+1. Resolve each selected bibliographic item and attachment.
+2. Read the live workflow description.
+3. Confirm the workflow input unit and accepted media.
+4. Validate each selection.
+5. Validate options and provider profile separately.
+6. Present submission scope and current authority.
+
+Execution:
+
+- Four attachments are submitted as separate units.
+- Three runs succeed.
+- One run terminates without its required report artifact.
+
+Verification:
+
+- Inspect the three reports.
+- Verify artifact paths and roles.
+- Preserve the failed run handle and expected artifact contract.
+- Do not call the fourth source analyzed.
+
+Result:
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "failed",
+  "summary": "Verified deep-reading reports for three of four requested papers; the fourth run ended without the required report, so the overall batch is incomplete.",
+  "artifacts": [
+    {
+      "path": "/workspace/deep-reading/paper-a.md",
+      "role": "deep-reading-report",
+      "mediaType": "text/markdown"
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "workflow_artifact_missing",
+      "message": "One terminal run did not produce the required deep-reading report."
+    }
+  ]
+}
+```
+
+Recovery:
+
+- Inspect the fourth run and workflow result.
+- Follow the declared retry path only for that source.
+- Do not resubmit the three verified sources.
+- If a provider or option change is proposed, obtain a new decision.
+
+### Trace 3: OCR interruption during a source-located extraction
+
+User utterance:
+
+> Extract the reported sample sizes and confidence intervals from this scanned paper.
+
+Evidence requirement:
+
+- Exact numerical extraction requires inspectable content and page locators.
+- OCR uncertainty must remain visible.
+
+Execution:
+
+1. Resolve the exact scanned attachment.
+2. Deliver and verify the bytes.
+3. Inspect OCR availability and page mapping.
+4. Extract candidate numbers with page and table locators.
+5. Cross-check ambiguous OCR characters against the image where supported.
+
+Failure:
+
+- OCR provides pages 1–6, then processing fails.
+- The requested results tables are on later pages.
+
+Decision:
+
+- Preserve the verified partial content.
+- Do not extrapolate sample sizes from the abstract.
+- Do not report partial numerical fields as the requested completed extraction.
+- Return the exact recovery position and source identity.
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "failed",
+  "summary": "Could not complete the requested numerical extraction because verified OCR stopped before the results tables.",
+  "evidence": [
+    {
+      "kind": "attachment",
+      "ref": {
+        "libraryId": 1,
+        "key": "SCAN0001"
+      },
+      "locator": "verified OCR pages 1-6",
+      "description": "Accepted partial content; it does not contain the requested tables."
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "ocr_incomplete_before_target",
+      "message": "Resume content processing from page 7 before extracting sample sizes or intervals."
+    }
+  ]
+}
+```
+
+Near miss:
+
+- A prior generated digest mentioning “large sample” is not a source-located number.
+
+## Analytical conversation patterns
+
+Evidence-depth disclosure:
+
+> I have full text for two sources and abstracts for one. I can compare all three only on abstract-supported claims, or provide a deeper comparison for the two full texts.
+
+Version disclosure:
+
+> The selected Zotero item contains a preprint attachment, while the cited result refers to the journal version. I will keep the versions separate until the intended source is confirmed.
+
+Workflow disclosure:
+
+> The workflow can produce a digest and structured references for each attachment. Submission is a separate authority step, and I will inspect each promised artifact after the run.
+
+Failure disclosure:
+
+> The report exists for three papers. The fourth run is terminal but lacks the declared report, so I am preserving the three artifacts and reporting the batch as incomplete.
+
+Use an analysis record with:
+
+- source and attachment refs;
+- edition/version;
+- evidence depth;
+- analytical dimensions;
+- inspected locators;
+- extracted observations;
+- contradictions;
+- unavailable dimensions;
+- workflow and artifact evidence;
+- status and diagnostics.
+
+The record supports consistent reasoning; it does not replace the final business result or permit a Zotero write.
+
+Before handing analysis to synthesis, preserve the exact source set, source depth per item, claim locators, contradictions, missing dimensions, and artifact roles. Before handing an artifact to curation, verify the artifact path and identify the intended Zotero target without implying write authority.
+
+Do not hand off:
+
+- a title instead of a Zotero ref;
+- a workflow terminal state instead of inspected artifacts;
+- a quotation without its locator;
+- an OCR guess as a verified number;
+- a generated digest as proof of live note state;
+- a successful subset as if the requested full comparison completed.
+
+The downstream task may narrow to valid subjects, but it must keep excluded and failed subjects visible in diagnostics.

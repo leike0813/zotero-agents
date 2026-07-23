@@ -1,4 +1,4 @@
-# 常驻操作
+# 驻留操作
 
 ## 服务合同
 
@@ -6,29 +6,29 @@
 
 正常 JSON 形状为 `zotero-librarian.operation-receipt.v1`，包含 `operation`、`status`、`generatedAt`，以及可选 `summary` 或 `data`。失败 pass 会加入 `error.code`、`error.message` 和可选 `error.details`，打印 JSON 并以非零状态退出。`--quiet` 仅把 `unchanged` receipt 渲染为 `[SILENT]`；changed、attention 和 failed 结果仍然可见。
 
-## 操作合同矩阵
+## 操作契约矩阵
 
 | 命令 | 读取 | 本地 effect | Receipt 数据及含义 |
 | --- | --- | --- | --- |
 | `index refresh [--limit N]` | 分页实时文献库 snapshot | 原子 upsert 当前条目、删除缺失行、保存刷新时间 | 计数 `added`、`updated`、`deleted`、`total`；仅 projection 有差异时为 changed |
-| `index search <query> [--limit N]` | 本地标题及序列化条目字段 | 除 schema 初始化外无 effect | 匹配的缓存 `items`；changed 表示存在匹配，而非 Zotero 已变更 |
-| `index item <key-or-id>` | 一个本地缓存条目 | 无 | 缓存 `item`；缓存条目缺失为 `item_not_found` |
-| `index stats` | 本地条目计数和刷新元数据 | 无 | `itemCount` 与 `lastRefresh` |
+| `index search <query> [--limit N]` |本地标题和序列化项目字段 |除了schema 初始化之外没有任何其他 | `ok` 与匹配的缓存`items`；绝不意味着 Zotero 已更改 |
+| `index item <key-or-id>` |一项本地缓存项目 |无 | `ok`，带有缓存的`item`；缺少缓存条目是 `item_not_found` |
+| `index stats` |本地项目计数和刷新元数据 |无 | `ok` 与 `itemCount` 和 `lastRefresh` |
 | `workflow catalog-refresh` | 实时工作流列表和已变更描述 | 原子 upsert 已变更 catalog 条目 | `updated` 定义数量 |
-| `workflow show <workflow-id>` | 一个缓存工作流定义 | 无 | 缓存 `workflow`；执行前仍需实时 describe |
-| `workflow plan --workflow ID --from-context --output ABS` | 当前 selection 与工作流校验 | 原子写入一个确定性 plan 文件 | 父条目 ref、内嵌 plan 及绝对 `path` |
-| `workflow submit --plan ABS --allow-submit [--concurrency N]` | 已审阅 plan 与实时 submit 结果 | 注册已启动 run | `launched` 结果与 `remaining` 条目 |
+| `workflow show <workflow-id>` |一个缓存的 workflow 定义 |无 | `ok`，带有缓存的`workflow`；执行前仍需要实时描述 |
+| `workflow plan --workflow ID --from-context --output ABS` |实时 workflow 描述、当前选择和每个条目验证 |原子地编写并注册一个不可变的计划 |selection ref、输入单位、计划/摘要和绝对`path` |
+| `workflow submit --plan ABS --allow-submit [--concurrency N]` |注册计划、实时 workflow 合同、条目验证并提交结果 |储备条目和登记启动运行|需要注意的`launched`、`remaining` 或一个 `unknown` 条目 |
 | `run register --run-id ID --workflow-id ID [--state S]` | 提供的标识符 | upsert 一个 watched run | 已注册 `runId` |
 | `run watch` | 每个非终态 watched run 一次实时状态读取 | 更新已变化的 run 状态 | 当前 `runs`；unchanged 表示无状态转移 |
 | `notification sync [--limit N]` | 一个有边界的未确认 event 页面 | upsert 通知 projection | `inserted`、`updated` 与 `fetched` 计数 |
-| `notification inbox [--limit N]` | 本地未确认 event | 无 | 有序 `events` |
-| `notification summary` | 本地未确认 event | 无 | 按 event `type` 分组的计数 |
-| `notification ack --event ID [...]` | 实时 acknowledgement 结果 | 将指定本地 event 标记为已确认 | `acknowledged` event ID |
+| `notification inbox [--limit N]` |当地未确认的事件|无 | `ok` 已订购 `events` |
+| `notification summary` |当地未确认的事件|无 | `ok` 计数按事件 `type` |
+| `notification ack --event ID [...]` | 实时 确认处理 结果 | 将指定本地 event 标记为已确认 | `acknowledged` event ID |
 | `maintenance workflow-status` | 本地 watched run | 无 | 非成功候选项；存在时为 `attention` |
 | `maintenance library-hygiene` | 本地重复标题分组 | 无 | 重复标题候选项；`attention` 属于 proposal |
 | `synthesis attention-queue` | 实时排序 attention queue | 无 | 队列 `items`；绝不改变 synthesis 状态 |
 
-本地读取命令可能因为返回数据而返回 `changed`。应解释具体操作数据，不得假设 `changed` 总表示 Zotero 已变更。
+只读查找返回`ok`。 `changed` 保留用于本地投影/日志更改或显式启动的远程操作。这两种状态都不能独立证明当前的 Zotero 状态。
 
 ## Index 与文献库问答
 
@@ -42,7 +42,7 @@
 
 Catalog refresh 列出当前工作流，只为摘要 digest 新增或变化的工作流获取描述。`workflow show` 用于快速本地发现；执行仍需要实时工作流描述、当前执行模式、输入校验以及 Generic 所有的 provider profile 校验。
 
-常驻 planning 解析当前 selection，把笔记和附件归一为去重后的顶层父条目 ref，校验指定工作流，并将 `zotero-librarian.workflow-plan.v1` 写入绝对路径。应检查持久化文件，不得从终端输出重新构造。plan 每个父条目包含一次提交，默认并发为一。
+驻留规划读取实时 workflow 选择合同，保留attachment workflow 的附件，仅针对parent-item workflow 标准化子项，验证每个实际条目，并将`zotero-librarian.workflow-plan.v2`写入绝对路径。检查持久化文件而不是从终端输出重建它。该计划包含每个受支持的选定对象的一个经过验证的提交、不可变的身份/摘要以及默认并发度 1。
 
 Submission 在当前 pass 只启动已审阅 plan 的前 `--concurrency` 个条目，记录返回的 `workflowRunId` 并报告其余条目。后续提交需要新的操作员当前指令。服务外创建的 run 可通过 `run register` 加入；只能使用真实 `workflowRunId` 及其工作流 ID。
 
@@ -52,16 +52,477 @@ Submission 在当前 pass 只启动已审阅 plan 的前 `--concurrency` 个条�
 
 Notification sync 读取一个有边界的未确认 event 页面，并 upsert 轻量 event payload。Inbox 和 summary 读取本地 projection。使用通知检测 started、waiting、completed、failed、canceled 或 recoverable 生命周期变化，无需长轮询。
 
-采取动作前检查所属实时工作流或 skill run。除非实时 run 公开相应 `skillRunId`，event 文本不能确定 reply/connect 目标，并且绝不授予 approval 或修改权限。动作处理完后才能确认；实时 acknowledgement 失败会保留本地 event 供后续审阅。
+采取动作前检查所属实时工作流或 skill run。除非实时 run 公开相应 `skillRunId`，event 文本不能确定 reply/connect 目标，并且绝不授予 approval 或修改权限。动作处理完后才能确认；实时 确认处理 失败会保留本地 event 供后续审阅。
 
-## 定时 pass
+## 定时单次任务
 
 profile 随附七个独立 cron job：每六小时 index refresh、每日工作流 catalog refresh、每五分钟 run watch、每五分钟 notification sync、每日 workflow-status triage、每周 library hygiene，以及每日 Synthesis attention queue。每个 job 都用 `--quiet` 调用服务，执行一个 pass，且不能提交或修改 Zotero。
 
-独立调度可避免一个失败掩盖其他领域结果。`unchanged` 变成 `[SILENT]`；本地 projection 变化、attention 候选项或失败仍可报告。Triage、hygiene 与 attention pass 只提出审阅工作。任何后续获取、策展、工作流提交、apply-back 或维护操作都需要新的交互任务及其自身授权。
+独立调度可避免一个失败掩盖其他领域结果。`unchanged` 变成 `[SILENT]`；本地 projection 变化、attention 候选项或失败仍可报告。Triage、hygiene 与 attention pass 只提出审阅工作。任何后续获取、整理、工作流提交、apply-back 或维护操作都需要新的交互任务及其自身授权。
 
 ## 完成证据与失败
 
 常驻报告应保留 operation receipt、相关刷新时间、item key、workflow/run/event ID、变化计数、attention 原因，以及面向用户结论使用的实时确认。审阅候选项和下一项安全检查清楚后，`attention` 即完成；这不表示修复已完成。
 
 CLI 或解析失败时，服务发出稳定错误并保留已提交状态。不得用部分页面替换 projection，也不得在没有有效结果时推进通知/run 结论。提交结果不确定时，再次启动前检查近期实时 run。本地查询失败时，只刷新所需 projection，再重试一个有边界的操作。
+
+## 详细操作卡
+
+在文献馆员`SKILL.md`选择常驻操作后使用这些卡。它们描述服务行为和receipt解释；确切的 Zotero CLI 机制保留在捆绑的 CLI Skill 中。
+
+### `index refresh`
+
+目的：
+
+- 构建完整的常驻投影以进行变化检测和重复发现。
+
+之前：
+
+- 确认预期的库连接以及当前缓存是否可用。
+- 选择限制每个请求的页面限制，而不会截断完整快照。
+
+命令：
+
+```sh
+scripts/zotero_librarian_service.py index refresh --limit 200
+```
+
+receipt：
+
+- 添加、更新或删除行时的`changed`。
+- 当完成的快照与投影匹配时，`unchanged`。
+- 数据报告 `added`、`updated`、`deleted` 和 `total`。
+
+下一篇：
+
+- 使用实时查询读取外部可见的当前事实。
+- 失败时，保留先前提交的投影。
+
+### `index search`
+
+目的：
+
+- 从标题和序列化字段中快速发现缓存的候选项目。
+
+命令：
+
+```sh
+scripts/zotero_librarian_service.py index search "<query>" --limit 25
+```
+
+receipt：
+
+- `ok` 具有零个或多个缓存的`items`。
+- 结果是候选结果，并且具有投影的新鲜度限制。
+
+下一篇：
+
+- 通过Generic 查询和当前 Zotero 读取解决相关候选。
+- 不要仅从缓存中声明不存在或当前状态。
+
+### `index item`
+
+目的：
+
+- 在发现或更改比较期间通过键或数字 ID 检查一项缓存的项目。
+
+命令：
+
+```sh
+scripts/zotero_librarian_service.py index item <key-or-id>
+```
+
+receipt：
+
+- `ok` 和一个缓存的 `item`。
+- 当没有行匹配时，`failed` 与 `item_not_found`。
+
+下一篇：
+
+- 在当前答案或写入之前，使用稳定的 ref 进行实时读取。
+
+### `index stats`
+
+目的：
+
+- 检查投影大小和上次成功刷新。
+
+命令：
+
+```sh
+scripts/zotero_librarian_service.py index stats
+```
+
+receipt：
+
+- `ok` 与 `itemCount` 和 `lastRefresh`。
+
+下一篇：
+
+- 当计划的发现取决于较新的更改时刷新。
+- 最近的时间戳并不能证明单个对象没有改变。
+
+### `workflow catalog-refresh`
+
+目的：
+
+- 维护当前 workflow 定义的本地发现缓存。
+
+命令：
+
+```sh
+scripts/zotero_librarian_service.py workflow catalog-refresh
+```
+
+receipt：
+
+- 当缓存的定义更改时，`changed` 会更新计数。
+- `unchanged` 当未检测到目录增量时。
+
+下一篇：
+
+- 在计划执行之前使用实时 workflow 列表/描述。
+
+### `workflow show`
+
+目的：
+
+- 检查一个缓存的 workflow 候选者，而不声明当前可用性。
+
+命令：
+
+```sh
+scripts/zotero_librarian_service.py workflow show <workflow-id>
+```
+
+receipt：
+
+- `ok` 与缓存的 `workflow`。
+- `failed` 与 `workflow_not_found` 不存在时。
+
+下一篇：
+
+- 将结果选择委托给Generic 并确认实时描述。
+
+### `workflow plan`
+
+目的：
+
+- 冻结经过验证、可审查的当前选择计划，以实现简单的 Zotero 管理执行。
+
+命令：
+
+```sh
+scripts/zotero_librarian_service.py workflow plan \
+  --workflow <workflow-id> --from-context \
+  --output <absolute-plan.json>
+```
+
+之前：
+
+- 确认 workflow 是正确的 Generic 任务候选者。
+- 确保当前选择包含其实时输入单元接受的对象。
+- 将所需选项、provider 配置文件、空 selection、group selection和自有模式路由到 Generic。
+
+receipt：
+
+- `changed` 与 `selectionRefs`、`inputUnit`、计划对象和绝对 `path`。
+- 计划包括`planId`、`planDigest`、workflow-描述摘要、条目和并发一。
+
+下一篇：
+
+- 查看该文件而不对其进行编辑。
+- 请求当前当局制定该确切计划。
+
+### `workflow submit`
+
+目的：
+
+- 根据当前授权，从一项已注册的不可变计划中启动待处理条目。
+
+命令：
+
+```sh
+scripts/zotero_librarian_service.py workflow submit \
+  --plan <absolute-plan.json> --allow-submit \
+  --concurrency 1
+```
+
+之前：
+
+- 确认当前指令授权的确切计划和并发数。
+- 请记住，Zotero 方的批准仍然是分开的。
+
+receipt：
+
+- `changed` 已启动运行和待处理的剩余部分。
+- 当无法确定远程效果时，`attention` 具有 1 个`unknown` 条目。
+- `failed` 在远程调用身份、摘要、路径、契约、选择或权限不匹配之前。
+
+下一篇：
+
+- 注册成功返回的运行是自动的。
+- 不要重播已启动或未知的条目。
+- 另一遍需要新的当前指令。
+
+### `run register`
+
+目的：
+
+- 添加在此助手之外创建的已知 Zotero 托管 workflow 运行。
+
+命令：
+
+```sh
+scripts/zotero_librarian_service.py run register \
+  --run-id <workflowRunId> --workflow-id <workflow-id> \
+  --state running
+```
+
+之前：
+
+- 通过实时 workflow 结果验证输入的 handle。
+- 切勿注册`agentRunId`。
+
+receipt：
+
+- `changed` 已注册运行 ID。
+
+下一篇：
+
+- 使用一次性`run watch`。
+
+### `run watch`
+
+目的：
+
+- 读取每个已注册的非终端运行一次并记录转换。
+
+命令：
+
+```sh
+scripts/zotero_librarian_service.py run watch
+```
+
+receipt：
+
+- `changed` 当至少一种状态转换时。
+- `unchanged` 当没有转换时。
+- 数据列出当前检查的运行状态。
+
+下一篇：
+
+- 使用实时 run/Skill 命令进行交互和输出检查。
+- 最终状态不是 Product、artifact 或写验证。
+
+### `notification sync`
+
+目的：
+
+- 将一个有界的未确认生命周期事件页面提取到本地收件箱中。
+
+命令：
+
+```sh
+scripts/zotero_librarian_service.py notification sync --limit 100
+```
+
+receipt：
+
+- 插入或更新事件时`changed`。
+- `unchanged` 当获取的页面没有添加增量时。
+
+下一篇：
+
+- 行动前检查所属现场运行情况。
+
+### `notification inbox`
+
+目的：
+
+- 读取按更新时间排序的本地未确认事件。
+
+命令：
+
+```sh
+scripts/zotero_librarian_service.py notification inbox --limit 25
+```
+
+receipt：
+
+- `ok` 与 `events`。
+
+下一篇：
+
+- 实时解析当前运行、技能、权限或输出状态。
+
+### `notification summary`
+
+目的：
+
+- 按类型对本地未确认事件进行计数，以获得紧凑的报告。
+
+命令：
+
+```sh
+scripts/zotero_librarian_service.py notification summary
+```
+
+receipt：
+
+- `ok` 具有分组计数。
+
+下一篇：
+
+- 不要仅根据事件类型推断严重性或所需的操作。
+
+### `notification ack`
+
+目的：
+
+- 在处理相关操作后确认命名事件。
+
+命令：
+
+```sh
+scripts/zotero_librarian_service.py notification ack \
+  --event <event-id>
+```
+
+之前：
+
+- 检查实时拥有状态。
+- 根据当前授权完成或故意取消所需的后续行动。
+
+receipt：
+
+- `changed` 具有已确认的 ID。
+
+失败：
+
+- 当实时确认失败时，保持本地事件处于未确认状态。
+
+### `maintenance workflow-status`
+
+目的：
+
+- 报告观察的运行，其状态仍需要审查。
+
+命令：
+
+```sh
+scripts/zotero_librarian_service.py maintenance workflow-status
+```
+
+receipt：
+
+- `attention` 与运行候选者。
+- `unchanged` 当不需要审核时。
+
+下一篇：
+
+- 检查实时运行情况；不要重试或自动取消。
+
+### `maintenance library-hygiene`
+
+目的：
+
+- 将重复标题组报告为可能的重复候选者。
+
+命令：
+
+```sh
+scripts/zotero_librarian_service.py maintenance library-hygiene
+```
+
+receipt：
+
+- `attention` 与候选组。
+- `unchanged` 当没有找到时。
+
+下一篇：
+
+- 调用 Generic 整理进行身份分析和可审查的提案。
+- 重复的头衔永远不会破坏权威。
+
+### `synthesis attention-queue`
+
+目的：
+
+- 读取实时排名的Synthesis注意力队列而不改变派生状态。
+
+命令：
+
+```sh
+scripts/zotero_librarian_service.py synthesis attention-queue
+```
+
+receipt：
+
+- `attention` 带有队列项目。
+- `unchanged` 当队列为空时。
+
+下一篇：
+
+- 将解释委托给GenericSynthesis。
+- 单独诊断任何维护操作。
+
+## 文献库问答流程
+
+对于“我的文献库里有什么？”或“发生了什么变化？”：
+
+1. 检查索引统计数据。
+2. 当需要进行所请求的比较时刷新。
+3. 搜索投影中的候选项。
+4. 将有界问题委托给Generic 查询。
+5. 现场确认相关事实。
+6. 返回Generic 业务结果加上常驻刷新/更改证据。
+
+对于否定答案，缓存搜索是不够的。 Generic 查询拥有完整的实时分页和证据边界。
+
+对于有关运行或 workflow 的问题，本地缓存仅是发现。阅读实时 workflow/运行并验证请求的输出。
+
+## 定时任务解读
+
+每个发送的 cron 都会调用 `--quiet` 的一个操作。
+
+- `[SILENT]` 表示操作返回`unchanged`。
+- JSON `changed` 表示本地投影/日志已更改，不一定是 Zotero。
+- JSON `attention` 表示存在审核候选者。
+- JSON `failed` 表示单次执行未完成。
+- JSON `ok` 通常是交互式读取输出，不应被误认为是增量。
+
+不要将多个 cron 域组合成一个隐藏通道。独立的receipts使故障、关注和恢复归因于一个状态所有者。
+
+## 操作级恢复示例
+
+第四页索引刷新失败：
+
+- 之前的预测仍然可用；
+- 不要提前刷新时间；
+- 重试有限刷新；
+- 不要手动合并三个页面。
+
+计划文件已编辑：
+
+- 远程调用前提交失败；
+- 根据实际情况制定新计划；
+- 不要只恢复摘要字段。
+
+提交退货`attention`：
+
+- 保留计划 ID 和未知序数；
+- 检查最近的实时运行；
+- 不自动重播该条目或以后的批次。
+
+通知确认失败：
+
+- 保持本地事件可见；
+- 重新检查拥有行为；
+- 仅当事件仍然存在并且操作仍处于处理状态时才重试确认。
+
+整理候选项是误报：
+
+- 记录现场区别；
+- 保持 Zotero 不变；
+- 在没有单独规则的情况下，不要压制所有未来重复头衔的候选项。

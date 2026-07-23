@@ -26,7 +26,7 @@
 - 建议保留项或共存结果；
 - 需要人工决策的不确定性。
 
-重复项评估不授权 merge、delete、relink 或元数据覆盖。provider 元数据与已策展文献库字段冲突时，保留两个来源，并把任何修正路由给 curation。
+重复项评估不授权 merge、delete、relink 或元数据覆盖。provider 元数据与已整理文献库字段冲突时，保留两个来源，并把任何修正路由给 curation。
 
 ## 获取与 readiness
 
@@ -142,3 +142,240 @@ next_action: report | import-proposal | acquire-file | human-review
 - 附件访问过期时，从所属条目或来源获取新 handle；绝不能复用猜测的存储路径。
 - 获取后出现元数据冲突时，保留已 import 记录，并把建议修正路由给 curation，不得静默修复。
 - 重复项 effect 比已审阅 proposal 更广时，在 mutation 前停止并呈现新发现后果。
+## 端到端决策轨迹
+
+这些痕迹展示了有限的获取请求如何从人类措辞转移到候选项、实时重复决策、权限和验证。
+
+### Trace 1：“查找关于 X 的最新论文”
+
+用户话语：
+
+> 查找一些有关检索增强型科研 agent的最新论文。
+
+歧义之处：
+
+- “最近”没有日期窗口；
+- “一些”没有结果限制；
+- 外部来源和语言未指定；
+- 用户没有请求导入；
+- 预印本和出版版本可能会重叠。
+
+澄清/默认：
+
+当新近度实质上控制包含时，要求提供一个日期窗口。如果用户接受默认值，请公开具体的窗口、结果上限、语言政策、搜索源和仅限候选的结果。
+
+候选项计划：
+
+1. 将研究概念扩展到已声明的搜索术语中。
+2. 搜索指定来源。
+3. 记录查询限制和provider出处。
+4. 保留符合纳入规则的候选项。
+5. 比较强标识符和版本。
+6. 在当前 Zotero 文献库中搜索每个保留的候选项。
+7. 标记每个新的、现有的、可能重复的、相关的或不明确的版本。
+
+不要：
+
+- 导入，因为用户说“查找”；
+- 隐藏不可用的全文；
+- 在没有版本决定的情况下调用预印本和期刊文章副本；
+- 将结果描述为超越所声明的来源和停止规则的详尽结果。
+
+面向人的结果：
+
+> 我从宣布的 2024-2026 年窗口和来源中准备了 12 名候选项。当前的 Zotero 库中已存在四个，两个是相关的预印本/已出版对，还有六个是新出现的。没有导入任何东西。
+
+完成结果：
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "completed",
+  "summary": "Prepared twelve bounded candidates with provenance and current Zotero duplicate status; no item was imported.",
+  "artifacts": [
+    {
+      "path": "/workspace/candidate-report.md",
+      "role": "candidate-report",
+      "mediaType": "text/markdown"
+    }
+  ]
+}
+```
+
+### Trace 2：把已审阅批次导入 collection
+
+用户话语：
+
+> 将这些论文添加到我的“Agent 研究”收藏中，并尽可能获取 PDF。
+
+已解决的输入：
+
+- 准确的候选项记录；
+- 目标文献库和馆藏标识；
+- 重复的替代方案；
+- 元数据来源；
+- 合法的附件来源；
+- 最小的可审查批次。
+
+每位候选项的提案：
+
+- 强标识符和书目版本；
+- 当前 Zotero 匹配；
+- 导入还是再利用的决定；
+- 集合会员效应；
+- 附件来源和预期准备情况；
+- 元数据冲突；
+- 未修改的字段；
+- 批准和验证路径。
+
+权威机构：
+
+1. 显示确切的批次。
+2. 获得进口和收集变更的当前授权。
+3. 除非单独批准，否则请在批处理之外保留合并、覆盖、删除和重新链接。
+4. 如果使用了 workflow，则验证 workflow 选项和 provider profile。
+
+执行：
+
+1. 提交或申请批准的批次一次。
+2. 保留操作/workflowhandles。
+3. 重新阅读每个结果项目。
+4. 验证集合成员资格。
+5. 单独检查附件状态。
+6. 对成功的、现有的、失败的、未尝试的和模糊的候选项进行分类。
+
+部分结果：
+
+- 七个项目被进口或重复使用并进行实时验证。
+- 在创建项目之前，一个 provider 请求失败。
+- 两个 PDF 不可用。
+
+结果决定：
+
+- 请求的整体批次没有完全成功，因此使用`failed`。
+- 保存七个成功的项目refs。
+- 诊断一次失败的采集和两次附件差距。
+- 不要重播整个批次。
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "failed",
+  "summary": "Verified seven of eight requested items in the target collection; one acquisition failed and two verified items still lack requested attachments.",
+  "evidence": [
+    {
+      "kind": "collection",
+      "ref": {
+        "libraryId": 1,
+        "key": "COLLECT1"
+      },
+      "description": "Target collection re-read after the approved batch."
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "residual_acquisition",
+      "message": "One candidate was not created and two attachment requests remain unavailable."
+    }
+  ]
+}
+```
+
+恢复：
+
+- 仅为失败的候选项准备剩余提案。
+- 将丢失的附件与丢失的书目项目区别对待。
+- 如果建议覆盖不同的源或元数据，请获取新的权限。
+
+### Trace 3：provider 发现后出现重复项歧义
+
+用户话语：
+
+> 导入最佳版本并删除重复项。
+
+观察候选项：
+
+- Zotero 中已有一篇带有注释的会议论文；
+- provider 的一份日记扩展；
+- 相似的标题和重叠的作者；
+- 不同的 DOI 和额外的实验。
+
+决定：
+
+- 这些可能是相关版本而不是重复版本。
+- “最佳”是用户偏好，而不是身份事实。
+- 删除现有项目具有破坏性，可能会影响注释、集合、关系和附件。
+
+澄清：
+
+> 文献库条目和provider结果似乎是具有不同标识符的会议和期刊版本。您想要保留两者、导入期刊版本并链接它们，还是审查破坏性的合并/删除提案？
+
+未提供决定时取消结果：
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "canceled",
+  "summary": "Stopped before import or removal because the two records are related versions and no survivor or linking decision was provided.",
+  "evidence": [
+    {
+      "kind": "zotero-item",
+      "ref": {
+        "libraryId": 1,
+        "key": "CONF2024"
+      },
+      "description": "Existing annotated conference version."
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "version_decision_required",
+      "message": "Choose whether to keep, link, or separately review destructive consolidation."
+    }
+  ]
+}
+```
+
+不安全的替代方案：
+
+- 选择期刊版本是因为它较新；
+- 在保留注释之前删除会议记录；
+- 覆盖 provider 字段中精选的元数据；
+- 将标题相似性视为重复证明。
+
+简历：
+
+- 在用户决定后重新读取身份和受影响的儿童。
+- 将破坏性整合路由至管理提案。
+
+## 对话与记录模板
+
+候选项报告语言：
+
+> 搜索范围覆盖了所声明的来源，并在约定的范围内停止。该报告将外部候选项、当前的 Zotero 匹配、相关版本和未解析的身份分开。
+
+撰写提案语言：
+
+> 此批次将创建六个项目，重用三个现有项目，将所有九个项目添加到指定的集合中，并尝试从列出的源添加附件。它不会合并、删除或覆盖冲突的策划元数据。
+
+附件限制语言：
+
+> 书目项目经过实时验证，但未获取可用的附件。我还没有将其标记为分析就绪。
+
+残差恢复语言：
+
+> 第一批创建了五个项目。剩余提案仅包含两个失败的候选者，并且不会重播已验证的成功。
+
+每个候选项的决定记录都应保存：
+
+- 外部标识符和出处；
+- 搜索源和查询边界；
+- 纳入原因；
+- 当前 Zotero 候选项；
+- 重复/版本判断；
+- 目标效应；
+- 附着状态；
+- 权威状态；
+- 最终现场验证或诊断。
+
+不要将“已存在”、“新导入”、“相关版本”和“获取失败”合并为一个获取计数。

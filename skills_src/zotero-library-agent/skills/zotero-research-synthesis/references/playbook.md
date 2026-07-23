@@ -133,3 +133,237 @@ An export manifest or file path proves discovery, not successful delivery. A ver
 - If a terminal run lacks its report, topic, Product, or artifact, return the missing-output failure with the run evidence.
 - If the user asks to persist an interpretation in Zotero, present the proposed note, tag, relation, or file and route it to curation with new authority.
 - Continuous topic refresh or queue monitoring belongs to the hosted facet, not this bounded task.
+## End-to-end decision traces
+
+These traces demonstrate how to select a synthesis basis, separate computed structure from scholarly evidence, and verify maintenance and export stages independently.
+
+### Trace 1: Interpret a citation graph without overstating it
+
+User utterance:
+
+> What does the graph show about the relationship between these two research directions?
+
+Interpretation:
+
+- The user refers to a derived citation graph.
+- Graph edges and clusters can support structural observations.
+- Scholarly agreement, influence, causality, and conceptual similarity require source evidence beyond graph topology.
+
+Preparation:
+
+1. Resolve the exact graph or topic scope.
+2. Record graph freshness and paging completion.
+3. Resolve the relevant source items.
+4. Inspect edge types, direction, provenance, and any metric definition.
+5. Read source claims when the requested interpretation goes beyond structure.
+
+Supported answer layers:
+
+- Direct graph fact: which nodes and edges are present.
+- Computed observation: clustering, centrality, or path under the declared algorithm.
+- Source-grounded interpretation: what the cited papers claim.
+- Agent inference: a qualified explanation tying them together.
+
+Do not:
+
+- call co-citation causal influence;
+- call cluster membership scholarly agreement;
+- treat a missing edge as no intellectual relationship;
+- hide stale graph status.
+
+Completed result:
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "completed",
+  "summary": "Reported the verified citation-graph relationship and separated it from source-grounded interpretation; no causal or consensus claim was inferred from topology alone.",
+  "evidence": [
+    {
+      "kind": "synthesis-graph",
+      "ref": {
+        "topicId": "topic-1",
+        "graphVersion": "current"
+      },
+      "description": "The bounded derived model used for structural observations."
+    }
+  ]
+}
+```
+
+### Trace 2: Diagnose, refresh, and synthesize a stale topic
+
+User utterance:
+
+> This topic is stale. Refresh it and tell me what changed.
+
+Required boundaries:
+
+- exact topic identity;
+- source scope;
+- which model is stale;
+- maintenance operation;
+- synthesis comparison;
+- current maintenance authority.
+
+Diagnosis:
+
+1. Read topic status and source scope.
+2. Inspect relevant index/graph/sidecar status.
+3. Identify the exact stale model and basis.
+4. Explain whether refresh can change topic content, graph state, or only an index.
+
+Authority:
+
+- Show the diagnosed maintenance proposal.
+- Obtain current authority for that operation only.
+- Do not treat the user's observation “stale” as permission for every maintenance command.
+
+Execution:
+
+1. Start the approved maintenance operation.
+2. Preserve operation ID and pre-state.
+3. Inspect the terminal receipt and committed basis.
+4. Re-read the affected model.
+5. Re-run the bounded synthesis read.
+6. Compare supported pre/post facts.
+
+Failure branch:
+
+- Maintenance receipt reports success for sidecar refresh.
+- Topic report has not been recomputed.
+
+Result decision:
+
+- Do not claim the topic is refreshed.
+- Preserve the sidecar receipt.
+- Return `failed` for the overall requested topic refresh and explain the missing stage.
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "failed",
+  "summary": "The approved sidecar refresh completed, but the requested topic report was not recomputed or verified, so no current topic-change synthesis is claimed.",
+  "evidence": [
+    {
+      "kind": "operation-receipt",
+      "ref": {
+        "operationId": "operation-1"
+      },
+      "description": "Completed sidecar maintenance only."
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "topic_output_not_refreshed",
+      "message": "A separate topic workflow or read is required before reporting topic changes."
+    }
+  ]
+}
+```
+
+### Trace 3: Synthesize and export a research bundle
+
+User utterance:
+
+> Synthesize these papers into a gap map and export the bundle.
+
+Visible stages:
+
+1. Resolve and verify sources.
+2. Build the gap synthesis.
+3. Verify the gap-map artifact.
+4. Produce or locate the declared Product/export.
+5. Download and verify the selected asset.
+
+Synthesis decisions:
+
+- Fix the research question and corpus.
+- Distinguish absent evidence from a supported gap.
+- Preserve contradictory findings.
+- State source-depth asymmetry.
+
+Export decisions:
+
+- Identify requested format.
+- Inspect expected Product identity.
+- Select asset by role and media type.
+- Obtain current delivery handle.
+- Verify local checksum and byte count.
+
+Near misses:
+
+- A local gap-map artifact is not the exported bundle.
+- A Product record is not a downloaded asset.
+- A terminal export workflow is not checksum verification.
+- Missing papers cannot be silently converted into research gaps.
+
+Completed result:
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "completed",
+  "summary": "Synthesized the verified source set into a gap map, preserved evidence limitations, and downloaded the requested export asset with verified bytes.",
+  "artifacts": [
+    {
+      "path": "/workspace/exports/research-gap-bundle.zip",
+      "role": "research-bundle",
+      "mediaType": "application/zip"
+    }
+  ],
+  "evidence": [
+    {
+      "kind": "product",
+      "ref": {
+        "productId": "product-1",
+        "assetRole": "research-bundle"
+      },
+      "description": "The inspected Product asset that issued the verified download."
+    }
+  ]
+}
+```
+
+Recovery:
+
+- If export fails after synthesis, preserve the synthesis artifact.
+- Resume from Product/asset inspection.
+- Do not rerun maintenance or synthesis unless their evidence is invalid.
+
+## Synthesis conversation and decision patterns
+
+Model-choice question:
+
+> A topic report answers what themes and claims occur; the citation graph answers structural relationships. Which question should drive this synthesis?
+
+Freshness disclosure:
+
+> The source items are current, but the graph reports an older basis. I can answer from source text now or prepare a separate graph-maintenance proposal.
+
+Gap disclosure:
+
+> This source set does not report evidence on X. Because two relevant full texts are unavailable, I am labeling this a coverage gap rather than a research gap.
+
+Maintenance disclosure:
+
+> Refreshing the sidecar and updating the citation graph are separate operations with separate receipts. I will not treat one as completion of the other.
+
+Export disclosure:
+
+> The synthesis artifact is complete. Export remains a separate Product/asset delivery step and will be complete only after the selected bytes are verified.
+
+A synthesis decision record should preserve:
+
+- research question;
+- included and excluded source refs;
+- source evidence depth;
+- model identity and status;
+- claim and locator map;
+- disagreement;
+- missing coverage;
+- workflow and maintenance stages;
+- Products and artifacts;
+- result status and diagnostics.
+
+Do not use the decision record as authority to submit, maintain, persist, attach, or apply results.

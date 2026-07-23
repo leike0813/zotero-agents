@@ -49,6 +49,8 @@ const COMMAND_REFERENCE_PARTITIONS = [
   { path: "commands/diagnostics.md", roots: ["debug", "call"] },
 ] as const;
 
+const COMMAND_CATALOG_PATH = "references/command-catalog.md";
+
 async function pathExists(target: string) {
   try {
     await fs.access(target);
@@ -206,6 +208,8 @@ describe("host bridge cli packaging and install", function () {
     for (const partition of COMMAND_REFERENCE_PARTITIONS) {
       assert.include(skill, `references/${partition.path}`);
     }
+    assert.include(skill, COMMAND_CATALOG_PATH);
+    assert.isTrue(await pathExists(path.join(root, COMMAND_CATALOG_PATH)));
     assert.deepEqual(
       references,
       COMMAND_REFERENCE_PARTITIONS.map(({ path: referencePath }) =>
@@ -225,6 +229,7 @@ describe("host bridge cli packaging and install", function () {
       "references/command-reference.md",
     );
     assert.include(runner.entrypoint.prompts.common, "references/commands/");
+    assert.include(runner.entrypoint.prompts.common, COMMAND_CATALOG_PATH);
     const profileTemplate = await fs.readFile(
       path.join(root, "profile.template.json"),
       "utf8",
@@ -413,6 +418,62 @@ describe("host bridge cli packaging and install", function () {
       ),
     );
     assert.notProperty(descriptor, "workflowCatalog");
+  });
+
+  it("renders one intent-first command catalog before detailed command selection", async function () {
+    const descriptor = JSON.parse(
+      await fs.readFile("cli/zotero-bridge/src/agent-surface.json", "utf8"),
+    ) as { commands: Array<{ command: string; summary: string }> };
+    const catalog = await fs.readFile(
+      path.join("skills_builtin/zotero-bridge-cli", COMMAND_CATALOG_PATH),
+      "utf8",
+    );
+    const hermesCatalog = await fs.readFile(
+      path.join(
+        "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli",
+        COMMAND_CATALOG_PATH,
+      ),
+      "utf8",
+    );
+    assert.strictEqual(catalog, hermesCatalog);
+    for (const partition of COMMAND_REFERENCE_PARTITIONS) {
+      assert.include(catalog, `commands/${path.basename(partition.path)}`);
+    }
+    for (const command of descriptor.commands) {
+      const row = `| \`zotero-bridge ${command.command}\` |`;
+      assert.strictEqual(
+        catalog.split(row).length - 1,
+        1,
+        `${command.command} must appear once in the compact command index`,
+      );
+      assert.include(catalog, command.summary);
+    }
+    for (const cardLabel of [
+      "- Argv:",
+      "- Payload schema:",
+      "- Effects:",
+      "- Approval:",
+      "- Handle transitions:",
+      "- Recovery:",
+    ]) {
+      assert.notInclude(catalog, cardLabel);
+    }
+  });
+
+  it("keeps every materialized minimum reference above the hard depth floor", async function () {
+    const referenceRoot = "skills_builtin/zotero-bridge-cli/references";
+    const files = [
+      COMMAND_CATALOG_PATH.replace(/^references\//, ""),
+      ...COMMAND_REFERENCE_PARTITIONS.map((partition) => partition.path),
+    ];
+    for (const file of files) {
+      const content = await fs.readFile(path.join(referenceRoot, file), "utf8");
+      assert.isAtLeast(
+        content.split(/\r?\n/).length,
+        200,
+        `${file} is too shallow for an unfamiliar agent`,
+      );
+    }
   });
 
   it("covers library commands in the generated command reference", async function () {

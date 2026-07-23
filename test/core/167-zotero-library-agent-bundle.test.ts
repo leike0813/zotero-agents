@@ -2,6 +2,7 @@ import { assert } from "chai";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import Ajv from "ajv";
+import { validateAcpSkillFinalPayload } from "../../src/modules/acpSkillOutputValidator";
 
 const GENERIC_ROOT = join(process.cwd(), "skills_src/zotero-library-agent");
 const SOURCE_ROOT = join(GENERIC_ROOT, "skills/zotero-library-agent");
@@ -13,6 +14,8 @@ const TASKS = [
   "zotero-research-synthesis",
   "zotero-library-curation",
 ] as const;
+
+const GENERIC_SKILLS = ["zotero-library-agent", ...TASKS] as const;
 
 const PLAYBOOK_SECTIONS: Record<(typeof TASKS)[number], string[]> = {
   "zotero-library-query": [
@@ -238,6 +241,21 @@ describe("zotero library agent source suite", function () {
       assert.include(skill, "`canceled`");
       assert.include(skill, "`failed`");
       assert.include(skill, "Do not invent handles");
+      for (const token of [
+        "## Natural-language intake",
+        "## Result contract",
+        "`evidence`",
+        "`artifacts`",
+        "`diagnostics`",
+        "__SKILL_DONE__",
+      ]) {
+        assert.include(skill, token, `${task} lacks ${token}`);
+      }
+      assert.isAtLeast(
+        skill.split(/\r?\n/).length,
+        200,
+        `${task} is too shallow for a context-free agent`,
+      );
       const playbookContent = readFileSync(
         join(GENERIC_ROOT, playbook),
         "utf8",
@@ -252,6 +270,17 @@ describe("zotero library agent source suite", function () {
           `${task}: ${playbookSection}`,
         );
       }
+      assert.include(playbookContent, "## End-to-end decision traces", task);
+      assert.isAtLeast(
+        playbookContent.match(/^### Trace /gm)?.length || 0,
+        3,
+        `${task} needs normal, ambiguous, and recovery traces`,
+      );
+      assert.isAtLeast(
+        playbookContent.split(/\r?\n/).length,
+        350,
+        `${task} playbook is too shallow`,
+      );
     }
   });
 
@@ -281,6 +310,7 @@ describe("zotero library agent source suite", function () {
     assert.include(catalog, "workflow profile validate");
     assert.include(catalog, "workflow submit");
     assert.notMatch(catalog, /^### `debug-/m);
+    assert.isAtLeast(catalog.split(/\r?\n/).length, 350);
   });
 
   it("keeps complete cross-task and workflow policy in the coordinator reference", function () {
@@ -293,9 +323,13 @@ describe("zotero library agent source suite", function () {
       "Evidence, files, and Products",
       "Multi-stage research lifecycle",
       "Recovery and near misses",
+      "Natural-language task intake",
+      "Visible multi-stage plans",
+      "End-to-end compositions",
     ]) {
       assert.include(model, `## ${section}`, section);
     }
+    assert.isAtLeast(model.split(/\r?\n/).length, 350);
   });
 
   it("uses one task result contract with inline evidence", function () {
@@ -313,9 +347,107 @@ describe("zotero library agent source suite", function () {
     assert.property(schema.properties, "artifacts");
     assert.property(schema.properties, "diagnostics");
     assert.notProperty(schema.properties, "evidence_file");
-    assert.doesNotThrow(() =>
-      new Ajv({ allErrors: true, strict: false }).compile(schema),
+    assert.lengthOf(schema.examples, 3);
+    const validate = new Ajv({ allErrors: true, strict: false }).compile(
+      schema,
     );
+    for (const payload of [
+      {
+        schema: "zotero-library-task.result.v1",
+        status: "completed",
+        summary: "The bounded library query completed.",
+      },
+      {
+        schema: "zotero-library-task.result.v1",
+        status: "canceled",
+        summary: "A material scope decision is still required.",
+        diagnostics: [{ code: "scope_required", message: "Choose a scope." }],
+      },
+      {
+        schema: "zotero-library-task.result.v1",
+        status: "failed",
+        summary: "The requested evidence could not be retrieved.",
+        evidence: [{ kind: "zotero-item", ref: { key: "AAAA1111" } }],
+        artifacts: [
+          {
+            path: "/tmp/result.md",
+            role: "partial-analysis",
+            mediaType: "text/markdown",
+          },
+        ],
+        diagnostics: [{ code: "content_unavailable", message: "No PDF." }],
+      },
+    ]) {
+      assert.isTrue(validate(payload), JSON.stringify(validate.errors));
+    }
+    for (const payload of [
+      {
+        schema: "zotero-library-task.result.v1",
+        status: "completed",
+      },
+      {
+        schema: "zotero-library-task.result.v1",
+        status: "partial",
+        summary: "Invented status.",
+      },
+      {
+        schema: "zotero-library-task.result.v1",
+        status: "completed",
+        summary: "Contains a transport field.",
+        __SKILL_DONE__: true,
+      },
+      {
+        schema: "zotero-library-task.result.v1",
+        status: "completed",
+        summary: "Incomplete evidence.",
+        evidence: [{ kind: "zotero-item" }],
+      },
+      {
+        schema: "zotero-library-task.result.v1",
+        status: "completed",
+        summary: "Incomplete artifact.",
+        artifacts: [{ path: "/tmp/result.md" }],
+      },
+      {
+        schema: "zotero-library-task.result.v1",
+        status: "failed",
+        summary: "Incomplete diagnostic.",
+        diagnostics: [{ code: "failure" }],
+      },
+    ]) {
+      assert.isFalse(validate(payload), JSON.stringify(payload));
+    }
+  });
+
+  it("materializes and validates the shared result contract for every Generic Skill", async function () {
+    const minimal = {
+      schema: "zotero-library-task.result.v1",
+      status: "completed",
+      summary: "The bounded task completed.",
+    };
+    for (const skill of GENERIC_SKILLS) {
+      const root = join(process.cwd(), "skills_builtin", skill);
+      const runner = JSON.parse(
+        readFileSync(join(root, "assets/runner.json"), "utf8"),
+      );
+      assert.strictEqual(
+        runner.schemas.output,
+        "assets/output.schema.json",
+        skill,
+      );
+      const valid = await validateAcpSkillFinalPayload({
+        payload: minimal,
+        runnerJson: runner,
+        primarySkillDir: root,
+      });
+      assert.isTrue(valid.ok, `${skill}: ${valid.errors.join("; ")}`);
+      const invalid = await validateAcpSkillFinalPayload({
+        payload: { ...minimal, __SKILL_DONE__: true },
+        runnerJson: runner,
+        primarySkillDir: root,
+      });
+      assert.isFalse(invalid.ok, skill);
+    }
   });
 
   it("uses the shared runner template and does not retain evidence-helper sources", function () {
@@ -353,5 +485,8 @@ describe("zotero library agent source suite", function () {
     }
     assert.include(skill, "materially change the candidate set or conclusion");
     assert.include(skill, "current user decision");
+    assert.include(skill, "## Natural-language intake");
+    assert.include(skill, "## Result contract");
+    assert.isAtLeast(skill.split(/\r?\n/).length, 200);
   });
 });

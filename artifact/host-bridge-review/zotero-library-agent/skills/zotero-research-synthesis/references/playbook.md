@@ -133,3 +133,237 @@ Export manifest 或 file path 证明已经发现，不证明交付成功。已�
 - 终态 run 缺少 report、topic、Product 或 artifact 时，返回带 run 证据的 missing-output 失败。
 - 用户要求把解释持久化到 Zotero 时，呈现建议笔记、标签、关系或文件，并以新权限路由给 curation。
 - 持续 topic refresh 或 queue 监控属于托管 facet，不属于此有界任务。
+## 端到端决策轨迹
+
+这些痕迹演示了如何选择综合基础、将计算结构与学术证据分开以及独立验证维护和导出阶段。
+
+### Trace 1：解释 citation graph 而不夸大结论
+
+用户话语：
+
+> 该图显示了这两个研究方向之间的什么关系？
+
+释义：
+
+- 用户参考派生的引文图。
+- 图的边和簇可以支持结构观察。
+- 学术共识、影响力、因果关系和概念相似性需要图拓扑之外的源证据。
+
+准备工作：
+
+1. 解决确切的图表或主题范围。
+2. 记录图表新鲜度和分页完成情况。
+3. 解决相关源项目。
+4. 检查边类型、方向、来源和任何度量定义。
+5. 当要求的解释超出结构时，请阅读来源声明。
+
+支持的答案层：
+
+- 直接图事实：存在哪些节点和边。
+- 计算观察：声明算法下的聚类、中心性或路径。
+- 基于来源的解释：所引用论文的主张。
+- Agent 推论：将它们联系在一起的合格解释。
+
+不要：
+
+- 称为共被引因果影响；
+- 调用集群成员学术协议；
+- 将缺失的边缘视为不存在智力关系；
+- 隐藏过时的图表状态。
+
+完成结果：
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "completed",
+  "summary": "Reported the verified citation-graph relationship and separated it from source-grounded interpretation; no causal or consensus claim was inferred from topology alone.",
+  "evidence": [
+    {
+      "kind": "synthesis-graph",
+      "ref": {
+        "topicId": "topic-1",
+        "graphVersion": "current"
+      },
+      "description": "The bounded derived model used for structural observations."
+    }
+  ]
+}
+```
+
+### Trace 2：诊断、刷新并综合过期 topic
+
+用户话语：
+
+> 这个话题已经过时了。刷新它并告诉我发生了什么变化。
+
+所需边界：
+
+- 准确的主题标识；
+- 来源范围；
+- 哪个模型是过时的；
+- 维护操作；
+- 综合比较；
+- 当前的维护权限。
+
+诊断：
+
+1. 阅读主题状态和来源范围。
+2. 检查相关索引/图表/sidecar状态。
+3. 确定确切的过时模型和基础。
+4. 解释刷新是否可以更改主题内容、图形状态或仅更改索引。
+
+权威机构：
+
+- 显示诊断后的维护建议。
+- 仅获取该操作的当前授权。
+- 不要将用户的观察“过时”视为每个维护命令的权限。
+
+执行：
+
+1. 开始批准的维护操作。
+2. 保留操作 ID 和预状态。
+3. 检查终端receipt并承诺基础。
+4. 重新读取受影响的模型。
+5. 重新运行有界综合读取。
+6. 比较支持的前后事实。
+
+失败分支：
+
+- 维护receipt报告边车刷新成功。
+- 主题报告尚未重新计算。
+
+结果决定：
+
+- 不要声称该主题已刷新。
+- 保留边车receipt。
+- 返回 `failed` 以获得总体请求的主题刷新并解释缺少的阶段。
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "failed",
+  "summary": "The approved sidecar refresh completed, but the requested topic report was not recomputed or verified, so no current topic-change synthesis is claimed.",
+  "evidence": [
+    {
+      "kind": "operation-receipt",
+      "ref": {
+        "operationId": "operation-1"
+      },
+      "description": "Completed sidecar maintenance only."
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "topic_output_not_refreshed",
+      "message": "A separate topic workflow or read is required before reporting topic changes."
+    }
+  ]
+}
+```
+
+### Trace 3：综合并导出 research bundle
+
+用户话语：
+
+> 将这些论文合成为间隙图并导出捆绑包。
+
+可见阶段：
+
+1. 解决并验证来源。
+2. 建立差距综合。
+3. 验证间隙图artifact。
+4. 生产或找到声明的Product/出口。
+5. 下载并验证所选资产。
+
+Synthesis 决定：
+
+- 修复研究问题和语料库。
+- 区分缺乏的证据和有支持的差距。
+- 保留矛盾的发现。
+- 状态来源深度不对称。
+
+出口决策：
+
+- 确定请求的格式。
+- 检查预期的 Product 身份。
+- 按角色和媒体类型选择资产。
+- 获取当前交货handle。
+- 验证本地校验和和字节计数。
+
+有惊无险：
+
+- 本地间隙图artifact不是导出的包。
+- Product 记录不是下载的资产。
+- 终端导出 workflow 不是校验和验证。
+- 缺失的论文不能默默地转化为研究空白。
+
+完成结果：
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "completed",
+  "summary": "Synthesized the verified source set into a gap map, preserved evidence limitations, and downloaded the requested export asset with verified bytes.",
+  "artifacts": [
+    {
+      "path": "/workspace/exports/research-gap-bundle.zip",
+      "role": "research-bundle",
+      "mediaType": "application/zip"
+    }
+  ],
+  "evidence": [
+    {
+      "kind": "product",
+      "ref": {
+        "productId": "product-1",
+        "assetRole": "research-bundle"
+      },
+      "description": "The inspected Product asset that issued the verified download."
+    }
+  ]
+}
+```
+
+恢复：
+
+- 如果综合后导出失败，请保留综合artifact。
+- 从Product/资产检查继续。
+- 不要重新运行维护或综合，除非他们的证据无效。
+
+## Synthesis 对话与决策模板
+
+模型选择问题：
+
+> 主题报告回答了出现的主题和主张；引文图回答了结构关系。哪个问题应该驱动这个综合？
+
+新鲜度披露：
+
+> 源项目是最新的，但图表报告的是较旧的基础。我现在可以从源文本中回答或准备一个单独的图形维护提案。
+
+差距披露：
+
+> 该源集不报告有关 X 的证据。由于无法获得两个相关的全文，因此我将其标记为覆盖差距而不是研究差距。
+
+维护披露：
+
+> 刷新 sidecar 和更新引用图是单独的操作，具有单独的receipts。我不会将其中一个视为另一个的完成。
+
+出口披露：
+
+> artifact合成完成。导出仍然是一个单独的Product/资产交付步骤，并且只有在验证所选字节后才会完成。
+
+综合决策记录应保留：
+
+- 研究问题；
+- 包含和排除来源refs；
+- 来源证据深度；
+- 模特身份和地位；
+- 索赔和locator地图；
+- 分歧；
+- 缺少覆盖范围；
+- workflow 和维护阶段；
+- Products 和 artifacts；
+- 结果状态和诊断。
+
+请勿使用决策记录作为提交、维护、保留、附加或应用结果的授权。

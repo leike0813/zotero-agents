@@ -15,7 +15,8 @@ from pathlib import Path
 from typing import Any
 
 RECEIPT_SCHEMA = "zotero-librarian.operation-receipt.v1"
-STATE_SCHEMA = "zotero-librarian.state.v1"
+STATE_SCHEMA = "zotero-librarian.state.v2"
+WORKFLOW_PLAN_SCHEMA = "zotero-librarian.workflow-plan.v2"
 TERMINAL_STATES = {"succeeded", "failed", "canceled", "cancelled", "completed"}
 
 
@@ -74,8 +75,37 @@ def connect(path: Path) -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS automation_journal (
           journal_id TEXT PRIMARY KEY, operation TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS workflow_plans (
+          plan_id TEXT PRIMARY KEY, plan_digest TEXT NOT NULL UNIQUE,
+          workflow_id TEXT NOT NULL, workflow_description_digest TEXT NOT NULL,
+          plan_json TEXT NOT NULL, output_path TEXT NOT NULL,
+          state TEXT NOT NULL, default_concurrency INTEGER NOT NULL,
+          created_at TEXT NOT NULL, updated_at TEXT NOT NULL, submitted_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS workflow_plan_entries (
+          plan_id TEXT NOT NULL, ordinal INTEGER NOT NULL,
+          item_refs_json TEXT NOT NULL, entry_digest TEXT NOT NULL,
+          state TEXT NOT NULL, workflow_run_id TEXT UNIQUE,
+          submit_receipt_json TEXT, last_error_json TEXT,
+          created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+          PRIMARY KEY(plan_id, ordinal),
+          FOREIGN KEY(plan_id) REFERENCES workflow_plans(plan_id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS workflow_plan_entries_state
+          ON workflow_plan_entries(plan_id, state, ordinal);
         """
     )
+    journal_count = conn.execute(
+        "SELECT COUNT(*) AS count FROM automation_journal"
+    ).fetchone()["count"]
+    if journal_count == 0:
+        conn.execute("DROP TABLE automation_journal")
+        conn.execute("DELETE FROM meta WHERE key = 'submission_blocked'")
+    else:
+        conn.execute(
+            "INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)",
+            ("submission_blocked", "nonempty_automation_journal"),
+        )
     conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", ("schema", STATE_SCHEMA))
     conn.commit()
     return conn
@@ -181,21 +211,21 @@ def index_refresh(args: argparse.Namespace) -> dict[str, Any]:
 def index_search(args: argparse.Namespace) -> dict[str, Any]:
     rows = connect(state_path(args.db)).execute("SELECT payload_json FROM library_items WHERE lower(title) LIKE ? OR lower(payload_json) LIKE ? ORDER BY title LIMIT ?", (f"%{args.query.lower()}%", f"%{args.query.lower()}%", args.limit)).fetchall()
     items = [json.loads(row["payload_json"]) for row in rows]
-    return receipt("index.search", "changed" if items else "unchanged", {"items": items})
+    return receipt("index.search", "ok", {"items": items})
 
 
 def index_item(args: argparse.Namespace) -> dict[str, Any]:
     row = connect(state_path(args.db)).execute("SELECT payload_json FROM library_items WHERE item_key = ? OR item_id = ? LIMIT 1", (args.ref, args.ref)).fetchone()
     if not row:
         raise ServiceError("item_not_found", "cached item was not found", {"ref": args.ref})
-    return receipt("index.item", "changed", {"item": json.loads(row["payload_json"])})
+    return receipt("index.item", "ok", {"item": json.loads(row["payload_json"])})
 
 
 def index_stats(args: argparse.Namespace) -> dict[str, Any]:
     conn = connect(state_path(args.db))
     count = conn.execute("SELECT COUNT(*) AS count FROM library_items").fetchone()["count"]
     refreshed = conn.execute("SELECT value FROM meta WHERE key = 'last_index_refresh'").fetchone()
-    return receipt("index.stats", "changed" if count else "unchanged", {"itemCount": count, "lastRefresh": refreshed["value"] if refreshed else None})
+    return receipt("index.stats", "ok", {"itemCount": count, "lastRefresh": refreshed["value"] if refreshed else None})
 
 
 def workflow_catalog_refresh(args: argparse.Namespace) -> dict[str, Any]:
@@ -224,10 +254,42 @@ def workflow_show(args: argparse.Namespace) -> dict[str, Any]:
     row = connect(state_path(args.db)).execute("SELECT payload_json FROM workflow_catalog WHERE workflow_id = ?", (args.workflow_id,)).fetchone()
     if not row:
         raise ServiceError("workflow_not_found", "cached workflow was not found", {"workflowId": args.workflow_id})
-    return receipt("workflow.show", "changed", {"workflow": json.loads(row["payload_json"])})
+    return receipt("workflow.show", "ok", {"workflow": json.loads(row["payload_json"])})
 
 
-def selection_parent_refs(bridge: str, from_context: bool) -> list[dict[str, Any]]:
+def workflow_description(bridge: str, workflow_id: str) -> dict[str, Any]:
+    value = unwrap(
+        call_bridge(bridge, ["workflow", "describe", "--workflow", workflow_id])
+    )
+    if not isinstance(value, dict):
+        raise ServiceError(
+            "invalid_workflow_description",
+            "workflow describe must return an object",
+            {"workflowId": workflow_id},
+        )
+    return value
+
+
+def workflow_input_unit(description: dict[str, Any]) -> str:
+    selection = description.get("selection")
+    if not isinstance(selection, dict):
+        raise ServiceError(
+            "unsupported_workflow_selection",
+            "workflow description does not declare a selection contract",
+        )
+    unit = str(selection.get("inputUnit") or "").strip()
+    if unit not in {"attachment", "parent", "item"}:
+        raise ServiceError(
+            "unsupported_workflow_selection",
+            "resident planning supports attachment, parent, or item selection only",
+            {"inputUnit": unit},
+        )
+    return unit
+
+
+def selection_refs(
+    bridge: str, from_context: bool, input_unit: str
+) -> list[dict[str, Any]]:
     if not from_context:
         return []
     data = unwrap(call_bridge(bridge, ["context", "selection", "get"]))
@@ -237,8 +299,20 @@ def selection_parent_refs(bridge: str, from_context: bool) -> list[dict[str, Any
     for item in selected:
         if not isinstance(item, dict):
             continue
-        parent = item.get("parent") if isinstance(item.get("parent"), dict) else item
-        key = str(parent.get("key") or "").strip()
+        item_type = str(item.get("itemType") or "")
+        if input_unit == "attachment":
+            if item_type != "attachment":
+                continue
+            target = item
+        elif input_unit == "parent":
+            target = (
+                item.get("parent")
+                if isinstance(item.get("parent"), dict)
+                else item
+            )
+        else:
+            target = item
+        key = str(target.get("key") or "").strip()
         library_id = item.get("libraryId") or item.get("libraryID")
         if not key:
             continue
@@ -252,18 +326,105 @@ def selection_parent_refs(bridge: str, from_context: bool) -> list[dict[str, Any
     return refs
 
 
+def validate_workflow_entry(
+    bridge: str, workflow_id: str, item_refs: list[dict[str, Any]]
+) -> dict[str, Any]:
+    validation = unwrap(
+        call_bridge(
+            bridge,
+            [
+                "workflow",
+                "validate",
+                "--workflow",
+                workflow_id,
+                "--selection",
+                stable_json(item_refs),
+            ],
+        )
+    )
+    if not isinstance(validation, dict):
+        raise ServiceError(
+            "workflow_validation_failed",
+            "workflow validation did not return an object",
+            {"workflowId": workflow_id, "itemRefs": item_refs},
+        )
+    if validation.get("ready") is False:
+        raise ServiceError(
+            "workflow_validation_failed",
+            "workflow validation failed",
+            {
+                "workflowId": workflow_id,
+                "itemRefs": item_refs,
+                "validation": validation,
+            },
+        )
+    return validation
+
+
+def plan_without_digest(plan: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in plan.items() if key != "planDigest"}
+
+
+def parse_plan_file(raw_path: str) -> tuple[Path, dict[str, Any]]:
+    path = Path(raw_path).expanduser()
+    if not path.is_absolute():
+        raise ServiceError(
+            "absolute_plan_required",
+            "workflow submit --plan must be an absolute file path",
+            {"plan": raw_path},
+        )
+    path = path.resolve()
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ServiceError(
+            "invalid_plan",
+            "workflow plan could not be read as JSON",
+            {"plan": str(path), "reason": str(error)},
+        ) from error
+    if not isinstance(value, dict):
+        raise ServiceError("invalid_plan", "workflow plan must be an object")
+    if value.get("schema") != WORKFLOW_PLAN_SCHEMA:
+        raise ServiceError(
+            "invalid_plan",
+            "workflow plan schema is invalid",
+            {"schema": value.get("schema")},
+        )
+    return path, value
+
+
 def workflow_plan(args: argparse.Namespace) -> dict[str, Any]:
-    refs = selection_parent_refs(args.bridge, args.from_context)
+    description = workflow_description(args.bridge, args.workflow)
+    input_unit = workflow_input_unit(description)
+    refs = selection_refs(args.bridge, args.from_context, input_unit)
     if not refs:
-        raise ServiceError("empty_selection", "workflow plan requires a current selection", {"fromContext": args.from_context})
-    validation = unwrap(call_bridge(args.bridge, ["workflow", "validate", "--workflow", args.workflow]))
-    if isinstance(validation, dict) and validation.get("ready") is False:
-        raise ServiceError("workflow_validation_failed", "workflow validation failed", {"workflowId": args.workflow, "validation": validation})
-    plan = {"schema": "zotero-librarian.workflow-plan.v1", "workflowId": args.workflow, "submissions": [{"itemRefs": [ref]} for ref in refs], "defaultConcurrency": 1}
+        raise ServiceError(
+            "empty_selection",
+            "workflow plan requires a current selection matching the workflow input unit",
+            {"fromContext": args.from_context, "inputUnit": input_unit},
+        )
+    submissions = []
+    for ref in refs:
+        item_refs = [ref]
+        validate_workflow_entry(args.bridge, args.workflow, item_refs)
+        submissions.append({"itemRefs": item_refs})
     output = Path(args.output).expanduser()
     if not output.is_absolute():
         raise ServiceError("absolute_output_required", "workflow plan --output must be an absolute file path", {"output": args.output})
     output = output.resolve()
+    created_at = now()
+    description_digest = digest(description)
+    plan_id = f"plan-{digest({'workflowId': args.workflow, 'output': str(output), 'createdAt': created_at, 'submissions': submissions})[:24]}"
+    plan: dict[str, Any] = {
+        "schema": WORKFLOW_PLAN_SCHEMA,
+        "planId": plan_id,
+        "workflowId": args.workflow,
+        "createdAt": created_at,
+        "workflowDescriptionDigest": description_digest,
+        "defaultConcurrency": 1,
+        "submissions": submissions,
+    }
+    plan["planDigest"] = digest(plan_without_digest(plan))
     try:
         output.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=output.parent, prefix=f".{output.name}.", suffix=".tmp", delete=False) as handle:
@@ -272,27 +433,261 @@ def workflow_plan(args: argparse.Namespace) -> dict[str, Any]:
         os.replace(temporary, output)
     except OSError as error:
         raise ServiceError("plan_write_failed", "workflow plan output could not be written", {"output": str(output), "reason": str(error)}) from error
-    return receipt("workflow.plan", "changed", {"parentItemRefs": refs, "plan": plan, "path": str(output)})
+    conn = connect(state_path(args.db))
+    timestamp = now()
+    try:
+        with conn:
+            conn.execute(
+                """INSERT INTO workflow_plans(
+                    plan_id,plan_digest,workflow_id,workflow_description_digest,
+                    plan_json,output_path,state,default_concurrency,
+                    created_at,updated_at,submitted_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,NULL)""",
+                (
+                    plan_id,
+                    plan["planDigest"],
+                    args.workflow,
+                    description_digest,
+                    stable_json(plan),
+                    str(output),
+                    "prepared",
+                    1,
+                    created_at,
+                    timestamp,
+                ),
+            )
+            for ordinal, entry in enumerate(submissions):
+                conn.execute(
+                    """INSERT INTO workflow_plan_entries(
+                        plan_id,ordinal,item_refs_json,entry_digest,state,
+                        workflow_run_id,submit_receipt_json,last_error_json,
+                        created_at,updated_at
+                    ) VALUES(?,?,?,?,?,NULL,NULL,NULL,?,?)""",
+                    (
+                        plan_id,
+                        ordinal,
+                        stable_json(entry["itemRefs"]),
+                        digest(entry),
+                        "pending",
+                        created_at,
+                        timestamp,
+                    ),
+                )
+    except sqlite3.Error as error:
+        raise ServiceError(
+            "plan_register_failed",
+            "workflow plan file was written but could not be registered",
+            {"output": str(output), "reason": str(error)},
+        ) from error
+    return receipt(
+        "workflow.plan",
+        "changed",
+        {
+            "selectionRefs": refs,
+            "inputUnit": input_unit,
+            "plan": plan,
+            "path": str(output),
+        },
+    )
 
 
 def workflow_submit(args: argparse.Namespace) -> dict[str, Any]:
     if not args.allow_submit:
         raise ServiceError("submit_authority_required", "workflow submit requires --allow-submit and is never cron-default")
-    plan = json.loads(Path(args.plan).read_text(encoding="utf-8"))
-    entries = plan.get("submissions", []) if isinstance(plan, dict) else []
+    if args.concurrency < 1:
+        raise ServiceError(
+            "invalid_concurrency", "workflow submit --concurrency must be positive"
+        )
+    path, plan = parse_plan_file(args.plan)
+    entries = plan.get("submissions")
     if not isinstance(entries, list) or not entries:
         raise ServiceError("invalid_plan", "workflow plan contains no submissions")
+    plan_id = str(plan.get("planId") or "")
+    workflow_id = str(plan.get("workflowId") or "")
+    plan_digest = str(plan.get("planDigest") or "")
+    calculated_digest = digest(plan_without_digest(plan))
+    if not plan_id or not workflow_id or plan_digest != calculated_digest:
+        raise ServiceError(
+            "plan_identity_mismatch",
+            "workflow plan identity or digest does not match its contents",
+        )
     launched: list[dict[str, Any]] = []
     conn = connect(state_path(args.db))
+    blocked = conn.execute(
+        "SELECT value FROM meta WHERE key = 'submission_blocked'"
+    ).fetchone()
+    if blocked:
+        raise ServiceError(
+            "state_requires_attention",
+            "workflow submission is blocked because resident state contains unclassified journal data",
+            {"reason": blocked["value"]},
+        )
+    registered = conn.execute(
+        "SELECT * FROM workflow_plans WHERE plan_id = ?", (plan_id,)
+    ).fetchone()
+    if (
+        not registered
+        or registered["plan_digest"] != plan_digest
+        or registered["workflow_id"] != workflow_id
+        or registered["output_path"] != str(path)
+        or registered["plan_json"] != stable_json(plan)
+    ):
+        raise ServiceError(
+            "plan_identity_mismatch",
+            "workflow plan does not match the registered immutable plan",
+            {"planId": plan_id, "path": str(path)},
+        )
+    description = workflow_description(args.bridge, workflow_id)
+    if digest(description) != registered["workflow_description_digest"]:
+        with conn:
+            conn.execute(
+                "UPDATE workflow_plans SET state = 'invalid', updated_at = ? WHERE plan_id = ?",
+                (now(), plan_id),
+            )
+        raise ServiceError(
+            "workflow_contract_changed",
+            "workflow description changed after the plan was prepared",
+            {"workflowId": workflow_id},
+        )
     with conn:
-        for entry in entries[: args.concurrency]:
-            raw = unwrap(call_bridge(args.bridge, ["workflow", "submit", "--workflow", str(plan.get("workflowId") or ""), "--items", stable_json(entry.get("itemRefs", []))]))
-            run_id = str(raw.get("workflowRunId") or "") if isinstance(raw, dict) else ""
+        conn.execute(
+            "UPDATE workflow_plan_entries SET state = 'unknown', updated_at = ?, last_error_json = ? WHERE plan_id = ? AND state = 'launching'",
+            (
+                now(),
+                stable_json(
+                    {
+                        "code": "stale_launch_reservation",
+                        "message": "A prior invocation ended after reserving this entry.",
+                    }
+                ),
+                plan_id,
+            ),
+        )
+        conn.execute(
+            "UPDATE workflow_plans SET state = 'attention', updated_at = ? WHERE plan_id = ? AND EXISTS(SELECT 1 FROM workflow_plan_entries WHERE plan_id = ? AND state = 'unknown')",
+            (now(), plan_id, plan_id),
+        )
+    pending = conn.execute(
+        "SELECT * FROM workflow_plan_entries WHERE plan_id = ? AND state = 'pending' ORDER BY ordinal LIMIT ?",
+        (plan_id, args.concurrency),
+    ).fetchall()
+    if not pending:
+        raise ServiceError(
+            "plan_no_pending_entries",
+            "workflow plan has no pending entries eligible for submission",
+            {"planId": plan_id},
+        )
+    for row in pending:
+        item_refs = json.loads(row["item_refs_json"])
+        validate_workflow_entry(args.bridge, workflow_id, item_refs)
+        with conn:
+            updated = conn.execute(
+                "UPDATE workflow_plan_entries SET state = 'launching', updated_at = ? WHERE plan_id = ? AND ordinal = ? AND state = 'pending'",
+                (now(), plan_id, row["ordinal"]),
+            ).rowcount
+            if updated != 1:
+                raise ServiceError(
+                    "plan_entry_not_pending",
+                    "workflow plan entry is no longer pending",
+                    {"planId": plan_id, "ordinal": row["ordinal"]},
+                )
+        try:
+            raw = unwrap(
+                call_bridge(
+                    args.bridge,
+                    [
+                        "workflow",
+                        "submit",
+                        "--workflow",
+                        workflow_id,
+                        "--items",
+                        stable_json(item_refs),
+                    ],
+                )
+            )
+            run_id = (
+                str(raw.get("workflowRunId") or "")
+                if isinstance(raw, dict)
+                else ""
+            )
             if not run_id:
-                raise ServiceError("submit_failed", "workflow submit did not return workflowRunId", {"result": raw})
-            conn.execute("INSERT OR REPLACE INTO watched_runs(run_id,workflow_id,state,payload_json,updated_at) VALUES(?,?,?,?,?)", (run_id, str(plan.get("workflowId") or ""), str(raw.get("state") or "running"), stable_json(raw), now()))
-            launched.append(raw)
-    return receipt("workflow.submit", "changed", {"launched": launched, "remaining": max(0, len(entries) - len(launched))})
+                raise ServiceError(
+                    "submit_result_unknown",
+                    "workflow submit did not return workflowRunId",
+                    {"result": raw},
+                )
+        except ServiceError as error:
+            error_payload = {
+                "code": error.code,
+                "message": str(error),
+                "details": error.details,
+            }
+            with conn:
+                conn.execute(
+                    "UPDATE workflow_plan_entries SET state = 'unknown', last_error_json = ?, updated_at = ? WHERE plan_id = ? AND ordinal = ?",
+                    (stable_json(error_payload), now(), plan_id, row["ordinal"]),
+                )
+                conn.execute(
+                    "UPDATE workflow_plans SET state = 'attention', updated_at = ?, submitted_at = COALESCE(submitted_at, ?) WHERE plan_id = ?",
+                    (now(), now(), plan_id),
+                )
+            return receipt(
+                "workflow.submit",
+                "attention",
+                {
+                    "planId": plan_id,
+                    "launched": launched,
+                    "unknown": {
+                        "ordinal": row["ordinal"],
+                        "itemRefs": item_refs,
+                        "error": error_payload,
+                    },
+                    "remaining": conn.execute(
+                        "SELECT COUNT(*) AS count FROM workflow_plan_entries WHERE plan_id = ? AND state = 'pending'",
+                        (plan_id,),
+                    ).fetchone()["count"],
+                },
+                "Submission may have changed remote state; inspect live recent runs before any new plan.",
+            )
+        timestamp = now()
+        with conn:
+            conn.execute(
+                "UPDATE workflow_plan_entries SET state = 'launched', workflow_run_id = ?, submit_receipt_json = ?, last_error_json = NULL, updated_at = ? WHERE plan_id = ? AND ordinal = ?",
+                (run_id, stable_json(raw), timestamp, plan_id, row["ordinal"]),
+            )
+            conn.execute(
+                "INSERT INTO watched_runs(run_id,workflow_id,state,payload_json,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(run_id) DO UPDATE SET workflow_id=excluded.workflow_id,state=excluded.state,payload_json=excluded.payload_json,updated_at=excluded.updated_at",
+                (
+                    run_id,
+                    workflow_id,
+                    str(raw.get("state") or "running"),
+                    stable_json(raw),
+                    timestamp,
+                ),
+            )
+            conn.execute(
+                "UPDATE workflow_plans SET state = 'partial', updated_at = ?, submitted_at = COALESCE(submitted_at, ?) WHERE plan_id = ?",
+                (timestamp, timestamp, plan_id),
+            )
+        launched.append(raw)
+    remaining = conn.execute(
+        "SELECT COUNT(*) AS count FROM workflow_plan_entries WHERE plan_id = ? AND state = 'pending'",
+        (plan_id,),
+    ).fetchone()["count"]
+    unknown = conn.execute(
+        "SELECT COUNT(*) AS count FROM workflow_plan_entries WHERE plan_id = ? AND state = 'unknown'",
+        (plan_id,),
+    ).fetchone()["count"]
+    with conn:
+        conn.execute(
+            "UPDATE workflow_plans SET state = ?, updated_at = ? WHERE plan_id = ?",
+            ("complete" if remaining == 0 and unknown == 0 else "partial", now(), plan_id),
+        )
+    return receipt(
+        "workflow.submit",
+        "changed",
+        {"planId": plan_id, "launched": launched, "remaining": remaining},
+    )
 
 
 def run_register(args: argparse.Namespace) -> dict[str, Any]:
@@ -342,13 +737,13 @@ def notification_sync(args: argparse.Namespace) -> dict[str, Any]:
 def notification_inbox(args: argparse.Namespace) -> dict[str, Any]:
     rows = connect(state_path(args.db)).execute("SELECT * FROM notifications WHERE acknowledged = 0 ORDER BY updated_at DESC LIMIT ?", (args.limit,)).fetchall()
     events = [{"eventId": row["event_id"], "workflowRunId": row["workflow_run_id"], "type": row["event_type"], "payload": json.loads(row["payload_json"])} for row in rows]
-    return receipt("notification.inbox", "changed" if events else "unchanged", {"events": events})
+    return receipt("notification.inbox", "ok", {"events": events})
 
 
 def notification_summary(args: argparse.Namespace) -> dict[str, Any]:
     rows = connect(state_path(args.db)).execute("SELECT event_type, COUNT(*) AS count FROM notifications WHERE acknowledged = 0 GROUP BY event_type").fetchall()
     counts = [{"type": row["event_type"], "count": row["count"]} for row in rows]
-    return receipt("notification.summary", "changed" if counts else "unchanged", {"counts": counts})
+    return receipt("notification.summary", "ok", {"counts": counts})
 
 
 def notification_ack(args: argparse.Namespace) -> dict[str, Any]:

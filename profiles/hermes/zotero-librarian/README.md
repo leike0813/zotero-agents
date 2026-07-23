@@ -20,7 +20,9 @@ Resident state defaults to `$HERMES_HOME/zotero-librarian/state.sqlite`. Set `ZO
 
 `scripts/zotero_librarian_service.py` is the only resident entrypoint and the only owner of the database schema. Interactive requests and cron jobs invoke one bounded subcommand and receive `zotero-librarian.operation-receipt.v1`. The shipped cron jobs may index, inspect, monitor, synchronize notification metadata, and produce review candidates; they never submit workflows or mutate Zotero.
 
-Workflow submission is interactive. The service writes a deterministic plan for the current parent selection to an absolute path. The operator reviews that file before a separate submit call with explicit authority. Default concurrency is one. Provider-profile decisions and self-owned agent handoffs use the inherited Generic workflow contract.
+Workflow submission is interactive. The service reads the workflow's live selection contract, validates each supported selected object, and writes an immutable registered plan to an absolute path. The operator reviews its plan ID, digest, selection refs, and entries before a separate submit call with explicit current authority. Default concurrency is one. Launched and uncertain entries are never automatically replayed. Provider-profile decisions, unsupported selection/options, and self-owned agent handoffs use the inherited Generic workflow contract.
+
+The service performs one pass and exits. Shipped cron files provide fixed profile schedules for read-only supervision, but the Librarian Skill and service do not create, edit, enable, disable, or reschedule cron. A request such as “check every hour” must be treated as a one-time check or an external schedule-configuration need; never report that a schedule was created when only a pass ran.
 
 ## Documentation map
 
