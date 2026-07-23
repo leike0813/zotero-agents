@@ -1507,11 +1507,20 @@ async function applyAcpSkillRunRuntimeSelection(args: {
       effortId: reasoningEffort,
     });
     if (reasoningResult.kind === "fallback") {
-      recordApplyFailure(
-        "acpReasoningEffort",
-        "provider_profile_option_apply_failed",
-      );
-      throw reasoningResult.error;
+      upsertAcpSkillRun({
+        requestId: args.requestId,
+        event: {
+          stage: "provider-profile-option-fallback",
+          message:
+            "Reasoning effort setting was rejected by the backend; continuing without it.",
+          level: "warn",
+          details: {
+            optionKey: "acpReasoningEffort",
+            reasonCode: "provider_profile_reasoning_effort_fallback",
+            error: reasoningResult.error.message,
+          },
+        },
+      });
     } else {
       recordApplied("acpReasoningEffort");
     }

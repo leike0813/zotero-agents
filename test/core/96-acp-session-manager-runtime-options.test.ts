@@ -616,6 +616,148 @@ describe("acp session manager", function () {
     );
   });
 
+  it("keeps Chat effort when Kilo rejects medium", async function () {
+    Zotero.Prefs.set(
+      `${config.prefsPrefix}.backendsConfigJson`,
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: [
+          {
+            id: "acp-kilo-effort",
+            displayName: "Kilo ACP",
+            type: "acp",
+            command: "kilo",
+            args: ["acp"],
+            acp: { agentFamily: "kilo" },
+          },
+        ],
+      }),
+      true,
+    );
+    setAcpConnectionAdapterFactoryForTests(async (args) => {
+      harness.lastFactoryArgs = args;
+      harness.lastAdapter = new FakeAcpConnectionAdapter();
+      harness.lastAdapter.sessionConfigOptions = [
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          type: "select",
+          currentValue: "kilo-model",
+          options: [{ value: "kilo-model", name: "Kilo model" }],
+        },
+        {
+          id: "effort",
+          name: "Reasoning",
+          category: "thought_level",
+          type: "select",
+          currentValue: "low",
+          options: [
+            { value: "low", name: "Low" },
+            { value: "medium", name: "Medium" },
+            { value: "high", name: "High" },
+          ],
+        },
+      ];
+      const setConfigOption = harness.lastAdapter.setConfigOption.bind(
+        harness.lastAdapter,
+      );
+      harness.lastAdapter.setConfigOption = async (request) => {
+        if (request.category === "thought_level" && request.value === "medium") {
+          throw new RequestError(-32602, "effort not found: medium");
+        }
+        return setConfigOption(request);
+      };
+      return harness.lastAdapter;
+    });
+
+    await refreshAcpConversationBackends();
+    await setActiveAcpBackend({ backendId: "acp-kilo-effort" });
+    await connectAcpConversation();
+    await setAcpConversationReasoningEffort({ effortId: "medium" });
+
+    assert.equal(
+      getAcpConversationSnapshot().currentReasoningEffort?.id,
+      "low",
+    );
+  });
+
+  it("throws when Kilo returns -32602 for non-effort config error", async function () {
+    Zotero.Prefs.set(
+      `${config.prefsPrefix}.backendsConfigJson`,
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: [
+          {
+            id: "acp-kilo-category",
+            displayName: "Kilo ACP",
+            type: "acp",
+            command: "kilo",
+            args: ["acp"],
+            acp: { agentFamily: "kilo" },
+          },
+        ],
+      }),
+      true,
+    );
+    setAcpConnectionAdapterFactoryForTests(async (args) => {
+      harness.lastFactoryArgs = args;
+      harness.lastAdapter = new FakeAcpConnectionAdapter();
+      harness.lastAdapter.sessionConfigOptions = [
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          type: "select",
+          currentValue: "kilo-model",
+          options: [{ value: "kilo-model", name: "Kilo model" }],
+        },
+        {
+          id: "effort",
+          name: "Reasoning",
+          category: "thought_level",
+          type: "select",
+          currentValue: "low",
+          options: [
+            { value: "low", name: "Low" },
+            { value: "medium", name: "Medium" },
+          ],
+        },
+      ];
+      const setConfigOption = harness.lastAdapter.setConfigOption.bind(
+        harness.lastAdapter,
+      );
+      harness.lastAdapter.setConfigOption = async (request) => {
+        if (request.category === "thought_level" && request.value === "medium") {
+          throw new RequestError(-32602, "unknown category");
+        }
+        return setConfigOption(request);
+      };
+      return harness.lastAdapter;
+    });
+
+    await refreshAcpConversationBackends();
+    await setActiveAcpBackend({ backendId: "acp-kilo-category" });
+    await connectAcpConversation();
+
+    let thrown = false;
+    try {
+      await setAcpConversationReasoningEffort({ effortId: "medium" });
+    } catch (error) {
+      thrown = true;
+      assert.ok(
+        error instanceof RequestError,
+        "expected error to be RequestError",
+      );
+      assert.equal(
+        (error as RequestError).code,
+        -32602,
+        "expected error code -32602",
+      );
+    }
+    assert.ok(thrown, "expected setAcpConversationReasoningEffort to throw");
+  });
+
   it("allows updating current mode and model for the active session", async function () {
     await sendAcpConversationPrompt({
       message: "Initial turn",

@@ -5228,7 +5228,7 @@ export async function setAcpConversationReasoningEffort(args: {
       kind: "reasoning_effort_fallback",
       level: "warn",
       message:
-        "Kilo rejected the None reasoning effort; retaining the model default.",
+        "Kilo rejected the reasoning effort; retaining the model default.",
       detail: result.error.message,
       stage: "runtime-options",
     });
