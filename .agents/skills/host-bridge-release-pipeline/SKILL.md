@@ -25,6 +25,12 @@ Publish the manifest-defined minimum-core, Generic, and Hermes surfaces from one
 6. Re-run `npm run check:host-bridge-content` and the other local gates, then dispatch `npm run release:host-bridge:dispatch -- --release-set-id hbrs-... --watch` only after explicit publication authorization. The command dispatches and watches the exact `release-host-bridge.yml` run.
 7. Verify all immutable surfaces, mutable pointers, source-main finalization, and the complete receipt before reporting success.
 
+## Build-only prebuild evidence
+
+Use `npm run prebuild:zotero-bridge-cli` when an attached development branch needs the exact seven-platform CLI set before formal release preparation. The command requires a clean tree, a configured upstream, a pushed `HEAD` equal to that upstream, an explicit ref and full source SHA that resolve to the same commit, and an already locked CLI version and build fingerprint. It dispatches only `build-host-bridge-cli-prebuilds.yml`, resolves the run by its unique request id and source identity, synchronizes the immutable set named by `host-bridge-cli-prebuild-result.v1`, recalculates both release manifests, and finishes only after the local freshness gate passes.
+
+If the dispatch or watch is interrupted, rerun the same command with `--resume-run-id <run-id>`. Resume must validate the existing run title, source SHA, result artifact, version, fingerprint, aggregate, prebuild-branch commit, and set path before synchronization; it must not dispatch a replacement run merely because observation failed.
+
 ## Hard constraints
 
 - Use `host-bridge/surfaces.json` as the only surface composition and patch ownership source. Surface versions are CLI major.minor plus the layer-owned patch; exact digests and release-set identity bind bytes.
@@ -33,6 +39,7 @@ Publish the manifest-defined minimum-core, Generic, and Hermes surfaces from one
 - Dispatch only the exact prepared `releaseSetId`; retries reuse it and never associate different bytes with an immutable tag or surface version.
 - Host Bridge publication requires an explicit `release:host-bridge:dispatch` action. Do not trigger it from ordinary pushes or CI.
 - Do not invoke Gitee synchronization as part of this pipeline.
+- A development-branch prebuild is build-only evidence. It does not prepare a release set, publish a surface, commit or push source changes, or relax the clean synchronized `main` and explicit authorization requirements for formal publication.
 
 ## Completion
 

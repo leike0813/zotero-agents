@@ -27,8 +27,17 @@ import {
   shouldPromptHostBridgeCliInstall,
   shouldRunHostBridgeCliStartupPrompt,
 } from "../../src/modules/hostBridgeCliInstallPrompt";
-import { syncHostBridgeCliPrebuildInternalsForTests } from "../../scripts/sync-host-bridge-cli-prebuilds";
+import {
+  syncHostBridgeCliPrebuildInternalsForTests,
+  syncHostBridgeCliPrebuilds,
+} from "../../scripts/sync-host-bridge-cli-prebuilds";
 import { stageHostBridgeCliPrebuildSet } from "../../scripts/stage-host-bridge-cli-prebuilds";
+import {
+  assertLockedHostBridgeCliIdentity,
+  assertPrebuildSourceState,
+  parsePrebuildCliArgs,
+  prebuildZoteroBridgeCli,
+} from "../../scripts/prebuild-zotero-bridge-cli";
 
 const execFileAsync = promisify(execFile);
 
@@ -327,6 +336,604 @@ describe("host bridge cli packaging and install", function () {
     }
   });
 
+  it("validates an explicit prebuild result without consulting a stale local aggregate", function () {
+    const result =
+      syncHostBridgeCliPrebuildInternalsForTests.readPrebuildResultText(
+        JSON.stringify({
+          schema: "host-bridge-cli-prebuild-result.v1",
+          repository: "owner/repo",
+          workflow: "build-host-bridge-cli-prebuilds.yml",
+          runId: 42,
+          requestId: "hbcp-request",
+          sourceSha: "a".repeat(40),
+          ref: "dev",
+          cliVersion: "0.3.0",
+          buildFingerprint: "b".repeat(64),
+          binaryAggregateSha256: "c".repeat(64),
+          prebuildBranch: "host-bridge-cli-prebuilds",
+          prebuildCommit: "d".repeat(40),
+          setPath: `sets/${"c".repeat(64)}`,
+        }),
+      );
+
+    assert.strictEqual(result.binaryAggregateSha256, "c".repeat(64));
+    assert.strictEqual(result.cliVersion, "0.3.0");
+    assert.throws(
+      () =>
+        syncHostBridgeCliPrebuildInternalsForTests.assertPrebuildResultIdentity(
+          result,
+          { cliVersion: "0.4.0" },
+        ),
+      /cliVersion.*expected identity/i,
+    );
+    assert.throws(
+      () =>
+        syncHostBridgeCliPrebuildInternalsForTests.readPrebuildResultText(
+          JSON.stringify({
+            ...result,
+            setPath: `sets/${"e".repeat(64)}`,
+          }),
+        ),
+      /set path/i,
+    );
+  });
+
+  it("synchronizes the explicit result set when the local aggregate is stale", async function () {
+    const fixture = await createFreshnessFixture();
+    const storeRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-cli-remote-store-"),
+    );
+    const sourceRoot = path.join(storeRoot, "source");
+    const releaseManifest = path.join(storeRoot, "release.json");
+    const prebuildCommit = "d".repeat(40);
+    try {
+      const status = await fixture.governance.getHostBridgeCliReleaseStatus({
+        root: fixture.root,
+      });
+      for (const {
+        platform,
+        binary,
+      } of syncHostBridgeCliPrebuildInternalsForTests.expectedPlatforms) {
+        const bytes = encodeText(`remote:${platform}:${binary}`);
+        await writeBinaryFixture(sourceRoot, `${platform}/${binary}`, bytes);
+        await writeTextFile(
+          sourceRoot,
+          `${platform}/${binary}.sha256`,
+          `${sha256Hex(bytes)}  ${binary}\n`,
+        );
+      }
+      const remoteManifest =
+        await fixture.governance.recordHostBridgeCliBinaryChecksums({
+          root: fixture.root,
+          binaryRoot: sourceRoot,
+          dispatchReason: "prebuild-only",
+        });
+      await fs.writeFile(
+        releaseManifest,
+        `${JSON.stringify(remoteManifest, null, 2)}\n`,
+      );
+      await stageHostBridgeCliPrebuildSet({
+        outputRoot: storeRoot,
+        sourceRoot,
+        releaseManifest,
+      });
+
+      const localManifestPath = path.join(
+        fixture.root,
+        "cli",
+        "zotero-bridge",
+        "release.json",
+      );
+      const staleLocalManifest = JSON.parse(
+        await fs.readFile(localManifestPath, "utf8"),
+      );
+      staleLocalManifest.binaryAggregateSha256 = "e".repeat(64);
+      await fs.writeFile(
+        localManifestPath,
+        `${JSON.stringify(staleLocalManifest, null, 2)}\n`,
+      );
+      await fs.writeFile(
+        path.join(fixture.root, "addon", "bin", "zotero-bridge-release.json"),
+        `${JSON.stringify(staleLocalManifest, null, 2)}\n`,
+      );
+
+      const identity = {
+        schema: "host-bridge-cli-prebuild-result.v1",
+        repository: "owner/repo",
+        workflow: "build-host-bridge-cli-prebuilds.yml",
+        runId: 42,
+        requestId: "hbcp-stale-local",
+        sourceSha: "a".repeat(40),
+        ref: "dev",
+        cliVersion: "0.1.0",
+        buildFingerprint: status.fingerprint,
+        binaryAggregateSha256: remoteManifest.binaryAggregateSha256,
+        prebuildBranch: "host-bridge-cli-prebuilds",
+        prebuildCommit,
+        setPath: `sets/${remoteManifest.binaryAggregateSha256}`,
+      } as const;
+      const downloadDir = path.join(fixture.root, ".scaffold", "sync-test");
+
+      await syncHostBridgeCliPrebuilds({
+        repo: identity.repository,
+        identity,
+        root: fixture.root,
+        downloadDir,
+        commandRunner: async (command, args) => {
+          if (command === "gh" && args[0] === "repo") {
+            await fs.cp(storeRoot, downloadDir, { recursive: true });
+          }
+          if (command === "git" && args.includes("rev-parse")) {
+            return { stdout: `${prebuildCommit}\n`, stderr: "" };
+          }
+          return { stdout: "", stderr: "" };
+        },
+      });
+
+      const synchronized = JSON.parse(
+        await fs.readFile(localManifestPath, "utf8"),
+      );
+      assert.strictEqual(
+        synchronized.binaryAggregateSha256,
+        remoteManifest.binaryAggregateSha256,
+      );
+      assert.strictEqual(
+        await fs.readFile(
+          path.join(fixture.root, "addon", "bin", "linux-x64", "zotero-bridge"),
+          "utf8",
+        ),
+        "remote:linux-x64:zotero-bridge",
+      );
+    } finally {
+      await fs.rm(fixture.root, { recursive: true, force: true });
+      await fs.rm(storeRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("requires a locked CLI version and build fingerprint before prebuild dispatch", function () {
+    assert.doesNotThrow(() =>
+      assertLockedHostBridgeCliIdentity({
+        currentVersion: "0.3.0",
+        manifestVersion: "0.3.0",
+        fingerprint: "a".repeat(64),
+        manifestFingerprint: "a".repeat(64),
+      }),
+    );
+    assert.throws(
+      () =>
+        assertLockedHostBridgeCliIdentity({
+          currentVersion: "0.3.0",
+          manifestVersion: "0.3.0",
+          fingerprint: "a".repeat(64),
+          manifestFingerprint: "b".repeat(64),
+        }),
+      /lock.*identity|fingerprint/i,
+    );
+  });
+
+  it("parses explicit prebuild CLI identity and resume arguments", function () {
+    const sourceSha = "a".repeat(40);
+    assert.deepEqual(
+      parsePrebuildCliArgs(
+        [
+          "--repo",
+          "owner/repo",
+          "--ref=feature/prebuild",
+          "--source-sha",
+          sourceSha,
+          "--resume-run-id=77",
+        ],
+        {
+          repo: "default/repo",
+          ref: "main",
+          sourceSha: "b".repeat(40),
+        },
+      ),
+      {
+        repo: "owner/repo",
+        ref: "feature/prebuild",
+        sourceSha,
+        resumeRunId: 77,
+      },
+    );
+  });
+
+  it("requires an attached clean branch whose upstream tip equals HEAD", async function () {
+    const head = "a".repeat(40);
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const state = await assertPrebuildSourceState({
+      ref: "dev",
+      sourceSha: head,
+      commandRunner: async (command, args) => {
+        calls.push({ command, args });
+        const key = `${command} ${args.join(" ")}`;
+        const stdout =
+          key === "git branch --show-current"
+            ? "dev\n"
+            : key === "git status --porcelain"
+              ? ""
+              : key === "git rev-parse HEAD"
+                ? `${head}\n`
+                : key ===
+                    "git rev-parse --abbrev-ref --symbolic-full-name @{upstream}"
+                  ? "origin/dev\n"
+                  : key === "git rev-parse @{upstream}"
+                    ? `${head}\n`
+                    : key === "git rev-parse refs/remotes/origin/dev"
+                      ? `${head}\n`
+                      : "";
+        return { stdout, stderr: "" };
+      },
+    });
+
+    assert.deepEqual(state, {
+      branch: "dev",
+      upstream: "origin/dev",
+      remote: "origin",
+      ref: "dev",
+      sourceSha: head,
+    });
+    assert.deepInclude(calls, {
+      command: "git",
+      args: ["fetch", "origin", "refs/heads/dev:refs/remotes/origin/dev"],
+    });
+  });
+
+  it("rejects detached, dirty, missing-upstream, and unpushed prebuild sources", async function () {
+    const head = "a".repeat(40);
+    const cases = [
+      { branch: "", status: "", upstream: "origin/dev", remoteSha: head },
+      {
+        branch: "dev",
+        status: " M package.json\n",
+        upstream: "origin/dev",
+        remoteSha: head,
+      },
+      { branch: "dev", status: "", upstream: "", remoteSha: head },
+      {
+        branch: "dev",
+        status: "",
+        upstream: "origin/dev",
+        remoteSha: "b".repeat(40),
+      },
+    ];
+
+    for (const fixture of cases) {
+      let error: unknown;
+      try {
+        await assertPrebuildSourceState({
+          ref: "dev",
+          sourceSha: head,
+          commandRunner: async (_command, args) => {
+            const key = args.join(" ");
+            const stdout =
+              key === "branch --show-current"
+                ? `${fixture.branch}\n`
+                : key === "status --porcelain"
+                  ? fixture.status
+                  : key === "rev-parse HEAD"
+                    ? `${head}\n`
+                    : key ===
+                        "rev-parse --abbrev-ref --symbolic-full-name @{upstream}"
+                      ? `${fixture.upstream}\n`
+                      : key === "rev-parse @{upstream}"
+                        ? `${fixture.remoteSha}\n`
+                        : key === "rev-parse refs/remotes/origin/dev"
+                          ? `${fixture.remoteSha}\n`
+                          : "";
+            return { stdout, stderr: "" };
+          },
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      assert.instanceOf(error, Error);
+    }
+  });
+
+  it("resumes an exact prebuild run without dispatching another workflow", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-resume-"));
+    const head = "a".repeat(40);
+    const fingerprint = "b".repeat(64);
+    const aggregate = "c".repeat(64);
+    const artifact = {
+      schema: "host-bridge-cli-prebuild-result.v1",
+      repository: "owner/repo",
+      workflow: "build-host-bridge-cli-prebuilds.yml",
+      runId: 77,
+      requestId: "hbcp-resume",
+      sourceSha: head,
+      ref: "dev",
+      cliVersion: "0.3.0",
+      buildFingerprint: fingerprint,
+      binaryAggregateSha256: aggregate,
+      prebuildBranch: "host-bridge-cli-prebuilds",
+      prebuildCommit: "d".repeat(40),
+      setPath: `sets/${aggregate}`,
+    } as const;
+    const calls: Array<{ command: string; args: string[] }> = [];
+    let synchronizedIdentity: unknown;
+    try {
+      const result = await prebuildZoteroBridgeCli({
+        repo: "owner/repo",
+        ref: "dev",
+        sourceSha: head,
+        resumeRunId: 77,
+        artifactRoot: root,
+        commandRunner: async (command, args) => {
+          calls.push({ command, args });
+          const key = `${command} ${args.join(" ")}`;
+          if (key === "git branch --show-current") {
+            return { stdout: "dev\n", stderr: "" };
+          }
+          if (key === "git status --porcelain") {
+            return { stdout: "", stderr: "" };
+          }
+          if (
+            key === "git rev-parse HEAD" ||
+            key === "git rev-parse @{upstream}" ||
+            key === "git rev-parse refs/remotes/origin/dev"
+          ) {
+            return { stdout: `${head}\n`, stderr: "" };
+          }
+          if (
+            key ===
+            "git rev-parse --abbrev-ref --symbolic-full-name @{upstream}"
+          ) {
+            return { stdout: "origin/dev\n", stderr: "" };
+          }
+          if (key === "gh api repos/owner/repo/actions/runs/77 --method GET") {
+            return {
+              stdout: JSON.stringify({
+                id: 77,
+                display_title: "Host Bridge CLI prebuild hbcp-resume",
+                event: "workflow_dispatch",
+                head_branch: "dev",
+                head_sha: head,
+                html_url: "https://example.invalid/runs/77",
+                path: ".github/workflows/build-host-bridge-cli-prebuilds.yml",
+              }),
+              stderr: "",
+            };
+          }
+          if (args[0] === "run" && args[1] === "download") {
+            await fs.writeFile(
+              path.join(root, "host-bridge-cli-prebuild-result.json"),
+              JSON.stringify(artifact),
+            );
+          }
+          return { stdout: "", stderr: "" };
+        },
+        getReleaseStatus: async () => ({
+          currentVersion: "0.3.0",
+          manifestVersion: "0.3.0",
+          fingerprint,
+          manifestFingerprint: fingerprint,
+        }),
+        syncPrebuilds: async ({ identity }) => {
+          synchronizedIdentity = identity;
+          return { ok: true };
+        },
+        checkFreshness: async () => ({ ok: true }),
+      });
+
+      assert.strictEqual(result.runId, 77);
+      assert.deepEqual(synchronizedIdentity, artifact);
+      assert.isFalse(
+        calls.some(
+          ({ command, args }) =>
+            command === "gh" && args[0] === "workflow" && args[1] === "run",
+        ),
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reports exact resume evidence when workflow observation fails", async function () {
+    const head = "a".repeat(40);
+    let caught: unknown;
+    try {
+      await prebuildZoteroBridgeCli({
+        repo: "owner/repo",
+        ref: "dev",
+        sourceSha: head,
+        resumeRunId: 77,
+        commandRunner: async (command, args) => {
+          const key = `${command} ${args.join(" ")}`;
+          if (key === "git branch --show-current") {
+            return { stdout: "dev\n", stderr: "" };
+          }
+          if (key === "git status --porcelain") {
+            return { stdout: "", stderr: "" };
+          }
+          if (
+            key === "git rev-parse HEAD" ||
+            key === "git rev-parse @{upstream}" ||
+            key === "git rev-parse refs/remotes/origin/dev"
+          ) {
+            return { stdout: `${head}\n`, stderr: "" };
+          }
+          if (
+            key ===
+            "git rev-parse --abbrev-ref --symbolic-full-name @{upstream}"
+          ) {
+            return { stdout: "origin/dev\n", stderr: "" };
+          }
+          if (key === "gh api repos/owner/repo/actions/runs/77 --method GET") {
+            return {
+              stdout: JSON.stringify({
+                id: 77,
+                display_title: "Host Bridge CLI prebuild hbcp-resume",
+                event: "workflow_dispatch",
+                head_branch: "dev",
+                head_sha: head,
+                html_url: "https://example.invalid/runs/77",
+                path: ".github/workflows/build-host-bridge-cli-prebuilds.yml",
+              }),
+              stderr: "",
+            };
+          }
+          if (key.startsWith("gh run watch 77 ")) {
+            throw new Error("network interrupted");
+          }
+          return { stdout: "", stderr: "" };
+        },
+        getReleaseStatus: async () => ({
+          currentVersion: "0.3.0",
+          manifestVersion: "0.3.0",
+          fingerprint: "b".repeat(64),
+          manifestFingerprint: "b".repeat(64),
+        }),
+      });
+    } catch (error) {
+      caught = error;
+    }
+    assert.match(String(caught), /--resume-run-id 77/);
+    assert.match(String(caught), /hbcp-resume/);
+    assert.match(String(caught), /runs\/77/);
+  });
+
+  it("rolls back managed binaries and manifests after a partial install failure", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-rollback-"));
+    const sourceRoot = path.join(root, "source");
+    const oldManifest = '{"schema":"old"}\n';
+    try {
+      for (const {
+        platform,
+        binary,
+      } of syncHostBridgeCliPrebuildInternalsForTests.expectedPlatforms) {
+        const nextBytes = encodeText(`next:${platform}`);
+        await writeBinaryFixture(
+          sourceRoot,
+          `${platform}/${binary}`,
+          nextBytes,
+        );
+        await writeTextFile(
+          sourceRoot,
+          `${platform}/${binary}.sha256`,
+          `${sha256Hex(nextBytes)}  ${binary}\n`,
+        );
+        const oldBytes = encodeText(`old:${platform}`);
+        await writeBinaryFixture(
+          root,
+          `addon/bin/${platform}/${binary}`,
+          oldBytes,
+        );
+        await writeTextFile(
+          root,
+          `addon/bin/${platform}/${binary}.sha256`,
+          `${sha256Hex(oldBytes)}  ${binary}\n`,
+        );
+      }
+      await writeTextFile(root, "cli/zotero-bridge/release.json", oldManifest);
+      await writeTextFile(
+        root,
+        "addon/bin/zotero-bridge-release.json",
+        oldManifest,
+      );
+      await writeTextFile(
+        root,
+        "addon/bin/win32-x64/zotero-acp-bridge.exe",
+        "unrelated",
+      );
+
+      let caught: unknown;
+      try {
+        await syncHostBridgeCliPrebuildInternalsForTests.replacePrebuildsAndManifests(
+          {
+            root,
+            sourceRoot,
+            manifest: { schema: "next" },
+            beforeInstall: (_relativePath, index) => {
+              if (index === 2) throw new Error("injected install failure");
+            },
+          },
+        );
+      } catch (error) {
+        caught = error;
+      }
+      assert.match(String(caught), /injected install failure/);
+      for (const {
+        platform,
+        binary,
+      } of syncHostBridgeCliPrebuildInternalsForTests.expectedPlatforms) {
+        assert.strictEqual(
+          await fs.readFile(
+            path.join(root, "addon", "bin", platform, binary),
+            "utf8",
+          ),
+          `old:${platform}`,
+        );
+      }
+      assert.strictEqual(
+        await fs.readFile(
+          path.join(root, "cli", "zotero-bridge", "release.json"),
+          "utf8",
+        ),
+        oldManifest,
+      );
+      assert.strictEqual(
+        await fs.readFile(
+          path.join(root, "addon", "bin", "zotero-bridge-release.json"),
+          "utf8",
+        ),
+        oldManifest,
+      );
+      assert.strictEqual(
+        await fs.readFile(
+          path.join(root, "addon", "bin", "win32-x64", "zotero-acp-bridge.exe"),
+          "utf8",
+        ),
+        "unrelated",
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("continues rollback and preserves recovery backups when one restore fails", async function () {
+    const root = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-cli-rollback-recovery-"),
+    );
+    const targetA = path.join(root, "target-a");
+    const targetB = path.join(root, "target-b");
+    const backupA = path.join(root, "backup", "target-a");
+    const backupB = path.join(root, "backup", "target-b");
+    await fs.mkdir(path.dirname(backupA), { recursive: true });
+    await fs.writeFile(targetA, "new-a");
+    await fs.writeFile(targetB, "new-b");
+    await fs.writeFile(backupA, "old-a");
+    await fs.writeFile(backupB, "old-b");
+
+    const rollbackErrors =
+      await syncHostBridgeCliPrebuildInternalsForTests.rollbackChangedFiles(
+        [
+          {
+            target: targetA,
+            backup: backupA,
+            hadOriginal: true,
+            installed: true,
+          },
+          {
+            target: targetB,
+            backup: backupB,
+            hadOriginal: true,
+            installed: true,
+          },
+        ],
+        (_state, index) => {
+          if (index === 1) throw new Error("injected rollback failure");
+        },
+      );
+
+    assert.lengthOf(rollbackErrors, 1);
+    assert.strictEqual(await fs.readFile(targetB, "utf8"), "old-b");
+    assert.strictEqual(await fs.readFile(targetA, "utf8"), "new-a");
+    assert.strictEqual(await fs.readFile(backupA, "utf8"), "old-a");
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
   it("stages one immutable seven-platform prebuild set and reuses it by aggregate", async function () {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-store-"));
     const sourceRoot = path.join(root, "addon", "bin");
@@ -374,6 +981,25 @@ describe("host bridge cli packaging and install", function () {
         ),
       );
       assert.lengthOf(manifest.archives, 7);
+      manifest.archives.pop();
+      await fs.writeFile(
+        path.join(outputRoot, "sets", aggregate, "manifest.json"),
+        `${JSON.stringify(manifest, null, 2)}\n`,
+      );
+      let incompleteError: unknown;
+      try {
+        await syncHostBridgeCliPrebuildInternalsForTests.verifyArchiveSet(
+          path.join(outputRoot, "sets", aggregate),
+          aggregate,
+          {
+            cliVersion: "0.3.0",
+            buildFingerprint: "b".repeat(64),
+          },
+        );
+      } catch (error) {
+        incompleteError = error;
+      }
+      assert.match(String(incompleteError), /exactly seven archives/i);
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -1916,6 +2542,20 @@ describe("host bridge cli packaging and install", function () {
       prebuildWorkflow,
       "fromJSON(needs.plan.outputs.build_matrix)",
     );
+    assert.include(
+      prebuildWorkflow,
+      "run-name: Host Bridge CLI prebuild ${{ inputs.request_id }}",
+    );
+    assert.match(
+      prebuildWorkflow,
+      /request_id:\s*\n\s+description:.*\n\s+required: true/,
+    );
+    assert.include(prebuildWorkflow, "host-bridge-cli-prebuild-result.v1");
+    assert.include(prebuildWorkflow, "name: host-bridge-cli-prebuild-result");
+    assert.include(
+      prebuildWorkflow,
+      "host-bridge-cli-release-governance.mjs status --json",
+    );
     assert.include(prebuildWorkflow, "if: ${{ !matrix.runtimeIdentity }}");
     assert.include(prebuildWorkflow, "if: matrix.runtimeIdentity");
     assert.include(workflow, "group: host-bridge-release");
@@ -2032,7 +2672,9 @@ describe("host bridge cli packaging and install", function () {
     );
     assert.include(syncScript, "host-bridge-cli-prebuilds");
     assert.include(syncScript, "gh");
-    assert.include(syncScript, 'path.join(DOWNLOAD_DIR, "sets", aggregate)');
+    assert.include(syncScript, "--identity-file");
+    assert.include(syncScript, "host-bridge-cli-prebuild-result.v1");
+    assert.include(syncScript, "replacePrebuildsAndManifests");
     assert.include(syncScript, 'path.join(setDirectory, "manifest.json")');
     assert.include(syncScript, 'path.join("addon", "bin")');
     assert.include(syncScript, "--aggregate");
@@ -2042,6 +2684,18 @@ describe("host bridge cli packaging and install", function () {
     assert.strictEqual(
       packageJson.scripts["sync:host-bridge-cli-prebuilds"],
       "tsx scripts/sync-host-bridge-cli-prebuilds.ts",
+    );
+    assert.strictEqual(
+      packageJson.scripts["prebuild:zotero-bridge-cli"],
+      "tsx scripts/prebuild-zotero-bridge-cli.ts",
+    );
+    assert.strictEqual(
+      packageJson.scripts["build:local:zotero-bridge-cli"],
+      "node scripts/build-zotero-bridge-cli.mjs",
+    );
+    assert.notInclude(
+      packageJson.scripts["build:local:zotero-bridge-cli"],
+      "github",
     );
     assert.strictEqual(
       packageJson.scripts["check:zotero-bridge-cli-governance"],
@@ -2076,7 +2730,6 @@ describe("host bridge cli packaging and install", function () {
     assert.include(releaseSkill, "release:host-bridge:dispatch");
     assert.include(releaseSkill, "host-bridge-cli-prebuilds");
     assert.notInclude(releaseSkill, "automatic `push`");
-    assert.notInclude(releaseSkill, "npm run prebuild:zotero-bridge-cli");
     assert.notInclude(
       releaseSkill,
       "publish-host-bridge-cli-bundle.ps1 -AllowDirty -Push",

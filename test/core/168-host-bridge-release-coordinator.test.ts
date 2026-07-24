@@ -29,9 +29,15 @@ import {
 import { resolveExactCliReleaseIntent } from "../../scripts/host-bridge-version-intent";
 import { renderHostBridgeReleaseSet } from "../../scripts/render-host-bridge-release-set";
 import {
+  resolveHostBridgePublicationRef,
   readImmutablePublicationSource,
   selectDispatchedHostBridgeRun,
 } from "../../scripts/dispatch-host-bridge-release";
+import {
+  dispatchAndResolveGithubWorkflowRun,
+  selectGithubWorkflowRun,
+  viewGithubWorkflowRun,
+} from "../../scripts/github-workflow-run";
 import {
   advanceHostBridgeReleaseReceipt,
   createHostBridgeReleaseReceipt,
@@ -254,6 +260,189 @@ describe("Host Bridge release coordinator", function () {
       },
     );
     assert.strictEqual(selected?.databaseId, 2);
+  });
+
+  it("keeps formal Host Bridge publication on main", function () {
+    assert.strictEqual(resolveHostBridgePublicationRef(undefined), "main");
+    assert.strictEqual(resolveHostBridgePublicationRef("main"), "main");
+    assert.throws(
+      () => resolveHostBridgePublicationRef("feature/prebuild"),
+      /must use ref main/i,
+    );
+  });
+
+  it("uses one exact request-aware GitHub workflow run resolver", async function () {
+    assert.strictEqual(
+      selectGithubWorkflowRun(
+        [
+          {
+            databaseId: 1,
+            displayTitle: "Build request-old",
+            headSha: "source",
+            url: "old",
+          },
+          {
+            databaseId: 2,
+            displayTitle: "Build request-new",
+            headSha: "source",
+            url: "new",
+          },
+        ],
+        {
+          displayTitle: "Build request-new",
+          headSha: "source",
+        },
+      )?.databaseId,
+      2,
+    );
+    assert.throws(
+      () =>
+        selectGithubWorkflowRun(
+          [
+            {
+              databaseId: 2,
+              displayTitle: "Build request-new",
+              headSha: "source",
+              url: "new",
+            },
+            {
+              databaseId: 3,
+              displayTitle: "Build request-new",
+              headSha: "source",
+              url: "newer",
+            },
+          ],
+          {
+            displayTitle: "Build request-new",
+            headSha: "source",
+          },
+        ),
+      /multiple workflow runs/i,
+    );
+
+    const calls: Array<{ command: string; args: string[] }> = [];
+    let listAttempts = 0;
+    const selected = await dispatchAndResolveGithubWorkflowRun({
+      workflow: "build.yml",
+      repo: "owner/repo",
+      ref: "dev",
+      inputs: {
+        source_sha: "a".repeat(40),
+        request_id: "request-new",
+      },
+      expectedDisplayTitle: "Build request-new",
+      expectedHeadSha: "a".repeat(40),
+      pollIntervalMs: 0,
+      commandRunner: async (command, args) => {
+        calls.push({ command, args });
+        if (args[0] === "run" && args[1] === "list") {
+          listAttempts += 1;
+          return {
+            stdout:
+              listAttempts === 1
+                ? JSON.stringify([
+                    {
+                      databaseId: 41,
+                      displayTitle: "Build request-new",
+                      event: "workflow_dispatch",
+                      headBranch: "dev",
+                      headSha: "a".repeat(40),
+                      url: "https://example.invalid/runs/41",
+                    },
+                  ])
+                : JSON.stringify([
+                    {
+                      databaseId: 41,
+                      displayTitle: "Build request-new",
+                      event: "workflow_dispatch",
+                      headBranch: "dev",
+                      headSha: "a".repeat(40),
+                      url: "https://example.invalid/runs/41",
+                    },
+                    {
+                      databaseId: 42,
+                      displayTitle: "Build request-new",
+                      event: "workflow_dispatch",
+                      headBranch: "dev",
+                      headSha: "a".repeat(40),
+                      url: "https://example.invalid/runs/42",
+                    },
+                  ]),
+            stderr: "",
+          };
+        }
+        return { stdout: "", stderr: "" };
+      },
+    });
+
+    assert.strictEqual(selected.databaseId, 42);
+    assert.strictEqual(listAttempts, 2);
+    assert.deepEqual(calls[1], {
+      command: "gh",
+      args: [
+        "workflow",
+        "run",
+        "build.yml",
+        "--repo",
+        "owner/repo",
+        "--ref",
+        "dev",
+        "-f",
+        `source_sha=${"a".repeat(40)}`,
+        "-f",
+        "request_id=request-new",
+      ],
+    });
+  });
+
+  it("validates a resumed run against workflow, event, ref, and source", async function () {
+    const headSha = "a".repeat(40);
+    const run = await viewGithubWorkflowRun({
+      repo: "owner/repo",
+      runId: 77,
+      expectedWorkflow: "build.yml",
+      expectedRef: "dev",
+      expectedHeadSha: headSha,
+      commandRunner: async () => ({
+        stdout: JSON.stringify({
+          id: 77,
+          display_title: "Build request-new",
+          event: "workflow_dispatch",
+          head_branch: "dev",
+          head_sha: headSha,
+          html_url: "https://example.invalid/runs/77",
+          path: ".github/workflows/build.yml@dev",
+        }),
+        stderr: "",
+      }),
+    });
+    assert.strictEqual(run.databaseId, 77);
+
+    let caught: unknown;
+    try {
+      await viewGithubWorkflowRun({
+        repo: "owner/repo",
+        runId: 77,
+        expectedWorkflow: "build.yml",
+        expectedRef: "dev",
+        expectedHeadSha: headSha,
+        commandRunner: async () => ({
+          stdout: JSON.stringify({
+            id: 77,
+            display_title: "Build request-new",
+            event: "push",
+            head_branch: "other",
+            head_sha: headSha,
+            html_url: "https://example.invalid/runs/77",
+            path: ".github/workflows/other.yml",
+          }),
+          stderr: "",
+        }),
+      });
+    } catch (error) {
+      caught = error;
+    }
+    assert.match(String(caught), /workflow run 77 does not match/i);
   });
 
   it("uses an existing immutable manifest's historical source for a release-set resume", function () {

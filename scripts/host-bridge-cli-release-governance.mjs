@@ -390,8 +390,11 @@ export async function bumpHostBridgeCliPatchVersion(options = {}) {
   };
 }
 
-async function readSha256File(root, platform, binary) {
-  const raw = await readText(root, `addon/bin/${platform}/${binary}.sha256`);
+async function readSha256File(binaryRoot, platform, binary) {
+  const raw = await fs.readFile(
+    path.join(binaryRoot, platform, `${binary}.sha256`),
+    "utf8",
+  );
   const checksum = raw.trim().split(/\s+/)[0] || "";
   if (!/^[a-f0-9]{64}$/i.test(checksum)) {
     throw new Error(`Invalid sha256 file for ${platform}/${binary}`);
@@ -401,6 +404,9 @@ async function readSha256File(root, platform, binary) {
 
 export async function recordHostBridgeCliBinaryChecksums(options = {}) {
   const root = path.resolve(options.root || process.cwd());
+  const binaryRoot = path.resolve(
+    options.binaryRoot || repoPath(root, "addon/bin"),
+  );
   const status = await getHostBridgeCliReleaseStatus({ root });
   const manifest = await readReleaseManifest(root);
   const currentVersion = readCargoPackageVersion(
@@ -409,12 +415,21 @@ export async function recordHostBridgeCliBinaryChecksums(options = {}) {
   const binaries = [];
   const aggregate = createHash("sha256");
   for (const entry of EXPECTED_PREBUILDS) {
-    const binaryPath = repoPath(
-      root,
-      `addon/bin/${entry.platform}/${entry.binary}`,
-    );
+    const binaryPath = path.join(binaryRoot, entry.platform, entry.binary);
     const stat = await fs.stat(binaryPath);
-    const sha256 = await readSha256File(root, entry.platform, entry.binary);
+    const sha256 = await readSha256File(
+      binaryRoot,
+      entry.platform,
+      entry.binary,
+    );
+    const actualSha256 = createHash("sha256")
+      .update(await fs.readFile(binaryPath))
+      .digest("hex");
+    if (actualSha256 !== sha256) {
+      throw new Error(
+        `Binary checksum does not match sidecar for ${entry.platform}/${entry.binary}`,
+      );
+    }
     aggregate.update(
       `${entry.platform}/${entry.binary}:${sha256}:${stat.size}\n`,
     );
