@@ -1,0 +1,44 @@
+{
+  "status": "qualified",
+  "metadata": {
+    "itemType": "journalArticle",
+    "title": "隧道衬砌病害智能识别研究 6",
+    "language": "zh-CN",
+    "script": "Hans",
+    "alternateTitles": [
+      {
+        "value": "Intelligent Recognition of Tunnel Lining Defects",
+        "role": "translated",
+        "language": "en",
+        "script": "Latn"
+      }
+    ],
+    "fields": {
+      "publicationTitle": "隧道工程学报",
+      "date": "2024",
+      "language": "zh-CN"
+    },
+    "creatorCompleteness": "incomplete",
+    "creators": [],
+    "identifiers": {
+      "doi": "10.5555/tunnel.6"
+    },
+    "landingUrl": "https://doi.org/10.5555/tunnel.6"
+  },
+  "evidence": [
+    {
+      "source": "China DOI",
+      "role": "authoritative",
+      "url": "https://doi.org/10.5555/tunnel.001",
+      "facts": [
+        "identifier",
+        "original_title",
+        "publication_year"
+      ]
+    }
+  ],
+  "corroborating_signals": [],
+  "curation_notes": [
+    "Complete Chinese creator list could not be verified."
+  ]
+}

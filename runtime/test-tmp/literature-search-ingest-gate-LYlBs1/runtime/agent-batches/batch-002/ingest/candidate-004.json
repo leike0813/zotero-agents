@@ -1,0 +1,17 @@
+{
+  "paper": {
+    "attachLandingUrlOnMissingPdf": true,
+    "creators": [],
+    "fields": {
+      "date": "2024",
+      "language": "zh-CN",
+      "publicationTitle": "隧道工程学报",
+      "title": "隧道衬砌病害智能识别研究 9"
+    },
+    "identifiers": {
+      "doi": "10.5555/tunnel.9"
+    },
+    "itemType": "journalArticle",
+    "landingUrl": "https://doi.org/10.5555/tunnel.9"
+  }
+}

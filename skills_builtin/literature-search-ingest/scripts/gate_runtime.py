@@ -12,25 +12,29 @@ from stage_runtime import (
     derive_stage,
     load_state,
     pending_ingest_candidate,
-    pending_metadata_candidate,
-    pending_pdf_candidate,
-    prepare_ingest_payloads,
     record_ingest_receipt,
     run_root_for_state,
     terminal_artifacts,
     validated_prepared_payload,
 )
+from batch_runtime import (
+    admit_agent_review,
+    ordered_assignment_items,
+    prepare_agent_batches,
+)
 
 
 REFERENCE_BY_STAGE = {
-    "stage_10_search_plan": "search-planning-and-discovery.md",
-    "stage_20_discovery": "search-planning-and-discovery.md",
-    "stage_30_ingest_scope": "search-planning-and-discovery.md",
-    "stage_40_metadata_resolution": "metadata-resolution.md",
-    "stage_50_pdf_probe": "pdf-probe.md",
-    "stage_60_ingest_prepare": "ingest-output-recovery.md",
-    "stage_70_ingest": "ingest-output-recovery.md",
-    "completed": "ingest-output-recovery.md",
+    "stage_10_search_plan": ["search-planning-and-discovery.md"],
+    "stage_20_discovery": ["search-planning-and-discovery.md"],
+    "stage_30_ingest_scope": ["search-planning-and-discovery.md"],
+    "stage_40_delegated_research": [
+        "metadata-resolution.md",
+        "pdf-probe.md",
+        "ingest-output-recovery.md",
+    ],
+    "stage_70_ingest": ["ingest-output-recovery.md"],
+    "completed": ["ingest-output-recovery.md"],
 }
 
 ALLOWED_ACTIONS_BY_STAGE = {
@@ -41,9 +45,11 @@ ALLOWED_ACTIONS_BY_STAGE = {
         "request_discovery_expansion",
         "cancel_workflow",
     ],
-    "stage_40_metadata_resolution": ["record_metadata"],
-    "stage_50_pdf_probe": ["record_pdf_probe"],
-    "stage_60_ingest_prepare": ["run_stage"],
+    "stage_40_delegated_research": [
+        "prepare_agent_batches",
+        "delegate_agent_research",
+        "review_agent_result",
+    ],
     "stage_70_ingest": ["execute_ingest", "record_ingest_receipt"],
     "completed": ["return_final_output"],
 }
@@ -72,14 +78,12 @@ def gate_command(state_path: str, input_path: str) -> str:
     return command_text(base_command(state_path, input_path))
 
 
-def reference_path(stage: str) -> str:
-    filename = REFERENCE_BY_STAGE[stage]
-    return (
-        Path(__file__)
-        .resolve()
-        .parent.parent.joinpath("references", filename)
-        .as_posix()
-    )
+def reference_paths(stage: str) -> list[str]:
+    reference_root = Path(__file__).resolve().parent.parent / "references"
+    return [
+        reference_root.joinpath(filename).as_posix()
+        for filename in REFERENCE_BY_STAGE[stage]
+    ]
 
 
 def action_schema() -> str:
@@ -213,8 +217,18 @@ def submit_command(state_path: str, input_path: str, target: Path) -> str:
     )
 
 
-def run_stage_command(state_path: str, input_path: str) -> str:
-    return command_text([*base_command(state_path, input_path), "--run-stage"])
+def prepare_agent_batches_command(state_path: str, input_path: str) -> str:
+    return command_text([*base_command(state_path, input_path), "--prepare-agent-batches"])
+
+
+def submit_agent_review_command(
+    state_path: str,
+    input_path: str,
+    review_path: str | Path,
+) -> str:
+    return command_text(
+        [*base_command(state_path, input_path), "--submit-agent-review", review_path]
+    )
 
 
 def receipt_submit_command(
@@ -248,7 +262,7 @@ def base_gate(state_path: str, input_path: str, state: dict) -> dict:
         "next_action": "",
         "allowed_actions": ALLOWED_ACTIONS_BY_STAGE.get(stage, []),
         "discovery_round": state.get("discovery_round", 1),
-        "required_reads": [reference_path(stage)],
+        "required_reads": reference_paths(stage),
         "blockers": [],
         "initial_gate_command": gate_command(state_path, input_path),
         "resume_packet": {
@@ -289,7 +303,7 @@ def payload_gate(
         "next_action": "await_user_input"
         if interaction is not None
         else "submit_stage_payload",
-        "required_reads": [reference_path(stage)],
+        "required_reads": reference_paths(stage),
         "payload_path": target.as_posix(),
         "payload_schema": action_schema(),
         "submit_command": submit_command(state_path, input_path, target),
@@ -396,38 +410,96 @@ def build_gate(state_path: str, input_path: str) -> dict:
                 "cancel": "scopeCancelPayload",
             },
         )
-    if stage == "stage_40_metadata_resolution":
-        candidate_id = pending_metadata_candidate(state)
-        return payload_gate(
-            state_path,
-            input_path,
-            state,
-            stage=stage,
-            name=f"metadata-{len(state.get('metadata', {})) + 1:03d}",
-            candidate_id=candidate_id,
-            schema_definition="metadataPayload",
-        )
-    if stage == "stage_50_pdf_probe":
-        candidate_id = pending_pdf_candidate(state)
-        gate = payload_gate(
-            state_path,
-            input_path,
-            state,
-            stage=stage,
-            name=f"pdf-probe-{len(state.get('pdf', {})) + 1:03d}",
-            candidate_id=candidate_id,
-            schema_definition="pdfPayload",
-        )
-        gate["required_pdf_routes"] = state["metadata"][candidate_id][
-            "required_pdf_routes"
+    if stage == "stage_40_delegated_research":
+        if not state.get("agent_batches_prepared"):
+            return {
+                **base_gate(state_path, input_path, state),
+                "next_action": "prepare_agent_batches",
+                "required_reads": reference_paths(stage),
+                "command": prepare_agent_batches_command(state_path, input_path),
+            }
+        batches = state.get("agent_batches", {})
+        ordered_assignments = ordered_assignment_items(state)
+        pending = [
+            (assignment_id, entry)
+            for assignment_id, entry in ordered_assignments
+            if not entry.get("imported")
         ]
-        return gate
-    if stage == "stage_60_ingest_prepare":
+        if not pending:
+            return blocked_gate(
+                state_path,
+                input_path=input_path,
+                state=state,
+                code="invalid_agent_batch",
+                message="All agent batches are imported but Stage 70 is not ready",
+            )
+        result_ready = [
+            (batch_id, entry)
+            for batch_id, entry in pending
+            if Path(entry["result_path"]).is_file()
+        ]
+        result_missing = [
+            (batch_id, entry)
+            for batch_id, entry in pending
+            if not Path(entry["result_path"]).is_file()
+        ]
+        batch_statuses = [
+            {
+                "assignment_id": batch_id,
+                "status": (
+                    "reviewed"
+                    if entry.get("imported")
+                    else "result_ready"
+                    if Path(entry["result_path"]).is_file()
+                    else "result_missing"
+                ),
+                "result_path": entry["result_path"],
+            }
+            for batch_id, entry in ordered_assignments
+        ]
+        if result_missing:
+            assignments = [
+                {
+                    "assignment_id": batch_id,
+                    "worker_spec_path": entry["spec_path"],
+                    "status": "result_missing",
+                }
+                for batch_id, entry in result_missing
+            ]
+            return {
+                **base_gate(state_path, input_path, state),
+                "next_action": "delegate_agent_research",
+                "required_reads": reference_paths(stage),
+                "dispatch_plan": {
+                    "mode": "parallel",
+                    "dispatch_all_before_wait": True,
+                    "expected_batch_count": len(batches),
+                    "assignments": assignments,
+                },
+                "result_ready_assignment_ids": [
+                    batch_id for batch_id, _entry in result_ready
+                ],
+                "batch_statuses": batch_statuses,
+            }
+        next_assignment_id, next_assignment = result_ready[0]
+        review_path = Path(next_assignment["review_path"])
+        schema_ref = f"{action_schema()}#/$defs/researchReviewPayload"
+        schema = resolve_schema_ref(schema_document(), schema_ref)
         return {
             **base_gate(state_path, input_path, state),
-            "next_action": "run_stage",
-            "required_reads": [reference_path(stage)],
-            "command": run_stage_command(state_path, input_path),
+            "next_action": "review_agent_result",
+            "required_reads": reference_paths(stage),
+            "assignment_id": next_assignment_id,
+            "batch_statuses": batch_statuses,
+            "raw_result_path": next_assignment["result_path"],
+            "payload_path": review_path.as_posix(),
+            "payload_schema_ref": schema_ref,
+            "payload_template": example_for_schema(schema_document(), schema),
+            "submit_command": submit_agent_review_command(
+                state_path,
+                input_path,
+                review_path,
+            ),
         }
     if stage == "stage_70_ingest":
         candidate_id = pending_ingest_candidate(state)
@@ -460,7 +532,7 @@ def build_gate(state_path: str, input_path: str) -> dict:
         return {
             **base_gate(state_path, input_path, state),
             "next_action": "execute_ingest",
-            "required_reads": [reference_path(stage)],
+            "required_reads": reference_paths(stage),
             "candidate_id": candidate_id,
             "ingest_payload_path": prepared["payload_path"],
             "ingest_payload_hash": prepared["payload_hash"],
@@ -487,7 +559,7 @@ def build_gate(state_path: str, input_path: str) -> dict:
         "status": state.get("status", "completed"),
         "kind": terminal_kind(state),
         "next_action": "return_final_output",
-        "required_reads": [reference_path("completed")],
+        "required_reads": reference_paths("completed"),
         "terminal": {
             "kind": terminal_kind(state),
             "status": state.get("status", "completed"),
@@ -514,26 +586,30 @@ def main() -> None:
     parser.add_argument("--state", required=True)
     parser.add_argument("--input", required=True)
     parser.add_argument("--submit-stage-payload")
+    parser.add_argument("--submit-agent-review")
     parser.add_argument("--submit-ingest-receipt")
-    parser.add_argument("--run-stage", action="store_true")
+    parser.add_argument("--prepare-agent-batches", action="store_true")
     args = parser.parse_args()
     try:
         selected = sum(
             bool(value)
             for value in (
                 args.submit_stage_payload,
+                args.submit_agent_review,
                 args.submit_ingest_receipt,
-                args.run_stage,
+                args.prepare_agent_batches,
             )
         )
         if selected > 1:
             raise ContractError("invalid_command", "Choose exactly one gate action")
         if args.submit_stage_payload:
             apply_stage_payload(args.state, args.input, args.submit_stage_payload)
+        elif args.submit_agent_review:
+            admit_agent_review(args.state, args.input, args.submit_agent_review)
         elif args.submit_ingest_receipt:
             record_ingest_receipt(args.state, args.input, args.submit_ingest_receipt)
-        elif args.run_stage:
-            prepare_ingest_payloads(args.state, args.input)
+        elif args.prepare_agent_batches:
+            prepare_agent_batches(args.state, args.input)
         emit(build_gate(args.state, args.input))
     except ContractError as error:
         emit(

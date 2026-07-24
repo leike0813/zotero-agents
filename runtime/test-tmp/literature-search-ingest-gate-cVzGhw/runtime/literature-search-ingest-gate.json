@@ -1,0 +1,44 @@
+{
+  "agent_batches": {},
+  "agent_batches_prepared": false,
+  "approved_candidate_ids": [],
+  "cancellation": {
+    "message": "The user canceled search planning.",
+    "reason": "user_cancelled",
+    "stage": "stage_10_search_plan"
+  },
+  "candidates": {},
+  "discovery_expansions": [],
+  "discovery_round": 1,
+  "discovery_rounds": [],
+  "events": [
+    {
+      "action": "cancel_workflow",
+      "action_key": "cancel_workflow:stage_10_search_plan",
+      "payload_hash": "sha256:b3dbfa9c4a506b3fc290948a966d1fc316f34e1cf87a7d77061aac668b00258a",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-cVzGhw/runtime/payloads/search-plan-decision.json"
+    }
+  ],
+  "excluded_candidate_ids": [],
+  "ingest_prepared": false,
+  "input_hash": "sha256:b6513c0a16d777f0c4b83d312620bf1b7f806f6f5f009d0d36293337560736a3",
+  "metadata": {},
+  "parameter": {
+    "languageHints": [
+      "zh-CN"
+    ],
+    "query": "隧道衬砌病害智能识别",
+    "searchBreadth": "balanced",
+    "searchMode": "guided",
+    "targetCollection": ""
+  },
+  "pdf": {},
+  "plan": {},
+  "prepared": {},
+  "receipts": {},
+  "schema_version": 1,
+  "scope_approved": false,
+  "search_plan_approved": false,
+  "stage": "completed",
+  "status": "canceled"
+}

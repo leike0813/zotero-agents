@@ -1,0 +1,2118 @@
+{
+  "agent_batches": {
+    "batch-001": {
+      "candidate_ids": [
+        "doi:10.5555/tunnel.1",
+        "doi:10.5555/tunnel.2",
+        "doi:10.5555/tunnel.3",
+        "doi:10.5555/tunnel.4",
+        "doi:10.5555/tunnel.5"
+      ],
+      "delegation_prompt": "Process every candidate in this immutable batch in one subagent context. First write the issued write-probe file. Then write each Stage 40 metadata payload; for each qualified candidate continue through all required Stage 50 PDF routes; finally run finalize_argv to generate the isolated Stage 60 payloads and result manifest. Write only below this batch directory. Do not invoke Zotero Host, write receipts, or write canonical runtime payloads.",
+      "imported": true,
+      "result_hash": "sha256:3f85063a7abdb16da68c1faf1a24461912b9011aa33408c8d780c899ebaae7d1",
+      "result_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/agent-batches/batch-001/result.json",
+      "return_contract": {
+        "stdout_fallback": "return the same candidate payloads as pure JSON",
+        "success_keys": [
+          "batch_id",
+          "spec_hash",
+          "result_path"
+        ]
+      },
+      "spec_hash": "sha256:a927e958cf007358dc09167d6840692abc1584c4c578267360536517787e53e3",
+      "spec_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/agent-batches/batch-001/spec.json",
+      "worker_contract": {
+        "allowed_metadata_fields": [
+          "ISSN",
+          "abstractNote",
+          "accessDate",
+          "applicationNumber",
+          "archive",
+          "archiveID",
+          "archiveLocation",
+          "artworkMedium",
+          "artworkSize",
+          "assignee",
+          "audioFileType",
+          "audioRecordingFormat",
+          "billNumber",
+          "blogTitle",
+          "bookTitle",
+          "callNumber",
+          "caseName",
+          "citationKey",
+          "code",
+          "codeNumber",
+          "codePages",
+          "codeVolume",
+          "committee",
+          "company",
+          "conferenceName",
+          "country",
+          "court",
+          "date",
+          "dateDecided",
+          "dateEnacted",
+          "dictionaryTitle",
+          "distributor",
+          "docketNumber",
+          "documentNumber",
+          "edition",
+          "encyclopediaTitle",
+          "episodeNumber",
+          "eventDate",
+          "filingDate",
+          "firstPage",
+          "format",
+          "forumTitle",
+          "genre",
+          "history",
+          "institution",
+          "interviewMedium",
+          "issue",
+          "issueDate",
+          "issueTitle",
+          "issuingAuthority",
+          "journalAbbreviation",
+          "label",
+          "language",
+          "legalStatus",
+          "legislativeBody",
+          "letterType",
+          "libraryCatalog",
+          "locInArchive",
+          "manuscriptType",
+          "mapType",
+          "medium",
+          "meetingName",
+          "nameOfAct",
+          "network",
+          "numPages",
+          "number",
+          "numberOfVolumes",
+          "pages",
+          "patentNumber",
+          "place",
+          "podcastTitle",
+          "postType",
+          "presentationType",
+          "priorityNumbers",
+          "proceedingsTitle",
+          "programTitle",
+          "programmingLanguage",
+          "publicLawNumber",
+          "publicationTitle",
+          "publisher",
+          "references",
+          "reportNumber",
+          "reportType",
+          "reporter",
+          "reporterVolume",
+          "repository",
+          "rights",
+          "runningTime",
+          "scale",
+          "section",
+          "series",
+          "seriesNumber",
+          "seriesText",
+          "seriesTitle",
+          "session",
+          "shortTitle",
+          "studio",
+          "subject",
+          "system",
+          "thesisType",
+          "type",
+          "university",
+          "url",
+          "version",
+          "versionNumber",
+          "videoRecordingFormat",
+          "volume",
+          "websiteTitle",
+          "websiteType"
+        ],
+        "allowed_output_root": ".",
+        "forbidden_metadata_fields": [
+          "abstract",
+          "title",
+          "DOI",
+          "doi",
+          "ISBN",
+          "extra"
+        ],
+        "host_mutation_allowed": false,
+        "receipt_writes_allowed": false,
+        "required_pdf_routes": [
+          "authoritative_landing",
+          "open_access",
+          "web_search"
+        ],
+        "stage_chain": [
+          "stage_40_metadata_resolution",
+          "stage_50_pdf_probe",
+          "stage_60_ingest_prepare"
+        ]
+      },
+      "write_probe_contract": {
+        "batch_id": "batch-001",
+        "status": "writable"
+      },
+      "write_probe_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/agent-batches/batch-001/write-probe.json"
+    },
+    "batch-002": {
+      "candidate_ids": [
+        "doi:10.5555/tunnel.6",
+        "doi:10.5555/tunnel.7",
+        "doi:10.5555/tunnel.8",
+        "doi:10.5555/tunnel.9",
+        "doi:10.5555/tunnel.10"
+      ],
+      "delegation_prompt": "Process every candidate in this immutable batch in one subagent context. First write the issued write-probe file. Then write each Stage 40 metadata payload; for each qualified candidate continue through all required Stage 50 PDF routes; finally run finalize_argv to generate the isolated Stage 60 payloads and result manifest. Write only below this batch directory. Do not invoke Zotero Host, write receipts, or write canonical runtime payloads.",
+      "imported": true,
+      "result_hash": "sha256:5618bda1d8e22c0543b17330a088c65907878b7770438c11ee25d3ea55f8cd60",
+      "result_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/agent-batches/batch-002/result.json",
+      "return_contract": {
+        "stdout_fallback": "return the same candidate payloads as pure JSON",
+        "success_keys": [
+          "batch_id",
+          "spec_hash",
+          "result_path"
+        ]
+      },
+      "spec_hash": "sha256:572abfe87f644643b7cd7cc51421da6e146fde9e9d14c7232cd6bc9d80404474",
+      "spec_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/agent-batches/batch-002/spec.json",
+      "worker_contract": {
+        "allowed_metadata_fields": [
+          "ISSN",
+          "abstractNote",
+          "accessDate",
+          "applicationNumber",
+          "archive",
+          "archiveID",
+          "archiveLocation",
+          "artworkMedium",
+          "artworkSize",
+          "assignee",
+          "audioFileType",
+          "audioRecordingFormat",
+          "billNumber",
+          "blogTitle",
+          "bookTitle",
+          "callNumber",
+          "caseName",
+          "citationKey",
+          "code",
+          "codeNumber",
+          "codePages",
+          "codeVolume",
+          "committee",
+          "company",
+          "conferenceName",
+          "country",
+          "court",
+          "date",
+          "dateDecided",
+          "dateEnacted",
+          "dictionaryTitle",
+          "distributor",
+          "docketNumber",
+          "documentNumber",
+          "edition",
+          "encyclopediaTitle",
+          "episodeNumber",
+          "eventDate",
+          "filingDate",
+          "firstPage",
+          "format",
+          "forumTitle",
+          "genre",
+          "history",
+          "institution",
+          "interviewMedium",
+          "issue",
+          "issueDate",
+          "issueTitle",
+          "issuingAuthority",
+          "journalAbbreviation",
+          "label",
+          "language",
+          "legalStatus",
+          "legislativeBody",
+          "letterType",
+          "libraryCatalog",
+          "locInArchive",
+          "manuscriptType",
+          "mapType",
+          "medium",
+          "meetingName",
+          "nameOfAct",
+          "network",
+          "numPages",
+          "number",
+          "numberOfVolumes",
+          "pages",
+          "patentNumber",
+          "place",
+          "podcastTitle",
+          "postType",
+          "presentationType",
+          "priorityNumbers",
+          "proceedingsTitle",
+          "programTitle",
+          "programmingLanguage",
+          "publicLawNumber",
+          "publicationTitle",
+          "publisher",
+          "references",
+          "reportNumber",
+          "reportType",
+          "reporter",
+          "reporterVolume",
+          "repository",
+          "rights",
+          "runningTime",
+          "scale",
+          "section",
+          "series",
+          "seriesNumber",
+          "seriesText",
+          "seriesTitle",
+          "session",
+          "shortTitle",
+          "studio",
+          "subject",
+          "system",
+          "thesisType",
+          "type",
+          "university",
+          "url",
+          "version",
+          "versionNumber",
+          "videoRecordingFormat",
+          "volume",
+          "websiteTitle",
+          "websiteType"
+        ],
+        "allowed_output_root": ".",
+        "forbidden_metadata_fields": [
+          "abstract",
+          "title",
+          "DOI",
+          "doi",
+          "ISBN",
+          "extra"
+        ],
+        "host_mutation_allowed": false,
+        "receipt_writes_allowed": false,
+        "required_pdf_routes": [
+          "authoritative_landing",
+          "open_access",
+          "web_search"
+        ],
+        "stage_chain": [
+          "stage_40_metadata_resolution",
+          "stage_50_pdf_probe",
+          "stage_60_ingest_prepare"
+        ]
+      },
+      "write_probe_contract": {
+        "batch_id": "batch-002",
+        "status": "writable"
+      },
+      "write_probe_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/agent-batches/batch-002/write-probe.json"
+    },
+    "batch-003": {
+      "candidate_ids": [
+        "doi:10.5555/tunnel.11",
+        "doi:10.5555/tunnel.12"
+      ],
+      "delegation_prompt": "Process every candidate in this immutable batch in one subagent context. First write the issued write-probe file. Then write each Stage 40 metadata payload; for each qualified candidate continue through all required Stage 50 PDF routes; finally run finalize_argv to generate the isolated Stage 60 payloads and result manifest. Write only below this batch directory. Do not invoke Zotero Host, write receipts, or write canonical runtime payloads.",
+      "imported": true,
+      "result_hash": "sha256:291cbf15494653c38b2423cd4d5b7bba9bb4b62b84be9ca6cd37c7ef5b35e7cd",
+      "result_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/agent-batches/batch-003/result.json",
+      "return_contract": {
+        "stdout_fallback": "return the same candidate payloads as pure JSON",
+        "success_keys": [
+          "batch_id",
+          "spec_hash",
+          "result_path"
+        ]
+      },
+      "spec_hash": "sha256:96d6b6b9a893018d7814a4a6ae27691f4e767826150427131790233cdf682714",
+      "spec_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/agent-batches/batch-003/spec.json",
+      "worker_contract": {
+        "allowed_metadata_fields": [
+          "ISSN",
+          "abstractNote",
+          "accessDate",
+          "applicationNumber",
+          "archive",
+          "archiveID",
+          "archiveLocation",
+          "artworkMedium",
+          "artworkSize",
+          "assignee",
+          "audioFileType",
+          "audioRecordingFormat",
+          "billNumber",
+          "blogTitle",
+          "bookTitle",
+          "callNumber",
+          "caseName",
+          "citationKey",
+          "code",
+          "codeNumber",
+          "codePages",
+          "codeVolume",
+          "committee",
+          "company",
+          "conferenceName",
+          "country",
+          "court",
+          "date",
+          "dateDecided",
+          "dateEnacted",
+          "dictionaryTitle",
+          "distributor",
+          "docketNumber",
+          "documentNumber",
+          "edition",
+          "encyclopediaTitle",
+          "episodeNumber",
+          "eventDate",
+          "filingDate",
+          "firstPage",
+          "format",
+          "forumTitle",
+          "genre",
+          "history",
+          "institution",
+          "interviewMedium",
+          "issue",
+          "issueDate",
+          "issueTitle",
+          "issuingAuthority",
+          "journalAbbreviation",
+          "label",
+          "language",
+          "legalStatus",
+          "legislativeBody",
+          "letterType",
+          "libraryCatalog",
+          "locInArchive",
+          "manuscriptType",
+          "mapType",
+          "medium",
+          "meetingName",
+          "nameOfAct",
+          "network",
+          "numPages",
+          "number",
+          "numberOfVolumes",
+          "pages",
+          "patentNumber",
+          "place",
+          "podcastTitle",
+          "postType",
+          "presentationType",
+          "priorityNumbers",
+          "proceedingsTitle",
+          "programTitle",
+          "programmingLanguage",
+          "publicLawNumber",
+          "publicationTitle",
+          "publisher",
+          "references",
+          "reportNumber",
+          "reportType",
+          "reporter",
+          "reporterVolume",
+          "repository",
+          "rights",
+          "runningTime",
+          "scale",
+          "section",
+          "series",
+          "seriesNumber",
+          "seriesText",
+          "seriesTitle",
+          "session",
+          "shortTitle",
+          "studio",
+          "subject",
+          "system",
+          "thesisType",
+          "type",
+          "university",
+          "url",
+          "version",
+          "versionNumber",
+          "videoRecordingFormat",
+          "volume",
+          "websiteTitle",
+          "websiteType"
+        ],
+        "allowed_output_root": ".",
+        "forbidden_metadata_fields": [
+          "abstract",
+          "title",
+          "DOI",
+          "doi",
+          "ISBN",
+          "extra"
+        ],
+        "host_mutation_allowed": false,
+        "receipt_writes_allowed": false,
+        "required_pdf_routes": [
+          "authoritative_landing",
+          "open_access",
+          "web_search"
+        ],
+        "stage_chain": [
+          "stage_40_metadata_resolution",
+          "stage_50_pdf_probe",
+          "stage_60_ingest_prepare"
+        ]
+      },
+      "write_probe_contract": {
+        "batch_id": "batch-003",
+        "status": "writable"
+      },
+      "write_probe_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/agent-batches/batch-003/write-probe.json"
+    }
+  },
+  "agent_batches_prepared": true,
+  "approved_candidate_ids": [
+    "doi:10.5555/tunnel.1",
+    "doi:10.5555/tunnel.2",
+    "doi:10.5555/tunnel.3",
+    "doi:10.5555/tunnel.4",
+    "doi:10.5555/tunnel.5",
+    "doi:10.5555/tunnel.6",
+    "doi:10.5555/tunnel.7",
+    "doi:10.5555/tunnel.8",
+    "doi:10.5555/tunnel.9",
+    "doi:10.5555/tunnel.10",
+    "doi:10.5555/tunnel.11",
+    "doi:10.5555/tunnel.12"
+  ],
+  "cancellation": {},
+  "candidates": {
+    "doi:10.5555/tunnel.1": {
+      "alternate_titles": [],
+      "candidate_id": "doi:10.5555/tunnel.1",
+      "container": "隧道工程学报",
+      "creators_display": [
+        "张三"
+      ],
+      "discovery_sources": [
+        {
+          "facts": [
+            "original_title",
+            "publication_year"
+          ],
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.1"
+        }
+      ],
+      "identifiers": {
+        "doi": "10.5555/tunnel.1"
+      },
+      "identity": {
+        "strong_keys": [
+          "doi:10.5555/tunnel.1"
+        ],
+        "weak_key": "隧道衬砌病害智能识别研究 1|2024|张三|隧道工程学报"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.1",
+      "library_note": "No exact local duplicate found.",
+      "matching_notes": [],
+      "material_version": "journal_article",
+      "missing_fields": [],
+      "original_language": "zh-CN",
+      "recommendation_reason": "与研究目标直接相关。",
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 1",
+      "year": "2024"
+    },
+    "doi:10.5555/tunnel.10": {
+      "alternate_titles": [],
+      "candidate_id": "doi:10.5555/tunnel.10",
+      "container": "隧道工程学报",
+      "creators_display": [
+        "张三"
+      ],
+      "discovery_sources": [
+        {
+          "facts": [
+            "original_title",
+            "publication_year"
+          ],
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.10"
+        }
+      ],
+      "identifiers": {
+        "doi": "10.5555/tunnel.10"
+      },
+      "identity": {
+        "strong_keys": [
+          "doi:10.5555/tunnel.10"
+        ],
+        "weak_key": "隧道衬砌病害智能识别研究 10|2024|张三|隧道工程学报"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.10",
+      "library_note": "No exact local duplicate found.",
+      "matching_notes": [],
+      "material_version": "journal_article",
+      "missing_fields": [],
+      "original_language": "zh-CN",
+      "recommendation_reason": "与研究目标直接相关。",
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 10",
+      "year": "2024"
+    },
+    "doi:10.5555/tunnel.11": {
+      "alternate_titles": [],
+      "candidate_id": "doi:10.5555/tunnel.11",
+      "container": "隧道工程学报",
+      "creators_display": [
+        "张三"
+      ],
+      "discovery_sources": [
+        {
+          "facts": [
+            "original_title",
+            "publication_year"
+          ],
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.11"
+        }
+      ],
+      "identifiers": {
+        "doi": "10.5555/tunnel.11"
+      },
+      "identity": {
+        "strong_keys": [
+          "doi:10.5555/tunnel.11"
+        ],
+        "weak_key": "隧道衬砌病害智能识别研究 11|2024|张三|隧道工程学报"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.11",
+      "library_note": "No exact local duplicate found.",
+      "matching_notes": [],
+      "material_version": "journal_article",
+      "missing_fields": [],
+      "original_language": "zh-CN",
+      "recommendation_reason": "与研究目标直接相关。",
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 11",
+      "year": "2024"
+    },
+    "doi:10.5555/tunnel.12": {
+      "alternate_titles": [],
+      "candidate_id": "doi:10.5555/tunnel.12",
+      "container": "隧道工程学报",
+      "creators_display": [
+        "张三"
+      ],
+      "discovery_sources": [
+        {
+          "facts": [
+            "original_title",
+            "publication_year"
+          ],
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.12"
+        }
+      ],
+      "identifiers": {
+        "doi": "10.5555/tunnel.12"
+      },
+      "identity": {
+        "strong_keys": [
+          "doi:10.5555/tunnel.12"
+        ],
+        "weak_key": "隧道衬砌病害智能识别研究 12|2024|张三|隧道工程学报"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.12",
+      "library_note": "No exact local duplicate found.",
+      "matching_notes": [],
+      "material_version": "journal_article",
+      "missing_fields": [],
+      "original_language": "zh-CN",
+      "recommendation_reason": "与研究目标直接相关。",
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 12",
+      "year": "2024"
+    },
+    "doi:10.5555/tunnel.2": {
+      "alternate_titles": [],
+      "candidate_id": "doi:10.5555/tunnel.2",
+      "container": "隧道工程学报",
+      "creators_display": [
+        "张三"
+      ],
+      "discovery_sources": [
+        {
+          "facts": [
+            "original_title",
+            "publication_year"
+          ],
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.2"
+        }
+      ],
+      "identifiers": {
+        "doi": "10.5555/tunnel.2"
+      },
+      "identity": {
+        "strong_keys": [
+          "doi:10.5555/tunnel.2"
+        ],
+        "weak_key": "隧道衬砌病害智能识别研究 2|2024|张三|隧道工程学报"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.2",
+      "library_note": "No exact local duplicate found.",
+      "matching_notes": [],
+      "material_version": "journal_article",
+      "missing_fields": [],
+      "original_language": "zh-CN",
+      "recommendation_reason": "与研究目标直接相关。",
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 2",
+      "year": "2024"
+    },
+    "doi:10.5555/tunnel.3": {
+      "alternate_titles": [],
+      "candidate_id": "doi:10.5555/tunnel.3",
+      "container": "隧道工程学报",
+      "creators_display": [
+        "张三"
+      ],
+      "discovery_sources": [
+        {
+          "facts": [
+            "original_title",
+            "publication_year"
+          ],
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.3"
+        }
+      ],
+      "identifiers": {
+        "doi": "10.5555/tunnel.3"
+      },
+      "identity": {
+        "strong_keys": [
+          "doi:10.5555/tunnel.3"
+        ],
+        "weak_key": "隧道衬砌病害智能识别研究 3|2024|张三|隧道工程学报"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.3",
+      "library_note": "No exact local duplicate found.",
+      "matching_notes": [],
+      "material_version": "journal_article",
+      "missing_fields": [],
+      "original_language": "zh-CN",
+      "recommendation_reason": "与研究目标直接相关。",
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 3",
+      "year": "2024"
+    },
+    "doi:10.5555/tunnel.4": {
+      "alternate_titles": [],
+      "candidate_id": "doi:10.5555/tunnel.4",
+      "container": "隧道工程学报",
+      "creators_display": [
+        "张三"
+      ],
+      "discovery_sources": [
+        {
+          "facts": [
+            "original_title",
+            "publication_year"
+          ],
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.4"
+        }
+      ],
+      "identifiers": {
+        "doi": "10.5555/tunnel.4"
+      },
+      "identity": {
+        "strong_keys": [
+          "doi:10.5555/tunnel.4"
+        ],
+        "weak_key": "隧道衬砌病害智能识别研究 4|2024|张三|隧道工程学报"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.4",
+      "library_note": "No exact local duplicate found.",
+      "matching_notes": [],
+      "material_version": "journal_article",
+      "missing_fields": [],
+      "original_language": "zh-CN",
+      "recommendation_reason": "与研究目标直接相关。",
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 4",
+      "year": "2024"
+    },
+    "doi:10.5555/tunnel.5": {
+      "alternate_titles": [],
+      "candidate_id": "doi:10.5555/tunnel.5",
+      "container": "隧道工程学报",
+      "creators_display": [
+        "张三"
+      ],
+      "discovery_sources": [
+        {
+          "facts": [
+            "original_title",
+            "publication_year"
+          ],
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.5"
+        }
+      ],
+      "identifiers": {
+        "doi": "10.5555/tunnel.5"
+      },
+      "identity": {
+        "strong_keys": [
+          "doi:10.5555/tunnel.5"
+        ],
+        "weak_key": "隧道衬砌病害智能识别研究 5|2024|张三|隧道工程学报"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.5",
+      "library_note": "No exact local duplicate found.",
+      "matching_notes": [],
+      "material_version": "journal_article",
+      "missing_fields": [],
+      "original_language": "zh-CN",
+      "recommendation_reason": "与研究目标直接相关。",
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 5",
+      "year": "2024"
+    },
+    "doi:10.5555/tunnel.6": {
+      "alternate_titles": [],
+      "candidate_id": "doi:10.5555/tunnel.6",
+      "container": "隧道工程学报",
+      "creators_display": [
+        "张三"
+      ],
+      "discovery_sources": [
+        {
+          "facts": [
+            "original_title",
+            "publication_year"
+          ],
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.6"
+        }
+      ],
+      "identifiers": {
+        "doi": "10.5555/tunnel.6"
+      },
+      "identity": {
+        "strong_keys": [
+          "doi:10.5555/tunnel.6"
+        ],
+        "weak_key": "隧道衬砌病害智能识别研究 6|2024|张三|隧道工程学报"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.6",
+      "library_note": "No exact local duplicate found.",
+      "matching_notes": [],
+      "material_version": "journal_article",
+      "missing_fields": [],
+      "original_language": "zh-CN",
+      "recommendation_reason": "与研究目标直接相关。",
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 6",
+      "year": "2024"
+    },
+    "doi:10.5555/tunnel.7": {
+      "alternate_titles": [],
+      "candidate_id": "doi:10.5555/tunnel.7",
+      "container": "隧道工程学报",
+      "creators_display": [
+        "张三"
+      ],
+      "discovery_sources": [
+        {
+          "facts": [
+            "original_title",
+            "publication_year"
+          ],
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.7"
+        }
+      ],
+      "identifiers": {
+        "doi": "10.5555/tunnel.7"
+      },
+      "identity": {
+        "strong_keys": [
+          "doi:10.5555/tunnel.7"
+        ],
+        "weak_key": "隧道衬砌病害智能识别研究 7|2024|张三|隧道工程学报"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.7",
+      "library_note": "No exact local duplicate found.",
+      "matching_notes": [],
+      "material_version": "journal_article",
+      "missing_fields": [],
+      "original_language": "zh-CN",
+      "recommendation_reason": "与研究目标直接相关。",
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 7",
+      "year": "2024"
+    },
+    "doi:10.5555/tunnel.8": {
+      "alternate_titles": [],
+      "candidate_id": "doi:10.5555/tunnel.8",
+      "container": "隧道工程学报",
+      "creators_display": [
+        "张三"
+      ],
+      "discovery_sources": [
+        {
+          "facts": [
+            "original_title",
+            "publication_year"
+          ],
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.8"
+        }
+      ],
+      "identifiers": {
+        "doi": "10.5555/tunnel.8"
+      },
+      "identity": {
+        "strong_keys": [
+          "doi:10.5555/tunnel.8"
+        ],
+        "weak_key": "隧道衬砌病害智能识别研究 8|2024|张三|隧道工程学报"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.8",
+      "library_note": "No exact local duplicate found.",
+      "matching_notes": [],
+      "material_version": "journal_article",
+      "missing_fields": [],
+      "original_language": "zh-CN",
+      "recommendation_reason": "与研究目标直接相关。",
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 8",
+      "year": "2024"
+    },
+    "doi:10.5555/tunnel.9": {
+      "alternate_titles": [],
+      "candidate_id": "doi:10.5555/tunnel.9",
+      "container": "隧道工程学报",
+      "creators_display": [
+        "张三"
+      ],
+      "discovery_sources": [
+        {
+          "facts": [
+            "original_title",
+            "publication_year"
+          ],
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.9"
+        }
+      ],
+      "identifiers": {
+        "doi": "10.5555/tunnel.9"
+      },
+      "identity": {
+        "strong_keys": [
+          "doi:10.5555/tunnel.9"
+        ],
+        "weak_key": "隧道衬砌病害智能识别研究 9|2024|张三|隧道工程学报"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.9",
+      "library_note": "No exact local duplicate found.",
+      "matching_notes": [],
+      "material_version": "journal_article",
+      "missing_fields": [],
+      "original_language": "zh-CN",
+      "recommendation_reason": "与研究目标直接相关。",
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 9",
+      "year": "2024"
+    }
+  },
+  "discovery_expansions": [],
+  "discovery_round": 1,
+  "discovery_rounds": [
+    {
+      "added_candidate_ids": [
+        "doi:10.5555/tunnel.1",
+        "doi:10.5555/tunnel.2",
+        "doi:10.5555/tunnel.3",
+        "doi:10.5555/tunnel.4",
+        "doi:10.5555/tunnel.5",
+        "doi:10.5555/tunnel.6",
+        "doi:10.5555/tunnel.7",
+        "doi:10.5555/tunnel.8",
+        "doi:10.5555/tunnel.9",
+        "doi:10.5555/tunnel.10",
+        "doi:10.5555/tunnel.11",
+        "doi:10.5555/tunnel.12"
+      ],
+      "discovery_round": 1,
+      "merged_candidate_ids": [],
+      "payload_hash": "sha256:5832b46f2a1a26802c524805e80bbb0007e9ec0f12357c7d7bcd63de814f8ed0",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/discovery-round-001.json",
+      "query_attempt_count": 1,
+      "source_failure_count": 0,
+      "source_record_count": 12,
+      "stop_reason": "all_applicable_lanes_completed",
+      "uncovered_gaps": [],
+      "unique_candidate_count": 12,
+      "unresolved_conflict_count": 0
+    }
+  ],
+  "events": [
+    {
+      "action": "approve_search_plan",
+      "action_key": "approve_search_plan:stage_10_search_plan",
+      "payload_hash": "sha256:81e6eeac1f4c9a4a2521bfaeb65aaf18b75cd51f638b042db0eeb79cc1a7cb3c",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/search-plan-decision.json"
+    },
+    {
+      "action": "record_discovery",
+      "action_key": "record_discovery:1",
+      "payload_hash": "sha256:5832b46f2a1a26802c524805e80bbb0007e9ec0f12357c7d7bcd63de814f8ed0",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/discovery-round-001.json"
+    },
+    {
+      "action": "approve_ingest_scope",
+      "action_key": "approve_ingest_scope:1",
+      "payload_hash": "sha256:fcb6dbaff197ca215872b69abbef8c18d402fb26ea876012c28ce5794ead3eaa",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/ingest-scope-decision-round-001.json"
+    }
+  ],
+  "excluded_candidate_ids": [],
+  "ingest_prepared": true,
+  "input_hash": "sha256:b6513c0a16d777f0c4b83d312620bf1b7f806f6f5f009d0d36293337560736a3",
+  "metadata": {
+    "doi:10.5555/tunnel.1": {
+      "corroborating_signals": [],
+      "curation_notes": [
+        "Complete Chinese creator list could not be verified."
+      ],
+      "evidence": [
+        {
+          "facts": [
+            "identifier",
+            "original_title",
+            "publication_year"
+          ],
+          "role": "authoritative",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.001"
+        }
+      ],
+      "metadata": {
+        "alternateTitles": [
+          {
+            "language": "en",
+            "role": "translated",
+            "script": "Latn",
+            "value": "Intelligent Recognition of Tunnel Lining Defects"
+          }
+        ],
+        "creatorCompleteness": "incomplete",
+        "creators": [],
+        "fields": {
+          "date": "2024",
+          "language": "zh-CN",
+          "publicationTitle": "隧道工程学报",
+          "title": "隧道衬砌病害智能识别研究"
+        },
+        "identifiers": {
+          "doi": "10.5555/tunnel.1"
+        },
+        "itemType": "journalArticle",
+        "landingUrl": "https://doi.org/10.5555/tunnel.1",
+        "language": "zh-CN",
+        "script": "Hans",
+        "title": "隧道衬砌病害智能识别研究"
+      },
+      "needs_curation": true,
+      "payload_hash": "sha256:08b529d1e14f34f44f375dd5a1a2cc969339413c39896484fbd110d4f66b43bc",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/metadata-001.json",
+      "required_pdf_routes": [
+        "authoritative_landing",
+        "open_access",
+        "web_search"
+      ],
+      "status": "qualified"
+    },
+    "doi:10.5555/tunnel.10": {
+      "corroborating_signals": [],
+      "curation_notes": [
+        "Complete Chinese creator list could not be verified."
+      ],
+      "evidence": [
+        {
+          "facts": [
+            "identifier",
+            "original_title",
+            "publication_year"
+          ],
+          "role": "authoritative",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.001"
+        }
+      ],
+      "metadata": {
+        "alternateTitles": [
+          {
+            "language": "en",
+            "role": "translated",
+            "script": "Latn",
+            "value": "Intelligent Recognition of Tunnel Lining Defects"
+          }
+        ],
+        "creatorCompleteness": "incomplete",
+        "creators": [],
+        "fields": {
+          "date": "2024",
+          "language": "zh-CN",
+          "publicationTitle": "隧道工程学报",
+          "title": "隧道衬砌病害智能识别研究 10"
+        },
+        "identifiers": {
+          "doi": "10.5555/tunnel.10"
+        },
+        "itemType": "journalArticle",
+        "landingUrl": "https://doi.org/10.5555/tunnel.10",
+        "language": "zh-CN",
+        "script": "Hans",
+        "title": "隧道衬砌病害智能识别研究 10"
+      },
+      "needs_curation": true,
+      "payload_hash": "sha256:1b5ac005afb8bcd23f899ca5eddac353db8862f9c85a86567fb56f0acb8537fc",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/metadata-010.json",
+      "required_pdf_routes": [
+        "authoritative_landing",
+        "open_access",
+        "web_search"
+      ],
+      "status": "qualified"
+    },
+    "doi:10.5555/tunnel.11": {
+      "corroborating_signals": [],
+      "curation_notes": [
+        "Complete Chinese creator list could not be verified."
+      ],
+      "evidence": [
+        {
+          "facts": [
+            "identifier",
+            "original_title",
+            "publication_year"
+          ],
+          "role": "authoritative",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.001"
+        }
+      ],
+      "metadata": {
+        "alternateTitles": [
+          {
+            "language": "en",
+            "role": "translated",
+            "script": "Latn",
+            "value": "Intelligent Recognition of Tunnel Lining Defects"
+          }
+        ],
+        "creatorCompleteness": "incomplete",
+        "creators": [],
+        "fields": {
+          "date": "2024",
+          "language": "zh-CN",
+          "publicationTitle": "隧道工程学报",
+          "title": "隧道衬砌病害智能识别研究 11"
+        },
+        "identifiers": {
+          "doi": "10.5555/tunnel.11"
+        },
+        "itemType": "journalArticle",
+        "landingUrl": "https://doi.org/10.5555/tunnel.11",
+        "language": "zh-CN",
+        "script": "Hans",
+        "title": "隧道衬砌病害智能识别研究 11"
+      },
+      "needs_curation": true,
+      "payload_hash": "sha256:7fc34a1f76bc63903f01ce9cd6ed928672c33ae1efe8daad58ada4ffe4256b8d",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/metadata-011.json",
+      "required_pdf_routes": [
+        "authoritative_landing",
+        "open_access",
+        "web_search"
+      ],
+      "status": "qualified"
+    },
+    "doi:10.5555/tunnel.12": {
+      "corroborating_signals": [],
+      "curation_notes": [
+        "Complete Chinese creator list could not be verified."
+      ],
+      "evidence": [
+        {
+          "facts": [
+            "identifier",
+            "original_title",
+            "publication_year"
+          ],
+          "role": "authoritative",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.001"
+        }
+      ],
+      "metadata": {
+        "alternateTitles": [
+          {
+            "language": "en",
+            "role": "translated",
+            "script": "Latn",
+            "value": "Intelligent Recognition of Tunnel Lining Defects"
+          }
+        ],
+        "creatorCompleteness": "incomplete",
+        "creators": [],
+        "fields": {
+          "date": "2024",
+          "language": "zh-CN",
+          "publicationTitle": "隧道工程学报",
+          "title": "隧道衬砌病害智能识别研究 12"
+        },
+        "identifiers": {
+          "doi": "10.5555/tunnel.12"
+        },
+        "itemType": "journalArticle",
+        "landingUrl": "https://doi.org/10.5555/tunnel.12",
+        "language": "zh-CN",
+        "script": "Hans",
+        "title": "隧道衬砌病害智能识别研究 12"
+      },
+      "needs_curation": true,
+      "payload_hash": "sha256:b4a43f8f37ff6bb80c377d4d8abed919ee8e7e41ae238fb9938d377b3619f00f",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/metadata-012.json",
+      "required_pdf_routes": [
+        "authoritative_landing",
+        "open_access",
+        "web_search"
+      ],
+      "status": "qualified"
+    },
+    "doi:10.5555/tunnel.2": {
+      "corroborating_signals": [],
+      "curation_notes": [
+        "Complete Chinese creator list could not be verified."
+      ],
+      "evidence": [
+        {
+          "facts": [
+            "identifier",
+            "original_title",
+            "publication_year"
+          ],
+          "role": "authoritative",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.001"
+        }
+      ],
+      "metadata": {
+        "alternateTitles": [
+          {
+            "language": "en",
+            "role": "translated",
+            "script": "Latn",
+            "value": "Intelligent Recognition of Tunnel Lining Defects"
+          }
+        ],
+        "creatorCompleteness": "incomplete",
+        "creators": [],
+        "fields": {
+          "date": "2024",
+          "language": "zh-CN",
+          "publicationTitle": "隧道工程学报",
+          "title": "隧道衬砌病害智能识别研究"
+        },
+        "identifiers": {
+          "doi": "10.5555/tunnel.2"
+        },
+        "itemType": "journalArticle",
+        "landingUrl": "https://doi.org/10.5555/tunnel.2",
+        "language": "zh-CN",
+        "script": "Hans",
+        "title": "隧道衬砌病害智能识别研究"
+      },
+      "needs_curation": true,
+      "payload_hash": "sha256:7b10171c8cfa256826e9e67329a1a151e83b0f2e88a75a76d60a083de99dd6af",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/metadata-002.json",
+      "required_pdf_routes": [
+        "authoritative_landing",
+        "open_access",
+        "web_search"
+      ],
+      "status": "qualified"
+    },
+    "doi:10.5555/tunnel.3": {
+      "corroborating_signals": [],
+      "curation_notes": [
+        "Complete Chinese creator list could not be verified."
+      ],
+      "evidence": [
+        {
+          "facts": [
+            "identifier",
+            "original_title",
+            "publication_year"
+          ],
+          "role": "authoritative",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.001"
+        }
+      ],
+      "metadata": {
+        "alternateTitles": [
+          {
+            "language": "en",
+            "role": "translated",
+            "script": "Latn",
+            "value": "Intelligent Recognition of Tunnel Lining Defects"
+          }
+        ],
+        "creatorCompleteness": "incomplete",
+        "creators": [],
+        "fields": {
+          "date": "2024",
+          "language": "zh-CN",
+          "publicationTitle": "隧道工程学报",
+          "title": "隧道衬砌病害智能识别研究"
+        },
+        "identifiers": {
+          "doi": "10.5555/tunnel.3"
+        },
+        "itemType": "journalArticle",
+        "landingUrl": "https://doi.org/10.5555/tunnel.3",
+        "language": "zh-CN",
+        "script": "Hans",
+        "title": "隧道衬砌病害智能识别研究"
+      },
+      "needs_curation": true,
+      "payload_hash": "sha256:26c1a41ba81fb6743bd1b65c5c498e9ea28f6bc936a749fbd6183507e81c6970",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/metadata-003.json",
+      "required_pdf_routes": [
+        "authoritative_landing",
+        "open_access",
+        "web_search"
+      ],
+      "status": "qualified"
+    },
+    "doi:10.5555/tunnel.4": {
+      "corroborating_signals": [],
+      "curation_notes": [
+        "Complete Chinese creator list could not be verified."
+      ],
+      "evidence": [
+        {
+          "facts": [
+            "identifier",
+            "original_title",
+            "publication_year"
+          ],
+          "role": "authoritative",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.001"
+        }
+      ],
+      "metadata": {
+        "alternateTitles": [
+          {
+            "language": "en",
+            "role": "translated",
+            "script": "Latn",
+            "value": "Intelligent Recognition of Tunnel Lining Defects"
+          }
+        ],
+        "creatorCompleteness": "incomplete",
+        "creators": [],
+        "fields": {
+          "date": "2024",
+          "language": "zh-CN",
+          "publicationTitle": "隧道工程学报",
+          "title": "隧道衬砌病害智能识别研究"
+        },
+        "identifiers": {
+          "doi": "10.5555/tunnel.4"
+        },
+        "itemType": "journalArticle",
+        "landingUrl": "https://doi.org/10.5555/tunnel.4",
+        "language": "zh-CN",
+        "script": "Hans",
+        "title": "隧道衬砌病害智能识别研究"
+      },
+      "needs_curation": true,
+      "payload_hash": "sha256:0bd4726f5e0824fd788ffa5c02161995ebe145c10a711ef04c6e22bb588525d2",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/metadata-004.json",
+      "required_pdf_routes": [
+        "authoritative_landing",
+        "open_access",
+        "web_search"
+      ],
+      "status": "qualified"
+    },
+    "doi:10.5555/tunnel.5": {
+      "corroborating_signals": [],
+      "curation_notes": [
+        "Complete Chinese creator list could not be verified."
+      ],
+      "evidence": [
+        {
+          "facts": [
+            "identifier",
+            "original_title",
+            "publication_year"
+          ],
+          "role": "authoritative",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.001"
+        }
+      ],
+      "metadata": {
+        "alternateTitles": [
+          {
+            "language": "en",
+            "role": "translated",
+            "script": "Latn",
+            "value": "Intelligent Recognition of Tunnel Lining Defects"
+          }
+        ],
+        "creatorCompleteness": "incomplete",
+        "creators": [],
+        "fields": {
+          "date": "2024",
+          "language": "zh-CN",
+          "publicationTitle": "隧道工程学报",
+          "title": "隧道衬砌病害智能识别研究"
+        },
+        "identifiers": {
+          "doi": "10.5555/tunnel.5"
+        },
+        "itemType": "journalArticle",
+        "landingUrl": "https://doi.org/10.5555/tunnel.5",
+        "language": "zh-CN",
+        "script": "Hans",
+        "title": "隧道衬砌病害智能识别研究"
+      },
+      "needs_curation": true,
+      "payload_hash": "sha256:83e1839225ebdd8dba1aba7b518c6279f865e1d985f4d0e019c0cfc806efb63b",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/metadata-005.json",
+      "required_pdf_routes": [
+        "authoritative_landing",
+        "open_access",
+        "web_search"
+      ],
+      "status": "qualified"
+    },
+    "doi:10.5555/tunnel.6": {
+      "corroborating_signals": [],
+      "curation_notes": [
+        "Complete Chinese creator list could not be verified."
+      ],
+      "evidence": [
+        {
+          "facts": [
+            "identifier",
+            "original_title",
+            "publication_year"
+          ],
+          "role": "authoritative",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.001"
+        }
+      ],
+      "metadata": {
+        "alternateTitles": [
+          {
+            "language": "en",
+            "role": "translated",
+            "script": "Latn",
+            "value": "Intelligent Recognition of Tunnel Lining Defects"
+          }
+        ],
+        "creatorCompleteness": "incomplete",
+        "creators": [],
+        "fields": {
+          "date": "2024",
+          "language": "zh-CN",
+          "publicationTitle": "隧道工程学报",
+          "title": "隧道衬砌病害智能识别研究 6"
+        },
+        "identifiers": {
+          "doi": "10.5555/tunnel.6"
+        },
+        "itemType": "journalArticle",
+        "landingUrl": "https://doi.org/10.5555/tunnel.6",
+        "language": "zh-CN",
+        "script": "Hans",
+        "title": "隧道衬砌病害智能识别研究 6"
+      },
+      "needs_curation": true,
+      "payload_hash": "sha256:781a659e005fe239470e23b2fe8b9d3c795674288d98c2d2fbcfd08f966952f8",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/metadata-006.json",
+      "required_pdf_routes": [
+        "authoritative_landing",
+        "open_access",
+        "web_search"
+      ],
+      "status": "qualified"
+    },
+    "doi:10.5555/tunnel.7": {
+      "corroborating_signals": [],
+      "curation_notes": [
+        "Complete Chinese creator list could not be verified."
+      ],
+      "evidence": [
+        {
+          "facts": [
+            "identifier",
+            "original_title",
+            "publication_year"
+          ],
+          "role": "authoritative",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.001"
+        }
+      ],
+      "metadata": {
+        "alternateTitles": [
+          {
+            "language": "en",
+            "role": "translated",
+            "script": "Latn",
+            "value": "Intelligent Recognition of Tunnel Lining Defects"
+          }
+        ],
+        "creatorCompleteness": "incomplete",
+        "creators": [],
+        "fields": {
+          "date": "2024",
+          "language": "zh-CN",
+          "publicationTitle": "隧道工程学报",
+          "title": "隧道衬砌病害智能识别研究 7"
+        },
+        "identifiers": {
+          "doi": "10.5555/tunnel.7"
+        },
+        "itemType": "journalArticle",
+        "landingUrl": "https://doi.org/10.5555/tunnel.7",
+        "language": "zh-CN",
+        "script": "Hans",
+        "title": "隧道衬砌病害智能识别研究 7"
+      },
+      "needs_curation": true,
+      "payload_hash": "sha256:77d0c999c34afffec20883f96cc7e35201154cc0cd4413ee14913a4d8c4c3261",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/metadata-007.json",
+      "required_pdf_routes": [
+        "authoritative_landing",
+        "open_access",
+        "web_search"
+      ],
+      "status": "qualified"
+    },
+    "doi:10.5555/tunnel.8": {
+      "corroborating_signals": [],
+      "curation_notes": [
+        "Complete Chinese creator list could not be verified."
+      ],
+      "evidence": [
+        {
+          "facts": [
+            "identifier",
+            "original_title",
+            "publication_year"
+          ],
+          "role": "authoritative",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.001"
+        }
+      ],
+      "metadata": {
+        "alternateTitles": [
+          {
+            "language": "en",
+            "role": "translated",
+            "script": "Latn",
+            "value": "Intelligent Recognition of Tunnel Lining Defects"
+          }
+        ],
+        "creatorCompleteness": "incomplete",
+        "creators": [],
+        "fields": {
+          "date": "2024",
+          "language": "zh-CN",
+          "publicationTitle": "隧道工程学报",
+          "title": "隧道衬砌病害智能识别研究 8"
+        },
+        "identifiers": {
+          "doi": "10.5555/tunnel.8"
+        },
+        "itemType": "journalArticle",
+        "landingUrl": "https://doi.org/10.5555/tunnel.8",
+        "language": "zh-CN",
+        "script": "Hans",
+        "title": "隧道衬砌病害智能识别研究 8"
+      },
+      "needs_curation": true,
+      "payload_hash": "sha256:142fdcf6fa1390172d52e48564c983720ca8da40312ae305aec0d62ce6b84db4",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/metadata-008.json",
+      "required_pdf_routes": [
+        "authoritative_landing",
+        "open_access",
+        "web_search"
+      ],
+      "status": "qualified"
+    },
+    "doi:10.5555/tunnel.9": {
+      "corroborating_signals": [],
+      "curation_notes": [
+        "Complete Chinese creator list could not be verified."
+      ],
+      "evidence": [
+        {
+          "facts": [
+            "identifier",
+            "original_title",
+            "publication_year"
+          ],
+          "role": "authoritative",
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.001"
+        }
+      ],
+      "metadata": {
+        "alternateTitles": [
+          {
+            "language": "en",
+            "role": "translated",
+            "script": "Latn",
+            "value": "Intelligent Recognition of Tunnel Lining Defects"
+          }
+        ],
+        "creatorCompleteness": "incomplete",
+        "creators": [],
+        "fields": {
+          "date": "2024",
+          "language": "zh-CN",
+          "publicationTitle": "隧道工程学报",
+          "title": "隧道衬砌病害智能识别研究 9"
+        },
+        "identifiers": {
+          "doi": "10.5555/tunnel.9"
+        },
+        "itemType": "journalArticle",
+        "landingUrl": "https://doi.org/10.5555/tunnel.9",
+        "language": "zh-CN",
+        "script": "Hans",
+        "title": "隧道衬砌病害智能识别研究 9"
+      },
+      "needs_curation": true,
+      "payload_hash": "sha256:6143f3d8786f7b83bea83d3c5d1ac81fca98fa0387de53bef8e6f55728d85409",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/metadata-009.json",
+      "required_pdf_routes": [
+        "authoritative_landing",
+        "open_access",
+        "web_search"
+      ],
+      "status": "qualified"
+    }
+  },
+  "parameter": {
+    "languageHints": [
+      "zh-CN"
+    ],
+    "query": "隧道衬砌病害智能识别",
+    "searchBreadth": "balanced",
+    "searchMode": "guided",
+    "targetCollection": ""
+  },
+  "pdf": {
+    "doi:10.5555/tunnel.1": {
+      "attempts": {
+        "authoritative_landing": {
+          "notes": "No public PDF link was exposed.",
+          "query_or_url": "https://doi.org/10.5555/tunnel.001",
+          "source": "DOI landing page",
+          "status": "not_found"
+        },
+        "open_access": {
+          "notes": "No matching repository copy was found.",
+          "query_or_url": "10.5555/tunnel.001",
+          "source": "Open-access indexes and repositories",
+          "status": "not_found"
+        },
+        "web_search": {
+          "notes": "Results were HTML landing pages.",
+          "query_or_url": "\"隧道衬砌病害智能识别研究\" filetype:pdf",
+          "source": "Public web search",
+          "status": "not_found"
+        }
+      },
+      "payload_hash": "sha256:36a0236a03a1cca9d126c0169c24d930d5d2e7d548d76b3419775d31b7df8ed5",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/pdf-probe-001.json",
+      "pdf_url": "",
+      "status": "missing"
+    },
+    "doi:10.5555/tunnel.10": {
+      "attempts": {
+        "authoritative_landing": {
+          "notes": "No public PDF link was exposed.",
+          "query_or_url": "https://doi.org/10.5555/tunnel.001",
+          "source": "DOI landing page",
+          "status": "not_found"
+        },
+        "open_access": {
+          "notes": "No matching repository copy was found.",
+          "query_or_url": "10.5555/tunnel.001",
+          "source": "Open-access indexes and repositories",
+          "status": "not_found"
+        },
+        "web_search": {
+          "notes": "Results were HTML landing pages.",
+          "query_or_url": "\"隧道衬砌病害智能识别研究\" filetype:pdf",
+          "source": "Public web search",
+          "status": "not_found"
+        }
+      },
+      "payload_hash": "sha256:36a0236a03a1cca9d126c0169c24d930d5d2e7d548d76b3419775d31b7df8ed5",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/pdf-probe-010.json",
+      "pdf_url": "",
+      "status": "missing"
+    },
+    "doi:10.5555/tunnel.11": {
+      "attempts": {
+        "authoritative_landing": {
+          "notes": "No public PDF link was exposed.",
+          "query_or_url": "https://doi.org/10.5555/tunnel.001",
+          "source": "DOI landing page",
+          "status": "not_found"
+        },
+        "open_access": {
+          "notes": "No matching repository copy was found.",
+          "query_or_url": "10.5555/tunnel.001",
+          "source": "Open-access indexes and repositories",
+          "status": "not_found"
+        },
+        "web_search": {
+          "notes": "Results were HTML landing pages.",
+          "query_or_url": "\"隧道衬砌病害智能识别研究\" filetype:pdf",
+          "source": "Public web search",
+          "status": "not_found"
+        }
+      },
+      "payload_hash": "sha256:36a0236a03a1cca9d126c0169c24d930d5d2e7d548d76b3419775d31b7df8ed5",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/pdf-probe-011.json",
+      "pdf_url": "",
+      "status": "missing"
+    },
+    "doi:10.5555/tunnel.12": {
+      "attempts": {
+        "authoritative_landing": {
+          "notes": "No public PDF link was exposed.",
+          "query_or_url": "https://doi.org/10.5555/tunnel.001",
+          "source": "DOI landing page",
+          "status": "not_found"
+        },
+        "open_access": {
+          "notes": "No matching repository copy was found.",
+          "query_or_url": "10.5555/tunnel.001",
+          "source": "Open-access indexes and repositories",
+          "status": "not_found"
+        },
+        "web_search": {
+          "notes": "Results were HTML landing pages.",
+          "query_or_url": "\"隧道衬砌病害智能识别研究\" filetype:pdf",
+          "source": "Public web search",
+          "status": "not_found"
+        }
+      },
+      "payload_hash": "sha256:36a0236a03a1cca9d126c0169c24d930d5d2e7d548d76b3419775d31b7df8ed5",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/pdf-probe-012.json",
+      "pdf_url": "",
+      "status": "missing"
+    },
+    "doi:10.5555/tunnel.2": {
+      "attempts": {
+        "authoritative_landing": {
+          "notes": "No public PDF link was exposed.",
+          "query_or_url": "https://doi.org/10.5555/tunnel.001",
+          "source": "DOI landing page",
+          "status": "not_found"
+        },
+        "open_access": {
+          "notes": "No matching repository copy was found.",
+          "query_or_url": "10.5555/tunnel.001",
+          "source": "Open-access indexes and repositories",
+          "status": "not_found"
+        },
+        "web_search": {
+          "notes": "Results were HTML landing pages.",
+          "query_or_url": "\"隧道衬砌病害智能识别研究\" filetype:pdf",
+          "source": "Public web search",
+          "status": "not_found"
+        }
+      },
+      "payload_hash": "sha256:36a0236a03a1cca9d126c0169c24d930d5d2e7d548d76b3419775d31b7df8ed5",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/pdf-probe-002.json",
+      "pdf_url": "",
+      "status": "missing"
+    },
+    "doi:10.5555/tunnel.3": {
+      "attempts": {
+        "authoritative_landing": {
+          "notes": "No public PDF link was exposed.",
+          "query_or_url": "https://doi.org/10.5555/tunnel.001",
+          "source": "DOI landing page",
+          "status": "not_found"
+        },
+        "open_access": {
+          "notes": "No matching repository copy was found.",
+          "query_or_url": "10.5555/tunnel.001",
+          "source": "Open-access indexes and repositories",
+          "status": "not_found"
+        },
+        "web_search": {
+          "notes": "Results were HTML landing pages.",
+          "query_or_url": "\"隧道衬砌病害智能识别研究\" filetype:pdf",
+          "source": "Public web search",
+          "status": "not_found"
+        }
+      },
+      "payload_hash": "sha256:36a0236a03a1cca9d126c0169c24d930d5d2e7d548d76b3419775d31b7df8ed5",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/pdf-probe-003.json",
+      "pdf_url": "",
+      "status": "missing"
+    },
+    "doi:10.5555/tunnel.4": {
+      "attempts": {
+        "authoritative_landing": {
+          "notes": "No public PDF link was exposed.",
+          "query_or_url": "https://doi.org/10.5555/tunnel.001",
+          "source": "DOI landing page",
+          "status": "not_found"
+        },
+        "open_access": {
+          "notes": "No matching repository copy was found.",
+          "query_or_url": "10.5555/tunnel.001",
+          "source": "Open-access indexes and repositories",
+          "status": "not_found"
+        },
+        "web_search": {
+          "notes": "Results were HTML landing pages.",
+          "query_or_url": "\"隧道衬砌病害智能识别研究\" filetype:pdf",
+          "source": "Public web search",
+          "status": "not_found"
+        }
+      },
+      "payload_hash": "sha256:36a0236a03a1cca9d126c0169c24d930d5d2e7d548d76b3419775d31b7df8ed5",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/pdf-probe-004.json",
+      "pdf_url": "",
+      "status": "missing"
+    },
+    "doi:10.5555/tunnel.5": {
+      "attempts": {
+        "authoritative_landing": {
+          "notes": "No public PDF link was exposed.",
+          "query_or_url": "https://doi.org/10.5555/tunnel.001",
+          "source": "DOI landing page",
+          "status": "not_found"
+        },
+        "open_access": {
+          "notes": "No matching repository copy was found.",
+          "query_or_url": "10.5555/tunnel.001",
+          "source": "Open-access indexes and repositories",
+          "status": "not_found"
+        },
+        "web_search": {
+          "notes": "Results were HTML landing pages.",
+          "query_or_url": "\"隧道衬砌病害智能识别研究\" filetype:pdf",
+          "source": "Public web search",
+          "status": "not_found"
+        }
+      },
+      "payload_hash": "sha256:36a0236a03a1cca9d126c0169c24d930d5d2e7d548d76b3419775d31b7df8ed5",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/pdf-probe-005.json",
+      "pdf_url": "",
+      "status": "missing"
+    },
+    "doi:10.5555/tunnel.6": {
+      "attempts": {
+        "authoritative_landing": {
+          "notes": "No public PDF link was exposed.",
+          "query_or_url": "https://doi.org/10.5555/tunnel.001",
+          "source": "DOI landing page",
+          "status": "not_found"
+        },
+        "open_access": {
+          "notes": "No matching repository copy was found.",
+          "query_or_url": "10.5555/tunnel.001",
+          "source": "Open-access indexes and repositories",
+          "status": "not_found"
+        },
+        "web_search": {
+          "notes": "Results were HTML landing pages.",
+          "query_or_url": "\"隧道衬砌病害智能识别研究\" filetype:pdf",
+          "source": "Public web search",
+          "status": "not_found"
+        }
+      },
+      "payload_hash": "sha256:36a0236a03a1cca9d126c0169c24d930d5d2e7d548d76b3419775d31b7df8ed5",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/pdf-probe-006.json",
+      "pdf_url": "",
+      "status": "missing"
+    },
+    "doi:10.5555/tunnel.7": {
+      "attempts": {
+        "authoritative_landing": {
+          "notes": "No public PDF link was exposed.",
+          "query_or_url": "https://doi.org/10.5555/tunnel.001",
+          "source": "DOI landing page",
+          "status": "not_found"
+        },
+        "open_access": {
+          "notes": "No matching repository copy was found.",
+          "query_or_url": "10.5555/tunnel.001",
+          "source": "Open-access indexes and repositories",
+          "status": "not_found"
+        },
+        "web_search": {
+          "notes": "Results were HTML landing pages.",
+          "query_or_url": "\"隧道衬砌病害智能识别研究\" filetype:pdf",
+          "source": "Public web search",
+          "status": "not_found"
+        }
+      },
+      "payload_hash": "sha256:36a0236a03a1cca9d126c0169c24d930d5d2e7d548d76b3419775d31b7df8ed5",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/pdf-probe-007.json",
+      "pdf_url": "",
+      "status": "missing"
+    },
+    "doi:10.5555/tunnel.8": {
+      "attempts": {
+        "authoritative_landing": {
+          "notes": "No public PDF link was exposed.",
+          "query_or_url": "https://doi.org/10.5555/tunnel.001",
+          "source": "DOI landing page",
+          "status": "not_found"
+        },
+        "open_access": {
+          "notes": "No matching repository copy was found.",
+          "query_or_url": "10.5555/tunnel.001",
+          "source": "Open-access indexes and repositories",
+          "status": "not_found"
+        },
+        "web_search": {
+          "notes": "Results were HTML landing pages.",
+          "query_or_url": "\"隧道衬砌病害智能识别研究\" filetype:pdf",
+          "source": "Public web search",
+          "status": "not_found"
+        }
+      },
+      "payload_hash": "sha256:36a0236a03a1cca9d126c0169c24d930d5d2e7d548d76b3419775d31b7df8ed5",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/pdf-probe-008.json",
+      "pdf_url": "",
+      "status": "missing"
+    },
+    "doi:10.5555/tunnel.9": {
+      "attempts": {
+        "authoritative_landing": {
+          "notes": "No public PDF link was exposed.",
+          "query_or_url": "https://doi.org/10.5555/tunnel.001",
+          "source": "DOI landing page",
+          "status": "not_found"
+        },
+        "open_access": {
+          "notes": "No matching repository copy was found.",
+          "query_or_url": "10.5555/tunnel.001",
+          "source": "Open-access indexes and repositories",
+          "status": "not_found"
+        },
+        "web_search": {
+          "notes": "Results were HTML landing pages.",
+          "query_or_url": "\"隧道衬砌病害智能识别研究\" filetype:pdf",
+          "source": "Public web search",
+          "status": "not_found"
+        }
+      },
+      "payload_hash": "sha256:36a0236a03a1cca9d126c0169c24d930d5d2e7d548d76b3419775d31b7df8ed5",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/pdf-probe-009.json",
+      "pdf_url": "",
+      "status": "missing"
+    }
+  },
+  "plan": {
+    "batch_size": 20,
+    "breadth": "balanced",
+    "candidate_policy": {
+      "material_conflict": "keep_separate",
+      "tiers": [
+        "ready",
+        "needs_curation",
+        "lead_only"
+      ]
+    },
+    "discipline_or_application": "土木基础设施智能检测",
+    "exclusion_criteria": [
+      "仅介绍通用目标检测且无隧道场景"
+    ],
+    "inclusion_criteria": [
+      "研究对象为隧道衬砌病害"
+    ],
+    "local_coverage": {
+      "existing_identifiers": [],
+      "gaps": [
+        "中文学位论文与工程应用研究"
+      ],
+      "reusable_seed_refs": [],
+      "summary": "本地库覆盖通用视觉检测，但缺少隧道衬砌专题。"
+    },
+    "objective": "查找隧道衬砌病害智能识别研究",
+    "pdf_policy": "three_route_public_identity_matched",
+    "query_lanes": [
+      {
+        "lane": "core",
+        "queries": [
+          "隧道衬砌 病害 智能识别"
+        ],
+        "rationale": "覆盖研究对象、问题与方法。"
+      },
+      {
+        "lane": "multilingual",
+        "queries": [
+          "tunnel lining defect intelligent recognition"
+        ],
+        "rationale": "补充英文表达与跨语言索引。"
+      }
+    ],
+    "scope": {
+      "date_range": "2018-present",
+      "language_hints": [
+        "zh-CN",
+        "en"
+      ],
+      "literature_types": [
+        "journalArticle",
+        "thesis"
+      ],
+      "regions": [
+        "China"
+      ]
+    },
+    "search_mode": "guided",
+    "seed_artifacts": [],
+    "source_lanes": [
+      {
+        "fallback_sources": [
+          "Crossref",
+          "institutional repositories"
+        ],
+        "purpose": "发现中文期刊记录",
+        "source": "China DOI"
+      }
+    ],
+    "stop_conditions": [
+      "适用来源不再产生新的高相关候选"
+    ]
+  },
+  "prepared": {
+    "doi:10.5555/tunnel.1": {
+      "payload_hash": "sha256:d007d93ee0efd5026609866021a19eea67309d82931ece7b70284a3866db0709",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/ingest-paper-001.json"
+    },
+    "doi:10.5555/tunnel.10": {
+      "payload_hash": "sha256:0165b30d4e54c704d403ff5aaba1f1559ad9819f0ff6022ece0dc56c18bef0a6",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/ingest-paper-010.json"
+    },
+    "doi:10.5555/tunnel.11": {
+      "payload_hash": "sha256:494217217e0d9f8cee21161db1d28cc8022396a56ae10a1f7b21761fc4175d30",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/ingest-paper-011.json"
+    },
+    "doi:10.5555/tunnel.12": {
+      "payload_hash": "sha256:b6ad458368d51d236f3d36a69508e6324f2bf1ac2f5e345779f8e080f122953e",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/ingest-paper-012.json"
+    },
+    "doi:10.5555/tunnel.2": {
+      "payload_hash": "sha256:f74a366a8fcdf2ff273ef9fec6f540a32884c84a9003c62c3652ad2b5e816c37",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/ingest-paper-002.json"
+    },
+    "doi:10.5555/tunnel.3": {
+      "payload_hash": "sha256:a9ac73bbf46bd4440223da86d08f065ed30b655b7ff2f71508c433fac702d1f7",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/ingest-paper-003.json"
+    },
+    "doi:10.5555/tunnel.4": {
+      "payload_hash": "sha256:aa4247202f48a2183616006c5d86a23518d546c6a8b5892726c80817764b9621",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/ingest-paper-004.json"
+    },
+    "doi:10.5555/tunnel.5": {
+      "payload_hash": "sha256:ca57a7b7c96f6de9c4c46841fb623e81aea5195326fbae374aa3206b2a952692",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/ingest-paper-005.json"
+    },
+    "doi:10.5555/tunnel.6": {
+      "payload_hash": "sha256:2333a6b2c7ab4e379b377d79406f6ee77b52f7d7a33a39b1bf24059787300cce",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/ingest-paper-006.json"
+    },
+    "doi:10.5555/tunnel.7": {
+      "payload_hash": "sha256:9758d798f52d8f67ce8da4a77630036a5ecbf273685c56c9330ca4f18ab5d99e",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/ingest-paper-007.json"
+    },
+    "doi:10.5555/tunnel.8": {
+      "payload_hash": "sha256:eb1e6108ab71b8ab0e238b5f3e5060dc4138bf9ffd3ed0ebf98c8268768e0cf4",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/ingest-paper-008.json"
+    },
+    "doi:10.5555/tunnel.9": {
+      "payload_hash": "sha256:79510d701f8b74cb1895dc1bc32fa71b793336289e47a2adcd0c95d220c05189",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-LYlBs1/runtime/payloads/ingest-paper-009.json"
+    }
+  },
+  "receipts": {},
+  "schema_version": 1,
+  "scope_approved": true,
+  "search_plan_approved": true,
+  "stage": "stage_70_ingest",
+  "status": "running"
+}

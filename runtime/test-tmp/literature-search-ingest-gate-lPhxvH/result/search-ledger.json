@@ -1,0 +1,53 @@
+{
+  "approved_candidate_ids": [
+    "doi:10.5555/tunnel.001"
+  ],
+  "breadth": "balanced",
+  "cancellation": {},
+  "candidate_ids": [
+    "doi:10.5555/tunnel.001"
+  ],
+  "candidate_results": [
+    {
+      "candidate_id": "doi:10.5555/tunnel.001",
+      "ingest_status": "not_attempted",
+      "item_id": 0,
+      "metadata_payload_hash": "sha256:c395714c2f15a07af0fbb73d6708ac3b123b67211ff0efd2852caaf766b9994d",
+      "metadata_payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-lPhxvH/runtime/payloads/metadata-001.json",
+      "metadata_reason": "material_conflict_unresolved",
+      "metadata_status": "not_attempted",
+      "needs_curation": false,
+      "pdf_payload_hash": "",
+      "pdf_payload_path": "",
+      "pdf_status": "skipped",
+      "prepared_payload_hash": "",
+      "prepared_payload_path": "",
+      "receipt_hash": "",
+      "receipt_path": "",
+      "title": "隧道衬砌病害智能识别研究"
+    }
+  ],
+  "discovery_rounds": [
+    {
+      "added_candidate_ids": [
+        "doi:10.5555/tunnel.001"
+      ],
+      "discovery_round": 1,
+      "merged_candidate_ids": [],
+      "payload_hash": "sha256:30602bc6aa73470c11fbae1c6a262f88e5533d84346cbac7038891449f438be4",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-lPhxvH/runtime/payloads/discovery-round-001.json",
+      "query_attempt_count": 1,
+      "source_failure_count": 0,
+      "source_record_count": 1,
+      "stop_reason": "all_applicable_lanes_completed",
+      "uncovered_gaps": [],
+      "unique_candidate_count": 1,
+      "unresolved_conflict_count": 0
+    }
+  ],
+  "excluded_candidate_ids": [],
+  "input_hash": "sha256:b6513c0a16d777f0c4b83d312620bf1b7f806f6f5f009d0d36293337560736a3",
+  "kind": "literature_search_ingest_ledger",
+  "search_mode": "guided",
+  "status": "completed"
+}

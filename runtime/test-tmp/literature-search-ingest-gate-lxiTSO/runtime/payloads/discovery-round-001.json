@@ -1,0 +1,400 @@
+{
+  "query_attempts": [
+    {
+      "lane": "core",
+      "query": "隧道衬砌 病害 智能识别",
+      "source": "China DOI",
+      "status": "completed",
+      "result_count": 12,
+      "message": "Inspected the returned source records."
+    }
+  ],
+  "candidates": [
+    {
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 1",
+      "alternate_titles": [],
+      "creators_display": [
+        "张三"
+      ],
+      "year": "2024",
+      "container": "隧道工程学报",
+      "original_language": "zh-CN",
+      "material_version": "journal_article",
+      "identifiers": {
+        "doi": "10.5555/tunnel.1"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.1",
+      "discovery_sources": [
+        {
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.1",
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "facts": [
+            "original_title",
+            "publication_year"
+          ]
+        }
+      ],
+      "matching_notes": [],
+      "library_note": "No exact local duplicate found.",
+      "missing_fields": [],
+      "recommendation_reason": "与研究目标直接相关。"
+    },
+    {
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 2",
+      "alternate_titles": [],
+      "creators_display": [
+        "张三"
+      ],
+      "year": "2024",
+      "container": "隧道工程学报",
+      "original_language": "zh-CN",
+      "material_version": "journal_article",
+      "identifiers": {
+        "doi": "10.5555/tunnel.2"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.2",
+      "discovery_sources": [
+        {
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.2",
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "facts": [
+            "original_title",
+            "publication_year"
+          ]
+        }
+      ],
+      "matching_notes": [],
+      "library_note": "No exact local duplicate found.",
+      "missing_fields": [],
+      "recommendation_reason": "与研究目标直接相关。"
+    },
+    {
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 3",
+      "alternate_titles": [],
+      "creators_display": [
+        "张三"
+      ],
+      "year": "2024",
+      "container": "隧道工程学报",
+      "original_language": "zh-CN",
+      "material_version": "journal_article",
+      "identifiers": {
+        "doi": "10.5555/tunnel.3"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.3",
+      "discovery_sources": [
+        {
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.3",
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "facts": [
+            "original_title",
+            "publication_year"
+          ]
+        }
+      ],
+      "matching_notes": [],
+      "library_note": "No exact local duplicate found.",
+      "missing_fields": [],
+      "recommendation_reason": "与研究目标直接相关。"
+    },
+    {
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 4",
+      "alternate_titles": [],
+      "creators_display": [
+        "张三"
+      ],
+      "year": "2024",
+      "container": "隧道工程学报",
+      "original_language": "zh-CN",
+      "material_version": "journal_article",
+      "identifiers": {
+        "doi": "10.5555/tunnel.4"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.4",
+      "discovery_sources": [
+        {
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.4",
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "facts": [
+            "original_title",
+            "publication_year"
+          ]
+        }
+      ],
+      "matching_notes": [],
+      "library_note": "No exact local duplicate found.",
+      "missing_fields": [],
+      "recommendation_reason": "与研究目标直接相关。"
+    },
+    {
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 5",
+      "alternate_titles": [],
+      "creators_display": [
+        "张三"
+      ],
+      "year": "2024",
+      "container": "隧道工程学报",
+      "original_language": "zh-CN",
+      "material_version": "journal_article",
+      "identifiers": {
+        "doi": "10.5555/tunnel.5"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.5",
+      "discovery_sources": [
+        {
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.5",
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "facts": [
+            "original_title",
+            "publication_year"
+          ]
+        }
+      ],
+      "matching_notes": [],
+      "library_note": "No exact local duplicate found.",
+      "missing_fields": [],
+      "recommendation_reason": "与研究目标直接相关。"
+    },
+    {
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 6",
+      "alternate_titles": [],
+      "creators_display": [
+        "张三"
+      ],
+      "year": "2024",
+      "container": "隧道工程学报",
+      "original_language": "zh-CN",
+      "material_version": "journal_article",
+      "identifiers": {
+        "doi": "10.5555/tunnel.6"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.6",
+      "discovery_sources": [
+        {
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.6",
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "facts": [
+            "original_title",
+            "publication_year"
+          ]
+        }
+      ],
+      "matching_notes": [],
+      "library_note": "No exact local duplicate found.",
+      "missing_fields": [],
+      "recommendation_reason": "与研究目标直接相关。"
+    },
+    {
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 7",
+      "alternate_titles": [],
+      "creators_display": [
+        "张三"
+      ],
+      "year": "2024",
+      "container": "隧道工程学报",
+      "original_language": "zh-CN",
+      "material_version": "journal_article",
+      "identifiers": {
+        "doi": "10.5555/tunnel.7"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.7",
+      "discovery_sources": [
+        {
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.7",
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "facts": [
+            "original_title",
+            "publication_year"
+          ]
+        }
+      ],
+      "matching_notes": [],
+      "library_note": "No exact local duplicate found.",
+      "missing_fields": [],
+      "recommendation_reason": "与研究目标直接相关。"
+    },
+    {
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 8",
+      "alternate_titles": [],
+      "creators_display": [
+        "张三"
+      ],
+      "year": "2024",
+      "container": "隧道工程学报",
+      "original_language": "zh-CN",
+      "material_version": "journal_article",
+      "identifiers": {
+        "doi": "10.5555/tunnel.8"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.8",
+      "discovery_sources": [
+        {
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.8",
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "facts": [
+            "original_title",
+            "publication_year"
+          ]
+        }
+      ],
+      "matching_notes": [],
+      "library_note": "No exact local duplicate found.",
+      "missing_fields": [],
+      "recommendation_reason": "与研究目标直接相关。"
+    },
+    {
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 9",
+      "alternate_titles": [],
+      "creators_display": [
+        "张三"
+      ],
+      "year": "2024",
+      "container": "隧道工程学报",
+      "original_language": "zh-CN",
+      "material_version": "journal_article",
+      "identifiers": {
+        "doi": "10.5555/tunnel.9"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.9",
+      "discovery_sources": [
+        {
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.9",
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "facts": [
+            "original_title",
+            "publication_year"
+          ]
+        }
+      ],
+      "matching_notes": [],
+      "library_note": "No exact local duplicate found.",
+      "missing_fields": [],
+      "recommendation_reason": "与研究目标直接相关。"
+    },
+    {
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 10",
+      "alternate_titles": [],
+      "creators_display": [
+        "张三"
+      ],
+      "year": "2024",
+      "container": "隧道工程学报",
+      "original_language": "zh-CN",
+      "material_version": "journal_article",
+      "identifiers": {
+        "doi": "10.5555/tunnel.10"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.10",
+      "discovery_sources": [
+        {
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.10",
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "facts": [
+            "original_title",
+            "publication_year"
+          ]
+        }
+      ],
+      "matching_notes": [],
+      "library_note": "No exact local duplicate found.",
+      "missing_fields": [],
+      "recommendation_reason": "与研究目标直接相关。"
+    },
+    {
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 11",
+      "alternate_titles": [],
+      "creators_display": [
+        "张三"
+      ],
+      "year": "2024",
+      "container": "隧道工程学报",
+      "original_language": "zh-CN",
+      "material_version": "journal_article",
+      "identifiers": {
+        "doi": "10.5555/tunnel.11"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.11",
+      "discovery_sources": [
+        {
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.11",
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "facts": [
+            "original_title",
+            "publication_year"
+          ]
+        }
+      ],
+      "matching_notes": [],
+      "library_note": "No exact local duplicate found.",
+      "missing_fields": [],
+      "recommendation_reason": "与研究目标直接相关。"
+    },
+    {
+      "tier": "ready",
+      "title": "隧道衬砌病害智能识别研究 12",
+      "alternate_titles": [],
+      "creators_display": [
+        "张三"
+      ],
+      "year": "2024",
+      "container": "隧道工程学报",
+      "original_language": "zh-CN",
+      "material_version": "journal_article",
+      "identifiers": {
+        "doi": "10.5555/tunnel.12"
+      },
+      "landing_url": "https://doi.org/10.5555/tunnel.12",
+      "discovery_sources": [
+        {
+          "source": "China DOI",
+          "url": "https://doi.org/10.5555/tunnel.12",
+          "lane": "core",
+          "reason": "The source exposes the original title and publication year.",
+          "facts": [
+            "original_title",
+            "publication_year"
+          ]
+        }
+      ],
+      "matching_notes": [],
+      "library_note": "No exact local duplicate found.",
+      "missing_fields": [],
+      "recommendation_reason": "与研究目标直接相关。"
+    }
+  ],
+  "uncovered_gaps": [],
+  "stop_reason": "all_applicable_lanes_completed"
+}

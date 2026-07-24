@@ -8,7 +8,8 @@
     { "$ref": "#/$defs/scopeApprovePayload" },
     { "$ref": "#/$defs/scopeExpandPayload" },
     { "$ref": "#/$defs/metadataPayload" },
-    { "$ref": "#/$defs/pdfPayload" }
+    { "$ref": "#/$defs/pdfPayload" },
+    { "$ref": "#/$defs/researchReviewPayload" }
   ],
   "$defs": {
     "nonEmptyString": {
@@ -491,10 +492,7 @@
               "type": "array",
               "items": { "$ref": "#/$defs/alternateTitle" }
             },
-            "fields": {
-              "type": "object",
-              "additionalProperties": { "type": "string" }
-            },
+            "fields": { "$ref": "#/$defs/metadataFields" },
             "creatorCompleteness": {
               "type": "string",
               "enum": ["complete", "incomplete"]
@@ -571,6 +569,121 @@
         }
       ]
     },
+    "metadataFields": {
+      "type": "object",
+      "properties": {
+        "abstractNote": { "type": "string" },
+        "accessDate": { "type": "string" },
+        "applicationNumber": { "type": "string" },
+        "archive": { "type": "string" },
+        "archiveID": { "type": "string" },
+        "archiveLocation": { "type": "string" },
+        "artworkMedium": { "type": "string" },
+        "artworkSize": { "type": "string" },
+        "assignee": { "type": "string" },
+        "audioFileType": { "type": "string" },
+        "audioRecordingFormat": { "type": "string" },
+        "billNumber": { "type": "string" },
+        "blogTitle": { "type": "string" },
+        "bookTitle": { "type": "string" },
+        "callNumber": { "type": "string" },
+        "caseName": { "type": "string" },
+        "citationKey": { "type": "string" },
+        "code": { "type": "string" },
+        "codeNumber": { "type": "string" },
+        "codePages": { "type": "string" },
+        "codeVolume": { "type": "string" },
+        "committee": { "type": "string" },
+        "company": { "type": "string" },
+        "conferenceName": { "type": "string" },
+        "country": { "type": "string" },
+        "court": { "type": "string" },
+        "date": { "type": "string" },
+        "dateDecided": { "type": "string" },
+        "dateEnacted": { "type": "string" },
+        "dictionaryTitle": { "type": "string" },
+        "distributor": { "type": "string" },
+        "docketNumber": { "type": "string" },
+        "documentNumber": { "type": "string" },
+        "edition": { "type": "string" },
+        "encyclopediaTitle": { "type": "string" },
+        "episodeNumber": { "type": "string" },
+        "eventDate": { "type": "string" },
+        "filingDate": { "type": "string" },
+        "firstPage": { "type": "string" },
+        "format": { "type": "string" },
+        "forumTitle": { "type": "string" },
+        "genre": { "type": "string" },
+        "history": { "type": "string" },
+        "institution": { "type": "string" },
+        "interviewMedium": { "type": "string" },
+        "issue": { "type": "string" },
+        "issueDate": { "type": "string" },
+        "issueTitle": { "type": "string" },
+        "ISSN": { "type": "string" },
+        "issuingAuthority": { "type": "string" },
+        "journalAbbreviation": { "type": "string" },
+        "label": { "type": "string" },
+        "legalStatus": { "type": "string" },
+        "legislativeBody": { "type": "string" },
+        "letterType": { "type": "string" },
+        "language": { "type": "string" },
+        "libraryCatalog": { "type": "string" },
+        "locInArchive": { "type": "string" },
+        "manuscriptType": { "type": "string" },
+        "mapType": { "type": "string" },
+        "medium": { "type": "string" },
+        "meetingName": { "type": "string" },
+        "nameOfAct": { "type": "string" },
+        "network": { "type": "string" },
+        "numPages": { "type": "string" },
+        "number": { "type": "string" },
+        "numberOfVolumes": { "type": "string" },
+        "pages": { "type": "string" },
+        "patentNumber": { "type": "string" },
+        "place": { "type": "string" },
+        "podcastTitle": { "type": "string" },
+        "postType": { "type": "string" },
+        "presentationType": { "type": "string" },
+        "priorityNumbers": { "type": "string" },
+        "proceedingsTitle": { "type": "string" },
+        "programTitle": { "type": "string" },
+        "programmingLanguage": { "type": "string" },
+        "publicationTitle": { "type": "string" },
+        "publicLawNumber": { "type": "string" },
+        "publisher": { "type": "string" },
+        "references": { "type": "string" },
+        "repository": { "type": "string" },
+        "reportNumber": { "type": "string" },
+        "reportType": { "type": "string" },
+        "reporter": { "type": "string" },
+        "reporterVolume": { "type": "string" },
+        "rights": { "type": "string" },
+        "runningTime": { "type": "string" },
+        "scale": { "type": "string" },
+        "section": { "type": "string" },
+        "series": { "type": "string" },
+        "seriesNumber": { "type": "string" },
+        "seriesText": { "type": "string" },
+        "seriesTitle": { "type": "string" },
+        "session": { "type": "string" },
+        "shortTitle": { "type": "string" },
+        "studio": { "type": "string" },
+        "subject": { "type": "string" },
+        "system": { "type": "string" },
+        "thesisType": { "type": "string" },
+        "type": { "type": "string" },
+        "university": { "type": "string" },
+        "url": { "type": "string" },
+        "version": { "type": "string" },
+        "versionNumber": { "type": "string" },
+        "videoRecordingFormat": { "type": "string" },
+        "volume": { "type": "string" },
+        "websiteTitle": { "type": "string" },
+        "websiteType": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
     "notAttemptedMetadataPayload": {
       "type": "object",
       "required": ["status", "reason", "message", "evidence"],
@@ -620,7 +733,8 @@
             "restricted",
             "unavailable",
             "mismatch",
-            "error"
+            "error",
+            "skipped_after_verified_pdf"
           ]
         },
         "notes": { "type": "string" }
@@ -706,6 +820,25 @@
               "status": "not_found",
               "notes": ""
             }
+          }
+        }
+      ]
+    },
+    "researchReviewPayload": {
+      "type": "object",
+      "required": ["metadata"],
+      "properties": {
+        "metadata": { "$ref": "#/$defs/metadataPayload" },
+        "pdf": { "$ref": "#/$defs/pdfPayload" }
+      },
+      "additionalProperties": false,
+      "examples": [
+        {
+          "metadata": {
+            "status": "not_attempted",
+            "reason": "identity_not_verified",
+            "message": "The bounded search did not verify the direct work.",
+            "evidence": []
           }
         }
       ]

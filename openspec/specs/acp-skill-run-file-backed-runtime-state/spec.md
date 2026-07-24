@@ -381,12 +381,21 @@ ACP Skills SHALL use the same generation-scoped Shell retention, shared child FI
 
 ### Requirement: Skills publication count is display-projected
 
-ACP Skills SHALL keep raw run transcript counts inside its domain store and SHALL expose `totalVisibleItemCount` to Workspace only through the selected display projection. Snapshot and delta metadata SHALL use the same projected count.
+ACP Skills SHALL keep raw run transcript counts inside its domain store and SHALL expose `totalVisibleItemCount` to Workspace only through the selected display projection. Snapshot and delta metadata SHALL use the same projected count. Cold indexed transcript store reads SHALL apply the same UI-visibility projection as mirror reads before a page is published, so display-hidden streaming items never enter a Workspace page or its count.
 
 #### Scenario: Skills holds boundary text
 
 - **WHEN** a Skills assistant chunk is stored but not yet UI-visible
 - **THEN** the Workspace visible count remains unchanged until release.
+
+#### Scenario: Cold store read in boundary mode hides streaming items
+
+- **GIVEN** a Skills run has a durable transcript whose full mirror is not loaded
+- **AND** the transcript contains an in-flight streaming assistant message
+- **WHEN** the Workspace reads the run's transcript page in boundary display mode
+- **THEN** the streaming message SHALL NOT appear in the published page items
+- **AND** `totalVisibleItemCount` SHALL count only UI-visible items
+- **AND** a live-mode read of the same transcript SHALL include the streaming message.
 
 ### Requirement: Skills ordinary progress uses shared message counts
 
@@ -507,3 +516,28 @@ the complete derived index once per event.
 #### Scenario: UTF-8 content crosses a scan boundary
 - **WHEN** a JSONL line or multi-byte character crosses a physical read boundary or the final line has no newline
 - **THEN** recovery SHALL preserve exact UTF-8 byte offsets and parse the complete logical line once.
+
+### Requirement: ACP Skills Workspace restores an implicit foreground owner
+
+When the ACP Skills Workspace resolves owner navigation or the selected owner and the explicit selection is empty or points at a removed or archived run, the store SHALL select the most recent non-archived run as an implicit selection through the same domain operation as an explicit selection, including its `selection` change emission. Direct reads of the explicit selection SSOT SHALL remain unchanged, and an explicit empty selection SHALL stay empty until the Workspace surface resolves an owner.
+
+#### Scenario: First Workspace open selects the most recent run
+
+- **GIVEN** ACP Skills has at least one non-archived run
+- **AND** the current selection is empty after a restart
+- **WHEN** the Assistant Workspace resolves the ACP Skills owner navigation or selected owner
+- **THEN** the most recent non-archived run SHALL become the selected owner
+- **AND** its transcript initialization SHALL proceed owner-first without a manual run or window switch.
+
+#### Scenario: Live explicit selection is not overridden
+
+- **GIVEN** the current selection points at an existing non-archived run
+- **WHEN** the Workspace resolves the selected owner
+- **THEN** the explicit selection SHALL be preserved.
+
+#### Scenario: No runs leaves an empty selection
+
+- **GIVEN** ACP Skills has no non-archived run
+- **WHEN** the Workspace resolves the selected owner
+- **THEN** the selection SHALL remain empty
+- **AND** the initialization SHALL publish the unowned idle transcript.

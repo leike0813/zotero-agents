@@ -1,0 +1,67 @@
+{
+  "decision": "approve",
+  "plan": {
+    "search_mode": "guided",
+    "objective": "查找隧道衬砌病害智能识别研究",
+    "discipline_or_application": "土木基础设施智能检测",
+    "scope": {
+      "date_range": "2018-present",
+      "language_hints": [
+        "zh-CN",
+        "en"
+      ],
+      "literature_types": [
+        "journalArticle",
+        "thesis"
+      ],
+      "regions": [
+        "China"
+      ]
+    },
+    "local_coverage": {
+      "summary": "本地库覆盖通用视觉检测，但缺少隧道衬砌专题。",
+      "existing_identifiers": [],
+      "reusable_seed_refs": [],
+      "gaps": [
+        "中文学位论文与工程应用研究"
+      ]
+    },
+    "seed_artifacts": [],
+    "query_lanes": [
+      {
+        "lane": "core",
+        "queries": [
+          "隧道衬砌 病害 智能识别"
+        ],
+        "rationale": "覆盖研究对象、问题与方法。"
+      },
+      {
+        "lane": "multilingual",
+        "queries": [
+          "tunnel lining defect intelligent recognition"
+        ],
+        "rationale": "补充英文表达与跨语言索引。"
+      }
+    ],
+    "source_lanes": [
+      {
+        "source": "China DOI",
+        "purpose": "发现中文期刊记录",
+        "fallback_sources": [
+          "Crossref",
+          "institutional repositories"
+        ]
+      }
+    ],
+    "inclusion_criteria": [
+      "研究对象为隧道衬砌病害"
+    ],
+    "exclusion_criteria": [
+      "仅介绍通用目标检测且无隧道场景"
+    ],
+    "batch_size": 20,
+    "stop_conditions": [
+      "适用来源不再产生新的高相关候选"
+    ]
+  }
+}

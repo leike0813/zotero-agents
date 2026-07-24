@@ -1,0 +1,11 @@
+{
+  "parameter": {
+    "query": "隧道衬砌病害智能识别",
+    "searchMode": "guided",
+    "searchBreadth": "balanced",
+    "languageHints": [
+      "zh-CN"
+    ],
+    "targetCollection": "Research/Infrastructure AI"
+  }
+}

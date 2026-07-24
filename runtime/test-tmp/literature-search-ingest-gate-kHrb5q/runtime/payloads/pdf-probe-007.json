@@ -1,0 +1,22 @@
+{
+  "attempts": {
+    "authoritative_landing": {
+      "notes": "No public PDF link was exposed.",
+      "query_or_url": "https://doi.org/10.5555/tunnel.001",
+      "source": "DOI landing page",
+      "status": "not_found"
+    },
+    "open_access": {
+      "notes": "No matching repository copy was found.",
+      "query_or_url": "10.5555/tunnel.001",
+      "source": "Open-access indexes and repositories",
+      "status": "not_found"
+    },
+    "web_search": {
+      "notes": "Results were HTML landing pages.",
+      "query_or_url": "\"隧道衬砌病害智能识别研究\" filetype:pdf",
+      "source": "Public web search",
+      "status": "not_found"
+    }
+  }
+}

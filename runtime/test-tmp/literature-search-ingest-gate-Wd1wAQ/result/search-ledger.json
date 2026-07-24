@@ -1,0 +1,17 @@
+{
+  "approved_candidate_ids": [],
+  "breadth": "",
+  "cancellation": {
+    "message": "The user canceled search planning.",
+    "reason": "user_cancelled",
+    "stage": "stage_10_search_plan"
+  },
+  "candidate_ids": [],
+  "candidate_results": [],
+  "discovery_rounds": [],
+  "excluded_candidate_ids": [],
+  "input_hash": "sha256:b6513c0a16d777f0c4b83d312620bf1b7f806f6f5f009d0d36293337560736a3",
+  "kind": "literature_search_ingest_ledger",
+  "search_mode": "",
+  "status": "canceled"
+}

@@ -1,0 +1,53 @@
+{
+  "approved_candidate_ids": [
+    "doi:10.5555/tunnel.001"
+  ],
+  "breadth": "balanced",
+  "cancellation": {},
+  "candidate_ids": [
+    "doi:10.5555/tunnel.001"
+  ],
+  "candidate_results": [
+    {
+      "candidate_id": "doi:10.5555/tunnel.001",
+      "ingest_status": "created",
+      "item_id": 101,
+      "metadata_payload_hash": "sha256:f6db59134742da67a19a242dc927b51e68a34d05b8e29087e90a7fca9461243a",
+      "metadata_payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-S7otJe/runtime/payloads/metadata-001.json",
+      "metadata_reason": "",
+      "metadata_status": "qualified",
+      "needs_curation": true,
+      "pdf_payload_hash": "sha256:36a0236a03a1cca9d126c0169c24d930d5d2e7d548d76b3419775d31b7df8ed5",
+      "pdf_payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-S7otJe/runtime/payloads/pdf-probe-001.json",
+      "pdf_status": "missing",
+      "prepared_payload_hash": "sha256:0f18db62993d3cd0e0952bb0f0aa2a36a840fd350866b92e0a170f5a6596e612",
+      "prepared_payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-S7otJe/runtime/payloads/ingest-paper-001.json",
+      "receipt_hash": "sha256:401a4e77121cea5fffd65fd2891eef354eb21d33f2b9c1d512c0fdc7a3f39c7f",
+      "receipt_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-S7otJe/runtime/host/ingest-001.json",
+      "title": "隧道衬砌病害智能识别研究"
+    }
+  ],
+  "discovery_rounds": [
+    {
+      "added_candidate_ids": [
+        "doi:10.5555/tunnel.001"
+      ],
+      "discovery_round": 1,
+      "merged_candidate_ids": [],
+      "payload_hash": "sha256:30602bc6aa73470c11fbae1c6a262f88e5533d84346cbac7038891449f438be4",
+      "payload_path": "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-S7otJe/runtime/payloads/discovery-round-001.json",
+      "query_attempt_count": 1,
+      "source_failure_count": 0,
+      "source_record_count": 1,
+      "stop_reason": "all_applicable_lanes_completed",
+      "uncovered_gaps": [],
+      "unique_candidate_count": 1,
+      "unresolved_conflict_count": 0
+    }
+  ],
+  "excluded_candidate_ids": [],
+  "input_hash": "sha256:d34c2249335935b423a7aca9fb969d329af08590053561aae4bed6e3491303be",
+  "kind": "literature_search_ingest_ledger",
+  "search_mode": "guided",
+  "status": "completed"
+}

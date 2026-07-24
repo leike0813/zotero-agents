@@ -1,0 +1,4 @@
+{
+  "failure": "approval_denied",
+  "message": "The user denied the Host write request."
+}

@@ -54,7 +54,7 @@ async function writeJson(target: string, value: unknown) {
   await fs.writeFile(target, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
-async function createRun() {
+async function createRun(targetCollection = "") {
   const runRoot = await fs.mkdtemp(
     path.join(os.tmpdir(), "literature-search-ingest-gate-"),
   );
@@ -70,7 +70,7 @@ async function createRun() {
       searchMode: "guided",
       searchBreadth: "balanced",
       languageHints: ["zh-CN"],
-      targetCollection: "",
+      targetCollection,
     },
   });
   return {
@@ -119,11 +119,6 @@ function searchPlanPayload() {
           lane: "core",
           queries: ["隧道衬砌 病害 智能识别"],
           rationale: "覆盖研究对象、问题与方法。",
-        },
-        {
-          lane: "multilingual",
-          queries: ["tunnel lining defect intelligent recognition"],
-          rationale: "补充英文表达与跨语言索引。",
         },
       ],
       source_lanes: [
@@ -194,29 +189,22 @@ function discoveryPayload(candidates = [candidate()]) {
   };
 }
 
-function metadataPayload() {
+function metadataPayload(title = "隧道衬砌病害智能识别研究") {
   return {
     status: "qualified",
     metadata: {
       itemType: "journalArticle",
-      title: "隧道衬砌病害智能识别研究",
+      title,
       language: "zh-CN",
       script: "Hans",
-      alternateTitles: [
-        {
-          value: "Intelligent Recognition of Tunnel Lining Defects",
-          role: "translated",
-          language: "en",
-          script: "Latn",
-        },
-      ],
+      alternateTitles: [],
       fields: {
         publicationTitle: "隧道工程学报",
         date: "2024",
         language: "zh-CN",
       },
-      creatorCompleteness: "incomplete",
-      creators: [],
+      creatorCompleteness: "complete",
+      creators: [{ creatorType: "author", name: "张三" }],
       identifiers: { doi: "10.5555/tunnel.001" },
       landingUrl: "https://doi.org/10.5555/tunnel.001",
     },
@@ -229,7 +217,7 @@ function metadataPayload() {
       },
     ],
     corroborating_signals: [],
-    curation_notes: ["Complete Chinese creator list could not be verified."],
+    curation_notes: [],
   };
 }
 
@@ -243,7 +231,7 @@ function pdfPayload() {
         notes: "No public PDF link was exposed.",
       },
       open_access: {
-        source: "Open-access indexes and repositories",
+        source: "Open-access repositories",
         query_or_url: "10.5555/tunnel.001",
         status: "not_found",
         notes: "No matching repository copy was found.",
@@ -258,200 +246,333 @@ function pdfPayload() {
   };
 }
 
-async function advanceToMetadata() {
-  const run = await createRun();
-  const waits: string[] = [];
+function foundPdfPayload() {
+  return {
+    attempts: {
+      authoritative_landing: {
+        source: "DOI landing page",
+        query_or_url: "https://doi.org/10.5555/tunnel.001",
+        status: "not_found",
+        notes: "No public PDF link was exposed.",
+      },
+      open_access: {
+        source: "Institutional repository",
+        query_or_url: "10.5555/tunnel.001",
+        status: "found",
+        notes: "A public same-work PDF was verified.",
+        pdf_url: "https://repository.example.org/tunnel-001.pdf",
+        content_type: "application/pdf",
+        identity_evidence: ["DOI, title, creators, and year match."],
+      },
+      web_search: {
+        source: "Public web search",
+        query_or_url: "not needed after verified repository PDF",
+        status: "skipped_after_verified_pdf",
+        notes: "A higher-priority route already found the PDF.",
+      },
+    },
+  };
+}
+
+function workerResult(
+  candidateId = "doi:10.5555/tunnel.001",
+  title = "隧道衬砌病害智能识别研究",
+) {
+  return {
+    candidate_id: candidateId,
+    status: "resolved",
+    item_type: "journalArticle",
+    title,
+    creators: ["张三"],
+    date: "2024",
+    publication_title: "隧道工程学报",
+    language: "zh-CN",
+    doi: candidateId.startsWith("doi:") ? candidateId.slice(4) : null,
+    landing_url: "https://doi.org/10.5555/tunnel.001",
+    pdf_url: null,
+    source_urls: ["https://doi.org/10.5555/tunnel.001"],
+    notes: ["No public PDF was found within the bounded search."],
+  };
+}
+
+function reviewPayload(title = "隧道衬砌病害智能识别研究") {
+  return { metadata: metadataPayload(title), pdf: pdfPayload() };
+}
+
+async function advanceToResearch(targetCollection = "") {
+  const run = await createRun(targetCollection);
   let gate = runGate(run.runRoot, run.common);
-
-  assert.equal(gate.stage, "stage_10_search_plan");
-  assert.equal(gate.next_action, "await_user_input");
-  assert.deepEqual(Object.keys(gate.payload_variants).sort(), [
-    "approve",
-    "cancel",
-  ]);
-  assert.equal(
-    gate.payload_variants.approve.payload_template.decision,
-    "approve",
-  );
-  waits.push(gate.next_action);
   gate = await submitPayload(run, gate, searchPlanPayload());
-
-  assert.equal(gate.stage, "stage_20_discovery");
-  assert.equal(gate.discovery_round, 1);
-  assert.match(gate.payload_schema_ref, /#\/\$defs\/discoveryPayload$/);
-  assert.isObject(gate.payload_template);
   gate = await submitPayload(run, gate, discoveryPayload());
-
-  assert.equal(gate.stage, "stage_30_ingest_scope");
-  assert.deepEqual(Object.keys(gate.payload_variants).sort(), [
-    "approve",
-    "cancel",
-    "expand",
-  ]);
-  waits.push(gate.next_action);
   gate = await submitPayload(run, gate, {
     decision: "approve",
     candidate_ids: ["doi:10.5555/tunnel.001"],
   });
-
-  assert.equal(gate.stage, "stage_40_metadata_resolution");
-  assert.equal(gate.candidate_id, "doi:10.5555/tunnel.001");
-  assert.match(gate.payload_schema_ref, /#\/\$defs\/metadataPayload$/);
-  assert.deepEqual(waits, ["await_user_input", "await_user_input"]);
+  assert.equal(gate.stage, "stage_40_delegated_research");
+  assert.equal(gate.next_action, "prepare_agent_batches");
   return { run, gate };
+}
+
+async function prepareAssignments(run: Awaited<ReturnType<typeof createRun>>) {
+  const gate = runGate(run.runRoot, [...run.common, "--prepare-agent-batches"]);
+  assert.equal(gate.stage, "stage_40_delegated_research");
+  assert.equal(gate.next_action, "delegate_agent_research");
+  assert.equal(gate.dispatch_plan.mode, "parallel");
+  assert.isTrue(gate.dispatch_plan.dispatch_all_before_wait);
+  assert.deepEqual(
+    gate.required_reads.map((entry: string) => path.basename(entry)),
+    ["metadata-resolution.md", "pdf-probe.md", "ingest-output-recovery.md"],
+  );
+  return gate;
+}
+
+async function writeWorkerResult(assignment: any, result: unknown) {
+  const spec = JSON.parse(
+    await fs.readFile(assignment.worker_spec_path, "utf8"),
+  );
+  await writeJson(spec.result_path, result);
+  return spec;
+}
+
+async function submitReview(
+  run: Awaited<ReturnType<typeof createRun>>,
+  gate: any,
+  payload: unknown,
+) {
+  await writeJson(gate.payload_path, payload);
+  return runGate(run.runRoot, [
+    ...run.common,
+    "--submit-agent-review",
+    gate.payload_path,
+  ]);
 }
 
 describe("literature search ingest skill gate runtime", function () {
   this.timeout(30000);
 
-  it("keeps two decisions, derives context, and generates terminal output", async function () {
-    const { run, gate: metadataGate } = await advanceToMetadata();
-    let gate = await submitPayload(run, metadataGate, metadataPayload());
+  it("keeps the two user decisions before delegated research", async function () {
+    const run = await createRun();
+    let gate = runGate(run.runRoot, run.common);
+    assert.equal(gate.stage, "stage_10_search_plan");
+    assert.equal(gate.next_action, "await_user_input");
 
-    assert.equal(gate.stage, "stage_50_pdf_probe");
-    assert.notEqual(gate.next_action, "await_user_input");
-    assert.deepEqual(gate.required_pdf_routes, [
-      "authoritative_landing",
-      "open_access",
-      "web_search",
-    ]);
-    gate = await submitPayload(run, gate, pdfPayload());
+    gate = await submitPayload(run, gate, searchPlanPayload());
+    assert.equal(gate.stage, "stage_20_discovery");
 
-    assert.equal(gate.stage, "stage_60_ingest_prepare");
-    gate = runGate(run.runRoot, [...run.common, "--run-stage"]);
-    assert.equal(gate.stage, "stage_70_ingest");
-    const ingestPayload = JSON.parse(
-      await fs.readFile(gate.ingest_payload_path, "utf8"),
-    );
-    assert.equal(ingestPayload.paper.fields.title, "隧道衬砌病害智能识别研究");
-    assert.deepEqual(ingestPayload.paper.creators, []);
-    assert.equal(ingestPayload.paper.identifiers.doi, "10.5555/tunnel.001");
+    gate = await submitPayload(run, gate, discoveryPayload());
+    assert.equal(gate.stage, "stage_30_ingest_scope");
+    assert.equal(gate.next_action, "await_user_input");
 
-    const receiptPath = gate.receipt_path;
-    await writeJson(receiptPath, {
-      result: {
-        ingest: {
-          status: "created",
-          item: { id: 101, key: "ITEM101", libraryId: 1 },
-          hasPdfAttachment: false,
-        },
-      },
+    gate = await submitPayload(run, gate, {
+      decision: "approve",
+      candidate_ids: ["doi:10.5555/tunnel.001"],
     });
-    const receiptArgs = [...run.common, "--submit-ingest-receipt", receiptPath];
-    gate = runGate(run.runRoot, receiptArgs);
-
-    assert.equal(gate.next_action, "return_final_output");
-    assert.deepEqual(gate.final_output, {
-      kind: "literature_search_ingest",
-      status: "completed",
-      summary: {
-        discovered: 1,
-        selected: 1,
-        created: 1,
-        existing: 0,
-        failed: 0,
-        notAttempted: 0,
-      },
-      outcomes: [
-        {
-          title: "隧道衬砌病害智能识别研究",
-          ingestStatus: "created",
-          itemRef: { id: 101 },
-          pdfStatus: "missing",
-          needsCuration: true,
-        },
-      ],
-      searchLedgerPath: "result/search-ledger.json",
-    });
-    const ledger = JSON.parse(
-      await fs.readFile(
-        path.join(run.runRoot, "result", "search-ledger.json"),
-        "utf8",
-      ),
-    );
-    assert.equal(ledger.status, "completed");
-    assert.deepEqual(ledger.approved_candidate_ids, ["doi:10.5555/tunnel.001"]);
-
-    const replay = runGate(run.runRoot, receiptArgs);
-    assert.deepEqual(replay.final_output, gate.final_output);
-    await writeJson(receiptPath, { status: "failed" });
-    const conflicting = runGate(run.runRoot, receiptArgs, {
-      expectFailure: true,
-    });
-    assert.equal(conflicting.error?.code, "conflicting_replay");
+    assert.equal(gate.stage, "stage_40_delegated_research");
+    assert.equal(gate.next_action, "prepare_agent_batches");
   });
 
-  it("merges discovery deltas and rejects identity-changing updates", async function () {
+  it("returns every single-paper assignment at once without prompts, commands, stages, probes, or hashes", async function () {
     const run = await createRun();
     let gate = runGate(run.runRoot, run.common);
     gate = await submitPayload(run, gate, searchPlanPayload());
-    gate = await submitPayload(run, gate, discoveryPayload());
+    const candidates = Array.from({ length: 12 }, (_, index) =>
+      candidate(
+        `隧道衬砌病害智能识别研究 ${index + 1}`,
+        `10.5555/tunnel.${index + 1}`,
+      ),
+    );
+    gate = await submitPayload(run, gate, discoveryPayload(candidates));
     gate = await submitPayload(run, gate, {
-      decision: "expand",
-      gaps: [
-        {
-          description: "补充中文学位论文",
-          lanes: ["multilingual", "gap"],
-        },
-      ],
+      decision: "approve",
+      candidate_ids: candidates.map(
+        (_entry, index) => `doi:10.5555/tunnel.${index + 1}`,
+      ),
     });
+    gate = await prepareAssignments(run);
 
-    assert.equal(gate.discovery_round, 2);
-    gate = await submitPayload(
-      run,
-      gate,
-      discoveryPayload([candidate("隧道衬砌裂缝识别学位论文", "")]),
+    assert.lengthOf(gate.dispatch_plan.assignments, 12);
+    for (const [
+      index,
+      assignment,
+    ] of gate.dispatch_plan.assignments.entries()) {
+      assert.equal(assignment.assignment_id, `paper-${index + 1}`);
+      assert.deepEqual(Object.keys(assignment).sort(), [
+        "assignment_id",
+        "status",
+        "worker_spec_path",
+      ]);
+      const spec = JSON.parse(
+        await fs.readFile(assignment.worker_spec_path, "utf8"),
+      );
+      assert.deepEqual(Object.keys(spec).sort(), [
+        "assignment_id",
+        "candidate",
+        "result_path",
+        "search_limits",
+      ]);
+      assert.equal(
+        spec.candidate.candidate_id,
+        `doi:10.5555/tunnel.${index + 1}`,
+      );
+      assert.lengthOf(spec.candidate ? [spec.candidate] : [], 1);
+      const serialized = JSON.stringify(spec);
+      for (const forbidden of [
+        "stage_40",
+        "stage_50",
+        "stage_60",
+        "delegation_prompt",
+        "write_probe",
+        "finalize",
+        "zotero-bridge",
+        "sha256",
+      ]) {
+        assert.notInclude(serialized, forbidden);
+      }
+    }
+  });
+
+  it("waits for every simple worker result before opening main-agent review", async function () {
+    const run = await createRun();
+    let gate = runGate(run.runRoot, run.common);
+    gate = await submitPayload(run, gate, searchPlanPayload());
+    const candidates = [
+      candidate("论文一", "10.5555/tunnel.1"),
+      candidate("论文二", "10.5555/tunnel.2"),
+    ];
+    gate = await submitPayload(run, gate, discoveryPayload(candidates));
+    gate = await submitPayload(run, gate, {
+      decision: "approve",
+      candidate_ids: ["doi:10.5555/tunnel.1", "doi:10.5555/tunnel.2"],
+    });
+    gate = await prepareAssignments(run);
+    const [first, second] = gate.dispatch_plan.assignments;
+    const firstSpec = JSON.parse(
+      await fs.readFile(first.worker_spec_path, "utf8"),
     );
-    assert.equal(gate.stage, "stage_30_ingest_scope");
-    assert.lengthOf(gate.resume_packet.candidate_ids, 2);
 
+    await writeWorkerResult(
+      first,
+      workerResult("doi:10.5555/tunnel.1", "论文一"),
+    );
+    gate = runGate(run.runRoot, run.common);
+    assert.equal(gate.next_action, "delegate_agent_research");
+    assert.deepEqual(
+      gate.dispatch_plan.assignments.map((entry: any) => entry.assignment_id),
+      ["paper-2"],
+    );
+    assert.notProperty(gate, "payload_path");
+
+    await writeWorkerResult(
+      second,
+      workerResult("doi:10.5555/tunnel.2", "论文二"),
+    );
+    gate = runGate(run.runRoot, run.common);
+    assert.equal(gate.next_action, "review_agent_result");
+    assert.equal(gate.assignment_id, "paper-1");
+    assert.equal(gate.raw_result_path, firstSpec.result_path);
+    assert.match(gate.payload_schema_ref, /#\/\$defs\/researchReviewPayload$/);
+  });
+
+  it("requires a main-agent review before canonical payloads or Stage 70 appear", async function () {
+    const { run } = await advanceToResearch("1:COLLECTION");
+    let gate = await prepareAssignments(run);
+    const assignment = gate.dispatch_plan.assignments[0];
+    await writeWorkerResult(assignment, workerResult());
+
+    gate = runGate(run.runRoot, run.common);
+    assert.equal(gate.next_action, "review_agent_result");
+    const stateBefore = JSON.parse(await fs.readFile(run.statePath, "utf8"));
+    assert.deepEqual(stateBefore.metadata, {});
+    assert.deepEqual(stateBefore.pdf, {});
+
+    gate = await submitReview(run, gate, reviewPayload());
+    assert.equal(gate.stage, "stage_70_ingest");
+    assert.equal(gate.next_action, "execute_ingest");
+    const prepared = JSON.parse(
+      await fs.readFile(gate.ingest_payload_path, "utf8"),
+    );
+    assert.equal(prepared.paper.fields.title, "隧道衬砌病害智能识别研究");
+    assert.equal(prepared.collection, "1:COLLECTION");
+    assert.notProperty(prepared, "hash");
+  });
+
+  it("rejects an invalid formal review without mutating global research state", async function () {
+    const { run } = await advanceToResearch();
+    let gate = await prepareAssignments(run);
+    await writeWorkerResult(gate.dispatch_plan.assignments[0], workerResult());
+    gate = runGate(run.runRoot, run.common);
+
+    const invalid = reviewPayload();
+    (invalid.metadata.metadata.fields as any).abstract = "invalid alias";
+    await writeJson(gate.payload_path, invalid);
+    const rejected = runGate(
+      run.runRoot,
+      [...run.common, "--submit-agent-review", gate.payload_path],
+      { expectFailure: true },
+    );
+    assert.equal(rejected.error?.code, "invalid_stage_payload");
     const state = JSON.parse(await fs.readFile(run.statePath, "utf8"));
-    assert.property(state.candidates, "doi:10.5555/tunnel.001");
-    assert.lengthOf(state.discovery_rounds, 2);
-    assert.equal(state.discovery_rounds[1].discovery_round, 2);
+    assert.deepEqual(state.metadata, {});
+    assert.deepEqual(state.pdf, {});
   });
 
-  it("supports stable cancellation at both decision stages", async function () {
-    const planRun = await createRun();
-    let gate = runGate(planRun.runRoot, planRun.common);
-    gate = await submitPayload(planRun, gate, { decision: "cancel" });
-    assert.deepEqual(gate.final_output, {
-      kind: "literature_search_ingest_canceled",
-      status: "canceled",
-      reason: "user_cancelled",
-      message: "The user canceled search planning.",
+  it("stops later PDF routes after the first verified public PDF", async function () {
+    const { run } = await advanceToResearch();
+    let gate = await prepareAssignments(run);
+    await writeWorkerResult(gate.dispatch_plan.assignments[0], workerResult());
+    gate = runGate(run.runRoot, run.common);
+    gate = await submitReview(run, gate, {
+      metadata: metadataPayload(),
+      pdf: foundPdfPayload(),
     });
-
-    const scopeRun = await createRun();
-    gate = runGate(scopeRun.runRoot, scopeRun.common);
-    gate = await submitPayload(scopeRun, gate, searchPlanPayload());
-    gate = await submitPayload(scopeRun, gate, discoveryPayload());
-    gate = await submitPayload(scopeRun, gate, { decision: "cancel" });
-    assert.equal(gate.final_output.status, "canceled");
+    assert.equal(gate.stage, "stage_70_ingest");
+    const prepared = JSON.parse(
+      await fs.readFile(gate.ingest_payload_path, "utf8"),
+    );
     assert.equal(
-      gate.final_output.message,
-      "The user declined the ingest scope.",
+      prepared.paper.pdfUrl,
+      "https://repository.example.org/tunnel-001.pdf",
     );
   });
 
-  it("derives not-attempted terminal output without another wait", async function () {
-    const { run, gate: metadataGate } = await advanceToMetadata();
-    let gate = await submitPayload(run, metadataGate, {
-      status: "not_attempted",
-      reason: "material_conflict_unresolved",
-      message:
-        "The DOI resolves to a later article rather than the approved work.",
-      evidence: [
-        {
-          source: "Official journal landing",
-          role: "authoritative",
-          url: "https://doi.org/10.5555/tunnel.001",
-          facts: ["different_material_version"],
-        },
+  it("rejects a skipped PDF route when no earlier route found a PDF", async function () {
+    const { run } = await advanceToResearch();
+    let gate = await prepareAssignments(run);
+    await writeWorkerResult(gate.dispatch_plan.assignments[0], workerResult());
+    gate = runGate(run.runRoot, run.common);
+    const invalidPdf = pdfPayload();
+    invalidPdf.attempts.open_access.status = "skipped_after_verified_pdf";
+    await writeJson(gate.payload_path, {
+      metadata: metadataPayload(),
+      pdf: invalidPdf,
+    });
+    const rejected = runGate(
+      run.runRoot,
+      [...run.common, "--submit-agent-review", gate.payload_path],
+      { expectFailure: true },
+    );
+    assert.equal(rejected.error?.code, "invalid_stage_payload");
+  });
+
+  it("allows an unresolved worker to terminate without PDF research or another subagent repair", async function () {
+    const { run } = await advanceToResearch();
+    let gate = await prepareAssignments(run);
+    await writeWorkerResult(gate.dispatch_plan.assignments[0], {
+      candidate_id: "doi:10.5555/tunnel.001",
+      status: "unresolved",
+      notes: [
+        "The bounded search ended without a reliable direct-work record.",
       ],
     });
-    assert.equal(gate.stage, "stage_60_ingest_prepare");
-    gate = runGate(run.runRoot, [...run.common, "--run-stage"]);
+    gate = runGate(run.runRoot, run.common);
+    gate = await submitReview(run, gate, {
+      metadata: {
+        status: "not_attempted",
+        reason: "identity_not_verified",
+        message: "The bounded search did not verify the direct work.",
+        evidence: [],
+      },
+    });
     assert.equal(gate.next_action, "return_final_output");
     assert.deepEqual(gate.final_output.outcomes, [
       {
@@ -461,24 +582,12 @@ describe("literature search ingest skill gate runtime", function () {
     ]);
   });
 
-  it("keeps hash, receipt-path, fatal failure, input-drift, and corrupt-state gates", async function () {
-    const { run, gate: metadataGate } = await advanceToMetadata();
-    let gate = await submitPayload(run, metadataGate, metadataPayload());
-    gate = await submitPayload(run, gate, pdfPayload());
-
-    const acceptedMetadata = JSON.parse(
-      await fs.readFile(metadataGate.payload_path, "utf8"),
-    );
-    await writeJson(metadataGate.payload_path, {
-      ...acceptedMetadata,
-      metadata: { ...acceptedMetadata.metadata, title: "tampered title" },
-    });
-    const tampered = runGate(run.runRoot, [...run.common, "--run-stage"], {
-      expectFailure: true,
-    });
-    assert.equal(tampered.error?.code, "payload_hash_mismatch");
-    await writeJson(metadataGate.payload_path, acceptedMetadata);
-    gate = runGate(run.runRoot, [...run.common, "--run-stage"]);
+  it("keeps Stage 70 receipt validation and input-drift recovery", async function () {
+    const { run } = await advanceToResearch();
+    let gate = await prepareAssignments(run);
+    await writeWorkerResult(gate.dispatch_plan.assignments[0], workerResult());
+    gate = runGate(run.runRoot, run.common);
+    gate = await submitReview(run, gate, reviewPayload());
 
     const wrongReceipt = path.join(
       run.runRoot,
@@ -495,32 +604,56 @@ describe("literature search ingest skill gate runtime", function () {
     assert.equal(wrongPath.error?.code, "invalid_ingest_receipt");
 
     await writeJson(gate.receipt_path, {
-      failure: "approval_denied",
-      message: "The user denied the Host write request.",
+      result: {
+        ingest: {
+          status: "created",
+          item: { id: 123 },
+          hasPdfAttachment: false,
+        },
+      },
     });
     gate = runGate(run.runRoot, [
       ...run.common,
       "--submit-ingest-receipt",
       gate.receipt_path,
     ]);
-    assert.equal(gate.final_output.status, "canceled");
-    assert.equal(gate.final_output.reason, "approval_denied");
+    assert.equal(gate.final_output.status, "completed");
 
     await writeJson(run.inputPath, {
       parameter: { query: "changed after initialization" },
     });
     const drift = runGate(run.runRoot, run.common);
     assert.equal(drift.next_action, "blocked");
-
-    const corruptRun = await createRun();
-    await fs.mkdir(path.dirname(corruptRun.statePath), { recursive: true });
-    await fs.writeFile(corruptRun.statePath, "{broken", "utf8");
-    const corrupt = runGate(corruptRun.runRoot, corruptRun.common);
-    assert.equal(corrupt.next_action, "blocked");
   });
 });
 
-describe("literature search ingest runtime action schema", function () {
+describe("literature search ingest instruction and schema contracts", function () {
+  it("keeps the worker prompt in SKILL.md and the runner prompt minimal", async function () {
+    const skill = await fs.readFile(path.join(skillRoot, "SKILL.md"), "utf8");
+    const runner = JSON.parse(
+      await fs.readFile(path.join(skillRoot, "assets", "runner.json"), "utf8"),
+    );
+    const batchRuntime = await fs.readFile(
+      path.join(skillRoot, "scripts", "batch_runtime.py"),
+      "utf8",
+    );
+    const commonPrompt = runner.entrypoint.prompts.common;
+
+    assert.include(skill, "{{WORKER_SPEC_PATH}}");
+    assert.include(
+      skill,
+      "exactly one literature-search-ingest research assignment",
+    );
+    assert.include(skill, "Do not run any project script or runtime command");
+    assert.notInclude(batchRuntime, "delegation_prompt");
+    assert.notInclude(batchRuntime, "finalize_argv");
+    assert.isBelow(commonPrompt.length, 700);
+    assert.include(commonPrompt, "SKILL.md");
+    assert.notInclude(commonPrompt, "Stage 40");
+    assert.notInclude(commonPrompt, "Stage 50");
+    assert.notInclude(commonPrompt, "Stage 60");
+  });
+
   async function validator() {
     const schema = JSON.parse(
       await fs.readFile(
@@ -535,63 +668,20 @@ describe("literature search ingest runtime action schema", function () {
     }).compile(schema);
   }
 
-  it("accepts every semantic payload branch", async function () {
+  it("accepts the main-agent research review and canonical abstract field", async function () {
     const validate = await validator();
-    const validPayloads = [
-      searchPlanPayload(),
-      { decision: "cancel" },
-      discoveryPayload(),
-      {
-        decision: "expand",
-        gaps: [{ description: "补充繁体中文", lanes: ["multilingual", "gap"] }],
-      },
-      {
-        decision: "approve",
-        candidate_ids: ["doi:10.5555/tunnel.001"],
-      },
-      metadataPayload(),
-      {
-        status: "not_attempted",
-        reason: "material_conflict_unresolved",
-        message: "The direct-work identity could not be resolved.",
-        evidence: [],
-      },
-      pdfPayload(),
-    ];
-    for (const payload of validPayloads) {
-      assert.isTrue(validate(payload), JSON.stringify(validate.errors));
-    }
+    const review = reviewPayload();
+    review.metadata.metadata.fields.abstractNote = "A verified abstract.";
+    assert.isTrue(validate(review), JSON.stringify(validate.errors));
   });
 
-  it("rejects derived fields, missing authority, incomplete creators, and incomplete PDF routes", async function () {
+  it("rejects invalid formal metadata and incomplete PDF routes", async function () {
     const validate = await validator();
-    const noAuthority = metadataPayload();
-    noAuthority.evidence[0].role = "secondary";
-    const incompleteCreators = metadataPayload();
-    incompleteCreators.metadata.creatorCompleteness = "complete";
-    incompleteCreators.metadata.creators = [];
-    const missingRoute: any = pdfPayload();
-    delete missingRoute.attempts.web_search;
-    const foundWithoutEvidence: any = pdfPayload();
-    foundWithoutEvidence.attempts.open_access = {
-      source: "Repository",
-      query_or_url: "10.5555/tunnel.001",
-      status: "found",
-      pdf_url: "https://example.test/paper.pdf",
-      content_type: "application/pdf",
-    };
-
-    for (const payload of [
-      { ...searchPlanPayload(), action: "approve_search_plan" },
-      { ...discoveryPayload(), discovery_round: 1 },
-      { ...metadataPayload(), candidate_id: "doi:10.5555/tunnel.001" },
-      noAuthority,
-      incompleteCreators,
-      missingRoute,
-      foundWithoutEvidence,
-      { decision: "invented" },
-    ]) {
-      assert.isFalse(validate(payload), JSON.stringify(payload));
-    }
+    const abstractAlias = reviewPayload();
+    (abstractAlias.metadata.metadata.fields as any).abstract = "invalid";
+    const missingRoute = reviewPayload();
+    delete (missingRoute.pdf.attempts as any).web_search;
+    assert.isFalse(validate(abstractAlias));
+    assert.isFalse(validate(missingRoute));
   });
 });

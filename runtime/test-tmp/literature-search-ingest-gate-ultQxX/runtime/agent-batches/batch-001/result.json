@@ -1,0 +1,60 @@
+{
+  "batch_id": "batch-001",
+  "candidate_snapshot_hash": "sha256:5ab6c49f07035e7227128da3a78acf41d1496d86174d91de8822ab64a49cd670",
+  "candidates": [
+    {
+      "candidate_id": "doi:10.5555/tunnel.1",
+      "ingest_hash": "sha256:d007d93ee0efd5026609866021a19eea67309d82931ece7b70284a3866db0709",
+      "ingest_path": "ingest/candidate-001.json",
+      "metadata_hash": "sha256:08b529d1e14f34f44f375dd5a1a2cc969339413c39896484fbd110d4f66b43bc",
+      "metadata_path": "metadata/candidate-001.json",
+      "metadata_status": "qualified",
+      "pdf_hash": "sha256:36a0236a03a1cca9d126c0169c24d930d5d2e7d548d76b3419775d31b7df8ed5",
+      "pdf_path": "pdf/candidate-001.json"
+    },
+    {
+      "candidate_id": "doi:10.5555/tunnel.2",
+      "ingest_hash": "sha256:f74a366a8fcdf2ff273ef9fec6f540a32884c84a9003c62c3652ad2b5e816c37",
+      "ingest_path": "ingest/candidate-002.json",
+      "metadata_hash": "sha256:7b10171c8cfa256826e9e67329a1a151e83b0f2e88a75a76d60a083de99dd6af",
+      "metadata_path": "metadata/candidate-002.json",
+      "metadata_status": "qualified",
+      "pdf_hash": "sha256:36a0236a03a1cca9d126c0169c24d930d5d2e7d548d76b3419775d31b7df8ed5",
+      "pdf_path": "pdf/candidate-002.json"
+    },
+    {
+      "candidate_id": "doi:10.5555/tunnel.3",
+      "ingest_hash": "sha256:a9ac73bbf46bd4440223da86d08f065ed30b655b7ff2f71508c433fac702d1f7",
+      "ingest_path": "ingest/candidate-003.json",
+      "metadata_hash": "sha256:26c1a41ba81fb6743bd1b65c5c498e9ea28f6bc936a749fbd6183507e81c6970",
+      "metadata_path": "metadata/candidate-003.json",
+      "metadata_status": "qualified",
+      "pdf_hash": "sha256:36a0236a03a1cca9d126c0169c24d930d5d2e7d548d76b3419775d31b7df8ed5",
+      "pdf_path": "pdf/candidate-003.json"
+    },
+    {
+      "candidate_id": "doi:10.5555/tunnel.4",
+      "ingest_hash": "sha256:aa4247202f48a2183616006c5d86a23518d546c6a8b5892726c80817764b9621",
+      "ingest_path": "ingest/candidate-004.json",
+      "metadata_hash": "sha256:0bd4726f5e0824fd788ffa5c02161995ebe145c10a711ef04c6e22bb588525d2",
+      "metadata_path": "metadata/candidate-004.json",
+      "metadata_status": "qualified",
+      "pdf_hash": "sha256:36a0236a03a1cca9d126c0169c24d930d5d2e7d548d76b3419775d31b7df8ed5",
+      "pdf_path": "pdf/candidate-004.json"
+    },
+    {
+      "candidate_id": "doi:10.5555/tunnel.5",
+      "ingest_hash": "sha256:ca57a7b7c96f6de9c4c46841fb623e81aea5195326fbae374aa3206b2a952692",
+      "ingest_path": "ingest/candidate-005.json",
+      "metadata_hash": "sha256:83e1839225ebdd8dba1aba7b518c6279f865e1d985f4d0e019c0cfc806efb63b",
+      "metadata_path": "metadata/candidate-005.json",
+      "metadata_status": "qualified",
+      "pdf_hash": "sha256:36a0236a03a1cca9d126c0169c24d930d5d2e7d548d76b3419775d31b7df8ed5",
+      "pdf_path": "pdf/candidate-005.json"
+    }
+  ],
+  "scope_hash": "sha256:113a44eb3a83de2d89280e0db933d5dee8c0774e261c61378a2712450ad3dd53",
+  "spec_hash": "sha256:f4c5c39e1bf79e016b761e7644e96de21cd09792f400e082e87cb132a86f2cc7",
+  "write_probe_hash": "sha256:5f217dc13ebdc0a2c516dc8c20f7bec1e00a27155f23f708011f8952c909dbe0",
+  "write_probe_path": "write-probe.json"
+}

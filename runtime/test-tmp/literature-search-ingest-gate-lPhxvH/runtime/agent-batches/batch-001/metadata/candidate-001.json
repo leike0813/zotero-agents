@@ -1,0 +1,15 @@
+{
+  "status": "not_attempted",
+  "reason": "material_conflict_unresolved",
+  "message": "The DOI resolves to a later article rather than the approved work.",
+  "evidence": [
+    {
+      "source": "Official journal landing",
+      "role": "authoritative",
+      "url": "https://doi.org/10.5555/tunnel.001",
+      "facts": [
+        "different_material_version"
+      ]
+    }
+  ]
+}

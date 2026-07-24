@@ -1,0 +1,20 @@
+{
+  "batch_id": "batch-006",
+  "candidate_snapshot_hash": "sha256:5ab6c49f07035e7227128da3a78acf41d1496d86174d91de8822ab64a49cd670",
+  "candidates": [
+    {
+      "candidate_id": "doi:10.5555/tunnel.6",
+      "ingest_hash": "sha256:2333a6b2c7ab4e379b377d79406f6ee77b52f7d7a33a39b1bf24059787300cce",
+      "ingest_path": "ingest/candidate-001.json",
+      "metadata_hash": "sha256:781a659e005fe239470e23b2fe8b9d3c795674288d98c2d2fbcfd08f966952f8",
+      "metadata_path": "metadata/candidate-001.json",
+      "metadata_status": "qualified",
+      "pdf_hash": "sha256:36a0236a03a1cca9d126c0169c24d930d5d2e7d548d76b3419775d31b7df8ed5",
+      "pdf_path": "pdf/candidate-001.json"
+    }
+  ],
+  "scope_hash": "sha256:113a44eb3a83de2d89280e0db933d5dee8c0774e261c61378a2712450ad3dd53",
+  "spec_hash": "sha256:01bf22d9ff6887bb98b3a218b180db79edd760c001674192046cd1f858b7bfed",
+  "write_probe_hash": "sha256:a891b46f5b357a46d4e2cfc2d7d9c1a982f17c802069a4b989ba758b3bd02704",
+  "write_probe_path": "write-probe.json"
+}

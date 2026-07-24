@@ -1,0 +1,211 @@
+{
+  "batch_id": "batch-005",
+  "candidate_snapshot_hash": "sha256:5ab6c49f07035e7227128da3a78acf41d1496d86174d91de8822ab64a49cd670",
+  "candidates": [
+    {
+      "candidate": {
+        "alternate_titles": [],
+        "candidate_id": "doi:10.5555/tunnel.5",
+        "container": "隧道工程学报",
+        "creators_display": [
+          "张三"
+        ],
+        "discovery_sources": [
+          {
+            "facts": [
+              "original_title",
+              "publication_year"
+            ],
+            "lane": "core",
+            "reason": "The source exposes the original title and publication year.",
+            "source": "China DOI",
+            "url": "https://doi.org/10.5555/tunnel.5"
+          }
+        ],
+        "identifiers": {
+          "doi": "10.5555/tunnel.5"
+        },
+        "identity": {
+          "strong_keys": [
+            "doi:10.5555/tunnel.5"
+          ],
+          "weak_key": "隧道衬砌病害智能识别研究 5|2024|张三|隧道工程学报"
+        },
+        "landing_url": "https://doi.org/10.5555/tunnel.5",
+        "library_note": "No exact local duplicate found.",
+        "matching_notes": [],
+        "material_version": "journal_article",
+        "missing_fields": [],
+        "original_language": "zh-CN",
+        "recommendation_reason": "与研究目标直接相关。",
+        "tier": "ready",
+        "title": "隧道衬砌病害智能识别研究 5",
+        "year": "2024"
+      },
+      "candidate_id": "doi:10.5555/tunnel.5",
+      "ingest_path": "ingest/candidate-001.json",
+      "metadata_path": "metadata/candidate-001.json",
+      "pdf_path": "pdf/candidate-001.json"
+    }
+  ],
+  "delegation_prompt": "Process every candidate in this immutable batch in one subagent context. First write the issued write-probe file. Then write each Stage 40 metadata payload; for each qualified candidate continue through all required Stage 50 PDF routes; finally run finalize_argv to generate the isolated Stage 60 payloads and result manifest. Write only below this batch directory. Do not invoke Zotero Host, write receipts, or write canonical runtime payloads.",
+  "finalize_argv": [
+    "/home/joshua/.ar/.venv/bin/python3",
+    "/home/joshua/Workspace/Code/JavaScript/zotero-agents/skills_builtin/literature-search-ingest/scripts/batch_runtime.py",
+    "--finalize",
+    "--spec",
+    "/home/joshua/Workspace/Code/JavaScript/zotero-agents/runtime/test-tmp/literature-search-ingest-gate-kHrb5q/runtime/agent-batches/batch-005/spec.json"
+  ],
+  "import_contract": "Only the main agent may import result.json. Import is serial, hash-checked, and cannot expose Stage 70 until every batch is imported.",
+  "result_path": "result.json",
+  "return_contract": {
+    "stdout_fallback": "return the same candidate payloads as pure JSON",
+    "success_keys": [
+      "batch_id",
+      "spec_hash",
+      "result_path"
+    ]
+  },
+  "scope_hash": "sha256:113a44eb3a83de2d89280e0db933d5dee8c0774e261c61378a2712450ad3dd53",
+  "spec_hash": "sha256:44c1bff9250e2d06b6c8d8a22d26b49cf257c3c84febb99e6f324bef180cf979",
+  "target_collection": "",
+  "worker_contract": {
+    "allowed_metadata_fields": [
+      "ISSN",
+      "abstractNote",
+      "accessDate",
+      "applicationNumber",
+      "archive",
+      "archiveID",
+      "archiveLocation",
+      "artworkMedium",
+      "artworkSize",
+      "assignee",
+      "audioFileType",
+      "audioRecordingFormat",
+      "billNumber",
+      "blogTitle",
+      "bookTitle",
+      "callNumber",
+      "caseName",
+      "citationKey",
+      "code",
+      "codeNumber",
+      "codePages",
+      "codeVolume",
+      "committee",
+      "company",
+      "conferenceName",
+      "country",
+      "court",
+      "date",
+      "dateDecided",
+      "dateEnacted",
+      "dictionaryTitle",
+      "distributor",
+      "docketNumber",
+      "documentNumber",
+      "edition",
+      "encyclopediaTitle",
+      "episodeNumber",
+      "eventDate",
+      "filingDate",
+      "firstPage",
+      "format",
+      "forumTitle",
+      "genre",
+      "history",
+      "institution",
+      "interviewMedium",
+      "issue",
+      "issueDate",
+      "issueTitle",
+      "issuingAuthority",
+      "journalAbbreviation",
+      "label",
+      "language",
+      "legalStatus",
+      "legislativeBody",
+      "letterType",
+      "libraryCatalog",
+      "locInArchive",
+      "manuscriptType",
+      "mapType",
+      "medium",
+      "meetingName",
+      "nameOfAct",
+      "network",
+      "numPages",
+      "number",
+      "numberOfVolumes",
+      "pages",
+      "patentNumber",
+      "place",
+      "podcastTitle",
+      "postType",
+      "presentationType",
+      "priorityNumbers",
+      "proceedingsTitle",
+      "programTitle",
+      "programmingLanguage",
+      "publicLawNumber",
+      "publicationTitle",
+      "publisher",
+      "references",
+      "reportNumber",
+      "reportType",
+      "reporter",
+      "reporterVolume",
+      "repository",
+      "rights",
+      "runningTime",
+      "scale",
+      "section",
+      "series",
+      "seriesNumber",
+      "seriesText",
+      "seriesTitle",
+      "session",
+      "shortTitle",
+      "studio",
+      "subject",
+      "system",
+      "thesisType",
+      "type",
+      "university",
+      "url",
+      "version",
+      "versionNumber",
+      "videoRecordingFormat",
+      "volume",
+      "websiteTitle",
+      "websiteType"
+    ],
+    "allowed_output_root": ".",
+    "forbidden_metadata_fields": [
+      "abstract",
+      "title",
+      "DOI",
+      "doi",
+      "ISBN",
+      "extra"
+    ],
+    "host_mutation_allowed": false,
+    "receipt_writes_allowed": false,
+    "required_pdf_routes": [
+      "authoritative_landing",
+      "open_access",
+      "web_search"
+    ],
+    "stage_chain": [
+      "stage_40_metadata_resolution",
+      "stage_50_pdf_probe",
+      "stage_60_ingest_prepare"
+    ]
+  },
+  "write_probe_contract": {
+    "batch_id": "batch-005",
+    "status": "writable"
+  },
+  "write_probe_path": "write-probe.json"
+}

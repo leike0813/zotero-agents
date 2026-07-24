@@ -1,14 +1,10 @@
-# Ingest, Output, And Recovery
+# 采集、输出与恢复
 
-Use this reference for Stages 60, 70, and terminal output. The runtime owns
-typed payload generation, hashes, state transitions, and receipt binding. The
-agent owns exact command execution and emitting the gate-returned final business
-output. The runtime writes the audit summary and final JSON.
+本参考文档用于 Stage 60、Stage 70 和最终输出。运行时负责类型化 payload 生成、哈希、状态转换和 receipt 绑定。agent 负责精确命令执行以及输出门控返回的最终业务结果。运行时写入审计摘要和最终 JSON。
 
-## Typed Payload Mapping
+## 类型化 Payload 映射
 
-Stage 60 reads accepted Stage 40 and Stage 50 payloads and emits exactly one
-immutable file for each metadata-qualified candidate:
+Stage 60 读取已接受的 Stage 40 和 Stage 50 payload，并为每个元数据合格的候选项精确生成一个不可变文件：
 
 ```json
 {
@@ -32,14 +28,13 @@ immutable file for each metadata-qualified candidate:
 }
 ```
 
-The top level contains `paper` and optional `collection`. It never contains a
-batch array.
+顶层包含 `paper` 和可选的 `collection`。绝不包含批量数组。
 
-### Item-type-specific fields
+### 条目类型专属字段
 
-Map only accepted Zotero fields for the chosen item type:
+仅映射所选条目类型的已接受 Zotero 字段：
 
-| Item type | Direct-work fields | Container/issuing fields |
+| 条目类型 | 直接工作字段 | 容器/发布方字段 |
 | --- | --- | --- |
 | `journalArticle` | title, date, volume, issue, pages, language | publicationTitle |
 | `conferencePaper` | title, date, pages, place, language | proceedingsTitle, conferenceName |
@@ -47,74 +42,62 @@ Map only accepted Zotero fields for the chosen item type:
 | `bookSection` | title, pages, date, language | bookTitle, publisher, place |
 | `thesis` | title, date, thesisType, language | university, place |
 | `report` | title, date, reportNumber, reportType, language | institution, place |
-| `document` | verified general fields only | verified publisher or institution fields only |
+| `document` | 仅已验证的通用字段 | 仅已验证的发布方或机构字段 |
 
-Use `document` when evidence does not support a narrower supported type. Do not
-guess a type to unlock attractive fields.
+当证据不足以支持更窄的受支持类型时，使用 `document`。不要为了解锁特定字段而猜测类型。
 
-### Creators
+### 创建者
 
-Preserve Stage 40 order and representation:
+保留 Stage 40 的顺序和表示方式：
 
-- `{"creatorType": "author", "name": "张三"}` for a verified unsplit native
-  name or organization;
-- `{"creatorType": "author", "firstName": "Ada", "lastName": "Lovelace"}`
-  where an authoritative source supports segmentation;
-- `[]` when creator completeness is `incomplete` or `unknown`.
+- `{"creatorType": "author", "name": "张三"}` 用于已验证的不可分割的原始姓名或组织；
+- `{"creatorType": "author", "firstName": "Ada", "lastName": "Lovelace"}` 用于有权威来源支持分段的情况；
+- `[]` 用于创建者完整性为 `incomplete` 或 `unknown` 的情况。
 
-Do not recover, translate, or synthesize creators during payload generation.
+在 payload 生成过程中不要恢复、翻译或合成创建者信息。
 
-### Identifiers and URLs
+### 标识符与 URL
 
-- DOI remains only in `paper.identifiers.doi`.
-- ISBN, PMID, and arXiv values remain in their named identifier keys.
-- `landingUrl` is the Stage 40 authoritative direct-work page.
-- `pdfUrl` exists only when Stage 50 selected a public, reachable,
-  identity-matched PDF.
-- `attachLandingUrlOnMissingPdf: true` lets the Host preserve the landing page
-  when no PDF attachment succeeds.
-- `collection` is copied from the authorized workflow parameter, not inferred
-  from metadata.
+- DOI 仅保留在 `paper.identifiers.doi` 中。
+- ISBN、PMID 和 arXiv 值保留在各自的命名标识符键中。
+- `landingUrl` 是 Stage 40 的权威直接工作页面。
+- `pdfUrl` 仅在 Stage 50 选择了公开、可访问、身份匹配的 PDF 时存在。
+- `attachLandingUrlOnMissingPdf: true` 允许 Host 在无 PDF 附件成功时保留着陆页。
+- `collection` 从已授权的工作流参数中复制，不从元数据推断。
 
-The Host chooses native Zotero fields and validates item-type compatibility. The
-runtime must not place DOI in `fields.DOI` or a `DOI:` Extra line.
+Host 选择原生 Zotero 字段并验证条目类型兼容性。运行时不得将 DOI 放入 `fields.DOI` 或 `DOI:` Extra 行。
 
-## Stage 60 Hash Boundary
+## Stage 60 哈希边界
 
-For every qualified candidate, Stage 60:
+对于每个合格的候选项，Stage 60：
 
-1. rereads the accepted metadata and PDF payload paths;
-2. recomputes and verifies their recorded hashes;
-3. maps accepted semantic values into the typed one-paper payload;
-4. writes the stable numbered payload path;
-5. records the payload's SHA-256 hash and candidate binding in gate state.
+1. 重新读取已接受的元数据和 PDF payload 路径；
+2. 重新计算并验证其已记录的哈希；
+3. 将已接受的语义值映射到类型化的单篇论文 payload；
+4. 写入稳定的编号 payload 路径；
+5. 在门控状态中记录 payload 的 SHA-256 哈希和候选项绑定。
 
-After generation:
+生成后：
 
-- do not edit, reformat, rename, move, combine, or regenerate the payload by
-  hand;
-- do not copy its bytes to another candidate;
-- do not add an identifier or URL discovered after the accepted upstream
-  payload;
-- do not treat an audit ledger copy as the executable payload.
+- 不要手动编辑、重新格式化、重命名、移动、合并或重新生成 payload；
+- 不要将其字节复制到另一个候选项；
+- 不要在已接受的上游 payload 之后添加新发现的标识符或 URL；
+- 不要将审计清单副本视为可执行 payload。
 
-If an accepted upstream file or generated payload changes, the runtime returns a
-blocker. Restore the accepted bytes when they are known and authorized; otherwise
-restart through an authorized upstream gate action. Never patch state hashes.
+如果已接受的上游文件或生成的 payload 发生变更，运行时返回阻塞器。在已接受字节已知且已授权时恢复它们；否则通过已授权的上游门控操作重新启动。绝不修补状态哈希。
 
-## Stage 70 Mutation Contract
+## Stage 70 变更契约
 
-For each prepared candidate, the gate returns:
+对于每个已准备的候选项，门控返回：
 
-- `candidate_id`;
-- `ingest_payload_path`;
-- `ingest_payload_hash`;
-- exact one-paper `command`;
-- `receipt_path`;
-- `submit_command`.
+- `candidate_id`；
+- `ingest_payload_path`；
+- `ingest_payload_hash`；
+- 精确的单篇论文 `command`；
+- `receipt_path`；
+- `submit_command`。
 
-Execute the exact command. Write the exact Host response, unchanged and without
-a wrapper, to the bound receipt path:
+执行精确命令。将精确的 Host 响应不加更改、不加包装地写入绑定的 receipt 路径：
 
 ```json
 {
@@ -132,116 +115,93 @@ a wrapper, to the bound receipt path:
 }
 ```
 
-The Host response, not intent, determines:
+Host 响应（而非意图）决定：
 
-- `created`, `existing`, or paper-specific `failed`;
-- item id, key, and library id;
-- whether a PDF attachment actually exists;
-- attachment or status-tag warnings.
+- `created`、`existing` 或论文特定的 `failed`；
+- 条目 id、key 和 library id；
+- PDF 附件是否实际存在；
+- 附件或状态标签警告。
 
-Never infer `attached` from the presence of `pdfUrl`. A download or attachment
-may fail after item creation.
+绝不从 `pdfUrl` 的存在推断 `attached`。下载或附件可能在条目创建后失败。
 
-### Existing items
+### 已存在条目
 
-Record `existing` exactly as returned. Preserve the actual `itemRef`.
-Deduplication by the Host is successful reuse, not a new creation. Attachment
-and status-tag results remain those reported for the existing item.
+按 Host 返回的原样记录 `existing`。保留实际的 `itemRef`。Host 的去重是成功的复用，而非新创建。附件和状态标签结果保持为已存在条目所报告的内容。
 
-### Ordinary paper-specific failures
+### 普通论文特定失败
 
-A Host response whose `result.ingest.status` is `failed` is a terminal outcome
-for that candidate. Submit it and continue to the next prepared candidate. Its
-structured error remains in the receipt and ledger; the final outcome stays
-compact.
+`result.ingest.status` 为 `failed` 的 Host 响应是该候选项的终态结果。提交它并继续下一个已准备的候选项。其结构化错误保留在 receipt 和清单中；最终结果保持紧凑。
 
-### Fatal execution failures
+### 致命执行失败
 
-If the Host command cannot start or authority for remaining writes is absent,
-write this minimal fatal receipt:
+如果 Host 命令无法启动或缺少剩余写入的授权，写入以下最小化致命 receipt：
 
 ```json
 {
   "failure": "host_unavailable",
-  "message": "The required Zotero Host Bridge mutation could not start."
+  "message": "所需的 Zotero Host Bridge 变更无法启动。"
 }
 ```
 
-Fatal reasons are:
+致命原因包括：
 
-- `host_unavailable`;
-- `approval_denied`;
-- `execution_blocked`.
+- `host_unavailable`；
+- `approval_denied`；
+- `execution_blocked`。
 
-They produce a canceled terminal state, preserve earlier candidate receipts, and
-prevent later mutations. Do not convert a fatal run-level stop into several
-invented paper failures.
+它们产生 canceled 终态，保留早期候选项的 receipt，并阻止后续变更。不要将致命的运行级停止转换为多个虚构的论文失败。
 
-## Idempotency And Replay
+## 幂等性与重放
 
-An exact stage payload or receipt replay is idempotent. The runtime derives
-action identity, discovery round, candidate, and prepared-payload hash from
-state, then compares the issued path and content hash.
+精确的 stage payload 或 receipt 重放是幂等的。运行时从状态中派生操作身份、发现轮次、候选项和已准备 payload 哈希，然后比较发出的路径和内容哈希。
 
-- Exact same bytes at the same issued path return the accepted state.
-- Changed bytes for an accepted action are a conflicting replay and fail.
-- A receipt copied to another candidate fails cross-candidate item/receipt
-  binding.
-- A correct receipt written to a non-issued path fails.
-- A modified generated payload fails before mutation advancement.
+- 相同路径上的完全相同字节返回 accepted 状态。
+- 已接受操作的字节变更是冲突重放，将失败。
+- 复制到另一个候选项的 receipt 会因跨候选项条目/receipt 绑定而失败。
+- 写入非发出路径的正确 receipt 会失败。
+- 修改后的已生成 payload 在变更推进之前失败。
 
-When uncertain, rerun the initial gate. Do not resubmit from conversation
-memory.
+不确定时，重新运行初始门控。不要从对话记忆中重新提交。
 
-## Recovery Protocol
+## 恢复协议
 
-### Normal resume
+### 正常恢复
 
-1. Run `python3 scripts/gate_runtime.py --run-root "$SKILL_RUN_ROOT" --common-input "$SKILL_COMMON_INPUT"`.
-2. Read `stage`, `next_action`, `allowed_actions`, `required_reads`,
-   `discovery_round`, and `resume_packet`.
-3. Read only the returned stage reference.
-4. Use only the returned payload path and command.
-5. After any accepted state change, rerun the initial gate.
+1. 运行 `python3 scripts/gate_runtime.py --run-root "$SKILL_RUN_ROOT" --common-input "$SKILL_COMMON_INPUT"`。
+2. 读取 `stage`、`next_action`、`allowed_actions`、`required_reads`、`discovery_round` 和 `resume_packet`。
+3. 仅读取返回的 stage 参考文档。
+4. 仅使用返回的 payload 路径和命令。
+5. 在任何已接受的状态变更后，重新运行初始门控。
 
-### Blocker
+### 阻塞器
 
-`next_action: "blocked"` means no legal continuation command exists. Report the
-structured blocker. Do not improvise around:
+`next_action: "blocked"` 表示不存在合法的继续命令。报告结构化阻塞器。不要在以下情况周围即兴发挥：
 
-- invalid or corrupt state;
-- input hash drift;
-- missing accepted payload;
-- accepted payload hash mismatch;
-- generated ingest payload hash mismatch;
-- wrong receipt path, cross-candidate receipt/item reuse, or changed replay;
-- conflicting replay.
+- 无效或损坏的状态；
+- 输入哈希漂移；
+- 缺失已接受的 payload；
+- 已接受的 payload 哈希不匹配；
+- 已生成的采集 payload 哈希不匹配；
+- 错误的 receipt 路径、跨候选项 receipt/条目复用或变更的重放；
+- 冲突的重放。
 
-### Corrupt state
+### 损坏的状态
 
-The state file is the execution source of truth. If required keys, types,
-candidate bindings, or stage invariants are corrupt, stop. Do not reconstruct
-state from the ledger, result directory, or chat transcript.
+状态文件是执行的唯一真实来源。如果必需的键、类型、候选项绑定或 stage 不变量损坏，停止。不要从清单、结果目录或对话记录中重建状态。
 
-### Input drift
+### 输入漂移
 
-The parameter input hash is bound at initialization. A changed query, mode,
-breadth, language hints, or target collection is a different authorization
-context. Stop and begin a distinct run instead of mutating current state.
+参数输入哈希在初始化时绑定。查询、模式、广度、语言提示或目标集合的变更是不同的授权上下文。停止并开始一个独立的运行，而非变更当前状态。
 
-### Context recovery
+### 上下文恢复
 
-Conversation compression does not change the protocol. The gate's
-`resume_packet` supplies current candidate ids, accepted paths, receipts, and
-round. The agent must not mark a stage complete because it remembers doing the
-work.
+对话压缩不改变协议。门控的 `resume_packet` 提供当前候选项 id、已接受路径、receipt 和轮次。agent 不得因为记得已完成工作就将某个 stage 标记为完成。
 
-## Compact Ledger
+## 紧凑清单
 
-The runtime writes `result/search-ledger.json` when terminal state is reached.
-The ledger is an audit summary and path index, not execution state.
+运行时在达到终态时写入 `result/search-ledger.json`。清单是审计摘要和路径索引，而非执行状态。
 
-Minimum useful content:
+最小有用内容：
 
 ```json
 {
@@ -259,7 +219,7 @@ Minimum useful content:
         "doi:10.5555/tunnel.001",
         "source:uncertain-002"
       ],
-      "uncoveredGaps": ["traditional-Chinese terminology"],
+      "uncoveredGaps": ["繁体术语"],
       "stopReason": "scope_review_requested"
     },
     {
@@ -306,14 +266,11 @@ Minimum useful content:
 }
 ```
 
-Paths and counts must come from state. The ledger may include recorded hashes,
-but must not duplicate full discovery, metadata, PDF, or Host evidence.
+路径和计数必须来自状态。清单可以包含已记录的哈希，但不得复制完整的发现、元数据、PDF 或 Host 证据。
 
-## Completed Output
+## 已完成输出
 
-Emit exactly the gate's `final_output`, which validates against
-`assets/output.schema.json`. Only approved candidates appear in `outcomes`, and
-each approved candidate has a terminal ingest status.
+精确输出门控的 `final_output`，该输出需通过 `assets/output.schema.json` 验证。只有已批准的候选项出现在 `outcomes` 中，且每个已批准的候选项具有终态采集状态。
 
 ```json
 {
@@ -346,85 +303,67 @@ each approved candidate has a terminal ingest status.
 }
 ```
 
-Outcome rules:
+结果规则：
 
-- `created` and `existing` expose only `itemRef.id`;
-- `failed` and `not_attempted` expose only title and status;
-- `pdfStatus: "attached"` requires Host attachment confirmation;
-- `missing`, `failed`, or `skipped` remain distinct;
-- `needsCuration` reflects evidence and Host warnings;
-- detailed errors, reasons, identifiers, URLs, paths, and evidence remain in
-  receipts, accepted payloads, and the compact ledger rather than the terminal
-  envelope.
+- `created` 和 `existing` 仅暴露 `itemRef.id`；
+- `failed` 和 `not_attempted` 仅暴露标题和状态；
+- `pdfStatus: "attached"` 需要 Host 附件确认；
+- `missing`、`failed` 和 `skipped` 保持互异；
+- `needsCuration` 反映证据和 Host 警告；
+- 详细错误、原因、标识符、URL、路径和证据保留在 receipt、已接受的 payload 和紧凑清单中，而非终态信封中。
 
-## Canceled Output
+## 已取消输出
 
-Stage 10 or Stage 30 user cancellation:
+Stage 10 或 Stage 30 用户取消：
 
 ```json
 {
   "kind": "literature_search_ingest_canceled",
   "status": "canceled",
   "reason": "user_cancelled",
-  "message": "The user declined the ingest scope."
+  "message": "用户拒绝了采集范围。"
 }
 ```
 
-Fatal Stage 70 cancellation:
+致命 Stage 70 取消：
 
 ```json
 {
   "kind": "literature_search_ingest_canceled",
   "status": "canceled",
   "reason": "host_unavailable",
-  "message": "The required Zotero Host Bridge mutation could not start."
+  "message": "所需的 Zotero Host Bridge 变更无法启动。"
 }
 ```
 
-Use the stable terminal reason and message returned by the gate. If earlier
-candidate receipts exist, preserve them in the compact ledger; do not add them
-to the canceled envelope unless the output schema explicitly supports it.
+使用门控返回的稳定终态原因和消息。如果存在早期候选项的 receipt，将其保留在紧凑清单中；除非输出 schema 明确支持，否则不要将它们添加到已取消的信封中。
 
-## Examples And Anti-examples
+## 示例与反例
 
-### Good: mixed multi-candidate completion
+### 正确：混合多候选项完成
 
-One candidate is created with an attached PDF, one exact duplicate is returned
-as existing, one paper-specific Host mutation fails, and one metadata conflict
-is `not_attempted`. The run is completed because every approved candidate has a
-terminal outcome.
+一个候选项创建成功并附带 PDF 附件，一个完全重复的候选项返回 existing，一个论文特定的 Host 变更失败，一个元数据冲突为 `not_attempted`。运行已完成，因为每个已批准的候选项都有终态结果。
 
-### Good: exact retry
+### 正确：精确重试
 
-After context recovery, the same receipt bytes remain at the issued path.
-Submitting them again is idempotent. Rerunning the gate advances or returns the
-same terminal state.
+上下文恢复后，相同的 receipt 字节仍在发出的路径上。再次提交它们是幂等的。重新运行门控会推进或返回相同的终态。
 
-### Reject: payload edited after preparation
+### 拒绝：准备后编辑 payload
 
-An agent adds a creator directly to `ingest-paper-001.json`. The hash no longer
-matches. Restore the generated bytes or restart through an authorized metadata
-action; do not update the hash.
+agent 直接向 `ingest-paper-001.json` 添加了一个创建者。哈希不再匹配。恢复生成的字节或通过已授权的元数据操作重新启动；不要更新哈希。
 
-### Reject: receipt reused for another candidate
+### 拒绝：receipt 被另一个候选项复用
 
-The Host response for candidate A is copied into candidate B's issued receipt
-path. Even if both records are `created`, the runtime-owned candidate,
-prepared-payload, and item bindings differ. The runtime must fail closed.
+候选项 A 的 Host 响应被复制到候选项 B 的发出 receipt 路径。即使两条记录都是 `created`，运行时拥有的候选项、已准备 payload 和条目绑定也不同。运行时必须失败关闭。
 
-### Reject: approval denied but reported as paper failure
+### 拒绝：授权被拒但报告为论文失败
 
-Write authorization is denied before the remaining mutation can run. Submit
-`failure: "approval_denied"` and return canceled terminal output. Do not invent a
-Host paper result or continue mutations.
+写入授权在剩余变更运行之前被拒绝。提交 `failure: "approval_denied"` 并返回 canceled 终态输出。不要虚构 Host 论文结果或继续变更。
 
-### Reject: Host unavailable but outcomes remain pending
+### 拒绝：Host 不可用但结果仍为 pending
 
-Pending is not a terminal business status. Submit the fatal receipt, preserve
-completed evidence, and return the canceled envelope.
+pending 不是终态业务状态。提交致命 receipt，保留已完成的证据，并返回 canceled 信封。
 
-### Reject: ledger repairs state
+### 拒绝：清单修复状态
 
-A state file is corrupt, but a ledger claims every candidate completed. The
-ledger cannot authorize continuation or reconstruct hashes. Stop with the gate
-blocker.
+状态文件损坏，但清单声称每个候选项都已完成。清单不能授权继续或重建哈希。以门控阻塞器停止。
