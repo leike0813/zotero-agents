@@ -8,6 +8,7 @@ import {
 import { snapshotAcpMessageCounts } from "./acpExecutionProgress";
 import {
   canEditAcpSkillRunModelConfiguration,
+  ensureAcpSkillRunWorkspaceSelection,
   getAcpSkillRunWorkspaceReadModel,
   getAcpSkillRunWorkspaceDetailsReadModel,
   getSelectedAcpSkillRunRequestId,
@@ -453,7 +454,7 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
 }
 
 function prepareAcpSkillsOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
-  const selectedRequestId = getSelectedAcpSkillRunRequestId();
+  const selectedRequestId = ensureAcpSkillRunWorkspaceSelection();
   const summaries = listAcpSkillRunSummaries({ includeArchived: false });
   const selectedOwner = selectedRequestId
     ? createAcpSkillsWorkspaceOwner(selectedRequestId)
@@ -551,7 +552,7 @@ export const ACP_SKILLS_WORKSPACE_ADAPTER =
       "owner-details",
     ],
     selectedOwner() {
-      const requestId = getSelectedAcpSkillRunRequestId();
+      const requestId = ensureAcpSkillRunWorkspaceSelection();
       return requestId ? createAcpSkillsWorkspaceOwner(requestId) : null;
     },
     async readOwnerNavigation() {

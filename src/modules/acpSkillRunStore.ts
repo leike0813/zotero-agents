@@ -1337,6 +1337,38 @@ async function readSelectedTranscriptPageFromStore(
   if (!hasDurableAcpSkillRunTranscript(record)) {
     return undefined;
   }
+  const executionDisplayMode = getAssistantExecutionDisplayMode();
+  if (executionDisplayMode !== "live") {
+    const { items, eventSeq } = await readFullTranscriptFromStore(record);
+    const itemsById = new Map(
+      items.map((item) => [String(item.id || ""), item]),
+    );
+    const page = readUiVisibleTranscriptPage<AcpSkillRunTranscriptItem>({
+      itemIds: items.map((item) => String(item.id || "")),
+      getItem: (itemId) => itemsById.get(itemId),
+      cloneItem: cloneAcpSkillRunTranscriptItem,
+      executionDisplayMode,
+      cursor: request?.cursor,
+      limit: request?.limit,
+      defaultLimit: ACP_SKILL_RUN_TRANSCRIPT_PAGE_DEFAULT_LIMIT,
+      maxLimit: ACP_SKILL_RUN_TRANSCRIPT_PAGE_MAX_LIMIT,
+    });
+    return {
+      items: page.items,
+      cursor: page.cursor,
+      prevCursor: page.prevCursor,
+      nextCursor: page.nextCursor,
+      total: page.total,
+      eventSeq,
+      requestId: record.requestId,
+      transcriptRevision: Math.max(
+        Number(eventSeq) || 0,
+        Number(record.transcriptRevision) || 0,
+        Number(record.transcriptEventSeq) || 0,
+      ),
+      limit: normalizeTranscriptPageLimit(request?.limit),
+    };
+  }
   const page = await readAcpSkillRunTranscriptPageFromStore({
     runtimeDir: record.runtimeDir,
     cursor: request?.cursor,
@@ -5752,8 +5784,7 @@ export function markAcpSkillRunApplyResult(args: {
   });
 }
 
-export async function selectAcpSkillRun(requestIdRaw: string) {
-  ensureHydrated();
+function applyAcpSkillRunSelection(requestIdRaw: string) {
   selectedRequestId = normalizeString(requestIdRaw);
   pruneInactiveAcpSkillRunTranscriptMirrors();
   emitWorkspaceChanged(
@@ -5761,6 +5792,30 @@ export async function selectAcpSkillRun(requestIdRaw: string) {
       ? acpSkillRunWorkspaceChange(selectedRequestId, ["selection"])
       : createAcpSkillRunWorkspaceChange({ kinds: ["selection"] }),
   );
+}
+
+export async function selectAcpSkillRun(requestIdRaw: string) {
+  ensureHydrated();
+  applyAcpSkillRunSelection(requestIdRaw);
+}
+
+export function ensureAcpSkillRunWorkspaceSelection() {
+  ensureHydrated();
+  const current = normalizeString(selectedRequestId);
+  if (current) {
+    const record = runRecords.get(current);
+    if (record && !record.removedAt && !record.archivedAt) {
+      return current;
+    }
+  }
+  const implicit = listAcpSkillRunSummaries({
+    includeArchived: false,
+    limit: 1,
+  })[0]?.requestId;
+  if (implicit && implicit !== current) {
+    applyAcpSkillRunSelection(implicit);
+  }
+  return implicit || "";
 }
 
 export function getSelectedAcpSkillRunRequestId() {

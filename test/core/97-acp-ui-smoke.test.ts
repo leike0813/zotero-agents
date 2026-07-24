@@ -3096,6 +3096,153 @@ describe("Assistant Workspace ACP UI v1", function () {
     );
   });
 
+  it("renders the tail window without requesting history on a stick-to-bottom first render", async function () {
+    const document = new FakeDocument();
+    document.transcriptRowHeight = 40;
+    const renderer = await loadTranscriptRenderer(document);
+    const transcript = document.createElement("div");
+    transcript.clientHeight = 100;
+    transcript.scrollHeight = 800;
+    transcript.setAttribute(
+      "data-assistant-transcript-stick-installed",
+      "true",
+    );
+    transcript.setAttribute("data-assistant-transcript-stick", "true");
+    const message = (index: number) => ({
+      itemId: `message-${index}`,
+      itemKind: "message",
+      role: "assistant",
+      status: "complete",
+      text: `message ${index}`,
+      createdAt: "2026-07-16T00:00:00.000Z",
+    });
+    const requestedCursors: number[] = [];
+    renderer.renderAssistantTranscript({
+      container: transcript,
+      virtualized: true,
+      ownerKey: "request-a",
+      pageSize: 10,
+      pageCacheLimit: 4,
+      renderWindowLimit: 20,
+      renderBuffer: 0,
+      estimatedRowHeight: 40,
+      mode: "plain",
+      variant: "skillrunner",
+      renderMarkdown: (value: string) => value,
+      onRequestPage: (request: { cursor?: number }) => {
+        requestedCursors.push(Number(request && request.cursor));
+      },
+      page: {
+        ownerKey: "request-a",
+        pageKey: "request-a\ntail:10",
+        startCursor: 10,
+        limit: 10,
+        totalVisibleItemCount: 20,
+        previousCursor: 0,
+        nextCursor: null,
+        sourceEventSeq: 1,
+        transcriptRevision: 1,
+        items: Array.from({ length: 10 }, (_unused, index) =>
+          message(index + 10),
+        ),
+      },
+    });
+
+    assert.deepEqual(requestedCursors, []);
+    assert.isNull(
+      transcript.querySelector(".assistant-transcript-virtual-loading"),
+    );
+    assert.deepEqual(
+      transcript
+        .querySelectorAll(":scope > .assistant-transcript-row")
+        .map((row) => row.getAttribute("data-assistant-item-id")),
+      ["message-16", "message-17", "message-18", "message-19"],
+    );
+  });
+
+  it("syncs the last scroll top after an incremental anchor restore", async function () {
+    const animationFrames = createAnimationFrameHarness();
+    const document = new FakeDocument();
+    document.transcriptRowHeight = 88;
+    const renderer = await loadTranscriptRenderer(
+      document,
+      animationFrames.requestAnimationFrame,
+    );
+    const transcript = document.createElement("div");
+    transcript.clientHeight = 400;
+    transcript.scrollHeight = 10_000;
+    transcript.scrollTop = 9_600;
+    const streamingItem = {
+      itemId: "assistant-segment-1",
+      itemKind: "message",
+      role: "assistant",
+      status: "streaming",
+      text: "long response",
+      createdAt: "2026-07-16T00:00:00.000Z",
+    };
+    const page = {
+      ownerKey: "request-a",
+      pageKey: "request-a\ntail:80",
+      startCursor: 0,
+      limit: 80,
+      totalVisibleItemCount: 1,
+      previousCursor: null,
+      nextCursor: null,
+      sourceEventSeq: 1,
+      transcriptRevision: 1,
+      items: [streamingItem],
+    };
+    const renderOptions = {
+      container: transcript,
+      virtualized: true,
+      ownerKey: "request-a",
+      page,
+      mode: "plain",
+      variant: "acp-chat",
+      renderMarkdown: (value: string) => value,
+    };
+    renderer.renderAssistantTranscript(renderOptions);
+    animationFrames.flushAll();
+
+    transcript.setAttribute("data-assistant-transcript-stick", "false");
+    transcript.setAttribute("data-assistant-transcript-last-scroll-top", "150");
+    transcript.scrollTop = 200;
+    const completeItem = {
+      ...streamingItem,
+      status: "complete",
+      text: "finished",
+    };
+    const result = renderer.applyAssistantTranscriptEffectsExact({
+      ...renderOptions,
+      page: {
+        ...page,
+        sourceEventSeq: 2,
+        transcriptRevision: 2,
+        items: [completeItem],
+      },
+      effect: {
+        kind: "mutations",
+        onSelectedPage: true,
+        mutations: [{ op: "patch_item", itemId: completeItem.itemId }],
+        affectedItems: [completeItem],
+        pageItems: [completeItem],
+        evictedItemIds: [],
+      },
+      affectedItems: [completeItem],
+    });
+
+    assert.isTrue(result.ok);
+    assert.equal(
+      transcript.getAttribute("data-assistant-transcript-last-scroll-top"),
+      String(transcript.scrollTop),
+    );
+    animationFrames.flushAll();
+    assert.equal(
+      transcript.getAttribute("data-assistant-transcript-last-scroll-top"),
+      String(transcript.scrollTop),
+    );
+  });
+
   it("coalesces repeated transcript bottom-stick animation frames", async function () {
     const animationFrames = createAnimationFrameHarness();
     const document = new FakeDocument();

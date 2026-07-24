@@ -139,7 +139,6 @@ function resetTranscriptScrollState(container) {
   if (!container) return;
   cancelAssistantTranscriptBottomStick(container);
   container.removeAttribute("data-assistant-transcript-programmatic-scroll");
-  container.removeAttribute("data-assistant-transcript-scroll-render");
   container.setAttribute("data-assistant-transcript-stick", "true");
   container.setAttribute("data-assistant-transcript-last-scroll-top", "0");
 }
@@ -533,9 +532,19 @@ function buildVirtualTranscriptLoadingGap(args) {
   ) {
     return null;
   }
-  const viewportTop = finiteNumber(container.scrollTop, 0);
+  const viewportTop = finiteNumber(
+    args.scrollTop,
+    finiteNumber(container.scrollTop, 0),
+  );
   const viewportBottom =
-    viewportTop + Math.max(1, finiteNumber(container.clientHeight, 0));
+    viewportTop +
+    Math.max(
+      1,
+      finiteNumber(
+        args.viewportHeight,
+        finiteNumber(container.clientHeight, 0),
+      ),
+    );
   const estimatedHeight = positiveInteger(
     options.estimatedRowHeight,
     VIRTUAL_ESTIMATED_ROW_HEIGHT,
@@ -758,8 +767,11 @@ function buildVirtualTranscriptWindow(container, state, options) {
       entries[entries.length - 1].index + 1,
     ),
   );
-  const scrollTop = finiteNumber(container.scrollTop, 0);
   const viewportHeight = Math.max(1, finiteNumber(container.clientHeight, 0));
+  const scrollTop =
+    options.stickToBottom === true
+      ? Math.max(0, layout.totalHeight - viewportHeight)
+      : finiteNumber(container.scrollTop, 0);
   const overscanPx = Math.max(
     layout.estimatedHeight,
     renderBuffer * layout.estimatedHeight,
@@ -823,6 +835,8 @@ function buildVirtualTranscriptWindow(container, state, options) {
     cache,
     firstPosition,
     lastPosition,
+    scrollTop,
+    viewportHeight,
   });
   return {
     items: windowPositions.map(function (position) {
@@ -2472,6 +2486,7 @@ function applyAssistantTranscriptEffectsExact(options) {
       Object.assign({}, opts, {
         nodeMap: stagedNodeMap,
         virtualState: stagedVirtualState,
+        stickToBottom: shouldStick,
       }),
     );
     if (!rendered.ok) {
@@ -2516,6 +2531,10 @@ function applyAssistantTranscriptEffectsExact(options) {
     ) {
       opts.container.scrollTop = preservedScrollTop;
     }
+    opts.container.setAttribute(
+      "data-assistant-transcript-last-scroll-top",
+      String(finiteNumber(opts.container.scrollTop, 0)),
+    );
     return { ok: true, renderPath: "incremental", failure: null };
   } catch (_error) {
     return {
@@ -2591,7 +2610,11 @@ function renderAssistantTranscript(options) {
       delete latestOptions._virtualScrollRender;
       virtualState.latestOptions = latestOptions;
       installVirtualTranscriptScrollHandler(container, virtualState);
-      virtual = buildVirtualTranscriptWindow(container, virtualState, opts);
+      virtual = buildVirtualTranscriptWindow(
+        container,
+        virtualState,
+        Object.assign({}, opts, { stickToBottom: shouldStick }),
+      );
       rawItems = virtual.items.length ? virtual.items : rawItems;
     }
   }
@@ -2600,12 +2623,6 @@ function renderAssistantTranscript(options) {
   container.classList.toggle("plain-mode", mode === "plain");
   container.classList.toggle("bubble-mode", mode === "bubble");
   container.setAttribute("data-assistant-panel-kind", variant);
-  if (virtualized && opts._virtualScrollRender === true) {
-    container.setAttribute("data-assistant-transcript-scroll-render", "true");
-  } else {
-    container.removeAttribute("data-assistant-transcript-scroll-render");
-  }
-  container.removeAttribute("data-assistant-transcript-scroll-render");
   if (items.length === 0) {
     clearNode(container);
     const emptyNodeMap = transcriptNodeMap(container, opts.nodeMap);

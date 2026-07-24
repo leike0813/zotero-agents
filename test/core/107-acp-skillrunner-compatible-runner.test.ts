@@ -37,6 +37,7 @@ import {
   listAcpSkillRunSummaries,
   listAcpSkillRuns,
   projectAcpSkillRunOutputEnvelopeToTranscript,
+  readAcpSkillRunTranscriptRegion,
   readAcpSkillRunTranscriptRegionFromMemoryForTests,
   recordAcpSkillRunSessionUpdate,
   reconcileAcpSkillRunWorkflowTasksOnStartup,
@@ -8086,6 +8087,131 @@ describe("ACP SkillRunner-compatible runner", function () {
         ),
       );
     } finally {
+      resetAcpSkillRunsForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("restores an implicit ACP Skills selection through the production workspace surface", async function () {
+    const root = await mkTempRoot();
+    resetAcpSkillRunsForTests();
+    try {
+      upsertAcpSkillRun({
+        requestId: "run-workspace-implicit-a",
+        status: "succeeded",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir: root,
+        runtimeDir: path.join(root, ".acp-a"),
+        activePrompt: false,
+      });
+      upsertAcpSkillRun({
+        requestId: "run-workspace-implicit-b",
+        status: "succeeded",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir: root,
+        runtimeDir: path.join(root, ".acp-b"),
+        activePrompt: false,
+      });
+      await selectAcpSkillRun("");
+
+      assert.equal(getSelectedAcpSkillRunRequestId(), "");
+
+      assert.equal(
+        ACP_SKILLS_WORKSPACE_ADAPTER.selectedOwner()?.requestId,
+        "run-workspace-implicit-b",
+      );
+      assert.equal(
+        getSelectedAcpSkillRunRequestId(),
+        "run-workspace-implicit-b",
+      );
+
+      const navigation =
+        await ACP_SKILLS_WORKSPACE_ADAPTER.readOwnerNavigation();
+      assert.equal(
+        navigation.selectedOwner?.requestId,
+        "run-workspace-implicit-b",
+      );
+
+      await selectAcpSkillRun("run-workspace-implicit-a");
+      assert.equal(
+        ACP_SKILLS_WORKSPACE_ADAPTER.selectedOwner()?.requestId,
+        "run-workspace-implicit-a",
+      );
+    } finally {
+      resetAcpSkillRunsForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("projects boundary-mode visibility on cold ACP Skills transcript store reads", async function () {
+    const root = await mkTempRoot();
+    const runtimeDir = path.join(root, ".acp");
+    resetAcpSkillRunsForTests();
+    try {
+      upsertAcpSkillRun({
+        requestId: "run-cold-boundary",
+        status: "running",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir: root,
+        runtimeDir,
+        activePrompt: true,
+      });
+      appendAcpSkillRunUserReply({
+        requestId: "run-cold-boundary",
+        message: "visible user turn",
+      });
+      recordAcpSkillRunSessionUpdate("run-cold-boundary", {
+        sessionId: "session-cold-boundary",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "in-flight assistant draft" },
+        },
+      } as any);
+      await flushAcpSkillRunRuntimeFileWritesForTests();
+      upsertAcpSkillRun({
+        requestId: "run-cold-boundary",
+        status: "succeeded",
+        activePrompt: false,
+      });
+      await selectAcpSkillRun("");
+      assert.isFalse(
+        getAcpSkillRunTranscriptMirrorDiagnosticsForTests("run-cold-boundary")
+          .mirrorLoaded,
+      );
+
+      setAssistantStreamingRenderEnabled(false);
+      const boundaryRegion = await readAcpSkillRunTranscriptRegion({
+        requestId: "run-cold-boundary",
+        transcriptReadMode: "page-first",
+      });
+      assert.equal(boundaryRegion.status, "ready");
+      assert.equal(boundaryRegion.page?.totalVisibleItemCount, 1);
+      assert.isFalse(
+        (boundaryRegion.page?.items || []).some((item) =>
+          String((item as any).text || "").includes(
+            "in-flight assistant draft",
+          ),
+        ),
+      );
+
+      setAssistantStreamingRenderEnabled(true);
+      const liveRegion = await readAcpSkillRunTranscriptRegion({
+        requestId: "run-cold-boundary",
+        transcriptReadMode: "page-first",
+      });
+      assert.equal(liveRegion.page?.totalVisibleItemCount, 2);
+      assert.isTrue(
+        (liveRegion.page?.items || []).some((item) =>
+          String((item as any).text || "").includes(
+            "in-flight assistant draft",
+          ),
+        ),
+      );
+    } finally {
+      setAssistantStreamingRenderEnabled(true);
       resetAcpSkillRunsForTests();
       await fs.rm(root, { recursive: true, force: true });
     }
