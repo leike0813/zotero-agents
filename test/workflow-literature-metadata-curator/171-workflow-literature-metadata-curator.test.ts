@@ -251,6 +251,15 @@ function assertSchemaValid(
   assert.isTrue(validate(payload), ajv.errorsText(validate.errors));
 }
 
+function assertSchemaInvalid(
+  schema: Record<string, unknown>,
+  payload: Record<string, unknown>,
+) {
+  const ajv = new Ajv({ allErrors: true, strict: false });
+  const validate = ajv.compile(schema);
+  assert.isFalse(validate(payload));
+}
+
 describe("workflow: literature-metadata-curator", function () {
   afterEach(function () {
     resetWorkflowHostApiForTests();
@@ -395,6 +404,26 @@ describe("workflow: literature-metadata-curator", function () {
       error: {},
     };
     assertSchemaValid(outputSchema, succeeded);
+    assertSchemaValid(outputSchema, {
+      ...succeeded,
+      metadata: {
+        ...succeeded.metadata,
+        fields: {
+          ...succeeded.metadata.fields,
+          abstractNote: "A schema-supported abstract.",
+        },
+      },
+    });
+    assertSchemaInvalid(outputSchema, {
+      ...succeeded,
+      metadata: {
+        ...succeeded.metadata,
+        fields: {
+          ...succeeded.metadata.fields,
+          abstract: "An unsupported abstract field.",
+        },
+      },
+    });
     assertSchemaValid(outputSchema, {
       ...succeeded,
       status: "verified_no_change",

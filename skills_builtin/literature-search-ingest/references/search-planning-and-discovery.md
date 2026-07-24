@@ -1,108 +1,90 @@
-# Search Planning And Discovery
+# 搜索规划与发现
 
-Use this reference for Stages 10, 20, and 30. The gate determines the current
-stage, discovery round, payload path, and legal actions. `SKILL.md` remains the
-complete execution contract; this document supplies deeper planning and
-discovery judgment.
+本参考文档适用于 Stage 10、20 和 30。Gate 决定当前阶段、发现轮次、payload 路径及合法 action。`SKILL.md` 仍是完整的执行合约；本文档提供更深入的规划与发现判断指导。
 
-## Mode Decision Table
+## 模式决策表
 
-| Mode | Minimum usable input | Choose it when | Do not silently change it when |
+| 模式 | 最低可用输入 | 选择条件 | 不得静默切换的条件 |
 | --- | --- | --- | --- |
-| `auto` | Blank or non-blank `query` | The agent must recommend a mode after read-only local context inspection | External discovery has not been approved |
-| `guided` | A research goal obtained through intake | The user begins with a question, problem, population, phenomenon, or uncertain scope | A broad goal could also be expressed as keywords |
-| `topic_expansion` | A topic statement or usable topic artifact | The user wants broad coverage around a topic, concept, debate, region, or method | A seed paper also exists but the topic is the stated center |
-| `paper_seed_expansion` | A resolvable seed work or local seed artifact | The user wants works connected to a particular paper through citations, authors, concepts, methods, or venues | The seed suggests a broader topic but the requested anchor remains the paper |
-| `targeted_ingest` | An exact title, DOI, ISBN, PMID, arXiv id, or unambiguous record URL | The user wants one direct bibliographic work verified and ingested | Related-work discovery would be useful but was not requested |
+| `auto` | 空或非空 `query` | Agent 必须在只读本地上下文检查后推荐一个模式 | 外部发现尚未获批 |
+| `guided` | 通过 intake 获取的研究目标 | 用户从一个问题、难题、群体、现象或不确定的范围出发 | 宽泛目标也可表述为关键词 |
+| `topic_expansion` | 主题陈述或可用的主题产物 | 用户希望围绕某一主题、概念、争论、领域或方法进行广泛覆盖 | 存在种子论文但主题才是明确中心 |
+| `paper_seed_expansion` | 可解析的种子作品或本地种子产物 | 用户希望获取通过引用、作者、概念、方法或发表渠道与某篇特定论文关联的作品 | 种子暗示了更广泛的主题，但请求的锚点仍是该论文 |
+| `targeted_ingest` | 精确标题、DOI、ISBN、PMID、arXiv id 或无歧义的记录 URL | 用户希望验证并收录一篇直接书目作品 | 相关作品发现有价值但未被请求 |
 
-An explicit mode is authoritative. If its minimum input is missing, ask only for
-that input. For non-empty `auto`, inspect local context and recommend one mode in
-the Search Brief. Approval is still required before any external discovery.
+显式指定的模式具有最高优先级。如果其最低输入缺失，仅需请求该输入。对于非空的 `auto`，检查本地上下文并在 Search Brief 中推荐一个模式。在任何外部发现之前仍需获得批准。
 
-## Guided Intake Decision Tree
+## Guided Intake 决策树
 
-Ask the minimum questions needed to produce a defensible brief:
+仅提出最少量的问题以产出可靠的 brief：
 
-1. Is the desired output one exact work?
-   - Yes: collect an identifier, exact title, or record URL and route to
-     `targeted_ingest`.
-   - No: continue.
-2. Is one paper the requested expansion anchor?
-   - Yes: resolve the seed from the query or local artifacts and route to
-     `paper_seed_expansion`.
-   - No: continue.
-3. Is the research goal sufficiently specific to form inclusion criteria?
-   - Yes: use it directly.
-   - No: ask for the phenomenon/problem and the intended population, setting,
-     discipline, time span, or document type only where they materially affect
-     relevance.
-4. Are language or regional constraints explicit?
-   - Yes: preserve them as source and query guidance.
-   - No: do not ask merely to fill every field; infer safe initial coverage and
-     expose it in the brief.
+1. 期望输出是否为某一精确作品？
+   - 是：收集标识符、精确标题或记录 URL，路由至 `targeted_ingest`。
+   - 否：继续。
+2. 是否有一篇论文作为请求的扩展锚点？
+   - 是：从 query 或本地产物中解析种子，路由至 `paper_seed_expansion`。
+   - 否：继续。
+3. 研究目标是否足够具体以形成纳入标准？
+   - 是：直接使用。
+   - 否：仅在现象/问题以及预期的群体、场景、学科、时间跨度或文献类型对相关性有实质影响时，才进行追问。
+4. 是否有明确的语言或地区约束？
+   - 是：将其保留为来源和 query 指导。
+   - 否：不要仅为填满字段而追问；推断安全的初始覆盖范围并在 brief 中展示。
 
-Do not repeat a question when the parameter input, conversation, local context,
-or seed artifact already provides the answer. Do not ask about optional fields
-that can be proposed transparently and revised at Stage 10.
+当参数输入、对话、本地上下文或种子产物已提供答案时，不要重复提问。不要追问可在 Stage 10 透明提议并修订的可选字段。
 
-## Read-only Local Coverage Check
+## 只读本地覆盖检查
 
-Local inspection can refine the brief but cannot mutate Zotero or count as
-external discovery. Use `zotero-bridge` read-only operations supported by the
-current Host to inspect:
+本地检查可以完善 brief，但不能修改 Zotero 数据，也不能算作外部发现。使用当前 Host 支持的 `zotero-bridge` 只读操作检查：
 
-- title, creator, year, language, identifiers, tags, and collection membership;
-- attachment presence and local duplicate signals;
-- selected or recently referenced items that plausibly serve as seeds;
-- Synthesis artifacts such as topic reports, evidence tables, unresolved gaps,
-  and cited source lists.
+- 标题、创建者、年份、语言、标识符、标签和所属集合；
+- 附件存在性及本地重复信号；
+- 被选中的或最近引用的、可能作为种子的条目；
+- Synthesis 产物，如主题报告、证据表、未解决的缺口及引用来源列表。
 
-Record the exact read-only command or tool operation in the planning trace.
-Summarize local coverage as:
+在规划轨迹中记录精确的只读命令或工具操作。将本地覆盖总结为：
 
-- `covered`: direct local works that already address an inclusion concept;
-- `partial`: related local works with a material gap;
-- `missing`: concepts, languages, regions, document types, or periods absent
-  from the inspected context;
-- `seed_candidates`: local item or artifact ids with why each is usable.
+- `covered`：已涵盖某一纳入概念的本地直接作品；
+- `partial`：相关但存在实质缺口的本地作品；
+- `missing`：在已检查上下文中缺失的概念、语言、地区、文献类型或时期；
+- `seed_candidates`：本地条目或产物 id 及各自可用的原因。
 
-Choose a seed artifact only when it has stable identity or enough evidence to
-resolve the direct work. Prefer, in order:
+仅当种子产物具有稳定身份或足够证据来解析直接作品时，才选择种子产物。按以下优先级选择：
 
-1. a Zotero item with a normalized strong identifier;
-2. a structured Synthesis artifact citing a stable item key or identifier;
-3. a Zotero item with authoritative title, creators, and year;
-4. a user-supplied exact title or URL.
+1. 具有规范化强标识符的 Zotero 条目；
+2. 引用了稳定 item key 或标识符的结构化 Synthesis 产物；
+3. 具有权威标题、创建者和年份的 Zotero 条目；
+4. 用户提供的精确标题或 URL。
 
-Do not use a note fragment or translated title alone as seed identity.
+不要单独使用笔记片段或翻译标题作为种子身份。
 
-## Complete Search Brief
+## 完整搜索简报
 
-The Stage 10 payload is the authoritative plan approved by the user:
+Stage 10 payload 是经用户批准的权威计划：
 
 ```json
 {
   "decision": "approve",
   "plan": {
     "search_mode": "topic_expansion",
-    "objective": "Find direct empirical studies of tunnel-lining defect recognition.",
-    "discipline_or_application": "Civil infrastructure inspection",
+    "objective": "查找隧道衬砌病害识别的直接实证研究。",
+    "discipline_or_application": "土木基础设施检测",
     "scope": {
-      "date_range": "No hard limit; prioritize 2015-present",
+      "date_range": "无硬性限制；优先 2015 年至今",
       "language_hints": ["en", "zh"],
       "literature_types": ["journalArticle", "conferencePaper"],
       "regions": ["global", "China"]
     },
     "local_coverage": {
-      "summary": "Local library covers visual crack detection but not regional multimodal studies.",
+      "summary": "本地馆藏涵盖视觉裂缝检测，但不包括区域性多模态研究。",
       "existing_identifiers": ["doi:10.1111/local-example"],
       "reusable_seed_refs": ["zotero:ABCD1234"],
-      "gaps": ["Chinese-language evaluation studies", "multimodal sensing"]
+      "gaps": ["中文评估研究", "多模态传感"]
     },
     "seed_artifacts": [
       {
         "ref": "zotero:ABCD1234",
-        "use": "Stable DOI and direct relevance to the target setting."
+        "use": "具有稳定 DOI，与目标场景直接相关。"
       }
     ],
     "query_lanes": [
@@ -112,7 +94,7 @@ The Stage 10 payload is the authoritative plan approved by the user:
           "\"tunnel lining\" \"defect recognition\"",
           "\"tunnel lining\" crack detection"
         ],
-        "rationale": "Covers the central setting and task in English."
+        "rationale": "以英文覆盖核心场景和任务。"
       },
       {
         "lane": "multilingual",
@@ -120,79 +102,74 @@ The Stage 10 payload is the authoritative plan approved by the user:
           "\"隧道衬砌\" 病害 识别",
           "\"隧道衬砌\" 裂缝 检测"
         ],
-        "rationale": "Covers original Chinese terminology and regional records."
+        "rationale": "覆盖中文原始术语和区域记录。"
       }
     ],
     "source_lanes": [
       {
         "source": "Crossref",
-        "purpose": "Cross-disciplinary discovery and DOI evidence.",
+        "purpose": "跨学科发现和 DOI 证据。",
         "fallback_sources": ["OpenAlex"]
       },
       {
         "source": "China DOI",
-        "purpose": "Original Chinese records and regional coverage.",
+        "purpose": "中文原始记录和区域覆盖。",
         "fallback_sources": []
       }
     ],
     "inclusion_criteria": [
-      "The direct work evaluates detection or recognition on tunnel linings."
+      "直接作品对隧道衬砌上的检测或识别进行了评估。"
     ],
     "exclusion_criteria": [
-      "Generic defect detection without a tunnel-lining setting."
+      "不涉及隧道衬砌场景的通用缺陷检测。"
     ],
     "batch_size": 12,
     "stop_conditions": [
-      "The breadth profile is satisfied.",
-      "Applicable lanes no longer yield new relevant direct works."
+      "广度分布已满足。",
+      "适用的 lane 不再产出新的相关直接作品。"
     ]
   }
 }
 ```
 
-The runtime derives the fixed candidate tiers, material-conflict rule, PDF
-policy, effective breadth, approval acknowledgement, and action name. They are
-not agent-authored validation fields.
+运行时派生固定的候选分层、实质冲突规则、PDF 策略、有效广度、批准确认和 action 名称。这些不是由 agent 编写的验证字段。
 
-Every brief must expose:
+每份 brief 必须展示：
 
-- effective mode and objective;
-- research questions or exact target identity;
-- concepts, synonyms, translations, and exclusions that control relevance;
-- all four applicable query lane kinds;
-- source classes and their evidentiary roles;
-- inclusion/exclusion rules and material-version policy;
-- breadth profile, batching rule, and concrete stopping conditions;
-- local coverage and chosen seed artifacts;
-- authorization consequence: selected direct works proceed automatically through
-  metadata, PDF, payload, and ingest gates after Stage 30 approval.
+- 有效模式和目标；
+- 研究问题或精确目标身份；
+- 控制相关性的概念、同义词、翻译和排除项；
+- 所有四种适用的 query lane 类型；
+- 来源类别及其证据角色；
+- 纳入/排除规则和实质版本策略；
+- 广度分布、分批规则和具体停止条件；
+- 本地覆盖和选定的种子产物；
+- 授权后果：选定的直接作品在 Stage 30 批准后自动通过 metadata、PDF、payload 和 ingest gate。
 
-## Query Lane Templates
+## Query Lane 模板
 
 ### Core lane
 
-Combine the principal concept with population, setting, method, outcome, or
-document type:
+将主要概念与群体、场景、方法、结果或文献类型结合：
 
 ```text
 "<principal concept>" <setting> <method>
 "<principal concept>" <outcome> review
 ```
 
-Use original terms supplied by the user before inventing synonyms.
+优先使用用户提供的原始术语，再自行构造同义词。
 
 ### Multilingual lane
 
-For every relevant language:
+对每种相关语言：
 
-1. identify the concept's native scholarly term;
-2. retain script variants and regional terminology;
-3. generate language-specific queries rather than mechanically translating one
-   English query;
-4. query regional sources where they add coverage;
-5. preserve original-script results as identity values.
+1. 确定该概念的母语学术术语；
+2. 保留文字变体和区域术语；
+3. 生成针对特定语言的 query，而非机械翻译某一英文 query；
+4. 在能增加覆盖范围时查询区域来源；
+5. 将原始文字结果保留为身份值。
 
-Examples:
+示例：
 
 ```text
 "隧道衬砌" 病害 识别
@@ -200,166 +177,142 @@ Examples:
 "туннельная обделка" обнаружение дефектов
 ```
 
-Romanizations and translations support matching but never replace an
-authoritative original title.
+音译和翻译用于辅助匹配，但永远不能替代权威的原始标题。
 
 ### Seed lane
 
-For `paper_seed_expansion`, use:
+对于 `paper_seed_expansion`，使用：
 
-- exact seed identifier and title;
-- works citing the seed;
-- seed references;
-- related works by the same authors or project;
-- method, dataset, named instrument, theory, and venue anchors;
-- distinct material versions of the seed, tracked explicitly.
+- 精确种子标识符和标题；
+- 引用种子的作品；
+- 种子的参考文献；
+- 同一作者或项目的相关作品；
+- 方法、数据集、命名工具、理论和发表渠道锚点；
+- 种子的不同实质版本，需显式追踪。
 
 ### Gap lane
 
-Generate gap queries from:
+从以下来源生成 gap query：
 
-- missing concepts in local coverage;
-- a discovery round's excluded or weakly represented dimensions;
-- missing languages, regions, populations, methods, years, or document types;
-- Stage 30 expansion requests.
+- 本地覆盖中缺失的概念；
+- 某发现轮次中被排除或覆盖不足的维度；
+- 缺失的语言、地区、群体、方法、年份或文献类型；
+- Stage 30 扩展请求。
 
-Each gap query must name the gap it addresses. It is not a general license to
-repeat broad search.
+每个 gap query 必须指明其所针对的缺口。不能作为重复宽泛搜索的通用许可。
 
-## Source Selection Matrix
+## 来源选择矩阵
 
-Use multiple source roles rather than treating one index as complete:
+使用多种来源角色，而非将单一索引视为完整：
 
-| Research need | Primary source roles | Supporting source roles |
+| 研究需求 | 主要来源角色 | 辅助来源角色 |
 | --- | --- | --- |
-| Cross-disciplinary topic | Cross-domain scholarly indexes | Publisher pages, repositories, citation graphs |
-| Biomedical topic | PMID/PubMed and DOI registries | Publisher pages, clinical or institutional repositories |
-| Chinese-language or China-focused topic | China DOI, regional scholarly indexes, publisher pages | Cross-domain indexes, institutional repositories |
-| Books and chapters | ISBN registries, library catalogs, publisher pages | Cross-domain indexes and repository records |
-| Preprints and technical reports | arXiv or domain repository | Project pages, eventual publication landing page |
-| Theses | Institutional or national thesis repository | Library catalog and author page |
-| Standards, datasets, or software-adjacent literature | Issuing organization or project repository | Cross-domain indexes and citation graph |
+| 跨学科主题 | 跨领域学术索引 | 出版商页面、仓储库、引用图谱 |
+| 生物医学主题 | PMID/PubMed 和 DOI 注册库 | 出版商页面、临床或机构仓储库 |
+| 中文或中国相关主题 | China DOI、区域学术索引、出版商页面 | 跨领域索引、机构仓储库 |
+| 图书和章节 | ISBN 注册库、图书馆目录、出版商页面 | 跨领域索引和仓储库记录 |
+| 预印本和技术报告 | arXiv 或领域仓储库 | 项目页面、最终发表着陆页 |
+| 学位论文 | 机构或国家论文仓储库 | 图书馆目录和作者页面 |
+| 标准、数据集或软件相关文献 | 发布机构或项目仓储库 | 跨领域索引和引用图谱 |
 
-Source availability does not relax identity rules. If a planned source is
-unavailable, record the failed attempt and use another source with the same
-role. Do not claim its lane was covered without an actual attempt.
+来源可用性不放松身份规则。如果计划中的来源不可用，记录失败尝试并使用相同角色的另一来源。不得在未实际尝试的情况下声称其 lane 已覆盖。
 
-## Breadth Completion
+## 广度完成
 
 ### `broad`
 
-Complete only when:
+仅在以下条件全部满足时完成：
 
-- all applicable query lanes have actual attempts;
-- all source roles in the approved plan have actual attempts or explicit
-  unavailability evidence;
-- language and regional lanes cover the stated hints and discovered original
-  scripts;
-- seed citation, reference, and concept expansions are attempted when
-  applicable;
-- at least two consecutive meaningful query/source combinations yield no new
-  relevant direct works, or a user-defined hard limit is reached;
-- unresolved gaps are listed for Stage 30.
+- 所有适用的 query lane 均已实际尝试；
+- 批准计划中的所有来源角色均已实际尝试或有明确的不可用证据；
+- 语言和区域 lane 覆盖了已声明的提示和发现的原始文字；
+- 种子引用、参考文献和概念扩展在适用时均已尝试；
+- 至少连续两个有实质意义的 query/来源组合未产出新的相关直接作品，或已达到用户定义的硬性限制；
+- 未解决的缺口已列入 Stage 30。
 
 ### `balanced`
 
-Complete when:
+完成条件：
 
-- core and applicable multilingual/seed lanes are attempted;
-- at least one broad index and one authoritative or regional source role are
-  attempted;
-- the main inclusion concepts have representative ready or needs-curation
-  candidates;
-- the latest meaningful lane yields no material new cluster, or the approved
-  practical limit is reached.
+- core 和适用的 multilingual/seed lane 已尝试；
+- 至少一个宽泛索引和一个权威或区域来源角色已尝试；
+- 主要纳入概念已有代表性的 ready 或 needs-curation 候选；
+- 最近一个有实质意义的 lane 未产出实质性新聚类，或已达到批准的实用限制。
 
 ### `quick`
 
-Complete when:
+完成条件：
 
-- the most discriminating core or exact-target queries are attempted;
-- at least one authoritative or broad source role is attempted;
-- the result set is sufficient for a clearly labeled preliminary candidate
-  review;
-- omitted lanes and resulting uncertainty are stated.
+- 最具区分力的 core 或精确目标 query 已尝试；
+- 至少一个权威或宽泛来源角色已尝试；
+- 结果集足以进行明确标记为初步的候选审查；
+- 已说明被省略的 lane 及由此产生的不确定性。
 
-Never stop solely because a convenient page contains many results. Stop reasons
-must describe completed coverage, saturation, a stated limit, or source
-unavailability.
+永远不要仅因某个便利页面包含大量结果就停止。停止原因必须描述已完成的覆盖、饱和、已声明的限制或来源不可用。
 
-## Identity, Versions, And Deduplication
+## 身份、版本与去重
 
-### Strong identity
+### 强身份
 
-Normalize before comparison:
+比较前进行规范化：
 
-- DOI: remove resolver prefixes, lowercase, and trim surrounding punctuation;
-- ISBN: remove separators and validate ISBN-10/13;
-- PMID: digits only;
-- arXiv: canonical id with version separated from work identity where needed.
+- DOI：去除解析器前缀，转小写，去除周围标点；
+- ISBN：去除分隔符并验证 ISBN-10/13；
+- PMID：仅数字；
+- arXiv：规范化 id，需要时将版本与作品身份分开。
 
-The same normalized strong identifier normally denotes one work. Conflicting
-titles, types, or versions require investigation rather than forced merging.
+同一规范化的强标识符通常表示一个作品。标题、类型或版本的冲突需要调查，而非强制合并。
 
-### Weak identity
+### 弱身份
 
-Without a strong identifier, build a comparison from:
+在没有强标识符的情况下，从以下内容构建比较：
 
-- normalized authoritative original title;
-- ordered creator evidence;
-- publication year;
-- container or issuing institution;
-- document type;
-- edition, preprint, accepted manuscript, article, thesis, chapter, or report
-  status.
+- 规范化的权威原始标题；
+- 有序的创建者证据；
+- 出版年份；
+- 容器或发布机构；
+- 文献类型；
+- 版次、预印本、接受稿、正式文章、学位论文、章节或报告状态。
 
-Translations and romanizations are matching evidence, not weak identity keys by
-themselves.
+翻译和音译是匹配证据，本身不能作为弱身份键。
 
-### Material versions
+### 实质版本
 
-Keep records separate when the bibliographic object changes materially:
+当书目对象发生实质变化时，保持记录分离：
 
-- preprint versus published article;
-- thesis versus derived article;
-- book versus chapter;
-- conference abstract versus full paper;
-- first versus revised edition;
-- corrigendum or dataset versus the work it describes.
+- 预印本与正式发表文章；
+- 学位论文与衍生文章；
+- 图书与章节；
+- 会议摘要与完整论文；
+- 第一版与修订版；
+- 勘误或数据集与其描述的作品。
 
-Link related versions in evidence. Do not merge them merely because their titles
-or authors overlap.
+在证据中关联相关版本。不要仅因标题或作者重叠就合并它们。
 
-## Candidate Tiers And Presentation
+## 候选分层与展示
 
-| Tier | Minimum meaning | Selectable at Stage 30 |
+| 分层 | 最低含义 | 可在 Stage 30 选择 |
 | --- | --- | --- |
-| `ready` | Stable direct-work identity, traceable landing page, no unresolved material conflict | Yes |
-| `needs_curation` | Same direct work is traceable, but fields, creators, identifier, or version details need later care | Yes |
-| `lead_only` | Relevance or identity rests on a snippet, bare title, weak aggregator, indirect container, or unresolved conflict | No |
+| `ready` | 稳定的直接作品身份、可追溯的着陆页、无未解决的实质冲突 | 是 |
+| `needs_curation` | 同一直接作品可追溯，但字段、创建者、标识符或版本细节需要后续处理 | 是 |
+| `lead_only` | 相关性或身份依赖于摘要、纯标题、弱聚合器、间接容器或未解决的冲突 | 否 |
 
-Present candidates in readable batches. Each row includes:
+以可读的分批方式展示候选。每行包括：
 
-- candidate id and original title;
-- alternate/translated title only in a separate column;
-- creators, year, type, language, and container where known;
-- normalized identifiers;
-- tier and concise relevance;
-- discovery sources and stable landing URL;
-- local duplicate or coverage signal;
-- unresolved conflict or curation warning.
+- 候选 id 和原始标题；
+-  alternate/翻译标题仅在单独列中展示；
+- 创建者、年份、类型、语言和容器（已知时）；
+- 规范化标识符；
+- 分层和简要相关性说明；
+- 发现来源和稳定着陆 URL；
+- 本地重复或覆盖信号；
+- 未解决的冲突或策展警告。
 
-Show excluded and lead-only records separately with a reason. Do not imply that
-only the first batch is selectable and do not impose an unstated selection
-count.
+单独展示被排除的和 lead_only 记录及原因。不要暗示只有第一批可选，也不要施加未声明的选择数量限制。
 
-## Discovery Round Payload
+## 发现轮次 Payload
 
-Each Stage 20 payload is a semantic delta for the gate-issued round. New
-candidates omit `candidate_id`; the runtime creates a stable id from a strong
-identifier or source identity. Use an existing gate-issued id only for an
-evidence-backed update. The runtime merges the delta into cumulative state and
-derives counts and deduplication summaries:
+每个 Stage 20 payload 是 gate 所发轮次的语义增量。新候选省略 `candidate_id`；运行时从强标识符或来源身份创建稳定 id。仅在有证据支持的更新时才使用已有的 gate 签发 id。运行时将增量合并到累积状态并派生计数和去重摘要：
 
 ```json
 {
@@ -370,7 +323,7 @@ derives counts and deduplication summaries:
       "source": "regional index",
       "status": "completed",
       "result_count": 18,
-      "message": "Addresses the traditional-Chinese terminology gap."
+      "message": "覆盖了繁体中文术语缺口。"
     }
   ],
   "candidates": [
@@ -390,94 +343,69 @@ derives counts and deduplication summaries:
           "source": "China DOI",
           "url": "https://doi.org/10.5555/example",
           "lane": "gap",
-          "reason": "Stable direct-work landing evidence.",
+          "reason": "稳定的直接作品着陆证据。",
           "facts": ["original title", "DOI", "publication year"]
         }
       ],
       "matching_notes": [
-        "The normalized DOI and original title identify the same direct work."
+        "规范化的 DOI 和原始标题标识了同一直接作品。"
       ],
-      "library_note": "No strong local identifier match.",
+      "library_note": "无强本地标识符匹配。",
       "missing_fields": [],
-      "recommendation_reason": "Directly evaluates the requested setting."
+      "recommendation_reason": "直接评估了所请求的场景。"
     }
   ],
   "uncovered_gaps": [],
-  "stop_reason": "All approved gap lanes were attempted and no material gap remains."
+  "stop_reason": "所有已批准的 gap lane 均已尝试，无实质缺口遗留。"
 }
 ```
 
-Round 2 and later need not repeat unchanged candidates: the runtime retains
-them. An update cannot silently remove earlier evidence or change a candidate's
-title/year/container/material-version/identifier identity. A false duplicate
-discovered through stronger identity evidence must be submitted as a new
-candidate, with the previous relationship explained in `matching_notes`.
-Unavailable sources belong on the corresponding `query_attempt`, using
-`status: "unavailable"` or `"error"` and a useful `message`.
+第 2 轮及之后无需重复未变更的候选：运行时会保留它们。更新不能静默移除早期证据或更改候选的标题/年份/容器/实质版本/标识符身份。通过更强身份证据发现的假重复必须作为新候选提交，并在 `matching_notes` 中说明与前一条的关系。不可用的来源应放在对应的 `query_attempt` 上，使用 `status: "unavailable"` 或 `"error"` 及有用的 `message`。
 
-## Stage 30 Expansion
+## Stage 30 扩展
 
-Expansion is one branch of the ingest-scope decision, not another decision
-stage:
+扩展是 ingest 范围决策的一个分支，而非另一个决策阶段：
 
 ```json
 {
   "decision": "expand",
   "gaps": [
     {
-      "description": "Add traditional-Chinese terminology and regional sources.",
+      "description": "添加繁体中文术语和区域来源。",
       "lanes": ["multilingual", "gap"]
     }
   ]
 }
 ```
 
-The runtime increments the round and returns to Stage 20. After the cumulative
-round is recorded, the same Stage 30 decision recurs. The user may approve,
-request another focused expansion, or cancel.
+运行时递增轮次并返回 Stage 20。在累积轮次记录后，同一 Stage 30 决策递归执行。用户可以批准、请求另一次聚焦扩展或取消。
 
-## Examples And Anti-examples
+## 示例与反例
 
-### Good: topic expansion
+### 正确：主题扩展
 
-The brief defines the topic, languages, source roles, inclusion criteria, and
-material-version policy. Two discovery rounds retain the first round's
-candidates. The second round adds regional works and closes a named language
-gap. Candidate review separates direct works from indirect leads.
+Brief 定义了主题、语言、来源角色、纳入标准和实质版本策略。两轮发现保留了第一轮的候选。第二轮添加了区域作品并弥合了一个具名语言缺口。候选审查将直接作品与间接线索分开。
 
-### Good: no results
+### 正确：无结果
 
-The payload records actual core, multilingual, and source attempts with zero
-usable results; `candidates` is empty; `stop_reason` states saturation or the
-approved limit. Stage 30 presents the empty result plus gaps and lets the user
-expand, approve an empty scope, or cancel.
+Payload 记录了实际的 core、multilingual 和来源尝试，结果为零可用；`candidates` 为空；`stop_reason` 说明饱和或已达批准限制。Stage 30 展示空结果加缺口，让用户选择扩展、批准空范围或取消。
 
-### Good: source unavailable
+### 正确：来源不可用
 
-A planned source attempt uses `status: "unavailable"` with a concrete cause.
-Another source fulfills the same role. Coverage claims mention the unavailable
-lane rather than pretending it succeeded.
+计划中的来源尝试使用 `status: "unavailable"` 并注明具体原因。另一来源承担了相同角色。覆盖声明提及了不可用的 lane，而非假装其成功。
 
-### Reject: wrong merge
+### 拒绝：错误合并
 
-Two records share an English translated title but have different original
-titles and publication types. Merging them on the translation discards direct
-work identity. Keep both until authoritative evidence resolves the relation.
+两条记录共享一个英文翻译标题，但原始标题和文献类型不同。基于翻译进行合并会丢失直接作品身份。在权威证据解决关系之前，保持两者分离。
 
-### Reject: translation-based deduplication
+### 拒绝：基于翻译的去重
 
-A Chinese original article and an English-language review cite the same
-translated phrase. The translation is not a deduplication key. Compare original
-titles, identifiers, creators, years, types, and containers.
+一篇中文原文和一篇英文综述引用了相同的翻译短语。翻译不是去重键。应比较原始标题、标识符、创建者、年份、类型和容器。
 
-### Reject: summary-only discovery
+### 拒绝：仅摘要的发现
 
-An agent reports “searched broadly” without query attempts, source attempts,
-cumulative candidates, or a concrete stop reason. The runtime must reject the
-payload.
+Agent 报告"进行了广泛搜索"，但没有 query 尝试、来源尝试、累积候选或具体停止原因。运行时必须拒绝该 payload。
 
-### Reject: expansion drops prior candidates
+### 拒绝：扩展丢弃先前候选
 
-Round 2 contains only newly found records. This violates cumulative discovery
-and must fail closed. Copy the prior candidates and their evidence, add the new
-records, and document any evidence-based reclassification.
+第 2 轮仅包含新发现的记录。这违反了累积发现原则，必须按失败处理。应复制先前候选及其证据，添加新记录，并记录任何基于证据的重新分类。

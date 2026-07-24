@@ -54,6 +54,7 @@ logs
 .pnpmfile.cjs
 
 /attachments
+/runtime
 
 reference/Skill-Runner
 reference/Zotero_TagVocab

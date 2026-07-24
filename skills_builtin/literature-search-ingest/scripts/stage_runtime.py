@@ -31,6 +31,7 @@ PDF_TERMINAL_STATUSES = {
     "unavailable",
     "mismatch",
     "error",
+    "skipped_after_verified_pdf",
 }
 METADATA_NOT_ATTEMPTED_REASONS = {
     "identity_not_verified",
@@ -45,6 +46,7 @@ FATAL_INGEST_REASONS = {
 }
 INGEST_STATUSES = {"created", "existing", "failed"}
 IDENTIFIER_ORDER = ["doi", "pmid", "arxiv", "isbn"]
+_METADATA_FIELD_NAMES: frozenset[str] | None = None
 
 
 class ContractError(RuntimeError):
@@ -64,6 +66,27 @@ def canonical_json(value: Any) -> str:
 
 def stable_hash(value: Any) -> str:
     return f"sha256:{hashlib.sha256(canonical_json(value).encode()).hexdigest()}"
+
+
+def metadata_field_names() -> frozenset[str]:
+    """Read the canonical scalar-field contract from the action schema SSOT."""
+    global _METADATA_FIELD_NAMES
+    if _METADATA_FIELD_NAMES is None:
+        schema_path = Path(__file__).resolve().parent.parent / "assets" / "runtime-action.schema.json"
+        document = read_json(schema_path)
+        try:
+            properties = document["$defs"]["metadataFields"]["properties"]
+        except (KeyError, TypeError) as error:
+            raise ContractError(
+                "invalid_schema",
+                "runtime-action.schema.json has no metadataFields contract",
+            ) from error
+        if not isinstance(properties, dict) or not all(
+            isinstance(name, str) for name in properties
+        ):
+            raise ContractError("invalid_schema", "metadataFields must define field names")
+        _METADATA_FIELD_NAMES = frozenset(properties)
+    return _METADATA_FIELD_NAMES
 
 
 def read_json(path: str | Path) -> Any:
@@ -234,6 +257,8 @@ def initial_state(input_value: Any) -> dict[str, Any]:
         "approved_candidate_ids": [],
         "excluded_candidate_ids": [],
         "scope_approved": False,
+        "agent_batches_prepared": False,
+        "agent_batches": {},
         "metadata": {},
         "pdf": {},
         "prepared": {},
@@ -259,6 +284,8 @@ def validate_state_shape(state: Any) -> dict[str, Any]:
         "metadata",
         "pdf",
         "prepared",
+        "agent_batches_prepared",
+        "agent_batches",
         "receipts",
         "events",
     }
@@ -337,14 +364,21 @@ def derive_stage(state: dict[str, Any]) -> str:
         return "stage_20_discovery"
     if not state.get("scope_approved"):
         return "stage_30_ingest_scope"
+    if not state.get("agent_batches_prepared"):
+        return "stage_40_delegated_research"
+    batches = state.get("agent_batches", {})
+    if not isinstance(batches, dict) or not batches:
+        return "stage_40_delegated_research"
+    if any(not entry.get("imported") for entry in batches.values()):
+        return "stage_40_delegated_research"
     for candidate_id in state.get("approved_candidate_ids", []):
         if candidate_id not in state.get("metadata", {}):
-            return "stage_40_metadata_resolution"
+            return "stage_40_delegated_research"
     for candidate_id in metadata_qualified_ids(state):
         if candidate_id not in state.get("pdf", {}):
-            return "stage_50_pdf_probe"
+            return "stage_40_delegated_research"
     if not state.get("ingest_prepared"):
-        return "stage_60_ingest_prepare"
+        return "stage_40_delegated_research"
     for candidate_id in metadata_qualified_ids(state):
         if candidate_id not in state.get("receipts", {}):
             return "stage_70_ingest"
@@ -397,10 +431,6 @@ def event_key_for_payload(
             )
         action = actions[decision]
         return action, f"{action}:{state['discovery_round']}"
-    if stage == "stage_40_metadata_resolution":
-        return "record_metadata", f"record_metadata:{pending_metadata_candidate(state)}"
-    if stage == "stage_50_pdf_probe":
-        return "record_pdf_probe", f"record_pdf_probe:{pending_pdf_candidate(state)}"
     raise ContractError("invalid_stage_action", f"Stage {stage} accepts no payload")
 
 
@@ -949,13 +979,22 @@ def apply_metadata(
             )
         ensure_text(item.get("value"), "alternate title value")
     fields = ensure_object(metadata.get("fields"), "metadata.fields")
+    unknown_fields = set(fields) - metadata_field_names()
+    if unknown_fields:
+        raise ContractError(
+            "invalid_stage_payload",
+            "metadata.fields contains unsupported canonical fields: "
+            + ", ".join(sorted(unknown_fields)),
+        )
     forbidden_fields = {
-        key for key in fields if key.casefold() in {"title", "doi", "extra"}
+        key
+        for key in fields
+        if key.casefold() in {"title", "doi", "isbn", "extra"}
     }
     if forbidden_fields:
         raise ContractError(
             "invalid_stage_payload",
-            "metadata.fields must not repeat title, DOI, or Extra",
+            "metadata.fields must not repeat title, DOI, ISBN, or Extra",
         )
     if any(not isinstance(value, str) for value in fields.values()):
         raise ContractError(
@@ -1047,6 +1086,11 @@ def apply_pdf(
         status = ensure_text(attempt.get("status"), f"attempts.{route}.status")
         base_required = {"source", "query_or_url", "status", "notes"}
         if status == "found":
+            if found_url:
+                raise ContractError(
+                    "invalid_stage_payload",
+                    "Later PDF routes must be skipped after a verified PDF",
+                )
             ensure_exact_keys(
                 attempt,
                 required=base_required
@@ -1089,6 +1133,16 @@ def apply_pdf(
                     "invalid_stage_payload",
                     f"PDF status {status} is invalid",
                 )
+            if status == "skipped_after_verified_pdf" and not found_url:
+                raise ContractError(
+                    "invalid_stage_payload",
+                    "A PDF route may be skipped only after an earlier verified PDF",
+                )
+            if found_url and status != "skipped_after_verified_pdf":
+                raise ContractError(
+                    "invalid_stage_payload",
+                    "Later PDF routes must be skipped after a verified PDF",
+                )
         ensure_text(attempt.get("source"), f"attempts.{route}.source")
         ensure_text(attempt.get("query_or_url"), f"attempts.{route}.query_or_url")
         if not isinstance(attempt.get("notes"), str):
@@ -1130,10 +1184,6 @@ def apply_stage_payload(
             apply_cancel(state, stage, payload)
         else:
             apply_scope_decision(state, payload)
-    elif stage == "stage_40_metadata_resolution":
-        apply_metadata(state, payload, payload_path)
-    elif stage == "stage_50_pdf_probe":
-        apply_pdf(state, payload, payload_path)
     else:
         raise ContractError("invalid_stage_action", f"Stage {stage} accepts no payload")
     record_event(
@@ -1148,61 +1198,27 @@ def apply_stage_payload(
     return state
 
 
-def prepare_ingest_payloads(
-    state_path: str | Path,
-    input_path: str | Path,
+def project_ingest_payload(
+    metadata_entry: dict[str, Any],
+    pdf_entry: dict[str, Any],
+    target_collection: str = "",
 ) -> dict[str, Any]:
-    state = load_state(state_path, input_path)
-    if derive_stage(state) != "stage_60_ingest_prepare":
-        raise ContractError(
-            "invalid_stage_action",
-            "Ingest payloads are not ready to prepare",
-        )
-    run_root = run_root_for_state(state_path)
-    target_collection = str(
-        state.get("parameter", {}).get("targetCollection") or ""
-    ).strip()
-    prepared: dict[str, Any] = {}
-    for index, candidate_id in enumerate(metadata_qualified_ids(state), start=1):
-        metadata_entry = state["metadata"][candidate_id]
-        metadata_payload = read_json(metadata_entry["payload_path"])
-        if stable_hash(metadata_payload) != metadata_entry["payload_hash"]:
-            raise ContractError(
-                "payload_hash_mismatch",
-                f"Accepted metadata payload changed for {candidate_id}",
-            )
-        pdf_entry = state["pdf"][candidate_id]
-        pdf_payload = read_json(pdf_entry["payload_path"])
-        if stable_hash(pdf_payload) != pdf_entry["payload_hash"]:
-            raise ContractError(
-                "payload_hash_mismatch",
-                f"Accepted PDF payload changed for {candidate_id}",
-            )
-        metadata = metadata_entry["metadata"]
-        paper = {
-            "itemType": metadata["itemType"],
-            "fields": metadata["fields"],
-            "creators": metadata["creators"],
-            "identifiers": metadata["identifiers"],
-            "landingUrl": metadata["landingUrl"],
-            "attachLandingUrlOnMissingPdf": True,
-        }
-        if pdf_entry.get("pdf_url"):
-            paper["pdfUrl"] = pdf_entry["pdf_url"]
-        ingest_payload: dict[str, Any] = {"paper": paper}
-        if target_collection:
-            ingest_payload["collection"] = target_collection
-        target = run_root / "runtime" / "payloads" / f"ingest-paper-{index:03d}.json"
-        atomic_write_json(target, ingest_payload)
-        prepared[candidate_id] = {
-            "payload_path": target.as_posix(),
-            "payload_hash": stable_hash(ingest_payload),
-        }
-    state["prepared"] = prepared
-    state["ingest_prepared"] = True
-    state["stage"] = derive_stage(state)
-    atomic_write_json(state_path, state)
-    return state
+    """Build the one-paper Host contract from accepted main-agent research review."""
+    metadata = ensure_object(metadata_entry.get("metadata"), "accepted metadata")
+    paper = {
+        "itemType": metadata["itemType"],
+        "fields": metadata["fields"],
+        "creators": metadata["creators"],
+        "identifiers": metadata["identifiers"],
+        "landingUrl": metadata["landingUrl"],
+        "attachLandingUrlOnMissingPdf": True,
+    }
+    if pdf_entry.get("pdf_url"):
+        paper["pdfUrl"] = pdf_entry["pdf_url"]
+    ingest_payload: dict[str, Any] = {"paper": paper}
+    if target_collection:
+        ingest_payload["collection"] = target_collection
+    return ingest_payload
 
 
 def validated_prepared_payload(

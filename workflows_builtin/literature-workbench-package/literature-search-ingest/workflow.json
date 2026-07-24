@@ -2,10 +2,10 @@
   "schemaVersion": 2,
   "id": "literature-search-ingest",
   "label": "Literature Search Ingest",
-  "description": "Search scholarly sources, review candidates, and ingest deduplicated literature with provenance into the Zotero library.",
+  "description": "Search scholarly sources, review candidates, research each approved paper in parallel, then serially ingest reviewed records with provenance into Zotero.",
   "executionModes": ["auto"],
   "provider": "skillrunner",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "display": {
     "core": true,
     "emoji": "🔎"
