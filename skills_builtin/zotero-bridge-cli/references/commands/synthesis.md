@@ -533,4 +533,3 @@ List existing topic synthesis topics
 - Targets: `[{"kind":"capability","target":"topics.list"}]`.
 - Aliases: `synthesis topic list`, `synthesis`, `topic`, `list`, `query`, `JSON_OR_FILE`.
 - Intent search: `visible`.
-

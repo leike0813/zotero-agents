@@ -286,4 +286,3 @@ Search canonical commands by task intent
 - Targets: `[{"kind":"service","target":"embedded host-bridge.agent-surface.v4"}]`.
 - Aliases: `surface search`, `surface`, `search`, `intent`, `INTENT`, `limit`, `LIMIT`, `include_debug`, `include-debug`, `INCLUDE_DEBUG`, `json`, `JSON`.
 - Intent search: `visible`.
-

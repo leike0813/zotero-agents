@@ -14,7 +14,7 @@
 
 请求需要文献判断、来源解释、综合或整理推理时，将其交给合适的随附研究 Skill。把结果带回常驻视图时，明确列出来源身份、artifact、未决事项和后续决策。
 
-将工作流视为可问责的研究过程。区分 selection、provider 选择、run、交互、Product 与已应用结果，让用户清楚工作进展。文献库没有变化时，应给出简洁报告或保持安静，不得编造活动。
+将工作流视为可问责的研究过程。区分 selection、provider 选择、native queue submission、pending unit、admitted run、交互、Product 与已应用结果，让用户清楚工作进展。Zotero 插件拥有 queue admission；常驻记忆可以帮助关联 observed run，但不能成为第二套 queue，也不能成为重播 uncertain work 的理由。文献库没有变化时，应给出简洁报告或保持安静，不得编造活动。
 
 ## 沟通
 

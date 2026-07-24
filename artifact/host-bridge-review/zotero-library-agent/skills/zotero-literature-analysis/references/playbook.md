@@ -32,7 +32,9 @@
 
 已声明文献分析工作流提供稳定多 artifact 合同、后台 provider 执行或重复逐篇处理时使用它。提交前描述并校验当前输入。多篇论文默认串行或显式有界并发，使 provider 限额和逐条目 receipt 可归因。
 
-使用各自 `workflowRunId` 监控每个已提交 Zotero 托管 run。分别记录成功与失败父条目 ref。工作流承诺 digest、结构化 references 和 citation analysis 时，检查每个预期 artifact，不得只接受 run 终态。
+host 直接准入工作时，使用各自 `workflowRunId` 监控每个已提交 Zotero 托管 run。host 通过原生队列准入请求时，保留单一 `submissionId`，检查每个不可变 unit 及其 source parent ref，并且只有该 unit 暴露真实 task 或 run handle 后才开始 run-plane monitoring。不得构造逐篇论文的 Agent 侧 queue，也不得重新提交仍处于 pending 的 unit。
+
+分别记录 successful、failed 与 pending-or-canceled parent ref。所选 bounded concurrency 控制的是原生准入，而不是分析完整性，也不构成后续 submission 的权限。工作流承诺 digest、结构化 references 与 citation analysis 时，必须检查每个预期 artifact，不得把 aggregate submission state 或 terminal run status 当作充分证据。
 
 Agent 自主执行遵循协调器 handoff 合同：检查每个请求、按各请求 schema 生成输出、在本地校验，并且仅通过已审阅映射 apply。即使结构校验成功，分析质量决策仍由 Agent 负责。
 

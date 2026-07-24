@@ -120,6 +120,87 @@ describe("workflow Host submission queue", function () {
     });
   });
 
+  it("projects one active submission continuously from pending through admission without member identities", async function () {
+    const queue = createQueue();
+    const firstGate = deferred<WorkflowExecutionUnitOutcome>();
+    const secondGate = deferred<WorkflowExecutionUnitOutcome>();
+    const handle = queue.enqueueSubmission(
+      createConfig(
+        [{ id: "u1", secret: "not-public" }, { id: "u2" }],
+        async (unit) =>
+          unit.id === "u1" ? firstGate.promise : secondGate.promise,
+        {
+          maxConcurrency: 1,
+          initialOutcomes: [
+            { status: "skipped", reasonCode: "duplicate-refused" },
+          ],
+        },
+      ),
+    );
+
+    const beforeAdmission = queue.getActiveSubmission(handle.submissionId)!;
+    assert.deepInclude(beforeAdmission, {
+      submissionId: handle.submissionId,
+      workflowId: "workflow-a",
+      workflowLabel: "Workflow A",
+      backendType: "skillrunner",
+      backendId: "backend-a",
+      total: 3,
+      initiallySkipped: 1,
+      pending: 2,
+      admitted: 0,
+      settled: 1,
+    });
+    assert.deepEqual(
+      beforeAdmission.units.map((unit) => [
+        unit.unitId,
+        unit.state,
+        unit.canCancel,
+      ]),
+      [
+        ["u1", "pending", true],
+        ["u2", "pending", true],
+      ],
+    );
+    assert.equal(Object.isFrozen(beforeAdmission), true);
+    assert.equal(Object.isFrozen(beforeAdmission.units), true);
+    assert.equal(Object.isFrozen(beforeAdmission.units[0]), true);
+    assert.notInclude(JSON.stringify(beforeAdmission), "not-public");
+    assert.notInclude(JSON.stringify(beforeAdmission), "item:u1");
+
+    await flushMicrotasks();
+    const admitted = queue.getActiveSubmission(handle.submissionId)!;
+    assert.deepInclude(admitted, { pending: 1, admitted: 1, settled: 1 });
+    assert.deepEqual(
+      admitted.units.map((unit) => [unit.unitId, unit.state, unit.canCancel]),
+      [
+        ["u1", "admitted", false],
+        ["u2", "pending", true],
+      ],
+    );
+
+    firstGate.resolve({ status: "succeeded" });
+    await flushMicrotasks();
+    const nextAdmitted = queue.getActiveSubmission(handle.submissionId)!;
+    assert.deepInclude(nextAdmitted, {
+      pending: 0,
+      admitted: 1,
+      settled: 2,
+    });
+    assert.deepEqual(
+      nextAdmitted.units.map((unit) => [
+        unit.unitId,
+        unit.state,
+        unit.canCancel,
+      ]),
+      [["u2", "admitted", false]],
+    );
+
+    secondGate.resolve({ status: "succeeded" });
+    await handle.completion;
+    assert.isNull(queue.getActiveSubmission(handle.submissionId));
+  });
+
   it("keeps concurrency independent across overlapping submissions", async function () {
     const queue = createQueue();
     const admitted: string[] = [];
@@ -214,6 +295,12 @@ describe("workflow Host submission queue", function () {
       status: "not-pending",
       queueId: secondQueueId,
     });
+    assert.equal(
+      queue
+        .getActiveSubmission(handle.submissionId)!
+        .units.find((entry) => entry.queueId === secondQueueId),
+      undefined,
+    );
     firstGate.resolve({ status: "succeeded" });
 
     assert.deepEqual(await handle.completion, {
@@ -334,6 +421,13 @@ describe("workflow Host submission queue", function () {
 
     await flushMicrotasks();
     assert.deepEqual(queue.listQueued(), []);
+    const active = queue.getActiveSubmission(handle.submissionId)!;
+    assert.deepInclude(active.units[0], {
+      taskName: "Two papers",
+      memberCount: 2,
+    });
+    assert.notInclude(JSON.stringify(active), "paper-a");
+    assert.notInclude(JSON.stringify(active), "paper-b");
     assert.isTrue(
       queue.hasActiveOrQueuedWorkflowInput({
         workflowId: "workflow-a",

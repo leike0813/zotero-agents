@@ -16,8 +16,6 @@ The normal JSON shape is `zotero-librarian.operation-receipt.v1` with `operation
 | `index stats` | Local item count and refresh metadata | None | `ok` with `itemCount` and `lastRefresh` |
 | `workflow catalog-refresh` | Live workflow list and changed descriptions | Atomically upserts changed catalog entries | Number of `updated` definitions |
 | `workflow show <workflow-id>` | One cached workflow definition | None | `ok` with cached `workflow`; live describe is still required before execution |
-| `workflow plan --workflow ID --from-context --output ABS` | Live workflow description, current selection, and batch validation | Atomically writes and registers an immutable plan | Selection refs, input and validation contracts, plan/digests, and absolute `path` |
-| `workflow submit --plan ABS --allow-submit [--concurrency N]` | Registered plan, live workflow contract, entry validation, and submit results | Reserves entries and registers launched runs | `launched`, `remaining`, or one `unknown` entry requiring attention |
 | `run register --run-id ID --workflow-id ID [--state S]` | Supplied identifiers | Upserts one watched run | Registered `runId` |
 | `run watch` | One live status read per non-terminal watched run | Updates changed run states | Current `runs`; unchanged means no transition |
 | `notification sync [--limit N]` | One bounded unacknowledged event page | Upserts notification projection | `inserted`, `updated`, and `fetched` counts |
@@ -42,9 +40,9 @@ For a library question, locate candidates locally, then invoke the inherited Que
 
 Catalog refresh lists current workflows and fetches descriptions only for new or changed summary digests. `workflow show` is fast local discovery; execution still requires a live workflow description, current execution modes, input validation, and any provider-profile validation owned by Generic.
 
-Resident planning reads the live workflow selection contract, freezes the raw current selection as one batch, validates that batch, and writes `zotero-librarian.workflow-plan.v2` to an absolute path. Inspect the persisted file rather than reconstructing it from terminal output. Host planning remains responsible for candidate production, filtering, and immutable unit grouping. The plan contains one validated submission, immutable identity/digests, and a default concurrency of one.
+Interactive submission is not a resident service operation. Generic and the bundled CLI read the live workflow selection contract, preserve workflow options and provider-profile inputs separately, validate the complete request, and submit one reviewed scope. Host planning remains responsible for candidate production, filtering, and immutable unit grouping. The Zotero plugin's native queue is the sole owner of pending units and bounded admission.
 
-Submission launches only the first `--concurrency` entries in the reviewed plan during the current pass, records returned `workflowRunId` values, and reports the remainder. Later submissions require another current operator instruction. A run created outside the service can be added with `run register`; use only a real `workflowRunId` and its workflow ID.
+Direct admission returns a real `workflowRunId`. Host-queue admission returns `submissionId`, per-unit `queueId` values, counts, and links; inspect that native projection until admitted tasks expose real run identities. Pending queue cancellation and admitted run cancellation are separate controls. A run created outside the resident service can be added with `run register`; use only a real `workflowRunId` and its workflow ID.
 
 `run watch` checks each locally registered non-terminal Zotero-managed run once. It records transitions and naturally excludes terminal states from later active passes. It does not fetch transcripts, resolve permission decisions, execute self-owned handoffs, or infer missing Products and artifacts. Use live run/skill commands for interaction and the Generic handoff contract for `agentRunId` work.
 
@@ -64,7 +62,7 @@ Independent schedules keep one failure from hiding another domain's result. `unc
 
 For a resident report, retain the operation receipt, relevant refresh time, item keys, workflow/run/event IDs, changed counts, attention reasons, and any live confirmation used in the user-facing conclusion. `attention` is complete when the review candidate and next safe check are clear; it is not completed remediation.
 
-On a CLI or parse failure, the service emits a stable error and preserves committed state. Do not replace the projection with partial pages or advance a notification/run conclusion without a valid result. For an uncertain submission, inspect live recent runs before launching again. For local lookup failures, refresh only the needed projection and retry one bounded operation.
+On a CLI or parse failure, the service emits a stable error and preserves committed state. Do not replace the projection with partial pages or advance a notification/run conclusion without a valid result. For an uncertain direct submission, inspect live recent runs before another call. For an uncertain queued submission, inspect the original native submission and submission-filtered tasks before another call. For local lookup failures, refresh only the needed projection and retry one bounded operation.
 
 ## Detailed operation cards
 
@@ -204,66 +202,83 @@ Next:
 
 - Delegate outcome selection to Generic and confirm the live description.
 
-### `workflow plan`
+### Interactive native workflow handoff
 
 Purpose:
 
-- Freeze a validated, reviewable current-selection plan for simple Zotero-managed execution.
+- Validate and present one reviewable Zotero-managed request without creating resident queue state.
 
 Command:
 
 ```sh
-scripts/zotero_librarian_service.py workflow plan \
-  --workflow <workflow-id> --from-context \
-  --output <absolute-plan.json>
+zotero-bridge workflow describe --workflow <workflow-id> --json
+zotero-bridge workflow validate \
+  --workflow <workflow-id> \
+  --selection-json '<reviewed-selection>' \
+  --options-json '<reviewed-options>' --json
 ```
 
 Before:
 
 - Confirm the workflow is the correct Generic task candidate.
 - Ensure the current selection is the intended raw input for the live candidate-production contract.
-- Route required options, provider profiles, no-selection, and self-owned mode to Generic.
+- Keep required options, provider profiles, no-selection, and self-owned mode within their declared Generic and CLI contracts.
+- Validate the provider profile independently when the live description requires one.
+- Choose a finite concurrency bound after considering provider limits, cost, unit independence, interaction, and apply-back duration.
 
-Receipt:
+Evidence:
 
-- `changed` with `selectionRefs`, separate `inputs` and `validateSelection` contracts, plan object, and absolute `path`.
-- Plan includes `planId`, `planDigest`, workflow-description digest, entries, and concurrency one.
+- Live workflow identity and execution mode.
+- Exact selection refs and separate `inputs` and `validateSelection` contracts.
+- Reviewed workflow options and independently validated provider-profile input.
+- Host candidate-production and immutable grouping behavior.
+- Expected unit count or shape, result identities, and chosen native admission bound.
 
 Next:
 
-- Review the file without editing it.
-- Request current authority for that exact plan.
+- Present the complete current scope without persisting an approval flag.
+- Request current authority for that exact workflow, selection, options, provider, and concurrency.
 
-### `workflow submit`
+### Native queue submission and supervision
 
 Purpose:
 
-- Launch pending entries from one registered immutable plan under current authority.
+- Submit one reviewed request and supervise direct or native-queue admission with typed handles.
 
 Command:
 
 ```sh
-scripts/zotero_librarian_service.py workflow submit \
-  --plan <absolute-plan.json> --allow-submit \
-  --concurrency 1
+zotero-bridge workflow submit \
+  --workflow <workflow-id> \
+  --selection-json '<reviewed-selection>' \
+  --options-json '<reviewed-options>' \
+  --max-concurrency <bounded-count> --json
 ```
 
 Before:
 
-- Confirm the current instruction authorizes the exact plan and concurrency.
+- Confirm the current instruction authorizes the exact selection, options, provider profile, and concurrency.
 - Remember that Zotero-side approval remains separate.
+- Revalidate any live contract fact whose freshness affects the call.
 
-Receipt:
+Admission result:
 
-- `changed` with launched runs and pending remainder.
-- `attention` with one `unknown` entry when remote effect cannot be determined.
-- `failed` before remote calls for identity, digest, path, contract, selection, or authority mismatch.
+- Direct admission exposes the real task and `workflowRunId`.
+- Host-queue admission exposes `submissionId`, aggregate counts, queue links, and immutable unit projections.
+- A queued response intentionally omits fictional run handles for pending units.
+- Structured failure preserves state-change and safe-next-action facts.
 
 Next:
 
-- Registering successful returned runs is automatic.
-- Do not replay launched or unknown entries.
-- Another pass requires a new current instruction.
+- Inspect `workflow submission get <submissionId>` for aggregate and per-unit state.
+- Use `workflow queue list` for active queue observation.
+- Use `workflow queue cancel <queueId>` only while the unit is pending.
+- Correlate admitted tasks through `run list --submission <submissionId>`.
+- Register a real admitted `workflowRunId` only when resident one-pass watching is useful.
+- Use run-plane interaction or cancellation after admission.
+- Verify every expected Product, artifact, or Zotero change separately.
+- Do not replay an uncertain submission or implement a resident reservation loop.
+- Another submission requires a new current instruction.
 
 ### `run register`
 
@@ -503,17 +518,19 @@ Index refresh fails on page four:
 - retry a bounded refresh;
 - do not merge three pages manually.
 
-Plan file is edited:
+Workflow validation becomes stale:
 
-- submit fails before remote call;
-- create a new plan from live context;
-- do not restore only the digest field.
+- stop before the submit call;
+- re-read the live workflow and selection;
+- revalidate options and provider profile;
+- do not reuse cached validation as current authority.
 
-Submit returns `attention`:
+Queued submit response is uncertain:
 
-- preserve plan ID and unknown ordinal;
-- inspect recent live runs;
-- do not replay the entry or later batch automatically.
+- preserve `submissionId` and any returned `queueId` values;
+- inspect the original submission projection and submission-filtered tasks;
+- reconcile admitted real runs with watched state when useful;
+- do not replay the selection or build a replacement resident batch automatically.
 
 Notification acknowledgement fails:
 

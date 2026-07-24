@@ -43,10 +43,14 @@ For Zotero-managed execution:
 3. validate workflow input;
 4. describe and validate the backend provider profile independently;
 5. confirm provider compatibility and submit through the workflow join point;
-6. retain `workflowRunId` and inspect the exact run until the bounded task reaches a result or needs interaction;
+6. branch on the returned admission contract: retain `workflowRunId` for direct admission, or retain `submissionId` for native host-queue admission and inspect the immutable unit projection until admitted tasks expose their real run identities;
 7. inspect expected Products, artifacts, and changed Zotero objects separately from terminal run status.
 
-Use active/recent lists only for discovery. Target reply or connect with the returned `skillRunId`; inspect permissions without pretending the CLI can decide them. Treat notifications as lifecycle hints, not transcripts or authorization. On uncertain submission, search current/recent matching runs before creating another.
+For a queued admission, use the submission projection as the aggregate source of truth, the active queue only to observe or cancel still-pending units, and submission-filtered task discovery to correlate admitted work. Queue cancellation does not cancel an admitted run; after admission, target the real run through its normal control plane. Keep the native slot occupied through terminal execution and apply-back, and verify every promised Product, artifact, or live change independently.
+
+The active native submission projection is process-local. If it is unavailable after Host restart, recover already-admitted work through submission-filtered task discovery and real run state, retain the original bounded source scope, and report which units can no longer be observed as pending. Do not synthesize replacement queue entries or automatically resubmit the unresolved remainder; a replacement submission is a new state-changing operation with a new authority boundary.
+
+Use active/recent lists only for discovery. Target reply or connect with the returned `skillRunId`; inspect permissions without pretending the CLI can decide them. Treat notifications as lifecycle hints, not transcripts or authorization. On uncertain direct submission, search current/recent matching runs before creating another. On uncertain queued submission, inspect the original `submissionId` and its admitted tasks before creating another; absence of a run handle in the initial response is expected and is not permission to resubmit.
 
 Choose self-owned agent execution when the workflow advertises support and the current agent will fulfill every downloaded request contract. It cannot carry Zotero-managed workflow options or a backend provider profile unless the live contract explicitly declares them.
 

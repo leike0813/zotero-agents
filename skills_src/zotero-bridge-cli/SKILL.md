@@ -70,7 +70,7 @@ The catalog is intentionally compact. It owns discovery by user intent, while th
 - “Change these tags” or “put this in a collection” requires a live identity read, a reviewed mutation, current authority, and post-write verification.
 - “Get the generated report” may require a Product or workflow artifact read followed by file delivery; it is not automatically an attachment read.
 - “Run workflow X” requires workflow discovery, description, selection validation, provider-profile validation when declared, and submission.
-- “How is the workflow going?” begins from a returned `workflowRunId` and uses `run`, not workflow discovery.
+- “How is the workflow going?” begins from the typed handle returned by submission. For direct admission, retain the returned `workflowRunId` and use `run`, not workflow discovery. For host-queue admission, retain `submissionId`, inspect `workflow submission get`, and use `workflow queue list` or `workflow queue cancel` only for queue-level observation or pending cancellation; do not invent a `workflowRunId` before an admitted task exposes one.
 - “Refresh the synthesis graph” requires diagnosis of the exact derived model and maintenance scope before any write.
 - “Why is the bridge failing?” begins with semantic health and profile diagnostics; raw `call` is the last resort.
 
@@ -115,7 +115,7 @@ The command card distinguishes read, navigation, write, maintenance, and debug o
 
 Zotero-managed writes and apply-back remain subject to the declared Zotero-side approval path. Permission reads are observational and cannot approve or reject a request. A prior approval, valid preview, local validation, notification, cached proposal, or terminal run never authorizes another operation.
 
-Treat every returned identifier as an opaque typed handle. Keep Zotero refs, `workflowRunId`, `skillRunId`, `agentRunId`, `agentRequestId`, `permissionRequestId`, `operationId`, `eventId`, `fileId`, and Product identifiers in their declared command families. Never synthesize, recast, or exchange them. Do not reuse a handle after `handleConsumption` is `consumed` or `unknown` without a domain receipt that explicitly permits continuation.
+Treat every returned identifier as an opaque typed handle. Keep Zotero refs, `submissionId`, `queueId`, `workflowRunId`, `skillRunId`, `agentRunId`, `agentRequestId`, `permissionRequestId`, `operationId`, `eventId`, `fileId`, and Product identifiers in their declared command families. Never synthesize, recast, or exchange them. A `submissionId` identifies one immutable native-queue admission, while a `queueId` identifies one pending unit inside that submission; neither is a workflow-run identity. Do not reuse a handle after `handleConsumption` is `consumed` or `unknown` without a domain receipt that explicitly permits continuation.
 
 ## Files, Products, and artifacts
 
@@ -133,7 +133,13 @@ For a local file writeback, verify the artifact first, upload it, retain the ret
 
 ## Workflow and run control
 
-For Zotero-managed execution, discover the current workflow, read its description or requirements, validate selection and workflow options, validate the backend provider profile independently, then submit them through the declared join point. Preserve `workflowRunId`; use run commands for status, cancellation, skill interaction, permission observation, notifications, history, and events. A cancellation request is intent until a later run read confirms terminal state.
+For Zotero-managed execution, discover the current workflow, read its description or requirements, validate selection and workflow options, validate the backend provider profile independently, then submit them through the declared join point. Read the returned `admission` branch before choosing a monitoring family. Direct admission returns a `workflowRunId`; preserve it and use run commands for status, cancellation, skill interaction, permission observation, notifications, history, and events. A direct-run cancellation request is intent until a later run read confirms terminal state.
+
+Host-queue admission returns a `submissionId`, unit counts, and queue links instead of fabricating an already-started run. Preserve that submission handle and inspect `workflow submission get` for the immutable unit projection and current aggregate state. Use `workflow queue list` to observe active queue units, `workflow queue cancel <queueId>` only to cancel a still-pending unit, and `run list --submission <submissionId>` to discover admitted Zotero-managed tasks without confusing task lineage with queue membership. Once a unit is admitted or running, queue cancellation must fail closed; use the returned `workflowRunId` and the normal run-control plane for execution cancellation or interaction.
+
+The native queue owns bounded admission and keeps each admitted slot occupied through terminal execution and apply-back. Queue position or aggregate submission state is not a workflow result, a Product receipt, or proof that requested Zotero changes exist. Inspect every admitted task and its expected outputs independently, preserve failed and canceled units as distinct outcomes, and do not resubmit an uncertain submission merely because no `workflowRunId` was present in the initial response.
+
+Active submission and queue projections are process-local. If Host restart makes the original `submissionId` unavailable, use submission-filtered task discovery and live run reads to recover units that had already been admitted; do not reconstruct pending units from labels or member counts. Report unadmitted units as no longer active, preserve their original source scope outside queue internals, and require current authority before submitting a replacement bounded request.
 
 For self-owned agent execution, confirm that the workflow supports that mode, prepare the handoff, preserve `agentRunId`, every `agentRequestId`, bundle locations, and checksums, then inspect each request contract. Validate every completed result locally before apply-back. Apply the complete request-to-result mapping through `workflow agent-apply` and use `workflow agent-apply-status` for the durable receipt. Never monitor an `agentRunId` through the Zotero-managed run plane.
 
@@ -158,6 +164,8 @@ Use cache and index status reads before proposing maintenance. Reference-sidecar
 - Use the CLI binary, profile, embedded contract, and release envelope from one release set. A matching version string alone is not sufficient identity evidence.
 - Do not infer current Zotero state from a cached projection, workflow terminal status, notification, local artifact, or generated analysis.
 - Do not retry a state-changing call until its durable state and handle consumption are known.
+- Do not implement an agent-side workflow queue, plan-entry registry, reservation loop, replay loop, or background batching layer around `workflow submit`. Bounded concurrency and pending-unit ownership belong to Zotero's native workflow queue.
+- Do not treat `submissionId`, `queueId`, and `workflowRunId` as interchangeable. Queue cancellation applies only to a pending `queueId`; admitted work is controlled through its real run handle.
 
 ## LLM and tool responsibilities
 
@@ -176,6 +184,7 @@ Match the evidence to the operation:
 - for delivered bytes, retain the checksum, byte count, and owning object;
 - for a mutation, retain the approval outcome, operation receipt, and live post-read;
 - for an asynchronous run, retain terminal state and separately verify the requested deliverable;
+- for a host-queue submission, retain `submissionId`, each unit's `queueId` and admitted task identity when present, the aggregate terminal projection, and the independently verified result or failure for every requested unit;
 - for a local validator, report only structural validity and do not imply remote authority.
 
 ## Failure handling
@@ -188,6 +197,8 @@ Match the evidence to the operation:
 6. For partial apply-back, report each applied, failed, and unattempted request from the receipt; never collapse the result into success or replay the complete mapping.
 7. For file or paging failure, keep verified bytes/pages and resume only through the returned cursor, file owner, or safe next command.
 8. If authority, input, identity, profile readiness, or approval is missing, return the structured failure and required decision rather than bypassing the CLI or Zotero-side boundary.
+9. For an uncertain host-queue submission, inspect the original `submissionId`, then correlate admitted tasks with `run list --submission`; never create a second submission until the first admission outcome is known.
+10. When pending cancellation races with admission, accept the queue endpoint's conflict as evidence that ownership has crossed to the run plane, re-read the submission projection, and continue only with the exposed task or run handle.
 
 ## References
 

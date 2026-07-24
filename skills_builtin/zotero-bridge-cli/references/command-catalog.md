@@ -199,7 +199,10 @@ Read [the workflow command reference](commands/workflow.md) after selecting a ca
 | `zotero-bridge workflow profile describe` | Describe the provider profile contract for one backend |
 | `zotero-bridge workflow profile list` | List configured backend provider profiles |
 | `zotero-bridge workflow profile validate` | Validate and normalize one backend provider profile |
+| `zotero-bridge workflow queue cancel` | Cancel one still-pending Zotero-managed workflow queue unit |
+| `zotero-bridge workflow queue list` | List pending Zotero-managed workflow queue units |
 | `zotero-bridge workflow requirements` | Read workflow requirements |
+| `zotero-bridge workflow submission get` | Read one active Zotero-managed workflow submission |
 | `zotero-bridge workflow submit` | Submit a workflow with explicit JSON input |
 | `zotero-bridge workflow validate` | Validate workflow input without starting execution |
 

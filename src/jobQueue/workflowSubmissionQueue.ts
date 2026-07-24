@@ -1,5 +1,7 @@
 import { appendRuntimeLog as appendRuntimeLogEntry } from "../modules/runtimeLogManager";
 import type {
+  ActiveWorkflowSubmissionSnapshot,
+  ActiveWorkflowSubmissionUnitSnapshot,
   QueuedWorkflowUnitSnapshot,
   WorkflowExecutionUnitOutcome,
   WorkflowQueueBackendScope,
@@ -47,9 +49,15 @@ type InternalQueuedUnit = {
 
 type SubmissionController = {
   readonly submissionId: WorkflowSubmissionId;
-  readonly pending: InternalQueuedUnit[];
+  readonly backend: WorkflowQueueBackendScope;
+  readonly workflow: Readonly<{
+    workflowId: string;
+    workflowLabel: string;
+  }>;
+  readonly items: InternalQueuedUnit[];
   readonly limit: number;
   readonly total: number;
+  readonly initiallySkipped: number;
   readonly outcomes: WorkflowExecutionUnitOutcome[];
   readonly completion: Promise<WorkflowSubmissionSummary>;
   readonly resolveCompletion: (summary: WorkflowSubmissionSummary) => void;
@@ -186,9 +194,15 @@ export class WorkflowSubmissionQueue {
     });
     const controller: SubmissionController = {
       submissionId,
-      pending: [],
+      backend: freezeBackendScope(config.backend),
+      workflow: Object.freeze({
+        workflowId: config.workflow.workflowId,
+        workflowLabel: config.workflow.workflowLabel,
+      }),
+      items: [],
       limit,
       total,
+      initiallySkipped: initialOutcomes.length,
       outcomes: initialOutcomes,
       completion,
       resolveCompletion,
@@ -216,9 +230,9 @@ export class WorkflowSubmissionQueue {
       const item: InternalQueuedUnit = {
         queueId,
         submissionId,
-        backend: freezeBackendScope(config.backend),
-        workflowId: config.workflow.workflowId,
-        workflowLabel: config.workflow.workflowLabel,
+        backend: controller.backend,
+        workflowId: controller.workflow.workflowId,
+        workflowLabel: controller.workflow.workflowLabel,
         unitId: queuedUnit.display.unitId,
         unitOrder: queuedUnit.display.order,
         taskName: queuedUnit.display.taskName,
@@ -241,10 +255,18 @@ export class WorkflowSubmissionQueue {
         ),
         createdAt: this.now(),
         ordinal: ++this.ordinalSequence,
-        execute: () => config.executeUnit(queuedUnit.unit),
+        execute: () =>
+          config.executeUnit(
+            queuedUnit.unit,
+            Object.freeze({
+              submissionId,
+              submissionUnitId: queueId,
+              inputUnitIdentity: queuedUnit.display.inputUnitIdentity,
+            }),
+          ),
         state: "pending",
       };
-      controller.pending.push(item);
+      controller.items.push(item);
       this.addPendingIndexes(item);
       this.emit(
         Object.freeze({
@@ -272,6 +294,38 @@ export class WorkflowSubmissionQueue {
       : [...this.pendingByQueueId.values()];
     items.sort((left, right) => left.ordinal - right.ordinal);
     return Object.freeze(items.map((item) => this.toSnapshot(item)));
+  }
+
+  getActiveSubmission(
+    submissionId: WorkflowSubmissionId,
+  ): ActiveWorkflowSubmissionSnapshot | null {
+    const controller = this.submissions.get(submissionId);
+    if (!controller || controller.completed) {
+      return null;
+    }
+    const pendingItems = controller.items.filter(
+      (item) => item.state === "pending",
+    );
+    const admittedItems = controller.items.filter(
+      (item) =>
+        item.state === "admitted" && this.activeByQueueId.has(item.queueId),
+    );
+    const units = [...pendingItems, ...admittedItems]
+      .sort((left, right) => left.ordinal - right.ordinal)
+      .map((item) => this.toActiveSubmissionUnitSnapshot(item));
+    return Object.freeze({
+      submissionId: controller.submissionId,
+      workflowId: controller.workflow.workflowId,
+      workflowLabel: controller.workflow.workflowLabel,
+      backendType: controller.backend.backendType,
+      backendId: controller.backend.backendId,
+      total: controller.total,
+      initiallySkipped: controller.initiallySkipped,
+      pending: pendingItems.length,
+      admitted: admittedItems.length,
+      settled: controller.settled,
+      units: Object.freeze(units),
+    });
   }
 
   hasActiveOrQueuedWorkflowInput(query: WorkflowQueueIdentityQuery) {
@@ -461,7 +515,7 @@ export class WorkflowSubmissionQueue {
       return;
     }
     while (controller.active < controller.limit) {
-      const item = controller.pending.find(
+      const item = controller.items.find(
         (candidate) => candidate.state === "pending",
       );
       if (!item) {
@@ -557,6 +611,23 @@ export class WorkflowSubmissionQueue {
       backendId: item.backend.backendId,
       createdAt: item.createdAt,
       canCancel: true,
+    });
+  }
+
+  private toActiveSubmissionUnitSnapshot(
+    item: InternalQueuedUnit,
+  ): ActiveWorkflowSubmissionUnitSnapshot {
+    const state = item.state === "admitted" ? "admitted" : "pending";
+    return Object.freeze({
+      queueId: item.queueId,
+      submissionId: item.submissionId,
+      unitId: item.unitId,
+      unitOrder: item.unitOrder,
+      taskName: item.taskName,
+      memberCount: item.memberCount,
+      createdAt: item.createdAt,
+      state,
+      canCancel: state === "pending",
     });
   }
 

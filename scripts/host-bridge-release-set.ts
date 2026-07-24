@@ -352,7 +352,5 @@ export const HOST_BRIDGE_PUBLIC_CONTENT = {
     "cli/zotero-bridge/scripts",
     "cli/zotero-bridge/src/agent-surface.json",
   ],
-  librarianProfile: [
-    "profiles/hermes/zotero-librarian",
-  ],
+  librarianProfile: ["profiles/hermes/zotero-librarian"],
 } as const;

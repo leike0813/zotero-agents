@@ -533,6 +533,15 @@ function endpointMappings(): HostBridgeCliMapping[] {
       "POST /bridge/v1/workflows/submit",
       "zotero-ui-required",
     ],
+    ["workflow queue list", "GET /bridge/v1/workflows/queue"],
+    [
+      "workflow queue cancel",
+      "POST /bridge/v1/workflows/queue/{queueId}/cancel",
+    ],
+    [
+      "workflow submission get",
+      "GET /bridge/v1/workflows/submissions/{submissionId}",
+    ],
     ["workflow agent-run", "POST /bridge/v1/workflows/agent-run"],
     [
       "workflow agent-apply",

@@ -286,4 +286,3 @@ Sync a Zotero library metadata snapshot page
 - Targets: `[{"kind":"capability","target":"library.sync_snapshot"}]`.
 - Aliases: `library snapshot`, `library`, `snapshot`, `query`, `JSON_OR_FILE`.
 - Intent search: `visible`.
-

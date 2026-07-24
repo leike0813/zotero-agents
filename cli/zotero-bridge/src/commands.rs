@@ -42,8 +42,10 @@ use crate::{
         WorkflowAgentResultValidateArgs, WorkflowAgentRunArgs, WorkflowAgentRunLifecycleArgs,
         WorkflowArgs, WorkflowCancelArgs, WorkflowCommand, WorkflowDescribeArgs,
         WorkflowProfileArgs, WorkflowProfileCommand, WorkflowProfileDescribeArgs,
-        WorkflowProfileValidateArgs, WorkflowRequirementsArgs, WorkflowRunArgs, WorkflowSubmitArgs,
-        WorkflowValidateArgs,
+        WorkflowProfileValidateArgs, WorkflowQueueArgs, WorkflowQueueCancelArgs,
+        WorkflowQueueCommand, WorkflowQueueListArgs, WorkflowRequirementsArgs, WorkflowRunArgs,
+        WorkflowSubmissionArgs, WorkflowSubmissionCommand, WorkflowSubmissionGetArgs,
+        WorkflowSubmitArgs, WorkflowValidateArgs,
     },
     client,
     config::BridgeConfig,
@@ -425,6 +427,8 @@ pub fn workflow(config: &BridgeConfig, args: WorkflowArgs) -> Result<Value, CliE
         WorkflowCommand::Submit(args) => {
             client::post(config, "/workflows/submit", workflow_submit_input(args)?)
         }
+        WorkflowCommand::Queue(args) => workflow_queue(config, args),
+        WorkflowCommand::Submission(args) => workflow_submission(config, args),
         WorkflowCommand::Profile(args) => workflow_profile(config, args),
         WorkflowCommand::AgentRun(args) => workflow_agent_run(config, args),
         WorkflowCommand::AgentBundle(args) => workflow_agent_bundle(args),
@@ -434,6 +438,26 @@ pub fn workflow(config: &BridgeConfig, args: WorkflowArgs) -> Result<Value, CliE
         WorkflowCommand::AgentRenew(args) => workflow_agent_run_lifecycle(config, args, "renew"),
         WorkflowCommand::AgentAbandon(args) => {
             workflow_agent_run_lifecycle(config, args, "abandon")
+        }
+    }
+}
+
+fn workflow_queue(config: &BridgeConfig, args: WorkflowQueueArgs) -> Result<Value, CliError> {
+    match args.command {
+        WorkflowQueueCommand::List(args) => client::get(config, &workflow_queue_list_path(args)?),
+        WorkflowQueueCommand::Cancel(args) => {
+            client::post(config, &workflow_queue_cancel_path(args)?, json!({}))
+        }
+    }
+}
+
+fn workflow_submission(
+    config: &BridgeConfig,
+    args: WorkflowSubmissionArgs,
+) -> Result<Value, CliError> {
+    match args.command {
+        WorkflowSubmissionCommand::Get(args) => {
+            client::get(config, &workflow_submission_path(args)?)
         }
     }
 }
@@ -1546,7 +1570,7 @@ fn workflow_validate_input(args: WorkflowValidateArgs) -> Result<Value, CliError
 
 fn workflow_submit_input(args: WorkflowSubmitArgs) -> Result<Value, CliError> {
     let workflow = workflow_id_arg(&args.workflow, "submit")?;
-    Ok(json!({
+    let mut input = json!({
         "workflowId": workflow,
         "selection": workflow_selection(&args)?,
         "workflowOptions": workflow_options_arg(args.workflow_options.as_deref())?,
@@ -1556,7 +1580,15 @@ fn workflow_submit_input(args: WorkflowSubmitArgs) -> Result<Value, CliError> {
                 .ok()
                 .as_deref(),
         )?
-    }))
+    });
+    if let Some(max_concurrency) = args.max_concurrency {
+        input["hostOptions"] = json!({
+            "queue": {
+                "maxConcurrency": max_concurrency
+            }
+        });
+    }
+    Ok(input)
 }
 
 fn workflow_agent_run_input(args: &WorkflowAgentRunArgs) -> Result<Value, CliError> {
@@ -1903,12 +1935,54 @@ fn task_list_path(args: TaskListArgs) -> String {
     push_query(&mut query, "backendId", args.backend);
     push_query(&mut query, "backendType", args.backend_type);
     push_query(&mut query, "requestId", args.request);
+    push_query(&mut query, "submissionId", args.submission);
     push_query(&mut query, "runId", args.run);
     push_query(&mut query, "state", args.state);
     if args.active_only {
         query.push(("includeHistory".to_string(), "false".to_string()));
     }
     path_with_query("/tasks", query)
+}
+
+fn workflow_queue_list_path(args: WorkflowQueueListArgs) -> Result<String, CliError> {
+    if args.backend_type.is_some() != args.backend.is_some() {
+        return Err(CliError::validation(
+            "invalid_workflow_queue_scope",
+            "Workflow queue backend filtering requires both --backend-type and --backend",
+        ));
+    }
+    let mut query = Vec::new();
+    push_query(&mut query, "backendType", args.backend_type);
+    push_query(&mut query, "backendId", args.backend);
+    Ok(path_with_query("/workflows/queue", query))
+}
+
+fn workflow_queue_cancel_path(args: WorkflowQueueCancelArgs) -> Result<String, CliError> {
+    let queue_id = args.queue_id.trim();
+    if queue_id.is_empty() {
+        return Err(CliError::validation(
+            "missing_workflow_queue_id",
+            "Workflow queue cancel requires a queue id",
+        ));
+    }
+    Ok(format!(
+        "/workflows/queue/{}/cancel",
+        percent_encode_path(queue_id)
+    ))
+}
+
+fn workflow_submission_path(args: WorkflowSubmissionGetArgs) -> Result<String, CliError> {
+    let submission_id = args.submission_id.trim();
+    if submission_id.is_empty() {
+        return Err(CliError::validation(
+            "missing_workflow_submission_id",
+            "Workflow submission get requires a submission id",
+        ));
+    }
+    Ok(format!(
+        "/workflows/submissions/{}",
+        percent_encode_path(submission_id)
+    ))
 }
 
 fn task_recent_path(args: TaskRecentArgs) -> String {
@@ -2994,6 +3068,7 @@ mod tests {
             provider_profile: Some(
                 "{\"schema\":\"zotero-bridge.provider-profile.v1\",\"backendId\":\"acp-opencode\",\"providerOptions\":{\"acpModelId\":\"gpt-5.2\",\"autoApproveAcpPermissions\":true}}".to_string(),
             ),
+            max_concurrency: Some(3),
         })
         .unwrap();
         assert_eq!(
@@ -3019,6 +3094,11 @@ mod tests {
                         "acpModelId": "gpt-5.2",
                         "autoApproveAcpPermissions": true
                     }
+                },
+                "hostOptions": {
+                    "queue": {
+                        "maxConcurrency": 3
+                    }
                 }
             })
         );
@@ -3032,6 +3112,7 @@ mod tests {
             none: true,
             workflow_options: None,
             provider_profile: None,
+            max_concurrency: None,
         })
         .unwrap();
         assert_eq!(
@@ -3180,13 +3261,45 @@ mod tests {
             backend: Some("b".to_string()),
             backend_type: None,
             request: None,
+            submission: Some("workflow-submission-1".to_string()),
             run: Some("run-1".to_string()),
             state: Some("running".to_string()),
             active_only: true,
         });
         assert_eq!(
             path,
-            "/tasks?workflowId=w+1&backendId=b&runId=run-1&state=running&includeHistory=false"
+            "/tasks?workflowId=w+1&backendId=b&submissionId=workflow-submission-1&runId=run-1&state=running&includeHistory=false"
+        );
+    }
+
+    #[test]
+    fn builds_native_workflow_queue_and_submission_paths() {
+        assert_eq!(
+            workflow_queue_list_path(WorkflowQueueListArgs {
+                backend_type: Some("skillrunner".to_string()),
+                backend: Some("backend a".to_string()),
+            })
+            .unwrap(),
+            "/workflows/queue?backendType=skillrunner&backendId=backend+a"
+        );
+        assert!(workflow_queue_list_path(WorkflowQueueListArgs {
+            backend_type: Some("skillrunner".to_string()),
+            backend: None,
+        })
+        .is_err());
+        assert_eq!(
+            workflow_queue_cancel_path(WorkflowQueueCancelArgs {
+                queue_id: "workflow queue/1".to_string(),
+            })
+            .unwrap(),
+            "/workflows/queue/workflow%20queue%2F1/cancel"
+        );
+        assert_eq!(
+            workflow_submission_path(WorkflowSubmissionGetArgs {
+                submission_id: "workflow submission/1".to_string(),
+            })
+            .unwrap(),
+            "/workflows/submissions/workflow%20submission%2F1"
         );
     }
 

@@ -32,7 +32,9 @@ For annotation review, retain quote, comment, color/category, page or position, 
 
 Use a declared literature-analysis workflow when it provides a stable multi-artifact contract, background provider execution, or repeated per-paper processing. Describe and validate current inputs before submission. For multiple papers, default to serial or explicitly bounded concurrency so provider limits and per-item receipts remain attributable.
 
-Monitor each submitted Zotero-managed run by its `workflowRunId`. Record successful and failed parent refs independently. Where the workflow promises a digest, structured references, and citation analysis, inspect each expected artifact rather than accepting the terminal run status as sufficient.
+When the host admits work directly, monitor each submitted Zotero-managed run by its `workflowRunId`. When it admits the request through the native queue, retain the single `submissionId`, inspect each immutable unit and its source parent ref, and begin run-plane monitoring only after that unit exposes a real task or run handle. Do not build a per-paper agent-side queue or resubmit units that remain pending.
+
+Record successful, failed, and pending-or-canceled parent refs independently. The chosen bounded concurrency controls native admission, not analytical completeness or permission for a later submission. Where the workflow promises a digest, structured references, and citation analysis, inspect each expected artifact rather than accepting aggregate submission state or terminal run status as sufficient.
 
 For self-owned execution, follow the coordinator's handoff contract: inspect every request, produce outputs against each request's schema, validate them locally, and apply only through the reviewed mapping. The analytical quality decision remains with the agent even after structural validation succeeds.
 

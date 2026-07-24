@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const REQUIRED_SECTIONS = [
@@ -101,6 +102,7 @@ function duplicatedProse(root: string, files: string[]) {
 
 type SkillPackageInspectionOptions = {
   enforceMaterializedDepth?: boolean;
+  baselineRef?: string;
 };
 
 export type HostBridgeSkillPackageInspection = {
@@ -110,6 +112,138 @@ export type HostBridgeSkillPackageInspection = {
 
 function lineCount(content: string) {
   return content.split(/\r?\n/).length;
+}
+
+function instructionMetrics(content: string) {
+  const lines = content.split(/\r?\n/);
+  let inFrontmatter = lines[0]?.trim() === "---";
+  let inFence = false;
+  let inComment = false;
+  const substantive: string[] = [];
+  for (const [index, line] of lines.entries()) {
+    const trimmed = line.trim();
+    if (inFrontmatter) {
+      if (trimmed === "---" && index > 0) {
+        inFrontmatter = false;
+      }
+      continue;
+    }
+    if (/^```/.test(trimmed)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    if (trimmed.includes("<!--")) inComment = true;
+    if (inComment) {
+      if (trimmed.includes("-->")) inComment = false;
+      continue;
+    }
+    if (
+      !trimmed ||
+      /^#{1,6}\s/.test(trimmed) ||
+      /^\|/.test(trimmed) ||
+      /^[-:|\s]+$/.test(trimmed)
+    ) {
+      continue;
+    }
+    substantive.push(trimmed);
+  }
+  const normalizedProseCharacters = [
+    ...substantive
+      .join(" ")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .replace(/[`*_~>#|()[\]{}:;,.!?'"\\/+=-]/g, "")
+      .replace(/\s+/g, ""),
+  ].length;
+  return {
+    substantiveInstructionLines: substantive.length,
+    normalizedProseCharacters,
+  };
+}
+
+function gitOutput(args: string[], cwd: string) {
+  const result = spawnSync("git", ["-C", cwd, ...args], {
+    encoding: "utf8",
+    shell: false,
+  });
+  return result.status === 0 ? String(result.stdout || "").trimEnd() : null;
+}
+
+function inspectRelativeBaseline(root: string, baselineRef: string): string[] {
+  const errors: string[] = [];
+  const repositoryRoot = gitOutput(["rev-parse", "--show-toplevel"], root);
+  const label = relative(process.cwd(), root) || root;
+  if (!repositoryRoot) {
+    return [`${label}: cannot resolve Git repository for baseline comparison`];
+  }
+  const packagePath = relative(repositoryRoot, root).replace(/\\/g, "/");
+  const baselineSkill = gitOutput(
+    ["show", `${baselineRef}:${packagePath}/SKILL.md`],
+    repositoryRoot,
+  );
+  if (baselineSkill === null) {
+    return [
+      `${label}: baseline SKILL.md is unavailable at ${baselineRef}:${packagePath}/SKILL.md`,
+    ];
+  }
+  const currentSkillPath = join(root, "SKILL.md");
+  const currentSkill = readFileSync(currentSkillPath, "utf8");
+  const baselineReferences = directReferenceLinks(baselineSkill);
+  const currentReferences = directReferenceLinks(currentSkill);
+  for (const baselineReference of baselineReferences) {
+    if (!currentReferences.has(baselineReference)) {
+      errors.push(
+        `${label}: baseline direct reference missing: ${baselineReference}`,
+      );
+    }
+  }
+
+  const compare = (
+    relativePath: string,
+    baselineContent: string,
+    currentContent: string,
+  ) => {
+    const baseline = instructionMetrics(baselineContent);
+    const current = instructionMetrics(currentContent);
+    if (
+      current.substantiveInstructionLines < baseline.substantiveInstructionLines
+    ) {
+      errors.push(
+        `${label}: ${relativePath} has ${current.substantiveInstructionLines} substantive instruction lines; baseline ${baselineRef} has ${baseline.substantiveInstructionLines}`,
+      );
+    }
+    const minimumCharacters = Math.ceil(
+      baseline.normalizedProseCharacters * 0.95,
+    );
+    if (current.normalizedProseCharacters < minimumCharacters) {
+      errors.push(
+        `${label}: ${relativePath} has ${current.normalizedProseCharacters} normalized prose characters; 95% of baseline ${baselineRef} requires ${minimumCharacters}`,
+      );
+    }
+  };
+  compare("SKILL.md", baselineSkill, currentSkill);
+  for (const baselineReference of baselineReferences) {
+    const baselineContent = gitOutput(
+      ["show", `${baselineRef}:${packagePath}/${baselineReference}`],
+      repositoryRoot,
+    );
+    if (baselineContent === null) {
+      errors.push(
+        `${label}: baseline direct reference is unavailable: ${baselineReference}`,
+      );
+      continue;
+    }
+    const currentPath = join(root, baselineReference);
+    if (!existsSync(currentPath)) {
+      continue;
+    }
+    compare(
+      baselineReference,
+      baselineContent,
+      readFileSync(currentPath, "utf8"),
+    );
+  }
+  return errors;
 }
 
 function inspectDepth(args: {
@@ -238,6 +372,9 @@ function inspectSkillRoot(
       if (referenceDepth.warning) warnings.push(referenceDepth.warning);
     }
   }
+  if (options.baselineRef) {
+    errors.push(...inspectRelativeBaseline(root, options.baselineRef));
+  }
   return { errors, warnings };
 }
 
@@ -269,14 +406,22 @@ function isMainModule() {
 }
 
 if (isMainModule()) {
-  const roots = process.argv.slice(2);
+  const argv = process.argv.slice(2);
+  const baselineIndex = argv.indexOf("--baseline-ref");
+  const baselineRef =
+    baselineIndex >= 0 ? String(argv[baselineIndex + 1] || "").trim() : "";
+  if (baselineIndex >= 0) {
+    argv.splice(baselineIndex, 2);
+  }
+  const roots = argv;
   if (!roots.length) {
     throw new Error(
-      "Usage: check-host-bridge-skill-packages.ts <skill-root> [...]",
+      "Usage: check-host-bridge-skill-packages.ts [--baseline-ref <ref>] <skill-root> [...]",
     );
   }
   const inspection = inspectHostBridgeSkillPackages(roots, {
     enforceMaterializedDepth: true,
+    baselineRef: baselineRef || undefined,
   });
   if (inspection.warnings.length) {
     console.warn(

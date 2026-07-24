@@ -58,6 +58,32 @@ export type QueuedWorkflowUnitSnapshot = Readonly<{
   canCancel: true;
 }>;
 
+export type ActiveWorkflowSubmissionUnitSnapshot = Readonly<{
+  queueId: WorkflowQueueEntryId;
+  submissionId: WorkflowSubmissionId;
+  unitId: string;
+  unitOrder: number;
+  taskName: string;
+  memberCount: number;
+  createdAt: string;
+  state: "pending" | "admitted";
+  canCancel: boolean;
+}>;
+
+export type ActiveWorkflowSubmissionSnapshot = Readonly<{
+  submissionId: WorkflowSubmissionId;
+  workflowId: string;
+  workflowLabel: string;
+  backendType: WorkflowQueueBackendType;
+  backendId: string;
+  total: number;
+  initiallySkipped: number;
+  pending: number;
+  admitted: number;
+  settled: number;
+  units: ReadonlyArray<ActiveWorkflowSubmissionUnitSnapshot>;
+}>;
+
 export type WorkflowQueueRemovalReason = "admitted" | "canceled" | "shutdown";
 
 export type WorkflowSubmissionQueueChangeEvent =
@@ -92,13 +118,22 @@ export type WorkflowSubmissionQueueUnit<TUnit> = Readonly<{
   display: WorkflowQueueDisplayIdentity;
 }>;
 
+export type WorkflowSubmissionQueueExecutionContext = Readonly<{
+  submissionId: WorkflowSubmissionId;
+  submissionUnitId: WorkflowQueueEntryId;
+  inputUnitIdentity?: string;
+}>;
+
 export type WorkflowSubmissionQueueConfig<TUnit> = Readonly<{
   backend: WorkflowQueueBackendScope;
   workflow: WorkflowQueueWorkflowIdentity;
   units: ReadonlyArray<WorkflowSubmissionQueueUnit<TUnit>>;
   maxConcurrency?: number;
   initialOutcomes?: ReadonlyArray<WorkflowExecutionUnitOutcome>;
-  executeUnit: (unit: TUnit) => Promise<WorkflowExecutionUnitOutcome>;
+  executeUnit: (
+    unit: TUnit,
+    context: WorkflowSubmissionQueueExecutionContext,
+  ) => Promise<WorkflowExecutionUnitOutcome>;
 }>;
 
 export type WorkflowSubmissionHandle = Readonly<{

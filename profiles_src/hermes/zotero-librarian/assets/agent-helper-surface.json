@@ -16,13 +16,13 @@
       "receiptSchema": "zotero-librarian.operation-receipt.v1",
       "domains": {
         "index": ["refresh", "search", "item", "stats"],
-        "workflow": ["catalog-refresh", "show", "plan", "submit"],
+        "workflow": ["catalog-refresh", "show"],
         "run": ["register", "watch"],
         "notification": ["sync", "inbox", "summary", "ack"],
         "maintenance": ["workflow-status", "library-hygiene"],
         "synthesis": ["attention-queue"]
       },
-      "constraints": ["one pass only", "cron never submits", "submit requires --allow-submit"]
+      "constraints": ["one pass only", "cron never submits", "native workflow queue stays owned by Zotero"]
     }
   ]
 }

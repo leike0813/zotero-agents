@@ -1,24 +1,16 @@
 import type { LoadedWorkflow } from "../workflows/types";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import {
-  buildPreparedWorkflowUnitExecution,
   buildWorkflowExecutionUnitPreview,
   runWorkflowPreparationSeam,
 } from "./workflowExecution/preparationSeam";
 import { runWorkflowUnitDuplicateGuardSeam } from "./workflowExecution/duplicateGuardSeam";
-import { runWorkflowExecutionSeam } from "./workflowExecution/runSeam";
-import { runWorkflowApplySeam } from "./workflowExecution/applySeam";
 import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
-import type {
-  WorkflowExecutionUnitOutcome,
-  WorkflowSubmissionSummary,
-} from "../jobQueue/workflowSubmissionQueueContracts";
-import type {
-  PreparedWorkflowExecution,
-  PreparedWorkflowUnit,
-  WorkflowApplySummary,
-  WorkflowRunState,
-} from "./workflowExecution/contracts";
+import {
+  executePreparedWorkflowUnit,
+  submitPreparedWorkflowUnits,
+  type PreparedWorkflowUnitExecutionResult,
+} from "./workflowExecution/submissionSeam";
 import type { WorkflowExecutionOptions } from "./workflowSettingsDomain";
 import {
   isWorkflowConfigurable,
@@ -74,72 +66,7 @@ function buildWorkflowCannotRunMessage(args: {
   return `Workflow ${args.workflowLabel} cannot run: ${args.reason}`;
 }
 
-export type PreparedWorkflowUnitExecutionResult = {
-  outcome: WorkflowExecutionUnitOutcome;
-  runState?: WorkflowRunState;
-  applySummary?: WorkflowApplySummary;
-  failureReason?: string;
-};
-
-type WorkflowUnitSubmissionSummary = Pick<
-  WorkflowSubmissionSummary,
-  "total" | "succeeded" | "failed" | "skipped"
->;
-
-function summarizeWorkflowUnitOutcomes(
-  outcomes: ReadonlyArray<WorkflowExecutionUnitOutcome>,
-): WorkflowUnitSubmissionSummary {
-  return {
-    total: outcomes.length,
-    succeeded: outcomes.filter((entry) => entry.status === "succeeded").length,
-    failed: outcomes.filter((entry) => entry.status === "failed").length,
-    skipped: outcomes.filter((entry) => entry.status === "skipped").length,
-  };
-}
-
-export async function executePreparedWorkflowUnit(args: {
-  prepared: PreparedWorkflowExecution;
-  unit: PreparedWorkflowUnit;
-  messageFormatter: ReturnType<typeof createLocalizedMessageFormatter>;
-}): Promise<PreparedWorkflowUnitExecutionResult> {
-  const buildResult = await buildPreparedWorkflowUnitExecution({
-    prepared: args.prepared,
-    unit: args.unit,
-  });
-  if (buildResult.status === "skipped") {
-    return {
-      outcome: {
-        status: "skipped",
-        reasonCode: "workflow-unit-preflight-skipped",
-      },
-    };
-  }
-  const runState = runWorkflowExecutionSeam({
-    prepared: buildResult.built,
-  });
-  await runState.terminalPromise;
-  const applySummary = await runWorkflowApplySeam({
-    runState,
-    messageFormatter: args.messageFormatter,
-  });
-  const outcome: WorkflowExecutionUnitOutcome =
-    applySummary.failed > 0
-      ? {
-          status: "failed",
-          reasonCode: "workflow-unit-execution-or-apply-failed",
-        }
-      : applySummary.pending > 0
-        ? {
-            status: "failed",
-            reasonCode: "workflow-unit-terminal-result-pending",
-          }
-        : { status: "succeeded" };
-  return {
-    outcome,
-    runState,
-    applySummary,
-  };
-}
+export { executePreparedWorkflowUnit };
 
 export async function executeWorkflowFromCurrentSelection(args: {
   win: _ZoteroTypes.MainWindow;
@@ -325,96 +252,15 @@ export async function executeWorkflowFromCurrentSelection(args: {
     hiddenWorkflowToastDeps,
   );
 
-  const executionResults = new Map<
-    string,
-    PreparedWorkflowUnitExecutionResult
-  >();
-  const executeUnit = async (unit: PreparedWorkflowUnit) => {
-    let result: PreparedWorkflowUnitExecutionResult;
-    try {
-      result = await executePreparedWorkflowUnit({
-        prepared: preparation.prepared,
-        unit,
-        messageFormatter,
-      });
-    } catch (error) {
-      result = {
-        outcome: {
-          status: "failed",
-          reasonCode: "workflow-unit-build-or-execution-failed",
-        },
-        failureReason:
-          error instanceof Error ? error.message : String(error || "unknown"),
-      };
-      appendRuntimeLog({
-        level: "error",
-        scope: "workflow-trigger",
-        workflowId: args.workflow.manifest.id,
-        stage: "workflow-unit-execution-failed",
-        message: "workflow execution unit failed",
-        details: {
-          unitId: unit.unitId,
-          taskName: unit.taskName,
-          reason: result.failureReason,
-        },
-        error,
-      });
-    }
-    executionResults.set(unit.unitId, result);
-    return result.outcome;
-  };
-  const initialOutcomes: WorkflowExecutionUnitOutcome[] = Array.from(
-    { length: skippedByGuard },
-    () => ({
-      status: "skipped",
-      reasonCode: "workflow-unit-filtered-or-duplicate",
-    }),
-  );
-  const backendType = String(
-    preparation.prepared.executionContext.backend.type || "",
-  ).trim();
-  let submissionSummary: WorkflowUnitSubmissionSummary;
-  if (backendType === "acp" || backendType === "skillrunner") {
-    const handle = workflowSubmissionQueue.enqueueSubmission({
-      backend: {
-        backendType,
-        backendId: preparation.prepared.executionContext.backend.id,
-      },
-      workflow: {
-        workflowId: args.workflow.manifest.id,
-        workflowLabel,
-      },
-      units: duplicateGuard.allowedUnits.map((unit) => ({
-        unit,
-        display: {
-          unitId: unit.unitId,
-          order: unit.order,
-          taskName: unit.taskName,
-          inputUnitIdentity: unit.inputUnitIdentity,
-          memberIdentities: unit.memberIdentities,
-          memberCount: unit.memberCount,
-        },
-      })),
-      maxConcurrency:
-        preparation.prepared.executionOptions.hostOptions?.queue
-          ?.maxConcurrency,
-      initialOutcomes,
-      executeUnit,
-    });
-    submissionSummary = await handle.completion;
-  } else {
-    const outcomes = [...initialOutcomes];
-    if (backendType === "pass-through") {
-      for (const unit of duplicateGuard.allowedUnits) {
-        outcomes.push(await executeUnit(unit));
-      }
-    } else {
-      outcomes.push(
-        ...(await Promise.all(duplicateGuard.allowedUnits.map(executeUnit))),
-      );
-    }
-    submissionSummary = summarizeWorkflowUnitOutcomes(outcomes);
-  }
+  const submission = await submitPreparedWorkflowUnits({
+    prepared: preparation.prepared,
+    units: duplicateGuard.allowedUnits,
+    workflowLabel,
+    skippedByGuard,
+    messageFormatter,
+  });
+  const submissionSummary = await submission.completion;
+  const executionResults = submission.executionResults;
 
   const orderedExecutionResults = duplicateGuard.allowedUnits
     .map((unit) => executionResults.get(unit.unitId))

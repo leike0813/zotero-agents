@@ -116,9 +116,7 @@ async function main() {
       : [];
     if (
       !executionModes.length ||
-      executionModes.some(
-        (mode) => mode !== "auto" && mode !== "interactive",
-      )
+      executionModes.some((mode) => mode !== "auto" && mode !== "interactive")
     ) {
       invalidWorkflowDescriptors.push(
         `${relativePath}: invalid executionModes`,

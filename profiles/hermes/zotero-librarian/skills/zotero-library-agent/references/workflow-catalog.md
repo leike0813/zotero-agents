@@ -11,9 +11,12 @@ Before execution, use live commands in this order:
 3. `zotero-bridge workflow validate` with either the declared selection or no-selection form and the intended workflow options.
 4. `zotero-bridge workflow profile describe` and `zotero-bridge workflow profile validate` for the separately selected backend profile.
 5. `zotero-bridge workflow submit` only after the bounded request and Zotero-side authority are current.
-6. Use the returned run handles to inspect execution, then verify every requested Product, artifact, or changed Zotero object independently.
+6. Read the returned admission branch. For direct admission, preserve each returned `workflowRunId`; for host-queue admission, preserve `submissionId`, inspect `workflow submission get`, and correlate admitted tasks with `run list --submission`.
+7. Use real run handles to inspect admitted execution, then verify every requested Product, artifact, or changed Zotero object independently. Use `workflow queue cancel` only for a still-pending `queueId`; it is not run cancellation.
 
 Consult the bundled `zotero-bridge-cli` Skill's `workflow` and `run` command references for exact argv and structured recovery.
+
+The native Zotero queue is the only owner of pending workflow units and bounded admission. Do not persist a second plan-entry queue, reserve units locally, replay uncertain entries, or infer that the initial absence of a run handle means submission failed. A queued submission is one accepted operation identified by `submissionId`; its units may be pending, admitted, terminal, failed, or canceled independently.
 
 ## Choosing among workflows
 
@@ -370,4 +373,3 @@ Generate manuscript introduction and related-work framing from selected synthesi
   - `stylePreference`: `{"type":"string","title":"Style Preference","description":"Optional writing preference, such as concise, IEEE-like, Nature-like, or Chinese draft.","default":""}`.
 - Result evidence: `{"fetchType":"bundle","resultJson":"result/result.json","artifacts":["result/manuscript-literature-framing-artifacts.json"],"applyBack":true}`.
 - Invocation inputs: use workflow id `manuscript-literature-framing`, the declared no-selection form, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
-

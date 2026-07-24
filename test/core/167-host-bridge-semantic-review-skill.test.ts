@@ -190,7 +190,10 @@ describe("Host Bridge semantic surface review skill", function () {
     assert.include(skill, "semantic parity result");
     assert.include(skill, "unmapped semantic count");
     assert.include(skill, "intra-package duplicate count");
+    assert.include(skill, "unauthorized dropped semantic count");
     assert.include(skill, "instruction-depth warnings");
+    assert.include(skill, "explicit deletion");
+    assert.include(skill, "compression");
     assert.include(skill, "accepted or expanded");
     assert.include(skill, "blocker only when blocked");
     for (const heading of [
@@ -205,6 +208,21 @@ describe("Host Bridge semantic surface review skill", function () {
       assert.include(skill, `## ${heading}`);
     }
     assert.notInclude(skill, "semantic/SKILL.md");
+
+    const operations = await fs.readFile(
+      projectPath(
+        ".agents",
+        "skills",
+        "host-bridge-semantic-surface-review",
+        "references",
+        "review-operations.md",
+      ),
+      "utf8",
+    );
+    assert.include(operations, "--baseline-ref");
+    assert.include(operations, "normalized prose");
+    assert.match(operations, /95(?:%| percent)/);
+    assert.include(operations, "unauthorized dropped semantic count");
   });
 
   it("requires semantic review before Host Bridge surface rendering in the release pipeline", async function () {

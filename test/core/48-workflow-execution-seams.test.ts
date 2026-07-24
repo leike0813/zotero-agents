@@ -23,6 +23,8 @@ import {
 } from "../../src/modules/workflowExecution/preparationSeam";
 import { runWorkflowApplySeam } from "../../src/modules/workflowExecution/applySeam";
 import { runWorkflowExecutionSeam } from "../../src/modules/workflowExecution/runSeam";
+import { submitPreparedWorkflowUnits } from "../../src/modules/workflowExecution/submissionSeam";
+import { WorkflowSubmissionQueue } from "../../src/jobQueue/workflowSubmissionQueue";
 import { buildWorkflowTaskRecordFromJob } from "../../src/modules/taskRuntime";
 import {
   listSkillRunnerRunRecords,
@@ -62,6 +64,22 @@ const parentInputPlanningV2 = {
     filters: [],
   },
 } as const;
+
+function deferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushMicrotasks() {
+  for (let index = 0; index < 8; index += 1) {
+    await Promise.resolve();
+  }
+}
 
 async function planSingleWorkflowUnit(args: { selectionContext: unknown }) {
   return {
@@ -149,6 +167,84 @@ async function createWorkflowRoot(args: {
 }
 
 describe("workflow execution seams", function () {
+  it("submits the approved Input Planning v2 units unchanged and holds a queue slot through terminal apply", async function () {
+    const scheduled: Array<() => void> = [];
+    const queue = new WorkflowSubmissionQueue({
+      scheduleMicrotask: (run) => scheduled.push(run),
+      appendRuntimeLog: () => null,
+    });
+    const firstApply = deferred<void>();
+    const observedUnits: unknown[] = [];
+    const units = Object.freeze([
+      Object.freeze({
+        unitId: "unit-1",
+        order: 0,
+        taskName: "First approved unit",
+        inputUnitIdentity: "parent-id:1",
+        memberIdentities: Object.freeze(["parent-id:1"]),
+        memberCount: 1,
+      }),
+      Object.freeze({
+        unitId: "unit-2",
+        order: 1,
+        taskName: "Second approved unit",
+        inputUnitIdentity: "parent-id:2",
+        memberIdentities: Object.freeze(["parent-id:2"]),
+        memberCount: 1,
+      }),
+    ]) as any;
+
+    const submission = await submitPreparedWorkflowUnits(
+      {
+        prepared: {
+          workflow: { manifest: { id: "shared-seam" } },
+          executionContext: {
+            backend: { type: "skillrunner", id: "backend-a" },
+          },
+          executionOptions: {
+            hostOptions: { queue: { maxConcurrency: 1 } },
+          },
+        } as any,
+        units,
+        workflowLabel: "Shared seam",
+        skippedByGuard: 0,
+        messageFormatter: (() => "") as any,
+      },
+      {
+        submissionQueue: queue,
+        executePreparedUnit: async ({ unit }) => {
+          observedUnits.push(unit);
+          if (unit.unitId === "unit-1") {
+            await firstApply.promise;
+          }
+          return { outcome: { status: "succeeded" } };
+        },
+      },
+    );
+
+    assert.equal(submission.admission, "host-queue");
+    assert.equal(submission.total, 2);
+    assert.equal(submission.queued, 2);
+    assert.equal(observedUnits.length, 0);
+    scheduled.shift()!();
+    await flushMicrotasks();
+    assert.deepEqual(observedUnits, [units[0]]);
+    assert.strictEqual(observedUnits[0], units[0]);
+
+    firstApply.resolve();
+    await flushMicrotasks();
+    scheduled.shift()!();
+    await flushMicrotasks();
+    assert.deepEqual(observedUnits, [units[0], units[1]]);
+    assert.strictEqual(observedUnits[1], units[1]);
+    assert.deepInclude(await submission.completion, {
+      total: 2,
+      succeeded: 2,
+      failed: 0,
+      skipped: 0,
+    });
+  });
+
   it("uses the startup toast icon path for workflow toast lines", async function () {
     const feedback = await readFile(
       "src/modules/workflowExecution/feedbackSeam.ts",

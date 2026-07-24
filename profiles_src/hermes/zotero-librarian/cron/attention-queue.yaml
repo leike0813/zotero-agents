@@ -1,5 +1,6 @@
 schema: hermes.cron.v1
 name: attention-queue
 schedule: { time: "18:00" }
-command: [scripts/zotero_librarian_service.py, --quiet, synthesis, attention-queue]
+command:
+  [scripts/zotero_librarian_service.py, --quiet, synthesis, attention-queue]
 behavior: { unchanged: "[SILENT]", mutation: never }

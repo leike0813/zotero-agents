@@ -84,6 +84,8 @@ export type SkillRunnerRunRecord = {
   backendId: string;
   workflowId: string;
   workflowRunId: string;
+  submissionId?: string;
+  submissionUnitId?: string;
   jobId: string;
   taskName: string;
   skillId?: string;
@@ -111,6 +113,8 @@ export type SkillRunnerRunInit = {
   backendId: string;
   workflowId: string;
   workflowRunId: string;
+  submissionId?: string;
+  submissionUnitId?: string;
   jobId: string;
   taskName: string;
   skillId?: string;
@@ -437,6 +441,8 @@ function parseRecord(payload: string): SkillRunnerRunRecord | null {
       backendId,
       workflowId,
       workflowRunId,
+      submissionId: normalizeString(parsed.submissionId) || undefined,
+      submissionUnitId: normalizeString(parsed.submissionUnitId) || undefined,
       jobId,
       taskName: taskName || jobId,
       skillId: normalizeString(parsed.skillId) || undefined,
@@ -634,6 +640,9 @@ export function createSkillRunnerRun(args: SkillRunnerRunInit) {
     workflowId: normalizeString(args.workflowId) || existing?.workflowId || "",
     workflowRunId:
       normalizeString(args.workflowRunId) || existing?.workflowRunId || "",
+    submissionId: normalizeString(args.submissionId) || existing?.submissionId,
+    submissionUnitId:
+      normalizeString(args.submissionUnitId) || existing?.submissionUnitId,
     jobId: normalizeString(args.jobId) || existing?.jobId || "",
     taskName:
       normalizeString(args.taskName) ||
@@ -1117,6 +1126,8 @@ export function projectSkillRunnerRun(args: {
     sequenceStepIndex: step?.index,
     sequenceJobId: run.sequenceJobId,
     workflowRunId: run.workflowRunId,
+    submissionId: run.submissionId,
+    submissionUnitId: run.submissionUnitId,
     workflowId: run.workflowId,
     workflowLabel,
     taskName: run.taskName,

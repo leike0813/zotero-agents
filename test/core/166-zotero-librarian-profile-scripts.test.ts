@@ -56,6 +56,8 @@ if (args.join(" ") === "context selection get") {
   ] } });
 } else if (args[0] === "library" && args[1] === "snapshot") {
   out({ result: { items: [{ libraryId: 1, key: "PARENT1", id: 11, itemType: "journalArticle", title: "One" }], hasMore: false } });
+} else if (args.join(" ") === "workflow list") {
+  out({ result: { workflows: [{ id: "literature-analysis", label: "Literature Analysis" }] } });
 } else if (args.join(" ").startsWith("workflow describe")) {
   out({ result: {
     workflowId: args[args.indexOf("--workflow") + 1],
@@ -138,202 +140,46 @@ describe("zotero-librarian resident service", function () {
     assert.strictEqual(quiet.stdout.trim(), "[SILENT]");
   });
 
-  it("validates live attachment selection and requires explicit submit authority", function () {
+  it("rejects removed profile-owned workflow queue commands", function () {
     const temp = fs.mkdtempSync(
       path.join(os.tmpdir(), "zotero-librarian-service-"),
     );
     const bridge = writeFakeBridge(temp);
     const db = path.join(temp, "state.sqlite");
-    const planPath = path.join(temp, "plan.json");
-    const log = path.join(temp, "bridge.log");
-    const selected = payload(
-      runPython(
-        [
-          "--bridge",
-          bridge,
-          "--db",
-          db,
-          "workflow",
-          "plan",
-          "--workflow",
-          "literature-analysis",
-          "--from-context",
-          "--output",
-          planPath,
-        ],
-        { FAKE_BRIDGE_LOG: log },
-      ),
-    );
-    assert.deepEqual(selected.data.selectionRefs, [
-      { key: "ATT1", libraryId: 1 },
-      { key: "ATT2", libraryId: 1 },
-      { key: "NOTE1", libraryId: 1 },
-    ]);
-    assert.strictEqual(selected.data.path, planPath);
-    assert.deepEqual(
-      JSON.parse(fs.readFileSync(planPath, "utf8")),
-      selected.data.plan,
-    );
-    assert.strictEqual(
-      selected.data.plan.schema,
-      "zotero-librarian.workflow-plan.v2",
-    );
-    assert.isString(selected.data.plan.planId);
-    assert.isString(selected.data.plan.planDigest);
-    assert.deepEqual(selected.data.inputs, {
-      member: { kind: "attachment" },
-      grouping: { mode: "each" },
-    });
-    assert.deepEqual(selected.data.validateSelection, {
-      select: { policy: "input-member", source: "selected" },
-      filters: [],
-    });
-    assert.deepEqual(selected.data.plan.submissions, [
-      {
-        itemRefs: [
-          { key: "ATT1", libraryId: 1 },
-          { key: "ATT2", libraryId: 1 },
-          { key: "NOTE1", libraryId: 1 },
-        ],
-      },
-    ]);
-    const validateCalls = fs
-      .readFileSync(log, "utf8")
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line))
-      .filter((args) => args[0] === "workflow" && args[1] === "validate");
-    assert.lengthOf(validateCalls, 1);
-    for (const args of validateCalls) assert.include(args, "--selection");
 
-    const relative = runPython(
-      [
-        "--bridge",
-        bridge,
-        "--db",
-        db,
-        "workflow",
-        "plan",
-        "--workflow",
-        "literature-analysis",
-        "--from-context",
-        "--output",
-        "plan.json",
-      ],
-      {},
-    );
-    assert.notStrictEqual(relative.status, 0);
-    assert.include(relative.stdout, "absolute_output_required");
+    for (const command of ["plan", "submit"]) {
+      const rejected = runPython(
+        ["--bridge", bridge, "--db", db, "workflow", command],
+        {},
+      );
+      assert.notStrictEqual(rejected.status, 0);
+      assert.include(rejected.stderr, "invalid choice");
+    }
 
-    const blocked = runPython(
-      [
-        "--bridge",
-        bridge,
-        "--db",
-        db,
-        "workflow",
-        "submit",
-        "--plan",
-        planPath,
-      ],
-      {},
-    );
-    assert.notStrictEqual(blocked.status, 0);
-    assert.include(blocked.stdout, "submit_authority_required");
-
-    const submitted = payload(
-      runPython(
-        [
-          "--bridge",
-          bridge,
-          "--db",
-          db,
-          "workflow",
-          "submit",
-          "--plan",
-          planPath,
-          "--allow-submit",
-          "--concurrency",
-          "1",
-        ],
-        { FAKE_BRIDGE_LOG: log },
-      ),
-    );
-    assert.strictEqual(submitted.status, "changed");
-    assert.strictEqual(
-      submitted.data.launched[0].workflowRunId,
-      "workflow-run-ATT1",
-    );
-    const exhausted = runPython(
-      [
-        "--bridge",
-        bridge,
-        "--db",
-        db,
-        "workflow",
-        "submit",
-        "--plan",
-        planPath,
-        "--allow-submit",
-      ],
-      { FAKE_BRIDGE_LOG: log },
-    );
-    assert.notStrictEqual(exhausted.status, 0);
-    assert.include(exhausted.stdout, "plan_no_pending_entries");
+    const sourceText = fs.readFileSync(SERVICE, "utf8");
+    assert.notInclude(sourceText, "zotero-librarian.workflow-plan");
+    assert.notInclude(sourceText, "workflow_plans");
+    assert.notInclude(sourceText, "workflow_plan_entries");
+    assert.notInclude(sourceText, "--allow-submit");
   });
 
-  it("fails closed on plan tampering and never replays uncertain submissions", function () {
+  it("preserves workflow catalog and watched-run resident operations", function () {
     const temp = fs.mkdtempSync(
       path.join(os.tmpdir(), "zotero-librarian-service-"),
     );
     const bridge = writeFakeBridge(temp);
     const db = path.join(temp, "state.sqlite");
-    const planPath = path.join(temp, "plan.json");
-    const log = path.join(temp, "bridge.log");
-    payload(
-      runPython(
-        [
-          "--bridge",
-          bridge,
-          "--db",
-          db,
-          "workflow",
-          "plan",
-          "--workflow",
-          "literature-analysis",
-          "--from-context",
-          "--output",
-          planPath,
-        ],
-        { FAKE_BRIDGE_LOG: log },
-      ),
-    );
-    const original = fs.readFileSync(planPath, "utf8");
-    const tampered = JSON.parse(original);
-    tampered.workflowId = "other-workflow";
-    fs.writeFileSync(planPath, JSON.stringify(tampered));
-    const before = fs.readFileSync(log, "utf8").split("workflow submit").length;
-    const rejected = runPython(
-      [
-        "--bridge",
-        bridge,
-        "--db",
-        db,
-        "workflow",
-        "submit",
-        "--plan",
-        planPath,
-        "--allow-submit",
-      ],
-      { FAKE_BRIDGE_LOG: log },
-    );
-    assert.notStrictEqual(rejected.status, 0);
-    assert.include(rejected.stdout, "plan_identity_mismatch");
-    const after = fs.readFileSync(log, "utf8").split("workflow submit").length;
-    assert.strictEqual(after, before);
 
-    fs.writeFileSync(planPath, original);
-    const attention = payload(
+    const refreshed = payload(
+      runPython(
+        ["--bridge", bridge, "--db", db, "workflow", "catalog-refresh"],
+        {},
+      ),
+    );
+    assert.strictEqual(refreshed.operation, "workflow.catalog-refresh");
+    assert.strictEqual(refreshed.status, "changed");
+
+    const shown = payload(
       runPython(
         [
           "--bridge",
@@ -341,38 +187,40 @@ describe("zotero-librarian resident service", function () {
           "--db",
           db,
           "workflow",
-          "submit",
-          "--plan",
-          planPath,
-          "--allow-submit",
-          "--concurrency",
-          "2",
+          "show",
+          "literature-analysis",
         ],
-        {
-          FAKE_BRIDGE_LOG: log,
-          FAKE_BRIDGE_FAIL_SUBMIT_KEY: "ATT1",
-        },
+        {},
       ),
     );
-    assert.strictEqual(attention.status, "attention");
-    assert.deepEqual(attention.data.launched, []);
-    assert.strictEqual(attention.data.unknown.ordinal, 0);
-    const retry = runPython(
-      [
-        "--bridge",
-        bridge,
-        "--db",
-        db,
-        "workflow",
-        "submit",
-        "--plan",
-        planPath,
-        "--allow-submit",
-      ],
-      { FAKE_BRIDGE_LOG: log },
+    assert.strictEqual(shown.data.workflow.workflowId, "literature-analysis");
+
+    const registered = payload(
+      runPython(
+        [
+          "--bridge",
+          bridge,
+          "--db",
+          db,
+          "run",
+          "register",
+          "--run-id",
+          "workflow-run-1",
+          "--workflow-id",
+          "literature-analysis",
+        ],
+        {},
+      ),
     );
-    assert.notStrictEqual(retry.status, 0);
-    assert.include(retry.stdout, "plan_no_pending_entries");
+    assert.strictEqual(registered.operation, "run.register");
+
+    const watched = payload(
+      runPython(["--bridge", bridge, "--db", db, "run", "watch"], {}),
+    );
+    assert.strictEqual(watched.operation, "run.watch");
+    assert.deepEqual(watched.data.runs, [
+      { runId: "workflow-run-1", state: "succeeded" },
+    ]);
   });
 
   it("projects notifications and keeps scheduled domains one-pass", function () {

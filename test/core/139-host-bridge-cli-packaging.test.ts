@@ -2233,7 +2233,7 @@ describe("host bridge cli packaging and install", function () {
     const reference = [...references.values()].join("\n");
     const count = (label: string) => reference.split(label).length - 1;
 
-    assert.lengthOf(descriptor.commands, 122);
+    assert.lengthOf(descriptor.commands, 125);
     for (const label of [
       "- Argv: ",
       "- Argv bindings: ",

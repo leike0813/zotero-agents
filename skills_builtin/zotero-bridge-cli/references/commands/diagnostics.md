@@ -248,4 +248,3 @@ Read debug-only workflow task diagnostics
 - Targets: `[{"kind":"capability","target":"debug.tasks.snapshot"}]`.
 - Aliases: `debug tasks`, `debug`, `tasks`, `input`, `JSON_OR_FILE`.
 - Intent search: `hidden`.
-

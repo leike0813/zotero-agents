@@ -70,7 +70,7 @@ agent 在知道任何 CLI 名称之前，经常会收到诸如“向我展示有
 - “更改这些标签”或“将其放入集合中”需要实时身份读取、经过审查的写入变更、当前授权和写入后验证。
 - “获取生成的报告”可能需要读取Product或workflowartifact，然后传送文件；它不会自动读取附件。
 - “运行 workflow X”需要 workflow 发现、描述、选择验证、provider-profile声明时验证以及提交。
-- “workflow 进展如何？”从返回的`workflowRunId`开始并使用`run`，而不是 workflow 发现。
+- “workflow 进展如何？”应从提交返回的类型化 handle 开始。direct admission 时，保留返回的 `workflowRunId` 并使用 `run`，而不是 workflow 发现。host-queue admission 时，保留 `submissionId`，检查 `workflow submission get`，并且仅将 `workflow queue list` 或 `workflow queue cancel` 用于 queue 层观察或 pending 取消；在 admitted task 暴露 run handle 之前不得虚构 `workflowRunId`。
 - “刷新综合图”需要在任何写入之前诊断准确的派生模型和维护范围。
 - “为什么这座桥会塌陷？”从语义健康和profile诊断开始； raw `call` 是最后的手段。
 
@@ -115,7 +115,7 @@ command card 区分读取、导航、写入、维护和调试操作。导航可�
 
 Zotero 托管写入和 apply-back 始终受声明的 Zotero 端 approval 路径约束。permission 读取仅用于观察，不能批准或拒绝请求。既往 approval、有效 preview、本地校验、通知、缓存 proposal 或终态 run 都不能授权另一项操作。
 
-将每个返回的标识符视为不透明的类型化 handle。Zotero ref、`workflowRunId`、`skillRunId`、`agentRunId`、`agentRequestId`、`permissionRequestId`、`operationId`、`eventId`、`fileId` 和 Product 标识符必须留在各自声明的命令族内。不得合成、重解释或互换。若 `handleConsumption` 为 `consumed` 或 `unknown`，除非领域 receipt 明确允许继续，否则不得复用该 handle。
+将每个返回的标识符视为不透明的类型化 handle。Zotero ref、`submissionId`、`queueId`、`workflowRunId`、`skillRunId`、`agentRunId`、`agentRequestId`、`permissionRequestId`、`operationId`、`eventId`、`fileId` 和 Product 标识符必须留在各自声明的命令族内。不得合成、重解释或互换。`submissionId` 标识一次不可变的 native-queue admission，`queueId` 标识该 submission 中的一个 pending unit；二者都不是 workflow-run identity。若 `handleConsumption` 为 `consumed` 或 `unknown`，除非领域 receipt 明确允许继续，否则不得复用该 handle。
 
 ## 文件、Product 与 artifact
 
@@ -133,7 +133,13 @@ Zotero 端路径并不自动可供 Agent 读取。附件、Product、artifact �
 
 ## 工作流与 run 控制
 
-对于 Zotero 托管执行，发现当前工作流，读取其描述或要求，校验 selection 和工作流选项，再独立校验 backend provider profile，然后通过声明的汇合点提交。保留 `workflowRunId`；使用 run 命令处理状态、取消、skill 交互、permission 观察、通知、历史与事件。取消请求在后续 run 读取确认终态之前仅表示意图。
+对于 Zotero 托管执行，发现当前工作流，读取其描述或要求，校验 selection 和工作流选项，再独立校验 backend provider profile，然后通过声明的汇合点提交。在选择监控命令族之前读取返回的 `admission` 分支。direct admission 返回 `workflowRunId`；保留它，并使用 run 命令处理状态、取消、skill 交互、permission 观察、通知、历史与事件。direct-run 取消请求在后续 run 读取确认终态之前仅表示意图。
+
+host-queue admission 返回 `submissionId`、unit 计数和 queue 链接，而不是伪造已经启动的 run。保留该 submission handle，并使用 `workflow submission get` 检查不可变 unit projection 及当前聚合状态。使用 `workflow queue list` 观察 active queue units，仅使用 `workflow queue cancel <queueId>` 取消仍处于 pending 状态的 unit，并使用 `run list --submission <submissionId>` 发现已 admitted 的 Zotero-managed tasks，且不得把 task lineage 与 queue membership 混为一谈。unit 一旦 admitted 或 running，queue cancellation 必须 fail closed；执行取消或交互应使用返回的 `workflowRunId` 及正常 run-control plane。
+
+native queue 负责有界 admission，并让每个 admitted slot 一直占用到 terminal execution 与 apply-back。queue position 或 aggregate submission state 不是 workflow 结果、Product receipt，也不能证明请求的 Zotero 变更存在。分别检查每个 admitted task 及其预期输出，保留 failed 与 canceled units 的不同结果；不得仅因初始响应没有 `workflowRunId` 就重新提交状态不确定的 submission。
+
+active submission 与 queue projections 是 process-local 的。如果 Host 重启后原始 `submissionId` 不再可用，通过 submission-filtered task discovery 和实时 run 读取恢复已经 admitted 的 units；不得根据 label 或 member count 重建 pending units。将不再 active 的未 admitted units 如实报告，在 queue 内部之外保留其原始 source scope，并且只有取得当前授权后才能提交替代的有界请求。
 
 对于 Agent 自主执行，先确认工作流支持该模式，准备 handoff，保留 `agentRunId`、每个 `agentRequestId`、bundle 位置和 checksum，再检查每份请求合同。apply-back 前在本地校验每个已完成结果。通过 `workflow agent-apply` 应用完整的请求到结果映射，并用 `workflow agent-apply-status` 获取持久 receipt。绝不能通过 Zotero 托管 run 平面监控 `agentRunId`。
 
@@ -158,6 +164,8 @@ Zotero 端路径并不自动可供 Agent 读取。附件、Product、artifact �
 - CLI 二进制文件、profile、内嵌合同和 release envelope 必须来自同一个 release set。仅版本字符串一致不足以证明身份一致。
 - 不得从缓存 projection、工作流终态、通知、本地 artifact 或生成分析推断 Zotero 当前状态。
 - 在持久状态和 handle 消费情况明确前，不得重试会改变状态的调用。
+- 不得围绕 `workflow submit` 实现 agent-side workflow queue、plan-entry registry、reservation loop、replay loop 或后台 batching layer。有界 concurrency 与 pending-unit ownership 属于 Zotero 的 native workflow queue。
+- 不得把 `submissionId`、`queueId` 和 `workflowRunId` 视为可互换。queue cancellation 仅适用于 pending `queueId`；admitted work 必须通过真实 run handle 控制。
 
 ## LLM 与工具职责
 
@@ -176,6 +184,7 @@ Zotero 端路径并不自动可供 Agent 读取。附件、Product、artifact �
 - 对于传递的字节，保留校验和、字节计数和所属对象；
 - 对于写入变更，保留批准结果、操作receipt和实时读后；
 - 对于异步运行，保留最终状态并单独验证请求的可交付成果；
+- 对于 host-queue submission，保留 `submissionId`、每个 unit 的 `queueId`、存在时的 admitted task identity、aggregate terminal projection，以及每个请求 unit 独立验证后的结果或失败；
 - 对于本地验证器，仅报告结构有效性，并不暗示远程授权。
 
 ## 失败处理
@@ -188,6 +197,8 @@ Zotero 端路径并不自动可供 Agent 读取。附件、Product、artifact �
 6. 对部分 apply-back，按 receipt 分别报告已应用、失败及未尝试请求；不得把结果简化成成功，也不得重放完整映射。
 7. 对文件或分页失败，保留已验证字节/页面，并且只能通过返回的 cursor、文件所属对象或安全后续命令恢复。
 8. 若缺少权限、输入、身份、profile 就绪状态或 approval，返回结构化失败和所需决策，不得绕过 CLI 或 Zotero 端边界。
+9. 对状态不确定的 host-queue submission，检查原始 `submissionId`，随后通过 `run list --submission` 关联 admitted tasks；在第一次 admission 结果明确之前绝不能创建第二次 submission。
+10. 当 pending cancellation 与 admission 发生竞争时，将 queue endpoint 返回的 conflict 视为所有权已转移到 run plane 的证据，重新读取 submission projection，并且只能使用暴露的 task 或 run handle 继续。
 
 ## 参考资料
 

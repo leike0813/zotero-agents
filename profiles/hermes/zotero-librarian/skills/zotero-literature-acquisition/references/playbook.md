@@ -51,6 +51,10 @@ Use a direct semantic mutation only when the target and desired effect are alrea
 
 An explicit provider profile applies only to the current submission. Do not conflate it with the connection profile, silently reuse it for a self-owned handoff, or assume a configured backend is compatible without validation. Default to serial workflow submissions unless the user or an approved policy explicitly permits bounded concurrency.
 
+For a multi-candidate Zotero-managed acquisition, pass the reviewed bounded concurrency to the current workflow submission and let the native Zotero queue own pending-unit ordering and admission. Preserve `submissionId` when the host queues the work, correlate each admitted task with its candidate identity, and use queue cancellation only for a still-pending unit. Do not persist a second candidate queue, reserve entries locally, or replay a unit whose admission outcome is uncertain.
+
+Completion remains candidate-specific: inspect each real run and then verify every successfully ingested Zotero item, provenance record, requested collection membership, and attachment state. Aggregate submission completion does not prove that every candidate was ingested, and a canceled or failed unit must remain visible rather than disappearing from the acquisition report.
+
 ## Search-plan templates
 
 Choose the smallest template that exposes the decision boundary:

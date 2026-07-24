@@ -9,50 +9,56 @@
 | 读取实时文献库/Synthesis 状态 | 允许单次有界 pass | 允许 | 返回的 ref 与新鲜度事实 |
 | 监控已注册 run 或同步通知 | 允许单次有界 pass | 允许 | Run/event ID 与 receipt |
 | 生成 hygiene、workflow-status 或 attention proposal | 允许 | 允许 | 候选原因与下一项实时检查 |
-| 规划 Zotero 托管工作流 | 随附 cron 不执行 | 允许 | 当前 selection、工作流校验、已持久化 plan |
-| 提交工作流 | 禁止 | 仅允许提交已审阅 plan | 操作员当前指令、`--allow-submit`、Zotero approval 路径 |
+| 校验 Zotero 托管工作流 | 随附 cron 不执行 | 允许通过 Generic/CLI 执行 | 当前 selection、workflow/options 校验、provider 兼容性 |
+| 提交工作流 | 禁止 | 仅允许提交已审阅的当前 scope | 操作员当前指令、有界 concurrency、Zotero approval 路径 |
 | 执行 Agent 自主 handoff | 禁止 | 委托给 Generic | Handoff 合同、本地校验、apply receipt |
 | 修改 Zotero 或应用 Agent 输出 | 禁止 | 使用 Generic/CLI 合同 | 当前请求、精确 target/effect、Zotero 端 approval |
 | 破坏性维护 | 禁止 | 需要当前目标级人工决策 | 诊断、proposal、approval、事后状态 |
 
-本地缓存与 journal 写入属于常驻记账，不构成修改 Zotero 的权限。既往 approval、旧 plan、pending 工作流、缓存候选项或定时 proposal 都不能升级为新的写入授权。
+本地缓存与 journal 写入属于常驻记账，不构成修改 Zotero 的权限。既往 approval、观察到的 native submission、pending 工作流、缓存候选项或定时 proposal 都不能升级为新的写入授权。
 
 ## workflow 执行模式与委托
 
-根据实时描述选择工作流所有权。常驻 plan helper 支持对当前 selection 进行 Zotero 托管执行，并生成可注册、可监控的 run。provider profile 决策、超出该 helper plan 合同的工作流选项，以及有边界的研究判断，均属于继承的 Generic 任务 Skill。
+根据实时描述选择工作流所有权。Zotero-managed execution 使用 Generic 任务策略及精确 CLI join point；Zotero 插件的 native queue 负责 pending-unit ordering、有界 admission 和 slot 生命周期。admitted runs 可以注册并监控。provider-profile 决策、workflow options、source grouping 判断及有边界的研究解释，均属于继承的 Generic 任务 Skill。
 
 工作流声明支持 Agent 自主执行时，将整个 handoff 委托给 Generic：准备/检查请求、执行语义工作、校验每项结果、应用映射并检查持久 apply receipt。常驻 watched run 和通知不监管 `agentRunId`。
 
 即使存在缓存 catalog 条目，也必须使用实时工作流发现。缓存定义可辅助选择，但不能确定当前执行模式、backend 兼容性、permission 或结果 schema。
 
-## Plan 与 submit
+## Native submission 与 queue supervision
 
-从当前上下文创建确定性 plan：
-
-```sh
-scripts/zotero_librarian_service.py workflow plan \
-  --workflow <workflow-id> --from-context \
-  --output <absolute-plan.json>
-```
-
-检查`receipt.data.selectionRefs`、`inputUnit`、workflow ID、`planId`、`planDigest`、workflow 合约摘要、`defaultConcurrency`、条目以及`receipt.data.path`中返回的文件。如果选择为空、过时或包含意外对象，请更正 Zotero 选择并生成新计划。请勿手动编辑该文件并将其表示为经过服务验证。
-
-操作员针对该确切 plan 授权后再提交：
+通过随附 CLI 描述并校验当前请求：
 
 ```sh
-scripts/zotero_librarian_service.py workflow submit \
-  --plan <absolute-plan.json> --allow-submit
+zotero-bridge workflow describe --workflow <workflow-id> --json
+zotero-bridge workflow validate \
+  --workflow <workflow-id> --selection-json '<reviewed-selection>' \
+  --options-json '<reviewed-options>' --json
 ```
 
-显式标志记录了当前操作员权限，但不能替代 Zotero 侧审批。该服务在远程调用之前验证文件、注册路径、计划摘要、实时 workflow 合同以及每个待处理的选择。保留每个返回的运行和剩余计划条目的计数。对剩余条目的另一次传递需要另一条当前指令；不要将原始授权视为无限期批量授权或重放标记为已启动或未知的条目。
+检查精确 selection refs、彼此分离的 `inputs` 与 `validateSelection` contract、workflow ID、必需 options、provider 要求、candidate-production rules、不可变 unit grouping、预期输出和 approval boundary。如果 selection 为空、过时或包含意外对象，更正实时 Zotero selection 并重新校验。不得在本地重建 prepared units，也不得把 cached catalog data 表述为实时校验。
+
+操作员对该精确审阅 scope 和有界 concurrency 授权后，仅提交一次：
+
+```sh
+zotero-bridge workflow submit \
+  --workflow <workflow-id> \
+  --selection-json '<reviewed-selection>' \
+  --options-json '<reviewed-options>' \
+  --max-concurrency <bounded-count> --json
+```
+
+有效参数记录当前审阅 scope，但不能替代 Zotero 侧 approval。Host 会在 admission 前重新校验实时 workflow contract 与 selection。读取返回的 `admission` 分支：direct admission 时保留 `workflowRunId`；host-queue admission 时保留 `submissionId`、计数、queue links 和不可变 unit projections。初始响应在表达 pending work 时，不得虚构 run handle。
+
+对 queued work，将 `workflow submission get <submissionId>` 用作 aggregate admission record。使用 `workflow queue list` 观察 active units，仅使用 `workflow queue cancel <queueId>` 取消仍处于 pending 的 unit。unit 一旦 admitted，使用 `run list --submission <submissionId>` 将其与 task 关联，并监督真实 run。后续新 submission 需要新的当前指令；不得把原始授权视为无限期授权，也不得重播 admission effect 不确定的 unit。
 
 ## Provider profile 与并发
 
-常驻 plan 文件不编码 backend provider profile。若工作流需要 backend 所有的 provider 选项，应使用 Generic 列出/描述 backend profile，将 provider JSON 与工作流输入分开校验，并通过汇合两者的精确 CLI 合同提交。连接 profile 与 provider profile 是不同概念。
+workflow selection 与 options 不编码 backend provider profile。若工作流需要 backend 所有的 provider 选项，应使用 Generic 列出/描述 backend profile，将 provider JSON 与工作流输入分开校验，并通过汇合两者的精确 CLI 合同提交。连接 profile 与 provider profile 是不同概念。
 
-常驻提交默认并发为一。较高的 `--concurrency` 在当前 pass 最多启动相应数量的 plan 条目；必须在考虑 backend/provider 限额、成本、条目独立性和监控能力后明确批准。绝不能用大数值模拟无人值守队列。
+交互式提交默认 concurrency 为一。更高的 `--max-concurrency` 最多并行 admit 相应数量的 native units；必须在考虑 backend/provider 限额、成本、unit 独立性、apply-back 时长和监控能力后明确批准。该 bound 只属于本次已接受 submission，不授权未来工作。
 
-分别记录每个已启动的 `workflowRunId`。部分启动不表示剩余条目失败，也不表示其已获后续运行授权。某次启动结果不确定时，重新提交该条目前先检查近期实时 run。
+分别记录返回的 `submissionId`、每个 unit 的 `queueId`，以及每个 admitted task 或 `workflowRunId`。pending units 已经属于被接受的 native submission；它们不需要常驻层重新启动，也不能解释为失败。如果 admission 状态不确定，在进行另一调用前检查原始 submission 和 submission-filtered task list。
 
 ## Cron 与维护
 
@@ -127,7 +133,7 @@ Synthesis cache、index、sidecar、graph 或 metric 的维护遵循 Generic Syn
 分开：
 
 - 有限 workflow 选择和验证；
-- 运营商批准的计划/提交；
+- 操作员批准的 validation/submission scope；
 - 外部时间表配置；
 - 每次运行监控；
 - 输出验证。
@@ -144,7 +150,7 @@ Synthesis cache、index、sidecar、graph 或 metric 的维护遵循 Generic Syn
 
 - 无远程影响；
 - 成功的远程效果但失去响应；
-- 部分 workflow 发射；
+- 部分 native admission；
 - 缺少 Product 或 artifact；
 - provider 不可用；
 - 拒绝许可；
@@ -153,114 +159,131 @@ Synthesis cache、index、sidecar、graph 或 metric 的维护遵循 Generic Syn
 
 对故障进行分类并返回下一个安全检查。切勿将“自动”一词变成写入变更或重放权限。
 
-## workflow 计划权限生命周期
+## Native submission authority 生命周期
 
 ### 准备
 
-仅在以下情况下才准备计划：
+只有满足以下条件，Zotero-managed request 才能进入授权审阅：
 
 - 实时 workflow 描述可用；
-- 选择合约使用由助手支持的输入单元；
-- 每个选定的对象根据该输入单元进行标准化；
-- 每个条目都通过实时 workflow 验证；
-- 没有不支持的必需 workflow 选项或隐藏 provider 输入；
-- 接受绝对输出路径；
-- 计划文件和数据库注册表共享相同的标识。
+- 实时描述分别公开 execution-input 与 candidate-production contracts；
+- 原始当前 selection 已解析，且不存在常驻层 candidate 或 grouping 推断；
+- 完整 selection 通过实时 workflow 校验；
+- 必需 workflow options 已显式提供并校验；
+- provider 要求已识别，并通过独立 profile contract 校验；
+- 受支持的执行模式是 Zotero-managed；
+- 预期 Products、artifacts、实时变更及交互点已知；
+- 拟定 concurrency 是该请求的有限正整数 bound。
 
-该计划存储：
+审阅记录应区分：
 
-- `schema: zotero-librarian.workflow-plan.v2`；
-- `planId`；
-- `workflowId`；
-- 创建时间；
-- workflow 描述摘要；
-- 默认并发；
-- 经验证的提交内容；
-- 规范的`planDigest`。
+- workflow identity 与 outcome；
+- 精确 selected refs 或声明的 no-selection 形式；
+- workflow options；
+- provider profile identity 与已校验 provider JSON；
+- candidate-selection 与不可变 grouping 行为；
+- 拟定 native admission bound；
+- 预期 unit-to-source 关联；
+- 预期 run 与 output evidence。
 
-### 评论
+### 审阅
 
-运营商点评：
+操作员审阅：
 
-- workflow 结果；
-- 准确selection ref；
-- 输入单元；
-- 条目数量；
-- 预期provider/执行边界；
-- 规划路径并摘要；
-- 下一次传递的并发性；
-- 预期运行/结果证据。
+- workflow outcome；
+- 精确 selected refs；
+- execution member 与 grouping contract；
+- candidate selection 与 validation contract；
+- 预期 native units 数量或形态；
+- 预期 provider/execution boundary；
+- workflow options 及其 scope effect；
+- 本次 accepted submission 的 concurrency；
+- 预期 run/result evidence；
+- Zotero-side approval 时机。
 
-审阅不会改变文件。任何想要的改变都需要根据实际情况制定新的计划。
+审阅不会创建 queue entries，也不会创建持久授权。任何所需变更都要依据当前实时上下文重新校验。
 
 ### 授权
 
-权限是当前的且特定于调用：
+权限必须是当前且 invocation-specific：
 
-- `--allow-submit` 必须存在。
-- 用户说明必须参考经过审查的确切计划。
-- 先前的提交不会授权剩余的条目。
-- 增加并发性需要明确的考虑和授权。
-- Zotero 方审批保持独立。
+- 用户指令必须指向已审阅的 workflow、selection、options 和 provider scope。
+- concurrency 大于一时，该有界值必须属于已审阅 effect。
+- 先前 submission 不授权另一次 submission。
+- 已 accepted native submission 中的 pending unit 不需要新的常驻启动决策。
+- 增加 concurrency 必须在调用前经过显式考虑与授权。
+- Zotero-side approval 保持独立。
 
-切勿在计划数据库中保留“已批准”标志。这会将过去的决定转化为可重用的权威。
+不得在常驻状态中持久化“approved”标志，否则会把过去决策转化为可复用权限。
 
-### 再次验证
+### 再次校验
 
-远程提交之前：
+远程提交前：
 
-- 读取绝对文件；
-- 验证Schema和必填字段；
-- 重新计算规范摘要；
-- 匹配计划ID、摘要、输出路径、workflow ID、注册的JSON；
 - 重新描述 workflow；
-- 匹配 workflow 描述摘要；
-- 重新验证为此通道选择的每个条目。
+- 确认 execution mode；
+- 解析当前 selection；
+- 校验完整 selection 与 workflow options；
+- 重新校验独立选择的 provider profile；
+- 保持精确 JSON binding，不得把 provider 字段移动到 workflow options；
+- 确认预期 unit grouping 与 output contracts；
+- 确认已授权 concurrency bound。
 
-任何不匹配都会在远程生效之前关闭。
+任何不匹配都必须在远程 effect 发生前 fail closed。
 
-### 预留并启动
+### 通过 Zotero admit
 
-对于每个符合资格的参赛作品：
+只提交一次已审阅请求。随后：
 
-1. 坚持`launching`。
-2. 调用远程 workflow 提交。
-3. 在有效返回的 `workflowRunId` 上，保留 `launched` 并在一个本地事务中监视运行。
-4. 如果出现传输错误或缺少运行 ID，请保留 `unknown`。
-5. 在`unknown`后停止批次。
+1. 先读取 `admission`，再选择监控命令族。
+2. direct admission 时，保留返回的 task identity 与 `workflowRunId`。
+3. host-queue admission 时，保留 `submissionId`、unit counts、queue links 和每个不可变 `queueId`。
+4. 检查 submission projection 中的 pending、admitted、terminal、failed 和 canceled units。
+5. 通过 submission lineage filter 关联 admitted tasks。
+6. 仅在目标 unit 仍为 pending 时使用 queue cancellation。
+7. 只有在真实 run handle 存在后，才使用 run cancellation 或 interaction。
+8. 在完整 supervision 期间，将 source refs 与 expected outputs 绑定到每个 unit。
 
-只有`pending`参赛作品符合资格。 `launched`、`unknown` 和过时的 `launching` 条目永远不会自动重播。
+Zotero 插件负责 pending-unit ordering、admission 与 slot release。常驻 profile 不预留 units、不启动下一条 entry，也不运行 replay worker。
 
-### 报告
+### 监督与报告
 
-提交receipt指出：
+交互式 submission evidence 应说明：
 
-- 计划 ID；
-- 在此单次执行中启动的运行；
-- 剩余待处理计数；
-- 存在时不确定进入；
-- 已知发布的状态`changed`；
-- 状态`attention`表示未知的远程效果。
+- direct 或 host-queue admission；
+- queued 时的 `submissionId`；
+- aggregate unit counts 与 links；
+- 不可变 unit identities；
+- 存在时的 admitted task 与 run identities；
+- 请求取消 pending unit 时的 cancellation receipt；
+- 存在时的 uncertain transport 或 state evidence。
 
-这个receipt证明了返回结果的本地记录。它不证明 workflow 完成、输出质量、Product交付或 Zotero 写回。
+监督报告应区分：
 
-## 提供商、选项和不受支持的计划
+- 已被 native queue 接受的 pending units；
+- admission 前已取消的 units；
+- admitted 或 running tasks；
+- terminal successful tasks；
+- terminal failed tasks；
+- Product、artifact 或 live-change 验证尚未完成的 tasks。
 
-驻留计划助手故意 handles 只有简单的当前选择连接才能安全验证。前往Generic 的路线：
+这些证据证明 observed native admission 与 execution state，但不能证明 output quality、Product delivery、Zotero writeback 或用户研究 outcome 已完成。
 
-- 必需的 workflow 选项不由帮助器表示；
-- 必须选择或验证providerprofile；
-- workflow 使用自有的agent执行；
-- 选择合同接受帮助者不支持的单位；
-- 不需要选择执行；
-- 一个 workflow 条目需要一个多项目分组，而不是由一个选定的ref表示；
-- 该任务需要自定义结果处理或apply-back。
+## Provider、options 与不支持的 submissions
 
-不要删除必需的选项，默默地选择默认的 provider，将自有的 workflow 转换为 Zotero 管理的选项，或者仅仅为了让助手接受它而拆分分组的选择。
+交互式路径向 Host validation 发送一个已审阅请求，并把 candidate production 与不可变 grouping 委托给实时 workflow contract。以下情况交给 Generic：
+
+- 必需 workflow options 需要语义选择或澄清；
+- 必须选择或校验 provider profile；
+- workflow 使用 Agent 自主执行；
+- 需要 no-selection execution；
+- 任务需要自定义 result handling 或 apply-back。
+
+不得删除必需 options、静默选择默认 provider、把 Agent 自主 workflow 转换为 Zotero-managed workflow，也不得在本地重建 Host 的 prepared units。
 
 ## 并发决策
 
-默认并发一是一个安全边界，而不是性能事故。
+默认 concurrency 一是安全边界，而不是性能偶然。所选数值会成为该 submission 的 native queue admission bound。
 
 仅在以下情况下增加并发性：
 
@@ -268,8 +291,9 @@ Synthesis cache、index、sidecar、graph 或 metric 的维护遵循 Generic Syn
 - provider/backend容量已知；
 - 预期成本是可以接受的；
 - 监控可以区分每次运行；
+- submission lineage 能把每个 admitted unit 与 source identity 关联；
 - 一个人的失败并不意味着另一个人的失败；
-- 操作员授权此通道的确切边界。
+- 操作员授权该 submission 的精确 bound。
 
 在以下情况下不要增加并发性：
 
@@ -277,10 +301,11 @@ Synthesis cache、index、sidecar、graph 或 metric 的维护遵循 Generic Syn
 - 写入可能会发生冲突；
 - provider配额不确定；
 - 可能需要运行交互；
+- apply-back 可能让 native slots 保持占用的时长存在重大差异；
 - workflow 结果顺序很重要；
-- 先前的条目状态未知。
+- 较早 submission 的状态未知。
 
-并发值仅适用于当前的提交调用。它不会创建队列工作人员或授权后续单次执行。
+concurrency 值只适用于当前 submit call。它配置 Zotero 的 native queue；不会创建常驻 queue worker、预留本地 entries，也不授权未来 submissions。pending native units 已经是 accepted work，不得通过重新提交来模拟进度。
 
 ## Cron决策模型
 
@@ -337,11 +362,12 @@ Synthesis cache、index、sidecar、graph 或 metric 的维护遵循 Generic Syn
 
 ### 未知提交
 
-1. 保留计划 ID、条目序号、选择 refs 和错误。
-2. 检查实时活跃/最近运行的比赛。
-3. 与监视状态协调。
-4. 不要重播未知条目。
-5. 仅在证明不存在早期运行/效果并获得新权限后才能创建新计划。
+1. 保留返回或先前观察到的 `submissionId`、unit `queueId`、selection refs 与结构化 error。
+2. 在寻找替代操作前检查 native submission projection。
+3. 通过 submission-filtered task discovery 与真实 run state 关联 admitted work。
+4. 将 admitted runs 与 watched state 对齐，但不得把 watched-run journal 视为 queue authority。
+5. 不得重播 admission effect 仍不确定的 selection 或任何 unit。
+6. 只有证明早先调用未创建 accepted submission 或 admitted task，并取得新授权后，才可创建新 submission。
 
 ### 文献库整理候选项
 
@@ -367,7 +393,7 @@ Synthesis cache、index、sidecar、graph 或 metric 的维护遵循 Generic Syn
 
 用途：
 
-> 条目 2 的提交结果不确定。我保留了计划标识并在后续条目之前停止。在任何新计划之前必须协调最近的实时运行。
+> native submission 的响应不确定。我已保留其 submission 与 unit handles，并在任何替代调用之前停止。必须先对齐原始 submission projection 与关联 tasks，才能创建新的 submission。
 
 用途：
 
@@ -376,7 +402,7 @@ Synthesis cache、index、sidecar、graph 或 metric 的维护遵循 Generic Syn
 不要使用：
 
 - “持续监控”以进行一次性检查；
-- 对于存储的计划“已批准”；
+- 对 cached validation 或 resident state 使用“已批准”；
 - 关注提案“固定”；
 - “已完成”表示输出未经验证的终端运行；
 - 当没有配置外部计划时为“已计划”；

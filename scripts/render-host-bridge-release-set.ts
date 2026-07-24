@@ -4,9 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildHostBridgeAgentSurfaceDescriptor } from "./host-bridge-agent-surface";
 import { buildHostBridgeSurfaceCatalog } from "./host-bridge-surface-catalog";
-import {
-  buildHostBridgeReleaseSet,
-} from "./host-bridge-release-set";
+import { buildHostBridgeReleaseSet } from "./host-bridge-release-set";
 import { stagedHostBridgePayloadDigests } from "./materialize-host-bridge-surfaces";
 import { readZoteroBridgeCliRelease } from "./zotero-bridge-cli-release";
 import { inspectHostBridgeSurfaceVersion } from "./host-bridge-surface-model";

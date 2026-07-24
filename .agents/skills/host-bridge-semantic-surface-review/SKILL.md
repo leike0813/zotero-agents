@@ -28,6 +28,7 @@ Verify that the minimum-core CLI, Generic research-task suite, and Hermes hosted
 3. Resolve affected surfaces from `host-bridge/surfaces.json`. Check that minimum-core owns exact CLI facts, Generic owns bounded research-task policy, and Hermes owns resident automation policy.
 4. Check each governed Skill as an executable contract: `SKILL.md` contains goal, process, hard constraints, completion, and failure handling; all references are directly linked; no required constraint is only in a reference.
 5. For a rewrite, compare every unique baseline goal, decision, procedure, constraint, evidence rule, completion condition, failure path, recovery rule, and near miss with the semantic-parity matrix. Require one current owner or a complete generated equivalent.
+5a. Before editing, record every explicit deletion authorized by the active plan. Treat every other existing instruction as preservation-required: do not compress, delete, merge, reorder, or rewrite it merely to make room for new guidance. Add new instructions at the same operational thickness and level of detail as adjacent guidance.
 6. Check package-local uniqueness: `SKILL.md` owns normative workflow and constraints; references add domain decisions and examples without repeating the same meaning. Run the deterministic duplicate gate after semantic review.
 7. Run the materialized package depth gate. Treat hard failures as blockers. Review every item in the structured instruction-depth warnings and record whether its content is accepted or expanded; a warning may not disappear silently from the handoff.
 8. Compare guidance with the current command contract, handles, approvals, recovery, workflow ownership, result contracts, component composition, and release identity.
@@ -39,6 +40,7 @@ Verify that the minimum-core CLI, Generic research-task suite, and Hermes hosted
 - Keep operational command facts in minimum-core, research-task semantics in Generic, and resident automation policy in Hermes; do not duplicate them across layers.
 - Treat `SKILL.md` as the minimum complete execution contract. References expand detail but never contain the only required hard constraint.
 - A rewritten surface must be a semantic superset of its declared clean baseline after baseline duplicates are collapsed. No valid semantic unit may be omitted or weakened into a summary.
+- Except for instructions named in the approved explicit deletion inventory, do not compress, delete, merge, reorder, or paraphrase existing guidance into a thinner form. Additions must match the surrounding instruction thickness, detail, branches, evidence, and recovery coverage.
 - Within one Skill package, assign every semantic rule one normative owner. Do not duplicate the same instruction between `SKILL.md` and references or across references.
 - Enforce materialized instruction-depth floors without confusing them for semantic proof: a `SKILL.md` below 100 lines or a reference below 200 lines blocks; a `SKILL.md` below 200 lines or a reference below 350 lines produces an instruction-depth warning that the reviewer must explicitly accept or expand.
 - Use current behavior only. Do not add compatibility, migration, or historical wording to governed instructions.
@@ -47,6 +49,8 @@ Verify that the minimum-core CLI, Generic research-task suite, and Hermes hosted
 ## Completion
 
 Return the following fields: semantic review ran; context reviewRequired; baseline commit; semantic source edits; minimum-core result; Generic result; Hermes result; Skill-package result; semantic parity result; unmapped semantic count; downgraded semantic count; intra-package duplicate count; reference-depth result; instruction-depth warnings and their accepted-or-expanded disposition; Agent Control Contract result; release identity result; alignment result; next commands; and blocker only when blocked. Finish only when all three counts are zero, every warning is accepted or expanded with a reason, and every applicable result is aligned or corrected, or when a named unresolved contract makes the review blocked.
+
+Also return the explicit deletion inventory and unauthorized dropped semantic count. Finish only when the unauthorized dropped semantic count is zero; an authorized deletion must name its approved inventory entry rather than disappearing through compression.
 
 ## Failure handling
 

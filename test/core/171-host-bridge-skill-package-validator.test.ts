@@ -2,6 +2,7 @@ import { assert } from "chai";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import {
   inspectHostBridgeSkillPackages,
   validateHostBridgeSkillPackages,
@@ -126,5 +127,78 @@ describe("host bridge skill package validator", function () {
     assert.deepEqual(advisory.errors, []);
     assert.include(advisory.warnings.join("\n"), "SKILL.md has");
     assert.include(advisory.warnings.join("\n"), "references/playbook.md has");
+  });
+
+  it("rejects relative instruction compression and reference loss against a pinned baseline", function () {
+    const repository = mkdtempSync(
+      join(tmpdir(), "host-bridge-depth-baseline-"),
+    );
+    const packageRoot = join(repository, "skills", "example-skill");
+    const baselineSkill = completeSkill("example-skill").replace(
+      "- Preserve authority.",
+      [
+        "- Preserve authority for every state-changing operation and retain its typed handle.",
+        "- Verify completion from the authoritative receipt before reporting durable success.",
+      ].join("\n"),
+    );
+    write(packageRoot, baselineSkill);
+    execFileSync("git", ["init", "-q"], { cwd: repository });
+    execFileSync("git", ["config", "user.email", "test@example.invalid"], {
+      cwd: repository,
+    });
+    execFileSync("git", ["config", "user.name", "Host Bridge Test"], {
+      cwd: repository,
+    });
+    execFileSync("git", ["add", "."], { cwd: repository });
+    execFileSync("git", ["commit", "-qm", "baseline"], { cwd: repository });
+
+    assert.deepEqual(
+      inspectHostBridgeSkillPackages([packageRoot], {
+        baselineRef: "HEAD",
+      }).errors,
+      [],
+    );
+
+    write(
+      packageRoot,
+      baselineSkill.replace(
+        "- Verify completion from the authoritative receipt before reporting durable success.\n",
+        "",
+      ),
+    );
+    assert.include(
+      inspectHostBridgeSkillPackages([packageRoot], {
+        baselineRef: "HEAD",
+      }).errors.join("\n"),
+      "substantive instruction lines",
+    );
+
+    write(
+      packageRoot,
+      baselineSkill.replace(
+        "Verify completion from the authoritative receipt before reporting durable success.",
+        "Verify receipt.",
+      ),
+    );
+    assert.include(
+      inspectHostBridgeSkillPackages([packageRoot], {
+        baselineRef: "HEAD",
+      }).errors.join("\n"),
+      "normalized prose characters",
+    );
+
+    write(
+      packageRoot,
+      baselineSkill.replace(
+        "\nRead [the playbook](references/playbook.md).\n",
+        "\n",
+      ),
+    );
+    assert.include(
+      inspectHostBridgeSkillPackages([packageRoot], {
+        baselineRef: "HEAD",
+      }).errors.join("\n"),
+      "baseline direct reference missing",
+    );
   });
 });

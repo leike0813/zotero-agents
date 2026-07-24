@@ -9,50 +9,56 @@
 | Read live library/Synthesis state | Allowed as one bounded pass | Allowed | Returned refs and freshness facts |
 | Watch registered runs or sync notifications | Allowed as one bounded pass | Allowed | Run/event IDs and receipt |
 | Produce hygiene, workflow-status, or attention proposal | Allowed | Allowed | Candidate reason and next live check |
-| Plan a Zotero-managed workflow | Not shipped in cron | Allowed | Current selection, workflow validation, persisted plan |
-| Submit a workflow | Never | Allowed only for the reviewed plan | Current operator instruction, `--allow-submit`, Zotero approval path |
+| Validate a Zotero-managed workflow | Not shipped in cron | Allowed through Generic/CLI | Current selection, workflow/options validation, provider compatibility |
+| Submit a workflow | Never | Allowed only for the reviewed current scope | Current operator instruction, bounded concurrency, Zotero approval path |
 | Execute a self-owned agent handoff | Never | Delegate to Generic | Handoff contracts, local validation, apply receipt |
 | Mutate Zotero or apply agent output | Never | Use Generic/CLI contract | Current request, exact target/effect, Zotero-side approval |
 | Destructive maintenance | Never | Requires current target-level human decision | Diagnostics, proposal, approval, post-state |
 
-Local cache and journal writes are resident bookkeeping, not authority to change Zotero. A prior approval, old plan, pending workflow, cached candidate, or scheduled proposal cannot be promoted into a new write.
+Local cache and journal writes are resident bookkeeping, not authority to change Zotero. A prior approval, observed native submission, pending workflow, cached candidate, or scheduled proposal cannot be promoted into a new write.
 
 ## Workflow mode and delegation
 
-Choose workflow ownership from the live description. The resident plan helper supports Zotero-managed execution for the current selection. It produces runs that can be registered and watched. Provider-profile decisions, workflow options beyond this helper's plan contract, and finite research judgment belong to the inherited Generic task Skill.
+Choose workflow ownership from the live description. Zotero-managed execution uses the Generic task policy and exact CLI join point; the Zotero plugin's native queue owns pending-unit ordering, bounded admission, and slot lifetime. Admitted runs can be registered and watched. Provider-profile decisions, workflow options, source grouping judgment, and finite research interpretation belong to the inherited Generic task Skill.
 
 When the workflow advertises self-owned agent execution, delegate the entire handoff to Generic: prepare/inspect requests, perform semantic work, validate each result, apply the mapping, and inspect the durable apply receipt. Resident watched runs and notifications do not supervise `agentRunId` values.
 
 Use live workflow discovery even when a cached catalog entry exists. A cached definition helps selection but cannot establish current execution modes, backend compatibility, permissions, or result schema.
 
-## Plan and submit
+## Native submission and queue supervision
 
-Create the deterministic plan from current context:
-
-```sh
-scripts/zotero_librarian_service.py workflow plan \
-  --workflow <workflow-id> --from-context \
-  --output <absolute-plan.json>
-```
-
-Inspect `receipt.data.selectionRefs`, the separate `inputs` and `validateSelection` contracts, workflow ID, `planId`, `planDigest`, workflow contract digest, `defaultConcurrency`, entries, and the file returned in `receipt.data.path`. If the selection is empty, stale, or contains unintended objects, correct the Zotero selection and produce a new plan. Do not hand-edit the file and represent it as service-validated.
-
-After the operator authorizes that exact plan, submit it:
+Describe and validate the current request through the bundled CLI:
 
 ```sh
-scripts/zotero_librarian_service.py workflow submit \
-  --plan <absolute-plan.json> --allow-submit
+zotero-bridge workflow describe --workflow <workflow-id> --json
+zotero-bridge workflow validate \
+  --workflow <workflow-id> --selection-json '<reviewed-selection>' \
+  --options-json '<reviewed-options>' --json
 ```
 
-The explicit flag records current operator authority but cannot replace Zotero-side approval. The service verifies the file, registered path, plan digest, live workflow contract, and every pending selection before a remote call. Preserve every returned run and the count of remaining plan entries. Another pass over remaining entries requires another current instruction; do not treat the original authorization as an indefinite batch grant or replay an entry marked launched or unknown.
+Inspect the exact selection refs, separate `inputs` and `validateSelection` contracts, workflow ID, required options, provider requirements, candidate-production rules, immutable unit grouping, expected outputs, and approval boundary. If the selection is empty, stale, or contains unintended objects, correct the live Zotero selection and validate again. Do not reconstruct prepared units locally or represent cached catalog data as live validation.
+
+After the operator authorizes that exact reviewed scope and bounded concurrency, submit once:
+
+```sh
+zotero-bridge workflow submit \
+  --workflow <workflow-id> \
+  --selection-json '<reviewed-selection>' \
+  --options-json '<reviewed-options>' \
+  --max-concurrency <bounded-count> --json
+```
+
+Valid arguments record the current reviewed scope but cannot replace Zotero-side approval. The Host revalidates the live workflow contract and selection before admitting work. Read the returned `admission` branch: preserve `workflowRunId` for direct admission, or preserve `submissionId`, counts, queue links, and immutable unit projections for host-queue admission. Do not invent a run handle when the initial response intentionally represents pending work.
+
+For queued work, inspect `workflow submission get <submissionId>` as the aggregate admission record. Use `workflow queue list` to observe active units and `workflow queue cancel <queueId>` only for a still-pending unit. Once a unit is admitted, correlate it with `run list --submission <submissionId>` and supervise the real run. A later submission requires another current instruction; do not treat the original authorization as an indefinite grant or replay a unit whose admission effect is uncertain.
 
 ## Provider profiles and concurrency
 
-The resident plan file does not encode a backend provider profile. If the workflow requires backend-owned provider options, use Generic to list/describe the backend profile, validate the provider JSON independently from workflow inputs, and submit through the exact CLI contract that joins them. Connection profile and provider profile are separate concepts.
+The workflow selection and options do not encode a backend provider profile. If the workflow requires backend-owned provider options, use Generic to list/describe the backend profile, validate the provider JSON independently from workflow inputs, and submit through the exact CLI contract that joins them. Connection profile and provider profile are separate concepts.
 
-Resident submission defaults to concurrency one. A higher `--concurrency` launches at most that many plan entries in the current pass and must be explicitly approved after considering backend/provider limits, cost, item independence, and monitoring capacity. Never use a large value to emulate an unattended queue.
+Interactive submission defaults to concurrency one. A higher `--max-concurrency` admits at most that many native units concurrently and must be explicitly approved after considering backend/provider limits, cost, item independence, apply-back duration, and monitoring capacity. The bound belongs to this accepted submission; it does not authorize future work.
 
-Record each launched `workflowRunId` independently. Partial launch does not mean remaining entries failed or were authorized for a later run. If one launch is uncertain, inspect live recent runs before resubmitting that entry.
+Record the returned `submissionId`, every unit's `queueId`, and each admitted task or `workflowRunId` independently. Pending units are already part of the accepted native submission; they do not require resident relaunch and must not be interpreted as failed. If admission is uncertain, inspect the original submission and submission-filtered task list before making another call.
 
 ## Cron and maintenance
 
@@ -127,7 +133,7 @@ The scheduled library-hygiene pass currently identifies repeated-title candidate
 Separate:
 
 - finite workflow selection and validation;
-- operator-approved plan/submit;
+- operator-approved validation/submission scope;
 - external schedule configuration;
 - per-run monitoring;
 - output verification.
@@ -144,7 +150,7 @@ Reject the implied blanket authority. Different failures may represent:
 
 - no remote effect;
 - successful remote effect with lost response;
-- partial workflow launch;
+- partial native admission;
 - missing Product or artifact;
 - provider unavailability;
 - denied permission;
@@ -153,30 +159,32 @@ Reject the implied blanket authority. Different failures may represent:
 
 Classify the failure and return the next safe check. Never turn the word “automatically” into mutation or replay authority.
 
-## Workflow plan authority lifecycle
+## Native submission authority lifecycle
 
 ### Prepare
 
-A plan is prepared only when:
+A Zotero-managed request is ready for authority review only when:
 
 - the live workflow description is available;
 - the live description exposes separate execution-input and candidate-production contracts;
-- the raw current selection is frozen without local candidate or grouping inference;
-- the complete selection entry passes live workflow validation;
-- no unsupported required workflow option or provider input is hidden;
-- the absolute output path is accepted;
-- the plan file and database registry share the same identity.
+- the raw current selection is resolved without resident candidate or grouping inference;
+- the complete selection passes live workflow validation;
+- required workflow options are explicit and validated;
+- provider requirements are identified and validated through the separate profile contract;
+- the supported execution mode is Zotero-managed;
+- expected Products, artifacts, live changes, and interaction points are known;
+- the proposed concurrency is a finite positive bound for this request.
 
-The plan stores:
+The review record keeps these values distinct:
 
-- `schema: zotero-librarian.workflow-plan.v2`;
-- `planId`;
-- `workflowId`;
-- creation time;
-- workflow description digest;
-- default concurrency;
-- validated submissions;
-- canonical `planDigest`.
+- workflow identity and outcome;
+- exact selected refs or the declared no-selection form;
+- workflow options;
+- provider profile identity and validated provider JSON;
+- candidate-selection and immutable grouping behavior;
+- proposed native admission bound;
+- expected unit-to-source correlation;
+- expected run and output evidence.
 
 ### Review
 
@@ -186,70 +194,86 @@ The operator reviews:
 - exact selected refs;
 - execution member and grouping contract;
 - candidate selection and validation contract;
-- number of entries;
+- expected number or shape of native units;
 - expected provider/execution boundary;
-- plan path and digest;
-- concurrency for the next pass;
-- expected run/result evidence.
+- workflow options and their scope effects;
+- concurrency for this accepted submission;
+- expected run/result evidence;
+- Zotero-side approval timing.
 
-Review does not mutate the file. Any desired change requires a new plan from live context.
+Review does not create queue entries or durable authority. Any desired change requires revalidation against current live context.
 
 ### Authorize
 
 Authority is current and invocation-specific:
 
-- `--allow-submit` must be present.
-- The user instruction must refer to the reviewed exact plan.
-- A previous submit does not authorize remaining entries.
-- Increasing concurrency requires explicit consideration and authority.
+- The user instruction must refer to the reviewed workflow, selection, options, and provider scope.
+- The bounded concurrency must be part of the reviewed effect when it is greater than one.
+- A previous submission does not authorize another submission.
+- A pending unit inside the accepted native submission does not need a new resident launch decision.
+- Increasing concurrency requires explicit consideration and authority before the call.
 - Zotero-side approval remains independent.
 
-Never persist an “approved” flag in the plan database. That would convert a past decision into reusable authority.
+Never persist an “approved” flag in resident state. That would convert a past decision into reusable authority.
 
 ### Validate again
 
 Before the remote submit:
 
-- read the absolute file;
-- validate Schema and required fields;
-- recompute canonical digest;
-- match plan ID, digest, output path, workflow ID, and registered JSON;
 - re-describe the workflow;
-- match the workflow description digest;
-- revalidate every entry selected for this pass.
+- confirm the execution mode;
+- resolve the current selection;
+- validate the complete selection and workflow options;
+- revalidate the independently selected provider profile;
+- preserve exact JSON bindings without moving provider fields into workflow options;
+- confirm expected unit grouping and output contracts;
+- confirm the authorized concurrency bound.
 
 Any mismatch fails closed before remote effect.
 
-### Reserve and launch
+### Admit through Zotero
 
-For each eligible entry:
+Submit the reviewed request once. Then:
 
-1. Persist `launching`.
-2. Call the remote workflow submit.
-3. On a valid returned `workflowRunId`, persist `launched` and the watched run in one local transaction.
-4. On transport error or missing run ID, persist `unknown`.
-5. Stop the batch after `unknown`.
+1. Read `admission` before choosing a monitoring family.
+2. For direct admission, preserve the returned task identity and `workflowRunId`.
+3. For host-queue admission, preserve `submissionId`, unit counts, queue links, and every immutable `queueId`.
+4. Inspect the submission projection for pending, admitted, terminal, failed, and canceled units.
+5. Correlate admitted tasks through the submission lineage filter.
+6. Use queue cancellation only while the target unit remains pending.
+7. Use run cancellation or interaction only after a real run handle exists.
+8. Keep source refs and expected outputs attached to each unit throughout supervision.
 
-Only `pending` entries are eligible. `launched`, `unknown`, and stale `launching` entries are never automatically replayed.
+The Zotero plugin owns pending-unit ordering, admission, and slot release. The resident profile does not reserve units, launch the next entry, or run a replay worker.
 
-### Report
+### Supervise and report
 
-The submit receipt states:
+The interactive submission evidence states:
 
-- plan ID;
-- runs launched in this pass;
-- remaining pending count;
-- uncertain entry when present;
-- status `changed` for known launches;
-- status `attention` for unknown remote effect.
+- direct or host-queue admission;
+- `submissionId` when queued;
+- aggregate unit counts and links;
+- immutable unit identities;
+- admitted task and run identities when present;
+- pending cancellation receipts when requested;
+- uncertain transport or state evidence when present.
 
-This receipt proves local recording of the returned result. It does not prove workflow completion, output quality, Product delivery, or Zotero writeback.
+The supervision report distinguishes:
 
-## Provider, options, and unsupported plans
+- pending units already accepted by the native queue;
+- units canceled before admission;
+- admitted or running tasks;
+- terminal successful tasks;
+- terminal failed tasks;
+- tasks whose Product, artifact, or live-change verification is incomplete.
 
-The resident plan helper freezes one raw current-selection batch and delegates candidate production and grouping to Host validation. Route to Generic when:
+This evidence proves the observed native admission and execution state. It does not prove output quality, Product delivery, Zotero writeback, or completion of the user's research outcome.
 
-- required workflow options are not represented by the helper;
+## Provider, options, and unsupported submissions
+
+The interactive path sends one reviewed request to Host validation and delegates candidate production and immutable grouping to the live workflow contract. Route to Generic when:
+
+- required workflow options need semantic selection or clarification;
 - a provider profile must be chosen or validated;
 - the workflow uses self-owned agent execution;
 - no-selection execution is required;
@@ -259,7 +283,7 @@ Do not strip required options, choose a default provider silently, convert a sel
 
 ## Concurrency decisions
 
-Default concurrency one is a safety boundary, not a performance accident.
+Default concurrency one is a safety boundary, not a performance accident. The selected value becomes the native queue's admission bound for this submission.
 
 Increase concurrency only when:
 
@@ -267,8 +291,9 @@ Increase concurrency only when:
 - provider/backend capacity is known;
 - expected cost is acceptable;
 - monitoring can distinguish each run;
+- submission lineage can correlate every admitted unit with its source identity;
 - failure of one does not invalidate another;
-- the operator authorizes the exact bound for this pass.
+- the operator authorizes the exact bound for this submission.
 
 Do not increase concurrency when:
 
@@ -276,10 +301,11 @@ Do not increase concurrency when:
 - writes can conflict;
 - provider quotas are uncertain;
 - run interaction may be required;
+- apply-back may hold native slots for materially different durations;
 - the workflow result order matters;
-- prior entries have unknown state.
+- an earlier submission has unknown state.
 
-A concurrency value applies only to the current submit call. It does not create a queue worker or authorize future passes.
+A concurrency value applies only to the current submit call. It configures Zotero's native queue; it does not create a resident queue worker, reserve local entries, or authorize future submissions. Pending native units are already accepted work and must not be resubmitted to simulate progress.
 
 ## Cron decision model
 
@@ -336,11 +362,12 @@ Do not edit the profile schedule as part of ordinary Skill execution.
 
 ### Unknown submission
 
-1. Preserve plan ID, entry ordinal, selection refs, and error.
-2. Inspect live active/recent runs for a match.
-3. Reconcile with watched state.
-4. Do not replay the unknown entry.
-5. Create a new plan only after proving no earlier run/effect exists and obtaining new authority.
+1. Preserve the returned or previously observed `submissionId`, unit `queueId` values, selection refs, and structured error.
+2. Inspect the native submission projection before looking for a replacement operation.
+3. Correlate admitted work with submission-filtered task discovery and real run state.
+4. Reconcile admitted runs with watched state without treating the watched-run journal as queue authority.
+5. Do not replay the selection or any unit whose admission effect remains unknown.
+6. Make a new submission only after proving the earlier call created no accepted submission or admitted task and obtaining new authority.
 
 ### Hygiene candidate
 
@@ -366,7 +393,7 @@ Use:
 
 Use:
 
-> Entry 2 has an uncertain submission outcome. I preserved the plan identity and stopped before later entries. Live recent runs must be reconciled before any new plan.
+> The native submission has an uncertain response. I preserved its submission and unit handles and stopped before any replacement call. The original submission projection and correlated tasks must be reconciled before any new submission.
 
 Use:
 
@@ -375,7 +402,7 @@ Use:
 Do not use:
 
 - “monitoring continuously” for one-pass checks;
-- “approved” for a stored plan;
+- “approved” for cached validation or resident state;
 - “fixed” for an attention proposal;
 - “completed” for a terminal run whose output was not verified;
 - “scheduled” when no external schedule was configured;

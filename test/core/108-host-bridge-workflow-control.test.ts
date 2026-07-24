@@ -52,8 +52,10 @@ import {
 import {
   getHostBridgeSkillRun,
   getHostBridgeWorkflowRunStatus,
+  parseHostBridgeWorkflowSubmitRequest,
   resetHostBridgeNotificationProjectionForTests,
 } from "../../src/modules/hostBridgeWorkflowControl";
+import { workflowSubmissionQueue } from "../../src/jobQueue/workflowSubmissionQueue";
 import { initializeSequenceRunState } from "../../src/modules/workflowExecution/sequenceStateStore";
 import {
   installRuntimeBridgeOverrideForTests,
@@ -247,6 +249,7 @@ describe("host bridge workflow control", function () {
     resetHostBridgeFileRegistryForTests();
     resetHostBridgeNotificationInboxForTests();
     resetHostBridgeNotificationProjectionForTests();
+    workflowSubmissionQueue.resetForTests();
     resetPluginStateStoreForTests();
     resetRuntimeBridgeOverrideForTests();
     setDebugModeOverrideForTests();
@@ -1845,6 +1848,155 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(parsed.json.error.category, "permission");
   });
 
+  it("parses request-scoped Host queue options through the workflow settings contract", function () {
+    const parsed = parseHostBridgeWorkflowSubmitRequest({
+      workflowId: "bridge-workflow",
+      selection: { kind: "none" },
+      hostOptions: { queue: { maxConcurrency: 2 } },
+    });
+    assert.deepEqual(parsed.executionOptions.hostOptions, {
+      queue: { maxConcurrency: 2 },
+    });
+    assert.throws(
+      () =>
+        parseHostBridgeWorkflowSubmitRequest({
+          workflowId: "bridge-workflow",
+          selection: { kind: "none" },
+          hostOptions: { queue: { maxConcurrency: -1 } },
+        }),
+      /non-negative safe integer/,
+    );
+  });
+
+  it("lists native queued units, inspects their active submission, and cancels only pending units", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "workflow-token",
+    });
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const handle = workflowSubmissionQueue.enqueueSubmission({
+      backend: { backendType: "skillrunner", backendId: "backend-a" },
+      workflow: {
+        workflowId: "bridge-workflow",
+        workflowLabel: "Bridge Workflow",
+      },
+      units: ["u1", "u2"].map((unitId, order) => ({
+        unit: unitId,
+        display: {
+          unitId,
+          order,
+          taskName: `Task ${unitId}`,
+          inputUnitIdentity: `private:${unitId}`,
+        },
+      })),
+      maxConcurrency: 1,
+      executeUnit: async (unitId) => {
+        if (unitId === "u1") await firstGate;
+        return { status: "succeeded" };
+      },
+    });
+
+    const queued = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/workflows/queue",
+    });
+    assert.strictEqual(queued.status, 200);
+    assert.lengthOf(queued.json.result.units, 1);
+    assert.notInclude(queued.body, "private:");
+    const secondQueueId = queued.json.result.units[0].queueId;
+
+    await Promise.resolve();
+    await Promise.resolve();
+    const submission = await bridgeRequest({
+      token,
+      method: "GET",
+      path: `/bridge/v1/workflows/submissions/${handle.submissionId}`,
+    });
+    assert.strictEqual(submission.status, 200);
+    assert.strictEqual(
+      submission.json.result.submissionId,
+      handle.submissionId,
+    );
+    assert.strictEqual(submission.json.result.admitted, 1);
+    assert.strictEqual(submission.json.result.pending, 1);
+    assert.notInclude(submission.body, "private:");
+    const admittedQueueId = submission.json.result.units.find(
+      (unit: { state: string }) => unit.state === "admitted",
+    ).queueId;
+
+    const canceled = await bridgeRequest({
+      token,
+      method: "POST",
+      path: `/bridge/v1/workflows/queue/${secondQueueId}/cancel`,
+      headers: { "x-zotero-bridge-operation-id": "cancel-queue-u2" },
+      body: {},
+    });
+    assert.strictEqual(canceled.status, 200);
+    assert.strictEqual(canceled.json.result.status, "canceled");
+
+    const cancelAdmitted = await bridgeRequest({
+      token,
+      method: "POST",
+      path: `/bridge/v1/workflows/queue/${admittedQueueId}/cancel`,
+      headers: { "x-zotero-bridge-operation-id": "cancel-queue-u1" },
+      body: {},
+    });
+    assert.strictEqual(cancelAdmitted.status, 409);
+    assert.strictEqual(
+      cancelAdmitted.json.error.code,
+      "queue_unit_not_pending",
+    );
+    releaseFirst();
+    await handle.completion;
+  });
+
+  it("filters workflow tasks by opaque submission lineage", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "workflow-token",
+    });
+    const now = new Date().toISOString();
+    for (const [jobId, submissionId] of [
+      ["job-a", "workflow-submission-a"],
+      ["job-b", "workflow-submission-b"],
+    ]) {
+      recordWorkflowTaskUpdate({
+        id: jobId,
+        workflowId: "bridge-workflow",
+        request: {},
+        meta: {
+          runId: `run-${jobId}`,
+          workflowLabel: "Bridge Workflow",
+          taskName: jobId,
+          backendType: "generic-http",
+          backendId: "backend-a",
+          submissionId,
+          submissionUnitId: `unit-${jobId}`,
+        },
+        state: "running",
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    const parsed = await bridgeRequest({
+      token,
+      method: "GET",
+      path: "/bridge/v1/tasks?submissionId=workflow-submission-a",
+    });
+    assert.strictEqual(parsed.status, 200);
+    assert.deepEqual(
+      parsed.json.result.tasks.map((task: { jobId: string }) => task.jobId),
+      ["job-a"],
+    );
+    assert.strictEqual(
+      parsed.json.result.tasks[0].submissionUnitId,
+      "unit-job-a",
+    );
+  });
+
   it("submits explicit workflow selection after global approval", async function () {
     installWorkflowRegistryForTests([workflow("bridge-workflow")]);
     const token = configureHostBridgeServerForTests({
@@ -1878,6 +2030,7 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(parsed.status, 200);
     assert.strictEqual(parsed.json.status, "ok");
     assert.strictEqual(parsed.json.result.workflowId, "bridge-workflow");
+    assert.strictEqual(parsed.json.result.admission, "direct");
     assert.isString(parsed.json.result.workflowRunId);
     assert.notProperty(parsed.json.result, "runId");
     assert.lengthOf(parsed.json.result.jobIds, 1);
@@ -1890,6 +2043,81 @@ describe("host bridge workflow control", function () {
     assert.include(approvalRequest.detail, "Source: zotero-bridge CLI");
     assert.notInclude(approvalRequest.detail, '"workflowId"');
     assert.notInclude(approvalRequest.detail, "{");
+  });
+
+  it("returns queued admission without fabricated workflow run or job handles", async function () {
+    const previousBackends = getPref("backendsConfigJson");
+    try {
+      setPref(
+        "backendsConfigJson",
+        JSON.stringify({
+          schemaVersion: 2,
+          backends: [
+            {
+              id: "skillrunner-queue",
+              displayName: "Queued SkillRunner",
+              type: "skillrunner",
+              baseUrl: "http://127.0.0.1:9",
+              auth: { kind: "none" },
+            },
+          ],
+        }),
+      );
+      const entry = workflow("queued-workflow");
+      entry.manifest.provider = "skillrunner";
+      entry.manifest.request = {
+        kind: "skillrunner.job.v1",
+        skill_id: "queued-workflow",
+      };
+      entry.hooks.buildRequest = async ({ selectionContext }: any) => ({
+        kind: "skillrunner.job.v1",
+        skill_id: "queued-workflow",
+        task_name: "Queued workflow unit",
+        selection_context: selectionContext,
+      });
+      installWorkflowRegistryForTests([entry]);
+      const token = configureHostBridgeServerForTests({
+        token: "workflow-token",
+      });
+      const parent = new Zotero.Item("journalArticle");
+      parent.setField("title", "Queued Workflow Submit Parent");
+      await parent.saveTx();
+      configureHostBridgeGlobalApprovalHandlerForTests((request) => ({
+        outcome: "approved",
+        requestId: request.requestId,
+        channel: "global",
+      }));
+
+      const parsed = await bridgeRequest({
+        token,
+        method: "POST",
+        path: "/bridge/v1/workflows/submit",
+        body: {
+          workflowId: "queued-workflow",
+          selection: { items: [{ id: parent.id }] },
+          providerProfile: { backendId: "skillrunner-queue" },
+          hostOptions: { queue: { maxConcurrency: 1 } },
+        },
+      });
+
+      assert.strictEqual(parsed.status, 202);
+      assert.strictEqual(parsed.json.result.admission, "host-queue");
+      assert.isString(parsed.json.result.submissionId);
+      assert.strictEqual(parsed.json.result.queuedUnits, 1);
+      assert.strictEqual(parsed.json.result.totalUnits, 1);
+      assert.notProperty(parsed.json.result, "workflowRunId");
+      assert.notProperty(parsed.json.result, "jobIds");
+      assert.include(
+        parsed.json.result.submissionUrl,
+        parsed.json.result.submissionId,
+      );
+      assert.strictEqual(
+        parsed.json.result.queueUrl,
+        "/bridge/v1/workflows/queue",
+      );
+    } finally {
+      setPref("backendsConfigJson", previousBackends);
+    }
   });
 
   it("can disable workflow submit approval from the Host Bridge preference switch", async function () {

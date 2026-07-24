@@ -133,6 +133,15 @@
 - 采用TDD模式：每一步开发前先写测试用例，再围绕测试实现
 - **切勿将Node.js环境中才能使用的代码用于插件环境**
 
+# Host Bridge Agent-facing Surface硬约束
+
+- 修改 Host Bridge 三个 agent-facing surface 的语义源时，除非当前已批准方案逐项明确列入删除清单，否则不得压缩、删除、归并、重排或以更薄的概述改写任何现有指令。
+- 新增指令必须与相邻现有指令保持同等厚度、同等详细程度，并覆盖相称的适用条件、决策分支、证据要求、完成条件、失败处理与恢复路径。
+- 修改前必须记录固定 baseline commit、受影响的 materialized 文件指标和明确删除清单；修改后必须报告 unmapped、downgraded、unauthorized dropped 与 intra-package duplicate 四类计数。
+- materialized `SKILL.md` 与直接引用的 reference 除绝对深度门禁外，还必须相对固定 baseline 保持 substantive instruction line count 不下降，normalized prose character count 不低于 baseline 的 95%。
+- 相对厚度门禁只能发现明显变薄，不能替代逐条语义 parity 审阅；即使行数或字符数通过，也不得据此授权压缩、归并、重排或删除。
+- 只允许删除已批准清单中的语义单元；本次外置队列迁移仅允许删除 Hermes 自有 workflow plan/plan-entry/reservation/batching/replay 队列指令，不得影响通知、watched runs、attention、catalog/index、maintenance、receipt、cron read-only 或 Generic Input Planning v2 指令。
+
 # Assistant Workspace UI硬约束
 
 - transcript/prompting 是 Assistant Workspace 中最高频的更新路径，transcript 渲染必须与 toolbar、banner、plan、hint、reply、context drawer、details drawer、permission drawer 等非 transcript DOM 渲染解耦。

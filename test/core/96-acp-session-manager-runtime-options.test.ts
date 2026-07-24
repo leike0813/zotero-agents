@@ -663,7 +663,10 @@ describe("acp session manager", function () {
         harness.lastAdapter,
       );
       harness.lastAdapter.setConfigOption = async (request) => {
-        if (request.category === "thought_level" && request.value === "medium") {
+        if (
+          request.category === "thought_level" &&
+          request.value === "medium"
+        ) {
           throw new RequestError(-32602, "effort not found: medium");
         }
         return setConfigOption(request);
@@ -728,7 +731,10 @@ describe("acp session manager", function () {
         harness.lastAdapter,
       );
       harness.lastAdapter.setConfigOption = async (request) => {
-        if (request.category === "thought_level" && request.value === "medium") {
+        if (
+          request.category === "thought_level" &&
+          request.value === "medium"
+        ) {
           throw new RequestError(-32602, "unknown category");
         }
         return setConfigOption(request);

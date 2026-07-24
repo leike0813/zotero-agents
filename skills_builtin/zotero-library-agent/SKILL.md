@@ -63,6 +63,7 @@ For a read-only task, begin after material identity and scope are known. For acq
 
 4. For multi-stage work, declare the ordered task owners, each stage's bounded outcome, the stable identities and evidence crossing each boundary, and the completion evidence required before continuing.
 5. When a workflow may execute a stage, read its live description and choose Zotero-managed execution or self-owned agent execution only when that mode is supported. Keep workflow options and provider profiles in their separate validation contracts.
+   For Zotero-managed execution, let the plugin's native workflow queue own bounded admission. Preserve the returned `submissionId` when admission is queued, inspect its unit projection until real run identities appear, and carry those task/run handles into the owning task Skill without constructing an agent-side plan-entry queue.
 6. Stop at every new authority boundary. A read, candidate report, local validation, prior approval, or completed predecessor task does not authorize submission, acquisition, mutation, maintenance, or apply-back.
 7. Require every stage to return `zotero-library-task.result.v1`. Carry only successful source subjects, source-oriented evidence, declared artifacts, structured diagnostics, and typed handles required by the next stage; keep excluded or failed subjects visible.
 
@@ -140,6 +141,8 @@ Do not dispatch both analysis and synthesis over an unresolved candidate set mer
 - Do not treat workflow termination as proof that expected Products, artifacts, item changes, or synthesis state exist.
 - Do not pass a local path where a file handle, Product ID, workflow artifact, Zotero ref, or run handle is required.
 - Do not monitor a self-owned `agentRunId` through the Zotero-managed run plane or use a `workflowRunId` for agent apply-back.
+- Do not model `submissionId`, `queueId`, and `workflowRunId` as aliases. A native queued submission is monitored through its submission projection; only an admitted unit with a real run handle enters the Zotero-managed run plane.
+- Do not create a coordinator-owned workflow queue, reservation table, replay loop, or unattended batch scheduler. The coordinator may choose an explicitly bounded concurrency value for the current authorized submission, while Zotero owns pending-unit ordering, admission, and pending cancellation.
 
 ## LLM And Tool Responsibilities
 

@@ -241,4 +241,3 @@ Remove one Dashboard Product record through Zotero approval
 - Targets: `[{"kind":"capability","target":"workflow_products.remove"}]`.
 - Aliases: `product remove`, `product`, `remove`, `product_id`, `PRODUCT_ID`.
 - Intent search: `visible`.
-

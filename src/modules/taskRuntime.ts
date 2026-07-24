@@ -34,6 +34,8 @@ export type WorkflowTaskRecord = {
   sequenceFinalStepId?: string;
   sequenceJobId?: string;
   workflowRunId?: string;
+  submissionId?: string;
+  submissionUnitId?: string;
   engine?: string;
   targetParentID?: number;
   workflowId: string;
@@ -100,6 +102,7 @@ export type WorkflowTaskListOptions = {
   activeOnly?: boolean;
   backendId?: string;
   requestId?: string;
+  submissionId?: string;
   limit?: number;
 };
 
@@ -315,6 +318,8 @@ export function buildWorkflowTaskRecordFromJob(
   );
   const sequenceJobId = normalizeMetaString(job.meta, "sequenceJobId");
   const workflowRunId = normalizeMetaString(job.meta, "workflowRunId");
+  const submissionId = normalizeMetaString(job.meta, "submissionId");
+  const submissionUnitId = normalizeMetaString(job.meta, "submissionUnitId");
   const engine = normalizeMetaString(job.meta, "engine");
   const providerId = normalizeMetaString(job.meta, "providerId");
   const requestKind = normalizeMetaString(job.meta, "requestKind");
@@ -358,6 +363,8 @@ export function buildWorkflowTaskRecordFromJob(
     sequenceFinalStepId: sequenceFinalStepId || undefined,
     sequenceJobId: sequenceJobId || undefined,
     workflowRunId: workflowRunId || undefined,
+    submissionId: submissionId || undefined,
+    submissionUnitId: submissionUnitId || undefined,
     engine: engine || undefined,
     targetParentID: resolveTargetParentIDFromJob(job),
     workflowId: job.workflowId,
@@ -976,6 +983,13 @@ function filterWorkflowTaskByScope(
   if (requestId && String(entry.requestId || "").trim() !== requestId) {
     return false;
   }
+  const submissionId = String(options.submissionId || "").trim();
+  if (
+    submissionId &&
+    String(entry.submissionId || "").trim() !== submissionId
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -1010,6 +1024,7 @@ export function listWorkflowTaskSummaries(
   }
   const limit = normalizeTaskListLimit(options.limit);
   const rows = Array.from(merged.values())
+    .filter((entry) => filterWorkflowTaskByScope(entry, options))
     .map((entry) => ({ ...entry }))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return limit ? rows.slice(0, limit) : rows;

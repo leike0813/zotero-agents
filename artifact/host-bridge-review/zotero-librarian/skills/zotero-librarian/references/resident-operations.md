@@ -16,8 +16,6 @@
 | `index stats` |本地项目计数和刷新元数据 |无 | `ok` 与 `itemCount` 和 `lastRefresh` |
 | `workflow catalog-refresh` | 实时工作流列表和已变更描述 | 原子 upsert 已变更 catalog 条目 | `updated` 定义数量 |
 | `workflow show <workflow-id>` |一个缓存的 workflow 定义 |无 | `ok`，带有缓存的`workflow`；执行前仍需要实时描述 |
-| `workflow plan --workflow ID --from-context --output ABS` |实时 workflow 描述、当前选择和每个条目验证 |原子地编写并注册一个不可变的计划 |selection ref、输入单位、计划/摘要和绝对`path` |
-| `workflow submit --plan ABS --allow-submit [--concurrency N]` |注册计划、实时 workflow 合同、条目验证并提交结果 |储备条目和登记启动运行|需要注意的`launched`、`remaining` 或一个 `unknown` 条目 |
 | `run register --run-id ID --workflow-id ID [--state S]` | 提供的标识符 | upsert 一个 watched run | 已注册 `runId` |
 | `run watch` | 每个非终态 watched run 一次实时状态读取 | 更新已变化的 run 状态 | 当前 `runs`；unchanged 表示无状态转移 |
 | `notification sync [--limit N]` | 一个有边界的未确认 event 页面 | upsert 通知 projection | `inserted`、`updated` 与 `fetched` 计数 |
@@ -42,9 +40,9 @@
 
 Catalog refresh 列出当前工作流，只为摘要 digest 新增或变化的工作流获取描述。`workflow show` 用于快速本地发现；执行仍需要实时工作流描述、当前执行模式、输入校验以及 Generic 所有的 provider profile 校验。
 
-驻留规划读取实时 workflow 选择合同，保留attachment workflow 的附件，仅针对parent-item workflow 标准化子项，验证每个实际条目，并将`zotero-librarian.workflow-plan.v2`写入绝对路径。检查持久化文件而不是从终端输出重建它。该计划包含每个受支持的选定对象的一个经过验证的提交、不可变的身份/摘要以及默认并发度 1。
+交互式 submission 不是常驻服务操作。Generic 与随附 CLI 读取实时 workflow selection contract，分别保留 workflow options 与 provider-profile inputs，校验完整请求，并提交一个已审阅 scope。Host planning 继续负责 candidate production、filtering 与不可变 unit grouping。Zotero 插件的 native queue 是 pending units 与有界 admission 的唯一所有者。
 
-Submission 在当前 pass 只启动已审阅 plan 的前 `--concurrency` 个条目，记录返回的 `workflowRunId` 并报告其余条目。后续提交需要新的操作员当前指令。服务外创建的 run 可通过 `run register` 加入；只能使用真实 `workflowRunId` 及其工作流 ID。
+direct admission 返回真实 `workflowRunId`。host-queue admission 返回 `submissionId`、per-unit `queueId`、计数与链接；检查该 native projection，直到 admitted tasks 暴露真实 run identities。pending queue cancellation 与 admitted run cancellation 属于不同 controls。服务外创建的 run 可通过 `run register` 加入；只能使用真实 `workflowRunId` 及其 workflow ID。
 
 `run watch` 对每个本地已注册的非终态 Zotero 托管 run 检查一次。它记录状态转移，并自然地在后续 active pass 排除终态。它不获取 transcript、不解决 permission 决策、不执行 Agent 自主 handoff，也不推断缺失的 Product 或 artifact。交互使用实时 run/skill 命令，`agentRunId` 工作使用 Generic handoff 合同。
 
@@ -64,7 +62,7 @@ profile 随附七个独立 cron job：每六小时 index refresh、每日工作�
 
 常驻报告应保留 operation receipt、相关刷新时间、item key、workflow/run/event ID、变化计数、attention 原因，以及面向用户结论使用的实时确认。审阅候选项和下一项安全检查清楚后，`attention` 即完成；这不表示修复已完成。
 
-CLI 或解析失败时，服务发出稳定错误并保留已提交状态。不得用部分页面替换 projection，也不得在没有有效结果时推进通知/run 结论。提交结果不确定时，再次启动前检查近期实时 run。本地查询失败时，只刷新所需 projection，再重试一个有边界的操作。
+CLI 或解析失败时，服务发出稳定错误并保留已提交状态。不得用部分页面替换 projection，也不得在没有有效结果时推进通知/run 结论。direct submission 不确定时，另一次调用前检查近期实时 run；queued submission 不确定时，另一次调用前检查原始 native submission 与 submission-filtered tasks。本地查询失败时，只刷新所需 projection，再重试一个有边界的操作。
 
 ## 详细操作卡
 
@@ -204,66 +202,83 @@ receipt：
 
 - 将结果选择委托给Generic 并确认实时描述。
 
-### `workflow plan`
+### 交互式 native workflow handoff
 
 目的：
 
-- 冻结经过验证、可审查的当前选择计划，以实现简单的 Zotero 管理执行。
+- 校验并呈现一个可审阅的 Zotero-managed request，不创建常驻 queue state。
 
 命令：
 
 ```sh
-scripts/zotero_librarian_service.py workflow plan \
-  --workflow <workflow-id> --from-context \
-  --output <absolute-plan.json>
+zotero-bridge workflow describe --workflow <workflow-id> --json
+zotero-bridge workflow validate \
+  --workflow <workflow-id> \
+  --selection-json '<reviewed-selection>' \
+  --options-json '<reviewed-options>' --json
 ```
 
 之前：
 
 - 确认 workflow 是正确的 Generic 任务候选者。
-- 确保当前选择包含其实时输入单元接受的对象。
-- 将所需选项、provider 配置文件、空 selection、group selection和自有模式路由到 Generic。
+- 确保当前 selection 是实时 candidate-production contract 的预期 raw input。
+- 让 required options、provider profiles、no-selection 与 self-owned mode 留在各自声明的 Generic 和 CLI contracts 中。
+- 实时描述要求时，独立校验 provider profile。
+- 在考虑 provider limits、cost、unit independence、interaction 与 apply-back duration 后选择有限 concurrency bound。
 
-receipt：
+证据：
 
-- `changed` 与 `selectionRefs`、`inputUnit`、计划对象和绝对 `path`。
-- 计划包括`planId`、`planDigest`、workflow-描述摘要、条目和并发一。
+- 实时 workflow identity 与 execution mode。
+- 精确 selection refs，以及彼此分离的 `inputs` 与 `validateSelection` contracts。
+- 已审阅 workflow options 与独立校验的 provider-profile input。
+- Host candidate-production 与不可变 grouping 行为。
+- 预期 unit count 或 shape、result identities 与所选 native admission bound。
 
-下一篇：
+下一步：
 
-- 查看该文件而不对其进行编辑。
-- 请求当前当局制定该确切计划。
+- 呈现完整当前 scope，且不持久化 approval flag。
+- 为该精确 workflow、selection、options、provider 与 concurrency 请求当前授权。
 
-### `workflow submit`
+### Native queue submission 与 supervision
 
 目的：
 
-- 根据当前授权，从一项已注册的不可变计划中启动待处理条目。
+- 提交一个已审阅请求，并使用类型化 handles 监督 direct 或 native-queue admission。
 
 命令：
 
 ```sh
-scripts/zotero_librarian_service.py workflow submit \
-  --plan <absolute-plan.json> --allow-submit \
-  --concurrency 1
+zotero-bridge workflow submit \
+  --workflow <workflow-id> \
+  --selection-json '<reviewed-selection>' \
+  --options-json '<reviewed-options>' \
+  --max-concurrency <bounded-count> --json
 ```
 
 之前：
 
-- 确认当前指令授权的确切计划和并发数。
-- 请记住，Zotero 方的批准仍然是分开的。
+- 确认当前指令授权精确 selection、options、provider profile 与 concurrency。
+- 记住 Zotero-side approval 保持独立。
+- 重新校验任何新鲜度会影响调用的实时 contract fact。
 
-receipt：
+Admission 结果：
 
-- `changed` 已启动运行和待处理的剩余部分。
-- 当无法确定远程效果时，`attention` 具有 1 个`unknown` 条目。
-- `failed` 在远程调用身份、摘要、路径、契约、选择或权限不匹配之前。
+- direct admission 暴露真实 task 与 `workflowRunId`。
+- host-queue admission 暴露 `submissionId`、aggregate counts、queue links 与不可变 unit projections。
+- queued response 有意不为 pending units 提供虚构 run handles。
+- 结构化失败保留 state-change 与 safe-next-action facts。
 
-下一篇：
+下一步：
 
-- 注册成功返回的运行是自动的。
-- 不要重播已启动或未知的条目。
-- 另一遍需要新的当前指令。
+- 使用 `workflow submission get <submissionId>` 检查 aggregate 与 per-unit state。
+- 使用 `workflow queue list` 观察 active queue。
+- 仅在 unit 仍为 pending 时使用 `workflow queue cancel <queueId>`。
+- 通过 `run list --submission <submissionId>` 关联 admitted tasks。
+- 只有常驻 one-pass watching 有用时，才注册真实 admitted `workflowRunId`。
+- admission 后使用 run-plane interaction 或 cancellation。
+- 分别验证每个预期 Product、artifact 或 Zotero change。
+- 不得重播 uncertain submission，也不得实现常驻 reservation loop。
+- 另一 submission 需要新的当前指令。
 
 ### `run register`
 
@@ -503,17 +518,19 @@ receipt：
 - 重试有限刷新；
 - 不要手动合并三个页面。
 
-计划文件已编辑：
+Workflow validation 变得过时：
 
-- 远程调用前提交失败；
-- 根据实际情况制定新计划；
-- 不要只恢复摘要字段。
+- 在 submit call 前停止；
+- 重新读取实时 workflow 与 selection；
+- 重新校验 options 与 provider profile；
+- 不得把 cached validation 当作当前授权。
 
-提交退货`attention`：
+Queued submit response 不确定：
 
-- 保留计划 ID 和未知序数；
-- 检查最近的实时运行；
-- 不自动重播该条目或以后的批次。
+- 保留 `submissionId` 与任何返回的 `queueId`；
+- 检查原始 submission projection 与 submission-filtered tasks；
+- 需要时，将 admitted real runs 与 watched state 对齐；
+- 不得重播 selection，也不得自动构建替代 resident batch。
 
 通知确认失败：
 

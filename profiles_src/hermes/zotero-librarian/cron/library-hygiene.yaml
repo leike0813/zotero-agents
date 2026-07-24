@@ -1,5 +1,6 @@
 schema: hermes.cron.v1
 name: library-hygiene
 schedule: { weekly: monday, time: "09:30" }
-command: [scripts/zotero_librarian_service.py, --quiet, maintenance, library-hygiene]
+command:
+  [scripts/zotero_librarian_service.py, --quiet, maintenance, library-hygiene]
 behavior: { unchanged: "[SILENT]", mutation: never }

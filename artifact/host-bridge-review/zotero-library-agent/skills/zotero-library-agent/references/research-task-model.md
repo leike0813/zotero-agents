@@ -43,10 +43,14 @@ handoff 时保留稳定 Zotero ref、topic/Product ID、workflow 或 operation h
 3. 校验工作流输入；
 4. 单独描述并校验 backend provider profile；
 5. 确认 provider 兼容性，并通过工作流汇合点提交；
-6. 保留 `workflowRunId` 并检查该确切 run，直至有界任务取得结果或需要交互；
+6. 按返回的 admission contract 分支：direct admission 时保留 `workflowRunId`；native host-queue admission 时保留 `submissionId` 并检查不可变 unit projection，直到 admitted tasks 暴露真实 run identities；
 7. 将预期 Product、artifact 及已变更 Zotero 对象与 run 终态分开检查。
 
-active/recent 列表仅用于发现。使用返回的 `skillRunId` 定位 reply 或 connect；检查 permission，但不得假装 CLI 能决定它。通知是生命周期提示，不是 transcript 或授权。提交结果不确定时，创建另一个 run 前先搜索当前/近期匹配 run。
+queued admission 时，将 submission projection 作为 aggregate SSOT；active queue 只用于观察或取消仍处于 pending 的 units；submission-filtered task discovery 用于关联 admitted work。queue cancellation 不会取消 admitted run；admission 后通过正常 control plane 定位真实 run。native slot 一直占用到 terminal execution 与 apply-back，并且每个 promised Product、artifact 或 live change 都要单独验证。
+
+active native submission projection 是 process-local 的。Host restart 后该 projection 不可用时，通过 submission-filtered task discovery 与真实 run state 恢复已 admitted work，保留原始 bounded source scope，并报告哪些 units 不再能作为 pending 被观察。不得合成 replacement queue entries，也不得自动 resubmit unresolved remainder；replacement submission 是新的 state-changing operation，具有新的 authority boundary。
+
+active/recent 列表仅用于发现。使用返回的 `skillRunId` 定位 reply 或 connect；检查 permission，但不得假装 CLI 能决定它。通知是生命周期提示，不是 transcript 或授权。direct submission 不确定时，创建另一个 run 前先搜索当前/近期匹配 run。queued submission 不确定时，创建另一 submission 前检查原始 `submissionId` 及其 admitted tasks；初始响应没有 run handle 是预期行为，不构成 resubmit 权限。
 
 当工作流声明支持，且当前 Agent 将履行每份已下载请求合同时，选择 Agent 自主执行。除非实时合同明确声明，否则该模式不能携带 Zotero 托管工作流选项或 backend provider profile。
 

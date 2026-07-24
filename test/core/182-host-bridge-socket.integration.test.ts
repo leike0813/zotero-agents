@@ -738,6 +738,7 @@ describe("host bridge socket integration in Zotero runtime", function () {
         `Authorization: Bearer ${token}`,
         "Content-Type: application/octet-stream",
         "X-Zotero-File-Name: fragmented.bin",
+        "X-Zotero-Bridge-Operation-Id: fragmented-test-upload",
         `Content-Length: ${uploadBody.byteLength}`,
         "Connection: close",
         "",

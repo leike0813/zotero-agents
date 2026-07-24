@@ -11,9 +11,12 @@
 3. 使用已声明 selection 或 no-selection 形式以及预期 workflow option 运行 `zotero-bridge workflow validate`。
 4. 对另行选择的 backend profile 运行 `zotero-bridge workflow profile describe` 与 `zotero-bridge workflow profile validate`。
 5. 只有有边界请求与 Zotero 端权限均为当前有效时，才运行 `zotero-bridge workflow submit`。
-6. 使用返回的 run handle 检查执行，并分别验证每个请求的 Product、artifact 或已变更 Zotero 对象。
+6. 读取返回的 admission branch。direct admission 时保留每个返回的 `workflowRunId`；host-queue admission 时保留 `submissionId`，检查 `workflow submission get`，并用 `run list --submission` 关联 admitted tasks。
+7. 使用真实 run handle 检查 admitted execution，并分别验证每个请求的 Product、artifact 或已变更 Zotero 对象。使用 `workflow queue cancel` 时，只能将其应用于仍处于 pending 的 `queueId`；它不是 run cancellation。
 
 精确 argv 与结构化恢复方式请查阅随附 `zotero-bridge-cli` Skill 的 `workflow` 和 `run` 命令参考。
+
+native Zotero queue 是 pending workflow units 与有界 admission 的唯一所有者。不得持久化第二套 plan-entry queue、在本地预留 units、重播 uncertain entries，或推断初始缺少 run handle 表示提交失败。queued submission 是由 `submissionId` 标识的单一 accepted operation；其中各 units 可分别处于 pending、admitted、terminal、failed 或 canceled。
 
 ## 在 workflow 之间进行选择
 
@@ -62,13 +65,13 @@
 - Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/collection-collector/workflow.json`；core：`false`.
 - Provider 要求：`{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
+- Selection：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - 必需 workflow option：`["collection","collectionScope"]`.
 - Workflow option：
   - `collection`：`{"type":"string","required":true,"title":"Collection","description":"Existing Zotero collection that will receive matching literature.","allowCustom":false,"optionsSource":{"kind":"zotero.collections","library":"current","includeEmpty":false,"valueFormat":"collectionRef","labelFormat":"path"}}`。
   - `collectionScope`：`{"type":"string","required":true,"title":"Collection Scope","description":"Meaning, research topic, or literature boundary represented by the collection."}`。
 - 结果证据：`{"fetchType":"result","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `collection-collector`、已声明的 no-selection 形式、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
+- 调用输入：使用 workflow id `collection-collector`、声明的 no-selection 形式、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
 
 ### `export-literature-bundle`
 
@@ -79,11 +82,11 @@
 - Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/export-literature-bundle/workflow.json`；core：`false`.
 - Provider 要求：`{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
 - 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":true,"inputUnit":"workflow","validation":{"excludes":[],"derives":[]}}`.
+- Selection：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"require":{"selection":{"allowMixed":false,"counts":{"parents":{"min":1},"attachments":{"exact":0},"notes":{"exact":0},"children":{"exact":0}}}},"select":{"policy":"selection"},"filters":[]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：未声明。
 - 结果证据：`{"artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `export-literature-bundle`、已声明的 no-selection 形式、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
+- 调用输入：使用 workflow id `export-literature-bundle`、经过校验的 `selection` members，并按 `all` 分组、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
 
 ### `export-research-bundle`
 
@@ -94,7 +97,7 @@
 - Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/export-research-bundle/workflow.json`；core：`true`.
 - Provider 要求：`{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
+- Selection：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
   - `paperTitle`：`{"type":"string","title":"Paper Title","description":"Working manuscript title used to find research materials."}`。
@@ -104,7 +107,7 @@
   - `maxCorePapers`：`{"type":"number","title":"Maximum Core Papers","default":20}`。
   - `maxRelatedPapers`：`{"type":"number","title":"Maximum Related Papers","default":80}`。
 - 结果证据：`{"fetchType":"bundle","resultJson":"result/result.json","artifacts":["result/export-research-bundle-artifacts.json"],"applyBack":true}`.
-- 调用输入：使用 workflow id `export-research-bundle`、已声明的 no-selection 形式、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
+- 调用输入：使用 workflow id `export-research-bundle`、声明的 no-selection 形式、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
 
 ### `export-notes`
 
@@ -115,11 +118,11 @@
 - Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/export-notes/workflow.json`；core：`false`.
 - Provider 要求：`{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
 - 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":true,"inputUnit":"workflow","validation":{"policy":"generated-note-candidates","excludes":[],"derives":["exportCandidates"]}}`.
+- Selection：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"generated-note"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"generated-note-candidates"},"filters":[]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：未声明。
 - 结果证据：`{"artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `export-notes`、已声明的 no-selection 形式、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
+- 调用输入：使用 workflow id `export-notes`、经过校验的 `generated-note` members，并按 `all` 分组、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
 
 ### `import-literature-bundle`
 
@@ -130,11 +133,11 @@
 - Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/import-literature-bundle/workflow.json`；core：`false`.
 - Provider 要求：`{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
 - 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
+- Selection：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：未声明。
 - 结果证据：`{"artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `import-literature-bundle`、已声明的 no-selection 形式、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
+- 调用输入：使用 workflow id `import-literature-bundle`、声明的 no-selection 形式、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
 
 ### `import-notes`
 
@@ -145,11 +148,11 @@
 - Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/import-notes/workflow.json`；core：`false`.
 - Provider 要求：`{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
 - 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":false,"inputUnit":"parent","validation":{"policy":"selected-parent","excludes":[],"derives":[]}}`.
+- Selection：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"parent"},"grouping":{"mode":"each"}},"validation":{"require":{"selection":{"allowMixed":false,"counts":{"parents":{"exact":1},"attachments":{"exact":0},"notes":{"exact":0},"children":{"exact":0}}}},"select":{"policy":"input-member","source":"selected"},"filters":[]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：未声明。
 - 结果证据：`{"artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `import-notes`、经过校验的 `parent` selection、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
+- 调用输入：使用 workflow id `import-notes`、经过校验的 `parent` members，并按 `each` 分组、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
 
 ### `literature-explainer`
 
@@ -160,12 +163,12 @@
 - Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/literature-explainer/workflow.json`；core：`true`.
 - Provider 要求：`{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":false,"inputUnit":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]},"perParent":{"min":1,"max":1},"validation":{"policy":"literature-source","excludes":[],"derives":[]}}`.
+- Selection：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
   - `language`：`{"type":"string","title":"Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`。
 - 结果证据：`{"fetchType":"bundle","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `literature-explainer`、经过校验的 `attachment` selection、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
+- 调用输入：使用 workflow id `literature-explainer`、经过校验的 `attachment` members，并按 `each` 分组、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
 
 ### `literature-deep-reading`
 
@@ -176,13 +179,13 @@
 - Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/literature-deep-reading/workflow.json`；core：`true`.
 - Provider 要求：`{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":false,"inputUnit":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]},"perParent":{"min":1,"max":1},"validation":{"policy":"literature-source","excludes":["artifact-exists"],"derives":[]}}`.
+- Selection：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[{"kind":"artifact-absent","phase":"availability","target":"deep-reading-html"}]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
   - `target_language`：`{"type":"string","title":"Target Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`。
   - `mode`：`{"type":"string","title":"Translation Mode","enum":["fast","high_quality"],"default":"fast"}`。
 - 结果证据：`{"fetchType":"bundle","resultJson":"literature-deep-reading.result.json","artifacts":["result/deep-reading.html","result/deep-reading-manifest.json"],"applyBack":true}`.
-- 调用输入：使用 workflow id `literature-deep-reading`、经过校验的 `attachment` selection、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
+- 调用输入：使用 workflow id `literature-deep-reading`、经过校验的 `attachment` members，并按 `each` 分组、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
 
 ### `literature-analysis`
 
@@ -193,14 +196,14 @@
 - Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/literature-analysis/workflow.json`；core：`true`.
 - Provider 要求：`{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":false,"inputUnit":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]},"perParent":{"min":1,"max":1},"validation":{"policy":"literature-source","excludes":["generated-notes-all"],"derives":[]}}`.
+- Selection：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[{"kind":"generated-note-kinds-absent","phase":"availability","noteKinds":["digest","references","citation-analysis"]}]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
   - `language`：`{"type":"string","title":"Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`。
   - `auto_tag_regulator`：`{"type":"boolean","title":"Auto Tag Regulator","default":true}`。
   - `auto_tag_infer_tag`：`{"type":"boolean","title":"Infer tags","default":true,"visible_if":{"parameter":"auto_tag_regulator","equals":true}}`。
 - 结果证据：`{"fetchType":"bundle","resultJson":"result/result.json","artifacts":["artifacts/digest.md","artifacts/references.json","artifacts/citation_analysis.json"],"applyBack":true}`.
-- 调用输入：使用 workflow id `literature-analysis`、经过校验的 `attachment` selection、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
+- 调用输入：使用 workflow id `literature-analysis`、经过校验的 `attachment` members，并按 `each` 分组、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
 
 ### `literature-translator`
 
@@ -211,13 +214,13 @@
 - Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/literature-translator/workflow.json`；core：`true`.
 - Provider 要求：`{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":false,"inputUnit":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]},"perParent":{"min":1,"max":1},"validation":{"policy":"literature-source","excludes":["artifact-exists"],"derives":[]}}`.
+- Selection：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["text/markdown","text/x-markdown","text/plain","application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"literature-source"},"filters":[{"kind":"artifact-absent","phase":"execute","target":"translator-markdown","parameter":"target_language"}]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
   - `target_language`：`{"type":"string","title":"Target Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`。
   - `mode`：`{"type":"string","title":"Mode","enum":["fast","high_quality"],"default":"fast"}`。
 - 结果证据：`{"fetchType":"bundle","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `literature-translator`、经过校验的 `attachment` selection、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
+- 调用输入：使用 workflow id `literature-translator`、经过校验的 `attachment` members，并按 `each` 分组、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
 
 ### `literature-metadata-curator`
 
@@ -228,12 +231,12 @@
 - Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/literature-metadata-curator/workflow.json`；core：`true`.
 - Provider 要求：`{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":false,"inputUnit":"parent","validation":{"policy":"literature-parent","excludes":[],"derives":[]}}`.
+- Selection：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"parent"},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"input-member","source":"related"},"filters":[]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
   - `skip_identifier_fast_path`：`{"type":"boolean","title":"Skip identifier fast path","description":"Bypass Zotero identifier lookup and run literature-metadata-search directly.","default":false}`。
 - 结果证据：`{"fetchType":"result","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `literature-metadata-curator`、经过校验的 `parent` selection、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
+- 调用输入：使用 workflow id `literature-metadata-curator`、经过校验的 `parent` members，并按 `each` 分组、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
 
 ### `literature-search-ingest`
 
@@ -244,7 +247,7 @@
 - Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/literature-search-ingest/workflow.json`；core：`true`.
 - Provider 要求：`{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
+- Selection：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
   - `query`：`{"type":"string","title":"Search Query","description":"Optional search query or seed. Leave blank with auto mode to start a guided search-planning conversation.","default":""}`。
@@ -253,7 +256,7 @@
   - `languageHints`：`{"type":"array","title":"Language Hints","description":"Optional BCP 47 language hints such as en, zh-CN, ja, or de. They expand queries and sources but never filter other languages.","items":{"type":"string"},"default":[]}`。
   - `targetCollection`：`{"type":"string","title":"Target Collection","description":"Optional Zotero collection for created or existing items.","default":"","allowCustom":false,"optionsSource":{"kind":"zotero.collections","library":"current","includeEmpty":true,"valueFormat":"collectionRef","labelFormat":"path"}}`。
 - 结果证据：`{"fetchType":"result","resultJson":"result/result.json","artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `literature-search-ingest`、已声明的 no-selection 形式、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
+- 调用输入：使用 workflow id `literature-search-ingest`、声明的 no-selection 形式、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
 
 ### `tag-bootstrapper`
 
@@ -264,12 +267,12 @@
 - Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/tag-bootstrapper/workflow.json`；core：`false`.
 - Provider 要求：`{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
+- Selection：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
   - `tag_note_language`：`{"type":"string","title":"Tag Note Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`。
 - 结果证据：`{"fetchType":"result","artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `tag-bootstrapper`、已声明的 no-selection 形式、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
+- 调用输入：使用 workflow id `tag-bootstrapper`、声明的 no-selection 形式、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
 
 ### `tag-auditor`
 
@@ -280,11 +283,11 @@
 - Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/tag-auditor/workflow.json`；core：`false`.
 - Provider 要求：`{"requestKind":"","acceptedProviderTypes":["pass-through"]}`.
 - 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
+- Selection：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：未声明。
 - 结果证据：`{"artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `tag-auditor`、已声明的 no-selection 形式、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
+- 调用输入：使用 workflow id `tag-auditor`、声明的 no-selection 形式、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
 
 ### `tag-regulator`
 
@@ -295,13 +298,13 @@
 - Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/tag-regulator/workflow.json`；core：`true`.
 - Provider 要求：`{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":false,"inputUnit":"parent"}`.
+- Selection：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"parent"},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"input-member","source":"selected"},"filters":[]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
   - `infer_tag`：`{"type":"boolean","title":"Infer Tag","default":true}`。
   - `tag_note_language`：`{"type":"string","title":"Tag Note Language","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`。
 - 结果证据：`{"fetchType":"result","artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `tag-regulator`、经过校验的 `parent` selection、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
+- 调用输入：使用 workflow id `tag-regulator`、经过校验的 `parent` members，并按 `each` 分组、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
 
 ### `mineru`
 
@@ -312,11 +315,11 @@
 - Package：`mineru`；manifest：`workflows_builtin/mineru/workflow.json`；core：`true`.
 - Provider 要求：`{"requestKind":"generic-http.steps.v1","acceptedProviderTypes":["generic-http"]}`.
 - 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":false,"inputUnit":"attachment","accepts":{"mime":["application/pdf"]},"validation":{"policy":"pdf-attachment","excludes":["artifact-exists"],"derives":[]}}`.
+- Selection：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"attachment","accepts":{"mime":["application/pdf"]}},"grouping":{"mode":"each"}},"validation":{"select":{"policy":"input-member","source":"related"},"filters":[{"kind":"source-file-exists","phase":"availability"},{"kind":"artifact-absent","phase":"availability","target":"mineru-markdown"}]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：未声明。
 - 结果证据：`{"artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `mineru`、经过校验的 `attachment` selection、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
+- 调用输入：使用 workflow id `mineru`、经过校验的 `attachment` members，并按 `each` 分组、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
 
 ### `create-topic-synthesis`
 
@@ -327,13 +330,13 @@
 - Package：`synthesis-layer`；manifest：`workflows_builtin/synthesis-layer/create-topic-synthesis/workflow.json`；core：`true`.
 - Provider 要求：`{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
+- Selection：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
   - `topicSeed`：`{"type":"string","title":"Topic Seed","description":"Natural-language topic seed for a new synthesis topic."}`。
   - `language`：`{"type":"string","title":"Language","description":"Output language, such as auto, zh-CN, or en-US.","enum":["zh-CN","en-US","ja-JP","ko-KR","de-DE","fr-FR","es-ES","ru-RU"],"allowCustom":true,"default":"zh-CN"}`。
 - 结果证据：`{"fetchType":"bundle","resultJson":"result/final-output.candidate.json","artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `create-topic-synthesis`、已声明的 no-selection 形式、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
+- 调用输入：使用 workflow id `create-topic-synthesis`、声明的 no-selection 形式、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
 
 ### `update-topic-synthesis`
 
@@ -344,12 +347,12 @@
 - Package：`synthesis-layer`；manifest：`workflows_builtin/synthesis-layer/update-topic-synthesis/workflow.json`；core：`true`.
 - Provider 要求：`{"requestKind":"skillrunner.sequence.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
+- Selection：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
   - `topicId`：`{"type":"string","title":"Topic ID","description":"Existing synthesis topic id. The host derives update scope, mode, reason, and language from the selected topic.","allowCustom":false,"optionsSource":{"kind":"synthesis.topics","valueFormat":"topicId","labelFormat":"title","filter":"updatable"}}`。
 - 结果证据：`{"fetchType":"bundle","resultJson":"result/final-output.candidate.json","artifacts":[],"applyBack":true}`.
-- 调用输入：使用 workflow id `update-topic-synthesis`、已声明的 no-selection 形式、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
+- 调用输入：使用 workflow id `update-topic-synthesis`、声明的 no-selection 形式、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
 
 ### `manuscript-literature-framing`
 
@@ -360,7 +363,7 @@
 - Package：`synthesis-layer`；manifest：`workflows_builtin/synthesis-layer/manuscript-literature-framing/workflow.json`；core：`true`.
 - Provider 要求：`{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.
 - 执行模式：`["auto"]`.
-- Selection：`{"acceptsNoSelection":true,"inputUnit":"workflow"}`.
+- Selection：`{"acceptsNoSelection":true,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"select":{"policy":"selection"},"filters":[]}}`.
 - 必需 workflow option：`[]`.
 - Workflow option：
   - `paperTitle`：`{"type":"string","title":"Paper Title","description":"Working manuscript title used to frame the Introduction and Related Work."}`。
@@ -369,4 +372,4 @@
   - `articleType`：`{"type":"string","title":"Article Type","description":"Manuscript type. v1 is optimized for original research.","default":"original research"}`。
   - `stylePreference`：`{"type":"string","title":"Style Preference","description":"Optional writing preference, such as concise, IEEE-like, Nature-like, or Chinese draft.","default":""}`。
 - 结果证据：`{"fetchType":"bundle","resultJson":"result/result.json","artifacts":["result/manuscript-literature-framing-artifacts.json"],"applyBack":true}`.
-- 调用输入：使用 workflow id `manuscript-literature-framing`、已声明的 no-selection 形式、已声明 workflow option；provider 要求 profile 时，另行使用经过校验的兼容 provider profile。
+- 调用输入：使用 workflow id `manuscript-literature-framing`、声明的 no-selection 形式、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。

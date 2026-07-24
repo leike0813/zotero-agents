@@ -32,6 +32,7 @@ import {
   type SequenceStepFinishedObserver,
 } from "./sequenceRuntime";
 import type { SkillRunnerSequenceRequestV1 } from "../../providers/contracts";
+import type { WorkflowSubmissionQueueExecutionContext } from "../../jobQueue/workflowSubmissionQueueContracts";
 import type {
   ProviderOrchestrationContext,
   ProviderProgressEvent,
@@ -211,6 +212,8 @@ function recordSequenceStepSkillRunnerProgress(args: {
   workflowId: string;
   backendId: string;
   providerOptions?: Record<string, unknown>;
+  submissionId?: string;
+  submissionUnitId?: string;
 }) {
   const eventRecord = args.event as Record<string, unknown>;
   const workflowRunId = normalizeText(eventRecord.workflowRunId);
@@ -232,6 +235,8 @@ function recordSequenceStepSkillRunnerProgress(args: {
     backendId: args.backendId,
     workflowId: args.workflowId,
     workflowRunId,
+    submissionId: args.submissionId,
+    submissionUnitId: args.submissionUnitId,
     jobId: `${sequenceJobId}:${sequenceStepId}`,
     taskName:
       normalizeText(eventRecord.sequenceStepTaskName) ||
@@ -424,6 +429,7 @@ function observeWorkflowRunTerminal(args: {
 export function runWorkflowExecutionSeam(
   args: {
     prepared: BuiltPreparedWorkflowUnit;
+    submissionLineage?: WorkflowSubmissionQueueExecutionContext;
   },
   deps: Partial<RunSeamDeps> = {},
 ): WorkflowRunState {
@@ -633,6 +639,8 @@ export function runWorkflowExecutionSeam(
           workflowId: args.prepared.workflow.manifest.id,
           backendId: executionContext.backend.id,
           providerOptions: executionContext.providerOptions,
+          submissionId: args.submissionLineage?.submissionId,
+          submissionUnitId: args.submissionLineage?.submissionUnitId,
         });
         if (runRecord?.requestId && runRecord.status === "waiting_user") {
           maybeObserveSkillRunnerAutoReplyRun({
@@ -890,6 +898,8 @@ export function runWorkflowExecutionSeam(
         skillName: skillDisplay.skillName || undefined,
         skillLabel: skillDisplay.skillLabel || undefined,
         engine: engine || undefined,
+        submissionId: args.submissionLineage?.submissionId,
+        submissionUnitId: args.submissionLineage?.submissionUnitId,
       },
     });
     resolved.appendRuntimeLog({
@@ -913,6 +923,8 @@ export function runWorkflowExecutionSeam(
         backendId: args.prepared.executionContext.backend.id,
         workflowId: args.prepared.workflow.manifest.id,
         workflowRunId: runId,
+        submissionId: args.submissionLineage?.submissionId,
+        submissionUnitId: args.submissionLineage?.submissionUnitId,
         jobId,
         taskName,
         skillId: skillId || undefined,

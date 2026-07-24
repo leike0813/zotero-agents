@@ -33,6 +33,7 @@ Never edit generated targets as semantic sources. The unified renderer and mater
 1. Read the changed behavior contract before its guidance.
 2. Resolve every affected surface and inherited Skill from the manifest.
 3. When the active change declares a semantic baseline, read its parity matrix. Collapse repeated baseline wording into one meaning while retaining every source location. Check goals, triggers, distinctions, procedures, constraints, evidence, completion, failures, recovery, examples, and near misses.
+3a. Record the plan-authorized explicit deletion inventory before editing. Outside that inventory, preserve every instruction in place: no compression, deletion, merger, reordering, or thinner paraphrase is permitted. New queue or submission guidance must be written with the same operational thickness as the surrounding command, evidence, failure, and recovery instructions.
 4. Require each baseline meaning to name exactly one current owner in the same Skill package, or a generated equivalent whose fields can be verified. A current-state rewrite must preserve capability, decision boundary, completion evidence, and recovery behavior; an implementation rename is not a reason to discard semantics.
 5. Compare command identity, inputs, result schema, typed handles, approval requirements, state effects, safe recovery, workflow ownership, and result or receipt status.
 6. For minimum-core, verify exact command facts come from the CLI contract, every canonical command root belongs to exactly one declared partition, every command appears once, every public descriptor field reaches its generated command card, and no research workflow is presented as an operational requirement.
@@ -53,9 +54,19 @@ npx tsx scripts/check-host-bridge-skill-packages.ts <manifest-resolved-skill-roo
 
 The gate checks structure, reachability, current-state wording, exact substantive prose duplication, and materialized instruction depth. A materialized `SKILL.md` shorter than 100 lines or reference shorter than 200 lines is a hard error. A materialized `SKILL.md` shorter than 200 lines or reference shorter than 350 lines is reported in the structured `host-bridge.instruction-depth-warnings.v1` advisory output. Apply these thresholds to rendered or materialized packages, not compact source templates that are expanded by a renderer. The reviewer remains responsible for semantic parity, paraphrased overlap, command-policy separation, reference depth, and evidence semantics.
 
+For a governed semantic change, pin the relative thickness comparison to the declared clean baseline:
+
+```sh
+npx tsx scripts/check-host-bridge-skill-packages.ts --baseline-ref <baseline-commit> <manifest-resolved-skill-root> [...]
+```
+
+The relative gate compares each materialized file's substantive instruction-line count and normalized prose character count with the same file at the baseline ref. The current file may not have fewer substantive instruction lines, and normalized prose must remain at least 95% of baseline. Every direct reference present in the baseline `SKILL.md` must remain reachable unless the approved explicit deletion inventory names that reference. Passing this mechanical gate does not authorize semantic compression, merger, reordering, or deletion.
+
 ## Semantic parity and reference depth
 
 A parity review is complete only when the declared matrix names its baseline commit and reports zero unmapped and downgraded semantic units. Inspect the baseline directly with `git show <baseline>:<path>` when a matrix row is broader than the original instructions or when its destination appears thinner.
+
+In addition, report an unauthorized dropped semantic count and require it to be zero. Only semantic units named in the approved explicit deletion inventory may be removed; every other disappearance is unauthorized even when the replacement file still passes line and normalized prose thresholds.
 
 Treat a reference as comprehensive only when it covers one coherent decision domain with entry conditions, choices, full procedure branches, completion evidence, failure/recovery, and representative near misses. A short reminder, glossary fragment, list of edge cases, or text that every live execution must read belongs in `SKILL.md` or must be expanded. Depth thresholds are triage signals rather than proof: hard floors reject unmistakably thin materialized instructions, while advisory warnings require the reviewer to inspect the complete semantic domain and record whether the file is accepted or expanded.
 
@@ -89,6 +100,7 @@ Skill-package result: aligned|blocked
 semantic parity result: aligned|blocked
 unmapped semantic count: 0|<count>
 downgraded semantic count: 0|<count>
+unauthorized dropped semantic count: 0|<count>
 intra-package duplicate count: 0|<count>
 reference-depth result: aligned|blocked
 instruction-depth warnings: none|<warning and accepted-or-expanded disposition>

@@ -115,6 +115,7 @@ const STATE_CHANGING_COMMANDS = new Set([
   ...NAVIGATION_COMMANDS,
   ...MAINTENANCE_COMMANDS,
   "workflow submit",
+  "workflow queue cancel",
   "workflow agent-run",
   "workflow agent-apply",
   "workflow agent-renew",
@@ -184,7 +185,31 @@ const COMMAND_HANDLE_TRANSITIONS: Record<
   "context collection open": [consumeHandle("collectionKey")],
   "workflow submit": [
     consumeHandle("itemRef", OPTIONAL_SELECTION_HANDLE),
-    produceHandle("workflowRunId"),
+    {
+      ...produceHandle("workflowRunId"),
+      condition: "Returned when direct admission starts workflow jobs.",
+    },
+    {
+      ...produceHandle("submissionId"),
+      condition:
+        "Returned when ACP or SkillRunner units enter the Zotero-managed Host queue.",
+    },
+  ],
+  "workflow queue list": [
+    produceHandle("queueId"),
+    produceHandle("submissionId"),
+  ],
+  "workflow queue cancel": [
+    consumeHandle("queueId", {
+      condition:
+        "Required to cancel one unit that is still pending in the native Host queue.",
+    }),
+  ],
+  "workflow submission get": [
+    consumeHandle("submissionId", {
+      condition:
+        "Required to inspect one active pending/admitted Host submission.",
+    }),
   ],
   "workflow agent-run": [
     consumeHandle("itemRef", OPTIONAL_SELECTION_HANDLE),
@@ -419,6 +444,7 @@ function payloadSchema(
 }
 
 function collectionField(command: string) {
+  if (command === "workflow queue list") return "units";
   if (command === "product list") return "products";
   if (command.includes("notification")) return "events";
   if (command.includes("permission pending")) return "permissions";
@@ -460,13 +486,114 @@ function resultSchema(
       properties: {
         workflowId: { type: "string" },
         workflowLabel: { type: "string" },
+        admission: { enum: ["direct", "host-queue"] },
         workflowRunId: { type: "string" },
+        submissionId: { type: "string" },
         jobIds: { type: "array", items: { type: "string" } },
         totalJobs: { type: "integer" },
         tasks: { type: "array", items: { type: "object" } },
+        totalUnits: { type: "integer" },
+        queuedUnits: { type: "integer" },
+        skippedUnits: { type: "integer" },
+        submissionUrl: { type: "string" },
+        queueUrl: { type: "string" },
         permission: { type: "object" },
       },
-      required: ["workflowId", "workflowRunId", "jobIds", "totalJobs", "tasks"],
+      required: ["workflowId", "workflowLabel", "admission", "permission"],
+      oneOf: [
+        {
+          properties: { admission: { const: "direct" } },
+          required: ["workflowRunId", "jobIds", "totalJobs", "tasks"],
+        },
+        {
+          properties: { admission: { const: "host-queue" } },
+          required: [
+            "submissionId",
+            "totalUnits",
+            "queuedUnits",
+            "skippedUnits",
+            "submissionUrl",
+            "queueUrl",
+          ],
+        },
+      ],
+      additionalProperties: false,
+    };
+  }
+  if (command === "workflow queue list") {
+    return {
+      type: "object",
+      properties: {
+        units: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              queueId: { type: "string" },
+              submissionId: { type: "string" },
+              unitId: { type: "string" },
+              taskName: { type: "string" },
+              memberCount: { type: "integer" },
+              backendType: { enum: ["acp", "skillrunner"] },
+              backendId: { type: "string" },
+              canCancel: { const: true },
+            },
+            required: [
+              "queueId",
+              "submissionId",
+              "unitId",
+              "taskName",
+              "memberCount",
+              "backendType",
+              "backendId",
+              "canCancel",
+            ],
+            additionalProperties: true,
+          },
+        },
+      },
+      required: ["units"],
+      additionalProperties: false,
+    };
+  }
+  if (command === "workflow queue cancel") {
+    return {
+      type: "object",
+      properties: {
+        status: { const: "canceled" },
+        queueId: { type: "string" },
+      },
+      required: ["status", "queueId"],
+      additionalProperties: false,
+    };
+  }
+  if (command === "workflow submission get") {
+    return {
+      type: "object",
+      properties: {
+        submissionId: { type: "string" },
+        workflowId: { type: "string" },
+        workflowLabel: { type: "string" },
+        backendType: { enum: ["acp", "skillrunner"] },
+        backendId: { type: "string" },
+        total: { type: "integer" },
+        initiallySkipped: { type: "integer" },
+        pending: { type: "integer" },
+        admitted: { type: "integer" },
+        settled: { type: "integer" },
+        units: { type: "array", items: { type: "object" } },
+      },
+      required: [
+        "submissionId",
+        "workflowId",
+        "backendType",
+        "backendId",
+        "total",
+        "pending",
+        "admitted",
+        "settled",
+        "units",
+      ],
       additionalProperties: false,
     };
   }
@@ -704,6 +831,38 @@ function recoveryFor(
         action:
           "Read the persisted per-request apply receipt before retrying any result.",
         nextCommand: "workflow agent-apply-status",
+      },
+    ];
+  }
+  if (command === "workflow submit") {
+    return [
+      {
+        when: "The response reports host-queue admission or queued progress is uncertain.",
+        stateCheck: "caller-held-handle",
+        requiresHandles: ["submissionId"],
+        action:
+          "Inspect the active native submission without inventing a workflow run id.",
+        nextCommand: "workflow submission get",
+      },
+      {
+        when: "The response reports direct admission and run progress is uncertain.",
+        stateCheck: "caller-held-handle",
+        requiresHandles: ["workflowRunId"],
+        action:
+          "Inspect the returned workflow run before repeating submission.",
+        nextCommand: "run get",
+      },
+    ];
+  }
+  if (command === "workflow queue cancel") {
+    return [
+      {
+        when: "Cancellation fails or races with admission.",
+        stateCheck: "caller-held-handle",
+        requiresHandles: ["queueId"],
+        action:
+          "List the native queue again. Absence means the unit was admitted, canceled, or settled; inspect its submission and tasks before taking further action.",
+        nextCommand: "workflow queue list",
       },
     ];
   }

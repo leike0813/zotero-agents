@@ -51,6 +51,10 @@
 
 显式 provider profile 只适用于当前 submission。不得与连接 profile 混淆，不得为 Agent 自主 handoff 静默复用，也不得未经校验就假设已配置 backend 兼容。除非用户或已批准政策明确允许有界并发，否则默认串行提交工作流。
 
+对于包含多个候选项的 Zotero 托管 acquisition，把已经审阅且有界的 concurrency 传给当前 workflow submission，并让 Zotero 原生队列负责 pending unit 的排序与准入。host 将工作排入队列时，保留 `submissionId`，把每个已准入 task 与其 candidate identity 关联起来，并且只对仍处于 pending 的 unit 使用 queue cancellation。不得持久化第二套 candidate queue、在本地预留 entry，或重播准入结果尚不确定的 unit。
+
+完成仍须逐候选项判定：检查每个真实 run，然后分别验证每个成功摄取的 Zotero item、provenance record、请求的 collection membership 与 attachment state。aggregate submission 完成并不能证明每个 candidate 均已摄取；canceled 或 failed unit 必须继续在 acquisition report 中可见，不得消失。
+
 ## 搜索计划模板
 
 选择能够公开决策边界的最小模板：

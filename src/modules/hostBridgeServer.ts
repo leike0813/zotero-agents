@@ -37,6 +37,9 @@ import {
   listHostBridgeSkillRunEvents,
   listHostBridgeTasks,
   listHostBridgeWorkflowRuns,
+  listHostBridgeWorkflowQueue,
+  getHostBridgeWorkflowSubmission,
+  cancelHostBridgeWorkflowQueueUnit,
   listHostBridgeWorkflows,
   replyHostBridgeSkillRun,
   renewHostBridgeWorkflowAgentRun,
@@ -735,6 +738,7 @@ function isStateChangingHostBridgeRequest(request: HttpRequest) {
       request.path,
     ) ||
     /^\/bridge\/v1\/workflows\/runs\/[^/]+\/cancel$/.test(request.path) ||
+    /^\/bridge\/v1\/workflows\/queue\/[^/]+\/cancel$/.test(request.path) ||
     /^\/bridge\/v1\/skill-runs\/[^/]+\/(reply|connect)$/.test(request.path)
   );
 }
@@ -1629,6 +1633,7 @@ function parseWorkflowTaskFilters(query: Record<string, string>) {
     "backendId",
     "backendType",
     "requestId",
+    "submissionId",
     "runId",
     "state",
   ] as const) {
@@ -2358,7 +2363,11 @@ async function submitWorkflow(request: HttpRequest) {
       payload,
       scope: parsePermissionScopeHeader(request),
     });
-    return response(200, "OK", hostBridgeOk(result));
+    return response(
+      result.admission === "host-queue" ? 202 : 200,
+      result.admission === "host-queue" ? "Accepted" : "OK",
+      hostBridgeOk(result),
+    );
   } catch (error) {
     if (error instanceof HostBridgePermissionError) {
       return permissionErrorResponse(error);
@@ -2580,6 +2589,32 @@ function controlPlaneErrorResponse(error: unknown) {
   const details =
     (error as { details?: Record<string, unknown> | undefined })?.details ||
     undefined;
+  if (code === "workflow_submission_not_found") {
+    return response(
+      404,
+      "Not Found",
+      hostBridgeError(
+        "workflow_submission_not_found" as HostBridgeErrorCode,
+        errorMessage(error),
+        "workflow",
+        details,
+      ),
+      "workflow_submission_not_found" as HostBridgeErrorCode,
+    );
+  }
+  if (code === "queue_unit_not_pending") {
+    return response(
+      409,
+      "Conflict",
+      hostBridgeError(
+        "queue_unit_not_pending" as HostBridgeErrorCode,
+        errorMessage(error),
+        "workflow",
+        details,
+      ),
+      "queue_unit_not_pending" as HostBridgeErrorCode,
+    );
+  }
   if (code === "workflow_run_not_found") {
     return response(
       404,
@@ -2738,6 +2773,66 @@ async function cancelWorkflowRun(request: HttpRequest) {
     if (error instanceof HostBridgePermissionError) {
       return permissionErrorResponse(error);
     }
+    return controlPlaneErrorResponse(error);
+  }
+}
+
+async function listWorkflowQueue(request: HttpRequest) {
+  if (request.method !== "GET") {
+    return methodNotAllowed("Workflow queue endpoint only supports GET", "GET");
+  }
+  const backendType = String(request.query.backendType || "").trim();
+  const backendId = String(request.query.backendId || "").trim();
+  const scope =
+    (backendType === "acp" || backendType === "skillrunner") && backendId
+      ? {
+          backendType: backendType as "acp" | "skillrunner",
+          backendId,
+        }
+      : undefined;
+  return response(200, "OK", hostBridgeOk(listHostBridgeWorkflowQueue(scope)));
+}
+
+async function getWorkflowSubmission(request: HttpRequest) {
+  if (request.method !== "GET") {
+    return methodNotAllowed(
+      "Workflow submission endpoint only supports GET",
+      "GET",
+    );
+  }
+  const prefix = "/bridge/v1/workflows/submissions/";
+  const submissionId =
+    safeDecodeURIComponent(request.path.slice(prefix.length)) || "";
+  try {
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(getHostBridgeWorkflowSubmission(submissionId)),
+    );
+  } catch (error) {
+    return controlPlaneErrorResponse(error);
+  }
+}
+
+async function cancelWorkflowQueueUnit(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Workflow queue cancel endpoint only supports POST",
+      "POST",
+    );
+  }
+  const prefix = "/bridge/v1/workflows/queue/";
+  const suffix = "/cancel";
+  const queueId =
+    safeDecodeURIComponent(request.path.slice(prefix.length, -suffix.length)) ||
+    "";
+  try {
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(cancelHostBridgeWorkflowQueueUnit(queueId)),
+    );
+  } catch (error) {
     return controlPlaneErrorResponse(error);
   }
 }
@@ -3705,6 +3800,21 @@ async function handleHttpRequestImpl(
 
     if (request.path === "/bridge/v1/workflows/submit") {
       return submitWorkflow(request);
+    }
+
+    if (request.path === "/bridge/v1/workflows/queue") {
+      return listWorkflowQueue(request);
+    }
+
+    if (
+      request.path.startsWith("/bridge/v1/workflows/queue/") &&
+      request.path.endsWith("/cancel")
+    ) {
+      return cancelWorkflowQueueUnit(request);
+    }
+
+    if (request.path.startsWith("/bridge/v1/workflows/submissions/")) {
+      return getWorkflowSubmission(request);
     }
 
     if (request.path === "/bridge/v1/workflows/agent-run") {

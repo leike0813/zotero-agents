@@ -1205,6 +1205,18 @@ pub enum WorkflowCommand {
     Submit(WorkflowSubmitArgs),
 
     #[command(
+        about = "Inspect and cancel Zotero-managed workflow queue units",
+        long_about = "Use workflow queue list to read pending native queue units and workflow queue cancel to cancel one still-pending unit by opaque queue id."
+    )]
+    Queue(WorkflowQueueArgs),
+
+    #[command(
+        about = "Inspect one active Zotero-managed workflow submission",
+        long_about = "Read pending and admitted native queue units for an opaque submission id returned by workflow submit."
+    )]
+    Submission(WorkflowSubmissionArgs),
+
+    #[command(
         about = "Describe workflow selection and workflow options",
         long_about = "Call POST /bridge/v1/workflows/describe. This read-only command returns workflow-owned selection, option, execution-mode, and provider-requirement facts. Use workflow profile commands for backend-owned provider options."
     )]
@@ -1306,6 +1318,69 @@ pub struct WorkflowSubmitArgs {
         help = "Provider profile JSON object with backendId and providerOptions"
     )]
     pub provider_profile: Option<String>,
+
+    #[arg(
+        long,
+        help = "Maximum concurrently admitted units for this native Host queue submission; 0 means unlimited"
+    )]
+    pub max_concurrency: Option<u32>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowQueueArgs {
+    #[command(subcommand)]
+    pub command: WorkflowQueueCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum WorkflowQueueCommand {
+    #[command(
+        about = "List pending Zotero-managed workflow queue units",
+        long_about = "Call GET /bridge/v1/workflows/queue. Optional backend filters must identify both backend type and backend id."
+    )]
+    List(WorkflowQueueListArgs),
+
+    #[command(
+        about = "Cancel one still-pending Zotero-managed workflow queue unit",
+        long_about = "Call POST /bridge/v1/workflows/queue/{queueId}/cancel. Admitted or settled units cannot be canceled through the pending queue."
+    )]
+    Cancel(WorkflowQueueCancelArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowQueueListArgs {
+    #[arg(long, help = "Filter by backend type: acp or skillrunner")]
+    pub backend_type: Option<String>,
+
+    #[arg(long, help = "Filter by backend id")]
+    pub backend: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowQueueCancelArgs {
+    #[arg(help = "Opaque queue id returned by workflow queue list")]
+    pub queue_id: String,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowSubmissionArgs {
+    #[command(subcommand)]
+    pub command: WorkflowSubmissionCommand,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum WorkflowSubmissionCommand {
+    #[command(
+        about = "Read one active Zotero-managed workflow submission",
+        long_about = "Call GET /bridge/v1/workflows/submissions/{submissionId}. The active projection contains pending and admitted units only and disappears after settlement."
+    )]
+    Get(WorkflowSubmissionGetArgs),
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct WorkflowSubmissionGetArgs {
+    #[arg(help = "Opaque submission id returned by workflow submit")]
+    pub submission_id: String,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1783,6 +1858,9 @@ pub struct TaskListArgs {
     #[arg(long, help = "Filter by provider request id")]
     pub request: Option<String>,
 
+    #[arg(long, help = "Filter by native workflow submission id")]
+    pub submission: Option<String>,
+
     #[arg(long, help = "Filter by workflow run id")]
     pub run: Option<String>,
 
@@ -2059,7 +2137,8 @@ mod tests {
         NotificationCommand, ProductCommand, RunArgs, RunCommand, RunPermissionCommand,
         RunWorkflowCommand, SkillRunCommand, SurfaceCommand, SynthesisCacheCommand,
         SynthesisCommand, SynthesisIndexCommand, TopicsCommand, WorkflowAgentBundleCommand,
-        WorkflowAgentResultCommand, WorkflowCommand, WorkflowProfileCommand,
+        WorkflowAgentResultCommand, WorkflowCommand, WorkflowProfileCommand, WorkflowQueueCommand,
+        WorkflowSubmissionCommand,
     };
 
     #[test]
@@ -2940,6 +3019,8 @@ mod tests {
             "literature-analysis",
             "--selection",
             "[{\"key\":\"ABC\",\"libraryId\":1}]",
+            "--max-concurrency",
+            "2",
         ]);
 
         match cli.command {
@@ -2951,6 +3032,7 @@ mod tests {
                         Some("[{\"key\":\"ABC\",\"libraryId\":1}]")
                     );
                     assert!(!input.none);
+                    assert_eq!(input.max_concurrency, Some(2));
                 }
                 _ => panic!("expected workflow submit"),
             },
@@ -2977,6 +3059,72 @@ mod tests {
                     assert!(input.selection.is_none());
                 }
                 _ => panic!("expected workflow submit"),
+            },
+            _ => panic!("expected workflow command"),
+        }
+    }
+
+    #[test]
+    fn parses_workflow_native_queue_and_submission_commands() {
+        let queued = Cli::parse_from([
+            "zotero-bridge",
+            "workflow",
+            "queue",
+            "list",
+            "--backend-type",
+            "skillrunner",
+            "--backend",
+            "backend-a",
+        ]);
+        match queued.command {
+            Command::Workflow(args) => match args.command {
+                WorkflowCommand::Queue(args) => match args.command {
+                    WorkflowQueueCommand::List(input) => {
+                        assert_eq!(input.backend_type.as_deref(), Some("skillrunner"));
+                        assert_eq!(input.backend.as_deref(), Some("backend-a"));
+                    }
+                    _ => panic!("expected workflow queue list"),
+                },
+                _ => panic!("expected workflow queue"),
+            },
+            _ => panic!("expected workflow command"),
+        }
+
+        let submission = Cli::parse_from([
+            "zotero-bridge",
+            "workflow",
+            "submission",
+            "get",
+            "workflow-submission-1",
+        ]);
+        match submission.command {
+            Command::Workflow(args) => match args.command {
+                WorkflowCommand::Submission(args) => match args.command {
+                    WorkflowSubmissionCommand::Get(input) => {
+                        assert_eq!(input.submission_id, "workflow-submission-1");
+                    }
+                },
+                _ => panic!("expected workflow submission"),
+            },
+            _ => panic!("expected workflow command"),
+        }
+
+        let canceled = Cli::parse_from([
+            "zotero-bridge",
+            "workflow",
+            "queue",
+            "cancel",
+            "workflow-queue-1",
+        ]);
+        match canceled.command {
+            Command::Workflow(args) => match args.command {
+                WorkflowCommand::Queue(args) => match args.command {
+                    WorkflowQueueCommand::Cancel(input) => {
+                        assert_eq!(input.queue_id, "workflow-queue-1");
+                    }
+                    _ => panic!("expected workflow queue cancel"),
+                },
+                _ => panic!("expected workflow queue"),
             },
             _ => panic!("expected workflow command"),
         }

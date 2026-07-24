@@ -1,5 +1,6 @@
 schema: hermes.cron.v1
 name: workflow-catalog-refresh
 schedule: { time: "03:00" }
-command: [scripts/zotero_librarian_service.py, --quiet, workflow, catalog-refresh]
+command:
+  [scripts/zotero_librarian_service.py, --quiet, workflow, catalog-refresh]
 behavior: { unchanged: "[SILENT]", mutation: never }

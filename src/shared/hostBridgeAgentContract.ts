@@ -13,6 +13,8 @@ export const HOST_BRIDGE_HANDLE_KINDS = [
   "noteRef",
   "collectionKey",
   "workflowRunId",
+  "submissionId",
+  "queueId",
   "skillRunId",
   "agentRunId",
   "agentRequestId",

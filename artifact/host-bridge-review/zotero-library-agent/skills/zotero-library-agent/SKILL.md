@@ -63,6 +63,7 @@ description: 路由和协调有明确边界的 Zotero 文献库研究任务。�
 
 4. 对多阶段工作，声明有序的任务所有者、每个阶段的有边界结果、跨越各边界的稳定身份与证据，以及继续之前所需的完成证据。
 5. 当 workflow 可执行某个阶段时，读取其实时描述，并且只有相应模式受支持时，才选择 Zotero 托管执行或 Agent 自主执行。工作流选项与 provider profile 必须保持在各自独立的校验合同中。
+   对 Zotero 托管执行，应让插件内建的原生 workflow queue 负责有界准入。若进入 queued admission，保留返回的 `submissionId`，检查其 unit projection，直到出现真实 run 身份，并将这些 task/run handle 交给负责该阶段的任务 Skill；不得构造 Agent 侧 plan-entry queue。
 6. 遇到每个新权限边界都必须停止。读取、候选报告、本地校验、既往 approval 或已完成前置任务都不授权 submission、acquisition、mutation、maintenance 或 apply-back。
 7. 要求每个阶段返回 `zotero-library-task.result.v1`。跨阶段只传递成功的来源对象、面向来源的证据、已声明 artifact、结构化诊断及下一阶段所需的类型化 handle；失败或排除的对象仍须可见。
 
@@ -140,6 +141,8 @@ description: 路由和协调有明确边界的 Zotero 文献库研究任务。�
 - 不得把工作流终态当作预期 Product、artifact、条目变更或 synthesis 状态存在的证据。
 - 需要文件 handle、Product ID、工作流 artifact、Zotero ref 或 run handle 时，不得传入本地路径。
 - 不得通过 Zotero 托管 run 平面监控 Agent 自主的 `agentRunId`，也不得使用 `workflowRunId` 执行 Agent apply-back。
+- 不得把 `submissionId`、`queueId` 与 `workflowRunId` 视为别名。原生 queued submission 应通过其 submission projection 监控；只有已准入且取得真实 run handle 的 unit 才进入 Zotero 托管 run 平面。
+- 不得创建 coordinator 自有的 workflow queue、reservation table、replay loop 或无人值守 batch scheduler。coordinator 可以为当前已授权 submission 选择一个明确有界的 concurrency 值，但 pending-unit 的排序、准入与 pending cancellation 均由 Zotero 负责。
 
 ## LLM 与工具职责
 

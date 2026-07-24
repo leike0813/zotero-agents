@@ -199,7 +199,10 @@
 | `zotero-bridge workflow profile describe` |描述一份 backend 的 provider profile 合约 |
 | `zotero-bridge workflow profile list` |列出已配置的 backend provider 配置文件 |
 | `zotero-bridge workflow profile validate` |验证并标准化一个 backend provider profile |
+| `zotero-bridge workflow queue cancel` |取消一个仍处于 pending 状态的 Zotero-managed workflow queue unit |
+| `zotero-bridge workflow queue list` |列出 pending 的 Zotero-managed workflow queue units |
 | `zotero-bridge workflow requirements` |阅读 workflow 要求|
+| `zotero-bridge workflow submission get` |读取一个活动的 Zotero-managed workflow submission |
 | `zotero-bridge workflow submit` |提交带有显式 JSON 输入的 workflow |
 | `zotero-bridge workflow validate` |验证 workflow 输入而不开始执行 |
 

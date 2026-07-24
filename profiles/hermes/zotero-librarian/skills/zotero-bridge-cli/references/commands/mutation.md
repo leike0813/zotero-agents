@@ -248,4 +248,3 @@ Remove tags from Zotero items
 - Targets: `[{"kind":"capability","target":"mutation.execute"}]`.
 - Aliases: `mutation tag remove`, `mutation`, `tag`, `remove`, `items`, `ITEMS`, `tags`, `TAGS`.
 - Intent search: `visible`.
-

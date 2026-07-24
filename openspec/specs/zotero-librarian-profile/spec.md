@@ -217,27 +217,41 @@ The Librarian Skill SHALL independently route natural-language library questions
 - **WHEN** the user asks the resident agent to monitor on a cadence
 - **THEN** the Skill distinguishes a current one-pass operation from an existing external schedule and never claims to create or modify cron
 
-### Requirement: Workflow plans SHALL have immutable durable identity
-The resident service SHALL persist a canonical plan digest, live workflow-contract digest, path identity, aggregate plan state, and per-entry state before allowing submission.
-
-#### Scenario: Plan file or workflow contract changes
-- **WHEN** a plan file, registered path, stored digest, selection, or live workflow contract differs from the prepared identity
-- **THEN** submission fails before any remote workflow request
-
-### Requirement: Workflow entries SHALL submit without unsafe replay
-The resident service SHALL reserve and persist each plan entry independently, link successful launches to watched runs, and mark uncertain remote effects for attention without automatic replay.
-
-#### Scenario: Remote submission has an uncertain result
-- **WHEN** transport fails after an entry is reserved or no valid workflow run identity is returned
-- **THEN** that entry becomes unknown, the plan requires attention, later entries are not submitted, and another invocation does not replay the unknown entry
-
-#### Scenario: Prepared plan is submitted more than once
-- **WHEN** a later authorized invocation submits the same plan
-- **THEN** only pending entries are eligible and launched or unknown entries are never resubmitted
-
 ### Requirement: Workflow validation SHALL use the live selection contract
-The resident service SHALL describe the workflow, preserve or normalize selected Zotero objects according to its declared input unit, and validate every actual entry before preparing or submitting a plan.
+The resident operation SHALL describe the live workflow, inspect `inputs` and `validateSelection` separately, preserve the explicit raw Zotero selection, and invoke Host validation before the current authorized submit. Candidate production, filtering, grouping, and immutable prepared-unit construction SHALL remain Host-owned.
 
 #### Scenario: Workflow requires attachments
-- **WHEN** the workflow selection contract declares attachment input
-- **THEN** the service preserves attachment identities and validates those identities instead of unconditionally converting them to parent items
+- **WHEN** the workflow input contract accepts attachment members
+- **THEN** the service SHALL preserve attachment identities in the raw selection
+- **AND** it SHALL NOT unconditionally convert them to parent items or construct prepared units
+
+#### Scenario: Live workflow contract changes
+- **WHEN** current describe or validation facts differ from the reviewed intent
+- **THEN** the operation SHALL stop before remote submission
+- **AND** it SHALL require a new current review rather than replay cached planning state
+
+### Requirement: Librarian SHALL delegate admission to the plugin-native queue
+Interactive Librarian workflow execution SHALL use the inherited Generic and Minimum contracts to validate live workflow input, submit one reviewed raw selection, inspect Host submission state, and register concrete run handles for resident monitoring.
+
+#### Scenario: Operator submits reviewed workflow
+- **WHEN** the current operator has reviewed live `inputs`, `validateSelection`, workflow options, provider profile, execution ownership, result contract, and raw selection
+- **THEN** Librarian SHALL invoke one Host workflow submission
+- **AND** it SHALL NOT create or reserve profile-owned pending entries
+
+#### Scenario: Submission is pending or admitted
+- **WHEN** Host submission inspection reports pending or admitted units
+- **THEN** the interactive operation SHALL report the current Host handles and next action
+- **AND** resident cron SHALL NOT submit, cancel, approve, or replay those units
+
+#### Scenario: Concrete run handles appear
+- **WHEN** task discovery returns workflow or skill run handles
+- **THEN** Librarian MAY register those handles with the existing watched-run service
+- **AND** monitoring SHALL remain separate from admission
+
+### Requirement: Retired plan state SHALL remain inert
+The resident service SHALL NOT create, read, update, submit, or recover profile-owned workflow plan or plan-entry queue state. Existing unknown tables or plan files SHALL remain untouched and SHALL NOT influence current operations.
+
+#### Scenario: Existing state database contains old plan tables
+- **WHEN** the current resident service opens that database
+- **THEN** it SHALL ignore those tables
+- **AND** it SHALL neither submit their rows nor delete their data

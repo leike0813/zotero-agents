@@ -107,7 +107,7 @@ describe("zotero-librarian hosted source profile", function () {
       "automation-policy.md": [
         "Authority matrix",
         "Workflow mode and delegation",
-        "Plan and submit",
+        "Native submission and queue supervision",
         "Provider profiles and concurrency",
         "Cron and maintenance",
         "Interaction and reporting",
@@ -141,11 +141,14 @@ describe("zotero-librarian hosted source profile", function () {
       service,
       'RECEIPT_SCHEMA = "zotero-librarian.operation-receipt.v1"',
     );
-    assert.include(service, 'STATE_SCHEMA = "zotero-librarian.state.v2"');
+    assert.include(service, 'STATE_SCHEMA = "zotero-librarian.state.v3"');
     assert.include(service, '"state.sqlite"');
-    assert.include(service, '"--allow-submit"');
-    assert.include(service, "workflow_plans");
-    assert.include(service, "workflow_plan_entries");
+    assert.notInclude(service, '"--allow-submit"');
+    assert.notInclude(service, "workflow_plans");
+    assert.notInclude(service, "workflow_plan_entries");
+    assert.include(service, "watched_runs");
+    assert.include(service, "notifications");
+    assert.include(service, "workflow_catalog");
     assert.notInclude(service, "notification wait");
 
     for (const relativePath of REQUIRED_FILES.filter((name) =>
@@ -173,6 +176,14 @@ describe("zotero-librarian hosted source profile", function () {
     assert.deepEqual(
       helpers.helpers.map((helper: { id: string }) => helper.id),
       ["install-zotero-bridge-cli", "zotero-librarian-service"],
+    );
+    assert.deepEqual(helpers.helpers[1].domains.workflow, [
+      "catalog-refresh",
+      "show",
+    ]);
+    assert.include(
+      helpers.helpers[1].constraints,
+      "native workflow queue stays owned by Zotero",
     );
   });
 });

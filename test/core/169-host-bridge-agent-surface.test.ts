@@ -12,6 +12,7 @@ import {
   findAgentLanguageViolations,
   validateHostBridgeAgentLanguage,
 } from "../../scripts/check-host-bridge-agent-language";
+import { HOST_BRIDGE_HANDLE_KINDS } from "../../src/shared/hostBridgeAgentContract";
 
 describe("Host Bridge agent surface contract", function () {
   this.timeout(30_000);
@@ -22,7 +23,7 @@ describe("Host Bridge agent surface contract", function () {
 
     assert.strictEqual(descriptor.schema, "host-bridge.agent-surface.v4");
     assert.strictEqual(descriptor.cliSchema, "zotero-bridge.cli.v3");
-    assert.lengthOf(catalog.commandInventory, 122);
+    assert.lengthOf(catalog.commandInventory, 125);
     assert.isNotEmpty(descriptor.globalOptions);
     assert.isTrue(
       descriptor.globalOptions.every((entry) => Boolean(entry.description)),
@@ -42,6 +43,9 @@ describe("Host Bridge agent surface contract", function () {
       "context current",
       "product list",
       "workflow submit",
+      "workflow queue list",
+      "workflow queue cancel",
+      "workflow submission get",
       "workflow agent-run",
       "workflow agent-bundle inspect",
       "workflow agent-result validate",
@@ -72,7 +76,30 @@ describe("Host Bridge agent surface contract", function () {
         .get("workflow submit")!
         .handleTransitions.filter((entry) => entry.direction === "produce")
         .map((entry) => entry.handle),
-      ["workflowRunId"],
+      ["workflowRunId", "submissionId"],
+    );
+    assert.deepEqual(
+      commands
+        .get("workflow queue list")!
+        .handleTransitions.filter((entry) => entry.direction === "produce")
+        .map((entry) => entry.handle),
+      ["queueId", "submissionId"],
+    );
+    assert.deepInclude(
+      commands
+        .get("workflow queue cancel")!
+        .handleTransitions.find((entry) => entry.handle === "queueId")!,
+      { direction: "consume", required: true },
+    );
+    assert.deepInclude(
+      commands
+        .get("workflow submission get")!
+        .handleTransitions.find((entry) => entry.handle === "submissionId")!,
+      { direction: "consume", required: true },
+    );
+    assert.containsAllKeys(
+      commands.get("workflow submit")!.resultSchema.properties as object,
+      ["admission", "submissionId", "workflowRunId"],
     );
     assert.containsAllKeys(
       commands.get("run notification wait")!.resultSchema.properties as object,
@@ -246,6 +273,11 @@ describe("Host Bridge agent surface contract", function () {
       );
       const data = JSON.parse(
         fs.readFileSync(path.join(root, dataPath), "utf8"),
+      );
+      assert.deepEqual(
+        schema.properties.commands.items.properties.handleTransitions.items
+          .properties.handle.enum,
+        [...HOST_BRIDGE_HANDLE_KINDS],
       );
       const validate = ajv.compile(schema);
       assert.isTrue(validate(data), JSON.stringify(validate.errors));

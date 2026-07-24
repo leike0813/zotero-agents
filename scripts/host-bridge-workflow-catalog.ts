@@ -125,5 +125,5 @@ export function renderBuiltinWorkflowCatalog(
       "",
     ],
   );
-  return template.replace(marker, rendered.join("\n"));
+  return `${template.replace(marker, rendered.join("\n")).trimEnd()}\n`;
 }

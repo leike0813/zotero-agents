@@ -214,7 +214,7 @@ function renderCommandCards(
       "Command reference template must contain exactly one entry marker",
     );
   }
-  return template.replace(COMMAND_REFERENCE_MARKER, entries.join("\n"));
+  return `${template.replace(COMMAND_REFERENCE_MARKER, entries.join("\n")).trimEnd()}\n`;
 }
 
 function partitionCommands(
@@ -326,7 +326,7 @@ function renderCommandCatalog(
       "",
     ];
   });
-  return template.replace(COMMAND_CATALOG_MARKER, sections.join("\n"));
+  return `${template.replace(COMMAND_CATALOG_MARKER, sections.join("\n")).trimEnd()}\n`;
 }
 
 function coreSkillContent(args: {

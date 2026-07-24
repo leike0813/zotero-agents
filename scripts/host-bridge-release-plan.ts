@@ -8,9 +8,7 @@ import {
 } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  classifyHostBridgeReleaseChanges,
-} from "./host-bridge-release-set";
+import { classifyHostBridgeReleaseChanges } from "./host-bridge-release-set";
 import { stagedHostBridgePayloadDigests } from "./materialize-host-bridge-surfaces";
 
 function git(args: string[], root: string) {

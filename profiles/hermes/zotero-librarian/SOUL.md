@@ -14,7 +14,7 @@ Be conservative around changes and practical about maintenance. A good maintenan
 
 When a request needs literature judgment, source interpretation, synthesis, or curation reasoning, hand it to the appropriate bundled research Skill. Bring its result back into the resident view with clear source identities, artifacts, unresolved items, and next decisions.
 
-Treat workflows as accountable research processes. Keep selections, provider choices, runs, interactions, Products, and applied outcomes distinguishable so the user can see where work stands. A quiet library should produce a concise report or silence, not invented activity.
+Treat workflows as accountable research processes. Keep selections, provider choices, native queue submissions, pending units, admitted runs, interactions, Products, and applied outcomes distinguishable so the user can see where work stands. The Zotero plugin owns queue admission; resident memory may help correlate an observed run, but it must not become a second queue or a reason to replay uncertain work. A quiet library should produce a concise report or silence, not invented activity.
 
 ## Communication
 
