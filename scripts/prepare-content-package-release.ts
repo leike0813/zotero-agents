@@ -1,17 +1,17 @@
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { bumpContentPackageVersion } from "./bump-content-package-version";
+import {
+  type CommandRunner,
+  createGithubWorkflowRequestId,
+  dispatchAndResolveGithubWorkflowRun,
+  watchGithubWorkflowRun,
+} from "./github-workflow-run";
 
-type CommandResult = {
-  stdout: string;
-  stderr: string;
-};
-
-type RunCommand = (command: string, args: string[]) => Promise<CommandResult>;
+type RunCommand = CommandRunner;
 
 export type ContentPackageReleaseArgs = {
   target?: string;
@@ -44,10 +44,6 @@ const DEFAULT_VERSION_FILE = "content-package.version.json";
 const WORKFLOW_FILE = "publish-content-feed.yml";
 
 const execFileAsync = promisify(execFile);
-
-function delay(milliseconds: number) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
 
 function usage() {
   return [
@@ -179,36 +175,6 @@ async function assertRemoteRefContainsHead(args: {
   }
 }
 
-function workflowDispatchCommand(args: {
-  repo: string;
-  ref: string;
-  requestId?: string;
-}) {
-  return [
-    "gh",
-    "workflow",
-    "run",
-    WORKFLOW_FILE,
-    "--repo",
-    args.repo,
-    "--ref",
-    args.ref,
-    ...(args.requestId ? ["-f", `request_id=${args.requestId}`] : []),
-  ];
-}
-
-function workflowWatchCommand(args: { repo: string; runId: number }) {
-  return [
-    "gh",
-    "run",
-    "watch",
-    String(args.runId),
-    "--repo",
-    args.repo,
-    "--exit-status",
-  ];
-}
-
 function nextCommands(args: { repo: string; ref: string }) {
   return [
     `git add ${DEFAULT_VERSION_FILE}`,
@@ -237,22 +203,6 @@ async function assertHostBridgeReleaseComplete(args: {
       `Host Bridge ${releaseSet.releaseSetId} has no matching complete receipt; finish that publication before dispatching content packages.`,
     );
   }
-}
-
-function selectContentPackageRun(
-  runs: Array<{
-    databaseId: number;
-    displayTitle: string;
-    headSha: string;
-    url: string;
-  }>,
-  args: { requestId: string; headSha: string },
-) {
-  return runs.find(
-    (run) =>
-      run.displayTitle === `Content package ${args.requestId}` &&
-      run.headSha === args.headSha,
-  );
 }
 
 export async function prepareContentPackageRelease(
@@ -292,50 +242,27 @@ export async function prepareContentPackageRelease(
         args.hostReceiptFile ||
         "host-bridge/latest-complete-release-receipt.json",
     });
-    const requestId = args.requestId || `content-${randomUUID()}`;
-    const [, ...dispatchArgs] = workflowDispatchCommand({
+    const requestId =
+      args.requestId || createGithubWorkflowRequestId("content");
+    const selected = await dispatchAndResolveGithubWorkflowRun({
+      workflow: WORKFLOW_FILE,
       repo,
       ref,
-      requestId,
+      inputs: { request_id: requestId },
+      expectedDisplayTitle: `Content package ${requestId}`,
+      resolveExpectedHeadSha: async () =>
+        (await commandRunner("git", ["rev-parse", "HEAD"])).stdout.trim(),
+      commandRunner,
     });
-    await commandRunner("gh", dispatchArgs);
     result.dispatched = true;
-    const head = await commandRunner("git", ["rev-parse", "HEAD"]);
-    let selected: ReturnType<typeof selectContentPackageRun> = undefined;
-    for (let attempt = 0; attempt < 15 && !selected; attempt += 1) {
-      const runList = await commandRunner("gh", [
-        "run",
-        "list",
-        "--repo",
-        repo,
-        "--workflow",
-        WORKFLOW_FILE,
-        "--event",
-        "workflow_dispatch",
-        "--limit",
-        "30",
-        "--json",
-        "databaseId,displayTitle,headSha,url",
-      ]);
-      selected = selectContentPackageRun(JSON.parse(runList.stdout), {
-        requestId,
-        headSha: head.stdout.trim(),
-      });
-      if (!selected && attempt < 14) await delay(2_000);
-    }
-    if (!selected) {
-      throw new Error(
-        `Unable to resolve content package workflow run for ${requestId}`,
-      );
-    }
     result.runId = selected.databaseId;
     result.runUrl = selected.url;
     if (args.watch) {
-      const [, ...watchArgs] = workflowWatchCommand({
+      await watchGithubWorkflowRun({
         repo,
         runId: selected.databaseId,
+        commandRunner,
       });
-      await commandRunner("gh", watchArgs);
     }
   }
 

@@ -1,8 +1,13 @@
 name: Build Host Bridge CLI Prebuilds
+run-name: Host Bridge CLI prebuild ${{ inputs.request_id }}
 
 on:
   workflow_dispatch:
     inputs:
+      request_id:
+        description: Unique request identity used to resolve this exact run
+        required: true
+        type: string
       source_sha:
         description: Exact source commit whose CLI fingerprint will be built
         required: true
@@ -32,7 +37,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          [[ "${{ inputs.source_sha }}" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "${{ inputs.source_sha }}"
+          node scripts/host-bridge-cli-release-governance.mjs status --json > status.json
+          jq -e '
+            .currentVersion == .manifestVersion and
+            .fingerprint == .manifestFingerprint
+          ' status.json > /dev/null
           node scripts/host-bridge-cli-release-governance.mjs recipe --json > recipe.json
           echo "build_matrix=$(jq -c .targets recipe.json)" >> "$GITHUB_OUTPUT"
           echo "node_version=$(jq -r .toolchain.node recipe.json)" >> "$GITHUB_OUTPUT"
@@ -123,3 +134,41 @@ jobs:
             git -C prebuild-store commit -m "Store Host Bridge CLI prebuild $aggregate"
             git -C prebuild-store push origin "HEAD:refs/heads/$PREBUILD_BRANCH"
           fi
+          prebuild_commit="$(git -C prebuild-store rev-parse HEAD)"
+          set_path="sets/$aggregate"
+          test -f "prebuild-store/$set_path/manifest.json"
+          cli_version="$(jq -r .version cli/zotero-bridge/release.json)"
+          build_fingerprint="$(jq -r .buildFingerprint cli/zotero-bridge/release.json)"
+          jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg workflow "build-host-bridge-cli-prebuilds.yml" \
+            --arg requestId "${{ inputs.request_id }}" \
+            --arg sourceSha "${{ inputs.source_sha }}" \
+            --arg ref "$GITHUB_REF_NAME" \
+            --arg cliVersion "$cli_version" \
+            --arg buildFingerprint "$build_fingerprint" \
+            --arg binaryAggregateSha256 "$aggregate" \
+            --arg prebuildBranch "$PREBUILD_BRANCH" \
+            --arg prebuildCommit "$prebuild_commit" \
+            --arg setPath "$set_path" \
+            --argjson runId "$GITHUB_RUN_ID" \
+            '{
+              schema: "host-bridge-cli-prebuild-result.v1",
+              repository: $repository,
+              workflow: $workflow,
+              runId: $runId,
+              requestId: $requestId,
+              sourceSha: $sourceSha,
+              ref: $ref,
+              cliVersion: $cliVersion,
+              buildFingerprint: $buildFingerprint,
+              binaryAggregateSha256: $binaryAggregateSha256,
+              prebuildBranch: $prebuildBranch,
+              prebuildCommit: $prebuildCommit,
+              setPath: $setPath
+            }' > host-bridge-cli-prebuild-result.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: host-bridge-cli-prebuild-result
+          path: host-bridge-cli-prebuild-result.json
+          if-no-files-found: error
