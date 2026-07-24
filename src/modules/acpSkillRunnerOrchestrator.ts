@@ -947,6 +947,71 @@ function resolveZoteroHostAccessRequirement(args: {
   };
 }
 
+async function prepareAcpSkillRunHostBridgeCli(args: {
+  requestId: string;
+  workspaceDir: string;
+  request: AcpSkillRunRequestV1;
+  runnerJson: Record<string, unknown>;
+  backend: BackendInstance;
+  dependencies?: AcpSkillRunnerDependencies;
+}) {
+  const zoteroHostAccess = resolveZoteroHostAccessRequirement({
+    request: args.request,
+    runnerJson: args.runnerJson,
+  });
+  const hostBridgeCliInjectionFactory =
+    args.dependencies?.hostBridgeCliInjection ||
+    ((input: {
+      workspaceDir: string;
+      requestId: string;
+      autoApproveWrites?: boolean;
+    }) => materializeHostBridgeCliRunInjection(input));
+  const hostBridgeCliInjection = zoteroHostAccess.required
+    ? await hostBridgeCliInjectionFactory({
+        workspaceDir: args.workspaceDir,
+        requestId: args.requestId,
+        autoApproveWrites: zoteroHostAccess.autoApproveWrites,
+      })
+    : createDisabledHostBridgeCliRunInjection();
+  const hostBridgeCliState = summarizeHostBridgeCliRunInjection(
+    hostBridgeCliInjection,
+  );
+  const backend = zoteroHostAccess.required
+    ? applyHostBridgeCliEnvToBackend({
+        backend: args.backend,
+        injection: hostBridgeCliInjection,
+      })
+    : args.backend;
+
+  return {
+    backend,
+    hostBridgeCliInjection,
+    hostBridgeCliState,
+    zoteroHostAccess,
+    event: {
+      stage: zoteroHostAccess.required
+        ? hostBridgeCliInjection.available
+          ? "host-bridge-cli-ready"
+          : "host-bridge-cli-unavailable"
+        : "zotero-host-access-disabled",
+      message: zoteroHostAccess.required
+        ? hostBridgeCliInjection.available
+          ? "Host Bridge CLI injection prepared."
+          : "Host Bridge CLI is unavailable for this run; MCP fallback is disabled by default."
+        : "Zotero host access is disabled for this run.",
+      level: zoteroHostAccess.required
+        ? hostBridgeCliInjection.available
+          ? ("info" as const)
+          : ("warn" as const)
+        : ("info" as const),
+      details: {
+        ...hostBridgeCliState,
+        zoteroHostAccess,
+      },
+    },
+  };
+}
+
 function createAcpHardTimeoutMonitor(args: {
   requestId: string;
   seconds: number;
@@ -2500,22 +2565,58 @@ export async function recoverAcpSkillRunConversation(args: {
   const backend = await resolveBackendForRecoveredRun(record.backendId);
   rememberAcpSkillRunRuntimeCatalog({ requestId, backend });
   const runnerJson = record.runnerJson || contextRunnerJson || {};
+  const effectiveRecoveredRequest =
+    recoveredRequest ||
+    ({
+      kind: ACP_SKILL_RUN_REQUEST_KIND,
+      skill_id:
+        normalizeString(record.skillId) ||
+        normalizeString(record.requestedSkillId) ||
+        "recovered-acp-skill",
+    } as AcpSkillRunRequestV1);
   const recoveredEffectiveRuntimeOptions =
     resolveAcpSkillRunEffectiveRuntimeOptions({
-      request:
-        recoveredRequest ||
-        ({
-          kind: ACP_SKILL_RUN_REQUEST_KIND,
-          skill_id:
-            normalizeString(record.skillId) ||
-            normalizeString(record.requestedSkillId) ||
-            "recovered-acp-skill",
-        } as AcpSkillRunRequestV1),
+      request: effectiveRecoveredRequest,
       runnerJson,
       providerOptions: record.providerOptions,
     });
+  let hostBridgePreparation: Awaited<
+    ReturnType<typeof prepareAcpSkillRunHostBridgeCli>
+  >;
+  try {
+    hostBridgePreparation = await prepareAcpSkillRunHostBridgeCli({
+      requestId,
+      workspaceDir,
+      request: effectiveRecoveredRequest,
+      runnerJson,
+      backend,
+      dependencies: args.dependencies,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : String(error || "Host Bridge CLI recovery injection failed.");
+    upsertAcpSkillRun({
+      requestId,
+      conversationRecoveryState: "failed",
+      connectionActionState: "idle",
+      lastRecoveryError: message,
+      event: {
+        stage: "session-recovery-failed",
+        message,
+        level: "error",
+      },
+    });
+    throw error;
+  }
+  upsertAcpSkillRun({
+    requestId,
+    hostBridgeCli: hostBridgePreparation.hostBridgeCliState,
+    event: hostBridgePreparation.event,
+  });
   const dependencyPlan = await buildAcpRuntimeDependencyPlan({
-    backend,
+    backend: hostBridgePreparation.backend,
     runnerJson,
     cwd: workspaceDir,
     mode: "probe-and-wrap",
@@ -3905,60 +4006,23 @@ export async function executeAcpSkillRunnerJob(args: {
       `ACP skill request validation failed: ${requestValidation.errors.join("; ")}`,
     );
   }
-  const zoteroHostAccess = resolveZoteroHostAccessRequirement({
+  const hostBridgePreparation = await prepareAcpSkillRunHostBridgeCli({
+    requestId: workspace.requestId,
+    workspaceDir: workspace.workspaceDir,
     request,
     runnerJson: materialization.runnerJson,
+    backend: args.backend,
+    dependencies: args.dependencies,
   });
-  const hostBridgeCliInjectionFactory =
-    args.dependencies?.hostBridgeCliInjection ||
-    ((input: {
-      workspaceDir: string;
-      requestId: string;
-      autoApproveWrites?: boolean;
-    }) => materializeHostBridgeCliRunInjection(input));
-  const hostBridgeCliInjection = zoteroHostAccess.required
-    ? await hostBridgeCliInjectionFactory({
-        workspaceDir: workspace.workspaceDir,
-        requestId: workspace.requestId,
-        autoApproveWrites: zoteroHostAccess.autoApproveWrites,
-      })
-    : createDisabledHostBridgeCliRunInjection();
-  const hostBridgeCliState = summarizeHostBridgeCliRunInjection(
-    hostBridgeCliInjection,
-  );
+  const { hostBridgeCliInjection, hostBridgeCliState, zoteroHostAccess } =
+    hostBridgePreparation;
   upsertAcpSkillRun({
     requestId: workspace.requestId,
     hostBridgeCli: hostBridgeCliState,
-    event: {
-      stage: zoteroHostAccess.required
-        ? hostBridgeCliInjection.available
-          ? "host-bridge-cli-ready"
-          : "host-bridge-cli-unavailable"
-        : "zotero-host-access-disabled",
-      message: zoteroHostAccess.required
-        ? hostBridgeCliInjection.available
-          ? "Host Bridge CLI injection prepared."
-          : "Host Bridge CLI is unavailable for this run; MCP fallback is disabled by default."
-        : "Zotero host access is disabled for this run.",
-      level: zoteroHostAccess.required
-        ? hostBridgeCliInjection.available
-          ? "info"
-          : "warn"
-        : "info",
-      details: {
-        ...hostBridgeCliState,
-        zoteroHostAccess,
-      },
-    },
+    event: hostBridgePreparation.event,
   });
-  const backendWithHostBridgeCli = zoteroHostAccess.required
-    ? applyHostBridgeCliEnvToBackend({
-        backend: args.backend,
-        injection: hostBridgeCliInjection,
-      })
-    : args.backend;
   const dependencyPlan = await buildAcpRuntimeDependencyPlan({
-    backend: backendWithHostBridgeCli,
+    backend: hostBridgePreparation.backend,
     runnerJson: materialization.runnerJson,
     cwd: workspace.workspaceDir,
     mode: "probe-and-wrap",

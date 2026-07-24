@@ -17,6 +17,7 @@ import {
 } from "./hostBridgeProtocol";
 import {
   ensureRuntimeDirectory,
+  setRuntimeExecutablePermissions,
   writeRuntimeTextFile,
 } from "./runtimePersistence";
 import {
@@ -225,10 +226,9 @@ export async function materializeHostBridgeCliRunInjection(
       }),
     );
     if (cli.available) {
-      await writeRuntimeTextFile(
-        joinPath(shimDir, "zotero-bridge"),
-        buildShellShim(cli.binaryPath),
-      );
+      const shellShimPath = joinPath(shimDir, "zotero-bridge");
+      await writeRuntimeTextFile(shellShimPath, buildShellShim(cli.binaryPath));
+      await setRuntimeExecutablePermissions(shellShimPath);
       await writeRuntimeTextFile(
         joinPath(shimDir, "zotero-bridge.cmd"),
         buildCmdShim(cli.binaryPath),

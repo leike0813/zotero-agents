@@ -3911,16 +3911,22 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.notInclude(readme, "secret-token");
     assert.strictEqual(injection.env.ZOTERO_BRIDGE_TOKEN, "secret-token");
     assert.isString(injection.shimDir);
-    const shellShim = await fs.readFile(
-      path.join(injection.shimDir || "", "zotero-bridge"),
-      "utf8",
-    );
+    const shellShimPath = path.join(injection.shimDir || "", "zotero-bridge");
+    const shellShim = await fs.readFile(shellShimPath, "utf8");
     const cmdShim = await fs.readFile(
       path.join(injection.shimDir || "", "zotero-bridge.cmd"),
       "utf8",
     );
     assert.include(shellShim, formatPortablePathForTest(cliPath));
     assert.include(cmdShim, cliPath);
+    if (process.platform !== "win32") {
+      const shellShimMode = (await fs.stat(shellShimPath)).mode;
+      assert.notEqual(
+        shellShimMode & 0o100,
+        0,
+        "the Host Bridge shell shim must be executable by its owner",
+      );
+    }
     assert.include(injection.env.PATH, injection.shimDir || "");
     assert.include(injection.env.PATH, path.dirname(cliPath));
     assert.strictEqual(injection.env.Path, injection.env.PATH);
@@ -9151,6 +9157,222 @@ describe("ACP SkillRunner-compatible runner", function () {
       (record?.events || []).map((event) => event.stage),
       ["reply-submitted", "reply-accepted"],
     );
+  });
+
+  it("reapplies Host Bridge CLI env before creating a recovered adapter", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+    });
+    const workspace = await createAcpSkillRunnerWorkspace({
+      rootDir: root,
+      backendId: "backend-acp",
+      skillId: "demo-skill",
+      workflowId: "demo-skill",
+      jobId: "job-host-bridge-recovery",
+    });
+    const { adapter } = createPromptStopAdapter({
+      assistantText:
+        '{"__SKILL_DONE__":false,"message":"Continue","ui_hints":{}}',
+    });
+    const shimDir = path.join(workspace.workspaceDir, ".zotero-bridge", "bin");
+    const cliDir = path.join(root, "host-bridge-cli");
+    const profilePath = path.join(
+      workspace.workspaceDir,
+      ".zotero-bridge",
+      "profile.json",
+    );
+    const recoveryToken = "recovery-secret-token";
+    let launchedBackend: BackendInstance | undefined;
+    let injectionArgs:
+      | {
+          workspaceDir: string;
+          requestId: string;
+          autoApproveWrites?: boolean;
+        }
+      | undefined;
+    try {
+      resetAcpSkillRunsForTests();
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "waiting_user",
+        backendId: "backend-acp",
+        backendType: "acp",
+        skillId: "demo-skill",
+        requestedSkillId: "demo-skill",
+        sessionId: "session-recovered-host-bridge",
+        workspaceDir: workspace.workspaceDir,
+        runtimeDir: workspace.runtimeDir,
+        inputManifestPath: workspace.inputManifestPath,
+        resultJsonPath: workspace.resultJsonPath,
+        primarySkillDir: entry.sourceDir,
+        requestPayload: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "bundle",
+          runtime_options: {
+            zotero_host_access: {
+              auto_approve_writes: true,
+            },
+          },
+        },
+        runnerJson: { execution_modes: ["interactive"] },
+        executionMode: "interactive",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        pendingInteraction: {
+          message: "Need user input.",
+          uiHints: { prompt: "Reply" },
+          candidateText: '{"__SKILL_DONE__":false}',
+        },
+      });
+
+      await recoverAcpSkillRunConversation({
+        requestId: workspace.requestId,
+        reason: "reply",
+        dependencies: {
+          hostBridgeCliInjection: async (args) => {
+            injectionArgs = args;
+            const injectedPath = [shimDir, cliDir].join(path.delimiter);
+            return {
+              available: true,
+              endpoint: "http://127.0.0.1:26570/bridge/v1",
+              tokenMasked: "reco...oken",
+              profilePath,
+              readmePath: path.join(
+                workspace.workspaceDir,
+                ".zotero-bridge",
+                "README.md",
+              ),
+              shimDir,
+              cliDir,
+              binaryPath: path.join(cliDir, "zotero-bridge"),
+              binarySource: "env",
+              pathInjected: true,
+              autoApproveWrites: true,
+              env: {
+                ZOTERO_BRIDGE_PROFILE: profilePath,
+                ZOTERO_BRIDGE_TOKEN: recoveryToken,
+                PATH: injectedPath,
+                Path: injectedPath,
+              },
+            };
+          },
+          createAdapter: async (args) => {
+            launchedBackend = args.backend;
+            return adapter;
+          },
+          dependencyProbe: async () => ({ ok: true }),
+        },
+      });
+
+      assert.deepEqual(injectionArgs, {
+        workspaceDir: workspace.workspaceDir,
+        requestId: workspace.requestId,
+        autoApproveWrites: true,
+      });
+      assert.strictEqual(
+        launchedBackend?.env?.ZOTERO_BRIDGE_PROFILE,
+        profilePath,
+      );
+      assert.strictEqual(
+        launchedBackend?.env?.ZOTERO_BRIDGE_TOKEN,
+        recoveryToken,
+      );
+      assert.include(launchedBackend?.env?.PATH || "", shimDir);
+      assert.include(launchedBackend?.env?.PATH || "", cliDir);
+      assert.strictEqual(
+        launchedBackend?.env?.Path,
+        launchedBackend?.env?.PATH,
+      );
+      assert.notInclude(
+        JSON.stringify(getAcpSkillRunRecord(workspace.requestId)),
+        recoveryToken,
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps Host Bridge CLI disabled when a recovered request disables host access", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+    });
+    const workspace = await createAcpSkillRunnerWorkspace({
+      rootDir: root,
+      backendId: "backend-acp",
+      skillId: "demo-skill",
+      workflowId: "demo-skill",
+      jobId: "job-host-bridge-recovery-disabled",
+    });
+    const { adapter } = createPromptStopAdapter({
+      assistantText:
+        '{"__SKILL_DONE__":false,"message":"Continue","ui_hints":{}}',
+    });
+    let injectionCalls = 0;
+    let launchedBackend: BackendInstance | undefined;
+    try {
+      resetAcpSkillRunsForTests();
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "waiting_user",
+        backendId: "backend-acp",
+        backendType: "acp",
+        skillId: "demo-skill",
+        requestedSkillId: "demo-skill",
+        sessionId: "session-recovered-host-bridge-disabled",
+        workspaceDir: workspace.workspaceDir,
+        runtimeDir: workspace.runtimeDir,
+        inputManifestPath: workspace.inputManifestPath,
+        resultJsonPath: workspace.resultJsonPath,
+        primarySkillDir: entry.sourceDir,
+        requestPayload: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "bundle",
+          runtime_options: {
+            zotero_host_access: {
+              required: false,
+            },
+          },
+        },
+        runnerJson: { execution_modes: ["interactive"] },
+        executionMode: "interactive",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        pendingInteraction: {
+          message: "Need user input.",
+          uiHints: { prompt: "Reply" },
+          candidateText: '{"__SKILL_DONE__":false}',
+        },
+      });
+
+      await recoverAcpSkillRunConversation({
+        requestId: workspace.requestId,
+        reason: "reply",
+        dependencies: {
+          hostBridgeCliInjection: async () => {
+            injectionCalls += 1;
+            throw new Error("disabled host access must not materialize a CLI");
+          },
+          createAdapter: async (args) => {
+            launchedBackend = args.backend;
+            return adapter;
+          },
+          dependencyProbe: async () => ({ ok: true }),
+        },
+      });
+
+      assert.strictEqual(injectionCalls, 0);
+      assert.notProperty(launchedBackend?.env || {}, "ZOTERO_BRIDGE_PROFILE");
+      assert.notProperty(launchedBackend?.env || {}, "ZOTERO_BRIDGE_TOKEN");
+      assert.isFalse(
+        getAcpSkillRunRecord(workspace.requestId)?.hostBridgeCli?.available,
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("wraps recovered workflow replies with a continuation guard", async function () {
