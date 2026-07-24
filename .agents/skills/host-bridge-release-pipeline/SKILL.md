@@ -20,16 +20,14 @@ Publish the manifest-defined minimum-core, Generic, and Hermes surfaces from one
 1. Read [release-set operations](references/release-set-operations.md). Inspect the manifest and run `npm run release:host-bridge:plan`.
 2. Run `$host-bridge-semantic-surface-review` when the collector requires review. Resolve every manifest layer and stop if its handoff is blocked.
 3. Render and validate content with the unified renderer, then run `npm run check:host-bridge-content`, the documentation gate, and the Skill-package validator. Use the manifest to pass every governed Skill root to `scripts/check-host-bridge-skill-packages.ts`. Run `$host-bridge-review-mirror` after semantic changes and require `npm run check:host-bridge-review-mirror` to pass before preparation or dispatch.
-4. Confirm the exact CLI prebuild aggregate on `host-bridge-cli-prebuilds`. When the plan requires it, dispatch only the build-only prebuild workflow, synchronize the exact aggregate, and re-check it locally. Otherwise run `npm run check:host-bridge-cli-prebuild-freshness`.
+4. Confirm the exact CLI prebuild aggregate on `host-bridge-cli-prebuilds`. When the plan requires a seven-platform build-only prebuild, use `$host-bridge-cli-prebuild` and return only after its exact aggregate is synchronized and the freshness gate passes. Otherwise run `npm run check:host-bridge-cli-prebuild-freshness`.
 5. Prepare exactly once with `npm run prepare:host-bridge-release`, optionally passing the explicit exact CLI target. Commit and push the complete prepared set to `main`.
 6. Re-run `npm run check:host-bridge-content` and the other local gates, then dispatch `npm run release:host-bridge:dispatch -- --release-set-id hbrs-... --watch` only after explicit publication authorization. The command dispatches and watches the exact `release-host-bridge.yml` run.
 7. Verify all immutable surfaces, mutable pointers, source-main finalization, and the complete receipt before reporting success.
 
-## Build-only prebuild evidence
+## Build-only prebuild handoff
 
-Use `npm run prebuild:zotero-bridge-cli` when an attached development branch needs the exact seven-platform CLI set before formal release preparation. The command requires a clean tree, a configured upstream, a pushed `HEAD` equal to that upstream, an explicit ref and full source SHA that resolve to the same commit, and an already locked CLI version and build fingerprint. It dispatches only `build-host-bridge-cli-prebuilds.yml`, resolves the run by its unique request id and source identity, synchronizes the immutable set named by `host-bridge-cli-prebuild-result.v1`, recalculates both release manifests, and finishes only after the local freshness gate passes.
-
-If the dispatch or watch is interrupted, rerun the same command with `--resume-run-id <run-id>`. Resume must validate the existing run title, source SHA, result artifact, version, fingerprint, aggregate, prebuild-branch commit, and set path before synchronization; it must not dispatch a replacement run merely because observation failed.
+Use `$host-bridge-cli-prebuild` for development-branch dispatch, exact run recovery, result-artifact validation, transactional seven-platform synchronization, and freshness verification. Treat its completed evidence as an input to release preparation; it does not prepare, dispatch, or authorize formal publication.
 
 ## Hard constraints
 

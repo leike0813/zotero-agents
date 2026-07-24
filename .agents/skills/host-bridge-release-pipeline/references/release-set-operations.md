@@ -32,32 +32,9 @@ npm run check:host-bridge-cli-prebuild-freshness
 
 ### Build-only development prebuilds
 
-Before dispatch, lock the CLI identity in `cli/zotero-bridge/release.json`: its version must equal the Cargo package version and its build fingerprint must equal the current fingerprint. Keep the branch attached and clean, configure an upstream, push the exact source commit, and require the local `HEAD`, upstream tip, requested ref, and full `--source-sha` to identify the same commit.
+Use `$host-bridge-cli-prebuild` to run or resume the exact development-branch seven-platform workflow. Require its structured run identity, content-addressed aggregate, transactional local synchronization, and passing freshness gate before release preparation.
 
-Run the seven-platform build and synchronization path with explicit evidence:
-
-```sh
-npm run prebuild:zotero-bridge-cli -- \
-  --repo owner/repository \
-  --ref feature-branch \
-  --source-sha 0123456789abcdef0123456789abcdef01234567
-```
-
-This command dispatches the build-only workflow with a unique request id, watches the exactly matched run, downloads `host-bridge-cli-prebuild-result.v1`, validates its source SHA, version, fingerprint, aggregate, prebuild commit, and `sets/<aggregate>` path, stages and verifies all seven archives, replaces the managed binaries and two release manifests transactionally, and reruns `npm run check:host-bridge-cli-prebuild-freshness`. A stale local aggregate does not select the remote set; the structured result is the synchronization identity.
-
-If observation was interrupted after dispatch, resume the known run without creating another:
-
-```sh
-npm run prebuild:zotero-bridge-cli -- \
-  --repo owner/repository \
-  --ref feature-branch \
-  --source-sha 0123456789abcdef0123456789abcdef01234567 \
-  --resume-run-id 123456789
-```
-
-Resume is valid only when the run and result artifact prove the same repository, workflow, request id, ref, source SHA, CLI identity, immutable set, and prebuild-branch commit. A failed workflow, missing artifact, malformed identity, incomplete archive set, or checksum conflict stops before managed local files are replaced. Retain the run id and correct the failed external condition; do not guess from the latest run or redispatch merely to obtain a different identity.
-
-For one current-platform developer binary, use `npm run build:local:zotero-bridge-cli`; that command does not dispatch GitHub Actions. Neither local building nor development-branch prebuilding prepares a release set, publishes Host Bridge surfaces, commits or pushes repository changes, or invokes Gitee. Formal publication remains a separate clean synchronized `main` procedure with an exact prepared release set and explicit `release:host-bridge:dispatch` authorization.
+The prebuild Skill does not bump versions, prepare or publish a release set, commit or push source changes, merge branches, or invoke Gitee. Formal publication remains a separate clean synchronized `main` procedure with an exact prepared release set and explicit `release:host-bridge:dispatch` authorization.
 
 ## Preparation, dispatch, and recovery
 
