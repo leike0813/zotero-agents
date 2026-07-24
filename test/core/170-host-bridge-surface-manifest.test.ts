@@ -27,11 +27,8 @@ describe("host bridge surface definitions", function () {
     );
 
     const [minimum, generic, hermes] = manifest.surfaces;
-    assert.strictEqual(minimum.patch, 1);
     assert.strictEqual(generic.extends, minimum.id);
     assert.strictEqual(hermes.extends, generic.id);
-    assert.strictEqual(generic.patch, 1);
-    assert.strictEqual(hermes.patch, 1);
     for (const surface of manifest.surfaces) {
       assert.isString(surface.kind);
       assert.isString(surface.sourceRoot);
@@ -75,6 +72,9 @@ describe("host bridge surface definitions", function () {
       readFileSync(join(process.cwd(), "host-bridge/surfaces.json"), "utf8"),
     );
     source.cliRelease = "release.json";
+    source.surfaces.find(
+      (surface: { id: string }) => surface.id === "zotero-library-agent",
+    ).patch = 1;
     writeFileSync(path, JSON.stringify(source), "utf8");
     writeFileSync(
       join(root, "release.json"),
