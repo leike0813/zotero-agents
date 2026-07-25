@@ -373,15 +373,16 @@ earlier route has already produced a verified legal matching PDF.
 
 After Stage 30 approval, the main agent SHALL choose subagent grouping,
 concurrency, dispatch timing, and waiting strategy. A subagent MAY receive one
-or multiple approved candidates. Every candidate SHALL retain an independent
-identity decision and writable output path.
+or multiple approved candidate file paths. Every candidate SHALL retain an
+independent identity decision and the writable `payloadPath` embedded in its
+candidate file.
 
-#### Scenario: Main agent groups several candidates
+#### Scenario: Main agent groups several candidate files
 
 - **GIVEN** several approved candidates require similar research
-- **WHEN** the main agent delegates them to one subagent
+- **WHEN** the main agent delegates their candidate file paths to one subagent
 - **THEN** the subagent SHALL process each candidate independently
-- **AND** it SHALL use the per-paper output path supplied for that candidate
+- **AND** it SHALL use the `payloadPath` in that candidate's file
 
 #### Scenario: Research is not delegated before scope approval
 
@@ -391,7 +392,7 @@ identity decision and writable output path.
 
 #### Scenario: Candidate scope remains stable
 
-- **WHEN** a subagent researches an approved candidate
+- **WHEN** a subagent researches an approved candidate file
 - **THEN** it SHALL resolve that same direct bibliographic work
 - **AND** it SHALL NOT replace it with a related work, another material type,
   or a materially different version
@@ -400,25 +401,42 @@ identity decision and writable output path.
 
 The full subagent contract SHALL be written in
 `skills_builtin/literature-search-ingest/SKILL.md`. Dynamic context SHALL
-contain the selected candidate data and one writable Host-payload path per
-candidate. The prompt SHALL require metadata resolution, direct-work identity,
-the three-route PDF probe, canonical fields, file output, and completion of the
-assigned candidate set.
+contain `CANDIDATE_FILES_JSON`, a JSON array of one or more approved candidate
+file paths, and the selected collection. Each candidate file SHALL contain its
+candidate identity and writable `payloadPath`. The prompt SHALL require
+metadata resolution, direct-work identity, the three-route PDF probe, canonical
+fields, file output, and completion of the assigned candidate files.
 
-#### Scenario: Main agent supplies a dynamic candidate set
+#### Scenario: Main agent supplies candidate file paths
 
 - **WHEN** the main agent constructs a subagent dispatch
 - **THEN** it SHALL use the static prompt from `SKILL.md`
-- **AND** it SHALL provide the chosen candidates and their output paths as
-  dynamic context
+- **AND** it SHALL provide the chosen candidate file paths as dynamic context
+- **AND** the worker SHALL read each file's `payloadPath`
 
-#### Scenario: Worker reports optional audit details
+#### Scenario: Worker returns a structured research report
 
-- **WHEN** a subagent has useful source, route, or uncertainty details
-- **THEN** it MAY report them in stdout
-- **AND** the main agent MAY summarize them in an internal workspace audit
-- **AND** audit collection SHALL NOT block a valid paper payload or change final
-  output
+- **WHEN** a subagent finishes its assigned candidate files
+- **THEN** it SHALL return one `literature_search_research_report` JSON object in
+  stdout
+- **AND** `candidateResults` SHALL contain exactly one entry for each assigned
+  candidate file
+- **AND** each entry SHALL reuse that file's candidate id, candidate path, and
+  payload path
+- **AND** each entry SHALL report metadata status, paper-level PDF probe status,
+  compact metadata sources, the applicable three-route PDF results, and
+  uncertainties
+- **AND** the report SHALL NOT contain a Host payload, receipt, mutation result,
+  or final workflow output
+
+#### Scenario: Main agent projects research results into the ledger
+
+- **WHEN** the main agent receives a structured research report
+- **THEN** it MAY reuse the shared candidate result fields in the search ledger
+- **AND** it SHALL derive receipt, ingest, item, attachment, and final curation
+  fields from payload inspection and Host results
+- **AND** a missing or malformed report for one candidate SHALL NOT block another
+  candidate's valid payload
 
 ### Requirement: Each metadata-qualified paper SHALL produce one direct Host ingest payload
 

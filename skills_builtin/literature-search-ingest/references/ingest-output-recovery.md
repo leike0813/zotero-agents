@@ -1,25 +1,34 @@
 # 入库、输出与恢复
 
-本参考用于阶段 40 的 Host payload 检查、阶段 70 的逐篇 mutation，以及 receipts、search ledger、最终输出和恢复。
+本参考用于阶段 40 的 Host payload 检查、阶段 50 的逐篇 mutation，以及 receipts、search ledger、最终输出和恢复。
 
-## 目录
+## Subagent research report
 
-- [单篇 Host payload](#单篇-host-payload)
-- [条目类型与字段](#条目类型与字段)
-- [创建者](#创建者)
-- [标识符与 URL](#标识符与-url)
-- [Collection 与附件选项](#collection-与附件选项)
-- [主代理提交前检查](#主代理提交前检查)
-- [逐篇 Host mutation](#逐篇-host-mutation)
-- [Host receipt](#host-receipt)
-- [结果语义](#结果语义)
-- [失败处理](#失败处理)
-- [幂等性与恢复](#幂等性与恢复)
-- [紧凑检索账本](#紧凑检索账本)
-- [最终输出](#最终输出)
-- [示例与反例](#示例与反例)
+Stage 40 subagent 完成全部已分配 candidate 后，在 stdout 返回一个
+`literature_search_research_report` JSON object。`candidateResults` 对每个已分配
+candidate 文件恰好包含一个条目，并回显该文件的 `candidateId`、
+`candidatePath` 和 `payloadPath`。
 
-## 单篇 Host payload
+每个条目包含：
+
+- `title`：metadata qualified 时使用权威原文题名，否则保留可识别的 candidate 题名；
+- `metadataStatus`：`qualified` 或 `unresolved`；
+- `pdfStatus`：Stage 40 探测结论 `found`、`missing`、`failed` 或 `skipped`；
+- `metadataSources`：简短的 `{ "source", "url" }` 列表；没有可用 URL 时省略 `url`；
+- `pdfRoutes`：适用路线的 `{ "route", "status", "url" }` 列表；没有可用 URL 时省略 `url`；
+- `uncertainties`：简短字符串数组，没有不确定性时为空数组。
+
+metadata-qualified candidate 的 `pdfRoutes` 包含 `authoritative_landing`、
+`open_access` 和 `public_web` 三条路线。路线状态使用 [PDF Probe](pdf-probe.md)
+定义的 `found`、`not_found`、`restricted`、`mismatch`、`unavailable`、
+`error` 或 `skipped_after_verified_pdf`。metadata 或直接作品身份 unresolved 时，
+仍返回 candidate result；没有进入可验证 PDF 探测时使用 `pdfStatus: "skipped"`。
+
+research report 不是 Host payload，不包含 `paper`、Host receipt、mutation 结果或
+最终 workflow output。report 缺失或畸形按 candidate 局部复核或重新委派；其他
+candidate 的合法 payload 可以继续检查和入库。
+
+## 单篇 zotero-bridge CLI 入库 payload
 
 每个 metadata-qualified candidate 对应一个独立 JSON object：
 
@@ -64,7 +73,7 @@ payload 不包含：
 - workflow summary；
 - 自定义 metadata wrapper。
 
-研究来源和不确定性可由子代理通过 stdout 提供，主代理可选择在内部审计中汇总。
+research report 中的来源、路线和不确定性可供主代理审阅或汇总到内部审计。
 
 ## 条目类型与字段
 
@@ -174,7 +183,7 @@ URL 规则：
 
 主代理可以修复有明确来源支持的无歧义映射，例如将误放的 canonical 值移动到专属结构。身份冲突和关键字段未知不能靠推测修复。
 
-## 逐篇 Host mutation
+## 逐篇 mutation 入库
 
 主代理执行：
 
@@ -217,6 +226,7 @@ zotero-bridge mutation literature-ingest --input @runtime/path/to/paper.json
 
 每份 receipt 与以下信息关联：
 
+- candidate path；
 - candidate id；
 - title；
 - payload path；
@@ -283,7 +293,7 @@ direct-work identity 或最低 metadata 无法确认，没有执行 Host mutatio
 恢复时读取当前运行工作区：
 
 - `runtime/input.json`；
-- 累计候选与已批准范围；
+- `runtime/candidates/` 下的 candidate 文件与已批准范围；
 - 已存在的单篇 payload；
 - 已保存的 raw Host receipts；
 - `result/search-ledger.json` 若已存在；
@@ -291,10 +301,10 @@ direct-work identity 或最低 metadata 无法确认，没有执行 Host mutatio
 
 逐篇判断：
 
-1. 已有可识别 terminal receipt：从 receipt 恢复 outcome，不重复 mutation；
-2. payload 有效但无 receipt：该论文可进入串行 mutation 队列；
-3. payload 缺失或畸形：修复或重新委派该论文；
-4. identity/metadata unresolved：恢复为 `not_attempted`；
+1. candidate 文件存在且已有可识别 terminal receipt：从 receipt 恢复 outcome，不重复 mutation；
+2. candidate 文件存在，`payloadPath` 有效但无 receipt：该论文可进入串行 mutation 队列；
+3. candidate 文件存在但 payload 缺失或畸形：修复或重新委派该论文；
+4. candidate 文件对应的 identity/metadata unresolved：恢复为 `not_attempted`；
 5. receipt 状态不清楚：停止后续 mutation并报告 `execution_blocked`，避免重复创建。
 
 恢复按论文独立进行：任何有效论文都可以继续，单篇问题保持局部。
@@ -316,6 +326,7 @@ direct-work identity 或最低 metadata 无法确认，没有执行 Host mutatio
   "candidateResults": [
     {
       "candidateId": "doi:10.0000/example",
+      "candidatePath": "runtime/candidates/candidate-0001.json",
       "title": "权威原文题名",
       "metadataStatus": "qualified",
       "pdfStatus": "found",
@@ -332,7 +343,15 @@ direct-work identity 或最低 metadata 无法确认，没有执行 Host mutatio
 
 账本计数和状态来自实际候选、payload 和 receipts。不要复制全文、完整 metadata 证据或 raw Host response。
 
-可选内部审计路径可以保留在运行工作区记录中，但不是最终 JSON 字段，也不是完成条件。
+research report 的 `candidateId`、`candidatePath`、`title`、
+`metadataStatus`、`pdfStatus` 和 `payloadPath` 可直接投影到对应 ledger entry。
+主代理在 Host mutation 后补充 `receiptPath`、`ingestStatus`、`itemId` 和最终
+`needsCuration`。metadata sources、PDF route details 和 uncertainties 可保留在
+内部审计，不复制到紧凑账本。
+
+账本中的 `pdfStatus` 表示 Stage 40 的 PDF 探测结论。最终 workflow outcome 的
+附件状态由 Host receipt 决定，使用 `attached`、`missing` 或实际 Host 语义支持的
+其他状态。
 
 ## 最终输出
 

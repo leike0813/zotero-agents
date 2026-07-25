@@ -53,6 +53,7 @@ description: Search academic literature with broad multilingual discovery, metad
 所有中间工件保存在当前运行器工作区的 `runtime/` 中：
 
 - 输入：`runtime/input.json`；
+- 每篇发现候选：`runtime/candidates/candidate-NNNN.json`；
 - 每篇论文的 Host ingest payload：主代理为该论文指定的独立 JSON 路径；
 - Host 原始响应：建议保存在 `runtime/host/` 下并与同一论文关联；
 - 可选内部审计：主代理可在 `runtime/` 中汇总子代理 stdout；
@@ -64,7 +65,7 @@ description: Search academic literature with broad multilingual discovery, metad
 主代理在当前运行中维护：
 
 - 检索计划和 discovery round；
-- 累计候选、稳定 candidate id、合并证据和 tier；
+- `runtime/candidates/` 下的候选文件、稳定 candidate id、合并证据和 tier；
 - 已批准与排除的 candidate id；
 - 每篇论文的 payload、Host receipt 和终态 outcome；
 - 取消原因、致命失败和恢复位置。
@@ -165,11 +166,55 @@ Stage 10 search plan
 
 ### 阶段 20 — 发现轮次
 
-**目的：** 按已批准计划执行高召回发现，形成累计、去重、可审核的候选集。
+**目的：** 按已批准计划执行高召回发现，形成累计、去重、可审核的候选文件集。
 
-每轮记录 round number、实际 query/source attempts 及结果/错误、新候选和有证据的更新、去重/版本/本地重复判断、未覆盖 gap 与 stop reason。
+每轮记录 round number、实际 query/source attempts 及结果/错误、新候选和有证据的更新、去重/版本/本地重复判断、未覆盖 gap 与 stop reason。发现轮次记录示例如下：
+
+```json
+{
+  "round": 1,
+  "queryAttempts": [
+    {
+      "lane": "core",
+      "query": "隧道衬砌 病害 智能识别",
+      "source": "regional scholarly index",
+      "status": "completed",
+      "resultCount": 8
+    }
+  ],
+  "newCandidateIds": ["doi:10.0000/example"],
+  "updatedCandidateIds": [],
+  "uncoveredGaps": ["繁体术语"],
+  "stopReason": "scope_review_requested"
+}
+```
 
 后续轮次在累计候选上合并。未被新证据推翻的早期候选继续保留；更新 candidate id 前必须确认同一直接作品。
+
+每个去重后的 candidate 都立即写入 `runtime/candidates/` 下的独立 JSON 文件。新 candidate 分配当前运行内稳定的顺序文件名，例如 `candidate-0001.json`，并同时预分配对应的 `payloadPath`，例如 `runtime/payloads/candidate-0001.json`。后续发现同一直接作品时更新原文件，不创建第二个 candidate 文件。发现轮次记录仍只记录 query/source attempts、候选 id、更新和停止原因，不承载完整 candidate 内容。
+
+candidate 文件至少包含 `candidateId`、`title`、`tier` 和 `payloadPath`；已知的 creators、year、container、language、material type/version、identifiers、landing URL、discovery sources 和 missing fields 一并保留。candidate 文件是 Stage 30 和 Stage 40 的研究输入，不是 zotero-bridge CLI 入库 payload。candidate 文件示例如下：
+
+```json
+{
+  "candidateId": "doi:10.5555/example",
+  "title": "隧道衬砌病害智能识别研究",
+  "tier": "ready",
+  "creators": ["张三", "李四"],
+  "year": "2024",
+  "container": "隧道建设",
+  "language": "zh-CN",
+  "materialType": "journalArticle",
+  "materialVersion": "published",
+  "identifiers": {"doi": "10.5555/example"},
+  "landingUrl": "https://doi.org/10.5555/example",
+  "discoverySources": [
+    {"source": "China DOI", "url": "https://doi.org/10.5555/example"}
+  ],
+  "missingFields": [],
+  "payloadPath": "runtime/payloads/candidate-0001.json"
+}
+```
 
 **完成：** 当前轮适用 lanes 已执行并给出停止原因。随后进入阶段 30。
 
@@ -218,12 +263,14 @@ Stage 10 search plan
   * candidate id；
   * 文献标题；
   * 作者；
-  * 候选分层（`ready`/`need_curation`/`lead_only`）；
+  * 候选分层（`ready`/`needs_curation`/`lead_only`）；
   * year、container（如果有）；
+  * 条目类型（`materialType`）；
   * language（初步判定）；
   * identifiers（如果有）。
 
 - 允许额外说明检索结果及本地重复状态。
+- 表格直接从 `runtime/candidates/*.json` 投影；用户的选择必须解析为无歧义的 `approvedCandidateIds`，后续只使用这些 id 对应的 candidate 文件。
 - 请求用户指定入库范围，可选项包括：全部（`all`，包含分层为 `ready` 和 `needs_curation` 的候选）、强证据集（`evidenced`，仅包含分层为 `ready` 的候选）或表格中任意数量的具体目标（用户需提供明确的 candidate ids，或是完整的文献标题、关键词等，若用户指定的范围存在歧义，应询问用户以明确范围）。
 - 用户还可选择扩大搜索范围（`expand`）或者用自由文本回复扩展搜索意图。
 - 允许用户选择取消入库（`cancel`）。
@@ -247,7 +294,7 @@ Stage 10 search plan
 - 委派子代理并行地进行本阶段工作，或自己完成；
 - 每个子代理处理哪些一个或多个候选；
 - 同时启动多少子代理；
-- 每个候选的独立 payload 输出路径；
+- 每个 subagent 获得哪些 candidate 文件路径；
 - 何时等待、轮询、修复或重新委派。
 
 每篇论文始终是独立逻辑单元。一个子代理处理多篇时，也必须逐篇研究、逐篇判断身份、逐篇写文件。
@@ -255,20 +302,22 @@ Stage 10 search plan
 
 #### Subagent 委派
 
-使用以下 `text` 文本块中的完整 prompt 作为唯一委派契约，并把以下占位符替换为本次候选集合和路径映射：
+使用以下 `text` 文本块中的完整 prompt 作为唯一委派契约（相同内容也可在 `assets/subagent_delegate_prompt.md` 中找到）。派发之前，替换 prompt 中的以下占位符：
 
-- CANDIDATES_JSON
-- OUTPUT_PATHS_JSON
-- TARGET_COLLECTION
+- { CANDIDATE_FILES_JSON }: 一个 JSON array，元素是由你负责分配的、当前 subagent 获得的一个或多个 `runtime/candidates/*.json` 文件路径。它只包含 Stage 30 已批准的 candidate 文件。可以直接以 inline JSON 的方式替换（推荐），也可以先将内容写入文件并以文件的绝对路径形式替换；
+- { TARGET_COLLECTION }: 目标 Zotero collection 的标识符，严格等于 Skill 输入参数 `targetCollection`；
+- { METADATA_RESOLUTION_PATH }: `references/metadata-resolution.md` 的绝对路径；
+- { PDF_PROBE_PATH }: `references/pdf-probe.md` 的绝对路径。
 
 ~~~text
-你是一个负责学术文献 metadata 和 PDF 调研的代理。你的研究主代理提供的一个或多个候选，并为每篇可入库论文写入指定的单篇 Zotero Host ingest payload。
+你是一个负责学术文献 metadata 和 PDF 调研的代理。你的任务是对主代理提供的一个或多个文献 candidate 进行 metadata 搜索和补全，并尝试获取文献的原文 PDF，最终为每篇可入库论文写入指定的单篇 zotero-bridge CLI 入库 payload。你负责的可能是一个 candidate，也可能是多个 candidates，每个 candidate 都是一个独立执行单元，切勿将多个单元合并处理。
 
-每篇论文都是独立单元，分别完成身份判断、研究和文件写入。
+candidate 文件路径列表：{ CANDIDATE_FILES_JSON } 
+目标 collection：{ TARGET_COLLECTION }
 
-候选：CANDIDATES_JSON
-每篇候选的输出路径：OUTPUT_PATHS_JSON
-目标 collection：TARGET_COLLECTION
+对每个 candidate 文件读取其中的 candidate object 和 `payloadPath`。candidate 文件只读；zotero-bridge CLI 入库 payload 写入该文件指定的 `payloadPath`。
+
+首先阅读以下详细指令：[Metadata Resolution]({ METADATA_RESOLUTION_PATH }) 与 [PDF Probe]({ PDF_PROBE_PATH })
 
 对每个候选依次完成：
 1. 搜索权威 metadata，优先 identifier，再使用权威题名、创建者、年份、容器和材料版本证据。
@@ -276,13 +325,10 @@ Stage 10 search plan
 3. 依次探测权威落地页、开放获取来源和公开网络搜索。只有较早路线已经找到合法、公开、可达且身份匹配的 PDF 时，后续路线才能标记 `skipped_after_verified_pdf`。
 4. 使用 canonical Zotero 字段。摘要写入 fields.abstractNote；creators、identifiers、landingUrl、pdfUrl 和 collection 使用各自结构。
 5. metadata 合格但没有 PDF 时仍写 metadata-only payload。直接作品身份或最低 metadata 无法确认时，不写伪造 payload，并在 stdout 说明该候选无法准备入库。
-6. 每篇合格论文完成后立即写入自己的输出路径，再处理下一个候选；完成全部已分配候选后退出。
+6. 每篇合格论文完成后立即写入该 candidate 文件中的 `payloadPath`，再处理下一个 candidate；完成全部已分配文件后退出。
 
-你可以在 stdout 报告来源、三路线结果和不确定性。stdout 信息用于主代理按需审阅，不属于 Host payload。
+zotero-bridge CLI 入库 payload 示例：
 
-只执行检索、判断和指定文件写入。Zotero mutation、Host receipt 和最终工作流输出由主代理负责。
-
-DIRECT_HOST_PAYLOAD_EXAMPLE
 ```json
 {
   "paper": {
@@ -307,9 +353,42 @@ DIRECT_HOST_PAYLOAD_EXAMPLE
     "pdfUrl": "https://example.org/example.pdf",
     "attachLandingUrlOnMissingPdf": true
   },
-  "collection": "TARGET_COLLECTION"
+  "collection": "{ TARGET_COLLECTION }"
 }
 ```
+
+完成全部已分配 candidate 后，stdout 最终只输出一个 JSON object，不添加 Markdown code fence 或对象之外的解释。`candidateResults` 对每个已分配 candidate 文件恰好包含一个条目；`candidateId`、`candidatePath` 和 `payloadPath` 必须回显 candidate 文件中的值。metadata 或直接作品身份 unresolved 时也必须返回条目，即使没有写入 payload。
+
+```json
+{
+  "kind": "literature_search_research_report",
+  "candidateResults": [
+    {
+      "candidateId": "doi:10.0000/example",
+      "candidatePath": "runtime/candidates/candidate-0001.json",
+      "title": "Example title",
+      "metadataStatus": "qualified",
+      "pdfStatus": "found",
+      "payloadPath": "runtime/payloads/candidate-0001.json",
+      "metadataSources": [
+        {"source": "Crossref", "url": "https://api.crossref.org/works/10.0000/example"}
+      ],
+      "pdfRoutes": [
+        {"route": "authoritative_landing", "status": "found", "url": "https://example.org/example.pdf"},
+        {"route": "open_access", "status": "skipped_after_verified_pdf"},
+        {"route": "public_web", "status": "skipped_after_verified_pdf"}
+      ],
+      "uncertainties": []
+    }
+  ]
+}
+```
+
+`metadataStatus` 使用 `qualified` 或 `unresolved`。论文级 `pdfStatus` 使用 `found`、`missing`、`failed` 或 `skipped`。`pdfRoutes` 使用 `authoritative_landing`、`open_access`、`public_web`，路线状态遵循 PDF Probe；metadata-qualified candidate 必须报告三条路线。`metadataSources` 只保留简短来源名称及可用 URL，`uncertainties` 使用简短字符串数组。
+
+research report 用于主代理关联 candidate、审阅研究结果和构造 search ledger，不属于 zotero-bridge CLI 入库 payload，也不包含 Host receipt、mutation 结果或最终工作流输出。
+
+只执行检索、判断和指定文件写入。Zotero mutation、Host receipt 和最终工作流输出由主代理负责。
 ~~~
 
 #### 每篇论文的强制研究
@@ -334,15 +413,15 @@ Metadata 搜索和 PDF 探测不可跳过：
 
 #### 增量收集
 
-任一论文载荷就绪后，主代理可以立即读取、检查并进入该论文的阶段 70；无需等待其他子代理完成。其他子代理可继续研究。
+任一论文的入库 payload 就绪后，主代理可以立即读取、检查并进入该论文的阶段 50；无需等待其他子代理完成。其他子代理可继续研究。
 
-主代理可以并行接收多个已就绪 payload，但 Host mutation 一次只处理一篇。缺失或畸形的单篇 payload 不阻塞其他有效 payload。
+主代理可以并行接收多个已就绪 payload，但 zotero-bridge CLI 入库 mutation 一次只处理一篇。缺失或畸形的单篇 payload 不阻塞其他有效 payload。
 
 #### 主代理最终检查
 
 在 Host mutation 前逐篇确认：
 
-1. candidate id 与批准范围一致；
+1. candidate id 与批准范围一致，且对应的 candidate 文件来自当前运行的 `runtime/candidates/`；
 2. payload 表示同一直接作品和正确材料版本；
 3. `itemType` 与 fields 语义兼容；
 4. title、creators、identifiers 和 URLs 位于专属结构；
@@ -353,11 +432,11 @@ Metadata 搜索和 PDF 探测不可跳过：
 
 主代理只修复有明确证据支持且语义无歧义的映射。身份冲突、关键 metadata 缺失或版本无法判断时，将该篇记录为 `not_attempted`。
 
-#### 可选内部审计
+#### 研究报告收集
 
-子代理 stdout 可以包含 metadata 来源、PDF 路线结果和不确定性。主代理可将这些信息汇总为 `runtime/` 内部审计文件。
+主代理按 `candidateId` 和 `candidatePath` 关联 research report 条目与 candidate 文件。共享的 candidate、metadata、PDF 和 payload 字段可直接投影到 search ledger；metadata 来源、路线详情和不确定性仅用于按需审阅或 `runtime/` 内部审计。
 
-审计汇总是可选信息，不是载荷通过条件，不得阻塞有效论文入库，也不进入最终 JSON。详细 metadata 和 PDF 判断分别见 [Metadata Resolution](references/metadata-resolution.md) 与 [PDF Probe](references/pdf-probe.md)。
+report 缺失或畸形只影响对应 candidate。已有合法 payload 仍由主代理独立检查；没有 payload 且没有可识别 report 的 candidate 由主代理复核或重新委派。任何单篇 report 问题都不阻塞其他有效 payload。详细 metadata 和 PDF 判断分别见 [Metadata Resolution](references/metadata-resolution.md) 与 [PDF Probe](references/pdf-probe.md)。
 
 ### 阶段 50 — 逐篇 Zotero 入库
 
@@ -417,7 +496,7 @@ Host response 是以下事实的唯一来源：
 - PDF 不可用：保留 metadata-only ingest，不把落地页当作 PDF。
 - paper-specific Host failure：记录 `failed` 并继续下一篇。
 - 致命 Host failure：立即停止后续 mutation，保留已有 receipt，输出 canceled。
-- 恢复运行：读取当前 `runtime/` 中已有的候选记录、独立 payload 和 Host receipts；已具有 terminal receipt 的论文不重复 mutation；缺失的论文单独恢复。
+- 恢复运行：扫描当前 `runtime/candidates/`，读取其中的 candidate object 和 `payloadPath`，再关联独立 payload 与 Host receipts；已具有 terminal receipt 的论文不重复 mutation；缺失的论文单独恢复。
 - 工作区不可写：报告 `execution_blocked`，不要切换到外部目录。
 
 ## 最终输出
@@ -429,7 +508,7 @@ Host response 是以下事实的唯一来源：
 - kind、terminal status、search mode 和 breadth；
 - discovery rounds、query/source attempt 摘要和 stop reasons；
 - 累计、批准与排除的 candidate ids；
-- 每篇批准论文的 title、payload path、receipt path、metadata/PDF/ingest status、item id 和 `needsCuration`；
+- 每篇批准论文的 candidate path、title、payload path、receipt path、metadata/PDF/ingest status、item id 和 `needsCuration`；
 - canceled 时的原因和消息；
 - 可选内部审计若存在，可在账本中以普通内部路径引用，但最终 JSON 不暴露该路径。
 

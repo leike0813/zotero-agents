@@ -281,6 +281,39 @@ candidate id 在当前运行中保持稳定。发现更强 identifier 时，可�
 
 `lead_only` 可以用于下一轮查询，不可在阶段 30 批准入库。
 
+## 候选文件
+
+每个去重后的 candidate 都立即写入 `runtime/candidates/` 下的一个 JSON
+object。新 discovery evidence 更新同一直接作品的原文件，不创建第二个文件。
+文件名使用当前运行内稳定的顺序编号，例如 `candidate-0001.json`；文件内容
+至少包含 `candidateId`、`title`、`tier` 和 `payloadPath`。
+
+```json
+{
+  "candidateId": "doi:10.5555/example",
+  "title": "隧道衬砌病害智能识别研究",
+  "tier": "ready",
+  "creators": ["张三", "李四"],
+  "year": "2024",
+  "container": "隧道建设",
+  "language": "zh-CN",
+  "materialType": "journalArticle",
+  "materialVersion": "published",
+  "identifiers": {"doi": "10.5555/example"},
+  "landingUrl": "https://doi.org/10.5555/example",
+  "discoverySources": [
+    {"source": "China DOI", "url": "https://doi.org/10.5555/example"}
+  ],
+  "missingFields": [],
+  "payloadPath": "runtime/payloads/candidate-0001.json"
+}
+```
+
+candidate 文件是 Stage 30 的表格来源和 Stage 40 的研究输入，不是 Host
+ingest payload。Stage 30 直接读取这些文件投影候选表格，并将用户选择解析为
+candidate ids；Stage 40 将获批 candidate 文件路径传给 subagent。`payloadPath`
+由主代理预分配，subagent 读取它并将合格论文的单篇 Host payload 写入该路径。
+
 ## 广度与停止条件
 
 ### Broad
@@ -318,8 +351,9 @@ candidate id 在当前运行中保持稳定。发现更强 identifier 时，可�
 - candidate id；
 - 文献标题；
 - 作者；
-- 候选分层（`ready`/`need_curation`/`lead_only`）；
+- 候选分层（`ready`/`needs_curation`/`lead_only`）；
 - year、container（如果有）；
+- 条目类型（`materialType`）；
 - language（初步判定）；
 - identifiers（如果有）。
 

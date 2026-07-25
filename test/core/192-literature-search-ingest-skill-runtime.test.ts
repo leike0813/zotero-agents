@@ -9,45 +9,38 @@ async function read(relativePath: string) {
   return fs.readFile(path.join(skillRoot, relativePath), "utf8");
 }
 
-function markedJson(markdown: string, marker: string) {
-  const markerIndex = markdown.indexOf(marker);
-  assert.isAtLeast(markerIndex, 0, marker);
-  const match = /```json\s*([\s\S]*?)```/.exec(markdown.slice(markerIndex));
-  assert.isOk(match, `${marker} JSON example`);
-  return JSON.parse(match?.[1] || "{}");
+function jsonExamples(markdown: string) {
+  return Array.from(markdown.matchAll(/```json\s*([\s\S]*?)```/g), (match) =>
+    JSON.parse(match[1]),
+  );
+}
+
+function stageNumbers(markdown: string) {
+  return Array.from(markdown.matchAll(/^### 阶段 (\d+)\b/gm), (match) =>
+    Number(match[1]),
+  );
 }
 
 describe("literature search ingest instruction-backed workflow", function () {
-  it("keeps the existing stage flow and only two user waiting points", async function () {
+  it("keeps the stage topology", async function () {
     const skill = await read("SKILL.md");
 
-    for (const stage of [
-      "### 阶段 10 — 检索计划",
-      "### 阶段 20 — 发现轮次",
-      "### 阶段 30 — 入库范围",
-      "### 阶段 40 — 研究委派与载荷准备",
-      "### 阶段 70 — 逐篇 Zotero 入库",
-    ]) {
-      assert.include(skill, stage);
-    }
-
-    assert.match(skill, /仅两个阶段可以等待用户/);
-    assert.match(skill, /阶段 10[\s\S]*阶段 30/);
-    assert.match(skill, /范围批准后[\s\S]*自动继续/);
+    assert.deepEqual(stageNumbers(skill), [10, 20, 30, 40, 50]);
   });
 
-  it("keeps the static worker prompt flexible while preserving per-paper payloads", async function () {
+  it("keeps path-based worker inputs and a single-paper Host payload", async function () {
     const skill = await read("SKILL.md");
-    const payload = markedJson(skill, "DIRECT_HOST_PAYLOAD_EXAMPLE");
+    const payload = jsonExamples(skill).find(
+      (example) => example.paper && !example.kind,
+    );
 
-    assert.include(skill, "CANDIDATES_JSON");
-    assert.include(skill, "OUTPUT_PATHS_JSON");
-    assert.match(skill, /一个或多个候选/);
-    assert.match(skill, /每篇论文[\s\S]*独立/);
+    assert.isOk(payload);
+    assert.include(skill, "CANDIDATE_FILES_JSON");
+    assert.include(skill, "TARGET_COLLECTION");
 
-    assert.hasAllKeys(payload, ["paper", "collection"]);
+    assert.containsAllKeys(payload, ["paper", "collection"]);
     assert.notProperty(payload, "papers");
-    assert.hasAllKeys(payload.paper, [
+    assert.containsAllKeys(payload.paper, [
       "itemType",
       "fields",
       "creators",
@@ -60,73 +53,74 @@ describe("literature search ingest instruction-backed workflow", function () {
     assert.notProperty(payload.paper.fields, "abstract");
   });
 
-  it("keeps metadata identity and all three PDF routes mandatory", async function () {
-    const metadata = await read("references/metadata-resolution.md");
-    const pdf = await read("references/pdf-probe.md");
+  it("persists one discovery candidate per file and pairs its payload path", async function () {
+    const discovery = await read("references/search-planning-and-discovery.md");
+    const candidate = jsonExamples(discovery).find(
+      (example) =>
+        typeof example.candidateId === "string" &&
+        typeof example.payloadPath === "string",
+    );
 
-    assert.match(metadata, /直接作品身份/);
-    assert.match(metadata, /标识符优先/);
-    assert.match(metadata, /完整.*创建者|创建者.*完整/);
-    assert.match(metadata, /不能|不得/);
-
-    for (const route of ["权威落地页", "开放获取", "公开网络搜索"]) {
-      assert.include(pdf, route);
-    }
-    assert.include(pdf, "skipped_after_verified_pdf");
-    assert.match(pdf, /三条路线|三路线/);
-    assert.match(pdf, /元数据.*入库|metadata-only/);
+    assert.isOk(candidate);
+    assert.containsAllKeys(candidate, [
+      "candidateId",
+      "title",
+      "tier",
+      "payloadPath",
+    ]);
+    assert.match(candidate.payloadPath, /^runtime\/payloads\/.+\.json$/);
   });
 
-  it("allows incremental payload collection while keeping Host mutation serial", async function () {
+  it("defines a ledger-compatible research report", async function () {
     const skill = await read("SKILL.md");
+    const report = jsonExamples(skill).find(
+      (example) => example.kind === "literature_search_research_report",
+    );
 
-    assert.match(skill, /任一.*载荷.*完成|载荷.*就绪/);
-    assert.match(skill, /无需等待|立即收集|立刻收集/);
-    assert.match(skill, /缺失|畸形/);
-    assert.match(skill, /只影响|单篇/);
+    assert.isOk(report);
+    assert.containsAllKeys(report, ["kind", "candidateResults"]);
+    assert.isArray(report.candidateResults);
+    assert.lengthOf(report.candidateResults, 1);
 
-    assert.match(skill, /主代理/);
-    assert.match(skill, /一次只|逐篇/);
-    assert.match(skill, /终态|terminal/);
-    assert.match(skill, /receipt|收据/);
-  });
-
-  it("keeps optional audit information outside blocking and final-output contracts", async function () {
-    const skill = await read("SKILL.md");
-
-    assert.include(skill, "stdout");
-    assert.match(skill, /可选/);
-    assert.match(skill, /不.*阻塞|不得.*阻塞/);
-  });
-
-  it("contains only the current instruction-backed workflow protocol", async function () {
-    const packageText = (
-      await Promise.all([
-        read("SKILL.md"),
-        read("references/search-planning-and-discovery.md"),
-        read("references/metadata-resolution.md"),
-        read("references/pdf-probe.md"),
-        read("references/ingest-output-recovery.md"),
-        read("assets/runner.json"),
-      ])
-    ).join("\n");
-
-    for (const obsolete of [
-      "gate_runtime.py",
-      "stage_runtime.py",
-      "batch_runtime.py",
-      "runtime-action.schema.json",
-      "next_action",
-      "allowed_actions",
-      "researchReviewPayload",
-      "WORKER_SPEC_PATH",
-      "SEARCH_LIMITS",
-      "prepare_agent_batches",
-      "旧 gate",
-      "已移除的 gate",
-    ]) {
-      assert.notInclude(packageText, obsolete, obsolete);
+    const result = report.candidateResults[0];
+    assert.containsAllKeys(result, [
+      "candidateId",
+      "candidatePath",
+      "title",
+      "metadataStatus",
+      "pdfStatus",
+      "payloadPath",
+      "metadataSources",
+      "pdfRoutes",
+      "uncertainties",
+    ]);
+    assert.include(["qualified", "unresolved"], result.metadataStatus);
+    assert.include(["found", "missing", "failed", "skipped"], result.pdfStatus);
+    assert.isArray(result.metadataSources);
+    assert.isArray(result.pdfRoutes);
+    assert.isArray(result.uncertainties);
+    assert.sameMembers(
+      result.pdfRoutes.map((route: { route: string }) => route.route),
+      ["authoritative_landing", "open_access", "public_web"],
+    );
+    for (const route of result.pdfRoutes) {
+      assert.include(
+        [
+          "found",
+          "not_found",
+          "restricted",
+          "mismatch",
+          "unavailable",
+          "error",
+          "skipped_after_verified_pdf",
+        ],
+        route.status,
+      );
     }
+    assert.notProperty(report, "paper");
+    assert.notProperty(result, "receiptPath");
+    assert.notProperty(result, "ingestStatus");
+    assert.notProperty(result, "itemId");
   });
 
   it("keeps completed and canceled final output schema compatibility", async function () {

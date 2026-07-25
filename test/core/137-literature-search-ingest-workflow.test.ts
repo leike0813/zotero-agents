@@ -749,7 +749,7 @@ describe("Literature Search Ingest workflow contract", function () {
       "阶段 20",
       "阶段 30",
       "阶段 40",
-      "阶段 70",
+      "阶段 50",
     ]) {
       assert.include(skill, `### ${stage}`, stage);
     }
