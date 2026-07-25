@@ -2,6 +2,7 @@ import { getBaseName, sanitizeFileNameSegment } from "./path.mjs";
 
 export const LITERATURE_BUNDLE_KIND = "zotero-agents-literature-bundle";
 export const LITERATURE_BUNDLE_SCHEMA_VERSION = 1;
+export const LITERATURE_BUNDLE_SOURCE_ONLY_KIND = "zotero-agents-literature-bundle-source-only";
 
 function normalizeText(value) {
   return String(value || "").trim();
@@ -438,6 +439,88 @@ export async function buildLiteratureBundleExport(args) {
   return { manifest, entries: payloadEntries, warnings };
 }
 
+export async function buildLiteratureBundleSourceOnlyExport(args) {
+  const { host, parents } = args;
+  const warnings = [];
+  const payloadEntries = [];
+  const itemRecords = [];
+  const usedNames = new Set();
+
+  function allocateName(base, ext) {
+    let candidate = `${base}.${ext}`;
+    if (!usedNames.has(candidate)) {
+      usedNames.add(candidate);
+      return candidate;
+    }
+    let n = 2;
+    while (true) {
+      candidate = `${base}_${n}.${ext}`;
+      if (!usedNames.has(candidate)) {
+        usedNames.add(candidate);
+        return candidate;
+      }
+      n += 1;
+    }
+  }
+
+  for (let index = 0; index < parents.length; index += 1) {
+    const parent = parents[index];
+    const bundleLocalId = `i${index + 1}`;
+    const rawTitle = normalizeText(parent.getField?.("title"));
+    const titleBase = rawTitle ? sanitizeFileNameSegment(rawTitle) : bundleLocalId;
+    let chosenAttachment = null;
+    for (const attachmentRef of parent.getAttachments?.() || []) {
+      const attachment = host.items.get(attachmentRef);
+      if (!attachment) continue;
+      const metadata = attachmentMetadata(attachment);
+      const sourcePath = await readableAttachmentPath(attachment, host);
+      if (!sourcePath) continue;
+      const baseName = getBaseName(sourcePath);
+      const isMarkdown =
+        /(?:markdown|text\/plain)/i.test(metadata.contentType) ||
+        /\.md$/i.test(baseName);
+      if (isMarkdown) {
+        chosenAttachment = { sourcePath, isMarkdown: true };
+        break;
+      }
+      const isPdf =
+        /application\/pdf/i.test(metadata.contentType) || /\.pdf$/i.test(baseName);
+      if (isPdf && !chosenAttachment) {
+        chosenAttachment = { sourcePath, isMarkdown: false };
+      }
+    }
+    if (!chosenAttachment) {
+      warnings.push({ code: "no_source_file", itemId: bundleLocalId });
+      itemRecords.push({ id: bundleLocalId, path: null });
+      continue;
+    }
+    const ext = chosenAttachment.isMarkdown ? "md" : "pdf";
+    const fileName = allocateName(titleBase, ext);
+    const entryPath = `items/${fileName}`;
+    if (chosenAttachment.isMarkdown) {
+      const text = await host.file.readText(chosenAttachment.sourcePath);
+      payloadEntries.push({ name: entryPath, text });
+    } else {
+      payloadEntries.push({ name: entryPath, sourcePath: chosenAttachment.sourcePath });
+    }
+    itemRecords.push({ id: bundleLocalId, path: entryPath });
+  }
+
+  const measured = await host.archive.measureEntries(payloadEntries);
+  const manifest = {
+    kind: LITERATURE_BUNDLE_SOURCE_ONLY_KIND,
+    createdAt: new Date().toISOString(),
+    source: {
+      zoteroVersion: normalizeText(globalThis.Zotero?.version),
+      addonVersion: normalizeText(host.addon?.getConfig?.()?.addonVersion),
+    },
+    warnings,
+    items: itemRecords,
+    files: measured.files,
+  };
+  return { manifest, entries: payloadEntries, warnings };
+}
+
 function parentIdsFromSelection(selection) {
   return (selection?.items?.parents || [])
     .map((entry) => Number(entry?.item?.id || 0))
@@ -460,6 +543,22 @@ export async function exportLiteratureBundle(args) {
     .map((id) => args.host.items.get(id))
     .filter((item) => item?.isRegularItem?.());
   if (!parents.length) throw new Error("export-literature-bundle requires at least one parent item");
+  if (args.sourceOnly) {
+    const built = await buildLiteratureBundleSourceOnlyExport({ host: args.host, parents });
+    await args.host.archive.writeZipAtomic({
+      targetPath,
+      entries: [
+        { name: "manifest.json", text: JSON.stringify(built.manifest, null, 2) },
+        ...built.entries,
+      ],
+    });
+    return {
+      kind: "literature_bundle_source_only_export",
+      status: "completed",
+      itemCount: built.manifest.items.length,
+      warnings: built.warnings,
+    };
+  }
   const built = await buildLiteratureBundleExport({ host: args.host, parents });
   await args.host.archive.writeZipAtomic({
     targetPath,

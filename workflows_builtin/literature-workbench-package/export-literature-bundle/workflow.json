@@ -42,6 +42,14 @@
     },
     "filters": []
   },
+  "parameters": {
+    "sourceOnly": {
+      "type": "boolean",
+      "title": "仅导出原文",
+      "description": "导出扁平结构的原文包，不包含笔记和分析工件，无法被「导入文献包」工作流导入。",
+      "default": false
+    }
+  },
   "hooks": {
     "applyResult": "hooks/applyResult.mjs"
   }
