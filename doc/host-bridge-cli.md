@@ -19,7 +19,7 @@ MCP server/protocol 作为面向第三方 Agent 的另一种 Host capability bro
 默认 host access 路径仍是 Host Bridge CLI；CLI 不可用时，默认记录诊断并
 继续当前 run 流程，不自动切换到显式 MCP 兼容路径。
 
-Minimum 通过 `host-bridge.agent-surface.v4` 发布命令路径、参数与输出
+Minimum 通过 `host-bridge.agent-surface.v5` 发布命令路径、完整参数元数据、结构化输入 schema、示例与命令级输出
 schema、副作用、审批、handle、恢复、目标和操作别名。研究任务选择属于
 Generic 层，常驻自动化属于 Hermes 层；两者不进入 CLI 的机制描述符或构建
 身份。

@@ -35,6 +35,30 @@ Many user requests require an ordered sequence rather than one command. Keep eac
 
 Do not let an earlier read, candidate list, validation result, or completed run imply authority for a later state change.
 
+## File, Product, and operation identity model
+
+File transfer, Product inspection, and operation recovery can appear in one task, but their identifiers are not interchangeable.
+
+- A local path identifies bytes already available to the agent.
+- A `fileId` identifies bridge-mediated transfer access and can expire or be consumed.
+- A Product ID identifies a Zotero plugin Product record, not one of its assets.
+- A Product asset has its own declared role, media type, size, checksum, and delivery route.
+- An operation ID identifies a durable state-changing or maintenance operation and its receipt.
+- A workflow artifact remains owned by its workflow or request contract until it is downloaded or applied through that contract.
+- A Zotero attachment is live library state and must be read through the library or mutation surface.
+
+Start from the identity returned by the owning command. Do not turn an absolute-looking Zotero path into a local path, infer a `fileId` from a Product, or use an operation ID as a run handle.
+
+Before download, identify the attachment, Product asset, artifact, or operation that owns the bytes; obtain its declared transfer instruction; choose an absolute local destination when required; inspect overwrite and checksum expectations; then download once and verify the result. Before upload, resolve the local file, identify the later semantic operation that will consume it, upload without treating the path as Zotero evidence, preserve the returned handle and integrity fields, and use that handle only in the declared next command. Upload alone does not attach or persist bytes in Zotero, and download alone does not prove a Product or workflow result complete.
+
+Inspect a Product before selecting an asset. Confirm its identity and producing workflow, inspect state and declared assets, select by role and media type rather than guessed filename, preserve size and checksum, request delivery through the current contract, and verify downloaded bytes independently. A terminal workflow with no expected Product is not successful output delivery; a missing required asset is not a complete deliverable; a downloaded Product is not automatically a Zotero attachment or note.
+
+When a prior command returns an operation receipt, interpret `stateChange`, `handleConsumption`, and `retryable` together before repeating anything. An unchanged state permits only the declared safe continuation; changed state requires a live read before another write; unknown state requires receipt and target inspection. A consumed or unknown handle must not be replayed. Never replace an unknown receipt with a fresh submission, upload, mutation, or maintenance call.
+
+For a workflow Product, verify the terminal run contract, inspect the declared Product, select the required asset, download through its current handle, verify checksum and bytes, and report missing expected assets separately. To attach a local artifact, verify the parent and current attachments, upload bytes, preserve the issued `fileId`, preview the exact attachment mutation, obtain current approval, apply once, and re-read attachments. To recover interrupted maintenance, preserve the operation ID and scope, read the durable receipt, inspect affected live state, separate completed, failed, unattempted, and unverifiable subjects, and construct only the residual action permitted by the receipt.
+
+Expired file access must be reacquired from the owner. A checksum mismatch must not be used as evidence. A missing Product asset must be reported rather than substituted. Unknown operation state blocks replay. A consumed handle must be reacquired from its owner. Partial transfer is reusable only when the command explicitly supports resume. Completion evidence is verified local bytes for transfer, inspected required assets for a Product, or a durable receipt plus live state for an operation.
+
 <!-- host-bridge-command-catalog:entries -->
 
 ## Completion check

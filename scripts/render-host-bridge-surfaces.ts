@@ -177,44 +177,227 @@ export const COMMAND_REFERENCE_PARTITIONS = [
   },
 ] as const;
 
-const COMMAND_REFERENCE_MARKER =
-  "<!-- host-bridge-command-reference:entries -->";
 const COMMAND_CATALOG_MARKER = "<!-- host-bridge-command-catalog:entries -->";
 const COMMAND_CATALOG_PATH = "references/command-catalog.md";
 
-function renderCommandCards(
-  template: string,
-  commands: ReturnType<
-    typeof buildHostBridgeAgentSurfaceDescriptor
-  >["commands"],
+function prettyJson(value: unknown) {
+  const serialized = JSON.stringify(value, null, 2);
+  const multiline =
+    serialized === "{}" ? "{\n}" : serialized === "[]" ? "[\n]" : serialized;
+  return ["```json", multiline, "```"].join("\n");
+}
+
+function tableCell(value: unknown) {
+  const text = Array.isArray(value) ? value.join(", ") : String(value ?? "");
+  return text.replaceAll("|", "\\|").replaceAll("\n", " ") || "—";
+}
+
+function commandReferencePaths(
+  descriptor: ReturnType<typeof buildHostBridgeAgentSurfaceDescriptor>,
 ) {
-  const entries = commands.flatMap((command) => [
-    `## \`zotero-bridge ${command.command}\``,
-    "",
-    command.summary,
-    "",
-    `- Argv: \`${JSON.stringify(command.argv)}\`.`,
-    `- Argv bindings: \`${JSON.stringify(command.argvBindings)}\`.`,
-    `- Invocation schema: \`${JSON.stringify(command.invocationSchema)}\`.`,
-    `- Payload schema: \`${JSON.stringify(command.payloadSchema)}\`.`,
-    `- Result schema: \`${JSON.stringify(command.resultSchema)}\`.`,
-    `- Pagination: \`${command.pagination}\`.`,
-    `- Category: \`${command.category}\`; danger: \`${command.danger}\`.`,
-    `- Effects: \`${JSON.stringify(command.effects)}\`.`,
-    `- Approval: \`${JSON.stringify(command.approvalContract)}\`.`,
-    `- Handle transitions: \`${JSON.stringify(command.handleTransitions)}\`.`,
-    `- Recovery: \`${JSON.stringify(command.recovery)}\`.`,
-    `- Targets: \`${JSON.stringify(command.targets)}\`.`,
-    `- Aliases: ${command.operationalAliases.map((alias) => `\`${alias}\``).join(", ") || "none"}.`,
-    `- Intent search: \`${command.hiddenFromIntentSearch ? "hidden" : "visible"}\`.`,
-    "",
-  ]);
-  if (template.split(COMMAND_REFERENCE_MARKER).length !== 2) {
-    throw new Error(
-      "Command reference template must contain exactly one entry marker",
-    );
+  const rootCounts = new Map<string, number>();
+  for (const command of descriptor.commands) {
+    const root = command.argv[0];
+    rootCounts.set(root, (rootCounts.get(root) || 0) + 1);
   }
-  return `${template.replace(COMMAND_REFERENCE_MARKER, entries.join("\n")).trimEnd()}\n`;
+  return new Map(
+    descriptor.commands.map((command) => {
+      const tokens = command.argv;
+      const local =
+        tokens.length === 1 || rootCounts.get(tokens[0]) === 1
+          ? join("commands", tokens[0], "index.md")
+          : join("commands", ...tokens) + ".md";
+      return [command.command, `references/${local.replace(/\\/g, "/")}`];
+    }),
+  );
+}
+
+function parameterTable(
+  arguments_: ReturnType<
+    typeof buildHostBridgeAgentSurfaceDescriptor
+  >["globalOptions"],
+  requiredWhen: Record<string, string[]> = {},
+) {
+  return [
+    "| Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ...arguments_.map((argument) =>
+      [
+        argument.token,
+        argument.id,
+        argument.kind,
+        argument.required ? "yes" : "no",
+        (requiredWhen[argument.id] || []).join("; "),
+        [
+          argument.valueNames.join(" / "),
+          argument.possibleValues.length
+            ? `values: ${argument.possibleValues.join(", ")}`
+            : "",
+          argument.numArgs ? `numArgs: ${argument.numArgs}` : "",
+          argument.defaultValues.length
+            ? `default: ${argument.defaultValues.join(", ")}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("; "),
+        argument.repeatable ? "yes" : "no",
+        argument.env || "",
+        argument.conflictsWith.join(", "),
+        argument.longHelp || argument.help,
+      ]
+        .map(tableCell)
+        .join(" | ")
+        .replace(/^/, "| ")
+        .replace(/$/, " |"),
+    ),
+  ].join("\n");
+}
+
+function usageToken(
+  argument: ReturnType<
+    typeof buildHostBridgeAgentSurfaceDescriptor
+  >["commands"][number]["arguments"][number],
+) {
+  const value = argument.takesValue
+    ? ` <${argument.valueNames.join("|") || "VALUE"}>`
+    : "";
+  const token = `${argument.token}${value}`;
+  return argument.required ? token : `[${token}]`;
+}
+
+function renderCommandCard(args: {
+  descriptor: ReturnType<typeof buildHostBridgeAgentSurfaceDescriptor>;
+  command: ReturnType<
+    typeof buildHostBridgeAgentSurfaceDescriptor
+  >["commands"][number];
+}) {
+  const requiredWhen = Object.fromEntries(
+    Object.entries(args.command.inputSchemas).map(([id, input]) => [
+      id,
+      input.requiredWhen,
+    ]),
+  );
+  const usage = [
+    "zotero-bridge",
+    args.command.command,
+    ...args.descriptor.globalOptions.map(usageToken),
+    ...args.command.arguments.map(usageToken),
+  ].join(" ");
+  const inputSections = Object.entries(args.command.inputSchemas).flatMap(
+    ([id, input]) => [
+      `### \`${input.token}\` (${id})`,
+      "",
+      `Required: \`${input.required}\`${input.requiredWhen.length ? `; condition: ${input.requiredWhen.join("; ")}` : ""}.`,
+      "",
+      prettyJson(input.schema),
+      "",
+    ],
+  );
+  const examples = Object.entries(args.command.inputSchemas).flatMap(
+    ([id, input]) =>
+      input.examples.flatMap((example) => [
+        `### ${id}: ${example.kind}`,
+        "",
+        example.description ||
+          `Governed ${example.kind} example for ${input.token}.`,
+        "",
+        "```console",
+        `zotero-bridge ${args.command.command} ${input.token} '${JSON.stringify(example.value)}'`,
+        "```",
+        "",
+        ...(example.prerequisites.length
+          ? [
+              "Prerequisites:",
+              "",
+              ...example.prerequisites.map((entry) => `- ${entry}`),
+              "",
+            ]
+          : []),
+      ]),
+  );
+  return [
+    `# \`zotero-bridge ${args.command.command}\``,
+    "",
+    args.command.summary,
+    "",
+    "## Usage",
+    "",
+    "```console",
+    usage,
+    "```",
+    "",
+    "The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.",
+    "",
+    "## Global parameters",
+    "",
+    parameterTable(args.descriptor.globalOptions),
+    "",
+    "## Local options and positionals",
+    "",
+    args.command.arguments.length
+      ? parameterTable(args.command.arguments, requiredWhen)
+      : "This command has no local parameters.",
+    "",
+    "## Invocation schema",
+    "",
+    prettyJson(args.command.invocationSchema),
+    "",
+    "## Structured input schemas",
+    "",
+    ...(inputSections.length
+      ? inputSections
+      : ["This command has no structured JSON input parameter.", ""]),
+    "## Composed payload schema",
+    "",
+    prettyJson(args.command.payloadSchema),
+    "",
+    "## Result schema",
+    "",
+    prettyJson(args.command.resultSchema),
+    "",
+    "## Examples",
+    "",
+    ...(examples.length
+      ? examples
+      : [
+          "No structured-input example applies. Build argv from the parameter tables and confirm the command with `surface describe` before execution.",
+          "",
+        ]),
+    "## Complete command descriptor",
+    "",
+    "This closed descriptor is the machine-readable command contract returned by `surface describe`; it is included here so the card remains independently auditable without loading another command reference.",
+    "",
+    prettyJson(args.command),
+    "",
+    "## Operational contract",
+    "",
+    `- Canonical argv path: ${args.command.argv.map((token) => `\`${token}\``).join(" ")}.`,
+    `- Pagination: \`${args.command.pagination}\`.`,
+    `- Category: \`${args.command.category}\`; danger: \`${args.command.danger}\`.`,
+    `- Intent visibility: \`${args.command.hiddenFromIntentSearch ? "hidden" : "visible"}\`.`,
+    `- Operational aliases: ${args.command.operationalAliases.map((alias) => `\`${alias}\``).join(", ") || "none"}.`,
+    "",
+    "### Effects",
+    "",
+    prettyJson(args.command.effects),
+    "",
+    "### Approval",
+    "",
+    prettyJson(args.command.approvalContract),
+    "",
+    "### Handle transitions",
+    "",
+    prettyJson(args.command.handleTransitions),
+    "",
+    "### Recovery",
+    "",
+    prettyJson(args.command.recovery),
+    "",
+    "### Targets",
+    "",
+    prettyJson(args.command.targets),
+    "",
+  ].join("\n");
 }
 
 function partitionCommands(
@@ -268,28 +451,38 @@ function partitionCommands(
 
 function renderCommandReferences(
   content: ContentMap,
-  commandsByPath: ReturnType<typeof partitionCommands>,
+  descriptor: ReturnType<typeof buildHostBridgeAgentSurfaceDescriptor>,
 ) {
-  for (const partition of COMMAND_REFERENCE_PARTITIONS) {
-    const template = content.get(partition.path);
-    if (!template) {
-      throw new Error(
-        `Missing ${partition.title} command reference template: ${partition.path}`,
-      );
-    }
-    const commands = commandsByPath.get(partition.path) || [];
-    if (commands.length === 0) {
-      throw new Error(
-        `Command reference partition ${partition.path} contains no commands`,
-      );
-    }
-    content.set(partition.path, renderCommandCards(template, commands));
+  for (const path of [...content.keys()]) {
+    if (path.startsWith("references/commands/")) content.delete(path);
   }
+  const paths = commandReferencePaths(descriptor);
+  const seen = new Set<string>();
+  for (const command of descriptor.commands) {
+    const path = paths.get(command.command);
+    if (!path || seen.has(path)) {
+      throw new Error(
+        `Command reference path must be unique for ${command.command}: ${path || "<missing>"}`,
+      );
+    }
+    seen.add(path);
+    content.set(
+      path,
+      `${renderCommandCard({ descriptor, command }).trimEnd()}\n`,
+    );
+  }
+  if (seen.size !== descriptor.commands.length) {
+    throw new Error(
+      `Command reference coverage mismatch: ${seen.size}/${descriptor.commands.length}`,
+    );
+  }
+  return paths;
 }
 
 function renderCommandCatalog(
   template: string,
   commandsByPath: ReturnType<typeof partitionCommands>,
+  referencePaths: Map<string, string>,
 ) {
   if (template.split(COMMAND_CATALOG_MARKER).length !== 2) {
     throw new Error(
@@ -298,7 +491,6 @@ function renderCommandCatalog(
   }
   const sections = COMMAND_REFERENCE_PARTITIONS.flatMap((partition) => {
     const commands = commandsByPath.get(partition.path) || [];
-    const detailPath = partition.path.replace(/^references\//, "");
     return [
       `## ${partition.catalogTitle}`,
       "",
@@ -308,14 +500,17 @@ function renderCommandCatalog(
       "",
       ...partition.cues.map((cue) => `- ${cue}.`),
       "",
-      `Read [the ${partition.title.toLocaleLowerCase()} command reference](${detailPath}) after selecting a candidate command. It contains the exact argv, schemas, effects, approval, handles, and recovery contract.`,
+      `Select one command below, then read its linked command card. Each card contains the exact argv, schemas, examples, effects, approval, handles, and recovery contract.`,
       "",
-      "| Canonical command | Purpose |",
-      "| --- | --- |",
-      ...commands.map(
-        (command) =>
-          `| \`zotero-bridge ${command.command}\` | ${command.summary.replaceAll("|", "\\|")} |`,
-      ),
+      "| Canonical command | Purpose | Command card |",
+      "| --- | --- | --- |",
+      ...commands.map((command) => {
+        const path = referencePaths.get(command.command);
+        if (!path)
+          throw new Error(`Missing command card for ${command.command}`);
+        const relativePath = path.replace(/^references\//, "");
+        return `| \`zotero-bridge ${command.command}\` | ${command.summary.replaceAll("|", "\\|")} | [Open card](${relativePath}) |`;
+      }),
       "",
       "Selection check:",
       "",
@@ -349,7 +544,7 @@ function coreSkillContent(args: {
     args.root,
   );
   const commandsByPath = partitionCommands(descriptor);
-  renderCommandReferences(content, commandsByPath);
+  const referencePaths = renderCommandReferences(content, descriptor);
   const commandCatalogTemplate = content.get(COMMAND_CATALOG_PATH);
   if (!commandCatalogTemplate) {
     throw new Error(
@@ -358,7 +553,11 @@ function coreSkillContent(args: {
   }
   content.set(
     COMMAND_CATALOG_PATH,
-    renderCommandCatalog(commandCatalogTemplate, commandsByPath),
+    renderCommandCatalog(
+      commandCatalogTemplate,
+      commandsByPath,
+      referencePaths,
+    ),
   );
   content.set(
     "assets/runner.json",

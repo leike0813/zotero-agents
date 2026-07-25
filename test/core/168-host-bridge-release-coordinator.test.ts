@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import Ajv from "ajv/dist/2020";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -617,9 +618,9 @@ describe("Host Bridge release coordinator", function () {
 
   it("creates a deterministic release set from exact CLI and surface identities", function () {
     const input = {
-      sourceCommit: "abc123",
+      sourceCommit: "abc1234",
       protocol: "host-bridge.v1",
-      cliSchema: "zotero-bridge.cli.v3",
+      cliSchema: "zotero-bridge.cli.v4",
       cli: {
         version: "0.2.2",
         buildFingerprint: "f".repeat(64),
@@ -649,7 +650,24 @@ describe("Host Bridge release coordinator", function () {
 
     const first = buildHostBridgeReleaseSet(input);
     const second = buildHostBridgeReleaseSet(input);
-    assert.strictEqual(first.schema, "host-bridge.release-set.v2");
+    const validateReleaseSet = new Ajv({ strict: false }).compile(
+      JSON.parse(
+        readFileSync(
+          join(process.cwd(), "schemas/host-bridge.release-set.v3.schema.json"),
+          "utf8",
+        ),
+      ),
+    );
+    assert.strictEqual(first.schema, "host-bridge.release-set.v3");
+    assert.isTrue(
+      validateReleaseSet(first),
+      JSON.stringify(validateReleaseSet.errors),
+    );
+    assert.strictEqual(first.cli.schema, "zotero-bridge-cli-release.v1");
+    assert.strictEqual(
+      first.cli.identity.schema,
+      "host-bridge.surface-identity.v5",
+    );
     assert.strictEqual(first.releaseSetId, second.releaseSetId);
     assert.match(first.releaseSetId, /^hbrs-[a-f0-9]{24}$/);
     assert.strictEqual(
@@ -677,7 +695,7 @@ describe("Host Bridge release coordinator", function () {
     const releaseSet = buildHostBridgeReleaseSet({
       sourceCommit: "abc123",
       protocol: "host-bridge.v1",
-      cliSchema: "zotero-bridge.cli.v3",
+      cliSchema: "zotero-bridge.cli.v4",
       cli: {
         version: "0.2.2",
         buildFingerprint: "f".repeat(64),

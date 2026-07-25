@@ -17,25 +17,129 @@ import { HOST_BRIDGE_HANDLE_KINDS } from "../../src/shared/hostBridgeAgentContra
 describe("Host Bridge agent surface contract", function () {
   this.timeout(30_000);
 
+  it("governs every command result and every structured input from one registry", function () {
+    const root = process.cwd();
+    const registrySchema = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          root,
+          "schemas/host-bridge-cli-command-contracts.v1.schema.json",
+        ),
+        "utf8",
+      ),
+    );
+    const registry = JSON.parse(
+      fs.readFileSync(
+        path.join(root, "schemas/host-bridge-cli-command-contracts.v1.json"),
+        "utf8",
+      ),
+    );
+    const validate = new Ajv({ strict: false }).compile(registrySchema);
+    assert.isTrue(validate(registry), JSON.stringify(validate.errors));
+
+    const catalog = buildHostBridgeSurfaceCatalog();
+    assert.deepEqual(
+      Object.keys(registry.commands).sort(),
+      catalog.commandInventory.map((entry) => entry.command).sort(),
+    );
+    for (const inventory of catalog.commandInventory) {
+      const contract = registry.commands[inventory.command];
+      assert.isObject(contract.resultSchema, inventory.command);
+      assert.strictEqual(
+        contract.resultSchema.type,
+        "object",
+        inventory.command,
+      );
+      assert.isObject(contract.resultSchema.properties, inventory.command);
+      assert.isAbove(
+        Object.keys(contract.resultSchema.properties).length,
+        0,
+        inventory.command,
+      );
+      assert.isTrue(
+        contract.resultSchema.additionalProperties === false ||
+          typeof contract.resultSchema["x-openPropertiesReason"] === "string",
+        inventory.command,
+      );
+      for (const [argumentId, input] of Object.entries<any>(
+        contract.inputs || {},
+      )) {
+        assert.isTrue(
+          inventory.arguments.some((argument) => argument.id === argumentId),
+          `${inventory.command}:${argumentId}`,
+        );
+        assert.isObject(input.schema, `${inventory.command}:${argumentId}`);
+        assert.isNotEmpty(input.examples, `${inventory.command}:${argumentId}`);
+        for (const example of input.examples) {
+          assert.include(
+            ["shape-only", "executable"],
+            example.kind,
+            `${inventory.command}:${argumentId}`,
+          );
+          const validateExample = new Ajv({ strict: false }).compile(
+            input.schema,
+          );
+          assert.isTrue(
+            validateExample(example.value),
+            `${inventory.command}:${argumentId}:${JSON.stringify(
+              validateExample.errors,
+            )}`,
+          );
+        }
+      }
+    }
+  });
+
   it("describes canonical commands with control and recovery metadata", function () {
     const catalog = buildHostBridgeSurfaceCatalog();
     const descriptor = buildHostBridgeAgentSurfaceDescriptor(catalog);
 
-    assert.strictEqual(descriptor.schema, "host-bridge.agent-surface.v4");
-    assert.strictEqual(descriptor.cliSchema, "zotero-bridge.cli.v3");
+    assert.strictEqual(descriptor.schema, "host-bridge.agent-surface.v5");
+    assert.strictEqual(descriptor.cliSchema, "zotero-bridge.cli.v4");
     assert.lengthOf(catalog.commandInventory, 125);
     assert.isNotEmpty(descriptor.globalOptions);
     assert.isTrue(
-      descriptor.globalOptions.every((entry) => Boolean(entry.description)),
+      descriptor.globalOptions.every((entry) => Boolean(entry.help)),
     );
     assert.notProperty(descriptor, "workflowCatalog");
     assert.deepEqual(
       descriptor.commands.map((entry) => entry.command),
       catalog.commandInventory.map((entry) => entry.command),
     );
+    assert.deepInclude(
+      descriptor.globalOptions.find((entry) => entry.id === "endpoint")!,
+      {
+        token: "--endpoint",
+        env: "ZOTERO_BRIDGE_ENDPOINT",
+        global: true,
+      },
+    );
+    assert.deepInclude(
+      descriptor.globalOptions.find((entry) => entry.id === "schema")!,
+      {
+        token: "--schema",
+        takesValue: false,
+        global: true,
+      },
+    );
     const commands = new Map(
       descriptor.commands.map((entry) => [entry.command, entry]),
     );
+    const submit = commands.get("workflow submit")!;
+    assert.deepInclude(
+      submit.arguments.find((entry) => entry.id === "max_concurrency")!,
+      {
+        token: "--max-concurrency",
+        takesValue: true,
+        repeatable: false,
+      },
+    );
+    assert.containsAllKeys(submit.inputSchemas, [
+      "selection",
+      "workflow_options",
+      "provider_profile",
+    ]);
+    assert.isNotEmpty(submit.inputSchemas.selection.examples);
     for (const command of [
       "surface identity",
       "surface describe",
@@ -259,12 +363,12 @@ describe("Host Bridge agent surface contract", function () {
     );
   });
 
-  it("validates the rendered mechanism-only Agent Surface v4 schema", function () {
+  it("validates the rendered mechanism-only Agent Surface v5 schema", function () {
     const root = process.cwd();
     const ajv = new Ajv({ strict: false });
     for (const [schemaPath, dataPath] of [
       [
-        "schemas/host-bridge.agent-surface.v4.schema.json",
+        "schemas/host-bridge.agent-surface.v5.schema.json",
         "cli/zotero-bridge/src/agent-surface.json",
       ],
     ]) {
@@ -290,7 +394,7 @@ describe("Host Bridge agent surface contract", function () {
       catalog,
       path.join(process.cwd(), "missing-generic-source-root"),
     );
-    assert.strictEqual(descriptor.schema, "host-bridge.agent-surface.v4");
+    assert.strictEqual(descriptor.schema, "host-bridge.agent-surface.v5");
     assert.match(descriptor.commandCatalogChecksum, /^[a-f0-9]{64}$/);
   });
 
@@ -299,8 +403,8 @@ describe("Host Bridge agent surface contract", function () {
       buildHostBridgeSurfaceCatalog(),
     );
     assert.deepEqual(findAgentLanguageViolations(descriptor), []);
-    assert.strictEqual(descriptor.schema, "host-bridge.agent-surface.v4");
-    assert.strictEqual(descriptor.cliSchema, "zotero-bridge.cli.v3");
+    assert.strictEqual(descriptor.schema, "host-bridge.agent-surface.v5");
+    assert.strictEqual(descriptor.cliSchema, "zotero-bridge.cli.v4");
   });
 
   it("rejects internal prose while allowing formal bridge identifiers", function () {
@@ -309,7 +413,7 @@ describe("Host Bridge agent surface contract", function () {
     );
     assert.deepEqual(
       findAgentLanguageViolations({
-        schema: "host-bridge.agent-surface.v4",
+        schema: "host-bridge.agent-surface.v5",
         protocol: "host-bridge.v1",
         route: "/bridge/v1/manifest",
         profile: "ZOTERO_BRIDGE_HOST_PROFILE",
@@ -390,7 +494,7 @@ describe("Host Bridge agent surface contract", function () {
       buildFingerprint: "f".repeat(64),
       descriptor,
     });
-    assert.strictEqual(identity.schema, "host-bridge.surface-identity.v4");
+    assert.strictEqual(identity.schema, "host-bridge.surface-identity.v5");
     assert.strictEqual(identity.version, "0.2.2");
     assert.match(identity.commandCatalogChecksum, /^[a-f0-9]{64}$/);
 

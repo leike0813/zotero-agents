@@ -19,7 +19,8 @@ export type HostBridgeCliIdentity = {
   schema:
     | "host-bridge.surface-identity.v1"
     | "host-bridge.surface-identity.v2"
-    | "host-bridge.surface-identity.v3";
+    | "host-bridge.surface-identity.v3"
+    | "host-bridge.surface-identity.v5";
   protocol: string;
   cliSchema: string;
   version: string;
@@ -225,7 +226,7 @@ export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
     );
   }
   const cliIdentity: HostBridgeCliIdentity = {
-    schema: "host-bridge.surface-identity.v3",
+    schema: "host-bridge.surface-identity.v5",
     protocol: input.protocol,
     cliSchema: input.cliSchema,
     version: input.cli.version,
@@ -264,7 +265,7 @@ export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
     ]),
   ) as Record<keyof HostBridgeReleaseSetInput["surfaces"], unknown>;
   return {
-    schema: "host-bridge.release-set.v2" as const,
+    schema: "host-bridge.release-set.v3" as const,
     releaseSetId,
     status: "planned" as const,
     payloadDigest,
@@ -275,7 +276,20 @@ export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
     protocol: input.protocol,
     cliSchema: input.cliSchema,
     cli: {
-      ...input.cli,
+      schema: "zotero-bridge-cli-release.v1" as const,
+      version: input.cli.version,
+      buildFingerprint: input.cli.buildFingerprint,
+      binariesBuildFingerprint: input.cli.binariesBuildFingerprint,
+      commandCatalogChecksum: input.cli.commandCatalogChecksum,
+      binaryAggregateSha256: input.cli.binaryAggregateSha256,
+      binaries: input.cli.binaries.map(
+        ({ platform, binary, sha256, bytes }) => ({
+          platform,
+          binary,
+          sha256,
+          bytes,
+        }),
+      ),
       identity: cliIdentity,
       prebuild: {
         verified: true as const,

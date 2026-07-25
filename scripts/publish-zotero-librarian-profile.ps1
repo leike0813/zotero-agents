@@ -66,7 +66,7 @@ if (-not (Test-Path -LiteralPath $profileRoot -PathType Container)) {
 }
 Assert-File $releaseSetPath
 $releaseSet = Get-Content -LiteralPath $releaseSetPath -Raw | ConvertFrom-Json
-if ([string]$releaseSet.schema -notin @("host-bridge.release-set.v1", "host-bridge.release-set.v2")) {
+if ([string]$releaseSet.schema -notin @("host-bridge.release-set.v1", "host-bridge.release-set.v2", "host-bridge.release-set.v3")) {
   throw "Invalid Host Bridge release set"
 }
 $platforms = @($releaseSet.cli.binaries | ForEach-Object {

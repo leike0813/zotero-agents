@@ -4,16 +4,35 @@ mod commands;
 mod config;
 mod error;
 mod output;
+mod schema;
 mod surface;
 
-use clap::{error::ErrorKind, Parser};
+use clap::{error::ErrorKind, CommandFactory, FromArgMatches};
 
 use args::{Cli, Command};
 use error::CliError;
 use output::{print_error, print_success};
 
 fn main() {
-    let cli = match Cli::try_parse() {
+    let argv = std::env::args().collect::<Vec<_>>();
+    if schema::is_schema_request(&argv) {
+        match schema::run(&argv) {
+            Ok(data) => print_success(data),
+            Err(error) => {
+                let code = error.exit_code();
+                print_error(error);
+                std::process::exit(code);
+            }
+        }
+        return;
+    }
+
+    let mut command = Cli::command();
+    schema::augment_command_help(&mut command);
+    let cli = match command
+        .try_get_matches_from(argv)
+        .and_then(|matches| Cli::from_arg_matches(&matches))
+    {
         Ok(cli) => cli,
         Err(error)
             if matches!(

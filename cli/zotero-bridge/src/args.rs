@@ -39,6 +39,14 @@ pub struct Cli {
     )]
     pub operation_id: Option<String>,
 
+    #[arg(
+        long,
+        global = true,
+        help = "Print raw structured-input schemas for one canonical leaf command",
+        long_help = "Print the versioned raw JSON Schemas and governed examples for one canonical leaf command. Schema mode is offline and does not load a profile, read Zotero Bridge configuration, or connect to Zotero."
+    )]
+    pub schema: bool,
+
     #[command(subcommand)]
     pub command: Command,
 }

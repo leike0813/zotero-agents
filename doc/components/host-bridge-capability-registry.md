@@ -9,7 +9,7 @@ system.
 
 Within the agent-facing architecture, this registry supplies runtime mechanism
 facts for the Minimum layer. The generated
-`host-bridge.agent-surface.v4` descriptor and CLI mappings expose those facts
+`host-bridge.agent-surface.v5` descriptor and CLI mappings expose those facts
 as commands, schemas, effects, approvals, handles, recovery, targets, and
 operational aliases. Research-task policy and Hermes resident policy are not
 registry responsibilities; their ownership and composition are defined in

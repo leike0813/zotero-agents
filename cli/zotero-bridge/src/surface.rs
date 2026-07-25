@@ -32,7 +32,7 @@ pub fn cli_schema() -> Result<String, CliError> {
     descriptor()?
         .get("cliSchema")
         .and_then(Value::as_str)
-        .filter(|value| *value == "zotero-bridge.cli.v3")
+        .filter(|value| *value == "zotero-bridge.cli.v4")
         .map(str::to_string)
         .ok_or_else(|| {
             CliError::internal(
@@ -44,7 +44,7 @@ pub fn cli_schema() -> Result<String, CliError> {
 
 fn identity(descriptor: &Value) -> Value {
     json!({
-        "schema": "host-bridge.surface-identity.v4",
+        "schema": "host-bridge.surface-identity.v5",
         "protocol": descriptor.get("protocol").and_then(Value::as_str).unwrap_or(""),
         "cliSchema": descriptor.get("cliSchema").and_then(Value::as_str).unwrap_or(""),
         "version": env!("CARGO_PKG_VERSION"),
@@ -164,10 +164,10 @@ mod tests {
     use crate::args::SurfaceSearchArgs;
 
     #[test]
-    fn identity_uses_embedded_v4_contract() {
+    fn identity_uses_embedded_v5_contract() {
         let value = identity(&descriptor().unwrap());
-        assert_eq!(value["schema"], "host-bridge.surface-identity.v4");
-        assert_eq!(value["cliSchema"], "zotero-bridge.cli.v3");
+        assert_eq!(value["schema"], "host-bridge.surface-identity.v5");
+        assert_eq!(value["cliSchema"], "zotero-bridge.cli.v4");
     }
 
     #[test]

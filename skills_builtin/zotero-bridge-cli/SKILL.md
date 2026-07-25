@@ -202,13 +202,4 @@ Match the evidence to the operation:
 
 ## References
 
-When the canonical command is unknown, first read [the command catalog](references/command-catalog.md). After selecting a canonical command, read only the reference whose listed root matches the command's first token. Each file is exhaustive for its roots; the active executable's `surface describe` result wins before a live operation.
-
-- Read [connection and context commands](references/commands/connection-and-context.md) when the command begins with `surface`, `bridge`, or `context`.
-- Read [library commands](references/commands/library.md) when the command begins with `library`.
-- Read [mutation commands](references/commands/mutation.md) when the command begins with `mutation`.
-- Read [file, Product, and operation commands](references/commands/files-products-and-operations.md) when the command begins with `file`, `product`, or `operation`.
-- Read [workflow commands](references/commands/workflow.md) when the command begins with `workflow`.
-- Read [run commands](references/commands/run.md) when the command begins with `run`.
-- Read [Synthesis commands](references/commands/synthesis.md) when the command begins with `synthesis`.
-- Read [diagnostic commands](references/commands/diagnostics.md) when the command begins with `debug` or `call`.
+When the canonical command is unknown, first read [the command catalog](references/command-catalog.md). The catalog links exactly one generated card for every canonical leaf command. After selecting a command, load only that card; it is independently complete for inherited globals, local argv, structured inputs, schemas, examples, effects, approval, handles, targets, and recovery. The active executable's `surface describe` result wins before a live operation.

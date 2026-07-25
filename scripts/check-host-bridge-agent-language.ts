@@ -39,7 +39,7 @@ const AGENT_LANGUAGE_FILES = [
   "cli/zotero-bridge/src/config.rs",
   "cli/zotero-bridge/src/agent-surface.json",
   "scripts/host-bridge-agent-surface.ts",
-  "schemas/host-bridge.agent-surface.v4.schema.json",
+  "schemas/host-bridge.agent-surface.v5.schema.json",
 ] as const;
 
 export interface AgentLanguageViolation {

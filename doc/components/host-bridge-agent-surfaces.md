@@ -27,7 +27,7 @@ research tasks, Zotero-side approval, Zotero-managed state, or the public
 bridge topology to decide whether a Skill applies.
 
 Machine contracts keep their established identity. Protocol and schema values
-such as `host-bridge.v1` and `host-bridge.agent-surface.v4`, `/bridge/v1/**`
+such as `host-bridge.v1` and `host-bridge.agent-surface.v5`, `/bridge/v1/**`
 routes, `ZOTERO_BRIDGE_HOST_PROFILE`, `ZOTERO_BRIDGE_HOST_HOME`, and code
 identifiers are not rewritten as prose. The shared agent-language gate checks
 authored surface sources, generated packages, CLI-visible strings, and the
@@ -54,23 +54,24 @@ every direct and inherited component.
 ## Minimum: mechanism contract
 
 Minimum exposes `zotero-bridge` and the offline
-`host-bridge.agent-surface.v4` descriptor. The descriptor contains only
-operational facts: global options, command paths, input and output schemas,
-effects, approvals, typed handles, recovery rules, targets, summaries, and
-operational aliases. `surface identity`, `surface describe`, and
+`host-bridge.agent-surface.v5` descriptor. The descriptor contains only
+operational facts: complete global and local argument metadata, command paths,
+structured input schemas and examples, composed payload and command result
+schemas, effects, approvals, typed handles, recovery rules, targets, summaries,
+and operational aliases. `surface identity`, `surface describe`, and
 `surface search` therefore discover mechanism contracts without selecting a
-research task.
+research task. The versioned command-contract registry is the payload/result
+fact source shared by the descriptor, `--schema`, help examples, and generated
+command references; Clap remains the argv fact source.
 
 The `zotero-bridge-cli` Skill is the complete operating contract for this
 layer. Its `SKILL.md` defines the command loop, approval and handle behavior,
 output recovery, and failure path without requiring a prose reference. It
-directly links a generated intent-first command catalog plus eight exhaustive
-source-generated command references selected by canonical command root:
-connection/context, library, mutation, files/Products/operations, workflow,
-run, synthesis, and diagnostics. The catalog maps natural-language operating
-intent and all canonical command names to one detail file; it does not repeat
-the full command cards. The renderer rejects unassigned or multiply assigned
-roots and commands. Every command card contains argv bindings,
+directly links a generated intent-first command catalog. The catalog groups
+all canonical leaf commands by command root and links each command to exactly
+one source-generated command card; it does not repeat the full command cards.
+The renderer rejects unassigned, orphaned, or multiply assigned commands and
+paths. Every command card contains global and local argv bindings,
 invocation/payload/result schemas, pagination, effects and state-change facts,
 approval scope, handle transitions, recovery, targets, aliases, and
 intent-search visibility, so an agent can choose and load one operational

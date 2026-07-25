@@ -104,7 +104,7 @@ function isAgentControlContract(path: string) {
     path === "cli/zotero-bridge/src/surface.rs" ||
     path === "cli/zotero-bridge/src/error.rs" ||
     path === "scripts/host-bridge-agent-surface.ts" ||
-    path === "schemas/host-bridge.agent-surface.v4.schema.json" ||
+    path === "schemas/host-bridge.agent-surface.v5.schema.json" ||
     path === "src/modules/hostBridgeWorkflowAgentRunStore.ts"
   );
 }
@@ -123,7 +123,7 @@ function isReleaseContract(path: string) {
     path === "scripts/prepare-host-bridge-release.ts" ||
     path === "schemas/host-bridge.release-set.v1.schema.json" ||
     path === "schemas/host-bridge.release-receipt.v1.schema.json" ||
-    path === "schemas/host-bridge.release-set.v2.schema.json" ||
+    path === "schemas/host-bridge.release-set.v3.schema.json" ||
     path === "schemas/host-bridge.release-receipt.v2.schema.json" ||
     path === ".github/workflows/build-host-bridge-cli-prebuilds.yml" ||
     path === ".github/workflows/release-host-bridge.yml"

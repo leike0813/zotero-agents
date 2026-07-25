@@ -7,6 +7,10 @@ import {
   HOST_BRIDGE_SURFACE_IDENTITY_SCHEMA,
 } from "../src/shared/hostBridgeAgentContract";
 import type { HostBridgeHandleKind } from "../src/shared/hostBridgeAgentContract";
+import {
+  loadHostBridgeCommandContracts,
+  type HostBridgeCommandInputContract,
+} from "./host-bridge-command-contracts";
 import type {
   HostBridgeCliInventoryEntry,
   HostBridgeCliMapping,
@@ -55,6 +59,27 @@ export type HostBridgeArgvBinding = {
   valueNames: string[];
 };
 
+export type HostBridgeAgentArgument = {
+  id: string;
+  kind: "option" | "positional";
+  token: string;
+  position?: number;
+  shortToken?: string;
+  takesValue: boolean;
+  required: boolean;
+  global: boolean;
+  help: string;
+  longHelp?: string;
+  valueNames: string[];
+  possibleValues: string[];
+  conflictsWith: string[];
+  repeatable: boolean;
+  numArgs?: string;
+  env?: string;
+  aliases: string[];
+  defaultValues: string[];
+};
+
 export type HostBridgeAgentCommand = {
   command: string;
   argv: string[];
@@ -62,7 +87,9 @@ export type HostBridgeAgentCommand = {
   category: "read" | "navigation" | "write" | "maintenance" | "debug";
   danger: "none" | "review" | "high";
   invocationSchema: Record<string, unknown>;
+  arguments: HostBridgeAgentArgument[];
   argvBindings: HostBridgeArgvBinding[];
+  inputSchemas: Record<string, HostBridgeCommandInputContract>;
   payloadSchema: Record<string, unknown>;
   resultSchema: Record<string, unknown>;
   pagination: "none" | "cursor" | "file";
@@ -80,18 +107,11 @@ export type HostBridgeAgentCommand = {
 };
 
 export type HostBridgeAgentSurfaceDescriptor = {
-  schema: "host-bridge.agent-surface.v4";
+  schema: "host-bridge.agent-surface.v5";
   protocol: "host-bridge.v1";
-  cliSchema: "zotero-bridge.cli.v3";
+  cliSchema: "zotero-bridge.cli.v4";
   commandCatalogChecksum: string;
-  globalOptions: Array<{
-    id: string;
-    token: string;
-    shortToken?: string;
-    takesValue: boolean;
-    valueNames: string[];
-    description: string;
-  }>;
+  globalOptions: HostBridgeAgentArgument[];
   commands: HostBridgeAgentCommand[];
 };
 
@@ -366,397 +386,40 @@ function argvBindings(
   });
 }
 
-const DECODED_PAYLOAD_FIELDS: Record<string, Record<string, unknown>> = {
-  "library item search": {
-    text: { type: "string" },
-    limit: { type: "integer", minimum: 1, maximum: 100 },
-  },
-  "library items list": {
-    collectionKey: { type: "string" },
-    tag: { type: "string" },
-    itemType: { type: "string" },
-    query: { type: "string" },
-    cursor: { type: ["string", "null"] },
-    limit: { type: "integer", minimum: 1, maximum: 200 },
-  },
-  "library snapshot": {
-    collectionKey: { type: "string" },
-    collectionId: { type: ["integer", "string"] },
-    tag: { type: "string" },
-    itemType: { type: "string" },
-    query: { type: "string" },
-    cursor: { type: ["string", "null"] },
-    limit: { type: "integer", minimum: 1, maximum: 200 },
-  },
-  "synthesis resolver resolve": {
-    tag: { type: ["string", "array", "object"] },
-    collection_key: { type: ["string", "array"] },
-    paper_refs: { type: "array", items: { type: "string" } },
-    combine: { enum: ["union", "intersection"], default: "union" },
-  },
-  "synthesis topic get-context": {
-    topicId: { type: "string" },
-    view: { enum: ["digest", "semantic", "audit", "full"] },
-    outputPath: { type: "string" },
-    output_path: { type: "string" },
-    overwrite: { type: "boolean" },
-  },
-};
-
-function payloadSchema(
-  inventory: HostBridgeCliInventoryEntry,
-  capabilities: HostBridgeSurfaceCatalog["capabilities"],
-) {
-  const decoded = DECODED_PAYLOAD_FIELDS[inventory.command];
-  const backendProperties = Object.assign(
-    {},
-    ...capabilities.map((capability) => capability.inputProperties),
-  ) as Record<string, unknown>;
-  const structured = Object.keys(backendProperties).length
-    ? backendProperties
-    : decoded;
-  if (structured) {
-    return {
-      type: "object",
-      properties: structured,
-      required: unique(
-        capabilities.flatMap(
-          (capability) => capability.inputRequiredProperties,
-        ),
-      ),
-      additionalProperties: false,
-    };
-  }
-  const properties = Object.fromEntries(
-    inventory.arguments
-      .filter((argument) => argument.takesValue)
-      .map((argument) => [
-        (argument.long || argument.id).replace(/-/g, "_"),
-        { type: "string", description: argument.help || undefined },
-      ]),
-  );
+function agentArgument(
+  argument: HostBridgeCliInventoryEntry["arguments"][number],
+): HostBridgeAgentArgument {
+  const positional = Boolean(argument.position);
+  const token = positional
+    ? argument.valueNames[0] || argument.id.toUpperCase()
+    : argument.long
+      ? `--${argument.long}`
+      : argument.short
+        ? `-${argument.short}`
+        : argument.id;
   return {
-    type: "object",
-    properties,
-    required: [],
-    additionalProperties: false,
-  };
-}
-
-function collectionField(command: string) {
-  if (command === "workflow queue list") return "units";
-  if (command === "product list") return "products";
-  if (command.includes("notification")) return "events";
-  if (command.includes("permission pending")) return "permissions";
-  if (command.includes("workflow recent")) return "runs";
-  if (command.includes("skill recent")) return "skillRuns";
-  if (command.includes("skill events")) return "events";
-  if (command.includes("topic list")) return "topics";
-  if (command.includes("graph")) return "graph";
-  if (command.includes("index")) return "entries";
-  return "items";
-}
-
-function resultSchema(
-  command: string,
-  mappings: HostBridgeCliMapping[],
-  pagination: HostBridgeAgentCommand["pagination"],
-  handles: { consumes?: string[]; returns?: string[] },
-) {
-  if (
-    command === "run notification list" ||
-    command === "run notification wait"
-  ) {
-    return {
-      type: "object",
-      properties: {
-        notifications: { type: "array", items: { type: "object" } },
-        nextSinceEventId: { type: ["string", "null"] },
-        returned: { type: "integer" },
-        hasMore: { type: "boolean" },
-        truncated: { type: "boolean" },
-      },
-      required: ["notifications", "returned", "hasMore", "truncated"],
-      additionalProperties: false,
-    };
-  }
-  if (command === "workflow submit") {
-    return {
-      type: "object",
-      properties: {
-        workflowId: { type: "string" },
-        workflowLabel: { type: "string" },
-        admission: { enum: ["direct", "host-queue"] },
-        workflowRunId: { type: "string" },
-        submissionId: { type: "string" },
-        jobIds: { type: "array", items: { type: "string" } },
-        totalJobs: { type: "integer" },
-        tasks: { type: "array", items: { type: "object" } },
-        totalUnits: { type: "integer" },
-        queuedUnits: { type: "integer" },
-        skippedUnits: { type: "integer" },
-        submissionUrl: { type: "string" },
-        queueUrl: { type: "string" },
-        permission: { type: "object" },
-      },
-      required: ["workflowId", "workflowLabel", "admission", "permission"],
-      oneOf: [
-        {
-          properties: { admission: { const: "direct" } },
-          required: ["workflowRunId", "jobIds", "totalJobs", "tasks"],
-        },
-        {
-          properties: { admission: { const: "host-queue" } },
-          required: [
-            "submissionId",
-            "totalUnits",
-            "queuedUnits",
-            "skippedUnits",
-            "submissionUrl",
-            "queueUrl",
-          ],
-        },
-      ],
-      additionalProperties: false,
-    };
-  }
-  if (command === "workflow queue list") {
-    return {
-      type: "object",
-      properties: {
-        units: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              queueId: { type: "string" },
-              submissionId: { type: "string" },
-              unitId: { type: "string" },
-              taskName: { type: "string" },
-              memberCount: { type: "integer" },
-              backendType: { enum: ["acp", "skillrunner"] },
-              backendId: { type: "string" },
-              canCancel: { const: true },
-            },
-            required: [
-              "queueId",
-              "submissionId",
-              "unitId",
-              "taskName",
-              "memberCount",
-              "backendType",
-              "backendId",
-              "canCancel",
-            ],
-            additionalProperties: true,
-          },
-        },
-      },
-      required: ["units"],
-      additionalProperties: false,
-    };
-  }
-  if (command === "workflow queue cancel") {
-    return {
-      type: "object",
-      properties: {
-        status: { const: "canceled" },
-        queueId: { type: "string" },
-      },
-      required: ["status", "queueId"],
-      additionalProperties: false,
-    };
-  }
-  if (command === "workflow submission get") {
-    return {
-      type: "object",
-      properties: {
-        submissionId: { type: "string" },
-        workflowId: { type: "string" },
-        workflowLabel: { type: "string" },
-        backendType: { enum: ["acp", "skillrunner"] },
-        backendId: { type: "string" },
-        total: { type: "integer" },
-        initiallySkipped: { type: "integer" },
-        pending: { type: "integer" },
-        admitted: { type: "integer" },
-        settled: { type: "integer" },
-        units: { type: "array", items: { type: "object" } },
-      },
-      required: [
-        "submissionId",
-        "workflowId",
-        "backendType",
-        "backendId",
-        "total",
-        "pending",
-        "admitted",
-        "settled",
-        "units",
-      ],
-      additionalProperties: false,
-    };
-  }
-  if (command === "workflow agent-run") {
-    return {
-      type: "object",
-      properties: {
-        agentRunId: { type: "string" },
-        workflowId: { type: "string" },
-        workflowLabel: { type: "string" },
-        generatedAt: { type: "string" },
-        expiresAt: { type: "string" },
-        requests: { type: "array", items: { type: "object" } },
-        instruction: { type: "string" },
-        applyStatus: { type: "object" },
-        bundle: { type: "object" },
-        contents: { type: "object" },
-        notes: { type: "array", items: { type: "string" } },
-      },
-      required: ["agentRunId", "workflowId", "expiresAt", "requests", "bundle"],
-      additionalProperties: false,
-    };
-  }
-  if (command === "workflow agent-apply-status") {
-    return {
-      type: "object",
-      properties: {
-        schema: { const: "host-bridge.agent-apply-receipt.v2" },
-        agentRunId: { type: "string" },
-        workflowId: { type: "string" },
-        status: { type: "string" },
-        updatedAt: { type: "string" },
-        stateChange: { enum: ["unchanged", "changed", "unknown"] },
-        handleConsumption: { enum: ["unconsumed", "consumed", "unknown"] },
-        recoverable: { type: "boolean" },
-        results: { type: "array", items: { type: "object" } },
-      },
-      required: ["schema", "agentRunId", "status", "results"],
-      additionalProperties: false,
-    };
-  }
-  if (
-    command === "workflow agent-renew" ||
-    command === "workflow agent-abandon"
-  ) {
-    return {
-      type: "object",
-      properties: {
-        agentRunId: { type: "string" },
-        workflowId: { type: "string" },
-        state: { type: "string" },
-        leaseExpiresAt: { type: "string" },
-        retentionExpiresAt: { type: "string" },
-        renewable: { type: "boolean" },
-        abandonable: { type: "boolean" },
-        renewedAt: { type: "string" },
-        abandonedAt: { type: "string" },
-      },
-      required: [
-        "agentRunId",
-        "workflowId",
-        "state",
-        "leaseExpiresAt",
-        "retentionExpiresAt",
-        "renewable",
-        "abandonable",
-      ],
-      additionalProperties: false,
-    };
-  }
-  if (command === "operation get") {
-    return {
-      type: "object",
-      properties: {
-        schema: { const: "host-bridge.operation-receipt.v1" },
-        operationId: { type: "string" },
-        requestDigest: { type: "string" },
-        attemptId: { type: "string" },
-        method: { type: "string" },
-        path: { type: "string" },
-        state: { enum: ["in_progress", "completed", "outcome_unknown"] },
-        createdAt: { type: "string" },
-        updatedAt: { type: "string" },
-        retentionExpiresAt: { type: "string" },
-        stateChange: { enum: ["unchanged", "changed", "unknown"] },
-        handleConsumption: { enum: ["unconsumed", "consumed", "unknown"] },
-        response: { type: "object" },
-      },
-      required: [
-        "schema",
-        "operationId",
-        "requestDigest",
-        "attemptId",
-        "method",
-        "path",
-        "state",
-        "createdAt",
-        "updatedAt",
-        "retentionExpiresAt",
-        "stateChange",
-        "handleConsumption",
-      ],
-      additionalProperties: false,
-    };
-  }
-  const capability = mappings.some((entry) => entry.kind === "capability");
-  const properties: Record<string, unknown> = capability
-    ? {
-        capability: { type: "string" },
-        approval: { type: "object" },
-        data: {
-          description:
-            "Capability-owned result data. A command-specific output contract may narrow this object in a later surface revision.",
-        },
-      }
-    : {};
-  for (const handle of handles.returns || []) {
-    properties[handle] = { type: "string" };
-  }
-  if (pagination === "cursor") {
-    properties[collectionField(command)] = { type: "array" };
-    properties.nextCursor = { type: ["string", "number", "null"] };
-    properties.hasMore = { type: "boolean" };
-  }
-  if (pagination === "file") {
-    properties.file = {
-      type: "object",
-      properties: {
-        fileId: { type: "string" },
-        path: { type: "string" },
-        checksum: { type: "string" },
-        bytes: { type: "integer" },
-      },
-      additionalProperties: true,
-    };
-    properties.delivery = {
-      type: "object",
-      description:
-        "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
-      properties: {
-        mode: { enum: ["local", "bridge-download", "bundle"] },
-        path: { type: "string" },
-        files: { type: "array", items: { type: "object" } },
-        bundle: {
-          type: "object",
-          properties: {
-            fileId: { type: "string" },
-            displayName: { type: "string" },
-            contentType: { type: "string" },
-            size: { type: "integer" },
-          },
-          additionalProperties: true,
-        },
-        downloadCommand: { type: "string" },
-        unpackHint: { type: "string" },
-      },
-      additionalProperties: false,
-    };
-  }
-  return {
-    type: "object",
-    properties,
-    additionalProperties: !capability,
+    id: argument.id,
+    kind: positional ? "positional" : "option",
+    token,
+    ...(argument.position ? { position: argument.position } : {}),
+    ...(argument.short && argument.long
+      ? { shortToken: `-${argument.short}` }
+      : {}),
+    takesValue: argument.takesValue,
+    required: argument.required,
+    global: argument.global,
+    help: argument.help?.trim() || argument.id,
+    ...(argument.longHelp?.trim()
+      ? { longHelp: argument.longHelp.trim() }
+      : {}),
+    valueNames: argument.valueNames,
+    possibleValues: argument.possibleValues,
+    conflictsWith: argument.conflictsWith,
+    repeatable: argument.repeatable,
+    ...(argument.numArgs ? { numArgs: argument.numArgs } : {}),
+    ...(argument.env ? { env: argument.env } : {}),
+    aliases: argument.aliases,
+    defaultValues: argument.defaultValues,
   };
 }
 
@@ -963,6 +626,7 @@ export function buildHostBridgeAgentSurfaceDescriptor(
   catalog: HostBridgeSurfaceCatalog,
   _root = process.cwd(),
 ): HostBridgeAgentSurfaceDescriptor {
+  const registry = loadHostBridgeCommandContracts();
   const byCommand = new Map<string, HostBridgeCliMapping[]>();
   for (const mapping of [...catalog.cliMappings, ...catalog.endpointMappings]) {
     const entries = byCommand.get(mapping.command) || [];
@@ -985,7 +649,7 @@ export function buildHostBridgeAgentSurfaceDescriptor(
     byCommand.set(command, [
       {
         command,
-        target: "embedded host-bridge.agent-surface.v4",
+        target: "embedded host-bridge.agent-surface.v5",
         kind: "service",
       },
     ]);
@@ -1004,6 +668,19 @@ export function buildHostBridgeAgentSurfaceDescriptor(
   if (missing.length || orphan.length) {
     throw new Error(
       `Agent Surface binding mismatch; missing=[${missing.join(", ")}], orphan=[${orphan.join(", ")}]`,
+    );
+  }
+
+  const contractCommands = new Set(Object.keys(registry.commands));
+  const missingContracts = [...inventoryCommands].filter(
+    (command) => !contractCommands.has(command),
+  );
+  const orphanContracts = [...contractCommands].filter(
+    (command) => !inventoryCommands.has(command),
+  );
+  if (missingContracts.length || orphanContracts.length) {
+    throw new Error(
+      `Command-contract mismatch; missing=[${missingContracts.join(", ")}], orphan=[${orphanContracts.join(", ")}]`,
     );
   }
 
@@ -1037,6 +714,23 @@ export function buildHostBridgeAgentSurfaceDescriptor(
       const pagination = paginationFor(inventory.command, catalog);
       const effects = effectsFor(inventory.command, category);
       const stateChanged = effects.some((effect) => effect.stateChanged);
+      const contract = registry.commands[inventory.command];
+      for (const [argumentId, input] of Object.entries(contract.inputs)) {
+        const argument = inventory.arguments.find(
+          (candidate) => candidate.id === argumentId,
+        );
+        if (!argument) {
+          throw new Error(
+            `${inventory.command} contract names missing argument ${argumentId}`,
+          );
+        }
+        const token = argument.long ? `--${argument.long}` : argument.id;
+        if (input.token !== token || input.required !== argument.required) {
+          throw new Error(
+            `${inventory.command} contract metadata differs for ${argumentId}`,
+          );
+        }
+      }
       return {
         command: inventory.command,
         argv: inventory.argv,
@@ -1048,14 +742,11 @@ export function buildHostBridgeAgentSurfaceDescriptor(
             ? "review"
             : "none",
         invocationSchema: invocationSchema(inventory),
+        arguments: inventory.arguments.map(agentArgument),
         argvBindings: argvBindings(inventory),
-        payloadSchema: payloadSchema(inventory, capabilities),
-        resultSchema: resultSchema(
-          inventory.command,
-          mappings,
-          pagination,
-          handles,
-        ),
+        inputSchemas: contract.inputs,
+        payloadSchema: contract.payloadSchema,
+        resultSchema: contract.resultSchema,
         pagination,
         effects,
         approvalContract: {
@@ -1127,19 +818,7 @@ export function buildHostBridgeAgentSurfaceDescriptor(
   }
 
   const globalOptions = catalog.globalArguments
-    .map((argument) => {
-      if (!argument.help?.trim()) {
-        throw new Error(`global option ${argument.id} has no description`);
-      }
-      return {
-        id: argument.id,
-        token: argument.long ? `--${argument.long}` : argument.id,
-        ...(argument.short ? { shortToken: `-${argument.short}` } : {}),
-        takesValue: argument.takesValue,
-        valueNames: argument.valueNames,
-        description: argument.help.trim(),
-      };
-    })
+    .map(agentArgument)
     .sort((left, right) => left.token.localeCompare(right.token));
   const descriptor = {
     schema: HOST_BRIDGE_AGENT_SURFACE_SCHEMA,

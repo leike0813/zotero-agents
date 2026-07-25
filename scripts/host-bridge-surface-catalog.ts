@@ -47,6 +47,10 @@ export type HostBridgeCliInventoryArgument = {
   takesValue: boolean;
   global: boolean;
   help: string | null;
+  longHelp: string | null;
+  env: string | null;
+  aliases: string[];
+  defaultValues: string[];
   valueNames: string[];
   possibleValues: string[];
   conflictsWith: string[];

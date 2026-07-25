@@ -275,6 +275,7 @@ mod tests {
             endpoint: None,
             profile: Some(PathBuf::from(&profile)),
             operation_id: None,
+            schema: false,
             command: bridge_status_command(),
         };
         let config = BridgeConfig::load(&cli).unwrap();
@@ -313,6 +314,7 @@ mod tests {
             endpoint: None,
             profile: Some(PathBuf::from(&profile)),
             operation_id: None,
+            schema: false,
             command: bridge_status_command(),
         };
         let config = BridgeConfig::load(&cli).unwrap();
@@ -358,6 +360,7 @@ mod tests {
             endpoint: None,
             profile: Some(PathBuf::from(&profile)),
             operation_id: None,
+            schema: false,
             command: bridge_status_command(),
         };
         let config = BridgeConfig::load(&cli).unwrap();
@@ -405,6 +408,7 @@ mod tests {
             endpoint: None,
             profile: Some(PathBuf::from(&profile)),
             operation_id: None,
+            schema: false,
             command: bridge_status_command(),
         };
         let config = BridgeConfig::load(&cli).unwrap();
@@ -455,6 +459,7 @@ mod tests {
             endpoint: None,
             profile: Some(PathBuf::from(&profile)),
             operation_id: None,
+            schema: false,
             command: bridge_status_command(),
         };
         let config = BridgeConfig::load(&cli).unwrap();

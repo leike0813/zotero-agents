@@ -15,6 +15,19 @@ fn argument(command: &Command, arg: &Arg, position: Option<usize>) -> Value {
         "takesValue": arg.get_action().takes_values(),
         "global": arg.is_global_set(),
         "help": arg.get_help().map(|value| value.to_string()),
+        "longHelp": arg.get_long_help().map(|value| value.to_string()),
+        "env": arg.get_env().map(|value| value.to_string_lossy().to_string()),
+        "aliases": arg
+            .get_aliases()
+            .unwrap_or_default()
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>(),
+        "defaultValues": arg
+            .get_default_values()
+            .iter()
+            .map(|value| value.to_string_lossy().to_string())
+            .collect::<Vec<_>>(),
         "valueNames": arg
             .get_value_names()
             .map(|values| values.iter().map(|value| value.to_string()).collect::<Vec<_>>())

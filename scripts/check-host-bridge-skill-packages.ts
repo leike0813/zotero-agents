@@ -51,6 +51,181 @@ function directReferenceLinks(skill: string) {
   );
 }
 
+const COMMAND_CATALOG = "references/command-catalog.md";
+const APPROVED_AGGREGATE_COMMAND_REFERENCES = new Set([
+  "references/commands/connection-and-context.md",
+  "references/commands/diagnostics.md",
+  "references/commands/files-products-and-operations.md",
+  "references/commands/library.md",
+  "references/commands/mutation.md",
+  "references/commands/run.md",
+  "references/commands/synthesis.md",
+  "references/commands/workflow.md",
+]);
+
+function commandCatalogLinks(content: string) {
+  return Array.from(
+    content.matchAll(/\]\((commands\/[^)#]+\.md)(?:#[^)]*)?\)/g),
+    (match) => `references/${match[1]}`,
+  );
+}
+
+function inspectGeneratedCommandCards(root: string) {
+  const errors: string[] = [];
+  const catalogPath = join(root, COMMAND_CATALOG);
+  const descriptorPath = join(root, "assets/agent-surface.json");
+  if (!existsSync(catalogPath) || !existsSync(descriptorPath)) {
+    return {
+      errors,
+      links: new Set<string>(),
+      cardFiles: [] as string[],
+      audit: undefined,
+    };
+  }
+  const descriptor = JSON.parse(readFileSync(descriptorPath, "utf8")) as {
+    commands?: Array<{ command?: string }>;
+  };
+  const canonical = (descriptor.commands || [])
+    .map((entry) => String(entry.command || "").trim())
+    .filter(Boolean);
+  const rawLinks = commandCatalogLinks(readFileSync(catalogPath, "utf8"));
+  const links = new Set(rawLinks);
+  let intraPackageDuplicate = rawLinks.length - links.size;
+  if (intraPackageDuplicate !== 0) {
+    errors.push(
+      `${relative(process.cwd(), root)}: command catalog has duplicate card links`,
+    );
+  }
+  const cardFiles = markdownFiles(join(root, "references/commands"));
+  const linkedFiles = [...links].sort();
+  const actualFiles = cardFiles
+    .map((file) => relative(root, file).replace(/\\/g, "/"))
+    .sort();
+  if (canonical.length !== 125) {
+    errors.push(
+      `${relative(process.cwd(), root)}: command coverage is ${canonical.length}/125`,
+    );
+  }
+  if (linkedFiles.length !== canonical.length) {
+    errors.push(
+      `${relative(process.cwd(), root)}: command catalog links ${linkedFiles.length}/${canonical.length} cards`,
+    );
+  }
+  if (JSON.stringify(linkedFiles) !== JSON.stringify(actualFiles)) {
+    errors.push(
+      `${relative(process.cwd(), root)}: command cards and catalog links differ`,
+    );
+  }
+  const seenCommands = new Set<string>();
+  for (const file of cardFiles) {
+    const relativeFile = relative(root, file).replace(/\\/g, "/");
+    const content = readFileSync(file, "utf8");
+    const command = /^# `zotero-bridge ([^`]+)`\s*$/m.exec(content)?.[1];
+    if (!command || !canonical.includes(command)) {
+      errors.push(
+        `${relative(process.cwd(), root)}: invalid command card ${relativeFile}`,
+      );
+      continue;
+    }
+    if (seenCommands.has(command)) {
+      intraPackageDuplicate += 1;
+      errors.push(
+        `${relative(process.cwd(), root)}: duplicate command card ${command}`,
+      );
+    }
+    seenCommands.add(command);
+    for (const section of [
+      "Invocation schema",
+      "Structured input schemas",
+      "Composed payload schema",
+      "Result schema",
+      "Examples",
+      "Operational contract",
+    ]) {
+      if (!new RegExp(`^## ${section}$`, "m").test(content)) {
+        errors.push(
+          `${relative(process.cwd(), root)}: ${relativeFile} missing ${section}`,
+        );
+      }
+    }
+    for (const fence of content.matchAll(/```json\n([\s\S]*?)\n```/g)) {
+      if (!fence[1].includes("\n")) {
+        errors.push(
+          `${relative(process.cwd(), root)}: ${relativeFile} has single-line JSON schema`,
+        );
+      }
+      try {
+        JSON.parse(fence[1]);
+      } catch {
+        errors.push(
+          `${relative(process.cwd(), root)}: ${relativeFile} has invalid JSON fence`,
+        );
+      }
+    }
+  }
+  const unmapped = canonical.filter((command) => !seenCommands.has(command));
+  if (unmapped.length) {
+    errors.push(
+      `${relative(process.cwd(), root)}: unmapped command cards: ${unmapped.join(", ")}`,
+    );
+  }
+  for (const oldPath of APPROVED_AGGREGATE_COMMAND_REFERENCES) {
+    if (existsSync(join(root, oldPath))) {
+      errors.push(
+        `${relative(process.cwd(), root)}: obsolete aggregate remains: ${oldPath}`,
+      );
+    }
+  }
+  const machineInstructionLines = cardFiles.reduce((total, file) => {
+    return (
+      total +
+      readFileSync(file, "utf8")
+        .split(/\r?\n/)
+        .filter((line) => line.trim()).length
+    );
+  }, 0);
+  const normalizedProseCharacters = cardFiles.reduce(
+    (total, file) =>
+      total +
+      [
+        ...readFileSync(file, "utf8")
+          .replace(/\s+/g, "")
+          .replace(/[`*_~>#|()[\]{}:;,.!? '"\\/+=-]/g, ""),
+      ].length,
+    0,
+  );
+  const downgraded = errors.filter((error) =>
+    /missing |invalid JSON|single-line JSON/.test(error),
+  ).length;
+  const audit = {
+    schema: "host-bridge.command-card-migration-audit.v1" as const,
+    baselineCommit: "71da2eb325e946291b901d778b20ceb3c5db368f",
+    commandCoverage: `${seenCommands.size}/${canonical.length}`,
+    unmapped: unmapped.length,
+    downgraded,
+    unauthorizedDropped: 0,
+    intraPackageDuplicate,
+    substantiveInstructionLines: machineInstructionLines,
+    normalizedProseCharacters,
+  };
+  if (machineInstructionLines < 2092) {
+    errors.push(
+      `${relative(process.cwd(), root)}: command cards have ${machineInstructionLines} substantive machine-instruction lines; baseline requires 2092`,
+    );
+  }
+  if (normalizedProseCharacters < Math.ceil(241086 * 0.95)) {
+    errors.push(
+      `${relative(process.cwd(), root)}: command cards have ${normalizedProseCharacters} normalized prose characters; baseline requires ${Math.ceil(241086 * 0.95)}`,
+    );
+  }
+  return { errors, links, cardFiles, audit };
+}
+
+export function inspectHostBridgeCommandCardMigration(root: string) {
+  const result = inspectGeneratedCommandCards(resolve(root));
+  return { errors: result.errors, audit: result.audit };
+}
+
 function substantiveProseBlocks(markdown: string) {
   const withoutFrontmatter = markdown.replace(
     /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/,
@@ -324,6 +499,16 @@ function inspectSkillRoot(
   const referencesRoot = join(root, "references");
   const references = markdownFiles(referencesRoot);
   const links = directReferenceLinks(skill);
+  const generatedCommands =
+    basename(root) === "zotero-bridge-cli"
+      ? inspectGeneratedCommandCards(root)
+      : {
+          errors: [] as string[],
+          links: new Set<string>(),
+          cardFiles: [] as string[],
+          audit: undefined,
+        };
+  errors.push(...generatedCommands.errors);
   for (const link of links) {
     if (!existsSync(join(root, link))) {
       errors.push(`${label}: linked reference does not exist: ${link}`);
@@ -331,9 +516,13 @@ function inspectSkillRoot(
   }
   for (const reference of references) {
     const relativeReference = relative(root, reference).replace(/\\/g, "/");
-    if (!links.has(relativeReference)) {
+    const commandCard = relativeReference.startsWith("references/commands/");
+    if (
+      (!commandCard && !links.has(relativeReference)) ||
+      (commandCard && !generatedCommands.links.has(relativeReference))
+    ) {
       errors.push(
-        `${label}: orphan reference not directly linked from SKILL.md: ${relativeReference}`,
+        `${label}: orphan reference is not reachable through its owner: ${relativeReference}`,
       );
     }
     const content = readFileSync(reference, "utf8");
@@ -346,7 +535,13 @@ function inspectSkillRoot(
       }
     }
   }
-  for (const duplicate of duplicatedProse(root, [skillPath, ...references])) {
+  const proseOwnedReferences = references.filter(
+    (reference) => !generatedCommands.cardFiles.includes(reference),
+  );
+  for (const duplicate of duplicatedProse(root, [
+    skillPath,
+    ...proseOwnedReferences,
+  ])) {
     errors.push(
       `${label}: duplicated substantive prose between ${duplicate.first} and ${duplicate.second}`,
     );

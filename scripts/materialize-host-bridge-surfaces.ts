@@ -20,7 +20,10 @@ import {
 } from "./host-bridge-surface-model";
 
 type ReleaseSet = {
-  schema: "host-bridge.release-set.v1" | "host-bridge.release-set.v2";
+  schema:
+    | "host-bridge.release-set.v1"
+    | "host-bridge.release-set.v2"
+    | "host-bridge.release-set.v3";
   releaseSetId: string;
   source: { commit: string };
   cli: {
@@ -138,7 +141,8 @@ export function materializeHostBridgeSurfaces(args: {
     (readJson(join(root, "host-bridge/release-set.json")) as ReleaseSet);
   if (
     releaseSet.schema !== "host-bridge.release-set.v1" &&
-    releaseSet.schema !== "host-bridge.release-set.v2"
+    releaseSet.schema !== "host-bridge.release-set.v2" &&
+    releaseSet.schema !== "host-bridge.release-set.v3"
   ) {
     throw new Error("Host Bridge release set schema mismatch");
   }
@@ -256,7 +260,7 @@ function stagingReleaseSet(root: string): ReleaseSet {
     );
   }
   return {
-    schema: "host-bridge.release-set.v2",
+    schema: "host-bridge.release-set.v3",
     releaseSetId: "staging",
     source: { commit: "staging" },
     cli: {

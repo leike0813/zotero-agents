@@ -41,23 +41,6 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-const COMMAND_REFERENCE_PARTITIONS = [
-  {
-    path: "commands/connection-and-context.md",
-    roots: ["surface", "bridge", "context"],
-  },
-  { path: "commands/library.md", roots: ["library"] },
-  { path: "commands/mutation.md", roots: ["mutation"] },
-  {
-    path: "commands/files-products-and-operations.md",
-    roots: ["file", "product", "operation"],
-  },
-  { path: "commands/workflow.md", roots: ["workflow"] },
-  { path: "commands/run.md", roots: ["run"] },
-  { path: "commands/synthesis.md", roots: ["synthesis"] },
-  { path: "commands/diagnostics.md", roots: ["debug", "call"] },
-] as const;
-
 const COMMAND_CATALOG_PATH = "references/command-catalog.md";
 
 async function pathExists(target: string) {
@@ -71,15 +54,22 @@ async function pathExists(target: string) {
 
 async function readCommandReferences(packageRoot: string) {
   const result = new Map<string, string>();
-  for (const partition of COMMAND_REFERENCE_PARTITIONS) {
-    result.set(
-      partition.path,
-      await fs.readFile(
-        path.join(packageRoot, "references", partition.path),
-        "utf8",
-      ),
-    );
+  const root = path.join(packageRoot, "references", "commands");
+  async function visit(directory: string) {
+    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+      const target = path.join(directory, entry.name);
+      if (entry.isDirectory()) await visit(target);
+      else if (entry.isFile() && entry.name.endsWith(".md")) {
+        result.set(
+          path
+            .relative(path.join(packageRoot, "references"), target)
+            .replaceAll(path.sep, "/"),
+          await fs.readFile(target, "utf8"),
+        );
+      }
+    }
   }
+  await visit(root);
   return result;
 }
 
@@ -214,17 +204,10 @@ describe("host bridge cli packaging and install", function () {
     ]) {
       assert.include(skill, heading);
     }
-    for (const partition of COMMAND_REFERENCE_PARTITIONS) {
-      assert.include(skill, `references/${partition.path}`);
-    }
     assert.include(skill, COMMAND_CATALOG_PATH);
     assert.isTrue(await pathExists(path.join(root, COMMAND_CATALOG_PATH)));
-    assert.deepEqual(
-      references,
-      COMMAND_REFERENCE_PARTITIONS.map(({ path: referencePath }) =>
-        path.basename(referencePath),
-      ).sort(),
-    );
+    assert.deepEqual(references, []);
+    assert.notMatch(skill, /references\/commands\//);
     assert.notInclude(skill, "operating-contract.md");
     assert.notInclude(skill, "zotero-library-agent");
     assert.notInclude(skill, "host-bridge-shared");
@@ -1016,20 +999,14 @@ describe("host bridge cli packaging and install", function () {
       "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli",
     );
     const renderedCommands: string[] = [];
-    for (const partition of COMMAND_REFERENCE_PARTITIONS) {
-      const reference = references.get(partition.path) || "";
-      assert.strictEqual(reference, hermesReferences.get(partition.path));
+    assert.strictEqual(references.size, 125);
+    for (const [referencePath, reference] of references) {
+      assert.strictEqual(reference, hermesReferences.get(referencePath));
       const commands = [
-        ...reference.matchAll(/^## `zotero-bridge (.+)`$/gm),
+        ...reference.matchAll(/^# `zotero-bridge (.+)`$/gm),
       ].map((match) => match[1]);
+      assert.lengthOf(commands, 1, referencePath);
       renderedCommands.push(...commands);
-      for (const command of commands) {
-        assert.include(
-          partition.roots,
-          command.split(" ")[0] as (typeof partition.roots)[number],
-          `${command} is rendered in ${partition.path}`,
-        );
-      }
     }
     assert.deepEqual(
       [...renderedCommands].sort(),
@@ -1062,9 +1039,6 @@ describe("host bridge cli packaging and install", function () {
       "utf8",
     );
     assert.strictEqual(catalog, hermesCatalog);
-    for (const partition of COMMAND_REFERENCE_PARTITIONS) {
-      assert.include(catalog, `commands/${path.basename(partition.path)}`);
-    }
     for (const command of descriptor.commands) {
       const row = `| \`zotero-bridge ${command.command}\` |`;
       assert.strictEqual(
@@ -1073,6 +1047,11 @@ describe("host bridge cli packaging and install", function () {
         `${command.command} must appear once in the compact command index`,
       );
       assert.include(catalog, command.summary);
+      const catalogRow = catalog
+        .split(/\r?\n/)
+        .find((line) => line.startsWith(row));
+      assert.isString(catalogRow, command.command);
+      assert.match(catalogRow || "", /\[Open card\]\(commands\/[^)]+\.md\)/);
     }
     for (const cardLabel of [
       "- Argv:",
@@ -1088,12 +1067,23 @@ describe("host bridge cli packaging and install", function () {
 
   it("keeps every materialized minimum reference above the hard depth floor", async function () {
     const referenceRoot = "skills_builtin/zotero-bridge-cli/references";
+    const references = await readCommandReferences(
+      "skills_builtin/zotero-bridge-cli",
+    );
     const files = [
-      COMMAND_CATALOG_PATH.replace(/^references\//, ""),
-      ...COMMAND_REFERENCE_PARTITIONS.map((partition) => partition.path),
+      [
+        COMMAND_CATALOG_PATH.replace(/^references\//, ""),
+        await fs.readFile(
+          path.join(
+            referenceRoot,
+            COMMAND_CATALOG_PATH.replace(/^references\//, ""),
+          ),
+          "utf8",
+        ),
+      ] as const,
+      ...references.entries(),
     ];
-    for (const file of files) {
-      const content = await fs.readFile(path.join(referenceRoot, file), "utf8");
+    for (const [file, content] of files) {
       assert.isAtLeast(
         content.split(/\r?\n/).length,
         200,
@@ -1107,15 +1097,18 @@ describe("host bridge cli packaging and install", function () {
       path.join(process.cwd(), "cli/zotero-bridge/src/commands.rs"),
       "utf8",
     );
-    const wrapperReference = await fs.readFile(
-      "skills_builtin/zotero-bridge-cli/references/commands/library.md",
-      "utf8",
-    );
-    for (const command of [
-      "zotero-bridge library items list",
-      "zotero-bridge library snapshot",
-      "zotero-bridge library readiness missing-analysis",
+    for (const [file, command] of [
+      ["library/items/list.md", "zotero-bridge library items list"],
+      ["library/snapshot.md", "zotero-bridge library snapshot"],
+      [
+        "library/readiness/missing-analysis.md",
+        "zotero-bridge library readiness missing-analysis",
+      ],
     ]) {
+      const wrapperReference = await fs.readFile(
+        `skills_builtin/zotero-bridge-cli/references/commands/${file}`,
+        "utf8",
+      );
       assert.include(wrapperReference, command);
     }
     for (const type of [
@@ -1133,7 +1126,7 @@ describe("host bridge cli packaging and install", function () {
       "utf8",
     );
     const wrapperReference = await fs.readFile(
-      "skills_builtin/zotero-bridge-cli/references/commands/synthesis.md",
+      "skills_builtin/zotero-bridge-cli/references/commands/synthesis/topic/get-context.md",
       "utf8",
     );
 
@@ -2867,9 +2860,8 @@ describe("host bridge cli packaging and install", function () {
       assert.include(source, "ZOTERO_BRIDGE_TOKEN");
       assert.include(source, "Platform override is not supported");
     }
-    for (const partition of COMMAND_REFERENCE_PARTITIONS) {
-      assert.include(wrapperSkill, `references/${partition.path}`);
-    }
+    assert.include(wrapperSkill, COMMAND_CATALOG_PATH);
+    assert.notMatch(wrapperSkill, /references\/commands\//);
     assert.notInclude(wrapperSkill, "references/operating-contract.md");
   });
 
@@ -2888,19 +2880,15 @@ describe("host bridge cli packaging and install", function () {
 
     assert.lengthOf(descriptor.commands, 125);
     for (const label of [
-      "- Argv: ",
-      "- Argv bindings: ",
-      "- Invocation schema: ",
-      "- Payload schema: ",
-      "- Result schema: ",
-      "- Pagination: ",
-      "- Effects: ",
-      "- Approval: ",
-      "- Handle transitions: ",
-      "- Recovery: ",
-      "- Targets: ",
-      "- Aliases: ",
-      "- Intent search: ",
+      "## Global parameters",
+      "## Local options and positionals",
+      "## Invocation schema",
+      "## Structured input schemas",
+      "## Composed payload schema",
+      "## Result schema",
+      "## Examples",
+      "## Complete command descriptor",
+      "## Operational contract",
     ]) {
       assert.strictEqual(count(label), descriptor.commands.length, label);
     }
