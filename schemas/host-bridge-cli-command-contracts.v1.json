@@ -1079,11 +1079,7 @@
             "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
             "properties": {
               "mode": {
-                "enum": [
-                  "local",
-                  "bridge-download",
-                  "bundle"
-                ]
+                "enum": ["local", "bridge-download", "bundle"]
               },
               "path": {
                 "type": "string"
@@ -1358,11 +1354,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -1381,22 +1373,14 @@
             "maxLength": 500
           },
           "limit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "libraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           }
         },
-        "required": [
-          "query"
-        ],
+        "required": ["query"],
         "additionalProperties": false
       },
       "inputs": {
@@ -1413,22 +1397,14 @@
                 "maxLength": 500
               },
               "limit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "libraryId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               }
             },
-            "required": [
-              "query"
-            ],
+            "required": ["query"],
             "additionalProperties": false
           },
           "examples": [
@@ -1469,26 +1445,17 @@
         "type": "object",
         "properties": {
           "libraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "collection": {},
           "collectionId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "collectionKey": {
             "type": "string"
           },
           "collectionLibraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "tag": {
             "type": "string"
@@ -1500,10 +1467,7 @@
             "type": "string"
           },
           "limit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "cursor": {
@@ -1522,26 +1486,17 @@
             "type": "object",
             "properties": {
               "libraryId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "collection": {},
               "collectionId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "collectionKey": {
                 "type": "string"
               },
               "collectionLibraryId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "tag": {
                 "type": "string"
@@ -1553,10 +1508,7 @@
                 "type": "string"
               },
               "limit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "cursor": {
@@ -1597,11 +1549,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -1662,11 +1610,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -1727,11 +1671,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -1785,26 +1725,17 @@
         "type": "object",
         "properties": {
           "libraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "collection": {},
           "collectionId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "collectionKey": {
             "type": "string"
           },
           "collectionLibraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "tag": {
             "type": "string"
@@ -1816,10 +1747,7 @@
             "type": "string"
           },
           "limit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "cursor": {
@@ -1827,18 +1755,10 @@
           },
           "checks": {},
           "missingOnly": {
-            "type": [
-              "boolean",
-              "string",
-              "number"
-            ]
+            "type": ["boolean", "string", "number"]
           },
           "missing_only": {
-            "type": [
-              "boolean",
-              "string",
-              "number"
-            ]
+            "type": ["boolean", "string", "number"]
           }
         },
         "required": [],
@@ -1853,26 +1773,17 @@
             "type": "object",
             "properties": {
               "libraryId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "collection": {},
               "collectionId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "collectionKey": {
                 "type": "string"
               },
               "collectionLibraryId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "tag": {
                 "type": "string"
@@ -1884,10 +1795,7 @@
                 "type": "string"
               },
               "limit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "cursor": {
@@ -1895,18 +1803,10 @@
               },
               "checks": {},
               "missingOnly": {
-                "type": [
-                  "boolean",
-                  "string",
-                  "number"
-                ]
+                "type": ["boolean", "string", "number"]
               },
               "missing_only": {
-                "type": [
-                  "boolean",
-                  "string",
-                  "number"
-                ]
+                "type": ["boolean", "string", "number"]
               }
             },
             "required": [],
@@ -1943,11 +1843,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -1961,26 +1857,17 @@
         "type": "object",
         "properties": {
           "libraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "collection": {},
           "collectionId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "collectionKey": {
             "type": "string"
           },
           "collectionLibraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "tag": {
             "type": "string"
@@ -1992,10 +1879,7 @@
             "type": "string"
           },
           "limit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "cursor": {
@@ -2003,18 +1887,10 @@
           },
           "checks": {},
           "missingOnly": {
-            "type": [
-              "boolean",
-              "string",
-              "number"
-            ]
+            "type": ["boolean", "string", "number"]
           },
           "missing_only": {
-            "type": [
-              "boolean",
-              "string",
-              "number"
-            ]
+            "type": ["boolean", "string", "number"]
           }
         },
         "required": [],
@@ -2029,26 +1905,17 @@
             "type": "object",
             "properties": {
               "libraryId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "collection": {},
               "collectionId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "collectionKey": {
                 "type": "string"
               },
               "collectionLibraryId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "tag": {
                 "type": "string"
@@ -2060,10 +1927,7 @@
                 "type": "string"
               },
               "limit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "cursor": {
@@ -2071,18 +1935,10 @@
               },
               "checks": {},
               "missingOnly": {
-                "type": [
-                  "boolean",
-                  "string",
-                  "number"
-                ]
+                "type": ["boolean", "string", "number"]
               },
               "missing_only": {
-                "type": [
-                  "boolean",
-                  "string",
-                  "number"
-                ]
+                "type": ["boolean", "string", "number"]
               }
             },
             "required": [],
@@ -2119,11 +1975,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -2137,26 +1989,17 @@
         "type": "object",
         "properties": {
           "libraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "collection": {},
           "collectionId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "collectionKey": {
             "type": "string"
           },
           "collectionLibraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "tag": {
             "type": "string"
@@ -2168,10 +2011,7 @@
             "type": "string"
           },
           "limit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "cursor": {
@@ -2179,18 +2019,10 @@
           },
           "checks": {},
           "missingOnly": {
-            "type": [
-              "boolean",
-              "string",
-              "number"
-            ]
+            "type": ["boolean", "string", "number"]
           },
           "missing_only": {
-            "type": [
-              "boolean",
-              "string",
-              "number"
-            ]
+            "type": ["boolean", "string", "number"]
           }
         },
         "required": [],
@@ -2205,26 +2037,17 @@
             "type": "object",
             "properties": {
               "libraryId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "collection": {},
               "collectionId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "collectionKey": {
                 "type": "string"
               },
               "collectionLibraryId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "tag": {
                 "type": "string"
@@ -2236,10 +2059,7 @@
                 "type": "string"
               },
               "limit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "cursor": {
@@ -2247,18 +2067,10 @@
               },
               "checks": {},
               "missingOnly": {
-                "type": [
-                  "boolean",
-                  "string",
-                  "number"
-                ]
+                "type": ["boolean", "string", "number"]
               },
               "missing_only": {
-                "type": [
-                  "boolean",
-                  "string",
-                  "number"
-                ]
+                "type": ["boolean", "string", "number"]
               }
             },
             "required": [],
@@ -2295,11 +2107,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -2313,26 +2121,17 @@
         "type": "object",
         "properties": {
           "libraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "collection": {},
           "collectionId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "collectionKey": {
             "type": "string"
           },
           "collectionLibraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "tag": {
             "type": "string"
@@ -2344,10 +2143,7 @@
             "type": "string"
           },
           "limit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "cursor": {
@@ -2355,18 +2151,10 @@
           },
           "checks": {},
           "missingOnly": {
-            "type": [
-              "boolean",
-              "string",
-              "number"
-            ]
+            "type": ["boolean", "string", "number"]
           },
           "missing_only": {
-            "type": [
-              "boolean",
-              "string",
-              "number"
-            ]
+            "type": ["boolean", "string", "number"]
           }
         },
         "required": [],
@@ -2381,26 +2169,17 @@
             "type": "object",
             "properties": {
               "libraryId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "collection": {},
               "collectionId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "collectionKey": {
                 "type": "string"
               },
               "collectionLibraryId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "tag": {
                 "type": "string"
@@ -2412,10 +2191,7 @@
                 "type": "string"
               },
               "limit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "cursor": {
@@ -2423,18 +2199,10 @@
               },
               "checks": {},
               "missingOnly": {
-                "type": [
-                  "boolean",
-                  "string",
-                  "number"
-                ]
+                "type": ["boolean", "string", "number"]
               },
               "missing_only": {
-                "type": [
-                  "boolean",
-                  "string",
-                  "number"
-                ]
+                "type": ["boolean", "string", "number"]
               }
             },
             "required": [],
@@ -2471,11 +2239,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -2489,26 +2253,17 @@
         "type": "object",
         "properties": {
           "libraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "collection": {},
           "collectionId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "collectionKey": {
             "type": "string"
           },
           "collectionLibraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "tag": {
             "type": "string"
@@ -2520,10 +2275,7 @@
             "type": "string"
           },
           "limit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "cursor": {
@@ -2542,26 +2294,17 @@
             "type": "object",
             "properties": {
               "libraryId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "collection": {},
               "collectionId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "collectionKey": {
                 "type": "string"
               },
               "collectionLibraryId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "tag": {
                 "type": "string"
@@ -2573,10 +2316,7 @@
                 "type": "string"
               },
               "limit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "cursor": {
@@ -2617,11 +2357,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -3357,11 +3093,7 @@
             "type": "string"
           },
           "state": {
-            "enum": [
-              "in_progress",
-              "completed",
-              "outcome_unknown"
-            ]
+            "enum": ["in_progress", "completed", "outcome_unknown"]
           },
           "createdAt": {
             "type": "string"
@@ -3373,18 +3105,10 @@
             "type": "string"
           },
           "stateChange": {
-            "enum": [
-              "unchanged",
-              "changed",
-              "unknown"
-            ]
+            "enum": ["unchanged", "changed", "unknown"]
           },
           "handleConsumption": {
-            "enum": [
-              "unconsumed",
-              "consumed",
-              "unknown"
-            ]
+            "enum": ["unconsumed", "consumed", "unknown"]
           },
           "response": {
             "type": "object"
@@ -3424,9 +3148,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "productId"
-        ],
+        "required": ["productId"],
         "additionalProperties": false
       },
       "inputs": {},
@@ -3471,11 +3193,7 @@
             "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
             "properties": {
               "mode": {
-                "enum": [
-                  "local",
-                  "bridge-download",
-                  "bundle"
-                ]
+                "enum": ["local", "bridge-download", "bundle"]
               },
               "path": {
                 "type": "string"
@@ -3525,9 +3243,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "productId"
-        ],
+        "required": ["productId"],
         "additionalProperties": false
       },
       "inputs": {},
@@ -3567,17 +3283,11 @@
             "type": "string"
           },
           "cursor": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 0
           },
           "limit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           }
         },
@@ -3604,11 +3314,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -3625,9 +3331,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "productId"
-        ],
+        "required": ["productId"],
         "additionalProperties": false
       },
       "inputs": {},
@@ -3775,11 +3479,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -3867,10 +3567,7 @@
             }
           },
           "nextSinceEventId": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "returned": {
             "type": "integer"
@@ -3882,12 +3579,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "notifications",
-          "returned",
-          "hasMore",
-          "truncated"
-        ],
+        "required": ["notifications", "returned", "hasMore", "truncated"],
         "additionalProperties": false
       }
     },
@@ -3946,10 +3638,7 @@
             }
           },
           "nextSinceEventId": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "returned": {
             "type": "integer"
@@ -3961,12 +3650,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "notifications",
-          "returned",
-          "hasMore",
-          "truncated"
-        ],
+        "required": ["notifications", "returned", "hasMore", "truncated"],
         "additionalProperties": false
       }
     },
@@ -4051,11 +3735,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -4120,11 +3800,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -4185,11 +3861,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -4254,11 +3926,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -4426,11 +4094,7 @@
             "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
             "properties": {
               "mode": {
-                "enum": [
-                  "local",
-                  "bridge-download",
-                  "bundle"
-                ]
+                "enum": ["local", "bridge-download", "bundle"]
               },
               "path": {
                 "type": "string"
@@ -4686,22 +4350,13 @@
         "properties": {
           "scope": {
             "type": "string",
-            "enum": [
-              "library",
-              "papers"
-            ]
+            "enum": ["library", "papers"]
           },
           "library_id": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "libraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "paper_refs": {
             "type": "array"
@@ -4729,22 +4384,13 @@
             "properties": {
               "scope": {
                 "type": "string",
-                "enum": [
-                  "library",
-                  "papers"
-                ]
+                "enum": ["library", "papers"]
               },
               "library_id": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "libraryId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "paper_refs": {
                 "type": "array"
@@ -4956,16 +4602,10 @@
             "type": "array"
           },
           "cursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "limit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "sortBy": {
@@ -4993,16 +4633,10 @@
                 "type": "array"
               },
               "cursor": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "limit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "sortBy": {
@@ -5046,11 +4680,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -5123,120 +4753,66 @@
         "type": "object",
         "properties": {
           "cursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "limit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "nodeCursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "node_cursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "nodeLimit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "node_limit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "edgeCursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "edge_cursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "edgeLimit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "edge_limit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "hoverNodeCursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "hover_node_cursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "hoverNodeLimit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "hover_node_limit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "hoverEdgeCursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "hover_edge_cursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "hoverEdgeLimit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "hover_edge_limit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           }
         },
@@ -5252,120 +4828,66 @@
             "type": "object",
             "properties": {
               "cursor": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "limit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "nodeCursor": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "node_cursor": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "nodeLimit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "node_limit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "edgeCursor": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "edge_cursor": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "edgeLimit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "edge_limit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "hoverNodeCursor": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "hover_node_cursor": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "hoverNodeLimit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "hover_node_limit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "hoverEdgeCursor": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "hover_edge_cursor": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "hoverEdgeLimit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "hover_edge_limit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               }
             },
@@ -5403,11 +4925,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -5439,45 +4957,27 @@
             "type": "string"
           },
           "max_external_nodes": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 0
           },
           "maxExternalNodes": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 0
           },
           "max_nodes": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "maxNodes": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "max_edges": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 0
           },
           "maxEdges": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 0
           },
           "cluster_policy": {
@@ -5517,45 +5017,27 @@
                 "type": "string"
               },
               "max_external_nodes": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 0
               },
               "maxExternalNodes": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 0
               },
               "max_nodes": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "maxNodes": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "max_edges": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 0
               },
               "maxEdges": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 0
               },
               "cluster_policy": {
@@ -5604,16 +5086,10 @@
         "type": "object",
         "properties": {
           "cursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "limit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "sortBy": {
@@ -5635,16 +5111,10 @@
             "type": "object",
             "properties": {
               "cursor": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "limit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "sortBy": {
@@ -5688,11 +5158,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -5712,16 +5178,10 @@
             "type": "array"
           },
           "cursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "limit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "sortBy": {
@@ -5749,16 +5209,10 @@
                 "type": "array"
               },
               "cursor": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "limit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "sortBy": {
@@ -5802,11 +5256,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -5880,22 +5330,13 @@
         "properties": {
           "scope": {
             "type": "string",
-            "enum": [
-              "library",
-              "papers"
-            ]
+            "enum": ["library", "papers"]
           },
           "library_id": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "libraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "paper_refs": {
             "type": "array"
@@ -5929,22 +5370,13 @@
             "properties": {
               "scope": {
                 "type": "string",
-                "enum": [
-                  "library",
-                  "papers"
-                ]
+                "enum": ["library", "papers"]
               },
               "library_id": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "libraryId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "paper_refs": {
                 "type": "array"
@@ -6004,22 +5436,13 @@
         "type": "object",
         "properties": {
           "libraryId": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "cursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "limit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "includeTags": {
@@ -6032,55 +5455,31 @@
             "type": "boolean"
           },
           "tagCursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "tagLimit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "collectionCursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "collectionLimit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "topicCursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "topicLimit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           },
           "registryCursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "registryLimit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           }
         },
@@ -6096,22 +5495,13 @@
             "type": "object",
             "properties": {
               "libraryId": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "cursor": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "limit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "includeTags": {
@@ -6124,55 +5514,31 @@
                 "type": "boolean"
               },
               "tagCursor": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "tagLimit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "collectionCursor": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "collectionLimit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "topicCursor": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "topicLimit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               },
               "registryCursor": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "registryLimit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               }
             },
@@ -6210,11 +5576,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -6282,11 +5644,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -6381,17 +5739,10 @@
         "type": "object",
         "properties": {
           "tag": {
-            "type": [
-              "string",
-              "array",
-              "object"
-            ]
+            "type": ["string", "array", "object"]
           },
           "collection_key": {
-            "type": [
-              "string",
-              "array"
-            ]
+            "type": ["string", "array"]
           },
           "paper_refs": {
             "type": "array",
@@ -6400,10 +5751,7 @@
             }
           },
           "combine": {
-            "enum": [
-              "union",
-              "intersection"
-            ],
+            "enum": ["union", "intersection"],
             "default": "union"
           }
         },
@@ -6419,17 +5767,10 @@
             "type": "object",
             "properties": {
               "tag": {
-                "type": [
-                  "string",
-                  "array",
-                  "object"
-                ]
+                "type": ["string", "array", "object"]
               },
               "collection_key": {
-                "type": [
-                  "string",
-                  "array"
-                ]
+                "type": ["string", "array"]
               },
               "paper_refs": {
                 "type": "array",
@@ -6438,10 +5779,7 @@
                 }
               },
               "combine": {
-                "enum": [
-                  "union",
-                  "intersection"
-                ],
+                "enum": ["union", "intersection"],
                 "default": "union"
               }
             },
@@ -6479,11 +5817,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -6622,19 +5956,11 @@
           },
           "view": {
             "type": "string",
-            "enum": [
-              "digest",
-              "semantic",
-              "audit",
-              "full"
-            ]
+            "enum": ["digest", "semantic", "audit", "full"]
           },
           "mode": {
             "type": "string",
-            "enum": [
-              "create",
-              "update"
-            ]
+            "enum": ["create", "update"]
           },
           "language": {
             "type": "string"
@@ -6710,19 +6036,11 @@
               },
               "view": {
                 "type": "string",
-                "enum": [
-                  "digest",
-                  "semantic",
-                  "audit",
-                  "full"
-                ]
+                "enum": ["digest", "semantic", "audit", "full"]
               },
               "mode": {
                 "type": "string",
-                "enum": [
-                  "create",
-                  "update"
-                ]
+                "enum": ["create", "update"]
               },
               "language": {
                 "type": "string"
@@ -6832,11 +6150,7 @@
             "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
             "properties": {
               "mode": {
-                "enum": [
-                  "local",
-                  "bridge-download",
-                  "bundle"
-                ]
+                "enum": ["local", "bridge-download", "bundle"]
               },
               "path": {
                 "type": "string"
@@ -7001,16 +6315,10 @@
         "type": "object",
         "properties": {
           "cursor": {
-            "type": [
-              "number",
-              "string"
-            ]
+            "type": ["number", "string"]
           },
           "limit": {
-            "type": [
-              "number",
-              "string"
-            ],
+            "type": ["number", "string"],
             "minimum": 1
           }
         },
@@ -7026,16 +6334,10 @@
             "type": "object",
             "properties": {
               "cursor": {
-                "type": [
-                  "number",
-                  "string"
-                ]
+                "type": ["number", "string"]
               },
               "limit": {
-                "type": [
-                  "number",
-                  "string"
-                ],
+                "type": ["number", "string"],
                 "minimum": 1
               }
             },
@@ -7073,11 +6375,7 @@
             "type": "array"
           },
           "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
+            "type": ["string", "number", "null"]
           },
           "hasMore": {
             "type": "boolean"
@@ -7202,18 +6500,10 @@
             "type": "string"
           },
           "stateChange": {
-            "enum": [
-              "unchanged",
-              "changed",
-              "unknown"
-            ]
+            "enum": ["unchanged", "changed", "unknown"]
           },
           "handleConsumption": {
-            "enum": [
-              "unconsumed",
-              "consumed",
-              "unknown"
-            ]
+            "enum": ["unconsumed", "consumed", "unknown"]
           },
           "recoverable": {
             "type": "boolean"
@@ -7225,12 +6515,7 @@
             }
           }
         },
-        "required": [
-          "schema",
-          "agentRunId",
-          "status",
-          "results"
-        ],
+        "required": ["schema", "agentRunId", "status", "results"],
         "additionalProperties": false
       }
     },
@@ -7372,9 +6657,7 @@
         "selection": {
           "token": "--selection",
           "required": false,
-          "requiredWhen": [
-            "Required unless --none is supplied."
-          ],
+          "requiredWhen": ["Required unless --none is supplied."],
           "schema": {
             "type": "array",
             "minItems": 1,
@@ -7395,28 +6678,18 @@
                       "minLength": 1
                     },
                     "id": {
-                      "type": [
-                        "integer",
-                        "string"
-                      ]
+                      "type": ["integer", "string"]
                     },
                     "libraryId": {
-                      "type": [
-                        "integer",
-                        "string"
-                      ]
+                      "type": ["integer", "string"]
                     }
                   },
                   "anyOf": [
                     {
-                      "required": [
-                        "key"
-                      ]
+                      "required": ["key"]
                     },
                     {
-                      "required": [
-                        "id"
-                      ]
+                      "required": ["id"]
                     }
                   ],
                   "additionalProperties": false
@@ -7427,9 +6700,7 @@
           "examples": [
             {
               "kind": "shape-only",
-              "value": [
-                "example"
-              ],
+              "value": ["example"],
               "prerequisites": [
                 "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
               ],
@@ -7640,12 +6911,7 @@
                 "minLength": 1
               },
               "backendType": {
-                "enum": [
-                  "acp",
-                  "skillrunner",
-                  "generic-http",
-                  "pass-through"
-                ]
+                "enum": ["acp", "skillrunner", "generic-http", "pass-through"]
               },
               "providerOptions": {
                 "type": "object",
@@ -7706,10 +6972,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "status",
-          "queueId"
-        ],
+        "required": ["status", "queueId"],
         "additionalProperties": false
       }
     },
@@ -7754,10 +7017,7 @@
                   "type": "integer"
                 },
                 "backendType": {
-                  "enum": [
-                    "acp",
-                    "skillrunner"
-                  ]
+                  "enum": ["acp", "skillrunner"]
                 },
                 "backendId": {
                   "type": "string"
@@ -7780,9 +7040,7 @@
             }
           }
         },
-        "required": [
-          "units"
-        ],
+        "required": ["units"],
         "additionalProperties": false
       }
     },
@@ -7842,10 +7100,7 @@
             "type": "string"
           },
           "backendType": {
-            "enum": [
-              "acp",
-              "skillrunner"
-            ]
+            "enum": ["acp", "skillrunner"]
           },
           "backendId": {
             "type": "string"
@@ -7918,9 +7173,7 @@
         "selection": {
           "token": "--selection",
           "required": false,
-          "requiredWhen": [
-            "Required unless --none is supplied."
-          ],
+          "requiredWhen": ["Required unless --none is supplied."],
           "schema": {
             "type": "array",
             "minItems": 1,
@@ -7941,28 +7194,18 @@
                       "minLength": 1
                     },
                     "id": {
-                      "type": [
-                        "integer",
-                        "string"
-                      ]
+                      "type": ["integer", "string"]
                     },
                     "libraryId": {
-                      "type": [
-                        "integer",
-                        "string"
-                      ]
+                      "type": ["integer", "string"]
                     }
                   },
                   "anyOf": [
                     {
-                      "required": [
-                        "key"
-                      ]
+                      "required": ["key"]
                     },
                     {
-                      "required": [
-                        "id"
-                      ]
+                      "required": ["id"]
                     }
                   ],
                   "additionalProperties": false
@@ -7973,9 +7216,7 @@
           "examples": [
             {
               "kind": "shape-only",
-              "value": [
-                "example"
-              ],
+              "value": ["example"],
               "prerequisites": [
                 "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
               ],
@@ -8016,12 +7257,7 @@
                 "minLength": 1
               },
               "backendType": {
-                "enum": [
-                  "acp",
-                  "skillrunner",
-                  "generic-http",
-                  "pass-through"
-                ]
+                "enum": ["acp", "skillrunner", "generic-http", "pass-through"]
               },
               "providerOptions": {
                 "type": "object",
@@ -8055,10 +7291,7 @@
             "type": "string"
           },
           "admission": {
-            "enum": [
-              "direct",
-              "host-queue"
-            ]
+            "enum": ["direct", "host-queue"]
           },
           "workflowRunId": {
             "type": "string"
@@ -8100,12 +7333,7 @@
             "type": "object"
           }
         },
-        "required": [
-          "workflowId",
-          "workflowLabel",
-          "admission",
-          "permission"
-        ],
+        "required": ["workflowId", "workflowLabel", "admission", "permission"],
         "oneOf": [
           {
             "properties": {
@@ -8113,12 +7341,7 @@
                 "const": "direct"
               }
             },
-            "required": [
-              "workflowRunId",
-              "jobIds",
-              "totalJobs",
-              "tasks"
-            ]
+            "required": ["workflowRunId", "jobIds", "totalJobs", "tasks"]
           },
           {
             "properties": {
@@ -8163,9 +7386,7 @@
         "selection": {
           "token": "--selection",
           "required": false,
-          "requiredWhen": [
-            "Required unless --none is supplied."
-          ],
+          "requiredWhen": ["Required unless --none is supplied."],
           "schema": {
             "type": "array",
             "minItems": 1,
@@ -8186,28 +7407,18 @@
                       "minLength": 1
                     },
                     "id": {
-                      "type": [
-                        "integer",
-                        "string"
-                      ]
+                      "type": ["integer", "string"]
                     },
                     "libraryId": {
-                      "type": [
-                        "integer",
-                        "string"
-                      ]
+                      "type": ["integer", "string"]
                     }
                   },
                   "anyOf": [
                     {
-                      "required": [
-                        "key"
-                      ]
+                      "required": ["key"]
                     },
                     {
-                      "required": [
-                        "id"
-                      ]
+                      "required": ["id"]
                     }
                   ],
                   "additionalProperties": false
@@ -8218,9 +7429,7 @@
           "examples": [
             {
               "kind": "shape-only",
-              "value": [
-                "example"
-              ],
+              "value": ["example"],
               "prerequisites": [
                 "Replace example identifiers and values with inputs valid for the selected Zotero library, workflow, provider, or capability before execution."
               ],

@@ -84,7 +84,8 @@ Export selected literature and its generated analysis artifacts into a portable 
 - Execution modes: `["auto"]`.
 - Selection: `{"acceptsNoSelection":false,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"require":{"selection":{"allowMixed":false,"counts":{"parents":{"min":1},"attachments":{"exact":0},"notes":{"exact":0},"children":{"exact":0}}}},"select":{"policy":"selection"},"filters":[]}}`.
 - Required workflow options: `[]`.
-- Workflow options: none declared.
+- Workflow options:
+  - `sourceOnly`: `{"type":"boolean","title":"仅导出原文","description":"导出扁平结构的原文包，不包含笔记和分析工件，无法被「导入文献包」工作流导入。","default":false}`.
 - Result evidence: `{"artifacts":[],"applyBack":true}`.
 - Invocation inputs: use workflow id `export-literature-bundle`, validated `selection` members grouped by `all`, declared workflow options, and a separately validated compatible provider profile when the provider requires one.
 
