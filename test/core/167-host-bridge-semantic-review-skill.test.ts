@@ -225,16 +225,30 @@ describe("Host Bridge semantic surface review skill", function () {
     assert.include(operations, "unauthorized dropped semantic count");
   });
 
-  it("requires semantic review before Host Bridge surface rendering in the release pipeline", async function () {
-    const releaseSkill = await fs.readFile(
-      projectPath(
-        ".agents",
-        "skills",
-        "host-bridge-release-pipeline",
-        "SKILL.md",
-      ),
-      "utf8",
+  it("keeps semantic review and build-only prebuild ownership explicit in the release pipeline", async function () {
+    const releaseRoot = projectPath(
+      ".agents",
+      "skills",
+      "host-bridge-release-pipeline",
     );
+    const prebuildRoot = projectPath(
+      ".agents",
+      "skills",
+      "host-bridge-cli-prebuild",
+    );
+    const [releaseSkill, releaseOperations, prebuildSkill, prebuildOperations] =
+      await Promise.all([
+        fs.readFile(path.join(releaseRoot, "SKILL.md"), "utf8"),
+        fs.readFile(
+          path.join(releaseRoot, "references", "release-set-operations.md"),
+          "utf8",
+        ),
+        fs.readFile(path.join(prebuildRoot, "SKILL.md"), "utf8"),
+        fs.readFile(
+          path.join(prebuildRoot, "references", "prebuild-operations.md"),
+          "utf8",
+        ),
+      ]);
 
     const reviewIndex = releaseSkill.indexOf(
       "$host-bridge-semantic-surface-review",
@@ -251,37 +265,36 @@ describe("Host Bridge semantic surface review skill", function () {
     assert.isAtLeast(contentGateIndex, 0);
     assert.isBelow(reviewIndex, renderIndex);
     assert.isBelow(contentGateIndex, renderIndex);
-    assert.include(releaseSkill, "npm run release:host-bridge:plan");
-    assert.include(releaseSkill, "releaseSetId");
-    assert.include(releaseSkill, "host-bridge.release-receipt.v2");
-    assert.include(releaseSkill, "check:host-bridge-cli-prebuild-freshness");
-    assert.include(releaseSkill, "host-bridge/surfaces.json");
-    assert.include(releaseSkill, "check-host-bridge-skill-packages.ts");
-    assert.include(releaseSkill, "$host-bridge-review-mirror");
-    assert.include(releaseSkill, "npm run check:host-bridge-review-mirror");
-    assert.include(releaseSkill, "npm run prebuild:zotero-bridge-cli");
-    assert.include(releaseSkill, "--resume-run-id");
-    assert.include(releaseSkill, "host-bridge-cli-prebuild-result.v1");
-    assert.include(releaseSkill, "build-only");
-    assert.include(releaseSkill, "synchronized `main`");
-    assert.notInclude(releaseSkill, "profile-versioning.md");
 
-    const operations = await fs.readFile(
-      projectPath(
-        ".agents",
-        "skills",
-        "host-bridge-release-pipeline",
-        "references",
-        "release-set-operations.md",
-      ),
-      "utf8",
-    );
-    assert.include(operations, "npm run build:local:zotero-bridge-cli");
-    assert.include(operations, "--source-sha");
-    assert.include(operations, "--resume-run-id");
-    assert.include(operations, "host-bridge-cli-prebuild-result.v1");
-    assert.include(operations, "prepares a release set");
-    assert.include(operations, "Formal publication remains");
+    const releaseContract = `${releaseSkill}\n${releaseOperations}`;
+    for (const marker of [
+      "npm run release:host-bridge:plan",
+      "releaseSetId",
+      "host-bridge.release-receipt.v2",
+      "host-bridge/surfaces.json",
+      "$host-bridge-review-mirror",
+      "$host-bridge-cli-prebuild",
+      "npm run check:host-bridge-cli-prebuild-freshness",
+      "npm run release:host-bridge:dispatch",
+      "synchronized `main`",
+    ]) {
+      assert.include(releaseContract, marker);
+    }
+
+    const prebuildContract = `${prebuildSkill}\n${prebuildOperations}`;
+    for (const marker of [
+      "npm run prebuild:zotero-bridge-cli",
+      "--source-sha",
+      "--resume-run-id",
+      "host-bridge-cli-prebuild-result.v1",
+      "npm run check:host-bridge-cli-prebuild-freshness",
+      "host-bridge-cli-prebuilds",
+    ]) {
+      assert.include(prebuildContract, marker);
+    }
+
+    assert.notInclude(releaseSkill, "--resume-run-id");
+    assert.notInclude(releaseSkill, "host-bridge-cli-prebuild-result.v1");
   });
 
   it("keeps the project release coordinator on the unified release-set contract", async function () {

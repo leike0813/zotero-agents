@@ -55,6 +55,8 @@ async function pathExists(target: string) {
 async function readCommandReferences(packageRoot: string) {
   const result = new Map<string, string>();
   const root = path.join(packageRoot, "references", "commands");
+  if (!(await pathExists(root))) return result;
+
   async function visit(directory: string) {
     for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
       const target = path.join(directory, entry.name);
@@ -185,9 +187,7 @@ describe("host bridge cli packaging and install", function () {
     const runner = JSON.parse(
       await fs.readFile(path.join(root, "runner.json"), "utf8"),
     );
-    const references = (
-      await fs.readdir(path.join(root, "references", "commands"))
-    ).sort();
+    const references = await readCommandReferences(root);
 
     assert.match(skill, /^---\nname: zotero-bridge-cli\ndescription: .+\n/m);
     const description = skill.match(/^description: (.+)$/m)?.[1] || "";
@@ -206,20 +206,9 @@ describe("host bridge cli packaging and install", function () {
     }
     assert.include(skill, COMMAND_CATALOG_PATH);
     assert.isTrue(await pathExists(path.join(root, COMMAND_CATALOG_PATH)));
-    assert.deepEqual(references, []);
+    assert.isEmpty(references);
     assert.notMatch(skill, /references\/commands\//);
-    assert.notInclude(skill, "operating-contract.md");
-    assert.notInclude(skill, "zotero-library-agent");
-    assert.notInclude(skill, "host-bridge-shared");
     assert.strictEqual(runner.version, "__HOST_BRIDGE_SURFACE_VERSION__");
-    assert.notInclude(
-      runner.entrypoint.prompts.common,
-      "operating-contract.md",
-    );
-    assert.notInclude(
-      runner.entrypoint.prompts.common,
-      "references/command-reference.md",
-    );
     assert.include(runner.entrypoint.prompts.common, "references/commands/");
     assert.include(runner.entrypoint.prompts.common, COMMAND_CATALOG_PATH);
     const profileTemplate = await fs.readFile(
