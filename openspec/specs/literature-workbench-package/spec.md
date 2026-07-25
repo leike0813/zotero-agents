@@ -216,10 +216,10 @@ The `literature-digest` workflow apply step SHALL consume optional `representati
 and SHALL support `auto`, `guided`, `topic_expansion`,
 `paper_seed_expansion`, and `targeted_ingest` search modes. It SHALL require
 user approval of the search plan before external discovery and user approval of
-the ingest scope before selected-candidate enrichment or Zotero mutation. After
-ingest-scope approval, it SHALL automatically perform metadata resolution, PDF
-probing, typed payload preparation, and per-paper ingest without another waiting
-state.
+the ingest scope before selected-candidate research or Zotero mutation. After
+scope approval it SHALL automatically complete metadata resolution,
+direct-work identity verification, public-PDF probing, per-paper payload
+preparation, and serial ingest without another waiting state.
 
 #### Scenario: Blank auto query starts guided planning
 
@@ -230,23 +230,20 @@ state.
 - **AND** it SHALL inspect Zotero/Synthesis context read-only before presenting
   a structured search brief
 - **AND** it SHALL NOT perform web search, download, or Zotero writes before
-  the user confirms that brief.
+  the user confirms that brief
 
 #### Scenario: Guided brief is confirmed
 
 - **WHEN** a user confirms the guided search brief
 - **THEN** the skill SHALL begin candidate search directly from that brief
-- **AND** it SHALL NOT classify or map the work to `topic_expansion`,
-  `paper_seed_expansion`, or `targeted_ingest`
-- **AND** a completed result SHALL use `search_mode: "guided"`.
+- **AND** it SHALL preserve `search_mode: "guided"` in a completed result
 
 #### Scenario: Explicit mode has no query
 
 - **WHEN** `query` is blank and the user explicitly selects
   `topic_expansion`, `paper_seed_expansion`, or `targeted_ingest`
-- **THEN** the skill SHALL ask for the minimum seed required by that selected
-  mode
-- **AND** it SHALL retain the selected mode.
+- **THEN** the skill SHALL ask for the minimum seed required by that mode
+- **AND** it SHALL retain the selected mode
 
 #### Scenario: User selects non-blank auto mode
 
@@ -255,177 +252,237 @@ state.
 - **THEN** the skill SHALL compare the query against read-only
   library/Synthesis context to recommend an effective mode and search brief
 - **AND** it SHALL NOT perform external discovery until the user approves that
-  brief.
+  brief
 
 #### Scenario: User approves ingest scope
 
 - **WHEN** the user approves a set of ingestible candidate ids after discovery
-- **THEN** the skill SHALL treat that decision as authorization to resolve,
-  probe, and ingest those same direct bibliographic works
-- **AND** it SHALL automatically continue through metadata resolution, legal
-  public-PDF probing, payload preparation, and per-paper mutation
-- **AND** it SHALL NOT enter another waiting state.
+- **THEN** the skill SHALL treat that decision as authorization to research and
+  ingest those same direct bibliographic works
+- **AND** it SHALL continue through metadata resolution, legal public-PDF
+  probing, payload preparation, and per-paper mutation
+- **AND** it SHALL NOT enter another waiting state
 
 #### Scenario: User requests focused discovery expansion
 
 - **WHEN** Stage 30 receives an expansion request for the current discovery
   round
-- **THEN** the gate SHALL increment the discovery round and return to Stage 20
-- **AND** the next discovery payload SHALL retain the accumulated candidate set
-  and accepted evidence
-- **AND** the workflow SHALL return to the same ingest-scope decision after the
-  expanded round.
+- **THEN** the skill SHALL retain the accumulated candidate set and accepted
+  evidence while returning to Stage 20
+- **AND** it SHALL return to the same ingest-scope decision after the expanded
+  round
 
-#### Scenario: Expanded discovery drops an accepted candidate
+#### Scenario: Expanded discovery omits an accepted candidate
 
 - **WHEN** a later discovery round omits a candidate accepted in an earlier
-  round without an evidence-backed reclassification
-- **THEN** the runtime SHALL reject the cumulative discovery payload
-- **AND** it SHALL keep the workflow at the current discovery round.
+  round without evidence-backed reclassification
+- **THEN** the skill SHALL keep that candidate in the cumulative set
 
 #### Scenario: User cancels at a decision stage
 
 - **WHEN** the user cancels at Stage 10 or Stage 30
-- **THEN** the runtime SHALL enter a canceled terminal state with a stable
-  reason and message
-- **AND** the gate SHALL return `return_final_output` with canceled kind and
-  status.
+- **THEN** the workflow SHALL return the canceled kind, status, reason, and
+  message required by `output.schema.json`
 
-#### Scenario: Selected candidate fails metadata identity gate
+#### Scenario: Selected candidate fails direct-work identity
 
-- **WHEN** post-selection resolution cannot verify that a candidate is the same
+- **WHEN** post-selection research cannot verify that a candidate is the same
   direct bibliographic work or cannot resolve a material version conflict
 - **THEN** the workflow SHALL record that candidate as `not_attempted`
 - **AND** it SHALL continue processing the remaining approved candidates
-- **AND** it SHALL NOT substitute a different work or request a replacement.
+- **AND** it SHALL NOT substitute a different work or request a replacement
 
 #### Scenario: Targeted ingest identifies one exact record
 
 - **WHEN** the user selects `targeted_ingest`
 - **THEN** the skill SHALL locate and present only the requested record with its
-  identifier, authoritative landing page, metadata match, and library-duplicate
-  status
-- **AND** after ingest-scope approval it SHALL resolve metadata, probe legal
-  public PDFs, and ingest that record without expanding to related literature.
+  identity, authoritative landing page, metadata match, and duplicate status
+- **AND** after scope approval it SHALL research and ingest that record without
+  expanding to related literature
 
 #### Scenario: Candidate has no resolved identifier
 
-- **WHEN** a candidate has completed applicable identifier searches without a
-  DOI, ISBN, arXiv, or PMID
-- **THEN** the skill SHALL record `identifier_not_found`, authoritative metadata
-  provenance, landing URL, and PDF attempt outcome before ingesting the selected candidate
-- **AND** it MAY show the traceable candidate as `needs_curation`
-- **AND** it SHALL retain a bare title or unverified search snippet only as non-ingestible `lead_only` evidence.
+- **WHEN** a traceable candidate has completed applicable identifier searches
+  without a DOI, ISBN, arXiv, or PMID
+- **THEN** the skill SHALL retain authoritative metadata provenance, landing
+  URL, and PDF outcome
+- **AND** it MAY classify the candidate as `needs_curation`
+- **AND** it SHALL retain a bare title or unverified snippet only as
+  non-ingestible `lead_only` evidence.
 
 ### Requirement: Literature search ingest performs legal public PDF best effort
 
-The skill SHALL explicitly guide agents to resolve identifiers and authoritative
-metadata before searching legal public PDF sources, and SHALL skip uncertain or
-restricted PDFs without blocking eligible metadata ingest.
+The skill SHALL resolve direct-work identity and authoritative metadata before
+accepting a legal public PDF. It SHALL execute the authoritative landing-page,
+open-access, and public web-search routes for each approved paper, stopping
+later routes only after an earlier route produces a verified matching PDF.
+Failure to find a PDF SHALL NOT block otherwise eligible metadata ingest.
 
 #### Scenario: Public PDF is uncertain
 
-- **WHEN** a candidate PDF URL cannot be matched confidently to title, authors,
-  or identifiers
-- **THEN** the skill SHALL mark the PDF as skipped instead of attaching it.
+- **WHEN** a candidate PDF cannot be matched confidently to the direct work
+- **THEN** the skill SHALL omit that PDF from the Host payload
+- **AND** it SHALL preserve the eligible metadata-only ingest path
 
-### Requirement: Literature search ingest SHALL enforce file-backed stage gates
+#### Scenario: No public PDF is found
 
-The Skill SHALL use a package-local gate runtime to enforce stage order and
-per-candidate completion without using SQLite or treating the search ledger as a
-workflow state database.
-
-#### Scenario: Agent attempts to skip metadata resolution
-
-- **WHEN** an approved candidate lacks a terminal metadata receipt
-- **THEN** the gate SHALL refuse to advance to PDF probing or ingest preparation.
-
-#### Scenario: Agent attempts to skip PDF probing
-
-- **WHEN** an approved and metadata-qualified candidate lacks an outcome for an
-  applicable PDF route family
-- **THEN** the gate SHALL refuse to prepare or execute its ingest payload.
-
-#### Scenario: PDF attempts find no usable file
-
-- **WHEN** every applicable PDF route has a terminal attempt outcome but no
-  public identity-matched PDF is found
-- **THEN** the gate SHALL record the candidate PDF status as `missing`
-- **AND** it SHALL allow eligible metadata ingest to continue.
-
-#### Scenario: Context resumes during the interactive run
-
-- **WHEN** execution resumes after context compression
-- **THEN** the agent SHALL obtain the current stage and next action from the
-  gate state
-- **AND** it SHALL NOT infer completed stages from conversation memory.
-
-#### Scenario: Gate reports a legal next action
-
-- **WHEN** the agent runs the initial gate
-- **THEN** the response SHALL include the current stage, real `next_action`,
-  legal `allowed_actions`, discovery round, stage-specific `required_reads`,
-  and recovery packet
-- **AND** every accepted state-changing action SHALL require rerunning the
-  initial gate.
-
-#### Scenario: Action payload contains an unknown field or enum
-
-- **WHEN** an agent-authored action does not match exactly one strict action
-  schema branch
-- **THEN** schema validation SHALL fail before state mutation.
-
-#### Scenario: Terminal gate is reached
-
-- **WHEN** all approved candidates are terminal or a legal cancellation occurs
-- **THEN** the gate SHALL return `return_final_output`
-- **AND** it SHALL distinguish completed and canceled kind/status pairs.
+- **WHEN** all applicable PDF routes complete without a verified public PDF
+- **THEN** the skill SHALL prepare a metadata-only Host payload
+- **AND** it MAY request landing-page attachment through the existing Host
+  field
 
 ### Requirement: Literature search ingest SHALL preserve original-script ingest metadata
 
-Selected-candidate metadata SHALL preserve the direct work's authoritative
-original-script identity and SHALL keep translations, romanizations, and
-containers in separate roles.
+Literature Search Ingest SHALL prefer authoritative metadata in the work's
+original script, preserve complete verified creator lists, and keep Zotero
+field roles semantically correct while preparing each direct Host payload.
 
-#### Scenario: Chinese original work has incomplete native creators
+#### Scenario: Original-script title is authoritative
 
-- **WHEN** an authoritative source verifies the Chinese original title but not
-  the complete Chinese-character creator list
-- **THEN** the ingest metadata SHALL retain the Chinese title
-- **AND** it SHALL use an empty creator replacement list
-- **AND** it SHALL mark the record as requiring metadata curation instead of
-  writing English or romanized creators.
+- **WHEN** an authoritative record supplies the title in the work's original
+  script
+- **THEN** the Host payload SHALL preserve that title
+- **AND** a translated or romanized title SHALL NOT replace it
 
-#### Scenario: Translation is available for a Chinese original work
+#### Scenario: Creator list is incomplete
 
-- **WHEN** a translated or romanized title is found for a Chinese original work
-- **THEN** the workflow SHALL retain it only as alternate or matching evidence
-- **AND** it SHALL NOT create a translated or bilingual primary title.
+- **WHEN** the available evidence cannot verify a complete creator list
+- **THEN** the candidate SHALL remain `needs_curation` or `not_attempted`
+- **AND** the skill SHALL NOT present a partial list as complete
 
 ### Requirement: Literature search ingest SHALL require three public-PDF routes
 
-Every metadata-qualified candidate SHALL have one actual terminal attempt for
-the authoritative-landing, open-access, and public-web-search routes before
-payload preparation.
+Every approved direct work SHALL receive ordered PDF research through its
+authoritative landing page, applicable open-access sources, and public web
+search. A later route MAY be marked `skipped_after_verified_pdf` only when an
+earlier route has already produced a verified legal matching PDF.
 
-#### Scenario: A PDF route is omitted
+#### Scenario: Earlier route finds a verified PDF
 
-- **WHEN** a PDF payload omits any hard route
-- **THEN** the runtime SHALL reject the payload and remain at Stage 50.
+- **WHEN** the authoritative landing page or open-access route produces a
+  verified public PDF
+- **THEN** later routes MAY be marked `skipped_after_verified_pdf`
 
-#### Scenario: A public identity-matched PDF is found
+#### Scenario: No earlier route finds a PDF
 
-- **WHEN** a route returns a reachable legal `application/pdf` response for the
-  same direct work
-- **THEN** the runtime MAY select that URL for typed ingest
-- **AND** all three route attempts SHALL still be recorded.
+- **WHEN** no completed earlier route has produced a verified public PDF
+- **THEN** every remaining route SHALL be attempted before the paper is treated
+  as missing a PDF
 
-#### Scenario: All PDF routes terminate without a usable file
+### Requirement: Literature search ingest SHALL use flexible research delegation with independent paper outputs
 
-- **WHEN** every route records `not_found`, `restricted`, `unavailable`,
-  `mismatch`, or `error`
-- **THEN** the candidate SHALL receive PDF status `missing`
-- **AND** safe metadata ingest SHALL continue without `pdfUrl`.
+After Stage 30 approval, the main agent SHALL choose subagent grouping,
+concurrency, dispatch timing, and waiting strategy. A subagent MAY receive one
+or multiple approved candidate file paths. Every candidate SHALL retain an
+independent identity decision and the writable `payloadPath` embedded in its
+candidate file.
+
+#### Scenario: Main agent groups several candidate files
+
+- **GIVEN** several approved candidates require similar research
+- **WHEN** the main agent delegates their candidate file paths to one subagent
+- **THEN** the subagent SHALL process each candidate independently
+- **AND** it SHALL use the `payloadPath` in that candidate's file
+
+#### Scenario: Research is not delegated before scope approval
+
+- **WHEN** Stage 30 has not approved an ingest scope
+- **THEN** the main agent SHALL NOT delegate candidate metadata or PDF research
+- **AND** no Host ingest payload SHALL be prepared
+
+#### Scenario: Candidate scope remains stable
+
+- **WHEN** a subagent researches an approved candidate file
+- **THEN** it SHALL resolve that same direct bibliographic work
+- **AND** it SHALL NOT replace it with a related work, another material type,
+  or a materially different version
+
+### Requirement: The static research prompt SHALL have one source of truth in SKILL.md
+
+The full subagent contract SHALL be written in
+`skills_builtin/literature-search-ingest/SKILL.md`. Dynamic context SHALL
+contain `CANDIDATE_FILES_JSON`, a JSON array of one or more approved candidate
+file paths, and the selected collection. Each candidate file SHALL contain its
+candidate identity and writable `payloadPath`. The prompt SHALL require
+metadata resolution, direct-work identity, the three-route PDF probe, canonical
+fields, file output, and completion of the assigned candidate files.
+
+#### Scenario: Main agent supplies candidate file paths
+
+- **WHEN** the main agent constructs a subagent dispatch
+- **THEN** it SHALL use the static prompt from `SKILL.md`
+- **AND** it SHALL provide the chosen candidate file paths as dynamic context
+- **AND** the worker SHALL read each file's `payloadPath`
+
+#### Scenario: Worker returns a structured research report
+
+- **WHEN** a subagent finishes its assigned candidate files
+- **THEN** it SHALL return one `literature_search_research_report` JSON object in
+  stdout
+- **AND** `candidateResults` SHALL contain exactly one entry for each assigned
+  candidate file
+- **AND** each entry SHALL reuse that file's candidate id, candidate path, and
+  payload path
+- **AND** each entry SHALL report metadata status, paper-level PDF probe status,
+  compact metadata sources, the applicable three-route PDF results, and
+  uncertainties
+- **AND** the report SHALL NOT contain a Host payload, receipt, mutation result,
+  or final workflow output
+
+#### Scenario: Main agent projects research results into the ledger
+
+- **WHEN** the main agent receives a structured research report
+- **THEN** it MAY reuse the shared candidate result fields in the search ledger
+- **AND** it SHALL derive receipt, ingest, item, attachment, and final curation
+  fields from payload inspection and Host results
+- **AND** a missing or malformed report for one candidate SHALL NOT block another
+  candidate's valid payload
+
+### Requirement: Each metadata-qualified paper SHALL produce one direct Host ingest payload
+
+For each metadata-qualified approved paper, the subagent SHALL write one
+single-paper Host ingest payload containing canonical paper fields and optional
+collection. The main agent SHALL perform a final semantic check before Host
+mutation. A candidate whose direct-work identity or minimum metadata cannot be
+resolved SHALL remain `not_attempted` without a mutation payload.
+
+#### Scenario: Worker writes a qualified paper payload
+
+- **WHEN** direct-work identity and minimum metadata are resolved
+- **THEN** the worker SHALL write one payload with one `paper` object
+- **AND** that file SHALL be independently usable for a single Host ingest
+  command
+
+#### Scenario: No public PDF is found
+
+- **WHEN** metadata is qualified and all applicable PDF routes find no verified
+  public PDF
+- **THEN** the worker SHALL write a metadata-only Host payload
+- **AND** the absence of `pdfUrl` SHALL NOT make the paper `not_attempted`
+
+#### Scenario: Direct-work identity is unresolved
+
+- **WHEN** the worker cannot verify the candidate's direct bibliographic work
+- **THEN** it SHALL report the unresolved result to the main agent
+- **AND** it SHALL NOT fabricate a mutation payload
+
+### Requirement: Literature search ingest SHALL allow incremental payload collection
+
+The main agent SHALL be allowed to inspect and process any completed per-paper
+payload while other subagents continue research. Missing or malformed output
+SHALL be recoverable per paper.
+
+#### Scenario: Early payload is collected
+
+- **GIVEN** one valid payload is ready while unrelated subagents are running
+- **WHEN** the main agent observes that payload
+- **THEN** it MAY validate and ingest that paper immediately
+
+#### Scenario: One failed payload does not block others
+
+- **WHEN** one candidate's payload is missing or invalid
+- **THEN** the main agent SHALL repair or re-delegate only that candidate
+- **AND** it SHALL continue processing valid payloads for other candidates
 
 ### Requirement: Literature Digest SHALL persist generated-note payloads through Zotero-safe storage
 Generated digest-family notes MUST keep machine-readable payloads available after Zotero note editor normalization by using v2 anchored embedded payload storage.

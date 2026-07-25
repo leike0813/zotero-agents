@@ -1,7 +1,7 @@
 {
   "schema": "host-bridge.review-mirror.v2",
-  "generatedAt": "2026-07-25T05:09:22.344Z",
-  "sourceCommit": "71da2eb325e946291b901d778b20ceb3c5db368f",
+  "generatedAt": "2026-07-25T10:16:00.449Z",
+  "sourceCommit": "c0826da1693b96f5fc871a407e0d5e28930e9881",
   "surfaceDefinitions": {
     "path": "host-bridge/surfaces.json",
     "schema": "host-bridge.surface-definitions.v1",
@@ -1571,9 +1571,9 @@
       "relativePath": "references/workflow-catalog.md",
       "artifactPath": "zotero-library-agent/skills/zotero-library-agent/references/workflow-catalog.md",
       "sourcePath": "skills_builtin/zotero-library-agent/references/workflow-catalog.md",
-      "sourceSha256": "46351fccc0e3b975cf6061c453909d040ace8615c7c9a7e3e72fd5e476241463",
+      "sourceSha256": "44ea6ca85e84c85bd4cb006ee6ea07eba66edec4d3bb72fe8a376c9f9e9b4390",
       "protectedStructureSha256": "1cdd1405bdfacc493821b8de07ae05aa6dd29338bb8f010f8d7d8ffd296a727b",
-      "translatedSha256": "e197f88fa157bfeae27e467ab661539dc882900e342819d764a8ec2e90c8aa18",
+      "translatedSha256": "0fa7372b30a3d06c9bea6b0659322fc69071beb626c2f128831c34a50bd2d369",
       "translatedStructureSha256": "1cdd1405bdfacc493821b8de07ae05aa6dd29338bb8f010f8d7d8ffd296a727b"
     },
     {

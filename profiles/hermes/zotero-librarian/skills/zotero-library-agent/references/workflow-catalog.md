@@ -242,7 +242,7 @@ Audit and repair bibliographic metadata for selected literature using identifier
 
 **Literature Search Ingest**
 
-Search scholarly sources, review candidates, research each approved paper in parallel, then serially ingest reviewed records with provenance into Zotero.
+Search scholarly sources, review candidates, research approved papers in agent-chosen subagent groups, collect independent per-paper payloads as they complete, then serially ingest them into Zotero.
 
 - Package: `literature-workbench-package`; manifest: `workflows_builtin/literature-workbench-package/literature-search-ingest/workflow.json`; core: `true`.
 - Provider requirements: `{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.

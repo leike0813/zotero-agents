@@ -242,7 +242,7 @@ native Zotero queue 是 pending workflow units 与有界 admission 的唯一所�
 
 **文献搜索与摄取**
 
-搜索学术来源、审阅候选项，并把带 provenance 的去重文献摄取到 Zotero 文献库。
+搜索学术来源、审阅候选项，以主 agent 自主决定的 subagent 分组研究已批准论文，在每篇论文的独立 payload 完成时增量收集，随后将其串行摄取到 Zotero。
 
 - Package：`literature-workbench-package`；manifest：`workflows_builtin/literature-workbench-package/literature-search-ingest/workflow.json`；core：`true`.
 - Provider 要求：`{"requestKind":"skillrunner.job.v1","acceptedProviderTypes":["skillrunner","acp"]}`.

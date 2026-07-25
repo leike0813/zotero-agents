@@ -1,343 +1,250 @@
 # PDF 探测
 
-在 Stage 40 有限研究和主智能体审阅阶段使用此参考文档。
-一次正式的 PDF 审阅为每条硬路由恰好包含一个终态条目：
-`authoritative_landing`、`open_access` 和 `web_search`。按此顺序搜索路由，
-并在首个经验证的 PDF 出现后停止主动搜索；后续路由条目
-使用 `skipped_after_verified_pdf` 标记。
+本参考用于阶段 40 的三路线公开 PDF 研究和主代理检查。目标是在合法、公开、可达且直接作品身份匹配的前提下找到最佳 PDF；未找到 PDF 时保留 metadata-only 入库。
 
-目标是获取同一直接作品的合法、公开、可达的 PDF。
-当所有路由均已穷尽后，元数据收录可在无 PDF 的情况下继续。
+## 完成标准
 
-## 单任务研究与正式审阅边界
+每篇批准论文必须执行三路线判断：
 
-在 Stage 30 范围批准后，每个单篇工作器接收一项原子性的
-有限研究任务。元数据和 PDF 发现是该任务内的两类证据，
-而非独立的工作器阶段或独立的委托轮次。
-工作器在找到经验证的 `pdf_url` 时记录该 URL、
-所检查的来源 URL，以及同一扁平 `result.json` 中的简要不确定性说明；
-它不写入路由载荷、清单、哈希记录或终结器输入。
+1. 权威落地页；
+2. 开放获取；
+3. 公开网络搜索。
 
-主智能体将原始研究结果转换为正式的三键路由对象。
-当路由证据不完整时，主智能体可检查工作器的来源 URL
-并执行小幅有限修复搜索。只有通过门控签发的
-主智能体 `researchReviewPayload` 才能推进 PDF 状态。
-工作器从不调用门控、提交该载荷、接收 Zotero 命令或写入 Host 回执。
+只有较早路线已经找到并验证合法匹配 PDF 时，后续路线才可使用 `skipped_after_verified_pdf`。没有较早 verified PDF 时，剩余路线必须实际尝试。
 
-工作器规格和原始结果保留在
-`runtime/agent-batches/batch-NNN/` 下；主智能体审阅载荷和生成的
-收录载荷保留在 `runtime/payloads/` 下；Host 回执保留在
-`runtime/host/` 下。不要将路由说明或下载的临时文件写入
-`result/`、`/tmp`、主目录、缓存目录或其他分配路径。
-工作流需要经验证的公开 URL 和响应/身份事实，而非私有的本地 PDF 存档。
+探测完成时必须能判断：
 
-如果工作器无法写入其声明的结果路径，则直接返回相同的扁平
-JSON 对象并退出。主智能体可将该对象持久化到声明路径、
-审阅它并编写正式路由对象。不存在工作器侧的验证或修复循环。
+- 是否找到 PDF；
+- URL 是否公开、合法和稳定；
+- 响应是否真的是 PDF；
+- PDF 是否对应批准的直接作品和材料版本；
+- 是否可写入 `paper.pdfUrl`；
+- 无 PDF 时是否保留 landing URL 和 metadata-only payload。
 
-## 硬路由顺序
+## 路线顺序
 
-### 1. 权威落地页
-
-按顺序检查：
-
-1. DOI 解析器或其他规范化标识符落地页；
-2. 出版商、期刊、会议、仓储库、大学或发布机构页面；
-3. 属于该直接作品的显式链接 HTML 全文、下载控件、补充记录
-   或直接 PDF URL。
-
-不要将落地页视为 PDF。仅跟踪公开链接并验证响应。
-
-查询形式：
+路线按优先级而不是并行猜测执行：
 
 ```text
-https://doi.org/<normalized-doi>
-site:<publisher-domain> "<original title>"
-"<identifier>" site:<issuing-domain>
+authoritative_landing
+  -> open_access
+  -> web_search
 ```
 
-### 2. 开放获取
+每条路线记录状态、来源 URL、观察事实和终态理由。子代理可在 stdout 报告这些信息；Host payload 只保留最终 landing/PDF URL。
 
-检查适用来源：
+## 路线一：权威落地页
 
-1. 基于 DOI 的开放获取索引；
-2. 领域仓储库（如 arXiv 或学科仓储库）；
-3. 机构仓储库；
-4. 学位论文仓储库；
-5. 合法公开文件的作者、实验室、项目或资助方页面。
+从 metadata 阶段确认的权威 landing page 开始：
 
-查询形式：
+- 出版商或期刊 article page；
+- 会议或 proceedings 页面；
+- arXiv abstract 页面；
+- 学位授予机构记录；
+- 作者/项目正式仓储记录；
+- 出版社 book/chapter 页面；
+- 政府或机构正式 report 页面。
 
-```text
-<normalized DOI> open access
-"<original title>" repository
-"<original title>" site:<institution-domain>
-<author> "<distinctive title phrase>" pdf
-```
+检查：
 
-索引声称某作品开放获取仅是一条线索。需跟踪其 URL 并
-验证实际文件。
+- 页面是否明确指向同一 identifier、题名、作者和版本；
+- 是否有直接 PDF link、download link 或嵌入 PDF；
+- PDF 是否无需登录、机构代理或验证码；
+- 链接是否为永久/稳定公开地址；
+- 下载结果是否真实 PDF。
 
-### 3. 公开网络搜索
+出版商页面显示“PDF”按钮但要求订阅登录时，不能视为公开 PDF。landing page 本身仍可保留。
 
-在可用时同时使用原始标题和标识符形式：
+## 路线二：开放获取
 
-```text
-"<authoritative original title>" filetype:pdf
-"<normalized DOI>" pdf
-"<original title>" "<first creator>" pdf
-```
+路线一没有 verified PDF 时，查询适用合法开放来源：
 
-对于非拉丁字母标题，优先使用原始文字搜索。翻译和罗马化
-查询作为补充。公开网络搜索不能放宽来源合法性或身份检查。
+- Unpaywall 或其他合法 OA resolver；
+- PubMed Central；
+- arXiv；
+- DOAJ 期刊页面；
+- institutional repository；
+- author-accepted manuscript repository；
+- conference/open proceedings；
+- government/public research repository；
+- dataset/project 官方发布页中的论文文件。
 
-## 可达性与内容验证
+使用 DOI、标题、作者、年份和材料版本交叉核对。OA 服务指向的 repository 版本必须与批准的直接作品关系明确。
 
-一次 `found` 尝试需满足以下全部条件：
+接受作者接受稿时应确认：
 
-- 最终 URL 使用 HTTP(S)；
-- 无需账户、订阅登录、机构代理或交互式审批；
-- 最终响应可达；
-- 内容类型以 `application/pdf` 开头；
-- 响应是文件本身，而非 HTML 落地页、同意页面、错误页面、
-  查看器外壳或搜索结果；
-- 文件的标题、创作者、标识符、发表场所或其他直接作品证据
-  与主智能体确认的直接作品元数据匹配；
-- 来源合法且可公开分享。
+- 它是目标作品的合法公开版本；
+- 题名、作者和 identifier 对应；
+- 不是演示文稿、补充材料、海报或不同 manuscript；
+- 用户批准的 material identity 允许该版本作为附件。
 
-检查响应头，必要时检查首页或嵌入元数据。仅凭 URL
-以 `.pdf` 结尾是不够的。服务器可能返回 HTML、拒绝访问页面
-或另一篇论文。
+## 路线三：公开网络搜索
 
-如果稳定的落地页有参考价值，将其单独记录为 `landing_url`。
-`pdf_url` 必须指向经验证的文件响应。
+前两条路线没有 verified PDF 时执行公开网络搜索。组合：
+
+- 精确题名 + `filetype:pdf`；
+- DOI + `pdf`；
+- 题名 + 作者 + repository；
+- 原文题名和 alternate title；
+- 机构、项目、会议或期刊域名限制；
+- 地区语言中的“全文”“下载”“论文”等正式术语。
+
+网络搜索结果只是入口。每个候选 URL 仍需完成可达性、文件和身份验证。
+
+以下搜索结果不能直接接受：
+
+- 仅有搜索摘要；
+- 登录/订阅页面；
+- 临时预览或 session URL；
+- 文档分享、论坛或来源不明镜像；
+- 盗版站点；
+- 只匹配关键词但不是目标作品的 PDF。
+
+## 可达性与文件验证
+
+对候选 PDF URL 进行实际请求或等价的公开访问检查：
+
+- 成功 HTTP 状态；
+- 合理重定向；
+- `Content-Type` 是 PDF，或文件头包含 `%PDF-`；
+- 返回内容不是 HTML 登录页、错误页、验证码或同意页；
+- 文件大小合理且不是零字节/截断占位；
+- 最终 URL 可供 Host 访问。
+
+若服务阻止 HEAD，可使用有界 GET 或 range 请求。不要因 URL 以 `.pdf` 结尾就判定为 PDF。
 
 ## 直接作品身份
 
-仅当 PDF 代表已批准且经元数据确认的直接作品时才接受。比较：
+PDF 必须与批准作品一致。优先检查：
 
-- DOI、ISBN、PMID、arXiv id、报告编号或仓储库 id；
-- 权威原始标题；
-- 有序创作者列表；
-- 作品类型和材料版本；
-- 年份、容器、发布机构和特征性子标题。
+- DOI、ISBN、PMID、arXiv 或其他强 identifier；
+- title page 的完整题名；
+- creators；
+- venue、year 和 material type；
+- 页眉页脚或 repository record；
+- 版本声明。
 
-拒绝以下情况：
+以下情况拒绝：
 
-- 引用论文；
-- 所选作品为衍生文章时的学位论文；
-- 所选条目为已发表文章时的预印本，除非关系和所选材料版本明确允许；
-- 补充材料、海报、幻灯片、摘要集、勘误或数据集而非作品本身；
-- 不同创作者的同名作品。
+- 同一作者的另一篇论文；
+- 同一主题的综述；
+- conference slides、poster、supplement 或 dataset；
+- thesis 代替批准的 article，或 article 代替批准的 thesis；
+- preprint/accepted manuscript 与批准版本关系无法确认；
+- correction、editorial 或 response 代替原论文。
 
-当可达文件不是直接作品时使用 `status: "mismatch"`。在 `notes` 中
-说明冲突的身份事实；永远不要将该 URL 放入 `pdf_url`。
+文件标题略有排版差异可以结合 identifier、作者和版本关系判断；不能仅凭文件名决定身份。
 
-## 状态语义
+## 合法性
 
-| 状态 | 含义 |
-| --- | --- |
-| `found` | 已验证一个合法、公开、可达且身份匹配的 `application/pdf` 响应 |
-| `not_found` | 路由已成功搜索但未产生可用 PDF |
-| `restricted` | 候选文件存在但需要登录、订阅、授权或其他受限访问 |
-| `unavailable` | 计划的路由或服务无法访问或以不可用方式不适用 |
-| `mismatch` | 检索或链接到的文件属于另一书目对象 |
-| `error` | 由于具体的网络、解析或服务错误导致尝试失败 |
-| `skipped_after_verified_pdf` | 更高优先级的路由已产生经验证的同一作品公开 PDF，因此本后续路由被有意跳过 |
+允许：
 
-不存在通用的 `not_attempted` 状态。在经验证的 PDF 存在之前，
-空的搜索摘要不能覆盖一条路由。记录来源、确切查询或 URL、
-终态状态和简要说明。对于 `found`，还需记录经验证的
-PDF URL、PDF 内容类型和具体身份证据。对于
-`skipped_after_verified_pdf`，说明哪条更高优先级路由已成功。
-这些证据字段取代了自声明的可达性、合法性和身份布尔值；
-来源策略仍然适用。
+- 出版商明确公开的 PDF；
+- 合法 OA 期刊和 repository；
+- 作者或机构依法公开的 manuscript；
+- 政府、公共机构和开放 proceedings；
+- 用户明确提供并有权使用的本地公开文件。
 
-## 合法与禁止来源
+不允许：
 
-接受以下来源的公开文件：
+- Sci-Hub、LibGen 和其他盗版来源；
+- 绕过 paywall、登录、机构代理或验证码；
+- 使用用户浏览器 session、cookies 或 Zotero Connector；
+- 来源不明的镜像和再上传；
+- 违反服务条款的抓取或 token 复用。
 
-- 出版商和期刊网站；
-- DOI 或发布机构落地页；
-- 公认的开放获取和机构仓储库；
-- 作者、项目、实验室、大学或资助方页面；
-- 公有领域仓储库和合法存档。
+无法确认合法性时不附加 PDF，并保留 metadata-only 路径。
 
-不得使用：
+## 路线状态
 
-- 盗版或未授权分享网站；
-- 凭据、机构代理会话、Cookie 转移或浏览器登录自动化；
-- 仅在私人账户内可见的 URL；
-- 规避工具或付费墙绕过手段；
-- 与所选候选无关的本地文件。
+每条路线使用清晰终态：
 
-ACP shell、公开 HTTP 和搜索工具可在其授权范围内使用。
-不要使用浏览器、Connector、CDP 或其他用户的登录会话来获取受限内容。
+- `found`：找到并验证合法匹配 PDF；
+- `not_found`：路线已实际检查，未找到候选；
+- `restricted`：只找到需要登录、订阅或权限的来源；
+- `mismatch`：找到文件但不是批准的直接作品；
+- `unavailable`：来源或网络不可用；
+- `error`：请求或解析失败；
+- `skipped_after_verified_pdf`：较早路线已有 verified PDF。
 
-## 完整找到载荷
+`skipped_after_verified_pdf` 的前提是已保存较早路线的 verified URL 和身份判断。`restricted`、`mismatch`、`unavailable` 和 `error` 不是 found。
 
-此载荷覆盖所有路由并选定权威文件：
+一篇论文的最终 PDF 状态：
 
-```json
-{
-  "attempts": {
-    "authoritative_landing": {
-      "source": "官方期刊落地页",
-      "query_or_url": "https://doi.org/10.5555/tunnel.001",
-      "status": "found",
-      "pdf_url": "https://journal.example.org/articles/tunnel.001.pdf",
-      "content_type": "application/pdf",
-      "identity_evidence": [
-        "DOI、原始中文标题和创作者与确认元数据匹配。"
-      ],
-      "notes": "DOI、中文标题和创作者与确认元数据匹配。"
-    },
-    "open_access": {
-      "source": "开放获取路由",
-      "query_or_url": "经验证权威 PDF 后无需查询",
-      "status": "skipped_after_verified_pdf",
-      "notes": "权威落地页路由已产生经验证的 PDF。"
-    },
-    "web_search": {
-      "source": "公开网络搜索",
-      "query_or_url": "经验证权威 PDF 后无需查询",
-      "status": "skipped_after_verified_pdf",
-      "notes": "权威落地页路由已产生经验证的 PDF。"
-    }
-  }
-}
-```
+- `found`：至少一条路线 found；
+- `missing`：所有适用路线完成但无 found；
+- `failed`：技术错误使必要路线无法完成且无法安全判断；
+- `skipped`：论文在 metadata/identity 阶段已成为 `not_attempted`，因此不进入 mutation。
 
-运行时根据确定性路由偏好选择可用文件。
-不要仅因早期路由找到了文件就省略后续路由键；
-将它们记录为 `skipped_after_verified_pdf`，使正式对象保持完整
-同时避免浪费搜索。由主智能体（而非工作器）提交
-三键对象并后续遵循门控的审阅游标。
+## payload 行为
 
-## 完整缺失载荷
-
-PDF 缺失是探测的终态结果，而非工作流失败：
+### 找到 PDF
 
 ```json
 {
-  "attempts": {
-    "authoritative_landing": {
-      "source": "官方期刊落地页",
-      "query_or_url": "https://doi.org/10.5555/tunnel.001",
-      "status": "not_found",
-      "notes": "该页面提供元数据但无公开文件。"
-    },
-    "open_access": {
-      "source": "开放获取索引和仓储库",
-      "query_or_url": "10.5555/tunnel.001",
-      "status": "not_found",
-      "notes": "未找到仓储库副本。"
-    },
-    "web_search": {
-      "source": "公开网络搜索",
-      "query_or_url": "\"隧道衬砌病害智能识别研究\" filetype:pdf OR \"10.5555/tunnel.001\" pdf",
-      "status": "not_found",
-      "notes": "未找到合法公开副本。"
-    }
-  }
+  "landingUrl": "https://doi.org/10.0000/example",
+  "pdfUrl": "https://repository.example.org/example.pdf",
+  "attachLandingUrlOnMissingPdf": true
 }
 ```
 
-候选项获得 PDF 状态 `missing`。确定性收录准备
-省略 `pdfUrl` 并保留权威的 `landingUrl`。这仍然是
-完整的正式 PDF 结果；缺少公开 PDF 不是将经元数据确认的候选项
-从收录准备中排除的理由。
+选择最佳 URL：
 
-## 其他终态示例
+1. 权威直接 PDF；
+2. 稳定合法 OA repository；
+3. 经验证的公共网络来源。
 
-### 受限
+### 未找到 PDF
 
 ```json
 {
-  "source": "出版商下载",
-  "query_or_url": "https://publisher.example.org/download/123",
-  "status": "restricted",
-  "notes": "下载需要订阅者登录。"
+  "landingUrl": "https://doi.org/10.0000/example",
+  "attachLandingUrlOnMissingPdf": true
 }
 ```
 
-不要自动化登录。继续执行其他路由。
+省略 `pdfUrl`。metadata-only payload 仍可提交。`attachLandingUrlOnMissingPdf` 请求 Host 在未取得 PDF 时按其能力保存 landing page；它不代表 PDF 附件成功。
 
-### 不匹配
+### Metadata 未通过
 
-```json
-{
-  "source": "公开网络搜索",
-  "query_or_url": "\"Shared Article Title\" filetype:pdf",
-  "status": "mismatch",
-  "notes": "该 PDF 的创作者和 DOI 不同。"
-}
-```
+直接作品身份或最低 metadata 无法确认时不准备 mutation payload。PDF 搜索结果不能反向替代 metadata identity。
 
-不要将不匹配的 URL 放入 `pdf_url`。
+## 主代理检查
 
-### 不可用
+主代理确认：
 
-```json
-{
-  "source": "开放获取索引",
-  "query_or_url": "10.5555/tunnel.001",
-  "status": "unavailable",
-  "notes": "实际请求后公共服务不可用。"
-}
-```
+1. 三条路线都有终态，或后续路线具有合法 skip 原因；
+2. found URL 已完成可达性与文件验证；
+3. PDF 对应同一直接作品和材料版本；
+4. 来源合法公开；
+5. `landingUrl` 与 `pdfUrl` 角色正确；
+6. no-PDF 论文仍有有效 metadata-only payload；
+7. 最终 `pdfStatus` 由 Host receipt 决定，而非 worker 预测。
 
-## 反例
+如果某条必要路线缺失，主代理补做该路线或重新委派该论文。是否保存 stdout 审计不改变路线必须实际执行的要求。
 
-### 拒绝：将落地页报告为 PDF
+## 示例与反例
 
-响应内容类型为 `text/html`，但尝试使用 `status:
-"found"` 并将落地 URL 存储为 `pdf_url`。应根据情况将路由记录为
-`not_found` 或 `restricted`，并仅将该页面保留为
-`landing_url`。
+### 正确：OA 路线找到 PDF
 
-### 拒绝：无路由尝试的搜索摘要
+权威页面只有付费入口；Unpaywall 指向机构库 accepted manuscript。DOI、题名、作者和版本一致，文件可公开下载。接受 repository PDF，网络搜索路线可标记 `skipped_after_verified_pdf`。
 
-"网上没有 PDF"没有记录确切查询、来源、终态状态
-和说明。该路由仍处于未覆盖状态。
+### 正确：三条路线均未找到
 
-### 拒绝：缺少路由
+权威页面受限，OA 无结果，公开网络搜索只找到引用页面。省略 `pdfUrl`，写 metadata-only payload。
 
-仅存在权威落地页和开放获取条目。硬门控必须
-拒绝该载荷，因为三个路由键均为必需。当早期路由
-找到了有效文件时，缺失的后续键应以
-`skipped_after_verified_pdf` 存在，而非被省略。
+### 拒绝：将 landing page 当作 PDF
 
-### 拒绝：将 PDF 研究作为第二个工作器任务委托
+URL 返回 HTML article page。它可以作为 `landingUrl`，不能作为 `pdfUrl`。
 
-一个工作器返回书目事实，主智能体为同一候选项启动另一个
-仅处理 PDF 的工作器。这违背了原子性单篇任务分配
-并重建了隐藏的工作器阶段链。原始任务
-已要求同时进行有限元数据和公开 PDF 研究。
-如果其原始结果缺少决定性的 PDF 证据，主智能体在编写正式审阅时
-执行小幅有限修复；它不创建新的工作器侧阶段或终结器循环。
+### 拒绝：无前置 found 却跳过路线
 
-### 拒绝：中间文件离开运行器工作区
+权威页面和 OA 均未找到文件，公开网络搜索必须执行，不能标记 `skipped_after_verified_pdf`。
 
-当分配结果路径不可用时，智能体将路由说明写入 `/tmp`、
-将 PDF 下载到主目录缓存或使用外部临时目录。
-这不是授权的回退方式。应将相同的扁平 JSON 结果返回给主智能体；
-所有持久化的中间工件属于 `runtime/` 下，
-只有最终的公开输出属于 `result/` 下。
+### 拒绝：身份错误
 
-### 拒绝：身份错误的文件
+搜索命中同名作者的相邻论文。即使文件可访问，也必须标记 mismatch。
 
-一个可达的公开 PDF 具有翻译后的标题但创作者和 DOI 不同。
-使用 `mismatch`；不要附加它。
+### 拒绝：受限或非法来源
 
-### 拒绝：将受限来源视为公开
-
-浏览器会话可以查看出版商文件，因为用户已登录。
-这并不使 URL 变为公开或可复用。记录 `restricted`，
-不要提取会话凭据。
-
-### 拒绝：非法来源
-
-文件出现在未授权分享网站上。不能使用 `found`；
-记录合法来源尝试的结果并继续合法搜索。
-缺少自声明的 `legal_source` 布尔值永远不会放宽该策略。
+登录后的 publisher PDF、机构代理 URL、盗版镜像和验证码绕过结果不能写入 payload。

@@ -1,347 +1,326 @@
 # 元数据解析
 
-在第 40 阶段主代理审阅中使用本参考文档。它定义了如何将单篇论文的原始
-调研结果转化为针对同一篇已批准作品本身的、有证据支撑的 Zotero 元数据决策，
-而非一个看似合理但实际不同的替代结果。当 worker 结果信息不足或存在矛盾时，
-本参考文档还指导执行一次小范围的有界修复搜索。
-静态 worker 提示仍保留在 `SKILL.md` 中；不要将本参考文档作为
-第二份 worker 协议附加，也不要将其各节转化为 worker 可见的阶段。
+本参考用于阶段 40 的子代理研究和主代理最终检查。metadata 搜索、直接作品身份和 canonical Zotero 字段是每篇批准论文的强制完成条件。
 
-## 调研交接与规范审阅边界
+## 完成标准
 
-主代理首先执行 `prepare_agent_batches`，然后在等待之前启动所有
-缺少结果的单篇论文任务。每个 worker 仅写入其纯数据规格所指定的
-扁平 `result.json` 后退出。该文件可能包含标题、创建者姓名、日期、标识符、URL 和备注，
-但它属于不可信的调研材料，而非规范的元数据载荷。
+一篇论文的 metadata 研究只有在以下事项均可判断时完成：
 
-主代理负责语义边界。它读取原始结果、核实已批准的候选身份、
-在必要时检查引用的来源 URL、在关键信息缺失时执行小范围的有界修复搜索，
-并向 gate 指定的路径写入一份正式的 `researchReviewPayload`。
-只有正式的 `metadata` 成员在 schema 和运行时验证后才能成为规范状态。
-Worker 永远不会调用 gate、运行 finalizer、提交审阅、写入 `runtime/payloads/`，
-也不会接收 Zotero 变更命令或 Host receipt 路径。
+- 已验证用户批准的直接作品身份；
+- 已确定材料类型和重要版本关系；
+- 已找到适用的规范 identifier，或完成 identifier 搜索并记录未找到；
+- 已从权威证据确定题名、创建者/机构、日期和容器；
+- 已选择 item-type-compatible Zotero 字段；
+- 已明确 remaining uncertainty 和 `needsCuration`；
+- 能安全构造单篇 Host payload，或能说明为什么该 candidate 是 `not_attempted`。
 
-所有中间文件保留在 runner 工作区内。Worker 规格和原始结果
-存放在 `runtime/agent-batches/batch-NNN/` 下；主代理审阅和运行时生成的规范载荷
-存放在 `runtime/payloads/` 下；Host receipt 存放在 `runtime/host/` 下。
-不要将工作重定向到 `/tmp`、主目录、缓存目录或其他任务目录。
-如果 worker 无法写入其结果路径，它可以直接返回相同的扁平 JSON 对象；
-主代理可在审阅前将该对象写入声明的路径。
-
-全部结果就绪屏障仅意味着每个 worker 都已终止并完成了原始交接。
-它不接受元数据。主代理审阅仍然按 gate 顺序逐个处理已批准的候选，
-以确保规范投影的确定性。
-格式错误的 worker JSON、不支持的键、弱来源和矛盾信息由主代理修复或拒绝，
-而非通过 worker 侧的 schema/finalizer 循环发送。
+metadata 搜索不能由发现阶段的候选摘要代替。
 
 ## 解析顺序
 
-1. 规范化每个候选标识符。
-2. 查询该标识符的权威注册中心或直接来源页面。
-3. 检查该作品本身的出版商、仓库、图书馆或发布机构记录。
-4. 比对标题、创建者、日期、类型、容器、版本和材料版本。
-5. 使用二级索引来佐证事实并识别冲突。
-6. 如果没有标识符可以解析，则使用原始文字形式的标题和独立佐证执行标题路径。
-7. 主代理为该候选发出恰好一份正式的 `qualified` 或 `not_attempted` 元数据审阅。
+采用标识符优先的解析顺序：
 
-搜索摘要和模型知识可以建议查询方向。它们不被接受为元数据证据。
+1. 规范化输入中的 DOI、ISBN、PMID、arXiv 等 identifier；
+2. 通过 identifier 查询权威 metadata 和 landing page；
+3. 比较题名、创建者、年份、容器和材料类型；
+4. identifier 不可用时，使用原文题名 + 创建者/机构 + 年份 + 材料类型进行权威题名检索；
+5. 交叉核对至少一个权威或两个相互独立的高质量来源；
+6. 处理版本、原文和创建者冲突；
+7. 投影到 canonical Host payload。
+
+若 identifier 指向不同作品，应优先相信直接查询结果并将候选标记为身份冲突，不能为了匹配候选而忽略冲突。
+
+## 直接作品身份
+
+“直接作品”是用户在阶段 30 批准的具体 bibliographic work 和 material version。判断至少考虑：
+
+- 规范 identifier；
+- 原文题名及可靠 alternate title；
+- 完整创建者或机构；
+- 发表/授予年份；
+- 容器、会议、学校、出版社或仓储；
+- item/material type；
+- 权威来源明确的版本关系。
+
+主题相关、作者相同、标题相近或引用关系都不足以证明同一直接作品。
+
+以下通常是不同直接作品：
+
+- conference paper 与 journal extension；
+- thesis 与从中衍生的 article；
+- preprint 与内容/作者发生实质变化的正式版；
+- dataset、protocol、correction、editorial 与研究论文；
+- book 与其中 chapter；
+- report 与后续 peer-reviewed article。
+
+当只能解析到相关但不同的作品时，该 candidate 为 `not_attempted`。主代理不能替换作品，也不能请求新的批准来绕过原身份。
 
 ## 标识符规范化
 
-| 标识符 | 规范形式 | 拒绝或需调查的情况 |
-| --- | --- | --- |
-| DOI | 小写后缀，不含 `doi:`、解析器 URL、查询参数或周围标点 | 语法无效、解析目标不相关，或存在标题/类型/版本冲突 |
-| ISBN | 不含分隔符的有效 ISBN-10 或 ISBN-13 | 校验位无效、ISBN 对应的是容器而候选是章节，或版本不同 |
-| PMID | 仅十进制标识符 | 记录描述的是被引作品而非候选本身 |
-| arXiv | 规范类别/id 或数字 id；保留版本号作为材料证据 | 已发表文章在未明确进行版本判断的情况下被视为同一条目 |
+### DOI
 
-标识符接受要求：
+- 去除 `https://doi.org/`、`http://dx.doi.org/` 和 `doi:` 前缀；
+- 去除外围空白和明显的尾随标点；
+- 比较时使用不区分大小写的规范值；
+- payload 写入 `paper.identifiers.doi`，不写入 `fields.DOI` 或 `extra`。
 
-- 候选、证据、匹配对象和 `metadata.identifiers` 之间精确规范化相等；
-- 来自权威的作品本身证据；
-- 标题、作品类型或版本中不存在未解决的材料冲突；
-- `match.method: "identifier"` 以及匹配的 `normalized_identifier`。
+### ISBN
 
-精确的标识符不授权从不同的容器、勘误、审阅、数据集或衍生出版物中复制元数据。
+- 去除空格和连字符进行比较；
+- 保留适用的 ISBN-10/ISBN-13 语义；
+- 确认 identifier 对应 book、chapter 或 proceedings 的正确层级；
+- payload 写入 `paper.identifiers.isbn`。
 
-## 标题路径接受
+### PMID
 
-仅当所有条件均满足时使用 `match.method: "title"`：
+- 仅接受数字 PMID；
+- 与 PubMed 记录的题名、作者、年份和期刊核对；
+- payload 写入 `paper.identifiers.pmid`。
 
-- 权威原始标题规范化后指向同一作品本身；
-- 着陆 URL 代表该作品；
-- 至少两个独立的佐证信号一致，例如有序的创建者、年份、发布机构、容器、文档类型或特征性副标题；
-- 不存在材料版本冲突；
-- `corroborating_signals` 列出了实际使用的信号。
+### arXiv
 
-同一个弱聚合器的副本重复提供的两个值不构成独立信号。
-翻译标题匹配加上一条搜索摘要是不够的。
+- 去除 `arXiv:` 前缀并规范版本后缀；
+- 判断用户批准的是 preprint 本身还是正式发表版本；
+- payload 写入 `paper.identifiers.arxiv`。
 
-当无法建立强身份时，应发出 `not_attempted` 而非猜测。
+没有 identifier 不自动阻止入库。需要完成适用搜索，并用权威题名路径建立可追溯身份。
+
+## 题名路径
+
+identifier 不可用时，题名路径至少需要：
+
+- 权威来源展示完整题名；
+- 创建者或机构与候选一致；
+- 年份或容器一致；
+- 材料类型一致；
+- 没有无法解释的同名冲突。
+
+题名标准化仅用于比较：Unicode 规范化、空白合并、标点和大小写处理不能覆盖原始题名。payload 中保留权威来源的原文形式。
+
+弱搜索摘要、二手引用列表和自动生成页面不能单独完成题名路径。
 
 ## 证据角色
 
 ### 权威证据
 
-示例：
+- DOI 注册机构记录；
+- 出版商、期刊、会议或正式 proceedings；
+- PubMed、arXiv、学位授予机构、出版社或作者正式仓储；
+- 作品官方 landing page；
+- 用户提供且可核验的本地原始记录。
 
-- 该作品本身的 DOI、ISBN、PMID 或 arXiv 注册记录；
-- 出版商或期刊文章页面；
-- 预印本、学位论文、报告或机构出版物的官方仓库记录；
-- 标准或报告的发布机构；
-- 学位论文的大学目录或论文仓库；
-- 图书或版本的出版商或国家图书馆记录。
+可用于直接身份和关键 metadata。
 
-至少有一个 `qualified` 载荷的证据条目必须使用 `role: "authoritative"`。
+### 高质量次要证据
 
-### 次要证据
+- OpenAlex、Semantic Scholar、合法机构索引；
+- 图书馆目录和国家级 bibliographic service；
+- 引文数据库的稳定记录。
 
-跨领域索引、引文数据库、图书馆聚合器、项目页面和作者主页可以佐证或揭示冲突。
-其事实必须归属于所检查的确切 URL。
+适合交叉核对和发现权威来源。关键冲突时优先权威证据。
 
 ### 弱证据
 
-搜索摘要、抓取的引文页面、无归属的参考文献列表和模型回忆仅可作为查询线索。
-它们不能使记录获得 `qualified` 资格。
+- 搜索摘要；
+- 未说明来源的聚合器；
+- 引用片段；
+- 用户生成列表；
+- 自动生成的论文介绍页面。
 
-每条证据记录来源、直接 URL、角色、原因和观察到的具体事实。
-当有助于区分原始文本、翻译文本或容器文本时，在 `raw_title` 中保留来源原始措辞。
+只能作为 lead 或搜索提示。
 
-## 作品本身与相关记录
+## 材料与版本
 
-在映射字段之前先对记录进行分类：
+材料类型决定 Zotero `itemType`、字段角色和是否应作为同一 candidate：
 
-- **作品本身与容器：** 期刊、会议录、图书、丛书或仓库页面不是文章、论文、章节或学位论文。
-- **版本：** 不同的 ISBN、修订声明、出版商或版本号可能表示不同的书目对象。
-- **预印本与文章：** 链接两者关系，但当发表状态、标识符、分页或实质版本不同时，保留独立的条目身份。
-- **学位论文与文章：** 共享的标题片段和作者身份不能合并学位论文和衍生文章。
-- **图书与章节：** 章节标题放入 `metadata.title`；图书放入所选条目类型语义匹配的标量字段。
-- **勘误、数据集、协议或评论：** 不要用它们替代其所引用的作品。
+- 期刊论文：`journalArticle`；
+- 会议论文：`conferencePaper`；
+- 学位论文：`thesis`；
+- 图书：`book`；
+- 书章：`bookSection`；
+- 报告：`report`；
+- preprint：使用 Host 支持且语义最合适的类型，并保留 repository/identifier；
+- 其他材料：仅在 Host 支持且权威来源明确时使用。
 
-如果解析发现了不同的作品，使用 `reason: "identity_not_verified"` 并说明可用记录不是已批准的作品本身。
-如果关系是真实的但材料版本仍未解决，使用 `reason: "material_conflict_unresolved"`。
+如果用户批准的是会议论文，journal extension 即使 metadata 更完整也不能替代。若权威来源确认 preprint 与正式版只是同一作品的发布版本，仍需根据用户批准的材料和本地去重策略选择正确记录。
 
-## Zotero 类型与字段角色
+## 原始文字
 
-选择能描述作品本身的最精确的受支持 Zotero 条目类型：
+优先保留作品正式使用的原文题名、创建者和容器名称：
 
-| 作品本身 | 典型 `itemType` | 重要字段角色 |
-| --- | --- | --- |
-| 期刊文章 | `journalArticle` | 标题、出版物标题、卷、期、页码、日期 |
-| 会议论文 | `conferencePaper` | 论文标题、会议录标题、会议名称、地点、日期 |
-| 图书 | `book` | 书名、版本、出版商、地点、日期、ISBN |
-| 图书章节 | `bookSection` | 章节标题、书名、页码、出版商、编辑 |
-| 学位论文 | `thesis` | 论文标题、类型、大学、地点、日期 |
-| 报告 | `report` | 报告标题、报告编号、机构、地点、日期 |
-| 预印本 | 受支持的预印本类型或语义最接近的 Host 类型 | 仓库、版本、日期、arXiv id |
+- 中文作品保留正式中文题名；
+- 日文、韩文、阿拉伯文等保留权威原脚本；
+- romanization 或翻译可作为 alternate title 或内部匹配信息；
+- 不用英文翻译覆盖可确认的原文题名；
+- 不凭搜索引擎翻译创建者姓名。
 
-`metadata.title` 是唯一的正式主标题字段，指代作品本身。
-不要提供 `metadata.originalTitle`、`metadata.fields.title` 或 `containers` 对象：
-这些不属于本 ingest 载荷合约。
-将有证据支撑的期刊、图书、会议录、会议、大学、机构、丛书、仓库、出版商或地点
-直接映射到与所选 `itemType` 语义匹配的标量字段。
-
-运行时根据规范字段名白名单对字段名进行严格验证。
-它不会动态调用 Zotero 的 `ItemFields`。该白名单不证明语义适当性：
-代理仍必须省略角色不适合所选条目类型的字段，
-而非使用看似诱人但不兼容的字段名。不要将任意来源键复制到 `fields` 中。
-
-## 标题与原始语言
-
-从直接权威记录中确定原始出版语言，而非从索引页面的语言推断。
-
-- `metadata.title` 是作品的权威出版标题。
-- `metadata.fields.title` 无效；确定性 ingest 准备会将 `metadata.title` 投射到 `paper.fields.title`。
-- `alternateTitles` 包含带有明确角色的翻译、罗马化、缩写或另行出版的替代形式。
-- 有证据支撑的容器或发布事实使用相关的标量字段，例如 `publicationTitle`、`bookTitle`、`proceedingsTitle`、`conferenceName`、`university` 或 `institution`，仅在其适合所选 `itemType` 时使用。
-
-对于中文：
-
-- 保留权威的简体或繁体形式，以出版时为准；
-- 不要将一种字形规范化为另一种作为主标题；
-- 仅当来源确实以替代形式提供另一种字形时才记录；
-- 永远不要通过拼接中文和英文来创建双语主标题。
-
-对阿拉伯文、西里尔文、天城文、日文、韩文及其他非拉丁文字记录应用相同的原始文字规则。
-罗马化有助于匹配，但不能替代主标题。
+当权威来源本身只提供英文正式题名时，可以使用该题名，但应说明它是来源记录的正式形式，而非自动翻译。
 
 ## 创建者完整性
 
-创建者是有序的书目数据。
+创建者列表必须保留来源顺序和角色：
 
-仅当权威来源验证了完整的有序列表时才使用 `creatorCompleteness: "complete"`。此时：
+- person creators 使用 `firstName`/`lastName` 或 `name`，依据 Host 支持的 creator 结构；
+- institutional creator 使用单字段 `name`；
+- `creatorType` 与 item type 兼容，如 `author`、`editor`；
+- 不省略中间作者；
+- 不把“et al.”写为 creator；
+- 不根据单一引文摘要猜测完整列表。
 
-- 不应拆分的机构名或原生名称使用 `{"creatorType": "...", "name": "..."}`；
-- 可靠分段的个人姓名可以使用 `firstName` 和 `lastName`；
-- 不要将罗马化的创建者混入原生文字列表中，除非权威记录发布了完全相同的表示形式。
+若完整创建者无法验证：
 
-对于中文或其他原生文字作品，如果完整的原生创建者列表无法验证：
+- direct work 仍可明确时，标记 `needsCuration: true` 并保留可验证信息；
+- 创建者冲突影响身份时，记录 `not_attempted`。
 
-- 将 `creatorCompleteness` 设为 `incomplete`；
-- 将 `creators` 设为 `[]`；
-- 添加警告码 `native_creator_names_unverified`；
-- 将 `needs_curation` 设为 `true`。
+## 条目类型与字段
 
-永远不要将经过验证的部分列表当作完整列表写入。
-永远不要用翻译或罗马化的姓名替代缺失的原生姓名，仅仅是为了避免空数组。
+`paper.fields` 只包含所选 `itemType` 支持且语义正确的 Zotero 字段。常见字段：
 
-## 标识符与 URL 角色
+- `title`；
+- `abstractNote`；
+- `date`；
+- `publicationTitle`；
+- `proceedingsTitle`；
+- `university`；
+- `publisher`；
+- `place`；
+- `volume`、`issue`、`pages`；
+- `language`；
+- `series`、`edition`、`reportType`、`thesisType` 等适用字段。
 
-- 所有 DOI 值仅放入 `metadata.identifiers.doi`。
-- 不要将 DOI 放入 `metadata.fields.DOI` 或 `metadata.fields.doi`。
-- 不要将 ISBN 放入 `metadata.fields.ISBN`。
-- 不要在 `metadata.fields.extra` 中放置 `DOI:` 行、其他标识符编码或自由格式的后备元数据；`extra` 在正式审阅中无效。
-- Host 为受支持的条目类型写入原生 DOI 字段，仅在条目类型没有原生 DOI 字段时使用 Extra。
-- ISBN、PMID 和 arXiv 值使用其命名的标识符键。
-- `landingUrl` 是稳定的作品本身页面。
-- PDF URL 由单独的正式 PDF 审阅确定，不得从元数据着陆页面推断。
+字段名 canonical 并不代表适用于所有 item type。主代理应确认容器语义：
 
-## 适配 literature-metadata-search 输出
+- work title 只能放 `title`；
+- journal/container title 放对应容器字段；
+- abstract 只能放 `abstractNote`；
+- identifiers、creators 和 URLs 使用专属结构。
 
-`literature-metadata-search` 有自己更丰富的元数据合约。将其输出视为需要适配的证据，
-而非可以逐字复制的正式载荷。其对 `abstractNote` 的使用在两个合约中均有效，
-但其 `originalTitle`、`containers`、`fields.title`、标识符字段和创建者完整性值
-必须规范化为本 Skill 更窄的 ingest 结构。
+## 标识符与 URL
 
-在写入正式的主代理元数据审阅之前，应用以下转换：
-
-| 元数据搜索来源 | 正式 ingest 目标 | 所需判断 |
-| --- | --- | --- |
-| `originalTitle.value` | `metadata.title` | 优先使用权威的原始出版标题。 |
-| 无原始标题时的来源 `fields.title` | `metadata.title` | 仅在有作品本身证据支持时使用。 |
-| 原始/来源标题值冲突 | 无自动目标 | 视为需人工整理或 `not_attempted`；不要静默选择。 |
-| `fields.abstractNote` | `metadata.fields.abstractNote` | 仅保留有证据支撑的摘要；不要将其重命名为 `abstract`。 |
-| `fields.DOI`、`fields.doi`、`fields.ISBN`、PMID 或 arXiv 值 | `metadata.identifiers` | 规范化并保持标识符类型明确。 |
-| `containers` 角色/值条目 | 与条目类型兼容的标量字段 | 期刊 → `publicationTitle`、图书 → `bookTitle`、会议录 → `proceedingsTitle`、会议 → `conferenceName`、机构 → `institution`，仅在有匹配证据时映射。 |
-| `creatorCompleteness: "unknown"` | `creatorCompleteness: "incomplete"`，`creators: []` | 保留整理备注；本 ingest 合约不接受 `unknown`。 |
-| `fields.extra` | 无直接目标 | 省略；不要通过 Extra 传递元数据或标识符。 |
-
-适配器不会扩展本 Skill 的 schema。特别是，不要发出 `metadata.originalTitle`、`metadata.containers`、`metadata.fields.title` 或 `creatorCompleteness: "unknown"`。
-在正式证据中保留来源 URL 和事实，以便运行时审计适配结果。
-主代理仅在 gate 签发的审阅载荷中应用此映射，不修改来源 Skill 自身的输出。
-
-## Qualified 载荷
-
-以下标识符路径示例在结构上是完整的：
+专属结构：
 
 ```json
 {
-  "status": "qualified",
-  "metadata": {
+  "identifiers": {
+    "doi": "10.0000/example",
+    "isbn": "9780000000000",
+    "pmid": "12345678",
+    "arxiv": "2401.01234"
+  },
+  "landingUrl": "https://doi.org/10.0000/example",
+  "pdfUrl": "https://example.org/example.pdf"
+}
+```
+
+- DOI 不放 `extra`；
+- landing URL 是作品权威页面，不是 PDF 的替代；
+- PDF URL 仅在完成 PDF 验证后设置；
+- 不把搜索结果页、登录页或临时下载 token 当作 landing URL；
+- URL 冲突时保留最权威、稳定且与直接作品匹配的地址。
+
+## Host payload 投影
+
+metadata-qualified 论文写入：
+
+```json
+{
+  "paper": {
     "itemType": "journalArticle",
-    "title": "隧道衬砌病害智能识别研究",
-    "language": "zh-CN",
-    "script": "Hans",
-    "alternateTitles": [
+    "fields": {
+      "title": "权威原文题名",
+      "abstractNote": "经来源支持的摘要",
+      "date": "2024",
+      "publicationTitle": "期刊名称"
+    },
+    "creators": [
       {
-        "value": "Intelligent Recognition of Tunnel Lining Defects",
-        "role": "translated",
-        "language": "en",
-        "script": "Latn"
+        "creatorType": "author",
+        "firstName": "三",
+        "lastName": "张"
       }
     ],
-    "fields": {
-      "date": "2024",
-      "language": "zh-CN",
-      "publicationTitle": "隧道工程学报",
-      "abstractNote": "基于视觉模型识别隧道衬砌病害的研究。"
-    },
-    "creatorCompleteness": "incomplete",
-    "creators": [],
     "identifiers": {
-      "doi": "10.5555/tunnel.001"
+      "doi": "10.0000/example"
     },
-    "landingUrl": "https://doi.org/10.5555/tunnel.001"
+    "landingUrl": "https://doi.org/10.0000/example",
+    "pdfUrl": "https://example.org/example.pdf",
+    "attachLandingUrlOnMissingPdf": true
   },
-  "evidence": [
-    {
-      "source": "中国 DOI",
-      "url": "https://doi.org/10.5555/tunnel.001",
-      "role": "authoritative",
-      "facts": ["identifier", "original_title", "publication_year"]
-    }
-  ],
-  "corroborating_signals": [
-    "规范化的 DOI 与原始中文标题匹配。"
-  ],
-  "curation_notes": [
-    "完整的中文创建者列表未经验证。"
-  ]
+  "collection": ""
 }
 ```
 
-对于标题路径载荷，将标识符映射留空，并包含至少两个具体的 `corroborating_signals`。
-运行时自行判断接受的记录使用的是标识符优先路径还是标题路径，以及 `needs_curation` 的值。
+没有可信 abstract 时省略 `abstractNote`，不能用论文介绍、搜索摘要或模型总结填充。没有 PDF 时省略 `pdfUrl`；metadata 仍可入库。
 
-## Not-attempted 载荷
+## 整理与无法入库状态
 
-使用稳定的原因码并保留已检查的证据：
+### Qualified
 
-```json
-{
-  "status": "not_attempted",
-  "reason": "identity_not_verified",
-  "message": "原始标题匹配，但创建者和出版物类型无法得到佐证。",
-  "evidence": [
-    {
-      "source": "跨领域索引",
-      "url": "https://example.org/record/ambiguous-work",
-      "role": "secondary",
-      "facts": ["title_only"]
-    }
-  ]
-}
-```
+- 直接作品身份明确；
+- 最低 metadata 足够；
+- payload 可安全提交；
+- `needsCuration` 反映非身份性缺口。
 
-合法的 `reason` 值为：
+### Needs curation
 
-- `identity_not_verified`；
-- `material_conflict_unresolved`；
-- `authoritative_metadata_unavailable`；
-- `tool_unavailable`。
+适用于：
 
-`not_attempted` 是候选元数据的终态结果。它不会触发替换提示，也不会阻塞对其他已批准候选的处理。
+- identifier 未找到但权威题名路径完整；
+- 部分非身份关键字段缺失；
+- 创建者格式或容器细节仍需人工整理；
+- Host 返回 metadata warning。
+
+### Not attempted
+
+适用于：
+
+- direct-work identity 无法确认；
+- material version 冲突；
+- 题名/作者/年份指向不同作品；
+- 最低 metadata 不足以构造安全记录；
+- 只能解析到相关但不同的作品。
+
+`not_attempted` 不生成 Host mutation payload。
+
+## 主代理检查
+
+主代理逐篇检查：
+
+1. candidate id 和批准范围；
+2. direct-work identity 和材料版本；
+3. authoritative source 与 identifier；
+4. original-script title；
+5. creator 完整性和角色；
+6. itemType/field compatibility；
+7. `abstractNote` 与专属结构；
+8. landing/PDF URL 角色；
+9. target collection；
+10. `needsCuration` 或 `not_attempted` 结论。
+
+子代理可以在 stdout 报告来源和不确定性。主代理可以据此复核，但是否保存内部审计不影响 payload 的业务状态。
 
 ## 示例与反例
 
-### 接受：权威的中文记录
+### 接受：权威中文记录
 
-DOI 注册中心和期刊着陆页在中文标题、DOI、年份、类型和完整的有序中文创建者列表上一致。
-将中文标题存为主标题，英文标题存为 `translated`，创建者存为有序的单字段名称。
+DOI、中文期刊页面和完整中文作者一致。payload 保留中文题名和作者，DOI 写入 `identifiers.doi`。
 
-### 接受但需整理：创建者无法验证
+### 接受但需整理：无 identifier 的学位论文
 
-中文标题和 DOI 是权威的，但可用页面显示不一致或缩略的作者列表。
-保留中文标题，使用空的创建者列表，添加所需警告，并以 `needs_curation: true` 继续。
+学位授予机构页面提供完整题名、作者、年份和论文类型，但无 DOI。使用权威题名路径入库，标记 `needsCuration`。
 
-### 拒绝：英文翻译覆盖中文标题
+### 拒绝：英文翻译覆盖原文题名
 
-英文索引翻译了中文标题。将该翻译用作 `metadata.title` 会更改原始书目身份。
-仅将其保留在 `alternateTitles` 中；确定性 ingest 准备（而非调研 worker）会写入 `paper.fields.title`。
+权威页面有中文题名，索引提供英文翻译。`fields.title` 应使用中文正式题名。
 
 ### 拒绝：部分创建者列表
 
-搜索页面显示第一作者后跟"et al."。写入该一位作者并将完整性标记为 `complete` 会制造虚假数据。
-使用完整或空规则。
+搜索摘要只显示第一作者和 “et al.”。继续查询权威记录；不能把该摘要当作完整 creators。
 
-### 拒绝：弱聚合器
+### 拒绝：相关材料替换直接作品
 
-引文聚合器提供了标题、年份和一个类似 DOI 的字符串，但没有直接着陆证据。
-它可以引导进一步查询；不能成为 `qualified` 的唯一权威。
+批准的是学位论文，只解析到其衍生期刊论文。学位论文 candidate 为 `not_attempted`。
 
-### 拒绝：材料冲突
+### 拒绝：字段角色混淆
 
-候选是会议论文，而解析的 DOI 属于一篇标题相似的后续期刊文章。
-记录 `material_conflict_unresolved` 或 `identity_changed`；不要替换已授权的作品。
-
-### 拒绝：DOI 放入 `extra`
-
-载荷包含 `fields.extra: "DOI: 10.5555/example"`。将规范化的值移至 `identifiers.doi`。
-如果存在另一个 DOI 表示形式冲突，宁可失败也不要静默选择其一。
-
-### 拒绝：`abstract` 被当作 Zotero ingest 字段
-
-上游页面将其摘要标记为"Abstract"，载荷写入了 `metadata.fields.abstract`。
-该字段名在本合约中无效，否则只会在 Host 变更时才失败。
-当摘要有权威且有用时，使用规范的 `metadata.fields.abstractNote`；否则省略。
-不要为了填充字段而凭空编造或翻译摘要。
+DOI 放入 `extra`、abstract 放入 `abstract`、期刊名放入 `title` 或 PDF 放入 landing URL 都必须在 Host mutation 前修复。
