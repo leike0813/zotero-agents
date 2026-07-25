@@ -113,6 +113,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "additionalProperties": true,
     "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
   },
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -154,6 +157,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `bridge` `status`.
+- Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `read`; danger: `none`.
 - Intent visibility: `visible`.

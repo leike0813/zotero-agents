@@ -228,6 +228,9 @@ zotero-bridge mutation preview --input '{}'
     },
     "additionalProperties": false
   },
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -271,11 +274,11 @@ zotero-bridge mutation preview --input '{}'
 ## 操作契约
 
 - 规范 argv 路径： `mutation` `preview`.
+- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
 - 操作别名： `mutation preview`, `mutation`, `preview`, `input`, `JSON_OR_FILE`.
-
 ### Effects
 
 ```json

@@ -93,7 +93,52 @@ Required: `false`.
       "type": "object",
       "description": "Result data owned by debug.synthesis.profiler.list.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "runs": {
+          "type": "array"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "delivery": {
+          "type": "object",
+          "properties": {
+            "bundle": {
+              "type": "object",
+              "properties": {
+                "fileId": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sha256": {
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "fileId",
+                "displayName",
+                "contentType",
+                "expiresAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": true
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -223,10 +268,63 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "type": "object",
         "description": "Result data owned by debug.synthesis.profiler.list.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "runs": {
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "delivery": {
+            "type": "object",
+            "properties": {
+              "bundle": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "sha256": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "fileId",
+                  "displayName",
+                  "contentType",
+                  "expiresAt"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": true
+          }
+        }
       }
     },
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "limit",
+    "section": "data.runs",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "truncatedField": "data.truncated",
+    "fileField": "data.delivery.bundle"
   },
   "pagination": "none",
   "effects": [
@@ -272,6 +370,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `debug` `synthesis` `profiler`.
+- Output boundary: `limit`; governed details: {"strategy":"limit","section":"data.runs","defaultLimit":25,"maxLimit":100,"truncatedField":"data.truncated","fileField":"data.delivery.bundle"}.
 - Pagination: `none`.
 - Category: `debug`; danger: `none`.
 - Intent visibility: `hidden`.

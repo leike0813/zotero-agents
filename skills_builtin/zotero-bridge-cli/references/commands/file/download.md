@@ -375,7 +375,10 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "additionalProperties": true,
     "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
   },
-  "pagination": "file",
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
   "effects": [
     {
       "kind": "none",
@@ -430,7 +433,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `file` `download`.
-- Pagination: `file`.
+- Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
+- Pagination: `none`.
 - Category: `read`; danger: `none`.
 - Intent visibility: `visible`.
 - Operational aliases: `file download`, `file`, `download`, `file_id`, `FILE_ID`, `output`, `PATH`, `force`, `FORCE`.

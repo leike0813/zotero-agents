@@ -254,6 +254,9 @@ zotero-bridge file upload [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
     "additionalProperties": true,
     "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
   },
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -311,11 +314,11 @@ zotero-bridge file upload [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
 ## 操作契约
 
 - 规范 argv 路径： `file` `upload`.
+- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `write`; 危险级别： `review`.
-- Intent 可见性： `visible`.
+- 类别： `write`; danger: `review`.
+- 意图可见性： `visible`.
 - 操作别名： `file upload`, `file`, `upload`, `path`, `PATH`, `display_name`, `display-name`, `DISPLAY_NAME`, `content_type`, `content-type`, `CONTENT_TYPE`.
-
 ### Effects
 
 ```json

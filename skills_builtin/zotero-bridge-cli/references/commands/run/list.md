@@ -5,7 +5,7 @@ List active and recent workflow runtime tasks
 ## Usage
 
 ```console
-zotero-bridge run list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--workflow <WORKFLOW>] [--backend <BACKEND>] [--backend-type <BACKEND_TYPE>] [--request <REQUEST>] [--submission <SUBMISSION>] [--run <RUN>] [--state <STATE>] [--active-only]
+zotero-bridge run list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--workflow <WORKFLOW>] [--backend <BACKEND>] [--backend-type <BACKEND_TYPE>] [--request <REQUEST>] [--submission <SUBMISSION>] [--run <RUN>] [--state <STATE>] [--active-only] [--cursor <CURSOR>] [--limit <LIMIT>]
 ```
 
 The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.
@@ -31,6 +31,8 @@ The global options may appear before or after the leaf command. Use `--schema` t
 | --run | run | option | no | — | RUN | no | — | — | Filter by workflow run id |
 | --state | state | option | no | — | STATE | no | — | — | Filter by task state |
 | --active-only | active_only | option | no | — | ACTIVE_ONLY; values: true, false | no | — | — | Only return active task runtime rows |
+| --cursor | cursor | option | no | — | CURSOR | no | — | — | Opaque continuation cursor |
+| --limit | limit | option | no | — | LIMIT | no | — | — | Maximum number of tasks (1-100) |
 
 ## Invocation schema
 
@@ -69,6 +71,14 @@ The global options may appear before or after the leaf command. Use `--schema` t
     "active-only": {
       "type": "boolean",
       "description": "Only return active task runtime rows"
+    },
+    "cursor": {
+      "type": "string",
+      "description": "Opaque continuation cursor"
+    },
+    "limit": {
+      "type": "string",
+      "description": "Maximum number of tasks (1-100)"
     }
   },
   "required": [],
@@ -138,6 +148,18 @@ This command has no structured JSON input parameter.
     },
     "hasMore": {
       "type": "boolean"
+    },
+    "returned": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 0
     }
   },
   "additionalProperties": true,
@@ -197,6 +219,14 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "active-only": {
         "type": "boolean",
         "description": "Only return active task runtime rows"
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Opaque continuation cursor"
+      },
+      "limit": {
+        "type": "string",
+        "description": "Maximum number of tasks (1-100)"
       }
     },
     "required": [],
@@ -341,6 +371,40 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "repeatable": false,
       "aliases": [],
       "defaultValues": []
+    },
+    {
+      "id": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Opaque continuation cursor",
+      "valueNames": [
+        "CURSOR"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
+    },
+    {
+      "id": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Maximum number of tasks (1-100)",
+      "valueNames": [
+        "LIMIT"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
     }
   ],
   "argvBindings": [
@@ -423,6 +487,26 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "valueNames": [
         "ACTIVE_ONLY"
       ]
+    },
+    {
+      "property": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "property": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "LIMIT"
+      ]
     }
   ],
   "inputSchemas": {},
@@ -476,10 +560,36 @@ This closed descriptor is the machine-readable command contract returned by `sur
       },
       "hasMore": {
         "type": "boolean"
+      },
+      "returned": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "total": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 0
       }
     },
     "additionalProperties": true,
     "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "items",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "cursor",
+    "continuation": [
+      "nextCursor",
+      "hasMore",
+      "returned",
+      "total",
+      "limit"
+    ]
   },
   "pagination": "cursor",
   "effects": [
@@ -530,7 +640,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "STATE",
     "active_only",
     "active-only",
-    "ACTIVE_ONLY"
+    "ACTIVE_ONLY",
+    "cursor",
+    "CURSOR",
+    "limit",
+    "LIMIT"
   ],
   "hiddenFromIntentSearch": false
 }
@@ -539,10 +653,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `run` `list`.
+- Output boundary: `cursor`; governed details: {"strategy":"cursor","section":"items","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["nextCursor","hasMore","returned","total","limit"]}.
 - Pagination: `cursor`.
 - Category: `read`; danger: `none`.
 - Intent visibility: `visible`.
-- Operational aliases: `run list`, `run`, `list`, `workflow`, `WORKFLOW`, `backend`, `BACKEND`, `backend_type`, `backend-type`, `BACKEND_TYPE`, `request`, `REQUEST`, `submission`, `SUBMISSION`, `RUN`, `state`, `STATE`, `active_only`, `active-only`, `ACTIVE_ONLY`.
+- Operational aliases: `run list`, `run`, `list`, `workflow`, `WORKFLOW`, `backend`, `BACKEND`, `backend_type`, `backend-type`, `BACKEND_TYPE`, `request`, `REQUEST`, `submission`, `SUBMISSION`, `RUN`, `state`, `STATE`, `active_only`, `active-only`, `ACTIVE_ONLY`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
 
 ### Effects
 

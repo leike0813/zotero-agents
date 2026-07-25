@@ -227,6 +227,9 @@ zotero-bridge debug persistence --input '{}'
     },
     "additionalProperties": false
   },
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -270,11 +273,11 @@ zotero-bridge debug persistence --input '{}'
 ## 操作契约
 
 - 规范 argv 路径： `debug` `persistence`.
+- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `debug`; 危险级别： `none`.
-- Intent 可见性： `hidden`.
+- 类别： `debug`; danger: `none`.
+- 意图可见性： `hidden`.
 - 操作别名： `debug persistence`, `debug`, `persistence`, `input`, `JSON_OR_FILE`.
-
 ### Effects
 
 ```json

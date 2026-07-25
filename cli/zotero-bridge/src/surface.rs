@@ -142,7 +142,10 @@ fn search(descriptor: &Value, args: SurfaceSearchArgs) -> Result<Value, CliError
             .into_iter()
             .take(args.limit as usize)
             .map(|(_, match_reasons, command)| json!({
-                "command": command,
+                "command": command.get("command").cloned().unwrap_or(Value::Null),
+                "summary": command.get("summary").cloned().unwrap_or(Value::Null),
+                "category": command.get("category").cloned().unwrap_or(Value::Null),
+                "danger": command.get("danger").cloned().unwrap_or(Value::Null),
                 "matchReasons": match_reasons,
             }))
             .collect::<Vec<_>>()
@@ -182,7 +185,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(value["matches"][0]["command"]["command"], "workflow submit");
+        assert_eq!(value["matches"][0]["command"], "workflow submit");
         assert_eq!(
             value["matches"][0]["matchReasons"][0],
             "phrase:workflow submit"

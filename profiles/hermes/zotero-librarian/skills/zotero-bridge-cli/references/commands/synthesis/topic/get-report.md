@@ -93,7 +93,27 @@ Required: `false`.
       "type": "object",
       "description": "Result data owned by topics.get_report.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "nextOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "totalChars": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "maxChars": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -226,12 +246,46 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "type": "object",
         "description": "Result data owned by topics.get_report.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "nextOffset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "totalChars": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "maxChars": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
       }
     },
     "additionalProperties": false
   },
-  "pagination": "none",
+  "outputBoundary": {
+    "strategy": "offset",
+    "section": "data.text",
+    "defaultLimit": 8000,
+    "maxLimit": 16000,
+    "cursorInput": "offset",
+    "continuation": [
+      "data.nextOffset",
+      "data.hasMore",
+      "data.totalChars",
+      "data.truncated",
+      "data.maxChars"
+    ]
+  },
+  "pagination": "cursor",
   "effects": [
     {
       "kind": "none",
@@ -275,7 +329,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `synthesis` `topic` `get-report`.
-- Pagination: `none`.
+- Output boundary: `offset`; governed details: {"strategy":"offset","section":"data.text","defaultLimit":8000,"maxLimit":16000,"cursorInput":"offset","continuation":["data.nextOffset","data.hasMore","data.totalChars","data.truncated","data.maxChars"]}.
+- Pagination: `cursor`.
 - Category: `read`; danger: `none`.
 - Intent visibility: `visible`.
 - Operational aliases: `synthesis topic get-report`, `synthesis`, `topic`, `get-report`, `query`, `JSON_OR_FILE`.

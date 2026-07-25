@@ -93,7 +93,21 @@ Required: `false`.
       "type": "object",
       "description": "Result data owned by citation_graph.get_layout.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "nodes": {
+          "type": "array"
+        },
+        "diagnostics": {
+          "type": "object",
+          "properties": {
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": true
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -226,10 +240,31 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "type": "object",
         "description": "Result data owned by citation_graph.get_layout.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "nodes": {
+            "type": "array"
+          },
+          "diagnostics": {
+            "type": "object",
+            "properties": {
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": true
+          }
+        }
       }
     },
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "limit",
+    "section": "data.nodes",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "truncatedField": "data.diagnostics.truncated"
   },
   "pagination": "none",
   "effects": [
@@ -275,6 +310,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `synthesis` `graph` `get-layout`.
+- Output boundary: `limit`; governed details: {"strategy":"limit","section":"data.nodes","defaultLimit":25,"maxLimit":100,"truncatedField":"data.diagnostics.truncated"}.
 - Pagination: `none`.
 - Category: `read`; danger: `none`.
 - Intent visibility: `visible`.

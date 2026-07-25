@@ -260,6 +260,9 @@ zotero-bridge run cancel [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profil
     "additionalProperties": true,
     "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
   },
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -315,11 +318,11 @@ zotero-bridge run cancel [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profil
 ## 操作契约
 
 - 规范 argv 路径： `run` `cancel`.
+- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `write`; 危险级别： `review`.
-- Intent 可见性： `visible`.
+- 类别： `write`; danger: `review`.
+- 意图可见性： `visible`.
 - 操作别名： `run cancel`, `run`, `cancel`, `run_id`, `RUN_ID`, `reason`, `REASON`, `message`, `MESSAGE`.
-
 ### Effects
 
 ```json

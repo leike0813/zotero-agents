@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -629,7 +630,7 @@ describe("host bridge capability calls", function () {
     const manifest = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/manifest",
+        path: "/bridge/v1/manifest?limit=100",
         headers: { authorization: `Bearer ${token}` },
       }),
     );
@@ -669,6 +670,73 @@ describe("host bridge capability calls", function () {
     assert.strictEqual(sidecarRefresh.approval, "zotero-ui-required");
     assert.strictEqual(graphUpdate.approval, "zotero-ui-required");
     assert.strictEqual(maintenanceStatus.approval, "none");
+  });
+
+  it("uses the same paged and file-delivery DTOs for Synthesis capability calls", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "synthesis-boundary-token",
+      resolveSynthesisService: () => ({
+        getPaperArtifactManifest() {
+          return {
+            papers: [
+              { paper_ref: "1:A", artifacts: [] },
+              { paper_ref: "1:B", artifacts: [] },
+              { paper_ref: "1:C", artifacts: [] },
+            ],
+          };
+        },
+        getReviewInput() {
+          return {
+            topic: { topic_id: "topic-a", title: "Topic A" },
+            registry_rows: [{ paper_ref: "1:A" }],
+            citation_graph_slice: { nodes: [{ id: "A" }], edges: [] },
+            diagnostics: { bounded: true },
+          };
+        },
+      }),
+    });
+
+    const first = await callBridgeCapability({
+      token,
+      capability: "paper_artifacts.get_manifest",
+      input: { limit: 2 },
+    });
+    assert.lengthOf(first.json.result.data.papers, 2);
+    assert.isTrue(first.json.result.data.hasMore);
+    assert.isString(first.json.result.data.nextCursor);
+    const second = await callBridgeCapability({
+      token,
+      capability: "paper_artifacts.get_manifest",
+      input: { limit: 2, cursor: first.json.result.data.nextCursor },
+    });
+    assert.deepEqual(
+      [...first.json.result.data.papers, ...second.json.result.data.papers].map(
+        (paper: { paper_ref: string }) => paper.paper_ref,
+      ),
+      ["1:A", "1:B", "1:C"],
+    );
+
+    const review = await callBridgeCapability({
+      token,
+      capability: "topics.get_review_input",
+      input: { topicId: "topic-a" },
+    });
+    const file = review.json.result.data.delivery.file;
+    assert.match(file.fileId, /^file-/);
+    assert.notProperty(file, "localPath");
+    const downloaded = await handleHostBridgeHttpRequestForTests({
+      method: "GET",
+      path: `/bridge/v1/files/${file.fileId}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const body = downloaded.slice(downloaded.indexOf("\r\n\r\n") + 4);
+    const bytes = Buffer.from(body, "utf8");
+    assert.include(body, '"topic_id": "topic-a"');
+    assert.strictEqual(bytes.byteLength, file.size);
+    assert.strictEqual(
+      `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
+      file.sha256,
+    );
   });
 
   it("reports canonical resolve-resolver input contract errors", async function () {
@@ -719,7 +787,7 @@ describe("host bridge capability calls", function () {
     const manifest = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/manifest",
+        path: "/bridge/v1/manifest?limit=100",
         headers: {
           authorization: `Bearer ${token}`,
         },
@@ -782,7 +850,7 @@ describe("host bridge capability calls", function () {
     const manifest = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/manifest",
+        path: "/bridge/v1/manifest?limit=100",
         headers: {
           authorization: `Bearer ${token}`,
         },
@@ -845,6 +913,16 @@ describe("host bridge capability calls", function () {
     assert.isArray(snapshot.json.result.data.cacheBasis);
     assert.isObject(snapshot.json.result.data.maintenance);
     assert.isObject(snapshot.json.result.data.tableCounts);
+
+    const fullSnapshot = await callBridgeCapability({
+      token,
+      capability: "debug.synthesis.snapshot",
+      input: { limit: 5, includeUiSnapshot: true },
+    });
+    assert.strictEqual(fullSnapshot.status, 200);
+    assert.isObject(fullSnapshot.json.result.data.delivery.bundle);
+    assert.isString(fullSnapshot.json.result.data.delivery.bundle.fileId);
+    assert.notProperty(fullSnapshot.json.result.data, "uiSnapshot");
 
     const profiler = await callBridgeCapability({
       token,
@@ -1505,8 +1583,30 @@ describe("host bridge capability calls", function () {
       input: { ref: item.id, format: "markdown" },
     });
     assert.strictEqual(annotations.status, 200);
-    assert.include(annotations.json.result.data.markdown, "quoted text");
-    assert.include(annotations.json.result.data.markdown, "agent note");
+    assert.strictEqual(
+      annotations.json.result.data.delivery.mode,
+      "bridge-download",
+    );
+    assert.match(annotations.json.result.data.delivery.file.fileId, /^file-/);
+    assert.strictEqual(annotations.json.result.data.count, 1);
+    assert.notProperty(annotations.json.result.data, "markdown");
+    assert.notProperty(annotations.json.result.data, "annotations");
+    assert.notProperty(annotations.json.result.data.delivery.file, "localPath");
+    const file = annotations.json.result.data.delivery.file;
+    const downloaded = await handleHostBridgeHttpRequestForTests({
+      method: "GET",
+      path: `/bridge/v1/files/${file.fileId}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const separator = downloaded.indexOf("\r\n\r\n");
+    const body = downloaded.slice(separator + 4);
+    const bytes = Buffer.from(body, "utf8");
+    assert.include(body, "quoted text");
+    assert.strictEqual(bytes.byteLength, file.size);
+    assert.strictEqual(
+      `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
+      file.sha256,
+    );
   });
 
   it("attaches uploaded Host Bridge files by opaque handle only once", async function () {

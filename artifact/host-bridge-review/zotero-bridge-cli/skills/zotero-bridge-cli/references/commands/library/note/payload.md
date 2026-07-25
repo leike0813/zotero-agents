@@ -146,20 +146,27 @@ zotero-bridge library note payload [--endpoint <ENDPOINT>] [--operation-id <ID>]
       "type": "object",
       "description": "Result data owned by library.get_note_payload.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-    },
-    "items": {
-      "type": "array"
-    },
-    "nextCursor": {
-      "type": [
-        "string",
-        "number",
-        "null"
-      ]
-    },
-    "hasMore": {
-      "type": "boolean"
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "nextOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "totalChars": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "maxChars": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -455,23 +462,44 @@ zotero-bridge library note payload [--endpoint <ENDPOINT>] [--operation-id <ID>]
         "type": "object",
         "description": "Result data owned by library.get_note_payload.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-      },
-      "items": {
-        "type": "array"
-      },
-      "nextCursor": {
-        "type": [
-          "string",
-          "number",
-          "null"
-        ]
-      },
-      "hasMore": {
-        "type": "boolean"
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "nextOffset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "totalChars": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "maxChars": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
       }
     },
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "offset",
+    "section": "data.content",
+    "defaultLimit": 8000,
+    "maxLimit": 16000,
+    "cursorInput": "offset",
+    "continuation": [
+      "data.nextOffset",
+      "data.hasMore",
+      "data.totalChars",
+      "data.truncated",
+      "data.maxChars"
+    ]
   },
   "pagination": "cursor",
   "effects": [
@@ -530,11 +558,11 @@ zotero-bridge library note payload [--endpoint <ENDPOINT>] [--operation-id <ID>]
 ## 操作契约
 
 - 规范 argv 路径： `library` `note` `payload`.
+- 输出边界： `offset`; governed details: {"strategy":"offset","section":"data.content","defaultLimit":8000,"maxLimit":16000,"cursorInput":"offset","continuation":["data.nextOffset","data.hasMore","data.totalChars","data.truncated","data.maxChars"]}.
 - 分页： `cursor`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
 - 操作别名： `library note payload`, `library`, `note`, `payload`, `key`, `KEY`, `id`, `ID`, `library_id`, `library-id`, `LIBRARY_ID`, `payload_type`, `payload-type`, `PAYLOAD_TYPE`, `offset`, `OFFSET`, `max_chars`, `max-chars`, `MAX_CHARS`.
-
 ### Effects
 
 ```json

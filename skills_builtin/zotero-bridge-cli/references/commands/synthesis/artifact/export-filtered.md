@@ -93,72 +93,46 @@ Required: `false`.
       "type": "object",
       "description": "Result data owned by paper_artifacts.export_filtered.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-    },
-    "file": {
-      "type": "object",
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
       "properties": {
-        "fileId": {
-          "type": "string"
-        },
-        "path": {
-          "type": "string"
-        },
-        "checksum": {
-          "type": "string"
-        },
-        "bytes": {
-          "type": "integer"
-        }
-      },
-      "additionalProperties": true
-    },
-    "delivery": {
-      "type": "object",
-      "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
-      "properties": {
-        "mode": {
-          "enum": [
-            "local",
-            "bridge-download",
-            "bundle"
-          ]
-        },
-        "path": {
-          "type": "string"
-        },
-        "files": {
-          "type": "array",
-          "items": {
-            "type": "object"
-          }
-        },
-        "bundle": {
+        "delivery": {
           "type": "object",
           "properties": {
-            "fileId": {
-              "type": "string"
-            },
-            "displayName": {
-              "type": "string"
-            },
-            "contentType": {
-              "type": "string"
-            },
-            "size": {
-              "type": "integer"
+            "bundle": {
+              "type": "object",
+              "properties": {
+                "fileId": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sha256": {
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "fileId",
+                "displayName",
+                "contentType",
+                "expiresAt"
+              ],
+              "additionalProperties": false
             }
           },
           "additionalProperties": true
-        },
-        "downloadCommand": {
-          "type": "string"
-        },
-        "unpackHint": {
-          "type": "string"
         }
-      },
-      "additionalProperties": false
+      }
     }
   },
   "additionalProperties": false
@@ -291,75 +265,53 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "type": "object",
         "description": "Result data owned by paper_artifacts.export_filtered.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-      },
-      "file": {
-        "type": "object",
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
         "properties": {
-          "fileId": {
-            "type": "string"
-          },
-          "path": {
-            "type": "string"
-          },
-          "checksum": {
-            "type": "string"
-          },
-          "bytes": {
-            "type": "integer"
-          }
-        },
-        "additionalProperties": true
-      },
-      "delivery": {
-        "type": "object",
-        "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
-        "properties": {
-          "mode": {
-            "enum": [
-              "local",
-              "bridge-download",
-              "bundle"
-            ]
-          },
-          "path": {
-            "type": "string"
-          },
-          "files": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
-          },
-          "bundle": {
+          "delivery": {
             "type": "object",
             "properties": {
-              "fileId": {
-                "type": "string"
-              },
-              "displayName": {
-                "type": "string"
-              },
-              "contentType": {
-                "type": "string"
-              },
-              "size": {
-                "type": "integer"
+              "bundle": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "sha256": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "fileId",
+                  "displayName",
+                  "contentType",
+                  "expiresAt"
+                ],
+                "additionalProperties": false
               }
             },
             "additionalProperties": true
-          },
-          "downloadCommand": {
-            "type": "string"
-          },
-          "unpackHint": {
-            "type": "string"
           }
-        },
-        "additionalProperties": false
+        }
       }
     },
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "file",
+    "fileField": "data.delivery.bundle"
   },
   "pagination": "file",
   "effects": [
@@ -405,6 +357,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `synthesis` `artifact` `export-filtered`.
+- Output boundary: `file`; governed details: {"strategy":"file","fileField":"data.delivery.bundle"}.
 - Pagination: `file`.
 - Category: `read`; danger: `none`.
 - Intent visibility: `visible`.

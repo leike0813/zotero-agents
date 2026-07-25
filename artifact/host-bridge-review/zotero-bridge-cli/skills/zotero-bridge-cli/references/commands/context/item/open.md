@@ -173,6 +173,9 @@ zotero-bridge context item open [--endpoint <ENDPOINT>] [--operation-id <ID>] [-
     "additionalProperties": true,
     "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
   },
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -225,11 +228,11 @@ zotero-bridge context item open [--endpoint <ENDPOINT>] [--operation-id <ID>] [-
 ## 操作契约
 
 - 规范 argv 路径： `context` `item` `open`.
+- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `navigation`; 危险级别： `review`.
-- Intent 可见性： `visible`.
+- 类别： `navigation`; danger: `review`.
+- 意图可见性： `visible`.
 - 操作别名： `context item open`, `context`, `item`, `open`, `object_ref`, `OBJECT_REF`.
-
 ### Effects
 
 ```json

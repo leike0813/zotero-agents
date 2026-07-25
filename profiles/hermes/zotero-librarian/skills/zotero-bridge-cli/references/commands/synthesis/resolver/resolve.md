@@ -137,20 +137,33 @@ Required: `false`.
       "type": "object",
       "description": "Result data owned by resolvers.resolve.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-    },
-    "items": {
-      "type": "array"
-    },
-    "nextCursor": {
-      "type": [
-        "string",
-        "number",
-        "null"
-      ]
-    },
-    "hasMore": {
-      "type": "boolean"
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "candidates": {
+          "type": "array"
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "returned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -327,23 +340,50 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "type": "object",
         "description": "Result data owned by resolvers.resolve.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-      },
-      "items": {
-        "type": "array"
-      },
-      "nextCursor": {
-        "type": [
-          "string",
-          "number",
-          "null"
-        ]
-      },
-      "hasMore": {
-        "type": "boolean"
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "candidates": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
       }
     },
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "data.candidates",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "cursor",
+    "continuation": [
+      "data.nextCursor",
+      "data.hasMore",
+      "data.returned",
+      "data.total",
+      "data.limit"
+    ]
   },
   "pagination": "cursor",
   "effects": [
@@ -389,6 +429,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `synthesis` `resolver` `resolve`.
+- Output boundary: `cursor`; governed details: {"strategy":"cursor","section":"data.candidates","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"]}.
 - Pagination: `cursor`.
 - Category: `read`; danger: `none`.
 - Intent visibility: `visible`.

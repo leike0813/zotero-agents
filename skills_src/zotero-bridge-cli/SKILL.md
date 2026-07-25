@@ -47,6 +47,24 @@ Offline `surface` commands describe the embedded contract. They do not prove tha
 
 Use `surface search` to discover operations, not to decide a research task. `surface describe` is authoritative for argv bindings, invocation and payload schemas, result shape, pagination, effects, approval scope, handle transitions, recovery, and targets. Use raw `call` only for an advanced diagnostic capability that has no canonical semantic command.
 
+## Output boundary and continuation discipline
+
+Every canonical command declares exactly one `outputBoundary.strategy` in its descriptor: `fixed`, `cursor`, `offset`, `limit`, `file`, or `raw`. Read that object before execution and treat its default, maximum, section, continuation, truncation, and file fields as part of the result contract. Do not infer boundedness from a short first response, a capability category, or an older command example.
+
+For a `cursor` result, preserve the original canonical command and all normalized selectors and filters. Read the declared domain array, record `returned`, `total`, `limit`, `hasMore`, and `nextCursor`, and continue only by passing that opaque cursor back to the same command with the same criteria. A cursor is not an item id, timestamp, array offset, or reusable cross-command token. Never decode it to construct a new cursor, substitute a cursor from another section, or silently restart when continuation fails.
+
+When `hasMore` is true, a missing `nextCursor` is an incomplete response and blocks completion. When `hasMore` is false, require an empty continuation and stop. Merge pages by stable domain identity, reject duplicates, and compare the final number of unique rows with the available `total` when that total describes the same filtered collection. For a response with several paged arrays, follow only the cursor under `pagination.<section>` that owns the array being consumed; do not advance unrelated sections implicitly.
+
+`invalid_host_bridge_cursor` means the cursor is malformed, expired, scoped to another command, bound to different criteria, or anchored to a row that is no longer available. Preserve the structured `reason`. If the intended read is still required, intentionally restart from the first page with the original filters, rebuild the result, and report that the snapshot changed; do not append a restarted first page to rows collected under the failed cursor.
+
+For an `offset` result, preserve the selector and request `offset=nextOffset` until `hasMore` is false. Keep chunks in offset order, require each chunk's `offset` to equal the previous `nextOffset`, and concatenate exactly once. The default text window is 8,000 characters and the maximum is 16,000 unless the descriptor declares a stricter value. An offset beyond the end is a valid empty terminal chunk, not permission to retry from zero. Completion requires the reconstructed character count to match `totalChars` when present.
+
+For a `limit` result, use the declared default and hard maximum, inspect `truncated`, and narrow the selector when the desired evidence cannot fit. A limit-bounded result has no implicit continuation: do not invent a cursor. For `fixed`, verify that the result is a registry, singleton, aggregate, or otherwise hard-bounded contract before treating one response as complete.
+
+For a `file` result, stdout is only the delivery control plane. Preserve the owning object or operation identity and the returned file descriptor, verify that no private filesystem path from the Zotero computer is exposed, download through `file download`, and compare byte count and SHA-256 with the descriptor. If the handle expires, reacquire it from the owning semantic command instead of retrying an arbitrary path. Do not treat a successful descriptor response as proof that the bytes were downloaded or verified.
+
+`raw` is reserved for `call`. The target capability still owns its own paging, limit, offset, or file boundary; raw invocation never widens it and is not a bypass for a canonical semantic command. If a semantic command exists, use it so argv validation, result contracts, recovery, and generated guidance remain enforceable.
+
 ### Start from user intent
 
 An agent often receives a request such as “show me the papers about this topic,” “download the analysis result,” or “run the deep-reading workflow” before it knows any CLI names. Do not make the user translate that request into a command.
@@ -141,7 +159,7 @@ The native queue owns bounded admission and keeps each admitted slot occupied th
 
 Active submission and queue projections are process-local. If Host restart makes the original `submissionId` unavailable, use submission-filtered task discovery and live run reads to recover units that had already been admitted; do not reconstruct pending units from labels or member counts. Report unadmitted units as no longer active, preserve their original source scope outside queue internals, and require current authority before submitting a replacement bounded request.
 
-For self-owned agent execution, confirm that the workflow supports that mode, prepare the handoff, preserve `agentRunId`, every `agentRequestId`, bundle locations, and checksums, then inspect each request contract. Validate every completed result locally before apply-back. Apply the complete request-to-result mapping through `workflow agent-apply` and use `workflow agent-apply-status` for the durable receipt. Never monitor an `agentRunId` through the Zotero-managed run plane.
+For self-owned agent execution, confirm that the workflow supports that mode, prepare the handoff, preserve `agentRunId`, every `agentRequestId`, bundle locations, and checksums, then inspect each request contract. Validate every completed result locally before apply-back. Apply the complete request-to-result mapping through `workflow agent-apply` and use `workflow agent-apply-status` for the durable receipt. The apply response is only a bounded aggregate; page `workflow agent-apply-status` with the same `agentRunId` until every receipt result is collected, and preserve its state-change and handle-consumption evidence separately from individual result rows. Never monitor an `agentRunId` through the Zotero-managed run plane.
 
 `workflow agent-bundle inspect` and `workflow agent-result validate` are local preflight commands. They accept a directory or ZIP without contacting the service, applying data, renewing a lease, or consuming a handle. Unsafe paths, symbolic links, duplicate entries, excessive entry counts, oversized JSON, malformed archives, and unsupported compression return structured local-input failures. Local success proves structural validity only; it does not prove semantic correctness or authorize apply-back.
 

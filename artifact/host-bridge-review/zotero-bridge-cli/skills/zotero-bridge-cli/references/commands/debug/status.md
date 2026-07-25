@@ -65,7 +65,21 @@ zotero-bridge debug status [--endpoint <ENDPOINT>] [--operation-id <ID>] [--prof
       "type": "object",
       "description": "Result data owned by debug.status.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "tasks": {
+          "type": "object",
+          "properties": {
+            "recent": {
+              "type": "array"
+            }
+          },
+          "additionalProperties": true
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -118,10 +132,31 @@ zotero-bridge debug status [--endpoint <ENDPOINT>] [--operation-id <ID>] [--prof
         "type": "object",
         "description": "Result data owned by debug.status.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "tasks": {
+            "type": "object",
+            "properties": {
+              "recent": {
+                "type": "array"
+              }
+            },
+            "additionalProperties": true
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
       }
     },
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "limit",
+    "section": "data.tasks.recent",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "truncatedField": "data.truncated"
   },
   "pagination": "none",
   "effects": [
@@ -164,11 +199,11 @@ zotero-bridge debug status [--endpoint <ENDPOINT>] [--operation-id <ID>] [--prof
 ## 操作契约
 
 - 规范 argv 路径： `debug` `status`.
+- 输出边界： `limit`; governed details: {"strategy":"limit","section":"data.tasks.recent","defaultLimit":25,"maxLimit":100,"truncatedField":"data.truncated"}.
 - 分页： `none`.
-- 类别： `debug`; 危险级别： `none`.
-- Intent 可见性： `hidden`.
+- 类别： `debug`; danger: `none`.
+- 意图可见性： `hidden`.
 - 操作别名： `debug status`, `debug`, `status`.
-
 ### Effects
 
 ```json

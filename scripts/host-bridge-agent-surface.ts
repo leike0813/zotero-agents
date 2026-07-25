@@ -10,6 +10,7 @@ import type { HostBridgeHandleKind } from "../src/shared/hostBridgeAgentContract
 import {
   loadHostBridgeCommandContracts,
   type HostBridgeCommandInputContract,
+  type HostBridgeCommandOutputBoundary,
 } from "./host-bridge-command-contracts";
 import type {
   HostBridgeCliInventoryEntry,
@@ -92,6 +93,7 @@ export type HostBridgeAgentCommand = {
   inputSchemas: Record<string, HostBridgeCommandInputContract>;
   payloadSchema: Record<string, unknown>;
   resultSchema: Record<string, unknown>;
+  outputBoundary: HostBridgeCommandOutputBoundary;
   pagination: "none" | "cursor" | "file";
   effects: HostBridgeAgentEffect[];
   approvalContract: {
@@ -274,23 +276,6 @@ const COMMAND_HANDLE_TRANSITIONS: Record<
   ],
   "product remove": [consumeHandle("productId")],
 };
-
-const CURSOR_ENDPOINTS = new Set([
-  "library items list",
-  "library snapshot",
-  "library readiness audit",
-  "library readiness missing-pdf",
-  "library readiness missing-markdown",
-  "library readiness missing-analysis",
-  "product list",
-  "run list",
-  "run recent",
-  "run workflow recent",
-  "run skill recent",
-  "run skill events",
-  "run notification list",
-  "run notification wait",
-]);
 
 function unique(values: string[]) {
   return [...new Set(values.filter(Boolean))];
@@ -557,25 +542,11 @@ function categoryFor(command: string): HostBridgeAgentCommand["category"] {
   return "read";
 }
 
-function paginationFor(command: string, catalog: HostBridgeSurfaceCatalog) {
-  const mappings = [...catalog.cliMappings, ...catalog.endpointMappings].filter(
-    (mapping) => mapping.command === command,
-  );
-  const capabilities = mappings
-    .map((mapping) =>
-      catalog.capabilities.find((entry) => entry.name === mapping.target),
-    )
-    .filter(Boolean);
-  if (
-    command.includes("download") ||
-    capabilities.some((entry) => entry?.responseSizing === "file-output")
-  )
-    return "file" as const;
-  if (
-    CURSOR_ENDPOINTS.has(command) ||
-    capabilities.some((entry) => entry?.responseSizing === "paged")
-  )
+function paginationFor(boundary: HostBridgeCommandOutputBoundary) {
+  if (boundary.strategy === "cursor" || boundary.strategy === "offset") {
     return "cursor" as const;
+  }
+  if (boundary.strategy === "file") return "file" as const;
   return "none" as const;
 }
 
@@ -711,10 +682,10 @@ export function buildHostBridgeAgentSurfaceDescriptor(
           .filter((transition) => transition.direction === "produce")
           .map((transition) => transition.handle),
       };
-      const pagination = paginationFor(inventory.command, catalog);
       const effects = effectsFor(inventory.command, category);
       const stateChanged = effects.some((effect) => effect.stateChanged);
       const contract = registry.commands[inventory.command];
+      const pagination = paginationFor(contract.outputBoundary);
       for (const [argumentId, input] of Object.entries(contract.inputs)) {
         const argument = inventory.arguments.find(
           (candidate) => candidate.id === argumentId,
@@ -747,6 +718,7 @@ export function buildHostBridgeAgentSurfaceDescriptor(
         inputSchemas: contract.inputs,
         payloadSchema: contract.payloadSchema,
         resultSchema: contract.resultSchema,
+        outputBoundary: contract.outputBoundary,
         pagination,
         effects,
         approvalContract: {

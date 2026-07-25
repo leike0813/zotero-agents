@@ -228,6 +228,9 @@ zotero-bridge debug synthesis clean-install-reset --input '{}'
     },
     "additionalProperties": false
   },
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -272,11 +275,11 @@ zotero-bridge debug synthesis clean-install-reset --input '{}'
 ## 操作契约
 
 - 规范 argv 路径： `debug` `synthesis` `clean-install-reset`.
+- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `maintenance`; 危险级别： `high`.
-- Intent 可见性： `hidden`.
+- 类别： `maintenance`; danger: `high`.
+- 意图可见性： `hidden`.
 - 操作别名： `debug synthesis clean-install-reset`, `debug`, `synthesis`, `clean-install-reset`, `input`, `JSON_OR_FILE`.
-
 ### Effects
 
 ```json

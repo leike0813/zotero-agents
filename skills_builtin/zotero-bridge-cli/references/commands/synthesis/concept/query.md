@@ -93,7 +93,15 @@ Required: `false`.
       "type": "object",
       "description": "Result data owned by concepts.query.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "matches": {
+          "type": "array"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -226,10 +234,25 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "type": "object",
         "description": "Result data owned by concepts.query.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "matches": {
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
       }
     },
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "limit",
+    "section": "data.matches",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "truncatedField": "data.truncated"
   },
   "pagination": "none",
   "effects": [
@@ -274,6 +297,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `synthesis` `concept` `query`.
+- Output boundary: `limit`; governed details: {"strategy":"limit","section":"data.matches","defaultLimit":25,"maxLimit":100,"truncatedField":"data.truncated"}.
 - Pagination: `none`.
 - Category: `read`; danger: `none`.
 - Intent visibility: `visible`.

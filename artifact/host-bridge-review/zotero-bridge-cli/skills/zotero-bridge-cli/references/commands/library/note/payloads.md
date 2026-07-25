@@ -5,7 +5,7 @@
 ## 用法
 
 ```console
-zotero-bridge library note payloads [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--key <KEY>] [--id <ID>] [--library-id <LIBRARY_ID>]
+zotero-bridge library note payloads [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--key <KEY>] [--id <ID>] [--library-id <LIBRARY_ID>] [--cursor <CURSOR>] [--limit <LIMIT>]
 ```
 
 全局选项可位于叶命令之前或之后。使用 `--schema` 可在不加载 profile、也不连接 Zotero 的情况下检查原始结构化输入 schema。
@@ -44,6 +44,14 @@ zotero-bridge library note payloads [--endpoint <ENDPOINT>] [--operation-id <ID>
     "library-id": {
       "type": "string",
       "description": "Zotero library id for key lookup"
+    },
+    "cursor": {
+      "type": "string",
+      "description": "Opaque continuation cursor"
+    },
+    "limit": {
+      "type": "string",
+      "description": "Maximum number of entries (1-100)"
     }
   },
   "required": [],
@@ -119,7 +127,33 @@ zotero-bridge library note payloads [--endpoint <ENDPOINT>] [--operation-id <ID>
       "type": "object",
       "description": "Result data owned by library.list_note_payloads.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "payloads": {
+          "type": "array"
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "returned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -159,6 +193,14 @@ zotero-bridge library note payloads [--endpoint <ENDPOINT>] [--operation-id <ID>
       "library-id": {
         "type": "string",
         "description": "Zotero library id for key lookup"
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Opaque continuation cursor"
+      },
+      "limit": {
+        "type": "string",
+        "description": "Maximum number of entries (1-100)"
       }
     },
     "required": [],
@@ -243,6 +285,40 @@ zotero-bridge library note payloads [--endpoint <ENDPOINT>] [--operation-id <ID>
       "repeatable": false,
       "aliases": [],
       "defaultValues": []
+    },
+    {
+      "id": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Opaque continuation cursor",
+      "valueNames": [
+        "CURSOR"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
+    },
+    {
+      "id": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Maximum number of entries (1-100)",
+      "valueNames": [
+        "LIMIT"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
     }
   ],
   "argvBindings": [
@@ -274,6 +350,26 @@ zotero-bridge library note payloads [--endpoint <ENDPOINT>] [--operation-id <ID>
       "required": false,
       "valueNames": [
         "LIBRARY_ID"
+      ]
+    },
+    {
+      "property": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "property": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "LIMIT"
       ]
     }
   ],
@@ -310,12 +406,52 @@ zotero-bridge library note payloads [--endpoint <ENDPOINT>] [--operation-id <ID>
         "type": "object",
         "description": "Result data owned by library.list_note_payloads.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "payloads": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
       }
     },
     "additionalProperties": false
   },
-  "pagination": "none",
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "data.payloads",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "cursor",
+    "continuation": [
+      "data.nextCursor",
+      "data.hasMore",
+      "data.returned",
+      "data.total",
+      "data.limit"
+    ]
+  },
+  "pagination": "cursor",
   "effects": [
     {
       "kind": "none",
@@ -355,7 +491,11 @@ zotero-bridge library note payloads [--endpoint <ENDPOINT>] [--operation-id <ID>
     "ID",
     "library_id",
     "library-id",
-    "LIBRARY_ID"
+    "LIBRARY_ID",
+    "cursor",
+    "CURSOR",
+    "limit",
+    "LIMIT"
   ],
   "hiddenFromIntentSearch": false
 }
@@ -364,11 +504,11 @@ zotero-bridge library note payloads [--endpoint <ENDPOINT>] [--operation-id <ID>
 ## 操作契约
 
 - 规范 argv 路径： `library` `note` `payloads`.
-- 分页： `none`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
-- 操作别名： `library note payloads`, `library`, `note`, `payloads`, `key`, `KEY`, `id`, `ID`, `library_id`, `library-id`, `LIBRARY_ID`.
-
+- 输出边界： `cursor`; governed details: {"strategy":"cursor","section":"data.payloads","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"]}.
+- 分页： `cursor`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
+- 操作别名： `library note payloads`, `library`, `note`, `payloads`, `key`, `KEY`, `id`, `ID`, `library_id`, `library-id`, `LIBRARY_ID`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
 ### Effects
 
 ```json

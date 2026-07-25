@@ -228,6 +228,9 @@ zotero-bridge mutation apply --input '{}'
     },
     "additionalProperties": false
   },
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -271,11 +274,11 @@ zotero-bridge mutation apply --input '{}'
 ## 操作契约
 
 - 规范 argv 路径： `mutation` `apply`.
+- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `write`; 危险级别： `review`.
-- Intent 可见性： `visible`.
+- 类别： `write`; danger: `review`.
+- 意图可见性： `visible`.
 - 操作别名： `mutation apply`, `mutation`, `apply`, `input`, `JSON_OR_FILE`.
-
 ### Effects
 
 ```json

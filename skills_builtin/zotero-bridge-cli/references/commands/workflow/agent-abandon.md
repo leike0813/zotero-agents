@@ -230,6 +230,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
     ],
     "additionalProperties": false
   },
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -281,6 +284,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `workflow` `agent-abandon`.
+- Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `write`; danger: `review`.
 - Intent visibility: `visible`.

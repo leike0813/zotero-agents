@@ -5,9 +5,10 @@ use std::{
     io::Read,
     path::{Path, PathBuf},
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 use crate::{
@@ -20,7 +21,7 @@ use crate::{
         ContextNoteCommand, ContextObjectRefArgs, ContextSelectionCommand,
         ContextSelectionOpenArgs, DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs,
         DebugSynthesisCommand, FileArgs, FileCommand, FileDownloadArgs, FileUploadArgs,
-        InsightsArgs, InsightsCommand, ItemArgs, ItemCommand, ItemNotesArgs, ItemRefArgs,
+        InsightsArgs, InsightsCommand, ItemArgs, ItemCommand, ItemNotesArgs, ItemPageArgs, ItemRefArgs,
         ItemSearchArgs, LibraryArgs, LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand,
         LiteratureIngestArgs, MutationArgs, MutationCollectionArgs, MutationCollectionCommand,
         MutationCollectionCreateArgs, MutationCollectionItemsArgs, MutationCommand,
@@ -29,8 +30,8 @@ use crate::{
         MutationNoteUpdateArgs, MutationTagArgs, MutationTagCommand, MutationTagsArgs, NoteArgs,
         NoteCommand, NoteDetailArgs, NotePayloadArgs, NotificationAckArgs, NotificationCommand,
         NotificationListArgs, NotificationWaitArgs, OperationArgs, OperationCommand,
-        PaperArtifactsArgs, PaperArtifactsCommand, PermissionRequestIdArgs, ProductArgs,
-        ProductCommand, ProductDownloadArgs, ProductIdArgs, ProductListArgs, ResolversArgs,
+        PageArgs, PaperArtifactsArgs, PaperArtifactsCommand, PermissionRequestIdArgs, ProductArgs,
+        ProductCommand, ProductDownloadArgs, ProductGetArgs, ProductIdArgs, ProductListArgs, ResolversArgs,
         ResolversCommand, RunArgs, RunCommand, RunPermissionArgs, RunPermissionCommand,
         RunWorkflowArgs, RunWorkflowCommand, RunWorkflowRecentArgs, SchemasArgs, SchemasCommand,
         SkillRunCommand, SkillRunEventsArgs, SkillRunIdArgs, SkillRunRecentArgs, SkillRunReplyArgs,
@@ -63,14 +64,14 @@ pub fn status(config: &BridgeConfig) -> Result<Value, CliError> {
     Ok(result)
 }
 
-pub fn manifest(config: &BridgeConfig) -> Result<Value, CliError> {
-    client::manifest(config)
+pub fn manifest(config: &BridgeConfig, args: PageArgs) -> Result<Value, CliError> {
+    client::get(config, &page_path("/manifest", args))
 }
 
 pub fn bridge(config: &BridgeConfig, args: BridgeArgs) -> Result<Value, CliError> {
     match args.command {
         BridgeCommand::Status => status(config),
-        BridgeCommand::Manifest => manifest(config),
+        BridgeCommand::Manifest(args) => manifest(config, args),
         BridgeCommand::Profile(args) => bridge_profile(config, args),
         BridgeCommand::Backend(args) => bridge_backend(config, args),
     }
@@ -138,7 +139,7 @@ pub fn item(config: &BridgeConfig, args: ItemArgs) -> Result<Value, CliError> {
             call_capability(config, "library.get_item_notes", item_notes_input(args)?)
         }
         ItemCommand::Attachments(args) => {
-            call_capability(config, "library.get_item_attachments", item_ref(args)?)
+            call_capability(config, "library.get_item_attachments", item_page_input(args)?)
         }
     }
 }
@@ -149,7 +150,7 @@ pub fn note(config: &BridgeConfig, args: NoteArgs) -> Result<Value, CliError> {
             call_capability(config, "library.get_note_detail", note_detail_input(args)?)
         }
         NoteCommand::Payloads(args) => {
-            call_capability(config, "library.list_note_payloads", item_ref(args)?)
+            call_capability(config, "library.list_note_payloads", item_page_input(args)?)
         }
         NoteCommand::Payload(args) => call_capability(
             config,
@@ -197,14 +198,17 @@ pub fn annotation(config: &BridgeConfig, args: AnnotationArgs) -> Result<Value, 
 
 pub fn context(config: &BridgeConfig, args: ContextArgs) -> Result<Value, CliError> {
     match args.command {
-        ContextCommand::Current => client::get(config, "/context/current"),
+        ContextCommand::Current(args) => {
+            client::get(config, &page_path("/context/current", args))
+        }
         ContextCommand::Selection(args) => match args.command {
-            ContextSelectionCommand::Get => client::get(config, "/context/selection"),
-            ContextSelectionCommand::Open(args) => client::post(
-                config,
-                "/context/selection/open",
-                context_selection_open_input(args)?,
-            ),
+            ContextSelectionCommand::Get(args) => {
+                client::get(config, &page_path("/context/selection", args))
+            }
+            ContextSelectionCommand::Open(args) => {
+                let path = page_path("/context/selection/open", args.page.clone());
+                client::post(config, &path, context_selection_open_input(args)?)
+            }
         },
         ContextCommand::Item(args) => match args.command {
             ContextItemCommand::Open(args) => client::post(
@@ -311,7 +315,7 @@ pub fn product(config: &BridgeConfig, args: ProductArgs) -> Result<Value, CliErr
             call_capability(config, "workflow_products.list", product_list_input(args))
         }
         ProductCommand::Get(args) => {
-            call_capability(config, "workflow_products.get", product_id_input(args))
+            call_capability(config, "workflow_products.get", product_get_input(args))
         }
         ProductCommand::Download(args) => call_capability(
             config,
@@ -328,12 +332,19 @@ fn product_id_input(args: ProductIdArgs) -> Value {
     json!({ "productId": args.product_id.trim() })
 }
 
+fn product_get_input(args: ProductGetArgs) -> Value {
+    let mut input = Map::new();
+    input.insert("productId".to_string(), json!(args.product_id.trim()));
+    insert_page(&mut input, args.page);
+    Value::Object(input)
+}
+
 fn product_list_input(args: ProductListArgs) -> Value {
     let mut input = Map::new();
     push_value(&mut input, "workflowId", args.workflow_id);
     push_value(&mut input, "backendId", args.backend_id);
     push_value(&mut input, "requestId", args.request_id);
-    insert_u32(&mut input, "cursor", args.cursor);
+    push_value(&mut input, "cursor", args.cursor);
     insert_u32(&mut input, "limit", args.limit);
     Value::Object(input)
 }
@@ -758,6 +769,83 @@ fn required_object<'a>(
     })
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalPageCursor {
+    version: u8,
+    scope: String,
+    criteria: String,
+    issued_at: u64,
+    after_key: String,
+}
+
+fn encode_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn decode_hex(value: &str) -> Result<Vec<u8>, CliError> {
+    if value.len() % 2 != 0 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(CliError::validation(
+            "invalid_host_bridge_cursor",
+            "Pagination cursor is malformed",
+        ));
+    }
+    (0..value.len())
+        .step_by(2)
+        .map(|index| {
+            u8::from_str_radix(&value[index..index + 2], 16).map_err(|_| {
+                CliError::validation(
+                    "invalid_host_bridge_cursor",
+                    "Pagination cursor is malformed",
+                )
+            })
+        })
+        .collect()
+}
+
+fn now_unix_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+fn local_page_cursor(
+    value: Option<&str>,
+    scope: &str,
+    criteria: &str,
+) -> Result<Option<LocalPageCursor>, CliError> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let raw = decode_hex(value)?;
+    let cursor: LocalPageCursor = serde_json::from_slice(&raw).map_err(|_| {
+        CliError::validation(
+            "invalid_host_bridge_cursor",
+            "Pagination cursor is malformed",
+        )
+    })?;
+    if cursor.version != 1 || cursor.scope != scope {
+        return Err(CliError::validation(
+            "invalid_host_bridge_cursor",
+            "Pagination cursor belongs to another command",
+        ));
+    }
+    if cursor.criteria != criteria {
+        return Err(CliError::validation(
+            "invalid_host_bridge_cursor",
+            "Pagination cursor does not match the current bundle",
+        ));
+    }
+    if now_unix_seconds().saturating_sub(cursor.issued_at) > 30 * 60 {
+        return Err(CliError::validation(
+            "invalid_host_bridge_cursor",
+            "Pagination cursor has expired",
+        ));
+    }
+    Ok(Some(cursor))
+}
+
 fn workflow_agent_bundle_inspect(args: WorkflowAgentBundleInspectArgs) -> Result<Value, CliError> {
     let bundle = LocalBundle::open(&args.bundle)?;
     let context = bundle.read_json("agent-run/context.json", "agent-run/context.json")?;
@@ -803,11 +891,53 @@ fn workflow_agent_bundle_inspect(args: WorkflowAgentBundleInspectArgs) -> Result
         .iter()
         .filter_map(|contract| contract.get("agentRequestId").and_then(Value::as_str))
         .collect::<Vec<_>>();
+    let criteria = format!("{}\n{}", args.bundle.display(), agent_run_id);
+    let cursor = local_page_cursor(args.page.cursor.as_deref(), "workflow agent-bundle inspect", &criteria)?;
+    let start = cursor
+        .as_ref()
+        .map(|cursor| {
+            agent_request_ids
+                .iter()
+                .position(|entry| **entry == cursor.after_key)
+                .map(|index| index + 1)
+                .ok_or_else(|| {
+                    CliError::validation(
+                        "invalid_host_bridge_cursor",
+                        "Pagination cursor anchor is no longer present",
+                    )
+                })
+        })
+        .transpose()?
+        .unwrap_or(0);
+    let limit = args.page.limit.unwrap_or(25).clamp(1, 100) as usize;
+    let end = (start + limit).min(contracts.len());
+    let page_contracts = contracts[start..end].to_vec();
+    let page_request_ids = agent_request_ids[start..end].to_vec();
+    let has_more = end < contracts.len();
+    let next_cursor = if has_more {
+        let cursor = LocalPageCursor {
+            version: 1,
+            scope: "workflow agent-bundle inspect".to_string(),
+            criteria,
+            issued_at: now_unix_seconds(),
+            after_key: page_request_ids.last().copied().unwrap_or_default().to_string(),
+        };
+        encode_hex(&serde_json::to_vec(&cursor).map_err(|_| {
+            CliError::internal("cursor_encode_failed", "Could not encode pagination cursor")
+        })?)
+    } else {
+        String::new()
+    };
     Ok(json!({
         "schema": "zotero-bridge.agent-bundle-inspection.v1",
         "agentRunId": agent_run_id,
-        "agentRequestIds": agent_request_ids,
-        "contracts": contracts,
+        "agentRequestIds": page_request_ids,
+        "contracts": page_contracts,
+        "nextCursor": next_cursor,
+        "hasMore": has_more,
+        "returned": end - start,
+        "total": contracts.len(),
+        "limit": limit,
     }))
 }
 
@@ -966,7 +1096,7 @@ pub fn run(config: &BridgeConfig, args: RunArgs) -> Result<Value, CliError> {
             workflow_cancel_input(args),
         ),
         RunCommand::List(args) => client::get(config, &task_list_path(args)),
-        RunCommand::Active => client::get(config, "/tasks/active"),
+        RunCommand::Active(args) => client::get(config, &page_path("/tasks/active", args)),
         RunCommand::Recent(args) => client::get(config, &task_recent_path(args)),
         RunCommand::Workflow(args) => run_workflow(config, args),
         RunCommand::Skill(args) => match args.command {
@@ -1004,9 +1134,20 @@ fn run_workflow(config: &BridgeConfig, args: RunWorkflowArgs) -> Result<Value, C
 
 fn run_permission(config: &BridgeConfig, args: RunPermissionArgs) -> Result<Value, CliError> {
     match args.command {
-        RunPermissionCommand::Pending => client::get(config, "/permissions/pending"),
+        RunPermissionCommand::Pending(args) => {
+            client::get(config, &page_path("/permissions/pending", args))
+        }
         RunPermissionCommand::Get(args) => client::get(config, &permission_path(args)),
     }
+}
+
+fn page_path(path: &str, args: PageArgs) -> String {
+    let mut query = Vec::new();
+    push_query(&mut query, "cursor", args.cursor);
+    if let Some(limit) = args.limit {
+        query.push(("limit".to_string(), limit.to_string()));
+    }
+    path_with_query(path, query)
 }
 
 pub fn file(config: &BridgeConfig, args: FileArgs) -> Result<Value, CliError> {
@@ -1286,7 +1427,10 @@ fn refs_value(values: Vec<String>) -> Result<Value, CliError> {
 }
 
 fn annotation_item_input(args: AnnotationItemArgs) -> Result<Value, CliError> {
-    Ok(json!({ "ref": context_ref_value(&args.item)? }))
+    let mut input = Map::new();
+    input.insert("ref".to_string(), context_ref_value(&args.item)?);
+    insert_page(&mut input, args.page);
+    Ok(Value::Object(input))
 }
 
 fn annotation_export_input(args: AnnotationExportArgs) -> Result<Value, CliError> {
@@ -1712,9 +1856,12 @@ fn workflow_agent_apply_status(
     }
     client::get(
         config,
-        &format!(
-            "/workflows/agent-runs/{}/apply",
-            percent_encode_path(agent_run_id)
+        &page_path(
+            &format!(
+                "/workflows/agent-runs/{}/apply",
+                percent_encode_path(agent_run_id)
+            ),
+            args.page,
         ),
     )
 }
@@ -1750,7 +1897,10 @@ fn workflow_run_path(args: WorkflowRunArgs) -> Result<String, CliError> {
             "Workflow run status requires a run id",
         ));
     }
-    Ok(format!("/workflows/runs/{}", percent_encode_path(run_id)))
+    Ok(page_path(
+        &format!("/workflows/runs/{}", percent_encode_path(run_id)),
+        args.page,
+    ))
 }
 
 fn workflow_cancel_path(args: &WorkflowCancelArgs) -> Result<String, CliError> {
@@ -1820,6 +1970,7 @@ fn skill_run_recent_path(args: SkillRunRecentArgs) -> String {
     if let Some(limit) = args.limit {
         query.push(("limit".to_string(), limit.to_string()));
     }
+    push_query(&mut query, "cursor", args.cursor);
     path_with_query("/skill-runs/recent", query)
 }
 
@@ -1830,6 +1981,7 @@ fn skill_run_events_path(args: SkillRunEventsArgs) -> Result<String, CliError> {
     if let Some(limit) = args.limit {
         query.push(("limit".to_string(), limit.to_string()));
     }
+    push_query(&mut query, "cursor", args.cursor);
     Ok(path_with_query(
         &format!("/skill-runs/{}/events", percent_encode_path(skill_run_id)),
         query,
@@ -1941,6 +2093,10 @@ fn task_list_path(args: TaskListArgs) -> String {
     if args.active_only {
         query.push(("includeHistory".to_string(), "false".to_string()));
     }
+    push_query(&mut query, "cursor", args.cursor);
+    if let Some(limit) = args.limit {
+        query.push(("limit".to_string(), limit.to_string()));
+    }
     path_with_query("/tasks", query)
 }
 
@@ -1954,6 +2110,10 @@ fn workflow_queue_list_path(args: WorkflowQueueListArgs) -> Result<String, CliEr
     let mut query = Vec::new();
     push_query(&mut query, "backendType", args.backend_type);
     push_query(&mut query, "backendId", args.backend);
+    push_query(&mut query, "cursor", args.cursor);
+    if let Some(limit) = args.limit {
+        query.push(("limit".to_string(), limit.to_string()));
+    }
     Ok(path_with_query("/workflows/queue", query))
 }
 
@@ -1979,9 +2139,14 @@ fn workflow_submission_path(args: WorkflowSubmissionGetArgs) -> Result<String, C
             "Workflow submission get requires a submission id",
         ));
     }
-    Ok(format!(
-        "/workflows/submissions/{}",
-        percent_encode_path(submission_id)
+    let mut query = Vec::new();
+    push_query(&mut query, "cursor", args.cursor);
+    if let Some(limit) = args.limit {
+        query.push(("limit".to_string(), limit.to_string()));
+    }
+    Ok(path_with_query(
+        &format!("/workflows/submissions/{}", percent_encode_path(submission_id)),
+        query,
     ))
 }
 
@@ -1993,6 +2158,7 @@ fn task_recent_path(args: TaskRecentArgs) -> String {
     if let Some(limit) = args.limit {
         query.push(("limit".to_string(), limit.to_string()));
     }
+    push_query(&mut query, "cursor", args.cursor);
     path_with_query("/tasks/recent", query)
 }
 
@@ -2002,6 +2168,7 @@ fn workflow_runs_path(args: RunWorkflowRecentArgs) -> String {
     if let Some(limit) = args.limit {
         query.push(("limit".to_string(), limit.to_string()));
     }
+    push_query(&mut query, "cursor", args.cursor);
     path_with_query("/workflows/runs", query)
 }
 
@@ -2455,9 +2622,22 @@ fn item_search_input(args: ItemSearchArgs) -> Result<Value, CliError> {
 fn item_notes_input(args: ItemNotesArgs) -> Result<Value, CliError> {
     let mut input = into_object(item_ref(args.item)?);
     insert_u32(&mut input, "limit", args.limit);
-    insert_u32(&mut input, "cursor", args.cursor);
+    push_value(&mut input, "cursor", args.cursor);
     insert_u32(&mut input, "maxExcerptChars", args.max_excerpt_chars);
     Ok(Value::Object(input))
+}
+
+fn item_page_input(args: ItemPageArgs) -> Result<Value, CliError> {
+    let mut input = into_object(item_ref(args.item)?);
+    insert_page(&mut input, args.page);
+    Ok(Value::Object(input))
+}
+
+fn insert_page(input: &mut Map<String, Value>, page: PageArgs) {
+    if let Some(cursor) = page.cursor {
+        input.insert("cursor".to_string(), Value::String(cursor));
+    }
+    insert_u32(input, "limit", page.limit);
 }
 
 fn note_detail_input(args: NoteDetailArgs) -> Result<Value, CliError> {
@@ -3044,6 +3224,10 @@ mod tests {
         assert_eq!(
             annotation_item_input(AnnotationItemArgs {
                 item: "1:ABC123".to_string(),
+                page: PageArgs {
+                    cursor: None,
+                    limit: None,
+                },
             })
             .unwrap(),
             json!({ "ref": "1:ABC123" })
@@ -3265,10 +3449,12 @@ mod tests {
             run: Some("run-1".to_string()),
             state: Some("running".to_string()),
             active_only: true,
+            cursor: Some("cursor-1".to_string()),
+            limit: Some(25),
         });
         assert_eq!(
             path,
-            "/tasks?workflowId=w+1&backendId=b&submissionId=workflow-submission-1&runId=run-1&state=running&includeHistory=false"
+            "/tasks?workflowId=w+1&backendId=b&submissionId=workflow-submission-1&runId=run-1&state=running&includeHistory=false&cursor=cursor-1&limit=25"
         );
     }
 
@@ -3278,13 +3464,17 @@ mod tests {
             workflow_queue_list_path(WorkflowQueueListArgs {
                 backend_type: Some("skillrunner".to_string()),
                 backend: Some("backend a".to_string()),
+                cursor: Some("next".to_string()),
+                limit: Some(25),
             })
             .unwrap(),
-            "/workflows/queue?backendType=skillrunner&backendId=backend+a"
+            "/workflows/queue?backendType=skillrunner&backendId=backend+a&cursor=next&limit=25"
         );
         assert!(workflow_queue_list_path(WorkflowQueueListArgs {
             backend_type: Some("skillrunner".to_string()),
             backend: None,
+            cursor: None,
+            limit: None,
         })
         .is_err());
         assert_eq!(
@@ -3297,9 +3487,11 @@ mod tests {
         assert_eq!(
             workflow_submission_path(WorkflowSubmissionGetArgs {
                 submission_id: "workflow submission/1".to_string(),
+                cursor: Some("next".to_string()),
+                limit: Some(10),
             })
             .unwrap(),
-            "/workflows/submissions/workflow%20submission%2F1"
+            "/workflows/submissions/workflow%20submission%2F1?cursor=next&limit=10"
         );
     }
 
@@ -3328,6 +3520,10 @@ mod tests {
         assert_eq!(
             context_selection_open_input(ContextSelectionOpenArgs {
                 item_refs: vec!["ABC123".to_string(), "{\"id\":2}".to_string()],
+                page: PageArgs {
+                    cursor: None,
+                    limit: None,
+                },
             })
             .unwrap(),
             json!({ "items": ["ABC123", { "id": 2 }] })
@@ -3491,6 +3687,7 @@ mod tests {
         .unwrap();
         let inspection = workflow_agent_bundle_inspect(WorkflowAgentBundleInspectArgs {
             bundle: root.clone(),
+            page: PageArgs { cursor: None, limit: None },
         })
         .unwrap();
         assert_eq!(inspection["agentRunId"], "agent-run-1");
@@ -3556,6 +3753,7 @@ mod tests {
         );
         let inspection = workflow_agent_bundle_inspect(WorkflowAgentBundleInspectArgs {
             bundle: handoff_zip,
+            page: PageArgs { cursor: None, limit: None },
         })
         .unwrap();
         assert_eq!(inspection["agentRunId"], "agent-run-zip");
@@ -3597,6 +3795,7 @@ mod tests {
         fs::write(&zip, b"PK\x03\x04").unwrap();
         let error = workflow_agent_bundle_inspect(WorkflowAgentBundleInspectArgs {
             bundle: zip.clone(),
+            page: PageArgs { cursor: None, limit: None },
         })
         .unwrap_err();
         assert_eq!(error.code, "invalid_bundle_archive");
@@ -3612,6 +3811,7 @@ mod tests {
         write_test_zip(&zip, &[("../outside.json".to_string(), b"{}".to_vec())]);
         let error = workflow_agent_bundle_inspect(WorkflowAgentBundleInspectArgs {
             bundle: zip.clone(),
+            page: PageArgs { cursor: None, limit: None },
         })
         .unwrap_err();
         assert_eq!(error.code, "invalid_bundle_path");
@@ -3648,6 +3848,7 @@ mod tests {
         );
         let error = workflow_agent_bundle_inspect(WorkflowAgentBundleInspectArgs {
             bundle: zip.clone(),
+            page: PageArgs { cursor: None, limit: None },
         })
         .unwrap_err();
         assert_eq!(error.code, "bundle_entry_too_large");

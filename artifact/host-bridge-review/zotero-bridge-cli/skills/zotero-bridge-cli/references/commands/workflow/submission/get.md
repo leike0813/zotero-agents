@@ -5,7 +5,7 @@
 ## 用法
 
 ```console
-zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] SUBMISSION_ID <SUBMISSION_ID>
+zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] SUBMISSION_ID <SUBMISSION_ID> [--cursor <CURSOR>] [--limit <LIMIT>]
 ```
 
 全局选项可位于叶命令之前或之后。使用 `--schema` 可在不加载 profile、也不连接 Zotero 的情况下检查原始结构化输入 schema。
@@ -35,6 +35,14 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
       "type": "string",
       "description": "Opaque submission id returned by workflow submit",
       "position": 1
+    },
+    "cursor": {
+      "type": "string",
+      "description": "Opaque continuation cursor for submission units"
+    },
+    "limit": {
+      "type": "string",
+      "description": "Maximum number of submission units (1-100)"
     }
   },
   "required": [
@@ -108,6 +116,23 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
       "items": {
         "type": "object"
       }
+    },
+    "nextCursor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "returned": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 0
     }
   },
   "required": [
@@ -151,6 +176,14 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
         "type": "string",
         "description": "Opaque submission id returned by workflow submit",
         "position": 1
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Opaque continuation cursor for submission units"
+      },
+      "limit": {
+        "type": "string",
+        "description": "Maximum number of submission units (1-100)"
       }
     },
     "required": [
@@ -176,6 +209,40 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
       "repeatable": false,
       "aliases": [],
       "defaultValues": []
+    },
+    {
+      "id": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Opaque continuation cursor for submission units",
+      "valueNames": [
+        "CURSOR"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
+    },
+    {
+      "id": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Maximum number of submission units (1-100)",
+      "valueNames": [
+        "LIMIT"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
     }
   ],
   "argvBindings": [
@@ -188,6 +255,26 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
       "required": true,
       "valueNames": [
         "SUBMISSION_ID"
+      ]
+    },
+    {
+      "property": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "property": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "LIMIT"
       ]
     }
   ],
@@ -244,6 +331,23 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
         "items": {
           "type": "object"
         }
+      },
+      "nextCursor": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "hasMore": {
+        "type": "boolean"
+      },
+      "returned": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 0
       }
     },
     "required": [
@@ -259,7 +363,21 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
     ],
     "additionalProperties": false
   },
-  "pagination": "none",
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "units",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "cursor",
+    "continuation": [
+      "nextCursor",
+      "hasMore",
+      "returned",
+      "total",
+      "limit"
+    ]
+  },
+  "pagination": "cursor",
   "effects": [
     {
       "kind": "none",
@@ -302,7 +420,11 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
     "submission",
     "get",
     "submission_id",
-    "SUBMISSION_ID"
+    "SUBMISSION_ID",
+    "cursor",
+    "CURSOR",
+    "limit",
+    "LIMIT"
   ],
   "hiddenFromIntentSearch": false
 }
@@ -311,11 +433,11 @@ zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <I
 ## 操作契约
 
 - 规范 argv 路径： `workflow` `submission` `get`.
-- 分页： `none`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
-- 操作别名： `workflow submission get`, `workflow`, `submission`, `get`, `submission_id`, `SUBMISSION_ID`.
-
+- 输出边界： `cursor`; governed details: {"strategy":"cursor","section":"units","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["nextCursor","hasMore","returned","total","limit"]}.
+- 分页： `cursor`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
+- 操作别名： `workflow submission get`, `workflow`, `submission`, `get`, `submission_id`, `SUBMISSION_ID`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
 ### Effects
 
 ```json

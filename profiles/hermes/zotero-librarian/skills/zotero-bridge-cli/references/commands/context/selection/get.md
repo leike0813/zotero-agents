@@ -5,7 +5,7 @@ Read selected Zotero item summaries
 ## Usage
 
 ```console
-zotero-bridge context selection get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema]
+zotero-bridge context selection get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--cursor <CURSOR>] [--limit <LIMIT>]
 ```
 
 The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.
@@ -21,14 +21,26 @@ The global options may appear before or after the leaf command. Use `--schema` t
 
 ## Local options and positionals
 
-This command has no local parameters.
+| Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| --cursor | cursor | option | no | — | CURSOR | no | — | — | Opaque continuation cursor |
+| --limit | limit | option | no | — | LIMIT | no | — | — | Maximum number of entries (1-100) |
 
 ## Invocation schema
 
 ```json
 {
   "type": "object",
-  "properties": {},
+  "properties": {
+    "cursor": {
+      "type": "string",
+      "description": "Opaque continuation cursor"
+    },
+    "limit": {
+      "type": "string",
+      "description": "Maximum number of entries (1-100)"
+    }
+  },
   "required": [],
   "additionalProperties": false
 }
@@ -65,10 +77,33 @@ This command has no structured JSON input parameter.
       "type": "object",
       "description": "Result data owned by context.get_selected_items, GET /bridge/v1/context/selection.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-    },
-    "itemRef": {
-      "type": "string"
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "items": {
+          "type": "array"
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "returned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -96,12 +131,77 @@ This closed descriptor is the machine-readable command contract returned by `sur
   "danger": "none",
   "invocationSchema": {
     "type": "object",
-    "properties": {},
+    "properties": {
+      "cursor": {
+        "type": "string",
+        "description": "Opaque continuation cursor"
+      },
+      "limit": {
+        "type": "string",
+        "description": "Maximum number of entries (1-100)"
+      }
+    },
     "required": [],
     "additionalProperties": false
   },
-  "arguments": [],
-  "argvBindings": [],
+  "arguments": [
+    {
+      "id": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Opaque continuation cursor",
+      "valueNames": [
+        "CURSOR"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
+    },
+    {
+      "id": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Maximum number of entries (1-100)",
+      "valueNames": [
+        "LIMIT"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
+    }
+  ],
+  "argvBindings": [
+    {
+      "property": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "property": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "LIMIT"
+      ]
+    }
+  ],
   "inputSchemas": {},
   "payloadSchema": {
     "type": "object",
@@ -122,15 +222,52 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "type": "object",
         "description": "Result data owned by context.get_selected_items, GET /bridge/v1/context/selection.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-      },
-      "itemRef": {
-        "type": "string"
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "items": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
       }
     },
     "additionalProperties": false
   },
-  "pagination": "none",
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "data.items",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "cursor",
+    "continuation": [
+      "data.nextCursor",
+      "data.hasMore",
+      "data.returned",
+      "data.total",
+      "data.limit"
+    ]
+  },
+  "pagination": "cursor",
   "effects": [
     {
       "kind": "none",
@@ -175,7 +312,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "context selection get",
     "context",
     "selection",
-    "get"
+    "get",
+    "cursor",
+    "CURSOR",
+    "limit",
+    "LIMIT"
   ],
   "hiddenFromIntentSearch": false
 }
@@ -184,10 +325,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `context` `selection` `get`.
-- Pagination: `none`.
+- Output boundary: `cursor`; governed details: {"strategy":"cursor","section":"data.items","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"]}.
+- Pagination: `cursor`.
 - Category: `read`; danger: `none`.
 - Intent visibility: `visible`.
-- Operational aliases: `context selection get`, `context`, `selection`, `get`.
+- Operational aliases: `context selection get`, `context`, `selection`, `get`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
 
 ### Effects
 

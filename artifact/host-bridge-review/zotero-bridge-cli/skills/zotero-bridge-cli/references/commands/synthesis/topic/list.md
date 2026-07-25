@@ -111,20 +111,33 @@ zotero-bridge synthesis topic list [--endpoint <ENDPOINT>] [--operation-id <ID>]
       "type": "object",
       "description": "Result data owned by topics.list.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-    },
-    "topics": {
-      "type": "array"
-    },
-    "nextCursor": {
-      "type": [
-        "string",
-        "number",
-        "null"
-      ]
-    },
-    "hasMore": {
-      "type": "boolean"
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "topics": {
+          "type": "array"
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "returned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -275,23 +288,50 @@ zotero-bridge synthesis topic list --query '{}'
         "type": "object",
         "description": "Result data owned by topics.list.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-      },
-      "topics": {
-        "type": "array"
-      },
-      "nextCursor": {
-        "type": [
-          "string",
-          "number",
-          "null"
-        ]
-      },
-      "hasMore": {
-        "type": "boolean"
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "topics": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
       }
     },
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "data.topics",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "cursor",
+    "continuation": [
+      "data.nextCursor",
+      "data.hasMore",
+      "data.returned",
+      "data.total",
+      "data.limit"
+    ]
   },
   "pagination": "cursor",
   "effects": [
@@ -337,11 +377,11 @@ zotero-bridge synthesis topic list --query '{}'
 ## 操作契约
 
 - 规范 argv 路径： `synthesis` `topic` `list`.
+- 输出边界： `cursor`; governed details: {"strategy":"cursor","section":"data.topics","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"]}.
 - 分页： `cursor`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
 - 操作别名： `synthesis topic list`, `synthesis`, `topic`, `list`, `query`, `JSON_OR_FILE`.
-
 ### Effects
 
 ```json

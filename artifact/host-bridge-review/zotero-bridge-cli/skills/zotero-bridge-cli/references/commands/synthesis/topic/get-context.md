@@ -236,73 +236,75 @@ zotero-bridge synthesis topic get-context [--endpoint <ENDPOINT>] [--operation-i
     "data": {
       "type": "object",
       "description": "Result data owned by topics.get_context.",
-      "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-    },
-    "file": {
-      "type": "object",
       "properties": {
-        "fileId": {
-          "type": "string"
-        },
-        "path": {
-          "type": "string"
-        },
-        "checksum": {
-          "type": "string"
-        },
-        "bytes": {
-          "type": "integer"
-        }
-      },
-      "additionalProperties": true
-    },
-    "delivery": {
-      "type": "object",
-      "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
-      "properties": {
-        "mode": {
-          "enum": [
-            "local",
-            "bridge-download",
-            "bundle"
-          ]
-        },
-        "path": {
-          "type": "string"
-        },
-        "files": {
-          "type": "array",
-          "items": {
-            "type": "object"
-          }
-        },
-        "bundle": {
+        "file": {
           "type": "object",
           "properties": {
             "fileId": {
               "type": "string"
             },
-            "displayName": {
+            "path": {
               "type": "string"
             },
-            "contentType": {
+            "checksum": {
               "type": "string"
             },
-            "size": {
+            "bytes": {
               "type": "integer"
             }
           },
           "additionalProperties": true
         },
-        "downloadCommand": {
-          "type": "string"
-        },
-        "unpackHint": {
-          "type": "string"
+        "delivery": {
+          "type": "object",
+          "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
+          "properties": {
+            "mode": {
+              "enum": [
+                "local",
+                "bridge-download",
+                "bundle"
+              ]
+            },
+            "path": {
+              "type": "string"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "bundle": {
+              "type": "object",
+              "properties": {
+                "fileId": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": true
+            },
+            "downloadCommand": {
+              "type": "string"
+            },
+            "unpackHint": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
         }
       },
-      "additionalProperties": false
+      "additionalProperties": true,
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
   "additionalProperties": false
@@ -578,78 +580,83 @@ zotero-bridge synthesis topic get-context --query '{}'
       "data": {
         "type": "object",
         "description": "Result data owned by topics.get_context.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-      },
-      "file": {
-        "type": "object",
         "properties": {
-          "fileId": {
-            "type": "string"
-          },
-          "path": {
-            "type": "string"
-          },
-          "checksum": {
-            "type": "string"
-          },
-          "bytes": {
-            "type": "integer"
-          }
-        },
-        "additionalProperties": true
-      },
-      "delivery": {
-        "type": "object",
-        "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
-        "properties": {
-          "mode": {
-            "enum": [
-              "local",
-              "bridge-download",
-              "bundle"
-            ]
-          },
-          "path": {
-            "type": "string"
-          },
-          "files": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
-          },
-          "bundle": {
+          "file": {
             "type": "object",
             "properties": {
               "fileId": {
                 "type": "string"
               },
-              "displayName": {
+              "path": {
                 "type": "string"
               },
-              "contentType": {
+              "checksum": {
                 "type": "string"
               },
-              "size": {
+              "bytes": {
                 "type": "integer"
               }
             },
             "additionalProperties": true
           },
-          "downloadCommand": {
-            "type": "string"
-          },
-          "unpackHint": {
-            "type": "string"
+          "delivery": {
+            "type": "object",
+            "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
+            "properties": {
+              "mode": {
+                "enum": [
+                  "local",
+                  "bridge-download",
+                  "bundle"
+                ]
+              },
+              "path": {
+                "type": "string"
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "bundle": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": true
+              },
+              "downloadCommand": {
+                "type": "string"
+              },
+              "unpackHint": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
           }
         },
-        "additionalProperties": false
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
       }
     },
     "additionalProperties": false
   },
-  "pagination": "file",
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
   "effects": [
     {
       "kind": "none",
@@ -693,11 +700,11 @@ zotero-bridge synthesis topic get-context --query '{}'
 ## 操作契约
 
 - 规范 argv 路径： `synthesis` `topic` `get-context`.
-- 分页： `file`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
+- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
+- 分页： `none`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
 - 操作别名： `synthesis topic get-context`, `synthesis`, `topic`, `get-context`, `query`, `JSON_OR_FILE`.
-
 ### Effects
 
 ```json

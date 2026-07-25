@@ -88,7 +88,46 @@ This command has no structured JSON input parameter.
       "type": "object",
       "description": "Result data owned by library.export_annotations.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "delivery": {
+          "type": "object",
+          "properties": {
+            "file": {
+              "type": "object",
+              "properties": {
+                "fileId": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sha256": {
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "fileId",
+                "displayName",
+                "contentType",
+                "expiresAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": true
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -221,12 +260,55 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "type": "object",
         "description": "Result data owned by library.export_annotations.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "delivery": {
+            "type": "object",
+            "properties": {
+              "file": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "sha256": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "fileId",
+                  "displayName",
+                  "contentType",
+                  "expiresAt"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": true
+          }
+        }
       }
     },
     "additionalProperties": false
   },
-  "pagination": "none",
+  "outputBoundary": {
+    "strategy": "file",
+    "fileField": "data.delivery.file"
+  },
+  "pagination": "file",
   "effects": [
     {
       "kind": "none",
@@ -272,7 +354,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `library` `annotation` `export`.
-- Pagination: `none`.
+- Output boundary: `file`; governed details: {"strategy":"file","fileField":"data.delivery.file"}.
+- Pagination: `file`.
 - Category: `read`; danger: `none`.
 - Intent visibility: `visible`.
 - Operational aliases: `library annotation export`, `library`, `annotation`, `export`, `item`, `ITEM`, `format`, `FORMAT`.

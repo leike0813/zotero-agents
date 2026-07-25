@@ -238,6 +238,12 @@ function createAgentRunApplyBody(request: {
   };
 }
 
+function agentRunRequests(handoff: any) {
+  return (
+    getHostBridgeAgentRunRecord(handoff.json.result.agentRunId)?.requests || []
+  );
+}
+
 describe("host bridge workflow control", function () {
   afterEach(function () {
     resetHostBridgeServerForTests();
@@ -565,9 +571,14 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(parsed.json.result.workflowId, "bridge-workflow");
     assert.match(parsed.json.result.agentRunId, /^agent-run-/);
     assert.isString(parsed.json.result.expiresAt);
-    assert.isArray(parsed.json.result.requests);
-    assert.isAtLeast(parsed.json.result.requests.length, 1);
-    assert.match(parsed.json.result.requests[0].agentRequestId, /^req-/);
+    const preparedRequests = agentRunRequests(parsed);
+    assert.notProperty(parsed.json.result, "requests");
+    assert.strictEqual(
+      parsed.json.result.requestCount,
+      preparedRequests.length,
+    );
+    assert.isAtLeast(preparedRequests.length, 1);
+    assert.match(preparedRequests[0].agentRequestId, /^req-/);
     assert.strictEqual(parsed.json.result.bundle.mode, "bridge-download");
     assert.strictEqual(parsed.json.result.applyStatus.allowed, true);
     assert.match(parsed.json.result.bundle.file.fileId, /^file-/);
@@ -601,7 +612,7 @@ describe("host bridge workflow control", function () {
     );
     const outputContract = JSON.parse(
       await reader.readText(
-        `agent-run/requests/${parsed.json.result.requests[0].agentRequestId}/output-contract.json`,
+        `agent-run/requests/${preparedRequests[0].agentRequestId}/output-contract.json`,
       ),
     );
     const applyBackText = await reader.readText("APPLY-BACK.md");
@@ -619,7 +630,7 @@ describe("host bridge workflow control", function () {
     );
     assert.strictEqual(
       outputContract.agentRequestId,
-      parsed.json.result.requests[0].agentRequestId,
+      preparedRequests[0].agentRequestId,
     );
     assert.include(applyBackText, "zotero-bridge workflow agent-apply");
     assert.include(toolkitCli, "def cmd_finalize_output");
@@ -683,7 +694,7 @@ describe("host bridge workflow control", function () {
       },
     });
     assert.strictEqual(handoff.status, 200);
-    const request = handoff.json.result.requests[0];
+    const request = agentRunRequests(handoff)[0];
     const applyBody = createAgentRunApplyBody(request);
 
     const applied = await bridgeRequest({
@@ -737,7 +748,7 @@ describe("host bridge workflow control", function () {
       },
     });
     const path = `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`;
-    const body = createAgentRunApplyBody(handoff.json.result.requests[0]);
+    const body = createAgentRunApplyBody(agentRunRequests(handoff)[0]);
     const headers = { "x-zotero-bridge-operation-id": "apply-operation-1" };
     const first = await bridgeRequest({
       token,
@@ -849,7 +860,7 @@ describe("host bridge workflow control", function () {
       },
     });
     const path = `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`;
-    const body = createAgentRunApplyBody(handoff.json.result.requests[0]);
+    const body = createAgentRunApplyBody(agentRunRequests(handoff)[0]);
     const firstPending = bridgeRequest({ token, method: "POST", path, body });
     await entered;
     const second = await bridgeRequest({ token, method: "POST", path, body });
@@ -929,7 +940,7 @@ describe("host bridge workflow control", function () {
         selection: { items: [{ id: parent.id }] },
       },
     });
-    const request = handoff.json.result.requests[0];
+    const request = agentRunRequests(handoff)[0];
     const invalid = await bridgeRequest({
       token,
       method: "POST",
@@ -1000,8 +1011,9 @@ describe("host bridge workflow control", function () {
         selection: { items: parents.map((item) => ({ id: item.id })) },
       },
     });
-    assert.lengthOf(handoff.json.result.requests, 2);
-    const bodies = handoff.json.result.requests.map(createAgentRunApplyBody);
+    const preparedRequests = agentRunRequests(handoff);
+    assert.lengthOf(preparedRequests, 2);
+    const bodies = preparedRequests.map(createAgentRunApplyBody);
     const applied = await bridgeRequest({
       token,
       method: "POST",
@@ -1014,16 +1026,44 @@ describe("host bridge workflow control", function () {
       succeeded: 1,
       failed: 1,
     });
+    assert.notProperty(applied.json.result, "results");
+    assert.notProperty(applied.json.result, "warnings");
+    assert.include(
+      applied.json.result.receiptUrl,
+      handoff.json.result.agentRunId,
+    );
 
-    const receipt = await bridgeRequest({
+    const firstReceiptPage = await bridgeRequest({
       token,
       method: "GET",
-      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply`,
+      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply?limit=1`,
     });
-    assert.strictEqual(receipt.json.result.status, "partial");
-    assert.strictEqual(receipt.json.result.stateChange, "changed");
-    assert.strictEqual(receipt.json.result.handleConsumption, "consumed");
-    assert.isFalse(receipt.json.result.recoverable);
+    assert.strictEqual(firstReceiptPage.json.result.status, "partial");
+    assert.strictEqual(firstReceiptPage.json.result.stateChange, "changed");
+    assert.strictEqual(
+      firstReceiptPage.json.result.handleConsumption,
+      "consumed",
+    );
+    assert.isFalse(firstReceiptPage.json.result.recoverable);
+    assert.lengthOf(firstReceiptPage.json.result.results, 1);
+    assert.isTrue(firstReceiptPage.json.result.hasMore);
+    assert.isString(firstReceiptPage.json.result.nextCursor);
+    assert.strictEqual(firstReceiptPage.json.result.returned, 1);
+    assert.strictEqual(firstReceiptPage.json.result.total, 2);
+    assert.strictEqual(firstReceiptPage.json.result.limit, 1);
+
+    const secondReceiptPage = await bridgeRequest({
+      token,
+      method: "GET",
+      path: `/bridge/v1/workflows/agent-runs/${handoff.json.result.agentRunId}/apply?limit=1&cursor=${encodeURIComponent(firstReceiptPage.json.result.nextCursor)}`,
+    });
+    assert.lengthOf(secondReceiptPage.json.result.results, 1);
+    assert.isFalse(secondReceiptPage.json.result.hasMore);
+    assert.strictEqual(secondReceiptPage.json.result.nextCursor, "");
+    assert.notEqual(
+      firstReceiptPage.json.result.results[0].agentRequestId,
+      secondReceiptPage.json.result.results[0].agentRequestId,
+    );
   });
 
   it("renews or abandons an unconsumed agent run through explicit lifecycle endpoints", async function () {
@@ -1071,7 +1111,7 @@ describe("host bridge workflow control", function () {
       token,
       method: "POST",
       path: `/bridge/v1/workflows/agent-runs/${agentRunId}/apply`,
-      body: createAgentRunApplyBody(handoff.json.result.requests[0]),
+      body: createAgentRunApplyBody(agentRunRequests(handoff)[0]),
     });
     assert.strictEqual(apply.status, 409);
     assert.strictEqual(apply.json.error.code, "agent_run_lifecycle_conflict");
@@ -1114,7 +1154,7 @@ describe("host bridge workflow control", function () {
       },
     });
     assert.strictEqual(handoff.status, 200);
-    const request = handoff.json.result.requests[0];
+    const request = agentRunRequests(handoff)[0];
 
     const applied = await bridgeRequest({
       token,
@@ -1168,7 +1208,7 @@ describe("host bridge workflow control", function () {
       },
     });
     assert.strictEqual(handoff.status, 200);
-    const request = handoff.json.result.requests[0];
+    const request = agentRunRequests(handoff)[0];
 
     const deniedByApplyStatus = await bridgeRequest({
       token,
@@ -1988,11 +2028,11 @@ describe("host bridge workflow control", function () {
     });
     assert.strictEqual(parsed.status, 200);
     assert.deepEqual(
-      parsed.json.result.tasks.map((task: { jobId: string }) => task.jobId),
+      parsed.json.result.items.map((task: { jobId: string }) => task.jobId),
       ["job-a"],
     );
     assert.strictEqual(
-      parsed.json.result.tasks[0].submissionUnitId,
+      parsed.json.result.items[0].submissionUnitId,
       "unit-job-a",
     );
   });
@@ -2033,7 +2073,13 @@ describe("host bridge workflow control", function () {
     assert.strictEqual(parsed.json.result.admission, "direct");
     assert.isString(parsed.json.result.workflowRunId);
     assert.notProperty(parsed.json.result, "runId");
-    assert.lengthOf(parsed.json.result.jobIds, 1);
+    assert.notProperty(parsed.json.result, "jobIds");
+    assert.notProperty(parsed.json.result, "tasks");
+    assert.include(parsed.json.result.runUrl, parsed.json.result.workflowRunId);
+    assert.include(
+      parsed.json.result.tasksUrl,
+      parsed.json.result.workflowRunId,
+    );
     assert.strictEqual(parsed.json.result.permission.channel, "global");
     assert.notInclude(parsed.body, "attachment-path:");
     assert.notMatch(parsed.body, /[A-Za-z]:\\/);
@@ -2217,7 +2263,7 @@ describe("host bridge workflow control", function () {
       assert.notInclude(parsed.body, "/home/a/evidence.log");
       assert.include(parsed.body, "[redacted-path]");
     }
-    const task = tasks.json.result.tasks[0];
+    const task = tasks.json.result.items[0];
     assert.strictEqual(task.runId, "run-redacted");
     assert.strictEqual(task.jobId, "job-1");
     assert.strictEqual(task.workflowId, "bridge-workflow");
@@ -2272,11 +2318,11 @@ describe("host bridge workflow control", function () {
 
       assert.strictEqual(parsed.status, 200);
       assert.deepEqual(
-        parsed.json.result.tasks.map((task: { jobId: string }) => task.jobId),
+        parsed.json.result.items.map((task: { jobId: string }) => task.jobId),
         ["job-active"],
       );
       assert.deepEqual(
-        parsed.json.result.tasks.map((task: { state: string }) => task.state),
+        parsed.json.result.items.map((task: { state: string }) => task.state),
         ["running"],
       );
     }
@@ -2501,8 +2547,8 @@ describe("host bridge workflow control", function () {
       path: "/bridge/v1/tasks?workflowId=bridge-workflow&backendId=backend-1",
     });
     assert.strictEqual(tasks.status, 200);
-    assert.lengthOf(tasks.json.result.tasks, 1);
-    assert.strictEqual(tasks.json.result.tasks[0].requestId, "request-1");
+    assert.lengthOf(tasks.json.result.items, 1);
+    assert.strictEqual(tasks.json.result.items[0].requestId, "request-1");
   });
 
   it("resolves sequence task monitoring from the submitted workflow run id", async function () {
@@ -2580,8 +2626,8 @@ describe("host bridge workflow control", function () {
       path: "/bridge/v1/tasks?runId=run-sequence",
     });
     assert.strictEqual(tasks.status, 200);
-    assert.lengthOf(tasks.json.result.tasks, 1);
-    assert.strictEqual(tasks.json.result.tasks[0].jobId, "job-1:digest");
+    assert.lengthOf(tasks.json.result.items, 1);
+    assert.strictEqual(tasks.json.result.items[0].jobId, "job-1:digest");
   });
 
   it("lists lightweight active tasks without private payload fields", async function () {
@@ -2852,7 +2898,7 @@ describe("host bridge workflow control", function () {
       path: "/bridge/v1/tasks/recent?workflowId=bridge-workflow&limit=5",
     });
     assert.strictEqual(recentTasks.status, 200);
-    assert.isAtLeast(recentTasks.json.result.tasks.length, 2);
+    assert.isAtLeast(recentTasks.json.result.items.length, 2);
     assert.notInclude(JSON.stringify(recentTasks.json.result), "transcript");
     assert.notInclude(JSON.stringify(recentTasks.json.result), "workspace");
 

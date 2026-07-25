@@ -146,20 +146,27 @@ This command has no structured JSON input parameter.
       "type": "object",
       "description": "Result data owned by library.get_note_payload.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-    },
-    "items": {
-      "type": "array"
-    },
-    "nextCursor": {
-      "type": [
-        "string",
-        "number",
-        "null"
-      ]
-    },
-    "hasMore": {
-      "type": "boolean"
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "nextOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "totalChars": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "maxChars": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -455,23 +462,44 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "type": "object",
         "description": "Result data owned by library.get_note_payload.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-      },
-      "items": {
-        "type": "array"
-      },
-      "nextCursor": {
-        "type": [
-          "string",
-          "number",
-          "null"
-        ]
-      },
-      "hasMore": {
-        "type": "boolean"
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "nextOffset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "totalChars": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "maxChars": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
       }
     },
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "offset",
+    "section": "data.content",
+    "defaultLimit": 8000,
+    "maxLimit": 16000,
+    "cursorInput": "offset",
+    "continuation": [
+      "data.nextOffset",
+      "data.hasMore",
+      "data.totalChars",
+      "data.truncated",
+      "data.maxChars"
+    ]
   },
   "pagination": "cursor",
   "effects": [
@@ -530,6 +558,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `library` `note` `payload`.
+- Output boundary: `offset`; governed details: {"strategy":"offset","section":"data.content","defaultLimit":8000,"maxLimit":16000,"cursorInput":"offset","continuation":["data.nextOffset","data.hasMore","data.totalChars","data.truncated","data.maxChars"]}.
 - Pagination: `cursor`.
 - Category: `read`; danger: `none`.
 - Intent visibility: `visible`.

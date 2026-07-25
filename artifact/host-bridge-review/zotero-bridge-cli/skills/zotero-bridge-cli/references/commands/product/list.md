@@ -111,20 +111,33 @@ zotero-bridge product list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--prof
       "type": "object",
       "description": "Result data owned by workflow_products.list.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-    },
-    "products": {
-      "type": "array"
-    },
-    "nextCursor": {
-      "type": [
-        "string",
-        "number",
-        "null"
-      ]
-    },
-    "hasMore": {
-      "type": "boolean"
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "products": {
+          "type": "array"
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "returned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -354,23 +367,50 @@ zotero-bridge product list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--prof
         "type": "object",
         "description": "Result data owned by workflow_products.list.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-      },
-      "products": {
-        "type": "array"
-      },
-      "nextCursor": {
-        "type": [
-          "string",
-          "number",
-          "null"
-        ]
-      },
-      "hasMore": {
-        "type": "boolean"
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "products": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
       }
     },
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "data.products",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "cursor",
+    "continuation": [
+      "data.nextCursor",
+      "data.hasMore",
+      "data.returned",
+      "data.total",
+      "data.limit"
+    ]
   },
   "pagination": "cursor",
   "effects": [
@@ -426,11 +466,11 @@ zotero-bridge product list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--prof
 ## 操作契约
 
 - 规范 argv 路径： `product` `list`.
+- 输出边界： `cursor`; governed details: {"strategy":"cursor","section":"data.products","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["data.nextCursor","data.hasMore","data.returned","data.total","data.limit"]}.
 - 分页： `cursor`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
 - 操作别名： `product list`, `product`, `list`, `workflow_id`, `workflow-id`, `WORKFLOW_ID`, `backend_id`, `backend-id`, `BACKEND_ID`, `request_id`, `request-id`, `REQUEST_ID`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
-
 ### Effects
 
 ```json

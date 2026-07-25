@@ -93,7 +93,15 @@ Required: `false`.
       "type": "object",
       "description": "Result data owned by debug.synthesis.cache.list.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "rows": {
+          "type": "array"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -223,10 +231,25 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "type": "object",
         "description": "Result data owned by debug.synthesis.cache.list.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "rows": {
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
       }
     },
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "limit",
+    "section": "data.rows",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "truncatedField": "data.truncated"
   },
   "pagination": "none",
   "effects": [
@@ -272,6 +295,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `debug` `synthesis` `cache`.
+- Output boundary: `limit`; governed details: {"strategy":"limit","section":"data.rows","defaultLimit":25,"maxLimit":100,"truncatedField":"data.truncated"}.
 - Pagination: `none`.
 - Category: `debug`; danger: `none`.
 - Intent visibility: `hidden`.

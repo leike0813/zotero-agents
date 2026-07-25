@@ -227,6 +227,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
     },
     "additionalProperties": false
   },
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -270,6 +273,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `debug` `persistence`.
+- Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `debug`; danger: `none`.
 - Intent visibility: `hidden`.

@@ -229,6 +229,9 @@ zotero-bridge synthesis graph refresh-metrics --input '{}'
     },
     "additionalProperties": false
   },
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -273,11 +276,11 @@ zotero-bridge synthesis graph refresh-metrics --input '{}'
 ## 操作契约
 
 - 规范 argv 路径： `synthesis` `graph` `refresh-metrics`.
+- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `maintenance`; 危险级别： `high`.
-- Intent 可见性： `visible`.
+- 类别： `maintenance`; danger: `high`.
+- 意图可见性： `visible`.
 - 操作别名： `synthesis graph refresh-metrics`, `synthesis`, `graph`, `refresh-metrics`, `input`, `JSON_OR_FILE`.
-
 ### Effects
 
 ```json

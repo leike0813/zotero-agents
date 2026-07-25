@@ -231,6 +231,9 @@ zotero-bridge mutation collection add-items [--endpoint <ENDPOINT>] [--operation
     },
     "additionalProperties": false
   },
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -276,11 +279,11 @@ zotero-bridge mutation collection add-items [--endpoint <ENDPOINT>] [--operation
 ## 操作契约
 
 - 规范 argv 路径： `mutation` `collection` `add-items`.
+- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `write`; 危险级别： `review`.
-- Intent 可见性： `visible`.
+- 类别： `write`; danger: `review`.
+- 意图可见性： `visible`.
 - 操作别名： `mutation collection add-items`, `mutation`, `collection`, `add-items`, `COLLECTION`, `items`, `ITEMS`.
-
 ### Effects
 
 ```json

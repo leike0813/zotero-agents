@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zotero-agents.local/schemas/host-bridge-cli-output-boundaries.v1.schema.json",
+  "title": "Zotero Bridge CLI output boundaries v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "commands"],
+  "properties": {
+    "schema": { "const": "zotero-bridge.output-boundaries.v1" },
+    "commands": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/boundary" }
+    }
+  },
+  "$defs": {
+    "boundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy"],
+      "properties": {
+        "strategy": {
+          "enum": ["fixed", "cursor", "offset", "limit", "file", "raw"]
+        },
+        "section": { "type": "string", "minLength": 1 },
+        "defaultLimit": { "type": "integer", "minimum": 1 },
+        "maxLimit": { "type": "integer", "minimum": 1 },
+        "cursorInput": { "type": "string", "minLength": 1 },
+        "continuation": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "truncatedField": { "type": "string", "minLength": 1 },
+        "fileField": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "strategy": { "const": "cursor" } } },
+          "then": {
+            "required": [
+              "section",
+              "defaultLimit",
+              "maxLimit",
+              "cursorInput",
+              "continuation"
+            ]
+          }
+        },
+        {
+          "if": { "properties": { "strategy": { "const": "offset" } } },
+          "then": {
+            "required": [
+              "section",
+              "defaultLimit",
+              "maxLimit",
+              "cursorInput",
+              "continuation"
+            ]
+          }
+        },
+        {
+          "if": { "properties": { "strategy": { "const": "limit" } } },
+          "then": {
+            "required": [
+              "section",
+              "defaultLimit",
+              "maxLimit",
+              "truncatedField"
+            ]
+          }
+        },
+        {
+          "if": { "properties": { "strategy": { "const": "file" } } },
+          "then": { "required": ["fileField"] }
+        }
+      ]
+    }
+  }
+}

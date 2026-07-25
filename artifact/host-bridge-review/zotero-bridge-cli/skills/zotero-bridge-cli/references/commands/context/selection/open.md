@@ -5,7 +5,7 @@
 ## 用法
 
 ```console
-zotero-bridge context selection open [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] ITEM_REFS <ITEM_REFS>
+zotero-bridge context selection open [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] ITEM_REFS <ITEM_REFS> [--cursor <CURSOR>] [--limit <LIMIT>]
 ```
 
 全局选项可位于叶命令之前或之后。使用 `--schema` 可在不加载 profile、也不连接 Zotero 的情况下检查原始结构化输入 schema。
@@ -38,6 +38,14 @@ zotero-bridge context selection open [--endpoint <ENDPOINT>] [--operation-id <ID
       },
       "description": "Zotero item refs",
       "position": 1
+    },
+    "cursor": {
+      "type": "string",
+      "description": "Opaque continuation cursor"
+    },
+    "limit": {
+      "type": "string",
+      "description": "Maximum number of entries (1-100)"
     }
   },
   "required": [
@@ -78,6 +86,48 @@ zotero-bridge context selection open [--endpoint <ENDPOINT>] [--operation-id <ID
       "description": "Response object returned by POST /bridge/v1/context/selection/open.",
       "additionalProperties": true,
       "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+    },
+    "target": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array"
+        }
+      },
+      "additionalProperties": true
+    },
+    "pagination": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "object",
+          "properties": {
+            "nextCursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "hasMore": {
+              "type": "boolean"
+            },
+            "returned": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "total": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
     }
   },
   "additionalProperties": true,
@@ -114,6 +164,14 @@ zotero-bridge context selection open [--endpoint <ENDPOINT>] [--operation-id <ID
         },
         "description": "Zotero item refs",
         "position": 1
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Opaque continuation cursor"
+      },
+      "limit": {
+        "type": "string",
+        "description": "Maximum number of entries (1-100)"
       }
     },
     "required": [
@@ -140,6 +198,40 @@ zotero-bridge context selection open [--endpoint <ENDPOINT>] [--operation-id <ID
       "numArgs": "1..",
       "aliases": [],
       "defaultValues": []
+    },
+    {
+      "id": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Opaque continuation cursor",
+      "valueNames": [
+        "CURSOR"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
+    },
+    {
+      "id": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Maximum number of entries (1-100)",
+      "valueNames": [
+        "LIMIT"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
     }
   ],
   "argvBindings": [
@@ -152,6 +244,26 @@ zotero-bridge context selection open [--endpoint <ENDPOINT>] [--operation-id <ID
       "required": true,
       "valueNames": [
         "ITEM_REFS"
+      ]
+    },
+    {
+      "property": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "property": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "LIMIT"
       ]
     }
   ],
@@ -175,12 +287,68 @@ zotero-bridge context selection open [--endpoint <ENDPOINT>] [--operation-id <ID
         "description": "Response object returned by POST /bridge/v1/context/selection/open.",
         "additionalProperties": true,
         "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+      },
+      "target": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array"
+          }
+        },
+        "additionalProperties": true
+      },
+      "pagination": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "object",
+            "properties": {
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
       }
     },
     "additionalProperties": true,
     "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
   },
-  "pagination": "none",
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "target.items",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "cursor",
+    "continuation": [
+      "pagination.items.nextCursor",
+      "pagination.items.hasMore",
+      "pagination.items.returned",
+      "pagination.items.total",
+      "pagination.items.limit"
+    ]
+  },
+  "pagination": "cursor",
   "effects": [
     {
       "kind": "ui-navigation",
@@ -223,7 +391,11 @@ zotero-bridge context selection open [--endpoint <ENDPOINT>] [--operation-id <ID
     "selection",
     "open",
     "item_refs",
-    "ITEM_REFS"
+    "ITEM_REFS",
+    "cursor",
+    "CURSOR",
+    "limit",
+    "LIMIT"
   ],
   "hiddenFromIntentSearch": false
 }
@@ -232,11 +404,11 @@ zotero-bridge context selection open [--endpoint <ENDPOINT>] [--operation-id <ID
 ## 操作契约
 
 - 规范 argv 路径： `context` `selection` `open`.
-- 分页： `none`.
-- 类别： `navigation`; 危险级别： `review`.
-- Intent 可见性： `visible`.
-- 操作别名： `context selection open`, `context`, `selection`, `open`, `item_refs`, `ITEM_REFS`.
-
+- 输出边界： `cursor`; governed details: {"strategy":"cursor","section":"target.items","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["pagination.items.nextCursor","pagination.items.hasMore","pagination.items.returned","pagination.items.total","pagination.items.limit"]}.
+- 分页： `cursor`.
+- 类别： `navigation`; danger: `review`.
+- 意图可见性： `visible`.
+- 操作别名： `context selection open`, `context`, `selection`, `open`, `item_refs`, `ITEM_REFS`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
 ### Effects
 
 ```json

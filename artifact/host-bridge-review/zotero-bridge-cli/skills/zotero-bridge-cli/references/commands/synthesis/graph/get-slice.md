@@ -93,7 +93,21 @@ zotero-bridge synthesis graph get-slice [--endpoint <ENDPOINT>] [--operation-id 
       "type": "object",
       "description": "Result data owned by citation_graph.get_slice.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "nodes": {
+          "type": "array"
+        },
+        "diagnostics": {
+          "type": "object",
+          "properties": {
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": true
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -226,10 +240,31 @@ zotero-bridge synthesis graph get-slice --query '{}'
         "type": "object",
         "description": "Result data owned by citation_graph.get_slice.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "nodes": {
+            "type": "array"
+          },
+          "diagnostics": {
+            "type": "object",
+            "properties": {
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": true
+          }
+        }
       }
     },
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "limit",
+    "section": "data.nodes",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "truncatedField": "data.diagnostics.truncated"
   },
   "pagination": "none",
   "effects": [
@@ -275,11 +310,11 @@ zotero-bridge synthesis graph get-slice --query '{}'
 ## 操作契约
 
 - 规范 argv 路径： `synthesis` `graph` `get-slice`.
+- 输出边界： `limit`; governed details: {"strategy":"limit","section":"data.nodes","defaultLimit":25,"maxLimit":100,"truncatedField":"data.diagnostics.truncated"}.
 - 分页： `none`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
 - 操作别名： `synthesis graph get-slice`, `synthesis`, `graph`, `get-slice`, `query`, `JSON_OR_FILE`.
-
 ### Effects
 
 ```json

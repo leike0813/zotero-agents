@@ -60,6 +60,12 @@ zotero-bridge bridge backend list [--endpoint <ENDPOINT>] [--operation-id <ID>] 
       "description": "Response object returned by GET /bridge/v1/diagnostics/backends.",
       "additionalProperties": true,
       "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+    },
+    "items": {
+      "type": "array"
+    },
+    "truncated": {
+      "type": "boolean"
     }
   },
   "additionalProperties": true,
@@ -109,10 +115,23 @@ zotero-bridge bridge backend list [--endpoint <ENDPOINT>] [--operation-id <ID>] 
         "description": "Response object returned by GET /bridge/v1/diagnostics/backends.",
         "additionalProperties": true,
         "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+      },
+      "items": {
+        "type": "array"
+      },
+      "truncated": {
+        "type": "boolean"
       }
     },
     "additionalProperties": true,
     "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "outputBoundary": {
+    "strategy": "limit",
+    "section": "items",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "truncatedField": "truncated"
   },
   "pagination": "none",
   "effects": [
@@ -156,11 +175,11 @@ zotero-bridge bridge backend list [--endpoint <ENDPOINT>] [--operation-id <ID>] 
 ## 操作契约
 
 - 规范 argv 路径： `bridge` `backend` `list`.
+- 输出边界： `limit`; governed details: {"strategy":"limit","section":"items","defaultLimit":25,"maxLimit":100,"truncatedField":"truncated"}.
 - 分页： `none`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
 - 操作别名： `bridge backend list`, `bridge`, `backend`, `list`.
-
 ### Effects
 
 ```json

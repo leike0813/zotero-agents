@@ -5,7 +5,7 @@ List recent workflow runs
 ## Usage
 
 ```console
-zotero-bridge run workflow recent [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] --workflow <WORKFLOW> [--limit <LIMIT>]
+zotero-bridge run workflow recent [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] --workflow <WORKFLOW> [--limit <LIMIT>] [--cursor <CURSOR>]
 ```
 
 The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.
@@ -25,6 +25,7 @@ The global options may appear before or after the leaf command. Use `--schema` t
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | --workflow | workflow | option | yes | — | WORKFLOW | no | — | — | Workflow id |
 | --limit | limit | option | no | — | LIMIT | no | — | — | Maximum number of runs |
+| --cursor | cursor | option | no | — | CURSOR | no | — | — | Opaque continuation cursor |
 
 ## Invocation schema
 
@@ -39,6 +40,10 @@ The global options may appear before or after the leaf command. Use `--schema` t
     "limit": {
       "type": "string",
       "description": "Maximum number of runs"
+    },
+    "cursor": {
+      "type": "string",
+      "description": "Opaque continuation cursor"
     }
   },
   "required": [
@@ -90,6 +95,18 @@ This command has no structured JSON input parameter.
     },
     "hasMore": {
       "type": "boolean"
+    },
+    "returned": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 0
     }
   },
   "additionalProperties": true,
@@ -126,6 +143,10 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "limit": {
         "type": "string",
         "description": "Maximum number of runs"
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Opaque continuation cursor"
       }
     },
     "required": [
@@ -167,6 +188,23 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "repeatable": false,
       "aliases": [],
       "defaultValues": []
+    },
+    {
+      "id": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Opaque continuation cursor",
+      "valueNames": [
+        "CURSOR"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
     }
   ],
   "argvBindings": [
@@ -188,6 +226,16 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "required": false,
       "valueNames": [
         "LIMIT"
+      ]
+    },
+    {
+      "property": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "CURSOR"
       ]
     }
   ],
@@ -222,10 +270,36 @@ This closed descriptor is the machine-readable command contract returned by `sur
       },
       "hasMore": {
         "type": "boolean"
+      },
+      "returned": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "total": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 0
       }
     },
     "additionalProperties": true,
     "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "runs",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "cursor",
+    "continuation": [
+      "nextCursor",
+      "hasMore",
+      "returned",
+      "total",
+      "limit"
+    ]
   },
   "pagination": "cursor",
   "effects": [
@@ -263,7 +337,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "recent",
     "WORKFLOW",
     "limit",
-    "LIMIT"
+    "LIMIT",
+    "cursor",
+    "CURSOR"
   ],
   "hiddenFromIntentSearch": false
 }
@@ -272,10 +348,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `run` `workflow` `recent`.
+- Output boundary: `cursor`; governed details: {"strategy":"cursor","section":"runs","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["nextCursor","hasMore","returned","total","limit"]}.
 - Pagination: `cursor`.
 - Category: `read`; danger: `none`.
 - Intent visibility: `visible`.
-- Operational aliases: `run workflow recent`, `run`, `workflow`, `recent`, `WORKFLOW`, `limit`, `LIMIT`.
+- Operational aliases: `run workflow recent`, `run`, `workflow`, `recent`, `WORKFLOW`, `limit`, `LIMIT`, `cursor`, `CURSOR`.
 
 ### Effects
 

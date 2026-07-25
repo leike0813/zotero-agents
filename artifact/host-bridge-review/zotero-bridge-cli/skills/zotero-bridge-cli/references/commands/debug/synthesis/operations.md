@@ -93,7 +93,15 @@ zotero-bridge debug synthesis operations [--endpoint <ENDPOINT>] [--operation-id
       "type": "object",
       "description": "Result data owned by debug.synthesis.operations.list.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "rows": {
+          "type": "array"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -223,10 +231,25 @@ zotero-bridge debug synthesis operations --input '{}'
         "type": "object",
         "description": "Result data owned by debug.synthesis.operations.list.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "rows": {
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
       }
     },
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "limit",
+    "section": "data.rows",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "truncatedField": "data.truncated"
   },
   "pagination": "none",
   "effects": [
@@ -272,11 +295,11 @@ zotero-bridge debug synthesis operations --input '{}'
 ## 操作契约
 
 - 规范 argv 路径： `debug` `synthesis` `operations`.
+- 输出边界： `limit`; governed details: {"strategy":"limit","section":"data.rows","defaultLimit":25,"maxLimit":100,"truncatedField":"data.truncated"}.
 - 分页： `none`.
-- 类别： `debug`; 危险级别： `none`.
-- Intent 可见性： `hidden`.
+- 类别： `debug`; danger: `none`.
+- 意图可见性： `hidden`.
 - 操作别名： `debug synthesis operations`, `debug`, `synthesis`, `operations`, `input`, `JSON_OR_FILE`.
-
 ### Effects
 
 ```json

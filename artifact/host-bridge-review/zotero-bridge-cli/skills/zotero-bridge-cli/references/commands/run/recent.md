@@ -5,7 +5,7 @@
 ## 用法
 
 ```console
-zotero-bridge run recent [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--workflow <WORKFLOW>] [--backend <BACKEND>] [--state <STATE>] [--limit <LIMIT>]
+zotero-bridge run recent [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--workflow <WORKFLOW>] [--backend <BACKEND>] [--state <STATE>] [--limit <LIMIT>] [--cursor <CURSOR>]
 ```
 
 全局选项可位于叶命令之前或之后。使用 `--schema` 可在不加载 profile、也不连接 Zotero 的情况下检查原始结构化输入 schema。
@@ -49,6 +49,10 @@ zotero-bridge run recent [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profil
     "limit": {
       "type": "string",
       "description": "Maximum number of tasks"
+    },
+    "cursor": {
+      "type": "string",
+      "description": "Opaque continuation cursor"
     }
   },
   "required": [],
@@ -106,6 +110,18 @@ zotero-bridge run recent [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profil
     },
     "hasMore": {
       "type": "boolean"
+    },
+    "returned": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 0
     }
   },
   "additionalProperties": true,
@@ -149,6 +165,10 @@ zotero-bridge run recent [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profil
       "limit": {
         "type": "string",
         "description": "Maximum number of tasks"
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Opaque continuation cursor"
       }
     },
     "required": [],
@@ -222,6 +242,23 @@ zotero-bridge run recent [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profil
       "repeatable": false,
       "aliases": [],
       "defaultValues": []
+    },
+    {
+      "id": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Opaque continuation cursor",
+      "valueNames": [
+        "CURSOR"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
     }
   ],
   "argvBindings": [
@@ -264,6 +301,16 @@ zotero-bridge run recent [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profil
       "valueNames": [
         "LIMIT"
       ]
+    },
+    {
+      "property": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "CURSOR"
+      ]
     }
   ],
   "inputSchemas": {},
@@ -305,10 +352,36 @@ zotero-bridge run recent [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profil
       },
       "hasMore": {
         "type": "boolean"
+      },
+      "returned": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "total": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 0
       }
     },
     "additionalProperties": true,
     "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "items",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "cursor",
+    "continuation": [
+      "nextCursor",
+      "hasMore",
+      "returned",
+      "total",
+      "limit"
+    ]
   },
   "pagination": "cursor",
   "effects": [
@@ -350,7 +423,9 @@ zotero-bridge run recent [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profil
     "state",
     "STATE",
     "limit",
-    "LIMIT"
+    "LIMIT",
+    "cursor",
+    "CURSOR"
   ],
   "hiddenFromIntentSearch": false
 }
@@ -359,11 +434,11 @@ zotero-bridge run recent [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profil
 ## 操作契约
 
 - 规范 argv 路径： `run` `recent`.
+- 输出边界： `cursor`; governed details: {"strategy":"cursor","section":"items","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["nextCursor","hasMore","returned","total","limit"]}.
 - 分页： `cursor`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
-- 操作别名： `run recent`, `run`, `recent`, `workflow`, `WORKFLOW`, `backend`, `BACKEND`, `state`, `STATE`, `limit`, `LIMIT`.
-
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
+- 操作别名： `run recent`, `run`, `recent`, `workflow`, `WORKFLOW`, `backend`, `BACKEND`, `state`, `STATE`, `limit`, `LIMIT`, `cursor`, `CURSOR`.
 ### Effects
 
 ```json

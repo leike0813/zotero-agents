@@ -237,6 +237,9 @@ zotero-bridge mutation tag remove [--endpoint <ENDPOINT>] [--operation-id <ID>] 
     },
     "additionalProperties": false
   },
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -283,11 +286,11 @@ zotero-bridge mutation tag remove [--endpoint <ENDPOINT>] [--operation-id <ID>] 
 ## 操作契约
 
 - 规范 argv 路径： `mutation` `tag` `remove`.
+- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `write`; 危险级别： `review`.
-- Intent 可见性： `visible`.
+- 类别： `write`; danger: `review`.
+- 意图可见性： `visible`.
 - 操作别名： `mutation tag remove`, `mutation`, `tag`, `remove`, `items`, `ITEMS`, `tags`, `TAGS`.
-
 ### Effects
 
 ```json

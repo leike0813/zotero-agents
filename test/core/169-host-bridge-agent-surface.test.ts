@@ -13,6 +13,16 @@ import {
   validateHostBridgeAgentLanguage,
 } from "../../scripts/check-host-bridge-agent-language";
 import { HOST_BRIDGE_HANDLE_KINDS } from "../../src/shared/hostBridgeAgentContract";
+import { loadHostBridgeCommandContracts } from "../../scripts/host-bridge-command-contracts";
+
+function schemaHasPath(schema: Record<string, any>, pathValue: string) {
+  let current: Record<string, any> | undefined = schema;
+  for (const part of pathValue.split(".")) {
+    current = current?.properties?.[part];
+    if (!current) return false;
+  }
+  return true;
+}
 
 describe("Host Bridge agent surface contract", function () {
   this.timeout(30_000);
@@ -36,11 +46,42 @@ describe("Host Bridge agent surface contract", function () {
     );
     const validate = new Ajv({ strict: false }).compile(registrySchema);
     assert.isTrue(validate(registry), JSON.stringify(validate.errors));
+    const boundarySchema = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          root,
+          "schemas/host-bridge-cli-output-boundaries.v1.schema.json",
+        ),
+        "utf8",
+      ),
+    );
+    const boundaries = JSON.parse(
+      fs.readFileSync(
+        path.join(root, "schemas/host-bridge-cli-output-boundaries.v1.json"),
+        "utf8",
+      ),
+    );
+    const validateBoundaries = new Ajv({ strict: false }).compile(
+      boundarySchema,
+    );
+    assert.isTrue(
+      validateBoundaries(boundaries),
+      JSON.stringify(validateBoundaries.errors),
+    );
 
     const catalog = buildHostBridgeSurfaceCatalog();
     assert.deepEqual(
       Object.keys(registry.commands).sort(),
       catalog.commandInventory.map((entry) => entry.command).sort(),
+    );
+    assert.deepEqual(
+      Object.keys(boundaries.commands).sort(),
+      catalog.commandInventory.map((entry) => entry.command).sort(),
+    );
+    assert.lengthOf(Object.keys(boundaries.commands), 125);
+    assert.notInclude(
+      Object.values<any>(boundaries.commands).map((entry) => entry.strategy),
+      "none",
     );
     for (const inventory of catalog.commandInventory) {
       const contract = registry.commands[inventory.command];
@@ -90,6 +131,130 @@ describe("Host Bridge agent surface contract", function () {
     }
   });
 
+  it("keeps all 125 output boundaries executable and continuation-complete", function () {
+    const registry = loadHostBridgeCommandContracts();
+    const catalog = buildHostBridgeSurfaceCatalog();
+    const inventory = new Map(
+      catalog.commandInventory.map((entry) => [entry.command, entry]),
+    );
+    assert.lengthOf(Object.keys(registry.commands), 125);
+
+    for (const [command, contract] of Object.entries(registry.commands)) {
+      const boundary = contract.outputBoundary;
+      const commandInventory = inventory.get(command)!;
+      assert.isOk(commandInventory, command);
+      const resultProperties = contract.resultSchema.properties as
+        | Record<string, unknown>
+        | undefined;
+      if (
+        resultProperties &&
+        ["capability", "approval", "data"].every((field) =>
+          Object.prototype.hasOwnProperty.call(resultProperties, field),
+        )
+      ) {
+        assert.sameMembers(
+          Object.keys(resultProperties),
+          ["capability", "approval", "data"],
+          `${command}: capability result schema must use only the canonical envelope`,
+        );
+      }
+      if (boundary.strategy === "cursor" || boundary.strategy === "offset") {
+        const argumentIds = new Set(
+          commandInventory.arguments.map((argument) => argument.id),
+        );
+        assert.isTrue(
+          argumentIds.has(boundary.cursorInput || "") ||
+            argumentIds.has("query") ||
+            argumentIds.has("input"),
+          `${command}: missing ${boundary.cursorInput} input`,
+        );
+        assert.isAtMost(
+          boundary.defaultLimit || Number.POSITIVE_INFINITY,
+          boundary.maxLimit || 0,
+          command,
+        );
+        for (const field of boundary.continuation || []) {
+          assert.isTrue(
+            schemaHasPath(contract.resultSchema, field),
+            `${command}: missing continuation ${field}`,
+          );
+        }
+      } else if (boundary.strategy === "limit") {
+        assert.isAtMost(
+          boundary.defaultLimit || Infinity,
+          boundary.maxLimit || 0,
+        );
+        assert.isTrue(
+          schemaHasPath(contract.resultSchema, boundary.truncatedField || ""),
+          `${command}: missing truncated field`,
+        );
+      } else if (boundary.strategy === "file") {
+        assert.isTrue(
+          schemaHasPath(contract.resultSchema, boundary.fileField || ""),
+          `${command}: missing file handle`,
+        );
+      } else if (boundary.strategy === "raw") {
+        assert.strictEqual(command, "call");
+      }
+    }
+
+    for (const command of [
+      "library item notes",
+      "library annotation export",
+      "product get",
+      "synthesis artifact read",
+      "synthesis topic get-report",
+      "synthesis topic list",
+    ]) {
+      const contract = registry.commands[command];
+      const boundary = contract.outputBoundary;
+      const governedPaths = [
+        boundary.section,
+        boundary.fileField,
+        boundary.truncatedField,
+        ...(boundary.continuation || []),
+      ].filter(Boolean) as string[];
+      assert.isNotEmpty(governedPaths, command);
+      assert.isTrue(
+        governedPaths.every((field) => field.startsWith("data.")),
+        `${command}: capability output boundaries must govern the data envelope`,
+      );
+      for (const field of governedPaths) {
+        const unscopedRoot = field.split(".")[1];
+        assert.notProperty(
+          contract.resultSchema.properties,
+          unscopedRoot,
+          `${command}: stale unscoped boundary field ${unscopedRoot}`,
+        );
+      }
+    }
+
+    const highCardinalityCommands = [
+      "bridge manifest",
+      "context current",
+      "context selection get",
+      "library item notes",
+      "library item attachments",
+      "library note payloads",
+      "library annotation list",
+      "product get",
+      "product list",
+      "run get",
+      "run list",
+      "run skill events",
+      "synthesis artifact manifest",
+      "workflow queue list",
+      "workflow submission get",
+    ];
+    for (const command of highCardinalityCommands) {
+      assert.notEqual(
+        registry.commands[command].outputBoundary.strategy,
+        "fixed",
+        command,
+      );
+    }
+  });
+
   it("describes canonical commands with control and recovery metadata", function () {
     const catalog = buildHostBridgeSurfaceCatalog();
     const descriptor = buildHostBridgeAgentSurfaceDescriptor(catalog);
@@ -125,6 +290,29 @@ describe("Host Bridge agent surface contract", function () {
     const commands = new Map(
       descriptor.commands.map((entry) => [entry.command, entry]),
     );
+    assert.strictEqual(commands.size, 125);
+    assert.deepInclude(commands.get("run list")!.outputBoundary, {
+      strategy: "cursor",
+      section: "items",
+      defaultLimit: 25,
+      maxLimit: 100,
+    });
+    assert.deepInclude(
+      commands.get("synthesis topic get-report")!.outputBoundary,
+      {
+        strategy: "offset",
+        defaultLimit: 8000,
+        maxLimit: 16000,
+      },
+    );
+    assert.deepInclude(
+      commands.get("synthesis artifact read")!.outputBoundary,
+      {
+        strategy: "file",
+        fileField: "data.delivery.file",
+      },
+    );
+    assert.strictEqual(commands.get("call")!.outputBoundary.strategy, "raw");
     const submit = commands.get("workflow submit")!;
     assert.deepInclude(
       submit.arguments.find((entry) => entry.id === "max_concurrency")!,
@@ -317,16 +505,12 @@ describe("Host Bridge agent surface contract", function () {
       kind: "option",
       token: "--query",
     });
+    const topicContextData = commands.get("synthesis topic get-context")!
+      .resultSchema.properties?.data as { properties: object };
+    assert.containsAllKeys(topicContextData.properties, ["delivery"]);
     assert.containsAllKeys(
-      commands.get("synthesis topic get-context")!.resultSchema
-        .properties as object,
-      ["delivery"],
-    );
-    assert.containsAllKeys(
-      (
-        commands.get("synthesis topic get-context")!.resultSchema.properties
-          ?.delivery as { properties: object }
-      ).properties,
+      (topicContextData.properties.delivery as { properties: object })
+        .properties,
       ["mode", "bundle", "downloadCommand", "unpackHint"],
     );
     for (const command of descriptor.commands) {

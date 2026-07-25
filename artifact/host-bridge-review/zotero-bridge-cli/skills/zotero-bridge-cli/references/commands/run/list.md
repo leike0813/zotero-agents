@@ -5,7 +5,7 @@
 ## 用法
 
 ```console
-zotero-bridge run list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--workflow <WORKFLOW>] [--backend <BACKEND>] [--backend-type <BACKEND_TYPE>] [--request <REQUEST>] [--submission <SUBMISSION>] [--run <RUN>] [--state <STATE>] [--active-only]
+zotero-bridge run list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--workflow <WORKFLOW>] [--backend <BACKEND>] [--backend-type <BACKEND_TYPE>] [--request <REQUEST>] [--submission <SUBMISSION>] [--run <RUN>] [--state <STATE>] [--active-only] [--cursor <CURSOR>] [--limit <LIMIT>]
 ```
 
 全局选项可位于叶命令之前或之后。使用 `--schema` 可在不加载 profile、也不连接 Zotero 的情况下检查原始结构化输入 schema。
@@ -69,6 +69,14 @@ zotero-bridge run list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile 
     "active-only": {
       "type": "boolean",
       "description": "Only return active task runtime rows"
+    },
+    "cursor": {
+      "type": "string",
+      "description": "Opaque continuation cursor"
+    },
+    "limit": {
+      "type": "string",
+      "description": "Maximum number of tasks (1-100)"
     }
   },
   "required": [],
@@ -138,6 +146,18 @@ zotero-bridge run list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile 
     },
     "hasMore": {
       "type": "boolean"
+    },
+    "returned": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 0
     }
   },
   "additionalProperties": true,
@@ -197,6 +217,14 @@ zotero-bridge run list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile 
       "active-only": {
         "type": "boolean",
         "description": "Only return active task runtime rows"
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Opaque continuation cursor"
+      },
+      "limit": {
+        "type": "string",
+        "description": "Maximum number of tasks (1-100)"
       }
     },
     "required": [],
@@ -341,6 +369,40 @@ zotero-bridge run list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile 
       "repeatable": false,
       "aliases": [],
       "defaultValues": []
+    },
+    {
+      "id": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Opaque continuation cursor",
+      "valueNames": [
+        "CURSOR"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
+    },
+    {
+      "id": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Maximum number of tasks (1-100)",
+      "valueNames": [
+        "LIMIT"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
     }
   ],
   "argvBindings": [
@@ -423,6 +485,26 @@ zotero-bridge run list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile 
       "valueNames": [
         "ACTIVE_ONLY"
       ]
+    },
+    {
+      "property": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "property": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "LIMIT"
+      ]
     }
   ],
   "inputSchemas": {},
@@ -476,10 +558,36 @@ zotero-bridge run list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile 
       },
       "hasMore": {
         "type": "boolean"
+      },
+      "returned": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "total": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 0
       }
     },
     "additionalProperties": true,
     "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "items",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "cursor",
+    "continuation": [
+      "nextCursor",
+      "hasMore",
+      "returned",
+      "total",
+      "limit"
+    ]
   },
   "pagination": "cursor",
   "effects": [
@@ -530,7 +638,11 @@ zotero-bridge run list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile 
     "STATE",
     "active_only",
     "active-only",
-    "ACTIVE_ONLY"
+    "ACTIVE_ONLY",
+    "cursor",
+    "CURSOR",
+    "limit",
+    "LIMIT"
   ],
   "hiddenFromIntentSearch": false
 }
@@ -539,11 +651,11 @@ zotero-bridge run list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile 
 ## 操作契约
 
 - 规范 argv 路径： `run` `list`.
+- 输出边界： `cursor`; governed details: {"strategy":"cursor","section":"items","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["nextCursor","hasMore","returned","total","limit"]}.
 - 分页： `cursor`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
-- 操作别名： `run list`, `run`, `list`, `workflow`, `WORKFLOW`, `backend`, `BACKEND`, `backend_type`, `backend-type`, `BACKEND_TYPE`, `request`, `REQUEST`, `submission`, `SUBMISSION`, `RUN`, `state`, `STATE`, `active_only`, `active-only`, `ACTIVE_ONLY`.
-
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
+- 操作别名： `run list`, `run`, `list`, `workflow`, `WORKFLOW`, `backend`, `BACKEND`, `backend_type`, `backend-type`, `BACKEND_TYPE`, `request`, `REQUEST`, `submission`, `SUBMISSION`, `RUN`, `state`, `STATE`, `active_only`, `active-only`, `ACTIVE_ONLY`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
 ### Effects
 
 ```json

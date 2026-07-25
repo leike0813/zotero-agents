@@ -5,7 +5,7 @@ Read the auditable apply-back receipt for an agent run
 ## Usage
 
 ```console
-zotero-bridge workflow agent-apply-status [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] AGENT_RUN_ID <AGENT_RUN_ID>
+zotero-bridge workflow agent-apply-status [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] AGENT_RUN_ID <AGENT_RUN_ID> [--cursor <CURSOR>] [--limit <LIMIT>]
 ```
 
 The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.
@@ -24,6 +24,8 @@ The global options may appear before or after the leaf command. Use `--schema` t
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | AGENT_RUN_ID | agent_run_id | positional | yes | — | AGENT_RUN_ID | no | — | — | Agent run id returned by workflow agent-run |
+| --cursor | cursor | option | no | — | CURSOR | no | — | — | Opaque continuation cursor |
+| --limit | limit | option | no | — | LIMIT | no | — | — | Maximum number of entries (1-100) |
 
 ## Invocation schema
 
@@ -35,6 +37,14 @@ The global options may appear before or after the leaf command. Use `--schema` t
       "type": "string",
       "description": "Agent run id returned by workflow agent-run",
       "position": 1
+    },
+    "cursor": {
+      "type": "string",
+      "description": "Opaque continuation cursor"
+    },
+    "limit": {
+      "type": "string",
+      "description": "Maximum number of entries (1-100)"
     }
   },
   "required": [
@@ -107,6 +117,27 @@ This command has no structured JSON input parameter.
       "items": {
         "type": "object"
       }
+    },
+    "nextCursor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "returned": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 0
     }
   },
   "required": [
@@ -144,6 +175,14 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "type": "string",
         "description": "Agent run id returned by workflow agent-run",
         "position": 1
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Opaque continuation cursor"
+      },
+      "limit": {
+        "type": "string",
+        "description": "Maximum number of entries (1-100)"
       }
     },
     "required": [
@@ -169,6 +208,40 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "repeatable": false,
       "aliases": [],
       "defaultValues": []
+    },
+    {
+      "id": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Opaque continuation cursor",
+      "valueNames": [
+        "CURSOR"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
+    },
+    {
+      "id": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Maximum number of entries (1-100)",
+      "valueNames": [
+        "LIMIT"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
     }
   ],
   "argvBindings": [
@@ -181,6 +254,26 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "required": true,
       "valueNames": [
         "AGENT_RUN_ID"
+      ]
+    },
+    {
+      "property": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "property": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "LIMIT"
       ]
     }
   ],
@@ -236,6 +329,27 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "items": {
           "type": "object"
         }
+      },
+      "nextCursor": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "hasMore": {
+        "type": "boolean"
+      },
+      "returned": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "total": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 0
       }
     },
     "required": [
@@ -246,7 +360,21 @@ This closed descriptor is the machine-readable command contract returned by `sur
     ],
     "additionalProperties": false
   },
-  "pagination": "none",
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "results",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "cursor",
+    "continuation": [
+      "nextCursor",
+      "hasMore",
+      "returned",
+      "total",
+      "limit"
+    ]
+  },
+  "pagination": "cursor",
   "effects": [
     {
       "kind": "none",
@@ -295,7 +423,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "workflow",
     "agent-apply-status",
     "agent_run_id",
-    "AGENT_RUN_ID"
+    "AGENT_RUN_ID",
+    "cursor",
+    "CURSOR",
+    "limit",
+    "LIMIT"
   ],
   "hiddenFromIntentSearch": false
 }
@@ -304,10 +436,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `workflow` `agent-apply-status`.
-- Pagination: `none`.
+- Output boundary: `cursor`; governed details: {"strategy":"cursor","section":"results","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["nextCursor","hasMore","returned","total","limit"]}.
+- Pagination: `cursor`.
 - Category: `read`; danger: `none`.
 - Intent visibility: `visible`.
-- Operational aliases: `workflow agent-apply-status`, `workflow`, `agent-apply-status`, `agent_run_id`, `AGENT_RUN_ID`.
+- Operational aliases: `workflow agent-apply-status`, `workflow`, `agent-apply-status`, `agent_run_id`, `AGENT_RUN_ID`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
 
 ### Effects
 

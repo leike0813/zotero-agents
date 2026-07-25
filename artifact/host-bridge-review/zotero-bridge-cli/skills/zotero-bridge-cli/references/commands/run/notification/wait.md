@@ -564,6 +564,18 @@ zotero-bridge run notification wait [--endpoint <ENDPOINT>] [--operation-id <ID>
     ],
     "additionalProperties": false
   },
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "notifications",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "since_event_id",
+    "continuation": [
+      "nextSinceEventId",
+      "hasMore",
+      "returned"
+    ]
+  },
   "pagination": "cursor",
   "effects": [
     {
@@ -631,11 +643,11 @@ zotero-bridge run notification wait [--endpoint <ENDPOINT>] [--operation-id <ID>
 ## 操作契约
 
 - 规范 argv 路径： `run` `notification` `wait`.
+- 输出边界： `cursor`; governed details: {"strategy":"cursor","section":"notifications","defaultLimit":25,"maxLimit":100,"cursorInput":"since_event_id","continuation":["nextSinceEventId","hasMore","returned"]}.
 - 分页： `cursor`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
 - 操作别名： `run notification wait`, `run`, `notification`, `wait`, `workflow_run_id`, `workflow-run-id`, `WORKFLOW_RUN_ID`, `skill_run_id`, `skill-run-id`, `SKILL_RUN_ID`, `event_type`, `type`, `EVENT_TYPE`, `since_event_id`, `since-event-id`, `SINCE_EVENT_ID`, `client_id`, `client-id`, `CLIENT_ID`, `acknowledged`, `ACKNOWLEDGED`, `limit`, `LIMIT`, `timeout_ms`, `timeout-ms`, `TIMEOUT_MS`, `interval_ms`, `interval-ms`, `INTERVAL_MS`.
-
 ### Effects
 
 ```json

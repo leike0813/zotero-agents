@@ -245,20 +245,45 @@ zotero-bridge synthesis index library get [--endpoint <ENDPOINT>] [--operation-i
       "type": "object",
       "description": "Result data owned by library_index.get.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-    },
-    "entries": {
-      "type": "array"
-    },
-    "nextCursor": {
-      "type": [
-        "string",
-        "number",
-        "null"
-      ]
-    },
-    "hasMore": {
-      "type": "boolean"
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "papers": {
+          "type": "array"
+        },
+        "pagination": {
+          "type": "object",
+          "properties": {
+            "papers": {
+              "type": "object",
+              "properties": {
+                "nextCursor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "hasMore": {
+                  "type": "boolean"
+                },
+                "returned": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "total": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "additionalProperties": true
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -544,23 +569,62 @@ zotero-bridge synthesis index library get --query '{}'
         "type": "object",
         "description": "Result data owned by library_index.get.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-      },
-      "entries": {
-        "type": "array"
-      },
-      "nextCursor": {
-        "type": [
-          "string",
-          "number",
-          "null"
-        ]
-      },
-      "hasMore": {
-        "type": "boolean"
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "papers": {
+            "type": "array"
+          },
+          "pagination": {
+            "type": "object",
+            "properties": {
+              "papers": {
+                "type": "object",
+                "properties": {
+                  "nextCursor": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "hasMore": {
+                    "type": "boolean"
+                  },
+                  "returned": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "total": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": true
+          }
+        }
       }
     },
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "data.papers",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "cursor",
+    "continuation": [
+      "data.pagination.papers.nextCursor",
+      "data.pagination.papers.hasMore",
+      "data.pagination.papers.returned",
+      "data.pagination.papers.total",
+      "data.pagination.papers.limit"
+    ]
   },
   "pagination": "cursor",
   "effects": [
@@ -607,11 +671,11 @@ zotero-bridge synthesis index library get --query '{}'
 ## 操作契约
 
 - 规范 argv 路径： `synthesis` `index` `library` `get`.
+- 输出边界： `cursor`; governed details: {"strategy":"cursor","section":"data.papers","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["data.pagination.papers.nextCursor","data.pagination.papers.hasMore","data.pagination.papers.returned","data.pagination.papers.total","data.pagination.papers.limit"]}.
 - 分页： `cursor`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
 - 操作别名： `synthesis index library get`, `synthesis`, `index`, `library`, `get`, `query`, `JSON_OR_FILE`.
-
 ### Effects
 
 ```json

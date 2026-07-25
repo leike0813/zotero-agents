@@ -510,6 +510,7 @@ export type SynthesisRankedExternalReferencesResult = {
 
 export type SynthesisAttentionQueueResult = {
   ok: boolean;
+  truncated: boolean;
   items: Array<{
     severity: "info" | "warning" | "error";
     target: string;
@@ -858,10 +859,10 @@ const SYNTHESIS_REGISTRY_PAGE_LIMIT_DEFAULT = 100;
 const SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX = 250;
 const CITATION_GRAPH_OVERVIEW_PAGE_LIMIT_DEFAULT = 100;
 const CITATION_GRAPH_OVERVIEW_PAGE_LIMIT_MAX = 250;
-const CITATION_GRAPH_CLUSTER_NODE_LIMIT_DEFAULT = 250;
-const CITATION_GRAPH_CLUSTER_NODE_LIMIT_MAX = 1000;
-const CITATION_GRAPH_CLUSTER_EDGE_LIMIT_DEFAULT = 500;
-const CITATION_GRAPH_CLUSTER_EDGE_LIMIT_MAX = 2000;
+const CITATION_GRAPH_CLUSTER_NODE_LIMIT_DEFAULT = 25;
+const CITATION_GRAPH_CLUSTER_NODE_LIMIT_MAX = 100;
+const CITATION_GRAPH_CLUSTER_EDGE_LIMIT_DEFAULT = 50;
+const CITATION_GRAPH_CLUSTER_EDGE_LIMIT_MAX = 200;
 const SYNTHESIS_INDEX_REVIEW_PROPOSAL_LIMIT = 20;
 const SYNTHESIS_REVIEW_CENTER_PAGE_LIMIT = 50;
 const SYNTHESIS_RUNNING_OPERATION_STALE_MS = 30 * 60 * 1000;
@@ -3109,17 +3110,17 @@ function normalizeGraphSliceArgs(args: Record<string, unknown>) {
   });
   const maxNodes = clampPositiveInteger({
     value: args.maxNodes,
-    fallback: 80,
+    fallback: 25,
     min: 1,
-    max: 200,
+    max: 100,
     label: "maxNodes",
     warnings,
   });
   const maxEdges = clampPositiveInteger({
     value: args.maxEdges,
-    fallback: 160,
+    fallback: 50,
     min: 0,
-    max: 500,
+    max: 200,
     label: "maxEdges",
     warnings,
   });
@@ -3151,10 +3152,10 @@ function normalizeGraphSliceArgs(args: Record<string, unknown>) {
   };
 }
 
-const CITATION_LAYOUT_DEFAULT_MAX_NODES = 200;
-const CITATION_LAYOUT_DEFAULT_MAX_EDGES = 500;
-const CITATION_LAYOUT_HARD_MAX_NODES = 5000;
-const CITATION_LAYOUT_HARD_MAX_EDGES = 20000;
+const CITATION_LAYOUT_DEFAULT_MAX_NODES = 25;
+const CITATION_LAYOUT_DEFAULT_MAX_EDGES = 50;
+const CITATION_LAYOUT_HARD_MAX_NODES = 100;
+const CITATION_LAYOUT_HARD_MAX_EDGES = 200;
 
 function normalizeCitationGraphLayoutArgs(args: Record<string, unknown>) {
   const warnings: string[] = [];
@@ -8593,6 +8594,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return {
       ok: true,
       items: returned,
+      truncated: items.length > returned.length,
       diagnostics: {
         returned_count: returned.length,
         limits: {
@@ -18058,11 +18060,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     return { ok: true, status: "open", hint, diagnostics: [] };
   }
 
-  function debugLimit(input: Record<string, unknown> = {}, fallback = 100) {
+  function debugLimit(input: Record<string, unknown> = {}, fallback = 25) {
     return Math.max(
       1,
       Math.min(
-        1000,
+        100,
         Math.floor(
           Number(input.limit ?? input.maxRows ?? fallback) || fallback,
         ),
@@ -19231,7 +19233,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
     const page = synthesisRepository.paginate({
       cursor: args.cursor,
       limit: args.limit,
-      defaultLimit: 100,
+      defaultLimit: SYNTHESIS_REGISTRY_PAGE_LIMIT_DEFAULT,
       maxLimit: SYNTHESIS_REGISTRY_PAGE_LIMIT_MAX,
     });
     const pageRows = allRows.slice(page.cursor, page.cursor + page.limit);
@@ -20735,7 +20737,7 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   }
 
   async function queryConceptKb(args: Record<string, unknown> = {}) {
-    const labels = Array.from(
+    const allLabels = Array.from(
       new Set(
         [
           ...normalizeArray(args.concept_candidate_labels),
@@ -20747,7 +20749,9 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
           .map(cleanString)
           .filter(Boolean),
       ),
-    ).slice(0, parsePositiveInteger(args.limit, 50, 100));
+    );
+    const limit = parsePositiveInteger(args.limit, 25, 100);
+    const labels = allLabels.slice(0, limit);
     const snapshot = await conceptKb.loadConceptKb().catch((error) => ({
       concepts: [],
       senses: [],
@@ -20808,6 +20812,12 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
       ok: true,
       labels,
       matches: results,
+      truncated: allLabels.length > labels.length,
+      limits: {
+        limit,
+        maxLimit: 100,
+        total: allLabels.length,
+      },
       diagnostics: [
         ...(((snapshot as Record<string, unknown>).diagnostics as unknown[]) ||
           []),

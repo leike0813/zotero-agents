@@ -5,7 +5,7 @@ Read one active Zotero-managed workflow submission
 ## Usage
 
 ```console
-zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] SUBMISSION_ID <SUBMISSION_ID>
+zotero-bridge workflow submission get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] SUBMISSION_ID <SUBMISSION_ID> [--cursor <CURSOR>] [--limit <LIMIT>]
 ```
 
 The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.
@@ -24,6 +24,8 @@ The global options may appear before or after the leaf command. Use `--schema` t
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | SUBMISSION_ID | submission_id | positional | yes | — | SUBMISSION_ID | no | — | — | Opaque submission id returned by workflow submit |
+| --cursor | cursor | option | no | — | CURSOR | no | — | — | Opaque continuation cursor for submission units |
+| --limit | limit | option | no | — | LIMIT | no | — | — | Maximum number of submission units (1-100) |
 
 ## Invocation schema
 
@@ -35,6 +37,14 @@ The global options may appear before or after the leaf command. Use `--schema` t
       "type": "string",
       "description": "Opaque submission id returned by workflow submit",
       "position": 1
+    },
+    "cursor": {
+      "type": "string",
+      "description": "Opaque continuation cursor for submission units"
+    },
+    "limit": {
+      "type": "string",
+      "description": "Maximum number of submission units (1-100)"
     }
   },
   "required": [
@@ -108,6 +118,23 @@ This command has no structured JSON input parameter.
       "items": {
         "type": "object"
       }
+    },
+    "nextCursor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "returned": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 0
     }
   },
   "required": [
@@ -151,6 +178,14 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "type": "string",
         "description": "Opaque submission id returned by workflow submit",
         "position": 1
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Opaque continuation cursor for submission units"
+      },
+      "limit": {
+        "type": "string",
+        "description": "Maximum number of submission units (1-100)"
       }
     },
     "required": [
@@ -176,6 +211,40 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "repeatable": false,
       "aliases": [],
       "defaultValues": []
+    },
+    {
+      "id": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Opaque continuation cursor for submission units",
+      "valueNames": [
+        "CURSOR"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
+    },
+    {
+      "id": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Maximum number of submission units (1-100)",
+      "valueNames": [
+        "LIMIT"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
     }
   ],
   "argvBindings": [
@@ -188,6 +257,26 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "required": true,
       "valueNames": [
         "SUBMISSION_ID"
+      ]
+    },
+    {
+      "property": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "property": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "LIMIT"
       ]
     }
   ],
@@ -244,6 +333,23 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "items": {
           "type": "object"
         }
+      },
+      "nextCursor": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "hasMore": {
+        "type": "boolean"
+      },
+      "returned": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 0
       }
     },
     "required": [
@@ -259,7 +365,21 @@ This closed descriptor is the machine-readable command contract returned by `sur
     ],
     "additionalProperties": false
   },
-  "pagination": "none",
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "units",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "cursor",
+    "continuation": [
+      "nextCursor",
+      "hasMore",
+      "returned",
+      "total",
+      "limit"
+    ]
+  },
+  "pagination": "cursor",
   "effects": [
     {
       "kind": "none",
@@ -302,7 +422,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "submission",
     "get",
     "submission_id",
-    "SUBMISSION_ID"
+    "SUBMISSION_ID",
+    "cursor",
+    "CURSOR",
+    "limit",
+    "LIMIT"
   ],
   "hiddenFromIntentSearch": false
 }
@@ -311,10 +435,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `workflow` `submission` `get`.
-- Pagination: `none`.
+- Output boundary: `cursor`; governed details: {"strategy":"cursor","section":"units","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["nextCursor","hasMore","returned","total","limit"]}.
+- Pagination: `cursor`.
 - Category: `read`; danger: `none`.
 - Intent visibility: `visible`.
-- Operational aliases: `workflow submission get`, `workflow`, `submission`, `get`, `submission_id`, `SUBMISSION_ID`.
+- Operational aliases: `workflow submission get`, `workflow`, `submission`, `get`, `submission_id`, `SUBMISSION_ID`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
 
 ### Effects
 

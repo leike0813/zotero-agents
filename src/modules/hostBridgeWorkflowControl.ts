@@ -2824,13 +2824,11 @@ export function listHostBridgeWorkflowRuns(
     runs.push(getHostBridgeWorkflowRunStatus(runId));
   }
   return {
-    runs: runs
-      .sort((left, right) =>
-        normalizeString(right.updatedAt).localeCompare(
-          normalizeString(left.updatedAt),
-        ),
-      )
-      .slice(0, historyLimit(filters.limit)),
+    runs: runs.sort((left, right) =>
+      normalizeString(right.updatedAt).localeCompare(
+        normalizeString(left.updatedAt),
+      ),
+    ),
   };
 }
 
@@ -2925,9 +2923,9 @@ export function listHostBridgeRecentSkillRuns(
     byId.set(skillRun.skillRunId, skillRun);
   }
   return {
-    skillRuns: Array.from(byId.values())
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-      .slice(0, historyLimit(filters.limit)),
+    skillRuns: Array.from(byId.values()).sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt),
+    ),
   };
 }
 

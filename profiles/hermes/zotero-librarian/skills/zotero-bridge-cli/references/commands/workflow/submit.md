@@ -251,20 +251,14 @@ Required: `false`.
     "submissionId": {
       "type": "string"
     },
-    "jobIds": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
     "totalJobs": {
       "type": "integer"
     },
-    "tasks": {
-      "type": "array",
-      "items": {
-        "type": "object"
-      }
+    "runUrl": {
+      "type": "string"
+    },
+    "tasksUrl": {
+      "type": "string"
     },
     "totalUnits": {
       "type": "integer"
@@ -300,9 +294,9 @@ Required: `false`.
       },
       "required": [
         "workflowRunId",
-        "jobIds",
         "totalJobs",
-        "tasks"
+        "runUrl",
+        "tasksUrl"
       ]
     },
     {
@@ -788,20 +782,14 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "submissionId": {
         "type": "string"
       },
-      "jobIds": {
-        "type": "array",
-        "items": {
-          "type": "string"
-        }
-      },
       "totalJobs": {
         "type": "integer"
       },
-      "tasks": {
-        "type": "array",
-        "items": {
-          "type": "object"
-        }
+      "runUrl": {
+        "type": "string"
+      },
+      "tasksUrl": {
+        "type": "string"
       },
       "totalUnits": {
         "type": "integer"
@@ -837,9 +825,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
         },
         "required": [
           "workflowRunId",
-          "jobIds",
           "totalJobs",
-          "tasks"
+          "runUrl",
+          "tasksUrl"
         ]
       },
       {
@@ -859,6 +847,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
       }
     ],
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "fixed"
   },
   "pagination": "none",
   "effects": [
@@ -946,6 +937,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `workflow` `submit`.
+- Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `write`; danger: `review`.
 - Intent visibility: `visible`.

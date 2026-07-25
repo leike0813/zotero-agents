@@ -105,76 +105,78 @@ This command has no structured JSON input parameter.
     "data": {
       "type": "object",
       "description": "Result data owned by workflow_products.export.",
-      "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-    },
-    "fileId": {
-      "type": "string"
-    },
-    "file": {
-      "type": "object",
       "properties": {
         "fileId": {
           "type": "string"
         },
-        "path": {
-          "type": "string"
-        },
-        "checksum": {
-          "type": "string"
-        },
-        "bytes": {
-          "type": "integer"
-        }
-      },
-      "additionalProperties": true
-    },
-    "delivery": {
-      "type": "object",
-      "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
-      "properties": {
-        "mode": {
-          "enum": [
-            "local",
-            "bridge-download",
-            "bundle"
-          ]
-        },
-        "path": {
-          "type": "string"
-        },
-        "files": {
-          "type": "array",
-          "items": {
-            "type": "object"
-          }
-        },
-        "bundle": {
+        "file": {
           "type": "object",
           "properties": {
             "fileId": {
               "type": "string"
             },
-            "displayName": {
+            "path": {
               "type": "string"
             },
-            "contentType": {
+            "checksum": {
               "type": "string"
             },
-            "size": {
+            "bytes": {
               "type": "integer"
             }
           },
           "additionalProperties": true
         },
-        "downloadCommand": {
-          "type": "string"
-        },
-        "unpackHint": {
-          "type": "string"
+        "delivery": {
+          "type": "object",
+          "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
+          "properties": {
+            "mode": {
+              "enum": [
+                "local",
+                "bridge-download",
+                "bundle"
+              ]
+            },
+            "path": {
+              "type": "string"
+            },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "bundle": {
+              "type": "object",
+              "properties": {
+                "fileId": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": true
+            },
+            "downloadCommand": {
+              "type": "string"
+            },
+            "unpackHint": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
         }
       },
-      "additionalProperties": false
+      "additionalProperties": true,
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
     }
   },
   "additionalProperties": false
@@ -379,81 +381,86 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "data": {
         "type": "object",
         "description": "Result data owned by workflow_products.export.",
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-      },
-      "fileId": {
-        "type": "string"
-      },
-      "file": {
-        "type": "object",
         "properties": {
           "fileId": {
             "type": "string"
           },
-          "path": {
-            "type": "string"
-          },
-          "checksum": {
-            "type": "string"
-          },
-          "bytes": {
-            "type": "integer"
-          }
-        },
-        "additionalProperties": true
-      },
-      "delivery": {
-        "type": "object",
-        "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
-        "properties": {
-          "mode": {
-            "enum": [
-              "local",
-              "bridge-download",
-              "bundle"
-            ]
-          },
-          "path": {
-            "type": "string"
-          },
-          "files": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
-          },
-          "bundle": {
+          "file": {
             "type": "object",
             "properties": {
               "fileId": {
                 "type": "string"
               },
-              "displayName": {
+              "path": {
                 "type": "string"
               },
-              "contentType": {
+              "checksum": {
                 "type": "string"
               },
-              "size": {
+              "bytes": {
                 "type": "integer"
               }
             },
             "additionalProperties": true
           },
-          "downloadCommand": {
-            "type": "string"
-          },
-          "unpackHint": {
-            "type": "string"
+          "delivery": {
+            "type": "object",
+            "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
+            "properties": {
+              "mode": {
+                "enum": [
+                  "local",
+                  "bridge-download",
+                  "bundle"
+                ]
+              },
+              "path": {
+                "type": "string"
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "bundle": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": true
+              },
+              "downloadCommand": {
+                "type": "string"
+              },
+              "unpackHint": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
           }
         },
-        "additionalProperties": false
+        "additionalProperties": true,
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
       }
     },
     "additionalProperties": false
   },
-  "pagination": "file",
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
+  "pagination": "none",
   "effects": [
     {
       "kind": "none",
@@ -518,7 +525,8 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `product` `download`.
-- Pagination: `file`.
+- Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
+- Pagination: `none`.
 - Category: `read`; danger: `none`.
 - Intent visibility: `visible`.
 - Operational aliases: `product download`, `product`, `download`, `product_id`, `PRODUCT_ID`, `asset`, `ASSET`, `output_dir`, `output-dir`, `DIR`, `force`, `FORCE`.

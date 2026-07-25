@@ -41,7 +41,20 @@ async function collectWorkflowJsonFiles(rootDir: string): Promise<string[]> {
   return files;
 }
 
+let pluginSkillRegistryPromise:
+  | Promise<Awaited<ReturnType<typeof scanPluginSkillRegistry>>>
+  | undefined;
+
+function getPluginSkillRegistry() {
+  pluginSkillRegistryPromise ||= scanPluginSkillRegistry({
+    cwd: process.cwd(),
+  });
+  return pluginSkillRegistryPromise;
+}
+
 describe("Synthesize topic workflow contract", function () {
+  this.timeout(10_000);
+
   it("does not ship built-in workflow manifests with execution.supportedBackends", async function () {
     const workflowFiles = await collectWorkflowJsonFiles("workflows_builtin");
     assert.isAtLeast(workflowFiles.length, 1);
@@ -428,7 +441,7 @@ describe("Synthesize topic workflow contract", function () {
   });
 
   it("registers split topic synthesis skills with output schemas", async function () {
-    const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
+    const registry = await getPluginSkillRegistry();
     const expected = [
       "create-topic-synthesis-prepare",
       "update-topic-synthesis-prepare",
@@ -451,7 +464,7 @@ describe("Synthesize topic workflow contract", function () {
   });
 
   it("accepts canceled create-topic-synthesis prepare output without requiring a markdown artifact", async function () {
-    const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
+    const registry = await getPluginSkillRegistry();
     const entry = registry.entriesById["create-topic-synthesis-prepare"];
 
     assert.isOk(entry);
@@ -469,7 +482,7 @@ describe("Synthesize topic workflow contract", function () {
   });
 
   it("validates ACP skill output without relying on global console", async function () {
-    const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
+    const registry = await getPluginSkillRegistry();
     const entry = registry.entriesById["topic-synthesis-finalize"];
     const originalConsole = (globalThis as { console?: Console }).console;
 
@@ -536,7 +549,7 @@ describe("Synthesize topic workflow contract", function () {
     assert.include(coreSchema.required, "future_directions");
     assert.include(summarySchema.required, "summary_brief");
 
-    const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
+    const registry = await getPluginSkillRegistry();
     const manifest = await buildAcpSkillResourceManifest(
       registry.entriesById["topic-synthesis-finalize"],
     );
@@ -733,7 +746,7 @@ describe("Synthesize topic workflow contract", function () {
   });
 
   it("rejects ACP skill output that embeds markdown in final JSON", async function () {
-    const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
+    const registry = await getPluginSkillRegistry();
     const entry = registry.entriesById["topic-synthesis-finalize"];
     const validation = await validateAcpSkillFinalPayload({
       payload: {
@@ -756,7 +769,7 @@ describe("Synthesize topic workflow contract", function () {
   });
 
   it("rejects new create skill output that includes base_hashes", async function () {
-    const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
+    const registry = await getPluginSkillRegistry();
     const entry = registry.entriesById["topic-synthesis-finalize"];
     const validation = await validateAcpSkillFinalPayload({
       payload: {
@@ -941,11 +954,13 @@ function v2PatchBundle(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Synthesize topic workflow v2 structured contract", function () {
+  this.timeout(10_000);
+
   it("declares separate create and update topic synthesis workflows backed by split skills", async function () {
     const loaded = await loadWorkflowManifests("workflows_builtin", {
       workflowSourceKind: "builtin",
     });
-    const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
+    const registry = await getPluginSkillRegistry();
     const workflowIds = loaded.workflows.map((entry) => entry.manifest.id);
 
     assert.include(workflowIds, "create-topic-synthesis");

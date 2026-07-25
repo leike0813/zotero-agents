@@ -5,7 +5,7 @@
 ## 用法
 
 ```console
-zotero-bridge workflow queue list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--backend-type <BACKEND_TYPE>] [--backend <BACKEND>]
+zotero-bridge workflow queue list [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--backend-type <BACKEND_TYPE>] [--backend <BACKEND>] [--cursor <CURSOR>] [--limit <LIMIT>]
 ```
 
 全局选项可位于叶命令之前或之后。使用 `--schema` 可在不加载 profile、也不连接 Zotero 的情况下检查原始结构化输入 schema。
@@ -39,6 +39,14 @@ zotero-bridge workflow queue list [--endpoint <ENDPOINT>] [--operation-id <ID>] 
     "backend": {
       "type": "string",
       "description": "Filter by backend id"
+    },
+    "cursor": {
+      "type": "string",
+      "description": "Opaque continuation cursor"
+    },
+    "limit": {
+      "type": "string",
+      "description": "Maximum number of queue units (1-100)"
     }
   },
   "required": [],
@@ -121,6 +129,27 @@ zotero-bridge workflow queue list [--endpoint <ENDPOINT>] [--operation-id <ID>] 
         ],
         "additionalProperties": true
       }
+    },
+    "nextCursor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "returned": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 0
     }
   },
   "required": [
@@ -159,6 +188,14 @@ zotero-bridge workflow queue list [--endpoint <ENDPOINT>] [--operation-id <ID>] 
       "backend": {
         "type": "string",
         "description": "Filter by backend id"
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Opaque continuation cursor"
+      },
+      "limit": {
+        "type": "string",
+        "description": "Maximum number of queue units (1-100)"
       }
     },
     "required": [],
@@ -198,6 +235,40 @@ zotero-bridge workflow queue list [--endpoint <ENDPOINT>] [--operation-id <ID>] 
       "repeatable": false,
       "aliases": [],
       "defaultValues": []
+    },
+    {
+      "id": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Opaque continuation cursor",
+      "valueNames": [
+        "CURSOR"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
+    },
+    {
+      "id": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Maximum number of queue units (1-100)",
+      "valueNames": [
+        "LIMIT"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
     }
   ],
   "argvBindings": [
@@ -219,6 +290,26 @@ zotero-bridge workflow queue list [--endpoint <ENDPOINT>] [--operation-id <ID>] 
       "required": false,
       "valueNames": [
         "BACKEND"
+      ]
+    },
+    {
+      "property": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "property": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "LIMIT"
       ]
     }
   ],
@@ -286,6 +377,27 @@ zotero-bridge workflow queue list [--endpoint <ENDPOINT>] [--operation-id <ID>] 
           ],
           "additionalProperties": true
         }
+      },
+      "nextCursor": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "hasMore": {
+        "type": "boolean"
+      },
+      "returned": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "total": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 0
       }
     },
     "required": [
@@ -293,7 +405,21 @@ zotero-bridge workflow queue list [--endpoint <ENDPOINT>] [--operation-id <ID>] 
     ],
     "additionalProperties": false
   },
-  "pagination": "none",
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "units",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "cursor",
+    "continuation": [
+      "nextCursor",
+      "hasMore",
+      "returned",
+      "total",
+      "limit"
+    ]
+  },
+  "pagination": "cursor",
   "effects": [
     {
       "kind": "none",
@@ -346,7 +472,11 @@ zotero-bridge workflow queue list [--endpoint <ENDPOINT>] [--operation-id <ID>] 
     "backend-type",
     "BACKEND_TYPE",
     "backend",
-    "BACKEND"
+    "BACKEND",
+    "cursor",
+    "CURSOR",
+    "limit",
+    "LIMIT"
   ],
   "hiddenFromIntentSearch": false
 }
@@ -355,11 +485,11 @@ zotero-bridge workflow queue list [--endpoint <ENDPOINT>] [--operation-id <ID>] 
 ## 操作契约
 
 - 规范 argv 路径： `workflow` `queue` `list`.
-- 分页： `none`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
-- 操作别名： `workflow queue list`, `workflow`, `queue`, `list`, `backend_type`, `backend-type`, `BACKEND_TYPE`, `backend`, `BACKEND`.
-
+- 输出边界： `cursor`; governed details: {"strategy":"cursor","section":"units","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["nextCursor","hasMore","returned","total","limit"]}.
+- 分页： `cursor`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
+- 操作别名： `workflow queue list`, `workflow`, `queue`, `list`, `backend_type`, `backend-type`, `BACKEND_TYPE`, `backend`, `BACKEND`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
 ### Effects
 
 ```json

@@ -5,7 +5,7 @@
 ## 用法
 
 ```console
-zotero-bridge product get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] PRODUCT_ID <PRODUCT_ID>
+zotero-bridge product get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] PRODUCT_ID <PRODUCT_ID> [--cursor <CURSOR>] [--limit <LIMIT>]
 ```
 
 全局选项可位于叶命令之前或之后。使用 `--schema` 可在不加载 profile、也不连接 Zotero 的情况下检查原始结构化输入 schema。
@@ -35,6 +35,14 @@ zotero-bridge product get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
       "type": "string",
       "description": "Dashboard Product id",
       "position": 1
+    },
+    "cursor": {
+      "type": "string",
+      "description": "Opaque continuation cursor"
+    },
+    "limit": {
+      "type": "string",
+      "description": "Maximum number of entries (1-100)"
     }
   },
   "required": [
@@ -81,10 +89,51 @@ zotero-bridge product get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
       "type": "object",
       "description": "Result data owned by workflow_products.get.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-    },
-    "productId": {
-      "type": "string"
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "product": {
+          "type": "object",
+          "properties": {
+            "assets": {
+              "type": "array"
+            }
+          },
+          "additionalProperties": true
+        },
+        "pagination": {
+          "type": "object",
+          "properties": {
+            "assets": {
+              "type": "object",
+              "properties": {
+                "nextCursor": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "hasMore": {
+                  "type": "boolean"
+                },
+                "returned": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "total": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "limit": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "additionalProperties": true
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -116,6 +165,14 @@ zotero-bridge product get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
         "type": "string",
         "description": "Dashboard Product id",
         "position": 1
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Opaque continuation cursor"
+      },
+      "limit": {
+        "type": "string",
+        "description": "Maximum number of entries (1-100)"
       }
     },
     "required": [
@@ -141,6 +198,40 @@ zotero-bridge product get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
       "repeatable": false,
       "aliases": [],
       "defaultValues": []
+    },
+    {
+      "id": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Opaque continuation cursor",
+      "valueNames": [
+        "CURSOR"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
+    },
+    {
+      "id": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Maximum number of entries (1-100)",
+      "valueNames": [
+        "LIMIT"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
     }
   ],
   "argvBindings": [
@@ -153,6 +244,26 @@ zotero-bridge product get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
       "required": true,
       "valueNames": [
         "PRODUCT_ID"
+      ]
+    },
+    {
+      "property": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "property": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "LIMIT"
       ]
     }
   ],
@@ -182,15 +293,70 @@ zotero-bridge product get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
         "type": "object",
         "description": "Result data owned by workflow_products.get.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-      },
-      "productId": {
-        "type": "string"
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "product": {
+            "type": "object",
+            "properties": {
+              "assets": {
+                "type": "array"
+              }
+            },
+            "additionalProperties": true
+          },
+          "pagination": {
+            "type": "object",
+            "properties": {
+              "assets": {
+                "type": "object",
+                "properties": {
+                  "nextCursor": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "hasMore": {
+                    "type": "boolean"
+                  },
+                  "returned": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "total": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": true
+          }
+        }
       }
     },
     "additionalProperties": false
   },
-  "pagination": "none",
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "data.product.assets",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "cursor",
+    "continuation": [
+      "data.pagination.assets.nextCursor",
+      "data.pagination.assets.hasMore",
+      "data.pagination.assets.returned",
+      "data.pagination.assets.total",
+      "data.pagination.assets.limit"
+    ]
+  },
+  "pagination": "cursor",
   "effects": [
     {
       "kind": "none",
@@ -239,7 +405,11 @@ zotero-bridge product get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
     "product",
     "get",
     "product_id",
-    "PRODUCT_ID"
+    "PRODUCT_ID",
+    "cursor",
+    "CURSOR",
+    "limit",
+    "LIMIT"
   ],
   "hiddenFromIntentSearch": false
 }
@@ -248,11 +418,11 @@ zotero-bridge product get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
 ## 操作契约
 
 - 规范 argv 路径： `product` `get`.
-- 分页： `none`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
-- 操作别名： `product get`, `product`, `get`, `product_id`, `PRODUCT_ID`.
-
+- 输出边界： `cursor`; governed details: {"strategy":"cursor","section":"data.product.assets","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["data.pagination.assets.nextCursor","data.pagination.assets.hasMore","data.pagination.assets.returned","data.pagination.assets.total","data.pagination.assets.limit"]}.
+- 分页： `cursor`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
+- 操作别名： `product get`, `product`, `get`, `product_id`, `PRODUCT_ID`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
 ### Effects
 
 ```json

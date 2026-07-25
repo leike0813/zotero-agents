@@ -84,7 +84,8 @@ native Zotero queue 是 pending workflow units 与有界 admission 的唯一所�
 - 执行模式：`["auto"]`.
 - Selection：`{"acceptsNoSelection":false,"inputs":{"member":{"kind":"selection"},"grouping":{"mode":"all"}},"validation":{"require":{"selection":{"allowMixed":false,"counts":{"parents":{"min":1},"attachments":{"exact":0},"notes":{"exact":0},"children":{"exact":0}}}},"select":{"policy":"selection"},"filters":[]}}`.
 - 必需 workflow option：`[]`.
-- Workflow option：未声明。
+- Workflow option：
+  - `sourceOnly`：`{"type":"boolean","title":"仅导出原文","description":"导出扁平结构的原文包，不包含笔记和分析工件，无法被「导入文献包」工作流导入。","default":false}`。
 - 结果证据：`{"artifacts":[],"applyBack":true}`.
 - 调用输入：使用 workflow id `export-literature-bundle`、经过校验的 `selection` members，并按 `all` 分组、声明的 workflow options，以及 provider 要求时另行校验的兼容 provider profile。
 

@@ -60,6 +60,12 @@ This command has no structured JSON input parameter.
       "description": "Response object returned by GET /bridge/v1/diagnostics/backends.",
       "additionalProperties": true,
       "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+    },
+    "items": {
+      "type": "array"
+    },
+    "truncated": {
+      "type": "boolean"
     }
   },
   "additionalProperties": true,
@@ -109,10 +115,23 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "description": "Response object returned by GET /bridge/v1/diagnostics/backends.",
         "additionalProperties": true,
         "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+      },
+      "items": {
+        "type": "array"
+      },
+      "truncated": {
+        "type": "boolean"
       }
     },
     "additionalProperties": true,
     "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "outputBoundary": {
+    "strategy": "limit",
+    "section": "items",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "truncatedField": "truncated"
   },
   "pagination": "none",
   "effects": [
@@ -156,6 +175,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `bridge` `backend` `list`.
+- Output boundary: `limit`; governed details: {"strategy":"limit","section":"items","defaultLimit":25,"maxLimit":100,"truncatedField":"truncated"}.
 - Pagination: `none`.
 - Category: `read`; danger: `none`.
 - Intent visibility: `visible`.

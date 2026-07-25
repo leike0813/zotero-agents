@@ -2,7 +2,7 @@
   "schema": "host-bridge.agent-surface.v5",
   "protocol": "host-bridge.v1",
   "cliSchema": "zotero-bridge.cli.v4",
-  "commandCatalogChecksum": "63f84eace56cc9405c85435ed4f36f9259453b4bfc29eea8a877828a5af5f739",
+  "commandCatalogChecksum": "01157e85f028b956a96987b7696b4c459be85e577a0fd101c14b71d8b7dc981a",
   "globalOptions": [
     {
       "id": "endpoint",
@@ -116,10 +116,23 @@
             "description": "Response object returned by GET /bridge/v1/diagnostics/backends.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+          },
+          "items": {
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
           }
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+      },
+      "outputBoundary": {
+        "strategy": "limit",
+        "section": "items",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "truncatedField": "truncated"
       },
       "pagination": "none",
       "effects": [
@@ -240,6 +253,9 @@
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -290,12 +306,77 @@
       "danger": "none",
       "invocationSchema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "description": "Opaque continuation cursor"
+          },
+          "limit": {
+            "type": "string",
+            "description": "Maximum number of entries (1-100)"
+          }
+        },
         "required": [],
         "additionalProperties": false
       },
-      "arguments": [],
-      "argvBindings": [],
+      "arguments": [
+        {
+          "id": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Opaque continuation cursor",
+          "valueNames": [
+            "CURSOR"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
+        },
+        {
+          "id": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Maximum number of entries (1-100)",
+          "valueNames": [
+            "LIMIT"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
+        }
+      ],
+      "argvBindings": [
+        {
+          "property": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "CURSOR"
+          ]
+        },
+        {
+          "property": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "LIMIT"
+          ]
+        }
+      ],
       "inputSchemas": {},
       "payloadSchema": {
         "type": "object",
@@ -311,12 +392,50 @@
             "description": "Response object returned by GET /bridge/v1/manifest.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+          },
+          "capabilities": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
           }
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
-      "pagination": "none",
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "capabilities",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
+      },
+      "pagination": "cursor",
       "effects": [
         {
           "kind": "none",
@@ -348,7 +467,11 @@
       "operationalAliases": [
         "bridge manifest",
         "bridge",
-        "manifest"
+        "manifest",
+        "cursor",
+        "CURSOR",
+        "limit",
+        "LIMIT"
       ],
       "hiddenFromIntentSearch": false
     },
@@ -389,6 +512,9 @@
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -465,6 +591,9 @@
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -538,6 +667,9 @@
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -713,6 +845,9 @@
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
+      "outputBoundary": {
+        "strategy": "raw"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -868,6 +1003,9 @@
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -929,12 +1067,77 @@
       "danger": "none",
       "invocationSchema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "description": "Opaque continuation cursor"
+          },
+          "limit": {
+            "type": "string",
+            "description": "Maximum number of entries (1-100)"
+          }
+        },
         "required": [],
         "additionalProperties": false
       },
-      "arguments": [],
-      "argvBindings": [],
+      "arguments": [
+        {
+          "id": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Opaque continuation cursor",
+          "valueNames": [
+            "CURSOR"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
+        },
+        {
+          "id": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Maximum number of entries (1-100)",
+          "valueNames": [
+            "LIMIT"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
+        }
+      ],
+      "argvBindings": [
+        {
+          "property": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "CURSOR"
+          ]
+        },
+        {
+          "property": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "LIMIT"
+          ]
+        }
+      ],
       "inputSchemas": {},
       "payloadSchema": {
         "type": "object",
@@ -955,12 +1158,52 @@
             "type": "object",
             "description": "Result data owned by context.get_current_view, GET /bridge/v1/context/current.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "selectedItems": {
+                "type": "array"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
       },
-      "pagination": "none",
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.selectedItems",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ]
+      },
+      "pagination": "cursor",
       "effects": [
         {
           "kind": "none",
@@ -996,7 +1239,11 @@
       "operationalAliases": [
         "context current",
         "context",
-        "current"
+        "current",
+        "cursor",
+        "CURSOR",
+        "limit",
+        "LIMIT"
       ],
       "hiddenFromIntentSearch": false
     },
@@ -1081,6 +1328,9 @@
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -1211,6 +1461,9 @@
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -1270,12 +1523,77 @@
       "danger": "none",
       "invocationSchema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "description": "Opaque continuation cursor"
+          },
+          "limit": {
+            "type": "string",
+            "description": "Maximum number of entries (1-100)"
+          }
+        },
         "required": [],
         "additionalProperties": false
       },
-      "arguments": [],
-      "argvBindings": [],
+      "arguments": [
+        {
+          "id": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Opaque continuation cursor",
+          "valueNames": [
+            "CURSOR"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
+        },
+        {
+          "id": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Maximum number of entries (1-100)",
+          "valueNames": [
+            "LIMIT"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
+        }
+      ],
+      "argvBindings": [
+        {
+          "property": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "CURSOR"
+          ]
+        },
+        {
+          "property": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "LIMIT"
+          ]
+        }
+      ],
       "inputSchemas": {},
       "payloadSchema": {
         "type": "object",
@@ -1296,15 +1614,52 @@
             "type": "object",
             "description": "Result data owned by context.get_selected_items, GET /bridge/v1/context/selection.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "itemRef": {
-            "type": "string"
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "items": {
+                "type": "array"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
       },
-      "pagination": "none",
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.items",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ]
+      },
+      "pagination": "cursor",
       "effects": [
         {
           "kind": "none",
@@ -1349,7 +1704,11 @@
         "context selection get",
         "context",
         "selection",
-        "get"
+        "get",
+        "cursor",
+        "CURSOR",
+        "limit",
+        "LIMIT"
       ],
       "hiddenFromIntentSearch": false
     },
@@ -1373,6 +1732,14 @@
             },
             "description": "Zotero item refs",
             "position": 1
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque continuation cursor"
+          },
+          "limit": {
+            "type": "string",
+            "description": "Maximum number of entries (1-100)"
           }
         },
         "required": [
@@ -1399,6 +1766,40 @@
           "numArgs": "1..",
           "aliases": [],
           "defaultValues": []
+        },
+        {
+          "id": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Opaque continuation cursor",
+          "valueNames": [
+            "CURSOR"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
+        },
+        {
+          "id": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Maximum number of entries (1-100)",
+          "valueNames": [
+            "LIMIT"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
         }
       ],
       "argvBindings": [
@@ -1411,6 +1812,26 @@
           "required": true,
           "valueNames": [
             "ITEM_REFS"
+          ]
+        },
+        {
+          "property": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "CURSOR"
+          ]
+        },
+        {
+          "property": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "LIMIT"
           ]
         }
       ],
@@ -1434,12 +1855,68 @@
             "description": "Response object returned by POST /bridge/v1/context/selection/open.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+          },
+          "target": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array"
+              }
+            },
+            "additionalProperties": true
+          },
+          "pagination": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "object",
+                "properties": {
+                  "nextCursor": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "hasMore": {
+                    "type": "boolean"
+                  },
+                  "returned": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "total": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": true
           }
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
-      "pagination": "none",
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "target.items",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "pagination.items.nextCursor",
+          "pagination.items.hasMore",
+          "pagination.items.returned",
+          "pagination.items.total",
+          "pagination.items.limit"
+        ]
+      },
+      "pagination": "cursor",
       "effects": [
         {
           "kind": "ui-navigation",
@@ -1482,7 +1959,11 @@
         "selection",
         "open",
         "item_refs",
-        "ITEM_REFS"
+        "ITEM_REFS",
+        "cursor",
+        "CURSOR",
+        "limit",
+        "LIMIT"
       ],
       "hiddenFromIntentSearch": false
     },
@@ -1594,6 +2075,9 @@
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -1742,6 +2226,9 @@
         },
         "additionalProperties": false
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -1817,10 +2304,31 @@
             "type": "object",
             "description": "Result data owned by debug.status.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "tasks": {
+                "type": "object",
+                "properties": {
+                  "recent": {
+                    "type": "array"
+                  }
+                },
+                "additionalProperties": true
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "limit",
+        "section": "data.tasks.recent",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "truncatedField": "data.truncated"
       },
       "pagination": "none",
       "effects": [
@@ -1962,10 +2470,25 @@
             "type": "object",
             "description": "Result data owned by debug.synthesis.cache.list.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "rows": {
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "limit",
+        "section": "data.rows",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "truncatedField": "data.truncated"
       },
       "pagination": "none",
       "effects": [
@@ -2115,6 +2638,9 @@
         },
         "additionalProperties": false
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -2258,10 +2784,25 @@
             "type": "object",
             "description": "Result data owned by debug.synthesis.diff.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "issues": {
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "limit",
+        "section": "data.issues",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "truncatedField": "data.truncated"
       },
       "pagination": "none",
       "effects": [
@@ -2406,10 +2947,69 @@
             "type": "object",
             "description": "Result data owned by debug.synthesis.paper.inspect.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "repository": {
+                "type": "object",
+                "properties": {
+                  "artifactSidecars": {
+                    "type": "array"
+                  }
+                },
+                "additionalProperties": true
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "delivery": {
+                "type": "object",
+                "properties": {
+                  "bundle": {
+                    "type": "object",
+                    "properties": {
+                      "fileId": {
+                        "type": "string"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "contentType": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "sha256": {
+                        "type": "string"
+                      },
+                      "expiresAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "fileId",
+                      "displayName",
+                      "contentType",
+                      "expiresAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "limit",
+        "section": "data.repository.artifactSidecars",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "truncatedField": "data.truncated",
+        "fileField": "data.delivery.bundle"
       },
       "pagination": "none",
       "effects": [
@@ -2554,10 +3154,63 @@
             "type": "object",
             "description": "Result data owned by debug.synthesis.topic.inspect.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "discoveryHints": {
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "delivery": {
+                "type": "object",
+                "properties": {
+                  "bundle": {
+                    "type": "object",
+                    "properties": {
+                      "fileId": {
+                        "type": "string"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "contentType": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "sha256": {
+                        "type": "string"
+                      },
+                      "expiresAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "fileId",
+                      "displayName",
+                      "contentType",
+                      "expiresAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "limit",
+        "section": "data.discoveryHints",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "truncatedField": "data.truncated",
+        "fileField": "data.delivery.bundle"
       },
       "pagination": "none",
       "effects": [
@@ -2702,10 +3355,25 @@
             "type": "object",
             "description": "Result data owned by debug.synthesis.operations.list.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "rows": {
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "limit",
+        "section": "data.rows",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "truncatedField": "data.truncated"
       },
       "pagination": "none",
       "effects": [
@@ -2850,10 +3518,63 @@
             "type": "object",
             "description": "Result data owned by debug.synthesis.profiler.list.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "runs": {
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "delivery": {
+                "type": "object",
+                "properties": {
+                  "bundle": {
+                    "type": "object",
+                    "properties": {
+                      "fileId": {
+                        "type": "string"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "contentType": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "sha256": {
+                        "type": "string"
+                      },
+                      "expiresAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "fileId",
+                      "displayName",
+                      "contentType",
+                      "expiresAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "limit",
+        "section": "data.runs",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "truncatedField": "data.truncated",
+        "fileField": "data.delivery.bundle"
       },
       "pagination": "none",
       "effects": [
@@ -2998,10 +3719,63 @@
             "type": "object",
             "description": "Result data owned by debug.synthesis.snapshot.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "cacheBasis": {
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "delivery": {
+                "type": "object",
+                "properties": {
+                  "bundle": {
+                    "type": "object",
+                    "properties": {
+                      "fileId": {
+                        "type": "string"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "contentType": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "sha256": {
+                        "type": "string"
+                      },
+                      "expiresAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "fileId",
+                      "displayName",
+                      "contentType",
+                      "expiresAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "limit",
+        "section": "data.cacheBasis",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "truncatedField": "data.truncated",
+        "fileField": "data.delivery.bundle"
       },
       "pagination": "none",
       "effects": [
@@ -3145,10 +3919,25 @@
             "type": "object",
             "description": "Result data owned by debug.tasks.snapshot.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "tasks": {
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "limit",
+        "section": "data.tasks",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "truncatedField": "data.truncated"
       },
       "pagination": "none",
       "effects": [
@@ -3398,7 +4187,10 @@
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
-      "pagination": "file",
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "pagination": "none",
       "effects": [
         {
           "kind": "none",
@@ -3596,6 +4388,9 @@
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -3765,12 +4560,55 @@
             "type": "object",
             "description": "Result data owned by library.export_annotations.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "delivery": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "object",
+                    "properties": {
+                      "fileId": {
+                        "type": "string"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "contentType": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "sha256": {
+                        "type": "string"
+                      },
+                      "expiresAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "fileId",
+                      "displayName",
+                      "contentType",
+                      "expiresAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
           }
         },
         "additionalProperties": false
       },
-      "pagination": "none",
+      "outputBoundary": {
+        "strategy": "file",
+        "fileField": "data.delivery.file"
+      },
+      "pagination": "file",
       "effects": [
         {
           "kind": "none",
@@ -3827,6 +4665,14 @@
           "item": {
             "type": "string",
             "description": "Zotero item ref: key, numeric id, libraryId:key, or JSON object"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque continuation cursor"
+          },
+          "limit": {
+            "type": "string",
+            "description": "Maximum number of entries (1-100)"
           }
         },
         "required": [
@@ -3851,6 +4697,40 @@
           "repeatable": false,
           "aliases": [],
           "defaultValues": []
+        },
+        {
+          "id": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Opaque continuation cursor",
+          "valueNames": [
+            "CURSOR"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
+        },
+        {
+          "id": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Maximum number of entries (1-100)",
+          "valueNames": [
+            "LIMIT"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
         }
       ],
       "argvBindings": [
@@ -3862,6 +4742,26 @@
           "required": true,
           "valueNames": [
             "ITEM"
+          ]
+        },
+        {
+          "property": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "CURSOR"
+          ]
+        },
+        {
+          "property": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "LIMIT"
           ]
         }
       ],
@@ -3890,12 +4790,52 @@
             "type": "object",
             "description": "Result data owned by library.list_annotations.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "annotations": {
+                "type": "array"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
       },
-      "pagination": "none",
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.annotations",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ]
+      },
+      "pagination": "cursor",
       "effects": [
         {
           "kind": "none",
@@ -3930,7 +4870,11 @@
         "annotation",
         "list",
         "item",
-        "ITEM"
+        "ITEM",
+        "cursor",
+        "CURSOR",
+        "limit",
+        "LIMIT"
       ],
       "hiddenFromIntentSearch": false
     },
@@ -3958,6 +4902,14 @@
           "library-id": {
             "type": "string",
             "description": "Zotero library id for key lookup"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque continuation cursor"
+          },
+          "limit": {
+            "type": "string",
+            "description": "Maximum number of entries (1-100)"
           }
         },
         "required": [],
@@ -4042,6 +4994,40 @@
           "repeatable": false,
           "aliases": [],
           "defaultValues": []
+        },
+        {
+          "id": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Opaque continuation cursor",
+          "valueNames": [
+            "CURSOR"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
+        },
+        {
+          "id": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Maximum number of entries (1-100)",
+          "valueNames": [
+            "LIMIT"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
         }
       ],
       "argvBindings": [
@@ -4073,6 +5059,26 @@
           "required": false,
           "valueNames": [
             "LIBRARY_ID"
+          ]
+        },
+        {
+          "property": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "CURSOR"
+          ]
+        },
+        {
+          "property": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "LIMIT"
           ]
         }
       ],
@@ -4109,12 +5115,52 @@
             "type": "object",
             "description": "Result data owned by library.get_item_attachments.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "attachments": {
+                "type": "array"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
       },
-      "pagination": "none",
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.attachments",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ]
+      },
+      "pagination": "cursor",
       "effects": [
         {
           "kind": "none",
@@ -4154,7 +5200,11 @@
         "ID",
         "library_id",
         "library-id",
-        "LIBRARY_ID"
+        "LIBRARY_ID",
+        "cursor",
+        "CURSOR",
+        "limit",
+        "LIMIT"
       ],
       "hiddenFromIntentSearch": false
     },
@@ -4337,6 +5387,9 @@
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -4662,23 +5715,50 @@
             "type": "object",
             "description": "Result data owned by library.get_item_notes.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "items": {
+                "type": "array"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.items",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -4872,10 +5952,25 @@
             "type": "object",
             "description": "Result data owned by library.search_items.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "items": {
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "limit",
+        "section": "data.items",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "truncatedField": "data.truncated"
       },
       "pagination": "none",
       "effects": [
@@ -5097,23 +6192,50 @@
             "type": "object",
             "description": "Result data owned by library.list_items.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "items": {
+                "type": "array"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.items",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -5437,23 +6559,44 @@
             "type": "object",
             "description": "Result data owned by library.get_note_detail.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "nextOffset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "totalChars": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "maxChars": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "offset",
+        "section": "data.content",
+        "defaultLimit": 8000,
+        "maxLimit": 16000,
+        "cursorInput": "offset",
+        "continuation": [
+          "data.nextOffset",
+          "data.hasMore",
+          "data.totalChars",
+          "data.truncated",
+          "data.maxChars"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -5786,23 +6929,44 @@
             "type": "object",
             "description": "Result data owned by library.get_note_payload.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "nextOffset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "totalChars": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "maxChars": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "offset",
+        "section": "data.content",
+        "defaultLimit": 8000,
+        "maxLimit": 16000,
+        "cursorInput": "offset",
+        "continuation": [
+          "data.nextOffset",
+          "data.hasMore",
+          "data.totalChars",
+          "data.truncated",
+          "data.maxChars"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -5880,6 +7044,14 @@
           "library-id": {
             "type": "string",
             "description": "Zotero library id for key lookup"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque continuation cursor"
+          },
+          "limit": {
+            "type": "string",
+            "description": "Maximum number of entries (1-100)"
           }
         },
         "required": [],
@@ -5964,6 +7136,40 @@
           "repeatable": false,
           "aliases": [],
           "defaultValues": []
+        },
+        {
+          "id": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Opaque continuation cursor",
+          "valueNames": [
+            "CURSOR"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
+        },
+        {
+          "id": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Maximum number of entries (1-100)",
+          "valueNames": [
+            "LIMIT"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
         }
       ],
       "argvBindings": [
@@ -5995,6 +7201,26 @@
           "required": false,
           "valueNames": [
             "LIBRARY_ID"
+          ]
+        },
+        {
+          "property": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "CURSOR"
+          ]
+        },
+        {
+          "property": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "LIMIT"
           ]
         }
       ],
@@ -6031,12 +7257,52 @@
             "type": "object",
             "description": "Result data owned by library.list_note_payloads.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "payloads": {
+                "type": "array"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
       },
-      "pagination": "none",
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.payloads",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ]
+      },
+      "pagination": "cursor",
       "effects": [
         {
           "kind": "none",
@@ -6076,7 +7342,11 @@
         "ID",
         "library_id",
         "library-id",
-        "LIBRARY_ID"
+        "LIBRARY_ID",
+        "cursor",
+        "CURSOR",
+        "limit",
+        "LIMIT"
       ],
       "hiddenFromIntentSearch": false
     },
@@ -6291,23 +7561,50 @@
             "type": "object",
             "description": "Result data owned by library.readiness_audit.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "items": {
+                "type": "array"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.items",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -6559,23 +7856,50 @@
             "type": "object",
             "description": "Result data owned by library.readiness_audit.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "items": {
+                "type": "array"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.items",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -6827,23 +8151,50 @@
             "type": "object",
             "description": "Result data owned by library.readiness_audit.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "items": {
+                "type": "array"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.items",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -7095,23 +8446,50 @@
             "type": "object",
             "description": "Result data owned by library.readiness_audit.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "items": {
+                "type": "array"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.items",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -7332,23 +8710,50 @@
             "type": "object",
             "description": "Result data owned by library.sync_snapshot.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "items": {
+                "type": "array"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.items",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -7496,6 +8901,9 @@
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -7658,6 +9066,9 @@
         },
         "additionalProperties": false
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -7808,6 +9219,9 @@
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -7970,6 +9384,9 @@
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -8201,6 +9618,9 @@
         },
         "additionalProperties": false
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -8414,6 +9834,9 @@
         },
         "additionalProperties": false
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -8564,6 +9987,9 @@
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -8753,6 +10179,9 @@
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -8946,6 +10375,9 @@
         },
         "additionalProperties": false
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -9137,6 +10569,9 @@
         },
         "additionalProperties": false
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -9285,6 +10720,9 @@
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -9449,6 +10887,9 @@
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -9616,6 +11057,9 @@
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -9796,6 +11240,9 @@
           "handleConsumption"
         ],
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -10032,81 +11479,86 @@
           "data": {
             "type": "object",
             "description": "Result data owned by workflow_products.export.",
-            "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "fileId": {
-            "type": "string"
-          },
-          "file": {
-            "type": "object",
             "properties": {
               "fileId": {
                 "type": "string"
               },
-              "path": {
-                "type": "string"
-              },
-              "checksum": {
-                "type": "string"
-              },
-              "bytes": {
-                "type": "integer"
-              }
-            },
-            "additionalProperties": true
-          },
-          "delivery": {
-            "type": "object",
-            "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
-            "properties": {
-              "mode": {
-                "enum": [
-                  "local",
-                  "bridge-download",
-                  "bundle"
-                ]
-              },
-              "path": {
-                "type": "string"
-              },
-              "files": {
-                "type": "array",
-                "items": {
-                  "type": "object"
-                }
-              },
-              "bundle": {
+              "file": {
                 "type": "object",
                 "properties": {
                   "fileId": {
                     "type": "string"
                   },
-                  "displayName": {
+                  "path": {
                     "type": "string"
                   },
-                  "contentType": {
+                  "checksum": {
                     "type": "string"
                   },
-                  "size": {
+                  "bytes": {
                     "type": "integer"
                   }
                 },
                 "additionalProperties": true
               },
-              "downloadCommand": {
-                "type": "string"
-              },
-              "unpackHint": {
-                "type": "string"
+              "delivery": {
+                "type": "object",
+                "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "local",
+                      "bridge-download",
+                      "bundle"
+                    ]
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "bundle": {
+                    "type": "object",
+                    "properties": {
+                      "fileId": {
+                        "type": "string"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "contentType": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "type": "integer"
+                      }
+                    },
+                    "additionalProperties": true
+                  },
+                  "downloadCommand": {
+                    "type": "string"
+                  },
+                  "unpackHint": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
               }
             },
-            "additionalProperties": false
+            "additionalProperties": true,
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
           }
         },
         "additionalProperties": false
       },
-      "pagination": "file",
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "pagination": "none",
       "effects": [
         {
           "kind": "none",
@@ -10182,6 +11634,14 @@
             "type": "string",
             "description": "Dashboard Product id",
             "position": 1
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque continuation cursor"
+          },
+          "limit": {
+            "type": "string",
+            "description": "Maximum number of entries (1-100)"
           }
         },
         "required": [
@@ -10207,6 +11667,40 @@
           "repeatable": false,
           "aliases": [],
           "defaultValues": []
+        },
+        {
+          "id": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Opaque continuation cursor",
+          "valueNames": [
+            "CURSOR"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
+        },
+        {
+          "id": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Maximum number of entries (1-100)",
+          "valueNames": [
+            "LIMIT"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
         }
       ],
       "argvBindings": [
@@ -10219,6 +11713,26 @@
           "required": true,
           "valueNames": [
             "PRODUCT_ID"
+          ]
+        },
+        {
+          "property": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "CURSOR"
+          ]
+        },
+        {
+          "property": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "LIMIT"
           ]
         }
       ],
@@ -10248,15 +11762,70 @@
             "type": "object",
             "description": "Result data owned by workflow_products.get.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "productId": {
-            "type": "string"
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "product": {
+                "type": "object",
+                "properties": {
+                  "assets": {
+                    "type": "array"
+                  }
+                },
+                "additionalProperties": true
+              },
+              "pagination": {
+                "type": "object",
+                "properties": {
+                  "assets": {
+                    "type": "object",
+                    "properties": {
+                      "nextCursor": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "hasMore": {
+                        "type": "boolean"
+                      },
+                      "returned": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "total": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "limit": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "additionalProperties": true
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
           }
         },
         "additionalProperties": false
       },
-      "pagination": "none",
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.product.assets",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.pagination.assets.nextCursor",
+          "data.pagination.assets.hasMore",
+          "data.pagination.assets.returned",
+          "data.pagination.assets.total",
+          "data.pagination.assets.limit"
+        ]
+      },
+      "pagination": "cursor",
       "effects": [
         {
           "kind": "none",
@@ -10305,7 +11874,11 @@
         "product",
         "get",
         "product_id",
-        "PRODUCT_ID"
+        "PRODUCT_ID",
+        "cursor",
+        "CURSOR",
+        "limit",
+        "LIMIT"
       ],
       "hiddenFromIntentSearch": false
     },
@@ -10523,23 +12096,50 @@
             "type": "object",
             "description": "Result data owned by workflow_products.list.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "products": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "products": {
+                "type": "array"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.products",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -10677,6 +12277,9 @@
         },
         "additionalProperties": false
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -10734,12 +12337,77 @@
       "danger": "none",
       "invocationSchema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "description": "Opaque continuation cursor"
+          },
+          "limit": {
+            "type": "string",
+            "description": "Maximum number of entries (1-100)"
+          }
+        },
         "required": [],
         "additionalProperties": false
       },
-      "arguments": [],
-      "argvBindings": [],
+      "arguments": [
+        {
+          "id": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Opaque continuation cursor",
+          "valueNames": [
+            "CURSOR"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
+        },
+        {
+          "id": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Maximum number of entries (1-100)",
+          "valueNames": [
+            "LIMIT"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
+        }
+      ],
+      "argvBindings": [
+        {
+          "property": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "CURSOR"
+          ]
+        },
+        {
+          "property": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "LIMIT"
+          ]
+        }
+      ],
       "inputSchemas": {},
       "payloadSchema": {
         "type": "object",
@@ -10755,12 +12423,50 @@
             "description": "Response object returned by GET /bridge/v1/tasks/active.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+          },
+          "tasks": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
           }
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
-      "pagination": "none",
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "tasks",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
+      },
+      "pagination": "cursor",
       "effects": [
         {
           "kind": "none",
@@ -10792,7 +12498,11 @@
       "operationalAliases": [
         "run active",
         "run",
-        "active"
+        "active",
+        "cursor",
+        "CURSOR",
+        "limit",
+        "LIMIT"
       ],
       "hiddenFromIntentSearch": false
     },
@@ -10947,6 +12657,9 @@
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -11013,6 +12726,14 @@
             "type": "string",
             "description": "Workflow run id",
             "position": 1
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque continuation cursor"
+          },
+          "limit": {
+            "type": "string",
+            "description": "Maximum number of entries (1-100)"
           }
         },
         "required": [
@@ -11038,6 +12759,40 @@
           "repeatable": false,
           "aliases": [],
           "defaultValues": []
+        },
+        {
+          "id": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Opaque continuation cursor",
+          "valueNames": [
+            "CURSOR"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
+        },
+        {
+          "id": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Maximum number of entries (1-100)",
+          "valueNames": [
+            "LIMIT"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
         }
       ],
       "argvBindings": [
@@ -11050,6 +12805,26 @@
           "required": true,
           "valueNames": [
             "RUN_ID"
+          ]
+        },
+        {
+          "property": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "CURSOR"
+          ]
+        },
+        {
+          "property": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "LIMIT"
           ]
         }
       ],
@@ -11070,12 +12845,62 @@
         "properties": {
           "skillRunId": {
             "type": "string"
+          },
+          "skillRuns": {
+            "type": "array"
+          },
+          "pagination": {
+            "type": "object",
+            "properties": {
+              "skillRuns": {
+                "type": "object",
+                "properties": {
+                  "nextCursor": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "hasMore": {
+                    "type": "boolean"
+                  },
+                  "returned": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "total": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": true
+              }
+            },
+            "additionalProperties": true
           }
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
-      "pagination": "none",
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "skillRuns",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "pagination.skillRuns.nextCursor",
+          "pagination.skillRuns.hasMore",
+          "pagination.skillRuns.returned",
+          "pagination.skillRuns.total",
+          "pagination.skillRuns.limit"
+        ]
+      },
+      "pagination": "cursor",
       "effects": [
         {
           "kind": "none",
@@ -11124,7 +12949,11 @@
         "run",
         "get",
         "run_id",
-        "RUN_ID"
+        "RUN_ID",
+        "cursor",
+        "CURSOR",
+        "limit",
+        "LIMIT"
       ],
       "hiddenFromIntentSearch": false
     },
@@ -11171,6 +13000,14 @@
           "active-only": {
             "type": "boolean",
             "description": "Only return active task runtime rows"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque continuation cursor"
+          },
+          "limit": {
+            "type": "string",
+            "description": "Maximum number of tasks (1-100)"
           }
         },
         "required": [],
@@ -11315,6 +13152,40 @@
           "repeatable": false,
           "aliases": [],
           "defaultValues": []
+        },
+        {
+          "id": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Opaque continuation cursor",
+          "valueNames": [
+            "CURSOR"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
+        },
+        {
+          "id": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Maximum number of tasks (1-100)",
+          "valueNames": [
+            "LIMIT"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
         }
       ],
       "argvBindings": [
@@ -11397,6 +13268,26 @@
           "valueNames": [
             "ACTIVE_ONLY"
           ]
+        },
+        {
+          "property": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "CURSOR"
+          ]
+        },
+        {
+          "property": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "LIMIT"
+          ]
         }
       ],
       "inputSchemas": {},
@@ -11450,10 +13341,36 @@
           },
           "hasMore": {
             "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
           }
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "items",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -11504,7 +13421,11 @@
         "STATE",
         "active_only",
         "active-only",
-        "ACTIVE_ONLY"
+        "ACTIVE_ONLY",
+        "cursor",
+        "CURSOR",
+        "limit",
+        "LIMIT"
       ],
       "hiddenFromIntentSearch": false
     },
@@ -11624,6 +13545,9 @@
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -11985,6 +13909,18 @@
           "truncated"
         ],
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "notifications",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "since_event_id",
+        "continuation": [
+          "nextSinceEventId",
+          "hasMore",
+          "returned"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -12426,6 +14362,18 @@
         ],
         "additionalProperties": false
       },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "notifications",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "since_event_id",
+        "continuation": [
+          "nextSinceEventId",
+          "hasMore",
+          "returned"
+        ]
+      },
       "pagination": "cursor",
       "effects": [
         {
@@ -12570,6 +14518,9 @@
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -12629,12 +14580,77 @@
       "danger": "none",
       "invocationSchema": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "description": "Opaque continuation cursor"
+          },
+          "limit": {
+            "type": "string",
+            "description": "Maximum number of entries (1-100)"
+          }
+        },
         "required": [],
         "additionalProperties": false
       },
-      "arguments": [],
-      "argvBindings": [],
+      "arguments": [
+        {
+          "id": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Opaque continuation cursor",
+          "valueNames": [
+            "CURSOR"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
+        },
+        {
+          "id": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Maximum number of entries (1-100)",
+          "valueNames": [
+            "LIMIT"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
+        }
+      ],
+      "argvBindings": [
+        {
+          "property": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "CURSOR"
+          ]
+        },
+        {
+          "property": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "LIMIT"
+          ]
+        }
+      ],
       "inputSchemas": {},
       "payloadSchema": {
         "type": "object",
@@ -12650,12 +14666,50 @@
             "description": "Response object returned by GET /bridge/v1/permissions/pending.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+          },
+          "permissions": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
           }
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
-      "pagination": "none",
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "permissions",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
+      },
+      "pagination": "cursor",
       "effects": [
         {
           "kind": "none",
@@ -12688,7 +14742,11 @@
         "run permission pending",
         "run",
         "permission",
-        "pending"
+        "pending",
+        "cursor",
+        "CURSOR",
+        "limit",
+        "LIMIT"
       ],
       "hiddenFromIntentSearch": false
     },
@@ -12719,6 +14777,10 @@
           "limit": {
             "type": "string",
             "description": "Maximum number of tasks"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque continuation cursor"
           }
         },
         "required": [],
@@ -12792,6 +14854,23 @@
           "repeatable": false,
           "aliases": [],
           "defaultValues": []
+        },
+        {
+          "id": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Opaque continuation cursor",
+          "valueNames": [
+            "CURSOR"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
         }
       ],
       "argvBindings": [
@@ -12834,6 +14913,16 @@
           "valueNames": [
             "LIMIT"
           ]
+        },
+        {
+          "property": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "CURSOR"
+          ]
         }
       ],
       "inputSchemas": {},
@@ -12875,10 +14964,36 @@
           },
           "hasMore": {
             "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
           }
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "items",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -12920,7 +15035,9 @@
         "state",
         "STATE",
         "limit",
-        "LIMIT"
+        "LIMIT",
+        "cursor",
+        "CURSOR"
       ],
       "hiddenFromIntentSearch": false
     },
@@ -13006,6 +15123,9 @@
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -13078,6 +15198,10 @@
           "limit": {
             "type": "string",
             "description": "Maximum number of events"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque continuation cursor"
           }
         },
         "required": [
@@ -13137,6 +15261,23 @@
           "repeatable": false,
           "aliases": [],
           "defaultValues": []
+        },
+        {
+          "id": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Opaque continuation cursor",
+          "valueNames": [
+            "CURSOR"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
         }
       ],
       "argvBindings": [
@@ -13169,6 +15310,16 @@
           "required": false,
           "valueNames": [
             "LIMIT"
+          ]
+        },
+        {
+          "property": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "CURSOR"
           ]
         }
       ],
@@ -13207,10 +15358,36 @@
           },
           "hasMore": {
             "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
           }
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "events",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -13252,7 +15429,9 @@
         "since-updated-at",
         "SINCE_UPDATED_AT",
         "limit",
-        "LIMIT"
+        "LIMIT",
+        "cursor",
+        "CURSOR"
       ],
       "hiddenFromIntentSearch": false
     },
@@ -13338,6 +15517,9 @@
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -13405,6 +15587,10 @@
           "limit": {
             "type": "string",
             "description": "Maximum number of skill runs"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque continuation cursor"
           }
         },
         "required": [],
@@ -13444,6 +15630,23 @@
           "repeatable": false,
           "aliases": [],
           "defaultValues": []
+        },
+        {
+          "id": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Opaque continuation cursor",
+          "valueNames": [
+            "CURSOR"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
         }
       ],
       "argvBindings": [
@@ -13465,6 +15668,16 @@
           "required": false,
           "valueNames": [
             "LIMIT"
+          ]
+        },
+        {
+          "property": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "CURSOR"
           ]
         }
       ],
@@ -13499,10 +15712,36 @@
           },
           "hasMore": {
             "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
           }
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "skillRuns",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -13541,7 +15780,9 @@
         "state",
         "STATE",
         "limit",
-        "LIMIT"
+        "LIMIT",
+        "cursor",
+        "CURSOR"
       ],
       "hiddenFromIntentSearch": false
     },
@@ -13663,6 +15904,9 @@
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -13732,6 +15976,10 @@
           "limit": {
             "type": "string",
             "description": "Maximum number of runs"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque continuation cursor"
           }
         },
         "required": [
@@ -13773,6 +16021,23 @@
           "repeatable": false,
           "aliases": [],
           "defaultValues": []
+        },
+        {
+          "id": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Opaque continuation cursor",
+          "valueNames": [
+            "CURSOR"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
         }
       ],
       "argvBindings": [
@@ -13794,6 +16059,16 @@
           "required": false,
           "valueNames": [
             "LIMIT"
+          ]
+        },
+        {
+          "property": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "CURSOR"
           ]
         }
       ],
@@ -13828,10 +16103,36 @@
           },
           "hasMore": {
             "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
           }
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "runs",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -13869,7 +16170,9 @@
         "recent",
         "WORKFLOW",
         "limit",
-        "LIMIT"
+        "LIMIT",
+        "cursor",
+        "CURSOR"
       ],
       "hiddenFromIntentSearch": false
     },
@@ -13992,6 +16295,9 @@
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -14105,6 +16411,9 @@
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -14160,7 +16469,7 @@
           },
           "limit": {
             "type": "string",
-            "description": "Maximum number of ranked matches (1-100)"
+            "description": "Maximum number of ranked matches (1-20)"
           },
           "include-debug": {
             "type": "boolean",
@@ -14201,7 +16510,7 @@
           "takesValue": true,
           "required": false,
           "global": false,
-          "help": "Maximum number of ranked matches (1-100)",
+          "help": "Maximum number of ranked matches (1-20)",
           "valueNames": [
             "LIMIT"
           ],
@@ -14320,10 +16629,23 @@
             "description": "Response object returned by embedded host-bridge.agent-surface.v5.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+          },
+          "items": {
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
           }
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+      },
+      "outputBoundary": {
+        "strategy": "limit",
+        "section": "items",
+        "defaultLimit": 10,
+        "maxLimit": 20,
+        "truncatedField": "truncated"
       },
       "pagination": "none",
       "effects": [
@@ -14476,75 +16798,53 @@
             "type": "object",
             "description": "Result data owned by paper_artifacts.export_filtered.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "file": {
-            "type": "object",
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
             "properties": {
-              "fileId": {
-                "type": "string"
-              },
-              "path": {
-                "type": "string"
-              },
-              "checksum": {
-                "type": "string"
-              },
-              "bytes": {
-                "type": "integer"
-              }
-            },
-            "additionalProperties": true
-          },
-          "delivery": {
-            "type": "object",
-            "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
-            "properties": {
-              "mode": {
-                "enum": [
-                  "local",
-                  "bridge-download",
-                  "bundle"
-                ]
-              },
-              "path": {
-                "type": "string"
-              },
-              "files": {
-                "type": "array",
-                "items": {
-                  "type": "object"
-                }
-              },
-              "bundle": {
+              "delivery": {
                 "type": "object",
                 "properties": {
-                  "fileId": {
-                    "type": "string"
-                  },
-                  "displayName": {
-                    "type": "string"
-                  },
-                  "contentType": {
-                    "type": "string"
-                  },
-                  "size": {
-                    "type": "integer"
+                  "bundle": {
+                    "type": "object",
+                    "properties": {
+                      "fileId": {
+                        "type": "string"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "contentType": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "sha256": {
+                        "type": "string"
+                      },
+                      "expiresAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "fileId",
+                      "displayName",
+                      "contentType",
+                      "expiresAt"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "additionalProperties": true
-              },
-              "downloadCommand": {
-                "type": "string"
-              },
-              "unpackHint": {
-                "type": "string"
               }
-            },
-            "additionalProperties": false
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "file",
+        "fileField": "data.delivery.bundle"
       },
       "pagination": "file",
       "effects": [
@@ -14692,12 +16992,52 @@
             "type": "object",
             "description": "Result data owned by paper_artifacts.get_manifest.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "papers": {
+                "type": "array"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
       },
-      "pagination": "none",
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.papers",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ]
+      },
+      "pagination": "cursor",
       "effects": [
         {
           "kind": "none",
@@ -14843,12 +17183,55 @@
             "type": "object",
             "description": "Result data owned by paper_artifacts.read.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "delivery": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "object",
+                    "properties": {
+                      "fileId": {
+                        "type": "string"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "contentType": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "sha256": {
+                        "type": "string"
+                      },
+                      "expiresAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "fileId",
+                      "displayName",
+                      "contentType",
+                      "expiresAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
           }
         },
         "additionalProperties": false
       },
-      "pagination": "none",
+      "outputBoundary": {
+        "strategy": "file",
+        "fileField": "data.delivery.file"
+      },
+      "pagination": "file",
       "effects": [
         {
           "kind": "none",
@@ -14994,12 +17377,46 @@
             "type": "object",
             "description": "Result data owned by paper_artifacts.resolve_topic_digest.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "nextOffset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "totalChars": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "maxChars": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
       },
-      "pagination": "none",
+      "outputBoundary": {
+        "strategy": "offset",
+        "section": "data.text",
+        "defaultLimit": 8000,
+        "maxLimit": 16000,
+        "cursorInput": "offset",
+        "continuation": [
+          "data.nextOffset",
+          "data.hasMore",
+          "data.totalChars",
+          "data.truncated",
+          "data.maxChars"
+        ]
+      },
+      "pagination": "cursor",
       "effects": [
         {
           "kind": "none",
@@ -15155,6 +17572,9 @@
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -15361,6 +17781,9 @@
         },
         "additionalProperties": false
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -15483,6 +17906,9 @@
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -15635,10 +18061,25 @@
             "type": "object",
             "description": "Result data owned by concepts.query.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "matches": {
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "limit",
+        "section": "data.matches",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "truncatedField": "data.truncated"
       },
       "pagination": "none",
       "effects": [
@@ -15785,10 +18226,31 @@
             "type": "object",
             "description": "Result data owned by citation_graph.get_layout.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "nodes": {
+                "type": "array"
+              },
+              "diagnostics": {
+                "type": "object",
+                "properties": {
+                  "truncated": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "limit",
+        "section": "data.nodes",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "truncatedField": "data.diagnostics.truncated"
       },
       "pagination": "none",
       "effects": [
@@ -15978,23 +18440,50 @@
             "type": "object",
             "description": "Result data owned by citation_graph.get_metrics.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "graph": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "metrics": {
+                "type": "array"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.metrics",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -16142,10 +18631,31 @@
             "type": "object",
             "description": "Result data owned by citation_graph.get_slice.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "nodes": {
+                "type": "array"
+              },
+              "diagnostics": {
+                "type": "object",
+                "properties": {
+                  "truncated": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "limit",
+        "section": "data.nodes",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "truncatedField": "data.diagnostics.truncated"
       },
       "pagination": "none",
       "effects": [
@@ -16519,23 +19029,62 @@
             "type": "object",
             "description": "Result data owned by citation_graph.get_overview.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "graph": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "nodes": {
+                "type": "array"
+              },
+              "pagination": {
+                "type": "object",
+                "properties": {
+                  "nodes": {
+                    "type": "object",
+                    "properties": {
+                      "nextCursor": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "hasMore": {
+                        "type": "boolean"
+                      },
+                      "returned": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "total": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "limit": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "additionalProperties": true
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.nodes",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.pagination.nodes.nextCursor",
+          "data.pagination.nodes.hasMore",
+          "data.pagination.nodes.returned",
+          "data.pagination.nodes.total",
+          "data.pagination.nodes.limit"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -16807,10 +19356,31 @@
             "type": "object",
             "description": "Result data owned by citation_graph.query_cluster.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "nodes": {
+                "type": "array"
+              },
+              "diagnostics": {
+                "type": "object",
+                "properties": {
+                  "truncated": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "limit",
+        "section": "data.nodes",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "truncatedField": "data.diagnostics.truncated"
       },
       "pagination": "none",
       "effects": [
@@ -16988,23 +19558,50 @@
             "type": "object",
             "description": "Result data owned by citation_graph.rank_external_references.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "graph": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "references": {
+                "type": "array"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.references",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -17194,23 +19791,50 @@
             "type": "object",
             "description": "Result data owned by citation_graph.rank_library_papers.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "graph": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "papers": {
+                "type": "array"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.papers",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -17360,6 +19984,9 @@
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -17575,6 +20202,9 @@
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -17875,23 +20505,62 @@
             "type": "object",
             "description": "Result data owned by library_index.get.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "entries": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "papers": {
+                "type": "array"
+              },
+              "pagination": {
+                "type": "object",
+                "properties": {
+                  "papers": {
+                    "type": "object",
+                    "properties": {
+                      "nextCursor": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "hasMore": {
+                        "type": "boolean"
+                      },
+                      "returned": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "total": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "limit": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "additionalProperties": true
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.papers",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.pagination.papers.nextCursor",
+          "data.pagination.papers.hasMore",
+          "data.pagination.papers.returned",
+          "data.pagination.papers.total",
+          "data.pagination.papers.limit"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -18041,23 +20710,50 @@
             "type": "object",
             "description": "Result data owned by reference_index.get.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "entries": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "entries": {
+                "type": "array"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.entries",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -18136,6 +20832,9 @@
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -18281,10 +20980,25 @@
             "type": "object",
             "description": "Result data owned by insights.get_attention_queue.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "items": {
+                "type": "array"
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "limit",
+        "section": "data.items",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "truncatedField": "data.truncated"
       },
       "pagination": "none",
       "effects": [
@@ -18476,23 +21190,50 @@
             "type": "object",
             "description": "Result data owned by resolvers.resolve.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "candidates": {
+                "type": "array"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.candidates",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -18645,6 +21386,9 @@
         },
         "additionalProperties": false
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -18795,6 +21539,9 @@
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -19085,78 +21832,83 @@
           "data": {
             "type": "object",
             "description": "Result data owned by topics.get_context.",
-            "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "file": {
-            "type": "object",
             "properties": {
-              "fileId": {
-                "type": "string"
-              },
-              "path": {
-                "type": "string"
-              },
-              "checksum": {
-                "type": "string"
-              },
-              "bytes": {
-                "type": "integer"
-              }
-            },
-            "additionalProperties": true
-          },
-          "delivery": {
-            "type": "object",
-            "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
-            "properties": {
-              "mode": {
-                "enum": [
-                  "local",
-                  "bridge-download",
-                  "bundle"
-                ]
-              },
-              "path": {
-                "type": "string"
-              },
-              "files": {
-                "type": "array",
-                "items": {
-                  "type": "object"
-                }
-              },
-              "bundle": {
+              "file": {
                 "type": "object",
                 "properties": {
                   "fileId": {
                     "type": "string"
                   },
-                  "displayName": {
+                  "path": {
                     "type": "string"
                   },
-                  "contentType": {
+                  "checksum": {
                     "type": "string"
                   },
-                  "size": {
+                  "bytes": {
                     "type": "integer"
                   }
                 },
                 "additionalProperties": true
               },
-              "downloadCommand": {
-                "type": "string"
-              },
-              "unpackHint": {
-                "type": "string"
+              "delivery": {
+                "type": "object",
+                "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
+                "properties": {
+                  "mode": {
+                    "enum": [
+                      "local",
+                      "bridge-download",
+                      "bundle"
+                    ]
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "bundle": {
+                    "type": "object",
+                    "properties": {
+                      "fileId": {
+                        "type": "string"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "contentType": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "type": "integer"
+                      }
+                    },
+                    "additionalProperties": true
+                  },
+                  "downloadCommand": {
+                    "type": "string"
+                  },
+                  "unpackHint": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
               }
             },
-            "additionalProperties": false
+            "additionalProperties": true,
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
           }
         },
         "additionalProperties": false
       },
-      "pagination": "file",
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
+      "pagination": "none",
       "effects": [
         {
           "kind": "none",
@@ -19302,12 +22054,46 @@
             "type": "object",
             "description": "Result data owned by topics.get_report.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "nextOffset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "totalChars": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "maxChars": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
       },
-      "pagination": "none",
+      "outputBoundary": {
+        "strategy": "offset",
+        "section": "data.text",
+        "defaultLimit": 8000,
+        "maxLimit": 16000,
+        "cursorInput": "offset",
+        "continuation": [
+          "data.nextOffset",
+          "data.hasMore",
+          "data.totalChars",
+          "data.truncated",
+          "data.maxChars"
+        ]
+      },
+      "pagination": "cursor",
       "effects": [
         {
           "kind": "none",
@@ -19453,12 +22239,55 @@
             "type": "object",
             "description": "Result data owned by topics.get_review_input.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "delivery": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "object",
+                    "properties": {
+                      "fileId": {
+                        "type": "string"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "contentType": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "sha256": {
+                        "type": "string"
+                      },
+                      "expiresAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "fileId",
+                      "displayName",
+                      "contentType",
+                      "expiresAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
           }
         },
         "additionalProperties": false
       },
-      "pagination": "none",
+      "outputBoundary": {
+        "strategy": "file",
+        "fileField": "data.delivery.file"
+      },
+      "pagination": "file",
       "effects": [
         {
           "kind": "none",
@@ -19622,23 +22451,50 @@
             "type": "object",
             "description": "Result data owned by topics.list.",
             "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "topics": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": [
-              "string",
-              "number",
-              "null"
-            ]
-          },
-          "hasMore": {
-            "type": "boolean"
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+            "properties": {
+              "topics": {
+                "type": "array"
+              },
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           }
         },
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "data.topics",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "data.nextCursor",
+          "data.hasMore",
+          "data.returned",
+          "data.total",
+          "data.limit"
+        ]
       },
       "pagination": "cursor",
       "effects": [
@@ -19788,6 +22644,9 @@
           "abandonable"
         ],
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -19946,12 +22805,68 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "applyReceipt": {
+          "agentRunId": {
+            "type": "string"
+          },
+          "workflowId": {
+            "type": "string"
+          },
+          "appliedAt": {
+            "type": "string"
+          },
+          "permission": {
+            "type": "object"
+          },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "succeeded": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "failed": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "total",
+              "succeeded",
+              "failed"
+            ],
+            "additionalProperties": false
+          },
+          "stateChange": {
+            "enum": [
+              "unchanged",
+              "changed"
+            ]
+          },
+          "handleConsumption": {
+            "const": "consumed"
+          },
+          "receiptUrl": {
             "type": "string"
           }
         },
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+        "required": [
+          "agentRunId",
+          "workflowId",
+          "appliedAt",
+          "permission",
+          "summary",
+          "stateChange",
+          "handleConsumption",
+          "receiptUrl"
+        ],
+        "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -20039,6 +22954,14 @@
             "type": "string",
             "description": "Agent run id returned by workflow agent-run",
             "position": 1
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque continuation cursor"
+          },
+          "limit": {
+            "type": "string",
+            "description": "Maximum number of entries (1-100)"
           }
         },
         "required": [
@@ -20064,6 +22987,40 @@
           "repeatable": false,
           "aliases": [],
           "defaultValues": []
+        },
+        {
+          "id": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Opaque continuation cursor",
+          "valueNames": [
+            "CURSOR"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
+        },
+        {
+          "id": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Maximum number of entries (1-100)",
+          "valueNames": [
+            "LIMIT"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
         }
       ],
       "argvBindings": [
@@ -20076,6 +23033,26 @@
           "required": true,
           "valueNames": [
             "AGENT_RUN_ID"
+          ]
+        },
+        {
+          "property": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "CURSOR"
+          ]
+        },
+        {
+          "property": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "LIMIT"
           ]
         }
       ],
@@ -20131,6 +23108,27 @@
             "items": {
               "type": "object"
             }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
           }
         },
         "required": [
@@ -20141,7 +23139,21 @@
         ],
         "additionalProperties": false
       },
-      "pagination": "none",
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "results",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
+      },
+      "pagination": "cursor",
       "effects": [
         {
           "kind": "none",
@@ -20190,7 +23202,11 @@
         "workflow",
         "agent-apply-status",
         "agent_run_id",
-        "AGENT_RUN_ID"
+        "AGENT_RUN_ID",
+        "cursor",
+        "CURSOR",
+        "limit",
+        "LIMIT"
       ],
       "hiddenFromIntentSearch": false
     },
@@ -20210,6 +23226,14 @@
           "bundle": {
             "type": "string",
             "description": "Agent handoff directory or ZIP"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque continuation cursor"
+          },
+          "limit": {
+            "type": "string",
+            "description": "Maximum number of entries (1-100)"
           }
         },
         "required": [
@@ -20234,6 +23258,40 @@
           "repeatable": false,
           "aliases": [],
           "defaultValues": []
+        },
+        {
+          "id": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Opaque continuation cursor",
+          "valueNames": [
+            "CURSOR"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
+        },
+        {
+          "id": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Maximum number of entries (1-100)",
+          "valueNames": [
+            "LIMIT"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
         }
       ],
       "argvBindings": [
@@ -20245,6 +23303,26 @@
           "required": true,
           "valueNames": [
             "DIR_OR_ZIP"
+          ]
+        },
+        {
+          "property": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "CURSOR"
+          ]
+        },
+        {
+          "property": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "LIMIT"
           ]
         }
       ],
@@ -20268,12 +23346,50 @@
             "description": "Response object returned by embedded host-bridge.agent-surface.v5.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+          },
+          "contracts": {
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
           }
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
-      "pagination": "none",
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "contracts",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
+      },
+      "pagination": "cursor",
       "effects": [
         {
           "kind": "none",
@@ -20308,7 +23424,11 @@
         "agent-bundle",
         "inspect",
         "bundle",
-        "DIR_OR_ZIP"
+        "DIR_OR_ZIP",
+        "cursor",
+        "CURSOR",
+        "limit",
+        "LIMIT"
       ],
       "hiddenFromIntentSearch": false
     },
@@ -20421,6 +23541,9 @@
           "abandonable"
         ],
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -20582,6 +23705,9 @@
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -20910,11 +24036,9 @@
           "expiresAt": {
             "type": "string"
           },
-          "requests": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
+          "requestCount": {
+            "type": "integer",
+            "minimum": 0
           },
           "instruction": {
             "type": "string"
@@ -20933,16 +24057,23 @@
             "items": {
               "type": "string"
             }
+          },
+          "bundleInspectCommand": {
+            "type": "string"
           }
         },
         "required": [
           "agentRunId",
           "workflowId",
           "expiresAt",
-          "requests",
-          "bundle"
+          "requestCount",
+          "bundle",
+          "bundleInspectCommand"
         ],
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -21152,6 +24283,9 @@
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -21228,6 +24362,9 @@
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -21344,6 +24481,9 @@
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -21420,6 +24560,9 @@
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -21576,6 +24719,9 @@
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -21701,6 +24847,9 @@
         ],
         "additionalProperties": false
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -21770,6 +24919,14 @@
           "backend": {
             "type": "string",
             "description": "Filter by backend id"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque continuation cursor"
+          },
+          "limit": {
+            "type": "string",
+            "description": "Maximum number of queue units (1-100)"
           }
         },
         "required": [],
@@ -21809,6 +24966,40 @@
           "repeatable": false,
           "aliases": [],
           "defaultValues": []
+        },
+        {
+          "id": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Opaque continuation cursor",
+          "valueNames": [
+            "CURSOR"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
+        },
+        {
+          "id": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Maximum number of queue units (1-100)",
+          "valueNames": [
+            "LIMIT"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
         }
       ],
       "argvBindings": [
@@ -21830,6 +25021,26 @@
           "required": false,
           "valueNames": [
             "BACKEND"
+          ]
+        },
+        {
+          "property": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "CURSOR"
+          ]
+        },
+        {
+          "property": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "LIMIT"
           ]
         }
       ],
@@ -21897,6 +25108,27 @@
               ],
               "additionalProperties": true
             }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
           }
         },
         "required": [
@@ -21904,7 +25136,21 @@
         ],
         "additionalProperties": false
       },
-      "pagination": "none",
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "units",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
+      },
+      "pagination": "cursor",
       "effects": [
         {
           "kind": "none",
@@ -21957,7 +25203,11 @@
         "backend-type",
         "BACKEND_TYPE",
         "backend",
-        "BACKEND"
+        "BACKEND",
+        "cursor",
+        "CURSOR",
+        "limit",
+        "LIMIT"
       ],
       "hiddenFromIntentSearch": false
     },
@@ -22101,6 +25351,9 @@
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
       },
+      "outputBoundary": {
+        "strategy": "fixed"
+      },
       "pagination": "none",
       "effects": [
         {
@@ -22157,6 +25410,14 @@
             "type": "string",
             "description": "Opaque submission id returned by workflow submit",
             "position": 1
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque continuation cursor for submission units"
+          },
+          "limit": {
+            "type": "string",
+            "description": "Maximum number of submission units (1-100)"
           }
         },
         "required": [
@@ -22182,6 +25443,40 @@
           "repeatable": false,
           "aliases": [],
           "defaultValues": []
+        },
+        {
+          "id": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Opaque continuation cursor for submission units",
+          "valueNames": [
+            "CURSOR"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
+        },
+        {
+          "id": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "global": false,
+          "help": "Maximum number of submission units (1-100)",
+          "valueNames": [
+            "LIMIT"
+          ],
+          "possibleValues": [],
+          "conflictsWith": [],
+          "repeatable": false,
+          "aliases": [],
+          "defaultValues": []
         }
       ],
       "argvBindings": [
@@ -22194,6 +25489,26 @@
           "required": true,
           "valueNames": [
             "SUBMISSION_ID"
+          ]
+        },
+        {
+          "property": "cursor",
+          "kind": "option",
+          "token": "--cursor",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "CURSOR"
+          ]
+        },
+        {
+          "property": "limit",
+          "kind": "option",
+          "token": "--limit",
+          "takesValue": true,
+          "required": false,
+          "valueNames": [
+            "LIMIT"
           ]
         }
       ],
@@ -22250,6 +25565,23 @@
             "items": {
               "type": "object"
             }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "returned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 0
           }
         },
         "required": [
@@ -22265,7 +25597,21 @@
         ],
         "additionalProperties": false
       },
-      "pagination": "none",
+      "outputBoundary": {
+        "strategy": "cursor",
+        "section": "units",
+        "defaultLimit": 25,
+        "maxLimit": 100,
+        "cursorInput": "cursor",
+        "continuation": [
+          "nextCursor",
+          "hasMore",
+          "returned",
+          "total",
+          "limit"
+        ]
+      },
+      "pagination": "cursor",
       "effects": [
         {
           "kind": "none",
@@ -22308,7 +25654,11 @@
         "submission",
         "get",
         "submission_id",
-        "SUBMISSION_ID"
+        "SUBMISSION_ID",
+        "cursor",
+        "CURSOR",
+        "limit",
+        "LIMIT"
       ],
       "hiddenFromIntentSearch": false
     },
@@ -22732,20 +26082,14 @@
           "submissionId": {
             "type": "string"
           },
-          "jobIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
           "totalJobs": {
             "type": "integer"
           },
-          "tasks": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
+          "runUrl": {
+            "type": "string"
+          },
+          "tasksUrl": {
+            "type": "string"
           },
           "totalUnits": {
             "type": "integer"
@@ -22781,9 +26125,9 @@
             },
             "required": [
               "workflowRunId",
-              "jobIds",
               "totalJobs",
-              "tasks"
+              "runUrl",
+              "tasksUrl"
             ]
           },
           {
@@ -22803,6 +26147,9 @@
           }
         ],
         "additionalProperties": false
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [
@@ -23186,6 +26533,9 @@
         },
         "additionalProperties": true,
         "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+      },
+      "outputBoundary": {
+        "strategy": "fixed"
       },
       "pagination": "none",
       "effects": [

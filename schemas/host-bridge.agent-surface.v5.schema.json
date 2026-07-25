@@ -144,6 +144,7 @@
           "inputSchemas",
           "payloadSchema",
           "resultSchema",
+          "outputBoundary",
           "pagination",
           "effects",
           "approvalContract",
@@ -231,6 +232,27 @@
           },
           "resultSchema": {
             "type": "object"
+          },
+          "outputBoundary": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["strategy"],
+            "properties": {
+              "strategy": {
+                "enum": ["fixed", "cursor", "offset", "limit", "file", "raw"]
+              },
+              "section": { "type": "string" },
+              "defaultLimit": { "type": "integer", "minimum": 1 },
+              "maxLimit": { "type": "integer", "minimum": 1 },
+              "cursorInput": { "type": "string" },
+              "continuation": {
+                "type": "array",
+                "items": { "type": "string" },
+                "uniqueItems": true
+              },
+              "truncatedField": { "type": "string" },
+              "fileField": { "type": "string" }
+            }
           },
           "pagination": {
             "enum": ["none", "cursor", "file"]

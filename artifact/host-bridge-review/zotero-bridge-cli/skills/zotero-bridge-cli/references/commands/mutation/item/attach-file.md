@@ -313,6 +313,9 @@ zotero-bridge mutation item attach-file [--endpoint <ENDPOINT>] [--operation-id 
     },
     "additionalProperties": false
   },
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -380,11 +383,11 @@ zotero-bridge mutation item attach-file [--endpoint <ENDPOINT>] [--operation-id 
 ## 操作契约
 
 - 规范 argv 路径： `mutation` `item` `attach-file`.
+- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `write`; 危险级别： `review`.
-- Intent 可见性： `visible`.
+- 类别： `write`; danger: `review`.
+- 意图可见性： `visible`.
 - 操作别名： `mutation item attach-file`, `mutation`, `item`, `attach-file`, `ITEM`, `file_id`, `file-id`, `FILE_ID`, `display_name`, `display-name`, `DISPLAY_NAME`, `content_type`, `content-type`, `CONTENT_TYPE`.
-
 ### Effects
 
 ```json

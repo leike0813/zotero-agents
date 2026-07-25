@@ -184,6 +184,9 @@ zotero-bridge product remove [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pr
     },
     "additionalProperties": false
   },
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -235,11 +238,11 @@ zotero-bridge product remove [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pr
 ## 操作契约
 
 - 规范 argv 路径： `product` `remove`.
+- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `write`; 危险级别： `review`.
-- Intent 可见性： `visible`.
+- 类别： `write`; danger: `review`.
+- 意图可见性： `visible`.
 - 操作别名： `product remove`, `product`, `remove`, `product_id`, `PRODUCT_ID`.
-
 ### Effects
 
 ```json

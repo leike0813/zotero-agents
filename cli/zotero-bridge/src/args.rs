@@ -179,8 +179,8 @@ pub struct SurfaceSearchArgs {
     #[arg(
         long,
         default_value_t = 10,
-        value_parser = clap::value_parser!(u16).range(1..=100),
-        help = "Maximum number of ranked matches (1-100)"
+        value_parser = clap::value_parser!(u16).range(1..=20),
+        help = "Maximum number of ranked matches (1-20)"
     )]
     pub limit: u16,
 
@@ -212,7 +212,7 @@ pub enum BridgeCommand {
         about = "Read the authenticated Zotero Bridge service manifest",
         long_about = "Call GET /bridge/v1/manifest. Requires ZOTERO_BRIDGE_TOKEN, a profile token/tokenEnv, or the Zotero Agents well-known profile. The response lists bridge protocol metadata and capability names."
     )]
-    Manifest,
+    Manifest(PageArgs),
 
     #[command(about = "Inspect or diagnose the active Zotero Bridge connection profile")]
     Profile(BridgeProfileArgs),
@@ -295,7 +295,7 @@ pub enum ContextCommand {
         about = "Read current Zotero UI context",
         long_about = "Call GET /bridge/v1/context/current. This read-only command returns the active Zotero target, library id, selection state, current item summary, and selected item summaries."
     )]
-    Current,
+    Current(PageArgs),
 
     #[command(about = "Read or open the current Zotero selection")]
     Selection(ContextSelectionArgs),
@@ -322,7 +322,7 @@ pub enum ContextSelectionCommand {
         about = "Read selected Zotero item summaries",
         long_about = "Call GET /bridge/v1/context/selection."
     )]
-    Get,
+    Get(PageArgs),
 
     #[command(
         about = "Open one or more Zotero items as the active selection",
@@ -335,6 +335,9 @@ pub enum ContextSelectionCommand {
 pub struct ContextSelectionOpenArgs {
     #[arg(required = true, help = "Zotero item refs")]
     pub item_refs: Vec<String>,
+
+    #[command(flatten)]
+    pub page: PageArgs,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -427,7 +430,7 @@ pub enum ItemCommand {
         about = "List child attachments for one Zotero item",
         long_about = "Call Zotero capability library.get_item_attachments. This returns metadata and bridge-issued file handles when available; use file download to fetch registered files."
     )]
-    Attachments(ItemRefArgs),
+    Attachments(ItemPageArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -478,10 +481,19 @@ pub struct ItemNotesArgs {
     pub limit: Option<u32>,
 
     #[arg(long, help = "Pagination cursor")]
-    pub cursor: Option<u32>,
+    pub cursor: Option<String>,
 
     #[arg(long, help = "Maximum excerpt characters per note")]
     pub max_excerpt_chars: Option<u32>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct ItemPageArgs {
+    #[command(flatten)]
+    pub item: ItemRefArgs,
+
+    #[command(flatten)]
+    pub page: PageArgs,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -502,7 +514,7 @@ pub enum NoteCommand {
         about = "List embedded workflow payloads in one Zotero note",
         long_about = "Call Zotero capability library.list_note_payloads. Provide --key or --id."
     )]
-    Payloads(ItemRefArgs),
+    Payloads(ItemPageArgs),
 
     #[command(
         about = "Read one embedded workflow payload from a Zotero note",
@@ -647,6 +659,9 @@ pub struct AnnotationItemArgs {
         help = "Zotero item ref: key, numeric id, libraryId:key, or JSON object"
     )]
     pub item: String,
+
+    #[command(flatten)]
+    pub page: PageArgs,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1362,6 +1377,12 @@ pub struct WorkflowQueueListArgs {
 
     #[arg(long, help = "Filter by backend id")]
     pub backend: Option<String>,
+
+    #[arg(long, help = "Opaque continuation cursor")]
+    pub cursor: Option<String>,
+
+    #[arg(long, help = "Maximum number of queue units (1-100)")]
+    pub limit: Option<u32>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1389,6 +1410,12 @@ pub enum WorkflowSubmissionCommand {
 pub struct WorkflowSubmissionGetArgs {
     #[arg(help = "Opaque submission id returned by workflow submit")]
     pub submission_id: String,
+
+    #[arg(long, help = "Opaque continuation cursor for submission units")]
+    pub cursor: Option<String>,
+
+    #[arg(long, help = "Maximum number of submission units (1-100)")]
+    pub limit: Option<u32>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1555,6 +1582,9 @@ pub struct WorkflowAgentBundleInspectArgs {
         help = "Agent handoff directory or ZIP"
     )]
     pub bundle: PathBuf,
+
+    #[command(flatten)]
+    pub page: PageArgs,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1605,6 +1635,9 @@ pub struct WorkflowAgentApplyArgs {
 pub struct WorkflowAgentApplyStatusArgs {
     #[arg(help = "Agent run id returned by workflow agent-run")]
     pub agent_run_id: String,
+
+    #[command(flatten)]
+    pub page: PageArgs,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1617,6 +1650,9 @@ pub struct WorkflowAgentRunLifecycleArgs {
 pub struct WorkflowRunArgs {
     #[arg(help = "Workflow run id")]
     pub run_id: String,
+
+    #[command(flatten)]
+    pub page: PageArgs,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1661,7 +1697,7 @@ pub enum RunCommand {
         about = "List lightweight active workflow runtime tasks",
         long_about = "Call GET /bridge/v1/tasks/active. This returns running, waiting, and failed-retriable task handles without transcripts or local paths."
     )]
-    Active,
+    Active(PageArgs),
 
     #[command(
         about = "List lightweight recent workflow runtime tasks",
@@ -1704,6 +1740,9 @@ pub struct RunWorkflowRecentArgs {
 
     #[arg(long, help = "Maximum number of runs")]
     pub limit: Option<u32>,
+
+    #[arg(long, help = "Opaque continuation cursor")]
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1718,7 +1757,7 @@ pub enum RunPermissionCommand {
         about = "List pending Zotero-side permission requests",
         long_about = "Call GET /bridge/v1/permissions/pending. This is read-only and cannot approve or reject."
     )]
-    Pending,
+    Pending(PageArgs),
 
     #[command(
         about = "Read one Zotero-side permission request",
@@ -1745,6 +1784,18 @@ pub struct TaskRecentArgs {
     pub state: Option<String>,
 
     #[arg(long, help = "Maximum number of tasks")]
+    pub limit: Option<u32>,
+
+    #[arg(long, help = "Opaque continuation cursor")]
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct PageArgs {
+    #[arg(long, help = "Opaque continuation cursor")]
+    pub cursor: Option<String>,
+
+    #[arg(long, help = "Maximum number of entries (1-100)")]
     pub limit: Option<u32>,
 }
 
@@ -1877,6 +1928,12 @@ pub struct TaskListArgs {
 
     #[arg(long, help = "Only return active task runtime rows")]
     pub active_only: bool,
+
+    #[arg(long, help = "Opaque continuation cursor")]
+    pub cursor: Option<String>,
+
+    #[arg(long, help = "Maximum number of tasks (1-100)")]
+    pub limit: Option<u32>,
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -1934,6 +1991,9 @@ pub struct SkillRunRecentArgs {
 
     #[arg(long, help = "Maximum number of skill runs")]
     pub limit: Option<u32>,
+
+    #[arg(long, help = "Opaque continuation cursor")]
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1946,6 +2006,9 @@ pub struct SkillRunEventsArgs {
 
     #[arg(long, help = "Maximum number of events")]
     pub limit: Option<u32>,
+
+    #[arg(long, help = "Opaque continuation cursor")]
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -1965,7 +2028,7 @@ pub enum ProductCommand {
     #[command(about = "List normal Dashboard Products")]
     List(ProductListArgs),
     #[command(about = "Read one normal Dashboard Product")]
-    Get(ProductIdArgs),
+    Get(ProductGetArgs),
     #[command(about = "Download one or all Dashboard Product assets")]
     Download(ProductDownloadArgs),
     #[command(about = "Remove one Dashboard Product record through Zotero approval")]
@@ -1979,6 +2042,15 @@ pub struct ProductIdArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+pub struct ProductGetArgs {
+    #[arg(help = "Dashboard Product id")]
+    pub product_id: String,
+
+    #[command(flatten)]
+    pub page: PageArgs,
+}
+
+#[derive(Debug, Clone, Args)]
 pub struct ProductListArgs {
     #[arg(long)]
     pub workflow_id: Option<String>,
@@ -1987,7 +2059,7 @@ pub struct ProductListArgs {
     #[arg(long)]
     pub request_id: Option<String>,
     #[arg(long)]
-    pub cursor: Option<u32>,
+    pub cursor: Option<String>,
     #[arg(long)]
     pub limit: Option<u32>,
 }
@@ -2142,7 +2214,7 @@ mod tests {
         ContextItemCommand, ContextNoteCommand, ContextSelectionCommand, FileCommand, ItemCommand,
         LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand, MutationCollectionCommand,
         MutationCommand, MutationItemCommand, MutationNoteCommand, MutationTagCommand,
-        NotificationCommand, ProductCommand, RunArgs, RunCommand, RunPermissionCommand,
+        NotificationCommand, PageArgs, ProductCommand, RunArgs, RunCommand, RunPermissionCommand,
         RunWorkflowCommand, SkillRunCommand, SurfaceCommand, SynthesisCacheCommand,
         SynthesisCommand, SynthesisIndexCommand, TopicsCommand, WorkflowAgentBundleCommand,
         WorkflowAgentResultCommand, WorkflowCommand, WorkflowProfileCommand, WorkflowQueueCommand,
@@ -2192,7 +2264,7 @@ mod tests {
             "--intent",
             "diagnostic snapshot",
             "--limit",
-            "25",
+            "20",
             "--include-debug",
             "--json",
         ]);
@@ -2200,7 +2272,7 @@ mod tests {
             Command::Surface(args) => match args.command {
                 SurfaceCommand::Search(search) => {
                     assert_eq!(search.intent, "diagnostic snapshot");
-                    assert_eq!(search.limit, 25);
+                    assert_eq!(search.limit, 20);
                     assert!(search.include_debug);
                     assert!(search.json);
                 }
@@ -2226,7 +2298,10 @@ mod tests {
         assert!(matches!(
             Cli::parse_from(["zotero-bridge", "run", "active"]).command,
             Command::Run(RunArgs {
-                command: RunCommand::Active
+                command: RunCommand::Active(PageArgs {
+                    cursor: None,
+                    limit: None,
+                })
             })
         ));
     }
@@ -2858,7 +2933,7 @@ mod tests {
         let cli = Cli::parse_from(["zotero-bridge", "context", "current"]);
         match cli.command {
             Command::Context(args) => match args.command {
-                ContextCommand::Current => {}
+                ContextCommand::Current(_) => {}
                 _ => panic!("expected context current"),
             },
             _ => panic!("expected context command"),
@@ -3320,7 +3395,10 @@ mod tests {
 
         match cli.command {
             Command::Run(args) => match args.command {
-                RunCommand::Active => {}
+                RunCommand::Active(args) => {
+                    assert!(args.cursor.is_none());
+                    assert!(args.limit.is_none());
+                }
                 _ => panic!("expected run active"),
             },
             _ => panic!("expected run command"),

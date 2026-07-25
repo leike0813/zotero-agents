@@ -5,7 +5,7 @@ Open one or more Zotero items as the active selection
 ## Usage
 
 ```console
-zotero-bridge context selection open [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] ITEM_REFS <ITEM_REFS>
+zotero-bridge context selection open [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] ITEM_REFS <ITEM_REFS> [--cursor <CURSOR>] [--limit <LIMIT>]
 ```
 
 The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.
@@ -24,6 +24,8 @@ The global options may appear before or after the leaf command. Use `--schema` t
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | ITEM_REFS | item_refs | positional | yes | — | ITEM_REFS; numArgs: 1.. | yes | — | — | Zotero item refs |
+| --cursor | cursor | option | no | — | CURSOR | no | — | — | Opaque continuation cursor |
+| --limit | limit | option | no | — | LIMIT | no | — | — | Maximum number of entries (1-100) |
 
 ## Invocation schema
 
@@ -38,6 +40,14 @@ The global options may appear before or after the leaf command. Use `--schema` t
       },
       "description": "Zotero item refs",
       "position": 1
+    },
+    "cursor": {
+      "type": "string",
+      "description": "Opaque continuation cursor"
+    },
+    "limit": {
+      "type": "string",
+      "description": "Maximum number of entries (1-100)"
     }
   },
   "required": [
@@ -78,6 +88,48 @@ This command has no structured JSON input parameter.
       "description": "Response object returned by POST /bridge/v1/context/selection/open.",
       "additionalProperties": true,
       "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+    },
+    "target": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array"
+        }
+      },
+      "additionalProperties": true
+    },
+    "pagination": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "object",
+          "properties": {
+            "nextCursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "hasMore": {
+              "type": "boolean"
+            },
+            "returned": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "total": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
     }
   },
   "additionalProperties": true,
@@ -114,6 +166,14 @@ This closed descriptor is the machine-readable command contract returned by `sur
         },
         "description": "Zotero item refs",
         "position": 1
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Opaque continuation cursor"
+      },
+      "limit": {
+        "type": "string",
+        "description": "Maximum number of entries (1-100)"
       }
     },
     "required": [
@@ -140,6 +200,40 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "numArgs": "1..",
       "aliases": [],
       "defaultValues": []
+    },
+    {
+      "id": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Opaque continuation cursor",
+      "valueNames": [
+        "CURSOR"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
+    },
+    {
+      "id": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Maximum number of entries (1-100)",
+      "valueNames": [
+        "LIMIT"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
     }
   ],
   "argvBindings": [
@@ -152,6 +246,26 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "required": true,
       "valueNames": [
         "ITEM_REFS"
+      ]
+    },
+    {
+      "property": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "property": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "LIMIT"
       ]
     }
   ],
@@ -175,12 +289,68 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "description": "Response object returned by POST /bridge/v1/context/selection/open.",
         "additionalProperties": true,
         "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+      },
+      "target": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array"
+          }
+        },
+        "additionalProperties": true
+      },
+      "pagination": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "object",
+            "properties": {
+              "nextCursor": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "hasMore": {
+                "type": "boolean"
+              },
+              "returned": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": true
       }
     },
     "additionalProperties": true,
     "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
   },
-  "pagination": "none",
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "target.items",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "cursor",
+    "continuation": [
+      "pagination.items.nextCursor",
+      "pagination.items.hasMore",
+      "pagination.items.returned",
+      "pagination.items.total",
+      "pagination.items.limit"
+    ]
+  },
+  "pagination": "cursor",
   "effects": [
     {
       "kind": "ui-navigation",
@@ -223,7 +393,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "selection",
     "open",
     "item_refs",
-    "ITEM_REFS"
+    "ITEM_REFS",
+    "cursor",
+    "CURSOR",
+    "limit",
+    "LIMIT"
   ],
   "hiddenFromIntentSearch": false
 }
@@ -232,10 +406,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `context` `selection` `open`.
-- Pagination: `none`.
+- Output boundary: `cursor`; governed details: {"strategy":"cursor","section":"target.items","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["pagination.items.nextCursor","pagination.items.hasMore","pagination.items.returned","pagination.items.total","pagination.items.limit"]}.
+- Pagination: `cursor`.
 - Category: `navigation`; danger: `review`.
 - Intent visibility: `visible`.
-- Operational aliases: `context selection open`, `context`, `selection`, `open`, `item_refs`, `ITEM_REFS`.
+- Operational aliases: `context selection open`, `context`, `selection`, `open`, `item_refs`, `ITEM_REFS`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
 
 ### Effects
 

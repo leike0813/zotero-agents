@@ -283,6 +283,7 @@ export type ZoteroHostNoteDetailChunkDto = {
   hasMore: boolean;
   totalChars: number;
   truncated: boolean;
+  maxChars: number;
   parent?: {
     id: number;
     key: string;
@@ -299,7 +300,9 @@ export type ZoteroHostNotePayloadSummaryDto = Omit<
 export type ZoteroHostNotePayloadDetailDto = Omit<
   ZoteroNotePayloadDetail,
   "encodedValue" | "decodedText"
->;
+> & {
+  maxChars: number;
+};
 
 export type ZoteroHostNotePayloadDetailArgs = {
   payloadType?: string;
@@ -554,8 +557,8 @@ const PAYLOAD_IMAGE_FALLBACK_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 const SEARCH_LIMIT_DEFAULT = 20;
 const SEARCH_LIMIT_MAX = 50;
-const LIBRARY_LIST_LIMIT_DEFAULT = 100;
-const LIBRARY_LIST_LIMIT_MAX = 200;
+const LIBRARY_LIST_LIMIT_DEFAULT = 25;
+const LIBRARY_LIST_LIMIT_MAX = 100;
 const LIBRARY_READINESS_CHECKS: ZoteroHostLibraryReadinessCheck[] = [
   "pdf",
   "markdown",
@@ -1188,6 +1191,7 @@ function serializeNoteDetailChunk(
     hasMore: nextOffset < fullContent.length,
     totalChars: fullContent.length,
     truncated: nextOffset < fullContent.length,
+    maxChars,
     parent,
     warnings: warnings.length ? warnings : undefined,
   };
@@ -1280,6 +1284,13 @@ async function serializeNotePayloadDetail(
     hasMore: detail.hasMore,
     totalChars: detail.totalChars,
     truncated: detail.truncated,
+    maxChars: Math.min(
+      NOTE_DETAIL_CHUNK_MAX,
+      Math.max(
+        1,
+        parsePositiveInteger(args.maxChars) || NOTE_DETAIL_CHUNK_DEFAULT,
+      ),
+    ),
   };
 }
 

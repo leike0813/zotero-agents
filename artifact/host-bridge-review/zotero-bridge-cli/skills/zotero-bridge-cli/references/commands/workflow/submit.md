@@ -251,20 +251,14 @@ zotero-bridge workflow submit [--endpoint <ENDPOINT>] [--operation-id <ID>] [--p
     "submissionId": {
       "type": "string"
     },
-    "jobIds": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
     "totalJobs": {
       "type": "integer"
     },
-    "tasks": {
-      "type": "array",
-      "items": {
-        "type": "object"
-      }
+    "runUrl": {
+      "type": "string"
+    },
+    "tasksUrl": {
+      "type": "string"
     },
     "totalUnits": {
       "type": "integer"
@@ -300,9 +294,9 @@ zotero-bridge workflow submit [--endpoint <ENDPOINT>] [--operation-id <ID>] [--p
       },
       "required": [
         "workflowRunId",
-        "jobIds",
         "totalJobs",
-        "tasks"
+        "runUrl",
+        "tasksUrl"
       ]
     },
     {
@@ -788,20 +782,14 @@ zotero-bridge workflow submit --provider-profile '{}'
       "submissionId": {
         "type": "string"
       },
-      "jobIds": {
-        "type": "array",
-        "items": {
-          "type": "string"
-        }
-      },
       "totalJobs": {
         "type": "integer"
       },
-      "tasks": {
-        "type": "array",
-        "items": {
-          "type": "object"
-        }
+      "runUrl": {
+        "type": "string"
+      },
+      "tasksUrl": {
+        "type": "string"
       },
       "totalUnits": {
         "type": "integer"
@@ -837,9 +825,9 @@ zotero-bridge workflow submit --provider-profile '{}'
         },
         "required": [
           "workflowRunId",
-          "jobIds",
           "totalJobs",
-          "tasks"
+          "runUrl",
+          "tasksUrl"
         ]
       },
       {
@@ -859,6 +847,9 @@ zotero-bridge workflow submit --provider-profile '{}'
       }
     ],
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "fixed"
   },
   "pagination": "none",
   "effects": [
@@ -946,11 +937,11 @@ zotero-bridge workflow submit --provider-profile '{}'
 ## 操作契约
 
 - 规范 argv 路径： `workflow` `submit`.
+- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `write`; 危险级别： `review`.
-- Intent 可见性： `visible`.
+- 类别： `write`; danger: `review`.
+- 意图可见性： `visible`.
 - 操作别名： `workflow submit`, `workflow`, `submit`, `WORKFLOW`, `selection`, `JSON_OR_FILE`, `none`, `NONE`, `workflow_options`, `workflow-options`, `provider_profile`, `provider-profile`, `max_concurrency`, `max-concurrency`, `MAX_CONCURRENCY`.
-
 ### Effects
 
 ```json

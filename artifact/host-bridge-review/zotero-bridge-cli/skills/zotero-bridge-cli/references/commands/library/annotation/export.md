@@ -88,7 +88,46 @@ zotero-bridge library annotation export [--endpoint <ENDPOINT>] [--operation-id 
       "type": "object",
       "description": "Result data owned by library.export_annotations.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "delivery": {
+          "type": "object",
+          "properties": {
+            "file": {
+              "type": "object",
+              "properties": {
+                "fileId": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sha256": {
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "fileId",
+                "displayName",
+                "contentType",
+                "expiresAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": true
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -221,12 +260,55 @@ zotero-bridge library annotation export [--endpoint <ENDPOINT>] [--operation-id 
         "type": "object",
         "description": "Result data owned by library.export_annotations.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "delivery": {
+            "type": "object",
+            "properties": {
+              "file": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "sha256": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "fileId",
+                  "displayName",
+                  "contentType",
+                  "expiresAt"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": true
+          }
+        }
       }
     },
     "additionalProperties": false
   },
-  "pagination": "none",
+  "outputBoundary": {
+    "strategy": "file",
+    "fileField": "data.delivery.file"
+  },
+  "pagination": "file",
   "effects": [
     {
       "kind": "none",
@@ -272,11 +354,11 @@ zotero-bridge library annotation export [--endpoint <ENDPOINT>] [--operation-id 
 ## 操作契约
 
 - 规范 argv 路径： `library` `annotation` `export`.
-- 分页： `none`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
+- 输出边界： `file`; governed details: {"strategy":"file","fileField":"data.delivery.file"}.
+- 分页： `file`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
 - 操作别名： `library annotation export`, `library`, `annotation`, `export`, `item`, `ITEM`, `format`, `FORMAT`.
-
 ### Effects
 
 ```json

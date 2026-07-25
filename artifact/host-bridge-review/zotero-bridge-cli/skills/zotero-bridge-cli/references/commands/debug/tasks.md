@@ -93,7 +93,15 @@ zotero-bridge debug tasks [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profi
       "type": "object",
       "description": "Result data owned by debug.tasks.snapshot.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "tasks": {
+          "type": "array"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -222,10 +230,25 @@ zotero-bridge debug tasks --input '{}'
         "type": "object",
         "description": "Result data owned by debug.tasks.snapshot.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "tasks": {
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
       }
     },
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "limit",
+    "section": "data.tasks",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "truncatedField": "data.truncated"
   },
   "pagination": "none",
   "effects": [
@@ -270,11 +293,11 @@ zotero-bridge debug tasks --input '{}'
 ## 操作契约
 
 - 规范 argv 路径： `debug` `tasks`.
+- 输出边界： `limit`; governed details: {"strategy":"limit","section":"data.tasks","defaultLimit":25,"maxLimit":100,"truncatedField":"data.truncated"}.
 - 分页： `none`.
-- 类别： `debug`; 危险级别： `none`.
-- Intent 可见性： `hidden`.
+- 类别： `debug`; danger: `none`.
+- 意图可见性： `hidden`.
 - 操作别名： `debug tasks`, `debug`, `tasks`, `input`, `JSON_OR_FILE`.
-
 ### Effects
 
 ```json

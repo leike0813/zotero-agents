@@ -40,7 +40,7 @@ zotero-bridge surface search [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pr
     },
     "limit": {
       "type": "string",
-      "description": "Maximum number of ranked matches (1-100)"
+      "description": "Maximum number of ranked matches (1-20)"
     },
     "include-debug": {
       "type": "boolean",
@@ -93,6 +93,12 @@ zotero-bridge surface search [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pr
       "description": "Response object returned by embedded host-bridge.agent-surface.v5.",
       "additionalProperties": true,
       "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+    },
+    "items": {
+      "type": "array"
+    },
+    "truncated": {
+      "type": "boolean"
     }
   },
   "additionalProperties": true,
@@ -127,7 +133,7 @@ zotero-bridge surface search [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pr
       },
       "limit": {
         "type": "string",
-        "description": "Maximum number of ranked matches (1-100)"
+        "description": "Maximum number of ranked matches (1-20)"
       },
       "include-debug": {
         "type": "boolean",
@@ -168,7 +174,7 @@ zotero-bridge surface search [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pr
       "takesValue": true,
       "required": false,
       "global": false,
-      "help": "Maximum number of ranked matches (1-100)",
+      "help": "Maximum number of ranked matches (1-20)",
       "valueNames": [
         "LIMIT"
       ],
@@ -287,10 +293,23 @@ zotero-bridge surface search [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pr
         "description": "Response object returned by embedded host-bridge.agent-surface.v5.",
         "additionalProperties": true,
         "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+      },
+      "items": {
+        "type": "array"
+      },
+      "truncated": {
+        "type": "boolean"
       }
     },
     "additionalProperties": true,
     "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "outputBoundary": {
+    "strategy": "limit",
+    "section": "items",
+    "defaultLimit": 10,
+    "maxLimit": 20,
+    "truncatedField": "truncated"
   },
   "pagination": "none",
   "effects": [
@@ -341,11 +360,11 @@ zotero-bridge surface search [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pr
 ## 操作契约
 
 - 规范 argv 路径： `surface` `search`.
+- 输出边界： `limit`; governed details: {"strategy":"limit","section":"items","defaultLimit":10,"maxLimit":20,"truncatedField":"truncated"}.
 - 分页： `none`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
 - 操作别名： `surface search`, `surface`, `search`, `intent`, `INTENT`, `limit`, `LIMIT`, `include_debug`, `include-debug`, `INCLUDE_DEBUG`, `json`, `JSON`.
-
 ### Effects
 
 ```json

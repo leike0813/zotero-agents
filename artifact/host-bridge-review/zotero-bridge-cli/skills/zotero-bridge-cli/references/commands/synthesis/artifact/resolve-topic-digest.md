@@ -93,7 +93,27 @@ zotero-bridge synthesis artifact resolve-topic-digest [--endpoint <ENDPOINT>] [-
       "type": "object",
       "description": "Result data owned by paper_artifacts.resolve_topic_digest.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "nextOffset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "totalChars": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "maxChars": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -226,12 +246,46 @@ zotero-bridge synthesis artifact resolve-topic-digest --query '{}'
         "type": "object",
         "description": "Result data owned by paper_artifacts.resolve_topic_digest.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "nextOffset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "totalChars": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "maxChars": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
       }
     },
     "additionalProperties": false
   },
-  "pagination": "none",
+  "outputBoundary": {
+    "strategy": "offset",
+    "section": "data.text",
+    "defaultLimit": 8000,
+    "maxLimit": 16000,
+    "cursorInput": "offset",
+    "continuation": [
+      "data.nextOffset",
+      "data.hasMore",
+      "data.totalChars",
+      "data.truncated",
+      "data.maxChars"
+    ]
+  },
+  "pagination": "cursor",
   "effects": [
     {
       "kind": "none",
@@ -275,11 +329,11 @@ zotero-bridge synthesis artifact resolve-topic-digest --query '{}'
 ## 操作契约
 
 - 规范 argv 路径： `synthesis` `artifact` `resolve-topic-digest`.
-- 分页： `none`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
+- 输出边界： `offset`; governed details: {"strategy":"offset","section":"data.text","defaultLimit":8000,"maxLimit":16000,"cursorInput":"offset","continuation":["data.nextOffset","data.hasMore","data.totalChars","data.truncated","data.maxChars"]}.
+- 分页： `cursor`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
 - 操作别名： `synthesis artifact resolve-topic-digest`, `synthesis`, `artifact`, `resolve-topic-digest`, `query`, `JSON_OR_FILE`.
-
 ### Effects
 
 ```json

@@ -93,7 +93,15 @@ zotero-bridge synthesis insight attention-queue [--endpoint <ENDPOINT>] [--opera
       "type": "object",
       "description": "Result data owned by insights.get_attention_queue.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "items": {
+          "type": "array"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -226,10 +234,25 @@ zotero-bridge synthesis insight attention-queue --query '{}'
         "type": "object",
         "description": "Result data owned by insights.get_attention_queue.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "items": {
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
       }
     },
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "limit",
+    "section": "data.items",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "truncatedField": "data.truncated"
   },
   "pagination": "none",
   "effects": [
@@ -275,11 +298,11 @@ zotero-bridge synthesis insight attention-queue --query '{}'
 ## 操作契约
 
 - 规范 argv 路径： `synthesis` `insight` `attention-queue`.
+- 输出边界： `limit`; governed details: {"strategy":"limit","section":"data.items","defaultLimit":25,"maxLimit":100,"truncatedField":"data.truncated"}.
 - 分页： `none`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
 - 操作别名： `synthesis insight attention-queue`, `synthesis`, `insight`, `attention-queue`, `query`, `JSON_OR_FILE`.
-
 ### Effects
 
 ```json

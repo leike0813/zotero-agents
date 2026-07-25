@@ -185,11 +185,9 @@ zotero-bridge workflow agent-run [--endpoint <ENDPOINT>] [--operation-id <ID>] [
     "expiresAt": {
       "type": "string"
     },
-    "requests": {
-      "type": "array",
-      "items": {
-        "type": "object"
-      }
+    "requestCount": {
+      "type": "integer",
+      "minimum": 0
     },
     "instruction": {
       "type": "string"
@@ -208,14 +206,18 @@ zotero-bridge workflow agent-run [--endpoint <ENDPOINT>] [--operation-id <ID>] [
       "items": {
         "type": "string"
       }
+    },
+    "bundleInspectCommand": {
+      "type": "string"
     }
   },
   "required": [
     "agentRunId",
     "workflowId",
     "expiresAt",
-    "requests",
-    "bundle"
+    "requestCount",
+    "bundle",
+    "bundleInspectCommand"
   ],
   "additionalProperties": false
 }
@@ -526,11 +528,9 @@ zotero-bridge workflow agent-run --selection '["example"]'
       "expiresAt": {
         "type": "string"
       },
-      "requests": {
-        "type": "array",
-        "items": {
-          "type": "object"
-        }
+      "requestCount": {
+        "type": "integer",
+        "minimum": 0
       },
       "instruction": {
         "type": "string"
@@ -549,16 +549,23 @@ zotero-bridge workflow agent-run --selection '["example"]'
         "items": {
           "type": "string"
         }
+      },
+      "bundleInspectCommand": {
+        "type": "string"
       }
     },
     "required": [
       "agentRunId",
       "workflowId",
       "expiresAt",
-      "requests",
-      "bundle"
+      "requestCount",
+      "bundle",
+      "bundleInspectCommand"
     ],
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "fixed"
   },
   "pagination": "none",
   "effects": [
@@ -638,11 +645,11 @@ zotero-bridge workflow agent-run --selection '["example"]'
 ## 操作契约
 
 - 规范 argv 路径： `workflow` `agent-run`.
+- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `write`; 危险级别： `review`.
-- Intent 可见性： `visible`.
+- 类别： `write`; danger: `review`.
+- 意图可见性： `visible`.
 - 操作别名： `workflow agent-run`, `workflow`, `agent-run`, `WORKFLOW`, `selection`, `JSON_OR_FILE`, `none`, `NONE`, `output_dir`, `output-dir`, `DIR`.
-
 ### Effects
 
 ```json

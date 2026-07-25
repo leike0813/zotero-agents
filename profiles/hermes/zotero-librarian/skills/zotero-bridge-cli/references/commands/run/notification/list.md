@@ -472,6 +472,18 @@ This closed descriptor is the machine-readable command contract returned by `sur
     ],
     "additionalProperties": false
   },
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "notifications",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "since_event_id",
+    "continuation": [
+      "nextSinceEventId",
+      "hasMore",
+      "returned"
+    ]
+  },
   "pagination": "cursor",
   "effects": [
     {
@@ -533,6 +545,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `run` `notification` `list`.
+- Output boundary: `cursor`; governed details: {"strategy":"cursor","section":"notifications","defaultLimit":25,"maxLimit":100,"cursorInput":"since_event_id","continuation":["nextSinceEventId","hasMore","returned"]}.
 - Pagination: `cursor`.
 - Category: `read`; danger: `none`.
 - Intent visibility: `visible`.

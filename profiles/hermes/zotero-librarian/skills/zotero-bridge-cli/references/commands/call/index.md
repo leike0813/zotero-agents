@@ -259,6 +259,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "additionalProperties": true,
     "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
   },
+  "outputBoundary": {
+    "strategy": "raw"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -302,6 +305,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `call`.
+- Output boundary: `raw`; governed details: {"strategy":"raw"}.
 - Pagination: `none`.
 - Category: `debug`; danger: `none`.
 - Intent visibility: `hidden`.

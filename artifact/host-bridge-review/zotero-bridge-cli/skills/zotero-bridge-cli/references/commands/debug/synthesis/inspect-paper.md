@@ -93,7 +93,58 @@ zotero-bridge debug synthesis inspect-paper [--endpoint <ENDPOINT>] [--operation
       "type": "object",
       "description": "Result data owned by debug.synthesis.paper.inspect.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "repository": {
+          "type": "object",
+          "properties": {
+            "artifactSidecars": {
+              "type": "array"
+            }
+          },
+          "additionalProperties": true
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "delivery": {
+          "type": "object",
+          "properties": {
+            "bundle": {
+              "type": "object",
+              "properties": {
+                "fileId": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sha256": {
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "fileId",
+                "displayName",
+                "contentType",
+                "expiresAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": true
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -223,10 +274,69 @@ zotero-bridge debug synthesis inspect-paper --input '{}'
         "type": "object",
         "description": "Result data owned by debug.synthesis.paper.inspect.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "repository": {
+            "type": "object",
+            "properties": {
+              "artifactSidecars": {
+                "type": "array"
+              }
+            },
+            "additionalProperties": true
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "delivery": {
+            "type": "object",
+            "properties": {
+              "bundle": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "sha256": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "fileId",
+                  "displayName",
+                  "contentType",
+                  "expiresAt"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": true
+          }
+        }
       }
     },
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "limit",
+    "section": "data.repository.artifactSidecars",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "truncatedField": "data.truncated",
+    "fileField": "data.delivery.bundle"
   },
   "pagination": "none",
   "effects": [
@@ -272,11 +382,11 @@ zotero-bridge debug synthesis inspect-paper --input '{}'
 ## 操作契约
 
 - 规范 argv 路径： `debug` `synthesis` `inspect-paper`.
+- 输出边界： `limit`; governed details: {"strategy":"limit","section":"data.repository.artifactSidecars","defaultLimit":25,"maxLimit":100,"truncatedField":"data.truncated","fileField":"data.delivery.bundle"}.
 - 分页： `none`.
-- 类别： `debug`; 危险级别： `none`.
-- Intent 可见性： `hidden`.
+- 类别： `debug`; danger: `none`.
+- 意图可见性： `hidden`.
 - 操作别名： `debug synthesis inspect-paper`, `debug`, `synthesis`, `inspect-paper`, `input`, `JSON_OR_FILE`.
-
 ### Effects
 
 ```json

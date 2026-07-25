@@ -127,7 +127,15 @@ zotero-bridge library item search [--endpoint <ENDPOINT>] [--operation-id <ID>] 
       "type": "object",
       "description": "Result data owned by library.search_items.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+      "properties": {
+        "items": {
+          "type": "array"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
     }
   },
   "additionalProperties": false
@@ -294,10 +302,25 @@ zotero-bridge library item search --query '{"query":"example"}'
         "type": "object",
         "description": "Result data owned by library.search_items.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
+        "properties": {
+          "items": {
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
       }
     },
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "limit",
+    "section": "data.items",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "truncatedField": "data.truncated"
   },
   "pagination": "none",
   "effects": [
@@ -343,11 +366,11 @@ zotero-bridge library item search --query '{"query":"example"}'
 ## 操作契约
 
 - 规范 argv 路径： `library` `item` `search`.
+- 输出边界： `limit`; governed details: {"strategy":"limit","section":"data.items","defaultLimit":25,"maxLimit":100,"truncatedField":"data.truncated"}.
 - 分页： `none`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
 - 操作别名： `library item search`, `library`, `item`, `search`, `query`, `JSON_OR_FILE`.
-
 ### Effects
 
 ```json

@@ -315,6 +315,9 @@ zotero-bridge library item get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
     },
     "additionalProperties": false
   },
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -364,11 +367,11 @@ zotero-bridge library item get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
 ## 操作契约
 
 - 规范 argv 路径： `library` `item` `get`.
+- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
 - 操作别名： `library item get`, `library`, `item`, `get`, `key`, `KEY`, `id`, `ID`, `library_id`, `library-id`, `LIBRARY_ID`.
-
 ### Effects
 
 ```json

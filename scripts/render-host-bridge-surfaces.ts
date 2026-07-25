@@ -372,6 +372,7 @@ function renderCommandCard(args: {
     "## Operational contract",
     "",
     `- Canonical argv path: ${args.command.argv.map((token) => `\`${token}\``).join(" ")}.`,
+    `- Output boundary: \`${args.command.outputBoundary.strategy}\`; governed details: ${JSON.stringify(args.command.outputBoundary)}.`,
     `- Pagination: \`${args.command.pagination}\`.`,
     `- Category: \`${args.command.category}\`; danger: \`${args.command.danger}\`.`,
     `- Intent visibility: \`${args.command.hiddenFromIntentSearch ? "hidden" : "visible"}\`.`,

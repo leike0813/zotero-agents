@@ -24,7 +24,7 @@ The global options may appear before or after the leaf command. Use `--schema` t
 | Token | Id | Kind | Required | Conditional requirement | Values / arity | Repeatable | Environment | Conflicts | Help |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | --intent | intent | option | yes | — | INTENT | no | — | — | Natural-language task intent |
-| --limit | limit | option | no | — | LIMIT; default: 10 | no | — | — | Maximum number of ranked matches (1-100) |
+| --limit | limit | option | no | — | LIMIT; default: 10 | no | — | — | Maximum number of ranked matches (1-20) |
 | --include-debug | include_debug | option | no | — | INCLUDE_DEBUG; values: true, false | no | — | — | Include raw and debug commands in intent recommendations |
 | --json | json | option | no | — | JSON; values: true, false | no | — | — | Emit JSON (the CLI output contract is always JSON) |
 
@@ -40,7 +40,7 @@ The global options may appear before or after the leaf command. Use `--schema` t
     },
     "limit": {
       "type": "string",
-      "description": "Maximum number of ranked matches (1-100)"
+      "description": "Maximum number of ranked matches (1-20)"
     },
     "include-debug": {
       "type": "boolean",
@@ -93,6 +93,12 @@ This command has no structured JSON input parameter.
       "description": "Response object returned by embedded host-bridge.agent-surface.v5.",
       "additionalProperties": true,
       "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+    },
+    "items": {
+      "type": "array"
+    },
+    "truncated": {
+      "type": "boolean"
     }
   },
   "additionalProperties": true,
@@ -127,7 +133,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
       },
       "limit": {
         "type": "string",
-        "description": "Maximum number of ranked matches (1-100)"
+        "description": "Maximum number of ranked matches (1-20)"
       },
       "include-debug": {
         "type": "boolean",
@@ -168,7 +174,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "takesValue": true,
       "required": false,
       "global": false,
-      "help": "Maximum number of ranked matches (1-100)",
+      "help": "Maximum number of ranked matches (1-20)",
       "valueNames": [
         "LIMIT"
       ],
@@ -287,10 +293,23 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "description": "Response object returned by embedded host-bridge.agent-surface.v5.",
         "additionalProperties": true,
         "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+      },
+      "items": {
+        "type": "array"
+      },
+      "truncated": {
+        "type": "boolean"
       }
     },
     "additionalProperties": true,
     "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "outputBoundary": {
+    "strategy": "limit",
+    "section": "items",
+    "defaultLimit": 10,
+    "maxLimit": 20,
+    "truncatedField": "truncated"
   },
   "pagination": "none",
   "effects": [
@@ -341,6 +360,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `surface` `search`.
+- Output boundary: `limit`; governed details: {"strategy":"limit","section":"items","defaultLimit":10,"maxLimit":20,"truncatedField":"truncated"}.
 - Pagination: `none`.
 - Category: `read`; danger: `none`.
 - Intent visibility: `visible`.

@@ -5,7 +5,7 @@ List lightweight lifecycle events for one skill run
 ## Usage
 
 ```console
-zotero-bridge run skill events [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] SKILL_RUN_ID <SKILL_RUN_ID> [--since-updated-at <SINCE_UPDATED_AT>] [--limit <LIMIT>]
+zotero-bridge run skill events [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] SKILL_RUN_ID <SKILL_RUN_ID> [--since-updated-at <SINCE_UPDATED_AT>] [--limit <LIMIT>] [--cursor <CURSOR>]
 ```
 
 The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.
@@ -26,6 +26,7 @@ The global options may appear before or after the leaf command. Use `--schema` t
 | SKILL_RUN_ID | skill_run_id | positional | yes | — | SKILL_RUN_ID | no | — | — | Opaque skill run id |
 | --since-updated-at | since_updated_at | option | no | — | SINCE_UPDATED_AT | no | — | — | Return events after this updatedAt timestamp |
 | --limit | limit | option | no | — | LIMIT | no | — | — | Maximum number of events |
+| --cursor | cursor | option | no | — | CURSOR | no | — | — | Opaque continuation cursor |
 
 ## Invocation schema
 
@@ -45,6 +46,10 @@ The global options may appear before or after the leaf command. Use `--schema` t
     "limit": {
       "type": "string",
       "description": "Maximum number of events"
+    },
+    "cursor": {
+      "type": "string",
+      "description": "Opaque continuation cursor"
     }
   },
   "required": [
@@ -100,6 +105,18 @@ This command has no structured JSON input parameter.
     },
     "hasMore": {
       "type": "boolean"
+    },
+    "returned": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 0
     }
   },
   "additionalProperties": true,
@@ -141,6 +158,10 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "limit": {
         "type": "string",
         "description": "Maximum number of events"
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Opaque continuation cursor"
       }
     },
     "required": [
@@ -200,6 +221,23 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "repeatable": false,
       "aliases": [],
       "defaultValues": []
+    },
+    {
+      "id": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Opaque continuation cursor",
+      "valueNames": [
+        "CURSOR"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
     }
   ],
   "argvBindings": [
@@ -232,6 +270,16 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "required": false,
       "valueNames": [
         "LIMIT"
+      ]
+    },
+    {
+      "property": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "CURSOR"
       ]
     }
   ],
@@ -270,10 +318,36 @@ This closed descriptor is the machine-readable command contract returned by `sur
       },
       "hasMore": {
         "type": "boolean"
+      },
+      "returned": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "total": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 0
       }
     },
     "additionalProperties": true,
     "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "events",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "cursor",
+    "continuation": [
+      "nextCursor",
+      "hasMore",
+      "returned",
+      "total",
+      "limit"
+    ]
   },
   "pagination": "cursor",
   "effects": [
@@ -315,7 +389,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
     "since-updated-at",
     "SINCE_UPDATED_AT",
     "limit",
-    "LIMIT"
+    "LIMIT",
+    "cursor",
+    "CURSOR"
   ],
   "hiddenFromIntentSearch": false
 }
@@ -324,10 +400,11 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `run` `skill` `events`.
+- Output boundary: `cursor`; governed details: {"strategy":"cursor","section":"events","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["nextCursor","hasMore","returned","total","limit"]}.
 - Pagination: `cursor`.
 - Category: `read`; danger: `none`.
 - Intent visibility: `visible`.
-- Operational aliases: `run skill events`, `run`, `skill`, `events`, `skill_run_id`, `SKILL_RUN_ID`, `since_updated_at`, `since-updated-at`, `SINCE_UPDATED_AT`, `limit`, `LIMIT`.
+- Operational aliases: `run skill events`, `run`, `skill`, `events`, `skill_run_id`, `SKILL_RUN_ID`, `since_updated_at`, `since-updated-at`, `SINCE_UPDATED_AT`, `limit`, `LIMIT`, `cursor`, `CURSOR`.
 
 ### Effects
 

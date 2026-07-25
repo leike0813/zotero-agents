@@ -325,9 +325,6 @@
             "description": "Result data owned by context.get_selected_items, GET /bridge/v1/context/selection.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "itemRef": {
-            "type": "string"
           }
         },
         "additionalProperties": false
@@ -1349,15 +1346,6 @@
             "description": "Result data owned by library.get_item_notes.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": ["string", "number", "null"]
-          },
-          "hasMore": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -1544,15 +1532,6 @@
             "description": "Result data owned by library.list_items.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": ["string", "number", "null"]
-          },
-          "hasMore": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -1605,15 +1584,6 @@
             "description": "Result data owned by library.get_note_detail.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": ["string", "number", "null"]
-          },
-          "hasMore": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -1666,15 +1636,6 @@
             "description": "Result data owned by library.get_note_payload.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": ["string", "number", "null"]
-          },
-          "hasMore": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -1838,15 +1799,6 @@
             "description": "Result data owned by library.readiness_audit.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": ["string", "number", "null"]
-          },
-          "hasMore": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -1970,15 +1922,6 @@
             "description": "Result data owned by library.readiness_audit.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": ["string", "number", "null"]
-          },
-          "hasMore": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -2102,15 +2045,6 @@
             "description": "Result data owned by library.readiness_audit.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": ["string", "number", "null"]
-          },
-          "hasMore": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -2234,15 +2168,6 @@
             "description": "Result data owned by library.readiness_audit.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": ["string", "number", "null"]
-          },
-          "hasMore": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -2352,15 +2277,6 @@
             "description": "Result data owned by library.sync_snapshot.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": ["string", "number", "null"]
-          },
-          "hasMore": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -3164,72 +3080,74 @@
           "data": {
             "type": "object",
             "description": "Result data owned by workflow_products.export.",
-            "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "fileId": {
-            "type": "string"
-          },
-          "file": {
-            "type": "object",
             "properties": {
               "fileId": {
                 "type": "string"
               },
-              "path": {
-                "type": "string"
-              },
-              "checksum": {
-                "type": "string"
-              },
-              "bytes": {
-                "type": "integer"
-              }
-            },
-            "additionalProperties": true
-          },
-          "delivery": {
-            "type": "object",
-            "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
-            "properties": {
-              "mode": {
-                "enum": ["local", "bridge-download", "bundle"]
-              },
-              "path": {
-                "type": "string"
-              },
-              "files": {
-                "type": "array",
-                "items": {
-                  "type": "object"
-                }
-              },
-              "bundle": {
+              "file": {
                 "type": "object",
                 "properties": {
                   "fileId": {
                     "type": "string"
                   },
-                  "displayName": {
+                  "path": {
                     "type": "string"
                   },
-                  "contentType": {
+                  "checksum": {
                     "type": "string"
                   },
-                  "size": {
+                  "bytes": {
                     "type": "integer"
                   }
                 },
                 "additionalProperties": true
               },
-              "downloadCommand": {
-                "type": "string"
-              },
-              "unpackHint": {
-                "type": "string"
+              "delivery": {
+                "type": "object",
+                "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
+                "properties": {
+                  "mode": {
+                    "enum": ["local", "bridge-download", "bundle"]
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "bundle": {
+                    "type": "object",
+                    "properties": {
+                      "fileId": {
+                        "type": "string"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "contentType": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "type": "integer"
+                      }
+                    },
+                    "additionalProperties": true
+                  },
+                  "downloadCommand": {
+                    "type": "string"
+                  },
+                  "unpackHint": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
               }
             },
-            "additionalProperties": false
+            "additionalProperties": true,
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
           }
         },
         "additionalProperties": false
@@ -3261,9 +3179,6 @@
             "description": "Result data owned by workflow_products.get.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "productId": {
-            "type": "string"
           }
         },
         "additionalProperties": false
@@ -3309,15 +3224,6 @@
             "description": "Result data owned by workflow_products.list.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "products": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": ["string", "number", "null"]
-          },
-          "hasMore": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -4070,67 +3976,6 @@
             "description": "Result data owned by paper_artifacts.export_filtered.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "file": {
-            "type": "object",
-            "properties": {
-              "fileId": {
-                "type": "string"
-              },
-              "path": {
-                "type": "string"
-              },
-              "checksum": {
-                "type": "string"
-              },
-              "bytes": {
-                "type": "integer"
-              }
-            },
-            "additionalProperties": true
-          },
-          "delivery": {
-            "type": "object",
-            "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
-            "properties": {
-              "mode": {
-                "enum": ["local", "bridge-download", "bundle"]
-              },
-              "path": {
-                "type": "string"
-              },
-              "files": {
-                "type": "array",
-                "items": {
-                  "type": "object"
-                }
-              },
-              "bundle": {
-                "type": "object",
-                "properties": {
-                  "fileId": {
-                    "type": "string"
-                  },
-                  "displayName": {
-                    "type": "string"
-                  },
-                  "contentType": {
-                    "type": "string"
-                  },
-                  "size": {
-                    "type": "integer"
-                  }
-                },
-                "additionalProperties": true
-              },
-              "downloadCommand": {
-                "type": "string"
-              },
-              "unpackHint": {
-                "type": "string"
-              }
-            },
-            "additionalProperties": false
           }
         },
         "additionalProperties": false
@@ -4675,15 +4520,6 @@
             "description": "Result data owned by citation_graph.get_metrics.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "graph": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": ["string", "number", "null"]
-          },
-          "hasMore": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -4920,15 +4756,6 @@
             "description": "Result data owned by citation_graph.get_overview.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "graph": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": ["string", "number", "null"]
-          },
-          "hasMore": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -5153,15 +4980,6 @@
             "description": "Result data owned by citation_graph.rank_external_references.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "graph": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": ["string", "number", "null"]
-          },
-          "hasMore": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -5251,15 +5069,6 @@
             "description": "Result data owned by citation_graph.rank_library_papers.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "graph": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": ["string", "number", "null"]
-          },
-          "hasMore": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -5571,15 +5380,6 @@
             "description": "Result data owned by library_index.get.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "entries": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": ["string", "number", "null"]
-          },
-          "hasMore": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -5639,15 +5439,6 @@
             "description": "Result data owned by reference_index.get.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "entries": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": ["string", "number", "null"]
-          },
-          "hasMore": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -5812,15 +5603,6 @@
             "description": "Result data owned by resolvers.resolve.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "items": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": ["string", "number", "null"]
-          },
-          "hasMore": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -6124,69 +5906,71 @@
           "data": {
             "type": "object",
             "description": "Result data owned by topics.get_context.",
-            "additionalProperties": true,
-            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "file": {
-            "type": "object",
             "properties": {
-              "fileId": {
-                "type": "string"
-              },
-              "path": {
-                "type": "string"
-              },
-              "checksum": {
-                "type": "string"
-              },
-              "bytes": {
-                "type": "integer"
-              }
-            },
-            "additionalProperties": true
-          },
-          "delivery": {
-            "type": "object",
-            "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
-            "properties": {
-              "mode": {
-                "enum": ["local", "bridge-download", "bundle"]
-              },
-              "path": {
-                "type": "string"
-              },
-              "files": {
-                "type": "array",
-                "items": {
-                  "type": "object"
-                }
-              },
-              "bundle": {
+              "file": {
                 "type": "object",
                 "properties": {
                   "fileId": {
                     "type": "string"
                   },
-                  "displayName": {
+                  "path": {
                     "type": "string"
                   },
-                  "contentType": {
+                  "checksum": {
                     "type": "string"
                   },
-                  "size": {
+                  "bytes": {
                     "type": "integer"
                   }
                 },
                 "additionalProperties": true
               },
-              "downloadCommand": {
-                "type": "string"
-              },
-              "unpackHint": {
-                "type": "string"
+              "delivery": {
+                "type": "object",
+                "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
+                "properties": {
+                  "mode": {
+                    "enum": ["local", "bridge-download", "bundle"]
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  },
+                  "bundle": {
+                    "type": "object",
+                    "properties": {
+                      "fileId": {
+                        "type": "string"
+                      },
+                      "displayName": {
+                        "type": "string"
+                      },
+                      "contentType": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "type": "integer"
+                      }
+                    },
+                    "additionalProperties": true
+                  },
+                  "downloadCommand": {
+                    "type": "string"
+                  },
+                  "unpackHint": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
               }
             },
-            "additionalProperties": false
+            "additionalProperties": true,
+            "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
           }
         },
         "additionalProperties": false
@@ -6370,15 +6154,6 @@
             "description": "Result data owned by topics.list.",
             "additionalProperties": true,
             "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-          },
-          "topics": {
-            "type": "array"
-          },
-          "nextCursor": {
-            "type": ["string", "number", "null"]
-          },
-          "hasMore": {
-            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -6460,12 +6235,49 @@
       "resultSchema": {
         "type": "object",
         "properties": {
-          "applyReceipt": {
+          "agentRunId": {
+            "type": "string"
+          },
+          "workflowId": {
+            "type": "string"
+          },
+          "appliedAt": {
+            "type": "string"
+          },
+          "permission": {
+            "type": "object"
+          },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "total": { "type": "integer", "minimum": 0 },
+              "succeeded": { "type": "integer", "minimum": 0 },
+              "failed": { "type": "integer", "minimum": 0 }
+            },
+            "required": ["total", "succeeded", "failed"],
+            "additionalProperties": false
+          },
+          "stateChange": {
+            "enum": ["unchanged", "changed"]
+          },
+          "handleConsumption": {
+            "const": "consumed"
+          },
+          "receiptUrl": {
             "type": "string"
           }
         },
-        "additionalProperties": true,
-        "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+        "required": [
+          "agentRunId",
+          "workflowId",
+          "appliedAt",
+          "permission",
+          "summary",
+          "stateChange",
+          "handleConsumption",
+          "receiptUrl"
+        ],
+        "additionalProperties": false
       }
     },
     "workflow agent-apply-status": {
@@ -6727,11 +6539,9 @@
           "expiresAt": {
             "type": "string"
           },
-          "requests": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
+          "requestCount": {
+            "type": "integer",
+            "minimum": 0
           },
           "instruction": {
             "type": "string"
@@ -6750,14 +6560,18 @@
             "items": {
               "type": "string"
             }
+          },
+          "bundleInspectCommand": {
+            "type": "string"
           }
         },
         "required": [
           "agentRunId",
           "workflowId",
           "expiresAt",
-          "requests",
-          "bundle"
+          "requestCount",
+          "bundle",
+          "bundleInspectCommand"
         ],
         "additionalProperties": false
       }
@@ -7299,20 +7113,14 @@
           "submissionId": {
             "type": "string"
           },
-          "jobIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
           "totalJobs": {
             "type": "integer"
           },
-          "tasks": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
+          "runUrl": {
+            "type": "string"
+          },
+          "tasksUrl": {
+            "type": "string"
           },
           "totalUnits": {
             "type": "integer"
@@ -7341,7 +7149,7 @@
                 "const": "direct"
               }
             },
-            "required": ["workflowRunId", "jobIds", "totalJobs", "tasks"]
+            "required": ["workflowRunId", "totalJobs", "runUrl", "tasksUrl"]
           },
           {
             "properties": {

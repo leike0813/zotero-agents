@@ -325,6 +325,12 @@ const ACP_CHAT_INJECTED_SKILL_IDS = [
   "zotero-bridge-cli",
   "literature-search-ingest",
   "literature-metadata-search",
+  "zotero-library-agent",
+  "zotero-library-curation",
+  "zotero-library-query",
+  "zotero-literature-acquisition",
+  "zotero-literature-analysis",
+  "zotero-research-synthesis",
 ] as const;
 
 function nowIso() {

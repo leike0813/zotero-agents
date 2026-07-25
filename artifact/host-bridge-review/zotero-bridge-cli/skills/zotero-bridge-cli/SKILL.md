@@ -47,6 +47,24 @@ Offline `surface` commands describe the embedded contract. They do not prove tha
 
 Use `surface search` to discover operations, not to decide a research task. `surface describe` is authoritative for argv bindings, invocation and payload schemas, result shape, pagination, effects, approval scope, handle transitions, recovery, and targets. Use raw `call` only for an advanced diagnostic capability that has no canonical semantic command.
 
+## 输出边界与续传纪律
+
+每个规范命令都在 descriptor 中声明且仅声明一种 `outputBoundary.strategy`：`fixed`、`cursor`、`offset`、`limit`、`file` 或 `raw`。执行前必须读取该对象，并将其中的默认值、最大值、section、continuation、truncation 与 file 字段视为结果契约的一部分。不得因为首个响应很短、capability 类别或旧命令示例而自行推断输出已有界。
+
+对于 `cursor` 结果，保留原始规范命令以及全部规范化 selector 和 filter。读取声明的领域数组，记录 `returned`、`total`、`limit`、`hasMore` 与 `nextCursor`，并且只能在相同 criteria 下把 opaque cursor 传回同一命令继续读取。cursor 不是 item id、timestamp、array offset，也不是可以跨命令复用的 token。不得解码 cursor 来构造新 cursor，不得替换成其他 section 的 cursor，也不得在续传失败时静默从第一页重启。
+
+当 `hasMore` 为 true 时，缺失 `nextCursor` 表示响应不完整，必须阻止完成。当 `hasMore` 为 false 时，continuation 必须为空并停止读取。按稳定领域 identity 合并分页结果，拒绝重复项；当 `total` 描述的是同一过滤集合时，将最终唯一行数与它比较。若响应包含多个分页数组，只跟随拥有目标数组的 `pagination.<section>` 下的 cursor；不得隐式推进无关 section。
+
+`invalid_host_bridge_cursor` 表示 cursor 格式错误、已过期、属于另一命令、绑定了不同 criteria，或其锚点行已不可用。保留结构化 `reason`。如果仍需完成预期读取，应有意识地使用原始 filter 从第一页重启、重新构建结果，并报告 snapshot 已变化；不得把重启后的第一页追加到失败 cursor 已收集的行之后。
+
+对于 `offset` 结果，保留 selector，并持续请求 `offset=nextOffset`，直至 `hasMore` 为 false。按 offset 顺序保存 chunk，要求每个 chunk 的 `offset` 等于前一个 `nextOffset`，且每段只拼接一次。除非 descriptor 声明更严格的值，默认文本窗口为 8,000 字符，最大为 16,000 字符。越过文本末尾的 offset 是合法的空 terminal chunk，不允许因此从零重试。若返回 `totalChars`，完成条件包括重建后的字符数与其一致。
+
+对于 `limit` 结果，使用声明的默认值和硬上限，检查 `truncated`；若所需证据无法容纳，应缩小 selector。limit-bounded 结果没有隐式 continuation：不得虚构 cursor。对于 `fixed`，只有确认结果属于 registry、singleton、aggregate 或其他具有硬上限的契约后，才能把一次响应视为完整。
+
+对于 `file` 结果，stdout 仅是 delivery control plane。保留所属 object 或 operation identity 以及返回的 file descriptor，确认未暴露 Zotero 计算机上的私有文件系统路径，通过 `file download` 下载，并把 byte count 与 SHA-256 同 descriptor 比较。handle 过期时，应从所属 semantic command 重新获取，不得重试任意路径。descriptor 响应成功不等于 bytes 已下载并校验。
+
+`raw` 仅保留给 `call`。目标 capability 仍拥有自己的 paging、limit、offset 或 file boundary；raw invocation 不会放宽这些边界，也不能绕过已有的规范 semantic command。若存在 semantic command，必须使用它，以保持 argv validation、result contract、recovery 与生成式指导可执行。
+
 ### Start from user intent
 
 An agent often receives a request such as “show me the papers about this topic,” “download the analysis result,” or “run the deep-reading workflow” before it knows any CLI names. Do not make the user translate that request into a command.
@@ -141,7 +159,7 @@ The native queue owns bounded admission and keeps each admitted slot occupied th
 
 Active submission and queue projections are process-local. If Host restart makes the original `submissionId` unavailable, use submission-filtered task discovery and live run reads to recover units that had already been admitted; do not reconstruct pending units from labels or member counts. Report unadmitted units as no longer active, preserve their original source scope outside queue internals, and require current authority before submitting a replacement bounded request.
 
-For self-owned agent execution, confirm that the workflow supports that mode, prepare the handoff, preserve `agentRunId`, every `agentRequestId`, bundle locations, and checksums, then inspect each request contract. Validate every completed result locally before apply-back. Apply the complete request-to-result mapping through `workflow agent-apply` and use `workflow agent-apply-status` for the durable receipt. Never monitor an `agentRunId` through the Zotero-managed run plane.
+对于 agent 自主管理的执行，先确认 workflow 支持该模式，准备 handoff，保留 `agentRunId`、每个 `agentRequestId`、bundle 位置和 checksum，再检查每个请求契约。apply-back 前在本地验证每份完成结果。通过 `workflow agent-apply` 应用完整的请求到结果映射，并使用 `workflow agent-apply-status` 获取持久 receipt。apply 响应只提供有界聚合；分页读取 `workflow agent-apply-status`，并始终使用同一个 `agentRunId`，直至收集全部 receipt 结果，并将 state-change 与 handle-consumption 证据同各条结果分别保存。切勿通过 Zotero 托管的 run 平面监控 `agentRunId`。
 
 `workflow agent-bundle inspect` and `workflow agent-result validate` are local preflight commands. They accept a directory or ZIP without contacting the service, applying data, renewing a lease, or consuming a handle. Unsafe paths, symbolic links, duplicate entries, excessive entry counts, oversized JSON, malformed archives, and unsupported compression return structured local-input failures. Local success proves structural validity only; it does not prove semantic correctness or authorize apply-back.
 

@@ -5,7 +5,7 @@
 ## 用法
 
 ```console
-zotero-bridge run active [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema]
+zotero-bridge run active [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--cursor <CURSOR>] [--limit <LIMIT>]
 ```
 
 全局选项可位于叶命令之前或之后。使用 `--schema` 可在不加载 profile、也不连接 Zotero 的情况下检查原始结构化输入 schema。
@@ -28,7 +28,16 @@ zotero-bridge run active [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profil
 ```json
 {
   "type": "object",
-  "properties": {},
+  "properties": {
+    "cursor": {
+      "type": "string",
+      "description": "Opaque continuation cursor"
+    },
+    "limit": {
+      "type": "string",
+      "description": "Maximum number of entries (1-100)"
+    }
+  },
   "required": [],
   "additionalProperties": false
 }
@@ -60,6 +69,30 @@ zotero-bridge run active [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profil
       "description": "Response object returned by GET /bridge/v1/tasks/active.",
       "additionalProperties": true,
       "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+    },
+    "tasks": {
+      "type": "array"
+    },
+    "nextCursor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "returned": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 0
     }
   },
   "additionalProperties": true,
@@ -87,12 +120,77 @@ zotero-bridge run active [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profil
   "danger": "none",
   "invocationSchema": {
     "type": "object",
-    "properties": {},
+    "properties": {
+      "cursor": {
+        "type": "string",
+        "description": "Opaque continuation cursor"
+      },
+      "limit": {
+        "type": "string",
+        "description": "Maximum number of entries (1-100)"
+      }
+    },
     "required": [],
     "additionalProperties": false
   },
-  "arguments": [],
-  "argvBindings": [],
+  "arguments": [
+    {
+      "id": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Opaque continuation cursor",
+      "valueNames": [
+        "CURSOR"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
+    },
+    {
+      "id": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Maximum number of entries (1-100)",
+      "valueNames": [
+        "LIMIT"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
+    }
+  ],
+  "argvBindings": [
+    {
+      "property": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "CURSOR"
+      ]
+    },
+    {
+      "property": "limit",
+      "kind": "option",
+      "token": "--limit",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "LIMIT"
+      ]
+    }
+  ],
   "inputSchemas": {},
   "payloadSchema": {
     "type": "object",
@@ -108,12 +206,50 @@ zotero-bridge run active [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profil
         "description": "Response object returned by GET /bridge/v1/tasks/active.",
         "additionalProperties": true,
         "x-openPropertiesReason": "The mapped local endpoint or service owns fields inside response; the command envelope is closed."
+      },
+      "tasks": {
+        "type": "array"
+      },
+      "nextCursor": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "hasMore": {
+        "type": "boolean"
+      },
+      "returned": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "total": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 0
       }
     },
     "additionalProperties": true,
     "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
   },
-  "pagination": "none",
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "tasks",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "cursor",
+    "continuation": [
+      "nextCursor",
+      "hasMore",
+      "returned",
+      "total",
+      "limit"
+    ]
+  },
+  "pagination": "cursor",
   "effects": [
     {
       "kind": "none",
@@ -145,7 +281,11 @@ zotero-bridge run active [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profil
   "operationalAliases": [
     "run active",
     "run",
-    "active"
+    "active",
+    "cursor",
+    "CURSOR",
+    "limit",
+    "LIMIT"
   ],
   "hiddenFromIntentSearch": false
 }
@@ -154,11 +294,11 @@ zotero-bridge run active [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profil
 ## 操作契约
 
 - 规范 argv 路径： `run` `active`.
-- 分页： `none`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
-- 操作别名： `run active`, `run`, `active`.
-
+- 输出边界： `cursor`; governed details: {"strategy":"cursor","section":"tasks","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["nextCursor","hasMore","returned","total","limit"]}.
+- 分页： `cursor`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
+- 操作别名： `run active`, `run`, `active`, `cursor`, `CURSOR`, `limit`, `LIMIT`.
 ### Effects
 
 ```json

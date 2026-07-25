@@ -337,6 +337,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
     },
     "additionalProperties": false
   },
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -381,6 +384,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `synthesis` `cache` `refresh-reference-sidecar`.
+- Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `maintenance`; danger: `high`.
 - Intent visibility: `visible`.

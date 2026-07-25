@@ -93,72 +93,46 @@ zotero-bridge synthesis artifact export-filtered [--endpoint <ENDPOINT>] [--oper
       "type": "object",
       "description": "Result data owned by paper_artifacts.export_filtered.",
       "additionalProperties": true,
-      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-    },
-    "file": {
-      "type": "object",
+      "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
       "properties": {
-        "fileId": {
-          "type": "string"
-        },
-        "path": {
-          "type": "string"
-        },
-        "checksum": {
-          "type": "string"
-        },
-        "bytes": {
-          "type": "integer"
-        }
-      },
-      "additionalProperties": true
-    },
-    "delivery": {
-      "type": "object",
-      "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
-      "properties": {
-        "mode": {
-          "enum": [
-            "local",
-            "bridge-download",
-            "bundle"
-          ]
-        },
-        "path": {
-          "type": "string"
-        },
-        "files": {
-          "type": "array",
-          "items": {
-            "type": "object"
-          }
-        },
-        "bundle": {
+        "delivery": {
           "type": "object",
           "properties": {
-            "fileId": {
-              "type": "string"
-            },
-            "displayName": {
-              "type": "string"
-            },
-            "contentType": {
-              "type": "string"
-            },
-            "size": {
-              "type": "integer"
+            "bundle": {
+              "type": "object",
+              "properties": {
+                "fileId": {
+                  "type": "string"
+                },
+                "displayName": {
+                  "type": "string"
+                },
+                "contentType": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sha256": {
+                  "type": "string"
+                },
+                "expiresAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "fileId",
+                "displayName",
+                "contentType",
+                "expiresAt"
+              ],
+              "additionalProperties": false
             }
           },
           "additionalProperties": true
-        },
-        "downloadCommand": {
-          "type": "string"
-        },
-        "unpackHint": {
-          "type": "string"
         }
-      },
-      "additionalProperties": false
+      }
     }
   },
   "additionalProperties": false
@@ -291,75 +265,53 @@ zotero-bridge synthesis artifact export-filtered --query '{}'
         "type": "object",
         "description": "Result data owned by paper_artifacts.export_filtered.",
         "additionalProperties": true,
-        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed."
-      },
-      "file": {
-        "type": "object",
+        "x-openPropertiesReason": "The mapped Zotero capability owns fields inside data; the command envelope is closed.",
         "properties": {
-          "fileId": {
-            "type": "string"
-          },
-          "path": {
-            "type": "string"
-          },
-          "checksum": {
-            "type": "string"
-          },
-          "bytes": {
-            "type": "integer"
-          }
-        },
-        "additionalProperties": true
-      },
-      "delivery": {
-        "type": "object",
-        "description": "Local-file or registered remote-file delivery instructions. Follow mode instead of substituting a path for a fileId.",
-        "properties": {
-          "mode": {
-            "enum": [
-              "local",
-              "bridge-download",
-              "bundle"
-            ]
-          },
-          "path": {
-            "type": "string"
-          },
-          "files": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
-          },
-          "bundle": {
+          "delivery": {
             "type": "object",
             "properties": {
-              "fileId": {
-                "type": "string"
-              },
-              "displayName": {
-                "type": "string"
-              },
-              "contentType": {
-                "type": "string"
-              },
-              "size": {
-                "type": "integer"
+              "bundle": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "contentType": {
+                    "type": "string"
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "sha256": {
+                    "type": "string"
+                  },
+                  "expiresAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "fileId",
+                  "displayName",
+                  "contentType",
+                  "expiresAt"
+                ],
+                "additionalProperties": false
               }
             },
             "additionalProperties": true
-          },
-          "downloadCommand": {
-            "type": "string"
-          },
-          "unpackHint": {
-            "type": "string"
           }
-        },
-        "additionalProperties": false
+        }
       }
     },
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "file",
+    "fileField": "data.delivery.bundle"
   },
   "pagination": "file",
   "effects": [
@@ -405,11 +357,11 @@ zotero-bridge synthesis artifact export-filtered --query '{}'
 ## 操作契约
 
 - 规范 argv 路径： `synthesis` `artifact` `export-filtered`.
+- 输出边界： `file`; governed details: {"strategy":"file","fileField":"data.delivery.bundle"}.
 - 分页： `file`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
 - 操作别名： `synthesis artifact export-filtered`, `synthesis`, `artifact`, `export-filtered`, `query`, `JSON_OR_FILE`.
-
 ### Effects
 
 ```json

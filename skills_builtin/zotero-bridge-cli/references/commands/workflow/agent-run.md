@@ -185,11 +185,9 @@ Required: `false`; condition: Required unless --none is supplied..
     "expiresAt": {
       "type": "string"
     },
-    "requests": {
-      "type": "array",
-      "items": {
-        "type": "object"
-      }
+    "requestCount": {
+      "type": "integer",
+      "minimum": 0
     },
     "instruction": {
       "type": "string"
@@ -208,14 +206,18 @@ Required: `false`; condition: Required unless --none is supplied..
       "items": {
         "type": "string"
       }
+    },
+    "bundleInspectCommand": {
+      "type": "string"
     }
   },
   "required": [
     "agentRunId",
     "workflowId",
     "expiresAt",
-    "requests",
-    "bundle"
+    "requestCount",
+    "bundle",
+    "bundleInspectCommand"
   ],
   "additionalProperties": false
 }
@@ -526,11 +528,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
       "expiresAt": {
         "type": "string"
       },
-      "requests": {
-        "type": "array",
-        "items": {
-          "type": "object"
-        }
+      "requestCount": {
+        "type": "integer",
+        "minimum": 0
       },
       "instruction": {
         "type": "string"
@@ -549,16 +549,23 @@ This closed descriptor is the machine-readable command contract returned by `sur
         "items": {
           "type": "string"
         }
+      },
+      "bundleInspectCommand": {
+        "type": "string"
       }
     },
     "required": [
       "agentRunId",
       "workflowId",
       "expiresAt",
-      "requests",
-      "bundle"
+      "requestCount",
+      "bundle",
+      "bundleInspectCommand"
     ],
     "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "fixed"
   },
   "pagination": "none",
   "effects": [
@@ -638,6 +645,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `workflow` `agent-run`.
+- Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `write`; danger: `review`.
 - Intent visibility: `visible`.

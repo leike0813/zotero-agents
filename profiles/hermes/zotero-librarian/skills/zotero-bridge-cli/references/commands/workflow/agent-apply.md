@@ -83,12 +83,65 @@ This command has no structured JSON input parameter.
 {
   "type": "object",
   "properties": {
-    "applyReceipt": {
+    "agentRunId": {
+      "type": "string"
+    },
+    "workflowId": {
+      "type": "string"
+    },
+    "appliedAt": {
+      "type": "string"
+    },
+    "permission": {
+      "type": "object"
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "succeeded": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "total",
+        "succeeded",
+        "failed"
+      ],
+      "additionalProperties": false
+    },
+    "stateChange": {
+      "enum": [
+        "unchanged",
+        "changed"
+      ]
+    },
+    "handleConsumption": {
+      "const": "consumed"
+    },
+    "receiptUrl": {
       "type": "string"
     }
   },
-  "additionalProperties": true,
-  "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  "required": [
+    "agentRunId",
+    "workflowId",
+    "appliedAt",
+    "permission",
+    "summary",
+    "stateChange",
+    "handleConsumption",
+    "receiptUrl"
+  ],
+  "additionalProperties": false
 }
 ```
 
@@ -212,12 +265,68 @@ This closed descriptor is the machine-readable command contract returned by `sur
   "resultSchema": {
     "type": "object",
     "properties": {
-      "applyReceipt": {
+      "agentRunId": {
+        "type": "string"
+      },
+      "workflowId": {
+        "type": "string"
+      },
+      "appliedAt": {
+        "type": "string"
+      },
+      "permission": {
+        "type": "object"
+      },
+      "summary": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "succeeded": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "total",
+          "succeeded",
+          "failed"
+        ],
+        "additionalProperties": false
+      },
+      "stateChange": {
+        "enum": [
+          "unchanged",
+          "changed"
+        ]
+      },
+      "handleConsumption": {
+        "const": "consumed"
+      },
+      "receiptUrl": {
         "type": "string"
       }
     },
-    "additionalProperties": true,
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+    "required": [
+      "agentRunId",
+      "workflowId",
+      "appliedAt",
+      "permission",
+      "summary",
+      "stateChange",
+      "handleConsumption",
+      "receiptUrl"
+    ],
+    "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "fixed"
   },
   "pagination": "none",
   "effects": [
@@ -294,6 +403,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `workflow` `agent-apply`.
+- Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `write`; danger: `review`.
 - Intent visibility: `visible`.

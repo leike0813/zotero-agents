@@ -259,6 +259,9 @@ zotero-bridge call --input '{}'
     "additionalProperties": true,
     "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
   },
+  "outputBoundary": {
+    "strategy": "raw"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -302,11 +305,11 @@ zotero-bridge call --input '{}'
 ## 操作契约
 
 - 规范 argv 路径： `call`.
+- 输出边界： `raw`; governed details: {"strategy":"raw"}.
 - 分页： `none`.
-- 类别： `debug`; 危险级别： `none`.
-- Intent 可见性： `hidden`.
+- 类别： `debug`; danger: `none`.
+- 意图可见性： `hidden`.
 - 操作别名： `call`, `capability`, `CAPABILITY`, `input`, `JSON_OR_FILE`.
-
 ### Effects
 
 ```json

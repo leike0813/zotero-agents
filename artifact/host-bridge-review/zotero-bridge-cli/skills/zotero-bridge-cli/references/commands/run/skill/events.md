@@ -5,7 +5,7 @@
 ## 用法
 
 ```console
-zotero-bridge run skill events [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] SKILL_RUN_ID <SKILL_RUN_ID> [--since-updated-at <SINCE_UPDATED_AT>] [--limit <LIMIT>]
+zotero-bridge run skill events [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] SKILL_RUN_ID <SKILL_RUN_ID> [--since-updated-at <SINCE_UPDATED_AT>] [--limit <LIMIT>] [--cursor <CURSOR>]
 ```
 
 全局选项可位于叶命令之前或之后。使用 `--schema` 可在不加载 profile、也不连接 Zotero 的情况下检查原始结构化输入 schema。
@@ -45,6 +45,10 @@ zotero-bridge run skill events [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
     "limit": {
       "type": "string",
       "description": "Maximum number of events"
+    },
+    "cursor": {
+      "type": "string",
+      "description": "Opaque continuation cursor"
     }
   },
   "required": [
@@ -100,6 +104,18 @@ zotero-bridge run skill events [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
     },
     "hasMore": {
       "type": "boolean"
+    },
+    "returned": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 0
     }
   },
   "additionalProperties": true,
@@ -141,6 +157,10 @@ zotero-bridge run skill events [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
       "limit": {
         "type": "string",
         "description": "Maximum number of events"
+      },
+      "cursor": {
+        "type": "string",
+        "description": "Opaque continuation cursor"
       }
     },
     "required": [
@@ -200,6 +220,23 @@ zotero-bridge run skill events [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
       "repeatable": false,
       "aliases": [],
       "defaultValues": []
+    },
+    {
+      "id": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "global": false,
+      "help": "Opaque continuation cursor",
+      "valueNames": [
+        "CURSOR"
+      ],
+      "possibleValues": [],
+      "conflictsWith": [],
+      "repeatable": false,
+      "aliases": [],
+      "defaultValues": []
     }
   ],
   "argvBindings": [
@@ -232,6 +269,16 @@ zotero-bridge run skill events [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
       "required": false,
       "valueNames": [
         "LIMIT"
+      ]
+    },
+    {
+      "property": "cursor",
+      "kind": "option",
+      "token": "--cursor",
+      "takesValue": true,
+      "required": false,
+      "valueNames": [
+        "CURSOR"
       ]
     }
   ],
@@ -270,10 +317,36 @@ zotero-bridge run skill events [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
       },
       "hasMore": {
         "type": "boolean"
+      },
+      "returned": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "total": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 0
       }
     },
     "additionalProperties": true,
     "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  },
+  "outputBoundary": {
+    "strategy": "cursor",
+    "section": "events",
+    "defaultLimit": 25,
+    "maxLimit": 100,
+    "cursorInput": "cursor",
+    "continuation": [
+      "nextCursor",
+      "hasMore",
+      "returned",
+      "total",
+      "limit"
+    ]
   },
   "pagination": "cursor",
   "effects": [
@@ -315,7 +388,9 @@ zotero-bridge run skill events [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
     "since-updated-at",
     "SINCE_UPDATED_AT",
     "limit",
-    "LIMIT"
+    "LIMIT",
+    "cursor",
+    "CURSOR"
   ],
   "hiddenFromIntentSearch": false
 }
@@ -324,11 +399,11 @@ zotero-bridge run skill events [--endpoint <ENDPOINT>] [--operation-id <ID>] [--
 ## 操作契约
 
 - 规范 argv 路径： `run` `skill` `events`.
+- 输出边界： `cursor`; governed details: {"strategy":"cursor","section":"events","defaultLimit":25,"maxLimit":100,"cursorInput":"cursor","continuation":["nextCursor","hasMore","returned","total","limit"]}.
 - 分页： `cursor`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
-- 操作别名： `run skill events`, `run`, `skill`, `events`, `skill_run_id`, `SKILL_RUN_ID`, `since_updated_at`, `since-updated-at`, `SINCE_UPDATED_AT`, `limit`, `LIMIT`.
-
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
+- 操作别名： `run skill events`, `run`, `skill`, `events`, `skill_run_id`, `SKILL_RUN_ID`, `since_updated_at`, `since-updated-at`, `SINCE_UPDATED_AT`, `limit`, `LIMIT`, `cursor`, `CURSOR`.
 ### Effects
 
 ```json

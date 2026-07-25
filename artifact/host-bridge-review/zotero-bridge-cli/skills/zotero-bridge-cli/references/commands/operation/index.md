@@ -288,6 +288,9 @@ zotero-bridge operation get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pro
     ],
     "additionalProperties": false
   },
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -339,11 +342,11 @@ zotero-bridge operation get [--endpoint <ENDPOINT>] [--operation-id <ID>] [--pro
 ## 操作契约
 
 - 规范 argv 路径： `operation` `get`.
+- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
 - 操作别名： `operation get`, `operation`, `get`, `operation_id`, `OPERATION_ID`.
-
 ### Effects
 
 ```json

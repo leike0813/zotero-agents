@@ -228,6 +228,9 @@ This closed descriptor is the machine-readable command contract returned by `sur
     },
     "additionalProperties": false
   },
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -272,6 +275,7 @@ This closed descriptor is the machine-readable command contract returned by `sur
 ## Operational contract
 
 - Canonical argv path: `debug` `acp-skill-run` `reapply-result`.
+- Output boundary: `fixed`; governed details: {"strategy":"fixed"}.
 - Pagination: `none`.
 - Category: `maintenance`; danger: `review`.
 - Intent visibility: `hidden`.

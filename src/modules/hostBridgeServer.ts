@@ -112,6 +112,10 @@ import {
   ZoteroNoteNotFoundError,
 } from "./zoteroHostCapabilityBroker";
 import { ZoteroLibraryCursorError } from "./zoteroLibraryPageQuery";
+import {
+  HostBridgeCursorError,
+  paginateHostBridgeRows,
+} from "./hostBridgePagination";
 import { resetHostBridgeAgentRunStoreForTests } from "./hostBridgeWorkflowAgentRunStore";
 import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 import {
@@ -1417,8 +1421,19 @@ function health(): HostBridgeHealth {
   };
 }
 
-function manifest(): HostBridgeManifest {
+function manifest(request?: HttpRequest) {
   const masterToken = getHostBridgeMasterTokenStatus();
+  const capabilities = listHostBridgeCapabilities();
+  const capabilityPage = request
+    ? paginateRequestRows(request, "bridge manifest", capabilities)
+    : {
+        page: capabilities,
+        nextCursor: "",
+        hasMore: false,
+        returned: capabilities.length,
+        total: capabilities.length,
+        limit: capabilities.length,
+      };
   return {
     protocol: HOST_BRIDGE_PROTOCOL_VERSION,
     endpoint: {
@@ -1434,7 +1449,12 @@ function manifest(): HostBridgeManifest {
       masterTokenConfigured: masterToken.configured,
       masterTokenMasked: masterToken.tokenMasked,
     },
-    capabilities: listHostBridgeCapabilities(),
+    capabilities: capabilityPage.page,
+    nextCursor: capabilityPage.nextCursor,
+    hasMore: capabilityPage.hasMore,
+    returned: capabilityPage.returned,
+    total: capabilityPage.total,
+    limit: capabilityPage.limit,
     workflowControl: getHostBridgeWorkflowControlManifest(),
     contextControl: {
       supported: true,
@@ -1589,6 +1609,9 @@ async function callCapability(
         error.code,
       );
     }
+    if (error instanceof HostBridgeCursorError) {
+      return paginationErrorResponse(error);
+    }
     if (error instanceof SynthesisMaintenanceError) {
       const conflict = error.code === "maintenance_idempotency_conflict";
       const code = conflict
@@ -1717,6 +1740,65 @@ function parsePositiveLimit(query: Record<string, string>, fallback = 20) {
     return Math.max(1, Math.min(200, Math.floor(value)));
   }
   return fallback;
+}
+
+function paginationCriteria(query: Record<string, string>) {
+  return Object.fromEntries(
+    Object.entries(query)
+      .filter(([key]) => key !== "cursor" && key !== "limit")
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+function paginationRowKey(value: unknown) {
+  const object =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  for (const key of [
+    "queueId",
+    "submissionUnitId",
+    "permissionRequestId",
+    "eventId",
+    "skillRunId",
+    "workflowRunId",
+    "runId",
+    "requestId",
+    "id",
+    "key",
+  ]) {
+    const entry = String(object[key] || "").trim();
+    if (entry) return `${key}:${entry}`;
+  }
+  return stableTextFingerprint(value);
+}
+
+function paginateRequestRows<T>(
+  request: HttpRequest,
+  scope: string,
+  rows: readonly T[],
+  extraCriteria: Record<string, unknown> = {},
+) {
+  return paginateHostBridgeRows({
+    scope,
+    criteria: { ...paginationCriteria(request.query), ...extraCriteria },
+    rows,
+    key: paginationRowKey,
+    cursor: request.query.cursor,
+    limit: request.query.limit,
+  });
+}
+
+function paginationErrorResponse(error: HostBridgeCursorError) {
+  return response(
+    400,
+    "Bad Request",
+    hostBridgeError("invalid_host_bridge_cursor", error.message, "validation", {
+      reason: error.reason,
+      ...error.details,
+    }),
+    "invalid_host_bridge_cursor",
+  );
 }
 
 function stableTextFingerprint(value: unknown) {
@@ -2363,10 +2445,23 @@ async function submitWorkflow(request: HttpRequest) {
       payload,
       scope: parsePermissionScopeHeader(request),
     });
+    const boundedResult =
+      result.admission === "direct"
+        ? {
+            workflowId: result.workflowId,
+            workflowLabel: result.workflowLabel,
+            admission: result.admission,
+            workflowRunId: result.workflowRunId,
+            totalJobs: result.totalJobs,
+            permission: result.permission,
+            runUrl: `/bridge/v1/workflows/runs/${encodeURIComponent(result.workflowRunId)}`,
+            tasksUrl: `/bridge/v1/tasks?runId=${encodeURIComponent(result.workflowRunId)}`,
+          }
+        : result;
     return response(
       result.admission === "host-queue" ? 202 : 200,
       result.admission === "host-queue" ? "Accepted" : "OK",
-      hostBridgeOk(result),
+      hostBridgeOk(boundedResult),
     );
   } catch (error) {
     if (error instanceof HostBridgePermissionError) {
@@ -2440,7 +2535,16 @@ async function agentRunWorkflow(request: HttpRequest) {
   }
   try {
     const result = await buildHostBridgeWorkflowAgentRun({ payload });
-    return response(200, "OK", hostBridgeOk(result));
+    const { requests, ...boundedResult } = result;
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        ...boundedResult,
+        requestCount: requests.length,
+        bundleInspectCommand: `zotero-bridge workflow agent-bundle inspect --bundle ${result.bundle.file.displayName}`,
+      }),
+    );
   } catch (error) {
     const code = (error as { code?: string }).code;
     if (code === "workflow_not_found") {
@@ -2496,7 +2600,32 @@ async function applyAgentRunWorkflow(request: HttpRequest) {
         "agent_run_not_found",
       );
     }
-    return response(200, "OK", hostBridgeOk(receipt));
+    try {
+      const page = paginateRequestRows(
+        request,
+        "workflow agent-apply-status",
+        receipt.results,
+        { agentRunId },
+      );
+      return response(
+        200,
+        "OK",
+        hostBridgeOk({
+          ...receipt,
+          results: page.page,
+          nextCursor: page.nextCursor,
+          hasMore: page.hasMore,
+          returned: page.returned,
+          total: page.total,
+          limit: page.limit,
+        }),
+      );
+    } catch (error) {
+      if (error instanceof HostBridgeCursorError) {
+        return paginationErrorResponse(error);
+      }
+      throw error;
+    }
   }
   if (request.method !== "POST") {
     return methodNotAllowed(
@@ -2527,7 +2656,15 @@ async function applyAgentRunWorkflow(request: HttpRequest) {
       payload,
       scope: parsePermissionScopeHeader(request),
     });
-    return response(200, "OK", hostBridgeOk(result));
+    const { results: _results, warnings: _warnings, ...boundedResult } = result;
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        ...boundedResult,
+        receiptUrl: `/bridge/v1/workflows/agent-runs/${encodeURIComponent(agentRunId)}/apply`,
+      }),
+    );
   } catch (error) {
     if (error instanceof HostBridgePermissionError) {
       return permissionErrorResponse(error);
@@ -2581,7 +2718,36 @@ async function getWorkflowRun(request: HttpRequest) {
       "workflow_run_not_found",
     );
   }
-  return response(200, "OK", hostBridgeOk(status));
+  try {
+    const page = paginateRequestRows(
+      request,
+      "run get",
+      status.skillRuns || [],
+      { runId },
+    );
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        ...status,
+        skillRuns: page.page,
+        pagination: {
+          skillRuns: {
+            nextCursor: page.nextCursor,
+            hasMore: page.hasMore,
+            returned: page.returned,
+            total: page.total,
+            limit: page.limit,
+          },
+        },
+      }),
+    );
+  } catch (error) {
+    if (error instanceof HostBridgeCursorError) {
+      return paginationErrorResponse(error);
+    }
+    return controlPlaneErrorResponse(error);
+  }
 }
 
 function controlPlaneErrorResponse(error: unknown) {
@@ -2790,7 +2956,32 @@ async function listWorkflowQueue(request: HttpRequest) {
           backendId,
         }
       : undefined;
-  return response(200, "OK", hostBridgeOk(listHostBridgeWorkflowQueue(scope)));
+  try {
+    const result = listHostBridgeWorkflowQueue(scope);
+    const page = paginateRequestRows(
+      request,
+      "workflow queue list",
+      result.units,
+    );
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        ...result,
+        units: page.page,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        returned: page.returned,
+        total: page.total,
+        limit: page.limit,
+      }),
+    );
+  } catch (error) {
+    if (error instanceof HostBridgeCursorError) {
+      return paginationErrorResponse(error);
+    }
+    throw error;
+  }
 }
 
 async function getWorkflowSubmission(request: HttpRequest) {
@@ -2804,12 +2995,28 @@ async function getWorkflowSubmission(request: HttpRequest) {
   const submissionId =
     safeDecodeURIComponent(request.path.slice(prefix.length)) || "";
   try {
+    const result = getHostBridgeWorkflowSubmission(submissionId);
+    const page = paginateRequestRows(
+      request,
+      "workflow submission get",
+      result.units,
+    );
     return response(
       200,
       "OK",
-      hostBridgeOk(getHostBridgeWorkflowSubmission(submissionId)),
+      hostBridgeOk({
+        ...result,
+        units: page.page,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        returned: page.returned,
+        limit: page.limit,
+      }),
     );
   } catch (error) {
+    if (error instanceof HostBridgeCursorError) {
+      return paginationErrorResponse(error);
+    }
     return controlPlaneErrorResponse(error);
   }
 }
@@ -2841,26 +3048,93 @@ async function listTasks(request: HttpRequest) {
   if (request.method !== "GET") {
     return methodNotAllowed("Task list endpoint only supports GET", "GET");
   }
-  const tasks = listHostBridgeTasks(parseWorkflowTaskFilters(request.query));
-  return response(200, "OK", hostBridgeOk({ tasks }));
+  try {
+    const page = paginateRequestRows(
+      request,
+      "run list",
+      listHostBridgeTasks(parseWorkflowTaskFilters(request.query)),
+    );
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        items: page.page,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        returned: page.returned,
+        total: page.total,
+        limit: page.limit,
+      }),
+    );
+  } catch (error) {
+    return error instanceof HostBridgeCursorError
+      ? paginationErrorResponse(error)
+      : controlPlaneErrorResponse(error);
+  }
 }
 
 async function listRecentTasks(request: HttpRequest) {
   if (request.method !== "GET") {
     return methodNotAllowed("Recent task endpoint only supports GET", "GET");
   }
-  const filters = parseWorkflowTaskFilters(request.query);
-  filters.limit = parsePositiveLimit(request.query);
-  return response(200, "OK", hostBridgeOk(listHostBridgeRecentTasks(filters)));
+  try {
+    const page = paginateRequestRows(
+      request,
+      "run recent",
+      listHostBridgeTasks({
+        ...parseWorkflowTaskFilters(request.query),
+        includeHistory: true,
+      }),
+    );
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        items: page.page,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        returned: page.returned,
+        total: page.total,
+        limit: page.limit,
+      }),
+    );
+  } catch (error) {
+    return error instanceof HostBridgeCursorError
+      ? paginationErrorResponse(error)
+      : controlPlaneErrorResponse(error);
+  }
 }
 
 async function listWorkflowRuns(request: HttpRequest) {
   if (request.method !== "GET") {
     return methodNotAllowed("Workflow runs endpoint only supports GET", "GET");
   }
-  const filters = parseWorkflowTaskFilters(request.query);
-  filters.limit = parsePositiveLimit(request.query);
-  return response(200, "OK", hostBridgeOk(listHostBridgeWorkflowRuns(filters)));
+  try {
+    const result = listHostBridgeWorkflowRuns(
+      parseWorkflowTaskFilters(request.query),
+    );
+    const page = paginateRequestRows(
+      request,
+      "run workflow recent",
+      result.runs,
+    );
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        runs: page.page,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        returned: page.returned,
+        total: page.total,
+        limit: page.limit,
+      }),
+    );
+  } catch (error) {
+    return error instanceof HostBridgeCursorError
+      ? paginationErrorResponse(error)
+      : controlPlaneErrorResponse(error);
+  }
 }
 
 async function listRecentSkillRuns(request: HttpRequest) {
@@ -2870,24 +3144,61 @@ async function listRecentSkillRuns(request: HttpRequest) {
       "GET",
     );
   }
-  const filters = parseWorkflowTaskFilters(request.query);
-  filters.limit = parsePositiveLimit(request.query);
-  return response(
-    200,
-    "OK",
-    hostBridgeOk(listHostBridgeRecentSkillRuns(filters)),
-  );
+  try {
+    const result = listHostBridgeRecentSkillRuns(
+      parseWorkflowTaskFilters(request.query),
+    );
+    const page = paginateRequestRows(
+      request,
+      "run skill recent",
+      result.skillRuns,
+    );
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        skillRuns: page.page,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        returned: page.returned,
+        total: page.total,
+        limit: page.limit,
+      }),
+    );
+  } catch (error) {
+    return error instanceof HostBridgeCursorError
+      ? paginationErrorResponse(error)
+      : controlPlaneErrorResponse(error);
+  }
 }
 
 async function listActiveTasks(request: HttpRequest) {
   if (request.method !== "GET") {
     return methodNotAllowed("Active task endpoint only supports GET", "GET");
   }
-  return response(
-    200,
-    "OK",
-    hostBridgeOk({ tasks: listHostBridgeActiveTasks() }),
-  );
+  try {
+    const page = paginateRequestRows(
+      request,
+      "run active",
+      listHostBridgeActiveTasks(),
+    );
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        tasks: page.page,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        returned: page.returned,
+        total: page.total,
+        limit: page.limit,
+      }),
+    );
+  } catch (error) {
+    return error instanceof HostBridgeCursorError
+      ? paginationErrorResponse(error)
+      : controlPlaneErrorResponse(error);
+  }
 }
 
 async function listPendingPermissions(request: HttpRequest) {
@@ -2897,11 +3208,29 @@ async function listPendingPermissions(request: HttpRequest) {
       "GET",
     );
   }
-  return response(
-    200,
-    "OK",
-    hostBridgeOk({ permissions: listHostBridgePendingPermissions() }),
-  );
+  try {
+    const page = paginateRequestRows(
+      request,
+      "run permission pending",
+      listHostBridgePendingPermissions(),
+    );
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        permissions: page.page,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        returned: page.returned,
+        total: page.total,
+        limit: page.limit,
+      }),
+    );
+  } catch (error) {
+    return error instanceof HostBridgeCursorError
+      ? paginationErrorResponse(error)
+      : controlPlaneErrorResponse(error);
+  }
 }
 
 async function getPermission(request: HttpRequest) {
@@ -2936,14 +3265,30 @@ async function getCurrentContext(request: HttpRequest) {
     );
   }
   try {
+    const currentView =
+      createZoteroHostCapabilityBrokerApis().context.getCurrentView();
+    const page = paginateRequestRows(
+      request,
+      "context current",
+      currentView.selectedItems || [],
+    );
     return response(
       200,
       "OK",
-      hostBridgeOk(
-        createZoteroHostCapabilityBrokerApis().context.getCurrentView(),
-      ),
+      hostBridgeOk({
+        ...currentView,
+        selectedItems: page.page,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        returned: page.returned,
+        total: page.total,
+        limit: page.limit,
+      }),
     );
   } catch (error) {
+    if (error instanceof HostBridgeCursorError) {
+      return paginationErrorResponse(error);
+    }
     return navigationErrorResponse(error);
   }
 }
@@ -2956,15 +3301,27 @@ async function getCurrentSelection(request: HttpRequest) {
     );
   }
   try {
+    const page = paginateRequestRows(
+      request,
+      "context selection get",
+      createZoteroHostCapabilityBrokerApis().context.getSelectedItems(),
+    );
     return response(
       200,
       "OK",
       hostBridgeOk({
-        items:
-          createZoteroHostCapabilityBrokerApis().context.getSelectedItems(),
+        items: page.page,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        returned: page.returned,
+        total: page.total,
+        limit: page.limit,
       }),
     );
   } catch (error) {
+    if (error instanceof HostBridgeCursorError) {
+      return paginationErrorResponse(error);
+    }
     return navigationErrorResponse(error);
   }
 }
@@ -2994,6 +3351,9 @@ async function openContextItem(request: HttpRequest) {
       ),
     );
   } catch (error) {
+    if (error instanceof HostBridgeCursorError) {
+      return paginationErrorResponse(error);
+    }
     return navigationErrorResponse(error);
   }
 }
@@ -3023,6 +3383,9 @@ async function openContextNote(request: HttpRequest) {
       ),
     );
   } catch (error) {
+    if (error instanceof HostBridgeCursorError) {
+      return paginationErrorResponse(error);
+    }
     return navigationErrorResponse(error);
   }
 }
@@ -3081,16 +3444,44 @@ async function openContextSelection(request: HttpRequest) {
       : Array.isArray(payload)
         ? payload
         : [];
+    const result =
+      await createZoteroHostCapabilityBrokerApis().context.openSelection({
+        items: items as never[],
+      });
+    const target = asRequestObject(result.target);
+    const targetItems = Array.isArray(target.items) ? target.items : [];
+    const page = paginateRequestRows(
+      request,
+      "context selection open",
+      targetItems,
+      { items },
+    );
+    const currentView = asRequestObject(result.currentView);
     return response(
       200,
       "OK",
-      hostBridgeOk(
-        await createZoteroHostCapabilityBrokerApis().context.openSelection({
-          items: items as never[],
-        }),
-      ),
+      hostBridgeOk({
+        ...result,
+        target: { ...target, items: page.page },
+        currentView: {
+          ...currentView,
+          selectedItems: page.page,
+        },
+        pagination: {
+          items: {
+            nextCursor: page.nextCursor,
+            hasMore: page.hasMore,
+            returned: page.returned,
+            total: page.total,
+            limit: page.limit,
+          },
+        },
+      }),
     );
   } catch (error) {
+    if (error instanceof HostBridgeCursorError) {
+      return paginationErrorResponse(error);
+    }
     return navigationErrorResponse(error);
   }
 }
@@ -3243,15 +3634,29 @@ async function handleSkillRun(request: HttpRequest) {
           "GET",
         );
       }
+      const filters = parseSkillRunEventFilters(request.query);
+      const result = listHostBridgeSkillRunEvents(skillRunId, {
+        ...filters,
+        limit: 1000,
+      });
+      const page = paginateRequestRows(
+        request,
+        "run skill events",
+        result.events,
+        { skillRunId, sinceUpdatedAt: filters.sinceUpdatedAt },
+      );
       return response(
         200,
         "OK",
-        hostBridgeOk(
-          listHostBridgeSkillRunEvents(
-            skillRunId,
-            parseSkillRunEventFilters(request.query),
-          ),
-        ),
+        hostBridgeOk({
+          ...result,
+          events: page.page,
+          nextCursor: page.nextCursor,
+          hasMore: page.hasMore,
+          returned: page.returned,
+          total: page.total,
+          limit: page.limit,
+        }),
       );
     }
     return response(
@@ -3265,6 +3670,9 @@ async function handleSkillRun(request: HttpRequest) {
       "not_found",
     );
   } catch (error) {
+    if (error instanceof HostBridgeCursorError) {
+      return paginationErrorResponse(error);
+    }
     return controlPlaneErrorResponse(error);
   }
 }
@@ -3723,7 +4131,14 @@ async function handleHttpRequestImpl(
           "method_not_allowed",
         );
       }
-      return response(200, "OK", hostBridgeOk(manifest()));
+      try {
+        return response(200, "OK", hostBridgeOk(manifest(request)));
+      } catch (error) {
+        if (error instanceof HostBridgeCursorError) {
+          return paginationErrorResponse(error);
+        }
+        throw error;
+      }
     }
 
     if (request.path === "/bridge/v1/diagnostics/profile") {

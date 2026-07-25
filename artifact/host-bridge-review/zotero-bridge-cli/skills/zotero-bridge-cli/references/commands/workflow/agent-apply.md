@@ -83,12 +83,65 @@ zotero-bridge workflow agent-apply [--endpoint <ENDPOINT>] [--operation-id <ID>]
 {
   "type": "object",
   "properties": {
-    "applyReceipt": {
+    "agentRunId": {
+      "type": "string"
+    },
+    "workflowId": {
+      "type": "string"
+    },
+    "appliedAt": {
+      "type": "string"
+    },
+    "permission": {
+      "type": "object"
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "succeeded": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "total",
+        "succeeded",
+        "failed"
+      ],
+      "additionalProperties": false
+    },
+    "stateChange": {
+      "enum": [
+        "unchanged",
+        "changed"
+      ]
+    },
+    "handleConsumption": {
+      "const": "consumed"
+    },
+    "receiptUrl": {
       "type": "string"
     }
   },
-  "additionalProperties": true,
-  "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+  "required": [
+    "agentRunId",
+    "workflowId",
+    "appliedAt",
+    "permission",
+    "summary",
+    "stateChange",
+    "handleConsumption",
+    "receiptUrl"
+  ],
+  "additionalProperties": false
 }
 ```
 
@@ -212,12 +265,68 @@ zotero-bridge workflow agent-apply [--endpoint <ENDPOINT>] [--operation-id <ID>]
   "resultSchema": {
     "type": "object",
     "properties": {
-      "applyReceipt": {
+      "agentRunId": {
+        "type": "string"
+      },
+      "workflowId": {
+        "type": "string"
+      },
+      "appliedAt": {
+        "type": "string"
+      },
+      "permission": {
+        "type": "object"
+      },
+      "summary": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "succeeded": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "total",
+          "succeeded",
+          "failed"
+        ],
+        "additionalProperties": false
+      },
+      "stateChange": {
+        "enum": [
+          "unchanged",
+          "changed"
+        ]
+      },
+      "handleConsumption": {
+        "const": "consumed"
+      },
+      "receiptUrl": {
         "type": "string"
       }
     },
-    "additionalProperties": true,
-    "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
+    "required": [
+      "agentRunId",
+      "workflowId",
+      "appliedAt",
+      "permission",
+      "summary",
+      "stateChange",
+      "handleConsumption",
+      "receiptUrl"
+    ],
+    "additionalProperties": false
+  },
+  "outputBoundary": {
+    "strategy": "fixed"
   },
   "pagination": "none",
   "effects": [
@@ -294,11 +403,11 @@ zotero-bridge workflow agent-apply [--endpoint <ENDPOINT>] [--operation-id <ID>]
 ## 操作契约
 
 - 规范 argv 路径： `workflow` `agent-apply`.
+- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `write`; 危险级别： `review`.
-- Intent 可见性： `visible`.
+- 类别： `write`; danger: `review`.
+- 意图可见性： `visible`.
 - 操作别名： `workflow agent-apply`, `workflow`, `agent-apply`, `agent_run_id`, `AGENT_RUN_ID`, `results`, `result`, `AGENT_REQUEST_ID=BUNDLE_PATH`.
-
 ### Effects
 
 ```json

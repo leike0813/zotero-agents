@@ -231,6 +231,9 @@ zotero-bridge synthesis schema get --query '{}'
     },
     "additionalProperties": false
   },
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -275,11 +278,11 @@ zotero-bridge synthesis schema get --query '{}'
 ## 操作契约
 
 - 规范 argv 路径： `synthesis` `schema` `get`.
+- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `read`; 危险级别： `none`.
-- Intent 可见性： `visible`.
+- 类别： `read`; danger: `none`.
+- 意图可见性： `visible`.
 - 操作别名： `synthesis schema get`, `synthesis`, `schema`, `get`, `query`, `JSON_OR_FILE`.
-
 ### Effects
 
 ```json

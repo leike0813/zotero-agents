@@ -217,6 +217,9 @@ zotero-bridge context collection open [--endpoint <ENDPOINT>] [--operation-id <I
     "additionalProperties": true,
     "x-openPropertiesReason": "The local endpoint returns a command-specific object whose extension fields are preserved explicitly."
   },
+  "outputBoundary": {
+    "strategy": "fixed"
+  },
   "pagination": "none",
   "effects": [
     {
@@ -272,11 +275,11 @@ zotero-bridge context collection open [--endpoint <ENDPOINT>] [--operation-id <I
 ## 操作契约
 
 - 规范 argv 路径： `context` `collection` `open`.
+- 输出边界： `fixed`; governed details: {"strategy":"fixed"}.
 - 分页： `none`.
-- 类别： `navigation`; 危险级别： `review`.
-- Intent 可见性： `visible`.
+- 类别： `navigation`; danger: `review`.
+- 意图可见性： `visible`.
 - 操作别名： `context collection open`, `context`, `collection`, `open`, `collection_key`, `COLLECTION_KEY`, `library_id`, `library-id`, `LIBRARY_ID`.
-
 ### Effects
 
 ```json
