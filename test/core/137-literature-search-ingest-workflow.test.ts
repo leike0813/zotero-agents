@@ -553,14 +553,15 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.include(files, "assets/runner.json");
     assert.include(files, "assets/parameter.schema.json");
     assert.include(files, "assets/output.schema.json");
-    assert.include(files, "assets/runtime-action.schema.json");
     assert.include(files, "references/search-planning-and-discovery.md");
     assert.include(files, "references/metadata-resolution.md");
     assert.include(files, "references/pdf-probe.md");
     assert.include(files, "references/ingest-output-recovery.md");
     assert.notInclude(files, "references/stage-playbooks.md");
-    assert.include(files, "scripts/gate_runtime.py");
-    assert.include(files, "scripts/stage_runtime.py");
+    assert.notInclude(files, "assets/runtime-action.schema.json");
+    assert.notInclude(files, "scripts/gate_runtime.py");
+    assert.notInclude(files, "scripts/stage_runtime.py");
+    assert.notInclude(files, "scripts/batch_runtime.py");
   });
 
   it("loads literature workbench workflows after syncing only packaged manifest files", async function () {
@@ -724,7 +725,7 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.isTrue(result.skipped);
   });
 
-  it("ships a complete interactive gate-first skill contract", async function () {
+  it("ships a complete interactive instruction-backed skill contract", async function () {
     const skill = await fs.readFile(
       "skills_builtin/literature-search-ingest/SKILL.md",
       "utf8",
@@ -741,59 +742,16 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.equal(runner.runtime?.language, "python");
     assert.equal(runner.runtime?.version, "3.11");
     assert.deepEqual(runner.runtime?.dependencies, []);
-    assert.include(prompt, "scripts/gate_runtime.py");
-    assert.include(prompt, "interactive");
-    for (const heading of [
-      "## Mission",
-      "## Inputs",
-      "## Interactive Contract",
-      "## Runtime Model",
-      "## Gate Discipline",
-      "## Mode Routing",
-      "## High-recall Search",
-      "## Candidate Tiers And Review",
-      "## Stage Contracts",
-      "## Responsibilities",
-      "## Failure, Cancellation, And Resume",
-      "## Final Output",
-      "## Reference Loading Guide",
-      "## Execution Examples",
-    ]) {
-      assert.include(skill, heading, heading);
-    }
-    assert.notInclude(skill, "## When To Use");
-    assert.notInclude(skill, "## Do Not Use");
-    for (const nextAction of [
-      "await_user_input",
-      "submit_stage_payload",
-      "run_stage",
-      "execute_ingest",
-      "blocked",
-      "return_final_output",
-    ]) {
-      assert.include(skill, `\`${nextAction}\``, nextAction);
-    }
+    assert.include(prompt, "SKILL.md");
+    assert.match(prompt, /最终.*JSON/);
     for (const stage of [
-      "Stage 10",
-      "Stage 20",
-      "Stage 30",
-      "Stage 40",
-      "Stage 50",
-      "Stage 60",
-      "Stage 70",
+      "阶段 10",
+      "阶段 20",
+      "阶段 30",
+      "阶段 40",
+      "阶段 70",
     ]) {
-      const start = skill.indexOf(`### ${stage}`);
-      const end = skill.indexOf("\n### ", start + 4);
-      const section = skill.slice(start, end < 0 ? undefined : end);
-      assert.isAtLeast(start, 0, stage);
-      assert.match(section, /\*\*Purpose:\*\*/);
-      assert.match(section, /\*\*Gate command:\*\*/);
-      assert.match(section, /\*\*Payload path:\*\*/);
-      assert.match(section, /\*\*Minimal payload/);
-      assert.match(section, /\*\*Completion:\*\*/);
-      assert.match(section, /\*\*Forbidden:\*\*/);
-      assert.match(section, /\*\*Recovery:\*\*/);
-      assert.match(section, /\*\*Next:\*\*/);
+      assert.include(skill, `### ${stage}`, stage);
     }
     for (const reference of [
       "references/search-planning-and-discovery.md",
@@ -803,8 +761,11 @@ describe("Literature Search Ingest workflow contract", function () {
     ]) {
       assert.include(skill, reference);
     }
-    assert.include(skill, "assets/runtime-action.schema.json");
-    assert.notInclude(skill.toLowerCase(), "sqlite");
+    assert.include(skill, "abstractNote");
+    assert.include(skill, "skipped_after_verified_pdf");
+    assert.match(skill, /一次只.*一篇|逐篇.*串行/);
+    assert.notInclude(skill, "gate_runtime.py");
+    assert.notInclude(skill, "runtime-action.schema.json");
     assert.isUndefined(runner.mcp);
     assert.notInclude(skill, "MCP");
     assert.notInclude(prompt, "MCP");

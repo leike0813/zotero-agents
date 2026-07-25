@@ -21,7 +21,7 @@
   },
   "entrypoint": {
     "prompts": {
-      "common": "执行 literature-search-ingest。输入：query={{ parameter.query }}，searchMode={{ parameter.searchMode }}，targetCollection={{ parameter.targetCollection }}。遵循 SKILL.md 及 Skill 包中的其他指令，当所有任务执行完成时，原样返回 gate 的 final_output。"
+      "common": "执行 literature-search-ingest。输入：query={{ parameter.query }}，searchMode={{ parameter.searchMode }}，targetCollection={{ parameter.targetCollection }}。从 runtime/input.json 读取完整参数，遵循 SKILL.md 及其 references 中的阶段完成条件；完成或取消时，只返回 SKILL.md 和 assets/output.schema.json 定义的最终 JSON。"
     }
   }
 }

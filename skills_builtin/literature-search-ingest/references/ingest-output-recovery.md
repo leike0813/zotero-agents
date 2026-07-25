@@ -1,106 +1,206 @@
-# 采集、输出与恢复
+# 入库、输出与恢复
 
-本参考文档用于 Stage 60、Stage 70 和最终输出。运行时负责类型化 payload 生成、哈希、状态转换和 receipt 绑定。agent 负责精确命令执行以及输出门控返回的最终业务结果。运行时写入审计摘要和最终 JSON。
+本参考用于阶段 40 的 Host payload 检查、阶段 70 的逐篇 mutation，以及 receipts、search ledger、最终输出和恢复。
 
-## 类型化 Payload 映射
+## 目录
 
-Stage 60 读取已接受的 Stage 40 和 Stage 50 payload，并为每个元数据合格的候选项精确生成一个不可变文件：
+- [单篇 Host payload](#单篇-host-payload)
+- [条目类型与字段](#条目类型与字段)
+- [创建者](#创建者)
+- [标识符与 URL](#标识符与-url)
+- [Collection 与附件选项](#collection-与附件选项)
+- [主代理提交前检查](#主代理提交前检查)
+- [逐篇 Host mutation](#逐篇-host-mutation)
+- [Host receipt](#host-receipt)
+- [结果语义](#结果语义)
+- [失败处理](#失败处理)
+- [幂等性与恢复](#幂等性与恢复)
+- [紧凑检索账本](#紧凑检索账本)
+- [最终输出](#最终输出)
+- [示例与反例](#示例与反例)
+
+## 单篇 Host payload
+
+每个 metadata-qualified candidate 对应一个独立 JSON object：
 
 ```json
 {
   "paper": {
     "itemType": "journalArticle",
     "fields": {
-      "title": "隧道衬砌病害智能识别研究",
-      "publicationTitle": "隧道工程学报",
+      "title": "权威原文题名",
+      "abstractNote": "经来源支持的摘要",
       "date": "2024",
+      "publicationTitle": "期刊名称",
+      "volume": "12",
+      "issue": "3",
+      "pages": "100-115",
       "language": "zh-CN"
     },
-    "creators": [],
+    "creators": [
+      {
+        "creatorType": "author",
+        "firstName": "三",
+        "lastName": "张"
+      }
+    ],
     "identifiers": {
-      "doi": "10.5555/tunnel.001"
+      "doi": "10.0000/example"
     },
-    "landingUrl": "https://doi.org/10.5555/tunnel.001",
-    "pdfUrl": "https://journal.example.org/articles/tunnel.001.pdf",
+    "landingUrl": "https://doi.org/10.0000/example",
+    "pdfUrl": "https://repository.example.org/example.pdf",
     "attachLandingUrlOnMissingPdf": true
   },
-  "collection": "1:COLLECTION"
+  "collection": "collection:ABC123"
 }
 ```
 
-顶层包含 `paper` 和可选的 `collection`。绝不包含批量数组。
+payload 不包含：
 
-### 条目类型专属字段
+- 多篇 `papers[]`；
+- provenance、route trace 或 uncertainty；
+- candidate outcome；
+- Host receipt；
+- workflow summary；
+- 自定义 metadata wrapper。
 
-仅映射所选条目类型的已接受 Zotero 字段：
+研究来源和不确定性可由子代理通过 stdout 提供，主代理可选择在内部审计中汇总。
 
-| 条目类型 | 直接工作字段 | 容器/发布方字段 |
+## 条目类型与字段
+
+常见映射：
+
+| 作品 | `itemType` | 典型容器字段 |
 | --- | --- | --- |
-| `journalArticle` | title, date, volume, issue, pages, language | publicationTitle |
-| `conferencePaper` | title, date, pages, place, language | proceedingsTitle, conferenceName |
-| `book` | title, edition, date, language | publisher, place |
-| `bookSection` | title, pages, date, language | bookTitle, publisher, place |
-| `thesis` | title, date, thesisType, language | university, place |
-| `report` | title, date, reportNumber, reportType, language | institution, place |
-| `document` | 仅已验证的通用字段 | 仅已验证的发布方或机构字段 |
+| 期刊论文 | `journalArticle` | `publicationTitle` |
+| 会议论文 | `conferencePaper` | `proceedingsTitle`、`conferenceName` |
+| 学位论文 | `thesis` | `university`、`thesisType` |
+| 图书 | `book` | `publisher`、`place`、`edition` |
+| 书章 | `bookSection` | `bookTitle`、`publisher`、`pages` |
+| 报告 | `report` | `institution`、`reportType`、`reportNumber` |
 
-当证据不足以支持更窄的受支持类型时，使用 `document`。不要为了解锁特定字段而猜测类型。
+只写所选 item type 支持且语义正确的字段。不能因为字段名看似 canonical 就用于不兼容 item type。
 
-### 创建者
+字段所有权：
 
-保留 Stage 40 的顺序和表示方式：
+- work title：`fields.title`；
+- abstract：`fields.abstractNote`；
+- 日期：`fields.date`；
+- journal/container：对应 item type 的容器字段；
+- creators：`paper.creators`；
+- DOI/ISBN/PMID/arXiv：`paper.identifiers`；
+- landing page：`paper.landingUrl`；
+- PDF：`paper.pdfUrl`。
 
-- `{"creatorType": "author", "name": "张三"}` 用于已验证的不可分割的原始姓名或组织；
-- `{"creatorType": "author", "firstName": "Ada", "lastName": "Lovelace"}` 用于有权威来源支持分段的情况；
-- `[]` 用于创建者完整性为 `incomplete` 或 `unknown` 的情况。
+不接受 `fields.abstract`。也不把 identifiers、creators 或 URLs 塞进 generic fields 或 `extra`。
 
-在 payload 生成过程中不要恢复、翻译或合成创建者信息。
+## 创建者
 
-### 标识符与 URL
-
-- DOI 仅保留在 `paper.identifiers.doi` 中。
-- ISBN、PMID 和 arXiv 值保留在各自的命名标识符键中。
-- `landingUrl` 是 Stage 40 的权威直接工作页面。
-- `pdfUrl` 仅在 Stage 50 选择了公开、可访问、身份匹配的 PDF 时存在。
-- `attachLandingUrlOnMissingPdf: true` 允许 Host 在无 PDF 附件成功时保留着陆页。
-- `collection` 从已授权的工作流参数中复制，不从元数据推断。
-
-Host 选择原生 Zotero 字段并验证条目类型兼容性。运行时不得将 DOI 放入 `fields.DOI` 或 `DOI:` Extra 行。
-
-## Stage 60 哈希边界
-
-对于每个合格的候选项，Stage 60：
-
-1. 重新读取已接受的元数据和 PDF payload 路径；
-2. 重新计算并验证其已记录的哈希；
-3. 将已接受的语义值映射到类型化的单篇论文 payload；
-4. 写入稳定的编号 payload 路径；
-5. 在门控状态中记录 payload 的 SHA-256 哈希和候选项绑定。
-
-生成后：
-
-- 不要手动编辑、重新格式化、重命名、移动、合并或重新生成 payload；
-- 不要将其字节复制到另一个候选项；
-- 不要在已接受的上游 payload 之后添加新发现的标识符或 URL；
-- 不要将审计清单副本视为可执行 payload。
-
-如果已接受的上游文件或生成的 payload 发生变更，运行时返回阻塞器。在已接受字节已知且已授权时恢复它们；否则通过已授权的上游门控操作重新启动。绝不修补状态哈希。
-
-## Stage 70 变更契约
-
-对于每个已准备的候选项，门控返回：
-
-- `candidate_id`；
-- `ingest_payload_path`；
-- `ingest_payload_hash`；
-- 精确的单篇论文 `command`；
-- `receipt_path`；
-- `submit_command`。
-
-执行精确命令。将精确的 Host 响应不加更改、不加包装地写入绑定的 receipt 路径：
+Person creator：
 
 ```json
 {
+  "creatorType": "author",
+  "firstName": "Jane",
+  "lastName": "Doe"
+}
+```
+
+Single-field 或 institutional creator：
+
+```json
+{
+  "creatorType": "author",
+  "name": "World Health Organization"
+}
+```
+
+规则：
+
+- 保持来源顺序；
+- 保持 creator role；
+- 不写 “et al.”；
+- 不用单一弱来源补全姓名；
+- 原脚本姓名优先；
+- 列表不完整但身份明确时设置 `needsCuration`；
+- 创建者冲突影响身份时不提交 payload。
+
+## 标识符与 URL
+
+`identifiers` 只包含适用于该材料且已规范化的 identifier：
+
+```json
+{
+  "doi": "10.0000/example",
+  "isbn": "9780000000000",
+  "pmid": "12345678",
+  "arxiv": "2401.01234"
+}
+```
+
+只写实际存在的键。不要用空字符串占位。
+
+URL 规则：
+
+- `landingUrl` 是最权威、稳定的作品页面；
+- `pdfUrl` 必须是验证后的合法公开 PDF；
+- PDF 缺失时省略 `pdfUrl`；
+- 临时 token、登录页、搜索页和错误页不是稳定 URL；
+- Host receipt 决定附件是否成功。
+
+## Collection 与附件选项
+
+- 用户提供 `targetCollection` 时，将该 collection ref 写入顶层 `collection`；
+- 空 collection 可以省略或使用 Host 接受的空值表示默认文库；
+- 不猜测 collection，也不根据主题自动创建集合；
+- `attachLandingUrlOnMissingPdf: true` 表示 PDF 未取得时允许 Host 按其能力保存 landing page；
+- 该字段不能代替 PDF 探测，也不能预先决定 `pdfStatus`。
+
+## 主代理提交前检查
+
+逐篇验证：
+
+1. 顶层是 object，包含一个 `paper`；
+2. payload 对应批准的 candidate；
+3. direct-work identity 和 material version 已确认；
+4. `itemType` 合法且 fields 兼容；
+5. `title` 非空；
+6. `abstractNote`、creators、identifiers 和 URLs 使用专属结构；
+7. DOI 等 identifier 已规范化；
+8. `pdfUrl` 若存在，已完成三路线身份和合法性检查；
+9. PDF 缺失时 payload 仍具有足够 metadata；
+10. collection 与用户选择一致；
+11. 没有多篇数组、receipt 或 workflow output 混入。
+
+主代理可以修复有明确来源支持的无歧义映射，例如将误放的 canonical 值移动到专属结构。身份冲突和关键字段未知不能靠推测修复。
+
+## 逐篇 Host mutation
+
+主代理执行：
+
+```bash
+zotero-bridge mutation literature-ingest --input @runtime/path/to/paper.json
+```
+
+执行纪律：
+
+- 一次只运行一篇；
+- 等待当前命令 terminal response；
+- 保存当前 response 后再开始下一篇；
+- 不提前并发提交多个 payload；
+- 不把 mutation 委派给研究子代理；
+- 不修改已经提交的 payload 来解释 receipt；
+- 使用 Host 返回的实际 item 和 attachment 事实。
+
+研究子代理可以继续并发工作。串行约束只针对 Zotero mutation。
+
+## Host receipt
+
+原样保存 Host JSON response。成功示例：
+
+```json
+{
+  "ok": true,
   "result": {
     "ingest": {
       "status": "created",
@@ -115,165 +215,132 @@ Host 选择原生 Zotero 字段并验证条目类型兼容性。运行时不得�
 }
 ```
 
-Host 响应（而非意图）决定：
+每份 receipt 与以下信息关联：
 
-- `created`、`existing` 或论文特定的 `failed`；
-- 条目 id、key 和 library id；
-- PDF 附件是否实际存在；
-- 附件或状态标签警告。
+- candidate id；
+- title；
+- payload path；
+- mutation completion time；
+- raw Host response；
+- derived ingest/pdf outcome。
 
-绝不从 `pdfUrl` 的存在推断 `attached`。下载或附件可能在条目创建后失败。
+关联信息可以保存在 search ledger；raw receipt 本身保持 Host 原始形状。
 
-### 已存在条目
+## 结果语义
 
-按 Host 返回的原样记录 `existing`。保留实际的 `itemRef`。Host 的去重是成功的复用，而非新创建。附件和状态标签结果保持为已存在条目所报告的内容。
+### `created`
 
-### 普通论文特定失败
+Host 创建新 item。最终 outcome 使用 Host item id。新建条目由 workflow apply hook 根据结果添加受治理状态标签。
 
-`result.ingest.status` 为 `failed` 的 Host 响应是该候选项的终态结果。提交它并继续下一个已准备的候选项。其结构化错误保留在 receipt 和清单中；最终结果保持紧凑。
+### `existing`
 
-### 致命执行失败
+Host 复用已有 item。最终 outcome 必须报告 `existing`，不能报告新建，也不能把它重新加入完整处理队列。
 
-如果 Host 命令无法启动或缺少剩余写入的授权，写入以下最小化致命 receipt：
+### `failed`
 
-```json
-{
-  "failure": "host_unavailable",
-  "message": "所需的 Zotero Host Bridge 变更无法启动。"
-}
-```
+Host 对该论文返回普通失败。记录 paper-specific `failed`，保留 receipt，并继续后续论文。
 
-致命原因包括：
+### `not_attempted`
+
+direct-work identity 或最低 metadata 无法确认，没有执行 Host mutation。最终 outcome 只包含 title 和 `not_attempted`。
+
+### PDF 状态
+
+- `attached`：Host receipt 明确 `hasPdfAttachment: true`；
+- `missing`：Host 成功但未确认 PDF 附件；
+- `failed` 或 `skipped`：仅在实际 workflow/Host 语义支持时使用；
+- worker 的 `pdfUrl` 或下载判断不能单独产生 attached。
+
+### `needsCuration`
+
+对 `created`/`existing` 记录，根据 metadata 证据缺口和 Host warnings 设置。它不用于 `failed` 或 `not_attempted` outcome。
+
+## 失败处理
+
+### Paper-specific failure
+
+一篇论文 payload 或 Host 执行失败：
+
+- 保留该论文 payload、stdout 信息和 receipt；
+- 修复或重新委派只针对该论文；
+- 其他已就绪论文继续；
+- Host 普通 `failed` 进入最终 summary。
+
+### Fatal execution failure
+
+以下失败停止后续 mutation：
 
 - `host_unavailable`；
 - `approval_denied`；
-- `execution_blocked`。
+- `execution_blocked`；
+- 当前运行工作区不可写；
+- 无法确认正在执行的 mutation 是否已产生结果。
 
-它们产生 canceled 终态，保留早期候选项的 receipt，并阻止后续变更。不要将致命的运行级停止转换为多个虚构的论文失败。
+保留已完成 receipts 和 outcomes，写入 cancellation 原因，并返回 canceled JSON。不要把 fatal failure 伪装成单篇 `failed`。
 
-## 幂等性与重放
+## 幂等性与恢复
 
-精确的 stage payload 或 receipt 重放是幂等的。运行时从状态中派生操作身份、发现轮次、候选项和已准备 payload 哈希，然后比较发出的路径和内容哈希。
+恢复时读取当前运行工作区：
 
-- 相同路径上的完全相同字节返回 accepted 状态。
-- 已接受操作的字节变更是冲突重放，将失败。
-- 复制到另一个候选项的 receipt 会因跨候选项条目/receipt 绑定而失败。
-- 写入非发出路径的正确 receipt 会失败。
-- 修改后的已生成 payload 在变更推进之前失败。
+- `runtime/input.json`；
+- 累计候选与已批准范围；
+- 已存在的单篇 payload；
+- 已保存的 raw Host receipts；
+- `result/search-ledger.json` 若已存在；
+- 可选内部审计若存在。
 
-不确定时，重新运行初始门控。不要从对话记忆中重新提交。
+逐篇判断：
 
-## 恢复协议
+1. 已有可识别 terminal receipt：从 receipt 恢复 outcome，不重复 mutation；
+2. payload 有效但无 receipt：该论文可进入串行 mutation 队列；
+3. payload 缺失或畸形：修复或重新委派该论文；
+4. identity/metadata unresolved：恢复为 `not_attempted`；
+5. receipt 状态不清楚：停止后续 mutation并报告 `execution_blocked`，避免重复创建。
 
-### 正常恢复
+恢复按论文独立进行：任何有效论文都可以继续，单篇问题保持局部。
 
-1. 运行 `python3 scripts/gate_runtime.py --run-root "$SKILL_RUN_ROOT" --common-input "$SKILL_COMMON_INPUT"`。
-2. 读取 `stage`、`next_action`、`allowed_actions`、`required_reads`、`discovery_round` 和 `resume_packet`。
-3. 仅读取返回的 stage 参考文档。
-4. 仅使用返回的 payload 路径和命令。
-5. 在任何已接受的状态变更后，重新运行初始门控。
+## 紧凑检索账本
 
-### 阻塞器
-
-`next_action: "blocked"` 表示不存在合法的继续命令。报告结构化阻塞器。不要在以下情况周围即兴发挥：
-
-- 无效或损坏的状态；
-- 输入哈希漂移；
-- 缺失已接受的 payload；
-- 已接受的 payload 哈希不匹配；
-- 已生成的采集 payload 哈希不匹配；
-- 错误的 receipt 路径、跨候选项 receipt/条目复用或变更的重放；
-- 冲突的重放。
-
-### 损坏的状态
-
-状态文件是执行的唯一真实来源。如果必需的键、类型、候选项绑定或 stage 不变量损坏，停止。不要从清单、结果目录或对话记录中重建状态。
-
-### 输入漂移
-
-参数输入哈希在初始化时绑定。查询、模式、广度、语言提示或目标集合的变更是不同的授权上下文。停止并开始一个独立的运行，而非变更当前状态。
-
-### 上下文恢复
-
-对话压缩不改变协议。门控的 `resume_packet` 提供当前候选项 id、已接受路径、receipt 和轮次。agent 不得因为记得已完成工作就将某个 stage 标记为完成。
-
-## 紧凑清单
-
-运行时在达到终态时写入 `result/search-ledger.json`。清单是审计摘要和路径索引，而非执行状态。
-
-最小有用内容：
+`result/search-ledger.json` 是审计摘要和恢复索引。建议结构：
 
 ```json
 {
-  "querySummary": "隧道衬砌视觉检测",
-  "inputHash": "sha256:<bound-input-hash>",
+  "kind": "literature_search_ingest_ledger",
+  "status": "completed",
   "searchMode": "guided",
   "breadth": "broad",
-  "languages": ["zh-CN", "en"],
-  "discoveryRounds": [
+  "discoveryRounds": [],
+  "candidateIds": ["doi:10.0000/example"],
+  "approvedCandidateIds": ["doi:10.0000/example"],
+  "excludedCandidateIds": [],
+  "candidateResults": [
     {
-      "round": 1,
-      "queryAttemptCount": 8,
-      "unavailableOrErrorCount": 1,
-      "candidateIds": [
-        "doi:10.5555/tunnel.001",
-        "source:uncertain-002"
-      ],
-      "uncoveredGaps": ["繁体术语"],
-      "stopReason": "scope_review_requested"
-    },
-    {
-      "round": 2,
-      "queryAttemptCount": 3,
-      "unavailableOrErrorCount": 0,
-      "candidateIds": [
-        "doi:10.5555/tunnel.001",
-        "source:uncertain-002"
-      ],
-      "uncoveredGaps": [],
-      "stopReason": "all_applicable_lanes_completed"
-    }
-  ],
-  "scope": {
-    "approvedCandidateIds": [
-      "doi:10.5555/tunnel.001",
-      "source:uncertain-002"
-    ],
-    "excludedCandidateIds": []
-  },
-  "candidates": [
-    {
-      "candidateId": "doi:10.5555/tunnel.001",
-      "metadataPayloadPath": "runtime/stages/metadata-doi_10.5555_tunnel.001.json",
-      "pdfPayloadPath": "runtime/stages/pdf-doi_10.5555_tunnel.001.json",
-      "ingestPayloadPath": "runtime/payloads/ingest-paper-001.json",
-      "receiptPath": "runtime/receipts/ingest-001.json",
+      "candidateId": "doi:10.0000/example",
+      "title": "权威原文题名",
+      "metadataStatus": "qualified",
+      "pdfStatus": "found",
+      "payloadPath": "runtime/payloads/example.json",
+      "receiptPath": "runtime/host/example.json",
       "ingestStatus": "created",
-      "pdfStatus": "attached",
-      "needsCuration": true
-    },
-    {
-      "candidateId": "source:uncertain-002",
-      "metadataPayloadPath": "runtime/stages/metadata-source_uncertain-002.json",
-      "ingestStatus": "not_attempted",
-      "pdfStatus": "skipped",
-      "needsCuration": true
+      "itemId": 101,
+      "needsCuration": false
     }
   ],
-  "terminal": {
-    "status": "completed"
-  }
+  "cancellation": {}
 }
 ```
 
-路径和计数必须来自状态。清单可以包含已记录的哈希，但不得复制完整的发现、元数据、PDF 或 Host 证据。
+账本计数和状态来自实际候选、payload 和 receipts。不要复制全文、完整 metadata 证据或 raw Host response。
 
-## 已完成输出
+可选内部审计路径可以保留在运行工作区记录中，但不是最终 JSON 字段，也不是完成条件。
 
-精确输出门控的 `final_output`，该输出需通过 `assets/output.schema.json` 验证。只有已批准的候选项出现在 `outcomes` 中，且每个已批准的候选项具有终态采集状态。
+## 最终输出
+
+### Completed
 
 ```json
 {
+  "__SKILL_DONE__": true,
   "kind": "literature_search_ingest",
   "status": "completed",
   "summary": {
@@ -288,14 +355,12 @@ Host 响应（而非意图）决定：
     {
       "title": "隧道衬砌病害智能识别研究",
       "ingestStatus": "created",
-      "itemRef": {
-        "id": 101
-      },
+      "itemRef": { "id": 101 },
       "pdfStatus": "attached",
-      "needsCuration": true
+      "needsCuration": false
     },
     {
-      "title": "隧道衬砌检测方法研究",
+      "title": "身份未能确认的候选",
       "ingestStatus": "not_attempted"
     }
   ],
@@ -303,67 +368,55 @@ Host 响应（而非意图）决定：
 }
 ```
 
-结果规则：
+约束：
 
-- `created` 和 `existing` 仅暴露 `itemRef.id`；
-- `failed` 和 `not_attempted` 仅暴露标题和状态；
-- `pdfStatus: "attached"` 需要 Host 附件确认；
-- `missing`、`failed` 和 `skipped` 保持互异；
-- `needsCuration` 反映证据和 Host 警告；
-- 详细错误、原因、标识符、URL、路径和证据保留在 receipt、已接受的 payload 和紧凑清单中，而非终态信封中。
+- summary 的四类 ingest 计数之和等于 selected；
+- outcomes 数量等于 selected；
+- 只有批准候选进入 outcomes；
+- successful outcome 只暴露数字 item id 和紧凑状态；
+- unsuccessful outcome 只暴露 title 和 status；
+- identifiers、URLs、证据、错误详情和 receipts 留在工作区与账本。
 
-## 已取消输出
-
-Stage 10 或 Stage 30 用户取消：
+### Canceled
 
 ```json
 {
+  "__SKILL_DONE__": true,
   "kind": "literature_search_ingest_canceled",
   "status": "canceled",
-  "reason": "user_cancelled",
-  "message": "用户拒绝了采集范围。"
+  "reason": "approval_denied",
+  "message": "Zotero Host 未批准入库操作。"
 }
 ```
 
-致命 Stage 70 取消：
-
-```json
-{
-  "kind": "literature_search_ingest_canceled",
-  "status": "canceled",
-  "reason": "host_unavailable",
-  "message": "所需的 Zotero Host Bridge 变更无法启动。"
-}
-```
-
-使用门控返回的稳定终态原因和消息。如果存在早期候选项的 receipt，将其保留在紧凑清单中；除非输出 schema 明确支持，否则不要将它们添加到已取消的信封中。
+最终助手消息只输出该 JSON object。
 
 ## 示例与反例
 
-### 正确：混合多候选项完成
+### 正确：随到随收
 
-一个候选项创建成功并附带 PDF 附件，一个完全重复的候选项返回 existing，一个论文特定的 Host 变更失败，一个元数据冲突为 `not_attempted`。运行已完成，因为每个已批准的候选项都有终态结果。
+三组研究并行。第一篇 payload 完成后，主代理检查并执行该篇 mutation；其余研究继续。第一篇 terminal receipt 保存后，主代理处理下一篇已就绪 payload。
 
-### 正确：精确重试
+### 正确：metadata-only ingest
 
-上下文恢复后，相同的 receipt 字节仍在发出的路径上。再次提交它们是幂等的。重新运行门控会推进或返回相同的终态。
+metadata 和身份合格，三路线无 PDF。payload 省略 `pdfUrl`，Host 成功创建 item，receipt 未确认附件，最终 `pdfStatus` 为 missing。
 
-### 拒绝：准备后编辑 payload
+### 正确：单篇修复
 
-agent 直接向 `ingest-paper-001.json` 添加了一个创建者。哈希不再匹配。恢复生成的字节或通过已授权的元数据操作重新启动；不要更新哈希。
+一篇 payload 把 DOI 放入 fields。主代理根据已核验 DOI 将其移动到 `identifiers.doi`；其他论文不受影响。
 
-### 拒绝：receipt 被另一个候选项复用
+### 拒绝：并发 mutation
 
-候选项 A 的 Host 响应被复制到候选项 B 的发出 receipt 路径。即使两条记录都是 `created`，运行时拥有的候选项、已准备 payload 和条目绑定也不同。运行时必须失败关闭。
+同时对多篇论文启动 Host 命令会破坏 receipt 关联和串行权限边界。必须等待当前 terminal response。
 
-### 拒绝：授权被拒但报告为论文失败
+### 拒绝：receipt 复用
 
-写入授权在剩余变更运行之前被拒绝。提交 `failure: "approval_denied"` 并返回 canceled 终态输出。不要虚构 Host 论文结果或继续变更。
+一个 created receipt 只能属于产生它的 candidate/payload，不能复制给另一篇论文。
 
-### 拒绝：Host 不可用但结果仍为 pending
+### 拒绝：从 URL 推断附件
 
-pending 不是终态业务状态。提交致命 receipt，保留已完成的证据，并返回 canceled 信封。
+payload 含 `pdfUrl` 但 Host 返回 `hasPdfAttachment: false`。最终 PDF 状态必须反映 Host 结果。
 
-### 拒绝：清单修复状态
+### 拒绝：模糊恢复
 
-状态文件损坏，但清单声称每个候选项都已完成。清单不能授权继续或重建哈希。以门控阻塞器停止。
+命令可能已成功但 receipt 丢失。继续执行可能重复创建，必须停止并报告 `execution_blocked`。

@@ -1,876 +1,449 @@
 ---
 name: literature-search-ingest
-description: Conduct guided literature search with multilingual and topic expansion, seed-paper expansion, targeted record ingest, candidate review, evidence-backed metadata and public-PDF verification, and typed Zotero ingest through zotero-bridge. Use when a user wants to discover scholarly literature, fill a Zotero or Synthesis coverage gap, expand from a known paper, verify and ingest an exact record, review candidates before mutation, or add approved literature with provenance to Zotero.
+description: Search academic literature with broad multilingual discovery, metadata curation, public-PDF verification, and ingest into Zotero through zotero-bridge CLI. Use when a user wants to discover scholarly literature, fill a topic research coverage gap, expand library from a known paper or just intend to ingest a single paper. Do not invoke when zotero-bridge is unavailable.
 ---
 
 # 文献检索与入库
 
 ## 任务
 
-将研究问题、主题、种子论文或精确的文献线索转化为一组经过审核的可追溯文献记录，然后仅将用户批准的直接作品入库到 Zotero。
+将研究问题、主题、种子论文或精确文献线索转化为一组经过审核的可追溯记录，并仅将用户批准的直接作品入库到 Zotero。
 
-本 Skill 以交互模式运行。使用合法的公开发现来源和 `zotero-bridge` 进行只读的 Zotero/Synthesis 上下文查询以及经批准的 Zotero 变更。禁止使用浏览器自动化、Zotero Connector、CDP、登录会话、机构代理、验证码绕过、Sci-Hub、LibGen 或其他盗版来源。
+本 Skill 以 `interactive` 模式运行。使用合法公开来源进行发现和 PDF 探测；使用 `zotero-bridge` 查询只读 Zotero/Synthesis 上下文并执行经批准的 Zotero 变更。不得使用浏览器自动化、Zotero Connector、CDP、登录会话、机构代理、验证码绕过、Sci-Hub、LibGen 或其他盗版来源。
 
 ## 输入
 
-从 `runtime/input.json` 读取运行器输入；不要从对话记忆中重建。
+从运行器工作区的 `runtime/input.json` 读取输入，不从对话记忆重建参数。
 
-- `query`：字符串；默认 `""`。可以是研究问题、主题/知识空白、种子论文线索或精确标题/标识符。仅含空白字符视为空。
-- `searchMode`：精确值为 `auto`、`guided`、`topic_expansion`、`paper_seed_expansion` 或 `targeted_ingest`；默认 `auto`。
-- `searchBreadth`：精确值为 `broad`、`balanced` 或 `quick`；默认 `broad`。广度控制查询/来源覆盖范围，不影响候选质量阈值。
-- `languageHints`：可选的 BCP 47 风格字符串，如 `en`、`zh-CN` 或 `ja`；默认 `[]`。语言提示增加查询和来源覆盖范围，不会排除未列出的语言。
-- `targetCollection`：可选的 Zotero 集合引用。空值表示用户的默认文库；不要猜测集合。
+- `query`：字符串，默认 `""`。可以是研究问题、主题、知识空白、种子论文、精确标题或标识符。仅含空白字符视为空。
+- `searchMode`：`auto`、`guided`、`topic_expansion`、`paper_seed_expansion` 或 `targeted_ingest`，默认 `auto`。
+- `searchBreadth`：`broad`、`balanced` 或 `quick`，默认 `broad`。它控制查询和来源覆盖，不降低候选质量标准。
+- `languageHints`：可选 BCP 47 风格字符串数组，如 `en`、`zh-CN`、`ja`。提示用于扩展查询和地区来源，不过滤其他语言。
+- `targetCollection`：可选 Zotero collection ref。空值表示入库文献写入当前默认文库，不得自行猜测 collection。
 
-支持的四种查询形式：
+支持四类研究入口：
 
 1. 空白或不完整的研究意图；
 2. 主题、问题、方法、对象、应用或覆盖空白；
 3. 已知论文、作者、项目、数据集、Topic 或本地工件；
-4. 精确的文献记录或标识符。
+4. 精确文献记录或标识符。
 
 ## 交互契约
 
-仅两个阶段可以等待用户：
+以下两个阶段完成时，必须等待用户决策后才可进入下一步：
 
-1. 阶段 10：批准或取消检索简报。
-2. 阶段 30：批准入库范围、请求新一轮发现或取消。
+1. 阶段 10：检索方案形成后，需要用户批准、修改检索方案。用户也可以取消检索。
+2. 阶段 30：入库范围提案形成后，需要用户选择实际执行入库的文献（全部、部分关键文献或具体某一篇）。用户也可请求补充检索，或取消检索。
 
-遵循以下规则：
+执行规则：
 
-- 仅询问会改变检索计划的缺失信息。说明缺失内容及其对发现的影响。
-- 将非空 `query` 和只读本地上下文视为已知事实；不要重复它们已经回答的问题。
-- 允许"未知"或"无偏好"。一旦存在最低研究目标即停止信息收集。
-- 在阶段 10 批准之前，不要执行外部发现、下载文件或变更 Zotero，包括非空的 `auto`。
-- 阶段 30 的扩展仍然是同一个入库范围决策。它以新的 `discovery_round` 返回阶段 20，然后再次返回阶段 30；不会创建第三个决策阶段。
-- 进度消息是普通的助手更新。它们不得进入等待状态，也不得类似最终 JSON。
-- 阶段 30 范围批准后，元数据解析、三路线 PDF 探测、载荷准备和逐篇入库自动运行。不要再请求确认或使用 `open_text`。
-- 范围批准后允许非阻塞的最终准备表格，但不得暂停执行。
-- 仅在门控返回 `return_final_output` 后才返回已完成或已取消的 JSON 对象。不要将 pending、收据、计划摘要或进度占位符作为最终输出返回。
+- 只询问会改变检索计划的缺失信息，并说明它对发现范围的影响。
+- 将非空 `query` 和只读本地上下文视为已知事实，不重复询问已经回答的问题。
+- 允许用户回答“未知”或“无偏好”。具备最低研究目标后即结束信息收集。
+- 阶段 10 批准前，只能进行引导式信息收集和只读本地覆盖检查；不得执行外部发现、下载文件或变更 Zotero。
+- 阶段 30 的补充发现返回阶段 20，增加 discovery round，然后回到同一个范围决策。
+- 询问用户时，必须确保进行询问的一条消息中同时包含问题上下文以及问题本身，不得拆分上下文和问题（例如阶段 30 的入库候选文献表和询问用户的问题不得拆分成两条消息），避免造成用户的困惑。
+- 允许在执行中发送中间进度消息，但不能形成额外等待点，也不能伪装成最终 JSON。
+- 范围批准后自动继续完成 metadata、直接作品身份、三路线 PDF、载荷准备和逐篇入库。
+- 范围批准后可以显示非阻塞准备摘要，但执行继续进行，不得再询问用户（使用 CLI 进行入库时的用户审批动作不算询问）。
+- 最终消息只能是 `assets/output.schema.json` 接受的 completed 或 canceled JSON。
 
-## 运行时模型
+## 当前运行的工件边界
 
-从运行器工作区运行。不要切换到 Skill 包目录。
+所有中间工件保存在当前运行器工作区的 `runtime/` 中：
 
-权威运行时路径：
+- 输入：`runtime/input.json`；
+- 每篇论文的 Host ingest payload：主代理为该论文指定的独立 JSON 路径；
+- Host 原始响应：建议保存在 `runtime/host/` 下并与同一论文关联；
+- 可选内部审计：主代理可在 `runtime/` 中汇总子代理 stdout；
+- 紧凑检索账本：`result/search-ledger.json`；
+- 最终业务输出：由运行器写入 `result/result.json` 的助手 JSON。
 
-- 运行器输入：`runtime/input.json`；
-- JSON 门控状态：`runtime/literature-search-ingest-gate.json`；
-- 代理编写的阶段载荷：当前门控 `payload_path`，位于 `runtime/payloads/` 下；
-- 已批准范围的单篇论文任务规格和轻量级工作器结果：`runtime/agent-batches/batch-NNN/`；
-- 运行时生成的不可变入库载荷：`runtime/payloads/ingest-paper-NNN.json`；
-- 精确的 Host 响应或最小致命收据：当前门控 `receipt_path`，位于 `runtime/host/` 下；
-- 运行时生成的紧凑审计摘要：`result/search-ledger.json`；
-- 最终业务输出：由 `assets/output.schema.json` 验证的单个助手 JSON。
+不要把中间工件写到系统临时目录、用户主目录缓存或当前运行工作区之外。子代理只写主代理明确分配的论文 payload 路径。
 
-`runtime/` 是完整的中间工作边界。主代理通过成功执行门控发布的 `prepare_agent_batches` 动作来证明该边界可写，该动作原子性地为每篇已批准的论文写入一个任务规格。每个规格在其自身的 `runtime/agent-batches/batch-NNN/` 目录下精确命名一个工作器结果路径。子代理仅写入该单个结果文件；它不创建探测、清单、阶段载荷、终结器输入、哈希、收据或其他任务的文件。每个派生工件必须保留在 `runtime/` 下；不要创建系统临时目录、主目录缓存或外部回退。唯一的公开输出例外是现有的 `result/` 契约：`result/search-ledger.json` 和运行器拥有的最终结果保留在那里，而每个任务、草稿、审核载荷、规范入库载荷和 Host 收据保留在 `runtime/` 下。
+主代理在当前运行中维护：
 
-JSON 门控状态是执行的真实来源。它存储阶段状态、发现轮次、决策、已批准的候选 id、任务路径、主代理审核状态、已准备的载荷路径和哈希以及收据索引。阶段载荷保存详细的语义证据。工作器 `result.json` 是不受信任的研究材料：它的存在仅满足所有工作器完成屏障，本身不能推进规范元数据、PDF 或入库状态。只有主代理通过门控提交的正式审核载荷才能做到这一点。`result/search-ledger.json` 是紧凑审计摘要，绝不能用于推断或推进状态。
+- 检索计划和 discovery round；
+- 累计候选、稳定 candidate id、合并证据和 tier；
+- 已批准与排除的 candidate id；
+- 每篇论文的 payload、Host receipt 和终态 outcome；
+- 取消原因、致命失败和恢复位置。
 
-`scripts/gate_runtime.py` 是唯一的代理面对运行时入口。`scripts/stage_runtime.py` 在该入口下验证和变更状态、派生门控已知字段、合并发现增量、写入紧凑账本并构建最终输出。`assets/runtime-action.schema.json` 是每个代理编写的语义载荷的结构契约。运行器拥有 `result/result.json`；不要手写它。
+## 职责边界
 
-## 门控纪律
+- LLM 负责理解研究意图、识别未知条件、扩展查询、选择来源、判断候选是否为同一文献、划分 candidate tier、解释证据、组织用户确认和总结结果。
+- `zotero-bridge` 负责本地上下文读取和经用户确认后的确定性单篇 ingest。
+- 不得用临时脚本代替检索策略、候选匹配、纳排判断或证据解释，也不得手写 `result/result.json` 冒充 runner 产物。
 
-将 `<absolute-skill-package>` 替换为包含本文件的绝对目录。第一条命令、每条恢复命令以及每次状态变更后的命令是：
+### 主代理
 
-```bash
-python "<absolute-skill-package>/scripts/gate_runtime.py" \
-  --state "runtime/literature-search-ingest-gate.json" \
-  --input "runtime/input.json"
+- 读取输入、进行模式路由和 guided intake；
+- 查询本地覆盖并构建检索简报；
+- 执行发现轮次、去重、分层和用户范围审核；
+- 选择子代理分组、并发和每篇输出路径；
+- 收集、检查、修复或重新委派单篇 payload；
+- 逐篇串行执行 Host mutation；
+- 保存 receipts、维护 ledger 并构造最终 JSON。
+
+### 子代理
+
+- 只研究主代理分配的候选；
+- 对每篇候选完成 metadata、直接作品身份和三路线 PDF；
+- 为 metadata-qualified 论文写独立 zotero-bridge CLI 入库 payload；
+- 对 unresolved 候选在 stdout 报告结论；
+- 写完已分配文件后结束。
+
+### Host 与运行器
+
+- Host 执行 permission-gated literature ingest 并返回真实 mutation 结果；
+- Host 决定 created/existing/failed、item id 和附件结果；
+- 运行器校验最终助手 JSON 并写入 `result/result.json`；
+- workflow apply hook 根据最终 outcomes 更新受治理状态标签。
+
+## 阶段推进与完成条件
+
+按以下顺序推进：
+
+```text
+Stage 10 search plan
+  -> Stage 20 discovery round
+  -> Stage 30 ingest scope
+     -> expand: Stage 20
+     -> approve: Stage 40 metadata, PDF search and payload preparation
+  -> Stage 50 serial Zotero ingest
+  -> completed or canceled
 ```
 
-门控是唯一的下一步权威。精确复制其绝对路径和命令。
+阶段完成条件是业务条件：
 
-有效的 `next_action` 值：
-
-| `next_action` | 必需行为 |
-| --- | --- |
-| `await_user_input` | 读取 `required_reads`，呈现当前决策，等待真实用户响应，选择 `payload_variants` 中的对应条目，将语义决策写入 `payload_path`，运行 `submit_command`，然后重新运行初始门控。 |
-| `submit_stage_payload` | 对返回的阶段/候选/轮次执行语义工作，遵循 `payload_schema_ref`、`payload_template` 和 `payload_enums`，仅写入 `payload_path`，运行 `submit_command`，然后重新运行初始门控。此动作用于范围批准前以及主代理的门控修复路径。 |
-| `prepare_agent_batches` | 阶段 30 批准后，为每个已批准的候选在 `runtime/agent-batches/` 下原子性地创建一个单篇论文任务规格。成功准备证明主代理运行时边界可写。不要在准备成功前委派、提前写入规范审核载荷或变更 Zotero。 |
-| `delegate_agent_research` | 将 `dispatch_plan.assignments` 视为一个全任务启动集。在同一调度轮次中，为每个返回的描述符启动一个新的子代理，然后再等待任何结果或重新运行门控。从本文件中的静态 prompt 加上描述符的 `worker_spec_path` 构建每个工作器消息；门控不提供 prompt、阶段链、脚本、终结器、Host 命令或收据路径。 |
-| `review_agent_result` | 此动作仅在每个任务都有工作器 `result.json` 后出现。主代理读取返回的 `raw_result_path`，必要时修复或补充研究，将一个正式的 `researchReviewPayload` 写入 `payload_path`，运行 `submit_command`，然后重新运行初始门控。审核逐个处理已批准的候选，使规范状态变更保持确定性；它不是工作器动作，绝不能委派回工作器。 |
-| `run_stage` | 精确执行 `command`，不要编辑生成的文件，然后重新运行初始门控。 |
-| `execute_ingest` | 执行单篇论文变更 `command`，将精确的 Host JSON 或记录的致命失败写入 `receipt_path`，运行 `submit_command`，然后重新运行初始门控。 |
-| `blocked` | 停止状态变更。报告阻塞因素并仅遵循门控发布的修复路径。 |
-| `return_final_output` | 读取所需的恢复/输出引用并精确输出门控的 `final_output`。运行时已写入紧凑账本。 |
-
-将 `allowed_actions` 用作语义载荷背后运行时决策的完整列表，而不是要复制到载荷中的字段。当前动作路由：
-
-- 阶段 10：`approve_search_plan`、`cancel_workflow`。
-- 阶段 20：`record_discovery`。
-- 阶段 30：`approve_ingest_scope`、`request_discovery_expansion`、`cancel_workflow`。
-- 阶段 30 后的已批准范围研究：`prepare_agent_batches`、一轮全任务 `delegate_agent_research` 启动、一次统一等待，然后在每个工作器结果就绪后进行仅主代理的 `review_agent_result` 提交。
-- 工作器结果修复或回退：主代理修复原始研究或执行有界的缺失查找，然后编写正式审核载荷；工作器从不运行修复阶段、终结器或提交命令。
-- 规范入库准备：运行时在所有已批准任务都已审核后投射已接受的主代理审核载荷。
-- 阶段 70：`execute_ingest`，然后 `record_ingest_receipt`。
-- 终止：`return_final_output`。
-
-每条状态变更命令后都跟随初始门控命令，即使该命令也打印了刷新的门控。全任务委派动作是每条命令重读的例外：启动每个返回的任务，然后将这些工作器作为一组等待，仅在整个轮次都达到终止工作器结果后才重新运行门控。工作器不写入任何状态变更命令输出。门控或 Host 命令的 stdout 是运行时收据，不是最终助手输出。
-
-门控暴露当前写入所需的每个字段和剩余枚举：
-
-- 单载荷阶段返回 `payload_schema_ref`、`payload_template` 和 `payload_enums`；
-- 阶段 10 和阶段 30 返回特定于决策的 `payload_variants`；
-- 任务准备写入不可变的纯数据规格；委派返回一个 `dispatch_plan.assignments` 数组，包含每个缺失的工作器结果。每个描述符仅暴露 `assignment_id`、`worker_spec_path` 和状态。规格本身仅暴露任务 id、一个已批准的候选、有界的检索限制和该工作器的 `result_path`；
-- 主代理审核返回当前唯一符合条件的任务 id、其原始工作器结果路径、正式审核的 `payload_path`、`researchReviewPayload` 模式引用/模板及其提交命令。原始结果在主代理编写并提交模式有效的审核之前不受信任；
-- `discovery_round`、`candidate_id`、已准备的哈希、收据绑定、固定的分层/材料/PDF 策略、身份键、计数和批准确认来自门控状态或确定性运行时派生。除非当前模式显式暴露该字段，否则不要将它们添加到代理编写的载荷中。
-
-如果普通的单载荷验证失败：
-
-1. 不要声称阶段已完成；
-2. 重新运行初始门控；
-3. 仅修复当前的 `payload_path`；
-4. 重新提交当前动作；
-5. 再次重新运行初始门控。
-
-如果统一等待后工作器结果缺失，重新运行门控并在同一调度轮次中派遣返回的结果缺失集中的每个任务。如果结果格式错误、稀疏、矛盾或仅在工作器 stdout 中返回，主代理仅将有用的研究事实复制到其自己的审核工作中，执行任何有界修复检索以达到诚实的决策，并自行编写正式审核。不要指示工作器运行修复阶段或脚本，不要将工作器 JSON 视为规范载荷，不要更改已批准的范围，也不要将未经审核的工作器输出手动复制到全局路径。
-
-如果门控返回阻塞，不要编辑状态、载荷哈希、生成的入库载荷、Host 收据或另一阶段的载荷。上下文丢失、进程重启或压缩后，重新运行初始门控，读取 `resume_packet`，仅读取当前的 `required_reads`，并仅执行返回的 `next_action`。
-
-## 模式路由
-
-在准备阶段 10 时确定有效模式：
-
-| 输入 | 有效路由 |
-| --- | --- |
-| 空白 `query` + `auto` | 进入 `guided`；收集最低研究目标。 |
-| 非空 `query` + `auto` | 使用查询和只读本地覆盖在检索简报中推荐一个有效模式；不要先执行外部发现。 |
-| 显式 `guided` | 保持 `guided`；仅询问未解决的改变计划的问题。 |
-| 显式 `topic_expansion` | 保持该模式；需要规划发现所需的主题/问题/空白。 |
-| 显式 `paper_seed_expansion` | 保持该模式；识别种子并在规划外部发现前读取可用的本地种子工件。 |
-| 显式 `targeted_ingest` | 保持该模式；精确识别一个请求的直接作品，不推荐相关文献。 |
-
-一旦引导式检索简报被批准，在最终输出中保持 `search_mode: "guided"`。永远不要重新映射显式模式。
-
-### 引导式信息收集
-
-仅收集以下相关未知项：
-
-- 研究问题、学科、应用、目标知识空白；
-- 时期、文献类型、人群/对象、方法、地区和语言偏好；
-- 已知论文、作者、项目、数据集、Topic 和本地工件；
-- 纳入/排除标准和需避免的相关主题；
-- 期望的审核批次大小、深度以及召回率与速度的偏好。
-
-### 本地覆盖和种子工件
-
-在呈现检索简报前，使用以下命令只读检查 Zotero/Synthesis：
-
-- `zotero-bridge synthesis topic list`；
-- `zotero-bridge synthesis index library get`；
-- 需要时执行有界的文库搜索/获取命令；
-- `zotero-bridge synthesis artifact read` 用于读取选定种子的参考文献、引用分析、摘要或 Topic 报告。
-
-总结已覆盖的主题、年份、方法、文献类型、语言、精确/可能的重复、可重用种子和结构性空白。`paper_seed_expansion` 在外部发现前使用可用的种子工件；如果没有可用的，则从种子的原始标题、创建者、年份、标识符和容器进行规划。
-
-### 检索简报
-
-阶段 10 的计划必须包含：
-
-- 有效模式、目标、学科/应用和检索广度；
-- 日期、语言、文献类型、地区、纳入和排除范围；
-- 本地覆盖、精确/可能的重复、可重用种子引用、空白和种子工件使用；
-- 计划的核心、多语言、种子和空白查询，包括适用时的原文、翻译、简体/繁体和英文变体；
-- 主要、补充和回退来源通道及其角色；
-- 候选分层、材料冲突策略、审核批次大小和重复策略；
-- 三路线公开 PDF 策略；
-- 具体的停止条件。
-
-## 高召回检索
-
-### 查询通道
-
-在每轮发现中使用适用的通道并记录每次实际尝试：
-
-| 通道 | 目的 | 典型查询形式 |
-| --- | --- | --- |
-| `core` | 覆盖研究问题的主要表达。 | 概念组合、引号标题、方法 + 对象、应用 + 结果 |
-| `multilingual` | 查找原始语言和地区记录。 | 原始术语、已发表翻译、罗马化、简体/繁体变体、地区术语 |
-| `seed` | 从已知作品或实体扩展。 | 创建者、参考文献、引用、类似作品、项目、数据集 |
-| `gap` | 填补累积候选中的结构性遗漏。 | 缺失的时期、方法、地区、语言、文献类型、人群或本地文库空白 |
-
-在查询和候选中保留原始文本。翻译、音译和罗马化仅生成检索和匹配变体；它们永远不替代原始标题、创建者、期刊、会议、大学、机构或出版商。
-
-### 来源组成
-
-按学科、语言、地区和文献类型选择来源：
-
-- 跨学科索引：Crossref、OpenAlex、Semantic Scholar、Google Scholar 或同等的公开学术索引；
-- 权威出版来源：DOI 着陆页、出版商、期刊、会议、作者、实验室、项目；
-- 领域索引：PubMed、Europe PMC、arXiv 和任务相关的数据库；
-- 长尾来源：机构知识库、学位论文知识库、图书馆目录、参考文献列表和引用网络；
-- 中国大陆来源：China DOI、公开可访问的 CNKI/万方元数据、PDC、官方期刊/会议/出版商、学位机构、知识库；
-- 繁体中文和地区来源：Airiti Library、TSSCI、台湾学位论文知识库、期刊网站、大学知识库、图书馆目录。
-
-对于中文期刊/会议论文，优先使用 China DOI 和官方出版物记录；对于学位论文，优先使用学位授予机构和论文知识库；对于图书/ISBN，优先使用出版商和图书馆目录。来源失败是覆盖空白，不是证明该作品不存在的证据。记录失败并尝试同类回退。
-
-### 广度和停止条件
-
-- `broad`：执行每个适用通道；对每个关键语言/地区使用至少一个索引和一个权威或长尾来源；仅在新来源和空白查询不再产生新的高相关性作品时停止。
-- `balanced`：执行核心加上适用的多语言/种子通道，然后一轮空白；当有效来源反复产生重复且结构性空白已覆盖时停止。
-- `quick`：执行核心加上最相关的多语言或种子通道；返回首轮候选集，不声称覆盖详尽。
-
-候选计数是呈现限制，不是发现停止条件。每轮记录实际查询、来源、来源失败、来源记录计数、唯一计数、合并、未解决冲突、未覆盖空白和具体的停止原因。
-
-### 身份、去重和版本
-
-- 强身份键是规范化后的 DOI、PMID、arXiv id、ISBN 或同等的精确标识符。
-- 弱身份键组合 Unicode 规范化后的原始标题、年份、第一创建者/组织和容器。它仅支持聚类。
-- 发现证据保留来源、URL、查询通道、原始来源标题、原因和观察到的事实。
-- 匹配证据记录精确标识符一致或标题/创建者/年份/容器一致。
-
-首先按强键合并明显的同一作品来源记录。没有强键时，按原文弱键聚类；永远不要在去重前翻译非拉丁文本。合并累积证据，永远不覆盖原始文献值。保持材料冲突分开。明确记录期刊/预印本、会议/期刊、版本、学位论文/文章和容器/直接作品关系，直到权威证据解决它们。
-
-## 候选分层与审核
-
-- `ready`：标识符或权威元数据可以支持语义清晰的类型化入库。
-- `needs_curation`：来源可追溯且最安全的 Zotero 类型已知，但字段、冲突或创建者完整性仍需要后续整理；在最终结果中以 `needsCuration: true` 入库。
-- `lead_only`：片段、纯标题或未解决的冲突，可能驱动另一次查询但不能入库。
-
-不要因为作品是非英文的、缺少英文翻译或 DOI 或没有公开 PDF 就排除可追溯的作品。只有 `lead_only` 因身份/元数据不足而不可入库。
-
-以可读批次呈现候选，不限制用户可选数量。每行包括：
-
-- 候选 id、原始标题、替代标题、创建者、年份、容器、原始语言和分层；
-- 标识符及 `resolved` 或 `identifier_not_found`；
-- 发现和元数据来源角色、权威着陆 URL 和匹配依据；
-- 文库重复/版本关系和材料冲突；
-- 当时已知的 PDF 尝试/状态；
-- 缺失字段、推荐理由以及是否可入库。
-
-将 `lead_only` 标记为不可入库并说明它可以支持哪个下一个查询。在阶段 30，用户可以批准任意数量的可入库候选、请求聚焦扩展或取消。
+- 阶段 10：用户明确批准检索简报；
+- 阶段 20：当前轮适用查询和来源已执行，结果已合并并说明停止原因；
+- 阶段 30：用户明确批准候选 id、请求补检或取消；
+- 阶段 40：每篇批准论文已形成有效 Host payload，或已确定为 `not_attempted`；
+- 阶段 50：每篇可入库论文已有 terminal Host receipt，或致命失败停止了后续变更；
+- completed：账本和最终输出已由实际候选与 Host 结果构造。
 
 ## 阶段契约
 
-对于每个阶段，首先运行初始门控并使用其返回的路径和命令。以下示例显示最小语义；`assets/runtime-action.schema.json` 是精确的字段和枚举契约。
-
 ### 阶段 10 — 检索计划
 
-**目的：** 将用户意图和只读本地覆盖转化为可执行的检索简报并获得第一个用户决策。
+**目的：** 让用户在外部发现前确认目标、覆盖、查询策略和来源组合。
 
-**代理语义职责：** 路由模式、执行聚焦信息收集、检查本地覆盖、设计查询/来源通道、解释范围和停止条件并呈现计划。如果用户请求更改，修改并再次呈现。仅在明确批准后提交，或提交取消。
+步骤：
 
-**运行时职责：** 验证计划结构、锁定其哈希或记录用户取消。它不设计查询或推断批准。
+1. 读取输入并进行模式路由；
+2. 进行必要的 guided intake；
+3. 查询只读本地覆盖和种子；
+4. 构建结构化检索方案；
+5. 请求用户批准（`approve`）或取消（`cancel`）。用户也可用自由文本回复要求修订检索方案。
 
-**门控命令：**
+**完成：** 用户明确批准方案。批准后进入阶段 20。
 
-```bash
-python "<absolute-skill-package>/scripts/gate_runtime.py" \
-  --state "runtime/literature-search-ingest-gate.json" \
-  --input "runtime/input.json"
-```
+**修订：** 用户可要求修改检索方案，如果用户返回的意图不够明确，需要询问用户以明确修改意图，随后返回阶段 10 重新形成方案。
 
-**载荷路径：** 门控返回 `runtime/payloads/search-plan-decision.json`。
+**取消：** 返回 canceled JSON，不进行外部发现或 Zotero 写入。
 
-**最小载荷：**
+#### 模式路由
 
-```json
-{
-  "decision": "approve",
-  "plan": {
-    "search_mode": "guided",
-    "objective": "查找隧道衬砌病害识别相关研究",
-    "discipline_or_application": "土木基础设施检测",
-    "scope": {
-      "date_range": "2018-present",
-      "language_hints": ["zh-CN", "en"],
-      "literature_types": ["journalArticle", "thesis"],
-      "regions": ["China"]
-    },
-    "local_coverage": {
-      "summary": "文库涵盖通用视觉检测但不涵盖隧道衬砌。",
-      "existing_identifiers": [],
-      "reusable_seed_refs": [],
-      "gaps": ["中文学位论文和工程应用"]
-    },
-    "seed_artifacts": [],
-    "query_lanes": [
-      {
-        "lane": "core",
-        "queries": ["隧道衬砌 病害 智能识别"],
-        "rationale": "结合目标、病害和方法。"
-      }
-    ],
-    "source_lanes": [
-      {
-        "source": "China DOI",
-        "purpose": "主要中文期刊发现",
-        "fallback_sources": ["Crossref"]
-      }
-    ],
-    "inclusion_criteria": ["直接研究隧道衬砌病害"],
-    "exclusion_criteria": ["无隧道场景的通用检测"],
-    "batch_size": 20,
-    "stop_conditions": ["适用来源不再产生新的相关作品"]
-  }
-}
-```
+- `auto`：读取 `query` 和只读本地上下文：意图不完整时采用 guided intake；主题、问题或覆盖空白采用 `topic_expansion`；已知论文或种子工件采用 `paper_seed_expansion`；精确标题或标识符采用 `targeted_ingest`。`auto` 只形成推荐计划，用户批准前不进行外部发现。
+- `guided`：围绕研究对象、问题、方法、应用、语言、年代、文献类型和排除条件提出最少问题。不要强制把 guided 计划重新归类为其他模式。completed 输出中的检索模式保持 guided。
+- `topic_expansion`：从主题、知识空白、本地 Topic 或 Synthesis 上下文扩展核心、近邻、方法、对象、地区和语言查询。优先补足本地覆盖缺口，而不是重复已有记录。
+- `paper_seed_expansion`：先确认种子作品的直接身份，再扩展其参考文献、被引工作、相似方法、相同数据集、作者相关工作及版本关系。种子本身与扩展候选分别去重。
+- `targeted_ingest`：只定位用户指定的直接记录，核验 identifier、权威落地页、版本和本地重复状态。不要自动扩展到相关作品。
 
-取消使用：
+#### 引导式信息收集
 
-```json
-{ "decision": "cancel" }
-```
+最低研究目标包含研究对象/领域、需要回答的问题或覆盖空白、会改变检索的范围限制，以及已知种子或排除边界。只有缺失信息会实质改变查询或纳入标准时才提问。详细问题设计见 [Search Planning And Discovery](references/search-planning-and-discovery.md)。
 
-运行时从运行器输入获取广度并提供固定的分层、材料冲突和三路线 PDF 策略。不要将它们重复为批准断言。
+#### 本地覆盖和种子工件
 
-**提交/运行/变更命令：** 遵循所选的 `payload_variants` 条目，将决策写入 `payload_path`，执行门控 `submit_command`，然后重新运行初始门控。
+在进入阶段 10 时先使用 `zotero-bridge` 只读查询同题名/identifier/近似记录、目标 collection 覆盖、Synthesis Topic/注册表/索引，以及可复用的 seed、citekey、item id 或 Topic ref。将结果总结为已有内容、可复用种子和检索缺口；只读结果不能替代外部来源证据，也不能授权 Zotero 写入。
 
-**完成：** 存在已批准的计划哈希，或门控返回已取消的终止状态。
+#### 检索方案
 
-**禁止：** 在批准前不进行外部发现、文件下载、候选声明或 Zotero 变更。不要将修订作为批准提交。
-
-**恢复：** 重新运行初始门控。仅修复 `search-plan-decision.json`；精确重放是幂等的，不同的重放会失败。
-
-**下一步：** 批准后进入阶段 20；取消后终止。
+阶段 10 检索方案包含 `search_mode`、研究目标与范围、日期/语言/材料/地区偏好、本地覆盖与种子、明确缺口、query/source lanes、纳入/排除标准、广度、停止条件和 `targetCollection`。它应足以让用户判断搜索方向和后续授权，不堆叠尚未验证的候选。
 
 ### 阶段 20 — 发现轮次
 
-**目的：** 执行已批准的检索计划或阶段 30 的空白请求，并维护一个累积的去重候选集。
+**目的：** 按已批准计划执行高召回发现，形成累计、去重、可审核的候选集。
 
-**代理语义职责：** 运行实际的公开查询、记录来源失败、保留原始文本、去重同一作品记录、保持材料冲突分开、对候选分层并解释停止原因。
+每轮记录 round number、实际 query/source attempts 及结果/错误、新候选和有证据的更新、去重/版本/本地重复判断、未覆盖 gap 与 stop reason。
 
-**运行时职责：** 绑定当前的 `discovery_round`、验证尝试/候选、派生稳定的强/弱身份和计数、将轮次增量合并到累积状态而不丢失早期候选/证据，并存储轮次载荷哈希和摘要。
+后续轮次在累计候选上合并。未被新证据推翻的早期候选继续保留；更新 candidate id 前必须确认同一直接作品。
 
-**门控命令：** 运行初始门控；确认 `next_action: "submit_stage_payload"` 和返回的轮次。
+**完成：** 当前轮适用 lanes 已执行并给出停止原因。随后进入阶段 30。
 
-**载荷路径：** `runtime/payloads/discovery-round-NNN.json`，由门控发布。
+#### 查询通道
 
-**最小载荷：**
+按计划选择适用通道：
 
-```json
-{
-  "query_attempts": [
-    {
-      "lane": "core",
-      "query": "隧道衬砌 病害 智能识别",
-      "source": "China DOI",
-      "status": "completed",
-      "result_count": 1,
-      "message": "检查了一条来源记录。"
-    }
-  ],
-  "candidates": [
-    {
-      "tier": "ready",
-      "title": "隧道衬砌病害智能识别研究",
-      "alternate_titles": [],
-      "creators_display": ["张三"],
-      "year": "2024",
-      "container": "隧道工程学报",
-      "original_language": "zh-CN",
-      "material_version": "journal_article",
-      "identifiers": { "doi": "10.5555/tunnel.001" },
-      "landing_url": "https://example.org/record/tunnel-001",
-      "discovery_sources": [
-        {
-          "source": "China DOI",
-          "url": "https://example.org/record/tunnel-001",
-          "lane": "core",
-          "reason": "该记录暴露了原始标题和年份。",
-          "facts": ["original_title", "publication_year"]
-        }
-      ],
-      "matching_notes": ["原始标题、创建者、年份和容器一致。"],
-      "library_note": "未找到精确的本地重复。",
-      "missing_fields": [],
-      "recommendation_reason": "直接针对已批准的研究目标。"
-    }
-  ],
-  "uncovered_gaps": [],
-  "stop_reason": "all_applicable_lanes_completed"
-}
-```
+- `core`：主题、对象、问题与方法的直接组合；
+- `multilingual`：原语言、翻译、地区术语、缩写和脚本变体；
+- `seed`：种子的 references、citations、作者、数据集和项目；
+- `gap`：针对本地覆盖空白或用户在阶段 30 指定的缺口；
+- `identifier`：DOI、ISBN、PMID、arXiv 等精确检索；
+- `version`：preprint、会议、期刊、学位论文、报告或章节之间的直接作品关系。
 
-`query_attempts[].status` 精确为 `completed`、`unavailable` 或 `error`；将来源失败上下文放在 `message` 中。候选分层精确为 `ready`、`needs_curation` 或 `lead_only`。当尝试和无结果停止原因是诚实的时，空的 `candidates` 数组是有效的。
+记录实际执行的查询、来源、结果或错误。来源不可用时使用计划中的合法 fallback，并保留失败事实。
 
-每轮仅提交其新候选和有证据支持的更新。运行为新候选生成 id、合并增量并保留完整的累积集。仅在更新现有候选时使用可选的门控发布的 `candidate_id`；更新不能更改标题/年份/容器/材料版本身份或标识符。
+#### 来源组成
 
-**提交/运行/变更命令：** 执行返回的 `submit_command`，然后重新运行初始门控。
+组合出版商/期刊/会议/学位授予机构等权威页面，Crossref、DataCite、PubMed、arXiv、OpenAlex 等适用开放元数据，地区与语言专属平台，合法开放获取仓储，以及用于补充发现的公开网络搜索。弱聚合器、搜索摘要或自动生成页面只能作为 lead，不能单独支撑入库身份或关键 metadata。
 
-**完成：** 当前轮次有实际尝试、已接受的增量、运行时派生的累积身份/计数摘要、未覆盖空白和停止原因。
+#### 广度和停止条件 `searchBreadth`
 
-**禁止：** 不要变更 Zotero、丢弃先前的候选/证据、合并材料冲突、在去重前翻译或声称来源不可用证明不存在。
+- `broad`：覆盖所有适用 query/source lanes，并处理语言、版本和主要相邻表达；
+- `balanced`：覆盖 core、关键 multilingual、主要权威来源和明显 gap；
+- `quick`：执行精确、高信号来源的第一轮，但候选质量门槛保持不变。
 
-**恢复：** 重新运行门控并重新提交同一已发布的载荷。精确重试是幂等的；更改的重试会失败。门控状态而非代理字段提供轮次。
+当适用通道已完成、连续补检不再产生新高相关候选、剩余来源只重复既有身份，或用户要求返回范围审核时停止当前轮。不要用固定查询次数替代覆盖判断。
 
-**下一步：** 阶段 30。
+#### 身份、去重、版本和候选分层
+
+优先使用规范 identifier 建立 candidate id。没有强 identifier 时，使用权威来源身份以及规范化标题、创建者、年份和材料版本组合。
+
+合并同一直接作品的重复发现，并保留原始/alternate titles、identifier、落地页、来源、查询 lane、可支持事实、版本/material type、本地重复状态、冲突和缺失字段。不要合并仅主题相近的作品，也不要把会议论文、期刊扩展版、preprint、学位论文或书章视为天然同一记录。详细规则见 [Metadata Resolution](references/metadata-resolution.md)。
+
+使用三层候选：
+
+- `ready`：直接作品身份可追溯，具有足够的题名、创建者/机构、年份/版本和权威来源，可进入范围审核；
+- `needs_curation`：直接作品可追溯，但 identifier、创建者、日期、容器或版本仍需阶段 40 整理；
+- `lead_only`：只有弱线索、无法确认直接作品或材料冲突，不可授权入库。
 
 ### 阶段 30 — 入库范围
 
-**目的：** 对累积候选集获得第二个也是最终的用户决策。
+**目的：** 让用户决定哪些直接作品可以进入自动研究和入库。
 
-**代理语义职责：** 呈现候选/排除表格并披露已批准的直接作品将被自动解析、探测、准备和入库。将响应解释为批准、聚焦空白请求或取消。
+- 以表格形式向用户展示入库的候选文献，表格应展示：
+  * candidate id；
+  * 文献标题；
+  * 作者；
+  * 候选分层（`ready`/`need_curation`/`lead_only`）；
+  * year、container（如果有）；
+  * language（初步判定）；
+  * identifiers（如果有）。
 
-**运行时职责：** 对当前轮次验证 id、拒绝 `lead_only`、锁定已批准的 id、为扩展递增轮次或记录取消。
+- 允许额外说明检索结果及本地重复状态。
+- 请求用户指定入库范围，可选项包括：全部（`all`，包含分层为 `ready` 和 `needs_curation` 的候选）、强证据集（`evidenced`，仅包含分层为 `ready` 的候选）或表格中任意数量的具体目标（用户需提供明确的 candidate ids，或是完整的文献标题、关键词等，若用户指定的范围存在歧义，应询问用户以明确范围）。
+- 用户还可选择扩大搜索范围（`expand`）或者用自由文本回复扩展搜索意图。
+- 允许用户选择取消入库（`cancel`）。
 
-**门控命令：** 运行初始门控并确认 `next_action: "await_user_input"` 加上 `allowed_actions`。
+批准只覆盖已展示的、`ready` 或具有可解决缺口的 `needs_curation` 条目。除非用户明确要求，属于 `lead_only` 的条目不可入库，但可以作为 `expand` 搜索的目标。阶段 40 不能用其他作品替换身份不符的候选，也不能把新发现候选自动加入已批准范围。
 
-**载荷路径：** `runtime/payloads/ingest-scope-decision-round-NNN.json`。
+**完成：** 用户明确入库范围后，进入阶段 40；
 
-**最小载荷：**
+**扩展：** 用户选择扩展搜索，则返回阶段 20，在现有搜索结果基础上扩大搜索范围，或根据用户的意图进行补充搜索，完成后再次进入阶段 30；
 
+**取消：** 返回 canceled JSON，不进行外部发现或 Zotero 写入。
+
+### 阶段 40 — metadata、PDF搜索与入库 payload 准备
+
+**目的：** 对每篇批准论文完成 metadata、直接作品身份和三路线 PDF 搜索，形成可供主代理检查的独立 zotero-bridge CLI 入库 payload。
+
+#### 委派设计
+
+主代理根据候选数量、语言、来源复杂度和可用并发能力决定：
+
+- 委派子代理并行地进行本阶段工作，或自己完成；
+- 每个子代理处理哪些一个或多个候选；
+- 同时启动多少子代理；
+- 每个候选的独立 payload 输出路径；
+- 何时等待、轮询、修复或重新委派。
+
+每篇论文始终是独立逻辑单元。一个子代理处理多篇时，也必须逐篇研究、逐篇判断身份、逐篇写文件。
+子代理的最大并发数不宜过多，保守起见以 3-4 个为宜，避免超过并发数出发模型提供商429限流。
+
+#### Subagent 委派
+
+使用以下 `text` 文本块中的完整 prompt 作为唯一委派契约，并把以下占位符替换为本次候选集合和路径映射：
+
+- CANDIDATES_JSON
+- OUTPUT_PATHS_JSON
+- TARGET_COLLECTION
+
+~~~text
+你是一个负责学术文献 metadata 和 PDF 调研的代理。你的研究主代理提供的一个或多个候选，并为每篇可入库论文写入指定的单篇 Zotero Host ingest payload。
+
+每篇论文都是独立单元，分别完成身份判断、研究和文件写入。
+
+候选：CANDIDATES_JSON
+每篇候选的输出路径：OUTPUT_PATHS_JSON
+目标 collection：TARGET_COLLECTION
+
+对每个候选依次完成：
+1. 搜索权威 metadata，优先 identifier，再使用权威题名、创建者、年份、容器和材料版本证据。
+2. 验证它是用户批准的同一直接作品；不要替换为相关作品、不同材料类型或实质不同版本。
+3. 依次探测权威落地页、开放获取来源和公开网络搜索。只有较早路线已经找到合法、公开、可达且身份匹配的 PDF 时，后续路线才能标记 `skipped_after_verified_pdf`。
+4. 使用 canonical Zotero 字段。摘要写入 fields.abstractNote；creators、identifiers、landingUrl、pdfUrl 和 collection 使用各自结构。
+5. metadata 合格但没有 PDF 时仍写 metadata-only payload。直接作品身份或最低 metadata 无法确认时，不写伪造 payload，并在 stdout 说明该候选无法准备入库。
+6. 每篇合格论文完成后立即写入自己的输出路径，再处理下一个候选；完成全部已分配候选后退出。
+
+你可以在 stdout 报告来源、三路线结果和不确定性。stdout 信息用于主代理按需审阅，不属于 Host payload。
+
+只执行检索、判断和指定文件写入。Zotero mutation、Host receipt 和最终工作流输出由主代理负责。
+
+DIRECT_HOST_PAYLOAD_EXAMPLE
 ```json
 {
-  "decision": "approve",
-  "candidate_ids": ["doi:10.5555/tunnel.001"]
-}
-```
-
-扩展使用：
-
-```json
-{
-  "decision": "expand",
-  "gaps": [
-    {
-      "description": "添加中文博士论文。",
-      "lanes": ["multilingual", "gap"]
-    }
-  ]
-}
-```
-
-取消为 `{ "decision": "cancel" }`。空白通道精确为 `core`、`multilingual`、`seed` 或 `gap`。运行时绑定当前轮次、派生排除的 id 和授权记录，并在扩展后创建下一轮。
-
-**提交/运行/变更命令：** 执行返回的 `submit_command`，然后重新运行初始门控。
-
-**完成：** 范围已锁定，对于批准，门控已准备好在 `runtime/` 下为每个已批准的候选原子性地准备一个阶段 40 单篇论文研究任务；创建了扩展轮次；或取消为终止状态。
-
-**禁止：** 不要批准未知或 `lead_only` 的 id。不要将扩展变成单独的确认阶段。批准后不要再等待。
-
-**恢复：** 重新运行门控。如果接受了扩展，使用新的轮次/路径并仅提交实际的新结果或有证据支持的更新；累积状态保留在运行时。如果接受了批准但门控报告 `runtime/` 不可写，以该阻塞因素停止。不要将任务规格、工作器结果或后续载荷重定向到 `/tmp`、主目录、缓存目录或任何其他外部位置。
-
-**下一步：** 批准后进入阶段 40 委派研究和主代理审核；扩展后进入阶段 20；取消后终止。
-
-### 阶段 40 — 委派单篇论文研究与主代理审核
-
-**目的：** 在用户批准精确入库范围后，并行收集每篇已批准论文的元数据和公开 PDF 证据，然后让主代理审核这些研究并为每篇论文提交一个规范载荷。这是一个运行时阶段。工作器任务是一个原子性研究任务，不是一系列工作器可见的阶段。
-
-**权限边界：** 主代理拥有准备、派遣、收集、修复、正式载荷编写、门控提交、确定性入库准备和所有后续 Zotero 变更。每个子代理仅拥有一个已批准候选的一个有界研究任务。工作器可以搜索、检查公开来源并写入其单个轻量级结果文件。它不能运行项目脚本、调用门控、提交载荷、验证或终结运行时状态、编写规范载荷、调用 Zotero、等待另一个工作器或在结果写入后继续。
-
-**运行时职责：** 运行时锁定已批准的候选顺序、为每篇论文写入一个纯数据任务规格、一起暴露每个结果缺失的任务以进行并行启动、等待全结果屏障、验证主代理的正式元数据/PDF 审核、将已接受的审核投射为规范类型化入库载荷，并在所有已批准任务都有终止审核之前保持 Host 变更不可用。运行时不将工作器结果视为规范状态，也不要求工作器执行终结器。
-
-**门控流程：** 阶段 30 批准后，重新运行初始门控并精确遵循以下三个动作：
-
-1. `prepare_agent_batches` 写入每个单篇论文任务规格。
-2. `delegate_agent_research` 在 `dispatch_plan.assignments` 中返回所有当前结果缺失的任务；在首次等待前启动所有这些任务。
-3. `review_agent_result` 仅在每个任务都有结果文件后开始；主代理为返回的论文编写并提交正式审核，重新运行门控，并重复直到运行时准备所有入库载荷。
-
-不要在单个工作器启动之间重新运行门控。不要使用 `paper-1 → 等待 → 门控 → paper-2` 循环。并行派遣轮次仅在该轮次返回的每个描述符都已启动且每个启动的工作器都达到终止结果后才完成。
-
-#### 单篇论文任务契约
-
-每个已准备的描述符仅包含：
-
-```json
-{
-  "assignment_id": "paper-1",
-  "worker_spec_path": "/absolute/runner/runtime/agent-batches/batch-001/spec.json",
-  "status": "result_missing"
-}
-```
-
-主代理仅读取规格以绑定任务并将其绝对路径替换到下方的静态工作器 prompt 中。有效的规格仅包含：
-
-```json
-{
-  "assignment_id": "paper-1",
-  "candidate": {
-    "candidate_id": "paper-001",
-    "title": "隧道衬砌病害智能识别研究"
-  },
-  "search_limits": {
-    "metadata_queries": 3,
-    "metadata_pages": 4,
-    "pdf_queries": 4,
-    "pdf_pages": 6
-  },
-  "result_path": "/absolute/runner/runtime/agent-batches/batch-001/result.json"
-}
-```
-
-候选对象可能包含完整的已批准发现记录，但它仍然是工作器可以调查的唯一作品。检索限制是硬上限，不是必须耗尽的目标。在找到可靠的元数据和已验证的公开 PDF 后提前停止。任务不包含阶段名称、提交命令、终结器、Host 命令、收据路径、哈希契约或另一篇论文的指令。
-
-#### 静态子代理委派 prompt
-
-此 prompt 是唯一的工作器指令来源。主代理必须为每个任务逐字复制它，并仅将 `{{WORKER_SPEC_PATH}}` 替换为该任务的绝对 `worker_spec_path`。不要要求门控、运行器、运行时或工作流包装器生成、改述、扩展或重复该 prompt。不要在前面添加阶段计划或在后面附加命令。为每篇论文使用新的隔离子代理上下文，使不相关的对话、其他候选、门控输出和 Zotero 变更指令不被继承。
-
-```text
-You are handling exactly one literature-search-ingest research assignment.
-
-Read the following assignment JSON file first:
-
-{{WORKER_SPEC_PATH}}
-
-Use only the candidate and search limits in that assignment. Do not inspect or
-process any other candidate.
-
-Perform a bounded search for reliable bibliographic metadata and, when
-available, a legal publicly accessible PDF. Stop searching as soon as the
-assignment's search limits are reached or sufficiently reliable information
-has been found.
-
-Write exactly one simple JSON result to the result_path declared in the
-assignment file. Include only the bibliographic facts you found, the final PDF
-URL when available, the source URLs you used, and concise notes about missing
-or uncertain information.
-
-After writing the result file, return its path and exit. If the assigned result
-path cannot be written, return the same JSON object directly and exit.
-
-Do not run any project script or runtime command.
-Do not submit, import, validate, finalize, or mutate anything.
-Do not write outside the assigned result path.
-Do not wait for the main agent or for another worker.
-Do not coordinate with another worker.
-Do not continue searching after the bounded assignment is complete.
-```
-
-这些句子是刻意充分的。工作器接收任务规格作为数据，此 prompt 作为行为。本包中的参考可以指导主代理的审核并可以解释研究质量，但主代理不得将长参考包附加到工作器消息或暴露多步执行协议。
-
-#### 并行启动和等待纪律
-
-将每个 `dispatch_plan.assignments` 数组视为一个启动事务：
-
-- 每个描述符创建一个子代理，每个子代理一个描述符；
-- 在调用任何工作器的阻塞等待前提交每个任务；
-- 永远不给一个工作器多个规格或要求它选择论文；
-- 永远不在启动 `paper-2` 前等待 `paper-1`；
-- 永远不要仅因为一个工作器提前完成就重新运行门控；
-- 永远不要让早期结果触发主代理审核，而另一个返回的任务未启动或正在运行；
-- 在所有启动的工作器终止后，重新运行初始门控一次；
-- 如果门控返回新的结果缺失集，在再次等待前启动整个返回集。
-
-报告工作器因无法写入指定路径而在 stdout 中报告结果 JSON 的，仍视为已正确终止。主代理可以将同一个简单对象写入任务声明的 `result_path`，前提是它不编造研究事实且不在 `runtime/` 外写入。如果工作器终止时没有可用的文件或 JSON 对象，主代理可以在门控将其返回为缺失时重新派遣该任务，或自行执行相同的有界研究。不要创建工作器内部的修复循环。
-
-#### 有界研究期望
-
-当存在可信标识符时，工作器优先按标识符搜索，然后在标识符缺失、错误或未解决时使用精确标题和创建者/年份查询。检索限制计算实际查询/检查的页面。没有结果的查询仍然计数。不要将整个预算用于重复近似相同的查询、跟随低价值聚合器或等待被阻塞的网站。优先使用权威和高信号来源：
-
-1. DOI、出版商、知识库、会议、学位论文、标准或机构着陆页用于直接作品身份；
-2. Crossref、DataCite、PubMed、arXiv、OpenAlex、Semantic Scholar、图书馆目录和同类文献索引用于佐证；
-3. 公开搜索结果仅用于定位更好的直接来源或合法 PDF；
-4. 片段和二级聚合作为线索，永远不作为材料冲突记录的唯一权威。
-
-工作器必须保持已批准的直接作品固定。期刊扩展不能替代已批准的会议论文；书籍章节不是其容器书籍；翻译版本不自动是已批准的原始版本；知识库记录必须描述同一作品而非相近标题。当直接作品身份在限制内无法变得可靠时，工作器记录不确定性并退出，而不是扩大范围。
-
-对于元数据，仅收集检查来源实际支持的事实：项目/作品类型、主要原始标题、可用时的完整创建者显示、年份/日期、容器、出版商或机构、卷/期/页码、版本、地点、语言、DOI/ISBN/PMID/arXiv、权威着陆 URL、摘要文本和有用的来源 URL。不要猜测缺失的创建者、在没有来源的情况下进行音译、将翻译标题用作原始主标题或仅从文章形状的网页推断期刊文章。
-
-对于合法公开 PDF，按以下优先顺序搜索，并在找到已验证的同一作品 PDF 后停止：
-
-1. 权威着陆页或直接机构记录；
-2. 开放获取索引、学科知识库、机构知识库或作者手稿来源；
-3. 使用精确标题、标识符和 `filetype:pdf` 变体的有界公开网络搜索。
-
-PDF 仅在 URL 为公开 HTTP(S)、无需登录或机构凭据即可访问、提供 PDF 内容而非 HTML 着陆页且匹配已批准的直接作品时才可用。不要使用浏览器自动化、Zotero Connector、认证会话、机构代理访问、验证码绕过、盗版仓库或不同材料版本的 PDF。
-
-#### 轻量级工作器结果
-
-工作器写入一个扁平 JSON 对象。它是研究交接，不是正式模式提交。仅使用传达找到事实所需的字段；省略未知的可选事实，而不是制造空的嵌套结构。支持的词汇有意保持较小：
-
-- 身份和状态：`candidate_id`、`status`、`item_type`、`title`；
-- 文献事实：`creators`、`date`、`publication_title`、`book_title`、`publisher`、`place`、`volume`、`issue`、`pages`、`edition`、`university`、`conference_name`、`language`、`abstract_note`；
-- 标识符和访问：`doi`、`isbn`、`pmid`、`arxiv`、`landing_url`、`pdf_url`；
-- 来源和不确定性：`source_urls`、`notes`。
-
-`status` 应为 `resolved`、`partial` 或 `unresolved`。`source_urls` 和 `notes` 应为简单字符串数组。`creators` 可以是按来源顺序的简单名称列表；主代理（而非工作器）将可靠名称转换为 Zotero 创建者对象。使用 `abstract_note` 而非 `abstract`，使交接术语指向 Zotero 合法的 `abstractNote` 项目字段，而不暗示原始结果已经是 `itemData`。
-
-最小已解决示例：
-
-```json
-{
-  "candidate_id": "paper-001",
-  "status": "resolved",
-  "item_type": "journalArticle",
-  "title": "隧道衬砌病害智能识别研究",
-  "creators": ["张三", "李四"],
-  "date": "2024",
-  "publication_title": "隧道工程学报",
-  "doi": "10.5555/tunnel.001",
-  "landing_url": "https://doi.org/10.5555/tunnel.001",
-  "pdf_url": "https://repository.example.org/tunnel-001.pdf",
-  "source_urls": [
-    "https://doi.org/10.5555/tunnel.001",
-    "https://repository.example.org/tunnel-001"
-  ],
-  "notes": ["知识库 PDF 与标题、创建者和年份匹配。"]
-}
-```
-
-最小未解决示例：
-
-```json
-{
-  "candidate_id": "paper-001",
-  "status": "unresolved",
-  "source_urls": ["https://example.org/ambiguous-record"],
-  "notes": ["来源与已批准的材料版本冲突。"]
-}
-```
-
-结果不需要哈希、清单、覆盖映射、路线对象、置信度分数、审计标志或深层嵌套证据。主代理可以检查来源 URL 并将有用事实转换为正式运行时契约。额外的说明放在简短注释中，而不是私有的迷你报告。
-
-#### 主代理审核与修复
-
-全结果屏障是调度屏障，不是接受屏障。当 `next_action` 变为 `review_agent_result` 时，主代理必须：
-
-1. 读取返回任务的任务规格和 `raw_result_path`；
-2. 验证结果属于该候选并区分可靠事实与猜测、片段、错误版本或无依据的声明；
-3. 必要时检查来源 URL 并执行小的有界修复检索（如果工作器遗漏了决定性证据或返回矛盾事实）；
-4. 决定已批准的直接作品是否元数据合格或诚实地为 `not_attempted`；
-5. 对于合格的元数据，记录所有三个正式 PDF 路线结果，在较早的已验证 PDF 之后使用 `skipped_after_verified_pdf`；
-6. 将一个模式有效的 `researchReviewPayload` 写入精确的门控发布的 `payload_path`；
-7. 运行精确的 `submit_command`，然后重新运行初始门控。
-
-主代理可以修正拼写、规范化 DOI 大小写/前缀、将原始作品类型映射到正确的 Zotero `itemType`、拆分已验证的人名、选择原文标题、丢弃不匹配的 PDF、添加其实际检查的来源的证据或将论文标记为未解决。它不能编造创建者、来源、标识符、摘要、PDF 验证或路线尝试来使载荷通过。
-
-不要将正式载荷返回给工作器提交。不要要求工作器解释模式错误。如果正式审核验证失败，主代理重新运行门控、修复已发布的审核载荷并重新提交。这使语义修复对协调代理可见，而不是隐藏在长时间运行的工作器中。
-
-#### 正式元数据审核
-
-合格的正式审核保持直接作品文献契约：
-
-```json
-{
-  "metadata": {
-    "status": "qualified",
-    "metadata": {
-      "itemType": "journalArticle",
-      "title": "隧道衬砌病害智能识别研究",
-      "language": "zh-CN",
-      "script": "Hans",
-      "alternateTitles": [
-        {
-          "value": "Intelligent Recognition of Tunnel Lining Defects",
-          "role": "translated",
-          "language": "en",
-          "script": "Latn"
-        }
-      ],
-      "fields": {
-        "date": "2024",
-        "publicationTitle": "隧道工程学报",
-        "abstractNote": "已由来源核验的摘要文本。"
-      },
-      "creatorCompleteness": "complete",
-      "creators": [
-        { "name": "张三", "creatorType": "author" },
-        { "name": "李四", "creatorType": "author" }
-      ],
-      "identifiers": { "doi": "10.5555/tunnel.001" },
-      "landingUrl": "https://doi.org/10.5555/tunnel.001"
+  "paper": {
+    "itemType": "journalArticle",
+    "fields": {
+      "title": "Example title",
+      "abstractNote": "Example abstract",
+      "date": "2024",
+      "publicationTitle": "Example Journal"
     },
-    "evidence": [
+    "creators": [
       {
-        "source": "Publisher record",
-        "role": "authoritative",
-        "url": "https://doi.org/10.5555/tunnel.001",
-        "facts": ["identifier", "original_title", "creators", "date"]
+        "creatorType": "author",
+        "firstName": "Example",
+        "lastName": "Author"
       }
     ],
-    "corroborating_signals": [],
-    "curation_notes": []
+    "identifiers": {
+      "doi": "10.0000/example"
+    },
+    "landingUrl": "https://doi.org/10.0000/example",
+    "pdfUrl": "https://example.org/example.pdf",
+    "attachLandingUrlOnMissingPdf": true
   },
-  "pdf": {
-    "attempts": {
-      "authoritative_landing": {
-        "source": "Publisher record",
-        "query_or_url": "https://doi.org/10.5555/tunnel.001",
-        "status": "not_found",
-        "notes": "未暴露公开 PDF。"
-      },
-      "open_access": {
-        "source": "Institutional repository",
-        "query_or_url": "10.5555/tunnel.001",
-        "status": "found",
-        "notes": "公开知识库副本。",
-        "pdf_url": "https://repository.example.org/tunnel-001.pdf",
-        "content_type": "application/pdf",
-        "identity_evidence": ["标题、创建者、DOI 和年份匹配。"]
-      },
-      "web_search": {
-        "source": "Public web search",
-        "query_or_url": "not needed after verified repository PDF",
-        "status": "skipped_after_verified_pdf",
-        "notes": "更高优先级的路线已产生已验证的 PDF。"
-      }
-    }
-  }
+  "collection": "TARGET_COLLECTION"
 }
 ```
+~~~
 
-`metadata.title` 是唯一的主标题字段。不要写 `metadata.fields.title`。`metadata.fields` 是封闭的规范 Zotero 字段映射：当选定的项目类型支持其语义角色时，使用合法名称如 `date`、`publicationTitle`、`bookTitle`、`publisher`、`place`、`volume`、`issue`、`pages`、`edition`、`university`、`conferenceName`、`language` 和 `abstractNote`。**`abstract` 不是有效的 itemData 字段；使用 `abstractNote`。** DOI、ISBN、PMID 和 arXiv 标识符放在 `metadata.identifiers` 中；不要将它们放在 `fields.DOI`、`fields.doi`、`fields.ISBN`、`fields.extra` 或虚构的别名中。
+#### 每篇论文的强制研究
 
-`creatorCompleteness` 精确为 `complete` 或 `incomplete`。`complete` 需要已验证的完整创建者列表。`incomplete` 需要 `creators: []`；永远不要发送可能覆盖更好的 Host 记录的部分替换列表。替代标题角色为 `translated`、`romanized` 或 `alternate`。证据角色为 `authoritative` 或 `secondary`。没有解析标识符时，严格标题路径需要至少两个独立的佐证信号和一个权威着陆来源。
+Metadata 搜索和 PDF 探测不可跳过：
 
-如果直接作品身份、材料版本、权威元数据或工具访问仍然不足，仅提交元数据：
+- identifier-first，随后使用权威 title path；
+- 核对 original-script title、完整 creators、日期、容器和材料版本；
+- 明确 direct-work identity，处理 preprint、会议、期刊、学位论文、章节等关系；
+- 依次执行权威落地页、开放获取和公开网络搜索；
+- 验证 PDF URL 的 HTTP 可达性、内容类型、文件特征和作品身份；
+- 记录不确定性，不用弱来源填充关键字段。
 
-```json
-{
-  "metadata": {
-    "status": "not_attempted",
-    "reason": "identity_not_verified",
-    "message": "有界研究未验证已批准的直接作品。",
-    "evidence": []
-  }
-}
-```
+研究是有界的：当直接作品身份、metadata 和 PDF 状态均可作出有证据的终态判断时结束该论文。不要以固定查询数量替代这些完成条件。
 
-原因精确为 `identity_not_verified`、`material_conflict_unresolved`、`authoritative_metadata_unavailable` 或 `tool_unavailable`。当元数据为 `not_attempted` 时不要包含 `pdf`。未解决的审核是该已批准候选的有效终止结果，不会重新打开阶段 30。
+#### 结果与 payload 写入
 
-#### 正式 PDF 审核
+- metadata-qualified 且找到匹配 PDF：写包含 `pdfUrl` 的单篇 Host payload；
+- metadata-qualified 但无匹配 PDF：写 metadata-only payload，并保留 `landingUrl`；
+- direct-work identity 或最低 metadata 无法确认：不准备 mutation payload，主代理记录 `not_attempted`；
+- 输出文件缺失、JSON 畸形或字段错误：只影响该篇论文，可由主代理修复或重新委派。
 
-对于合格的元数据，`pdf.attempts` 精确包含键 `authoritative_landing`、`open_access` 和 `web_search`。按该优先顺序处理。在 PDF 被验证前，每个尝试的路线以 `found`、`not_found`、`restricted`、`unavailable`、`mismatch` 或 `error` 结束。在更高优先级路线被验证为 `found` 后，后续路线可以终止为 `skipped_after_verified_pdf`；这是唯一合法的跳过状态，防止在成功后浪费工作器或主代理时间。
+#### 增量收集
 
-`found` 路线需要 HTTP(S) `pdf_url`、以 `application/pdf` 开头的 `content_type` 和非空的 `identity_evidence`。主代理必须有合理依据认为 URL 是公开的、合法的、可达的且是同一直接作品。搜索结果、HTML 着陆页、登录/付费墙页面、不可访问的链接、盗版来源、补充文件、错误版本或类似标题的作品不是已找到的 PDF。如果所有三个路线都在没有已验证 PDF 的情况下终止，元数据入库仍然继续，运行时保留最佳的权威着陆 URL。
+任一论文载荷就绪后，主代理可以立即读取、检查并进入该论文的阶段 70；无需等待其他子代理完成。其他子代理可继续研究。
 
-#### 确定性入库准备
+主代理可以并行接收多个已就绪 payload，但 Host mutation 一次只处理一篇。缺失或畸形的单篇 payload 不阻塞其他有效 payload。
 
-主代理不手写最终的 Zotero 变更载荷。在所有正式审核被接受后，运行时为每个元数据合格的候选确定性地写入一个规范的 `runtime/payloads/ingest-paper-NNN.json`。生成的顶层仅包含 `paper` 和可选的 `collection`。`paper` 包含 `itemType`、项目兼容的 `fields`、结构化的 `creators`、`identifiers`、可选的 `landingUrl`/`pdfUrl` 和 `attachLandingUrlOnMissingPdf: true`。
+#### 主代理最终检查
 
-运行时将 `metadata.title` 投射到 `paper.fields.title`，保持规范的 `abstractNote`，在类型化标识符对象中保留标识符，按路线优先级选择第一个已验证的 PDF，并对不可变的生成载荷进行哈希以供阶段 70 收据绑定。未知的文献类型使用 `document`，而不是猜测的 `journalArticle`。不要编辑、重命名、合并或批处理生成的入库载荷；如果投射被阻塞则重新运行门控。
+在 Host mutation 前逐篇确认：
 
-**完成：** 每个已批准任务都有一个终止的主代理审核。每个元数据合格的候选有一个运行时生成的规范入库载荷；每个未解决的候选记录为 `not_attempted` 且没有变更载荷。只有此时门控才可以暴露阶段 70。
+1. candidate id 与批准范围一致；
+2. payload 表示同一直接作品和正确材料版本；
+3. `itemType` 与 fields 语义兼容；
+4. title、creators、identifiers 和 URLs 位于专属结构；
+5. 使用 `abstractNote`，没有 `abstract`；
+6. `pdfUrl` 若存在，已验证合法、公开、可达且匹配；
+7. 无 PDF 时 metadata-only payload 仍完整，并按需设置 landing-page attachment；
+8. collection 与用户选择一致。
 
-**禁止：** 不要暴露工作器可见的多阶段计划；在阶段 30 批准前委派；串行派遣任务；给一个工作器多篇论文；要求工作器运行门控、终结器、验证器、导入或 Zotero；接受原始工作器 JSON 作为规范元数据；在指定结果路径外写入；在修复时编造事实；使用 `abstract`；手动编辑生成的入库载荷；或在所有主代理审核被接受前开始 Host 变更。
+主代理只修复有明确证据支持且语义无歧义的映射。身份冲突、关键 metadata 缺失或版本无法判断时，将该篇记录为 `not_attempted`。
 
-**恢复：** 缺失的结果文件通过门控作为一个完整的结果缺失任务集返回。一起启动该集合。格式错误或不完整的研究由主代理在编写正式审核时修复；没有自动的原始工作器修复阶段、替换工作器终结器或哈希绑定的工作器清单。模式错误使当前审核保持待处理：重新运行门控、仅修复其发布的 `payload_path`、重新提交并重新运行门控。路径逃逸、已批准范围漂移、规范载荷篡改或冲突的重放会封闭失败。
+#### 可选内部审计
 
-**下一步：** 每篇已批准论文都有终止审核且运行时已准备所有合格的入库载荷后进入阶段 70；否则继续当前的全工作器屏障或主代理审核游标。
+子代理 stdout 可以包含 metadata 来源、PDF 路线结果和不确定性。主代理可将这些信息汇总为 `runtime/` 内部审计文件。
 
-### 阶段 70 — 逐篇 Zotero 入库
+审计汇总是可选信息，不是载荷通过条件，不得阻塞有效论文入库，也不进入最终 JSON。详细 metadata 和 PDF 判断分别见 [Metadata Resolution](references/metadata-resolution.md) 与 [PDF Probe](references/pdf-probe.md)。
 
-**目的：** 主代理为每个已准备的候选精确执行一个类型化变更，并在任何后续变更变得 eligible 之前持久化一个候选/哈希绑定的 Host 收据。
+### 阶段 50 — 逐篇 Zotero 入库
 
-**代理语义职责：** 仅主代理执行精确的门控命令、保持精确的 Host 响应而不包装或总结、分类致命的基础设施/批准失败并继续普通的每篇论文失败而不隐藏它们。子代理权限在各自写入其单个阶段 40 研究结果并退出时结束；没有子代理可以执行、排队、模拟或重试此变更。
+**目的：** 由主代理将已检查的单篇 payload 串行提交给 Zotero Host，并以 Host terminal response 决定结果。
 
-**运行时职责：** 重新验证已准备的载荷哈希、将门控发布的候选/路径/哈希绑定到收据路径、拒绝错误路径、跨候选收据重用、更改的重放和载荷篡改、索引 Host 结果并仅在终止收据后推进。在当前收据已提交且主代理已重新运行门控之前不暴露下一个变更。
+对每篇就绪 payload：
 
-**门控命令：** 运行初始门控；当 `next_action` 为 `execute_ingest` 时，仅使用返回的字段。
+1. 主代理执行一个 `zotero-bridge mutation literature-ingest --input @<payload-path>`；
+2. 等待该命令返回 terminal JSON；
+3. 原样保存 Host response，并与同一 candidate 和 payload 路径关联；
+4. 根据 Host response 更新 outcome 和账本；
+5. 完成当前论文后才开始下一篇 Host mutation。
 
-**载荷路径：** 只读的规范 `ingest_payload_path`，位于 `runtime/payloads/` 下；主代理仅将返回的 `receipt_path` 写入 `runtime/host/` 下。不要使用 `runtime/stages/`、`runtime/receipts/` 或子代理批处理目录存放 Host 收据。
+子代理不执行、排队、重试或监控 Zotero mutation。研究并发不能改变 Host mutation 的串行性。
 
-**最小载荷 — 精确 Host 响应：**
+Host response 是以下事实的唯一来源：
 
-```json
-{
-  "result": {
-    "ingest": {
-      "status": "created",
-      "item": {
-        "id": 101,
-        "key": "ITEM101",
-        "libraryId": 1
-      },
-      "hasPdfAttachment": true
-    }
-  }
-}
-```
+- `created`、`existing` 或 paper-specific `failed`；
+- item id；
+- PDF 是否实际成为附件；
+- Host warnings 和权限/执行失败。
 
-**提交/运行/变更命令：**
+不要从 `pdfUrl` 推断 `pdfStatus: "attached"`。只有 Host 明确确认附件时才报告 attached。
 
-1. 主代理精确执行一个 `zotero-bridge mutation literature-ingest --input @...` 门控 `command`。
-2. 将该命令的精确 JSON 响应（不变且无包装）写入门控发布的 `receipt_path`。
-3. 执行该单个收据的门控 `submit_command`。
-4. 重新运行初始门控，然后才获取下一个单个命令。
+#### Host 结果处理
 
-对于无法运行的 Host 命令，写入：
+- `created`：记录数字 item id；根据本轮结果确定 `needsCuration` 和 PDF 状态；
+- `existing`：报告已存在，不报告新建；保留 Host 返回的 item id；
+- paper-specific `failed`：记录该论文失败，并继续处理其他已批准论文；
+- `host_unavailable`、`approval_denied` 或 `execution_blocked`：视为致命执行失败，停止后续 mutation，保留已完成 receipt 并返回 canceled；
+- `not_attempted`：没有 Host mutation，由阶段 40 身份或 metadata 结论产生。
 
-```json
-{
-  "failure": "host_unavailable",
-  "message": "所需的 Zotero Host Bridge 变更无法启动。"
-}
-```
-
-致命的 `failure` 值为 `host_unavailable`、`approval_denied` 和 `execution_blocked`；它们产生已取消的终止状态并停止后续变更。具有 `result.ingest.status: "failed"` 的普通论文特定 Host 响应被记录并继续处理。候选 id 和载荷哈希故意不在收据中，因为运行时已拥有该绑定。
-
-**完成：** 每个已准备的候选具有 `created`、`existing` 或 `failed`，除非致命收据已将工作流移至已取消的终止状态。元数据拒绝的已批准候选保持 `not_attempted`。
-
-**禁止：** 不要将阶段 70 委派给子代理；变更未批准的候选；并发运行多个 Host 命令；预创建多个收据文件；使用不同的载荷；使用 `papers`/`papers[]`；跨候选重用收据；将 `existing` 报告为已创建；或从 `pdfUrl` 推断附件成功。Host 收据中的 `hasPdfAttachment` 是权威的。
-
-**恢复：** 精确的收据重放是幂等的。更改的重放、错误路径的收据、跨候选项目/收据重用、修改的入库载荷或尝试的并发 Host 变更会封闭失败。重新运行门控并使用当前发布的单命令契约。在致命 Host 失败时，立即停止后续变更并保留 `runtime/host/` 下的早期收据。
-
-**下一步：** 另一个已准备候选的阶段 70；否则终止。
+每份 receipt 只关联一篇论文，不跨候选复用。详细 typed payload、receipt 和恢复规则见 [Ingest, Output, And Recovery](references/ingest-output-recovery.md)。
 
 ### 终止 — 已完成或已取消
 
-门控返回 `next_action: "return_final_output"` 并附带：
+**completed 条件：**
 
-- `kind: "literature_search_ingest"` 和 `status: "completed"`，或
-- `kind: "literature_search_ingest_canceled"` 和 `status: "canceled"`。
+- 每个已批准候选都具有 `created`、`existing`、`failed` 或 `not_attempted`；
+- 没有未完成的 Host mutation；
+- `result/search-ledger.json` 已写入；
+- summary 计数与 outcomes 一致；
+- 最终 JSON 通过 `assets/output.schema.json`。
 
-运行时写入 `result/search-ledger.json` 并将验证后的业务对象作为 `final_output` 返回。精确输出该对象。不要重建它、添加 Markdown 围栏、日志、说明或第二个对象。
+**canceled 条件：**
 
-## 职责
+- 用户在阶段 10 或 30 取消；或
+- 阶段 50 发生致命 Host 失败。
 
-### 必须由 LLM 完成
-
-- 解释研究意图、路由模式、提出聚焦问题并设计检索简报。
-- 选择查询/来源通道并执行合法的公开发现。
-- 判断直接作品身份、材料版本、重复、相关性、候选分层、元数据权威性、原始出版语言、创建者完整性、PDF 身份和整理需求。
-- 呈现两个用户决策并解释批准、扩展或取消。
-- 阶段 30 批准后，在等待前启动每个返回的单篇论文任务，仅使用本文件中的静态工作器 prompt 和任务的规格路径。
-- 审核原始工作器结果、必要时执行有界语义修复并作为主代理编写每个正式元数据/PDF 审核。
-- 仅生成当前载荷模式请求的有证据支持的语义内容。
-- 原样输出门控返回的最终业务 JSON。
-
-### 必须由脚本、模式、运行器和 Host 完成
-
-- 门控和阶段脚本准备纯数据单篇论文任务规格、一起暴露所有缺失任务、验证主代理审核载荷、从当前状态和决策派生动作、绑定发现轮次和候选、合并发现增量、派生 id/计数/策略、强制路线覆盖、检测重放和漂移、生成类型化载荷、绑定收据、写入紧凑账本并构建最终业务 JSON。
-- `assets/runtime-action.schema.json` 定义动作字段、枚举、条件元数据规则和 PDF 尝试形状。
-- `assets/output.schema.json` 验证已完成和已取消的最终业务输出。
-- `zotero-bridge` 读取本地 Zotero/Synthesis 上下文并执行每个已批准的类型化变更。
-- Host 验证项目类型字段、去重、在支持时写入原生 DOI、尽力创建附件并返回权威的变更/附件状态。
-- 运行器验证最终信封并写入 `result/result.json`。
-
-### 禁止
-
-- 不要使用临时脚本进行查询策略、匹配、相关性、证据解释或元数据判断。
-- 不要从记忆中绕过门控、修补状态或编辑运行时生成的载荷。
-- 不要手写运行器拥有的 `result/result.json`。
-- 不要编造来源、证据、标识符、创建者、版本、PDF 状态、项目引用或附件成功。
-- 不要执行批量变更；每个候选有一个类型化载荷和一个收据。
+取消时保留已经完成的 payload、receipts 和账本信息，不把 pending 或进度对象作为最终结果。
 
 ## 失败、取消和恢复
 
-- 用户取消仅在阶段 10 或阶段 30 使用 `{"decision":"cancel"}` 时合法。运行时提供稳定的取消原因和阶段特定消息。
-- 无结果的发现轮次被诚实记录并进入阶段 30，用户可以请求聚焦扩展或取消。
-- 发现期间的来源不可用直接记录在相关的 `query_attempt` 上，`status: "unavailable"` 或 `"error"` 并附带解释性 `message`；尝试同类回退。
-- 范围批准后的元数据来源/工具失败变为每篇候选的 `{"status":"not_attempted","reason":"tool_unavailable","message":"...","evidence":[]}`；在可用时包含任何成功检查的来源证据。它不会重新打开用户范围。
-- PDF 来源/工具失败变为路线状态 `unavailable` 或 `error`；所有三个路线键仍然是必需的，而已验证 PDF 之后的后续路线使用 `skipped_after_verified_pdf`。
-- 普通的论文特定 Host 失败被提交并继续处理。
-- Host 不可用、写入批准拒绝或阻止剩余变更的运行时条件作为带有 `failure` 和 `message` 的致命阶段 70 收据提交。保留已完成的收据并返回已取消的输出；永远不要返回 pending。
-- 模式或阶段错误使当前阶段保持不变。重新运行门控并仅修复已发布的载荷。
-- 输入漂移、损坏状态、修改的已接受证据、修改的入库载荷、错误的收据绑定和冲突的重放是阻塞因素。不要猜测进度或重建状态。
-- 恢复时，运行初始门控、读取 `resume_packet`、读取返回的阶段引用并仅继续 `next_action`。
+- 外部来源不可用：记录失败并使用计划中的合法 fallback；不要伪造结果。
+- 子代理失败：只重新委派其未完成候选，保留其他论文的 payload 和 receipt。
+- payload 畸形：主代理进行有证据的局部修复；无法安全修复时重新委派或记为 `not_attempted`。
+- PDF 不可用：保留 metadata-only ingest，不把落地页当作 PDF。
+- paper-specific Host failure：记录 `failed` 并继续下一篇。
+- 致命 Host failure：立即停止后续 mutation，保留已有 receipt，输出 canceled。
+- 恢复运行：读取当前 `runtime/` 中已有的候选记录、独立 payload 和 Host receipts；已具有 terminal receipt 的论文不重复 mutation；缺失的论文单独恢复。
+- 工作区不可写：报告 `execution_blocked`，不要切换到外部目录。
 
 ## 最终输出
 
 ### 紧凑检索账本
 
-运行时写入 `result/search-ledger.json`，仅包含：
+`result/search-ledger.json` 是审计摘要和恢复索引，不驱动阶段推进。至少记录：
 
-- 输入哈希或查询摘要、有效模式、广度和实际语言；
-- 发现轮次摘要：尝试计数、不可用/错误计数、空白、唯一候选 id、去重计数和停止原因；
-- 计划/范围决策摘要和已批准/排除的 id；
-- 每篇候选的元数据、PDF、已准备载荷和 Host 收据的路径/哈希；
-- 最终入库/PDF/整理状态和阻塞/取消摘要。
+- kind、terminal status、search mode 和 breadth；
+- discovery rounds、query/source attempt 摘要和 stop reasons；
+- 累计、批准与排除的 candidate ids；
+- 每篇批准论文的 title、payload path、receipt path、metadata/PDF/ingest status、item id 和 `needsCuration`；
+- canceled 时的原因和消息；
+- 可选内部审计若存在，可在账本中以普通内部路径引用，但最终 JSON 不暴露该路径。
 
-不要在账本中重复完整的证据载荷。JSON 门控状态仍然是执行的真实来源。
+账本不复制完整发现证据、全文或 Host response。详细信息保留在当前运行的来源记录、payload 和 receipt 中。
 
 ### 已完成 JSON
 
-只有已批准的候选出现在 `outcomes` 中。每个条目有意保持较小：成功的 `created`/`existing` 条目包含标题、状态、数字项目 id、附件状态和整理标志；`failed`/`not_attempted` 条目仅包含标题和状态。详细的证据、路径、原因、标识符、链接和 Host 响应数据保留在紧凑账本和已接受的载荷中。
-
 ```json
 {
+  "__SKILL_DONE__": true,
   "kind": "literature_search_ingest",
   "status": "completed",
   "summary": {
-    "discovered": 18,
+    "discovered": 2,
     "selected": 2,
     "created": 1,
     "existing": 0,
@@ -886,7 +459,7 @@ PDF 仅在 URL 为公开 HTTP(S)、无需登录或机构凭据即可访问、提
       "needsCuration": true
     },
     {
-      "title": "隧道衬砌检测方法研究",
+      "title": "身份未能确认的候选",
       "ingestStatus": "not_attempted"
     }
   ],
@@ -894,58 +467,58 @@ PDF 仅在 URL 为公开 HTTP(S)、无需登录或机构凭据即可访问、提
 }
 ```
 
-运行时从状态派生六个摘要计数。其入库计数之和为 `selected`，且 `outcomes.length` 等于 `selected`。对于仍需元数据工作的 `created` 或 `existing` 记录，运行时设置 `needsCuration: true`；工作流 apply 钩子添加受治理的 `status:need-metadata-curation` 标签。`itemRef` 仅暴露工作流消费者所需的数字 `id`。将 `existing` 报告为已存在，永远不报告为新创建。
+规则：
+
+- `created` 和 `existing` 暴露 title、ingestStatus、数字 `itemRef.id`、pdfStatus 和 needsCuration；
+- `failed` 和 `not_attempted` 只暴露 title 与 ingestStatus；
+- `summary.created + existing + failed + notAttempted == selected`；
+- `outcomes.length == selected`；
+- 详细 identifiers、URLs、证据、错误和 receipts 不进入最终 JSON。
 
 ### 已取消 JSON
 
 ```json
 {
+  "__SKILL_DONE__": true,
   "kind": "literature_search_ingest_canceled",
   "status": "canceled",
   "reason": "user_cancelled",
-  "message": "用户拒绝了入库范围。"
+  "message": "用户取消了入库范围。"
 }
 ```
 
-使用门控状态中的终止取消原因/消息。当取消发生在阶段 70 期间时，在紧凑账本中保留已完成的收据。
+最终助手消息只输出一个 JSON object，不添加解释或 Markdown fence。
 
 ## 参考加载指南
 
-默认使用本文件。仅读取当前门控返回的参考：
-
-| 阶段或需求 | 读取 |
+| 当前任务 | 读取 |
 | --- | --- |
-| 阶段 10 模式路由、引导式信息收集、本地覆盖、检索简报、查询/来源策略 | [Search Planning And Discovery](references/search-planning-and-discovery.md) |
-| 阶段 20 发现轮次、多语言扩展、去重、分层、候选呈现 | [Search Planning And Discovery](references/search-planning-and-discovery.md) |
-| 阶段 30 范围批准、扩展空白和取消 | [Search Planning And Discovery](references/search-planning-and-discovery.md) |
-| 阶段 40 工作器元数据研究和主代理标识符/标题接受、直接作品角色、原文、创建者和 Zotero 字段 | [Metadata Resolution](references/metadata-resolution.md) |
-| 阶段 40 有界公开 PDF 研究和主代理路线审核、可达性、身份、合法来源、状态和反例 | [PDF Probe](references/pdf-probe.md) |
-| 阶段 40 结果收集/审核和阶段 70 类型化载荷、Host 收据、重试、账本、最终输出和恢复 | [Ingest, Output, And Recovery](references/ingest-output-recovery.md) |
-| 终止完成或取消 | [Ingest, Output, And Recovery](references/ingest-output-recovery.md) |
+| 模式路由、guided intake、本地覆盖、检索简报、查询/来源策略 | [Search Planning And Discovery](references/search-planning-and-discovery.md) |
+| discovery round、多语言扩展、去重、分层和阶段 30 范围审核 | [Search Planning And Discovery](references/search-planning-and-discovery.md) |
+| direct-work identity、identifier/title 接受、原文、creators 和 Zotero 字段 | [Metadata Resolution](references/metadata-resolution.md) |
+| 三路线 PDF、可达性、身份、合法来源和状态 | [PDF Probe](references/pdf-probe.md) |
+| typed Host payload、serial mutation、receipts、ledger、最终输出和恢复 | [Ingest, Output, And Recovery](references/ingest-output-recovery.md) |
 
-所有四个参考深化协议。它们不替代本文件中的阶段命令、载荷、完成条件或输出形状。
+四份 reference 深化当前流程，不替代本文件中的阶段顺序和完成条件。
 
 ## 执行示例
 
-正常路径：
+### 正常路径
 
-1. 运行初始门控。
-2. 构建并获得阶段 10 的批准；提交 `approve_search_plan`。
-3. 执行阶段 20 第 1 轮并提交其发现增量；运行时构建累积候选集。
-4. 呈现阶段 30；提交已批准的可入库 id。
-5. 运行 `prepare_agent_batches` 在 `runtime/` 下为每个已批准的候选原子性地创建一个纯数据任务规格。
-6. 读取 `dispatch_plan.assignments` 并在同一调度轮次中，使用本文件中的静态 prompt 加上该描述符的 `worker_spec_path` 为每个描述符启动一个新的子代理。在首次等待前启动所有任务；工作器执行一个有界研究任务、写入一个扁平的 `result.json` 并在不运行脚本的情况下退出。
-7. 等待每个已派遣的工作器完成。如果任何结果仍然缺失，仅在统一等待后重新运行门控、在一个恢复轮次中启动完整的结果缺失集并再次等待。
-8. 在全结果屏障后，逐个跟随 `review_agent_result`。主代理读取并修复原始研究、编写正式元数据/PDF 审核、提交它并让运行时在所有审核被接受后生成规范入库载荷。
-9. 仅作为主代理，执行一个阶段 70 变更、写入一个收据、提交它并在执行下一个变更前重新运行门控。
-10. 当门控返回 `return_final_output` 时，原样输出其 `final_output` 对象。
+阶段 10 批准后执行发现并在阶段 30 获得 candidate ids。主代理按复杂度组织子代理和独立输出路径；子代理完成 metadata 与三路线 PDF 并写 direct Host payload。任一 payload 就绪后立即检查并串行 mutation，其他研究继续。最终保存 receipts、记录 unresolved 为 `not_attempted`、写入账本并返回 completed JSON。
 
-扩展路径：用户在阶段 30 要求更多中文论文。提交 `{"decision":"expand","gaps":[...]}`、运行阶段 20 第 2 轮、仅提交新候选和有证据支持的更新，并让运行时保留第 1 轮候选，然后返回到同一个阶段 30 决策。
+### 补充发现
 
-近似遗漏 — 过早发现：非空 `auto` 看起来足够，但阶段 10 未批准。仅使用只读本地上下文准备简报；不要发出外部搜索。
+用户在阶段 30 请求更多中文学位论文。主代理保留已有候选，执行新的 multilingual/gap lanes，将有证据的新候选和更新合并到累计集合，然后再次呈现阶段 30。
 
-近似遗漏 — 身份变更：已批准的会议论文仅解析为后续的期刊文章。将会议候选提交为 `not_attempted`；不要替换它或请求第三次批准。
+### 身份冲突
 
-近似遗漏 — 缺失 PDF 路线：出版商和 OA 路线已尝试但网络搜索被遗漏且没有较早的已验证 PDF。主代理阶段 40 审核失败；添加实际的网络搜索结果而不是提前将 PDF 标记为缺失。如果 OA 路线已找到已验证的 PDF，将网络搜索标记为 `skipped_after_verified_pdf`。
+批准的是会议论文，但只找到后续期刊扩展版。该候选保持 `not_attempted`；不替换作品，也不把期刊版自动加入批准范围。
 
-近似遗漏 — 修改的入库载荷：生成的标题在变更前被编辑。门控返回 `blocked`；不要变更或手动更新哈希。
+### 缺失 PDF
+
+三条路线均未找到合法匹配 PDF，但 metadata 和直接作品身份已确认。子代理写 metadata-only payload；主代理照常入库，并根据 Host receipt 报告实际附件状态。
+
+### 单篇恢复
+
+一个子代理输出畸形 JSON，另两篇 payload 已有效。主代理继续处理两篇有效 payload，仅修复或重新委派畸形论文。
