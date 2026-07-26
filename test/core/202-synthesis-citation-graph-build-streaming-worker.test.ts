@@ -19,11 +19,6 @@ import type { SynthesisSidecarRuntimeConfig } from "../../apps/synthesis-service
 import { createSynthesisSidecarTransferClient } from "../../src/modules/synthesisSidecarTransferClient";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
-const BUILT_WORKER = new URL(
-  "../../.scaffold/synthesis-service/apps/synthesis-service/src/computeWorker.js",
-  import.meta.url,
-);
-
 function config(root: string): SynthesisSidecarRuntimeConfig {
   return {
     schema: "synthesis-sidecar-launch-config.v1",
@@ -160,9 +155,7 @@ describe("Synthesis Citation Graph Build streaming worker", function () {
   ) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-stream-worker-"));
     const runtimeConfig = config(root);
-    const pool = createSynthesisSidecarComputeWorkerPool({
-      workerUrl: BUILT_WORKER,
-    });
+    const pool = createSynthesisSidecarComputeWorkerPool();
     const runtime = await startSynthesisSidecarServer(
       runtimeConfig,
       "streaming-worker-service",

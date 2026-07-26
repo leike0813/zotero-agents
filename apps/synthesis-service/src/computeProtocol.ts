@@ -12,7 +12,7 @@ import type {
 } from "../../../packages/synthesis-engine/src/citationGraphBuildTransfer.js";
 
 export const SYNTHESIS_SIDECAR_COMPUTE_OPERATION =
-  "citation_graph_layout.v1" as const;
+  "citation_graph_layout.v2" as const;
 export const SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION =
   "citation_graph_build.v1" as const;
 export const SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION =

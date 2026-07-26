@@ -2,7 +2,6 @@ import { assert } from "chai";
 import fs from "node:fs";
 import path from "node:path";
 import {
-  createInProcessSynthesisCitationGraphLayoutEngine,
   rebuildSynthesisCitationGraphLayoutRequest,
   type SynthesisCitationGraphLayoutRequest,
 } from "../../packages/synthesis-engine/src/index";
@@ -11,7 +10,7 @@ import {
   SYNTHESIS_SIDECAR_PROTOCOL,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import type { SynthesisSidecarRuntimeConfig } from "../../apps/synthesis-service/src/runtimeConfig";
-import type { SynthesisSidecarComputeWorkerPool } from "../../apps/synthesis-service/src/computeWorkerPool";
+import { createSynthesisSidecarComputeWorkerPool } from "../../apps/synthesis-service/src/computeWorkerPool";
 import { startSynthesisSidecarServer } from "../../apps/synthesis-service/src/server";
 import {
   createSynthesisSidecarComputeClient,
@@ -115,29 +114,21 @@ function clientErrorCode(error: unknown) {
     : "unknown";
 }
 
+async function nativeResult(input: SynthesisCitationGraphLayoutRequest) {
+  const pool = createSynthesisSidecarComputeWorkerPool();
+  try {
+    return await pool.runCitationGraphLayout(input);
+  } finally {
+    await pool.shutdown();
+  }
+}
+
 describe("Synthesis Citation Graph production sidecar route", function () {
   this.timeout(10_000);
 
-  it("matches direct force, radial, and components results through real authenticated HTTP", async function () {
+  it("routes force, radial, and components through real authenticated HTTP and Rust", async function () {
     const config = runtimeConfig();
-    const direct = createInProcessSynthesisCitationGraphLayoutEngine();
-    const pool: SynthesisSidecarComputeWorkerPool = {
-      runCitationGraphLayout: (input) => direct.compute(input),
-      async runCitationGraphMetrics() {
-        throw new Error("unexpected metrics compute");
-      },
-      async runCitationGraphBuild() {
-        throw new Error("unexpected graph-build compute");
-      },
-      snapshot: () => ({
-        state: "idle",
-        active: 0,
-        queued: 0,
-        restartCount: 0,
-        failureCount: 0,
-      }),
-      async shutdown() {},
-    };
+    const pool = createSynthesisSidecarComputeWorkerPool();
     const runtime = await startSynthesisSidecarServer(
       config,
       SERVICE_INSTANCE_ID,
@@ -149,14 +140,17 @@ describe("Synthesis Citation Graph production sidecar route", function () {
     try {
       for (const algorithm of ["force", "radial", "components"] as const) {
         const input = request(algorithm);
-        assert.deepEqual(
-          await engine.compute(input),
-          await direct.compute(input),
+        const result = await engine.compute(input);
+        assert.equal(result.layoutVersion, 2);
+        assert.equal(
+          result.layoutEngine,
+          algorithm === "force" ? "forceatlas2-rust" : `${algorithm}-rust`,
         );
       }
     } finally {
       runtime.beginShutdown("test_complete");
       await runtime.stopped;
+      await pool.shutdown();
     }
   });
 
@@ -183,9 +177,7 @@ describe("Synthesis Citation Graph production sidecar route", function () {
             serviceInstanceId: connection.serviceInstanceId,
             ...options,
           });
-          return createInProcessSynthesisCitationGraphLayoutEngine().compute(
-            input,
-          );
+          return nativeResult(input);
         },
       },
     });
@@ -230,8 +222,7 @@ describe("Synthesis Citation Graph production sidecar route", function () {
 
   it("validates request/runtime identity and normalizes transport outcomes", async function () {
     const input = request();
-    const direct =
-      await createInProcessSynthesisCitationGraphLayoutEngine().compute(input);
+    const direct = await nativeResult(input);
     const connection = {
       baseUrl: "http://127.0.0.1:1",
       profileId: "1".repeat(64),

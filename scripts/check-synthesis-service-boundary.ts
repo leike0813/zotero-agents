@@ -64,10 +64,6 @@ const APPLICATION_ROOT = path.join(
   ROOT_DIR,
   "packages/synthesis-application/src",
 );
-const WORKER_THREAD_ALLOWLIST = new Set([
-  "apps/synthesis-service/src/computeWorker.ts",
-  "apps/synthesis-service/src/computeWorkerPool.ts",
-]);
 const CHILD_PROCESS_ALLOWLIST = new Set([
   "apps/synthesis-service/src/rustComputeWorkerTransport.ts",
 ]);
@@ -253,10 +249,7 @@ export function findSynthesisSidecarAppBoundaryViolations(): string[] {
   for (const filePath of walkTypeScriptFiles(SIDECAR_APP_ROOT)) {
     const relativePath = normalizedRepoPath(filePath);
     const source = fs.readFileSync(filePath, "utf8");
-    if (
-      /from\s+["']node:worker_threads["']/.test(source) &&
-      !WORKER_THREAD_ALLOWLIST.has(relativePath)
-    ) {
+    if (/from\s+["']node:worker_threads["']/.test(source)) {
       violations.push(`${relativePath}: worker_threads import is not allowed`);
     }
     if (
@@ -275,20 +268,7 @@ export function findSynthesisSidecarAppBoundaryViolations(): string[] {
         `${relativePath}: Topic canonical filesystem authority is not allowed`,
       );
     }
-    if (
-      relativePath.endsWith("/computeWorker.ts") &&
-      /synthesis-repository|isolatedRepository|repositoryNodeSqlite/.test(
-        source,
-      )
-    ) {
-      violations.push(
-        `${relativePath}: worker repository access is not allowed`,
-      );
-    }
-    if (
-      /\bnew\s+Worker\s*\(/.test(source) &&
-      !relativePath.endsWith("/computeWorkerPool.ts")
-    ) {
+    if (/\bnew\s+Worker\s*\(/.test(source)) {
       violations.push(`${relativePath}: Worker construction is not allowed`);
     }
     const webDavApplicationOwner =

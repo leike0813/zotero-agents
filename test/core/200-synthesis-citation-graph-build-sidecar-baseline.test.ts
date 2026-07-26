@@ -15,11 +15,6 @@ import {
 } from "../fixtures/synthesisCitationGraphBuildBenchmarks";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
-const BUILT_WORKER = new URL(
-  "../../.scaffold/synthesis-service/apps/synthesis-service/src/computeWorker.js",
-  import.meta.url,
-);
-
 describe("Synthesis Citation Graph build sidecar baseline", function () {
   this.timeout(30_000);
 
@@ -102,10 +97,7 @@ describe("Synthesis Citation Graph build sidecar baseline", function () {
   it("measures a real authenticated HTTP and worker canary without returning DTOs", async function () {
     const report = await runSynthesisCitationGraphBuildBenchmarkProfile(
       "canary",
-      {
-        workerUrl: BUILT_WORKER,
-        includeCancellationProbe: false,
-      },
+      { includeCancellationProbe: false },
     );
 
     assert.equal(

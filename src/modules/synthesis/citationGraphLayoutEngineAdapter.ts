@@ -1,5 +1,4 @@
 import {
-  computeSynthesisCitationGraphLayout,
   rebuildSynthesisCitationGraphLayoutRequest,
   rebuildSynthesisCitationGraphLayoutResult,
   type SynthesisCitationGraphLayoutEngine,
@@ -75,17 +74,6 @@ export function projectCitationGraphLayoutEngineResult(
     ...base,
     layout_hash: hashCanonicalJson(base),
   };
-}
-
-export function computeCitationGraphLayout(
-  graph: CitationGraph,
-  algorithm: CitationLayoutAlgorithm,
-) {
-  const request = buildCitationGraphLayoutEngineRequest(graph, algorithm);
-  return projectCitationGraphLayoutEngineResult(
-    request,
-    computeSynthesisCitationGraphLayout(request),
-  );
 }
 
 export async function computeCitationGraphLayoutWithEngine(

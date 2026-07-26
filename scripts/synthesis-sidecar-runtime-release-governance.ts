@@ -19,12 +19,7 @@ export const SYNTHESIS_SIDECAR_RUNTIME_NODE_VERSION =
   SYNTHESIS_SIDECAR_NODE_VERSION;
 export const SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX =
   SYNTHESIS_SIDECAR_RUNTIME_TARGETS;
-export const SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES = [
-  "d3-dispatch",
-  "d3-force",
-  "d3-quadtree",
-  "d3-timer",
-] as const;
+export const SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES = [] as const;
 
 const FINGERPRINT_STATIC_INPUTS = [
   ".github/workflows/build-synthesis-sidecar-runtime.yml",

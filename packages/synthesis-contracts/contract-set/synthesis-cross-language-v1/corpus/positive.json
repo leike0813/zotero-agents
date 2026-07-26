@@ -64,6 +64,39 @@
       "sha256": "sha256:8ea326c5903a4bf871c1f509e6535cafd43cfcb94acec63326b1f7003df810fc"
     },
     {
+      "id": "layout-v2-request-canonical-order",
+      "oracle": "citationGraphLayoutRequest",
+      "schemaRef": "schemas/compute.schema.json#/$defs/layoutRequest",
+      "inputJson": "{\"graphHash\":\"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"algorithm\":\"components\",\"nodes\":[{\"nodeId\":\"paper:B\",\"kind\":\"library_paper\",\"initialX\":1,\"initialY\":1},{\"nodeId\":\"paper:A\",\"kind\":\"library_paper\",\"initialX\":0,\"initialY\":0}],\"edges\":[{\"edgeId\":\"edge:A-B\",\"source\":\"paper:A\",\"target\":\"paper:B\"}]}",
+      "output": {
+        "graphHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "algorithm": "components",
+        "nodes": [
+          {
+            "nodeId": "paper:A",
+            "kind": "library_paper",
+            "initialX": 0,
+            "initialY": 0
+          },
+          {
+            "nodeId": "paper:B",
+            "kind": "library_paper",
+            "initialX": 1,
+            "initialY": 1
+          }
+        ],
+        "edges": [
+          {
+            "edgeId": "edge:A-B",
+            "source": "paper:A",
+            "target": "paper:B"
+          }
+        ]
+      },
+      "canonicalJson": "{\"algorithm\":\"components\",\"edges\":[{\"edgeId\":\"edge:A-B\",\"source\":\"paper:A\",\"target\":\"paper:B\"}],\"graphHash\":\"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"nodes\":[{\"initialX\":0,\"initialY\":0,\"kind\":\"library_paper\",\"nodeId\":\"paper:A\"},{\"initialX\":1,\"initialY\":1,\"kind\":\"library_paper\",\"nodeId\":\"paper:B\"}]}",
+      "sha256": "sha256:893c8636f5d228d34faa1bbd7b21ac33869e041a2fa09e4472945c6378001676"
+    },
+    {
       "id": "metrics-request-unicode-order",
       "oracle": "citationGraphMetricsRequest",
       "schemaRef": "schemas/compute.schema.json#/$defs/metricsRequest",

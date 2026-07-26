@@ -2,7 +2,6 @@ import { joinPath } from "../../utils/path";
 import {
   SYNTHESIS_CITATION_GRAPH_LAYOUT_EDGE_MAX,
   SYNTHESIS_CITATION_GRAPH_LAYOUT_NODE_MAX,
-  createInProcessSynthesisCitationGraphLayoutEngine,
   createInProcessSynthesisCitationGraphMetricsEngine,
   createInProcessSynthesisConceptKbIndexEngine,
   createInProcessSynthesisReferenceMatcherEngine,
@@ -6181,7 +6180,11 @@ export function createSynthesisService(options: SynthesisServiceOptions) {
   const runtimeLogAppender = options.runtimeLogAppender || appendRuntimeLog;
   const citationGraphLayoutEngine =
     options.citationGraphLayoutEngine ||
-    createInProcessSynthesisCitationGraphLayoutEngine();
+    ({
+      async compute() {
+        throw new Error("citation_graph_layout_engine_required");
+      },
+    } satisfies SynthesisCitationGraphLayoutEngine);
   const citationGraphMetricsEngine =
     options.citationGraphMetricsEngine ||
     createInProcessSynthesisCitationGraphMetricsEngine();

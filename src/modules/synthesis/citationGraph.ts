@@ -150,7 +150,13 @@ export type CitationLayoutAlgorithm = "force" | "radial" | "components";
 
 export type CitationGraphLayout = {
   graph_hash: string;
-  layout_engine: "d3-force" | "radial" | "components";
+  layout_engine:
+    | "d3-force"
+    | "radial"
+    | "components"
+    | "forceatlas2-rust"
+    | "radial-rust"
+    | "components-rust";
   layout_version: number;
   algorithm: CitationLayoutAlgorithm;
   preset: CitationLayoutAlgorithm;

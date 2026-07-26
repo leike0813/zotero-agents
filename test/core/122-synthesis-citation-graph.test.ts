@@ -4,11 +4,32 @@ import {
   normalizeCitationLayoutAlgorithm,
   provisionalReferenceKey,
 } from "../../src/modules/synthesis/citationGraph";
-import { computeCitationGraphLayout } from "../../src/modules/synthesis/citationGraphLayoutEngineAdapter";
+import {
+  buildCitationGraphLayoutEngineRequest,
+  projectCitationGraphLayoutEngineResult,
+} from "../../src/modules/synthesis/citationGraphLayoutEngineAdapter";
+import { createSynthesisSidecarComputeWorkerPool } from "../../apps/synthesis-service/src/computeWorkerPool";
 import { buildCitationGraphInputsFromRegistryInputs } from "../../src/modules/synthesis/libraryAdapter";
 import { renderPayloadBlock } from "../../src/modules/notePayloadCodec";
 
 describe("Synthesis Citation Graph", function () {
+  const layoutPool = createSynthesisSidecarComputeWorkerPool();
+
+  after(async function () {
+    await layoutPool.shutdown();
+  });
+
+  async function computeLayout(
+    graph: ReturnType<typeof buildUnifiedCitationGraph>,
+    algorithm: "force" | "radial" | "components",
+  ) {
+    const request = buildCitationGraphLayoutEngineRequest(graph, algorithm);
+    return projectCitationGraphLayoutEngineResult(
+      request,
+      await layoutPool.runCitationGraphLayout(request),
+    );
+  }
+
   it("generates provisional reference keys by deterministic priority", function () {
     assert.equal(
       provisionalReferenceKey({
@@ -283,7 +304,7 @@ describe("Synthesis Citation Graph", function () {
     assert.equal(graph.diagnostics.node_counts.unresolved_reference, 1);
   });
 
-  it("computes deterministic layout snapshots", function () {
+  it("computes deterministic layout snapshots", async function () {
     const graph = buildUnifiedCitationGraph({
       papers: [
         {
@@ -295,20 +316,29 @@ describe("Synthesis Citation Graph", function () {
       ],
     });
 
-    const first = computeCitationGraphLayout(graph, "force");
-    const second = computeCitationGraphLayout(graph, "force");
-    const radial = computeCitationGraphLayout(graph, "radial");
-    const components = computeCitationGraphLayout(graph, "components");
+    const first = await computeLayout(graph, "force");
+    const second = await computeLayout(graph, "force");
+    const third = await computeLayout(graph, "force");
+    const radial = await computeLayout(graph, "radial");
+    const components = await computeLayout(graph, "components");
 
     assert.equal(first.layout_hash, second.layout_hash);
+    assert.equal(first.layout_hash, third.layout_hash);
     assert.deepEqual(first.nodes, second.nodes);
+    assert.deepEqual(first.nodes, third.nodes);
     assert.equal(first.graph_hash, graph.graph_hash);
-    assert.equal(first.layout_version, 1.2);
+    assert.equal(first.layout_version, 2);
     assert.equal(first.algorithm, "force");
     assert.deepEqual(first.params, {
-      link_distance: 180,
-      charge: -520,
-      collision_radius: 24,
+      theta: 0.5,
+      ka: 1,
+      kg: 1,
+      kr: 1,
+      lin_log: "false",
+      strong_gravity: "false",
+      prevent_overlapping: 100,
+      speed: 0.01,
+      node_radius: 24,
       iterations: 700,
       isolated_radius: 72,
       isolated_gap: 96,
@@ -318,12 +348,19 @@ describe("Synthesis Citation Graph", function () {
     assert.notEqual(radial.layout_hash, first.layout_hash);
     assert.notEqual(components.layout_hash, first.layout_hash);
     assert.notEqual(radial.layout_hash, components.layout_hash);
+    const source = first.nodes["zotero:item:AAAA1111"];
+    const target = first.nodes["ref:doi:10.1000/target"];
+    const edgeLength = Math.hypot(source.x - target.x, source.y - target.y);
+    assert.isAtLeast(edgeLength, 40);
+    assert.isAtMost(edgeLength, 120);
+    assert.isAbove(Math.abs(source.x - target.x), 1);
+    assert.isAbove(Math.abs(source.y - target.y), 1);
     assert.equal(normalizeCitationLayoutAlgorithm("compact"), "force");
     assert.equal(normalizeCitationLayoutAlgorithm("balanced"), "force");
     assert.equal(normalizeCitationLayoutAlgorithm("expanded"), "force");
   });
 
-  it("keeps isolated nodes near the force layout instead of repelling them far away", function () {
+  it("keeps isolated nodes near the force layout instead of repelling them far away", async function () {
     const graph = buildUnifiedCitationGraph({
       papers: [
         {
@@ -341,7 +378,7 @@ describe("Synthesis Citation Graph", function () {
       ],
     });
 
-    const layout = computeCitationGraphLayout(graph, "force");
+    const layout = await computeLayout(graph, "force");
     const source = layout.nodes["zotero:item:A"];
     const isolated = layout.nodes["zotero:item:B"];
 

@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 pub const WORKER_PROTOCOL: &str = "synthesis-rust-worker.v1";
 pub const METRICS_OPERATION: &str = "citation_graph_metrics.v1";
+pub const CITATION_GRAPH_LAYOUT_OPERATION: &str = "citation_graph_layout.v2";
 pub const TAG_VOCABULARY_VALIDATE_OPERATION: &str = "tag_vocabulary_validate.v1";
 pub const TAG_VOCABULARY_INDEX_OPERATION: &str = "tag_vocabulary_index.v1";
 pub const CONCEPT_KB_INDEX_OPERATION: &str = "concept_kb_index.v1";

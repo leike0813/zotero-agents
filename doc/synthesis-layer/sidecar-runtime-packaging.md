@@ -41,7 +41,7 @@ provenance, the
 adapter/owner, the environment-neutral `packages/synthesis-application`
 Workbench operational query, private knowledge checkpoint coordinator and
 strict contracts, and the exact runtime source and
-licenses for `d3-force`, `d3-dispatch`, `d3-quadtree`, and `d3-timer`.
+licenses for the Rust `forceatlas2` crate and its transitive dependencies.
 
 Each platform directory contains one strict
 `synthesis-sidecar-runtime-bundle.v1` manifest. The manifest identifies the

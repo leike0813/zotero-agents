@@ -15,3 +15,4 @@ synthesis-topic-graph = { path = "../synthesis-topic-graph" }
 synthesis-reference-matcher = { path = "../synthesis-reference-matcher" }
 synthesis-topic-structured-artifact = { path = "../synthesis-topic-structured-artifact" }
 synthesis-citation-graph-build = { path = "../synthesis-citation-graph-build" }
+synthesis-citation-layout = { path = "../synthesis-citation-layout" }

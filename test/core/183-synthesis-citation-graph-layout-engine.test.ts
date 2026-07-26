@@ -1,20 +1,14 @@
 import { assert } from "chai";
 import fs from "fs/promises";
 import path from "path";
-import { Worker } from "node:worker_threads";
 import {
   SYNTHESIS_CITATION_GRAPH_LAYOUT_EDGE_MAX,
   SYNTHESIS_CITATION_GRAPH_LAYOUT_NODE_MAX,
-  createInProcessSynthesisCitationGraphLayoutEngine,
   rebuildSynthesisCitationGraphLayoutRequest,
   rebuildSynthesisCitationGraphLayoutResult,
   type SynthesisCitationGraphLayoutRequest,
 } from "../../packages/synthesis-engine/src/index";
-import { buildUnifiedCitationGraph } from "../../src/modules/synthesis/citationGraph";
-import {
-  hashCanonicalJson,
-  sha256,
-} from "../../src/modules/synthesis/foundation";
+import { sha256 } from "../../src/modules/synthesis/foundation";
 
 function initialCoordinate(nodeId: string, axis: "x" | "y") {
   const hex = sha256(`${nodeId}:force:${axis}`).slice(
@@ -67,29 +61,6 @@ function sampleRequest(
     ],
     ...overrides,
   };
-}
-
-function projectedLayoutHash(
-  result: Awaited<
-    ReturnType<
-      ReturnType<
-        typeof createInProcessSynthesisCitationGraphLayoutEngine
-      >["compute"]
-    >
-  >,
-) {
-  const base = {
-    graph_hash: result.graphHash,
-    layout_engine: result.layoutEngine,
-    layout_version: result.layoutVersion,
-    algorithm: result.algorithm,
-    preset: result.algorithm,
-    params: result.params,
-    nodes: Object.fromEntries(
-      result.nodes.map((node) => [node.nodeId, { x: node.x, y: node.y }]),
-    ),
-  };
-  return hashCanonicalJson(base);
 }
 
 describe("Synthesis Citation Graph layout engine", function () {
@@ -189,12 +160,18 @@ describe("Synthesis Citation Graph layout engine", function () {
     const value = {
       graphHash: request.graphHash,
       algorithm: request.algorithm,
-      layoutEngine: "d3-force",
-      layoutVersion: 1.2,
+      layoutEngine: "forceatlas2-rust",
+      layoutVersion: 2,
       params: {
-        link_distance: 180,
-        charge: -520,
-        collision_radius: 24,
+        theta: 0.5,
+        ka: 1,
+        kg: 1,
+        kr: 1,
+        lin_log: "false",
+        strong_gravity: "false",
+        prevent_overlapping: 100,
+        speed: 0.01,
+        node_radius: 24,
         iterations: 700,
         isolated_radius: 72,
         isolated_gap: 96,
@@ -240,59 +217,7 @@ describe("Synthesis Citation Graph layout engine", function () {
     }
   });
 
-  it("preserves force, radial, and components coordinates and layout hashes", async function () {
-    const graph = buildUnifiedCitationGraph({
-      papers: [
-        {
-          libraryId: 1,
-          itemKey: "AAAA1111",
-          title: "Source",
-          year: "2024",
-          references: [
-            { doi: "10.1000/target", title: "Target", year: "2020" },
-          ],
-        },
-        {
-          libraryId: 1,
-          itemKey: "BBBB2222",
-          title: "Isolated",
-          year: "2019",
-          references: [],
-        },
-      ],
-    });
-    const engine = createInProcessSynthesisCitationGraphLayoutEngine();
-    const base = sampleRequest({ graphHash: graph.graph_hash });
-    const expected = {
-      force: {
-        layoutHash:
-          "sha256:064291513a71ed2e19fa4b17c8edb7dc34d2fd779bb85bad513714cc30497b14",
-        isolated: { x: 226.897, y: -71.717 },
-      },
-      radial: {
-        layoutHash:
-          "sha256:aa3658b024035847c690b9374106ff74ed3a3526609db710751a7e5462b7965e",
-        isolated: { x: -60.464, y: 55.39 },
-      },
-      components: {
-        layoutHash:
-          "sha256:f840bbb7caa2b619b6078be6bd0ce160d974cde2b0ec332a4af146c3f0353faa",
-        isolated: { x: 180, y: 0 },
-      },
-    } as const;
-
-    for (const algorithm of ["force", "radial", "components"] as const) {
-      const result = await engine.compute({ ...base, algorithm });
-      assert.equal(result.layoutVersion, 1.2);
-      assert.deepEqual(
-        result.nodes.find((node) => node.nodeId === "zotero:item:BBBB2222"),
-        { nodeId: "zotero:item:BBBB2222", ...expected[algorithm].isolated },
-      );
-      assert.equal(projectedLayoutHash(result), expected[algorithm].layoutHash);
-    }
-  });
-
-  it("keeps the engine package free of Host, runtime, and Node imports", async function () {
+  it("keeps the contract package free of layout runtimes and environment imports", async function () {
     const sourceRoot = path.resolve("packages/synthesis-engine/src");
     const source = (
       await Promise.all(
@@ -305,7 +230,13 @@ describe("Synthesis Citation Graph layout engine", function () {
     const imports = [...source.matchAll(/from\s+["']([^"']+)["']/g)].map(
       (match) => match[1],
     );
-    assert.include(imports, "d3-force");
+    assert.notInclude(imports, "d3-force");
+    assert.notInclude(source, "forceSimulation(");
+    assert.notInclude(
+      source,
+      "createInProcessSynthesisCitationGraphLayoutEngine",
+    );
+    assert.notInclude(source, "computeSynthesisCitationGraphLayout(");
     assert.include(imports, "./citationGraphBuild.ts");
     assert.include(source, "synthesis-citation-graph-build-transfer.v1");
     for (const specifier of imports) {
@@ -313,40 +244,6 @@ describe("Synthesis Citation Graph layout engine", function () {
         specifier,
         /^(?:node:|zotero-)|(?:repository|foundation|runtimePersistence|libraryAdapter|src\/modules)/,
       );
-    }
-  });
-
-  it("returns the same canonical result through the Node worker canary", async function () {
-    const request = rebuildSynthesisCitationGraphLayoutRequest(
-      JSON.parse(JSON.stringify(sampleRequest({ algorithm: "components" }))),
-    );
-    const direct =
-      await createInProcessSynthesisCitationGraphLayoutEngine().compute(
-        request,
-      );
-    const worker = new Worker(
-      new URL(
-        "../fixtures/synthesis-citation-layout-engine-worker.ts",
-        import.meta.url,
-      ),
-      { execArgv: ["--import", "tsx"] },
-    );
-    try {
-      const response = await new Promise<{
-        ok: boolean;
-        result?: unknown;
-      }>((resolve, reject) => {
-        worker.once("message", resolve);
-        worker.once("error", reject);
-        worker.postMessage(request);
-      });
-      assert.equal(response.ok, true);
-      assert.deepEqual(
-        rebuildSynthesisCitationGraphLayoutResult(response.result, request),
-        direct,
-      );
-    } finally {
-      await worker.terminate();
     }
   });
 });

@@ -78,6 +78,13 @@ async function copyServiceTree(root: string, outputRoot: string) {
     recursive: true,
     dereference: false,
   });
+  await fs.rm(
+    path.join(
+      outputRoot,
+      "service/apps/synthesis-service/src/computeWorker.js",
+    ),
+    { force: true },
+  );
 }
 
 async function copyComputeRuntimeDependencies(

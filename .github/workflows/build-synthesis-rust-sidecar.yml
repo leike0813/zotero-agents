@@ -44,7 +44,7 @@ jobs:
 
       - run: npm ci
 
-      - uses: dtolnay/rust-toolchain@1.92.0
+      - uses: dtolnay/rust-toolchain@nightly-2026-07-25
 
       - name: Build candidate
         shell: bash
@@ -52,7 +52,7 @@ jobs:
           set -euo pipefail
           RUST_FINGERPRINT="$(npx tsx -e 'import { computeSynthesisRustSidecarSourceFingerprint } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisRustSidecarSourceFingerprint().then((value) => process.stdout.write(value.fingerprint))')"
           SYNTHESIS_RUST_BUILD_FINGERPRINT="${RUST_FINGERPRINT}" \
-            cargo +1.92.0 build --release --locked \
+            cargo +nightly-2026-07-25 build --release --locked \
               --manifest-path native/synthesis-sidecar/Cargo.toml \
               --bin synthesis-sidecar
           mkdir -p ".scaffold/rust-candidate/${{ matrix.target }}"
@@ -68,7 +68,7 @@ jobs:
               schema: "synthesis-rust-sidecar-provenance.v1",
               target: process.argv[3],
               sourceFingerprint: process.argv[2],
-              toolchain: "1.92.0",
+              toolchain: "nightly-2026-07-25",
             }, null, 2)}\n`,
           );
           NODE

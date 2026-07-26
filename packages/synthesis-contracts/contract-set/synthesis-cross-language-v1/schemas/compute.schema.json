@@ -115,8 +115,10 @@
       "properties": {
         "graphHash": { "$ref": "#/$defs/string" },
         "algorithm": { "enum": ["force", "radial", "components"] },
-        "layoutEngine": { "enum": ["d3-force", "radial", "components"] },
-        "layoutVersion": { "const": 1.2 },
+        "layoutEngine": {
+          "enum": ["forceatlas2-rust", "radial-rust", "components-rust"]
+        },
+        "layoutVersion": { "const": 2 },
         "params": { "$ref": "#/$defs/jsonObject" },
         "nodes": {
           "type": "array",

@@ -2,7 +2,7 @@ import { assert } from "chai";
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import path from "node:path";
-import { Worker, type WorkerOptions } from "node:worker_threads";
+import { Worker } from "node:worker_threads";
 import {
   createInProcessSynthesisConceptKbIndexEngine,
   rebuildSynthesisConceptKbIndexRequest,
@@ -11,7 +11,6 @@ import {
 import {
   canonicalizeSynthesisEngineJson,
   canonicalizeSynthesisEngineJsonArtifact,
-  createInProcessSynthesisCitationGraphLayoutEngine,
   createInProcessSynthesisCitationGraphMetricsEngine,
   rebuildSynthesisCitationGraphLayoutRequest,
   rebuildSynthesisCitationGraphMetricsRequest,
@@ -49,18 +48,9 @@ import type { SynthesisSidecarRuntimeConfig } from "../../apps/synthesis-service
 import { createSynthesisSidecarComputeClient } from "../../src/modules/synthesisSidecarComputeClient";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
-const BUILT_WORKER = new URL(
-  "../../.scaffold/synthesis-service/apps/synthesis-service/src/computeWorker.js",
-  import.meta.url,
-);
 const FIXTURE_WORKER = new URL(
   "../fixtures/synthesis-sidecar-compute-worker.mjs",
   import.meta.url,
-);
-const RUST_METRICS_FIXTURE = path.join(
-  ROOT,
-  "native/synthesis-sidecar/target/debug",
-  `synthesis-metrics-worker-fixture${process.platform === "win32" ? ".exe" : ""}`,
 );
 const CLIENT_TOKEN = "client-token-0123456789abcdef0123456789abcdef";
 
@@ -79,6 +69,30 @@ function request(prefix = "0"): SynthesisCitationGraphLayoutRequest {
       },
     ],
     edges: [],
+  });
+}
+
+function maximumForceRequest(): SynthesisCitationGraphLayoutRequest {
+  const nodeCount = 5_000;
+  const nodes = Array.from({ length: nodeCount }, (_, index) => {
+    const angle = (index * 2 * Math.PI) / nodeCount;
+    return {
+      nodeId: `paper:${String(index).padStart(4, "0")}`,
+      kind: "library_paper" as const,
+      initialX: Math.cos(angle) * 1_000,
+      initialY: Math.sin(angle) * 1_000,
+    };
+  });
+  return rebuildSynthesisCitationGraphLayoutRequest({
+    graphHash: `sha256:${"f".repeat(64)}`,
+    algorithm: "force",
+    nodes,
+    edges: Array.from({ length: 20_000 }, (_, index) => ({
+      edgeId: `edge:${String(index).padStart(5, "0")}`,
+      source: nodes[index % nodeCount].nodeId,
+      target:
+        nodes[(index + Math.floor(index / nodeCount) + 1) % nodeCount].nodeId,
+    })),
   });
 }
 
@@ -238,8 +252,14 @@ function fixturePool(
   } = {},
 ) {
   return createSynthesisSidecarComputeWorkerPool({
-    workerUrl: FIXTURE_WORKER,
-    rustWorkerPath: RUST_METRICS_FIXTURE,
+    rustWorkerFactory: () =>
+      new Worker(FIXTURE_WORKER, {
+        resourceLimits: {
+          maxOldGenerationSizeMb: 256,
+          maxYoungGenerationSizeMb: 32,
+          stackSizeMb: 4,
+        },
+      }),
     executionTimeoutMs: overrides.executionTimeoutMs ?? 250,
     cancellationGraceMs: overrides.cancellationGraceMs ?? 20,
     shutdownTimeoutMs: overrides.shutdownTimeoutMs ?? 100,
@@ -390,31 +410,16 @@ describe("Synthesis sidecar compute worker pool", function () {
     );
   });
 
-  it("lazily switches resource-bounded backends and matches all direct kernels", async function () {
+  it("lazily uses one Rust backend and matches migrated deterministic kernels", async function () {
     assert.deepEqual(SYNTHESIS_SIDECAR_COMPUTE_LIMITS, {
       concurrency: 1,
       maxQueued: 2,
       executionTimeoutMs: 5_000,
       cancellationGraceMs: 100,
       shutdownTimeoutMs: 500,
-      resourceLimits: {
-        maxOldGenerationSizeMb: 256,
-        maxYoungGenerationSizeMb: 32,
-        stackSizeMb: 4,
-      },
     });
     assert.equal(SYNTHESIS_SIDECAR_TRANSFER_EXECUTION_TIMEOUT_MS, 30_000);
-    let spawns = 0;
-    let options: WorkerOptions | undefined;
-    const pool = createSynthesisSidecarComputeWorkerPool({
-      workerUrl: BUILT_WORKER,
-      workerFactory(url, workerOptions) {
-        spawns += 1;
-        options = workerOptions;
-        return new Worker(url, workerOptions);
-      },
-    });
-    assert.equal(spawns, 0);
+    const pool = createSynthesisSidecarComputeWorkerPool();
     assert.deepEqual(pool.snapshot(), {
       state: "idle",
       active: 0,
@@ -433,14 +438,12 @@ describe("Synthesis sidecar compute worker pool", function () {
       const topicGraphInput = topicGraphIndexRequest();
       const [
         workerResult,
-        directResult,
         workerMetrics,
         directMetrics,
         workerGraphBuild,
         directGraphBuild,
       ] = await Promise.all([
         pool.runCitationGraphLayout(input),
-        createInProcessSynthesisCitationGraphLayoutEngine().compute(input),
         pool.runCitationGraphMetrics(metricsInput),
         createInProcessSynthesisCitationGraphMetricsEngine().compute(
           metricsInput,
@@ -450,7 +453,12 @@ describe("Synthesis sidecar compute worker pool", function () {
           graphBuildInput,
         ),
       ]);
-      assert.deepEqual(workerResult, directResult);
+      assert.equal(workerResult.layoutVersion, 2);
+      assert.equal(workerResult.layoutEngine, "components-rust");
+      assert.deepEqual(
+        workerResult.nodes.map((node) => node.nodeId),
+        input.nodes.map((node) => node.nodeId),
+      );
       assert.deepEqual(workerMetrics, directMetrics);
       assert.deepEqual(workerGraphBuild, directGraphBuild);
       const workerTagValidation =
@@ -479,12 +487,38 @@ describe("Synthesis sidecar compute worker pool", function () {
           topicGraphInput,
         ),
       );
-      assert.equal(spawns, 1);
-      assert.deepEqual(options?.resourceLimits, {
-        maxOldGenerationSizeMb: 256,
-        maxYoungGenerationSizeMb: 32,
-        stackSizeMb: 4,
-      });
+    } finally {
+      await pool.shutdown();
+    }
+  });
+
+  it("completes the maximum layout profile within the production deadline", async function () {
+    const pool = createSynthesisSidecarComputeWorkerPool();
+    const startedAt = performance.now();
+    try {
+      const result = await pool.runCitationGraphLayout(maximumForceRequest());
+      assert.equal(result.nodes.length, 5_000);
+      assert.equal(result.layoutEngine, "forceatlas2-rust");
+      assert.isBelow(performance.now() - startedAt, 5_000);
+    } finally {
+      await pool.shutdown();
+    }
+  });
+
+  it("acknowledges active native layout cancellation within 500 ms", async function () {
+    const pool = createSynthesisSidecarComputeWorkerPool();
+    const controller = new AbortController();
+    const startedAt = performance.now();
+    const pending = pool
+      .runCitationGraphLayout(maximumForceRequest(), {
+        signal: controller.signal,
+      })
+      .then(() => "success")
+      .catch(errorCode);
+    setTimeout(() => controller.abort(), 25);
+    try {
+      assert.equal(await pending, "worker_canceled");
+      assert.isBelow(performance.now() - startedAt, 500);
     } finally {
       await pool.shutdown();
     }
@@ -513,9 +547,7 @@ describe("Synthesis sidecar compute worker pool", function () {
       sourceManifestHash: `sha256:${"d".repeat(64)}`,
       rebuiltAt: "2026-07-19T00:00:00.000Z",
     });
-    const pool = createSynthesisSidecarComputeWorkerPool({
-      workerUrl: BUILT_WORKER,
-    });
+    const pool = createSynthesisSidecarComputeWorkerPool();
     try {
       const result = await pool.runTagVocabularyIndex(request);
       assert.lengthOf(result.tags, entries.length);
@@ -621,9 +653,7 @@ describe("Synthesis sidecar compute worker pool", function () {
   });
 
   it("streams one acknowledged page at a time through the real worker", async function () {
-    const pool = createSynthesisSidecarComputeWorkerPool({
-      workerUrl: BUILT_WORKER,
-    });
+    const pool = createSynthesisSidecarComputeWorkerPool();
     const library = buildSynthesisCitationGraphBuildTransferPage(
       "library_nodes",
       0,
@@ -883,9 +913,7 @@ describe("Synthesis sidecar compute worker pool", function () {
     );
     await pool.shutdown();
 
-    const restarted = createSynthesisSidecarComputeWorkerPool({
-      workerUrl: BUILT_WORKER,
-    });
+    const restarted = createSynthesisSidecarComputeWorkerPool();
     try {
       assert.equal(restarted.snapshot().state, "idle");
       assert.equal(
@@ -925,9 +953,7 @@ describe("Synthesis sidecar compute worker pool", function () {
 
   it("keeps real HTTP health and handshake responsive and supports the strict internal client", async function () {
     const config = runtimeConfig();
-    const pool = createSynthesisSidecarComputeWorkerPool({
-      workerUrl: BUILT_WORKER,
-    });
+    const pool = createSynthesisSidecarComputeWorkerPool();
     const runtime = await startSynthesisSidecarServer(config, "service-test", {
       computePool: pool,
     });

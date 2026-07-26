@@ -11,10 +11,6 @@ import type { SynthesisCitationGraphBuildBenchmarkProfile } from "../test/fixtur
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(import.meta.dirname, "..");
-const BUILT_WORKER = new URL(
-  "../.scaffold/synthesis-service/apps/synthesis-service/src/computeWorker.js",
-  import.meta.url,
-);
 const PROFILES = [
   "canary",
   "boundary",
@@ -119,9 +115,7 @@ async function runChild() {
   try {
     const report = await runSynthesisCitationGraphBuildBenchmarkProfile(
       profile,
-      {
-        workerUrl: BUILT_WORKER,
-      },
+      {},
     );
     process.stdout.write = originalWrite;
     write(JSON.stringify(report));

@@ -156,7 +156,7 @@ describe("Synthesis sidecar runtime packaging", function () {
     );
   });
 
-  it("assembles the compiled worker, engine, D3 runtime, and licenses", function () {
+  it("assembles the compiled service and Rust layout runtime without Node/D3 kernels", function () {
     execFileSync(
       process.execPath,
       [
@@ -203,7 +203,6 @@ describe("Synthesis sidecar runtime packaging", function () {
     );
     const files = manifest.files.map((entry) => entry.path);
     for (const required of [
-      "service/apps/synthesis-service/src/computeWorker.js",
       "service/apps/synthesis-service/src/computeWorkerPool.js",
       "service/apps/synthesis-service/src/computeProtocol.js",
       "service/apps/synthesis-service/src/rustComputeWorkerTransport.js",
@@ -275,11 +274,6 @@ describe("Synthesis sidecar runtime packaging", function () {
       "service/packages/synthesis-repository/src/knowledgeCheckpoint.js",
       "service/packages/synthesis-repository/src/durableBundle.js",
       "service/packages/synthesis-repository/src/durableBundleImport.js",
-      "service/node_modules/d3-force/LICENSE",
-      "service/node_modules/d3-force/src/index.js",
-      "service/node_modules/d3-dispatch/LICENSE",
-      "service/node_modules/d3-quadtree/LICENSE",
-      "service/node_modules/d3-timer/LICENSE",
       "service/native/synthesis-sidecar/synthesis-sidecar",
       "service/native/synthesis-sidecar/provenance.json",
       "service/native/synthesis-sidecar/licenses.json",
@@ -299,32 +293,11 @@ describe("Synthesis sidecar runtime packaging", function () {
     assert.include(packagedProtocol, "citation_graph_build_transfer.v1");
     assert.include(packagedProtocol, "tag_vocabulary_validate.v1");
     assert.include(packagedProtocol, "tag_vocabulary_index.v1");
-    const packagedWorker = fs.readFileSync(
-      path.join(
-        outputRoot,
-        "service/apps/synthesis-service/src/computeWorker.js",
-      ),
-      "utf8",
-    );
     assert.notInclude(
-      packagedWorker,
-      "createInProcessSynthesisCitationGraphMetricsEngine",
+      files,
+      "service/apps/synthesis-service/src/computeWorker.js",
     );
-    assert.include(
-      packagedWorker,
-      "createInProcessSynthesisCitationGraphLayoutEngine",
-    );
-    for (const removedKernel of [
-      "createInProcessSynthesisReferenceMatcherEngine",
-      "createInProcessSynthesisTopicStructuredArtifactEngine",
-      "createInProcessSynthesisCitationGraphBuildEngine",
-      "createSynthesisCitationGraphBuildPackedAccumulator",
-      "createInProcessSynthesisTagVocabularyEngine",
-      "createInProcessSynthesisConceptKbIndexEngine",
-      "createInProcessSynthesisTopicGraphIndexEngine",
-    ]) {
-      assert.notInclude(packagedWorker, removedKernel);
-    }
+    assert.isFalse(files.some((file) => file.includes("/node_modules/d3-")));
     const rustEntry = manifest.files.find(
       (entry) =>
         entry.path === "service/native/synthesis-sidecar/synthesis-sidecar",
@@ -584,7 +557,10 @@ describe("Synthesis sidecar runtime packaging", function () {
     const second = await computeSynthesisSidecarRuntimeBuildFingerprint(ROOT);
     assert.equal(first.fingerprint, second.fingerprint);
     assert.include(first.inputs, "apps/synthesis-service/src/entrypoint.ts");
-    assert.include(first.inputs, "apps/synthesis-service/src/computeWorker.ts");
+    assert.notInclude(
+      first.inputs,
+      "apps/synthesis-service/src/computeWorker.ts",
+    );
     assert.include(
       first.inputs,
       "apps/synthesis-service/src/computeWorkerPool.ts",
@@ -805,12 +781,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       first.inputs,
       ".github/workflows/build-synthesis-rust-sidecar.yml",
     );
-    assert.deepEqual(SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES, [
-      "d3-dispatch",
-      "d3-force",
-      "d3-quadtree",
-      "d3-timer",
-    ]);
+    assert.deepEqual(SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES, []);
     for (const packageName of SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES) {
       assert.include(first.inputs, `node_modules/${packageName}/package.json`);
       assert.include(first.inputs, `node_modules/${packageName}/LICENSE`);
@@ -828,7 +799,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       path.join(ROOT, "scripts/check-synthesis-sidecar-runtime-xpi.ts"),
       "utf8",
     );
-    assert.include(xpiCheck, "computeWorker.js");
+    assert.notInclude(xpiCheck, "computeWorker.js");
     assert.include(xpiCheck, "packages/synthesis-engine/src/index.js");
     assert.include(
       xpiCheck,
@@ -977,7 +948,7 @@ describe("Synthesis sidecar runtime packaging", function () {
       xpiCheck,
       "packages/synthesis-contracts/src/knowledgeCheckpoint.js",
     );
-    assert.include(xpiCheck, "node_modules/d3-force/LICENSE");
+    assert.notInclude(xpiCheck, "node_modules/d3-force/LICENSE");
     assert.equal(runtimeArchiveName("win32-x64"), "node-v24.18.0-win-x64.zip");
     assert.equal(
       runtimeArchiveName("linux-arm64"),

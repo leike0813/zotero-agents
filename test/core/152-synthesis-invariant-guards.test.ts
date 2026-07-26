@@ -157,7 +157,7 @@ describe("Synthesis invariant guards", function () {
       readRepoText("packages/synthesis-repository/src/index.ts"),
       /(?:node:|Zotero|child_process|worker_threads|src\/modules\/synthesis)/,
     );
-    assert.include(sources, "citation_graph_layout.v1");
+    assert.include(sources, "citation_graph_layout.v2");
     assert.include(sources, "citation_graph_metrics.v1");
     assert.include(sources, "SYNTHESIS_SIDECAR_COMPUTE_LIMITS");
     assert.include(sources, "computeRequestBodyBytes");

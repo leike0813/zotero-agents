@@ -36,7 +36,7 @@ describe("Synthesis sidecar migration boundary", function () {
 
     assert.deepEqual(report.missingMethods, []);
     assert.deepEqual(report.unknownMethods, []);
-    assert.lengthOf(report.publicMethods, 108);
+    assert.lengthOf(report.publicMethods, 113);
     assert.equal(report.publicMethods.length, report.inventory.methods.length);
     assert.notInclude(report.publicMethods, "warmSynthesisWorkbenchSurfaces");
     assert.notInclude(
@@ -986,14 +986,6 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.notInclude(legacyComposition, "synthesisSidecarWorkbenchClient");
     assert.notInclude(legacyComposition, "topicApplicationNode");
     assert.notInclude(workbench, "topicApplicationNode");
-    const computeWorker = fs.readFileSync(
-      path.join(sidecarAppRoot, "src/computeWorker.ts"),
-      "utf8",
-    );
-    assert.notMatch(
-      computeWorker,
-      /(?:node:sqlite|synthesis-repository|isolatedRepository|repositoryNodeSqlite|topicCanonicalStore)/,
-    );
     const workerThreadUsers = fs
       .readdirSync(path.join(sidecarAppRoot, "src"))
       .filter(
@@ -1004,10 +996,7 @@ describe("Synthesis sidecar migration boundary", function () {
             .includes("node:worker_threads"),
       )
       .sort();
-    assert.deepEqual(workerThreadUsers, [
-      "computeWorker.ts",
-      "computeWorkerPool.ts",
-    ]);
+    assert.deepEqual(workerThreadUsers, []);
     const runtimeSupervisor = fs.readFileSync(
       path.join(ROOT_DIR, "src/modules/synthesisSidecarRuntimeSupervisor.ts"),
       "utf8",
@@ -1330,7 +1319,6 @@ describe("Synthesis sidecar migration boundary", function () {
     assert.deepEqual(
       [...new Set(engineImports)].sort(),
       [
-        "d3-force",
         "./canonicalJson.ts",
         "./citationGraphBuildTransfer.ts",
         "./conceptKbIndex.ts",
@@ -1821,7 +1809,7 @@ describe("Synthesis sidecar migration boundary", function () {
       runtime,
       "synthesis_sidecar_service_stage1_refactor_plan_20260715.md",
     );
-    assert.include(runtime, "complete 108-method service");
+    assert.include(runtime, "complete 113-method service");
   });
 
   it("keeps supervised runtime isolated from production ownership [inv.runtime.sidecar_supervision_isolated]", function () {

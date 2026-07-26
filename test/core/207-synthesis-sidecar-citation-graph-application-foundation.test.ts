@@ -15,10 +15,7 @@ import {
   createSynthesisCitationGraphApplication,
   type SynthesisCitationGraphApplicationCompute,
 } from "../../packages/synthesis-application/src/citationGraphApplication";
-import {
-  computeSynthesisCitationGraphLayout,
-  computeSynthesisCitationGraphMetrics,
-} from "../../packages/synthesis-engine/src/index";
+import { computeSynthesisCitationGraphMetrics } from "../../packages/synthesis-engine/src/index";
 import {
   SYNTHESIS_CITATION_GRAPH_BUILD_CONTRACT_VERSION,
   computeSynthesisCitationGraphBuild,
@@ -30,6 +27,7 @@ import { createSynthesisSidecarCitationGraphApplication } from "../../apps/synth
 
 const PROFILE_ID = "c".repeat(64);
 const DATA_ROOT_ID = "d".repeat(64);
+const layoutPool = createSynthesisSidecarComputeWorkerPool();
 
 function tempRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "zs-graph-application-"));
@@ -80,7 +78,7 @@ const compute: SynthesisCitationGraphApplicationCompute = {
     return computeSynthesisCitationGraphMetrics(request);
   },
   async layout(request) {
-    return computeSynthesisCitationGraphLayout(request);
+    return layoutPool.runCitationGraphLayout(request);
   },
 };
 
@@ -92,6 +90,10 @@ describe("Synthesis sidecar Citation Graph application foundation", function () 
     for (const root of roots.splice(0)) {
       fs.rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  after(async function () {
+    await layoutPool.shutdown();
   });
 
   it("strictly rebuilds full-only mutation and bounded read requests", function () {
@@ -598,7 +600,7 @@ describe("Synthesis sidecar Citation Graph application foundation", function () 
     reopened.close();
   });
 
-  it("runs the private composition through real Node SQLite and the compiled compute worker", async function () {
+  it("runs the private composition through real Node SQLite and the native compute worker", async function () {
     execFileSync(
       process.execPath,
       [
@@ -615,12 +617,7 @@ describe("Synthesis sidecar Citation Graph application foundation", function () 
       profileId: PROFILE_ID,
       dataRootId: DATA_ROOT_ID,
     });
-    const pool = createSynthesisSidecarComputeWorkerPool({
-      workerUrl: new URL(
-        "../../.scaffold/synthesis-service/apps/synthesis-service/src/computeWorker.js",
-        import.meta.url,
-      ),
-    });
+    const pool = createSynthesisSidecarComputeWorkerPool();
     const application = createSynthesisSidecarCitationGraphApplication({
       repository: repository.store,
       computePool: pool,

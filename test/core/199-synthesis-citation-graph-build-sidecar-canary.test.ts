@@ -24,10 +24,6 @@ import {
 } from "../../src/modules/synthesisSidecarComputeClient";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
-const BUILT_WORKER = new URL(
-  "../../.scaffold/synthesis-service/apps/synthesis-service/src/computeWorker.js",
-  import.meta.url,
-);
 const CLIENT_TOKEN = "client-token-0123456789abcdef0123456789abcdef";
 const SERVICE_INSTANCE_ID = "graph-build-canary-service";
 
@@ -130,9 +126,7 @@ describe("Synthesis Citation Graph build sidecar canary", function () {
 
   it("matches full and source-slice direct results through real authenticated HTTP and worker", async function () {
     const config = runtimeConfig();
-    const pool = createSynthesisSidecarComputeWorkerPool({
-      workerUrl: BUILT_WORKER,
-    });
+    const pool = createSynthesisSidecarComputeWorkerPool();
     const runtime = await startSynthesisSidecarServer(
       config,
       SERVICE_INSTANCE_ID,

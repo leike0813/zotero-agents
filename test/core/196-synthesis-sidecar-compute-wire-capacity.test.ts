@@ -310,8 +310,8 @@ describe("Synthesis sidecar compute wire capacity", function () {
         return {
           graphHash: request.graphHash,
           algorithm: request.algorithm,
-          layoutEngine: "components",
-          layoutVersion: 1.2,
+          layoutEngine: "components-rust",
+          layoutVersion: 2,
           params: {},
           nodes: [],
         };
@@ -444,8 +444,8 @@ describe("Synthesis sidecar compute wire capacity", function () {
         return {
           graphHash: request.graphHash,
           algorithm: request.algorithm,
-          layoutEngine: "components",
-          layoutVersion: 1.2,
+          layoutEngine: "components-rust",
+          layoutVersion: 2,
           params: {
             padding: "x".repeat(
               SYNTHESIS_SIDECAR_LIMITS.computeResponseBodyBytes,

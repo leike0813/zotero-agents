@@ -32,6 +32,13 @@
       "errorCode": "canonical_unpaired_surrogate"
     },
     {
+      "id": "layout-v1-result-rejected",
+      "oracle": "schemaOnly",
+      "schemaRef": "schemas/compute.schema.json#/$defs/layoutResult",
+      "inputJson": "{\"graphHash\":\"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"algorithm\":\"components\",\"layoutEngine\":\"components\",\"layoutVersion\":1.2,\"params\":{},\"nodes\":[]}",
+      "errorCode": "invalid_request"
+    },
+    {
       "id": "tag-vocabulary-entry-unknown-field",
       "oracle": "schemaOnly",
       "schemaRef": "schemas/compute.schema.json#/$defs/tagVocabularyValidationRequest",

@@ -3,7 +3,6 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import {
-  createInProcessSynthesisCitationGraphLayoutEngine,
   createInProcessSynthesisCitationGraphMetricsEngine,
   createInProcessSynthesisConceptKbIndexEngine,
   createInProcessSynthesisReferenceMatcherEngine,
@@ -31,8 +30,12 @@ import {
   type SynthesisMirrorAdapter,
 } from "../../src/modules/synthesis/service";
 import { createSynthesisHostExportDeliveryPort } from "../../src/modules/synthesis/exportDeliveryAdapter";
-import { computeCitationGraphLayout } from "../../src/modules/synthesis/citationGraph";
 import { createSynthesisTopicGraphService } from "../../src/modules/synthesis/topicGraph";
+import {
+  buildCitationGraphLayoutEngineRequest,
+  projectCitationGraphLayoutEngineResult,
+} from "../../src/modules/synthesis/citationGraphLayoutEngineAdapter";
+import { createSynthesisSidecarComputeWorkerPool } from "../../apps/synthesis-service/src/computeWorkerPool";
 import { createSynthesisRepository } from "../../src/modules/synthesis/repository";
 import {
   applySynthesisUiAction,
@@ -366,6 +369,17 @@ async function topicReasonCodes(root: string, topicId = "topic-alpha") {
 }
 
 describe("Synthesis Layer v1 integration service", function () {
+  const layoutPool = createSynthesisSidecarComputeWorkerPool();
+  const nativeLayoutEngine: SynthesisCitationGraphLayoutEngine = {
+    compute(request) {
+      return layoutPool.runCitationGraphLayout(request);
+    },
+  };
+
+  after(async function () {
+    await layoutPool.shutdown();
+  });
+
   it("persists a topic synthesis bundle as canonical assets", async function () {
     const root = await makeRoot();
     const service = createSynthesisService({
@@ -1677,7 +1691,11 @@ describe("Synthesis Layer v1 integration service", function () {
   it("reads bounded citation graph slices from persisted snapshots by paperRef and node id", async function () {
     const root = await makeRoot();
     await writeDbGraphState(root);
-    const service = createSynthesisService({ root, libraryId: 1 });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      citationGraphLayoutEngine: nativeLayoutEngine,
+    });
 
     const byPaperRef = await service.getCitationGraphSlice({ paperRef: "1:A" });
     const byNodeId = await service.getCitationGraphSlice({
@@ -1803,7 +1821,11 @@ describe("Synthesis Layer v1 integration service", function () {
   it("returns persisted citation graph layout for full, slice, and explicit node queries", async function () {
     const root = await makeRoot();
     await writeDbGraphState(root);
-    const service = createSynthesisService({ root, libraryId: 1 });
+    const service = createSynthesisService({
+      root,
+      libraryId: 1,
+      citationGraphLayoutEngine: nativeLayoutEngine,
+    });
 
     await service.recomputeCitationGraphLayout({
       algorithm: "force",
@@ -1848,6 +1870,7 @@ describe("Synthesis Layer v1 integration service", function () {
       root,
       libraryId: 1,
       synthesisRepository: repository,
+      citationGraphLayoutEngine: nativeLayoutEngine,
     });
     await baselineService.recomputeCitationGraphLayout({
       algorithm: "force",
@@ -1857,7 +1880,6 @@ describe("Synthesis Layer v1 integration service", function () {
       viewKey: "workbench_overview",
       preset: "force",
     });
-    const inProcess = createInProcessSynthesisCitationGraphLayoutEngine();
     let releaseEngine!: () => void;
     let announceStarted!: () => void;
     const started = new Promise<void>((resolve) => {
@@ -1870,7 +1892,7 @@ describe("Synthesis Layer v1 integration service", function () {
       async compute(request) {
         announceStarted();
         await release;
-        return inProcess.compute(request);
+        return nativeLayoutEngine.compute(request);
       },
     };
     const service = createSynthesisService({
@@ -1918,6 +1940,7 @@ describe("Synthesis Layer v1 integration service", function () {
         root,
         libraryId: 1,
         synthesisRepository: repository,
+        citationGraphLayoutEngine: nativeLayoutEngine,
       });
       await baselineService.recomputeCitationGraphLayout({
         algorithm: "force",
@@ -1935,8 +1958,8 @@ describe("Synthesis Layer v1 integration service", function () {
           return {
             graphHash: request.graphHash,
             algorithm: request.algorithm,
-            layoutEngine: "d3-force",
-            layoutVersion: 1.2,
+            layoutEngine: "forceatlas2-rust",
+            layoutVersion: 2,
             params: {},
             nodes: [],
           };
@@ -1978,6 +2001,7 @@ describe("Synthesis Layer v1 integration service", function () {
       root,
       libraryId: 1,
       synthesisRepository: repository,
+      citationGraphLayoutEngine: nativeLayoutEngine,
     });
     const beforeLayouts = repository.listCitationGraphLayoutStates();
 
@@ -2013,6 +2037,7 @@ describe("Synthesis Layer v1 integration service", function () {
     const service = createSynthesisService({
       root,
       libraryId: 1,
+      citationGraphLayoutEngine: nativeLayoutEngine,
       citationGraphPapers: [
         {
           libraryId: 1,
@@ -3374,7 +3399,14 @@ describe("Synthesis Layer v1 integration service", function () {
     const graph = (await service.queryCitationGraph()) as any;
     const firstPage = (await service.queryCitationGraph({ limit: 2 })) as any;
     const snapshot = await service.getSynthesisSnapshot();
-    const layout = computeCitationGraphLayout(graph, "components");
+    const layoutRequest = buildCitationGraphLayoutEngineRequest(
+      graph,
+      "components",
+    );
+    const layout = projectCitationGraphLayoutEngineResult(
+      layoutRequest,
+      await nativeLayoutEngine.compute(layoutRequest),
+    );
 
     assert.includeMembers(
       graph.nodes.map((node: { node_id: string }) => node.node_id),

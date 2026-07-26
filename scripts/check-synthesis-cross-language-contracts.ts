@@ -14,6 +14,7 @@ import { rebuildSynthesisSidecarCallRequest } from "../packages/synthesis-contra
 import { rebuildSynthesisSidecarTransferSnapshot } from "../packages/synthesis-contracts/src/sidecarTransfer.js";
 import {
   computeSynthesisCitationGraphMetrics,
+  rebuildSynthesisCitationGraphLayoutRequest,
   rebuildSynthesisCitationGraphMetricsRequest,
 } from "../packages/synthesis-engine/src/index.js";
 import {
@@ -152,6 +153,8 @@ async function runOracle(oracle: string, inputJson: string) {
       return rebuildSynthesisSidecarTransferSnapshot(input);
     case "citationGraphMetricsRequest":
       return rebuildSynthesisCitationGraphMetricsRequest(input);
+    case "citationGraphLayoutRequest":
+      return rebuildSynthesisCitationGraphLayoutRequest(input);
     case "citationGraphMetricsResult":
       return computeSynthesisCitationGraphMetrics(
         rebuildSynthesisCitationGraphMetricsRequest(input),
@@ -307,6 +310,31 @@ async function checkRustDeterministicParity(args: {
     ],
     references: [],
   });
+  const graphLayout = rebuildSynthesisCitationGraphLayoutRequest({
+    graphHash: `sha256:${"c".repeat(64)}`,
+    algorithm: "components",
+    nodes: [
+      {
+        nodeId: "paper:B",
+        kind: "library_paper",
+        initialX: 1,
+        initialY: 1,
+      },
+      {
+        nodeId: "paper:A",
+        kind: "library_paper",
+        initialX: 0,
+        initialY: 0,
+      },
+    ],
+    edges: [
+      {
+        edgeId: "edge:A-B",
+        source: "paper:A",
+        target: "paper:B",
+      },
+    ],
+  });
   const graphEngine = createInProcessSynthesisCitationGraphBuildEngine();
   const pool = createSynthesisSidecarComputeWorkerPool();
   const cases = [
@@ -386,6 +414,37 @@ async function checkRustDeterministicParity(args: {
   ];
 
   try {
+    try {
+      const first = await pool.runCitationGraphLayout(graphLayout);
+      const second = await pool.runCitationGraphLayout(graphLayout);
+      const third = await pool.runCitationGraphLayout(graphLayout);
+      if (
+        canonicalizeSynthesisContractJson(first) !==
+          canonicalizeSynthesisContractJson(second) ||
+        canonicalizeSynthesisContractJson(second) !==
+          canonicalizeSynthesisContractJson(third) ||
+        hashSynthesisContractCanonicalJson(first) !==
+          hashSynthesisContractCanonicalJson(second) ||
+        hashSynthesisContractCanonicalJson(second) !==
+          hashSynthesisContractCanonicalJson(third)
+      ) {
+        args.errors.push("rust_result_mismatch:citation-graph-layout");
+      }
+      const validate = validatorForRef(
+        args.ajv,
+        args.schemas,
+        "schemas/compute.schema.json#/$defs/layoutResult",
+      );
+      if (!validate) {
+        args.errors.push("rust_schema_missing:citation-graph-layout");
+      } else if (!validate(first)) {
+        args.errors.push("rust_schema_mismatch:citation-graph-layout");
+      }
+    } catch (error) {
+      args.errors.push(
+        `rust_oracle_failed:citation-graph-layout:${stableErrorCode(error)}`,
+      );
+    }
     for (const parityCase of cases) {
       try {
         const [typescriptResult, rustResult] = await Promise.all([

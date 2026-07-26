@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from "node:util";
 import {
   canonicalizeSynthesisEngineJson,
   createInProcessSynthesisCitationGraphMetricsEngine,
+  rebuildSynthesisCitationGraphLayoutRequest,
   rebuildSynthesisCitationGraphMetricsRequest,
 } from "../packages/synthesis-engine/src/index.js";
 import {
@@ -240,6 +241,21 @@ async function main() {
       },
     ],
   });
+  const layoutRequest = rebuildSynthesisCitationGraphLayoutRequest({
+    graphHash: `sha256:${"1".repeat(64)}`,
+    algorithm: "force",
+    nodes: [
+      {
+        nodeId: "paper:1",
+        kind: "library_paper",
+        title: "Smoke",
+        year: "2024",
+        initialX: 0,
+        initialY: 0,
+      },
+    ],
+    edges: [],
+  });
   const bindingRequest = rebuildSynthesisReferenceBindingRequest({
     contractVersion: "synthesis-reference-matcher.v1",
     algorithmVersion: "reference-binding.v1",
@@ -347,6 +363,17 @@ async function main() {
   const tagEngine = createInProcessSynthesisTagVocabularyEngine();
   const conceptEngine = createInProcessSynthesisConceptKbIndexEngine();
   try {
+    const layoutResult = await pool.runCitationGraphLayout(layoutRequest);
+    if (
+      layoutResult.layoutEngine !== "forceatlas2-rust" ||
+      layoutResult.layoutVersion !== 2 ||
+      layoutResult.nodes.length !== 1 ||
+      layoutResult.nodes[0]?.nodeId !== "paper:1"
+    ) {
+      throw new Error(
+        `citation_graph_layout.v2 smoke failed: ${canonicalizeSynthesisEngineJson(layoutResult)}`,
+      );
+    }
     assertParity(
       "citation_graph_metrics.v1",
       await pool.runCitationGraphMetrics(metricsRequest),
@@ -494,7 +521,7 @@ async function main() {
     await pool.shutdown();
   }
   process.stdout.write(
-    `${JSON.stringify({ ok: true, operations: 14, protocol: WORKER_PROTOCOL })}\n`,
+    `${JSON.stringify({ ok: true, operations: 15, protocol: WORKER_PROTOCOL })}\n`,
   );
 }
 

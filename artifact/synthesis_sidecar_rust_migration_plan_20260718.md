@@ -281,7 +281,7 @@ HTTP runtime、SQLite binding、压缩/归档、签名或跨平台辅助 crate �
 - large payload 不退化为无界 JSON copy；
 - cancel/backpressure/partial transfer 不产生可见半成品。
 
-**状态（2026-07-20）**：已完成，change `migrate-synthesis-complex-kernels-and-transfer-to-rust` 可归档但尚未归档。Reference Matcher、Topic Structured Artifact 与 Citation Graph build 三个领域 crate及八个 operation 已接入同一个 Rust child；private Node Worker 仅保留 R6 layout。Matcher reviewed fixture 六套策略均保持 precision/recall/candidate recall，danger false positives 为零。最终三次最大代表性 matcher profile 分别为 2.45/2.47/2.57 秒、峰值约 128.3 MiB；Topic 为 1.20/1.11/1.17 秒、约 74.0 MiB；graph normal `2,000/100,000` 为 10.47/10.03/10.41 秒、约 157.6 MiB，均满足 deadline 与 256 MiB 门禁。五平台 candidate smoke、单平台 15 MiB 与聚合 75 MiB 门禁均通过。生产 DB、canonical files、Host effects 与 `SynthesisClient` 所有权不变；R6–R9 尚未开始。
+**状态（2026-07-20）**：已完成并归档。Reference Matcher、Topic Structured Artifact 与 Citation Graph build 三个领域 crate及八个 operation 已接入同一个 Rust child；归档时 private Node Worker 仅保留 R6 layout。Matcher reviewed fixture 六套策略均保持 precision/recall/candidate recall，danger false positives 为零。最终三次最大代表性 matcher profile 分别为 2.45/2.47/2.57 秒、峰值约 128.3 MiB；Topic 为 1.20/1.11/1.17 秒、约 74.0 MiB；graph normal `2,000/100,000` 为 10.47/10.03/10.41 秒、约 157.6 MiB，均满足 deadline 与 256 MiB 门禁。五平台 candidate smoke、单平台 15 MiB 与聚合 75 MiB 门禁均通过。生产 DB、canonical files、Host effects 与 `SynthesisClient` 所有权不变。
 
 **退出条件**：领域 benchmark、传输完整性、内存峰值、超时/取消和删除旧实现均完成。
 
@@ -290,6 +290,8 @@ HTTP runtime、SQLite binding、压缩/归档、签名或跨平台辅助 crate �
 **目标**：消除 runtime D3 依赖而不承诺不可控的 d3-force 逐坐标兼容。
 
 **决策**：radial/components 尽量保留稳定语义；force 明确升级到 `layoutVersion: 2`，制定 Rust-owned algorithm、质量阈值、性能阈值与新 gold results。v1 layout cache 视为可重建数据，不改写 canonical source。
+
+**状态（2026-07-26）**：change `introduce-synthesis-citation-layout-v2` 已完成本地实现并可进入 verify。生产 layout 已收敛到统一 Rust child，Node layout worker、TypeScript layout kernels 与 D3 runtime inventory 已删除；三次同目标确定性、代表图质量、5,000 节点/20,000 边 deadline/RSS、15-operation candidate smoke、打包与 Stage-1 回归门禁均已通过。五平台 workflow 合约和包体积门禁已静态验证，实际跨平台 candidate 构建留待后续受控 workflow；R7–R9 尚未开始。
 
 **退出条件**：所有 consumer 能识别 v2；旧 cache 有清晰 invalidation/rebuild；D3 runtime 及其 XPI inventory gate 可删除；不存在隐式 v1/v2 混读。
 

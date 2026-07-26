@@ -6,7 +6,6 @@ import {
   type SynthesisConceptKbQueryRequest,
   type SynthesisConceptKbQueryResult,
 } from "../../../packages/synthesis-engine/src/conceptKbIndex.js";
-import { Worker, type WorkerOptions } from "node:worker_threads";
 import { createHash } from "node:crypto";
 import {
   rebuildSynthesisCitationGraphLayoutRequest,
@@ -77,7 +76,6 @@ import {
   SYNTHESIS_SIDECAR_TOPIC_ARTIFACT_VALIDATE_OPERATION,
   SYNTHESIS_SIDECAR_TOPIC_MANIFEST_VALIDATE_OPERATION,
   SYNTHESIS_SIDECAR_TOPIC_SECTION_PATCH_OPERATION,
-  type SynthesisSidecarComputeRunMessage,
   type SynthesisSidecarGraphBuildTransferPageFrame,
 } from "./computeProtocol.js";
 import {
@@ -264,7 +262,12 @@ export function synthesisRustPagedRequestHash(
 }
 
 function deterministicResultSections(operation: Task["operation"]) {
-  if (operation === RUST_METRICS_OPERATION) return undefined;
+  if (
+    operation === RUST_METRICS_OPERATION ||
+    operation === SYNTHESIS_SIDECAR_COMPUTE_OPERATION
+  ) {
+    return undefined;
+  }
   if (operation === SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION) {
     return RUST_PAGED_RESULT_SECTIONS[
       SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION
@@ -596,6 +599,7 @@ function assembleRustPagedResult(
 
 function isRustComputeOperation(operation: Task["operation"]) {
   return (
+    operation === SYNTHESIS_SIDECAR_COMPUTE_OPERATION ||
     operation === RUST_METRICS_OPERATION ||
     operation === SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION ||
     operation === SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION ||
@@ -619,11 +623,6 @@ export const SYNTHESIS_SIDECAR_COMPUTE_LIMITS = Object.freeze({
   executionTimeoutMs: 5_000,
   cancellationGraceMs: 100,
   shutdownTimeoutMs: 500,
-  resourceLimits: Object.freeze({
-    maxOldGenerationSizeMb: 256,
-    maxYoungGenerationSizeMb: 32,
-    stackSizeMb: 4,
-  }),
 });
 export const SYNTHESIS_SIDECAR_TRANSFER_EXECUTION_TIMEOUT_MS = 30_000;
 
@@ -800,8 +799,6 @@ export type SynthesisSidecarComputeWorkerPool = {
 };
 
 type PoolOptions = {
-  workerUrl?: URL | string;
-  workerFactory?: (url: URL | string, options: WorkerOptions) => Worker;
   executionTimeoutMs?: number;
   cancellationGraceMs?: number;
   shutdownTimeoutMs?: number;
@@ -818,7 +815,7 @@ type RustComputeWorkerTarget = Pick<
   "on" | "once" | "postMessage" | "terminate"
 >;
 
-type ComputeWorkerTarget = Worker | RustComputeWorkerTarget;
+type ComputeWorkerTarget = RustComputeWorkerTarget;
 
 function delay(milliseconds: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
@@ -843,11 +840,6 @@ function prefetchRustInputPage(task: Task) {
 export function createSynthesisSidecarComputeWorkerPool(
   options: PoolOptions = {},
 ): SynthesisSidecarComputeWorkerPool {
-  const workerUrl =
-    options.workerUrl ?? new URL("./computeWorker.js", import.meta.url);
-  const workerFactory =
-    options.workerFactory ??
-    ((url, workerOptions) => new Worker(url, workerOptions));
   const rustWorkerPath =
     options.rustWorkerPath ?? defaultRustComputeWorkerPath();
   const executionTimeoutMs =
@@ -864,7 +856,6 @@ export function createSynthesisSidecarComputeWorkerPool(
     SYNTHESIS_SIDECAR_TRANSFER_EXECUTION_TIMEOUT_MS;
   const queue: Task[] = [];
   const expectedExits = new WeakSet<object>();
-  let worker: Worker | null = null;
   let rustWorker: RustComputeWorkerTarget | null = null;
   let active: Task | null = null;
   let stopping = false;
@@ -950,9 +941,6 @@ export function createSynthesisSidecarComputeWorkerPool(
     graceMs: number,
   ) => {
     expectedExits.add(target);
-    if (worker === target) {
-      worker = null;
-    }
     if (rustWorker === target) {
       rustWorker = null;
     }
@@ -1036,7 +1024,7 @@ export function createSynthesisSidecarComputeWorkerPool(
       return;
     }
     task.terminating = true;
-    const target = isRustComputeOperation(task.operation) ? rustWorker : worker;
+    const target = rustWorker;
     const cooperative = requestCooperativeCancellation(task, target);
     const pending = (async () => {
       const acknowledged = await cooperative.wait;
@@ -1053,13 +1041,9 @@ export function createSynthesisSidecarComputeWorkerPool(
   };
 
   const onUnexpectedWorkerFailure = (target: ComputeWorkerTarget) => {
-    if (
-      (worker !== target && rustWorker !== target) ||
-      expectedExits.has(target)
-    ) {
+    if (rustWorker !== target || expectedExits.has(target)) {
       return;
     }
-    if (worker === target) worker = null;
     if (rustWorker === target) rustWorker = null;
     const task = active;
     if (task) {
@@ -1101,127 +1085,6 @@ export function createSynthesisSidecarComputeWorkerPool(
       rejectTaskWithError(task, error);
     })();
     trackTermination(pending);
-  };
-
-  const ensureWorker = () => {
-    if (worker) {
-      return worker;
-    }
-    const created = workerFactory(workerUrl, {
-      resourceLimits: {
-        ...SYNTHESIS_SIDECAR_COMPUTE_LIMITS.resourceLimits,
-      },
-    });
-    worker = created;
-    created.on("message", (message: unknown) => {
-      const task = active;
-      if (!task) {
-        return;
-      }
-      if (task.operation === SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION) {
-        finishRuntimeFailure(task, "worker_result_invalid", created);
-        return;
-      }
-      if (
-        !message ||
-        typeof message !== "object" ||
-        (message as { taskId?: unknown }).taskId !== task.id
-      ) {
-        finishRuntimeFailure(task, "worker_result_invalid", created);
-        return;
-      }
-      const response = message as {
-        type?: unknown;
-        result?: unknown;
-      };
-      if (response.type === "canceled" && task.terminating) {
-        task.acknowledgeCancellation?.();
-        return;
-      }
-      if (task.terminating) {
-        return;
-      }
-      if (response.type === "result") {
-        let result:
-          | SynthesisCitationGraphLayoutResult
-          | SynthesisCitationGraphMetricsResult
-          | SynthesisCitationGraphBuildResult
-          | SynthesisTagVocabularyValidationResult
-          | SynthesisTagVocabularyIndexResult
-          | SynthesisConceptKbIndexResult
-          | SynthesisConceptKbQueryResult
-          | SynthesisTopicGraphIndexResult
-          | SynthesisReferenceBindingResult
-          | SynthesisReferenceDedupeResult
-          | SynthesisTopicValidationResult
-          | SynthesisTopicArtifactAssemblyResult
-          | SynthesisTopicSectionPatchResult
-          | undefined;
-        try {
-          switch (task.operation) {
-            case SYNTHESIS_SIDECAR_COMPUTE_OPERATION:
-              result = rebuildSynthesisCitationGraphLayoutResult(
-                response.result,
-                task.request as SynthesisCitationGraphLayoutRequest,
-              );
-              break;
-            case SYNTHESIS_SIDECAR_GRAPH_BUILD_COMPUTE_OPERATION:
-              result = rebuildSynthesisCitationGraphBuildResult(
-                response.result,
-                task.request as SynthesisCitationGraphBuildRequest,
-              );
-              break;
-            case SYNTHESIS_SIDECAR_TAG_VOCABULARY_VALIDATE_OPERATION:
-              result = rebuildSynthesisTagVocabularyValidationResultPayload(
-                response.result,
-              );
-              break;
-            case SYNTHESIS_SIDECAR_TAG_VOCABULARY_INDEX_OPERATION:
-              result = rebuildSynthesisTagVocabularyIndexResultPayload(
-                response.result,
-              );
-              break;
-            case SYNTHESIS_SIDECAR_CONCEPT_KB_INDEX_OPERATION:
-              result = rebuildSynthesisConceptKbIndexResultPayload(
-                response.result,
-              );
-              break;
-            case SYNTHESIS_SIDECAR_CONCEPT_KB_QUERY_OPERATION:
-              result = rebuildSynthesisConceptKbQueryResultPayload(
-                response.result,
-              );
-              break;
-            case SYNTHESIS_SIDECAR_TOPIC_GRAPH_INDEX_OPERATION:
-              result = rebuildSynthesisTopicGraphIndexResultPayload(
-                response.result,
-              );
-              break;
-          }
-        } catch {
-          finishRuntimeFailure(task, "worker_result_invalid", created);
-          return;
-        }
-        if (!result) {
-          finishRuntimeFailure(task, "worker_result_invalid", created);
-          return;
-        }
-        active = null;
-        task.settled = true;
-        clearTaskHooks(task);
-        consecutiveFailures = 0;
-        task.resolve(result);
-        pump();
-        return;
-      }
-      if (response.type === "canceled") {
-        cancelActive(task, "worker_canceled");
-        return;
-      }
-      finishRuntimeFailure(task, "worker_crashed", created);
-    });
-    created.once("error", () => onUnexpectedWorkerFailure(created));
-    created.once("exit", () => onUnexpectedWorkerFailure(created));
-    return created;
   };
 
   const sendNextRustTransferInput = async (
@@ -1690,6 +1553,7 @@ export function createSynthesisSidecarComputeWorkerPool(
       if (
         response.type === "result" &&
         task.operation !== RUST_METRICS_OPERATION &&
+        task.operation !== SYNTHESIS_SIDECAR_COMPUTE_OPERATION &&
         !assembledPagedResult
       ) {
         finishRuntimeFailure(task, "worker_result_invalid", created);
@@ -1700,6 +1564,7 @@ export function createSynthesisSidecarComputeWorkerPool(
         return;
       }
       let result:
+        | SynthesisCitationGraphLayoutResult
         | SynthesisCitationGraphMetricsResult
         | SynthesisTagVocabularyValidationResult
         | SynthesisTagVocabularyIndexResult
@@ -1715,6 +1580,12 @@ export function createSynthesisSidecarComputeWorkerPool(
         | undefined;
       try {
         switch (task.operation) {
+          case SYNTHESIS_SIDECAR_COMPUTE_OPERATION:
+            result = rebuildSynthesisCitationGraphLayoutResult(
+              response.result,
+              task.request as SynthesisCitationGraphLayoutRequest,
+            );
+            break;
           case RUST_METRICS_OPERATION:
             result = rebuildSynthesisCitationGraphMetricsResult(
               response.result,
@@ -1822,20 +1693,12 @@ export function createSynthesisSidecarComputeWorkerPool(
       queueMicrotask(pump);
       return;
     }
-    const rustTask = isRustComputeOperation(task.operation);
-    const inactiveBackend = rustTask ? worker : rustWorker;
-    if (inactiveBackend) {
-      queue.unshift(task);
-      trackTermination(terminateWorker(inactiveBackend, cancellationGraceMs));
-      return;
-    }
     active = task;
-    const target = rustTask ? ensureRustWorker() : ensureWorker();
+    const target = ensureRustWorker();
     task.deadline = setTimeout(() => {
       timeoutActive(task, target);
     }, task.timeoutMs);
     task.deadline.unref();
-    const cancellation = task.cancellation.buffer as SharedArrayBuffer;
     if (task.operation === SYNTHESIS_SIDECAR_GRAPH_BUILD_TRANSFER_OPERATION) {
       const run = task.request as SynthesisSidecarGraphBuildTransferRun;
       task.rustTransferInputIterator = run.inputPages()[Symbol.asyncIterator]();
@@ -1851,17 +1714,15 @@ export function createSynthesisSidecarComputeWorkerPool(
       void sendNextRustTransferInput(task, target as RustComputeWorkerTarget);
       return;
     }
-    let message: SynthesisSidecarComputeRunMessage;
     switch (task.operation) {
       case SYNTHESIS_SIDECAR_COMPUTE_OPERATION:
-        message = {
+        target.postMessage({
           type: "run",
           taskId: task.id,
           operation: SYNTHESIS_SIDECAR_COMPUTE_OPERATION,
           payload: task.request as SynthesisCitationGraphLayoutRequest,
-          cancellation,
-        };
-        break;
+        });
+        return;
       case RUST_METRICS_OPERATION:
         target.postMessage({
           type: "run",
@@ -1918,7 +1779,6 @@ export function createSynthesisSidecarComputeWorkerPool(
         return;
       }
     }
-    target.postMessage(message);
   };
 
   const enqueue = <
@@ -2199,19 +2059,17 @@ export function createSynthesisSidecarComputeWorkerPool(
       const stop = (async () => {
         if (active) {
           cancelActive(active, "worker_canceled");
-        } else if (worker) {
-          termination = terminateWorker(worker, cancellationGraceMs).finally(
-            () => {
-              termination = null;
-            },
-          );
+        } else if (rustWorker) {
+          termination = terminateWorker(
+            rustWorker,
+            cancellationGraceMs,
+          ).finally(() => {
+            termination = null;
+          });
         }
         await termination;
       })();
       await Promise.race([stop, delay(shutdownTimeoutMs)]);
-      if (worker) {
-        await terminateWorker(worker, 0);
-      }
       if (rustWorker) {
         await terminateWorker(rustWorker, 0);
       }

@@ -1,6 +1,5 @@
 import os from "node:os";
 import path from "node:path";
-import { Worker, type WorkerOptions } from "node:worker_threads";
 import {
   SYNTHESIS_SIDECAR_HEALTH_PATH,
   SYNTHESIS_SIDECAR_LIMITS,
@@ -98,18 +97,6 @@ export type SynthesisCitationGraphBuildBenchmarkReport = {
     directResultRebuild: boolean;
     worker: boolean;
     http: boolean;
-  };
-};
-
-type InspectableWorker = Worker & {
-  cpuUsage?: () => Promise<{ user: number; system: number }>;
-  getHeapStatistics?: () => Promise<{ used_heap_size: number }>;
-  performance?: {
-    eventLoopUtilization: (previous?: {
-      idle: number;
-      active: number;
-      utilization: number;
-    }) => { idle: number; active: number; utilization: number };
   };
 };
 
@@ -300,24 +287,6 @@ function clientErrorCode(error: unknown) {
     : "worker_failed";
 }
 
-async function workerStats(worker: InspectableWorker | undefined) {
-  if (!worker) {
-    return {};
-  }
-  const cpu = worker.cpuUsage
-    ? await worker.cpuUsage().catch(() => null)
-    : null;
-  const heap = worker.getHeapStatistics
-    ? await worker.getHeapStatistics().catch(() => null)
-    : null;
-  const eventLoop = worker.performance?.eventLoopUtilization();
-  return {
-    cpu,
-    heapBytes: heap?.used_heap_size,
-    eventLoop,
-  };
-}
-
 function resourceSampler() {
   let peakRss = process.memoryUsage().rss;
   let peakHeap = process.memoryUsage().heapUsed;
@@ -346,19 +315,11 @@ function resourceSampler() {
 export async function runSynthesisCitationGraphBuildBenchmarkProfile(
   profile: SynthesisCitationGraphBuildBenchmarkProfile,
   options: {
-    workerUrl: URL | string;
     includeCancellationProbe?: boolean;
   },
 ): Promise<SynthesisCitationGraphBuildBenchmarkReport> {
   const { measurement, request, result } = await collectEnvelope(profile);
-  let worker: InspectableWorker | undefined;
-  const pool = createSynthesisSidecarComputeWorkerPool({
-    workerUrl: options.workerUrl,
-    workerFactory(url: URL | string, workerOptions: WorkerOptions) {
-      worker = new Worker(url, workerOptions) as InspectableWorker;
-      return worker;
-    },
-  });
+  const pool = createSynthesisSidecarComputeWorkerPool();
   const config = runtimeConfig();
   const runtime = await startSynthesisSidecarServer(
     config,
@@ -389,7 +350,6 @@ export async function runSynthesisCitationGraphBuildBenchmarkProfile(
       createSynthesisCitationGraphBuildBenchmarkRequest("canary"),
     );
     const beforeMemory = process.memoryUsage();
-    const beforeWorker = await workerStats(worker);
     const sampler = resourceSampler();
     const healthStartedAt = performance.now();
     const pendingHealth = fetch(`${baseUrl}${SYNTHESIS_SIDECAR_HEALTH_PATH}`)
@@ -401,7 +361,6 @@ export async function runSynthesisCitationGraphBuildBenchmarkProfile(
       workerParity = sameResult(workerResult, result);
       const sampled = sampler.stop();
       const afterMemory = process.memoryUsage();
-      const afterWorker = await workerStats(worker);
       workerPhase = {
         outcome: "success",
         elapsedMs: elapsed(workerStartedAt),
@@ -409,20 +368,6 @@ export async function runSynthesisCitationGraphBuildBenchmarkProfile(
         parentHeapDeltaBytes: afterMemory.heapUsed - beforeMemory.heapUsed,
         sampledParentPeakRssBytes: sampled.peakRss,
         sampledParentPeakHeapBytes: sampled.peakHeap,
-        workerCpuUserMicros:
-          afterWorker.cpu && beforeWorker.cpu
-            ? afterWorker.cpu.user - beforeWorker.cpu.user
-            : undefined,
-        workerCpuSystemMicros:
-          afterWorker.cpu && beforeWorker.cpu
-            ? afterWorker.cpu.system - beforeWorker.cpu.system
-            : undefined,
-        sampledWorkerHeapBytes: afterWorker.heapBytes,
-        workerEventLoopUtilization:
-          afterWorker.eventLoop && beforeWorker.eventLoop
-            ? worker?.performance?.eventLoopUtilization(beforeWorker.eventLoop)
-                .utilization
-            : afterWorker.eventLoop?.utilization,
         mainEventLoopMaxLagMs: sampled.maxLagMs,
         healthLatencyMs: await pendingHealth,
       };

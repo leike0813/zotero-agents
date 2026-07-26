@@ -39,8 +39,8 @@ parentPort.on("message", (message) => {
     result: {
       graphHash: message.payload.graphHash,
       algorithm: "components",
-      layoutEngine: "components",
-      layoutVersion: 1.2,
+      layoutEngine: "components-rust",
+      layoutVersion: 2,
       params: {
         component_gap: 360,
         node_gap: 54,

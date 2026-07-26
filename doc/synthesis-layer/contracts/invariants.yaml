@@ -52,7 +52,7 @@ invariants:
 
   - id: inv.runtime.sidecar_supervision_isolated
     severity: fatal
-    statement: Plugin startup may install, launch, and supervise the mutation-disabled product-owned Synthesis runtime and production Citation Graph layout may use its current ready compute connection, but supervision never resolves system Node or PATH, never grants production DB/canonical/Host ownership, and does not change the 108-method service or its single direct production consumer.
+    statement: Plugin startup may install, launch, and supervise the mutation-disabled product-owned Synthesis runtime and production Citation Graph layout may use its current ready compute connection, but supervision never resolves system Node or PATH, never grants production DB/canonical/Host ownership, and does not change the 113-method service or its single direct production consumer.
     evidence: Runtime launcher/supervisor tests and production-composition guard.
     test_refs:
       - file: test/core/168-synthesis-sidecar-boundary.test.ts

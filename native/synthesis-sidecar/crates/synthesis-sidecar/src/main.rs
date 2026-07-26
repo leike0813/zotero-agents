@@ -468,7 +468,11 @@ fn worker() -> Result<(), String> {
             match value["type"].as_str() {
                 Some("run")
                     if value["protocol"] == WORKER_PROTOCOL
-                        && value["operation"].as_str() == Some(METRICS_OPERATION)
+                        && matches!(
+                            value["operation"].as_str(),
+                            Some(METRICS_OPERATION)
+                                | Some(synthesis_protocol::CITATION_GRAPH_LAYOUT_OPERATION)
+                        )
                         && exact_frame_fields(
                             &value,
                             &["protocol", "type", "taskId", "operation", "payload"],
@@ -683,6 +687,9 @@ fn worker() -> Result<(), String> {
                 let canceled = Arc::new(AtomicBool::new(false));
                 *active.lock().unwrap() = Some((task_id.clone(), Arc::clone(&canceled)));
                 let computed = match operation.as_str() {
+                    synthesis_protocol::CITATION_GRAPH_LAYOUT_OPERATION => {
+                        synthesis_citation_layout::compute_value(request, &canceled)
+                    }
                     METRICS_OPERATION => serde_json::from_value(request)
                         .map_err(|_| "invalid_request")
                         .and_then(|request| {

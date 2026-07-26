@@ -81,7 +81,7 @@ describe("Synthesis Citation Graph metrics engine", function () {
     execFileSync(
       "cargo",
       [
-        "+1.92.0",
+        "+nightly-2026-07-25",
         "build",
         "--workspace",
         "--locked",
@@ -314,7 +314,7 @@ describe("Synthesis Citation Graph metrics engine", function () {
     const imports = [...source.matchAll(/from\s+["']([^"']+)["']/g)].map(
       (match) => match[1],
     );
-    assert.include(imports, "d3-force");
+    assert.notInclude(imports, "d3-force");
     assert.isFalse(
       imports.some((specifier) =>
         /^(?:node:|.*(?:src\/modules\/synthesis|repository|zotero-plugin))/.test(

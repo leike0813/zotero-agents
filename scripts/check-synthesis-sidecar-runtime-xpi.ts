@@ -68,7 +68,6 @@ export async function checkSynthesisSidecarRuntimeXpi(root = process.cwd()) {
       `${prefix}/${target === "win32-x64" ? "node.exe" : "node"}`,
       `${prefix}/LICENSE-node.txt`,
       `${prefix}/service/apps/synthesis-service/src/entrypoint.js`,
-      `${prefix}/service/apps/synthesis-service/src/computeWorker.js`,
       `${prefix}/service/apps/synthesis-service/src/computeWorkerPool.js`,
       `${prefix}/service/apps/synthesis-service/src/rustComputeWorkerTransport.js`,
       `${prefix}/service/native/synthesis-sidecar/synthesis-sidecar${
@@ -145,11 +144,6 @@ export async function checkSynthesisSidecarRuntimeXpi(root = process.cwd()) {
       `${prefix}/service/packages/synthesis-repository/src/knowledgeCheckpoint.js`,
       `${prefix}/service/packages/synthesis-repository/src/durableBundle.js`,
       `${prefix}/service/packages/synthesis-repository/src/durableBundleImport.js`,
-      `${prefix}/service/node_modules/d3-force/LICENSE`,
-      `${prefix}/service/node_modules/d3-force/src/index.js`,
-      `${prefix}/service/node_modules/d3-dispatch/LICENSE`,
-      `${prefix}/service/node_modules/d3-quadtree/LICENSE`,
-      `${prefix}/service/node_modules/d3-timer/LICENSE`,
     ]) {
       if (!entries.has(required)) {
         missing.push(required);
