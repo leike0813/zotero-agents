@@ -256,7 +256,6 @@ task-dashboard-skillrunner-cancel = 取消執行
 task-dashboard-skillrunner-cancel-failed = 取消執行失敗：{ $error }
 task-dashboard-open-run = 開啟執行記錄
 task-dashboard-open-run-missing-request-id = 此執行記錄尚無請求 ID。請稍後再試。
-task-dashboard-run-dialog-title = 執行詳細資訊：{ $requestId }
 task-dashboard-run-workspace-title = SkillRunner 工作區
 task-dashboard-run-completed-tasks-title = 已完成任務
 task-dashboard-run-conversation-title = 對話

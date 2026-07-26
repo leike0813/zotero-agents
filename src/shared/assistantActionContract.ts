@@ -110,17 +110,14 @@ export type AssistantWorkspaceActionPayloadMap = {
 };
 
 // ---------------------------------------------------------------------------
-// SkillRunner run-action payloads (migrated from skillRunnerSnapshotContract)
+// SkillRunner run-action payloads
 //
 // These types describe the payload shapes the SkillRunner run-action handler
 // (dispatchRunWorkspaceAction in src/modules/skillRunnerRunDialog.ts)
-// consumes. They were moved here from skillRunnerSnapshotContract.ts — which
-// re-exports them until the legacy snapshot contract is deleted in Stage 4 —
-// so the run-action payload contract survives the legacy bridge. Payload
-// interfaces keep the legacy open-wire shape (optional keys plus an index
-// signature); host handlers keep their defensive runtime validation. The
-// strict registry payload mirror above stays the SSOT for what child pages
-// put on the v1 action wire.
+// consumes. Payload interfaces keep the legacy open-wire shape (optional keys
+// plus an index signature); host handlers keep their defensive runtime
+// validation. The strict registry payload mirror above stays the SSOT for
+// what child pages put on the v1 action wire.
 // ---------------------------------------------------------------------------
 
 /** reply-run in auth mode (mode discriminator: "auth"). */
@@ -328,7 +325,7 @@ export type AssistantWorkspacePublicationRenderObservation = {
 
 export type AssistantWorkspaceChildControlPayloadMap = {
   ready: {
-    // Sent by the ACP child pages; the skillrunner run-dialog sends none and
+    // Sent by the ACP child pages; the skillrunner child sends none and
     // the host falls back to a tab-scoped generation.
     documentGeneration?: string;
   };
@@ -421,11 +418,9 @@ export type SkillrunnerActionEnvelope = {
 }[SkillrunnerEnvelopeAction];
 
 /**
- * SkillRunner legacy child -> host envelope (run-dialog -> shell ->
- * assistant-workspace:child-action). Payload typing for the legacy action
- * family is owned by the skillrunner legacy contract work item; kept
- * structurally loose here so the host child-action handler admits both
- * families.
+ * SkillRunner legacy child -> host envelope shape (pre-convergence child
+ * pages carried no source/owner fields). Kept structurally loose so the host
+ * child-action handler still admits an older child bundle.
  */
 export type AssistantWorkspaceLegacyChildActionEnvelope = {
   tab: "skillrunner";

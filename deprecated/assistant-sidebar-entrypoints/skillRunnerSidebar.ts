@@ -12,7 +12,6 @@ import {
   attachSkillRunnerSidebarHost,
   dispatchRunWorkspaceAction,
   focusSkillRunnerWorkspace,
-  openSkillRunnerRunDialog,
   type RunWorkspaceSnapshot,
 } from "./skillRunnerRunDialog";
 import {
@@ -1066,7 +1065,8 @@ export async function openSkillRunnerSidebar(args?: {
     args?.window ||
     (Zotero.getMainWindow?.() as _ZoteroTypes.MainWindow | undefined);
   if (!win) {
-    await openSkillRunnerRunDialog(args);
+    // The standalone run-dialog fallback was removed with the legacy
+    // SkillRunner data plane; the sidebar is the only SkillRunner host.
     return;
   }
   const host = installSkillRunnerSidebarShell(win);
@@ -1074,9 +1074,8 @@ export async function openSkillRunnerSidebar(args?: {
   const activated = await activateTarget(host, target);
   if (!activated) {
     if (typeof console !== "undefined") {
-      console.warn("[skillrunner-sidebar] sidebar injection failed, fallback to dialog");
+      console.warn("[skillrunner-sidebar] sidebar injection failed");
     }
-    await openSkillRunnerRunDialog(args);
     return;
   }
   await focusSkillRunnerWorkspace({

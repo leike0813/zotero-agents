@@ -256,7 +256,6 @@ task-dashboard-skillrunner-cancel = Отменить запуск
 task-dashboard-skillrunner-cancel-failed = Не удалось отменить запуск: { $error }
 task-dashboard-open-run = Открыть запуск
 task-dashboard-open-run-missing-request-id = У этого запуска ещё нет ID запроса. Попробуйте позже.
-task-dashboard-run-dialog-title = Детали запуска: { $requestId }
 task-dashboard-run-workspace-title = Рабочая область SkillRunner
 task-dashboard-run-completed-tasks-title = Завершённые задачи
 task-dashboard-run-conversation-title = Диалог

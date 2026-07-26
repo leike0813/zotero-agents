@@ -256,7 +256,6 @@ task-dashboard-skillrunner-cancel = 실행 취소
 task-dashboard-skillrunner-cancel-failed = 실행 취소 실패: { $error }
 task-dashboard-open-run = 실행 열기
 task-dashboard-open-run-missing-request-id = 이 실행에는 아직 요청 ID가 없습니다. 나중에 다시 시도하세요.
-task-dashboard-run-dialog-title = 실행 상세: { $requestId }
 task-dashboard-run-workspace-title = SkillRunner 워크스페이스
 task-dashboard-run-completed-tasks-title = 완료된 작업
 task-dashboard-run-conversation-title = 대화

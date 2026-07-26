@@ -256,7 +256,6 @@ task-dashboard-skillrunner-cancel = 取消运行
 task-dashboard-skillrunner-cancel-failed = 取消运行失败：{ $error }
 task-dashboard-open-run = 打开运行详情
 task-dashboard-open-run-missing-request-id = 当前运行尚未分配 request ID，请稍后再试。
-task-dashboard-run-dialog-title = 运行详情：{ $requestId }
 task-dashboard-run-workspace-title = SkillRunner 工作区
 task-dashboard-run-completed-tasks-title = 已结束任务
 task-dashboard-run-conversation-title = 对话

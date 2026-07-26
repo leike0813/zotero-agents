@@ -23,7 +23,7 @@ import {
 // Takeover seam for the ACP child chrome migration — now complete: every
 // managed chrome region of the ACP child renders through Preact. The shared
 // imperative renderer is only used for adoptPanelRegions (root/region
-// marking) and by the SkillRunner run-dialog, which converges in Phase 3.
+// marking).
 
 export type ManagedMountFn = (
   container: HTMLElement,
@@ -272,7 +272,7 @@ export function renderStaticChrome(options: {
 }
 
 // The child's chrome render wiring: region marking stays with the shared
-// imperative adoptPanelRegions (also used by the run-dialog), and every
+// imperative adoptPanelRegions, and every
 // managed chrome region renders through the Preact seam. Both the ACP child
 // and the renderer smoke tests drive chrome through this factory so tests
 // exercise the exact production wiring.

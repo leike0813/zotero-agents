@@ -9,7 +9,6 @@ import {
   ACP_RUNTIME_REPLAY_PROFILER_ENABLED,
   ACP_RUNTIME_SEMANTIC_TRACE_RECORDER_ENABLED,
   SKILLRUNNER_CONNECTION_AUDIT_ENABLED,
-  SKILLRUNNER_SNAPSHOT_WIRE_ASSERT_ENABLED,
   WORKSPACE_PUBLICATION_WIRE_ASSERT_ENABLED,
 } from "./src/modules/debugMode";
 
@@ -158,9 +157,6 @@ export default defineConfig({
           __workspace_publication_wire_assert_enabled__: String(
             WORKSPACE_PUBLICATION_WIRE_ASSERT_ENABLED,
           ),
-          __skillrunner_snapshot_wire_assert_enabled__: String(
-            SKILLRUNNER_SNAPSHOT_WIRE_ASSERT_ENABLED,
-          ),
         },
         bundle: true,
         minifySyntax: true,
@@ -187,14 +183,6 @@ export default defineConfig({
         jsxImportSource: "preact",
         target: "firefox115",
         outfile: ".scaffold/build/addon/content/sidebar/acp-child.bundle.js",
-      },
-      {
-        entryPoints: ["src/sidebar/runDialogApp.js"],
-        bundle: true,
-        jsx: "automatic",
-        jsxImportSource: "preact",
-        target: "firefox115",
-        outfile: ".scaffold/build/addon/content/sidebar/run-dialog.bundle.js",
       },
       {
         entryPoints: ["src/sidebar/assistantWorkspaceApp.js"],

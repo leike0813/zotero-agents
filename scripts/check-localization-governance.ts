@@ -380,7 +380,6 @@ function main() {
   for (const file of [
     "addon/content/dashboard/app.js",
     "addon/content/dashboard/workflow-settings-dialog.js",
-    "src/sidebar/runDialog.js",
     "src/sidebar/assistantWorkspaceAcpChild.js",
     "src/sidebar/assistantTranscriptRenderer.js",
   ]) {

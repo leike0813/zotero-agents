@@ -2293,11 +2293,7 @@ function renderAssistantWorkspaceTaskDrawer(target, panel, options) {
   const drawers = panel.drawers || {};
   const labels =
     drawers.labels && typeof drawers.labels === "object" ? drawers.labels : {};
-  const sections = Array.isArray(drawers.sections)
-    ? drawers.sections
-    : Array.isArray(drawers.skillrunnerSections)
-      ? drawers.skillrunnerSections
-      : [];
+  const sections = Array.isArray(drawers.sections) ? drawers.sections : [];
   const selectedTaskKey = safeText(drawers.selectedTaskKey);
   const noticeText = safeText(drawers.notice);
   const nextSignature = workspaceDrawerStableSignature(sections, noticeText);
@@ -2486,8 +2482,6 @@ function renderAssistantContextDrawer(container, snapshot, options) {
   );
   if (options && options.adoptOnly) return;
   if (
-    safeText(panel.drawers && panel.drawers.layout) ===
-      "skillrunner-workspace" ||
     safeText(panel.drawers && panel.drawers.layout) === "workspace-task-drawer"
   ) {
     renderAssistantWorkspaceTaskDrawer(target, panel, options || {});
@@ -2780,9 +2774,7 @@ function renderManagedRegionIfChanged(region, name, signature, render) {
 
 function isWorkspaceTaskDrawer(panel) {
   const layout = safeText(panel && panel.drawers && panel.drawers.layout);
-  return (
-    layout === "skillrunner-workspace" || layout === "workspace-task-drawer"
-  );
+  return layout === "workspace-task-drawer";
 }
 
 function contextDrawerSignature(panel) {
@@ -2814,11 +2806,7 @@ function detailsDrawerSignature(panel) {
 
 function workspaceTaskDrawerSignature(panel) {
   const drawers = panel && panel.drawers ? panel.drawers : {};
-  const sections = Array.isArray(drawers.sections)
-    ? drawers.sections
-    : Array.isArray(drawers.skillrunnerSections)
-      ? drawers.skillrunnerSections
-      : [];
+  const sections = Array.isArray(drawers.sections) ? drawers.sections : [];
   return {
     layout: safeText(drawers.layout),
     contextTitle: safeText(drawers.contextTitle),

@@ -8,7 +8,6 @@ import {
   refreshSkillRunnerSidebarHostSnapshot,
   resetSkillRunnerRunDialogForTests,
   subscribeSkillRunnerWorkspaceChanges,
-  type RunWorkspaceSnapshot,
 } from "../../src/modules/skillRunnerRunDialog";
 import { SKILLRUNNER_WORKSPACE_ADAPTER } from "../../src/modules/skillRunnerWorkspaceSurface";
 import {
@@ -37,13 +36,12 @@ import {
 import type { AssistantMessageCountsSnapshot } from "../../src/modules/assistantMessageCounts";
 
 /**
- * Behavior-level harness for the SkillRunner workspace snapshot pipeline.
+ * Behavior-level harness for the SkillRunner workspace publication pipeline.
  *
  * It seeds the real run stores, points the persisted backend registry at a
- * local mock management server, attaches the real sidebar host with an
- * injected `publishSnapshot`, and captures the production
- * `RunWorkspaceSnapshot` objects that would normally be posted to the
- * run-dialog page. Shared by
+ * local mock management server, attaches the real sidebar host, and captures
+ * the v1 publications the workspace runtime emits through the shared
+ * publication plane. Shared by
  * `test/core/71-skillrunner-run-dialog-ui-e2e-alignment.test.ts` (contract
  * assertions) and `test/core/97-acp-ui-smoke.test.ts` (envelope source).
  */
@@ -83,19 +81,14 @@ export type SkillRunnerHarnessSeededTask = {
   requestId: string;
 };
 
-export type SkillRunnerWorkspaceActionEnvelope = {
-  action: string;
-  payload: Record<string, unknown>;
-};
-
 /**
  * v1 publication-plane capture for the SkillRunner workspace. Wired exactly
  * like the production sidebar (`assistantWorkspaceSidebar.ts`): run-store
  * changes flow through `subscribeSkillRunnerWorkspaceChanges` →
  * `AssistantWorkspacePublicationRuntime.schedule` with
  * `SKILLRUNNER_WORKSPACE_ADAPTER` → coordinator → captured posts. The run
- * host is attached with a no-op legacy snapshot publisher so the production
- * refresh pipeline runs while assertions stay on the publication boundary.
+ * host is attached so the production refresh pipeline runs while assertions
+ * stay on the publication boundary.
  */
 export type SkillRunnerWorkspacePublicationCapture = {
   hostWindow: Window;
@@ -111,28 +104,6 @@ export type SkillRunnerWorkspacePublicationCapture = {
   detachHost: () => void;
   reattachHost: (args?: { selectRunKey?: string }) => Promise<void>;
   stop: () => void;
-};
-
-export type SkillRunnerWorkspaceCapture = {
-  snapshots: Array<{
-    phase: "init" | "snapshot";
-    snapshot: RunWorkspaceSnapshot;
-  }>;
-  latest: () => RunWorkspaceSnapshot | undefined;
-  waitFor: (
-    predicate: (snapshot: RunWorkspaceSnapshot) => boolean,
-    timeoutMs?: number,
-  ) => Promise<RunWorkspaceSnapshot>;
-  waitForAfter: (
-    afterIndex: number,
-    predicate: (snapshot: RunWorkspaceSnapshot) => boolean,
-    timeoutMs?: number,
-  ) => Promise<{
-    index: number;
-    snapshot: RunWorkspaceSnapshot;
-  }>;
-  detach: () => void;
-  reattach: (args?: { selectRunKey?: string }) => Promise<void>;
 };
 
 export type SkillRunnerWorkspaceSnapshotHarness = {
@@ -175,12 +146,6 @@ export type SkillRunnerWorkspaceSnapshotHarness = {
     cursors: number[];
   };
   closeChatStreams: (requestId: string) => void;
-  attach: (args?: {
-    selectRunKey?: string;
-    handleHostAction?: (
-      envelope: SkillRunnerWorkspaceActionEnvelope,
-    ) => boolean | Promise<boolean>;
-  }) => Promise<SkillRunnerWorkspaceCapture>;
   attachPublications: (args?: {
     selectRunKey?: string;
   }) => Promise<SkillRunnerWorkspacePublicationCapture>;
@@ -593,93 +558,6 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
       }
       channel.chatStreams.clear();
     },
-    async attach(args = {}) {
-      const snapshots: SkillRunnerWorkspaceCapture["snapshots"] = [];
-      const hostWindow = createHostWindowStub();
-      const publishSnapshot = (
-        phase: "init" | "snapshot",
-        snapshot: RunWorkspaceSnapshot,
-      ) => {
-        // structuredClone matches what postMessage would deliver to the
-        // page and detaches the capture from later in-place mutations.
-        snapshots.push({ phase, snapshot: structuredClone(snapshot) });
-      };
-      const handleHostAction: Parameters<
-        typeof attachSkillRunnerSidebarHost
-      >[0]["handleHostAction"] = args.handleHostAction
-        ? async (envelope) => {
-            const handled = await args.handleHostAction?.({
-              action: String(envelope.action || ""),
-              payload: isObject(envelope.payload) ? envelope.payload : {},
-            });
-            return handled === true;
-          }
-        : undefined;
-      const attachHost = () =>
-        attachSkillRunnerSidebarHost({
-          hostWindow,
-          frameWindow: null,
-          isHostAlive: () => true,
-          publishSnapshot,
-          handleHostAction,
-        });
-      attachHost();
-      await refreshSkillRunnerSidebarHostSnapshot({
-        forceInit: true,
-        runKey: args.selectRunKey,
-      });
-      const capture: SkillRunnerWorkspaceCapture = {
-        snapshots,
-        latest: () => snapshots[snapshots.length - 1]?.snapshot,
-        async waitFor(predicate, timeoutMs = 8000) {
-          const deadline = Date.now() + timeoutMs;
-          for (;;) {
-            for (let index = snapshots.length - 1; index >= 0; index -= 1) {
-              if (predicate(snapshots[index].snapshot)) {
-                return snapshots[index].snapshot;
-              }
-            }
-            if (Date.now() > deadline) {
-              throw new Error(
-                "timed out waiting for the expected SkillRunner workspace snapshot",
-              );
-            }
-            await new Promise((resolve) => setTimeout(resolve, 25));
-          }
-        },
-        async waitForAfter(afterIndex, predicate, timeoutMs = 8000) {
-          const deadline = Date.now() + timeoutMs;
-          for (;;) {
-            for (
-              let index = Math.max(-1, afterIndex) + 1;
-              index < snapshots.length;
-              index += 1
-            ) {
-              if (predicate(snapshots[index].snapshot)) {
-                return { index, snapshot: snapshots[index].snapshot };
-              }
-            }
-            if (Date.now() > deadline) {
-              throw new Error(
-                "timed out waiting for the next expected SkillRunner workspace snapshot",
-              );
-            }
-            await new Promise((resolve) => setTimeout(resolve, 25));
-          }
-        },
-        detach() {
-          detachSkillRunnerSidebarHost({ hostWindow });
-        },
-        async reattach(reattachArgs = {}) {
-          attachHost();
-          await refreshSkillRunnerSidebarHostSnapshot({
-            forceInit: true,
-            runKey: reattachArgs.selectRunKey,
-          });
-        },
-      };
-      return capture;
-    },
     async attachPublications(args = {}) {
       publicationCounter += 1;
       const publications: AssistantWorkspacePublication[] = [];
@@ -727,9 +605,7 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
       const attachHost = () =>
         attachSkillRunnerSidebarHost({
           hostWindow,
-          frameWindow: null,
           isHostAlive: () => true,
-          publishSnapshot: () => {},
         });
       attachHost();
       await refreshSkillRunnerSidebarHostSnapshot({
@@ -787,7 +663,6 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
     },
     async dispatch(action, payload = {}) {
       await dispatchRunWorkspaceAction({
-        type: "skillrunner-sidebar:action",
         action,
         payload,
       });
@@ -817,34 +692,4 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
     },
   };
   return harness;
-}
-
-/**
- * One-shot convenience wrapper used by suites that only need the latest
- * production snapshot for a given seed set (e.g. the ACP UI smoke suite).
- */
-export async function captureSkillRunnerWorkspaceEnvelope(args?: {
-  tasks?: SkillRunnerHarnessTaskSeed[];
-  selectRunKey?: string;
-  waitFor?: (snapshot: RunWorkspaceSnapshot) => boolean;
-  timeoutMs?: number;
-}): Promise<RunWorkspaceSnapshot> {
-  const harness = await startSkillRunnerWorkspaceSnapshotHarness();
-  try {
-    const seeded = (args?.tasks || []).map((task) => harness.seedTask(task));
-    const capture = await harness.attach({
-      selectRunKey:
-        args?.selectRunKey ||
-        (seeded.length > 0 ? seeded[seeded.length - 1].runKey : undefined),
-    });
-    const predicate =
-      args?.waitFor ||
-      (seeded.length > 0
-        ? (snapshot: RunWorkspaceSnapshot) =>
-            !!snapshot.session && snapshot.session.loading === false
-        : (snapshot: RunWorkspaceSnapshot) => snapshot.session === null);
-    return await capture.waitFor(predicate, args?.timeoutMs);
-  } finally {
-    await harness.reset();
-  }
 }

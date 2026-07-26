@@ -14,11 +14,6 @@ import {
   ASSISTANT_WORKSPACE_SHELL_BRIDGE_KEY,
   ASSISTANT_WORKSPACE_TRANSCRIPT_DELTA_KEYS,
   ASSISTANT_WORKSPACE_TRANSCRIPT_SNAPSHOT_KEYS,
-  RUN_DIALOG_BRIDGE_TYPES,
-  RUN_DIALOG_PHASES,
-  SKILLRUNNER_LEGACY_ACTIONS,
-  SKILLRUNNER_SIDEBAR_BRIDGE_KEY,
-  resolveRunDialogMessageType,
 } from "../../src/shared/assistantWireContract";
 import * as assistantWireContract from "../../src/shared/assistantWireContract";
 import {
@@ -185,19 +180,6 @@ describe("assistant wire contract shared registry", function () {
       ASSISTANT_WORKSPACE_ACP_CHILD_BRIDGE_KEY,
       "__zsAssistantWorkspaceAcpBridge",
     );
-    assert.equal(
-      SKILLRUNNER_SIDEBAR_BRIDGE_KEY,
-      "__zsSkillRunnerSidebarBridge",
-    );
-    assert.deepEqual(
-      [...RUN_DIALOG_BRIDGE_TYPES],
-      ["run-dialog", "skillrunner-sidebar"],
-    );
-    assert.deepEqual([...RUN_DIALOG_PHASES], ["init", "snapshot", "action"]);
-    assert.equal(
-      resolveRunDialogMessageType("skillrunner-sidebar", "snapshot"),
-      "skillrunner-sidebar:snapshot",
-    );
     assert.equal(ASSISTANT_WORKSPACE_SHELL_ACTIONS.READY, "ready");
     assert.equal(ASSISTANT_WORKSPACE_SHELL_ACTIONS.SET_TAB, "set-tab");
     assert.equal(
@@ -221,8 +203,7 @@ describe("assistant wire contract shared registry", function () {
       ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.REQUEST_OWNER_DETAILS,
       "request-owner-details",
     );
-    assert.equal(SKILLRUNNER_LEGACY_ACTIONS.REPLY_RUN, "reply-run");
-    assert.equal(SKILLRUNNER_LEGACY_ACTIONS.CANCEL_RUN, "cancel-run");
+    assert.notProperty(assistantWireContract, "SKILLRUNNER_LEGACY_ACTIONS");
     assert.notProperty(
       assistantWireContract,
       "SKILLRUNNER_LEGACY_ACTION_ALIASES",
@@ -357,9 +338,6 @@ describe("assistant wire contract shared registry", function () {
       "src/sidebar/assistantWorkspaceAcpChild.js",
       "src/sidebar/assistantWorkspaceApp.js",
       "src/sidebar/assistantWorkspaceShell.js",
-      "src/sidebar/chatThinkingCore.js",
-      "src/sidebar/runDialog.js",
-      "src/sidebar/runDialogApp.js",
     ];
     const moduleSources = [
       "src/modules/assistantWorkspaceSidebar.ts",

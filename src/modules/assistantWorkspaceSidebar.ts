@@ -3232,15 +3232,6 @@ function attachSkillRunnerToShell(
   installShellBridge(host);
   attachSkillRunnerSidebarHost({
     hostWindow: host.win,
-    frameWindow,
-    // Stage 3 cutover: the legacy CHILD_SNAPSHOT publication channel is
-    // closed — the SkillRunner tab is served by assistant-workspace
-    // publications. The callback stays as an explicit no-op so
-    // `pushSnapshot` in skillRunnerRunDialog.ts keeps running its single
-    // flush funnel: that funnel drives `notifySkillRunnerWorkspacePublicationChange`,
-    // which feeds the publication-plane schedule. The push-plane body itself
-    // is deleted in Stage 4.
-    publishSnapshot: () => {},
     alertWindow: host.win,
     focusHost: () => host.win.focus(),
     isHostAlive: () => hosts.get(host.win) === host,

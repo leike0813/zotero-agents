@@ -23,10 +23,10 @@
 
 ## 4. Legacy Deletion
 
-- [ ] 4.1 Delete `src/sidebar/runDialog.js`, `runDialogApp.js`, `chatThinkingCore.js`, `addon/content/sidebar/run-dialog.html`, and the run-dialog esbuild entry; delete the SkillRunner branches of `assistantPanelModel.js` / `assistantPanelRenderer.js` and `adaptLegacyTranscriptItem`.
-- [ ] 4.2 Delete the push plane in `skillRunnerRunDialog.ts` (`buildRunWorkspaceSnapshot`, decorated snapshot, `pushSnapshot`/`CHILD_SNAPSHOT`, snapshot self-check) and `src/shared/skillRunnerSnapshotContract.ts`; delete `openSkillRunnerRunDialog`, `hostMode: "dialog"`, `resolveRunDialogPageUrl`/`createRunDialogFrame`, and the two `deprecated/` call sites.
-- [ ] 4.3 Consolidate markdown-it into one shared sidebar parser module (singleton); the child consumes it.
-- [ ] 4.4 Test cleanup: delete 191 and the chat-thinking-core test (84); update or delete 65/69/76/83/94/95 as their locked code moves; update `test/zotero` live-suite references.
+- [x] 4.1 Delete `src/sidebar/runDialog.js`, `runDialogApp.js`, `chatThinkingCore.js`, `addon/content/sidebar/run-dialog.html`, and the run-dialog esbuild entry; delete the SkillRunner branches of `assistantPanelModel.js` / `assistantPanelRenderer.js` and `adaptLegacyTranscriptItem`.
+- [x] 4.2 Delete the push plane in `skillRunnerRunDialog.ts` (`buildRunWorkspaceSnapshot`, decorated snapshot, `pushSnapshot`/`CHILD_SNAPSHOT`, snapshot self-check) and `src/shared/skillRunnerSnapshotContract.ts`; delete `openSkillRunnerRunDialog`, `hostMode: "dialog"`, `resolveRunDialogPageUrl`/`createRunDialogFrame`, and the `deprecated/` call sites.
+- [x] 4.3 Consolidate markdown-it into one shared sidebar parser module (singleton); the child consumes it.
+- [x] 4.4 Test cleanup: delete 191 and the chat-thinking-core test (84); update or delete 65/69/76/83/94/95 as their locked code moves; update `test/zotero` live-suite references.
 
 ## 5. Documentation And Gates
 

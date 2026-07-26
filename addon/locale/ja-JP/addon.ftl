@@ -256,7 +256,6 @@ task-dashboard-skillrunner-cancel = 実行をキャンセル
 task-dashboard-skillrunner-cancel-failed = 実行のキャンセルに失敗しました: { $error }
 task-dashboard-open-run = 実行を開く
 task-dashboard-open-run-missing-request-id = この実行にはまだリクエストIDがありません。後でもう一度お試しください。
-task-dashboard-run-dialog-title = 実行詳細: { $requestId }
 task-dashboard-run-workspace-title = SkillRunner ワークスペース
 task-dashboard-run-completed-tasks-title = 完了したタスク
 task-dashboard-run-conversation-title = 会話

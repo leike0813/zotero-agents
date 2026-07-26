@@ -236,30 +236,6 @@ export type AssistantWorkspacePublicationAck = {
 };
 
 // ---------------------------------------------------------------------------
-// SkillRunner run-dialog / skillrunner-sidebar bridge (edge C + shell->child)
-// ---------------------------------------------------------------------------
-
-export const RUN_DIALOG_BRIDGE_TYPES = [
-  "run-dialog",
-  "skillrunner-sidebar",
-] as const;
-
-export type RunDialogBridgeType = (typeof RUN_DIALOG_BRIDGE_TYPES)[number];
-
-export const RUN_DIALOG_PHASES = ["init", "snapshot", "action"] as const;
-
-export type RunDialogPhase = (typeof RUN_DIALOG_PHASES)[number];
-
-export type RunDialogMessageType = `${RunDialogBridgeType}:${RunDialogPhase}`;
-
-export function resolveRunDialogMessageType(
-  bridgeType: RunDialogBridgeType,
-  phase: RunDialogPhase,
-): RunDialogMessageType {
-  return `${bridgeType}:${phase}`;
-}
-
-// ---------------------------------------------------------------------------
 // Bridge keys (window globals installed by host/shell, read by child pages)
 // ---------------------------------------------------------------------------
 
@@ -268,8 +244,6 @@ export const ASSISTANT_WORKSPACE_SHELL_BRIDGE_KEY =
 
 export const ASSISTANT_WORKSPACE_ACP_CHILD_BRIDGE_KEY =
   "__zsAssistantWorkspaceAcpBridge";
-
-export const SKILLRUNNER_SIDEBAR_BRIDGE_KEY = "__zsSkillRunnerSidebarBridge";
 
 // ---------------------------------------------------------------------------
 // Out-of-band action vocabulary
@@ -296,33 +270,4 @@ export const ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS = {
   // routing; listed here so both sides share one vocabulary.
   LOAD_TRANSCRIPT_PAGE: "load-transcript-page",
   REQUEST_OWNER_DETAILS: "request-owner-details",
-} as const;
-
-/**
- * SkillRunner legacy actions on the run-dialog / skillrunner-sidebar bridge.
- * Scheduled for deletion with the Stage 3 cutover of
- * openspec/changes/2026-07-21-assistant-workspace-skillrunner-convergence:
- * the routed members migrate to ASSISTANT_WORKSPACE_ACTION_REGISTRY
- * (Stage 1 added the "skillrunner" source there) and the panel-local
- * members (drawer toggles, close-dialog) stay child-local UI state.
- */
-export const SKILLRUNNER_LEGACY_ACTIONS = {
-  SELECT_TASK: "select-task",
-  TOGGLE_DRAWER: "toggle-drawer",
-  CLOSE_DRAWER: "close-drawer",
-  TOGGLE_GROUP_COLLAPSE: "toggle-group-collapse",
-  TOGGLE_FINISHED_COLLAPSE: "toggle-finished-collapse",
-  OPEN_AUTH_URL: "open-auth-url",
-  CLOSE_DIALOG: "close-dialog",
-  AUTH_IMPORT_RUN: "auth-import-run",
-  REPLY_RUN: "reply-run",
-  SUBMIT_INTERACTION_FILES: "submit-interaction-files",
-  RESOLVE_PERMISSION: "resolve-permission",
-  CANCEL_RUN: "cancel-run",
-  CANCEL_QUEUED_WORKFLOW_UNIT: "cancel-queued-workflow-unit",
-  ARCHIVE_RUN: "archive-run",
-  COPY_REQUEST_ID: "copy-request-id",
-  COPY_DIAGNOSTICS: "copy-diagnostics",
-  OPEN_BACKEND_MANAGER: "open-backend-manager",
-  OPEN_WORKSPACE: "open-workspace",
 } as const;

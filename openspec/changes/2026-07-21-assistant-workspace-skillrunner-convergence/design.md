@@ -8,7 +8,7 @@ source-neutral by construction: `AssistantWorkspacePublicationAdapter`
 (`src/modules/assistantWorkspacePublicationRuntime.ts`) is the extension
 point, and `acpSkillsWorkspaceSurface.ts` is the reference implementation.
 The SkillRunner tab still runs the legacy paradigm: `skillRunnerRunDialog.ts`
-(5610 LOC) builds a ~120-field decorated snapshot and pushes it through
+(5773 LOC) builds a ~120-field decorated snapshot and pushes it through
 `CHILD_SNAPSHOT` to `run-dialog.html`, where `runDialog.js`,
 `chatThinkingCore.js`, and the SkillRunner branch of
 `assistantPanelModel.js` re-project it for the shared imperative renderer.

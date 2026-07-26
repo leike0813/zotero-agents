@@ -5,6 +5,7 @@ import {
   getSkillRunnerWorkspaceSelectedOwner,
   projectSkillRunnerConversationEntriesToTranscriptItems,
   readSkillRunnerTranscriptRegion,
+  refreshSkillRunnerSidebarHostSnapshot,
   type SkillRunnerConversationEntry,
 } from "../../src/modules/skillRunnerRunDialog";
 import {
@@ -427,7 +428,6 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
         },
       });
       await dispatchRunWorkspaceAction({
-        type: "skillrunner-sidebar:action",
         action: "select-task",
         payload: { taskKey: auth.runKey },
       });
@@ -657,6 +657,11 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
           correlation: { message_id: "msg-9" },
         },
       ]);
+      // A waiting run holds no SSE stream, so the appended history arrives on
+      // the next workspace refresh (the same channel the production sidebar
+      // uses on activation/reselection); the legacy push plane used to mask
+      // this with its incidental snapshot-build re-sync loop.
+      await refreshSkillRunnerSidebarHostSnapshot({});
       await waitForCondition(
         () =>
           transcriptPublications(capture.publications).some(
@@ -731,7 +736,6 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
       );
       capture.publications.length = 0;
       await dispatchRunWorkspaceAction({
-        type: "skillrunner-sidebar:action",
         action: "select-task",
         payload: { taskKey: second.runKey },
       });

@@ -21,7 +21,6 @@ import {
   type AssistantWorkspacePublication,
   type AssistantWorkspacePublicationKind,
 } from "../../src/modules/assistantWorkspacePublication";
-import { SKILLRUNNER_LEGACY_ACTIONS } from "../../src/shared/assistantWireContract";
 import { parseAssistantWorkspaceTranscriptPageRequest } from "../../src/modules/assistantWorkspaceTranscriptPublication";
 import type { AssistantWorkspaceTranscriptRegion } from "../../src/modules/assistantWorkspaceTranscriptPublication";
 import { AssistantWorkspacePublicationCoordinator } from "../../src/modules/assistantWorkspacePublicationCoordinator";
@@ -619,11 +618,11 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
     // panel-local drawer/dialog actions stay out of
     // ASSISTANT_WORKSPACE_ACTION_REGISTRY (design Decision 4).
     for (const action of [
-      SKILLRUNNER_LEGACY_ACTIONS.TOGGLE_DRAWER,
-      SKILLRUNNER_LEGACY_ACTIONS.CLOSE_DRAWER,
-      SKILLRUNNER_LEGACY_ACTIONS.TOGGLE_GROUP_COLLAPSE,
-      SKILLRUNNER_LEGACY_ACTIONS.TOGGLE_FINISHED_COLLAPSE,
-      SKILLRUNNER_LEGACY_ACTIONS.CLOSE_DIALOG,
+      "toggle-drawer",
+      "close-drawer",
+      "toggle-group-collapse",
+      "toggle-finished-collapse",
+      "close-dialog",
     ]) {
       assert.notProperty(ASSISTANT_WORKSPACE_ACTION_REGISTRY, action);
     }

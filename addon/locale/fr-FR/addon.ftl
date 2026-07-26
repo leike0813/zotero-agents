@@ -256,7 +256,6 @@ task-dashboard-skillrunner-cancel = Annuler l'exécution
 task-dashboard-skillrunner-cancel-failed = Échec de l'annulation de l'exécution: { $error }
 task-dashboard-open-run = Ouvrir l'exécution
 task-dashboard-open-run-missing-request-id = Cette exécution n'a pas encore d'ID de requête. Réessayez plus tard.
-task-dashboard-run-dialog-title = Détails de l'exécution: { $requestId }
 task-dashboard-run-workspace-title = Espace de travail SkillRunner
 task-dashboard-run-completed-tasks-title = Tâches terminées
 task-dashboard-run-conversation-title = Conversation

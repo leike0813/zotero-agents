@@ -3,6 +3,7 @@ import {
   statusTone,
 } from "./assistantPanelModel.js";
 import { adoptPanelRegions, managedMount } from "./assistantPanelRenderer.js";
+import { renderSidebarMarkdown } from "./markdownParser.js";
 import {
   applyAssistantTranscriptEffects,
   applyAssistantTranscriptEffectsExact,
@@ -1360,31 +1361,7 @@ function createChildRuntime(source) {
   }
 
   function markdown(value) {
-    const input = String(value == null ? "" : value);
-    if (!window.markdownit) {
-      return input
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/\n/g, "<br>");
-    }
-    try {
-      const parser = window.markdownit({
-        html: false,
-        breaks: true,
-        linkify: false,
-      });
-      if (window.texmath && window.katex) {
-        parser.use(window.texmath, {
-          engine: window.katex,
-          delimiters: "dollars",
-          katexOptions: { throwOnError: false },
-        });
-      }
-      return parser.render(input);
-    } catch (_error) {
-      return input;
-    }
+    return renderSidebarMarkdown(value);
   }
 
   function formatTime(value) {
