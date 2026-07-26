@@ -30,10 +30,10 @@ Use live workflow discovery even when a cached catalog entry exists. A cached de
 Describe and validate the current request through the bundled CLI:
 
 ```sh
-zotero-bridge workflow describe --workflow <workflow-id> --json
+zotero-bridge workflow describe --workflow <workflow-id>
 zotero-bridge workflow validate \
-  --workflow <workflow-id> --selection-json '<reviewed-selection>' \
-  --options-json '<reviewed-options>' --json
+  --workflow <workflow-id> --selection '<reviewed-selection>' \
+  --workflow-options '<reviewed-options>'
 ```
 
 Inspect the exact selection refs, separate `inputs` and `validateSelection` contracts, workflow ID, required options, provider requirements, candidate-production rules, immutable unit grouping, expected outputs, and approval boundary. If the selection is empty, stale, or contains unintended objects, correct the live Zotero selection and validate again. Do not reconstruct prepared units locally or represent cached catalog data as live validation.
@@ -43,9 +43,9 @@ After the operator authorizes that exact reviewed scope and bounded concurrency,
 ```sh
 zotero-bridge workflow submit \
   --workflow <workflow-id> \
-  --selection-json '<reviewed-selection>' \
-  --options-json '<reviewed-options>' \
-  --max-concurrency <bounded-count> --json
+  --selection '<reviewed-selection>' \
+  --workflow-options '<reviewed-options>' \
+  --max-concurrency <bounded-count>
 ```
 
 Valid arguments record the current reviewed scope but cannot replace Zotero-side approval. The Host revalidates the live workflow contract and selection before admitting work. Read the returned `admission` branch: preserve `workflowRunId` for direct admission, or preserve `submissionId`, counts, queue links, and immutable unit projections for host-queue admission. Do not invent a run handle when the initial response intentionally represents pending work.

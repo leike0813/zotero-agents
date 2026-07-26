@@ -139,8 +139,16 @@ import type {
 import {
   copyRuntimeDirectory,
   ensureRuntimeDirectory,
+  getRuntimePersistencePaths,
+  readRuntimeTextFile,
+  removeRuntimePath,
+  replaceRuntimeTextFileAtomically,
+  runtimePathExists,
 } from "./runtimePersistence";
-import { buildAcpChatSkillInjectionPlan } from "./acpAgentFamilyResolver";
+import {
+  buildAcpChatSkillInjectionPlan,
+  normalizeAcpProjectSkillRoot,
+} from "./acpAgentFamilyResolver";
 import { scanPluginSkillRegistry } from "./pluginSkillRegistry";
 import {
   getZoteroMcpHealthSnapshot,
@@ -162,8 +170,11 @@ import { resolveAutoApproveAcpPermissionOptionId } from "./acpPermissionOptions"
 import {
   buildAcpStartupPromptPreamble,
   prependAcpStartupPromptPreamble,
-  resolveAcpStartupInstructionFile,
 } from "./acpStartupPromptPreambles";
+import {
+  ACP_RUNTIME_PROMPT_TEMPLATES_BY_ID,
+  loadAcpRuntimePromptTemplate,
+} from "./acpRuntimePromptTemplates";
 
 export type AcpChatWorkspaceChangeKind =
   | "active-scope"
@@ -332,6 +343,35 @@ const ACP_CHAT_INJECTED_SKILL_IDS = [
   "zotero-literature-analysis",
   "zotero-research-synthesis",
 ] as const;
+const ACP_CHAT_INJECTED_SKILLS_MANIFEST_SCHEMA =
+  "zotero-agents.acp-chat-injected-skills.v1";
+const ACP_CHAT_INJECTED_SKILLS_MANIFEST_FILENAME =
+  "injected-skills-manifest.json";
+const ACP_CHAT_WORKSPACE_AGENTS_FILENAME = "AGENTS.md";
+const ACP_CHAT_WORKSPACE_AGENTS_START =
+  "<!-- zotero-agents:acp-chat-workspace:start -->";
+const ACP_CHAT_WORKSPACE_AGENTS_END =
+  "<!-- zotero-agents:acp-chat-workspace:end -->";
+const LEGACY_ACP_CHAT_SKILL_ROOTS = [
+  ".agents/skills",
+  ".codex/skills",
+  ".claude/skills",
+  ".gemini/skills",
+  ".qwen/skills",
+  ".kilo/skills",
+] as const;
+
+type AcpChatInjectedSkillTarget = {
+  relativeRoot: string;
+  skillId: string;
+};
+
+type AcpChatInjectedSkillsManifest = {
+  schema: typeof ACP_CHAT_INJECTED_SKILLS_MANIFEST_SCHEMA;
+  targets: AcpChatInjectedSkillTarget[];
+};
+
+let acpChatWorkspacePreparationTail: Promise<void> = Promise.resolve();
 
 function nowIso() {
   return new Date().toISOString();
@@ -3163,9 +3203,268 @@ async function forceStopAcpChatPrompt(
   });
 }
 
+function withAcpChatWorkspacePreparationLock<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  const run = acpChatWorkspacePreparationTail
+    .catch(() => undefined)
+    .then(operation);
+  acpChatWorkspacePreparationTail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+function appendAcpChatPreparationDiagnostic(
+  sessionRuntime: AcpChatSessionRuntime,
+  entry: {
+    kind: string;
+    level: "info" | "warn" | "error";
+    message: string;
+    detail?: string;
+    raw?: unknown;
+  },
+) {
+  appendDiagnostic(sessionRuntime, {
+    id: nextOpaqueId("acp-diag"),
+    ts: nowIso(),
+    ...entry,
+    detail: entry.detail || "",
+  });
+}
+
+function managedAcpChatWorkspaceAgentsBlock(template: string) {
+  return [
+    ACP_CHAT_WORKSPACE_AGENTS_START,
+    template.trim(),
+    ACP_CHAT_WORKSPACE_AGENTS_END,
+  ].join("\n");
+}
+
+function countTextOccurrences(content: string, marker: string) {
+  return content.split(marker).length - 1;
+}
+
+async function materializeAcpChatWorkspaceInstructions(args: {
+  sessionRuntime: AcpChatSessionRuntime;
+  workspaceDir: string;
+}) {
+  const targetPath = joinPath(
+    args.workspaceDir,
+    ACP_CHAT_WORKSPACE_AGENTS_FILENAME,
+  );
+  try {
+    const template = await loadAcpRuntimePromptTemplate(
+      ACP_RUNTIME_PROMPT_TEMPLATES_BY_ID.acp_chat_workspace_agents,
+    );
+    const managedBlock = managedAcpChatWorkspaceAgentsBlock(template);
+    const existing = (await runtimePathExists(targetPath))
+      ? await readRuntimeTextFile(targetPath)
+      : "";
+    const startCount = countTextOccurrences(
+      existing,
+      ACP_CHAT_WORKSPACE_AGENTS_START,
+    );
+    const endCount = countTextOccurrences(
+      existing,
+      ACP_CHAT_WORKSPACE_AGENTS_END,
+    );
+    let content = managedBlock;
+    if (startCount === 0 && endCount === 0) {
+      content = existing.trim()
+        ? `${managedBlock}\n\n${existing}`
+        : `${managedBlock}\n`;
+    } else if (startCount === 1 && endCount === 1) {
+      const start = existing.indexOf(ACP_CHAT_WORKSPACE_AGENTS_START);
+      const end = existing.indexOf(ACP_CHAT_WORKSPACE_AGENTS_END);
+      if (end < start) {
+        appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
+          kind: "acp_chat_workspace_instructions_unavailable",
+          level: "warn",
+          message:
+            "ACP Chat workspace instructions were not updated because AGENTS.md contains malformed managed markers.",
+          detail: targetPath,
+        });
+        return;
+      }
+      content =
+        existing.slice(0, start) +
+        managedBlock +
+        existing.slice(end + ACP_CHAT_WORKSPACE_AGENTS_END.length);
+    } else {
+      appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
+        kind: "acp_chat_workspace_instructions_unavailable",
+        level: "warn",
+        message:
+          "ACP Chat workspace instructions were not updated because AGENTS.md contains ambiguous managed markers.",
+        detail: targetPath,
+      });
+      return;
+    }
+    await replaceRuntimeTextFileAtomically({
+      targetPath,
+      fragments: [content],
+    });
+    appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
+      kind: "acp_chat_workspace_instructions_ready",
+      level: "info",
+      message: "ACP Chat workspace instructions materialized.",
+      detail: targetPath,
+    });
+  } catch (error) {
+    appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
+      kind: "acp_chat_workspace_instructions_unavailable",
+      level: "warn",
+      message: "ACP Chat workspace instruction materialization failed.",
+      detail: compactError(error),
+    });
+  }
+}
+
+function acpChatInjectedSkillTargetKey(target: AcpChatInjectedSkillTarget) {
+  return `${target.relativeRoot}\u0000${target.skillId}`;
+}
+
+function resolveManagedAcpChatInjectedSkillDir(args: {
+  workspaceDir: string;
+  relativeRoot: string;
+  skillId: string;
+}) {
+  const relativeRoot = normalizeAcpProjectSkillRoot(args.relativeRoot);
+  if (
+    !relativeRoot ||
+    !ACP_CHAT_INJECTED_SKILL_IDS.includes(
+      args.skillId as (typeof ACP_CHAT_INJECTED_SKILL_IDS)[number],
+    )
+  ) {
+    return "";
+  }
+  const workspaceDir = normalizeString(args.workspaceDir)
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "");
+  const targetDir = joinPath(
+    args.workspaceDir,
+    relativeRoot,
+    args.skillId,
+  ).replace(/\\/g, "/");
+  if (!workspaceDir || !targetDir.startsWith(`${workspaceDir}/`)) {
+    return "";
+  }
+  return targetDir;
+}
+
+function normalizeAcpChatInjectedSkillTargets(value: unknown) {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const targets = new Map<string, AcpChatInjectedSkillTarget>();
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object") {
+      return null;
+    }
+    const record = raw as Record<string, unknown>;
+    const relativeRoot = normalizeAcpProjectSkillRoot(record.relativeRoot);
+    const skillId = normalizeString(record.skillId);
+    if (
+      !relativeRoot ||
+      relativeRoot !== record.relativeRoot ||
+      !ACP_CHAT_INJECTED_SKILL_IDS.includes(
+        skillId as (typeof ACP_CHAT_INJECTED_SKILL_IDS)[number],
+      )
+    ) {
+      return null;
+    }
+    const target = { relativeRoot, skillId };
+    targets.set(acpChatInjectedSkillTargetKey(target), target);
+  }
+  return Array.from(targets.values());
+}
+
+async function bootstrapLegacyAcpChatInjectedSkillTargets(
+  workspaceDir: string,
+) {
+  const targets: AcpChatInjectedSkillTarget[] = [];
+  for (const relativeRoot of LEGACY_ACP_CHAT_SKILL_ROOTS) {
+    for (const skillId of ACP_CHAT_INJECTED_SKILL_IDS) {
+      const targetDir = resolveManagedAcpChatInjectedSkillDir({
+        workspaceDir,
+        relativeRoot,
+        skillId,
+      });
+      if (targetDir && (await runtimePathExists(targetDir))) {
+        targets.push({ relativeRoot, skillId });
+      }
+    }
+  }
+  return targets;
+}
+
+async function readAcpChatInjectedSkillsManifest(args: {
+  sessionRuntime: AcpChatSessionRuntime;
+  workspaceDir: string;
+  manifestPath: string;
+}) {
+  if (!(await runtimePathExists(args.manifestPath))) {
+    return bootstrapLegacyAcpChatInjectedSkillTargets(args.workspaceDir);
+  }
+  try {
+    const parsed = JSON.parse(
+      await readRuntimeTextFile(args.manifestPath),
+    ) as Partial<AcpChatInjectedSkillsManifest>;
+    const targets = normalizeAcpChatInjectedSkillTargets(parsed.targets);
+    if (
+      parsed.schema !== ACP_CHAT_INJECTED_SKILLS_MANIFEST_SCHEMA ||
+      targets === null
+    ) {
+      throw new Error("unsupported or invalid injected skills manifest");
+    }
+    return targets;
+  } catch (error) {
+    appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
+      kind: "acp_chat_injected_skills_manifest_invalid",
+      level: "warn",
+      message:
+        "ACP Chat ignored an invalid injected skills manifest and skipped stale cleanup.",
+      detail: compactError(error),
+    });
+    return [];
+  }
+}
+
+async function writeAcpChatInjectedSkillsManifest(args: {
+  sessionRuntime: AcpChatSessionRuntime;
+  manifestPath: string;
+  targets: AcpChatInjectedSkillTarget[];
+}) {
+  const manifest: AcpChatInjectedSkillsManifest = {
+    schema: ACP_CHAT_INJECTED_SKILLS_MANIFEST_SCHEMA,
+    targets: [...args.targets].sort(
+      (left, right) =>
+        left.relativeRoot.localeCompare(right.relativeRoot) ||
+        left.skillId.localeCompare(right.skillId),
+    ),
+  };
+  try {
+    await replaceRuntimeTextFileAtomically({
+      targetPath: args.manifestPath,
+      fragments: [JSON.stringify(manifest, null, 2), "\n"],
+    });
+    return true;
+  } catch (error) {
+    appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
+      kind: "acp_chat_injected_skills_manifest_unavailable",
+      level: "warn",
+      message: "ACP Chat injected skills manifest could not be committed.",
+      detail: compactError(error),
+    });
+    return false;
+  }
+}
+
 async function materializeAcpChatInjectedSkills(args: {
   sessionRuntime: AcpChatSessionRuntime;
-  backend: BackendInstance;
+  backends: readonly BackendInstance[];
   workspaceDir: string;
 }) {
   const workspaceDir = normalizeString(args.workspaceDir);
@@ -3173,56 +3472,84 @@ async function materializeAcpChatInjectedSkills(args: {
     return;
   }
   const injectionPlan = buildAcpChatSkillInjectionPlan({
-    backend: args.backend,
+    backends: args.backends,
     workspaceDir,
   });
-  if (injectionPlan.skillRoots.length === 0) {
-    appendDiagnostic(args.sessionRuntime, {
-      id: nextOpaqueId("acp-diag"),
-      ts: nowIso(),
+  for (const diagnostic of injectionPlan.diagnostics) {
+    appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
+      kind: diagnostic.code,
+      level:
+        diagnostic.level === "error"
+          ? "error"
+          : diagnostic.level === "warning"
+            ? "warn"
+            : "info",
+      message: diagnostic.message,
+      detail: injectionPlan.families.join(", "),
+      raw: {
+        families: injectionPlan.families,
+        skillRoots: injectionPlan.skillRoots,
+      },
+    });
+  }
+
+  const manifestPath = joinPath(
+    getRuntimePersistencePaths().acpChatRoot,
+    ACP_CHAT_INJECTED_SKILLS_MANIFEST_FILENAME,
+  );
+  const previousTargets = await readAcpChatInjectedSkillsManifest({
+    sessionRuntime: args.sessionRuntime,
+    workspaceDir,
+    manifestPath,
+  });
+  const desiredRoots = new Set(injectionPlan.relativeSkillRoots);
+  const nextTargets = new Map<string, AcpChatInjectedSkillTarget>();
+  for (const target of previousTargets) {
+    nextTargets.set(acpChatInjectedSkillTargetKey(target), target);
+  }
+  for (const relativeRoot of injectionPlan.relativeSkillRoots) {
+    for (const skillId of ACP_CHAT_INJECTED_SKILL_IDS) {
+      const target = { relativeRoot, skillId };
+      nextTargets.set(acpChatInjectedSkillTargetKey(target), target);
+    }
+  }
+  const ownershipCommitted = await writeAcpChatInjectedSkillsManifest({
+    sessionRuntime: args.sessionRuntime,
+    manifestPath,
+    targets: Array.from(nextTargets.values()),
+  });
+  if (!ownershipCommitted) {
+    appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
       kind: "acp_chat_injected_skills_unavailable",
       level: "warn",
       message:
-        "ACP Chat injected skills were not materialized because no project skill roots were available.",
-      detail: injectionPlan.family,
-      raw: {
-        family: injectionPlan.family,
-        skillRoots: injectionPlan.skillRoots,
-        skillIds: [...ACP_CHAT_INJECTED_SKILL_IDS],
-      },
+        "ACP Chat skipped injected skill reconciliation because target ownership could not be committed.",
+      detail: manifestPath,
     });
     return;
   }
+
+  let registry: Awaited<ReturnType<typeof scanPluginSkillRegistry>> | null =
+    null;
   try {
-    for (const diagnostic of injectionPlan.diagnostics) {
-      appendDiagnostic(args.sessionRuntime, {
-        id: nextOpaqueId("acp-diag"),
-        ts: nowIso(),
-        kind: diagnostic.code,
-        level:
-          diagnostic.level === "error"
-            ? "error"
-            : diagnostic.level === "warning"
-              ? "warn"
-              : "info",
-        message: diagnostic.message,
-        detail: injectionPlan.family,
-        raw: {
-          family: injectionPlan.family,
-          skillRoots: injectionPlan.skillRoots,
-        },
-      });
-    }
-    const registry = await scanPluginSkillRegistry();
-    const missingSkillIds: string[] = [];
-    const targetDirsBySkill: Record<string, string[]> = {};
+    registry = await scanPluginSkillRegistry();
+  } catch (error) {
+    appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
+      kind: "acp_chat_injected_skills_unavailable",
+      level: "warn",
+      message: "ACP Chat injected skill registry scan failed.",
+      detail: compactError(error),
+    });
+  }
+
+  const missingSkillIds: string[] = [];
+  const targetDirsBySkill: Record<string, string[]> = {};
+  if (registry) {
     for (const skillId of ACP_CHAT_INJECTED_SKILL_IDS) {
       const entry = registry.entriesById[skillId];
       if (!entry) {
         missingSkillIds.push(skillId);
-        appendDiagnostic(args.sessionRuntime, {
-          id: nextOpaqueId("acp-diag"),
-          ts: nowIso(),
+        appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
           kind: "acp_chat_injected_skill_unavailable",
           level: "warn",
           message:
@@ -3237,46 +3564,88 @@ async function materializeAcpChatInjectedSkills(args: {
         continue;
       }
       const targetDirs: string[] = [];
-      for (const root of injectionPlan.skillRoots) {
-        const targetDir = joinPath(root, skillId);
-        await copyRuntimeDirectory({
-          sourceDir: entry.sourceDir,
-          targetDir,
+      for (const relativeRoot of injectionPlan.relativeSkillRoots) {
+        const target = { relativeRoot, skillId };
+        const targetDir = resolveManagedAcpChatInjectedSkillDir({
+          workspaceDir,
+          relativeRoot,
+          skillId,
         });
-        targetDirs.push(targetDir);
+        if (!targetDir) {
+          continue;
+        }
+        try {
+          await copyRuntimeDirectory({
+            sourceDir: entry.sourceDir,
+            targetDir,
+          });
+          nextTargets.set(acpChatInjectedSkillTargetKey(target), target);
+          targetDirs.push(targetDir);
+        } catch (error) {
+          appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
+            kind: "acp_chat_injected_skill_unavailable",
+            level: "warn",
+            message: "ACP Chat injected skill materialization failed.",
+            detail: `${skillId}: ${compactError(error)}`,
+            raw: { relativeRoot, skillId },
+          });
+        }
       }
       targetDirsBySkill[skillId] = targetDirs;
     }
-    appendDiagnostic(args.sessionRuntime, {
-      id: nextOpaqueId("acp-diag"),
-      ts: nowIso(),
-      kind: "acp_chat_injected_skills_ready",
-      level: "info",
-      message: "ACP Chat injected skills materialized.",
-      detail: Object.values(targetDirsBySkill).flat().join(", "),
-      raw: {
-        skillIds: [...ACP_CHAT_INJECTED_SKILL_IDS],
-        missingSkillIds,
-        family: injectionPlan.family,
-        skillRoots: injectionPlan.skillRoots,
-        targetDirsBySkill,
-      },
-    });
-  } catch (error) {
-    appendDiagnostic(args.sessionRuntime, {
-      id: nextOpaqueId("acp-diag"),
-      ts: nowIso(),
-      kind: "acp_chat_injected_skills_unavailable",
-      level: "warn",
-      message: "ACP Chat injected skill materialization failed.",
-      detail: compactError(error),
-      raw: {
-        skillIds: [...ACP_CHAT_INJECTED_SKILL_IDS],
-        family: injectionPlan.family,
-        skillRoots: injectionPlan.skillRoots,
-      },
-    });
   }
+
+  for (const target of previousTargets) {
+    if (desiredRoots.has(target.relativeRoot)) {
+      continue;
+    }
+    const targetDir = resolveManagedAcpChatInjectedSkillDir({
+      workspaceDir,
+      relativeRoot: target.relativeRoot,
+      skillId: target.skillId,
+    });
+    if (!targetDir) {
+      continue;
+    }
+    try {
+      await removeRuntimePath(targetDir);
+      nextTargets.delete(acpChatInjectedSkillTargetKey(target));
+    } catch (error) {
+      nextTargets.set(acpChatInjectedSkillTargetKey(target), target);
+      appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
+        kind: "acp_chat_injected_skill_cleanup_unavailable",
+        level: "warn",
+        message: "ACP Chat could not clean up a stale injected skill.",
+        detail: `${targetDir}: ${compactError(error)}`,
+        raw: target,
+      });
+    }
+  }
+
+  await writeAcpChatInjectedSkillsManifest({
+    sessionRuntime: args.sessionRuntime,
+    manifestPath,
+    targets: Array.from(nextTargets.values()),
+  });
+  appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
+    kind:
+      injectionPlan.skillRoots.length > 0
+        ? "acp_chat_injected_skills_ready"
+        : "acp_chat_injected_skills_unavailable",
+    level: injectionPlan.skillRoots.length > 0 ? "info" : "warn",
+    message:
+      injectionPlan.skillRoots.length > 0
+        ? "ACP Chat injected skills materialized."
+        : "ACP Chat injected skills were not materialized because no project skill roots were available.",
+    detail: Object.values(targetDirsBySkill).flat().join(", "),
+    raw: {
+      skillIds: [...ACP_CHAT_INJECTED_SKILL_IDS],
+      missingSkillIds,
+      families: injectionPlan.families,
+      skillRoots: injectionPlan.skillRoots,
+      targetDirsBySkill,
+    },
+  });
 }
 
 async function ensureAdapter(backendId?: string, conversationId?: string) {
@@ -3289,7 +3658,7 @@ async function ensureAdapter(backendId?: string, conversationId?: string) {
     touchLiveAcpChatSessionRuntime(sessionRuntime);
     return { sessionRuntime, adapter: sessionRuntime.adapter };
   }
-  const backend = await resolveBackendForSessionRuntime(sessionRuntime);
+  let backend = await resolveBackendForSessionRuntime(sessionRuntime);
   sessionRuntime.snapshot.sessionId = "";
   sessionRuntime.snapshot.lastError = "";
   sessionRuntime.snapshot.prerequisiteError = "";
@@ -3330,12 +3699,40 @@ async function ensureAdapter(backendId?: string, conversationId?: string) {
       sessionRuntime.snapshot.agentWorkspaceDir ||
       sessionRuntime.snapshot.workspaceDir ||
       sessionRuntime.snapshot.sessionCwd;
-    const hostBridgeCliInjection = await materializeHostBridgeCliRunInjection({
-      workspaceDir,
-      requestId:
-        sessionRuntime.snapshot.conversationId || nextOpaqueId("acp-chat"),
-      scopeKind: "acp-chat",
-    });
+    const preparedWorkspace = await withAcpChatWorkspacePreparationLock(
+      async () => {
+        await materializeAcpChatWorkspaceInstructions({
+          sessionRuntime,
+          workspaceDir,
+        });
+        const configuredBackends = await refreshAcpBackends();
+        const currentBackend = configuredBackends.find(
+          (entry) => entry.id === sessionRuntime.backendId,
+        );
+        if (!currentBackend) {
+          throw new Error(
+            `ACP backend "${sessionRuntime.backendId}" is not available`,
+          );
+        }
+        const hostBridgeCliInjection =
+          await materializeHostBridgeCliRunInjection({
+            workspaceDir,
+            requestId:
+              sessionRuntime.snapshot.conversationId ||
+              nextOpaqueId("acp-chat"),
+            scopeKind: "acp-chat",
+          });
+        await materializeAcpChatInjectedSkills({
+          sessionRuntime,
+          backends: configuredBackends,
+          workspaceDir,
+        });
+        return { backend: currentBackend, hostBridgeCliInjection };
+      },
+    );
+    backend = preparedWorkspace.backend;
+    sessionRuntime.snapshot.backend = backend;
+    const hostBridgeCliInjection = preparedWorkspace.hostBridgeCliInjection;
     bindHostBridgePermissionForSessionRuntime(sessionRuntime);
     appendDiagnostic(sessionRuntime, {
       id: nextOpaqueId("acp-diag"),
@@ -3349,11 +3746,6 @@ async function ensureAdapter(backendId?: string, conversationId?: string) {
         : "Host Bridge CLI is unavailable for ACP Chat; MCP fallback is disabled by default.",
       detail: hostBridgeCliInjection.fallbackReason || "",
       raw: summarizeHostBridgeCliRunInjection(hostBridgeCliInjection),
-    });
-    await materializeAcpChatInjectedSkills({
-      sessionRuntime,
-      backend,
-      workspaceDir,
     });
     const backendWithHostBridgeCli = applyHostBridgeCliEnvToBackend({
       backend,
@@ -4452,8 +4844,6 @@ export async function sendAcpConversationPrompt(args: {
   if (!sessionRuntime.snapshot.conversationId) {
     sessionRuntime.snapshot.conversationId = nextOpaqueId("acp-conversation");
   }
-  const backend = sessionRuntime.snapshot.backend;
-  const agentFamily = String(backend?.acp?.agentFamily || "").trim();
   const promptMessage = shouldInjectStartupPreamble
     ? prependAcpStartupPromptPreamble({
         message,
@@ -4463,7 +4853,7 @@ export async function sendAcpConversationPrompt(args: {
             sessionRuntime.snapshot.agentWorkspaceDir ||
             sessionRuntime.snapshot.sessionCwd ||
             sessionRuntime.snapshot.workspaceDir,
-          instructionFile: resolveAcpStartupInstructionFile(agentFamily),
+          instructionFile: "AGENTS.md",
         }),
       })
     : message;
@@ -5455,6 +5845,7 @@ export async function shutdownAcpSessionManager() {
   activeBackendId = "";
   activeConversationId = "";
   activeSyntheticAcpChatReplayActivation = undefined;
+  acpChatWorkspacePreparationTail = Promise.resolve();
   initialized = false;
   resetZoteroMcpServerForTests();
 }
@@ -5737,6 +6128,7 @@ export function resetAcpSessionManagerForTests() {
   activeConversationId = "";
   activeSyntheticAcpChatReplayActivation = undefined;
   syntheticAcpChatReplayActivationNonce = 0;
+  acpChatWorkspacePreparationTail = Promise.resolve();
   initialized = false;
   acpChatPromptInterruptGraceMs = DEFAULT_ACP_CHAT_PROMPT_INTERRUPT_GRACE_MS;
 }

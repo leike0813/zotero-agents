@@ -35,6 +35,14 @@ The minimum-core surface SHALL publish a generated command catalog that lets an 
 - **THEN** every canonical command appears exactly once in the generated catalog
 - **AND** every catalog entry links exactly one generated card containing that command only.
 
+### Requirement: Minimum Skill SHALL explain invocation-control semantics
+The minimum-core `SKILL.md` SHALL explain the purpose and timing of every true global option, the fixed JSON-envelope output boundary, the distinction between leaf-local `--query` and `--input`, and command-owned output destinations. Generated command cards SHALL state whether `--schema` can return a structured-input package for that leaf.
+
+#### Scenario: Agent constructs a leaf invocation
+- **WHEN** an agent moves from command discovery to argv construction
+- **THEN** it can distinguish connection and idempotency controls from leaf payload bindings
+- **AND** it does not add `--json`, `--query`, `--input`, `--schema`, or an output destination unless the current command contract permits that use.
+
 ## ADDED Requirements
 
 ### Requirement: Command-card migration SHALL preserve semantic depth

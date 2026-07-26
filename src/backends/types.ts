@@ -33,6 +33,8 @@ export type BackendInstance = {
       | "hermes"
       | "qwen-code"
       | "kilo"
+      | "codebuddy"
+      | "kimi-code"
       | "unknown";
     skillRoots?: string[];
     connectionTest?: {

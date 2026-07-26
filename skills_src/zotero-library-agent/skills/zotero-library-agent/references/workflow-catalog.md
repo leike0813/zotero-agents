@@ -6,8 +6,8 @@ Use this catalog to select a likely workflow that ships with the Zotero plugin. 
 
 Before execution, use live commands in this order:
 
-1. `zotero-bridge workflow list --json` to confirm current availability.
-2. `zotero-bridge workflow describe --workflow <id> --json` to obtain the current selection, option, provider, execution-mode, and output contract.
+1. `zotero-bridge workflow list` to confirm current availability.
+2. `zotero-bridge workflow describe --workflow <id>` to obtain the current selection, option, provider, execution-mode, and output contract.
 3. `zotero-bridge workflow validate` with either the declared selection or no-selection form and the intended workflow options.
 4. `zotero-bridge workflow profile describe` and `zotero-bridge workflow profile validate` for the separately selected backend profile.
 5. `zotero-bridge workflow submit` only after the bounded request and Zotero-side authority are current.

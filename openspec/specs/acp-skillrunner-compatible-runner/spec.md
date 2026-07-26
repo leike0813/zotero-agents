@@ -61,21 +61,39 @@ instruction discovery.
 - **AND** it SHALL keep the requested skill's catalog root available for
   execution and validation.
 
-### Requirement: ACP runner SHALL recognize Kilo as a project-skill-root agent family
+### Requirement: ACP runner SHALL resolve current project-skill-root agent families
 
-ACP agent family resolution SHALL treat Kilo as a known project-skill-root family. Kilo's default project skill root SHALL be `.kilo/skills`.
+Every non-Hermes family SHALL include `.agents/skills`. Known families SHALL
+also include their dedicated project root: Codex `.codex/skills`, Claude Code
+`.claude/skills`, OpenCode `.opencode/skills`, Gemini CLI `.gemini/skills`,
+Qwen Code `.qwen/skills`, Kilo `.kilo/skills`, CodeBuddy
+`.codebuddy/skills`, and Kimi Code `.kimi-code/skills`. Hermes SHALL use no
+project skill root.
 
-#### Scenario: Kilo backend resolves to Kilo family
+#### Scenario: CodeBuddy and Kimi are inferred from command metadata
 
-- **GIVEN** an ACP backend is explicitly configured as `kilo` or is inferred from Kilo command metadata
+- **GIVEN** an ACP backend command contains the complete token `codebuddy`, `cbc`, or `kimi`
 - **WHEN** ACP agent family resolution runs
-- **THEN** the resolved family SHALL be `kilo`
-- **AND** the default skill roots SHALL include `.kilo/skills`.
+- **THEN** CodeBuddy metadata SHALL resolve to `codebuddy`
+- **AND** Kimi metadata SHALL resolve to `kimi-code`
+- **AND** substrings inside unrelated command tokens SHALL NOT trigger those families.
+
+#### Scenario: OpenCode uses its dedicated root
+
+- **GIVEN** an ACP backend resolves to `opencode`
+- **WHEN** its default skill roots are built
+- **THEN** the roots SHALL be `.agents/skills` and `.opencode/skills`
+- **AND** `.claude/skills` SHALL NOT be included.
 
 #### Scenario: Kilo preset uses Kilo family
 
 - **WHEN** the Kilo ACP preset is converted into a backend profile
 - **THEN** the backend profile SHALL set `acp.agentFamily` to `kilo`.
+
+#### Scenario: CodeBuddy preset uses CodeBuddy family
+
+- **WHEN** the CodeBuddy ACP preset is converted into a backend profile
+- **THEN** the backend profile SHALL set `acp.agentFamily` to `codebuddy`.
 
 ### Requirement: ACP runner SHALL wrap workflow launches with uv when needed
 
@@ -1625,4 +1643,3 @@ After an incremental transcript effect restores the viewport anchor or the prese
 - **WHEN** an incremental effect restores the viewport
 - **THEN** the last-scroll-top marker SHALL equal the restored `scrollTop`
 - **AND** the tail-follow state SHALL NOT be cleared unless a real user scroll moves upward.
-

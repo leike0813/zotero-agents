@@ -8,7 +8,7 @@
 2. Find the matching task family below and inspect its natural-language cues.
 3. Select one or more candidate canonical commands from the compact index.
 4. If the mapping remains ambiguous, run `zotero-bridge surface search --intent <plain-language intent>`.
-5. Confirm the live command contract with `zotero-bridge surface describe '<canonical command>' --json`.
+5. Confirm the live command contract with `zotero-bridge surface describe '<canonical command>'`.
 6. Read the linked detailed command reference before constructing argv or payload.
 7. Execute only after resolving the required identity, input channel, authority, and recovery path.
 
@@ -95,7 +95,7 @@ Selection check:
 
 - Match the user's requested outcome, object type, freshness, and state-change boundary to this family.
 - If several commands remain plausible, use `zotero-bridge surface search --intent <plain-language intent>` to narrow the candidates.
-- Confirm the selected command with `zotero-bridge surface describe '<canonical command>' --json` before constructing the invocation.
+- Confirm the selected command with `zotero-bridge surface describe '<canonical command>'` before constructing the invocation.
 - Read the linked detailed reference before execution; the compact index is not an argv or approval contract.
 
 ## Find, inspect, page through, or export library content
@@ -132,7 +132,7 @@ Selection check:
 
 - Match the user's requested outcome, object type, freshness, and state-change boundary to this family.
 - If several commands remain plausible, use `zotero-bridge surface search --intent <plain-language intent>` to narrow the candidates.
-- Confirm the selected command with `zotero-bridge surface describe '<canonical command>' --json` before constructing the invocation.
+- Confirm the selected command with `zotero-bridge surface describe '<canonical command>'` before constructing the invocation.
 - Read the linked detailed reference before execution; the compact index is not an argv or approval contract.
 
 ## Preview and apply an explicit Zotero data change
@@ -167,7 +167,7 @@ Selection check:
 
 - Match the user's requested outcome, object type, freshness, and state-change boundary to this family.
 - If several commands remain plausible, use `zotero-bridge surface search --intent <plain-language intent>` to narrow the candidates.
-- Confirm the selected command with `zotero-bridge surface describe '<canonical command>' --json` before constructing the invocation.
+- Confirm the selected command with `zotero-bridge surface describe '<canonical command>'` before constructing the invocation.
 - Read the linked detailed reference before execution; the compact index is not an argv or approval contract.
 
 ## Move bytes, inspect Products, or follow durable operations
@@ -196,7 +196,7 @@ Selection check:
 
 - Match the user's requested outcome, object type, freshness, and state-change boundary to this family.
 - If several commands remain plausible, use `zotero-bridge surface search --intent <plain-language intent>` to narrow the candidates.
-- Confirm the selected command with `zotero-bridge surface describe '<canonical command>' --json` before constructing the invocation.
+- Confirm the selected command with `zotero-bridge surface describe '<canonical command>'` before constructing the invocation.
 - Read the linked detailed reference before execution; the compact index is not an argv or approval contract.
 
 ## Discover, validate, submit, or apply a workflow
@@ -236,7 +236,7 @@ Selection check:
 
 - Match the user's requested outcome, object type, freshness, and state-change boundary to this family.
 - If several commands remain plausible, use `zotero-bridge surface search --intent <plain-language intent>` to narrow the candidates.
-- Confirm the selected command with `zotero-bridge surface describe '<canonical command>' --json` before constructing the invocation.
+- Confirm the selected command with `zotero-bridge surface describe '<canonical command>'` before constructing the invocation.
 - Read the linked detailed reference before execution; the compact index is not an argv or approval contract.
 
 ## Monitor, interact with, or cancel a workflow run
@@ -274,7 +274,7 @@ Selection check:
 
 - Match the user's requested outcome, object type, freshness, and state-change boundary to this family.
 - If several commands remain plausible, use `zotero-bridge surface search --intent <plain-language intent>` to narrow the candidates.
-- Confirm the selected command with `zotero-bridge surface describe '<canonical command>' --json` before constructing the invocation.
+- Confirm the selected command with `zotero-bridge surface describe '<canonical command>'` before constructing the invocation.
 - Read the linked detailed reference before execution; the compact index is not an argv or approval contract.
 
 ## Inspect or maintain Synthesis topics, indexes, graphs, and artifacts
@@ -324,7 +324,7 @@ Selection check:
 
 - Match the user's requested outcome, object type, freshness, and state-change boundary to this family.
 - If several commands remain plausible, use `zotero-bridge surface search --intent <plain-language intent>` to narrow the candidates.
-- Confirm the selected command with `zotero-bridge surface describe '<canonical command>' --json` before constructing the invocation.
+- Confirm the selected command with `zotero-bridge surface describe '<canonical command>'` before constructing the invocation.
 - Read the linked detailed reference before execution; the compact index is not an argv or approval contract.
 
 ## Diagnose the bridge or make an advanced raw call
@@ -359,7 +359,7 @@ Selection check:
 
 - Match the user's requested outcome, object type, freshness, and state-change boundary to this family.
 - If several commands remain plausible, use `zotero-bridge surface search --intent <plain-language intent>` to narrow the candidates.
-- Confirm the selected command with `zotero-bridge surface describe '<canonical command>' --json` before constructing the invocation.
+- Confirm the selected command with `zotero-bridge surface describe '<canonical command>'` before constructing the invocation.
 - Read the linked detailed reference before execution; the compact index is not an argv or approval contract.
 
 

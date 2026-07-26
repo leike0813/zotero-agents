@@ -293,6 +293,9 @@ function renderCommandCard(args: {
       "",
     ],
   );
+  const schemaGuidance = inputSections.length
+    ? "Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero."
+    : "This leaf has no structured JSON input. `--schema` returns `command_input_schema_unavailable`; use command help or `surface describe` to inspect the invocation contract.";
   const examples = Object.entries(args.command.inputSchemas).flatMap(
     ([id, input]) =>
       input.examples.flatMap((example) => [
@@ -326,7 +329,7 @@ function renderCommandCard(args: {
     usage,
     "```",
     "",
-    "The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.",
+    `The global options may appear before or after the leaf command. ${schemaGuidance}`,
     "",
     "## Global parameters",
     "",
@@ -517,7 +520,7 @@ function renderCommandCatalog(
       "",
       "- Match the user's requested outcome, object type, freshness, and state-change boundary to this family.",
       "- If several commands remain plausible, use `zotero-bridge surface search --intent <plain-language intent>` to narrow the candidates.",
-      "- Confirm the selected command with `zotero-bridge surface describe '<canonical command>' --json` before constructing the invocation.",
+      "- Confirm the selected command with `zotero-bridge surface describe '<canonical command>'` before constructing the invocation.",
       "- Read the linked detailed reference before execution; the compact index is not an argv or approval contract.",
       "",
     ];

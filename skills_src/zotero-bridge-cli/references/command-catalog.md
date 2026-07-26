@@ -8,7 +8,7 @@ Use this catalog when you know what the user wants to do in Zotero but do not ye
 2. Find the matching task family below and inspect its natural-language cues.
 3. Select one or more candidate canonical commands from the compact index.
 4. If the mapping remains ambiguous, run `zotero-bridge surface search --intent <plain-language intent>`.
-5. Confirm the live command contract with `zotero-bridge surface describe '<canonical command>' --json`.
+5. Confirm the live command contract with `zotero-bridge surface describe '<canonical command>'`.
 6. Read the linked detailed command reference before constructing argv or payload.
 7. Execute only after resolving the required identity, input channel, authority, and recovery path.
 

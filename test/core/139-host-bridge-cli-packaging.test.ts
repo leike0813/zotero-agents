@@ -1012,6 +1012,49 @@ describe("host bridge cli packaging and install", function () {
     assert.notProperty(descriptor, "workflowCatalog");
   });
 
+  it("keeps global controls and leaf-local JSON bindings distinct", async function () {
+    const descriptor = JSON.parse(
+      await fs.readFile("cli/zotero-bridge/src/agent-surface.json", "utf8"),
+    ) as {
+      globalOptions: Array<{ token: string }>;
+      commands: Array<{
+        command: string;
+        arguments: Array<{ token: string; aliases: string[] }>;
+      }>;
+    };
+    const command = (name: string) => {
+      const value = descriptor.commands.find((entry) => entry.command === name);
+      assert.exists(value, name);
+      return value!;
+    };
+    const tokens = (name: string) =>
+      command(name).arguments.map((argument) => argument.token);
+
+    assert.deepEqual(
+      descriptor.globalOptions.map((option) => option.token).sort(),
+      ["--endpoint", "--operation-id", "--profile", "--schema"],
+    );
+    assert.notInclude(tokens("bridge status"), "--json");
+    for (const name of [
+      "surface identity",
+      "surface describe",
+      "surface search",
+    ]) {
+      assert.include(tokens(name), "--json", name);
+    }
+    assert.deepEqual(tokens("library items list"), ["--query"]);
+    assert.deepEqual(command("library items list").arguments[0].aliases, [
+      "input",
+    ]);
+    assert.deepEqual(tokens("mutation preview"), ["--input"]);
+
+    const statusCard = await fs.readFile(
+      "skills_builtin/zotero-bridge-cli/references/commands/bridge/status.md",
+      "utf8",
+    );
+    assert.include(statusCard, "command_input_schema_unavailable");
+  });
+
   it("renders one intent-first command catalog before detailed command selection", async function () {
     const descriptor = JSON.parse(
       await fs.readFile("cli/zotero-bridge/src/agent-surface.json", "utf8"),

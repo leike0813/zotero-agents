@@ -16,7 +16,7 @@ import {
 import {
   buildAcpChatSkillInjectionPlan,
   buildAcpSkillInjectionPlan,
-  defaultAcpChatSkillRoots,
+  defaultAcpSkillRootsForFamily,
   resolveAcpAgentFamily,
 } from "../../src/modules/acpAgentFamilyResolver";
 import {
@@ -94,6 +94,7 @@ import {
   loadAcpRuntimePromptTemplate,
   renderAcpRuntimePromptTemplate,
 } from "../../src/modules/acpRuntimePromptTemplates";
+import { buildAcpStartupPromptPreamble } from "../../src/modules/acpStartupPromptPreambles";
 import { rescanWorkflowRegistry } from "../../src/modules/workflowRuntime";
 import {
   buildAcpSkillOutputRepairPrompt,
@@ -1565,7 +1566,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
-  it("resolves agent family from backend metadata and builds skill roots", async function () {
+  it("resolves agent families and builds family-specific and dynamic Chat skill roots", async function () {
     const root = await mkTempRoot();
     const codex = createBackend();
     assert.equal(resolveAcpAgentFamily(codex), "codex");
@@ -1600,7 +1601,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       buildAcpSkillInjectionPlan({ backend: kilo, workspaceDir: root })
         .skillRoots.map((entry) => entry.replace(/\\/g, "/"))
         .map((entry) => entry.slice(root.replace(/\\/g, "/").length + 1)),
-      [".kilo/skills"],
+      [".agents/skills", ".kilo/skills"],
     );
 
     const overridden = createBackend({
@@ -1616,29 +1617,66 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(plan.family, "qwen-code");
     assert.match(plan.skillRoots[0].replace(/\\/g, "/"), /\.custom\/skills$/);
 
-    assert.deepEqual(defaultAcpChatSkillRoots(), [
-      ".agents/skills",
-      ".codex/skills",
-      ".claude/skills",
-      ".gemini/skills",
-      ".qwen/skills",
-      ".kilo/skills",
-    ]);
+    const expectedRootsByFamily = {
+      codex: [".agents/skills", ".codex/skills"],
+      "claude-code": [".agents/skills", ".claude/skills"],
+      opencode: [".agents/skills", ".opencode/skills"],
+      "gemini-cli": [".agents/skills", ".gemini/skills"],
+      "qwen-code": [".agents/skills", ".qwen/skills"],
+      kilo: [".agents/skills", ".kilo/skills"],
+      codebuddy: [".agents/skills", ".codebuddy/skills"],
+      "kimi-code": [".agents/skills", ".kimi-code/skills"],
+      unknown: [".agents/skills"],
+      hermes: [],
+    } as const;
+    for (const [family, expectedRoots] of Object.entries(
+      expectedRootsByFamily,
+    )) {
+      assert.deepEqual(
+        defaultAcpSkillRootsForFamily(
+          family as keyof typeof expectedRootsByFamily,
+        ),
+        [...expectedRoots],
+        family,
+      );
+    }
+
+    const codebuddy = createBackend({
+      id: "backend-acp-codebuddy",
+      command: "cbc",
+      args: ["--acp"],
+      enabled: false,
+    });
+    assert.equal(resolveAcpAgentFamily(codebuddy), "codebuddy");
+    assert.equal(
+      resolveAcpAgentFamily(
+        createBackend({
+          id: "backend-acp-token-boundary",
+          displayName: "Token Boundary ACP",
+          command: "abcbc",
+          args: [],
+        }),
+      ),
+      "unknown",
+    );
+    const kimi = createBackend({
+      id: "backend-acp-kimi",
+      command: "kimi",
+      args: ["acp"],
+    });
+    assert.equal(resolveAcpAgentFamily(kimi), "kimi-code");
+
     assert.deepEqual(
       buildAcpChatSkillInjectionPlan({
-        backend: overridden,
+        backends: [overridden, codebuddy, kimi],
         workspaceDir: root,
-      })
-        .skillRoots.map((entry) => entry.replace(/\\/g, "/"))
-        .map((entry) => entry.slice(root.replace(/\\/g, "/").length + 1)),
+      }).relativeSkillRoots,
       [
         ".agents/skills",
-        ".codex/skills",
-        ".claude/skills",
-        ".gemini/skills",
         ".qwen/skills",
-        ".kilo/skills",
         ".custom/skills",
+        ".codebuddy/skills",
+        ".kimi-code/skills",
       ],
     );
   });
@@ -3752,6 +3790,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       ACP_RUNTIME_PROMPT_TEMPLATES.map((template) => template.id),
       [
         "acp_chat_startup_preamble",
+        "acp_chat_workspace_agents",
         "acp_skills_startup_preamble",
         "mcp_required_guard",
         "recovered_continuation_guard",
@@ -3762,6 +3801,11 @@ describe("ACP SkillRunner-compatible runner", function () {
       const content = await loadAcpRuntimePromptTemplate(template);
       assert.isNotEmpty(content, template.filename);
     }
+    const chatWorkspaceInstructions = await loadAcpRuntimePromptTemplate(
+      ACP_RUNTIME_PROMPT_TEMPLATES_BY_ID.acp_chat_workspace_agents,
+    );
+    assert.include(chatWorkspaceInstructions, "shared ACP Chat workspace");
+    assert.include(chatWorkspaceInstructions, "outside this workspace");
 
     const guardPrompt = renderAcpRuntimePromptTemplate({
       template: await loadAcpRuntimePromptTemplate(
@@ -3798,6 +3842,17 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.include(chatStartupPrompt, "ACP Chat assistant");
     assert.include(chatStartupPrompt, "zotero-bridge-cli");
     assert.notInclude(chatStartupPrompt, "Agent family");
+    const familyIndependentChatStartup = await buildAcpStartupPromptPreamble({
+      surface: "acp-chat",
+      workspaceDir: "workspace",
+      instructionFile: "CLAUDE.md",
+    });
+    assert.include(familyIndependentChatStartup, "AGENTS.md");
+    assert.include(
+      familyIndependentChatStartup,
+      "Read and follow the runtime instruction file before acting",
+    );
+    assert.notInclude(familyIndependentChatStartup, "CLAUDE.md");
 
     const skillsStartupPrompt = renderAcpRuntimePromptTemplate({
       template: await loadAcpRuntimePromptTemplate(

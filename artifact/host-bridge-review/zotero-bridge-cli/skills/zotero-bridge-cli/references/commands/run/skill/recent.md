@@ -8,7 +8,7 @@
 zotero-bridge run skill recent [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] [--state <STATE>] [--limit <LIMIT>] [--cursor <CURSOR>]
 ```
 
-全局选项可位于叶命令之前或之后。使用 `--schema` 可在不加载 profile、也不连接 Zotero 的情况下检查原始结构化输入 schema。
+全局选项可位于叶命令之前或之后。此叶命令没有结构化 JSON 输入。`--schema` 会返回 `command_input_schema_unavailable`；请使用命令帮助或 `surface describe` 检查调用契约。
 
 ## 全局参数
 

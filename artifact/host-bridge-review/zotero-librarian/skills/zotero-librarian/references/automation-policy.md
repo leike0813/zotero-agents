@@ -30,10 +30,10 @@
 通过随附 CLI 描述并校验当前请求：
 
 ```sh
-zotero-bridge workflow describe --workflow <workflow-id> --json
+zotero-bridge workflow describe --workflow <workflow-id>
 zotero-bridge workflow validate \
-  --workflow <workflow-id> --selection-json '<reviewed-selection>' \
-  --options-json '<reviewed-options>' --json
+  --workflow <workflow-id> --selection '<reviewed-selection>' \
+  --workflow-options '<reviewed-options>'
 ```
 
 检查精确 selection refs、彼此分离的 `inputs` 与 `validateSelection` contract、workflow ID、必需 options、provider 要求、candidate-production rules、不可变 unit grouping、预期输出和 approval boundary。如果 selection 为空、过时或包含意外对象，更正实时 Zotero selection 并重新校验。不得在本地重建 prepared units，也不得把 cached catalog data 表述为实时校验。
@@ -43,9 +43,9 @@ zotero-bridge workflow validate \
 ```sh
 zotero-bridge workflow submit \
   --workflow <workflow-id> \
-  --selection-json '<reviewed-selection>' \
-  --options-json '<reviewed-options>' \
-  --max-concurrency <bounded-count> --json
+  --selection '<reviewed-selection>' \
+  --workflow-options '<reviewed-options>' \
+  --max-concurrency <bounded-count>
 ```
 
 有效参数记录当前审阅 scope，但不能替代 Zotero 侧 approval。Host 会在 admission 前重新校验实时 workflow contract 与 selection。读取返回的 `admission` 分支：direct admission 时保留 `workflowRunId`；host-queue admission 时保留 `submissionId`、计数、queue links 和不可变 unit projections。初始响应在表达 pending work 时，不得虚构 run handle。

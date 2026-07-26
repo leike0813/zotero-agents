@@ -58,6 +58,25 @@ Every schema-bearing argument SHALL expose at least one minimal, parseable examp
 - **THEN** help lists inherited global and local parameters, possible values, key input guidance, examples, and prerequisites
 - **AND** it does not embed a single-line serialization of the complete raw schema.
 
+### Requirement: CLI SHALL keep global controls and leaf payload bindings distinct
+The CLI SHALL expose only `--endpoint`, `--profile`, `--operation-id`, and `--schema` as global controls. `--query`, `--input`, `--json`, and output-destination options SHALL remain leaf-local and SHALL appear only when the selected command descriptor declares them. Every success and structured failure SHALL write exactly one JSON envelope without requiring a formatting flag.
+
+#### Scenario: Ordinary command does not accept a surface-local JSON flag
+- **WHEN** an agent invokes `zotero-bridge bridge status --json`
+- **THEN** the CLI returns a structured nonzero usage error
+- **AND** plain `zotero-bridge bridge status` remains the canonical JSON-envelope invocation.
+
+#### Scenario: Query and input bindings use the same transport for different contracts
+- **WHEN** a leaf declares `--query`
+- **THEN** the canonical invocation uses it for the read selector, filter, or pagination object
+- **AND** a leaf that instead declares `--input` uses that token for its command-owned payload
+- **AND** neither token is inferred for a command whose descriptor does not declare it.
+
+#### Scenario: Output destination is command-owned
+- **WHEN** an agent needs delivered bytes or a local artifact
+- **THEN** it uses only the destination option declared by that leaf
+- **AND** no generic output flag is inferred from another file, Product, or workflow command.
+
 ### Requirement: Semantic CLI reads SHALL expose their owned continuation controls
 Every semantic CLI command mapped to a cursor or offset boundary SHALL expose the
 corresponding `--cursor`/`--limit` or `--offset`/`--max-chars` arguments and pass them

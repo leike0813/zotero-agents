@@ -8,7 +8,7 @@ Download one registered file handle
 zotero-bridge file download [--endpoint <ENDPOINT>] [--operation-id <ID>] [--profile <PATH>] [--schema] FILE_ID <FILE_ID> --output <PATH> [--force]
 ```
 
-The global options may appear before or after the leaf command. Use `--schema` to inspect raw structured-input schemas without loading a profile or connecting to Zotero.
+The global options may appear before or after the leaf command. This leaf has no structured JSON input. `--schema` returns `command_input_schema_unavailable`; use command help or `surface describe` to inspect the invocation contract.
 
 ## Global parameters
 

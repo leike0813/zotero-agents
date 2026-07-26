@@ -6,8 +6,8 @@
 
 执行前，按以下顺序使用实时命令：
 
-1. 运行 `zotero-bridge workflow list --json` 确认当前可用性。
-2. 运行 `zotero-bridge workflow describe --workflow <id> --json` 获取当前 selection、option、provider、execution-mode 与 output 合同。
+1. 运行 `zotero-bridge workflow list` 确认当前可用性。
+2. 运行 `zotero-bridge workflow describe --workflow <id>` 获取当前 selection、option、provider、execution-mode 与 output 合同。
 3. 使用已声明 selection 或 no-selection 形式以及预期 workflow option 运行 `zotero-bridge workflow validate`。
 4. 对另行选择的 backend profile 运行 `zotero-bridge workflow profile describe` 与 `zotero-bridge workflow profile validate`。
 5. 只有有边界请求与 Zotero 端权限均为当前有效时，才运行 `zotero-bridge workflow submit`。

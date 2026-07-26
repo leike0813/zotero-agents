@@ -252,7 +252,7 @@ export const ACP_BACKEND_PRESETS: readonly AcpBackendPreset[] = [
     npxArgs: ["--acp"],
     defaultUseNpx: false,
     supportsNpx: true,
-    agentFamily: "unknown",
+    agentFamily: "codebuddy",
   },
   {
     id: "grok",

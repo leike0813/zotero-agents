@@ -73,23 +73,30 @@ The ACP sidebar SHALL expose the active backend's chat session list and session 
 - **WHEN** the ACP sidebar receives a frontend snapshot
 - **THEN** it MUST render a session selector for the active backend
 - **AND** it MUST provide actions to create, rename, and delete chat sessions.
-### Requirement: ACP Chat exposes registry-backed helper skills in all known project skill roots
+### Requirement: ACP Chat exposes registry-backed helper skills in configured project skill roots
 
-ACP Chat SHALL materialize its injected skill whitelist into every known project skill root for the shared chat workspace. The injected skill source SHALL be the plugin skill registry effective entry for each skill id, preserving official, dev-local, and user source priority.
+ACP Chat SHALL materialize its injected skill whitelist into the stable union of
+project skill roots required by every configured ACP backend, including disabled
+profiles. Each backend SHALL contribute its family defaults and its additional
+`acp.skillRoots`. The injected skill source SHALL be the plugin skill registry
+effective entry for each skill id, preserving official, dev-local, and user
+source priority.
 
-#### Scenario: Chat materializes whitelisted skills into all known roots
+#### Scenario: Chat materializes whitelisted skills into configured family roots
 
-- **GIVEN** an ACP Chat session is preparing an adapter
-- **WHEN** the plugin skill registry contains `zotero-bridge-cli` and `literature-search-ingest`
-- **THEN** the chat workspace SHALL receive both skills under `.agents/skills`, `.codex/skills`, `.claude/skills`, `.gemini/skills`, `.qwen/skills`, and `.kilo/skills`
-- **AND** each copied skill SHALL come from the registry effective entry for that skill id.
+- **GIVEN** the configured ACP backends resolve to OpenCode and CodeBuddy
+- **WHEN** an ACP Chat session prepares its shared workspace
+- **THEN** the target roots SHALL be `.agents/skills`, `.opencode/skills`, and `.codebuddy/skills`
+- **AND** the injected whitelist SHALL be materialized into every target root
+- **AND** roots belonging only to unconfigured families SHALL NOT be materialized.
 
-#### Scenario: Chat appends configured skill roots
+#### Scenario: Chat appends configured skill roots from every backend
 
-- **GIVEN** an ACP Chat backend profile declares `acp.skillRoots`
+- **GIVEN** one or more configured ACP backend profiles declare `acp.skillRoots`
 - **WHEN** the chat injected skill target roots are resolved
-- **THEN** the configured roots SHALL be added to the known project skill roots
-- **AND** duplicate roots SHALL be materialized only once.
+- **THEN** every safe configured root SHALL be added to the family-root union
+- **AND** duplicate roots SHALL be materialized only once
+- **AND** an invalid or escaping root SHALL be ignored with a warning.
 
 #### Scenario: Missing injected skill records a warning
 
@@ -98,11 +105,57 @@ ACP Chat SHALL materialize its injected skill whitelist into every known project
 - **THEN** ACP Chat SHALL record a warning diagnostic for that missing skill
 - **AND** it SHALL continue preparing the chat adapter.
 
-#### Scenario: Stale family root is replaced
+#### Scenario: Current managed skill copy is replaced
 
-- **GIVEN** a shared ACP Chat workspace already contains an older injected skill copy under any known project skill root
+- **GIVEN** a shared ACP Chat workspace contains an older managed copy under a current target root
 - **WHEN** ACP Chat prepares injected skills
 - **THEN** the old skill copy SHALL be replaced by the current registry effective entry.
+
+#### Scenario: Stale managed root is reconciled
+
+- **GIVEN** the managed injection manifest contains a root no longer contributed by any configured ACP backend
+- **WHEN** ACP Chat next prepares an adapter
+- **THEN** only the manifest-owned whitelist directories under that root SHALL be removed
+- **AND** the root itself and non-managed content SHALL remain unchanged
+- **AND** a failed cleanup SHALL remain recorded for a later retry.
+
+#### Scenario: Target ownership cannot be committed
+
+- **GIVEN** ACP Chat cannot atomically commit the next managed target set
+- **WHEN** the shared workspace is prepared
+- **THEN** no Skill target SHALL be copied or removed during that reconcile
+- **AND** a warning SHALL be recorded
+- **AND** adapter initialization SHALL continue.
+
+### Requirement: ACP Chat SHALL inject shared-workspace instructions from a packaged template
+
+ACP Chat SHALL load its shared-workspace policy from the packaged
+`acp_chat_workspace_agents` runtime prompt template and materialize it as a
+managed block in the shared workspace root `AGENTS.md`. All ACP Chat families
+SHALL be told to read that file. ACP Skills family-specific instruction files
+SHALL remain unchanged.
+
+#### Scenario: Existing user instructions are preserved
+
+- **GIVEN** the shared workspace has an `AGENTS.md` without the managed markers
+- **WHEN** ACP Chat prepares the workspace
+- **THEN** the packaged policy block SHALL be inserted before the existing content
+- **AND** the existing user-authored content SHALL remain unchanged outside the block.
+
+#### Scenario: Managed instructions are refreshed
+
+- **GIVEN** the shared workspace has exactly one complete managed policy block
+- **WHEN** ACP Chat prepares the workspace
+- **THEN** only that block SHALL be replaced from the packaged template
+- **AND** the file replacement SHALL be atomic.
+
+#### Scenario: Ambiguous markers do not overwrite user content
+
+- **GIVEN** the shared workspace `AGENTS.md` has malformed or multiple managed markers
+- **WHEN** ACP Chat prepares the workspace
+- **THEN** the file SHALL remain unchanged
+- **AND** a warning SHALL be recorded
+- **AND** adapter initialization SHALL continue.
 
 ### Requirement: ACP chat limits live remote sessions
 

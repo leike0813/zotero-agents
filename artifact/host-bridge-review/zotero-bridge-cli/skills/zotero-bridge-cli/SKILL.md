@@ -20,8 +20,8 @@ Use the installed `zotero-bridge` CLI safely and deterministically for Zotero li
 ## Workflow
 
 1. Select one executable and one connection profile using the rules below. Keep the binary, embedded contract, profile, and release envelope in one release set.
-2. Run `zotero-bridge surface identity --json`. Compare `protocol`, `cliSchema`, `version`, `buildFingerprint`, and `commandCatalogChecksum` with the active release envelope; stop on any mismatch.
-3. If the canonical operation is unknown, read the command catalog, select the closest task family, and use `surface search --intent '<operational terms>' --json` only to narrow the candidates. Run `surface describe '<canonical command>' --json` before execution and read only the generated command-surface reference that owns the command's first token.
+2. 运行 `zotero-bridge surface identity`。将 `protocol`、`cliSchema`、`version`、`buildFingerprint` 和 `commandCatalogChecksum` 与当前 release envelope 比较；任何一项不一致都应停止。
+3. 如果尚不知道 canonical operation，先读取 command catalog 并选择最接近的任务族；`surface search --intent '<operational terms>'` 只用于缩小候选范围。执行前运行 `surface describe '<canonical command>'`，并且只读取拥有该命令首个 token 的生成式 command-surface reference。
 4. Resolve live identity and readiness from the outside in: service health, authenticated manifest/profile, backend readiness when relevant, then the domain object or workflow contract.
 5. Prepare only the inputs declared by the command descriptor. Keep workflow options, provider profile, selection, payload, opaque handles, and output path in their distinct bindings.
 6. Inspect effects, approval timing, typed handle transitions, pagination, targets, and recovery before the call. Present any requested Zotero-side approval without treating valid input as authorization.
@@ -42,6 +42,28 @@ Offline `surface` commands describe the embedded contract. They do not prove tha
 3. `bridge manifest` for the authenticated service contract;
 4. `bridge backend list` or `bridge backend status` for provider readiness;
 5. the selected domain read, workflow description, run status, or durable operation receipt.
+
+## 参数语义与放置位置
+
+只有 `--endpoint`、`--profile`、`--operation-id` 和 `--schema` 是 CLI 全局选项。它们可以放在 canonical leaf command 之前或之后。其他所有选项都属于具体 leaf；使用前必须确认它出现在该命令的 `surface describe` 结果或生成式 command card 中。
+
+在以下边界使用这些全局选项：
+
+- `--endpoint` 为本次调用选择 Zotero Bridge service endpoint。显式值优先于 `ZOTERO_BRIDGE_ENDPOINT`，后者又优先于所选 profile 中的 endpoint。如果这些来源都无法解析 endpoint，不得猜测端口。
+- `--profile` 选择 connection-profile JSON 文件。显式值或 `ZOTERO_BRIDGE_PROFILE` 优先于 well-known profile。connection profile 与 workflow provider profile 必须保持独立。
+- `--operation-id` 为一次改变状态的请求提供幂等 identity。当同一项不确定操作可能需要 durable recovery 时使用稳定值；不得将其当作 workflow、run、Product 或 receipt handle。普通读取无需由 Agent 提供 operation id。
+- `--schema` 对一个 canonical leaf 执行离线 structured-input schema 查询。只有所选命令声明了至少一个结构化 JSON 输入时才能使用。没有结构化输入的 leaf 会返回 `command_input_schema_unavailable`；此时应改用 command help 或 `surface describe`。
+
+每个成功命令和每个结构化失败本来就会向 stdout 写入且只写入一个 JSON envelope。不得把 `--json` 添加到 `bridge status`、workflow 命令或其他普通 leaf。`--json` 只是 `surface identity`、`surface describe` 和 `surface search` 接受的 leaf-local 选项，而取得 JSON envelope 并不需要它。
+
+`--query` 与 `--input` 都可传输 JSON，但表达的是不同的命令契约：
+
+- `--query` 是只读 query、selector、filter 或 pagination object 的 canonical binding。当 descriptor 将其标记为可选时，省略表示 `{}`。部分 query parser 接受 `--input` alias，但构造和记录调用时必须使用 `--query`。
+- `--input` 是 command-owned input payload 的 canonical binding，包括 raw capability call 以及许多 mutation、maintenance 或 debug operation。参数名本身不能证明操作会改变状态；effects 与 approval 仍以 descriptor 为准。
+
+无论使用哪一种 binding，短小且已审阅的值可用 inline JSON，有意读取 JSON 文件时使用 `@file`，stdin 使用 `-`。已存在的裸路径也会被当作 JSON 文件读取，因此文件解释很重要时应优先使用 `@file`。不得仅因传输语法相同，就把 payload 从 `--query` 移到 `--input`，或反向移动。
+
+CLI 没有全局结果输出选项。`file download --output`、`product download --output-dir` 及其 local alias、`workflow agent-run --output-dir` 的 destination 与 overwrite contract 各不相同。只有 selected leaf descriptor 明确声明时，才能使用对应输出选项。
 
 ## Command discovery and invocation
 

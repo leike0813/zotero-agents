@@ -20,8 +20,8 @@ Use the installed `zotero-bridge` CLI safely and deterministically for Zotero li
 ## Workflow
 
 1. Select one executable and one connection profile using the rules below. Keep the binary, embedded contract, profile, and release envelope in one release set.
-2. Run `zotero-bridge surface identity --json`. Compare `protocol`, `cliSchema`, `version`, `buildFingerprint`, and `commandCatalogChecksum` with the active release envelope; stop on any mismatch.
-3. If the canonical operation is unknown, read the command catalog, select the closest task family, and use `surface search --intent '<operational terms>' --json` only to narrow the candidates. Run `surface describe '<canonical command>' --json` before execution and read only the generated command-surface reference that owns the command's first token.
+2. Run `zotero-bridge surface identity`. Compare `protocol`, `cliSchema`, `version`, `buildFingerprint`, and `commandCatalogChecksum` with the active release envelope; stop on any mismatch.
+3. If the canonical operation is unknown, read the command catalog, select the closest task family, and use `surface search --intent '<operational terms>'` only to narrow the candidates. Run `surface describe '<canonical command>'` before execution and read only the generated command-surface reference that owns the command's first token.
 4. Resolve live identity and readiness from the outside in: service health, authenticated manifest/profile, backend readiness when relevant, then the domain object or workflow contract.
 5. Prepare only the inputs declared by the command descriptor. Keep workflow options, provider profile, selection, payload, opaque handles, and output path in their distinct bindings.
 6. Inspect effects, approval timing, typed handle transitions, pagination, targets, and recovery before the call. Present any requested Zotero-side approval without treating valid input as authorization.
@@ -42,6 +42,28 @@ Offline `surface` commands describe the embedded contract. They do not prove tha
 3. `bridge manifest` for the authenticated service contract;
 4. `bridge backend list` or `bridge backend status` for provider readiness;
 5. the selected domain read, workflow description, run status, or durable operation receipt.
+
+## Parameter semantics and placement
+
+Only `--endpoint`, `--profile`, `--operation-id`, and `--schema` are global CLI options. They may appear before or after the canonical leaf command. Every other option is leaf-local and must be present in that command's `surface describe` result or generated command card before use.
+
+Use the global options at these boundaries:
+
+- `--endpoint` selects the Zotero Bridge service endpoint for this invocation. An explicit value overrides `ZOTERO_BRIDGE_ENDPOINT`, which overrides the selected profile endpoint. Do not guess a port when none of those sources resolves an endpoint.
+- `--profile` selects the connection-profile JSON file. An explicit value or `ZOTERO_BRIDGE_PROFILE` overrides the well-known profile. Keep the connection profile separate from a workflow provider profile.
+- `--operation-id` supplies the idempotency identity for one state-changing request. Use a stable value when the same uncertain operation may need durable recovery; do not treat it as a workflow, run, Product, or receipt handle. Ordinary reads do not need an agent-supplied operation id.
+- `--schema` performs an offline structured-input schema lookup for one canonical leaf. Use it only when the selected command declares at least one structured JSON input. A leaf without structured input returns `command_input_schema_unavailable`; use command help or `surface describe` instead.
+
+Every successful command and every structured failure already writes exactly one JSON envelope to stdout. Do not add `--json` to `bridge status`, workflow commands, or another ordinary leaf. `--json` is a leaf-local option accepted only by `surface identity`, `surface describe`, and `surface search`, where it is unnecessary for obtaining the JSON envelope.
+
+`--query` and `--input` both transport JSON but express different command contracts:
+
+- `--query` is the canonical binding for a read-only query, selector, filter, or pagination object. When the descriptor marks it optional, omission means `{}`. Some query parsers accept `--input` as an alias, but construct and document the invocation with `--query`.
+- `--input` is the canonical binding for a command-owned input payload, including raw capability calls and many mutation, maintenance, or debug operations. The name alone does not prove that an operation changes state; effects and approval still come from the descriptor.
+
+For either binding, use inline JSON for a short reviewed value, `@file` for an intentional JSON file, or `-` for stdin. A bare existing path is also read as a JSON file, so prefer `@file` when file interpretation matters. Do not move a payload from `--query` to `--input`, or the reverse, merely because the transport syntax is the same.
+
+There is no global result-output option. `file download --output`, `product download --output-dir` and its local alias, and `workflow agent-run --output-dir` have different destination and overwrite contracts. Use an output option only when the selected leaf descriptor declares it.
 
 ## Command discovery and invocation
 

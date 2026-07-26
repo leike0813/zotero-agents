@@ -211,11 +211,11 @@ receipt：
 命令：
 
 ```sh
-zotero-bridge workflow describe --workflow <workflow-id> --json
+zotero-bridge workflow describe --workflow <workflow-id>
 zotero-bridge workflow validate \
   --workflow <workflow-id> \
-  --selection-json '<reviewed-selection>' \
-  --options-json '<reviewed-options>' --json
+  --selection '<reviewed-selection>' \
+  --workflow-options '<reviewed-options>'
 ```
 
 之前：
@@ -250,9 +250,9 @@ zotero-bridge workflow validate \
 ```sh
 zotero-bridge workflow submit \
   --workflow <workflow-id> \
-  --selection-json '<reviewed-selection>' \
-  --options-json '<reviewed-options>' \
-  --max-concurrency <bounded-count> --json
+  --selection '<reviewed-selection>' \
+  --workflow-options '<reviewed-options>' \
+  --max-concurrency <bounded-count>
 ```
 
 之前：

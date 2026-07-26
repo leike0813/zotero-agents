@@ -95,10 +95,10 @@ Use Generic Skills for source selection, literature assessment, analysis, synthe
 For an interactive Zotero-managed workflow, use the bundled CLI contract to describe and validate the live request:
 
 ```sh
-zotero-bridge workflow describe --workflow <workflow-id> --json
+zotero-bridge workflow describe --workflow <workflow-id>
 zotero-bridge workflow validate \
-  --workflow <workflow-id> --selection-json '<reviewed-selection>' \
-  --options-json '<reviewed-options>' --json
+  --workflow <workflow-id> --selection '<reviewed-selection>' \
+  --workflow-options '<reviewed-options>'
 ```
 
 Inspect the returned selection refs, separate `inputs` and `validateSelection` contracts, normalized workflow options, provider requirements, candidate grouping, and expected unit/result identities. Validate any provider profile through its own workflow-profile commands. Only after the operator explicitly authorizes that reviewed submission scope, submit it once with the selected bounded concurrency:
@@ -106,9 +106,9 @@ Inspect the returned selection refs, separate `inputs` and `validateSelection` c
 ```sh
 zotero-bridge workflow submit \
   --workflow <workflow-id> \
-  --selection-json '<reviewed-selection>' \
-  --options-json '<reviewed-options>' \
-  --max-concurrency <bounded-count> --json
+  --selection '<reviewed-selection>' \
+  --workflow-options '<reviewed-options>' \
+  --max-concurrency <bounded-count>
 ```
 
 The live Host planner remains responsible for candidate production, filtering, and immutable unit grouping. `--max-concurrency` bounds native admission for this authorized submission; it does not create resident workers, authorize later submissions, or prove provider capacity. A host-queue response returns `submissionId` and per-unit queue projections instead of fictional run handles. Inspect the submission until admitted units expose real task or run identities, then use the ordinary run plane for execution interaction, cancellation, and terminal evidence.
