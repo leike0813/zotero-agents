@@ -1,51 +1,9 @@
-# synthesis-citation-graph-layout-engine Specification
+# synthesis-citation-graph-layout-v2 Specification
 
 ## Purpose
-Defines the Synthesis citation graph layout engine, specifying its processing pipeline, input/output contracts, and integration with the parent capability.
+Defines the Synthesis Citation Graph Layout v2 capability, specifying the Rust-owned layout v2 algorithms, determinism and quality invariants, and cache migration from legacy v1.2 layouts.
 
 ## Requirements
-
-### Requirement: Layout compute SHALL use a strict environment-neutral contract
-
-
-The Citation Graph layout engine SHALL accept and return canonical JSON-safe DTOs that contain only the bounded graph slice and deterministic layout facts required for computation, including optional node title/year tie-break inputs and finite application-derived initial coordinates.
-
-#### Scenario: Canonical request is rebuilt
-
-- **WHEN** an application supplies a graph hash, supported algorithm, nodes, and edges with unknown JSON-safe fields
-- **THEN** the engine contract SHALL rebuild sorted canonical node and edge rows
-- **AND** it SHALL discard the unknown fields.
-
-#### Scenario: Invalid input is rejected before computation
-
-- **WHEN** a request is non-JSON, exceeds 5,000 nodes or 20,000 edges, duplicates an identifier, references a missing endpoint, or uses an invalid hash or algorithm
-- **THEN** canonical rebuilding SHALL reject the request before a layout kernel runs.
-
-#### Scenario: Result node set is invalid
-
-- **WHEN** an engine result contains non-finite coordinates or omits, duplicates, or adds a node relative to the request
-- **THEN** result rebuilding SHALL reject the result as malformed.
-
-### Requirement: Layout kernels SHALL preserve versioned deterministic behavior
-
-The layout engine contract SHALL identify force, radial, and components requests while production computation is owned by the Rust layout v2 crate. The TypeScript package SHALL retain strict request/result DTO rebuilding and projection helpers but SHALL NOT retain a production layout kernel.
-
-#### Scenario: Canonical request is rebuilt
-
-- **WHEN** an application supplies a graph hash, supported algorithm, nodes, and edges with unknown JSON-safe fields
-- **THEN** the contract SHALL rebuild sorted canonical node and edge rows
-- **AND** it SHALL discard unknown fields before dispatch.
-
-#### Scenario: Rust result is rebuilt
-
-- **WHEN** a layout v2 result returns from the native worker
-- **THEN** the TypeScript boundary SHALL validate engine/version identity, parameters, exact node membership, and finite coordinates
-- **AND** it SHALL NOT rerun a TypeScript algorithm to establish trust.
-
-#### Scenario: Runtime dependency boundary is inspected
-
-- **WHEN** production layout dependencies are traversed
-- **THEN** no d3-force, Node worker, DOM, Zotero, repository, or filesystem layout implementation SHALL be reachable from the engine contract.
 
 ### Requirement: Layout v2 SHALL execute three Rust-owned algorithms
 
