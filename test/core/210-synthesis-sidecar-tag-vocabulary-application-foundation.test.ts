@@ -529,4 +529,37 @@ describe("Synthesis sidecar Tag Vocabulary application foundation", function () 
     assert.equal(repository.snapshot().mode, "isolated_shadow");
     repository.close();
   });
+
+  it("keeps the Rust Tag owner typed and represented in the parity corpus", function () {
+    const projectRoot = path.resolve(process.cwd());
+    const source = fs.readFileSync(
+      path.join(
+        projectRoot,
+        "native/synthesis-sidecar/crates/synthesis-application/src/tag_vocabulary.rs",
+      ),
+      "utf8",
+    );
+    const repository = fs.readFileSync(
+      path.join(
+        projectRoot,
+        "native/synthesis-sidecar/crates/synthesis-repository/src/tag_concept_topic_graph.rs",
+      ),
+      "utf8",
+    );
+    const corpus = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          projectRoot,
+          "packages/synthesis-contracts/contract-set/synthesis-tag-concept-topic-graph-application-parity-v1/corpus.json",
+        ),
+        "utf8",
+      ),
+    );
+    assert.include(source, "pub trait TagVocabularyComputePort");
+    assert.include(source, "pub fn promote");
+    assert.include(repository, "pub struct TagVocabularyReplacement");
+    assert.include(repository, "pub struct TagVocabularyPromotion");
+    assert.notInclude(repository, "list_tag_application_rows");
+    assert.include(corpus.coverage.tagVocabulary, "busy_cancel_drain_reopen");
+  });
 });

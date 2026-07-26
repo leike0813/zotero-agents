@@ -10,6 +10,8 @@ use std::time::Duration;
 
 mod citation_reference;
 pub use citation_reference::*;
+mod tag_concept_topic_graph;
+pub use tag_concept_topic_graph::*;
 
 pub const SCHEMA_VERSION: &str = "synthesis-repository-foundation.v1";
 pub const BUSY_TIMEOUT_MILLIS: u64 = 250;

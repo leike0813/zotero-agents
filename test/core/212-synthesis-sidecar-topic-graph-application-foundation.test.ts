@@ -551,4 +551,37 @@ describe("Synthesis sidecar Topic Graph application foundation", function () {
     assert.equal(repository.snapshot().mode, "isolated_shadow");
     repository.close();
   });
+
+  it("keeps the Rust Topic Graph owner typed and represented in the parity corpus", function () {
+    const projectRoot = path.resolve(process.cwd());
+    const source = fs.readFileSync(
+      path.join(
+        projectRoot,
+        "native/synthesis-sidecar/crates/synthesis-application/src/topic_graph.rs",
+      ),
+      "utf8",
+    );
+    const repository = fs.readFileSync(
+      path.join(
+        projectRoot,
+        "native/synthesis-sidecar/crates/synthesis-repository/src/tag_concept_topic_graph.rs",
+      ),
+      "utf8",
+    );
+    const corpus = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          projectRoot,
+          "packages/synthesis-contracts/contract-set/synthesis-tag-concept-topic-graph-application-parity-v1/corpus.json",
+        ),
+        "utf8",
+      ),
+    );
+    assert.include(source, "pub trait TopicGraphComputePort");
+    assert.include(source, "pub fn decide_relation");
+    assert.include(source, "pub fn purge_deleted");
+    assert.include(repository, "pub struct TopicGraphReplacement");
+    assert.notInclude(repository, "list_topic_graph_application_rows");
+    assert.include(corpus.coverage.topicGraph, "cycle_review_delete_reopen");
+  });
 });

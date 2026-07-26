@@ -13,12 +13,14 @@ on:
       - "packages/synthesis-contracts/contract-set/synthesis-durable-foundation-v1/**"
       - "packages/synthesis-contracts/contract-set/synthesis-typed-application-parity-v1/**"
       - "packages/synthesis-contracts/contract-set/synthesis-citation-reference-application-parity-v1/**"
+      - "packages/synthesis-contracts/contract-set/synthesis-tag-concept-topic-graph-application-parity-v1/**"
       - "packages/synthesis-engine/src/**"
       - "packages/synthesis-repository/**"
       - "scripts/check-synthesis-cross-language-contracts.ts"
       - "scripts/check-synthesis-durable-foundation-parity.ts"
       - "scripts/check-synthesis-typed-application-parity.ts"
       - "scripts/check-synthesis-citation-reference-application-parity.ts"
+      - "scripts/check-synthesis-tag-concept-topic-graph-application-parity.ts"
       - "scripts/check-synthesis-rust-license-inventory.ts"
       - "scripts/smoke-synthesis-rust-durable-candidate.ts"
       - "scripts/smoke-synthesis-rust-sidecar-worker.ts"
@@ -67,6 +69,7 @@ jobs:
           npx tsx scripts/check-synthesis-durable-foundation-parity.ts
           npx tsx scripts/check-synthesis-typed-application-parity.ts
           npx tsx scripts/check-synthesis-citation-reference-application-parity.ts
+          npx tsx scripts/check-synthesis-tag-concept-topic-graph-application-parity.ts
           npx tsx scripts/check-synthesis-rust-license-inventory.ts
 
       - name: Build candidate

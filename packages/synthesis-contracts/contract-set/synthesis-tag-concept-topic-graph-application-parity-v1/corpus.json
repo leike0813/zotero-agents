@@ -1,0 +1,69 @@
+{
+  "schema": "synthesis-tag-concept-topic-graph-application-parity.v1",
+  "reportSchema": "synthesis-tag-concept-topic-graph-application-parity-report.v1",
+  "profileId": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "dataRootId": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  "clock": "2026-07-26T12:00:00.000Z",
+  "operationIds": [
+    "tag:save:1",
+    "tag:promote:1",
+    "concept:replace:1",
+    "topic-graph:replace:1"
+  ],
+  "faultPhases": ["row_write", "worker", "host_post_commit", "supersession"],
+  "fixture": {
+    "tag": {
+      "initialTag": "topic:vision",
+      "promotedTag": "method:review",
+      "libraryId": 1,
+      "itemKey": "A"
+    },
+    "concept": {
+      "firstLabel": "Computer Vision",
+      "reviewLabel": "Uncertain Method",
+      "topicId": "topic:vision",
+      "topicPathId": "topic-vision"
+    },
+    "topicGraph": {
+      "rootTopicId": "topic:one",
+      "childTopicId": "topic:two",
+      "rootTitle": "One",
+      "childTitle": "Two"
+    }
+  },
+  "coverage": {
+    "tagVocabulary": [
+      "save_validate_unchanged",
+      "staged_page_update_discard_clear",
+      "promotion_effect_receipt",
+      "post_commit_host_warning",
+      "legacy_binding_resolution",
+      "index_supersession_worker_fault",
+      "audit_replace_clear",
+      "atomic_rollback",
+      "busy_cancel_drain_reopen"
+    ],
+    "conceptKb": [
+      "strict_duplicate_rejection",
+      "create_exact_merge",
+      "proposal_review_transition",
+      "display_delete_cascade",
+      "index_query_basis_mismatch",
+      "worker_fault_atomic_rollback",
+      "concurrent_query_cancel",
+      "review_reopen"
+    ],
+    "topicGraph": [
+      "strict_identity_rejection",
+      "replace_upsert_materialized",
+      "proposal_relation_review",
+      "user_decision_preserved",
+      "cycle_review_delete_reopen",
+      "index_supersession_worker_fault",
+      "atomic_rollback_drain"
+    ],
+    "crossApplication": [
+      "three_aggregates_coexist_without_checkpoint_bundle_webdav_debug_or_canonical_mutation"
+    ]
+  }
+}

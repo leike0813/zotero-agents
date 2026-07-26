@@ -1,15 +1,22 @@
+mod admission;
 pub mod citation_graph;
+pub mod concept_kb;
 pub mod dto;
 pub mod ports;
 pub mod reference_matching;
 pub mod reference_refresh;
+pub mod tag_vocabulary;
 pub mod topic;
+pub mod topic_graph;
 pub mod workbench;
 
 pub use citation_graph::CitationGraphApplication;
+pub use concept_kb::ConceptKbApplication;
 pub use dto::*;
 pub use ports::*;
 pub use reference_matching::ReferenceMatchingApplication;
 pub use reference_refresh::ReferenceRefreshApplication;
+pub use tag_vocabulary::TagVocabularyApplication;
 pub use topic::TopicApplication;
+pub use topic_graph::TopicGraphApplication;
 pub use workbench::WorkbenchApplication;

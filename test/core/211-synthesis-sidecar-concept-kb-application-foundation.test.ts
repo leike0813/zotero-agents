@@ -543,4 +543,38 @@ describe("Synthesis sidecar Concept KB application foundation", function () {
     assert.equal(repository.snapshot().mode, "isolated_shadow");
     repository.close();
   });
+
+  it("keeps the Rust Concept owner typed and represented in the parity corpus", function () {
+    const projectRoot = path.resolve(process.cwd());
+    const source = fs.readFileSync(
+      path.join(
+        projectRoot,
+        "native/synthesis-sidecar/crates/synthesis-application/src/concept_kb.rs",
+      ),
+      "utf8",
+    );
+    const repository = fs.readFileSync(
+      path.join(
+        projectRoot,
+        "native/synthesis-sidecar/crates/synthesis-repository/src/tag_concept_topic_graph.rs",
+      ),
+      "utf8",
+    );
+    const corpus = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          projectRoot,
+          "packages/synthesis-contracts/contract-set/synthesis-tag-concept-topic-graph-application-parity-v1/corpus.json",
+        ),
+        "utf8",
+      ),
+    );
+    assert.include(source, "pub trait ConceptKbComputePort");
+    assert.include(source, "pub fn query");
+    assert.include(repository, "pub struct ConceptKbReplacement");
+    assert.include(repository, "promote_concept_kb_index");
+    assert.notInclude(repository, "list_concept_application_rows");
+    assert.include(corpus.coverage.conceptKb, "concurrent_query_cancel");
+    assert.include(corpus.coverage.conceptKb, "review_reopen");
+  });
 });
