@@ -45,6 +45,30 @@ export type AssistantInteractionFileReply = {
   maxTotalBytes: number;
 };
 
+/**
+ * Optional auth-challenge suite carried alongside the pending interaction
+ * while a run waits on authentication (SkillRunner `waiting_auth`). The
+ * field set mirrors the legacy `buildSkillRunnerPendingInteraction`
+ * waiting-auth output so the child hint region renders without changes.
+ * Absent (`null`) for non-auth interactions, e.g. every ACP projection.
+ */
+export type AssistantPendingInteractionAuth = {
+  phase: string | null;
+  challengeKind: string | null;
+  prompt: string | null;
+  hint: string | null;
+  inputKind: string | null;
+  acceptsChatInput: boolean;
+  authUrl: string | null;
+  userCode: string | null;
+  lastError: string | null;
+  actionPending: boolean;
+  actionKind: string | null;
+  methods: AssistantInteractionOption[];
+  importFiles: AssistantInteractionFileSlot[];
+  importRiskNoticeRequired: boolean;
+};
+
 export type AssistantPendingInteraction = {
   inputKind: AssistantInteractionInputKind;
   prompt: string | null;
@@ -52,6 +76,7 @@ export type AssistantPendingInteraction = {
   options: AssistantInteractionOption[];
   files: AssistantInteractionFileSlot[];
   fileReply: AssistantInteractionFileReply;
+  auth: AssistantPendingInteractionAuth | null;
 };
 
 const INPUT_KINDS = new Set<AssistantInteractionInputKind>([
@@ -69,6 +94,7 @@ const ROOT_KEYS = [
   "files",
   "fileReply",
 ] as const;
+const ROOT_KEYS_WITH_AUTH = [...ROOT_KEYS, "auth"] as const;
 const OPTION_KEYS = ["label", "value", "description"] as const;
 const FILE_KEYS = ["name", "required", "hint", "accept"] as const;
 const FILE_REPLY_KEYS = [
@@ -76,6 +102,22 @@ const FILE_REPLY_KEYS = [
   "maxFiles",
   "maxFileBytes",
   "maxTotalBytes",
+] as const;
+const AUTH_KEYS = [
+  "phase",
+  "challengeKind",
+  "prompt",
+  "hint",
+  "inputKind",
+  "acceptsChatInput",
+  "authUrl",
+  "userCode",
+  "lastError",
+  "actionPending",
+  "actionKind",
+  "methods",
+  "importFiles",
+  "importRiskNoticeRequired",
 ] as const;
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -222,12 +264,96 @@ function normalizeFileReply(
   return { supported: value.supported, maxFiles, maxFileBytes, maxTotalBytes };
 }
 
+function normalizeInteractionAuth(
+  value: unknown,
+  exact: boolean,
+): AssistantPendingInteractionAuth | null {
+  if (!isObject(value)) return null;
+  if (exact && !hasExactKeys(value, AUTH_KEYS)) return null;
+  const phase = boundedNullableText(value.phase, MAX_LABEL_LENGTH);
+  const challengeKind = boundedNullableText(
+    value.challengeKind,
+    MAX_LABEL_LENGTH,
+  );
+  const prompt = boundedNullableText(value.prompt, MAX_PROMPT_LENGTH);
+  const hint = boundedNullableText(value.hint, MAX_HINT_LENGTH);
+  const inputKind = boundedNullableText(value.inputKind, MAX_LABEL_LENGTH);
+  const authUrl = boundedNullableText(value.authUrl, MAX_DESCRIPTION_LENGTH);
+  const userCode = boundedNullableText(value.userCode, MAX_LABEL_LENGTH);
+  const lastError = boundedNullableText(
+    value.lastError,
+    MAX_DESCRIPTION_LENGTH,
+  );
+  const actionKind = boundedNullableText(value.actionKind, MAX_LABEL_LENGTH);
+  if (
+    (value.phase != null && phase === null) ||
+    (value.challengeKind != null && challengeKind === null) ||
+    (value.prompt != null && prompt === null) ||
+    (value.hint != null && hint === null) ||
+    (value.inputKind != null && inputKind === null) ||
+    (value.authUrl != null && authUrl === null) ||
+    (value.userCode != null && userCode === null) ||
+    (value.lastError != null && lastError === null) ||
+    (value.actionKind != null && actionKind === null) ||
+    typeof value.acceptsChatInput !== "boolean" ||
+    typeof value.actionPending !== "boolean" ||
+    typeof value.importRiskNoticeRequired !== "boolean"
+  ) {
+    return null;
+  }
+  const rawMethods = Array.isArray(value.methods) ? value.methods : [];
+  const rawImportFiles = Array.isArray(value.importFiles)
+    ? value.importFiles
+    : [];
+  if (
+    rawMethods.length > ASSISTANT_PENDING_INTERACTION_OPTION_LIMIT ||
+    rawImportFiles.length > ASSISTANT_PENDING_INTERACTION_FILE_LIMIT
+  ) {
+    return null;
+  }
+  const methods = rawMethods.map((entry) => normalizeOption(entry, exact));
+  const importFiles = rawImportFiles.map((entry) =>
+    normalizeFileSlot(entry, exact),
+  );
+  if (methods.some((entry) => !entry) || importFiles.some((entry) => !entry)) {
+    return null;
+  }
+  return {
+    phase,
+    challengeKind,
+    prompt,
+    hint,
+    inputKind,
+    acceptsChatInput: value.acceptsChatInput,
+    authUrl,
+    userCode,
+    lastError,
+    actionPending: value.actionPending,
+    actionKind,
+    methods: methods as AssistantInteractionOption[],
+    importFiles: importFiles as AssistantInteractionFileSlot[],
+    importRiskNoticeRequired: value.importRiskNoticeRequired,
+  };
+}
+
+export function projectAssistantPendingInteractionAuth(
+  value: unknown,
+): AssistantPendingInteractionAuth | null {
+  return normalizeInteractionAuth(value, false);
+}
+
 function normalizeInteraction(
   value: unknown,
   exact: boolean,
 ): AssistantPendingInteraction | null {
   if (!isObject(value)) return null;
-  if (exact && !hasExactKeys(value, ROOT_KEYS)) return null;
+  if (
+    exact &&
+    !hasExactKeys(value, ROOT_KEYS) &&
+    !hasExactKeys(value, ROOT_KEYS_WITH_AUTH)
+  ) {
+    return null;
+  }
   const inputKind = String(
     value.inputKind || "",
   ).trim() as AssistantInteractionInputKind;
@@ -263,6 +389,9 @@ function normalizeInteraction(
     exact,
   );
   if (!fileReply) return null;
+  const auth =
+    value.auth == null ? null : normalizeInteractionAuth(value.auth, exact);
+  if (value.auth != null && !auth) return null;
   return {
     inputKind,
     prompt,
@@ -270,6 +399,7 @@ function normalizeInteraction(
     options: options as AssistantInteractionOption[],
     files: files as AssistantInteractionFileSlot[],
     fileReply,
+    auth,
   };
 }
 

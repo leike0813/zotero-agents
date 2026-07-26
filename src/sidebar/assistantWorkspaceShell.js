@@ -4,8 +4,6 @@ import {
   ASSISTANT_WORKSPACE_MESSAGE_TYPES,
   ASSISTANT_WORKSPACE_SHELL_ACTIONS,
   ASSISTANT_WORKSPACE_SHELL_BRIDGE_KEY,
-  SKILLRUNNER_SIDEBAR_BRIDGE_KEY,
-  resolveRunDialogMessageType,
 } from "../shared/assistantWireContract.js";
 
 const tabs = ["acp-chat", "acp-skills", "skillrunner"];
@@ -14,22 +12,14 @@ const state = {
   initializedFrames: new Set(),
   childDocumentGenerations: new Map(),
   loadedFrames: new Set(),
-  latestChildPayloads: new Map(),
-  latestChildRevisions: new Map(),
-  childPayloadGeneration: 0,
-  deliveredChildPayloads: new Map(),
-  pendingReplayTabs: new Set(),
   pendingChildPublications: new Map(),
   deliveredChildPublications: new Map(),
   scopeKey: "",
-  actionSeq: 0,
   actionTrace: [],
   hostReadyAcked: false,
   hostReadyInFlight: false,
   hostReadyTimer: null,
   hostReadyAttempts: 0,
-  childReplayTimer: null,
-  childReplayAttempts: 0,
   surfaceConfiguration: {
     executionDisplayMode: "live",
     transcriptPaginationVirtualizationEnabled: true,
@@ -38,11 +28,11 @@ const state = {
   surfaceLabels: {
     "acp-chat": {},
     "acp-skills": {},
+    skillrunner: {},
   },
 };
 
 const hostReadyRetryDelayMs = 250;
-const childReplayDelayMs = 100;
 
 function $(id) {
   return document.getElementById(id);
@@ -64,20 +54,8 @@ function updateLoadingState() {
   overlay.setAttribute("aria-hidden", isLoading ? "false" : "true");
 }
 
-function bridgeKeyForTab(tab) {
-  if (tab === "skillrunner") return SKILLRUNNER_SIDEBAR_BRIDGE_KEY;
+function bridgeKeyForTab() {
   return ASSISTANT_WORKSPACE_ACP_CHILD_BRIDGE_KEY;
-}
-
-function messageTypeForTab(tab, phase) {
-  if (tab === "skillrunner") {
-    return resolveRunDialogMessageType("skillrunner-sidebar", phase);
-  }
-  // Dead vocabulary removed: ACP child pages never listen for legacy
-  // init/snapshot message prefixes ("acp:*", "acp-skill-run:*"). The shell
-  // drops non-skillrunner child snapshots upstream and serves ACP children
-  // exclusively through assistant-workspace publications.
-  return "";
 }
 
 function hostBridge() {
@@ -86,18 +64,6 @@ function hostBridge() {
     window.wrappedJSObject &&
       window.wrappedJSObject[ASSISTANT_WORKSPACE_SHELL_BRIDGE_KEY],
   ].find((entry) => entry && typeof entry.postMessage === "function");
-}
-
-function nextActionId(tab, action) {
-  state.actionSeq += 1;
-  return (
-    "assistant-action-" +
-    String(state.actionSeq) +
-    "-" +
-    String(tab || "shell") +
-    "-" +
-    String(action || "unknown")
-  );
 }
 
 function safeError(error) {
@@ -288,55 +254,6 @@ function ensureHostReady(reason) {
     });
 }
 
-function sendLegacyChildAction(tab, action, payload) {
-  const actionId = nextActionId(tab, action);
-  const envelope = {
-    tab,
-    action,
-    payload: payload || {},
-    actionId: actionId,
-    ts: new Date().toISOString(),
-  };
-  traceAction("child-action-received", {
-    tab,
-    action,
-    actionId,
-  });
-  postToHost(ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_ACTION, envelope)
-    .then(function (result) {
-      traceAction(
-        result && result.ok === false
-          ? "host-action-failed"
-          : "host-action-acked",
-        {
-          tab,
-          action,
-          actionId,
-          error: result && result.error ? String(result.error) : "",
-        },
-      );
-    })
-    .catch(function (error) {
-      traceAction("host-action-failed", {
-        tab,
-        action,
-        actionId,
-        error: safeError(error),
-      });
-    });
-}
-
-function handleSkillRunnerChildAction(tab, action, payload) {
-  const normalizedAction = String(action || "");
-  const normalizedPayload = payload || {};
-  if (normalizedAction === ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS.READY) {
-    acceptChildReady(tab, normalizedPayload);
-    sendLegacyChildAction(tab, normalizedAction, normalizedPayload);
-    return;
-  }
-  sendLegacyChildAction(tab, normalizedAction, normalizedPayload);
-}
-
 function validAcpChildEnvelope(tab, value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
@@ -355,9 +272,17 @@ function validAcpChildEnvelope(tab, value) {
             String(owner.backendId || "").trim() +
               "\n" +
               String(owner.conversationId || "").trim()
-        : Object.keys(owner).sort().join(",") === "ownerKey,requestId,source" &&
-          String(owner.ownerKey || "") ===
-            String(owner.requestId || "").trim()));
+        : tab === "acp-skills"
+          ? Object.keys(owner).sort().join(",") ===
+              "ownerKey,requestId,source" &&
+            String(owner.ownerKey || "") ===
+              String(owner.requestId || "").trim()
+          : Object.keys(owner).sort().join(",") ===
+              "ownerKey,requestId,runKey,source" &&
+            String(owner.runKey || "").trim() &&
+            String(owner.ownerKey || "") ===
+              (String(owner.requestId || "").trim() ||
+                String(owner.runKey || "").trim())));
   return (
     Object.keys(value).sort().join(",") ===
       "action,actionId,owner,payload,source" &&
@@ -423,18 +348,11 @@ function installChildBridge(tab) {
   const frame = frameForTab(tab);
   const frameWindow = frame && frame.contentWindow;
   if (!frameWindow) return;
-  const bridge =
-    tab === "skillrunner"
-      ? {
-          sendAction: function (action, payload) {
-            handleSkillRunnerChildAction(tab, action, payload || {});
-          },
-        }
-      : {
-          sendAction: function (envelope) {
-            handleAcpChildEnvelope(tab, envelope);
-          },
-        };
+  const bridge = {
+    sendAction: function (envelope) {
+      handleAcpChildEnvelope(tab, envelope);
+    },
+  };
   const direct = frameWindow;
   const wrapped =
     direct.wrappedJSObject && typeof direct.wrappedJSObject === "object"
@@ -466,89 +384,6 @@ function requestAllChildrenReady(reason) {
   });
 }
 
-function childDeliveryKey(tab, phase, generation) {
-  return [tab, phase, String(generation || 0)].join(":");
-}
-
-function hasDeliveredChildPayload(tab, phase, generation, frameWindow) {
-  if (!generation || !frameWindow) return false;
-  const delivered = state.deliveredChildPayloads.get(
-    childDeliveryKey(tab, phase, generation),
-  );
-  return !!delivered && delivered.has(frameWindow);
-}
-
-function markDeliveredChildPayload(tab, phase, generation, frameWindow) {
-  if (!generation || !frameWindow) return;
-  const key = childDeliveryKey(tab, phase, generation);
-  let delivered = state.deliveredChildPayloads.get(key);
-  if (!delivered) {
-    delivered = new WeakSet();
-    state.deliveredChildPayloads.set(key, delivered);
-  }
-  delivered.add(frameWindow);
-}
-
-function rejectCachedPublication(cached) {
-  if (!cached || !cached.generation || !cached.payload) return;
-  const publication =
-    cached.payload.workspacePublication &&
-    typeof cached.payload.workspacePublication === "object"
-      ? cached.payload.workspacePublication
-      : null;
-  if (!publication) return;
-  void publicationAck(publication, "shell-forward", "rejected", "superseded");
-}
-
-function postToChild(tab, phase, payload, generation) {
-  const frame = frameForTab(tab);
-  const frameWindow = frame && frame.contentWindow;
-  if (!frameWindow) {
-    traceAction("post-to-child-drop-no-frame", { tab, phase, generation });
-    return false;
-  }
-  if (hasDeliveredChildPayload(tab, phase, generation, frameWindow)) {
-    traceAction("post-to-child-skip-delivered", {
-      tab,
-      phase,
-      generation,
-    });
-    state.loadedFrames.add(tab);
-    updateLoadingState();
-    return true;
-  }
-  const normalizedPayload =
-    tab === "skillrunner"
-      ? normalizeSkillRunnerSidebarPayload(payload)
-      : payload || {};
-  installChildBridge(tab);
-  traceAction("post-to-child", {
-    tab,
-    phase,
-    generation,
-    summary: payloadSummary(normalizedPayload),
-  });
-  frameWindow.postMessage(
-    {
-      type: messageTypeForTab(tab, phase),
-      payload: normalizedPayload,
-    },
-    "*",
-  );
-  const snapshotPublication =
-    normalizedPayload.workspacePublication &&
-    typeof normalizedPayload.workspacePublication === "object"
-      ? normalizedPayload.workspacePublication
-      : null;
-  if (snapshotPublication) {
-    void publicationAck(snapshotPublication, "shell-forward", "accepted", null);
-  }
-  markDeliveredChildPayload(tab, phase, generation, frameWindow);
-  state.loadedFrames.add(tab);
-  updateLoadingState();
-  return true;
-}
-
 function publicationAck(publication, stage, outcome, reason) {
   return postToHost(ASSISTANT_WORKSPACE_MESSAGE_TYPES.PUBLICATION_ACK, {
     publicationId: String((publication && publication.publicationId) || ""),
@@ -565,11 +400,6 @@ function childDocumentGeneration(tab, payload) {
 }
 
 function clearDeliveredChildState(tab) {
-  Array.from(state.deliveredChildPayloads.keys()).forEach(function (key) {
-    if (String(key).startsWith(tab + ":")) {
-      state.deliveredChildPayloads.delete(key);
-    }
-  });
   Array.from(state.deliveredChildPublications.keys()).forEach(function (key) {
     if (String(key).startsWith(tab + "\n")) {
       state.deliveredChildPublications.delete(key);
@@ -717,7 +547,6 @@ function normalizeSurfaceConfiguration(value) {
 }
 
 function postSurfaceConfigurationToChild(tab) {
-  if (tab === "skillrunner") return true;
   const frame = frameForTab(tab);
   const frameWindow = frame && frame.contentWindow;
   if (!frameWindow) return false;
@@ -735,8 +564,9 @@ function postSurfaceConfigurationToChild(tab) {
 }
 
 function postSurfaceConfigurationToAcpChildren() {
-  postSurfaceConfigurationToChild("acp-chat");
-  postSurfaceConfigurationToChild("acp-skills");
+  tabs.forEach(function (tab) {
+    postSurfaceConfigurationToChild(tab);
+  });
 }
 
 function closeDrawersForTab(tab) {
@@ -753,65 +583,6 @@ function closeInactiveChildDrawers(activeTab) {
   tabs.forEach(function (entry) {
     if (entry !== activeTab) closeDrawersForTab(entry);
   });
-}
-
-function cacheChildPayload(tab, phase, payload) {
-  if (tabs.indexOf(tab) < 0) return;
-  syncScopeKeyFromPayload(payload);
-  const revision = childPayloadRevision(tab, payload);
-  const latestRevision = state.latestChildRevisions.get(tab) || 0;
-  if (revision > 0 && revision < latestRevision) {
-    traceAction("cache-child-payload-drop-stale", {
-      tab,
-      phase,
-      revision,
-      latestRevision,
-      summary: payloadSummary(payload),
-    });
-    return null;
-  }
-  if (revision > latestRevision) {
-    state.latestChildRevisions.set(tab, revision);
-  }
-  state.childPayloadGeneration += 1;
-  const generation = state.childPayloadGeneration;
-  const current = state.latestChildPayloads.get(tab) || {};
-  const phaseKey = phase || "snapshot";
-  const nextPublicationId = String(
-    (payload &&
-      payload.workspacePublication &&
-      payload.workspacePublication.publicationId) ||
-      "",
-  );
-  Object.values(current).forEach(function (cached) {
-    const cachedPublicationId = String(
-      (cached &&
-        cached.payload &&
-        cached.payload.workspacePublication &&
-        cached.payload.workspacePublication.publicationId) ||
-        "",
-    );
-    if (!nextPublicationId || cachedPublicationId !== nextPublicationId) {
-      rejectCachedPublication(cached);
-    }
-  });
-  current[phaseKey] = {
-    generation,
-    payload:
-      tab === "skillrunner"
-        ? normalizeSkillRunnerSidebarPayload(payload)
-        : payload || {},
-  };
-  state.latestChildPayloads.set(tab, current);
-  traceAction("cache-child-payload", {
-    tab,
-    phase: phaseKey,
-    generation,
-    revision,
-    latestRevision: state.latestChildRevisions.get(tab) || 0,
-    summary: payloadSummary(current[phaseKey].payload),
-  });
-  return current[phaseKey];
 }
 
 function payloadScopeKey(payload) {
@@ -831,18 +602,6 @@ function syncScopeKeyFromPayload(payload) {
 }
 
 function clearChildPayloadState(reason) {
-  state.latestChildPayloads.forEach(function (cached) {
-    if (cached.init) {
-      rejectCachedPublication(cached.init);
-    }
-    if (cached.snapshot) {
-      rejectCachedPublication(cached.snapshot);
-    }
-  });
-  state.latestChildPayloads.clear();
-  state.latestChildRevisions.clear();
-  state.deliveredChildPayloads.clear();
-  state.pendingReplayTabs.clear();
   state.pendingChildPublications.forEach(function (pending) {
     pending.forEach(function (publication) {
       void publicationAck(
@@ -855,124 +614,7 @@ function clearChildPayloadState(reason) {
   });
   state.pendingChildPublications.clear();
   state.deliveredChildPublications.clear();
-  if (state.childReplayTimer) {
-    clearTimeout(state.childReplayTimer);
-    state.childReplayTimer = null;
-  }
-  state.childReplayAttempts = 0;
   traceAction("child-payload-state-clear", { reason });
-}
-
-function childPayloadRevision(tab, payload) {
-  const source = payload && typeof payload === "object" ? payload : {};
-  const sidebar =
-    source.sidebar && typeof source.sidebar === "object" ? source.sidebar : {};
-  const panes =
-    sidebar.panes && typeof sidebar.panes === "object" ? sidebar.panes : {};
-  const pane = panes[tab] && typeof panes[tab] === "object" ? panes[tab] : {};
-  const revision = Number(pane.revision || 0);
-  return Number.isFinite(revision) ? Math.max(0, Math.floor(revision)) : 0;
-}
-
-function normalizeSkillRunnerSidebarPayload(payload) {
-  const source = payload && typeof payload === "object" ? payload : {};
-  return Object.assign({}, source, { hostMode: "sidebar" });
-}
-
-function replayCachedChildPayload(tab) {
-  const cached = state.latestChildPayloads.get(tab);
-  if (!cached) {
-    traceAction("replay-cache-empty", { tab });
-    return true;
-  }
-  traceAction("replay-cache", {
-    tab,
-    hasInit: !!cached.init,
-    hasSnapshot: !!cached.snapshot,
-  });
-  let delivered = true;
-  if (cached.init) {
-    delivered =
-      postToChild(tab, "init", cached.init.payload, cached.init.generation) &&
-      delivered;
-  }
-  if (cached.snapshot) {
-    delivered =
-      postToChild(
-        tab,
-        "snapshot",
-        cached.snapshot.payload,
-        cached.snapshot.generation,
-      ) && delivered;
-  }
-  if (delivered) {
-    state.pendingReplayTabs.delete(tab);
-  }
-  traceAction("replay-cache-result", { tab, delivered });
-  return delivered;
-}
-
-function replayPendingChildPayloads(reason) {
-  let delivered = true;
-  Array.from(state.pendingReplayTabs).forEach(function (tab) {
-    if (!state.latestChildPayloads.has(tab)) {
-      state.pendingReplayTabs.delete(tab);
-      return;
-    }
-    if (replayCachedChildPayload(tab)) {
-      state.pendingReplayTabs.delete(tab);
-      return;
-    }
-    delivered = false;
-  });
-  traceAction("child-replay-pending-result", {
-    reason,
-    delivered,
-    attempts: state.childReplayAttempts,
-    pendingTabs: Array.from(state.pendingReplayTabs),
-  });
-  return delivered;
-}
-
-function queueChildReplay(tab, reason) {
-  if (tabs.indexOf(tab) < 0) return;
-  state.pendingReplayTabs.add(tab);
-  traceAction("child-replay-queued", {
-    tab,
-    reason,
-    pendingTabs: Array.from(state.pendingReplayTabs),
-  });
-  scheduleChildReplay(reason);
-}
-
-function scheduleChildReplay(reason) {
-  if (state.childReplayTimer) {
-    traceAction("child-replay-coalesced", {
-      reason,
-      attempts: state.childReplayAttempts,
-      pendingTabs: Array.from(state.pendingReplayTabs),
-    });
-    return;
-  }
-  traceAction("child-replay-scheduled", {
-    reason,
-    attempts: state.childReplayAttempts,
-    pendingTabs: Array.from(state.pendingReplayTabs),
-  });
-  state.childReplayTimer = setTimeout(function () {
-    state.childReplayTimer = null;
-    state.childReplayAttempts += 1;
-    traceAction("child-replay-tick", {
-      reason,
-      attempts: state.childReplayAttempts,
-      pendingTabs: Array.from(state.pendingReplayTabs),
-    });
-    if (!replayPendingChildPayloads(reason)) {
-      scheduleChildReplay("retry");
-      return;
-    }
-    state.childReplayAttempts = 0;
-  }, childReplayDelayMs);
 }
 
 function acceptChildReady(tab, payload) {
@@ -996,9 +638,6 @@ function acceptChildReady(tab, payload) {
     generationChanged,
     payload: payloadSummary(payload),
   });
-  if (!replayCachedChildPayload(normalizedTab)) {
-    queueChildReplay(normalizedTab, "child-ready:" + normalizedTab);
-  }
   forwardPendingChildPublications(normalizedTab);
   updateLoadingState();
 }
@@ -1031,12 +670,6 @@ function setActiveTab(tab, options) {
       tab: nextTab,
     });
   }
-  if (!replayCachedChildPayload(nextTab)) {
-    queueChildReplay(nextTab, "tab-switch:" + nextTab);
-  }
-  if (nextTab === "skillrunner") {
-    installChildBridge("skillrunner");
-  }
   updateLoadingState();
 }
 
@@ -1049,9 +682,6 @@ function handleFrameLoad(tab) {
   state.loadedFrames.add(normalizedTab);
   traceAction("frame-load", { tab: normalizedTab });
   requestChildReady(normalizedTab, "frame-load:" + normalizedTab);
-  if (!replayCachedChildPayload(normalizedTab)) {
-    queueChildReplay(normalizedTab, "frame-load:" + normalizedTab);
-  }
   updateLoadingState();
 }
 
@@ -1067,12 +697,6 @@ function attachFrameLoadListeners() {
 
 window.addEventListener("message", function (event) {
   const data = event.data || {};
-  if (
-    data.type === resolveRunDialogMessageType("skillrunner-sidebar", "action")
-  ) {
-    handleSkillRunnerChildAction("skillrunner", data.action, data.payload);
-    return;
-  }
   if (data.type === ASSISTANT_WORKSPACE_MESSAGE_TYPES.INIT) {
     ensureHostReady("host-init");
     traceAction("workspace-init-received", {
@@ -1097,6 +721,10 @@ window.addEventListener("message", function (event) {
       "acp-skills":
         labels["acp-skills"] && typeof labels["acp-skills"] === "object"
           ? labels["acp-skills"]
+          : {},
+      skillrunner:
+        labels.skillrunner && typeof labels.skillrunner === "object"
+          ? labels.skillrunner
           : {},
     };
     postSurfaceConfigurationToAcpChildren();
@@ -1127,32 +755,6 @@ window.addEventListener("message", function (event) {
     });
     return;
   }
-  if (data.type === ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_SNAPSHOT) {
-    ensureHostReady("host-child-snapshot");
-    const payload = data.payload || {};
-    const tab = normalizeTab(payload.tab, state.activeTab);
-    if (tab !== "skillrunner") {
-      traceAction("drop-child-snapshot", {
-        tab,
-        reason: "acp-publication-required",
-      });
-      return;
-    }
-    const phase = payload.phase || "snapshot";
-    const snapshot = payload.snapshot || {};
-    traceAction("child-snapshot-received", {
-      tab,
-      phase,
-      summary: payloadSummary(snapshot),
-    });
-    const normalizedSnapshot = cacheChildPayload(tab, phase, snapshot);
-    if (normalizedSnapshot) {
-      if (!replayCachedChildPayload(tab)) {
-        queueChildReplay(tab, "child-snapshot:" + tab);
-      }
-    }
-    return;
-  }
   if (data.type === ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_PUBLICATION) {
     ensureHostReady("host-child-publication");
     const payload = data.payload || {};
@@ -1162,7 +764,11 @@ window.addEventListener("message", function (event) {
         ? publication.owner.source
         : "",
     );
-    if (source !== "acp-chat" && source !== "acp-skills") {
+    if (
+      source !== "acp-chat" &&
+      source !== "acp-skills" &&
+      source !== "skillrunner"
+    ) {
       traceAction("drop-child-publication", {
         reason: "invalid-source",
         publicationId: publication.publicationId,

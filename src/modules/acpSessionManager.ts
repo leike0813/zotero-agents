@@ -921,6 +921,7 @@ export function getAcpChatWorkspaceOwnerNavigation(): AssistantWorkspaceOwnerNav
     entries,
     queuedEntries: [],
     canCreateOwner: backends.length > 0,
+    notice: null,
   };
 }
 

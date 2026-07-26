@@ -2191,7 +2191,9 @@ function exactWorkspaceTask(entry, selectedOwner, labelSource) {
     action:
       owner && owner.source === "acp-chat"
         ? "set-active-conversation"
-        : "select-run",
+        : owner && owner.source === "skillrunner"
+          ? "select-task"
+          : "select-run",
     payload: { owner },
     title: safeText(entry && entry.label) || key,
     workflowLabel:
@@ -2396,6 +2398,7 @@ function exactWorkspaceDrawerSections(
 
 function exactWorkspaceEmptyChrome(source, sourceLabels, labelSource) {
   const chat = source.source === "acp-chat";
+  const skillrunner = source.source === "skillrunner";
   const disabledAction = function (action, label, extra) {
     return Object.assign(
       {
@@ -2452,21 +2455,23 @@ function exactWorkspaceEmptyChrome(source, sourceLabels, labelSource) {
           },
         ),
       ]
-    : [
-        disabledAction(
-          "connect-run",
-          labelFrom(labelSource, "actions.connect", "Connect"),
-        ),
-        disabledAction(
-          "disconnect-run",
-          labelFrom(labelSource, "actions.disconnect", "Disconnect"),
-        ),
-        disabledAction(
-          "cancel-run",
-          labelFrom(labelSource, "actions.cancelRun", "Cancel Task"),
-          { tone: "danger" },
-        ),
-      ];
+    : skillrunner
+      ? []
+      : [
+          disabledAction(
+            "connect-run",
+            labelFrom(labelSource, "actions.connect", "Connect"),
+          ),
+          disabledAction(
+            "disconnect-run",
+            labelFrom(labelSource, "actions.disconnect", "Disconnect"),
+          ),
+          disabledAction(
+            "cancel-run",
+            labelFrom(labelSource, "actions.cancelRun", "Cancel Task"),
+            { tone: "danger" },
+          ),
+        ];
   return {
     subtitle: labelFrom(
       labelSource,
@@ -2555,7 +2560,11 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
       : {
           title:
             safeText(sourceLabels.title) ||
-            (source.source === "acp-chat" ? "ACP Chat" : "ACP Skills"),
+            (source.source === "acp-chat"
+              ? "ACP Chat"
+              : source.source === "skillrunner"
+                ? "SkillRunner"
+                : "ACP Skills"),
           subtitle: null,
           description: null,
           notice: null,
@@ -2718,7 +2727,7 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
       payload: { groupId: selectedGroupId },
     });
   }
-  if (owner && control.connection) {
+  if (owner && control.connection && source.source !== "skillrunner") {
     const connectionStatus = safeText(control.connection.status);
     contextActions.push({
       action: source.source === "acp-chat" ? "connect" : "connect-run",
@@ -2780,7 +2789,11 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
       payload: { enabled: !enabled },
     });
   }
-  if (source.source === "acp-skills" && owner && control.execution) {
+  if (
+    (source.source === "acp-skills" || source.source === "skillrunner") &&
+    owner &&
+    control.execution
+  ) {
     contextActions.push({
       action: "cancel-run",
       label: labelFrom(labelSource, "actions.cancelRun", "Cancel Task"),
@@ -2925,6 +2938,63 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
                 }
               : null,
         }),
+      };
+    }
+    // SkillRunner waiting_auth: the shared DTO carries the resolved auth
+    // suite. The projection mirrors the legacy buildSkillRunnerPendingInteraction
+    // waiting-auth output field for field so HintRegion renders unchanged;
+    // method buttons reuse the legacy reply-run auth payload shape byte for
+    // byte (dispatchSkillRunnerWorkspaceAction maps it natively).
+    const sharedAuth =
+      sharedPending &&
+      sharedPending.auth &&
+      typeof sharedPending.auth === "object"
+        ? sharedPending.auth
+        : null;
+    if (kind === "auth" && sharedAuth) {
+      const methodActions = (
+        Array.isArray(sharedAuth.methods) ? sharedAuth.methods : []
+      ).map(function (method) {
+        return contextAction(
+          "reply-run",
+          safeText(method && (method.label || method.value)) ||
+            labelFrom(labelSource, "actions.useMethod", "Use method"),
+          {
+            mode: "auth",
+            selection: {
+              kind: "auth_method",
+              value: safeText(method && (method.value || method.label)),
+            },
+          },
+          sharedAuth.actionPending !== true,
+        );
+      });
+      return {
+        kind,
+        title: labelFrom(
+          labelSource,
+          "interaction.authenticationRequiredTitle",
+          "Authentication required",
+        ),
+        message,
+        actions: methodActions,
+        auth: {
+          phase: safeText(sharedAuth.phase),
+          challengeKind: safeText(sharedAuth.challengeKind),
+          hint: safeText(sharedAuth.hint),
+          inputKind: safeText(sharedAuth.inputKind),
+          acceptsChatInput: sharedAuth.acceptsChatInput === true,
+          authUrl: safeText(sharedAuth.authUrl),
+          userCode: safeText(sharedAuth.userCode),
+          lastError: safeText(sharedAuth.lastError),
+          actionPending: sharedAuth.actionPending === true,
+          actionKind: safeText(sharedAuth.actionKind),
+          importFiles: Array.isArray(sharedAuth.importFiles)
+            ? sharedAuth.importFiles
+            : [],
+          importRiskNoticeRequired:
+            sharedAuth.importRiskNoticeRequired === true,
+        },
       };
     }
     return kind === "hidden" || (kind === "notice" && !message)
@@ -3103,6 +3173,7 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
       contexts: [],
       sections: drawerSections,
       selectedTaskKey: safeText(owner && owner.ownerKey),
+      notice: safeText(navigation && navigation.notice),
       labels: assistantDrawerLabels(labelSource),
       details,
       detailsLoading: local.detailsDrawerOpen === true && !detailsState,

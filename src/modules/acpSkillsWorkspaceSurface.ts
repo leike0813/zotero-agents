@@ -533,6 +533,7 @@ function prepareAcpSkillsOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
     })),
     queuedEntries,
     canCreateOwner: false,
+    notice: null,
   };
 }
 

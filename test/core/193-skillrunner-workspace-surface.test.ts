@@ -1,14 +1,10 @@
 import { assert } from "chai";
 import {
-  attachSkillRunnerSidebarHost,
-  detachSkillRunnerSidebarHost,
   dispatchRunWorkspaceAction,
   getSkillRunnerWorkspaceReadModel,
   getSkillRunnerWorkspaceSelectedOwner,
   projectSkillRunnerConversationEntriesToTranscriptItems,
   readSkillRunnerTranscriptRegion,
-  refreshSkillRunnerSidebarHostSnapshot,
-  subscribeSkillRunnerWorkspaceChanges,
   type SkillRunnerConversationEntry,
 } from "../../src/modules/skillRunnerRunDialog";
 import {
@@ -16,15 +12,14 @@ import {
   SKILLRUNNER_WORKSPACE_ADAPTER,
   SKILLRUNNER_WORKSPACE_CHANGE_PUBLICATION_MAPPING,
 } from "../../src/modules/skillRunnerWorkspaceSurface";
+import { parseAssistantPendingInteraction } from "../../src/shared/assistantInteractionContract";
+import * as AssistantPanelModel from "../../src/sidebar/assistantPanelModel.js";
 import {
-  assertAssistantWorkspacePublication,
   createSkillRunnerWorkspaceOwner,
   type AssistantWorkspaceOwner,
   type AssistantWorkspacePublication,
   type AssistantWorkspacePublicationKind,
 } from "../../src/modules/assistantWorkspacePublication";
-import { AssistantWorkspacePublicationCoordinator } from "../../src/modules/assistantWorkspacePublicationCoordinator";
-import { AssistantWorkspacePublicationRuntime } from "../../src/modules/assistantWorkspacePublicationRuntime";
 import { setAssistantExecutionDisplayMode } from "../../src/modules/assistantExecutionDisplayPolicy";
 import {
   attachSkillRunnerRequestId,
@@ -71,46 +66,6 @@ function selectedOwner(): SkillRunnerOwner | null {
     : null;
 }
 
-function createPublicationCapture() {
-  const publications: AssistantWorkspacePublication[] = [];
-  const coordinator = new AssistantWorkspacePublicationCoordinator({
-    scopeKey: "test-193-skillrunner",
-    getActiveOwner(source) {
-      if (source !== "skillrunner") return null;
-      return selectedOwner();
-    },
-    post(publication) {
-      assertAssistantWorkspacePublication(publication);
-      publications.push(structuredClone(publication));
-      // The child is not wired in Stage 2; acknowledge immediately so the
-      // coordinator transcript lane keeps pumping like it would behind a
-      // rendering child.
-      queueMicrotask(() => {
-        coordinator.acknowledge({
-          publicationId: publication.publicationId,
-          stage: "render-complete",
-          outcome: "accepted",
-          reason: null,
-          failure: null,
-        });
-      });
-      return true;
-    },
-  });
-  const runtime = new AssistantWorkspacePublicationRuntime({
-    coordinator,
-    activity: () => "matching-target",
-  });
-  const unsubscribe = subscribeSkillRunnerWorkspaceChanges((change) => {
-    runtime.schedule({
-      adapter: SKILLRUNNER_WORKSPACE_ADAPTER,
-      change,
-      context: undefined,
-    });
-  });
-  return { publications, coordinator, runtime, unsubscribe };
-}
-
 async function waitForCondition(
   predicate: () => boolean | Promise<boolean>,
   description: string,
@@ -136,38 +91,23 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
   this.timeout(20000);
 
   let harness: SkillRunnerWorkspaceSnapshotHarness;
-  let hostWindow: Window;
 
   beforeEach(async function () {
     workflowSubmissionQueue.resetForTests();
     harness = await startSkillRunnerWorkspaceSnapshotHarness();
-    hostWindow = {
-      addEventListener() {},
-      removeEventListener() {},
-    } as unknown as Window;
   });
 
   afterEach(async function () {
-    detachSkillRunnerSidebarHost({ hostWindow });
     clearPref("assistantExecutionDisplayMode");
     workflowSubmissionQueue.resetForTests();
     await harness.reset();
   });
 
-  // Attaches the run-level host with a no-op snapshot publisher so the
-  // production refresh pipeline runs; assertions never touch the legacy
-  // snapshot channel (Stage 2 lands dark next to it).
+  // Attaches the run-level host and captures the production publication
+  // stream (subscribe → runtime.schedule → coordinator → post, asserted per
+  // publication); assertions never touch the legacy snapshot channel.
   async function attachReadModelHost(selectRunKey?: string) {
-    attachSkillRunnerSidebarHost({
-      hostWindow,
-      frameWindow: null,
-      isHostAlive: () => true,
-      publishSnapshot: () => {},
-    });
-    await refreshSkillRunnerSidebarHostSnapshot({
-      forceInit: true,
-      runKey: selectRunKey,
-    });
+    return harness.attachPublications({ selectRunKey });
   }
 
   it("excludes plan and service-status from the supported kinds and maps change kinds", function () {
@@ -364,8 +304,8 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
         return { status: "succeeded" };
       },
     });
+    const capture = await attachReadModelHost(running.runKey);
     try {
-      await attachReadModelHost(running.runKey);
       const navigation =
         await SKILLRUNNER_WORKSPACE_ADAPTER.readOwnerNavigation();
       assert.equal(
@@ -404,6 +344,7 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
       assert.isTrue(navigation.queuedEntries[0]?.canCancel);
       assert.isFalse(navigation.canCreateOwner);
     } finally {
+      capture.stop();
       releaseFirst();
     }
   });
@@ -422,77 +363,210 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
         ],
       },
     });
-    await attachReadModelHost(interaction.runKey);
-    await waitForCondition(() => {
-      const model = getSkillRunnerWorkspaceReadModel();
-      return model?.status === "waiting_user" && !!model.pendingInteraction;
-    }, "pending interaction read model");
-    const owner = selectedOwner();
-    assert.ok(owner);
-    const regions = await SKILLRUNNER_WORKSPACE_ADAPTER.readOwnerRegions({
-      owner: owner!,
-      kinds: [...OWNER_REGION_KINDS],
-      context: undefined,
-    });
-    const control = regions["owner-control"];
-    assert.ok(control);
-    assert.equal(control?.status, "waiting_user");
-    assert.equal(control?.hint.kind, "waiting_user");
-    assert.equal(control?.interaction?.inputKind, "choose_one");
-    assert.deepEqual(
-      control?.interaction?.options.map((option) => option.label),
-      ["Short", "Full"],
-    );
-    assert.isTrue(control?.execution.canCancel);
-    assert.isFalse(control?.authentication.required);
-    assert.equal(regions.composer?.reply.status, "enabled");
-    assert.isNotNull(regions["message-counts"]?.counts);
-    assert.equal(regions["owner-presentation"]?.title, "Harness Task 1");
-    assert.equal(regions["owner-details"]?.status, "ready");
-    assert.isNull(regions.permission?.request);
-
-    const auth = harness.seedTask({
-      requestId: "req-auth",
-      status: "waiting_auth",
-      pendingAuth: {
-        phase: "challenge_active",
-        auth_session_id: "sess-auth-1",
-        provider_id: "provider-x",
-        challenge_kind: "auth_code_or_url",
-        accepts_chat_input: true,
-        input_kind: "auth_code",
-        auth_url: "https://example.com/auth",
-        user_code: "UC-123",
-      },
-    });
-    await dispatchRunWorkspaceAction({
-      type: "skillrunner-sidebar:action",
-      action: "select-task",
-      payload: { taskKey: auth.runKey },
-    });
-    await waitForCondition(() => {
-      const model = getSkillRunnerWorkspaceReadModel();
-      return (
-        model?.runKey === auth.runKey &&
-        model.authRequired &&
-        !!model.pendingInteraction
+    const interactionCapture = await attachReadModelHost(interaction.runKey);
+    try {
+      await waitForCondition(() => {
+        const model = getSkillRunnerWorkspaceReadModel();
+        return model?.status === "waiting_user" && !!model.pendingInteraction;
+      }, "pending interaction read model");
+      const owner = selectedOwner();
+      assert.ok(owner);
+      const regions = await SKILLRUNNER_WORKSPACE_ADAPTER.readOwnerRegions({
+        owner: owner!,
+        kinds: [...OWNER_REGION_KINDS],
+        context: undefined,
+      });
+      const control = regions["owner-control"];
+      assert.ok(control);
+      assert.equal(control?.status, "waiting_user");
+      assert.equal(control?.hint.kind, "waiting_user");
+      assert.equal(control?.interaction?.inputKind, "choose_one");
+      assert.deepEqual(
+        control?.interaction?.options.map((option) => option.label),
+        ["Short", "Full"],
       );
-    }, "waiting-auth read model with projected auth interaction");
-    const authModel = getSkillRunnerWorkspaceReadModel();
-    assert.equal(authModel?.status, "waiting_auth");
-    assert.ok(
-      authModel?.pendingInteraction,
-      "auth chat input projects through the shared interaction DTO",
-    );
-    assert.equal(authModel?.pendingInteraction?.inputKind, "open_text");
-    const authRegions = await SKILLRUNNER_WORKSPACE_ADAPTER.readOwnerRegions({
-      owner: selectedOwner()!,
-      kinds: ["owner-control", "composer"],
-      context: undefined,
-    });
-    assert.equal(authRegions["owner-control"]?.hint.kind, "auth");
-    assert.isTrue(authRegions["owner-control"]?.authentication.required);
-    assert.equal(authRegions.composer?.reply.status, "enabled");
+      assert.isTrue(control?.execution.canCancel);
+      assert.isFalse(control?.authentication.required);
+      assert.equal(regions.composer?.reply.status, "enabled");
+      assert.isNotNull(regions["message-counts"]?.counts);
+      assert.equal(regions["owner-presentation"]?.title, "Harness Task 1");
+      assert.equal(regions["owner-details"]?.status, "ready");
+      assert.isNull(regions.permission?.request);
+
+      const auth = harness.seedTask({
+        requestId: "req-auth",
+        status: "waiting_auth",
+        pendingAuth: {
+          phase: "challenge_active",
+          auth_session_id: "sess-auth-1",
+          provider_id: "provider-x",
+          challenge_kind: "auth_code_or_url",
+          accepts_chat_input: true,
+          input_kind: "auth_code",
+          auth_url: "https://example.com/auth",
+          user_code: "UC-123",
+          last_error: "code expired once",
+          available_methods: ["auth_code", "auth_url"],
+          ask_user: {
+            prompt: "Authorize the digest backend",
+            hint: "Pick a method to continue",
+            options: [
+              { label: "Device code", value: "auth_code" },
+              { label: "Browser URL", value: "auth_url" },
+            ],
+            files: [
+              {
+                name: "token.json",
+                required: true,
+                hint: "Exported token",
+                accept: ".json",
+              },
+            ],
+            ui_hints: { risk_notice_required: true },
+          },
+        },
+      });
+      await dispatchRunWorkspaceAction({
+        type: "skillrunner-sidebar:action",
+        action: "select-task",
+        payload: { taskKey: auth.runKey },
+      });
+      await waitForCondition(() => {
+        const model = getSkillRunnerWorkspaceReadModel();
+        return (
+          model?.runKey === auth.runKey &&
+          model.authRequired &&
+          !!model.pendingInteraction
+        );
+      }, "waiting-auth read model with projected auth interaction");
+      const authModel = getSkillRunnerWorkspaceReadModel();
+      assert.equal(authModel?.status, "waiting_auth");
+      assert.ok(
+        authModel?.pendingInteraction,
+        "auth chat input projects through the shared interaction DTO",
+      );
+      assert.equal(authModel?.pendingInteraction?.inputKind, "open_text");
+      const authRegions = await SKILLRUNNER_WORKSPACE_ADAPTER.readOwnerRegions({
+        owner: selectedOwner()!,
+        kinds: ["owner-control", "composer"],
+        context: undefined,
+      });
+      assert.equal(authRegions["owner-control"]?.hint.kind, "auth");
+      assert.isTrue(authRegions["owner-control"]?.authentication.required);
+      assert.equal(authRegions.composer?.reply.status, "enabled");
+
+      // The full auth suite rides the shared interaction DTO so the child hint
+      // region renders the legacy waiting-auth affordances unchanged.
+      const authControl = authRegions["owner-control"];
+      assert.equal(
+        authControl?.hint.message,
+        "Authorize the digest backend",
+        "auth prompt resolves ask_user first, matching the legacy panel model",
+      );
+      assert.isFalse(
+        authControl?.authentication.canAuthenticate,
+        "SkillRunner has no banner Authenticate action",
+      );
+      const authInteraction = authControl?.interaction;
+      assert.ok(
+        authInteraction,
+        "waiting_auth owner-control carries the interaction DTO",
+      );
+      assert.deepEqual(
+        parseAssistantPendingInteraction(authInteraction),
+        authInteraction,
+        "auth-carrying DTO survives the exact wire parse",
+      );
+      const authSuite = authInteraction?.auth;
+      assert.ok(authSuite, "auth suite is projected onto the shared DTO");
+      assert.equal(authSuite?.phase, "challenge_active");
+      assert.equal(authSuite?.challengeKind, "auth_code_or_url");
+      assert.equal(authSuite?.prompt, "Authorize the digest backend");
+      assert.equal(authSuite?.hint, "Pick a method to continue");
+      assert.equal(authSuite?.inputKind, "auth_code");
+      assert.isTrue(authSuite?.acceptsChatInput);
+      assert.equal(authSuite?.authUrl, "https://example.com/auth");
+      assert.equal(authSuite?.userCode, "UC-123");
+      assert.equal(authSuite?.lastError, "code expired once");
+      assert.isFalse(authSuite?.actionPending);
+      assert.deepEqual(
+        authSuite?.methods.map((method) => [method.label, method.value]),
+        [
+          ["Device code", "auth_code"],
+          ["Browser URL", "auth_url"],
+        ],
+        "ask_user method options win over available_methods",
+      );
+      assert.deepEqual(authSuite?.importFiles, [
+        {
+          name: "token.json",
+          required: true,
+          hint: "Exported token",
+          accept: ".json",
+        },
+      ]);
+      assert.isTrue(authSuite?.importRiskNoticeRequired);
+
+      // The child panel model projects the same hint shape the legacy
+      // buildSkillRunnerPendingInteraction waiting-auth branch produced:
+      // method buttons send the legacy reply-run auth payload byte for byte,
+      // and the diagnostic/import fields pass through untouched.
+      const authPanel = AssistantPanelModel.projectAssistantWorkspacePanel(
+        {
+          source: "skillrunner",
+          selection: { owner: selectedOwner(), control: authControl },
+        },
+        {},
+        {},
+      );
+      const authHint = authPanel.interaction;
+      assert.equal(authHint.kind, "auth");
+      assert.ok(authHint.title);
+      assert.equal(authHint.message, "Authorize the digest backend");
+      assert.deepEqual(
+        authHint.actions.map((action: Record<string, unknown>) => [
+          action.action,
+          action.payload,
+        ]),
+        [
+          [
+            "reply-run",
+            {
+              mode: "auth",
+              selection: { kind: "auth_method", value: "auth_code" },
+            },
+          ],
+          [
+            "reply-run",
+            {
+              mode: "auth",
+              selection: { kind: "auth_method", value: "auth_url" },
+            },
+          ],
+        ],
+      );
+      assert.isTrue(authHint.actions[0].enabled);
+      assert.equal(authHint.auth.phase, "challenge_active");
+      assert.equal(authHint.auth.challengeKind, "auth_code_or_url");
+      assert.equal(authHint.auth.hint, "Pick a method to continue");
+      assert.equal(authHint.auth.inputKind, "auth_code");
+      assert.isTrue(authHint.auth.acceptsChatInput);
+      assert.equal(authHint.auth.authUrl, "https://example.com/auth");
+      assert.equal(authHint.auth.userCode, "UC-123");
+      assert.equal(authHint.auth.lastError, "code expired once");
+      assert.isFalse(authHint.auth.actionPending);
+      assert.deepEqual(authHint.auth.importFiles, [
+        {
+          name: "token.json",
+          required: true,
+          hint: "Exported token",
+          accept: ".json",
+        },
+      ]);
+      assert.isTrue(authHint.auth.importRiskNoticeRequired);
+    } finally {
+      interactionCapture.stop();
+    }
   });
 
   it("serves transcript pages from in-memory messages and publishes snapshots only", async function () {
@@ -516,9 +590,8 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
         },
       ],
     });
-    const capture = createPublicationCapture();
+    const capture = await attachReadModelHost(seeded.runKey);
     try {
-      await attachReadModelHost(seeded.runKey);
       await capture.runtime.flush();
       const owner = selectedOwner();
       assert.ok(owner);
@@ -623,7 +696,7 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
         );
       }
     } finally {
-      capture.unsubscribe();
+      capture.stop();
     }
   });
 
@@ -644,9 +717,8 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
         { seq: 1, role: "assistant", kind: "assistant_final", text: "beta" },
       ],
     });
-    const capture = createPublicationCapture();
+    const capture = await attachReadModelHost(first.runKey);
     try {
-      await attachReadModelHost(first.runKey);
       await capture.runtime.flush();
       await waitForCondition(
         () =>
@@ -690,7 +762,7 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
       assert.isAbove(loadingIndex, -1, "owner switch publishes loading first");
       assert.isAbove(readyIndex, loadingIndex);
     } finally {
-      capture.unsubscribe();
+      capture.stop();
     }
   });
 
@@ -701,9 +773,8 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
       status: "running",
       chatEvents: [],
     });
-    const capture = createPublicationCapture();
+    const capture = await attachReadModelHost(seeded.runKey);
     try {
-      await attachReadModelHost(seeded.runKey);
       await capture.runtime.flush();
       await waitForCondition(() => {
         const model = getSkillRunnerWorkspaceReadModel();
@@ -778,7 +849,7 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
         );
       }
     } finally {
-      capture.unsubscribe();
+      capture.stop();
     }
   });
 
@@ -790,9 +861,8 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
         { seq: 1, role: "assistant", kind: "assistant_final", text: "stable" },
       ],
     });
-    const capture = createPublicationCapture();
+    const capture = await attachReadModelHost(seeded.runKey);
     try {
-      await attachReadModelHost(seeded.runKey);
       await capture.runtime.flush();
       await waitForCondition(
         () =>
@@ -810,16 +880,10 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
         getSkillRunnerWorkspaceReadModel()?.transcriptRevision || 0;
       assert.isAbove(revisionBeforeDetach, 0);
 
-      detachSkillRunnerSidebarHost({ hostWindow });
+      capture.detachHost();
       // Reattach the same host window: only host wiring is re-established;
       // the module-level transcript publication clock must survive.
-      attachSkillRunnerSidebarHost({
-        hostWindow,
-        frameWindow: null,
-        isHostAlive: () => true,
-        publishSnapshot: () => {},
-      });
-      await refreshSkillRunnerSidebarHostSnapshot({ forceInit: true });
+      await capture.reattachHost();
       await capture.runtime.flush();
 
       const revisionAfterReattach =
@@ -839,15 +903,14 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
       );
       assert.include(texts, "stable");
     } finally {
-      capture.unsubscribe();
+      capture.stop();
     }
   });
 
   it("graduates a local-only run to backend history with an owner switch", async function () {
     const local = harness.seedTask({ taskName: "Local Graduate" });
-    const capture = createPublicationCapture();
+    const capture = await attachReadModelHost(local.runKey);
     try {
-      await attachReadModelHost(local.runKey);
       await capture.runtime.flush();
       await waitForCondition(
         () => getSkillRunnerWorkspaceReadModel()?.runKey === local.runKey,
@@ -930,7 +993,7 @@ describe("SkillRunner workspace surface (read model + adapter)", function () {
       );
       assert.include(texts, "backend history body");
     } finally {
-      capture.unsubscribe();
+      capture.stop();
     }
   });
 });

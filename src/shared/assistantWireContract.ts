@@ -78,6 +78,7 @@ export const ASSISTANT_WORKSPACE_PUBLICATION_PAYLOAD_KEYS: Record<
     "entries",
     "queuedEntries",
     "canCreateOwner",
+    "notice",
   ],
   "service-status": ["items"],
   "owner-control": [

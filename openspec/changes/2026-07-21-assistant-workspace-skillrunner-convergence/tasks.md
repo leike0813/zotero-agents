@@ -15,11 +15,11 @@
 
 ## 3. Child And Shell Cutover (atomic)
 
-- [ ] 3.1 Rewrite the `test/core/97` SkillRunner section first to drive `data-source="skillrunner"` child page through publications with the same subtree node-identity assertions; rewrite `test/core/71` to behavior tests over the publication boundary; rework `test/helpers/skillRunnerWorkspaceSnapshotHarness.ts` to capture publications. The dev-merge versions of 71/65/97-SkillRunner carry assertions for apply-state persistence, queued sections, transcript reactivation, and drawer status axes — every one of those assertions must survive the migration (semantics, not source shape).
-- [ ] 3.2 New `addon/content/sidebar/skillrunner.html` loading `acp-child.bundle.js` with `data-source="skillrunner"`.
-- [ ] 3.3 Shell (`assistantWorkspaceShell.js`): point the skillrunner frame at the new page, route `skillrunner` publications to it, switch `bridgeKeyForTab`/`messageTypeForTab` to the shared child channel, delete the legacy snapshot cache/forward.
-- [ ] 3.4 Child (`assistantWorkspaceAcpChild.js`): skillrunner branches in `childSource()`, `validPublicationEnvelope`, `canonicalActionOwner`; extend `ContextDrawerRegion` for Running/Completed task-group navigation; reuse existing region components otherwise.
-- [ ] 3.5 Sidebar: stop publishing `CHILD_SNAPSHOT` for skillrunner and route child actions through the typed registry; keep every user-visible behavior (optimistic selection, history limit + truncation notice, waiting-auth, auto-reply) unchanged.
+- [x] 3.1 Rewrite the `test/core/97` SkillRunner section first to drive `data-source="skillrunner"` child page through publications with the same subtree node-identity assertions; rewrite `test/core/71` to behavior tests over the publication boundary; rework `test/helpers/skillRunnerWorkspaceSnapshotHarness.ts` to capture publications. The dev-merge versions of 71/65/97-SkillRunner carry assertions for apply-state persistence, queued sections, transcript reactivation, and drawer status axes — every one of those assertions must survive the migration (semantics, not source shape).
+- [x] 3.2 New `addon/content/sidebar/skillrunner.html` loading `acp-child.bundle.js` with `data-source="skillrunner"`.
+- [x] 3.3 Shell (`assistantWorkspaceShell.js`): point the skillrunner frame at the new page, route `skillrunner` publications to it, switch `bridgeKeyForTab`/`messageTypeForTab` to the shared child channel, delete the legacy snapshot cache/forward.
+- [x] 3.4 Child (`assistantWorkspaceAcpChild.js`): skillrunner branches in `childSource()`, `validPublicationEnvelope`, `canonicalActionOwner`; extend `ContextDrawerRegion` for Running/Completed task-group navigation; reuse existing region components otherwise.
+- [x] 3.5 Sidebar: stop publishing `CHILD_SNAPSHOT` for skillrunner and route child actions through the typed registry; keep every user-visible behavior (optimistic selection, history limit + truncation notice, waiting-auth, auto-reply) unchanged.
 
 ## 4. Legacy Deletion
 

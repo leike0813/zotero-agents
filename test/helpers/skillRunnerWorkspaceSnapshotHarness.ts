@@ -4,10 +4,20 @@ import {
   attachSkillRunnerSidebarHost,
   detachSkillRunnerSidebarHost,
   dispatchRunWorkspaceAction,
+  getSkillRunnerWorkspaceSelectedOwner,
   refreshSkillRunnerSidebarHostSnapshot,
   resetSkillRunnerRunDialogForTests,
+  subscribeSkillRunnerWorkspaceChanges,
   type RunWorkspaceSnapshot,
 } from "../../src/modules/skillRunnerRunDialog";
+import { SKILLRUNNER_WORKSPACE_ADAPTER } from "../../src/modules/skillRunnerWorkspaceSurface";
+import {
+  assertAssistantWorkspacePublication,
+  createSkillRunnerWorkspaceOwner,
+  type AssistantWorkspacePublication,
+} from "../../src/modules/assistantWorkspacePublication";
+import { AssistantWorkspacePublicationCoordinator } from "../../src/modules/assistantWorkspacePublicationCoordinator";
+import { AssistantWorkspacePublicationRuntime } from "../../src/modules/assistantWorkspacePublicationRuntime";
 import {
   attachSkillRunnerRequestId,
   createSkillRunnerRun,
@@ -78,6 +88,31 @@ export type SkillRunnerWorkspaceActionEnvelope = {
   payload: Record<string, unknown>;
 };
 
+/**
+ * v1 publication-plane capture for the SkillRunner workspace. Wired exactly
+ * like the production sidebar (`assistantWorkspaceSidebar.ts`): run-store
+ * changes flow through `subscribeSkillRunnerWorkspaceChanges` →
+ * `AssistantWorkspacePublicationRuntime.schedule` with
+ * `SKILLRUNNER_WORKSPACE_ADAPTER` → coordinator → captured posts. The run
+ * host is attached with a no-op legacy snapshot publisher so the production
+ * refresh pipeline runs while assertions stay on the publication boundary.
+ */
+export type SkillRunnerWorkspacePublicationCapture = {
+  hostWindow: Window;
+  publications: AssistantWorkspacePublication[];
+  runtime: AssistantWorkspacePublicationRuntime;
+  flush: () => Promise<void>;
+  transcriptSnapshots: () => AssistantWorkspacePublication[];
+  waitFor: (
+    predicate: (publication: AssistantWorkspacePublication) => boolean,
+    description?: string,
+    timeoutMs?: number,
+  ) => Promise<AssistantWorkspacePublication>;
+  detachHost: () => void;
+  reattachHost: (args?: { selectRunKey?: string }) => Promise<void>;
+  stop: () => void;
+};
+
 export type SkillRunnerWorkspaceCapture = {
   snapshots: Array<{
     phase: "init" | "snapshot";
@@ -146,6 +181,9 @@ export type SkillRunnerWorkspaceSnapshotHarness = {
       envelope: SkillRunnerWorkspaceActionEnvelope,
     ) => boolean | Promise<boolean>;
   }) => Promise<SkillRunnerWorkspaceCapture>;
+  attachPublications: (args?: {
+    selectRunKey?: string;
+  }) => Promise<SkillRunnerWorkspacePublicationCapture>;
   dispatch: (
     action: string,
     payload?: Record<string, unknown>,
@@ -412,7 +450,9 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
   markSkillRunnerBackendHealthSuccess(backendId);
 
   let taskCounter = 0;
+  let publicationCounter = 0;
   let closed = false;
+  const publicationCaptures: SkillRunnerWorkspacePublicationCapture[] = [];
 
   const harness: SkillRunnerWorkspaceSnapshotHarness = {
     backendId,
@@ -640,6 +680,111 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
       };
       return capture;
     },
+    async attachPublications(args = {}) {
+      publicationCounter += 1;
+      const publications: AssistantWorkspacePublication[] = [];
+      const hostWindow = createHostWindowStub();
+      const coordinator = new AssistantWorkspacePublicationCoordinator({
+        scopeKey: `skillrunner-harness-publications-${publicationCounter}`,
+        getActiveOwner(source) {
+          if (source !== "skillrunner") return null;
+          const selected = getSkillRunnerWorkspaceSelectedOwner();
+          return selected
+            ? createSkillRunnerWorkspaceOwner({
+                requestId: selected.requestId || undefined,
+                runKey: selected.runKey,
+              })
+            : null;
+        },
+        post(publication) {
+          assertAssistantWorkspacePublication(publication);
+          publications.push(structuredClone(publication));
+          // Acknowledge immediately so the coordinator transcript lane keeps
+          // pumping like it would behind a rendering child.
+          queueMicrotask(() => {
+            coordinator.acknowledge({
+              publicationId: publication.publicationId,
+              stage: "render-complete",
+              outcome: "accepted",
+              reason: null,
+              failure: null,
+            });
+          });
+          return true;
+        },
+      });
+      const runtime = new AssistantWorkspacePublicationRuntime({
+        coordinator,
+        activity: () => "matching-target",
+      });
+      const unsubscribe = subscribeSkillRunnerWorkspaceChanges((change) => {
+        runtime.schedule({
+          adapter: SKILLRUNNER_WORKSPACE_ADAPTER,
+          change,
+          context: undefined,
+        });
+      });
+      const attachHost = () =>
+        attachSkillRunnerSidebarHost({
+          hostWindow,
+          frameWindow: null,
+          isHostAlive: () => true,
+          publishSnapshot: () => {},
+        });
+      attachHost();
+      await refreshSkillRunnerSidebarHostSnapshot({
+        forceInit: true,
+        runKey: args.selectRunKey,
+      });
+      let stopped = false;
+      const capture: SkillRunnerWorkspacePublicationCapture = {
+        hostWindow,
+        publications,
+        runtime,
+        flush: () => runtime.flush(),
+        transcriptSnapshots: () =>
+          publications.filter(
+            (publication) =>
+              publication.publicationKind === "transcript" &&
+              publication.publicationForm === "snapshot",
+          ),
+        async waitFor(predicate, description, timeoutMs = 8000) {
+          const deadline = Date.now() + timeoutMs;
+          for (;;) {
+            for (let index = publications.length - 1; index >= 0; index -= 1) {
+              if (predicate(publications[index])) {
+                return publications[index];
+              }
+            }
+            if (Date.now() > deadline) {
+              throw new Error(
+                `timed out waiting for ${description || "the expected SkillRunner workspace publication"}`,
+              );
+            }
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+        },
+        detachHost() {
+          detachSkillRunnerSidebarHost({ hostWindow });
+        },
+        async reattachHost(reattachArgs = {}) {
+          attachHost();
+          await refreshSkillRunnerSidebarHostSnapshot({
+            forceInit: true,
+            runKey: reattachArgs.selectRunKey,
+          });
+        },
+        stop() {
+          if (stopped) {
+            return;
+          }
+          stopped = true;
+          unsubscribe();
+        },
+      };
+      publicationCaptures.push(capture);
+      return capture;
+    },
     async dispatch(action, payload = {}) {
       await dispatchRunWorkspaceAction({
         type: "skillrunner-sidebar:action",
@@ -652,6 +797,10 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
         return;
       }
       closed = true;
+      for (const capture of publicationCaptures) {
+        capture.stop();
+      }
+      publicationCaptures.length = 0;
       await resetSkillRunnerRunDialogForTests();
       resetSkillRunnerRunStoreForTests();
       resetWorkflowTasks();

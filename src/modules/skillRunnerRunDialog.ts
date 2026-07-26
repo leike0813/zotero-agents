@@ -104,9 +104,12 @@ import {
 } from "../shared/skillRunnerSnapshotContract";
 import { isSkillRunnerSnapshotWireAssertAvailable } from "./debugMode";
 import {
+  projectAssistantPendingInteractionAuth,
   projectAssistantPendingInteractionFromHints,
   type AssistantInteractionFileReply,
+  type AssistantInteractionOption,
   type AssistantPendingInteraction,
+  type AssistantPendingInteractionAuth,
 } from "../shared/assistantInteractionContract";
 import {
   createAssistantWorkspaceTranscriptPage,
@@ -4053,6 +4056,12 @@ async function startRunObserver(entry: RunDialogEntry) {
           entry.session.loading = false;
           pushSnapshotForRunDialogEntry(entry);
         }
+        // A stop that landed while the initial refresh was in flight has
+        // already missed its abort window (no stream controller exists yet);
+        // exit before opening a stream that nothing would ever abort.
+        if (stopped) {
+          break;
+        }
       }
       try {
         if (isTerminalStatus(entry.session.status)) {
@@ -5215,7 +5224,15 @@ function startRunWorkspaceObserverInBackground(args: {
       if (args.entry.stopObserver) {
         await args.entry.refreshDisplay?.();
       } else {
-        args.entry.stopObserver = await startRunObserver(args.entry);
+        const stopObserver = await startRunObserver(args.entry);
+        if (runDialogMap.get(args.key) !== args.entry) {
+          // A runtime shutdown raced the observer start: the entry is
+          // already gone, so nothing would ever stop the freshly started
+          // observer (its stream would leak past the shutdown). Stop it now.
+          await stopObserver();
+          return;
+        }
+        args.entry.stopObserver = stopObserver;
       }
     } catch (error) {
       warnSkillRunnerWorkspaceAsyncFailure({
@@ -5544,6 +5561,89 @@ export async function dispatchRunWorkspaceAction(
   await handleRunWorkspaceAction(envelope);
 }
 
+/**
+ * Registry-routed action entry point for the shared assistant child page
+ * (Stage 3 of
+ * openspec/changes/2026-07-21-assistant-workspace-skillrunner-convergence).
+ *
+ * The typed registry actions use the canonical payload shapes from
+ * assistantActionContract.ts, which differ from the legacy run-dialog
+ * vocabulary for the two composer/hint actions: the canonical `reply-run`
+ * carries `{message}` and `select-interaction-option` carries
+ * `{responseValue, responseLabel}`. Both are normalized here into the exact
+ * envelope the legacy child used to send (auth submission vs interaction
+ * response is decided by the same session state the legacy child read from
+ * its snapshot), then delegated to `handleRunWorkspaceAction` so all reply,
+ * auth-control, and interaction semantics stay in one place. Every other
+ * registry action already matches the legacy payload shape and passes
+ * through unchanged.
+ */
+export async function dispatchSkillRunnerWorkspaceAction(args: {
+  action: string;
+  payload: Record<string, unknown>;
+}) {
+  const action = String(args.action || "").trim();
+  const payload = args.payload || {};
+  const entry = runWorkspaceState.currentEntry;
+  const waitingAuth = normalizeStatus(entry?.session.status) === "waiting_auth";
+  if (action === "reply-run" && "message" in payload) {
+    const message = String(payload.message || "").trim();
+    const authSessionId = String(
+      entry?.session.pendingAuth?.authSessionId || "",
+    ).trim();
+    const normalizedPayload = waitingAuth
+      ? {
+          mode: "auth",
+          authSessionId,
+          submission: {
+            kind:
+              normalizeAuthInputKind(entry?.session.pendingAuth?.inputKind) ||
+              "auth_code_or_url",
+            value: message,
+          },
+        }
+      : {
+          mode: "interaction",
+          responseObject: { text: message },
+        };
+    await handleRunWorkspaceAction({
+      type: resolveRunWorkspaceBridgeMessageType("action"),
+      action: "reply-run",
+      payload: normalizedPayload,
+    });
+    return;
+  }
+  if (action === "select-interaction-option") {
+    const authSessionId = String(
+      entry?.session.pendingAuth?.authSessionId || "",
+    ).trim();
+    const normalizedPayload = waitingAuth
+      ? {
+          mode: "auth",
+          authSessionId,
+          selection: payload.responseValue,
+        }
+      : {
+          mode: "interaction",
+          responseValue: payload.responseValue,
+          responseObject: {
+            text: String(payload.responseLabel || "").trim(),
+          },
+        };
+    await handleRunWorkspaceAction({
+      type: resolveRunWorkspaceBridgeMessageType("action"),
+      action: "reply-run",
+      payload: normalizedPayload,
+    });
+    return;
+  }
+  await handleRunWorkspaceAction({
+    type: resolveRunWorkspaceBridgeMessageType("action"),
+    action,
+    payload,
+  });
+}
+
 export function attachSkillRunnerSidebarHost(args: {
   hostWindow: Window;
   frameWindow: Window | null;
@@ -5861,6 +5961,12 @@ export type SkillRunnerWorkspaceReadModel = Readonly<{
   pendingInteraction: AssistantPendingInteraction | null;
   pendingPermission: AcpPendingPermissionRequest | null;
   authRequired: boolean;
+  /**
+   * Waiting-auth challenge suite for the workspace auth hint, resolved with
+   * the same precedence as the legacy panel model's waiting-auth branch.
+   * Null outside `waiting_auth`.
+   */
+  pendingAuth: AssistantPendingInteractionAuth | null;
   canReply: boolean;
   canCancel: boolean;
   submitPhase: string | null;
@@ -5961,6 +6067,16 @@ function skillRunnerWorkspaceRunSignature(
           session.pendingAuth.authSessionId || "",
           session.pendingAuth.lastError || "",
           session.pendingAuth.userCode || "",
+          // The remaining auth-suite facts feed the owner-control auth DTO;
+          // without them a challenge update (e.g. a rotated auth URL) would
+          // not advance the publication clock.
+          session.pendingAuth.authUrl || "",
+          session.pendingAuth.challengeKind || "",
+          session.pendingAuth.inputKind || "",
+          session.pendingAuth.acceptsChatInput === true,
+          (session.pendingAuth.availableMethods || []).join("\n"),
+          JSON.stringify(session.pendingAuth.askUser || null),
+          JSON.stringify(session.pendingAuth.uiHints || null),
         ]
       : "",
     session.authControlPending === true,
@@ -6055,11 +6171,136 @@ export function getSkillRunnerWorkspaceSelectedOwner(): SkillRunnerWorkspaceOwne
 export function listSkillRunnerWorkspaceTaskGroups(): Readonly<{
   selectedTaskKey: string;
   groups: readonly RunWorkspaceGroup[];
+  /** Drawer-level truncation hint; "" when the panel history is complete. */
+  historyNotice: string;
 }> {
   return {
     selectedTaskKey: String(runWorkspaceState.selectedTaskKey || "").trim(),
     groups: runWorkspaceState.groups,
+    historyNotice: String(runWorkspaceState.historyNotice || "").trim(),
   };
+}
+
+function normalizeWorkspaceAuthMethodOptions(
+  raw: unknown,
+): AssistantInteractionOption[] {
+  const scalar = (value: unknown) =>
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean";
+  return (Array.isArray(raw) ? raw : [])
+    .map((option): AssistantInteractionOption | null => {
+      if (scalar(option)) {
+        const label = String(option).trim();
+        return label
+          ? {
+              label,
+              value: option as string | number | boolean,
+              description: null,
+            }
+          : null;
+      }
+      if (!isObject(option)) return null;
+      const label =
+        String(option.label ?? "").trim() ||
+        String(option.name ?? "").trim() ||
+        String(option.title ?? "").trim() ||
+        (scalar(option.value) ? String(option.value).trim() : "");
+      const value = Object.prototype.hasOwnProperty.call(option, "value")
+        ? option.value
+        : Object.prototype.hasOwnProperty.call(option, "reply")
+          ? option.reply
+          : Object.prototype.hasOwnProperty.call(option, "message")
+            ? option.message
+            : label;
+      return label
+        ? {
+            label,
+            value: value as AssistantInteractionOption["value"],
+            description: String(option.description ?? "").trim() || null,
+          }
+        : null;
+    })
+    .filter((entry): entry is AssistantInteractionOption => !!entry);
+}
+
+function normalizeWorkspaceAuthImportFile(entry: unknown, index: number) {
+  const text = (value: unknown) => String(value == null ? "" : value).trim();
+  if (typeof entry === "string") {
+    const name = entry.trim();
+    return name ? { name, required: true, hint: null, accept: null } : null;
+  }
+  if (!isObject(entry)) return null;
+  return {
+    name:
+      text(entry.name) ||
+      text(entry.label) ||
+      text(entry.filename) ||
+      `auth-file-${index + 1}`,
+    required: entry.required === true,
+    hint: text(entry.hint) || null,
+    accept: text(entry.accept) || null,
+  };
+}
+
+/**
+ * Resolve the waiting-auth challenge suite for the workspace read model,
+ * mirroring the legacy `buildSkillRunnerPendingInteraction` waiting-auth
+ * branch field for field: the ask_user payload wins over ui_hints, which
+ * wins over the top-level pending-auth scalars. Read-only projection; the
+ * result is funneled through the shared DTO validator so the adapter can
+ * attach it verbatim.
+ */
+function resolveWorkspacePendingAuth(
+  session: RunSessionState,
+): AssistantPendingInteractionAuth | null {
+  const pendingAuth = session.pendingAuth;
+  if (!pendingAuth) return null;
+  const text = (value: unknown) => String(value == null ? "" : value).trim();
+  const askUser = isObject(pendingAuth.askUser) ? pendingAuth.askUser : null;
+  const askHints =
+    askUser && isObject(askUser.ui_hints) ? askUser.ui_hints : {};
+  const uiHints = isObject(pendingAuth.uiHints)
+    ? pendingAuth.uiHints
+    : askHints;
+  const askOptions = normalizeWorkspaceAuthMethodOptions(
+    askUser && Array.isArray(askUser.options) ? askUser.options : [],
+  );
+  const importFileSource =
+    askUser && Array.isArray(askUser.files)
+      ? askUser.files
+      : Array.isArray(uiHints.files)
+        ? uiHints.files
+        : [];
+  return projectAssistantPendingInteractionAuth({
+    phase: text(pendingAuth.phase) || null,
+    challengeKind: text(pendingAuth.challengeKind) || null,
+    prompt:
+      text(askUser?.prompt) ||
+      text(uiHints.prompt) ||
+      text(pendingAuth.prompt) ||
+      null,
+    hint:
+      text(askUser?.hint) || text(askHints.hint) || text(uiHints.hint) || null,
+    inputKind: text(pendingAuth.inputKind) || null,
+    acceptsChatInput: pendingAuth.acceptsChatInput === true,
+    authUrl: text(pendingAuth.authUrl) || null,
+    userCode: text(pendingAuth.userCode) || null,
+    lastError:
+      text(session.authControlError) || text(pendingAuth.lastError) || null,
+    actionPending: session.authControlPending === true,
+    actionKind: text(session.authControlAction) || null,
+    methods:
+      askOptions.length > 0
+        ? askOptions
+        : normalizeWorkspaceAuthMethodOptions(pendingAuth.availableMethods),
+    importFiles: importFileSource
+      .map((entry, index) => normalizeWorkspaceAuthImportFile(entry, index))
+      .filter((entry): entry is NonNullable<typeof entry> => !!entry),
+    importRiskNoticeRequired:
+      askHints.risk_notice_required === true ||
+      uiHints.risk_notice_required === true,
+  });
 }
 
 export function getSkillRunnerWorkspaceReadModel(): SkillRunnerWorkspaceReadModel | null {
@@ -6132,6 +6373,10 @@ export function getSkillRunnerWorkspaceReadModel(): SkillRunnerWorkspaceReadMode
     pendingInteraction,
     pendingPermission,
     authRequired: normalized === "waiting_auth",
+    pendingAuth:
+      normalized === "waiting_auth"
+        ? resolveWorkspacePendingAuth(entry.session)
+        : null,
     canReply:
       typeof task?.canReply === "boolean"
         ? task.canReply

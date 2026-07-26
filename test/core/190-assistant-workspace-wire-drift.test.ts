@@ -259,6 +259,66 @@ describe("assistant wire contract shared registry", function () {
       parseAssistantPendingInteraction(interaction),
       interaction,
     );
+    // Non-auth projections carry a null auth block; the exact wire parse
+    // accepts both the auth-less legacy shape and the auth-carrying one.
+    assert.isNull(interaction?.auth);
+    const legacyShape: Record<string, unknown> = { ...interaction! };
+    delete legacyShape.auth;
+    assert.isOk(parseAssistantPendingInteraction(legacyShape));
+
+    const authed = projectAssistantPendingInteraction({
+      inputKind: "open_text",
+      prompt: null,
+      hint: null,
+      options: [],
+      files: [],
+      fileReply: {
+        supported: false,
+        maxFiles: 8,
+        maxFileBytes: 32 * 1024 * 1024,
+        maxTotalBytes: 64 * 1024 * 1024,
+      },
+      auth: {
+        phase: "challenge_active",
+        challengeKind: "auth_code_or_url",
+        prompt: "Authorize the backend",
+        hint: null,
+        inputKind: "auth_code",
+        acceptsChatInput: true,
+        authUrl: "https://example.com/auth",
+        userCode: "UC-1",
+        lastError: null,
+        actionPending: false,
+        actionKind: null,
+        methods: [
+          { label: "Device code", value: "auth_code", description: null },
+        ],
+        importFiles: [
+          { name: "token.json", required: true, hint: null, accept: ".json" },
+        ],
+        importRiskNoticeRequired: false,
+      },
+    });
+    assert.isOk(authed);
+    assert.deepEqual(
+      parseAssistantPendingInteraction(authed),
+      authed,
+      "auth-carrying DTO round-trips through the exact wire parse",
+    );
+    assert.isNull(
+      parseAssistantPendingInteraction({
+        ...authed,
+        auth: { ...authed!.auth, unknownField: true },
+      }),
+      "auth block is exact-key validated on the wire",
+    );
+    assert.isNull(
+      projectAssistantPendingInteraction({
+        ...authed,
+        auth: { ...authed!.auth, acceptsChatInput: "yes" },
+      }),
+      "auth booleans stay typed",
+    );
     assert.isNull(
       parseAssistantPendingInteraction({
         ...interaction,

@@ -1,11 +1,15 @@
 import { assert } from "chai";
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
+import { h, render } from "preact";
 import { ASSISTANT_WORKSPACE_ACTION_REGISTRY } from "../../src/modules/assistantWorkspacePublication";
 import * as AssistantPanelModel from "../../src/sidebar/assistantPanelModel.js";
 import * as AssistantPanelRenderer from "../../src/sidebar/assistantPanelRenderer.js";
 import * as AssistantTranscriptRenderer from "../../src/sidebar/assistantTranscriptRenderer.js";
 import * as AssistantWorkspaceAcpChild from "../../src/sidebar/assistantWorkspaceAcpChild.js";
+import { TranscriptRegion } from "../../src/sidebar/components/TranscriptRegion";
+import { dispatchSkillRunnerWorkspaceAction } from "../../src/modules/skillRunnerRunDialog";
+import { workflowSubmissionQueue } from "../../src/jobQueue/workflowSubmissionQueue";
 import {
   assertRegionSubtreesPreserved,
   captureRegionSubtrees,
@@ -15,18 +19,13 @@ import {
   subtreeNodes,
   type SidebarDomEnvironment,
 } from "../helpers/sidebarDomEnv";
-import {
-  captureSkillRunnerWorkspaceEnvelope,
-  startSkillRunnerWorkspaceSnapshotHarness,
-} from "../helpers/skillRunnerWorkspaceSnapshotHarness";
+import { startSkillRunnerWorkspaceSnapshotHarness } from "../helpers/skillRunnerWorkspaceSnapshotHarness";
 import { createChromePanelRenderer } from "../../src/sidebar/components/chromeRenderer";
 import { updateSkillRunnerRunApplyState } from "../../src/modules/skillRunnerRunStore";
 import { clearPref, setPref } from "../../src/utils/prefs";
 
 // Mirrors the ACP child's chrome wiring: region marking via the shared
 // adoptPanelRegions, every managed chrome region through the Preact seam.
-// SkillRunner call sites below intentionally keep using
-// renderer.renderAssistantPanelSnapshot directly, matching the run-dialog.
 function chromePanelRenderer(renderer: {
   adoptPanelRegions: (panel: unknown, options: Record<string, unknown>) => void;
   managedMount: (container: HTMLElement, name: string) => HTMLElement | null;
@@ -173,6 +172,7 @@ function canonicalState(source: "acp-chat" | "acp-skills") {
       ],
       queuedEntries: [],
       canCreateOwner: source === "acp-chat",
+      notice: null,
     },
     services: {
       items: [
@@ -523,258 +523,317 @@ describe("Assistant Workspace ACP UI v1", function () {
       );
     });
   }
+  // ---------------------------------------------------------------------
+  // SkillRunner tab (phase 3 Stage 3): driven through the v1 publication
+  // plane exactly like production. Real run stores + mock management server
+  // → runtime.schedule(SKILLRUNNER_WORKSPACE_ADAPTER) → coordinator →
+  // captured publications → the shared child's createClient with
+  // source "skillrunner" → the same chrome seam and transcript renderer the
+  // data-source="skillrunner" child page uses.
+  // ---------------------------------------------------------------------
 
-  it("projects SkillRunner null session as fixed unavailable chrome", async function () {
-    const model = await loadPanelModel();
-    // 生产真空快照：无任务种子 → session=null（harness 走真实
-    // attach → refresh → publish 路径，labels 由生产构建）。
-    const panel = model.projectSkillRunnerPanelSnapshot(
-      await captureSkillRunnerWorkspaceEnvelope(),
-    );
-
-    assert.deepInclude(panel.context, {
-      title: "SkillRunner Workspace",
-      subtitle: "No task",
-      status: "unavailable",
-      statusLabel: "Unavailable",
-      statusTone: "muted",
-    });
-    assert.deepEqual(
-      panel.context.metadata.map((entry: any) => [entry.key, entry.value]),
-      [
-        ["backend", ""],
-        ["engine", ""],
-        ["model", ""],
-        ["updatedAt", ""],
-      ],
-    );
-    assert.deepInclude(panel.context.indicators[0], {
-      id: "skillrunner-control",
-      value: "Unavailable",
-      tone: "muted",
-    });
-    assert.lengthOf(panel.context.indicators, 1);
-    assert.deepInclude(panel.context.actions[0], {
-      action: "cancel-run",
-      enabled: false,
-    });
-    assert.deepEqual(
-      panel.actions.toolbar.map((entry: any) => entry.enabled),
-      [true, false, true, true],
-    );
-    assert.isFalse(panel.reply.enabled);
-    assert.isFalse(panel.reply.inputEnabled);
-  });
-
-  it("keeps a selected SkillRunner session without requestId in preparing state", async function () {
-    const model = await loadPanelModel();
-    // 生产等价种子：本地已创建、尚未分配 requestId 的 SkillRunner 任务
-    // （submitPhase=pre_request、status=queued）。
-    const panel = model.projectSkillRunnerPanelSnapshot(
-      await captureSkillRunnerWorkspaceEnvelope({
-        tasks: [{ taskName: "Task Alpha" }],
-      }),
-    );
-
-    assert.equal(panel.context.title, "Task Alpha");
-    assert.equal(panel.context.status, "queued");
-    assert.notEqual(panel.context.subtitle, "No task");
-    assert.deepInclude(panel.context.indicators[0], {
-      id: "skillrunner-control",
-      value: "Preparing",
-      tone: "accent",
-    });
-  });
-
-  it("renders SkillRunner message counts without rebuilding other managed regions", async function () {
-    const domEnv = createSidebarDomEnvironment();
+  async function createSkillRunnerChildWindow(domEnv: SidebarDomEnvironment) {
     const { document } = domEnv;
-    const model = await loadPanelModel();
-    const renderer = await loadPanelRenderer(domEnv);
+    const panelRenderer = await loadPanelRenderer(domEnv);
+    const transcriptRenderer = await loadTranscriptRenderer(domEnv);
     const { root, regions } = createPanelManagedRegions(document);
-    // 生产真快照：messageCounts 由生产侧从 transcript 消息投影派生。
-    // 种子事件的语义计数（projectSkillRunnerMessageCounts）：
-    //   render(1): current {assistant:1,thought:1,tool:0}
-    //              cumulative {assistant:1,thought:2,tool:3}
-    //   render(2): current {assistant:1,thought:2,tool:1}
-    //              cumulative {assistant:1,thought:3,tool:4}
-    // counter 标签来自生产 labels（mock 环境为英文 fallback）。
-    const toolProcess = (seq: number, toolCallId: string, text: string) => ({
-      seq,
-      ts: `2026-07-18T00:00:${String(seq).padStart(2, "0")}.000Z`,
-      role: "assistant",
-      kind: "assistant_process",
-      text,
-      correlation: { process_type: "tool_call", tool_call_id: toolCallId },
-    });
-    const render = async (variant: 1 | 2) => {
-      const envelope = await captureSkillRunnerWorkspaceEnvelope({
-        tasks: [
-          {
-            taskName: "Task Alpha",
-            requestId: "req-counts",
-            status: "succeeded",
-            chatEvents: [
-              {
-                seq: 1,
-                ts: "2026-07-18T00:00:01.000Z",
-                role: "assistant",
-                kind: "assistant_process",
-                text: "reasoning step one",
-                correlation: { process_type: "reasoning" },
-              },
-              toolProcess(2, "tool-1", "read a.md"),
-              toolProcess(3, "tool-2", "read b.md"),
-              toolProcess(4, "tool-3", "read c.md"),
-              {
-                seq: 5,
-                ts: "2026-07-18T00:00:05.000Z",
-                role: "user",
-                kind: "user_message",
-                text: "go on",
-              },
-              {
-                seq: 6,
-                ts: "2026-07-18T00:00:06.000Z",
-                role: "assistant",
-                kind: "assistant_process",
-                text: "reasoning step two",
-                correlation: { process_type: "reasoning" },
-              },
-              {
-                seq: 7,
-                ts: "2026-07-18T00:00:07.000Z",
-                role: "assistant",
-                kind: "assistant_final",
-                text: "final answer",
-                display_text: "final answer",
-              },
-              ...(variant === 2
-                ? [
-                    {
-                      seq: 8,
-                      ts: "2026-07-18T00:00:08.000Z",
-                      role: "assistant",
-                      kind: "assistant_process",
-                      text: "reasoning step three",
-                      correlation: { process_type: "reasoning" },
-                    },
-                    toolProcess(9, "tool-4", "read d.md"),
-                  ]
-                : []),
-            ],
-          },
-        ],
-        waitFor: (snapshot) =>
-          !!snapshot.session &&
-          snapshot.session.loading === false &&
-          snapshot.session.messages.some(
-            (message) => message.seq === (variant === 2 ? 9 : 7),
-          ),
-      });
-      const panel = model.projectSkillRunnerPanelSnapshot(envelope);
-      // model 原样透传生产投影的 messageCounts。
-      assert.deepEqual(panel.messageCounts, envelope.messageCounts);
-      renderer.renderAssistantPanelSnapshot(panel, {
-        managed: true,
-        root,
-        regions,
-        onAction() {},
-      });
-      return envelope;
-    };
-
-    const first = await render(1);
-    assert.isFalse(regions.messageCounter.classList.contains("hidden"));
-    assert.equal(
-      regions.messageCounter.getAttribute("data-message-counter-owner"),
-      first.workspace.selectedTaskKey,
-    );
-    const counterItems = Array.from(
-      regions.messageCounter.querySelectorAll(
-        ".assistant-message-counter-item",
-      ),
-    );
-    const counterValues = Array.from(
-      regions.messageCounter.querySelectorAll(
-        ".assistant-message-counter-value",
-      ),
-    );
-    assert.deepEqual(
-      Array.from(
-        regions.messageCounter.querySelectorAll(
-          ".assistant-message-counter-label",
-        ),
-      ).map((entry) => entry.textContent),
-      ["Assistant", "Thought", "Tool"],
-    );
-    assert.deepEqual(
-      counterValues.map((entry) => entry.textContent),
-      ["1/1", "1/2", "0/3"],
-    );
-    const stableRegions = [
-      "toolbar",
-      "banner",
-      "plan",
-      "hint",
-      "reply",
-      "drawer",
-    ] as const;
-    const stableSubtrees = Object.fromEntries(
-      stableRegions.map((key) => [key, subtreeNodes(regions[key].firstChild)]),
-    );
-
-    await render(2);
-    assert.deepEqual(
-      counterValues.map((entry) => entry.textContent),
-      ["1/1", "2/3", "1/4"],
-    );
-    Array.from(
-      regions.messageCounter.querySelectorAll(
-        ".assistant-message-counter-item",
-      ),
-    ).forEach((entry, index) => {
-      assert.strictEqual(entry, counterItems[index]);
-    });
-    assertRegionSubtreesPreserved(
-      Object.fromEntries(stableRegions.map((key) => [key, regions[key]])),
-      stableSubtrees,
-    );
-  });
-
-  it("preserves SkillRunner managed chrome when backend history replaces local-only transcript", async function () {
-    this.timeout(10_000);
-    setPref("assistantExecutionDisplayMode", "live");
-    const harness = await startSkillRunnerWorkspaceSnapshotHarness();
-    try {
-      const domEnv = createSidebarDomEnvironment();
-      const { document } = domEnv;
-      const model = await loadPanelModel();
-      const renderer = await loadPanelRenderer(domEnv);
-      const { root, regions } = createPanelManagedRegions(document);
-      const seeded = harness.seedTask({
-        taskName: "Managed Transcript Catch-up",
-        requestId: "req-managed-transcript-catch-up",
-        status: "running",
-      });
-      const capture = await harness.attach({ selectRunKey: seeded.runKey });
-      const localOnly = await capture.waitFor(
-        (snapshot) =>
-          snapshot.session?.loading === false &&
-          snapshot.session.messages.length > 0 &&
-          snapshot.session.messages.every((message) => message.seq < 0),
-      );
-      const render = (snapshot: typeof localOnly) => {
-        const panel = model.projectSkillRunnerPanelSnapshot(snapshot);
-        renderer.renderAssistantPanelSnapshot(panel, {
+    const transcript = document.createElement("section");
+    root.appendChild(transcript);
+    const actions: Array<{ action: string; payload: unknown }> = [];
+    const ui: Record<string, unknown> = {};
+    let snapshot: any = null;
+    const renderChrome = () => {
+      chromePanelRenderer(panelRenderer)(
+        AssistantPanelModel.projectAssistantWorkspacePanel(snapshot, ui, {}),
+        {
           managed: true,
           root,
           regions,
-          onAction() {},
-        });
-        return panel;
-      };
-      render(localOnly);
+          onAction(action: string, payload: unknown) {
+            actions.push({ action, payload });
+            // Panel-local drawer transitions mirror the child page.
+            const sectionId = String(
+              (payload as Record<string, unknown> | null)?.sectionId || "",
+            );
+            if (action === "toggle-drawer-section" && sectionId) {
+              const key = `${sectionId}Collapsed`;
+              if (sectionId === "queued" || sectionId === "completed") {
+                ui[key] = ui[key] === false;
+              } else {
+                ui[key] = ui[key] !== true;
+              }
+              renderChrome();
+            }
+          },
+        },
+      );
+    };
+    const renderTranscript = () => {
+      const region = snapshot?.selection?.transcript;
+      const ownerKey = snapshot?.selection?.owner?.ownerKey || "";
+      const page =
+        region?.status === "ready" && region.page ? region.page : null;
+      render(
+        h(TranscriptRegion, {
+          container: transcript,
+          state: page ? "ready" : region?.status || "loading",
+          message: "",
+          mode: "plain",
+          ownerKey,
+          onResetVirtualState: (container: Element) => {
+            transcriptRenderer.resetAssistantTranscriptVirtualState(
+              container,
+              ownerKey,
+            );
+            container.removeAttribute("data-assistant-transcript-order-key");
+            container.removeAttribute("data-assistant-transcript-mode-key");
+          },
+        } as never),
+        transcript as never,
+      );
+      if (!page) {
+        return;
+      }
+      transcriptRenderer.renderAssistantTranscript({
+        container: transcript,
+        items: page.items,
+        virtualized: false,
+        ownerKey,
+        page: {
+          ...page,
+          ownerKey,
+          transcriptRevision: region.transcriptRevision,
+        },
+        transcriptRevision: region.transcriptRevision,
+        mode: "plain",
+        variant: "skillrunner",
+        renderMarkdown: (value: string) => value,
+      });
+    };
+    const client = AssistantWorkspaceAcpChild.createClient({
+      source: "skillrunner",
+      getSnapshot: () => snapshot,
+      setSnapshot: (next: any) => {
+        snapshot = next;
+      },
+      getOwnerKey: (state: any) => state?.selection?.owner?.ownerKey || "",
+      render: (result: any) => {
+        // Mirror the child page: render against result.snapshot; the client
+        // commits it to getSnapshot only after a successful render.
+        const previous = snapshot;
+        snapshot = result.snapshot;
+        try {
+          if (result.publicationKind === "transcript") {
+            renderTranscript();
+          } else {
+            renderChrome();
+          }
+        } finally {
+          snapshot = previous;
+        }
+        return { ok: true, renderPath: "incremental", failure: null };
+      },
+      ack: () => {},
+    });
+    let applied = 0;
+    return {
+      root,
+      regions,
+      transcript,
+      actions,
+      getSnapshot: () => snapshot,
+      async pump(
+        capture: {
+          flush: () => Promise<void>;
+          publications: unknown[];
+        },
+        onApplied?: (publication: unknown) => void,
+      ) {
+        await capture.flush();
+        const fresh: unknown[] = [];
+        while (applied < capture.publications.length) {
+          const publication = capture.publications[applied];
+          applied += 1;
+          client.apply(publication);
+          onApplied?.(publication);
+          fresh.push(publication);
+        }
+        return fresh;
+      },
+    };
+  }
+
+  it("renders fixed unavailable chrome for an empty SkillRunner workspace", async function () {
+    const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+    try {
+      const domEnv = createSidebarDomEnvironment();
+      const childWindow = await createSkillRunnerChildWindow(domEnv);
+      const capture = await harness.attachPublications();
+      await childWindow.pump(capture);
+
+      assert.isNull(
+        childWindow.getSnapshot()?.selection?.owner,
+        "empty workspace publishes no selected owner",
+      );
+      assert.equal(
+        childWindow.regions.banner.querySelector(
+          ".assistant-panel-banner-title",
+        )?.textContent,
+        "SkillRunner",
+      );
+      assert.equal(
+        childWindow.regions.banner.querySelector(
+          ".assistant-panel-banner-subtitle",
+        )?.textContent,
+        "No task",
+      );
+      const replySubmit = childWindow.regions.reply.querySelector(
+        ".assistant-panel-reply-submit",
+      ) as HTMLButtonElement | null;
+      assert.isOk(replySubmit);
+      assert.isTrue(replySubmit!.disabled);
+    } finally {
+      await harness.reset();
+    }
+  });
+
+  it("keeps a local pre-request run in preparing chrome", async function () {
+    const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+    try {
+      const seeded = harness.seedTask({ taskName: "Task Alpha" });
+      const domEnv = createSidebarDomEnvironment();
+      const childWindow = await createSkillRunnerChildWindow(domEnv);
+      const capture = await harness.attachPublications({
+        selectRunKey: seeded.runKey,
+      });
+      await childWindow.pump(capture);
+
+      assert.equal(
+        childWindow.getSnapshot()?.selection?.owner?.ownerKey,
+        seeded.runKey,
+        "unassigned local runs keep the run key as owner key",
+      );
+      assert.equal(
+        childWindow.regions.banner.querySelector(
+          ".assistant-panel-banner-title",
+        )?.textContent,
+        "Task Alpha",
+      );
+      assert.equal(
+        childWindow.regions.banner
+          .querySelector("[data-assistant-banner-status]")
+          ?.getAttribute("data-assistant-banner-status"),
+        "queued",
+      );
+    } finally {
+      await harness.reset();
+    }
+  });
+
+  it("applies SkillRunner message-count and transcript updates without rebuilding managed chrome", async function () {
+    const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+    try {
+      const toolProcess = (seq: number, toolCallId: string, text: string) => ({
+        seq,
+        ts: `2026-07-18T00:00:${String(seq).padStart(2, "0")}.000Z`,
+        role: "assistant",
+        kind: "assistant_process",
+        text,
+        correlation: { process_type: "tool_call", tool_call_id: toolCallId },
+      });
+      const seeded = harness.seedTask({
+        taskName: "Task Alpha",
+        requestId: "req-counts",
+        status: "running",
+        chatEvents: [
+          {
+            seq: 1,
+            ts: "2026-07-18T00:00:01.000Z",
+            role: "assistant",
+            kind: "assistant_process",
+            text: "reasoning step one",
+            correlation: { process_type: "reasoning" },
+          },
+          toolProcess(2, "tool-1", "read a.md"),
+          toolProcess(3, "tool-2", "read b.md"),
+          toolProcess(4, "tool-3", "read c.md"),
+          {
+            seq: 5,
+            ts: "2026-07-18T00:00:05.000Z",
+            role: "user",
+            kind: "user_message",
+            text: "go on",
+          },
+          {
+            seq: 6,
+            ts: "2026-07-18T00:00:06.000Z",
+            role: "assistant",
+            kind: "assistant_process",
+            text: "reasoning step two",
+            correlation: { process_type: "reasoning" },
+          },
+          {
+            seq: 7,
+            ts: "2026-07-18T00:00:07.000Z",
+            role: "assistant",
+            kind: "assistant_final",
+            text: "final answer",
+            display_text: "final answer",
+          },
+        ],
+      });
+      const domEnv = createSidebarDomEnvironment();
+      const childWindow = await createSkillRunnerChildWindow(domEnv);
+      const capture = await harness.attachPublications({
+        selectRunKey: seeded.runKey,
+      });
+      await capture.waitFor(
+        (publication) =>
+          publication.publicationKind === "transcript" &&
+          publication.publicationForm === "snapshot" &&
+          publication.payload.status === "ready" &&
+          (publication.payload.page?.items || []).some(
+            (item) =>
+              item.itemKind === "message" && item.text === "final answer",
+          ),
+        "initial transcript snapshot",
+      );
+      await capture.waitFor(
+        (publication) =>
+          publication.publicationKind === "message-counts" &&
+          publication.payload.counts?.cumulative.tool === 3,
+        "initial message counts publication",
+      );
+      await childWindow.pump(capture);
+
+      const counterValues = () =>
+        Array.from(
+          childWindow.regions.messageCounter.querySelectorAll(
+            ".assistant-message-counter-value",
+          ),
+        ).map((entry) => entry.textContent);
+      assert.isFalse(
+        childWindow.regions.messageCounter.classList.contains("hidden"),
+      );
+      assert.isOk(
+        childWindow.regions.messageCounter.getAttribute(
+          "data-message-counter-owner",
+        ),
+      );
+      assert.deepEqual(
+        Array.from(
+          childWindow.regions.messageCounter.querySelectorAll(
+            ".assistant-message-counter-label",
+          ),
+        ).map((entry) => entry.textContent),
+        ["Assistant", "Thought", "Tool"],
+      );
+      assert.deepEqual(counterValues(), ["1/1", "1/2", "0/3"]);
+      const counterItems = Array.from(
+        childWindow.regions.messageCounter.querySelectorAll(
+          ".assistant-message-counter-item",
+        ),
+      );
       const stableRegions = [
         "toolbar",
         "banner",
@@ -786,14 +845,85 @@ describe("Assistant Workspace ACP UI v1", function () {
       const stableSubtrees = Object.fromEntries(
         stableRegions.map((key) => [
           key,
-          subtreeNodes(regions[key].firstChild),
+          subtreeNodes(childWindow.regions[key].firstChild),
         ]),
       );
 
+      harness.appendChatEvents(seeded.requestId, [
+        {
+          seq: 8,
+          ts: "2026-07-18T00:00:08.000Z",
+          role: "assistant",
+          kind: "assistant_process",
+          text: "reasoning step three",
+          correlation: { process_type: "reasoning" },
+        },
+        toolProcess(9, "tool-4", "read d.md"),
+      ]);
       await capture.waitFor(
-        () => harness.getChatStreamState(seeded.requestId).openCount === 1,
+        (publication) =>
+          publication.publicationKind === "message-counts" &&
+          publication.payload.counts?.current.thought === 2,
+        "updated message counts publication",
       );
-      const afterIndex = capture.snapshots.length - 1;
+      await childWindow.pump(capture);
+
+      assert.deepEqual(counterValues(), ["1/1", "2/3", "1/4"]);
+      Array.from(
+        childWindow.regions.messageCounter.querySelectorAll(
+          ".assistant-message-counter-item",
+        ),
+      ).forEach((entry, index) => {
+        assert.strictEqual(entry, counterItems[index]);
+      });
+      assertRegionSubtreesPreserved(
+        Object.fromEntries(
+          stableRegions.map((key) => [key, childWindow.regions[key]]),
+        ),
+        stableSubtrees,
+      );
+      assert.isOk(
+        childWindow.transcript.querySelector("[data-assistant-item-id]"),
+        "transcript rows render from the same publication stream",
+      );
+    } finally {
+      await harness.reset();
+    }
+  });
+
+  it("preserves SkillRunner managed chrome when backend history replaces the local-only transcript", async function () {
+    this.timeout(10_000);
+    setPref("assistantExecutionDisplayMode", "live");
+    const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+    try {
+      const seeded = harness.seedTask({
+        taskName: "Managed Transcript Catch-up",
+        requestId: "req-managed-transcript-catch-up",
+        status: "running",
+      });
+      const domEnv = createSidebarDomEnvironment();
+      const childWindow = await createSkillRunnerChildWindow(domEnv);
+      const capture = await harness.attachPublications({
+        selectRunKey: seeded.runKey,
+      });
+      await childWindow.pump(capture);
+
+      const stableRegions = [
+        "toolbar",
+        "banner",
+        "plan",
+        "hint",
+        "reply",
+        "drawer",
+      ] as const;
+      const stableSubtrees = Object.fromEntries(
+        stableRegions.map((key) => [
+          key,
+          subtreeNodes(childWindow.regions[key].firstChild),
+        ]),
+      );
+
+      harness.setBackendStatus(seeded.requestId, "running");
       harness.appendChatEvents(seeded.requestId, [
         {
           seq: 1,
@@ -807,24 +937,33 @@ describe("Assistant Workspace ACP UI v1", function () {
           },
         },
       ]);
-      const updated = await capture.waitForAfter(
-        afterIndex,
-        (snapshot) =>
-          snapshot.messageCounts?.cumulative.tool === 1 &&
-          snapshot.session?.messages.some((message) => message.seq === 1) ===
-            true,
+      await capture.waitFor(
+        (publication) =>
+          publication.publicationKind === "transcript" &&
+          publication.publicationForm === "snapshot" &&
+          (publication.payload.page?.items || []).some(
+            (item) => item.itemKind === "tool-call",
+          ),
+        "graduated transcript snapshot",
       );
-      const panel = render(updated.snapshot);
+      const revisionBefore = childWindow.getSnapshot()?.selection?.transcript
+        ?.transcriptRevision as number;
+      await childWindow.pump(capture);
 
-      assert.isTrue(
-        panel.conversation.items.some((item: any) => item.kind === "tool"),
-      );
       assert.isAbove(
-        updated.snapshot.transcriptRevision,
-        localOnly.transcriptRevision,
+        childWindow.getSnapshot()?.selection?.transcript
+          ?.transcriptRevision as number,
+        revisionBefore,
+        "the backend transcript advances the publication clock",
+      );
+      assert.include(
+        childWindow.transcript.textContent || "",
+        "read backend artifact",
       );
       assertRegionSubtreesPreserved(
-        Object.fromEntries(stableRegions.map((key) => [key, regions[key]])),
+        Object.fromEntries(
+          stableRegions.map((key) => [key, childWindow.regions[key]]),
+        ),
         stableSubtrees,
       );
     } finally {
@@ -833,54 +972,73 @@ describe("Assistant Workspace ACP UI v1", function () {
     }
   });
 
-  it("preserves SkillRunner managed mounts across empty and selected snapshots", async function () {
-    const domEnv = createSidebarDomEnvironment();
-    const { document } = domEnv;
-    const model = await loadPanelModel();
-    const renderer = await loadPanelRenderer(domEnv);
-    const { root, regions } = createPanelManagedRegions(document);
-    // 生产真空快照（无任务）与生产选中快照（running 任务）。
-    const emptyEnvelope = await captureSkillRunnerWorkspaceEnvelope();
-    const selectedEnvelope = await captureSkillRunnerWorkspaceEnvelope({
-      tasks: [
-        { taskName: "Task Alpha", requestId: "req-a", status: "running" },
-      ],
-    });
-    const selectedPanel =
-      model.projectSkillRunnerPanelSnapshot(selectedEnvelope);
-    const selectedTask =
-      selectedPanel.drawers.skillrunnerSections[0].groups[0].activeTasks[0];
-    assert.deepInclude(selectedTask, {
-      mainStatus: "running",
-      backendStatus: "running",
-      applyStatus: "idle",
-    });
-    const render = (envelope: unknown) => {
-      renderer.renderAssistantPanelSnapshot(
-        model.projectSkillRunnerPanelSnapshot(envelope),
-        {
-          managed: true,
-          root,
-          regions,
-          onAction() {},
-        },
+  it("preserves SkillRunner managed mounts across selected and empty workspaces", async function () {
+    const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+    try {
+      const first = harness.seedTask({
+        taskName: "Task Alpha",
+        requestId: "req-a",
+        status: "succeeded",
+      });
+      const domEnv = createSidebarDomEnvironment();
+      const childWindow = await createSkillRunnerChildWindow(domEnv);
+      const capture = await harness.attachPublications({
+        selectRunKey: first.runKey,
+      });
+      await childWindow.pump(capture);
+      assert.equal(
+        childWindow.getSnapshot()?.selection?.owner?.ownerKey,
+        first.requestId,
       );
-    };
+      const identities = Object.fromEntries(
+        Object.entries(childWindow.regions).map(([key, region]) => [
+          key,
+          region.firstChild,
+        ]),
+      );
+      const assertMountsPreserved = () => {
+        for (const [key, region] of Object.entries(childWindow.regions)) {
+          // Boolean identity check: strictEqual on DOM nodes sends chai's
+          // inspector into the jsdom window (localStorage throws).
+          assert.isTrue(region.firstChild === identities[key], key);
+        }
+      };
 
-    render(selectedEnvelope);
-    const identities = Object.fromEntries(
-      Object.entries(regions).map(([key, region]) => [key, region.firstChild]),
-    );
-    render(emptyEnvelope);
-    render(selectedEnvelope);
-    for (const [key, region] of Object.entries(regions)) {
-      assert.strictEqual(region.firstChild, identities[key], key);
+      // Selected -> empty (archiving the only run clears the selection).
+      await dispatchSkillRunnerWorkspaceAction({
+        action: "archive-run",
+        payload: { runKey: first.runKey },
+      });
+      await capture.waitFor(
+        (publication) =>
+          publication.publicationKind === "owner-navigation" &&
+          publication.payload.selectedOwner === null,
+        "owner-navigation publication with no selection",
+      );
+      await childWindow.pump(capture);
+      assert.isNull(childWindow.getSnapshot()?.selection?.owner);
+      assertMountsPreserved();
+
+      // Empty -> selected again.
+      const second = harness.seedTask({
+        taskName: "Task Beta",
+        requestId: "req-b",
+        status: "running",
+      });
+      await capture.reattachHost({ selectRunKey: second.runKey });
+      await childWindow.pump(capture);
+      assert.equal(
+        childWindow.getSnapshot()?.selection?.owner?.ownerKey,
+        second.requestId,
+      );
+      assertMountsPreserved();
+    } finally {
+      await harness.reset();
     }
   });
 
   it("renders persisted SkillRunner Apply states and replaces only the changed task card", async function () {
     this.timeout(10_000);
-    setPref("assistantExecutionDisplayMode", "live");
     const harness = await startSkillRunnerWorkspaceSnapshotHarness();
     try {
       const applied = harness.seedTask({
@@ -914,89 +1072,67 @@ describe("Assistant Workspace ACP UI v1", function () {
         updatedAt: "2026-07-18T00:02:02.000Z",
       });
 
-      const capture = await harness.attach({ selectRunKey: applied.runKey });
-      const initial = await capture.waitFor(
-        (snapshot) =>
-          snapshot.workspace.selectedTaskKey === applied.runKey &&
-          snapshot.workspace.groups.reduce(
-            (count, group) =>
-              count + group.activeTasks.length + group.finishedTasks.length,
-            0,
-          ) === 3,
-      );
       const domEnv = createSidebarDomEnvironment();
-      const { document } = domEnv;
-      const model = await loadPanelModel();
-      const renderer = await loadPanelRenderer(domEnv);
-      const { root, regions } = createPanelManagedRegions(document);
-      const transcript = document.createElement("div");
-      const transcriptSentinel = document.createElement("article");
-      transcript.appendChild(transcriptSentinel);
-      root.appendChild(transcript);
-      const panelTasks = (panel: any) =>
-        panel.drawers.skillrunnerSections.flatMap((section: any) =>
-          section.groups.flatMap((group: any) => [
-            ...group.activeTasks,
-            ...group.finishedTasks,
-          ]),
+      const childWindow = await createSkillRunnerChildWindow(domEnv);
+      const capture = await harness.attachPublications({
+        selectRunKey: applied.runKey,
+      });
+      await capture.waitFor(
+        (publication) =>
+          publication.publicationKind === "owner-navigation" &&
+          publication.payload.entries.length === 3,
+        "owner-navigation publication with all task cards",
+      );
+      await childWindow.pump(capture);
+
+      const drawer = childWindow.regions.drawer;
+      // Terminal runs land in the Completed section, which starts collapsed;
+      // expand it like the child page does before reading the task rows.
+      const completedSection = drawer.querySelector(
+        '[data-assistant-section-id="completed"]',
+      );
+      assert.isOk(completedSection);
+      (
+        completedSection!.querySelector(
+          ".assistant-workspace-drawer-section-toggle",
+        ) as HTMLButtonElement
+      ).click();
+      const rowByKey = (ownerKey: string) =>
+        Array.from(drawer.querySelectorAll("[data-assistant-task-key]")).find(
+          (row) => row.getAttribute("data-assistant-task-key") === ownerKey,
         );
-      const taskFromPanel = (panel: any, runKey: string) =>
-        panelTasks(panel).find((task: any) => task.key === runKey);
-      const rowByKey = (runKey: string) =>
+      const axisValues = () =>
         Array.from(
-          regions.drawer.querySelectorAll("[data-assistant-task-key]"),
-        ).find((row) => row.getAttribute("data-assistant-task-key") === runKey);
-      const render = (snapshot: typeof initial) => {
-        const panel = model.projectSkillRunnerPanelSnapshot(snapshot);
-        renderer.renderAssistantPanelSnapshot(panel, {
-          managed: true,
-          root,
-          regions,
-          onAction() {},
-        });
-        return panel;
-      };
+          drawer.querySelectorAll(
+            ".assistant-workspace-drawer-task-status-axis-value",
+          ),
+        ).map((entry) => entry.textContent ?? "");
+      assert.includeMembers(axisValues(), [
+        "Applied",
+        "Not required",
+        "Apply failed",
+      ]);
+      assert.isOk(rowByKey(applied.requestId));
+      assert.isOk(rowByKey(applyTarget.requestId));
+      assert.isOk(rowByKey(applyFailed.requestId));
 
-      const initialPanel = render(initial);
-      assert.deepInclude(taskFromPanel(initialPanel, applied.runKey), {
-        mainStatus: "succeeded",
-        backendStatus: "succeeded",
-        applyStatus: "succeeded",
-        applyStatusLabel: "Applied",
-        applyStatusTone: "success",
-      });
-      assert.deepInclude(taskFromPanel(initialPanel, applyTarget.runKey), {
-        mainStatus: "succeeded",
-        backendStatus: "succeeded",
-        applyStatus: "not-required",
-        applyStatusLabel: "Not required",
-        applyStatusTone: "success",
-      });
-      assert.deepInclude(taskFromPanel(initialPanel, applyFailed.runKey), {
-        mainStatus: "failed",
-        backendStatus: "succeeded",
-        applyStatus: "failed",
-        applyStatusLabel: "Apply failed",
-        applyStatusTone: "error",
-      });
-
-      const drawerMount = regions.drawer.firstChild;
-      const drawerSection = regions.drawer.querySelector(
+      const drawerMount = drawer.firstChild;
+      const drawerSection = drawer.querySelector(
         ".assistant-workspace-drawer-section",
       );
-      const drawerGroup = regions.drawer.querySelector(
+      const drawerGroup = drawer.querySelector(
         ".assistant-workspace-drawer-group",
       );
       const initialRows = new Map(
-        [applied.runKey, applyTarget.runKey, applyFailed.runKey].map(
-          (runKey) => [runKey, rowByKey(runKey)],
+        [applied.requestId, applyTarget.requestId, applyFailed.requestId].map(
+          (ownerKey) => [ownerKey, rowByKey(ownerKey)],
         ),
       );
       const stableRegions = Object.fromEntries(
-        Object.entries(regions).filter(([key]) => key !== "drawer"),
+        Object.entries(childWindow.regions).filter(([key]) => key !== "drawer"),
       );
       const stableSubtrees = captureRegionSubtrees(stableRegions);
-      const afterIndex = capture.snapshots.length - 1;
+      const transcriptSentinel = childWindow.transcript.firstChild;
 
       updateSkillRunnerRunApplyState({
         backendId: harness.backendId,
@@ -1005,65 +1141,277 @@ describe("Assistant Workspace ACP UI v1", function () {
         attempt: 1,
         updatedAt: "2026-07-18T00:02:03.000Z",
       });
-      const updated = (
-        await capture.waitForAfter(afterIndex, (snapshot) =>
-          snapshot.workspace.groups.some((group) =>
-            [...group.activeTasks, ...group.finishedTasks].some(
-              (task) =>
-                task.key === applyTarget.runKey &&
-                task.applyState === "skipped",
-            ),
+      await capture.waitFor(
+        (publication) =>
+          publication.publicationKind === "owner-navigation" &&
+          publication.payload.entries.some(
+            (entry) =>
+              entry.owner.ownerKey === applyTarget.requestId &&
+              entry.applyState === "skipped",
           ),
-        )
-      ).snapshot;
-      const updatedPanel = render(updated);
-      assert.deepInclude(taskFromPanel(updatedPanel, applyTarget.runKey), {
-        mainStatus: "succeeded",
-        backendStatus: "succeeded",
-        applyStatus: "skipped",
-        applyStatusLabel: "Skipped",
-        applyStatusTone: "success",
-      });
+        "owner-navigation publication with the updated apply state",
+      );
+      await childWindow.pump(capture);
 
-      assert.strictEqual(regions.drawer.firstChild, drawerMount);
-      assert.strictEqual(
-        regions.drawer.querySelector(".assistant-workspace-drawer-section"),
-        drawerSection,
+      assert.includeMembers(axisValues(), ["Skipped"]);
+      // Boolean identity checks: strictEqual on DOM nodes sends chai's
+      // inspector into the jsdom window (localStorage throws).
+      assert.isTrue(drawer.firstChild === drawerMount);
+      assert.isTrue(
+        drawer.querySelector(".assistant-workspace-drawer-section") ===
+          drawerSection,
       );
-      assert.strictEqual(
-        regions.drawer.querySelector(".assistant-workspace-drawer-group"),
-        drawerGroup,
+      assert.isTrue(
+        drawer.querySelector(".assistant-workspace-drawer-group") ===
+          drawerGroup,
       );
-      assert.strictEqual(
-        rowByKey(applied.runKey),
-        initialRows.get(applied.runKey),
+      assert.isTrue(
+        rowByKey(applied.requestId) === initialRows.get(applied.requestId),
       );
-      assert.notStrictEqual(
-        rowByKey(applyTarget.runKey),
-        initialRows.get(applyTarget.runKey),
+      // The canonical drawer patches rows in place: the changed card keeps
+      // its node and shows the new apply state, every other card is untouched.
+      assert.isTrue(
+        rowByKey(applyTarget.requestId) ===
+          initialRows.get(applyTarget.requestId),
       );
-      assert.strictEqual(
-        rowByKey(applyFailed.runKey),
-        initialRows.get(applyFailed.runKey),
+      assert.include(
+        rowByKey(applyTarget.requestId)?.textContent || "",
+        "Skipped",
       );
-      assert.deepEqual(
-        Array.from(
-          regions.drawer.querySelectorAll(
-            ".assistant-workspace-drawer-task-status-axis-value",
-          ),
-        )
-          .map((entry) => entry.textContent ?? "")
-          .filter((value) =>
-            ["Applied", "Skipped", "Apply failed"].includes(value),
-          )
-          .sort(),
-        ["Applied", "Apply failed", "Skipped"].sort(),
+      assert.isTrue(
+        rowByKey(applyFailed.requestId) ===
+          initialRows.get(applyFailed.requestId),
       );
       assertRegionSubtreesPreserved(stableRegions, stableSubtrees);
-      assert.strictEqual(transcript.firstChild, transcriptSentinel);
+      assert.isTrue(childWindow.transcript.firstChild === transcriptSentinel);
     } finally {
       await harness.reset();
-      clearPref("assistantExecutionDisplayMode");
+    }
+  });
+
+  it("renders the SkillRunner queued section collapsed with a cancel action", async function () {
+    this.timeout(10_000);
+    workflowSubmissionQueue.resetForTests();
+    const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    try {
+      const running = harness.seedTask({
+        taskName: "Running Task",
+        requestId: "req-queued-running",
+        status: "waiting_user",
+      });
+      workflowSubmissionQueue.enqueueSubmission({
+        backend: {
+          backendType: "skillrunner",
+          backendId: harness.backendId,
+        },
+        workflow: {
+          workflowId: "literature-digest",
+          workflowLabel: "Literature Digest",
+        },
+        units: ["u1", "u2"].map((unitId, order) => ({
+          unit: unitId,
+          display: {
+            unitId,
+            order,
+            taskName: `Queued Task ${unitId}`,
+            inputUnitIdentity: `test:${unitId}`,
+          },
+        })),
+        maxConcurrency: 1,
+        executeUnit: async (unitId) => {
+          if (unitId === "u1") await firstGate;
+          return { status: "succeeded" };
+        },
+      });
+      const domEnv = createSidebarDomEnvironment();
+      const childWindow = await createSkillRunnerChildWindow(domEnv);
+      const capture = await harness.attachPublications({
+        selectRunKey: running.runKey,
+      });
+      await capture.waitFor(
+        (publication) =>
+          publication.publicationKind === "owner-navigation" &&
+          publication.payload.queuedEntries.length === 1,
+        "owner-navigation publication with the queued entry",
+      );
+      await childWindow.pump(capture);
+
+      const drawer = childWindow.regions.drawer;
+      const queued = drawer.querySelector(
+        '[data-assistant-section-id="queued"]',
+      );
+      assert.isOk(queued, "the queued section renders from publications");
+      assert.include(queued!.className, "is-collapsed");
+      assert.isNull(
+        queued!.querySelector("[data-assistant-task-key]"),
+        "the collapsed queued section hides its task rows",
+      );
+
+      (
+        queued!.querySelector(
+          ".assistant-workspace-drawer-section-toggle",
+        ) as HTMLButtonElement
+      ).click();
+      const expanded = drawer.querySelector(
+        '[data-assistant-section-id="queued"]',
+      );
+      const row = expanded?.querySelector("[data-assistant-task-key]");
+      assert.isOk(row, "expanding the queued section renders the queued task");
+      assert.include(row!.textContent || "", "Queued Task u2");
+      const cancel = row!.querySelector<HTMLButtonElement>(
+        ".assistant-workspace-drawer-task-action",
+      );
+      assert.isOk(cancel);
+      cancel!.click();
+      const emitted = childWindow.actions.find(
+        (entry) => entry.action === "cancel-queued-workflow-unit",
+      );
+      assert.isOk(emitted, "the queued task emits its cancel action");
+      assert.isOk(
+        String((emitted?.payload as Record<string, unknown>)?.queueId || ""),
+      );
+    } finally {
+      releaseFirst();
+      workflowSubmissionQueue.resetForTests();
+      await harness.reset();
+    }
+  });
+
+  it("switches SkillRunner owners loading-first through the child transcript region", async function () {
+    this.timeout(10_000);
+    const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+    try {
+      const first = harness.seedTask({
+        taskName: "Switch A",
+        requestId: "req-switch-a",
+        status: "waiting_user",
+        chatEvents: [
+          { seq: 1, role: "assistant", kind: "assistant_final", text: "alpha" },
+        ],
+      });
+      const second = harness.seedTask({
+        taskName: "Switch B",
+        requestId: "req-switch-b",
+        status: "waiting_user",
+        chatEvents: [
+          { seq: 1, role: "assistant", kind: "assistant_final", text: "beta" },
+        ],
+      });
+      const domEnv = createSidebarDomEnvironment();
+      const childWindow = await createSkillRunnerChildWindow(domEnv);
+      const capture = await harness.attachPublications({
+        selectRunKey: first.runKey,
+      });
+      await capture.waitFor(
+        (publication) =>
+          publication.publicationKind === "transcript" &&
+          publication.publicationForm === "snapshot" &&
+          publication.payload.status === "ready" &&
+          publication.owner.ownerKey === first.requestId &&
+          (publication.payload.page?.items || []).some(
+            (item) => item.itemKind === "message" && item.text === "alpha",
+          ),
+        "initial transcript snapshot for A",
+      );
+      await childWindow.pump(capture);
+      assert.include(childWindow.transcript.textContent || "", "alpha");
+
+      await dispatchSkillRunnerWorkspaceAction({
+        action: "select-task",
+        payload: { taskKey: second.runKey },
+      });
+      await capture.waitFor(
+        (publication) =>
+          publication.publicationKind === "transcript" &&
+          publication.publicationForm === "snapshot" &&
+          publication.payload.status === "ready" &&
+          publication.owner.ownerKey === second.requestId &&
+          (publication.payload.page?.items || []).some(
+            (item) => item.itemKind === "message" && item.text === "beta",
+          ),
+        "ready transcript snapshot for B",
+      );
+      const states: string[] = [];
+      await childWindow.pump(capture, () => {
+        const loading = childWindow.transcript.querySelector(
+          '[data-assistant-transcript-state="loading"]',
+        );
+        const rows = childWindow.transcript.querySelectorAll(
+          "[data-assistant-item-id]",
+        );
+        states.push(loading ? "loading" : rows.length > 0 ? "ready" : "other");
+      });
+
+      assert.include(states, "loading", "owner switch shows loading first");
+      assert.isBelow(
+        states.indexOf("loading"),
+        states.lastIndexOf("ready"),
+        "the loading state precedes the ready transcript",
+      );
+      assert.include(childWindow.transcript.textContent || "", "beta");
+      assert.equal(
+        childWindow.regions.banner.querySelector(
+          ".assistant-panel-banner-title",
+        )?.textContent,
+        "Switch B",
+      );
+    } finally {
+      await harness.reset();
+    }
+  });
+
+  it("routes a typed SkillRunner option through the canonical select-interaction-option action", async function () {
+    const harness = await startSkillRunnerWorkspaceSnapshotHarness();
+    try {
+      const seeded = harness.seedTask({
+        taskName: "Typed Option Task",
+        requestId: "req-typed-option",
+        status: "waiting_user",
+        pending: {
+          interaction_id: 7,
+          kind: "choose_one",
+          prompt: "Choose",
+          options: [
+            {
+              label: "Continue deeply",
+              value: { depth: 2, continue: true },
+            },
+          ],
+        },
+      });
+      const domEnv = createSidebarDomEnvironment();
+      const childWindow = await createSkillRunnerChildWindow(domEnv);
+      const capture = await harness.attachPublications({
+        selectRunKey: seeded.runKey,
+      });
+      await capture.waitFor(
+        (publication) =>
+          publication.publicationKind === "owner-control" &&
+          publication.payload.interaction?.inputKind === "choose_one",
+        "waiting_user owner-control publication",
+      );
+      await childWindow.pump(capture);
+
+      const button = childWindow.regions.hint.querySelector<HTMLElement>(
+        ".assistant-panel-hint-option",
+      );
+      assert.isOk(button);
+      button!.click();
+      assert.deepEqual(childWindow.actions, [
+        {
+          action: "select-interaction-option",
+          payload: {
+            responseValue: { depth: 2, continue: true },
+            responseLabel: "Continue deeply",
+          },
+        },
+      ]);
+    } finally {
+      await harness.reset();
     }
   });
 
@@ -1574,78 +1922,6 @@ describe("Assistant Workspace ACP UI v1", function () {
     assert.equal(panel.reply.hint, "");
   });
 
-  it("routes a rendered typed option through its canonical model action", async function () {
-    const domEnv = createSidebarDomEnvironment();
-    const { document } = domEnv;
-    const renderer = await loadPanelRenderer(domEnv);
-    const panel = AssistantPanelModel.projectSkillRunnerPanelSnapshot({
-      title: "SkillRunner",
-      labels: {},
-      workspace: { selectedTaskKey: "run:1", groups: [] },
-      session: {
-        title: "Run",
-        backendTitle: "SkillRunner",
-        requestId: "request-option",
-        status: "waiting_user",
-        statusSemantics: {
-          normalized: "waiting_user",
-          terminal: false,
-          waiting: true,
-        },
-        pendingInteractionId: 7,
-        pendingInteraction: {
-          inputKind: "choose_one",
-          prompt: "Choose",
-          hint: null,
-          options: [
-            {
-              label: "Continue deeply",
-              value: { depth: 2, continue: true },
-              description: null,
-            },
-          ],
-          files: [],
-          fileReply: {
-            supported: false,
-            maxFiles: 8,
-            maxFileBytes: 32 * 1024 * 1024,
-            maxTotalBytes: 64 * 1024 * 1024,
-          },
-        },
-        pendingKind: "choose_one",
-        pendingUiHints: {},
-        pendingOptions: [],
-        pendingRequiredFields: [],
-        authAvailableMethods: [],
-        loading: false,
-        messages: [],
-        labels: {},
-      },
-    });
-    const hint = document.createElement("div");
-    const actions: Array<{ action: string; payload: unknown }> = [];
-    renderer.renderAssistantHint(hint, panel, {
-      onAction(action: string, payload: unknown) {
-        actions.push({ action, payload });
-      },
-    });
-    const button = hint.querySelector<HTMLElement>(
-      ".assistant-panel-hint-option",
-    );
-    assert.ok(button);
-    button?.click();
-    assert.deepEqual(actions, [
-      {
-        action: "reply-run",
-        payload: {
-          responseValue: { depth: 2, continue: true },
-          responseLabel: "Continue deeply",
-          message: "Continue deeply",
-        },
-      },
-    ]);
-  });
-
   it("dispatches sequential managed text replies without rebuilding panel regions or emitting tokens", async function () {
     const domEnv = createSidebarDomEnvironment();
     const { document } = domEnv;
@@ -1674,24 +1950,31 @@ describe("Assistant Workspace ACP UI v1", function () {
     };
     setAcpPrompt("First reply");
 
-    const skillRunnerSnapshot = {
-      title: "SkillRunner",
-      labels: {},
-      workspace: { selectedTaskKey: "run:sequential-reply", groups: [] },
-      session: {
-        title: "Run",
-        backendTitle: "SkillRunner",
-        requestId: "request-sequential-reply",
+    const skillRunnerOwner = {
+      source: "skillrunner",
+      ownerKey: "sr-request-sequential-reply",
+      requestId: "sr-request-sequential-reply",
+      runKey: "sr-run-sequential-reply",
+    };
+    const skillRunnerState = canonicalState("acp-skills") as any;
+    skillRunnerState.source = "skillrunner";
+    skillRunnerState.navigation.selectedOwner = skillRunnerOwner;
+    skillRunnerState.navigation.entries =
+      skillRunnerState.navigation.entries.map((entry: any) => ({
+        ...entry,
+        owner: skillRunnerOwner,
+      }));
+    skillRunnerState.selection.owner = skillRunnerOwner;
+    skillRunnerState.selection.transcript.owner = skillRunnerOwner;
+    const setSkillRunnerPrompt = (prompt: string) => {
+      skillRunnerState.selection.control = {
+        ...skillRunnerState.selection.control,
         status: "waiting_user",
-        statusSemantics: {
-          normalized: "waiting_user",
-          terminal: false,
-          waiting: true,
-        },
-        pendingInteractionId: 8,
-        pendingInteraction: {
+        busy: false,
+        hint: { kind: "waiting_user", message: null },
+        interaction: {
           inputKind: "open_text",
-          prompt: "First reply",
+          prompt,
           hint: null,
           options: [],
           files: [],
@@ -1702,16 +1985,9 @@ describe("Assistant Workspace ACP UI v1", function () {
             maxTotalBytes: 64 * 1024 * 1024,
           },
         },
-        pendingKind: "open_text",
-        pendingUiHints: {},
-        pendingOptions: [],
-        pendingRequiredFields: [],
-        authAvailableMethods: [],
-        loading: false,
-        messages: [],
-        labels: {},
-      },
-    } as any;
+      };
+    };
+    setSkillRunnerPrompt("First reply");
 
     const cases = [
       {
@@ -1727,16 +2003,16 @@ describe("Assistant Workspace ACP UI v1", function () {
       {
         name: "SkillRunner",
         updateInteraction() {
-          skillRunnerSnapshot.session.pendingInteractionId = 9;
-          skillRunnerSnapshot.session.pendingInteraction.prompt =
-            "Second reply";
+          setSkillRunnerPrompt("Second reply");
         },
         project: () =>
-          AssistantPanelModel.projectSkillRunnerPanelSnapshot(
-            skillRunnerSnapshot,
+          AssistantPanelModel.projectAssistantWorkspacePanel(
+            skillRunnerState,
+            {},
+            {},
           ),
         render: (panel: unknown, options: Record<string, unknown>) =>
-          renderer.renderAssistantPanelSnapshot(panel, options),
+          chromePanelRenderer(renderer)(panel, options),
       },
     ];
 
@@ -1759,11 +2035,7 @@ describe("Assistant Workspace ACP UI v1", function () {
       assert.ok(input, `${testCase.name} reply input must exist`);
       assert.ok(button, `${testCase.name} reply button must exist`);
       const stableRegions = Object.fromEntries(
-        Object.entries(regions).filter(
-          ([key]) =>
-            key !== "hint" &&
-            (testCase.name !== "SkillRunner" || key !== "details"),
-        ),
+        Object.entries(regions).filter(([key]) => key !== "hint"),
       );
       const regionSubtrees = captureRegionSubtrees(stableRegions);
 

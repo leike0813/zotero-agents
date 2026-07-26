@@ -218,6 +218,7 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
       ],
       queuedEntries: [],
       canCreateOwner: false,
+      notice: "Showing recent runs only. View older records in Dashboard.",
     };
     skillrunnerRegions = {
       "owner-control": {

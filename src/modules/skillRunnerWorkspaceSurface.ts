@@ -23,6 +23,13 @@ import {
   type AssistantWorkspacePublicationRuntimePayloadByKind,
 } from "./assistantWorkspacePublicationRuntime";
 import type { AssistantWorkspaceTranscriptRegion } from "./assistantWorkspaceTranscriptPublication";
+import {
+  ASSISTANT_INTERACTION_FILE_MAX_BYTES,
+  ASSISTANT_INTERACTION_TOTAL_MAX_BYTES,
+  ASSISTANT_PENDING_INTERACTION_FILE_LIMIT,
+  projectAssistantPendingInteraction,
+  type AssistantPendingInteraction,
+} from "../shared/assistantInteractionContract";
 import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
 
 /**
@@ -92,7 +99,10 @@ function skillRunnerWorkspaceHint(model: SkillRunnerWorkspaceModel) {
     return { kind: "error" as const, message: model.error };
   }
   if (model.authRequired) {
-    return { kind: "auth" as const, message: null };
+    return {
+      kind: "auth" as const,
+      message: model.pendingAuth?.prompt || null,
+    };
   }
   if (
     model.status === "waiting_user" ||
@@ -113,6 +123,38 @@ function skillRunnerWorkspaceHint(model: SkillRunnerWorkspaceModel) {
     return { kind: "running" as const, message: null };
   }
   return { kind: "hidden" as const, message: null };
+}
+
+/**
+ * Owner-control interaction projection. Waiting-auth runs always carry the
+ * resolved auth suite on the shared DTO: when the challenge does not accept
+ * chat input the read model has no base interaction, so a minimal disabled
+ * open-text DTO is synthesized as the auth block's carrier.
+ */
+function skillRunnerWorkspaceInteraction(
+  model: SkillRunnerWorkspaceModel,
+): AssistantPendingInteraction | null {
+  if (!model.waiting) return null;
+  if (model.authRequired) {
+    if (!model.pendingAuth) return null;
+    const base =
+      model.pendingInteraction ||
+      projectAssistantPendingInteraction({
+        inputKind: "open_text",
+        prompt: null,
+        hint: null,
+        options: [],
+        files: [],
+        fileReply: {
+          supported: false,
+          maxFiles: ASSISTANT_PENDING_INTERACTION_FILE_LIMIT,
+          maxFileBytes: ASSISTANT_INTERACTION_FILE_MAX_BYTES,
+          maxTotalBytes: ASSISTANT_INTERACTION_TOTAL_MAX_BYTES,
+        },
+      });
+    return base ? { ...base, auth: model.pendingAuth } : null;
+  }
+  return model.pendingInteraction;
 }
 
 function skillRunnerDetailsItem(
@@ -225,7 +267,7 @@ export async function readSkillRunnerWorkspaceRegions(args: {
       status: model.status,
       busy: !model.terminal && !model.waiting && model.status !== "queued",
       hint: skillRunnerWorkspaceHint(model),
-      interaction: model.waiting ? model.pendingInteraction : null,
+      interaction: skillRunnerWorkspaceInteraction(model),
       connection: {
         status: "idle",
         sessionAvailable: false,
@@ -266,7 +308,8 @@ function skillRunnerNavigationEntryAttention(task: {
 }
 
 function prepareSkillRunnerOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
-  const { selectedTaskKey, groups } = listSkillRunnerWorkspaceTaskGroups();
+  const { selectedTaskKey, groups, historyNotice } =
+    listSkillRunnerWorkspaceTaskGroups();
   const selected = getSkillRunnerWorkspaceSelectedOwner();
   const selectedOwner = selected
     ? createSkillRunnerWorkspaceOwner({
@@ -356,6 +399,7 @@ function prepareSkillRunnerOwnerNavigation(): AssistantWorkspaceOwnerNavigation 
     entries,
     queuedEntries,
     canCreateOwner: false,
+    notice: historyNotice || null,
   };
 }
 

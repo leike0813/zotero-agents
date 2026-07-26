@@ -511,6 +511,11 @@ export type AssistantWorkspaceOwnerNavigation = {
   }>;
   queuedEntries: AssistantWorkspaceQueuedNavigationEntry[];
   canCreateOwner: boolean;
+  /**
+   * Drawer-level notice (e.g. the SkillRunner panel history truncation
+   * hint), resolved host-side; null when there is nothing to show.
+   */
+  notice: string | null;
 };
 
 export type AssistantWorkspacePlanEntry = {

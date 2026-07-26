@@ -225,6 +225,14 @@ function validPublicationEnvelope(publication, source) {
   ) {
     return false;
   }
+  if (
+    source === "skillrunner" &&
+    (!hasExactKeys(owner, ["source", "ownerKey", "requestId", "runKey"]) ||
+      !text(owner.runKey) ||
+      owner.ownerKey !== (text(owner.requestId) || text(owner.runKey)))
+  ) {
+    return false;
+  }
   return publication.publicationKind === "transcript"
     ? publication.publicationForm === "snapshot" ||
         publication.publicationForm === "delta"
@@ -368,6 +376,17 @@ function createPageRequest(owner, cursor, limit) {
       source: "acp-skills",
       ownerKey: text(owner.ownerKey),
       requestId: text(owner.requestId),
+    };
+  } else if (
+    owner.source === "skillrunner" &&
+    text(owner.runKey) &&
+    text(owner.ownerKey) === (text(owner.requestId) || text(owner.runKey))
+  ) {
+    canonicalOwner = {
+      source: "skillrunner",
+      ownerKey: text(owner.ownerKey),
+      requestId: text(owner.requestId) || null,
+      runKey: text(owner.runKey),
     };
   }
   if (!canonicalOwner) return null;
@@ -989,7 +1008,11 @@ function childSource() {
       (document.documentElement &&
         document.documentElement.getAttribute("data-source")),
   );
-  return source === "acp-chat" || source === "acp-skills" ? source : "";
+  return source === "acp-chat" ||
+    source === "acp-skills" ||
+    source === "skillrunner"
+    ? source
+    : "";
 }
 
 function childBridge() {
@@ -1019,6 +1042,14 @@ function canonicalActionOwner(source, value) {
     source === "acp-skills" &&
     hasExactKeys(owner, ["source", "ownerKey", "requestId"]) &&
     text(owner.ownerKey) === text(owner.requestId)
+  ) {
+    return clone(owner);
+  }
+  if (
+    source === "skillrunner" &&
+    hasExactKeys(owner, ["source", "ownerKey", "requestId", "runKey"]) &&
+    text(owner.runKey) &&
+    text(owner.ownerKey) === (text(owner.requestId) || text(owner.runKey))
   ) {
     return clone(owner);
   }
@@ -1250,6 +1281,74 @@ function createChildRuntime(source) {
     if (owner) ui.replyDraftByOwner.set(owner.ownerKey, ui.replyDraft);
   }
 
+  function readAuthImportInputFiles() {
+    const inputs = elements.interaction
+      ? Array.from(
+          elements.interaction.querySelectorAll(
+            "input[data-assistant-auth-import-file]",
+          ),
+        )
+      : [];
+    const jobs = [];
+    inputs.forEach(function (input) {
+      if (!input.files || input.files.length === 0) return;
+      const file = input.files[0];
+      const name =
+        input.getAttribute("data-assistant-auth-import-name") || file.name;
+      jobs.push(
+        new Promise(function (resolve, reject) {
+          const reader = new FileReader();
+          reader.onload = function () {
+            const raw = String(reader.result || "").trim();
+            const mark = "base64,";
+            const index = raw.indexOf(mark);
+            if (index < 0) {
+              reject(new Error("base64 conversion failed"));
+              return;
+            }
+            resolve({
+              name: name,
+              contentBase64: raw.slice(index + mark.length),
+            });
+          };
+          reader.onerror = function () {
+            reject(new Error("file read failed"));
+          };
+          reader.readAsDataURL(file);
+        }),
+      );
+    });
+    return Promise.all(jobs);
+  }
+
+  function submitAuthImport() {
+    const route = function (payload) {
+      const routed = resolvePanelActionEnvelope(
+        "auth-import-run",
+        payload,
+        selectedOwner(snapshot),
+        actionRegistry,
+        source,
+      );
+      if (!routed) {
+        fail("invalid-action-route");
+        return;
+      }
+      sendAction("auth-import-run", routed.payload, routed.owner);
+    };
+    readAuthImportInputFiles()
+      .then(function (files) {
+        route({ providerId: "", files: files, error: "" });
+      })
+      .catch(function (error) {
+        route({
+          providerId: "",
+          files: [],
+          error: text(error && error.message),
+        });
+      });
+  }
+
   function currentTranscript() {
     const region = snapshot.selection && snapshot.selection.transcript;
     const owner = selectedOwner(snapshot);
@@ -1468,9 +1567,17 @@ function createChildRuntime(source) {
       renderPanel();
       return;
     }
-    if (action === "set-active-conversation" || action === "select-run") {
+    if (
+      action === "set-active-conversation" ||
+      action === "select-run" ||
+      action === "select-task"
+    ) {
       ui.contextDrawerOpen = false;
       renderPanel();
+    }
+    if (action === "auth-import-run") {
+      submitAuthImport();
+      return;
     }
     captureReplyDraft();
     const routed = resolvePanelActionEnvelope(

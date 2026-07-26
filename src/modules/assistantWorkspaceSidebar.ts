@@ -91,19 +91,14 @@ import { submitAcpSkillRunInteractionFiles } from "./acpSkillRunInteractionFiles
 import {
   attachSkillRunnerSidebarHost,
   detachSkillRunnerSidebarHost,
-  dispatchRunWorkspaceAction,
+  dispatchSkillRunnerWorkspaceAction,
   focusSkillRunnerWorkspace,
   getSkillRunnerWorkspaceSelectedOwner,
   refreshSkillRunnerSidebarHostSnapshot,
   subscribeSkillRunnerWorkspaceChanges,
-  type RunWorkspaceSnapshot,
   type SkillRunnerWorkspaceChange,
 } from "./skillRunnerRunDialog";
 import { SKILLRUNNER_WORKSPACE_ADAPTER } from "./skillRunnerWorkspaceSurface";
-import {
-  buildSkillRunnerSidebarSections,
-  countWaitingSkillRunnerTasks,
-} from "./skillRunnerSidebarModel";
 import { appendRuntimeLog } from "./runtimeLogManager";
 import {
   listActiveWorkflowTaskSummaries,
@@ -126,10 +121,7 @@ import {
   resolveSidebarFrameWindow,
   setSidebarContainerVisible,
 } from "./sidebarBrowserHost";
-import {
-  createAssistantSidebarScopeKey,
-  decorateAssistantSidebarChildSnapshot,
-} from "./assistantSidebarViewModel";
+import { createAssistantSidebarScopeKey } from "./assistantSidebarViewModel";
 import {
   ASSISTANT_WORKSPACE_ACTION_REGISTRY,
   createAcpChatWorkspaceOwner,
@@ -153,7 +145,6 @@ import {
   ASSISTANT_WORKSPACE_MESSAGE_PREFIX,
   ASSISTANT_WORKSPACE_MESSAGE_TYPES,
   ASSISTANT_WORKSPACE_SHELL_BRIDGE_KEY,
-  resolveRunDialogMessageType,
   type AssistantWorkspaceMessageType,
   type AssistantWorkspaceTab,
 } from "../shared/assistantWireContract";
@@ -185,13 +176,6 @@ type AssistantWorkspaceHostRuntime = {
   win: _ZoteroTypes.MainWindow;
   activeTarget: AcpSidebarTarget | null;
   activeTab: AssistantWorkspaceTab;
-  drawerOpen: boolean;
-  drawerRunningCollapsed: boolean;
-  drawerCompletedCollapsed: boolean;
-  drawerQueuedCollapsed: boolean;
-  drawerGroupCollapsed: Map<string, boolean>;
-  latestSkillRunnerBaseSnapshot?: RunWorkspaceSnapshot | null;
-  latestSkillRunnerSnapshot?: RunWorkspaceSnapshot | null;
   skillRunnerAttachedFrameWindow?: Window | null;
   library: MountedSidebarDock;
   reader: MountedSidebarDock;
@@ -602,7 +586,6 @@ function deactivateTarget(
   }
   if (host.activeTarget === target) {
     deactivateWorkspacePublicationRuntime(host);
-    host.drawerOpen = false;
     host.activeTarget = null;
     setShellActiveTarget(host, null);
   }
@@ -613,7 +596,6 @@ function closeActiveSidebarHost(host: AssistantWorkspaceHostRuntime) {
   if (!activeTarget) {
     return false;
   }
-  host.drawerOpen = false;
   clearShellHandshake(host, "close-active-sidebar");
   clearAcpChatBackendRefreshBoundary(host);
   clearSkillRunnerSidebarRefresh(host);
@@ -623,122 +605,13 @@ function closeActiveSidebarHost(host: AssistantWorkspaceHostRuntime) {
   return true;
 }
 
-function skillRunnerDrawerGroupCollapseKey(
-  sectionId: string,
-  group: {
-    backendId?: string;
-    backendDisplayName?: string;
-    title?: string;
-  },
-) {
-  const section = String(sectionId || "").trim();
-  const backend =
-    String(group.backendId || "").trim() ||
-    String(group.backendDisplayName || "").trim() ||
-    String(group.title || "").trim();
-  return section && backend ? `${section}\n${backend}` : "";
-}
-
-function buildDecoratedSkillRunnerSnapshot(
-  host: AssistantWorkspaceHostRuntime,
-  snapshot: RunWorkspaceSnapshot,
-): RunWorkspaceSnapshot {
-  const groups = Array.isArray(snapshot.workspace?.groups)
-    ? snapshot.workspace.groups
-    : [];
-  const sections = buildSkillRunnerSidebarSections({
-    groups,
-    context: null,
-    selectedTaskKey: String(snapshot.workspace?.selectedTaskKey || ""),
-    runningCollapsed: host.drawerRunningCollapsed,
-    completedCollapsed: host.drawerCompletedCollapsed,
-    queuedCollapsed: host.drawerQueuedCollapsed,
-    queuedEntries: workflowSubmissionQueue
-      .listQueued()
-      .filter((entry) => entry.backendType === "skillrunner"),
-  });
-  const drawerLabels = snapshot.labels.assistantPanel?.drawer;
-  const decoratedSections = sections.map((section) => ({
-    ...section,
-    title:
-      section.id === "completed"
-        ? drawerLabels?.completed ||
-          localize("assistant-panel-drawer-completed", "Completed")
-        : section.id === "queued"
-          ? drawerLabels?.queued ||
-            localize("workflow-queue-section-title", "Queued")
-          : drawerLabels?.running ||
-            localize("assistant-panel-drawer-running", "Running"),
-    groups: section.groups.map((group) => {
-      const collapseKey = skillRunnerDrawerGroupCollapseKey(section.id, group);
-      const collapsed = collapseKey
-        ? (host.drawerGroupCollapsed.get(collapseKey) ?? group.collapsed)
-        : group.collapsed;
-      return {
-        ...group,
-        collapsed,
-      };
-    }),
-  }));
-  host.snapshotRevision += 1;
-  const decorated = decorateAssistantSidebarChildSnapshot({
-    scopeKey: host.scopeKey,
-    activeTab: host.activeTab,
-    tab: "skillrunner",
-    revision: host.snapshotRevision,
-    waitingCount: countWaitingTasks(),
-    full: host.activeTab === "skillrunner",
-    snapshot: {
-      ...snapshot,
-      hostMode: "sidebar" as const,
-      executionDisplayMode: getAssistantExecutionDisplayMode(),
-      drawer: {
-        open: host.drawerOpen,
-        notice: snapshot.drawer?.notice,
-        truncated: snapshot.drawer?.truncated,
-        sections: decoratedSections,
-      },
-      badges: {
-        waitingCount: countWaitingSkillRunnerTasks(groups),
-      },
-    } as unknown as Record<string, unknown>,
-  }) as unknown as RunWorkspaceSnapshot;
-  host.latestSkillRunnerSnapshot = decorated;
-  return decorated;
-}
-
-function postDecoratedSkillRunnerSnapshot(
-  host: AssistantWorkspaceHostRuntime,
-  phase: "init" | "snapshot",
-  snapshot: RunWorkspaceSnapshot,
-) {
-  postShellMessage(host, ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_SNAPSHOT, {
-    tab: "skillrunner",
-    phase,
-    snapshot,
-  });
-}
-
-function publishLatestSkillRunnerChromeSnapshot(
-  host: AssistantWorkspaceHostRuntime,
-) {
-  const baseSnapshot = host.latestSkillRunnerBaseSnapshot;
-  if (!baseSnapshot) {
-    logAssistantWorkspaceDebug(
-      host,
-      "skillrunner-chrome-snapshot-skip",
-      "SkillRunner chrome snapshot skipped because no base snapshot is available.",
-    );
-    return false;
-  }
-  postDecoratedSkillRunnerSnapshot(
-    host,
-    "snapshot",
-    buildDecoratedSkillRunnerSnapshot(host, baseSnapshot),
-  );
-  return true;
-}
-
+// Chrome-level SkillRunner actions that stay host-side after the Stage 3
+// cutover: queue cancellation (the queue is host state) and the backend
+// manager dialog (needs the host window). Drawer toggles and view-mode
+// switches are panel-local in the child; every business action
+// (select-task, reply-run, cancel-run, resolve-permission, auth-import-run,
+// copy-*, …) falls through to `dispatchSkillRunnerWorkspaceAction` via the typed
+// registry route in `handleChildAction`.
 function createSkillRunnerHostActionHandler(
   host: AssistantWorkspaceHostRuntime,
 ) {
@@ -751,59 +624,12 @@ function createSkillRunnerHostActionHandler(
       const queueId = String(envelope.payload?.queueId || "").trim();
       if (queueId) {
         workflowSubmissionQueue.cancel(queueId as WorkflowQueueEntryId);
-        publishLatestSkillRunnerChromeSnapshot(host);
+        scheduleSkillRunnerPublications(host, {
+          global: true,
+          kinds: ["global"],
+        });
       }
       return true;
-    }
-    if (action === "select-task") {
-      host.drawerOpen = false;
-      return false;
-    }
-    if (action === "toggle-drawer") {
-      host.drawerOpen = !host.drawerOpen;
-      publishLatestSkillRunnerChromeSnapshot(host);
-      return true;
-    }
-    if (action === "close-drawer") {
-      if (host.drawerOpen) {
-        host.drawerOpen = false;
-        publishLatestSkillRunnerChromeSnapshot(host);
-      }
-      return true;
-    }
-    if (action === "toggle-drawer-section") {
-      const sectionId = String(envelope.payload?.sectionId || "").trim();
-      if (sectionId === "running") {
-        host.drawerRunningCollapsed = !host.drawerRunningCollapsed;
-        publishLatestSkillRunnerChromeSnapshot(host);
-        return true;
-      }
-      if (sectionId === "completed") {
-        host.drawerCompletedCollapsed = !host.drawerCompletedCollapsed;
-        publishLatestSkillRunnerChromeSnapshot(host);
-        return true;
-      }
-      if (sectionId === "queued") {
-        host.drawerQueuedCollapsed = !host.drawerQueuedCollapsed;
-        publishLatestSkillRunnerChromeSnapshot(host);
-        return true;
-      }
-    }
-    if (action === "toggle-drawer-group") {
-      const sectionId = String(envelope.payload?.sectionId || "").trim();
-      const backend =
-        String(envelope.payload?.groupKey || "").trim() ||
-        String(envelope.payload?.backendId || "").trim();
-      const collapseKey =
-        sectionId && backend ? `${sectionId}\n${backend}` : "";
-      if (collapseKey) {
-        host.drawerGroupCollapsed.set(
-          collapseKey,
-          envelope.payload?.collapsed !== true,
-        );
-        publishLatestSkillRunnerChromeSnapshot(host);
-        return true;
-      }
     }
     if (action === "open-backend-manager") {
       await openBackendManagerDialog({
@@ -811,20 +637,6 @@ function createSkillRunnerHostActionHandler(
         initialProviderType: "skillrunner",
       });
       return true;
-    }
-    if (action === "copy-request-id") {
-      const requestId =
-        String(envelope.payload?.requestId || "").trim() ||
-        String(host.latestSkillRunnerSnapshot?.session?.requestId || "").trim();
-      copyText(requestId);
-      return true;
-    }
-    if (action === "copy-diagnostics") {
-      copyText(JSON.stringify(host.latestSkillRunnerSnapshot || {}, null, 2));
-      return true;
-    }
-    if (action === "close-sidebar") {
-      return closeActiveSidebarHost(host);
     }
     return false;
   };
@@ -1106,11 +918,7 @@ function detachSkillRunnerFromShell(
   host: AssistantWorkspaceHostRuntime,
   reason: string,
 ) {
-  if (
-    !host.skillRunnerAttachedFrameWindow &&
-    !host.latestSkillRunnerBaseSnapshot &&
-    !host.latestSkillRunnerSnapshot
-  ) {
+  if (!host.skillRunnerAttachedFrameWindow) {
     return;
   }
   logAssistantWorkspaceDebug(
@@ -1121,8 +929,6 @@ function detachSkillRunnerFromShell(
   );
   detachSkillRunnerSidebarHost({ hostWindow: host.win });
   host.skillRunnerAttachedFrameWindow = null;
-  host.latestSkillRunnerBaseSnapshot = null;
-  host.latestSkillRunnerSnapshot = null;
 }
 
 function resolveCurrentShellWindow(host: AssistantWorkspaceHostRuntime) {
@@ -1650,7 +1456,24 @@ function clearAcpChatBackendRefreshBoundary(
   }
 }
 
-function postSkillRunnerSnapshot(
+async function initializeSkillRunnerWorkspaceSurface(
+  host: AssistantWorkspaceHostRuntime,
+  cause: "initialization" | "activation" | "owner-switch",
+) {
+  const publicationIds = await host.publicationRuntime?.initialize({
+    adapter: SKILLRUNNER_WORKSPACE_ADAPTER,
+    context: undefined,
+    cause,
+  });
+  return publicationIds?.at(-1);
+}
+
+// SkillRunner tab activation after the Stage 3 cutover: the legacy
+// CHILD_SNAPSHOT push is gone. The host attach stays (the read model's
+// refresh cycles are host-gated), the refresh repopulates the read model and
+// fires the publication-change notify funnel, and the runtime initialize
+// publishes the baseline regions through the shared publication plane.
+async function activateSkillRunnerWorkspaceSurface(
   host: AssistantWorkspaceHostRuntime,
   phase: "init" | "snapshot" = "snapshot",
   options?: { force?: boolean },
@@ -1664,23 +1487,27 @@ function postSkillRunnerSnapshot(
     logAssistantWorkspaceDebug(
       host,
       "skillrunner-snapshot-skip",
-      "SkillRunner sidebar snapshot request skipped.",
+      "SkillRunner sidebar surface activation skipped.",
       { phase, force: options?.force === true },
     );
-    return;
+    return false;
   }
   logAssistantWorkspaceDebug(
     host,
     "skillrunner-snapshot-start",
-    "SkillRunner sidebar snapshot refresh requested.",
+    "SkillRunner sidebar surface activation requested.",
     { phase, force: options?.force === true },
   );
   attachSkillRunnerToShell(host, {
     allowInactive: options?.force === true || phase === "init",
   });
-  void refreshSkillRunnerSidebarHostSnapshot({
+  await refreshSkillRunnerSidebarHostSnapshot({
     forceInit: phase === "init",
   });
+  return !!(await initializeSkillRunnerWorkspaceSurface(
+    host,
+    phase === "init" ? "initialization" : "activation",
+  ));
 }
 
 async function postSnapshotForTab(
@@ -1733,8 +1560,10 @@ async function postSnapshotForTab(
     }
     return !!(await initializeAcpSkillsWorkspaceSurface(host, "activation"));
   }
-  postSkillRunnerSnapshot(host, phase, options);
-  return true;
+  if (tab === "skillrunner") {
+    return activateSkillRunnerWorkspaceSurface(host, phase, options);
+  }
+  return false;
 }
 
 function canPublishAssistantWorkspaceStatePulse(
@@ -1762,6 +1591,7 @@ function postShellInit(
     surfaceLabels: {
       "acp-chat": buildAssistantWorkspacePublicationLabels("acp-chat"),
       "acp-skills": buildAssistantWorkspacePublicationLabels("acp-skills"),
+      skillrunner: buildAssistantWorkspacePublicationLabels("skillrunner"),
     },
   });
 }
@@ -2510,7 +2340,9 @@ async function handleChildAction(
         }
       : owner?.source === "acp-skills"
         ? { requestId: owner.requestId }
-        : {};
+        : owner?.source === "skillrunner"
+          ? { requestId: owner.requestId, runKey: owner.runKey }
+          : {};
   const actionPayload = { ...childPayload, ...ownerPayload };
   logAssistantWorkspaceDebug(
     host,
@@ -2593,28 +2425,6 @@ async function handleChildAction(
     }
     return;
   }
-  if (tab === "skillrunner" && !source) {
-    if (action === "set-execution-display-mode") {
-      setAssistantWorkspaceExecutionDisplayMode(host, childPayload.mode);
-      scheduleSkillRunnerSidebarRefresh(host, target, {
-        selectionChanged: false,
-      });
-      return;
-    }
-    const handledByHost = await createSkillRunnerHostActionHandler(host)({
-      action,
-      payload: childPayload,
-    });
-    if (handledByHost) {
-      return;
-    }
-    await dispatchRunWorkspaceAction({
-      type: resolveRunDialogMessageType("skillrunner-sidebar", "action"),
-      action,
-      payload: childPayload,
-    });
-    return;
-  }
   const actionRoute = source
     ? ASSISTANT_WORKSPACE_ACTION_REGISTRY[
         action as keyof typeof ASSISTANT_WORKSPACE_ACTION_REGISTRY
@@ -2654,6 +2464,7 @@ async function handleChildAction(
       "set-active-conversation",
       "set-active-backend",
       "select-run",
+      "select-task",
       "archive-conversation",
       "archive-run",
       "load-transcript-page",
@@ -2798,6 +2609,23 @@ async function handleChildAction(
       action as AcpSkillsHostRoutedAction,
       actionPayload,
     );
+    return;
+  }
+  if (tab === "skillrunner") {
+    // Registry-routed SkillRunner actions: chrome-level actions are handled
+    // host-side; everything else delegates to the run-workspace action
+    // dispatcher with the owner identity merged into the payload.
+    const handledByHost = await createSkillRunnerHostActionHandler(host)({
+      action,
+      payload: actionPayload,
+    });
+    if (handledByHost) {
+      return;
+    }
+    await dispatchSkillRunnerWorkspaceAction({
+      action,
+      payload: actionPayload,
+    });
     return;
   }
   if (tab === "acp-chat") {
@@ -3405,21 +3233,17 @@ function attachSkillRunnerToShell(
   attachSkillRunnerSidebarHost({
     hostWindow: host.win,
     frameWindow,
-    publishSnapshot: (phase, snapshot) => {
-      postShellMessage(host, ASSISTANT_WORKSPACE_MESSAGE_TYPES.CHILD_SNAPSHOT, {
-        tab: "skillrunner",
-        phase,
-        snapshot,
-      });
-    },
+    // Stage 3 cutover: the legacy CHILD_SNAPSHOT publication channel is
+    // closed — the SkillRunner tab is served by assistant-workspace
+    // publications. The callback stays as an explicit no-op so
+    // `pushSnapshot` in skillRunnerRunDialog.ts keeps running its single
+    // flush funnel: that funnel drives `notifySkillRunnerWorkspacePublicationChange`,
+    // which feeds the publication-plane schedule. The push-plane body itself
+    // is deleted in Stage 4.
+    publishSnapshot: () => {},
     alertWindow: host.win,
     focusHost: () => host.win.focus(),
     isHostAlive: () => hosts.get(host.win) === host,
-    decorateSnapshot: (snapshot) => {
-      host.latestSkillRunnerBaseSnapshot = snapshot;
-      return buildDecoratedSkillRunnerSnapshot(host, snapshot);
-    },
-    handleHostAction: createSkillRunnerHostActionHandler(host),
   });
   host.skillRunnerAttachedFrameWindow = frameWindow;
 }
@@ -3756,11 +3580,6 @@ export function installAssistantWorkspaceSidebarShell(
     win,
     activeTarget: null,
     activeTab: DEFAULT_TAB,
-    drawerOpen: false,
-    drawerRunningCollapsed: false,
-    drawerCompletedCollapsed: true,
-    drawerQueuedCollapsed: true,
-    drawerGroupCollapsed: new Map<string, boolean>(),
     scopeKey: createAssistantSidebarScopeKey("assistant-sidebar-workspace"),
     snapshotRevision: 0,
     publicationLifecycles: new Map(),
@@ -4000,9 +3819,8 @@ export function installAssistantWorkspaceSidebarShell(
         return;
       }
       if (host.activeTab === "skillrunner") {
-        // Keep the legacy chrome snapshot and additionally mirror the queue
-        // change into the publication plane as a skillrunner global change.
-        publishLatestSkillRunnerChromeSnapshot(host);
+        // Mirror the queue change into the publication plane as a
+        // skillrunner global change (owner-navigation Queued section).
         scheduleSkillRunnerPublications(host, {
           global: true,
           kinds: ["global"],
