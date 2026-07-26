@@ -151,6 +151,13 @@ jobs:
       - name: Initialize resumable release receipt
         shell: bash
         run: |
+          set -euo pipefail
+          # Bind release-set.source.commit to the exact publication source_sha.
+          # source.commit is outside payloadDigest/releaseSetId, so this does not
+          # change the immutable release-set identity prepared on main.
+          HOST_BRIDGE_SOURCE_COMMIT="${{ inputs.source_sha }}" npm run render:host-bridge-surface
+          test "$(jq -r .releaseSetId host-bridge/release-set.json)" = "${{ inputs.release_set_id }}"
+          test "$(jq -r .source.commit host-bridge/release-set.json)" = "${{ inputs.source_sha }}"
           npx tsx scripts/host-bridge-release-controller.ts init \
             --release-set=host-bridge/release-set.json \
             --receipt=release-receipt.json \
