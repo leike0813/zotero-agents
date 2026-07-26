@@ -1,0 +1,360 @@
+{
+  "schema": "synthesis-native-runtime-contract-corpus.v1",
+  "absoluteRuntimeRootToken": "$ABSOLUTE_RUNTIME_ROOT",
+  "manifest": {
+    "schema": "synthesis-sidecar-runtime-bundle.v2",
+    "bundleId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "implementation": "rust-native",
+    "serviceVersion": "0.1.0",
+    "protocolVersion": "synthesis-sidecar.v1",
+    "target": "linux-x64",
+    "targetTriple": "x86_64-unknown-linux-gnu",
+    "executable": "synthesis-sidecar",
+    "buildFingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "capabilities": [
+      "system.handshake",
+      "system.shutdown",
+      "workbench.chrome.read",
+      "topics.canonical.inspect",
+      "compute.citation_graph_layout",
+      "compute.citation_graph_metrics",
+      "compute.citation_graph_build",
+      "compute.citation_graph_build_transfer"
+    ],
+    "createdAt": "2026-07-27T00:00:00.000Z",
+    "expiresAt": "2026-08-27T00:00:00.000Z",
+    "provenance": {
+      "sourceFingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "toolchain": "nightly-2026-07-25",
+      "cargoLockSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "licenseInventory": "licenses.json"
+    },
+    "platformSignature": {
+      "scheme": "not-applicable",
+      "status": "not-applicable",
+      "signer": null
+    },
+    "files": [
+      {
+        "path": "LICENSE-AGPL-3.0.txt",
+        "bytes": 100,
+        "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "executable": false
+      },
+      {
+        "path": "licenses.json",
+        "bytes": 200,
+        "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "executable": false
+      },
+      {
+        "path": "provenance.json",
+        "bytes": 300,
+        "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "executable": false
+      },
+      {
+        "path": "synthesis-sidecar",
+        "bytes": 400,
+        "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "executable": true
+      }
+    ]
+  },
+  "launchConfig": {
+    "schema": "synthesis-sidecar-launch-config.v2",
+    "profileId": "1111111111111111111111111111111111111111111111111111111111111111",
+    "profileRuntimeRoot": "$ABSOLUTE_RUNTIME_ROOT",
+    "runtimeRootId": "2222222222222222222222222222222222222222222222222222222222222222",
+    "dataRootId": "3333333333333333333333333333333333333333333333333333333333333333",
+    "bundleId": "4444444444444444444444444444444444444444444444444444444444444444",
+    "implementation": "rust-native",
+    "target": "linux-x64",
+    "targetTriple": "x86_64-unknown-linux-gnu",
+    "buildFingerprint": "5555555555555555555555555555555555555555555555555555555555555555",
+    "platformSignature": {
+      "scheme": "not-applicable",
+      "status": "not-applicable",
+      "signer": null
+    },
+    "serviceVersion": "0.1.0",
+    "protocolVersion": "synthesis-sidecar.v1",
+    "schemaVersion": "synthesis-repository-foundation.v1",
+    "supervisorInstanceId": "native-parity-supervisor",
+    "leaseNonce": "native-parity-lease",
+    "clientToken": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "lifecycleToken": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "mutationEnabled": false,
+    "port": 0
+  },
+  "discovery": {
+    "schema": "synthesis-sidecar-discovery.v2",
+    "profileId": "1111111111111111111111111111111111111111111111111111111111111111",
+    "supervisorInstanceId": "native-parity-supervisor",
+    "serviceInstanceId": "native-parity-service",
+    "bundleId": "4444444444444444444444444444444444444444444444444444444444444444",
+    "implementation": "rust-native",
+    "target": "linux-x64",
+    "targetTriple": "x86_64-unknown-linux-gnu",
+    "buildFingerprint": "5555555555555555555555555555555555555555555555555555555555555555",
+    "platformSignature": {
+      "scheme": "not-applicable",
+      "status": "not-applicable",
+      "signer": null
+    },
+    "serviceVersion": "0.1.0",
+    "protocolVersion": "synthesis-sidecar.v1",
+    "schemaVersion": "synthesis-repository-foundation.v1",
+    "runtimeRootId": "2222222222222222222222222222222222222222222222222222222222222222",
+    "dataRootId": "3333333333333333333333333333333333333333333333333333333333333333",
+    "host": "127.0.0.1",
+    "port": 37123,
+    "pid": 3712,
+    "lifecycleState": "ready",
+    "tokenLocator": "supervisor-session",
+    "capabilities": [
+      "system.handshake",
+      "system.shutdown",
+      "workbench.chrome.read",
+      "topics.canonical.inspect",
+      "compute.citation_graph_layout",
+      "compute.citation_graph_metrics",
+      "compute.citation_graph_build",
+      "compute.citation_graph_build_transfer"
+    ]
+  },
+  "health": {
+    "status": "ok",
+    "implementation": "rust-native",
+    "protocol": "synthesis-sidecar.v1",
+    "serviceVersion": "0.1.0",
+    "serviceInstanceId": "native-parity-service",
+    "supervisorInstanceId": "native-parity-supervisor",
+    "bundleId": "4444444444444444444444444444444444444444444444444444444444444444",
+    "target": "linux-x64",
+    "targetTriple": "x86_64-unknown-linux-gnu",
+    "buildFingerprint": "5555555555555555555555555555555555555555555555555555555555555555",
+    "platformSignature": {
+      "scheme": "not-applicable",
+      "status": "not-applicable",
+      "signer": null
+    },
+    "lifecycleState": "ready",
+    "repository": {
+      "mode": "isolated_shadow",
+      "state": "ready",
+      "schemaVersion": "synthesis-repository-foundation.v1",
+      "repositoryId": "6666666666666666666666666666666666666666666666666666666666666666"
+    },
+    "canonicalStore": {
+      "state": "ready",
+      "schemaVersion": "synthesis-topic-canonical-store.v1",
+      "storeId": "7777777777777777777777777777777777777777777777777777777777777777"
+    },
+    "computePool": {
+      "state": "idle",
+      "active": 0,
+      "queued": 0,
+      "restartCount": 0,
+      "failureCount": 0
+    },
+    "citationGraphTransfer": {
+      "state": "idle",
+      "sessions": 0,
+      "stagedBytes": 0
+    }
+  },
+  "handshake": {
+    "implementation": "rust-native",
+    "protocol": "synthesis-sidecar.v1",
+    "serviceVersion": "0.1.0",
+    "serviceInstanceId": "native-parity-service",
+    "supervisorInstanceId": "native-parity-supervisor",
+    "bundleId": "4444444444444444444444444444444444444444444444444444444444444444",
+    "target": "linux-x64",
+    "targetTriple": "x86_64-unknown-linux-gnu",
+    "buildFingerprint": "5555555555555555555555555555555555555555555555555555555555555555",
+    "platformSignature": {
+      "scheme": "not-applicable",
+      "status": "not-applicable",
+      "signer": null
+    },
+    "profileId": "1111111111111111111111111111111111111111111111111111111111111111",
+    "schemaVersion": "synthesis-repository-foundation.v1",
+    "runtimeRootId": "2222222222222222222222222222222222222222222222222222222222222222",
+    "dataRootId": "3333333333333333333333333333333333333333333333333333333333333333",
+    "capabilities": [
+      "system.handshake",
+      "system.shutdown",
+      "workbench.chrome.read",
+      "topics.canonical.inspect",
+      "compute.citation_graph_layout",
+      "compute.citation_graph_metrics",
+      "compute.citation_graph_build",
+      "compute.citation_graph_build_transfer"
+    ],
+    "mutationEnabled": false,
+    "lifecycleState": "ready",
+    "repository": {
+      "mode": "isolated_shadow",
+      "state": "ready",
+      "schemaVersion": "synthesis-repository-foundation.v1",
+      "repositoryId": "6666666666666666666666666666666666666666666666666666666666666666"
+    },
+    "canonicalStore": {
+      "state": "ready",
+      "schemaVersion": "synthesis-topic-canonical-store.v1",
+      "storeId": "7777777777777777777777777777777777777777777777777777777777777777"
+    },
+    "computePool": {
+      "state": "idle",
+      "active": 0,
+      "queued": 0,
+      "restartCount": 0,
+      "failureCount": 0
+    },
+    "citationGraphTransfer": {
+      "state": "idle",
+      "sessions": 0,
+      "stagedBytes": 0
+    }
+  },
+  "cases": [
+    {
+      "id": "manifest-valid",
+      "kind": "manifest",
+      "expected": { "node": "ok", "rust": "ok" }
+    },
+    {
+      "id": "manifest-target-triple-mismatch",
+      "kind": "manifest",
+      "mutation": {
+        "path": "targetTriple",
+        "value": "aarch64-unknown-linux-gnu"
+      },
+      "expected": {
+        "node": "invalid_manifest",
+        "rust": "invalid_manifest"
+      }
+    },
+    {
+      "id": "manifest-capability-order",
+      "kind": "manifest",
+      "mutation": { "path": "capabilities.0", "value": "system.shutdown" },
+      "expected": { "node": "invalid_manifest", "rust": "invalid_manifest" }
+    },
+    {
+      "id": "manifest-signature-policy",
+      "kind": "manifest",
+      "mutation": {
+        "path": "platformSignature.status",
+        "value": "unsigned-candidate"
+      },
+      "expected": {
+        "node": "invalid_manifest",
+        "rust": "invalid_manifest"
+      }
+    },
+    {
+      "id": "manifest-unknown-field",
+      "kind": "manifest",
+      "mutation": { "path": "unexpected", "value": true },
+      "expected": {
+        "node": "invalid_manifest",
+        "rust": "invalid_manifest"
+      }
+    },
+    {
+      "id": "launch-valid",
+      "kind": "launch",
+      "expected": { "node": "ok", "rust": "ok" }
+    },
+    {
+      "id": "launch-target-triple-mismatch",
+      "kind": "launch",
+      "mutation": {
+        "path": "targetTriple",
+        "value": "aarch64-unknown-linux-gnu"
+      },
+      "expected": { "node": "invalid_config", "rust": "invalid_config" }
+    },
+    {
+      "id": "launch-short-client-token",
+      "kind": "launch",
+      "mutation": { "path": "clientToken", "value": "short" },
+      "expected": { "node": "invalid_config", "rust": "invalid_config" }
+    },
+    {
+      "id": "launch-unknown-field",
+      "kind": "launch",
+      "mutation": { "path": "unexpected", "value": true },
+      "expected": { "node": "invalid_config", "rust": "invalid_config" }
+    },
+    {
+      "id": "launch-signature-policy",
+      "kind": "launch",
+      "mutation": {
+        "path": "platformSignature.status",
+        "value": "unsigned-candidate"
+      },
+      "expected": {
+        "node": "invalid_config",
+        "rust": "invalid_config"
+      }
+    },
+    {
+      "id": "discovery-valid",
+      "kind": "discovery",
+      "expected": { "node": "ok", "rust": "ok" }
+    },
+    {
+      "id": "discovery-capability-order",
+      "kind": "discovery",
+      "mutation": { "path": "capabilities.0", "value": "system.shutdown" },
+      "expected": { "node": "invalid_discovery", "rust": "invalid_discovery" }
+    },
+    {
+      "id": "discovery-unknown-field",
+      "kind": "discovery",
+      "mutation": { "path": "unexpected", "value": true },
+      "expected": { "node": "invalid_discovery", "rust": "invalid_discovery" }
+    },
+    {
+      "id": "health-valid",
+      "kind": "health",
+      "expected": { "node": "ok", "rust": "ok" }
+    },
+    {
+      "id": "health-target-triple-mismatch",
+      "kind": "health",
+      "mutation": {
+        "path": "targetTriple",
+        "value": "aarch64-unknown-linux-gnu"
+      },
+      "expected": { "node": "invalid_health", "rust": "invalid_health" }
+    },
+    {
+      "id": "health-unknown-field",
+      "kind": "health",
+      "mutation": { "path": "unexpected", "value": true },
+      "expected": { "node": "invalid_health", "rust": "invalid_health" }
+    },
+    {
+      "id": "handshake-valid",
+      "kind": "handshake",
+      "expected": { "node": "ok", "rust": "ok" }
+    },
+    {
+      "id": "handshake-mutation-enabled",
+      "kind": "handshake",
+      "mutation": { "path": "mutationEnabled", "value": true },
+      "expected": { "node": "invalid_handshake", "rust": "invalid_handshake" }
+    },
+    {
+      "id": "handshake-unknown-field",
+      "kind": "handshake",
+      "mutation": { "path": "unexpected", "value": true },
+      "expected": { "node": "invalid_handshake", "rust": "invalid_handshake" }
+    }
+  ]
+}

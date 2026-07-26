@@ -61,100 +61,41 @@ export async function checkSynthesisSidecarRuntimeXpi(root = process.cwd()) {
   const xpi = await findXpi(root);
   const entries = listZipEntries(await fs.readFile(xpi));
   const missing: string[] = [];
+  const forbidden: string[] = [];
   for (const target of SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX) {
     const prefix = `bin/synthesis-sidecar/${target}`;
     for (const required of [
       `${prefix}/manifest.json`,
-      `${prefix}/${target === "win32-x64" ? "node.exe" : "node"}`,
-      `${prefix}/LICENSE-node.txt`,
-      `${prefix}/service/apps/synthesis-service/src/entrypoint.js`,
-      `${prefix}/service/apps/synthesis-service/src/computeWorkerPool.js`,
-      `${prefix}/service/apps/synthesis-service/src/rustComputeWorkerTransport.js`,
-      `${prefix}/service/native/synthesis-sidecar/synthesis-sidecar${
-        target === "win32-x64" ? ".exe" : ""
+      `${prefix}/${
+        target === "win32-x64" ? "synthesis-sidecar.exe" : "synthesis-sidecar"
       }`,
-      `${prefix}/service/native/synthesis-sidecar/provenance.json`,
-      `${prefix}/service/native/synthesis-sidecar/licenses.json`,
-      `${prefix}/service/native/synthesis-sidecar/LICENSE-AGPL-3.0.txt`,
-      `${prefix}/service/apps/synthesis-service/src/citationGraphTransferOwner.js`,
-      `${prefix}/service/apps/synthesis-service/src/citationGraphBuildTransferExecutor.js`,
-      `${prefix}/service/apps/synthesis-service/src/isolatedRepository.js`,
-      `${prefix}/service/apps/synthesis-service/src/repositoryNodeSqlite.js`,
-      `${prefix}/service/apps/synthesis-service/src/topicCanonicalStoreNode.js`,
-      `${prefix}/service/apps/synthesis-service/src/topicApplicationNode.js`,
-      `${prefix}/service/apps/synthesis-service/src/citationGraphApplicationNode.js`,
-      `${prefix}/service/apps/synthesis-service/src/referenceRefreshApplicationNode.js`,
-      `${prefix}/service/apps/synthesis-service/src/referenceMatchingReviewApplicationNode.js`,
-      `${prefix}/service/apps/synthesis-service/src/tagVocabularyApplicationNode.js`,
-      `${prefix}/service/apps/synthesis-service/src/conceptKbApplicationNode.js`,
-      `${prefix}/service/apps/synthesis-service/src/topicGraphApplicationNode.js`,
-      `${prefix}/service/apps/synthesis-service/src/knowledgeCheckpointApplicationNode.js`,
-      `${prefix}/service/apps/synthesis-service/src/durableBundleApplicationNode.js`,
-      `${prefix}/service/apps/synthesis-service/src/webDavSyncApplicationNode.js`,
-      `${prefix}/service/apps/synthesis-service/src/debugMaintenanceApplicationNode.js`,
-      `${prefix}/service/packages/synthesis-engine/src/index.js`,
-      `${prefix}/service/packages/synthesis-engine/src/citationGraphBuild.js`,
-      `${prefix}/service/packages/synthesis-engine/src/citationGraphBuildTransfer.js`,
-      `${prefix}/service/packages/synthesis-engine/src/conceptKbIndex.js`,
-      `${prefix}/service/packages/synthesis-engine/src/topicGraphIndex.js`,
-      `${prefix}/service/packages/synthesis-contracts/src/sidecarTransfer.js`,
-      `${prefix}/service/packages/synthesis-contracts/src/sidecarCanonicalStore.js`,
-      `${prefix}/service/packages/synthesis-contracts/src/topicApplication.js`,
-      `${prefix}/service/packages/synthesis-contracts/src/citationGraphApplication.js`,
-      `${prefix}/service/packages/synthesis-contracts/src/hostRead.js`,
-      `${prefix}/service/packages/synthesis-contracts/src/referenceRefreshApplication.js`,
-      `${prefix}/service/packages/synthesis-contracts/src/referenceMatchingReviewApplication.js`,
-      `${prefix}/service/packages/synthesis-contracts/src/tagVocabularyApplication.js`,
-      `${prefix}/service/packages/synthesis-contracts/src/tagVocabularyCore.js`,
-      `${prefix}/service/packages/synthesis-contracts/src/conceptKbApplication.js`,
-      `${prefix}/service/packages/synthesis-contracts/src/conceptKbCore.js`,
-      `${prefix}/service/packages/synthesis-contracts/src/knowledgeCheckpoint.js`,
-      `${prefix}/service/packages/synthesis-contracts/src/durableBundle.js`,
-      `${prefix}/service/packages/synthesis-contracts/src/durableBundleImport.js`,
-      `${prefix}/service/packages/synthesis-contracts/src/webDavSync.js`,
-      `${prefix}/service/packages/synthesis-contracts/src/webDavSyncPort.js`,
-      `${prefix}/service/packages/synthesis-contracts/src/debugMaintenance.js`,
-      `${prefix}/service/packages/synthesis-contracts/src/topicGraphApplication.js`,
-      `${prefix}/service/packages/synthesis-contracts/src/topicGraphCore.js`,
-      `${prefix}/service/packages/synthesis-contracts/src/workbench.js`,
-      `${prefix}/service/packages/synthesis-application/src/index.js`,
-      `${prefix}/service/packages/synthesis-application/src/topicCanonical.js`,
-      `${prefix}/service/packages/synthesis-application/src/topicApplyDecision.js`,
-      `${prefix}/service/packages/synthesis-application/src/topicApplication.js`,
-      `${prefix}/service/packages/synthesis-application/src/citationGraphApplication.js`,
-      `${prefix}/service/packages/synthesis-application/src/citationGraphProjection.js`,
-      `${prefix}/service/packages/synthesis-application/src/referenceProjection.js`,
-      `${prefix}/service/packages/synthesis-application/src/referenceRefreshApplication.js`,
-      `${prefix}/service/packages/synthesis-application/src/referenceMatchingReviewApplication.js`,
-      `${prefix}/service/packages/synthesis-application/src/tagVocabularyApplication.js`,
-      `${prefix}/service/packages/synthesis-application/src/conceptKbApplication.js`,
-      `${prefix}/service/packages/synthesis-application/src/topicGraphApplication.js`,
-      `${prefix}/service/packages/synthesis-application/src/knowledgeCheckpointApplication.js`,
-      `${prefix}/service/packages/synthesis-application/src/durableBundleApplication.js`,
-      `${prefix}/service/packages/synthesis-application/src/webDavSyncApplication.js`,
-      `${prefix}/service/packages/synthesis-application/src/debugMaintenanceApplication.js`,
-      `${prefix}/service/packages/synthesis-application/src/knowledgeCheckpointCompatibility.js`,
-      `${prefix}/service/packages/synthesis-repository/src/index.js`,
-      `${prefix}/service/packages/synthesis-repository/src/citationGraph.js`,
-      `${prefix}/service/packages/synthesis-repository/src/referenceRefresh.js`,
-      `${prefix}/service/packages/synthesis-repository/src/referenceMatchingReview.js`,
-      `${prefix}/service/packages/synthesis-repository/src/tagVocabulary.js`,
-      `${prefix}/service/packages/synthesis-repository/src/conceptKb.js`,
-      `${prefix}/service/packages/synthesis-repository/src/topicGraph.js`,
-      `${prefix}/service/packages/synthesis-repository/src/knowledgeCheckpoint.js`,
-      `${prefix}/service/packages/synthesis-repository/src/durableBundle.js`,
-      `${prefix}/service/packages/synthesis-repository/src/durableBundleImport.js`,
+      `${prefix}/provenance.json`,
+      `${prefix}/licenses.json`,
+      `${prefix}/LICENSE-AGPL-3.0.txt`,
     ]) {
       if (!entries.has(required)) {
         missing.push(required);
       }
     }
+    for (const entry of entries) {
+      if (
+        entry.startsWith(`${prefix}/`) &&
+        (/(^|\/)node(?:\.exe)?$/i.test(entry) ||
+          entry.includes("/service/") ||
+          entry.endsWith(".js") ||
+          entry.includes("/node_modules/") ||
+          entry.toLowerCase().includes("d3-force"))
+      ) {
+        forbidden.push(entry);
+      }
+    }
   }
   return {
-    ok: missing.length === 0,
+    ok: missing.length === 0 && forbidden.length === 0,
     xpi,
     targets: [...SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX],
     missing,
+    forbidden,
   };
 }
 

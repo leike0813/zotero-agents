@@ -21,13 +21,21 @@ import { createSynthesisSidecarTransferClient } from "../../src/modules/synthesi
 const ROOT = path.resolve(import.meta.dirname, "../..");
 function config(root: string): SynthesisSidecarRuntimeConfig {
   return {
-    schema: "synthesis-sidecar-launch-config.v1",
+    schema: "synthesis-sidecar-launch-config.v2",
     profileId: "1".repeat(64),
     profileRuntimeRoot: root,
     runtimeRootId: "2".repeat(64),
     dataRootId: "3".repeat(64),
     bundleId: "4".repeat(64),
-    nodeVersion: "24.18.0",
+    implementation: "rust-native",
+    target: "linux-x64",
+    targetTriple: "x86_64-unknown-linux-gnu",
+    buildFingerprint: "5".repeat(64),
+    platformSignature: {
+      scheme: "not-applicable",
+      status: "not-applicable",
+      signer: null,
+    },
     serviceVersion: "0.1.0-test",
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
     schemaVersion: "synthesis-schema.test.v1",

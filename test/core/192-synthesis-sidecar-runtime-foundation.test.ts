@@ -67,10 +67,18 @@ function config(
     runtimeRootId: RUNTIME_ROOT_ID,
     dataRootId: DATA_ROOT_ID,
     bundleId: BUNDLE_ID,
-    nodeVersion: "24.18.0",
-    serviceVersion: "0.1.0-test",
+    implementation: "rust-native",
+    target: "linux-x64",
+    targetTriple: "x86_64-unknown-linux-gnu",
+    buildFingerprint: "5".repeat(64),
+    platformSignature: {
+      scheme: "not-applicable",
+      status: "not-applicable",
+      signer: null,
+    },
+    serviceVersion: "0.1.0",
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
-    schemaVersion: "synthesis-schema.test.v1",
+    schemaVersion: "synthesis-repository-foundation.v1",
     supervisorInstanceId: SUPERVISOR_INSTANCE_ID,
     leaseNonce: LEASE_NONCE,
     clientToken: CLIENT_TOKEN,
@@ -207,8 +215,9 @@ function handshakeRequest(
     profileId: PROFILE_ID,
     capability: "system.handshake",
     payload: {
-      schemaVersion: "synthesis-schema.test.v1",
+      schemaVersion: "synthesis-repository-foundation.v1",
       bundleId: BUNDLE_ID,
+      buildFingerprint: "5".repeat(64),
       supervisorInstanceId: SUPERVISOR_INSTANCE_ID,
     },
     ...overrides,
@@ -389,7 +398,7 @@ describe("Synthesis sidecar runtime foundation", function () {
     assert.equal(healthResponse.status, 200);
     const health = (await healthResponse.json()) as Record<string, unknown>;
     assert.equal(health.protocol, SYNTHESIS_SIDECAR_PROTOCOL);
-    assert.equal(health.serviceVersion, "0.1.0-test");
+    assert.equal(health.serviceVersion, "0.1.0");
     assert.equal(health.lifecycleState, "ready");
     assert.equal(health.supervisorInstanceId, SUPERVISOR_INSTANCE_ID);
     assert.equal(health.bundleId, BUNDLE_ID);
@@ -451,9 +460,10 @@ describe("Synthesis sidecar runtime foundation", function () {
     assert.isTrue(handshake.body.ok);
     const data = handshake.body.data as Record<string, unknown>;
     assert.equal(data.profileId, PROFILE_ID);
-    assert.equal(data.schemaVersion, "synthesis-schema.test.v1");
+    assert.equal(data.schemaVersion, "synthesis-repository-foundation.v1");
     assert.equal(data.bundleId, BUNDLE_ID);
-    assert.equal(data.nodeVersion, "24.18.0");
+    assert.equal(data.implementation, "rust-native");
+    assert.equal(data.buildFingerprint, "5".repeat(64));
     assert.equal(data.supervisorInstanceId, SUPERVISOR_INSTANCE_ID);
     assert.equal(data.mutationEnabled, false);
     assert.deepEqual(data.capabilities, SYNTHESIS_SIDECAR_CAPABILITIES);
@@ -535,6 +545,7 @@ describe("Synthesis sidecar runtime foundation", function () {
           payload: {
             schemaVersion: "synthesis-schema.other",
             bundleId: BUNDLE_ID,
+            buildFingerprint: "5".repeat(64),
             supervisorInstanceId: SUPERVISOR_INSTANCE_ID,
           },
         }),
@@ -543,8 +554,9 @@ describe("Synthesis sidecar runtime foundation", function () {
       {
         request: handshakeRequest({
           payload: {
-            schemaVersion: "synthesis-schema.test.v1",
+            schemaVersion: "synthesis-repository-foundation.v1",
             bundleId: "6".repeat(64),
+            buildFingerprint: "5".repeat(64),
             supervisorInstanceId: SUPERVISOR_INSTANCE_ID,
           },
         }),

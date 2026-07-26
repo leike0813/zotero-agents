@@ -4,15 +4,23 @@ import {
   SYNTHESIS_SIDECAR_PROTOCOL,
   type SynthesisSidecarCapability,
 } from "./sidecarSystem.js";
+import {
+  SYNTHESIS_SIDECAR_RUNTIME_IMPLEMENTATION,
+  SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES,
+  rebuildSynthesisSidecarRuntimePlatformSignature,
+  type SynthesisSidecarRuntimePlatformSignature,
+  type SynthesisSidecarRuntimeTarget,
+  type SynthesisSidecarRuntimeTargetTriple,
+} from "./sidecarRuntimeBundle.js";
 
 export const SYNTHESIS_SIDECAR_LAUNCH_CONFIG_SCHEMA =
-  "synthesis-sidecar-launch-config.v1" as const;
+  "synthesis-sidecar-launch-config.v2" as const;
 export const SYNTHESIS_SIDECAR_OWNER_SCHEMA =
   "synthesis-sidecar-owner.v1" as const;
 export const SYNTHESIS_SIDECAR_LEASE_SCHEMA =
   "synthesis-sidecar-lease.v1" as const;
 export const SYNTHESIS_SIDECAR_DISCOVERY_SCHEMA =
-  "synthesis-sidecar-discovery.v1" as const;
+  "synthesis-sidecar-discovery.v2" as const;
 
 const ID_PATTERN = /^[A-Za-z0-9._:-]+$/;
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
@@ -24,7 +32,11 @@ export type SynthesisSidecarLaunchConfig = {
   runtimeRootId: string;
   dataRootId: string;
   bundleId: string;
-  nodeVersion: string;
+  implementation: typeof SYNTHESIS_SIDECAR_RUNTIME_IMPLEMENTATION;
+  target: SynthesisSidecarRuntimeTarget;
+  targetTriple: SynthesisSidecarRuntimeTargetTriple;
+  buildFingerprint: string;
+  platformSignature: SynthesisSidecarRuntimePlatformSignature;
   serviceVersion: string;
   protocolVersion: typeof SYNTHESIS_SIDECAR_PROTOCOL;
   schemaVersion: string;
@@ -60,7 +72,11 @@ export type SynthesisSidecarDiscovery = {
   supervisorInstanceId: string;
   serviceInstanceId: string;
   bundleId: string;
-  nodeVersion: string;
+  implementation: typeof SYNTHESIS_SIDECAR_RUNTIME_IMPLEMENTATION;
+  target: SynthesisSidecarRuntimeTarget;
+  targetTriple: SynthesisSidecarRuntimeTargetTriple;
+  buildFingerprint: string;
+  platformSignature: SynthesisSidecarRuntimePlatformSignature;
   serviceVersion: string;
   protocolVersion: typeof SYNTHESIS_SIDECAR_PROTOCOL;
   schemaVersion: string;
@@ -155,7 +171,11 @@ export function rebuildSynthesisSidecarLaunchConfig(
       "runtimeRootId",
       "dataRootId",
       "bundleId",
-      "nodeVersion",
+      "implementation",
+      "target",
+      "targetTriple",
+      "buildFingerprint",
+      "platformSignature",
       "serviceVersion",
       "protocolVersion",
       "schemaVersion",
@@ -170,6 +190,7 @@ export function rebuildSynthesisSidecarLaunchConfig(
   );
   if (
     record.schema !== SYNTHESIS_SIDECAR_LAUNCH_CONFIG_SCHEMA ||
+    record.implementation !== SYNTHESIS_SIDECAR_RUNTIME_IMPLEMENTATION ||
     record.protocolVersion !== SYNTHESIS_SIDECAR_PROTOCOL ||
     record.mutationEnabled !== false ||
     record.port !== 0
@@ -193,6 +214,15 @@ export function rebuildSynthesisSidecarLaunchConfig(
   ) {
     invalid("sidecarLaunchConfig.tokens");
   }
+  const target = strictString(record.target, "sidecarLaunchConfig.target", {
+    max: 32,
+  }) as SynthesisSidecarRuntimeTarget;
+  if (
+    !(target in SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES) ||
+    record.targetTriple !== SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES[target]
+  ) {
+    invalid("sidecarLaunchConfig.target");
+  }
   return Object.freeze({
     schema: SYNTHESIS_SIDECAR_LAUNCH_CONFIG_SCHEMA,
     profileId: strictHash(record.profileId, "sidecarLaunchConfig.profileId"),
@@ -207,10 +237,16 @@ export function rebuildSynthesisSidecarLaunchConfig(
     ),
     dataRootId: strictHash(record.dataRootId, "sidecarLaunchConfig.dataRootId"),
     bundleId: strictHash(record.bundleId, "sidecarLaunchConfig.bundleId"),
-    nodeVersion: strictString(
-      record.nodeVersion,
-      "sidecarLaunchConfig.nodeVersion",
-      { max: 64 },
+    implementation: SYNTHESIS_SIDECAR_RUNTIME_IMPLEMENTATION,
+    target,
+    targetTriple: SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES[target],
+    buildFingerprint: strictHash(
+      record.buildFingerprint,
+      "sidecarLaunchConfig.buildFingerprint",
+    ),
+    platformSignature: rebuildSynthesisSidecarRuntimePlatformSignature(
+      record.platformSignature,
+      target,
     ),
     serviceVersion: strictString(
       record.serviceVersion,
@@ -322,7 +358,11 @@ export function rebuildSynthesisSidecarDiscovery(
       "supervisorInstanceId",
       "serviceInstanceId",
       "bundleId",
-      "nodeVersion",
+      "implementation",
+      "target",
+      "targetTriple",
+      "buildFingerprint",
+      "platformSignature",
       "serviceVersion",
       "protocolVersion",
       "schemaVersion",
@@ -339,6 +379,7 @@ export function rebuildSynthesisSidecarDiscovery(
   );
   if (
     record.schema !== SYNTHESIS_SIDECAR_DISCOVERY_SCHEMA ||
+    record.implementation !== SYNTHESIS_SIDECAR_RUNTIME_IMPLEMENTATION ||
     record.protocolVersion !== SYNTHESIS_SIDECAR_PROTOCOL ||
     record.host !== "127.0.0.1" ||
     record.lifecycleState !== "ready" ||
@@ -356,6 +397,15 @@ export function rebuildSynthesisSidecarDiscovery(
   ) {
     invalid("sidecarDiscovery.capabilities");
   }
+  const target = strictString(record.target, "sidecarDiscovery.target", {
+    max: 32,
+  }) as SynthesisSidecarRuntimeTarget;
+  if (
+    !(target in SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES) ||
+    record.targetTriple !== SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES[target]
+  ) {
+    invalid("sidecarDiscovery.target");
+  }
   return Object.freeze({
     schema: SYNTHESIS_SIDECAR_DISCOVERY_SCHEMA,
     profileId: strictHash(record.profileId, "sidecarDiscovery.profileId"),
@@ -368,10 +418,16 @@ export function rebuildSynthesisSidecarDiscovery(
       "sidecarDiscovery.serviceInstanceId",
     ),
     bundleId: strictHash(record.bundleId, "sidecarDiscovery.bundleId"),
-    nodeVersion: strictString(
-      record.nodeVersion,
-      "sidecarDiscovery.nodeVersion",
-      { max: 64 },
+    implementation: SYNTHESIS_SIDECAR_RUNTIME_IMPLEMENTATION,
+    target,
+    targetTriple: SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES[target],
+    buildFingerprint: strictHash(
+      record.buildFingerprint,
+      "sidecarDiscovery.buildFingerprint",
+    ),
+    platformSignature: rebuildSynthesisSidecarRuntimePlatformSignature(
+      record.platformSignature,
+      target,
     ),
     serviceVersion: strictString(
       record.serviceVersion,

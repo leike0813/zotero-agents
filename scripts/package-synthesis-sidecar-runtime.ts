@@ -3,18 +3,17 @@ import path from "node:path";
 import {
   SYNTHESIS_SIDECAR_RUNTIME_BUNDLE_SCHEMA,
   SYNTHESIS_SIDECAR_RUNTIME_TARGETS,
+  SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES,
   rebuildSynthesisSidecarRuntimeBundleManifest,
   type SynthesisSidecarRuntimeBundleFile,
   type SynthesisSidecarRuntimeTarget,
 } from "../packages/synthesis-contracts/src/sidecarRuntimeBundle";
+import { SYNTHESIS_SIDECAR_CAPABILITIES } from "../packages/synthesis-contracts/src/sidecarSystem";
 import {
   SYNTHESIS_SIDECAR_RUNTIME_BUILD_ROOT,
-  SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES,
-  SYNTHESIS_SIDECAR_RUNTIME_NODE_VERSION,
   computeSynthesisSidecarRuntimeBuildFingerprint,
   computeSynthesisRustSidecarSourceFingerprint,
   computeSynthesisSidecarRuntimeBundleId,
-  runtimeArchiveName,
   sha256File,
 } from "./synthesis-sidecar-runtime-release-governance";
 
@@ -45,141 +44,59 @@ function targetArgument(): SynthesisSidecarRuntimeTarget {
   return target as SynthesisSidecarRuntimeTarget;
 }
 
-async function collectFiles(root: string, relativeDir = "") {
-  const directory = path.join(root, ...relativeDir.split("/").filter(Boolean));
-  const entries = await fs.readdir(directory, { withFileTypes: true });
+async function collectFiles(root: string) {
+  const entries = await fs.readdir(root, { withFileTypes: true });
   const files: string[] = [];
   for (const entry of entries.sort((left, right) =>
     left.name.localeCompare(right.name),
   )) {
-    const relativePath = relativeDir
-      ? `${relativeDir}/${entry.name}`
-      : entry.name;
-    if (entry.isSymbolicLink()) {
-      throw new Error(
-        `Symlink is not allowed in runtime bundle: ${relativePath}`,
-      );
+    if (entry.isSymbolicLink() || !entry.isFile()) {
+      throw new Error(`Invalid native runtime entry: ${entry.name}`);
     }
-    if (entry.isDirectory()) {
-      files.push(...(await collectFiles(root, relativePath)));
-    } else if (entry.isFile() && relativePath !== "manifest.json") {
-      files.push(relativePath);
+    if (entry.name !== "manifest.json") {
+      files.push(entry.name);
     }
   }
   return files;
 }
 
-async function copyServiceTree(root: string, outputRoot: string) {
-  const source = path.join(root, ".scaffold/synthesis-service");
-  await fs.access(
-    path.join(source, "apps/synthesis-service/src/entrypoint.js"),
-  );
-  await fs.cp(source, path.join(outputRoot, "service"), {
-    recursive: true,
-    dereference: false,
-  });
-  await fs.rm(
-    path.join(
-      outputRoot,
-      "service/apps/synthesis-service/src/computeWorker.js",
-    ),
-    { force: true },
-  );
-}
-
-async function copyComputeRuntimeDependencies(
-  root: string,
-  outputRoot: string,
-) {
-  const modulesRoot = path.join(outputRoot, "service", "node_modules");
-  for (const packageName of SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES) {
-    const sourceRoot = path.join(root, "node_modules", packageName);
-    const targetRoot = path.join(modulesRoot, packageName);
-    await fs.mkdir(targetRoot, { recursive: true });
-    for (const entry of ["package.json", "LICENSE"]) {
-      await fs.copyFile(
-        path.join(sourceRoot, entry),
-        path.join(targetRoot, entry),
-      );
-    }
-    await fs.cp(path.join(sourceRoot, "src"), path.join(targetRoot, "src"), {
-      recursive: true,
-      dereference: false,
-    });
-  }
-}
-
-async function copyRustComputeRuntime(
-  root: string,
-  outputRoot: string,
+function platformSignature(
   target: SynthesisSidecarRuntimeTarget,
+  status: string,
+  signer: string | undefined,
 ) {
-  const source = path.resolve(requiredArgument("rust-sidecar"));
-  const stat = await fs.stat(source);
-  if (!stat.isFile()) {
-    throw new Error("Rust compute sidecar must be a regular file");
+  if (target.startsWith("linux")) {
+    if (status !== "not-applicable" || signer) {
+      throw new Error("Linux platform signature must be not-applicable");
+    }
+    return {
+      scheme: "not-applicable" as const,
+      status: "not-applicable" as const,
+      signer: null,
+    };
   }
-  const nativeRoot = path.join(outputRoot, "service/native/synthesis-sidecar");
-  await fs.mkdir(nativeRoot, { recursive: true });
-  const executableName = target.startsWith("win32")
-    ? "synthesis-sidecar.exe"
-    : "synthesis-sidecar";
-  await fs.copyFile(source, path.join(nativeRoot, executableName));
-  if (!target.startsWith("win32")) {
-    await fs.chmod(path.join(nativeRoot, executableName), 0o755);
+  if (status !== "verified" && status !== "unsigned-candidate") {
+    throw new Error(`Invalid platform signature status for ${target}`);
   }
-  await fs.copyFile(
-    path.join(root, "LICENSE"),
-    path.join(nativeRoot, "LICENSE-AGPL-3.0.txt"),
-  );
-  await fs.copyFile(
-    path.join(root, "native/synthesis-sidecar/licenses.json"),
-    path.join(nativeRoot, "licenses.json"),
-  );
-  const native = await computeSynthesisRustSidecarSourceFingerprint(root);
-  await fs.writeFile(
-    path.join(nativeRoot, "provenance.json"),
-    `${JSON.stringify(
-      {
-        schema: "synthesis-rust-sidecar-provenance.v1",
-        target,
-        sourceFingerprint: native.fingerprint,
-        cargoLockSha256: await sha256File(
-          path.join(root, "native/synthesis-sidecar/Cargo.lock"),
-        ),
-        toolchain: (
-          await fs.readFile(
-            path.join(root, "native/synthesis-sidecar/rust-toolchain.toml"),
-            "utf8",
-          )
-        ).match(/channel\s*=\s*"([^"]+)"/)?.[1],
-        licenseInventory: "licenses.json",
-      },
-      null,
-      2,
-    )}\n`,
-    "utf8",
-  );
+  if ((status === "verified") !== Boolean(signer)) {
+    throw new Error("Verified signature requires signer; candidate forbids it");
+  }
+  return {
+    scheme:
+      target === "win32-x64"
+        ? ("authenticode" as const)
+        : ("apple-code-signing" as const),
+    status,
+    signer: signer || null,
+  };
 }
 
 async function main() {
   const root = process.cwd();
   const target = targetArgument();
-  const nodeRoot = path.resolve(requiredArgument("node-root"));
-  const upstreamSha256 = requiredArgument("upstream-sha256").toLowerCase();
-  if (!/^[a-f0-9]{64}$/.test(upstreamSha256)) {
-    throw new Error("Invalid upstream archive SHA-256");
-  }
-  if (requiredArgument("upstream-signature") !== "verified") {
-    throw new Error("Upstream Node release signature must be verified");
-  }
-  const expectedPlatformSignature = target.startsWith("linux")
-    ? "not-applicable"
-    : "verified";
-  if (requiredArgument("platform-signature") !== expectedPlatformSignature) {
-    throw new Error(
-      `Platform signature must be ${expectedPlatformSignature} for ${target}`,
-    );
+  const source = path.resolve(requiredArgument("rust-sidecar"));
+  if (!(await fs.stat(source)).isFile()) {
+    throw new Error("Rust sidecar must be a regular file");
   }
   const outputRoot = path.resolve(
     argument("output") ||
@@ -188,62 +105,99 @@ async function main() {
   await fs.rm(outputRoot, { recursive: true, force: true });
   await fs.mkdir(outputRoot, { recursive: true });
 
-  const executable = target === "win32-x64" ? "node.exe" : "node";
-  const sourceExecutable =
-    target === "win32-x64"
-      ? path.join(nodeRoot, "node.exe")
-      : path.join(nodeRoot, "bin", "node");
-  await fs.copyFile(sourceExecutable, path.join(outputRoot, executable));
+  const executable =
+    target === "win32-x64" ? "synthesis-sidecar.exe" : "synthesis-sidecar";
+  await fs.copyFile(source, path.join(outputRoot, executable));
   if (target !== "win32-x64") {
     await fs.chmod(path.join(outputRoot, executable), 0o755);
   }
   await fs.copyFile(
-    path.join(nodeRoot, "LICENSE"),
-    path.join(outputRoot, "LICENSE-node.txt"),
+    path.join(root, "LICENSE"),
+    path.join(outputRoot, "LICENSE-AGPL-3.0.txt"),
   );
-  await copyServiceTree(root, outputRoot);
-  await copyComputeRuntimeDependencies(root, outputRoot);
-  await copyRustComputeRuntime(root, outputRoot, target);
+  await fs.copyFile(
+    path.join(root, "native/synthesis-sidecar/licenses.json"),
+    path.join(outputRoot, "licenses.json"),
+  );
 
-  const servicePackage = JSON.parse(
+  const native = await computeSynthesisRustSidecarSourceFingerprint(root);
+  const cargoLockSha256 = await sha256File(
+    path.join(root, "native/synthesis-sidecar/Cargo.lock"),
+  );
+  const toolchain = (
     await fs.readFile(
-      path.join(root, "apps/synthesis-service/package.json"),
+      path.join(root, "native/synthesis-sidecar/rust-toolchain.toml"),
       "utf8",
-    ),
-  ) as { version?: string };
-  const build = await computeSynthesisSidecarRuntimeBuildFingerprint(root);
+    )
+  ).match(/channel\s*=\s*"([^"]+)"/)?.[1];
+  if (!toolchain) {
+    throw new Error("Rust toolchain is missing");
+  }
+  await fs.writeFile(
+    path.join(outputRoot, "provenance.json"),
+    `${JSON.stringify(
+      {
+        schema: "synthesis-rust-sidecar-provenance.v2",
+        target,
+        targetTriple: SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES[target],
+        sourceFingerprint: native.fingerprint,
+        toolchain,
+        cargoLockSha256,
+        licenseInventory: "licenses.json",
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+
   const files: SynthesisSidecarRuntimeBundleFile[] = [];
   for (const relativePath of await collectFiles(outputRoot)) {
-    const filePath = path.join(outputRoot, ...relativePath.split("/"));
+    const filePath = path.join(outputRoot, relativePath);
     const stat = await fs.stat(filePath);
     files.push({
       path: relativePath,
       bytes: stat.size,
       sha256: await sha256File(filePath),
-      executable:
-        relativePath === executable ||
-        relativePath ===
-          `service/native/synthesis-sidecar/synthesis-sidecar${
-            target.startsWith("win32") ? ".exe" : ""
-          }`,
+      executable: relativePath === executable,
     });
   }
   files.sort((left, right) => left.path.localeCompare(right.path));
+
+  const build = await computeSynthesisSidecarRuntimeBuildFingerprint(root);
+  const workspace = await fs.readFile(
+    path.join(root, "native/synthesis-sidecar/Cargo.toml"),
+    "utf8",
+  );
+  const serviceVersion =
+    workspace.match(
+      /\[workspace\.package\][\s\S]*?version\s*=\s*"([^"]+)"/,
+    )?.[1] || "";
+  const createdAt = requiredArgument("created-at");
+  const expiresAtArgument = argument("expires-at");
   const baseManifest = {
     schema: SYNTHESIS_SIDECAR_RUNTIME_BUNDLE_SCHEMA,
-    nodeVersion: SYNTHESIS_SIDECAR_RUNTIME_NODE_VERSION,
-    serviceVersion: String(servicePackage.version || ""),
+    implementation: "rust-native" as const,
+    serviceVersion,
     protocolVersion: "synthesis-sidecar.v1" as const,
     target,
-    buildFingerprint: build.fingerprint,
-    upstream: {
-      archive: runtimeArchiveName(target),
-      sha256: upstreamSha256,
-      signature: "verified" as const,
-      platformSignature: expectedPlatformSignature,
-    },
+    targetTriple: SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES[target],
     executable,
-    entrypoint: "service/apps/synthesis-service/src/entrypoint.js",
+    buildFingerprint: build.fingerprint,
+    capabilities: [...SYNTHESIS_SIDECAR_CAPABILITIES],
+    createdAt,
+    expiresAt: expiresAtArgument?.trim() || null,
+    provenance: {
+      sourceFingerprint: native.fingerprint,
+      toolchain,
+      cargoLockSha256,
+      licenseInventory: "licenses.json",
+    },
+    platformSignature: platformSignature(
+      target,
+      requiredArgument("platform-signature"),
+      argument("platform-signer")?.trim() || undefined,
+    ),
     files,
   };
   const manifest = rebuildSynthesisSidecarRuntimeBundleManifest({

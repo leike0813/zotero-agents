@@ -508,7 +508,12 @@ export function createSynthesisSidecarRuntimeSupervisor(
       discovery.profileId !== currentSession.profileId ||
       discovery.supervisorInstanceId !== currentSession.supervisorInstanceId ||
       discovery.bundleId !== install.bundleId ||
-      discovery.nodeVersion !== install.nodeVersion ||
+      discovery.implementation !== install.implementation ||
+      discovery.target !== install.target ||
+      discovery.targetTriple !== install.targetTriple ||
+      discovery.buildFingerprint !== install.buildFingerprint ||
+      JSON.stringify(discovery.platformSignature) !==
+        JSON.stringify(install.platformSignature) ||
       discovery.serviceVersion !== install.serviceVersion ||
       discovery.protocolVersion !== install.protocolVersion ||
       discovery.protocolVersion !== SYNTHESIS_SIDECAR_PROTOCOL ||
@@ -570,11 +575,13 @@ export function createSynthesisSidecarRuntimeSupervisor(
       if (
         install.state !== "ready" ||
         !install.bundleId ||
-        !install.nodeVersion ||
+        install.implementation !== "rust-native" ||
+        !install.targetTriple ||
         !install.serviceVersion ||
         !install.protocolVersion ||
-        !install.nodePath ||
-        !install.entrypointPath
+        !install.buildFingerprint ||
+        !install.platformSignature ||
+        !install.executablePath
       ) {
         throw new Error(
           `sidecar_runtime_${install.state}:${
@@ -603,7 +610,11 @@ export function createSynthesisSidecarRuntimeSupervisor(
         runtimeRootId,
         dataRootId,
         bundleId: install.bundleId,
-        nodeVersion: install.nodeVersion,
+        implementation: install.implementation,
+        target: install.target,
+        targetTriple: install.targetTriple,
+        buildFingerprint: install.buildFingerprint,
+        platformSignature: install.platformSignature,
         serviceVersion: install.serviceVersion,
         protocolVersion: install.protocolVersion,
         schemaVersion: SYNTHESIS_SCHEMA_VERSION,
@@ -622,8 +633,8 @@ export function createSynthesisSidecarRuntimeSupervisor(
         throw new Error("sidecar_subprocess_unavailable");
       }
       const proc = await subprocess.call({
-        command: install.nodePath,
-        arguments: [install.entrypointPath, "--config", paths.configPath],
+        command: install.executablePath,
+        arguments: ["serve", "--config", paths.configPath],
         environment: sealedEnvironment(),
         environmentAppend: false,
         workdir: paths.sessionRoot,

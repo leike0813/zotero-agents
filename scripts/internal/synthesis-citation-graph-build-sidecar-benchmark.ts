@@ -185,7 +185,7 @@ function responseViolations(args: { bytes: number; jsonNodes: number }) {
 
 function runtimeConfig(): SynthesisSidecarRuntimeConfig {
   return {
-    schema: "synthesis-sidecar-launch-config.v1",
+    schema: "synthesis-sidecar-launch-config.v2",
     profileId: "1".repeat(64),
     profileRuntimeRoot: path.join(
       os.tmpdir(),
@@ -194,7 +194,15 @@ function runtimeConfig(): SynthesisSidecarRuntimeConfig {
     runtimeRootId: "2".repeat(64),
     dataRootId: "3".repeat(64),
     bundleId: "4".repeat(64),
-    nodeVersion: process.versions.node,
+    implementation: "rust-native",
+    target: "linux-x64",
+    targetTriple: "x86_64-unknown-linux-gnu",
+    buildFingerprint: "5".repeat(64),
+    platformSignature: {
+      scheme: "not-applicable",
+      status: "not-applicable",
+      signer: null,
+    },
     serviceVersion: "0.1.0-benchmark",
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
     schemaVersion: "synthesis-schema.benchmark.v1",

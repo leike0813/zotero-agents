@@ -9,7 +9,6 @@ import {
 } from "../packages/synthesis-contracts/src/canonicalJson.js";
 import { SynthesisClientError } from "../packages/synthesis-contracts/src/common.js";
 import { rebuildSynthesisSidecarOwner } from "../packages/synthesis-contracts/src/sidecarLifecycle.js";
-import { rebuildSynthesisSidecarRuntimePointer } from "../packages/synthesis-contracts/src/sidecarRuntimeBundle.js";
 import { rebuildSynthesisSidecarCallRequest } from "../packages/synthesis-contracts/src/sidecarSystem.js";
 import { rebuildSynthesisSidecarTransferSnapshot } from "../packages/synthesis-contracts/src/sidecarTransfer.js";
 import {
@@ -124,6 +123,34 @@ function sameStrings(left: readonly string[], right: readonly string[]) {
   );
 }
 
+function rebuildFrozenV1RuntimePointer(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(
+      "Invalid Synthesis sidecar runtime bundle: pointer_not_object",
+    );
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).sort();
+  if (keys.length !== 2 || keys[0] !== "bundleId" || keys[1] !== "schema") {
+    throw new Error(
+      "Invalid Synthesis sidecar runtime bundle: pointer_unknown_field",
+    );
+  }
+  if (
+    record.schema !== "synthesis-sidecar-runtime-pointer.v1" ||
+    typeof record.bundleId !== "string" ||
+    !/^[a-f0-9]{64}$/.test(record.bundleId)
+  ) {
+    throw new Error(
+      "Invalid Synthesis sidecar runtime bundle: pointer_schema_invalid",
+    );
+  }
+  return {
+    schema: "synthesis-sidecar-runtime-pointer.v1",
+    bundleId: record.bundleId,
+  };
+}
+
 function stableErrorCode(error: unknown) {
   if (
     error instanceof SynthesisClientError ||
@@ -148,7 +175,7 @@ async function runOracle(oracle: string, inputJson: string) {
     case "sidecarOwner":
       return rebuildSynthesisSidecarOwner(input);
     case "runtimePointer":
-      return rebuildSynthesisSidecarRuntimePointer(input);
+      return rebuildFrozenV1RuntimePointer(input);
     case "transferSnapshot":
       return rebuildSynthesisSidecarTransferSnapshot(input);
     case "citationGraphMetricsRequest":

@@ -57,7 +57,14 @@ export function checkSynthesisRustLicenseInventory() {
   const candidateWorkflow = fs.readFileSync(
     path.resolve(
       import.meta.dirname,
-      "../.github/workflows/build-synthesis-rust-sidecar.yml",
+      "../.github/workflows/build-synthesis-sidecar-runtime.yml",
+    ),
+    "utf8",
+  );
+  const packageScript = fs.readFileSync(
+    path.resolve(
+      import.meta.dirname,
+      "../scripts/package-synthesis-sidecar-runtime.ts",
     ),
     "utf8",
   );
@@ -102,17 +109,23 @@ export function checkSynthesisRustLicenseInventory() {
     errors.push("rusqlite_feature_contract");
   }
   for (const provenanceField of [
-    'rusqliteVersion: "0.40.1"',
-    "defaultFeatures: false",
-    'features: ["backup", "bundled"]',
-    'sqliteVersion: "3.53.2"',
-    'sqliteLinkage: "bundled"',
+    'schema: "synthesis-rust-sidecar-provenance.v2"',
+    "sourceFingerprint: native.fingerprint",
+    "toolchain",
     "cargoLockSha256",
     'licenseInventory: "licenses.json"',
   ]) {
-    if (!candidateWorkflow.includes(provenanceField)) {
-      errors.push(`candidate_provenance_missing:${provenanceField}`);
+    if (!packageScript.includes(provenanceField)) {
+      errors.push(`package_provenance_missing:${provenanceField}`);
     }
+  }
+  if (
+    !candidateWorkflow.includes(
+      "npx tsx scripts/check-synthesis-rust-license-inventory.ts",
+    ) ||
+    !candidateWorkflow.includes("npm run package:synthesis-sidecar-runtime")
+  ) {
+    errors.push("candidate_license_gate_missing");
   }
 
   return {

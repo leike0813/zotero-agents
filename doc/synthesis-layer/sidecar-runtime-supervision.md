@@ -1,47 +1,47 @@
 # Sidecar Runtime Supervision
 
-This document records the supervision invariants proven by the current frozen Node oracle. The approved release target is native Rust manifest v2: the installer will return one verified `executablePath`, the supervisor will launch `<binary> serve --config <path>`, and bounded work will run in a replaceable Rust worker process. Owner/discovery/lease isolation, fail-closed identity checks, bounded restart, crash-loop fuse, orphan prevention, and shutdown ordering remain required. Node-specific executable/entrypoint and event-loop wording below describes current implementation evidence, not a Node production-cutover plan. See `artifact/synthesis_sidecar_rust_migration_plan_20260718.md`.
+## Launch and Identity
 
-Plugin startup now starts the verified product-owned Synthesis runtime
-non-blockingly. The launcher executes only the absolute Node executable and
-service entrypoint returned by the runtime installer. It does not inspect
-system Node, PATH, npm, a login shell, or the ACP process-control registry.
+Plugin startup installs one verified native v2 bundle and launches only its
+absolute executable:
 
-The service is still mutation-disabled. It does not open production
-`synthesis.db`, Topic canonical files, or Host capabilities. Before listen and
-discovery it opens only an identity-bound persistent shadow repository under
-the profile runtime root, establishes foundation plus private Topic, Reference Refresh,
-Reference Matching/Review, Citation Graph, Tag Vocabulary, Concept KB, and Topic Graph
-application schemas, and
-reconciles interrupted shadow operations. It then initializes isolated Topic
-application state and composes a private list/detail/apply application after
-repository and canonical recovery. After repository recovery it also composes a
-private Tag/Concept/Topic Graph knowledge checkpoint coordinator with one
-process-local receipt and no HTTP or worker route. It also opens an identity-bound Topic
-canonical shadow under the same profile root and recovers only its one global
-transaction journal; it does not scan Topics during startup. Identity, schema,
-or malformed-journal corruption aborts startup. Health and handshake return
-path-free O(1) repository and canonical-store snapshots; `mutationEnabled:
-false` continues to describe production authority. None of the private domain
-application methods is admitted by the HTTP router. Concept KB stops admission
-and drains index/query work before repository and worker closure; its isolated
-manifest and last-good index never become a production fallback. Topic Graph
-follows the same ordering for index work and preserves its own
-manifest-basis last-good index. Reference Refresh owns a single preparation/apply lease, discards preparation and drains
-apply before repository close, and never calls Host or graph effects. The
-private Citation Graph application uses the same single compute worker but owns
-an immediate-fail mutation lease and persists only graph-basis-guarded shadow
-projections.
-The default production `SynthesisClient` routes Citation Graph layout and
-metrics computation through the authenticated Node service. Layout uses the
-Node Worker; Metrics uses the bundled Rust child. The plugin still owns graph
-reads, basis checks, promotion, and the other six production engines. Unified
-Citation Graph build is also available as an authenticated internal canary, but
-production build composition remains in process.
+```text
+<executablePath> serve --config <absolute-config-path>
+```
+
+The command uses a sealed environment, an explicit working directory and no
+shell, `PATH` lookup, Node runtime or JavaScript entrypoint. The launch config
+uses `synthesis-sidecar-launch-config.v2` and binds one profile session to:
+
+- profile, runtime-root and data-root hashes;
+- bundle, Rust implementation, target/triple and build fingerprint;
+- platform-signature evidence, service/protocol and repository schema version;
+- supervisor instance, lease nonce, independent client/lifecycle tokens;
+- `mutationEnabled: false` and loopback ephemeral port selection.
+
+The Rust service strictly rebuilds that config before opening its isolated
+repository and canonical store. It then obtains the profile owner, binds
+`127.0.0.1:0`, atomically publishes
+`synthesis-sidecar-discovery.v2`, and exposes:
+
+```text
+GET  /synthesis/v1/health
+POST /synthesis/v1/call
+```
+
+Discovery, health and handshake carry the same implementation, bundle,
+target/triple, build fingerprint and platform signature. Readiness also checks
+profile, roots, schema, service/supervisor instance, exact capability order and
+mutation-disabled state. Any mismatch fails closed; there is no local or Node
+fallback.
+
+The client token authorizes handshake, read and compute calls. The independent
+lifecycle token authorizes shutdown only. Neither token appears in discovery,
+health, diagnostics or retained process tails.
 
 ## Profile Lifecycle
 
-Lifecycle state is scoped by a hash of the Zotero profile directory:
+Lifecycle state is scoped by the profile hash:
 
 ```text
 runtime/synthesis/service-runtime/profiles/<profileId>/
@@ -55,97 +55,93 @@ runtime/synthesis/service-runtime/profiles/<profileId>/
     synthesis.db
   shadow-canonical/<dataRootId>/
     identity.json
-    transaction.json       # only while a commit is in flight
-    staging/               # only while a commit is in flight
-    backup/                # only while a commit is in flight
+    transaction.json
+    staging/
+    backup/
     topics/<pathId>/current/**
 ```
 
-The current Node oracle obtains the runtime-instance owner before listening. A live
-owner prevents a second service for the same profile. This lock protects only
-sidecar process identity; it is not the production database or canonical-file
-owner lock used by a future cutover.
+The owner prevents a second service for the same profile. It protects only the
+isolated sidecar process and is not the production database/canonical owner
+lock. Discovery is removed only by its matching owner.
 
-The authenticated `topics.canonical.inspect` general capability reads the
-shadow owner directly in the main process and exposes no payload or write
-operation. Topic promotion is an internal port only; it is not advertised by
-discovery and is not connected to production Topic apply.
+The service never opens production `synthesis.db`, production Topic canonical
+files, Host capabilities, or Zotero APIs. Repository and canonical identities
+must match the config before discovery is published. Health and handshake use
+path-free O(1) snapshots.
 
-The config contains launch-scoped secrets and is deleted by the service after
-it obtains ownership. Discovery is written atomically after loopback listen and
-contains only non-secret identity and endpoint fields. Readiness additionally
-requires health and an authenticated protocol, bundle, schema, profile, root,
-instance, capability, and mutation-mode handshake.
+## Monitoring and Recovery
 
-## Low-Interference Monitoring
+Process exit, stdin EOF and authenticated shutdown are the primary lifecycle
+signals. The supervisor uses one recursive deadline scheduler:
 
-Process events are primary:
+- refresh the private lease every 30 seconds;
+- check loopback health every 60 seconds;
+- coalesce missed deadlines without replay;
+- publish a snapshot only when externally visible state changes.
 
-- `proc.wait()` reports service exit;
-- stdin EOF reports Zotero process death;
-- authenticated shutdown handles controlled plugin exit.
+The Rust service checks the matching lease every 15 seconds and treats a lease
+older than 120 seconds, wrong identity or unreadable lease as host loss. stdin
+EOF is the immediate orphan signal. Both stop admission and enter the same
+drain path.
 
-The plugin uses one recursive deadline scheduler instead of permanent
-intervals. In steady state it writes the private lease every 30 seconds and
-checks loopback health every 60 seconds. Missed deadlines coalesce and do not
-replay. Successful unchanged checks do not publish new supervisor snapshots or
-read Workbench, operation, task, run, history, database, or domain state.
+Transient launch, process-exit and health failures restart after 1, 5 and 15
+seconds. A fourth failure before five stable ready minutes fuses recovery.
+Unsupported/corrupt runtimes, owner conflicts, private-file failures and
+identity mismatches require manual recovery. stdout and stderr are continuously
+drained into bounded tails and never drive per-chunk supervisor state.
 
-The service checks the fallback lease in its own Node event loop. Lease expiry
-is 120 seconds, with a resume grace for long scheduling gaps. This fallback is
-for addon-realm failure; host process death normally arrives immediately as
-stdin EOF.
+## Read and Compute Surface
 
-## Bounded Graph Compute
+The public capability inventory remains fixed:
 
-Citation Graph layout, metrics, build, explicit packed transfer, Tag Vocabulary
-validation/index, Concept KB index/query, and Topic Graph index are the bounded
-worker operations. The shared pool is lazy and is the single admission,
-deadline, cancellation, replacement, and fuse owner. Metrics and the five
-private deterministic operations select the Rust JSON-lines child; layout,
-build, and transfer select the Node Worker. A normal backend switch terminates
-the idle prior backend, so only one compute process is resident. The pool runs
-one task, retains at most two waiting tasks across all operations, and rejects additional work
-with `worker_busy`; it is not an operation queue and writes no persistent state.
-The HTTP main thread, worker, and main-thread result boundary all use the strict
-operation-specific rebuilders from `packages/synthesis-engine`. Compute request and response
-envelopes are each capped at 8 MiB, with 250,000 request and 50,000 response JSON
-structural nodes; the shared endpoint continues to cap general and system
-requests at 1 MiB. Oversized uploads are rejected before queue admission, and
-oversized results are transport failures rather than worker runtime faults.
+- `system.handshake`
+- `system.shutdown`
+- `workbench.chrome.read`
+- `topics.canonical.inspect`
+- Citation Graph layout, metrics, build and packed build-transfer compute
 
-Each production layout/metrics call resolves the supervisor's current ready connection. A
-missing connection fails immediately with `service_not_ready`; restart identity,
-transport, or worker failures are not retried and never fall back to the local
-engine. Request and service-instance identity are checked before strict result
-rebuild and plugin-owned graph-basis promotion.
+Workbench and canonical inspect read only isolated owners. The typed
+Citation/Reference, Tag/Concept/Topic Graph and
+Checkpoint/Bundle/WebDAV/Debug applications remain internal library
+composition; they are not registered as new HTTP mutation capabilities and
+cannot trigger downstream applications automatically.
 
-Each layout, metrics, or monolithic graph-build task has a five-second hard
-deadline; packed transfer execution has a 30-second active deadline. Active cancellation gets 100 ms of
-cooperative grace before worker termination. The Node Worker is limited to 256 MiB
-old generation, 32 MiB young generation, and a 4 MiB stack. Rust compute
-profiles are DTO-bounded and measured below 256 MiB peak RSS; platform hard RSS
-enforcement belongs to the native supervisor boundary. Neither backend has database,
-canonical-file, Host, Zotero, or child-process authority. Crash, OOM, hang, or
-invalid output fails the active task and replaces the worker; three consecutive
-runtime faults degrade compute until service restart while health, handshake,
-and shutdown remain available. Health and handshake read an incrementally
-maintained O(1) pool snapshot.
+The compute owner admits one active task and at most two queued tasks. Requests
+and results use operation-specific strict DTO rebuilders and fixed byte/JSON
+node limits. Deadline, cancellation, crash, invalid output and worker pipe EOF
+fail the active task, replace the worker where safe, and never block health,
+handshake or shutdown. Repeated worker faults fuse compute while leaving the
+control plane available. O(1) snapshots are maintained incrementally.
 
-## Recovery and Shutdown
+The executable's internal `worker` mode has no database, canonical-file, Host,
+Zotero or child-process authority. A service shutdown closes the worker pipe
+and bounds process termination so an orphan worker cannot survive its owner.
 
-Transient launch, exit, or health failures restart after 1, 5, and 15 seconds.
-A fourth failure before five stable ready minutes fuses automatic recovery.
-Owner conflicts, unsupported or corrupt runtimes, private-file failures, and
-identity incompatibility require explicit recovery.
+## Drain and Reopen
 
-stdout and stderr are continuously drained with bounded retained tails and do
-not drive per-chunk state updates. Controlled shutdown first stops knowledge
-checkpoint admission, clears its receipt, and drains its active operation. It
-then stops compute, Topic/Citation Graph application and canonical-write
-admission, cancels queued and active tasks, awaits active graph compute, marks
-the repository and canonical shadow stopping, and closes SQLite,
-and terminates the worker within one 500 ms service budget before closing the
-server. The plugin then waits within its own shutdown
-budget and directly kills the service process if required; terminating that Node
-process also terminates its worker threads.
+All stop triggers share one ordered drain:
+
+1. mark lifecycle stopping and stop new application/compute admission;
+2. reject queued work and cancel active work;
+3. await bounded handlers while keeping authenticated shutdown responsive;
+4. terminate any unresponsive worker;
+5. close canonical and repository owners;
+6. close loopback, remove matching discovery and owner, then exit.
+
+Cleanup phases are failure-isolated: one close error is recorded without
+skipping the remaining owners. The plugin waits within its own shutdown budget,
+then closes stdin and directly kills a service that does not exit. Reopen uses
+the same identity-bound repository and canonical roots, recovers their journals
+and cancels only interrupted running operations.
+
+## Migration Boundary
+
+R8 establishes the native lifecycle and verified service identity. Production
+database/canonical ownership and production `SynthesisClient` routing remain
+plugin-side. Node is used only as a differential oracle in tests.
+
+R9 must separately authorize production-owner cutover. A passing local native
+smoke or candidate workflow does not register mutation HTTP capabilities,
+change the production handshake, publish assets, synchronize prebuilds or
+authorize release.

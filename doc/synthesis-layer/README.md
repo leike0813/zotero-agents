@@ -12,7 +12,7 @@ This directory is the canonical design anchor for the Synthesis Layer. It replac
 6. [Topics and Discovery](./topics-and-discovery.md) defines topic artifacts, source check, coverage, best-effort discovery, and user review/override behavior.
 7. [Concepts](./concepts.md) defines Concept KB proposal ingestion, overlay context, review actions, and failure semantics.
 8. [Runtime and Rebuild](./runtime-and-rebuild.md) defines explicit cache refresh/review operations, reset/import/export, and failure recovery.
-9. [Sidecar Runtime Packaging](./sidecar-runtime-packaging.md) records the frozen Node bundle baseline and defines the approved native Rust packaging, managed installation, size, and rollback boundaries.
+9. [Sidecar Runtime Packaging](./sidecar-runtime-packaging.md) defines native Rust manifest v2 packaging, managed installation, size, signature, expiry, and rollback boundaries.
 10. [Sidecar Runtime Supervision](./sidecar-runtime-supervision.md) defines profile lifecycle, low-interference monitoring, bounded layout compute, fault isolation, and shutdown.
 11. [Citation Graph Build Large Transfer](./citation-graph-large-transfer.md) defines authenticated bounded staging, one Rust child with acknowledged canonical pages, and atomic paged output while production routing remains deferred.
 12. [Durable Bundle Sync](./webdav-durable-sync.md) defines WebDAV as the sole durable-state exchange transport and SQLite as the local materialized store.

@@ -317,7 +317,9 @@ HTTP runtime、SQLite binding、压缩/归档、签名或跨平台辅助 crate �
 
 **目标**：让插件只认识 native executable，而不认识 Node runtime 结构。
 
-**当前门禁**：R7 的全部 typed application parity slices 已完成。下一步可新建 `introduce-synthesis-native-runtime-manifest-v2`；本 change 不修改 runtime manifest、生产 launch/discovery 或 HTTP capability。
+**状态（2026-07-27）**：change `introduce-synthesis-native-runtime-manifest-v2` 已建立并完成本地实现。manifest/pointer、installer snapshot、launch/discovery/health/handshake 已切换为 v2 native identity；supervisor 只启动已验证的 `<binary> serve --config <path>`；Rust service 已接管 owner/discovery、lease/stdin/shutdown 与真实 HTTP smoke。候选 workflow 已合并为一个五平台只读矩阵，并修复 Rust Action/toolchain 调用。Node 只保留为差分 oracle，不能进入安装、rollback 或生产 fallback。生产 DB、canonical owner、Host、HTTP mutation capability 和 `SynthesisClient` 所有权仍未切换。
+
+**剩余远端证据**：五平台 candidate workflow 尚未由本 change 调度；正式签名资产、同步、XPI 与实机证据属于后续受控执行。完成本地 R8 不授权 R9。
 
 **任务**：
 
@@ -424,9 +426,9 @@ CI 必须同时报告未压缩、stripped 与最终归档大小，并显示相�
 - release 只接受 CI 生成且 fingerprint 匹配的 prebuild；
 - XPI assembly 不从开发机或缓存目录捡取未登记 binary。
 
-## 10. runtime manifest v2 草案边界
+## 10. runtime manifest v2 边界
 
-manifest v2 至少表达：
+manifest v2 表达：
 
 - `implementation: "rust-native"`；
 - manifest、protocol 与 service 版本；
@@ -438,7 +440,7 @@ manifest v2 至少表达：
 - created/expiry policy；
 - signature metadata。
 
-不得再包含 Node upstream archive、`nodeVersion`、Node executable 或 JavaScript entrypoint。字段的最终 schema、升级与 active/previous 规则由 R8 change 决定。
+它不得包含 Node upstream archive、`nodeVersion`、Node executable 或 JavaScript entrypoint。`createdAt` 必填，`expiresAt` 可为 null；过期阻止同步、安装和新激活，不主动终止已运行进程。active/previous 仅接受兼容 v2 Rust bundle，旧 v1 pointer 在升级时不可执行且不可作为 rollback。
 
 ## 11. 回滚与恢复
 

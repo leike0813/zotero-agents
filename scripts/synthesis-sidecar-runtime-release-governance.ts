@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
-  SYNTHESIS_SIDECAR_NODE_VERSION,
   SYNTHESIS_SIDECAR_RUNTIME_TARGETS,
+  isExpiredSynthesisSidecarRuntimeManifest,
+  isProductionSynthesisSidecarRuntimeSignature,
   rebuildSynthesisSidecarRuntimeBundleManifest,
   type SynthesisSidecarRuntimeBundleManifest,
   type SynthesisSidecarRuntimeTarget,
@@ -15,31 +16,22 @@ export const SYNTHESIS_SIDECAR_RUNTIME_ADDON_ROOT =
   "addon/bin/synthesis-sidecar";
 export const SYNTHESIS_SIDECAR_RUNTIME_BUILD_ROOT =
   ".scaffold/synthesis-sidecar-runtime";
-export const SYNTHESIS_SIDECAR_RUNTIME_NODE_VERSION =
-  SYNTHESIS_SIDECAR_NODE_VERSION;
 export const SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX =
   SYNTHESIS_SIDECAR_RUNTIME_TARGETS;
-export const SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES = [] as const;
 
 const FINGERPRINT_STATIC_INPUTS = [
   ".github/workflows/build-synthesis-sidecar-runtime.yml",
-  ".github/workflows/build-synthesis-rust-sidecar.yml",
-  "apps/synthesis-service/package.json",
-  "apps/synthesis-service/tsconfig.json",
-  "apps/synthesis-service/tsconfig.build.json",
   "package.json",
   "package-lock.json",
-  "packages/synthesis-engine/package.json",
-  "packages/synthesis-engine/tsconfig.json",
-  "packages/synthesis-repository/package.json",
-  "packages/synthesis-repository/tsconfig.json",
-  "packages/synthesis-application/package.json",
-  "packages/synthesis-application/tsconfig.json",
+  "native/synthesis-sidecar/rust-toolchain.toml",
+  "native/synthesis-sidecar/Cargo.lock",
+  "packages/synthesis-contracts/contract-set/synthesis-native-runtime-v2/corpus.json",
   "packages/synthesis-contracts/contract-set/synthesis-durable-foundation-v1/corpus.json",
   "packages/synthesis-contracts/src/sidecarRuntimeBundle.ts",
   "packages/synthesis-contracts/src/sidecarLifecycle.ts",
   "packages/synthesis-contracts/src/sidecarSystem.ts",
   "scripts/check-synthesis-durable-foundation-parity.ts",
+  "scripts/check-synthesis-native-runtime-contract-parity.ts",
   "scripts/check-synthesis-rust-license-inventory.ts",
   "scripts/check-synthesis-sidecar-runtime-freshness.ts",
   "scripts/package-synthesis-sidecar-runtime.ts",
@@ -50,10 +42,12 @@ const FINGERPRINT_STATIC_INPUTS = [
 
 const SYNTHESIS_RUST_SIDECAR_ROOT = "native/synthesis-sidecar";
 const SYNTHESIS_RUST_FINGERPRINT_STATIC_INPUTS = [
-  ".github/workflows/build-synthesis-rust-sidecar.yml",
+  ".github/workflows/build-synthesis-sidecar-runtime.yml",
   "packages/synthesis-contracts/contract-set/synthesis-durable-foundation-v1/corpus.json",
+  "packages/synthesis-contracts/contract-set/synthesis-native-runtime-v2/corpus.json",
   "scripts/check-synthesis-cross-language-contracts.ts",
   "scripts/check-synthesis-durable-foundation-parity.ts",
+  "scripts/check-synthesis-native-runtime-contract-parity.ts",
   "scripts/check-synthesis-rust-license-inventory.ts",
   "scripts/smoke-synthesis-rust-durable-candidate.ts",
   "scripts/smoke-synthesis-rust-sidecar-worker.ts",
@@ -80,23 +74,10 @@ async function collectFiles(root: string, relativeDir: string) {
 export async function synthesisSidecarRuntimeFingerprintInputs(
   root = process.cwd(),
 ) {
-  const computeRuntimeInputs = (
-    await Promise.all(
-      SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES.map(async (packageName) => [
-        `node_modules/${packageName}/package.json`,
-        `node_modules/${packageName}/LICENSE`,
-        ...(await collectFiles(root, `node_modules/${packageName}/src`)),
-      ]),
-    )
-  ).flat();
   const dynamicInputs = [
     ...(await collectFiles(root, SYNTHESIS_RUST_SIDECAR_ROOT)).filter(
       (file) => !file.includes("/target/"),
     ),
-    ...(await collectFiles(root, "apps/synthesis-service/src")),
-    ...(await collectFiles(root, "packages/synthesis-engine/src")),
-    ...(await collectFiles(root, "packages/synthesis-repository/src")),
-    ...(await collectFiles(root, "packages/synthesis-application/src")),
     ...(await collectFiles(root, "packages/synthesis-contracts/src")).filter(
       (file) =>
         file.endsWith("/sidecarLifecycle.ts") ||
@@ -122,7 +103,6 @@ export async function synthesisSidecarRuntimeFingerprintInputs(
         file.endsWith("/sidecarTransfer.ts") ||
         file.endsWith("/sidecarRuntimeBundle.ts"),
     ),
-    ...computeRuntimeInputs,
   ];
   return Array.from(
     new Set([...FINGERPRINT_STATIC_INPUTS, ...dynamicInputs]),
@@ -163,9 +143,7 @@ export async function computeSynthesisSidecarRuntimeBuildFingerprint(
 ) {
   const inputs = await synthesisSidecarRuntimeFingerprintInputs(root);
   const hash = createHash("sha256");
-  hash.update(
-    `synthesis-sidecar-runtime\nnode=${SYNTHESIS_SIDECAR_RUNTIME_NODE_VERSION}\n`,
-  );
+  hash.update("synthesis-sidecar-runtime-v2\nimplementation=rust-native\n");
   for (const relativePath of inputs) {
     hash.update(`${relativePath}\0`);
     hash.update(await fs.readFile(path.join(root, relativePath)));
@@ -195,6 +173,8 @@ export async function verifySynthesisSidecarRuntimeBundleDirectory(args: {
   root: string;
   target: SynthesisSidecarRuntimeTarget;
   expectedBuildFingerprint?: string;
+  policy?: "candidate" | "production";
+  nowMs?: number;
 }) {
   const manifestPath = path.join(args.root, "manifest.json");
   const manifest = await readSynthesisSidecarRuntimeManifest(manifestPath);
@@ -214,6 +194,17 @@ export async function verifySynthesisSidecarRuntimeBundleDirectory(args: {
       code: "build_fingerprint_mismatch",
       expected: args.expectedBuildFingerprint,
       actual: manifest.buildFingerprint,
+    });
+  }
+  if (
+    isExpiredSynthesisSidecarRuntimeManifest(manifest, args.nowMs) ||
+    ((args.policy ?? "production") === "production" &&
+      !isProductionSynthesisSidecarRuntimeSignature(manifest.platformSignature))
+  ) {
+    diagnostics.push({
+      code: isExpiredSynthesisSidecarRuntimeManifest(manifest, args.nowMs)
+        ? "bundle_expired"
+        : "platform_signature_unverified",
     });
   }
   for (const entry of manifest.files) {
@@ -247,14 +238,9 @@ export async function verifySynthesisSidecarRuntimeBundleDirectory(args: {
 }
 
 export function runtimeArchiveName(target: SynthesisSidecarRuntimeTarget) {
-  if (target === "win32-x64") {
-    return `node-v${SYNTHESIS_SIDECAR_RUNTIME_NODE_VERSION}-win-x64.zip`;
-  }
-  return `node-v${SYNTHESIS_SIDECAR_RUNTIME_NODE_VERSION}-${target}.tar.${
-    target.startsWith("linux") ? "xz" : "gz"
-  }`;
+  return `synthesis-sidecar-runtime-${target}.tar.gz`;
 }
 
 export function runtimeArchiveDirectory(target: SynthesisSidecarRuntimeTarget) {
-  return runtimeArchiveName(target).replace(/\.(?:zip|tar\.(?:xz|gz))$/, "");
+  return target;
 }

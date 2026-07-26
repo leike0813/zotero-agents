@@ -3,12 +3,22 @@ import {
   toSynthesisJsonObject,
   type SynthesisJsonObject,
 } from "./common.js";
-import type { SynthesisSidecarTransferSnapshot } from "./sidecarTransfer.js";
+import {
+  rebuildSynthesisSidecarTransferSnapshot,
+  type SynthesisSidecarTransferSnapshot,
+} from "./sidecarTransfer.js";
 import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION } from "./schemaVersion.js";
 import {
   rebuildSynthesisTopicCanonicalStoreSnapshot,
   type SynthesisTopicCanonicalStoreSnapshot,
 } from "./sidecarCanonicalStore.js";
+import {
+  SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES,
+  rebuildSynthesisSidecarRuntimePlatformSignature,
+  type SynthesisSidecarRuntimePlatformSignature,
+  type SynthesisSidecarRuntimeTarget,
+  type SynthesisSidecarRuntimeTargetTriple,
+} from "./sidecarRuntimeBundle.js";
 
 export { rebuildSynthesisTopicCanonicalStoreSnapshot };
 export type { SynthesisTopicCanonicalStoreSnapshot };
@@ -99,11 +109,16 @@ export type SynthesisSidecarCallRequest = {
 
 export type SynthesisSidecarHealth = {
   status: "ok";
+  implementation: "rust-native";
   protocol: typeof SYNTHESIS_SIDECAR_PROTOCOL;
   serviceVersion: string;
   serviceInstanceId: string;
   supervisorInstanceId: string;
   bundleId: string;
+  target: SynthesisSidecarRuntimeTarget;
+  targetTriple: SynthesisSidecarRuntimeTargetTriple;
+  buildFingerprint: string;
+  platformSignature: SynthesisSidecarRuntimePlatformSignature;
   lifecycleState: SynthesisSidecarLifecycleState;
   repository: SynthesisSidecarRepositorySnapshot;
   canonicalStore: SynthesisTopicCanonicalStoreSnapshot;
@@ -114,16 +129,21 @@ export type SynthesisSidecarHealth = {
 export type SynthesisSidecarHandshakePayload = {
   schemaVersion: string;
   bundleId: string;
+  buildFingerprint: string;
   supervisorInstanceId: string;
 };
 
 export type SynthesisSidecarHandshakeResult = {
+  implementation: "rust-native";
   protocol: typeof SYNTHESIS_SIDECAR_PROTOCOL;
   serviceVersion: string;
   serviceInstanceId: string;
   supervisorInstanceId: string;
   bundleId: string;
-  nodeVersion: string;
+  target: SynthesisSidecarRuntimeTarget;
+  targetTriple: SynthesisSidecarRuntimeTargetTriple;
+  buildFingerprint: string;
+  platformSignature: SynthesisSidecarRuntimePlatformSignature;
   profileId: string;
   schemaVersion: string;
   runtimeRootId: string;
@@ -391,5 +411,239 @@ export function rebuildSynthesisSidecarRepositorySnapshot(
     state: json.state,
     schemaVersion: json.schemaVersion,
     repositoryId: json.repositoryId,
+  };
+}
+
+function requireExactFields(
+  value: Record<string, unknown>,
+  expected: readonly string[],
+  location: string,
+) {
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (
+    actual.length !== wanted.length ||
+    actual.some((field, index) => field !== wanted[index])
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      `${location} fields are invalid`,
+      { location },
+    );
+  }
+}
+
+function requireHash(value: unknown, location: string) {
+  const result = requireBoundedString(value, location, 64);
+  if (!/^[a-f0-9]{64}$/.test(result)) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      `${location} is invalid`,
+      {
+        location,
+      },
+    );
+  }
+  return result;
+}
+
+function requireCapabilities(value: unknown, location: string) {
+  if (
+    !Array.isArray(value) ||
+    value.length !== SYNTHESIS_SIDECAR_CAPABILITIES.length ||
+    !SYNTHESIS_SIDECAR_CAPABILITIES.every(
+      (capability, index) => value[index] === capability,
+    )
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      `${location} is invalid`,
+      {
+        location,
+      },
+    );
+  }
+  return [...SYNTHESIS_SIDECAR_CAPABILITIES];
+}
+
+function rebuildNativeRuntimeIdentity(
+  value: Record<string, unknown>,
+  location: string,
+) {
+  if (
+    value.implementation !== "rust-native" ||
+    value.protocol !== SYNTHESIS_SIDECAR_PROTOCOL
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      `${location} identity is invalid`,
+      { location },
+    );
+  }
+  const target = requireBoundedString(
+    value.target,
+    `${location}.target`,
+    32,
+  ) as SynthesisSidecarRuntimeTarget;
+  if (
+    !(target in SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES) ||
+    value.targetTriple !== SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES[target]
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      `${location}.target is invalid`,
+      { location: `${location}.target` },
+    );
+  }
+  return {
+    implementation: "rust-native" as const,
+    protocol: SYNTHESIS_SIDECAR_PROTOCOL,
+    serviceVersion: requireBoundedString(
+      value.serviceVersion,
+      `${location}.serviceVersion`,
+      128,
+    ),
+    serviceInstanceId: requireBoundedString(
+      value.serviceInstanceId,
+      `${location}.serviceInstanceId`,
+      128,
+    ),
+    supervisorInstanceId: requireBoundedString(
+      value.supervisorInstanceId,
+      `${location}.supervisorInstanceId`,
+      128,
+    ),
+    bundleId: requireHash(value.bundleId, `${location}.bundleId`),
+    target,
+    targetTriple: SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES[target],
+    buildFingerprint: requireHash(
+      value.buildFingerprint,
+      `${location}.buildFingerprint`,
+    ),
+    platformSignature: rebuildSynthesisSidecarRuntimePlatformSignature(
+      value.platformSignature,
+      target,
+    ),
+  };
+}
+
+export function rebuildSynthesisSidecarHealth(
+  value: unknown,
+): SynthesisSidecarHealth {
+  const json = toSynthesisJsonObject(value, "sidecarHealth");
+  requireExactFields(
+    json,
+    [
+      "status",
+      "implementation",
+      "protocol",
+      "serviceVersion",
+      "serviceInstanceId",
+      "supervisorInstanceId",
+      "bundleId",
+      "target",
+      "targetTriple",
+      "buildFingerprint",
+      "platformSignature",
+      "lifecycleState",
+      "repository",
+      "canonicalStore",
+      "computePool",
+      "citationGraphTransfer",
+    ],
+    "sidecarHealth",
+  );
+  if (
+    json.status !== "ok" ||
+    (json.lifecycleState !== "starting" &&
+      json.lifecycleState !== "ready" &&
+      json.lifecycleState !== "stopping")
+  ) {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "sidecarHealth state is invalid",
+      { location: "sidecarHealth" },
+    );
+  }
+  return {
+    status: "ok",
+    ...rebuildNativeRuntimeIdentity(json, "sidecarHealth"),
+    lifecycleState: json.lifecycleState,
+    repository: rebuildSynthesisSidecarRepositorySnapshot(json.repository),
+    canonicalStore: rebuildSynthesisTopicCanonicalStoreSnapshot(
+      json.canonicalStore,
+    ),
+    computePool: rebuildSynthesisSidecarComputePoolSnapshot(json.computePool),
+    citationGraphTransfer: rebuildSynthesisSidecarTransferSnapshot(
+      json.citationGraphTransfer,
+    ),
+  };
+}
+
+export function rebuildSynthesisSidecarHandshakeResult(
+  value: unknown,
+): SynthesisSidecarHandshakeResult {
+  const json = toSynthesisJsonObject(value, "sidecarHandshake");
+  requireExactFields(
+    json,
+    [
+      "implementation",
+      "protocol",
+      "serviceVersion",
+      "serviceInstanceId",
+      "supervisorInstanceId",
+      "bundleId",
+      "target",
+      "targetTriple",
+      "buildFingerprint",
+      "platformSignature",
+      "profileId",
+      "schemaVersion",
+      "runtimeRootId",
+      "dataRootId",
+      "capabilities",
+      "mutationEnabled",
+      "lifecycleState",
+      "repository",
+      "canonicalStore",
+      "computePool",
+      "citationGraphTransfer",
+    ],
+    "sidecarHandshake",
+  );
+  if (json.mutationEnabled !== false || json.lifecycleState !== "ready") {
+    throw new SynthesisClientError(
+      "invalid_request",
+      "sidecarHandshake state is invalid",
+      { location: "sidecarHandshake" },
+    );
+  }
+  return {
+    ...rebuildNativeRuntimeIdentity(json, "sidecarHandshake"),
+    profileId: requireHash(json.profileId, "sidecarHandshake.profileId"),
+    schemaVersion: requireBoundedString(
+      json.schemaVersion,
+      "sidecarHandshake.schemaVersion",
+      128,
+    ),
+    runtimeRootId: requireHash(
+      json.runtimeRootId,
+      "sidecarHandshake.runtimeRootId",
+    ),
+    dataRootId: requireHash(json.dataRootId, "sidecarHandshake.dataRootId"),
+    capabilities: requireCapabilities(
+      json.capabilities,
+      "sidecarHandshake.capabilities",
+    ),
+    mutationEnabled: false,
+    lifecycleState: "ready",
+    repository: rebuildSynthesisSidecarRepositorySnapshot(json.repository),
+    canonicalStore: rebuildSynthesisTopicCanonicalStoreSnapshot(
+      json.canonicalStore,
+    ),
+    computePool: rebuildSynthesisSidecarComputePoolSnapshot(json.computePool),
+    citationGraphTransfer: rebuildSynthesisSidecarTransferSnapshot(
+      json.citationGraphTransfer,
+    ),
   };
 }

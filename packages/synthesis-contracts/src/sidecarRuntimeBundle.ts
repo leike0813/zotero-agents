@@ -1,10 +1,14 @@
 import { hasUnpairedSynthesisSurrogate } from "./canonicalJson.js";
+import {
+  SYNTHESIS_SIDECAR_CAPABILITIES,
+  type SynthesisSidecarCapability,
+} from "./sidecarSystem.js";
 
 export const SYNTHESIS_SIDECAR_RUNTIME_BUNDLE_SCHEMA =
-  "synthesis-sidecar-runtime-bundle.v1" as const;
+  "synthesis-sidecar-runtime-bundle.v2" as const;
 export const SYNTHESIS_SIDECAR_RUNTIME_POINTER_SCHEMA =
-  "synthesis-sidecar-runtime-pointer.v1" as const;
-export const SYNTHESIS_SIDECAR_NODE_VERSION = "24.18.0" as const;
+  "synthesis-sidecar-runtime-pointer.v2" as const;
+export const SYNTHESIS_SIDECAR_RUNTIME_IMPLEMENTATION = "rust-native" as const;
 export const SYNTHESIS_SIDECAR_RUNTIME_TARGETS = [
   "win32-x64",
   "darwin-x64",
@@ -16,6 +20,17 @@ export const SYNTHESIS_SIDECAR_RUNTIME_TARGETS = [
 export type SynthesisSidecarRuntimeTarget =
   (typeof SYNTHESIS_SIDECAR_RUNTIME_TARGETS)[number];
 
+export const SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES = {
+  "win32-x64": "x86_64-pc-windows-msvc",
+  "darwin-x64": "x86_64-apple-darwin",
+  "darwin-arm64": "aarch64-apple-darwin",
+  "linux-x64": "x86_64-unknown-linux-gnu",
+  "linux-arm64": "aarch64-unknown-linux-gnu",
+} as const satisfies Record<SynthesisSidecarRuntimeTarget, string>;
+
+export type SynthesisSidecarRuntimeTargetTriple =
+  (typeof SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES)[SynthesisSidecarRuntimeTarget];
+
 export type SynthesisSidecarRuntimeBundleFile = Readonly<{
   path: string;
   bytes: number;
@@ -23,22 +38,34 @@ export type SynthesisSidecarRuntimeBundleFile = Readonly<{
   executable: boolean;
 }>;
 
+export type SynthesisSidecarRuntimePlatformSignature = Readonly<{
+  scheme: "authenticode" | "apple-code-signing" | "not-applicable";
+  status: "verified" | "unsigned-candidate" | "not-applicable";
+  signer: string | null;
+}>;
+
+export type SynthesisSidecarRuntimeProvenance = Readonly<{
+  sourceFingerprint: string;
+  toolchain: string;
+  cargoLockSha256: string;
+  licenseInventory: string;
+}>;
+
 export type SynthesisSidecarRuntimeBundleManifest = Readonly<{
   schema: typeof SYNTHESIS_SIDECAR_RUNTIME_BUNDLE_SCHEMA;
   bundleId: string;
-  nodeVersion: typeof SYNTHESIS_SIDECAR_NODE_VERSION;
+  implementation: typeof SYNTHESIS_SIDECAR_RUNTIME_IMPLEMENTATION;
   serviceVersion: string;
   protocolVersion: "synthesis-sidecar.v1";
   target: SynthesisSidecarRuntimeTarget;
-  buildFingerprint: string;
-  upstream: Readonly<{
-    archive: string;
-    sha256: string;
-    signature: "verified";
-    platformSignature: "verified" | "not-applicable";
-  }>;
+  targetTriple: SynthesisSidecarRuntimeTargetTriple;
   executable: string;
-  entrypoint: string;
+  buildFingerprint: string;
+  capabilities: readonly SynthesisSidecarCapability[];
+  createdAt: string;
+  expiresAt: string | null;
+  provenance: SynthesisSidecarRuntimeProvenance;
+  platformSignature: SynthesisSidecarRuntimePlatformSignature;
   files: readonly SynthesisSidecarRuntimeBundleFile[];
 }>;
 
@@ -50,6 +77,8 @@ export type SynthesisSidecarRuntimePointer = Readonly<{
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$/;
 const FILE_SEGMENT_PATTERN = /^[A-Za-z0-9._+-]+$/;
+const RFC3339_UTC_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 
 function fail(code: string): never {
   throw new Error(`Invalid Synthesis sidecar runtime bundle: ${code}`);
@@ -96,6 +125,14 @@ function strictString(value: unknown, code: string, pattern: RegExp): string {
 
 function strictSha256(value: unknown, code: string) {
   return strictString(value, code, SHA256_PATTERN);
+}
+
+function rebuildTimestamp(value: unknown, code: string) {
+  const timestamp = strictString(value, code, RFC3339_UTC_PATTERN);
+  if (!Number.isFinite(Date.parse(timestamp))) {
+    fail(code);
+  }
+  return timestamp;
 }
 
 function rebuildRelativeFilePath(value: unknown, code: string) {
@@ -163,6 +200,83 @@ function rebuildFile(value: unknown): SynthesisSidecarRuntimeBundleFile {
   });
 }
 
+function rebuildCapabilities(value: unknown) {
+  if (
+    !Array.isArray(value) ||
+    value.length !== SYNTHESIS_SIDECAR_CAPABILITIES.length ||
+    value.some(
+      (capability, index) =>
+        capability !== SYNTHESIS_SIDECAR_CAPABILITIES[index],
+    )
+  ) {
+    fail("capabilities_invalid");
+  }
+  return Object.freeze([
+    ...SYNTHESIS_SIDECAR_CAPABILITIES,
+  ]) as readonly SynthesisSidecarCapability[];
+}
+
+export function rebuildSynthesisSidecarRuntimePlatformSignature(
+  value: unknown,
+  target: SynthesisSidecarRuntimeTarget,
+): SynthesisSidecarRuntimePlatformSignature {
+  const record = strictRecord(
+    value,
+    ["scheme", "status", "signer"],
+    "platform_signature",
+  );
+  if (target.startsWith("linux")) {
+    if (
+      record.scheme !== "not-applicable" ||
+      record.status !== "not-applicable" ||
+      record.signer !== null
+    ) {
+      fail("platform_signature_invalid");
+    }
+    return Object.freeze({
+      scheme: "not-applicable",
+      status: "not-applicable",
+      signer: null,
+    });
+  }
+  const scheme = target === "win32-x64" ? "authenticode" : "apple-code-signing";
+  if (
+    record.scheme !== scheme ||
+    (record.status !== "verified" && record.status !== "unsigned-candidate")
+  ) {
+    fail("platform_signature_invalid");
+  }
+  if (
+    (record.status === "verified" &&
+      (typeof record.signer !== "string" ||
+        !record.signer ||
+        record.signer.length > 256)) ||
+    (record.status === "unsigned-candidate" && record.signer !== null)
+  ) {
+    fail("platform_signature_signer_invalid");
+  }
+  return Object.freeze({
+    scheme,
+    status: record.status,
+    signer: record.signer as string | null,
+  });
+}
+
+export function isProductionSynthesisSidecarRuntimeSignature(
+  signature: SynthesisSidecarRuntimePlatformSignature,
+) {
+  return (
+    signature.status === "verified" || signature.status === "not-applicable"
+  );
+}
+
+export function isExpiredSynthesisSidecarRuntimeManifest(
+  manifest: SynthesisSidecarRuntimeBundleManifest,
+  nowMs = Date.now(),
+) {
+  return manifest.expiresAt !== null && Date.parse(manifest.expiresAt) <= nowMs;
+}
+
 export function rebuildSynthesisSidecarRuntimeBundleManifest(
   value: unknown,
 ): SynthesisSidecarRuntimeBundleManifest {
@@ -171,47 +285,68 @@ export function rebuildSynthesisSidecarRuntimeBundleManifest(
     [
       "schema",
       "bundleId",
-      "nodeVersion",
+      "implementation",
       "serviceVersion",
       "protocolVersion",
       "target",
-      "buildFingerprint",
-      "upstream",
+      "targetTriple",
       "executable",
-      "entrypoint",
+      "buildFingerprint",
+      "capabilities",
+      "createdAt",
+      "expiresAt",
+      "provenance",
+      "platformSignature",
       "files",
     ],
     "manifest",
   );
-  if (record.schema !== SYNTHESIS_SIDECAR_RUNTIME_BUNDLE_SCHEMA) {
-    fail("schema_invalid");
-  }
-  if (record.nodeVersion !== SYNTHESIS_SIDECAR_NODE_VERSION) {
-    fail("node_version_invalid");
+  if (
+    record.schema !== SYNTHESIS_SIDECAR_RUNTIME_BUNDLE_SCHEMA ||
+    record.implementation !== SYNTHESIS_SIDECAR_RUNTIME_IMPLEMENTATION
+  ) {
+    fail("schema_or_implementation_invalid");
   }
   if (record.protocolVersion !== "synthesis-sidecar.v1") {
     fail("protocol_version_invalid");
   }
   const target = rebuildTarget(record.target);
-  const upstream = strictRecord(
-    record.upstream,
-    ["archive", "sha256", "signature", "platformSignature"],
-    "upstream",
-  );
-  const archive = strictString(
-    upstream.archive,
-    "upstream_archive_invalid",
-    /^[A-Za-z0-9][A-Za-z0-9._+-]{0,255}$/,
-  );
-  if (upstream.signature !== "verified") {
-    fail("upstream_signature_invalid");
+  const targetTriple = SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES[target];
+  if (record.targetTriple !== targetTriple) {
+    fail("target_triple_invalid");
   }
-  const expectedPlatformSignature = target.startsWith("linux")
-    ? "not-applicable"
-    : "verified";
-  if (upstream.platformSignature !== expectedPlatformSignature) {
-    fail("upstream_platform_signature_invalid");
+  const createdAt = rebuildTimestamp(record.createdAt, "created_at_invalid");
+  const expiresAt =
+    record.expiresAt === null
+      ? null
+      : rebuildTimestamp(record.expiresAt, "expires_at_invalid");
+  if (expiresAt !== null && Date.parse(expiresAt) <= Date.parse(createdAt)) {
+    fail("expiry_order_invalid");
   }
+  const provenanceRecord = strictRecord(
+    record.provenance,
+    ["sourceFingerprint", "toolchain", "cargoLockSha256", "licenseInventory"],
+    "provenance",
+  );
+  const provenance = Object.freeze({
+    sourceFingerprint: strictSha256(
+      provenanceRecord.sourceFingerprint,
+      "source_fingerprint_invalid",
+    ),
+    toolchain: strictString(
+      provenanceRecord.toolchain,
+      "toolchain_invalid",
+      VERSION_PATTERN,
+    ),
+    cargoLockSha256: strictSha256(
+      provenanceRecord.cargoLockSha256,
+      "cargo_lock_sha256_invalid",
+    ),
+    licenseInventory: rebuildRelativeFilePath(
+      provenanceRecord.licenseInventory,
+      "license_inventory_invalid",
+    ),
+  });
   if (
     !Array.isArray(record.files) ||
     record.files.length < 3 ||
@@ -236,26 +371,26 @@ export function rebuildSynthesisSidecarRuntimeBundleManifest(
     record.executable,
     "executable_invalid",
   );
-  const entrypoint = rebuildRelativeFilePath(
-    record.entrypoint,
-    "entrypoint_invalid",
-  );
+  const expectedExecutable =
+    target === "win32-x64" ? "synthesis-sidecar.exe" : "synthesis-sidecar";
   const executableEntry = files.find((file) => file.path === executable);
-  const entrypointEntry = files.find((file) => file.path === entrypoint);
-  if (!executableEntry?.executable || !entrypointEntry) {
-    fail("runtime_entry_missing");
-  }
-  const expectedExecutable = target === "win32-x64" ? "node.exe" : "node";
-  if (executable !== expectedExecutable) {
+  if (
+    executable !== expectedExecutable ||
+    !executableEntry?.executable ||
+    files.some((file) => file.executable && file.path !== executable)
+  ) {
     fail("executable_target_mismatch");
   }
+  if (!files.some((file) => file.path === provenance.licenseInventory)) {
+    fail("license_inventory_missing");
+  }
   if (!files.some((file) => /^LICENSE(?:[-_.].*)?$/i.test(file.path))) {
-    fail("node_license_missing");
+    fail("product_license_missing");
   }
   return Object.freeze({
     schema: SYNTHESIS_SIDECAR_RUNTIME_BUNDLE_SCHEMA,
     bundleId: strictSha256(record.bundleId, "bundle_id_invalid"),
-    nodeVersion: SYNTHESIS_SIDECAR_NODE_VERSION,
+    implementation: SYNTHESIS_SIDECAR_RUNTIME_IMPLEMENTATION,
     serviceVersion: strictString(
       record.serviceVersion,
       "service_version_invalid",
@@ -263,18 +398,20 @@ export function rebuildSynthesisSidecarRuntimeBundleManifest(
     ),
     protocolVersion: "synthesis-sidecar.v1",
     target,
+    targetTriple,
+    executable,
     buildFingerprint: strictSha256(
       record.buildFingerprint,
       "build_fingerprint_invalid",
     ),
-    upstream: Object.freeze({
-      archive,
-      sha256: strictSha256(upstream.sha256, "upstream_sha256_invalid"),
-      signature: "verified",
-      platformSignature: expectedPlatformSignature,
-    }),
-    executable,
-    entrypoint,
+    capabilities: rebuildCapabilities(record.capabilities),
+    createdAt,
+    expiresAt,
+    provenance,
+    platformSignature: rebuildSynthesisSidecarRuntimePlatformSignature(
+      record.platformSignature,
+      target,
+    ),
     files: Object.freeze(files),
   });
 }

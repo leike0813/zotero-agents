@@ -1,4 +1,4 @@
-name: Build Synthesis Sidecar Runtime
+name: Build Synthesis Native Sidecar Runtime
 
 on:
   workflow_dispatch:
@@ -8,66 +8,82 @@ on:
     paths:
       - "package.json"
       - "package-lock.json"
-      - "apps/synthesis-service/**"
-      - "packages/synthesis-engine/**"
-      - "packages/synthesis-contracts/**"
-      - "packages/synthesis-repository/**"
+      - "apps/synthesis-service/src/**"
       - "packages/synthesis-application/**"
+      - "packages/synthesis-contracts/**"
+      - "packages/synthesis-engine/**"
+      - "packages/synthesis-repository/**"
       - "native/synthesis-sidecar/**"
-      - "scripts/check-synthesis-sidecar-runtime-freshness.ts"
+      - "scripts/check-synthesis-*.ts"
       - "scripts/package-synthesis-sidecar-runtime.ts"
+      - "scripts/smoke-synthesis-rust-*.ts"
       - "scripts/synthesis-sidecar-runtime-release-governance.ts"
       - ".github/workflows/build-synthesis-sidecar-runtime.yml"
 
 permissions:
-  contents: write
-
-env:
-  NODE_VERSION: 24.18.0
-  PREBUILD_TAG: synthesis-sidecar-runtime-prebuilds
+  contents: read
 
 jobs:
-  build:
+  candidate:
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: win32-x64
             os: windows-latest
-            archive: node-v24.18.0-win-x64.zip
-            platform_signature: verified
+            platform_signature: unsigned-candidate
           - target: darwin-x64
             os: macos-15-intel
-            archive: node-v24.18.0-darwin-x64.tar.gz
-            platform_signature: verified
+            platform_signature: unsigned-candidate
           - target: darwin-arm64
             os: macos-15
-            archive: node-v24.18.0-darwin-arm64.tar.gz
-            platform_signature: verified
+            platform_signature: unsigned-candidate
           - target: linux-x64
             os: ubuntu-latest
-            archive: node-v24.18.0-linux-x64.tar.xz
             platform_signature: not-applicable
           - target: linux-arm64
             os: ubuntu-24.04-arm
-            archive: node-v24.18.0-linux-arm64.tar.xz
             platform_signature: not-applicable
-
     runs-on: ${{ matrix.os }}
-
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: 24.18.0
           cache: npm
 
       - run: npm ci
 
-      - uses: dtolnay/rust-toolchain@nightly-2026-07-25
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c
+        with:
+          toolchain: nightly-2026-07-25
+          components: rustfmt, clippy
 
-      - name: Build Rust Metrics ancillary
+      - name: Verify Rust workspace and cross-language parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo +nightly-2026-07-25 fmt \
+            --manifest-path native/synthesis-sidecar/Cargo.toml \
+            --all --check
+          cargo +nightly-2026-07-25 clippy \
+            --workspace --all-targets --locked \
+            --manifest-path native/synthesis-sidecar/Cargo.toml \
+            -- -D warnings
+          cargo +nightly-2026-07-25 test \
+            --workspace --locked \
+            --manifest-path native/synthesis-sidecar/Cargo.toml
+          npx tsx scripts/check-synthesis-cross-language-contracts.ts
+          npx tsx scripts/check-synthesis-native-runtime-contract-parity.ts
+          npx tsx scripts/check-synthesis-durable-foundation-parity.ts
+          npx tsx scripts/check-synthesis-typed-application-parity.ts
+          npx tsx scripts/check-synthesis-citation-reference-application-parity.ts
+          npx tsx scripts/check-synthesis-tag-concept-topic-graph-application-parity.ts
+          npx tsx scripts/check-synthesis-checkpoint-bundle-webdav-debug-application-parity.ts
+          npx tsx scripts/check-synthesis-rust-license-inventory.ts
+
+      - name: Build and package native candidate
         shell: bash
         run: |
           set -euo pipefail
@@ -76,89 +92,31 @@ jobs:
             cargo +nightly-2026-07-25 build --release --locked \
               --manifest-path native/synthesis-sidecar/Cargo.toml \
               --bin synthesis-sidecar
-
-      - run: npm run build:synthesis-service
-
-      - name: Download and verify signed Node release
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p .scaffold/node-release
-          cd .scaffold/node-release
-          curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt.asc"
-          curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/${{ matrix.archive }}"
-          curl -fsSLo nodejs-keyring.kbx "https://github.com/nodejs/release-keys/raw/HEAD/gpg/pubring.kbx"
-          gpgv --keyring ./nodejs-keyring.kbx --output SHASUMS256.txt < SHASUMS256.txt.asc
-          node - "${{ matrix.archive }}" <<'NODE'
-          const fs = require("fs");
-          const crypto = require("crypto");
-          const archive = process.argv[2];
-          const sums = fs.readFileSync("SHASUMS256.txt", "utf8");
-          const expected = sums
-            .split(/\r?\n/)
-            .map((line) => line.trim().split(/\s+/))
-            .find((entry) => entry[1] === archive)?.[0];
-          if (!expected) throw new Error(`Missing signed checksum for ${archive}`);
-          const actual = crypto
-            .createHash("sha256")
-            .update(fs.readFileSync(archive))
-            .digest("hex");
-          if (actual !== expected) throw new Error(`Checksum mismatch for ${archive}`);
-          fs.writeFileSync("archive.sha256", `${actual}\n`);
-          NODE
-          mkdir extracted
-
-      - name: Extract tarball Node release
-        if: ${{ !startsWith(matrix.target, 'win32-') }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd .scaffold/node-release
-          tar -xf "${{ matrix.archive }}" -C extracted
-
-      - name: Extract Windows Node release
-        if: startsWith(matrix.target, 'win32-')
-        shell: pwsh
-        run: |
-          Expand-Archive `
-            -LiteralPath ".scaffold/node-release/${{ matrix.archive }}" `
-            -DestinationPath ".scaffold/node-release/extracted"
-
-      - name: Verify macOS runtime code signature
-        if: startsWith(matrix.target, 'darwin-')
-        shell: bash
-        run: |
-          set -euo pipefail
-          NODE_BINARY=".scaffold/node-release/extracted/node-v${NODE_VERSION}-${{ matrix.target }}/bin/node"
-          codesign --verify --deep --strict --verbose=2 "${NODE_BINARY}"
-
-      - name: Verify Windows runtime signature
-        if: startsWith(matrix.target, 'win32-')
-        shell: pwsh
-        run: |
-          $node = ".scaffold/node-release/extracted/node-v${env:NODE_VERSION}-win-x64/node.exe"
-          $signature = Get-AuthenticodeSignature -LiteralPath $node
-          if ($signature.Status -ne "Valid") {
-            throw "Node Authenticode signature is not valid: $($signature.Status)"
-          }
-
-      - name: Package verified runtime
-        shell: bash
-        run: |
-          set -euo pipefail
-          ARCHIVE_SHA="$(tr -d '\r\n' < .scaffold/node-release/archive.sha256)"
+          BINARY="native/synthesis-sidecar/target/release/synthesis-sidecar${{ startsWith(matrix.target, 'win32-') && '.exe' || '' }}"
+          CREATED_AT="$(node -e 'const {execFileSync}=require("child_process"); const seconds=Number(execFileSync("git",["show","-s","--format=%ct"],{encoding:"utf8"}).trim()); process.stdout.write(new Date(seconds*1000).toISOString())')"
           npm run package:synthesis-sidecar-runtime -- \
             --target="${{ matrix.target }}" \
-            --node-root=".scaffold/node-release/extracted/node-v${NODE_VERSION}-${{ matrix.target == 'win32-x64' && 'win-x64' || matrix.target }}" \
-            --rust-sidecar="native/synthesis-sidecar/target/release/synthesis-sidecar${{ startsWith(matrix.target, 'win32-') && '.exe' || '' }}" \
-            --upstream-sha256="${ARCHIVE_SHA}" \
-            --upstream-signature=verified \
+            --rust-sidecar="${BINARY}" \
+            --created-at="${CREATED_AT}" \
             --platform-signature="${{ matrix.platform_signature }}" \
-            --output="addon/bin/synthesis-sidecar/${{ matrix.target }}"
+            --output=".scaffold/synthesis-sidecar-runtime/${{ matrix.target }}"
+          npx tsx scripts/smoke-synthesis-rust-sidecar-worker.ts \
+            "${BINARY}" \
+            ".scaffold/synthesis-sidecar-runtime/${{ matrix.target }}/provenance.json"
+          npx tsx scripts/smoke-synthesis-rust-durable-candidate.ts \
+            "${BINARY}" \
+            "${{ matrix.target }}"
           tar -czf \
             ".scaffold/synthesis-sidecar-runtime-${{ matrix.target }}.tar.gz" \
-            -C addon/bin/synthesis-sidecar \
+            -C .scaffold/synthesis-sidecar-runtime \
             "${{ matrix.target }}"
+          node - ".scaffold/synthesis-sidecar-runtime-${{ matrix.target }}.tar.gz" <<'NODE'
+          const fs = require("fs");
+          const bytes = fs.statSync(process.argv[2]).size;
+          if (bytes > 15 * 1024 * 1024) {
+            throw new Error(`Compressed candidate exceeds 15 MiB: ${bytes}`);
+          }
+          NODE
 
       - uses: actions/upload-artifact@v4
         with:
@@ -166,30 +124,32 @@ jobs:
           path: .scaffold/synthesis-sidecar-runtime-${{ matrix.target }}.tar.gz
           if-no-files-found: error
 
-  publish:
-    needs: build
+  aggregate-budget:
+    needs: candidate
     runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ github.token }}
-
     steps:
-      - uses: actions/checkout@v4
-
       - uses: actions/download-artifact@v4
         with:
           pattern: synthesis-sidecar-runtime-*
-          path: .scaffold/prebuilds
+          path: .scaffold/candidates
           merge-multiple: true
 
-      - name: Publish fixed-tag prebuild assets
+      - name: Enforce five-target aggregate budget
         run: |
-          if gh release view "${PREBUILD_TAG}" >/dev/null 2>&1; then
-            gh release upload "${PREBUILD_TAG}" \
-              .scaffold/prebuilds/synthesis-sidecar-runtime-*.tar.gz \
-              --clobber
-          else
-            gh release create "${PREBUILD_TAG}" \
-              .scaffold/prebuilds/synthesis-sidecar-runtime-*.tar.gz \
-              --title "Synthesis Sidecar Runtime Prebuilds" \
-              --notes "Product-owned Node ${NODE_VERSION} and Synthesis service runtime bundles."
-          fi
+          node <<'NODE'
+          const fs = require("fs");
+          const path = require("path");
+          const files = fs.readdirSync(".scaffold/candidates")
+            .filter((name) => name.endsWith(".tar.gz"));
+          if (files.length !== 5) {
+            throw new Error(`Expected five candidates, found ${files.length}`);
+          }
+          const bytes = files.reduce(
+            (total, name) =>
+              total + fs.statSync(path.join(".scaffold/candidates", name)).size,
+            0,
+          );
+          if (bytes > 75 * 1024 * 1024) {
+            throw new Error(`Candidates exceed 75 MiB aggregate: ${bytes}`);
+          }
+          NODE

@@ -1,10 +1,19 @@
 # Runtime and Cache Refresh
 
-## Approved Runtime Migration Direction
+## Native Runtime and Migration Boundary
 
-The Node process described below is the current executable WS5 baseline, not the approved release target. The five platform Node prebuilds total about 203 MB and have not been synchronized into the formal XPI. A universal XPI containing all Node runtimes and post-install Node download are both rejected. Node is frozen as a differential migration oracle; no new Node-only capability, production owner cutover, or Node release acceptance should be added.
+The supervised runtime is a product-owned Rust executable selected through the
+strict native manifest v2 installer. It owns only identity-bound shadow
+repository/canonical state, exposes the existing authenticated read/compute
+surface, and runs bounded kernels through its internal worker mode. Node is a
+read-only differential oracle and is not a packaged runtime or production
+fallback.
 
-The runtime keeps the authenticated Node v1 HTTP front door and delegates fifteen private compute operations to one product-owned Rust worker, including Citation Graph layout v2, Metrics, build/transfer, Tag Vocabulary, Concept KB, Topic Graph, Reference Matcher, and Topic Structured Artifact kernels. R7 provides separately launched Rust repository and canonical-store shadow owners plus typed Workbench and Topic application owners. The two read canaries are unchanged; Topic mutation exists only as a library/harness surface. These owners use independent profile roots and are not referenced by production composition. The production DB and canonical owner remain plugin-side, the Rust routes have no TypeScript fallback, and native lifecycle/formal runtime manifest work remains blocked pending the remaining typed application parity slices.
+R7 typed application parity is complete. R8 establishes native bundle,
+installer, supervision and service identity while keeping the production
+database, canonical store, Host ports, registered mutation capabilities and
+`SynthesisClient` authority plugin-side. The two read canaries are unchanged.
+R9 remains the separate production single-writer cutover.
 
 The production Synthesis application and data authority remain inside the
 Zotero plugin, while two pure kernels now cross the supervised
@@ -18,9 +27,20 @@ than automatic library-wide synchronization.
 
 Workflow Topic option queries, startup runtime reconciliation, protected database reset, default-client invalidation, related-items notifier echo classification, Workflow Host synthesis operations, both production and read-only Workbench reads, Topic Report export, progress polling, Citation Graph, Reference, Concept, Topic, Topic Graph, Tag, WebDAV Sync commands, and all Host Bridge Synthesis capabilities enter through grouped `SynthesisClient` capabilities. Both Workbench paths keep chrome and surfaces separate and do not use the legacy full snapshot. Sync commands use `client.sync.webDav`; every command invalidates the cached client and legacy default service before acquiring fresh composition. Production composition injects the strict, secret-free `SynthesisHostWebDavSyncPort`; the WebDAV adapter alone reads current prefs/credentials, resolves remote URLs, and invokes the default HTTP client. Missing and readonly bindings are explicitly disabled and never fall back to prefs, fetch, or credentials. Ordinary Host Bridge and debug calls use the cached default client, whose legacy ports resolve the current default service per invocation. MCP derives its tool definitions and handlers from the Host Bridge catalog and passes local delivery mode; remote Host Bridge Topic Context and filtered artifact export carry remote delivery mode outside ordinary request JSON. Persisted operation progress remains the side-effect-free 500 ms `workbench.readProgress()` poll, and Sync commands preserve their chrome refresh fast path. Strict canonical DTOs and opaque JSON-safe results keep UI callbacks and domain internals outside client contracts. Production Workbench phased prewarm remains plugin-side orchestration over chrome and ordered surface reads. The Workflow Host exposes twelve use-case methods, snapshots live Zotero items, and materializes Topic assets before invoking the client. Reverse library and artifact reads use the bounded, JSON-safe `SynthesisHostReadPort`; artifact refresh compares payload-free descriptors before requesting a single hash-guarded payload. Topic digest representative images use the independent `SynthesisHostRepresentativeImageReadPort`, which resolves note-child image attachments into a bounded canonical DTO without exposing note HTML or local paths. Related Items mutations cross `SynthesisHostRelatedItemsEffectPort`. Staged Tag parent identities cross `SynthesisHostStagedTagBindingMigrationPort` only while legacy numeric rows exist, then persist as stable refs; bound-parent Tag writes cross `SynthesisHostTagEffectPort` as semantic ensure-present effects and receipts. Zotero item objects and raw Host errors remain in production adapters. Topic mirror runtime is retired: no service method, codec, recovery planner, UI state, or Zotero adapter reads or writes legacy anchor/shard items. The legacy composition root owns the grouped read adapters, representative-image adapter, Related Items effect adapter, staged Tag migration adapter, Tag effect adapter, WebDAV runtime adapter, default service instance, and invalidation. The readonly harness injects grouped library/artifact read capability plus explicitly disabled WebDAV runtime and omits representative-image file reads, binding migration, and Host writes. These boundaries remain in-process, so they do not change process, database, canonical file, or Zotero ownership. The legacy composition root is the only production direct consumer of the complete 113-method service.
 
-The Stage 1 seam/oracle history is documented in `artifact/synthesis_sidecar_service_stage1_refactor_plan_20260715.md`; the approved Rust continuation is documented in `artifact/synthesis_sidecar_rust_migration_plan_20260718.md` and the active Synthesis migration OpenSpec changes. The repository now contains an independently compiled Node service foundation under `apps/synthesis-service`: it provides loopback liveness, authenticated protocol/profile/schema handshake, separate lifecycle-token shutdown, bounded request parsing, redacted lifecycle diagnostics, and a service-main-process isolated repository foundation. Five platform bundles combine that service tree with product-owned Node `24.18.0`; strict manifests, signed upstream provenance, per-file hashes, staged installation, atomic active/previous pointers, repair, and rollback produce trusted absolute runtime paths for migration tests. They are not the formal XPI delivery target.
+The Stage 1 seam/oracle history is documented in
+`artifact/synthesis_sidecar_service_stage1_refactor_plan_20260715.md`; the Rust
+continuation is documented in
+`artifact/synthesis_sidecar_rust_migration_plan_20260718.md` and the active
+OpenSpec changes. `apps/synthesis-service` remains independently compilable for
+differential tests, but production supervision accepts only verified
+`rust-native` manifest identity and an absolute native executable.
 
-The frozen oracle milestone is **Stage 1 / WS5 — Private Isolated Synthesis Foundation Complete**. R7 mirrors its durable foundation under separately derived shadow roots. The durable corpus fixes the 51-table/40-index inventory, SQLite PRAGMAs, canonical bytes/hash, seven fault points, and two read canaries; the old thirteen-family list is inventory only. A separate typed corpus executes the Node and Rust Workbench/Topic owners and compares DTOs, stable codes, every table, canonical tree and receipts before and after reopen. Rust repository locking/restart behavior, canonical rollback/forward recovery, typed application ports, license inventory, local package size, and candidate shutdown are locally gated and wired into the five-platform workflow. Production `SynthesisClient`, Host credentials/HTTP, `state/synthesis.db`, canonical Topic files, Host paper details, discovery effects, and mutation authority remain plugin-owned. R7 application parity still requires the remaining domain clusters, so R8 does not yet own an actionable lifecycle cutover; R9 remains the only production single-writer cutover.
+The durable and application parity corpora fix the 51-table/40-index inventory,
+SQLite PRAGMAs, canonical bytes/hashes, fault points, public DTOs, stable codes,
+canonical tree, journal/receipt state and reopen behavior. The five-platform
+candidate workflow runs those gates plus the native manifest/lifecycle corpus,
+license inventory, Rust tests and service smoke. It is read-only and does not
+publish or synchronize assets.
 
 Plugin startup non-blockingly installs, launches, discovers, and supervises the
 mutation-disabled service. The default `SynthesisClient` still resolves the

@@ -1,4 +1,6 @@
 import {
+  isExpiredSynthesisSidecarRuntimeManifest,
+  isProductionSynthesisSidecarRuntimeSignature,
   rebuildSynthesisSidecarRuntimeBundleManifest,
   type SynthesisSidecarRuntimeBundleManifest,
   type SynthesisSidecarRuntimeTarget,
@@ -33,6 +35,9 @@ async function defaultReadPackagedAsset(relativePath: string) {
 export async function loadPackagedSynthesisSidecarRuntimeBundle(args: {
   target: SynthesisSidecarRuntimeTarget;
   readPackagedAsset?: SynthesisSidecarPackagedAssetReader;
+  verificationPolicy?: "candidate" | "production";
+  nowMs?: number;
+  allowExpired?: boolean;
 }): Promise<VerifiedSynthesisSidecarRuntimeBundle> {
   const readAsset = args.readPackagedAsset || defaultReadPackagedAsset;
   const root = synthesisSidecarRuntimeAssetRoot(args.target);
@@ -49,6 +54,18 @@ export async function loadPackagedSynthesisSidecarRuntimeBundle(args: {
   const manifest = rebuildSynthesisSidecarRuntimeBundleManifest(parsed);
   if (manifest.target !== args.target) {
     throw new Error("synthesis_sidecar_runtime_target_mismatch");
+  }
+  if (
+    !args.allowExpired &&
+    isExpiredSynthesisSidecarRuntimeManifest(manifest, args.nowMs)
+  ) {
+    throw new Error("synthesis_sidecar_runtime_expired");
+  }
+  if (
+    (args.verificationPolicy ?? "production") === "production" &&
+    !isProductionSynthesisSidecarRuntimeSignature(manifest.platformSignature)
+  ) {
+    throw new Error("synthesis_sidecar_runtime_signature_unverified");
   }
   const files = new Map<string, Uint8Array>();
   for (const entry of manifest.files) {

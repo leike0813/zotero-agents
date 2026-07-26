@@ -70,6 +70,7 @@ export type SynthesisSidecarRuntimePaths = {
   root: string;
   versionsDir: string;
   stagingDir: string;
+  quarantineDir: string;
   profilesDir: string;
   activePointerPath: string;
   previousPointerPath: string;
@@ -757,6 +758,7 @@ export function getSynthesisSidecarRuntimePaths(
     root,
     versionsDir: joinPath(root, "versions"),
     stagingDir: joinPath(root, "staging"),
+    quarantineDir: joinPath(root, "quarantine"),
     profilesDir: joinPath(root, "profiles"),
     activePointerPath: joinPath(root, "active.json"),
     previousPointerPath: joinPath(root, "previous.json"),

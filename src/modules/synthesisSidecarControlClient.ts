@@ -3,9 +3,8 @@ import {
   SYNTHESIS_SIDECAR_CAPABILITIES,
   SYNTHESIS_SIDECAR_HEALTH_PATH,
   SYNTHESIS_SIDECAR_PROTOCOL,
-  rebuildSynthesisSidecarComputePoolSnapshot,
-  rebuildSynthesisSidecarRepositorySnapshot,
-  rebuildSynthesisTopicCanonicalStoreSnapshot,
+  rebuildSynthesisSidecarHandshakeResult,
+  rebuildSynthesisSidecarHealth,
   type SynthesisSidecarDiscovery,
   type SynthesisSidecarHandshakeResult,
   type SynthesisSidecarHealth,
@@ -59,39 +58,27 @@ function validateHealth(
   value: unknown,
   connection: SynthesisSidecarControlConnection,
 ): SynthesisSidecarHealth {
-  const health = value as Partial<SynthesisSidecarHealth>;
-  let computePool;
-  let repository;
-  let canonicalStore;
+  let health: SynthesisSidecarHealth;
   try {
-    computePool = rebuildSynthesisSidecarComputePoolSnapshot(
-      health.computePool,
-    );
-    repository = rebuildSynthesisSidecarRepositorySnapshot(health.repository);
-    canonicalStore = rebuildSynthesisTopicCanonicalStoreSnapshot(
-      health.canonicalStore,
-    );
+    health = rebuildSynthesisSidecarHealth(value);
   } catch {
     throw new Error("sidecar_health_identity_mismatch");
   }
   if (
-    !health ||
-    health.status !== "ok" ||
-    health.protocol !== SYNTHESIS_SIDECAR_PROTOCOL ||
     health.serviceVersion !== connection.discovery.serviceVersion ||
     health.serviceInstanceId !== connection.discovery.serviceInstanceId ||
     health.supervisorInstanceId !== connection.discovery.supervisorInstanceId ||
     health.bundleId !== connection.discovery.bundleId ||
+    health.target !== connection.discovery.target ||
+    health.targetTriple !== connection.discovery.targetTriple ||
+    health.buildFingerprint !== connection.discovery.buildFingerprint ||
+    JSON.stringify(health.platformSignature) !==
+      JSON.stringify(connection.discovery.platformSignature) ||
     health.lifecycleState !== "ready"
   ) {
     throw new Error("sidecar_health_identity_mismatch");
   }
-  return {
-    ...(health as SynthesisSidecarHealth),
-    computePool,
-    repository,
-    canonicalStore,
-  };
+  return health;
 }
 
 function validateHandshake(
@@ -103,49 +90,35 @@ function validateHandshake(
     serviceInstanceId?: unknown;
     data?: Partial<SynthesisSidecarHandshakeResult>;
   };
-  const data = response.data;
-  let computePool;
-  let repository;
-  let canonicalStore;
+  let data: SynthesisSidecarHandshakeResult;
   try {
-    computePool = rebuildSynthesisSidecarComputePoolSnapshot(data?.computePool);
-    repository = rebuildSynthesisSidecarRepositorySnapshot(data?.repository);
-    canonicalStore = rebuildSynthesisTopicCanonicalStoreSnapshot(
-      data?.canonicalStore,
-    );
+    data = rebuildSynthesisSidecarHandshakeResult(response.data);
   } catch {
     throw new Error("sidecar_handshake_identity_mismatch");
   }
   if (
     response.ok !== true ||
     response.serviceInstanceId !== connection.discovery.serviceInstanceId ||
-    !data ||
-    data.protocol !== SYNTHESIS_SIDECAR_PROTOCOL ||
     data.serviceVersion !== connection.discovery.serviceVersion ||
     data.serviceInstanceId !== connection.discovery.serviceInstanceId ||
     data.supervisorInstanceId !== connection.discovery.supervisorInstanceId ||
     data.bundleId !== connection.discovery.bundleId ||
-    data.nodeVersion !== connection.discovery.nodeVersion ||
+    data.target !== connection.discovery.target ||
+    data.targetTriple !== connection.discovery.targetTriple ||
+    data.buildFingerprint !== connection.discovery.buildFingerprint ||
+    JSON.stringify(data.platformSignature) !==
+      JSON.stringify(connection.discovery.platformSignature) ||
     data.profileId !== connection.discovery.profileId ||
     data.schemaVersion !== connection.discovery.schemaVersion ||
     data.runtimeRootId !== connection.discovery.runtimeRootId ||
     data.dataRootId !== connection.discovery.dataRootId ||
-    data.mutationEnabled !== false ||
-    data.lifecycleState !== "ready" ||
-    !Array.isArray(data.capabilities) ||
-    data.capabilities.length !== SYNTHESIS_SIDECAR_CAPABILITIES.length ||
-    !SYNTHESIS_SIDECAR_CAPABILITIES.every((capability) =>
-      data.capabilities?.includes(capability),
+    !SYNTHESIS_SIDECAR_CAPABILITIES.every(
+      (capability, index) => data.capabilities[index] === capability,
     )
   ) {
     throw new Error("sidecar_handshake_identity_mismatch");
   }
-  return {
-    ...(data as SynthesisSidecarHandshakeResult),
-    computePool,
-    repository,
-    canonicalStore,
-  };
+  return data;
 }
 
 async function callSystem(args: {
@@ -207,6 +180,7 @@ export function createSynthesisSidecarControlClient(options?: {
         payload: {
           schemaVersion: connection.discovery.schemaVersion,
           bundleId: connection.discovery.bundleId,
+          buildFingerprint: connection.discovery.buildFingerprint,
           supervisorInstanceId: connection.discovery.supervisorInstanceId,
         },
         timeoutMs,

@@ -184,15 +184,18 @@ function success(args: {
 function strictHandshake(payload: SynthesisJsonObject) {
   const keys = Object.keys(payload).sort();
   if (
-    keys.length !== 3 ||
-    keys[0] !== "bundleId" ||
-    keys[1] !== "schemaVersion" ||
-    keys[2] !== "supervisorInstanceId" ||
+    keys.length !== 4 ||
+    keys[0] !== "buildFingerprint" ||
+    keys[1] !== "bundleId" ||
+    keys[2] !== "schemaVersion" ||
+    keys[3] !== "supervisorInstanceId" ||
     typeof payload.schemaVersion !== "string" ||
     payload.schemaVersion.length === 0 ||
     payload.schemaVersion.length > 128 ||
     typeof payload.bundleId !== "string" ||
     payload.bundleId.length !== 64 ||
+    typeof payload.buildFingerprint !== "string" ||
+    payload.buildFingerprint.length !== 64 ||
     typeof payload.supervisorInstanceId !== "string" ||
     payload.supervisorInstanceId.length === 0 ||
     payload.supervisorInstanceId.length > 128
@@ -206,6 +209,7 @@ function strictHandshake(payload: SynthesisJsonObject) {
   return {
     schemaVersion: payload.schemaVersion,
     bundleId: payload.bundleId,
+    buildFingerprint: payload.buildFingerprint,
     supervisorInstanceId: payload.supervisorInstanceId,
   };
 }
@@ -573,11 +577,16 @@ export async function startSynthesisSidecarServer(
         }
         const health: SynthesisSidecarHealth = {
           status: "ok",
+          implementation: config.implementation,
           protocol: SYNTHESIS_SIDECAR_PROTOCOL,
           serviceVersion: config.serviceVersion,
           serviceInstanceId,
           supervisorInstanceId: config.supervisorInstanceId,
           bundleId: config.bundleId,
+          target: config.target,
+          targetTriple: config.targetTriple,
+          buildFingerprint: config.buildFingerprint,
+          platformSignature: config.platformSignature,
           lifecycleState,
           repository: repository.snapshot(),
           canonicalStore: canonicalStore.snapshot(),
@@ -891,6 +900,13 @@ export async function startSynthesisSidecarServer(
             message: "The Synthesis sidecar runtime bundle does not match.",
           });
         }
+        if (handshake.buildFingerprint !== config.buildFingerprint) {
+          throw new SidecarRuntimeError({
+            status: 409,
+            code: "runtime_mismatch",
+            message: "The Synthesis sidecar build does not match.",
+          });
+        }
         if (handshake.supervisorInstanceId !== config.supervisorInstanceId) {
           throw new SidecarRuntimeError({
             status: 409,
@@ -910,7 +926,11 @@ export async function startSynthesisSidecarServer(
               serviceInstanceId,
               supervisorInstanceId: config.supervisorInstanceId,
               bundleId: config.bundleId,
-              nodeVersion: config.nodeVersion,
+              implementation: config.implementation,
+              target: config.target,
+              targetTriple: config.targetTriple,
+              buildFingerprint: config.buildFingerprint,
+              platformSignature: config.platformSignature,
               profileId: config.profileId,
               schemaVersion: config.schemaVersion,
               runtimeRootId: config.runtimeRootId,

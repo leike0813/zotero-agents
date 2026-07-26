@@ -6,21 +6,21 @@ import os from "node:os";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
 import {
-  SYNTHESIS_SIDECAR_NODE_VERSION,
+  SYNTHESIS_SIDECAR_RUNTIME_TARGETS,
+  SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES,
   rebuildSynthesisSidecarRuntimeBundleManifest,
   rebuildSynthesisSidecarRuntimePointer,
   type SynthesisSidecarRuntimeBundleManifest,
   type SynthesisSidecarRuntimeTarget,
 } from "../../packages/synthesis-contracts/src/sidecarRuntimeBundle";
+import { SYNTHESIS_SIDECAR_CAPABILITIES } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import {
   createSynthesisSidecarRuntimeInstaller,
   getSynthesisSidecarRuntimeInstallPaths,
 } from "../../src/modules/synthesisSidecarRuntimeInstaller";
 import {
-  computeSynthesisRustSidecarSourceFingerprint,
+  SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX,
   computeSynthesisSidecarRuntimeBuildFingerprint,
-  runtimeArchiveName,
-  SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES,
 } from "../../scripts/synthesis-sidecar-runtime-release-governance";
 import { checkSynthesisSidecarRuntimeFreshness } from "../../scripts/check-synthesis-sidecar-runtime-freshness";
 
@@ -36,56 +36,66 @@ function bytes(value: string) {
 
 function createBundle(
   target: SynthesisSidecarRuntimeTarget = "linux-x64",
-  bundleId = "a".repeat(64),
+  options: {
+    bundleId?: string;
+    buildFingerprint?: string;
+    expiresAt?: string | null;
+    unsigned?: boolean;
+  } = {},
 ) {
-  const executable = target.startsWith("win32") ? "node.exe" : "node";
-  const rustExecutable = `service/native/synthesis-sidecar/synthesis-sidecar${
-    target.startsWith("win32") ? ".exe" : ""
-  }`;
+  const executable =
+    target === "win32-x64" ? "synthesis-sidecar.exe" : "synthesis-sidecar";
   const assets = new Map<string, Uint8Array>([
-    [executable, bytes("product-owned-node")],
-    ["service/entrypoint.js", bytes("export const service = true;\n")],
-    [rustExecutable, bytes("rust-metrics-sidecar")],
+    [executable, bytes(`native-${target}-${options.bundleId || "a"}`)],
     [
-      "service/native/synthesis-sidecar/provenance.json",
-      bytes('{"schema":"synthesis-rust-sidecar-provenance.v1"}\n'),
+      "provenance.json",
+      bytes('{"schema":"synthesis-rust-sidecar-provenance.v2"}\n'),
     ],
     [
-      "service/native/synthesis-sidecar/licenses.json",
+      "licenses.json",
       bytes(
         '{"schema":"synthesis-rust-sidecar-license-inventory.v1","packages":[]}\n',
       ),
     ],
-    [
-      "service/native/synthesis-sidecar/LICENSE-AGPL-3.0.txt",
-      bytes("AGPL-3.0-only\n"),
-    ],
-    ["LICENSE-node.txt", bytes("Node.js license\n")],
+    ["LICENSE-AGPL-3.0.txt", bytes("AGPL-3.0-only\n")],
   ]);
   const manifest = rebuildSynthesisSidecarRuntimeBundleManifest({
-    schema: "synthesis-sidecar-runtime-bundle.v1",
-    bundleId,
-    nodeVersion: SYNTHESIS_SIDECAR_NODE_VERSION,
+    schema: "synthesis-sidecar-runtime-bundle.v2",
+    bundleId: options.bundleId || "a".repeat(64),
+    implementation: "rust-native",
     serviceVersion: "0.1.0",
     protocolVersion: "synthesis-sidecar.v1",
     target,
-    buildFingerprint: "b".repeat(64),
-    upstream: {
-      archive: `node-v${SYNTHESIS_SIDECAR_NODE_VERSION}-${target}.archive`,
-      sha256: "c".repeat(64),
-      signature: "verified",
-      platformSignature: target.startsWith("linux")
-        ? "not-applicable"
-        : "verified",
-    },
+    targetTriple: SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES[target],
     executable,
-    entrypoint: "service/entrypoint.js",
+    buildFingerprint: options.buildFingerprint || "b".repeat(64),
+    capabilities: [...SYNTHESIS_SIDECAR_CAPABILITIES],
+    createdAt: "2026-07-27T00:00:00.000Z",
+    expiresAt: options.expiresAt ?? null,
+    provenance: {
+      sourceFingerprint: "c".repeat(64),
+      toolchain: "nightly-2026-07-25",
+      cargoLockSha256: "d".repeat(64),
+      licenseInventory: "licenses.json",
+    },
+    platformSignature: target.startsWith("linux")
+      ? {
+          scheme: "not-applicable",
+          status: "not-applicable",
+          signer: null,
+        }
+      : {
+          scheme:
+            target === "win32-x64" ? "authenticode" : "apple-code-signing",
+          status: options.unsigned ? "unsigned-candidate" : "verified",
+          signer: options.unsigned ? null : "test signer",
+        },
     files: Array.from(assets.entries())
       .map(([filePath, value]) => ({
         path: filePath,
         bytes: value.byteLength,
         sha256: sha256(value),
-        executable: filePath === executable || filePath === rustExecutable,
+        executable: filePath === executable,
       }))
       .sort((left, right) => left.path.localeCompare(right.path)),
   });
@@ -106,940 +116,253 @@ function packagedReader(
   };
 }
 
-describe("Synthesis sidecar runtime packaging", function () {
-  this.timeout(10_000);
+function writeBundle(
+  root: string,
+  target: SynthesisSidecarRuntimeTarget,
+  bundle: ReturnType<typeof createBundle>,
+) {
+  const targetRoot = path.join(root, target);
+  fs.mkdirSync(targetRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(targetRoot, "manifest.json"),
+    `${JSON.stringify(bundle.manifest)}\n`,
+  );
+  for (const [relativePath, value] of bundle.assets) {
+    fs.writeFileSync(path.join(targetRoot, relativePath), value);
+  }
+}
 
-  it("strictly rebuilds manifests and pointers", function () {
+describe("Synthesis sidecar native runtime packaging", function () {
+  this.timeout(30_000);
+
+  it("strictly rebuilds manifest v2 and pointer v2", function () {
     const { manifest } = createBundle();
-    assert.equal(manifest.nodeVersion, "24.18.0");
-    assert.equal(manifest.target, "linux-x64");
+    assert.equal(manifest.implementation, "rust-native");
+    assert.equal(manifest.targetTriple, "x86_64-unknown-linux-gnu");
+    assert.deepEqual(manifest.capabilities, SYNTHESIS_SIDECAR_CAPABILITIES);
     assert.isTrue(Object.isFrozen(manifest));
-    assert.isTrue(Object.isFrozen(manifest.files));
 
     assert.deepEqual(
       rebuildSynthesisSidecarRuntimePointer({
-        schema: "synthesis-sidecar-runtime-pointer.v1",
+        schema: "synthesis-sidecar-runtime-pointer.v2",
         bundleId: manifest.bundleId,
       }),
       {
-        schema: "synthesis-sidecar-runtime-pointer.v1",
+        schema: "synthesis-sidecar-runtime-pointer.v2",
         bundleId: manifest.bundleId,
       },
     );
 
-    for (const unsafePath of [
-      "../node",
-      "/tmp/node",
-      "C:\\node.exe",
-      "service//entrypoint.js",
-      "service/./entrypoint.js",
+    for (const invalid of [
+      { ...manifest, nodeVersion: "24.18.0" },
+      { ...manifest, targetTriple: "x86_64-unknown-linux-musl" },
+      { ...manifest, capabilities: [...manifest.capabilities].reverse() },
+      { ...manifest, executable: "../synthesis-sidecar" },
+      { ...manifest, expiresAt: "2026-01-01T00:00:00.000Z" },
     ]) {
       assert.throws(() =>
-        rebuildSynthesisSidecarRuntimeBundleManifest({
-          ...manifest,
-          files: manifest.files.map((entry, index) =>
-            index === 0 ? { ...entry, path: unsafePath } : entry,
-          ),
-        }),
+        rebuildSynthesisSidecarRuntimeBundleManifest(invalid),
       );
     }
     assert.throws(() =>
-      rebuildSynthesisSidecarRuntimeBundleManifest({
-        ...manifest,
-        unknown: true,
-      }),
-    );
-    assert.throws(() =>
-      rebuildSynthesisSidecarRuntimeBundleManifest({
-        ...manifest,
-        files: [...manifest.files, { ...manifest.files[0] }],
+      rebuildSynthesisSidecarRuntimePointer({
+        schema: "synthesis-sidecar-runtime-pointer.v1",
+        bundleId: manifest.bundleId,
       }),
     );
   });
 
-  it("assembles the compiled service and Rust layout runtime without Node/D3 kernels", function () {
-    execFileSync(
-      process.execPath,
-      [
-        path.join(ROOT, "node_modules/typescript/bin/tsc"),
-        "-p",
-        path.join(ROOT, "apps/synthesis-service/tsconfig.build.json"),
-      ],
-      { cwd: ROOT, stdio: "pipe" },
-    );
+  it("packages one native executable without Node or JavaScript runtime files", function () {
     const tempRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), "zs-sidecar-package-compute-"),
+      path.join(os.tmpdir(), "zs-native-runtime-package-"),
     );
-    const nodeRoot = path.join(tempRoot, "node");
-    const outputRoot = path.join(tempRoot, "bundle");
-    const rustSidecar = path.join(
-      tempRoot,
-      process.platform === "win32"
-        ? "synthesis-sidecar.exe"
-        : "synthesis-sidecar",
-    );
-    fs.mkdirSync(path.join(nodeRoot, "bin"), { recursive: true });
-    fs.writeFileSync(path.join(nodeRoot, "bin", "node"), "node-runtime");
-    fs.writeFileSync(path.join(nodeRoot, "LICENSE"), "Node license\n");
-    fs.writeFileSync(rustSidecar, "rust-metrics-sidecar");
+    const binary = path.join(tempRoot, "synthesis-sidecar");
+    const output = path.join(tempRoot, "bundle");
+    fs.writeFileSync(binary, "native-binary");
     execFileSync(
       process.execPath,
       [
         path.join(ROOT, "node_modules/tsx/dist/cli.mjs"),
         path.join(ROOT, "scripts/package-synthesis-sidecar-runtime.ts"),
         "--target=linux-x64",
-        `--node-root=${nodeRoot}`,
-        `--rust-sidecar=${rustSidecar}`,
-        `--output=${outputRoot}`,
-        `--upstream-sha256=${"a".repeat(64)}`,
-        "--upstream-signature=verified",
+        `--rust-sidecar=${binary}`,
+        "--created-at=2026-07-27T00:00:00.000Z",
         "--platform-signature=not-applicable",
+        `--output=${output}`,
       ],
       { cwd: ROOT, stdio: "pipe" },
     );
+    const names = fs.readdirSync(output).sort();
+    assert.deepEqual(names, [
+      "LICENSE-AGPL-3.0.txt",
+      "licenses.json",
+      "manifest.json",
+      "provenance.json",
+      "synthesis-sidecar",
+    ]);
     const manifest = rebuildSynthesisSidecarRuntimeBundleManifest(
-      JSON.parse(
-        fs.readFileSync(path.join(outputRoot, "manifest.json"), "utf8"),
-      ),
+      JSON.parse(fs.readFileSync(path.join(output, "manifest.json"), "utf8")),
     );
-    const files = manifest.files.map((entry) => entry.path);
-    for (const required of [
-      "service/apps/synthesis-service/src/computeWorkerPool.js",
-      "service/apps/synthesis-service/src/computeProtocol.js",
-      "service/apps/synthesis-service/src/rustComputeWorkerTransport.js",
-      "service/apps/synthesis-service/src/citationGraphTransferOwner.js",
-      "service/apps/synthesis-service/src/citationGraphBuildTransferExecutor.js",
-      "service/apps/synthesis-service/src/isolatedRepository.js",
-      "service/apps/synthesis-service/src/repositoryNodeSqlite.js",
-      "service/apps/synthesis-service/src/topicCanonicalStoreNode.js",
-      "service/apps/synthesis-service/src/topicApplicationNode.js",
-      "service/apps/synthesis-service/src/citationGraphApplicationNode.js",
-      "service/apps/synthesis-service/src/referenceRefreshApplicationNode.js",
-      "service/apps/synthesis-service/src/referenceMatchingReviewApplicationNode.js",
-      "service/apps/synthesis-service/src/tagVocabularyApplicationNode.js",
-      "service/apps/synthesis-service/src/conceptKbApplicationNode.js",
-      "service/apps/synthesis-service/src/topicGraphApplicationNode.js",
-      "service/apps/synthesis-service/src/knowledgeCheckpointApplicationNode.js",
-      "service/apps/synthesis-service/src/durableBundleApplicationNode.js",
-      "service/apps/synthesis-service/src/webDavSyncApplicationNode.js",
-      "service/apps/synthesis-service/src/debugMaintenanceApplicationNode.js",
-      "service/packages/synthesis-engine/src/index.js",
-      "service/packages/synthesis-engine/src/citationGraphBuild.js",
-      "service/packages/synthesis-engine/src/citationGraphBuildTransfer.js",
-      "service/packages/synthesis-engine/src/conceptKbIndex.js",
-      "service/packages/synthesis-engine/src/topicGraphIndex.js",
-      "service/packages/synthesis-contracts/src/sidecarTransfer.js",
-      "service/packages/synthesis-contracts/src/sidecarCanonicalStore.js",
-      "service/packages/synthesis-contracts/src/topicApplication.js",
-      "service/packages/synthesis-contracts/src/citationGraphApplication.js",
-      "service/packages/synthesis-contracts/src/hostRead.js",
-      "service/packages/synthesis-contracts/src/referenceRefreshApplication.js",
-      "service/packages/synthesis-contracts/src/referenceMatchingReviewApplication.js",
-      "service/packages/synthesis-contracts/src/tagVocabularyApplication.js",
-      "service/packages/synthesis-contracts/src/tagVocabularyCore.js",
-      "service/packages/synthesis-contracts/src/conceptKbApplication.js",
-      "service/packages/synthesis-contracts/src/conceptKbCore.js",
-      "service/packages/synthesis-contracts/src/knowledgeCheckpoint.js",
-      "service/packages/synthesis-contracts/src/durableBundle.js",
-      "service/packages/synthesis-contracts/src/durableBundleImport.js",
-      "service/packages/synthesis-contracts/src/webDavSync.js",
-      "service/packages/synthesis-contracts/src/webDavSyncPort.js",
-      "service/packages/synthesis-contracts/src/debugMaintenance.js",
-      "service/packages/synthesis-contracts/src/topicGraphApplication.js",
-      "service/packages/synthesis-contracts/src/topicGraphCore.js",
-      "service/packages/synthesis-contracts/src/workbench.js",
-      "service/packages/synthesis-application/src/index.js",
-      "service/packages/synthesis-application/src/topicCanonical.js",
-      "service/packages/synthesis-application/src/topicApplyDecision.js",
-      "service/packages/synthesis-application/src/topicApplication.js",
-      "service/packages/synthesis-application/src/citationGraphApplication.js",
-      "service/packages/synthesis-application/src/citationGraphProjection.js",
-      "service/packages/synthesis-application/src/referenceProjection.js",
-      "service/packages/synthesis-application/src/referenceRefreshApplication.js",
-      "service/packages/synthesis-application/src/referenceMatchingReviewApplication.js",
-      "service/packages/synthesis-application/src/tagVocabularyApplication.js",
-      "service/packages/synthesis-application/src/conceptKbApplication.js",
-      "service/packages/synthesis-application/src/topicGraphApplication.js",
-      "service/packages/synthesis-application/src/knowledgeCheckpointApplication.js",
-      "service/packages/synthesis-application/src/durableBundleApplication.js",
-      "service/packages/synthesis-application/src/webDavSyncApplication.js",
-      "service/packages/synthesis-application/src/debugMaintenanceApplication.js",
-      "service/packages/synthesis-application/src/knowledgeCheckpointCompatibility.js",
-      "service/packages/synthesis-repository/src/index.js",
-      "service/packages/synthesis-repository/src/citationGraph.js",
-      "service/packages/synthesis-repository/src/referenceRefresh.js",
-      "service/packages/synthesis-repository/src/referenceMatchingReview.js",
-      "service/packages/synthesis-repository/src/tagVocabulary.js",
-      "service/packages/synthesis-repository/src/conceptKb.js",
-      "service/packages/synthesis-repository/src/topicGraph.js",
-      "service/packages/synthesis-repository/src/knowledgeCheckpoint.js",
-      "service/packages/synthesis-repository/src/durableBundle.js",
-      "service/packages/synthesis-repository/src/durableBundleImport.js",
-      "service/native/synthesis-sidecar/synthesis-sidecar",
-      "service/native/synthesis-sidecar/provenance.json",
-      "service/native/synthesis-sidecar/licenses.json",
-      "service/native/synthesis-sidecar/LICENSE-AGPL-3.0.txt",
-    ]) {
-      assert.include(files, required);
-    }
-    const packagedProtocol = fs.readFileSync(
-      path.join(
-        outputRoot,
-        "service/apps/synthesis-service/src/computeProtocol.js",
-      ),
-      "utf8",
-    );
-    assert.notInclude(packagedProtocol, "citation_graph_metrics.v1");
-    assert.include(packagedProtocol, "citation_graph_build.v1");
-    assert.include(packagedProtocol, "citation_graph_build_transfer.v1");
-    assert.include(packagedProtocol, "tag_vocabulary_validate.v1");
-    assert.include(packagedProtocol, "tag_vocabulary_index.v1");
-    assert.notInclude(
-      files,
-      "service/apps/synthesis-service/src/computeWorker.js",
-    );
-    assert.isFalse(files.some((file) => file.includes("/node_modules/d3-")));
-    const rustEntry = manifest.files.find(
-      (entry) =>
-        entry.path === "service/native/synthesis-sidecar/synthesis-sidecar",
-    );
-    assert.equal(rustEntry?.executable, true);
-    assert.equal(
-      fs.readFileSync(
-        path.join(
-          outputRoot,
-          "service/native/synthesis-sidecar/synthesis-sidecar",
-        ),
-        "utf8",
-      ),
-      "rust-metrics-sidecar",
-    );
-    const provenance = JSON.parse(
-      fs.readFileSync(
-        path.join(
-          outputRoot,
-          "service/native/synthesis-sidecar/provenance.json",
-        ),
-        "utf8",
-      ),
-    ) as Record<string, unknown>;
-    assert.equal(provenance.schema, "synthesis-rust-sidecar-provenance.v1");
-    assert.equal(provenance.target, "linux-x64");
-    assert.equal(provenance.licenseInventory, "licenses.json");
-    const licenses = JSON.parse(
-      fs.readFileSync(
-        path.join(outputRoot, "service/native/synthesis-sidecar/licenses.json"),
-        "utf8",
-      ),
-    ) as {
-      packages: Array<{ name: string; version: string; license: string }>;
-    };
-    assert.includeMembers(
-      licenses.packages.map((entry) => entry.name),
-      ["synthesis-sidecar", "serde", "serde_json", "sha2"],
-    );
-    const cargoMetadata = JSON.parse(
-      execFileSync(
-        "cargo",
-        [
-          "metadata",
-          "--locked",
-          "--format-version",
-          "1",
-          "--manifest-path",
-          path.join(ROOT, "native/synthesis-sidecar/Cargo.toml"),
-        ],
-        { cwd: ROOT, encoding: "utf8" },
-      ),
-    ) as {
-      packages: Array<{ name: string; version: string; license: string }>;
-    };
-    assert.deepEqual(
-      licenses.packages,
-      cargoMetadata.packages
-        .map(({ name, version, license }) => ({ name, version, license }))
-        .sort((left, right) => left.name.localeCompare(right.name)),
-    );
+    assert.equal(manifest.files.length, 4);
+    assert.notInclude(JSON.stringify(manifest), "nodeVersion");
+    assert.notInclude(JSON.stringify(manifest), "entrypoint");
   });
 
-  it("installs a verified bundle without consulting system Node or PATH", async function () {
+  it("installs, repairs through quarantine, and rolls back only v2 bundles", async function () {
     const runtimeRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), "zs-sidecar-runtime-install-"),
+      path.join(os.tmpdir(), "zs-native-runtime-install-"),
     );
-    const target = "linux-x64";
-    const bundle = createBundle(target);
+    const firstBundle = createBundle("linux-x64", {
+      bundleId: "1".repeat(64),
+    });
+    let selected = firstBundle;
     const installer = createSynthesisSidecarRuntimeInstaller({
       runtimeRoot,
-      target,
-      readPackagedAsset: packagedReader(target, bundle),
+      target: "linux-x64",
+      readPackagedAsset: async (relativePath) =>
+        packagedReader("linux-x64", selected)(relativePath),
+      now: () => Date.parse("2026-07-27T01:00:00.000Z"),
     });
 
-    const previousPath = process.env.PATH;
-    process.env.PATH = "";
-    try {
-      const [first, second] = await Promise.all([
-        installer.ensureInstalled(),
-        installer.ensureInstalled(),
-      ]);
-      assert.equal(first.state, "ready");
-      assert.deepEqual(second, first);
-      assert.equal(first.bundleId, bundle.manifest.bundleId);
-      assert.equal(first.nodeVersion, bundle.manifest.nodeVersion);
-      assert.equal(first.serviceVersion, bundle.manifest.serviceVersion);
-      assert.equal(first.protocolVersion, bundle.manifest.protocolVersion);
-      assert.equal(
-        fs.readFileSync(first.nodePath!, "utf8"),
-        "product-owned-node",
-      );
-      assert.equal(
-        fs.readFileSync(first.entrypointPath!, "utf8"),
-        "export const service = true;\n",
-      );
-      assert.equal(
-        await installer.inspect().then((value) => value.state),
-        "ready",
-      );
-    } finally {
-      process.env.PATH = previousPath;
-    }
+    const first = await installer.ensureInstalled();
+    assert.equal(first.state, "ready");
+    assert.equal(first.implementation, "rust-native");
+    assert.equal(
+      fs.readFileSync(first.executablePath!, "utf8"),
+      "native-linux-x64-1111111111111111111111111111111111111111111111111111111111111111",
+    );
+
+    fs.writeFileSync(first.executablePath!, "corrupt");
+    const repaired = await installer.ensureInstalled();
+    assert.equal(repaired.state, "ready");
+    const paths = getSynthesisSidecarRuntimeInstallPaths(runtimeRoot);
+    assert.lengthOf(fs.readdirSync(paths.quarantineDir), 1);
+
+    selected = createBundle("linux-x64", {
+      bundleId: "2".repeat(64),
+    });
+    const second = await installer.ensureInstalled();
+    assert.equal(second.bundleId, "2".repeat(64));
+    const rolledBack = await installer.rollback();
+    assert.equal(rolledBack.bundleId, "1".repeat(64));
   });
 
-  it("fails closed on packaged hash mismatch without changing active", async function () {
+  it("activates v2 over legacy pointers without making v1 rollback eligible", async function () {
     const runtimeRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), "zs-sidecar-runtime-hash-"),
+      path.join(os.tmpdir(), "zs-native-runtime-upgrade-"),
     );
-    const target = "linux-x64";
-    const good = createBundle(target, "1".repeat(64));
+    const paths = getSynthesisSidecarRuntimeInstallPaths(runtimeRoot);
+    fs.mkdirSync(paths.root, { recursive: true });
+    fs.writeFileSync(
+      paths.activePointerPath,
+      `${JSON.stringify({
+        schema: "synthesis-sidecar-runtime-pointer.v1",
+        bundleId: "9".repeat(64),
+      })}\n`,
+    );
+    fs.writeFileSync(paths.previousPointerPath, "legacy\n");
+    const bundle = createBundle();
     const installer = createSynthesisSidecarRuntimeInstaller({
       runtimeRoot,
-      target,
-      readPackagedAsset: packagedReader(target, good),
+      target: "linux-x64",
+      readPackagedAsset: packagedReader("linux-x64", bundle),
     });
     const ready = await installer.ensureInstalled();
     assert.equal(ready.state, "ready");
-
-    const bad = createBundle(target, "2".repeat(64));
-    bad.assets.set("node", bytes("tampered-node"));
-    const badInstaller = createSynthesisSidecarRuntimeInstaller({
-      runtimeRoot,
-      target,
-      readPackagedAsset: packagedReader(target, bad),
-    });
-    const failed = await badInstaller.ensureInstalled();
-    assert.equal(failed.state, "corrupt");
-    assert.equal((await installer.inspect()).bundleId, good.manifest.bundleId);
+    assert.isFalse(fs.existsSync(paths.previousPointerPath));
+    assert.equal((await installer.rollback()).state, "missing");
   });
 
-  it("repairs a corrupt active version from trusted packaged assets", async function () {
-    const runtimeRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), "zs-sidecar-runtime-repair-"),
-    );
-    const target = "linux-x64";
-    const bundle = createBundle(target);
-    const installer = createSynthesisSidecarRuntimeInstaller({
-      runtimeRoot,
-      target,
-      readPackagedAsset: packagedReader(target, bundle),
+  it("rejects expired and unsigned formal packages while candidate policy is explicit", async function () {
+    const expired = createBundle("linux-x64", {
+      expiresAt: "2026-07-28T00:00:00.000Z",
     });
-    const ready = await installer.ensureInstalled();
-    fs.chmodSync(ready.nodePath!, 0o644);
-    assert.equal((await installer.inspect()).state, "corrupt");
-    const permissionRepaired = await installer.ensureInstalled();
-    assert.notEqual(fs.statSync(permissionRepaired.nodePath!).mode & 0o111, 0);
+    let restartNow = Date.parse("2026-07-27T00:00:00.000Z");
+    const restartInstaller = createSynthesisSidecarRuntimeInstaller({
+      runtimeRoot: fs.mkdtempSync(path.join(os.tmpdir(), "zs-expired-active-")),
+      target: "linux-x64",
+      readPackagedAsset: packagedReader("linux-x64", expired),
+      now: () => restartNow,
+    });
+    assert.equal((await restartInstaller.ensureInstalled()).state, "ready");
+    restartNow = Date.parse("2026-07-29T00:00:00.000Z");
+    assert.equal((await restartInstaller.ensureInstalled()).state, "ready");
 
-    fs.writeFileSync(permissionRepaired.nodePath!, "corrupt");
+    const expiredInstaller = createSynthesisSidecarRuntimeInstaller({
+      runtimeRoot: fs.mkdtempSync(path.join(os.tmpdir(), "zs-expired-")),
+      target: "linux-x64",
+      readPackagedAsset: packagedReader("linux-x64", expired),
+      now: () => Date.parse("2026-07-29T00:00:00.000Z"),
+    });
+    assert.equal((await expiredInstaller.ensureInstalled()).state, "corrupt");
 
-    assert.equal((await installer.inspect()).state, "corrupt");
-    const repaired = await installer.ensureInstalled();
-    assert.equal(repaired.state, "ready");
-    assert.equal(
-      fs.readFileSync(repaired.nodePath!, "utf8"),
-      "product-owned-node",
-    );
+    const unsigned = createBundle("darwin-arm64", { unsigned: true });
+    const production = createSynthesisSidecarRuntimeInstaller({
+      runtimeRoot: fs.mkdtempSync(path.join(os.tmpdir(), "zs-unsigned-")),
+      target: "darwin-arm64",
+      readPackagedAsset: packagedReader("darwin-arm64", unsigned),
+    });
+    assert.equal((await production.ensureInstalled()).state, "corrupt");
+    const candidate = createSynthesisSidecarRuntimeInstaller({
+      runtimeRoot: fs.mkdtempSync(path.join(os.tmpdir(), "zs-candidate-")),
+      target: "darwin-arm64",
+      readPackagedAsset: packagedReader("darwin-arm64", unsigned),
+      verificationPolicy: "candidate",
+    });
+    assert.equal((await candidate.ensureInstalled()).state, "ready");
   });
 
-  it("preserves previous and atomically rolls back one verified version", async function () {
-    const runtimeRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), "zs-sidecar-runtime-rollback-"),
+  it("verifies all five current native prebuilds and build workflow governance", async function () {
+    const assetRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-native-freshness-"),
     );
-    const target = "linux-x64";
-    const first = createBundle(target, "1".repeat(64));
-    const firstInstaller = createSynthesisSidecarRuntimeInstaller({
-      runtimeRoot,
-      target,
-      readPackagedAsset: packagedReader(target, first),
-    });
-    await firstInstaller.ensureInstalled();
-
-    const second = createBundle(target, "2".repeat(64));
-    second.assets.set(
-      "service/entrypoint.js",
-      bytes("export const service = 2;\n"),
-    );
-    second.manifest = rebuildSynthesisSidecarRuntimeBundleManifest({
-      ...second.manifest,
-      files: second.manifest.files.map((entry) =>
-        entry.path === "service/entrypoint.js"
-          ? {
-              ...entry,
-              bytes: second.assets.get(entry.path)!.byteLength,
-              sha256: sha256(second.assets.get(entry.path)!),
-            }
-          : entry,
-      ),
-    });
-    const secondInstaller = createSynthesisSidecarRuntimeInstaller({
-      runtimeRoot,
-      target,
-      readPackagedAsset: packagedReader(target, second),
-    });
-    assert.equal(
-      (await secondInstaller.ensureInstalled()).bundleId,
-      "2".repeat(64),
-    );
-
-    const rolledBack = await secondInstaller.rollback();
-    assert.equal(rolledBack.state, "ready");
-    assert.equal(rolledBack.bundleId, "1".repeat(64));
-    assert.equal(
-      fs.readFileSync(rolledBack.entrypointPath!, "utf8"),
-      "export const service = true;\n",
-    );
-  });
-
-  it("keeps staging failure and all installer paths inside the managed root", async function () {
-    const runtimeRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), "zs-sidecar-runtime-scope-"),
-    );
-    const target = "linux-x64";
-    const bundle = createBundle(target);
-    const paths = getSynthesisSidecarRuntimeInstallPaths(runtimeRoot);
-    const outside = path.join(runtimeRoot, "..", "outside-sentinel.txt");
-    fs.writeFileSync(outside, "keep");
-    let reads = 0;
-    const installer = createSynthesisSidecarRuntimeInstaller({
-      runtimeRoot,
-      target,
-      readPackagedAsset: async (relativePath) => {
-        reads += 1;
-        if (reads > 2) {
-          throw new Error("simulated interrupted staging");
-        }
-        return packagedReader(target, bundle)(relativePath);
-      },
-    });
-
-    assert.equal((await installer.ensureInstalled()).state, "corrupt");
-    assert.equal((await installer.inspect()).state, "missing");
-    assert.equal(fs.readFileSync(outside, "utf8"), "keep");
-    assert.equal(
-      path.relative(runtimeRoot, paths.root).replace(/\\/g, "/"),
-      "synthesis/service-runtime",
-    );
-  });
-
-  it("returns unsupported without reading packaged assets", async function () {
-    let readCount = 0;
-    const installer = createSynthesisSidecarRuntimeInstaller({
-      runtimeRoot: "/tmp/unused-sidecar-runtime",
-      target: "unsupported",
-      readPackagedAsset: async () => {
-        readCount += 1;
-        return null;
-      },
-    });
-    assert.equal((await installer.inspect()).state, "unsupported");
-    assert.equal((await installer.ensureInstalled()).state, "unsupported");
-    assert.equal(readCount, 0);
-  });
-
-  it("pins the five-platform signed prebuild and release freshness pipeline", async function () {
-    const first = await computeSynthesisSidecarRuntimeBuildFingerprint(ROOT);
-    const second = await computeSynthesisSidecarRuntimeBuildFingerprint(ROOT);
-    const native = await computeSynthesisRustSidecarSourceFingerprint(ROOT);
-    assert.equal(first.fingerprint, second.fingerprint);
-    assert.include(first.inputs, "apps/synthesis-service/src/entrypoint.ts");
-    assert.notInclude(
-      first.inputs,
-      "apps/synthesis-service/src/computeWorker.ts",
-    );
-    assert.include(
-      first.inputs,
-      "apps/synthesis-service/src/computeWorkerPool.ts",
-    );
-    assert.include(first.inputs, "packages/synthesis-engine/src/index.ts");
-    assert.include(
-      first.inputs,
-      "packages/synthesis-engine/src/citationGraphBuild.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-engine/src/citationGraphBuildTransfer.ts",
-    );
-    assert.notInclude(
-      first.inputs,
-      "packages/synthesis-engine/src/citationGraphBuildPacked.ts",
-    );
-    assert.include(
-      first.inputs,
-      "apps/synthesis-service/src/citationGraphTransferOwner.ts",
-    );
-    assert.include(
-      first.inputs,
-      "apps/synthesis-service/src/citationGraphBuildTransferExecutor.ts",
-    );
-    assert.include(
-      first.inputs,
-      "apps/synthesis-service/src/isolatedRepository.ts",
-    );
-    assert.include(
-      first.inputs,
-      "apps/synthesis-service/src/repositoryNodeSqlite.ts",
-    );
-    assert.include(
-      first.inputs,
-      "apps/synthesis-service/src/topicCanonicalStoreNode.ts",
-    );
-    assert.include(
-      first.inputs,
-      "apps/synthesis-service/src/topicApplicationNode.ts",
-    );
-    assert.include(
-      first.inputs,
-      "apps/synthesis-service/src/knowledgeCheckpointApplicationNode.ts",
-    );
-    assert.include(
-      first.inputs,
-      "apps/synthesis-service/src/durableBundleApplicationNode.ts",
-    );
-    assert.include(
-      first.inputs,
-      "apps/synthesis-service/src/webDavSyncApplicationNode.ts",
-      "apps/synthesis-service/src/debugMaintenanceApplicationNode.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-contracts/src/webDavSync.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-contracts/src/webDavSyncPort.ts",
-      "packages/synthesis-contracts/src/debugMaintenance.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-application/src/webDavSyncApplication.ts",
-      "packages/synthesis-application/src/debugMaintenanceApplication.ts",
-    );
-    assert.include(
-      first.inputs,
-      "apps/synthesis-service/src/referenceMatchingReviewApplicationNode.ts",
-    );
-    assert.include(
-      first.inputs,
-      "apps/synthesis-service/src/tagVocabularyApplicationNode.ts",
-      "apps/synthesis-service/src/conceptKbApplicationNode.ts",
-    );
-    assert.include(first.inputs, "packages/synthesis-repository/src/index.ts");
-    assert.include(
-      first.inputs,
-      "packages/synthesis-repository/src/citationGraph.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-repository/src/referenceRefresh.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-repository/src/referenceMatchingReview.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-repository/src/tagVocabulary.ts",
-      "packages/synthesis-repository/src/conceptKb.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-repository/src/knowledgeCheckpoint.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-repository/src/durableBundle.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-repository/src/durableBundleImport.ts",
-    );
-    assert.include(first.inputs, "packages/synthesis-repository/package.json");
-    assert.include(first.inputs, "packages/synthesis-application/src/index.ts");
-    assert.include(
-      first.inputs,
-      "packages/synthesis-application/src/citationGraphApplication.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-application/src/citationGraphProjection.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-application/src/referenceProjection.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-application/src/referenceRefreshApplication.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-application/src/referenceMatchingReviewApplication.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-application/src/tagVocabularyApplication.ts",
-      "packages/synthesis-application/src/conceptKbApplication.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-application/src/knowledgeCheckpointApplication.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-application/src/durableBundleApplication.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-application/src/knowledgeCheckpointCompatibility.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-application/src/topicCanonical.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-application/src/topicApplyDecision.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-application/src/topicApplication.ts",
-    );
-    assert.include(first.inputs, "packages/synthesis-application/package.json");
-    assert.include(
-      first.inputs,
-      "packages/synthesis-contracts/src/sidecarSystem.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-contracts/src/sidecarTransfer.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-contracts/src/sidecarCanonicalStore.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-contracts/src/topicApplication.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-contracts/src/citationGraphApplication.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-contracts/src/referenceMatchingReviewApplication.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-contracts/src/tagVocabularyApplication.ts",
-      "packages/synthesis-contracts/src/tagVocabularyCore.ts",
-      "packages/synthesis-contracts/src/conceptKbApplication.ts",
-      "packages/synthesis-contracts/src/conceptKbCore.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-contracts/src/workbench.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-contracts/src/knowledgeCheckpoint.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-contracts/src/durableBundle.ts",
-    );
-    assert.include(
-      first.inputs,
-      "packages/synthesis-contracts/src/durableBundleImport.ts",
-    );
-    assert.include(first.inputs, "package-lock.json");
-    assert.include(first.inputs, "native/synthesis-sidecar/Cargo.lock");
-    assert.include(
-      first.inputs,
-      "native/synthesis-sidecar/rust-toolchain.toml",
-    );
-    assert.include(
-      first.inputs,
-      "native/synthesis-sidecar/crates/synthesis-metrics/src/lib.rs",
-    );
-    assert.include(
-      first.inputs,
-      ".github/workflows/build-synthesis-rust-sidecar.yml",
-    );
-    for (const input of [
-      ".github/workflows/build-synthesis-rust-sidecar.yml",
-      "packages/synthesis-contracts/contract-set/synthesis-durable-foundation-v1/corpus.json",
-      "scripts/check-synthesis-cross-language-contracts.ts",
-      "scripts/check-synthesis-durable-foundation-parity.ts",
-      "scripts/check-synthesis-rust-license-inventory.ts",
-      "scripts/smoke-synthesis-rust-durable-candidate.ts",
-      "scripts/smoke-synthesis-rust-sidecar-worker.ts",
-      "scripts/synthesis-sidecar-runtime-release-governance.ts",
-      "native/synthesis-sidecar/Cargo.lock",
-      "native/synthesis-sidecar/crates/synthesis-application/src/lib.rs",
-      "native/synthesis-sidecar/crates/synthesis-canonical-store/src/lib.rs",
-      "native/synthesis-sidecar/crates/synthesis-repository/src/lib.rs",
-    ]) {
-      assert.include(native.inputs, input);
+    const build = await computeSynthesisSidecarRuntimeBuildFingerprint(ROOT);
+    for (const target of SYNTHESIS_SIDECAR_RUNTIME_TARGETS) {
+      writeBundle(
+        assetRoot,
+        target,
+        createBundle(target, { buildFingerprint: build.fingerprint }),
+      );
     }
-    assert.deepEqual(SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES, []);
-    for (const packageName of SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES) {
-      assert.include(first.inputs, `node_modules/${packageName}/package.json`);
-      assert.include(first.inputs, `node_modules/${packageName}/LICENSE`);
-    }
-
-    const packageScript = fs.readFileSync(
-      path.join(ROOT, "scripts/package-synthesis-sidecar-runtime.ts"),
-      "utf8",
+    const freshness = await checkSynthesisSidecarRuntimeFreshness(
+      ROOT,
+      assetRoot,
     );
-    assert.include(packageScript, "copyComputeRuntimeDependencies");
-    assert.include(packageScript, "copyRustComputeRuntime");
-    assert.include(packageScript, "synthesis-rust-sidecar-provenance.v1");
-    assert.include(packageScript, 'path.join(targetRoot, "src")');
-    const xpiCheck = fs.readFileSync(
-      path.join(ROOT, "scripts/check-synthesis-sidecar-runtime-xpi.ts"),
-      "utf8",
-    );
-    assert.notInclude(xpiCheck, "computeWorker.js");
-    assert.include(xpiCheck, "packages/synthesis-engine/src/index.js");
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-engine/src/citationGraphBuild.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-engine/src/citationGraphBuildTransfer.js",
-    );
-    assert.include(xpiCheck, "citationGraphTransferOwner.js");
-    assert.include(xpiCheck, "sidecarTransfer.js");
-    assert.include(xpiCheck, "sidecarCanonicalStore.js");
-    assert.include(xpiCheck, "isolatedRepository.js");
-    assert.include(xpiCheck, "repositoryNodeSqlite.js");
-    assert.include(xpiCheck, "topicCanonicalStoreNode.js");
-    assert.include(xpiCheck, "topicApplicationNode.js");
-    assert.include(xpiCheck, "citationGraphApplicationNode.js");
-    assert.include(xpiCheck, "referenceRefreshApplicationNode.js");
-    assert.include(xpiCheck, "referenceMatchingReviewApplicationNode.js");
-    assert.include(xpiCheck, "tagVocabularyApplicationNode.js");
-    assert.include(xpiCheck, "tagVocabularyCore.js");
-    assert.include(xpiCheck, "conceptKbApplicationNode.js");
-    assert.include(xpiCheck, "knowledgeCheckpointApplicationNode.js");
-    assert.include(xpiCheck, "durableBundleApplicationNode.js");
-    assert.include(xpiCheck, "webDavSyncApplicationNode.js");
-    assert.include(xpiCheck, "conceptKbIndex.js");
-    assert.include(xpiCheck, "conceptKbCore.js");
-    assert.include(xpiCheck, "packages/synthesis-repository/src/index.js");
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-repository/src/citationGraph.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-repository/src/referenceRefresh.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-repository/src/referenceMatchingReview.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-repository/src/tagVocabulary.js",
-      "packages/synthesis-repository/src/conceptKb.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-repository/src/knowledgeCheckpoint.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-repository/src/durableBundle.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-repository/src/durableBundleImport.js",
-    );
-    assert.include(xpiCheck, "packages/synthesis-application/src/index.js");
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-application/src/durableBundleApplication.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-application/src/webDavSyncApplication.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-contracts/src/durableBundle.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-contracts/src/durableBundleImport.js",
-    );
-    assert.include(xpiCheck, "packages/synthesis-contracts/src/webDavSync.js");
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-contracts/src/webDavSyncPort.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-application/src/topicCanonical.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-application/src/topicApplication.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-application/src/citationGraphApplication.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-application/src/citationGraphProjection.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-application/src/referenceProjection.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-application/src/referenceRefreshApplication.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-application/src/referenceMatchingReviewApplication.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-application/src/tagVocabularyApplication.js",
-      "packages/synthesis-application/src/conceptKbApplication.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-application/src/knowledgeCheckpointApplication.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-application/src/knowledgeCheckpointCompatibility.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-contracts/src/topicApplication.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-contracts/src/citationGraphApplication.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-contracts/src/referenceRefreshApplication.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-contracts/src/referenceMatchingReviewApplication.js",
-    );
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-contracts/src/tagVocabularyApplication.js",
-      "packages/synthesis-contracts/src/tagVocabularyCore.js",
-      "packages/synthesis-contracts/src/conceptKbApplication.js",
-      "packages/synthesis-contracts/src/conceptKbCore.js",
-    );
-    assert.include(xpiCheck, "packages/synthesis-contracts/src/workbench.js");
-    assert.include(
-      xpiCheck,
-      "packages/synthesis-contracts/src/knowledgeCheckpoint.js",
-    );
-    assert.notInclude(xpiCheck, "node_modules/d3-force/LICENSE");
-    assert.equal(runtimeArchiveName("win32-x64"), "node-v24.18.0-win-x64.zip");
-    assert.equal(
-      runtimeArchiveName("linux-arm64"),
-      "node-v24.18.0-linux-arm64.tar.xz",
+    assert.isTrue(freshness.ok);
+    assert.equal(freshness.implementation, "rust-native");
+    assert.deepEqual(
+      freshness.targets,
+      SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX,
     );
 
-    const workflow = fs.readFileSync(
+    const workflowSource = fs.readFileSync(
       path.join(ROOT, ".github/workflows/build-synthesis-sidecar-runtime.yml"),
       "utf8",
     );
-    for (const target of [
-      "win32-x64",
-      "darwin-x64",
-      "darwin-arm64",
-      "linux-x64",
-      "linux-arm64",
-    ]) {
-      assert.include(workflow, `target: ${target}`);
-    }
-    assert.include(workflow, "SHASUMS256.txt.asc");
-    assert.include(workflow, "nodejs/release-keys");
-    assert.include(workflow, "Get-AuthenticodeSignature");
-    const parsedWorkflow = parseYaml(workflow) as {
-      jobs?: Record<string, { steps?: unknown[] }>;
+    const workflow = parseYaml(workflowSource) as {
+      permissions?: { contents?: string };
+      jobs?: {
+        candidate?: { strategy?: { matrix?: { include?: unknown[] } } };
+      };
     };
-    const buildSteps = parsedWorkflow.jobs?.build?.steps;
-    assert.isArray(buildSteps);
-    const macosSignatureStep = buildSteps?.find(
-      (step): step is Record<string, unknown> =>
-        !!step &&
-        typeof step === "object" &&
-        (step as Record<string, unknown>).name ===
-          "Verify macOS runtime code signature",
+    assert.equal(workflow.permissions?.contents, "read");
+    assert.lengthOf(
+      workflow.jobs?.candidate?.strategy?.matrix?.include || [],
+      5,
     );
-    assert.isOk(macosSignatureStep);
-    assert.match(String(macosSignatureStep?.if), /matrix\.target.*darwin-/);
-    assert.match(String(macosSignatureStep?.run), /codesign\s+--verify\b/);
-
-    const release = fs.readFileSync(
-      path.join(ROOT, ".github/workflows/release.yml"),
-      "utf8",
+    assert.include(
+      workflowSource,
+      "dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c",
     );
-    assert.include(release, "sync:synthesis-sidecar-runtime-prebuilds");
-    assert.include(release, "check:synthesis-sidecar-runtime-freshness");
-    assert.include(release, "check:synthesis-sidecar-runtime-xpi");
-
-    const pluginConfig = fs.readFileSync(
-      path.join(ROOT, "zotero-plugin.config.ts"),
-      "utf8",
+    assert.include(workflowSource, "toolchain: nightly-2026-07-25");
+    assert.include(workflowSource, "--all --check");
+    assert.include(
+      workflowSource,
+      "check-synthesis-native-runtime-contract-parity.ts",
     );
-    assert.include(pluginConfig, "addon/bin/synthesis-sidecar/**/*");
-  });
-
-  it("fails the production release gate until every platform prebuild is present and current", async function () {
-    const emptyAssets = fs.mkdtempSync(
-      path.join(os.tmpdir(), "zs-sidecar-empty-prebuilds-"),
-    );
-    const result = await checkSynthesisSidecarRuntimeFreshness(
-      ROOT,
-      emptyAssets,
-    );
-
-    assert.isFalse(result.ok);
-    assert.deepEqual(result.targets, [
-      "win32-x64",
-      "darwin-x64",
-      "darwin-arm64",
-      "linux-x64",
-      "linux-arm64",
-    ]);
-    assert.deepEqual(
-      result.diagnostics.map((entry) => [entry.code, entry.target]),
-      result.targets.map((target) => ["bundle_unreadable", target]),
-    );
+    assert.notInclude(workflowSource, "gh release");
+    assert.notInclude(workflowSource, "node-v24");
+    assert.notInclude(workflowSource, "SHASUMS256");
+    assert.notInclude(workflowSource, "build-synthesis-rust-sidecar.yml");
   });
 });

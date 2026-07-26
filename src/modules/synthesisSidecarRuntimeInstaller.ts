@@ -1,5 +1,7 @@
 import {
   SYNTHESIS_SIDECAR_RUNTIME_POINTER_SCHEMA,
+  isExpiredSynthesisSidecarRuntimeManifest,
+  isProductionSynthesisSidecarRuntimeSignature,
   rebuildSynthesisSidecarRuntimeBundleManifest,
   rebuildSynthesisSidecarRuntimePointer,
   type SynthesisSidecarRuntimeBundleManifest,
@@ -44,12 +46,14 @@ export type SynthesisSidecarRuntimeInstallSnapshot = {
   state: SynthesisSidecarRuntimeInstallState;
   target: SynthesisSidecarRuntimeTargetDetection;
   bundleId?: string;
-  nodeVersion?: string;
+  implementation?: "rust-native";
+  targetTriple?: SynthesisSidecarRuntimeBundleManifest["targetTriple"];
   serviceVersion?: string;
   protocolVersion?: string;
+  buildFingerprint?: string;
+  platformSignature?: SynthesisSidecarRuntimeBundleManifest["platformSignature"];
   installRoot?: string;
-  nodePath?: string;
-  entrypointPath?: string;
+  executablePath?: string;
   diagnostics: Array<{ code: string }>;
 };
 
@@ -65,6 +69,8 @@ type InstallerOptions = {
   runtimeRoot: string;
   target?: SynthesisSidecarRuntimeTargetDetection;
   readPackagedAsset?: SynthesisSidecarPackagedAssetReader;
+  verificationPolicy?: "candidate" | "production";
+  now?: () => number;
 };
 
 function diagnosticSnapshot(
@@ -123,6 +129,9 @@ async function verifyInstalledRuntime(args: {
   target: SynthesisSidecarRuntimeTarget;
   installRoot: string;
   expectedBundleId?: string;
+  verificationPolicy: "candidate" | "production";
+  nowMs?: number;
+  allowExpired?: boolean;
 }): Promise<SynthesisSidecarRuntimeInstallSnapshot> {
   const manifestPath = joinPath(args.installRoot, "manifest.json");
   const text = (await readRuntimeTextFile(manifestPath)).trim();
@@ -151,6 +160,21 @@ async function verifyInstalledRuntime(args: {
       "corrupt",
       args.target,
       "installed_manifest_identity_mismatch",
+    );
+  }
+  if (
+    (!args.allowExpired &&
+      isExpiredSynthesisSidecarRuntimeManifest(manifest, args.nowMs)) ||
+    (args.verificationPolicy === "production" &&
+      !isProductionSynthesisSidecarRuntimeSignature(manifest.platformSignature))
+  ) {
+    return diagnosticSnapshot(
+      "corrupt",
+      args.target,
+      !args.allowExpired &&
+        isExpiredSynthesisSidecarRuntimeManifest(manifest, args.nowMs)
+        ? "installed_manifest_expired"
+        : "installed_manifest_signature_unverified",
     );
   }
   for (const entry of manifest.files) {
@@ -186,12 +210,14 @@ async function verifyInstalledRuntime(args: {
     state: "ready",
     target: args.target,
     bundleId: manifest.bundleId,
-    nodeVersion: manifest.nodeVersion,
+    implementation: manifest.implementation,
+    targetTriple: manifest.targetTriple,
     serviceVersion: manifest.serviceVersion,
     protocolVersion: manifest.protocolVersion,
+    buildFingerprint: manifest.buildFingerprint,
+    platformSignature: manifest.platformSignature,
     installRoot: args.installRoot,
-    nodePath: joinPath(args.installRoot, manifest.executable),
-    entrypointPath: joinPath(args.installRoot, manifest.entrypoint),
+    executablePath: joinPath(args.installRoot, manifest.executable),
     diagnostics: [],
   };
 }
@@ -199,6 +225,8 @@ async function verifyInstalledRuntime(args: {
 async function stageBundle(args: {
   bundle: VerifiedSynthesisSidecarRuntimeBundle;
   stagingRoot: string;
+  verificationPolicy: "candidate" | "production";
+  nowMs?: number;
 }) {
   await ensureRuntimeDirectory(args.stagingRoot);
   for (const entry of args.bundle.manifest.files) {
@@ -220,6 +248,8 @@ async function stageBundle(args: {
     target: args.bundle.manifest.target,
     installRoot: args.stagingRoot,
     expectedBundleId: args.bundle.manifest.bundleId,
+    verificationPolicy: args.verificationPolicy,
+    nowMs: args.nowMs,
   });
   if (verified.state !== "ready") {
     throw new Error(verified.diagnostics[0]?.code || "staging_verify_failed");
@@ -231,6 +261,7 @@ export function createSynthesisSidecarRuntimeInstaller(
 ): SynthesisSidecarRuntimeInstaller {
   const target = options.target || detectSynthesisSidecarRuntimeTarget();
   const paths = getSynthesisSidecarRuntimeInstallPaths(options.runtimeRoot);
+  const verificationPolicy = options.verificationPolicy ?? "production";
   let ensurePromise: Promise<SynthesisSidecarRuntimeInstallSnapshot> | null =
     null;
 
@@ -255,6 +286,9 @@ export function createSynthesisSidecarRuntimeInstaller(
       target,
       installRoot: versionRoot(paths, active.bundleId),
       expectedBundleId: active.bundleId,
+      verificationPolicy,
+      nowMs: options.now?.(),
+      allowExpired: true,
     });
   }
 
@@ -262,11 +296,15 @@ export function createSynthesisSidecarRuntimeInstaller(
     if (target === "unsupported") {
       return diagnosticSnapshot("unsupported", target, "unsupported_target");
     }
+    const current = await inspect();
     let bundle: VerifiedSynthesisSidecarRuntimeBundle;
     try {
       bundle = await loadPackagedSynthesisSidecarRuntimeBundle({
         target,
         readPackagedAsset: options.readPackagedAsset,
+        verificationPolicy,
+        nowMs: options.now?.(),
+        allowExpired: current.state === "ready",
       });
     } catch (error) {
       return diagnosticSnapshot(
@@ -276,7 +314,18 @@ export function createSynthesisSidecarRuntimeInstaller(
       );
     }
 
-    const current = await inspect();
+    if (
+      isExpiredSynthesisSidecarRuntimeManifest(bundle.manifest, options.now?.())
+    ) {
+      return current.state === "ready" &&
+        current.bundleId === bundle.manifest.bundleId
+        ? current
+        : diagnosticSnapshot(
+            "corrupt",
+            target,
+            "packaged_bundle_invalid:synthesis_sidecar_runtime_expired",
+          );
+    }
     if (
       current.state === "ready" &&
       current.bundleId === bundle.manifest.bundleId
@@ -288,12 +337,23 @@ export function createSynthesisSidecarRuntimeInstaller(
       target,
       installRoot: finalRoot,
       expectedBundleId: bundle.manifest.bundleId,
+      verificationPolicy,
+      nowMs: options.now?.(),
     });
     let stagingRoot = "";
     try {
       if (finalSnapshot.state !== "ready") {
         if (await runtimePathExists(finalRoot)) {
-          await removeRuntimePath(finalRoot);
+          await ensureRuntimeDirectory(paths.quarantineDir);
+          await moveRuntimePath({
+            sourcePath: finalRoot,
+            targetPath: joinPath(
+              paths.quarantineDir,
+              `${bundle.manifest.bundleId}-${(
+                options.now?.() ?? Date.now()
+              ).toString(36)}`,
+            ),
+          });
         }
         await ensureRuntimeDirectory(paths.versionsDir);
         await ensureRuntimeDirectory(paths.stagingDir);
@@ -302,7 +362,12 @@ export function createSynthesisSidecarRuntimeInstaller(
           `${bundle.manifest.bundleId}-${Date.now().toString(36)}`,
         );
         await removeRuntimePath(stagingRoot);
-        await stageBundle({ bundle, stagingRoot });
+        await stageBundle({
+          bundle,
+          stagingRoot,
+          verificationPolicy,
+          nowMs: options.now?.(),
+        });
         await moveRuntimePath({
           sourcePath: stagingRoot,
           targetPath: finalRoot,
@@ -312,6 +377,8 @@ export function createSynthesisSidecarRuntimeInstaller(
           target,
           installRoot: finalRoot,
           expectedBundleId: bundle.manifest.bundleId,
+          verificationPolicy,
+          nowMs: options.now?.(),
         });
         if (finalSnapshot.state !== "ready") {
           throw new Error(
@@ -325,12 +392,16 @@ export function createSynthesisSidecarRuntimeInstaller(
         current.bundleId !== bundle.manifest.bundleId
       ) {
         await writePointer(paths.previousPointerPath, current.bundleId);
+      } else {
+        await removeRuntimePath(paths.previousPointerPath);
       }
       await writePointer(paths.activePointerPath, bundle.manifest.bundleId);
       return verifyInstalledRuntime({
         target,
         installRoot: finalRoot,
         expectedBundleId: bundle.manifest.bundleId,
+        verificationPolicy,
+        nowMs: options.now?.(),
       });
     } catch (error) {
       if (stagingRoot) {
@@ -376,6 +447,8 @@ export function createSynthesisSidecarRuntimeInstaller(
       target,
       installRoot: versionRoot(paths, previous.bundleId),
       expectedBundleId: previous.bundleId,
+      verificationPolicy,
+      nowMs: options.now?.(),
     });
     if (previousSnapshot.state !== "ready") {
       return diagnosticSnapshot("corrupt", target, "rollback_previous_invalid");

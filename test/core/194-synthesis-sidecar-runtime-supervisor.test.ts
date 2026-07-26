@@ -23,12 +23,18 @@ function readyInstall() {
     state: "ready" as const,
     target: "linux-x64" as const,
     bundleId: BUNDLE_ID,
-    nodeVersion: "24.18.0",
+    implementation: "rust-native" as const,
+    targetTriple: "x86_64-unknown-linux-gnu" as const,
     serviceVersion: "0.1.0",
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
+    buildFingerprint: "b".repeat(64),
+    platformSignature: {
+      scheme: "not-applicable" as const,
+      status: "not-applicable" as const,
+      signer: null,
+    },
     installRoot: "/product/runtime",
-    nodePath: "/product/runtime/node",
-    entrypointPath: "/product/runtime/service/entrypoint.js",
+    executablePath: "/product/runtime/synthesis-sidecar",
     diagnostics: [],
   };
 }
@@ -113,7 +119,11 @@ function createHarness(options?: {
           supervisorInstanceId: config.supervisorInstanceId,
           serviceInstanceId,
           bundleId: config.bundleId,
-          nodeVersion: config.nodeVersion,
+          implementation: config.implementation,
+          target: config.target,
+          targetTriple: config.targetTriple,
+          buildFingerprint: config.buildFingerprint,
+          platformSignature: config.platformSignature,
           serviceVersion: config.serviceVersion,
           protocolVersion: config.protocolVersion,
           schemaVersion: config.schemaVersion,
@@ -214,11 +224,8 @@ describe("Synthesis sidecar runtime supervisor", function () {
       environment: Record<string, string>;
       environmentAppend: boolean;
     };
-    assert.equal(launch.command, "/product/runtime/node");
-    assert.deepEqual(launch.arguments.slice(0, 2), [
-      "/product/runtime/service/entrypoint.js",
-      "--config",
-    ]);
+    assert.equal(launch.command, "/product/runtime/synthesis-sidecar");
+    assert.deepEqual(launch.arguments.slice(0, 2), ["serve", "--config"]);
     assert.equal(launch.environmentAppend, false);
     assert.notProperty(launch.environment, "PATH");
     assert.notProperty(launch.environment, "NODE_OPTIONS");
@@ -272,7 +279,7 @@ describe("Synthesis sidecar runtime supervisor", function () {
   });
 
   it("uses bounded restart and fuses after the fourth failure", async function () {
-    const harness = createHarness({ restartDelaysMs: [5, 5, 5] });
+    const harness = createHarness({ restartDelaysMs: [50, 50, 50] });
     harness.supervisor.start();
     for (let attempt = 0; attempt < 4; attempt += 1) {
       await waitForStatus(harness.supervisor, "ready");
@@ -329,62 +336,6 @@ describe("Synthesis sidecar runtime supervisor", function () {
     assert.isTrue(harness.processes[0]!.stdinClosed());
     assert.isTrue(harness.processes[0]!.killed());
     assert.equal(harness.supervisor.getSnapshot().status, "stopped");
-  });
-
-  it("routes every service stop signal through bounded compute-pool termination", function () {
-    const entrypoint = fs.readFileSync(
-      path.join(process.cwd(), "apps/synthesis-service/src/entrypoint.ts"),
-      "utf8",
-    );
-    const server = fs.readFileSync(
-      path.join(process.cwd(), "apps/synthesis-service/src/server.ts"),
-      "utf8",
-    );
-    const pool = fs.readFileSync(
-      path.join(
-        process.cwd(),
-        "apps/synthesis-service/src/computeWorkerPool.ts",
-      ),
-      "utf8",
-    );
-    assert.include(entrypoint, 'runtime.beginShutdown("host_lease")');
-    assert.include(entrypoint, 'runtime.beginShutdown("host_pipe_eof")');
-    assert.include(server, "computePool.shutdown()");
-    assert.include(server, "transferOwner.shutdown()");
-    assert.include(server, "repository.close()");
-    assert.include(server, "canonicalStore.stopAdmission()");
-    assert.include(server, "const SHUTDOWN_GRACE_MS = 500");
-    assert.include(pool, "shutdownTimeoutMs: 500");
-    assert.include(pool, "target.terminate()");
-    assert.notInclude(pool, "node:child_process");
-    const rustTransport = fs.readFileSync(
-      path.join(
-        process.cwd(),
-        "apps/synthesis-service/src/rustComputeWorkerTransport.ts",
-      ),
-      "utf8",
-    );
-    assert.include(rustTransport, 'from "node:child_process"');
-    assert.include(rustTransport, '["worker"');
-    const transferOwner = fs.readFileSync(
-      path.join(
-        process.cwd(),
-        "apps/synthesis-service/src/citationGraphTransferOwner.ts",
-      ),
-      "utf8",
-    );
-    assert.notInclude(transferOwner, "node:child_process");
-    assert.notInclude(transferOwner, "node:worker_threads");
-    const repositoryOwner = fs.readFileSync(
-      path.join(
-        process.cwd(),
-        "apps/synthesis-service/src/isolatedRepository.ts",
-      ),
-      "utf8",
-    );
-    assert.include(repositoryOwner, '"shadow-repository"');
-    assert.notInclude(repositoryOwner, "sessions");
-    assert.notInclude(repositoryOwner, "rmSync");
   });
 
   it("bounds retained diagnostic tails", function () {

@@ -73,16 +73,24 @@ function metricsRequest(): SynthesisCitationGraphMetricsRequest {
 
 function runtimeConfig(): SynthesisSidecarRuntimeConfig {
   return {
-    schema: "synthesis-sidecar-launch-config.v1",
+    schema: "synthesis-sidecar-launch-config.v2",
     profileId: "1".repeat(64),
     profileRuntimeRoot: path.join(ROOT, ".scaffold/test-sidecar-metrics-route"),
     runtimeRootId: "2".repeat(64),
     dataRootId: "3".repeat(64),
     bundleId: "4".repeat(64),
-    nodeVersion: "24.18.0",
-    serviceVersion: "0.1.0-test",
+    implementation: "rust-native",
+    target: "linux-x64",
+    targetTriple: "x86_64-unknown-linux-gnu",
+    buildFingerprint: "5".repeat(64),
+    platformSignature: {
+      scheme: "not-applicable",
+      status: "not-applicable",
+      signer: null,
+    },
+    serviceVersion: "0.1.0",
     protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
-    schemaVersion: "synthesis-schema.test.v1",
+    schemaVersion: "synthesis-repository-foundation.v1",
     supervisorInstanceId: "metrics-route-supervisor",
     leaseNonce: "metrics-route-lease",
     clientToken: CLIENT_TOKEN,
@@ -101,12 +109,16 @@ function readyConnection(
     clientToken: config.clientToken,
     lifecycleToken: config.lifecycleToken,
     discovery: {
-      schema: "synthesis-sidecar-discovery.v1",
+      schema: "synthesis-sidecar-discovery.v2",
       profileId: config.profileId,
       supervisorInstanceId: config.supervisorInstanceId,
       serviceInstanceId,
       bundleId: config.bundleId,
-      nodeVersion: config.nodeVersion,
+      implementation: config.implementation,
+      target: config.target,
+      targetTriple: config.targetTriple,
+      buildFingerprint: config.buildFingerprint,
+      platformSignature: config.platformSignature,
       serviceVersion: config.serviceVersion,
       protocolVersion: SYNTHESIS_SIDECAR_PROTOCOL,
       schemaVersion: config.schemaVersion,
@@ -160,12 +172,21 @@ describe("Synthesis Citation Graph metrics production sidecar route", function (
       path.join(os.tmpdir(), "zs-rust-metrics-candidate-"),
     );
     const configPath = path.join(tempRoot, "config.json");
+    const config = {
+      ...runtimeConfig(),
+      profileRuntimeRoot: path.join(tempRoot, "profile-runtime"),
+      supervisorInstanceId: "candidate-supervisor",
+      leaseNonce: "candidate-lease",
+    };
+    fs.writeFileSync(configPath, JSON.stringify(config));
     fs.writeFileSync(
-      configPath,
+      path.join(tempRoot, "lease.json"),
       JSON.stringify({
-        port: 0,
-        profileId: "candidate-profile",
-        clientToken: CLIENT_TOKEN,
+        schema: "synthesis-sidecar-lease.v1",
+        profileId: config.profileId,
+        supervisorInstanceId: config.supervisorInstanceId,
+        leaseNonce: config.leaseNonce,
+        updatedAtMs: Date.now(),
       }),
     );
     const executable = path.join(
@@ -173,8 +194,8 @@ describe("Synthesis Citation Graph metrics production sidecar route", function (
       "native/synthesis-sidecar/target/debug",
       `synthesis-sidecar${process.platform === "win32" ? ".exe" : ""}`,
     );
-    const child = spawn(executable, ["serve", configPath], {
-      stdio: ["ignore", "pipe", "pipe"],
+    const child = spawn(executable, ["serve", "--config", configPath], {
+      stdio: ["pipe", "pipe", "pipe"],
     });
     const lines = createInterface({ input: child.stdout });
     const listening = new Promise<{ port: number }>((resolve, reject) => {
@@ -194,10 +215,13 @@ describe("Synthesis Citation Graph metrics production sidecar route", function (
     try {
       const { port } = await listening;
       const endpoint = `http://127.0.0.1:${port}`;
-      assert.equal((await fetch(`${endpoint}/health`)).status, 200);
+      assert.equal(
+        (await fetch(`${endpoint}/synthesis/v1/health`)).status,
+        200,
+      );
       assert.equal(
         (
-          await fetch(`${endpoint}/call`, {
+          await fetch(`${endpoint}/synthesis/v1/call`, {
             method: "POST",
             headers: {
               authorization: "Bearer wrong-token",
@@ -209,7 +233,7 @@ describe("Synthesis Citation Graph metrics production sidecar route", function (
         401,
       );
       const handshake = (await (
-        await fetch(`${endpoint}/call`, {
+        await fetch(`${endpoint}/synthesis/v1/call`, {
           method: "POST",
           headers: {
             authorization: `Bearer ${CLIENT_TOKEN}`,
@@ -218,9 +242,14 @@ describe("Synthesis Citation Graph metrics production sidecar route", function (
           body: JSON.stringify({
             protocol: SYNTHESIS_SIDECAR_PROTOCOL,
             requestId: "candidate-handshake",
-            profileId: "candidate-profile",
+            profileId: config.profileId,
             capability: "system.handshake",
-            payload: {},
+            payload: {
+              schemaVersion: config.schemaVersion,
+              bundleId: config.bundleId,
+              buildFingerprint: config.buildFingerprint,
+              supervisorInstanceId: config.supervisorInstanceId,
+            },
           }),
         })
       ).json()) as {
@@ -236,7 +265,7 @@ describe("Synthesis Citation Graph metrics production sidecar route", function (
       assert.include(handshake.data.capabilities, "workbench.chrome.read");
       assert.include(handshake.data.capabilities, "topics.canonical.inspect");
       const input = metricsRequest();
-      const response = await fetch(`${endpoint}/call`, {
+      const response = await fetch(`${endpoint}/synthesis/v1/call`, {
         method: "POST",
         headers: {
           authorization: `Bearer ${CLIENT_TOKEN}`,
@@ -245,7 +274,7 @@ describe("Synthesis Citation Graph metrics production sidecar route", function (
         body: JSON.stringify({
           protocol: SYNTHESIS_SIDECAR_PROTOCOL,
           requestId: "candidate-request",
-          profileId: "candidate-profile",
+          profileId: config.profileId,
           capability: "compute.citation_graph_metrics",
           payload: input,
         }),
@@ -262,16 +291,16 @@ describe("Synthesis Citation Graph metrics production sidecar route", function (
           input,
         ),
       );
-      await fetch(`${endpoint}/call`, {
+      await fetch(`${endpoint}/synthesis/v1/call`, {
         method: "POST",
         headers: {
-          authorization: `Bearer ${CLIENT_TOKEN}`,
+          authorization: `Bearer ${config.lifecycleToken}`,
           "content-type": "application/json",
         },
         body: JSON.stringify({
           protocol: SYNTHESIS_SIDECAR_PROTOCOL,
           requestId: "candidate-shutdown",
-          profileId: "candidate-profile",
+          profileId: config.profileId,
           capability: "system.shutdown",
           payload: {},
         }),
@@ -279,6 +308,7 @@ describe("Synthesis Citation Graph metrics production sidecar route", function (
     } finally {
       if (child.exitCode === null) child.kill();
       lines.close();
+      fs.rmSync(tempRoot, { recursive: true, force: true });
     }
   });
 

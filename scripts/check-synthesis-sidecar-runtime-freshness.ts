@@ -34,7 +34,7 @@ export async function checkSynthesisSidecarRuntimeFreshness(
   }
   return {
     ok: diagnostics.length === 0,
-    nodeVersion: "24.18.0",
+    implementation: "rust-native",
     buildFingerprint: build.fingerprint,
     targets: [...SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX],
     diagnostics,

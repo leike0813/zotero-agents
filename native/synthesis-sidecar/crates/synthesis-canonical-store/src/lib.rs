@@ -700,6 +700,13 @@ impl CanonicalStore {
         &self.store_id
     }
 
+    pub fn close(self) -> Result<(), String> {
+        if self.writer.load(Ordering::Acquire) {
+            return Err("canonical_writer_active".into());
+        }
+        Ok(())
+    }
+
     fn topic_root(&self, path_id: &str) -> Result<PathBuf, String> {
         validate_identity_part(path_id)?;
         Ok(self.root.join("topics").join(path_segment(path_id)))

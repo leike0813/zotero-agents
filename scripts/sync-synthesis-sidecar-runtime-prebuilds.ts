@@ -5,6 +5,7 @@ import {
   SYNTHESIS_SIDECAR_RUNTIME_ADDON_ROOT,
   SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_TAG,
   SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX,
+  verifySynthesisSidecarRuntimeBundleDirectory,
 } from "./synthesis-sidecar-runtime-release-governance";
 
 function argument(name: string) {
@@ -61,19 +62,36 @@ async function main() {
     "--dir",
     downloadRoot,
   ]);
-  await fs.rm(SYNTHESIS_SIDECAR_RUNTIME_ADDON_ROOT, {
-    recursive: true,
-    force: true,
-  });
-  await fs.mkdir(SYNTHESIS_SIDECAR_RUNTIME_ADDON_ROOT, { recursive: true });
+  const extractedRoot = path.join(downloadRoot, "extracted");
+  await fs.mkdir(extractedRoot, { recursive: true });
   for (const target of SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX) {
     const archive = path.join(
       downloadRoot,
       `synthesis-sidecar-runtime-${target}.tar.gz`,
     );
     await fs.access(archive);
-    run("tar", ["-xzf", archive, "-C", SYNTHESIS_SIDECAR_RUNTIME_ADDON_ROOT]);
+    run("tar", ["-xzf", archive, "-C", extractedRoot]);
+    const verification = await verifySynthesisSidecarRuntimeBundleDirectory({
+      root: path.join(extractedRoot, target),
+      target,
+      policy: "production",
+    });
+    if (!verification.ok) {
+      throw new Error(
+        `Synthesis runtime prebuild ${target} is invalid: ${JSON.stringify(
+          verification.diagnostics,
+        )}`,
+      );
+    }
   }
+  await fs.rm(SYNTHESIS_SIDECAR_RUNTIME_ADDON_ROOT, {
+    recursive: true,
+    force: true,
+  });
+  await fs.mkdir(path.dirname(SYNTHESIS_SIDECAR_RUNTIME_ADDON_ROOT), {
+    recursive: true,
+  });
+  await fs.rename(extractedRoot, SYNTHESIS_SIDECAR_RUNTIME_ADDON_ROOT);
   process.stdout.write(
     `${JSON.stringify({
       ok: true,
