@@ -234,6 +234,7 @@ type Snapshot = {
     };
     manifest: Record<string, unknown>;
     importPreview?: {
+      builtins?: Array<Record<string, unknown>>;
       additions?: Array<Record<string, unknown>>;
       unchanged?: Array<Record<string, unknown>>;
       conflicts?: Array<Record<string, unknown>>;
@@ -590,6 +591,13 @@ const state: {
   digestModal?: DigestModalState;
   sigma?: Sigma;
   sigmaResizeObserver?: ResizeObserver;
+  sigmaResizeFrame?: number;
+  sigmaResizePending: boolean;
+  sigmaStage?: HTMLElement;
+  graphSurface?: HTMLElement;
+  graphSurfaceActive: boolean;
+  graphModelSignature?: string;
+  graphLayoutSignature?: string;
   graph?: Graph;
   hoveredNode?: string;
   hoverLabelNode?: string;
@@ -644,6 +652,8 @@ const state: {
   topicDetailSection: "overview",
   evidenceExplorerOpen: false,
   sidebarExpanded: false,
+  sigmaResizePending: false,
+  graphSurfaceActive: false,
   explorerWidth: 360,
   localPendingActions: new Map(),
   optimisticReviewDecisions: new Map(),
@@ -2091,10 +2101,106 @@ function renderTopbar(snapshot: Snapshot) {
   return topbar;
 }
 
-function renderShell(root: HTMLElement, snapshot: Snapshot) {
-  clear(root);
+function ensurePersistentGraphSurface() {
+  if (!state.graphSurface) {
+    state.graphSurface = el(
+      "div",
+      "workbench-surface workbench-graph-surface is-inactive",
+    );
+    state.graphSurface.dataset.synthesisPersistentSurface = "graph";
+  }
+  return state.graphSurface;
+}
+
+function preserveGraphSurfaceWhileRebuildingRoot(root: HTMLElement) {
+  const graphSurface = ensurePersistentGraphSurface();
+  if (graphSurface.isConnected && graphSurface.closest("#app") === root) {
+    root.appendChild(graphSurface);
+  }
+  Array.from(root.children).forEach((child) => {
+    if (child !== graphSurface) {
+      child.remove();
+    }
+  });
+}
+
+function setGraphSurfaceActive(active: boolean) {
+  const graphSurface = ensurePersistentGraphSurface();
+  state.graphSurfaceActive = active;
+  graphSurface.classList.toggle("is-active", active);
+  graphSurface.classList.toggle("is-inactive", !active);
+  graphSurface.toggleAttribute("inert", !active);
+  graphSurface.setAttribute("aria-hidden", active ? "false" : "true");
+  if (active && state.sigmaResizePending) {
+    scheduleSigmaResize();
+  }
+}
+
+function renderWorkbenchMain(main: HTMLElement, snapshot: Snapshot) {
+  const graphSurface = ensurePersistentGraphSurface();
+  main.appendChild(graphSurface);
+  if (snapshot.selectedTab === "graph") {
+    setGraphSurfaceActive(true);
+    renderCurrentView(graphSurface, snapshot);
+    return;
+  }
+  setGraphSurfaceActive(false);
+  const surface = el("div", "workbench-surface workbench-content-surface");
+  main.appendChild(surface);
+  renderCurrentView(surface, snapshot);
+}
+
+function renderWorkbenchSurfaceLoading(
+  main: HTMLElement,
+  surface: WorkbenchSurfaceName,
+) {
+  const graphSurface = ensurePersistentGraphSurface();
+  main.appendChild(graphSurface);
+  setGraphSurfaceActive(false);
+  const content = el("div", "workbench-surface workbench-content-surface");
+  content.appendChild(renderSurfaceLoading(surface));
+  main.appendChild(content);
+}
+
+function clearWorkbenchMain(main: HTMLElement) {
+  const graphSurface = ensurePersistentGraphSurface();
+  if (graphSurface.parentElement === main) {
+    main.appendChild(graphSurface);
+  }
+  Array.from(main.children).forEach((child) => {
+    if (child !== graphSurface) {
+      child.remove();
+    }
+  });
+  main.appendChild(graphSurface);
+}
+
+function syncSidebarExpandedState(
+  root: HTMLElement,
+  sidebarToggle: HTMLButtonElement,
+) {
   root.classList.toggle("sidebar-expanded", state.sidebarExpanded);
   root.classList.toggle("sidebar-collapsed", !state.sidebarExpanded);
+  sidebarToggle.title = state.sidebarExpanded
+    ? t("synthesis-nav-collapse")
+    : t("synthesis-nav-expand");
+  sidebarToggle.setAttribute("aria-label", sidebarToggle.title);
+  sidebarToggle.setAttribute(
+    "aria-expanded",
+    state.sidebarExpanded ? "true" : "false",
+  );
+  clear(sidebarToggle);
+  sidebarToggle.appendChild(
+    iconEl(
+      state.sidebarExpanded
+        ? "zs-icon-right-panel-open"
+        : "zs-icon-right-panel-close",
+    ),
+  );
+}
+
+function renderShell(root: HTMLElement, snapshot: Snapshot) {
+  preserveGraphSurfaceWhileRebuildingRoot(root);
 
   const sidebar = el("aside", "sidebar");
   const brand = el("div", "brand brand-icon-only");
@@ -2104,24 +2210,11 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
   brand.appendChild(logo);
   const sidebarToggle = el("button", "sidebar-collapse-toggle icon-only");
   sidebarToggle.type = "button";
-  sidebarToggle.title = state.sidebarExpanded
-    ? t("synthesis-nav-collapse")
-    : t("synthesis-nav-expand");
-  sidebarToggle.setAttribute("aria-label", sidebarToggle.title);
-  sidebarToggle.setAttribute(
-    "aria-expanded",
-    state.sidebarExpanded ? "true" : "false",
-  );
-  sidebarToggle.appendChild(
-    iconEl(
-      state.sidebarExpanded
-        ? "zs-icon-right-panel-open"
-        : "zs-icon-right-panel-close",
-    ),
-  );
+  syncSidebarExpandedState(root, sidebarToggle);
   sidebarToggle.addEventListener("click", () => {
     state.sidebarExpanded = !state.sidebarExpanded;
-    render();
+    syncSidebarExpandedState(root, sidebarToggle);
+    scheduleSigmaResize();
   });
   brand.appendChild(sidebarToggle);
   sidebar.appendChild(brand);
@@ -2172,7 +2265,7 @@ function renderShell(root: HTMLElement, snapshot: Snapshot) {
   content.appendChild(renderTopbar(snapshot));
   const main = el("section", "main");
   main.dataset.synthesisSurface = surfaceForTab(snapshot.selectedTab);
-  renderCurrentView(main, snapshot);
+  renderWorkbenchMain(main, snapshot);
   content.appendChild(main);
   content.appendChild(renderActionStatusbar(snapshot));
   root.appendChild(content);
@@ -2225,12 +2318,9 @@ function renderSelectedTabShell() {
       renderTopicDetailToolbar(state.topicDetail, state.snapshot),
     );
   }
-  if (main.dataset.synthesisSurface === "graph") {
-    disposeGraphRenderer();
-  }
   const surface = surfaceForTab(state.snapshot.selectedTab);
   main.dataset.synthesisSurface = surface;
-  clear(main);
+  clearWorkbenchMain(main);
   if (state.standaloneExport) {
     renderStandaloneTopicExportShell(root, state.snapshot);
     restoreWorkbenchRenderState(root, renderState);
@@ -2243,10 +2333,10 @@ function renderSelectedTabShell() {
     runtime?.status === "ready" ||
     (runtime?.status === "failed" && runtime.snapshot)
   ) {
-    renderCurrentView(main, state.snapshot);
+    renderWorkbenchMain(main, state.snapshot);
     maybeRequestGraphLayoutRefresh(state.snapshot);
   } else {
-    main.appendChild(renderSurfaceLoading(surface));
+    renderWorkbenchSurfaceLoading(main, surface);
   }
   localizeWorkbenchDom(root);
   state.lastContentSignature = "";
@@ -2348,55 +2438,49 @@ function renderSurface(surface: WorkbenchSurfaceName) {
     return;
   }
   const renderState = captureWorkbenchRenderState(root);
-  if (state.snapshot.selectedTab === "graph") {
-    disposeGraphRenderer();
-  }
   main.dataset.synthesisSurface = surface;
-  clear(main);
-  renderCurrentView(main, state.snapshot);
+  clearWorkbenchMain(main);
+  renderWorkbenchMain(main, state.snapshot);
   restoreWorkbenchRenderState(root, renderState);
   localizeWorkbenchDom(root);
   state.lastContentSignature = snapshotContentSignature(state.snapshot);
   maybeRequestGraphLayoutRefresh(state.snapshot);
 }
 
-function disposeGraphRenderer() {
-  cancelScheduledHoverClear();
-  state.sigmaResizeObserver?.disconnect();
-  state.sigmaResizeObserver = undefined;
-  state.sigma?.kill();
-  state.sigma = undefined;
-  state.graph = undefined;
-  state.hoveredNode = undefined;
-  state.hoverLabelNode = undefined;
-  state.dynamicHoverNodeIds.clear();
-  state.dynamicHoverEdgeIds.clear();
-}
-
-function scheduleSigmaResize(renderer: Sigma, container: HTMLElement) {
-  const resize = () => {
-    if (!state.sigma || state.sigma !== renderer) {
+function scheduleSigmaResize() {
+  state.sigmaResizePending = true;
+  if (
+    !state.graphSurfaceActive ||
+    !state.sigma ||
+    !state.sigmaStage ||
+    state.sigmaResizeFrame
+  ) {
+    return;
+  }
+  state.sigmaResizeFrame = window.requestAnimationFrame(() => {
+    state.sigmaResizeFrame = undefined;
+    const renderer = state.sigma;
+    const container = state.sigmaStage;
+    if (!state.graphSurfaceActive || !renderer || !container) {
       return;
     }
     const rect = container.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) {
       return;
     }
+    state.sigmaResizePending = false;
     renderer.resize();
     renderer.refresh();
-  };
-  window.requestAnimationFrame(resize);
-  window.requestAnimationFrame(() => window.requestAnimationFrame(resize));
-  setTimeout(resize, 80);
-  setTimeout(resize, 240);
+  });
 }
 
 function renderCurrentView(main: HTMLElement, snapshot: Snapshot) {
-  const diagnostic = renderSurfaceRefreshDiagnostic(
-    surfaceForTab(snapshot.selectedTab),
-  );
-  if (diagnostic) {
-    main.appendChild(diagnostic);
+  const surface = surfaceForTab(snapshot.selectedTab);
+  if (surface !== "graph") {
+    const diagnostic = renderSurfaceRefreshDiagnostic(surface);
+    if (diagnostic) {
+      main.appendChild(diagnostic);
+    }
   }
   if (snapshot.selectedTab === "reader") {
     if (state.topicDetail) {
@@ -11981,12 +12065,15 @@ function renderVocabularySubview(snapshot: Snapshot) {
             checkbox.checked,
           ),
         );
-        const statusBadge = tagWarningsFor(row).length
-          ? badge("warning", "warn")
-          : badge(
-              row.deprecated ? "deprecated" : "active",
-              row.deprecated ? "danger" : "ok",
-            );
+        const builtin = Boolean(row.builtin);
+        const statusBadge = builtin
+          ? badge(t("synthesis-tags-builtin"), "info")
+          : tagWarningsFor(row).length
+            ? badge("warning", "warn")
+            : badge(
+                row.deprecated ? "deprecated" : "active",
+                row.deprecated ? "danger" : "ok",
+              );
         const warnings = tagWarningsFor(row);
         const key = expandedRowKey("vocabulary", tag);
         const editing = vocabularyEditingState(snapshot)?.originalTag === tag;
@@ -12002,6 +12089,7 @@ function renderVocabularySubview(snapshot: Snapshot) {
         if (editing) {
           const tagInput = el("input");
           tagInput.value = draft.tag;
+          tagInput.disabled = builtin;
           tagInput.dataset.synthesisControlKey = `tags.vocabulary.${tag}.tag`;
           const facetSelect = renderTagFacetSelect({
             snapshot,
@@ -12017,6 +12105,7 @@ function renderVocabularySubview(snapshot: Snapshot) {
               }),
           });
           const noteInput = el("input");
+          facetSelect.disabled = builtin;
           noteInput.value = draft.note;
           noteInput.dataset.synthesisControlKey = `tags.vocabulary.${tag}.note`;
           tagInput.addEventListener("change", () =>
@@ -12066,17 +12155,19 @@ function renderVocabularySubview(snapshot: Snapshot) {
             ),
           );
         }
-        actions.appendChild(
-          makeLocalButton(t("synthesis-action-delete"), () => {
-            if (!window.confirm(`Delete vocabulary tag "${tag}"?`)) {
-              return;
-            }
-            sendAction("hostCommand", {
-              command: "deleteTagVocabularyEntry",
-              args: { originalTag: tag, tag },
-            });
-          }),
-        );
+        if (!builtin) {
+          actions.appendChild(
+            makeLocalButton(t("synthesis-action-delete"), () => {
+              if (!window.confirm(`Delete vocabulary tag "${tag}"?`)) {
+                return;
+              }
+              sendAction("hostCommand", {
+                command: "deleteTagVocabularyEntry",
+                args: { originalTag: tag, tag },
+              });
+            }),
+          );
+        }
         actions.appendChild(renderRowExpandButton(snapshot, key));
         return [
           checkbox,
@@ -12588,6 +12679,7 @@ function tagImportPreviewSignature(snapshot: Snapshot) {
   return [
     snapshot.tags.importDraft?.length || 0,
     preview.additions?.length || 0,
+    preview.builtins?.length || 0,
     preview.conflicts?.length || 0,
     preview.unchanged?.length || 0,
     preview.warnings?.length || 0,
@@ -12701,6 +12793,7 @@ function renderTagImportPanel(snapshot: Snapshot) {
         : t("synthesis-tags-import-body"),
       details: preview
         ? [
+            ["builtins", preview.builtins],
             ["additions", preview.additions],
             ["conflicts", preview.conflicts],
             ["unchanged", preview.unchanged],
@@ -13312,17 +13405,51 @@ function renderCitationGraphLegend() {
 }
 
 function renderGraph(main: HTMLElement, snapshot: Snapshot) {
-  const shell = el("div", "graph-shell");
+  let shell = main.querySelector(":scope > .graph-shell") as HTMLElement | null;
+  if (!shell) {
+    shell = el("div", "graph-shell");
+  }
+  Array.from(main.children).forEach((child) => {
+    if (child !== shell) {
+      child.remove();
+    }
+  });
+  const diagnostic = renderSurfaceRefreshDiagnostic("graph");
+  if (diagnostic) {
+    main.appendChild(diagnostic);
+  }
   if (state.standaloneGraphOnly) {
     shell.classList.add("graph-shell-standalone-only");
-    shell.appendChild(renderCitationGraphLegend());
+  } else {
+    shell.classList.remove("graph-shell-standalone-only");
   }
-  const stage = el("div", "graph-stage");
-  const canvas = el("div", "sigma-stage");
-  stage.appendChild(canvas);
+  let stage = shell.querySelector(
+    ":scope > .graph-stage",
+  ) as HTMLElement | null;
+  if (!stage) {
+    stage = el("div", "graph-stage");
+    shell.prepend(stage);
+  }
+  if (!state.sigmaStage) {
+    state.sigmaStage = el("div", "sigma-stage");
+  }
+  const canvas = state.sigmaStage;
+  Array.from(stage.children).forEach((child) => {
+    if (child !== canvas) {
+      child.remove();
+    }
+  });
+  stage.prepend(canvas);
+  Array.from(shell.children).forEach((child) => {
+    if (child !== stage) {
+      child.remove();
+    }
+  });
   stage.appendChild(renderGraphZoomOverlay());
   stage.appendChild(el("div", "graph-scope-badge", graphScopeLabel(snapshot)));
-  shell.appendChild(stage);
+  if (state.standaloneGraphOnly) {
+    shell.insertBefore(renderCitationGraphLegend(), stage);
+  }
 
   const selectedTopicTitle = selectedGraphTopicTitle(snapshot);
   if (!state.standaloneGraphOnly) {
@@ -13412,6 +13539,7 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
     shell.appendChild(selection);
   }
   main.appendChild(shell);
+  canvas.classList.add("is-inactive");
 
   const hasGraphData = snapshot.graph.nodes.length > 0;
   const graphCacheStatus = textValue(
@@ -13531,7 +13659,8 @@ function renderGraph(main: HTMLElement, snapshot: Snapshot) {
   if (!state.standaloneGraphOnly) {
     stage.appendChild(renderCitationGraphLegend());
   }
-  renderSigmaGraph(canvas, snapshot);
+  canvas.classList.remove("is-inactive");
+  syncSigmaGraph(canvas, snapshot);
 }
 
 function renderGraphZoomOverlay() {
@@ -14157,7 +14286,65 @@ function selectedGraphHoverNode(snapshot: Snapshot, graph: Graph) {
   return selected.id;
 }
 
-function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
+function sigmaGraphModelSignature(snapshot: Snapshot) {
+  return JSON.stringify({
+    nodes: snapshot.graph.visibleNodes.map((node) => [
+      node.id,
+      node.label,
+      node.x,
+      node.y,
+      node.kind,
+      node.visibility,
+      node.display_tier,
+      node.metrics,
+      node.is_focus,
+      node.focus_role,
+    ]),
+    edges: snapshot.graph.visibleEdges.map((edge) => [
+      edge.id,
+      edge.source,
+      edge.target,
+      edge.primary_role,
+      edge.mention_count,
+      edge.visibility,
+    ]),
+  });
+}
+
+function sigmaGraphLayoutSignature(snapshot: Snapshot) {
+  return JSON.stringify({
+    algorithm: snapshot.graph.layoutAlgorithm,
+    nodes: snapshot.graph.visibleNodes.map((node) => [node.id, node.x, node.y]),
+  });
+}
+
+function syncSelectedGraphHover(snapshot: Snapshot, graph: Graph) {
+  clearDynamicHoverGraph(graph);
+  const pinnedHoverNode = selectedGraphHoverNode(snapshot, graph);
+  state.hoveredNode = pinnedHoverNode;
+  state.hoverLabelNode = undefined;
+  if (pinnedHoverNode) {
+    addHoverNeighborhood(graph, pinnedHoverNode);
+  }
+}
+
+function syncSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
+  const modelSignature = sigmaGraphModelSignature(snapshot);
+  const layoutSignature = sigmaGraphLayoutSignature(snapshot);
+  if (
+    state.sigma &&
+    state.graph &&
+    state.graphModelSignature === modelSignature
+  ) {
+    syncSelectedGraphHover(snapshot, state.graph);
+    state.sigma.refresh();
+    scheduleSigmaResize();
+    return;
+  }
+  cancelScheduledHoverClear();
+  if (state.graph) {
+    clearDynamicHoverGraph(state.graph);
+  }
   const graph = new Graph({ multi: false, type: "directed" });
   const importanceByNodeId = buildCitationGraphNodeImportance(
     snapshot.graph.visibleNodes,
@@ -14212,11 +14399,24 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
   }
 
   state.graph = graph;
-  const pinnedHoverNode = selectedGraphHoverNode(snapshot, graph);
-  state.hoveredNode = pinnedHoverNode;
-  state.hoverLabelNode = undefined;
-  if (pinnedHoverNode) {
-    addHoverNeighborhood(graph, pinnedHoverNode);
+  syncSelectedGraphHover(snapshot, graph);
+  if (state.sigma) {
+    const layoutChanged =
+      Boolean(state.graphLayoutSignature) &&
+      state.graphLayoutSignature !== layoutSignature;
+    state.sigma.setGraph(graph);
+    state.graphModelSignature = modelSignature;
+    state.graphLayoutSignature = layoutSignature;
+    if (layoutChanged) {
+      (state.sigma.getCamera() as any).setState?.({
+        x: 0.5,
+        y: 0.5,
+        ratio: 1,
+        angle: 0,
+      });
+    }
+    scheduleSigmaResize();
+    return;
   }
   const renderer = new Sigma(graph, container, {
     allowInvalidContainer: true,
@@ -14225,7 +14425,11 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
     defaultDrawNodeHover: drawGraphNodeHover,
     zIndex: true,
     nodeReducer(node: string, data: Record<string, unknown>) {
-      const query = currentGraphSearchQuery(snapshot);
+      const graph = state.graph;
+      if (!graph) {
+        return data;
+      }
+      const query = currentGraphSearchQuery(state.snapshot || undefined);
       const searchActive = !!query.trim();
       const searchMatch = graphNodeMatchesSearchText(data.searchable, query);
       const currentPaperNode = Boolean(data.currentPaperNode);
@@ -14292,9 +14496,13 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
       };
     },
     edgeReducer(edge: string, data: Record<string, unknown>) {
+      const graph = state.graph;
+      if (!graph) {
+        return data;
+      }
       const selectedEdgeId =
-        snapshot.graph.selectedElement?.kind === "edge"
-          ? snapshot.graph.selectedElement.id
+        state.snapshot?.graph.selectedElement?.kind === "edge"
+          ? state.snapshot.graph.selectedElement.id
           : undefined;
       const activeNode =
         state.hoveredNode && graph.hasNode(state.hoveredNode)
@@ -14321,17 +14529,24 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
     },
   } as any);
   state.sigma = renderer;
+  state.graphModelSignature = modelSignature;
+  state.graphLayoutSignature = layoutSignature;
   const camera = renderer.getCamera() as any;
   camera?.on?.("updated", () => clampGraphCameraZoom(renderer));
   clampGraphCameraZoom(renderer);
   if (typeof ResizeObserver !== "undefined") {
     state.sigmaResizeObserver = new ResizeObserver(() => {
-      scheduleSigmaResize(renderer, container);
+      scheduleSigmaResize();
     });
     state.sigmaResizeObserver.observe(container);
   }
-  scheduleSigmaResize(renderer, container);
+  scheduleSigmaResize();
   renderer.on("enterNode", ({ node }: { node: string }) => {
+    const graph = state.graph;
+    const snapshot = state.snapshot;
+    if (!graph || !snapshot) {
+      return;
+    }
     const pinnedNode = selectedGraphHoverNode(snapshot, graph);
     if (pinnedNode && node !== pinnedNode) {
       state.hoverLabelNode = graph.areNeighbors(node, pinnedNode)
@@ -14360,6 +14575,11 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
     renderer.refresh();
   });
   renderer.on("leaveNode", () => {
+    const graph = state.graph;
+    const snapshot = state.snapshot;
+    if (!graph || !snapshot) {
+      return;
+    }
     state.hoverLabelNode = undefined;
     scheduleHoverClear(
       renderer,
@@ -14368,6 +14588,10 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
     );
   });
   renderer.on("clickNode", ({ node }: { node: string }) => {
+    const graph = state.graph;
+    if (!graph) {
+      return;
+    }
     cancelScheduledHoverClear();
     addHoverNeighborhood(graph, node);
     state.hoveredNode = node;
@@ -14383,6 +14607,10 @@ function renderSigmaGraph(container: HTMLElement, snapshot: Snapshot) {
     sendAction("setGraphView", { selectedElement: { kind: "edge", id: edge } });
   });
   renderer.on("clickStage", () => {
+    const graph = state.graph;
+    if (!graph) {
+      return;
+    }
     cancelScheduledHoverClear();
     clearDynamicHoverGraph(graph);
     state.hoveredNode = undefined;
@@ -14884,6 +15112,7 @@ function snapshotContentSignature(snapshot: Snapshot | null) {
       selected: snapshot.tags.selected,
       importPreview: [
         snapshot.tags.importPreview?.additions?.length || 0,
+        snapshot.tags.importPreview?.builtins?.length || 0,
         snapshot.tags.importPreview?.unchanged?.length || 0,
         snapshot.tags.importPreview?.conflicts?.length || 0,
         snapshot.tags.importPreview?.warnings?.length || 0,
@@ -15136,7 +15365,6 @@ function render() {
     return;
   }
   const renderState = captureWorkbenchRenderState(root as HTMLElement);
-  disposeGraphRenderer();
   if (state.standaloneGraphOnly) {
     renderStandaloneGraphExportShell(root as HTMLElement, state.snapshot);
   } else if (state.standaloneExport) {
@@ -15157,11 +15385,14 @@ function renderStandaloneGraphExportShell(
   root: HTMLElement,
   snapshot: Snapshot,
 ) {
-  clear(root);
+  preserveGraphSurfaceWhileRebuildingRoot(root);
   root.className = "synthesis-root standalone-graph-export-root";
   const main = el("main", "standalone-graph-export-main");
   root.appendChild(main);
-  renderGraph(main, snapshot);
+  const graphSurface = ensurePersistentGraphSurface();
+  main.appendChild(graphSurface);
+  setGraphSurfaceActive(true);
+  renderGraph(graphSurface, snapshot);
 }
 
 function maybeRequestGraphLayoutRefresh(snapshot: Snapshot | null) {

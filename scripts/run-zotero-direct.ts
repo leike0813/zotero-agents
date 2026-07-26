@@ -27,7 +27,11 @@ import { fileURLToPath } from "url";
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const SCRIPT_DIR = dirname(SCRIPT_PATH);
 const ROOT = resolve(SCRIPT_DIR, "..");
-loadEnv({ path: resolve(ROOT, ".env") });
+// Load .env only when executed as a CLI; importing this module (e.g. from
+// tests) must not mutate process.env.
+if (process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH) {
+  loadEnv({ path: resolve(ROOT, ".env") });
+}
 
 const SHOULD_BUILD =
   process.argv.includes("--build") || process.argv.includes("-b");

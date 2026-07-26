@@ -8,15 +8,20 @@ import { executeApplyResult } from "../../src/workflows/runtime";
 import {
   buildSkillRunFeedbackExportMarkdown,
   createProductStorageApi,
+  exportWorkflowProductToDirectory,
   exportSkillRunFeedbackMarkdownFile,
   getWorkflowProduct,
+  getWorkflowProductMigrationStatus,
+  initializeWorkflowProductStorage,
   listSkillRunFeedbackProducts,
   readProductAssetPreview,
   removeWorkflowProduct,
   resolveManagedWorkflowProductAsset,
+  resolveManagedWorkflowProductAssetByRelativePath,
   SKILL_RUN_FEEDBACK_ASSET_ID,
   WORKFLOW_PRODUCT_KIND_SKILL_RUN_FEEDBACK,
 } from "../../src/modules/workflowProductStore";
+import { getRuntimePersistencePaths } from "../../src/modules/runtimePersistence";
 import {
   PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS,
   resetPluginStateStoreForTests,
@@ -79,7 +84,7 @@ describe("workflow product storage", function () {
         responseJson: { provider: "acp" },
       },
     });
-    const record = await api.registerProduct({
+    const receipt = await api.registerProduct({
       productKey: "draft",
       kind: "writing.test",
       title: "Local Product",
@@ -92,15 +97,13 @@ describe("workflow product storage", function () {
         },
       ],
     });
+    const record = getWorkflowProduct(receipt.productId)!;
     try {
-      assert.equal(record.storageMode, "persistent-cache");
-      assert.equal(record.assets[0].sourceKind, "product-cache");
-      assert.isString(record.cacheDir);
-      assert.notInclude(record.assets[0].localPath || "", workspaceDir);
-      assert.include(
-        (record.assets[0].localPath || "").replace(/\\/g, "/"),
-        (record.cacheDir || "").replace(/\\/g, "/"),
-      );
+      assert.equal(record.schemaVersion, 2);
+      assert.equal(receipt.assetCount, 1);
+      assert.equal(record.assets[0].availability, "available");
+      assert.notProperty(record, "cacheDir");
+      assert.notProperty(record.assets[0], "localPath");
       await fs.writeFile(
         path.join(workspaceDir, "result", "writing-plan.json"),
         JSON.stringify({ title: "Changed" }),
@@ -142,7 +145,7 @@ describe("workflow product storage", function () {
         responseJson: { provider: "skillrunner" },
       },
     });
-    const record = await api.registerProduct({
+    const receipt = await api.registerProduct({
       productKey: "draft",
       kind: "writing.test",
       title: "Bundle Product",
@@ -156,12 +159,10 @@ describe("workflow product storage", function () {
         },
       ],
     });
+    const record = getWorkflowProduct(receipt.productId)!;
     try {
-      assert.equal(record.storageMode, "persistent-cache");
-      assert.equal(record.assets[0].sourceKind, "product-cache");
-      assert.isTrue(Boolean(record.assets[0].localPath));
-      const loaded = getWorkflowProduct(record.productId);
-      assert.equal(loaded?.assets[0].path, "draft/intro.md");
+      assert.equal(record.assets[0].availability, "available");
+      assert.equal(record.assets[0].relativePath, "draft/intro.md");
       const preview = await readProductAssetPreview(record.productId, "intro");
       assert.equal(preview.kind, "markdown");
       assert.include(preview.text, "# Intro");
@@ -197,7 +198,7 @@ describe("workflow product storage", function () {
       resultContext,
       runResult: { requestId },
     });
-    const record = await api.registerProduct({
+    const receipt = await api.registerProduct({
       productKey: "binary",
       kind: "binary.test",
       title: "Binary Product",
@@ -207,7 +208,7 @@ describe("workflow product storage", function () {
           assetId: "pdf",
           productAssetPath: "papers/paper.pdf",
           contentType: "application/pdf",
-          source: { kind: "local-file", path: pdfPath },
+          source: { kind: "local-file", path: pathToFileURL(pdfPath).href },
         },
         {
           assetId: "png",
@@ -217,14 +218,24 @@ describe("workflow product storage", function () {
         },
       ],
     });
+    const record = getWorkflowProduct(receipt.productId)!;
     try {
-      assert.deepEqual(
-        await fs.readFile(record.assets[0].localPath || ""),
-        pdfBytes,
+      const pdf = await resolveManagedWorkflowProductAsset(
+        record.productId,
+        "pdf",
       );
+      const png = await resolveManagedWorkflowProductAsset(
+        record.productId,
+        "png",
+      );
+      assert.deepEqual(await fs.readFile(pdf?.localPath || ""), pdfBytes);
       assert.deepEqual(
-        await fs.readFile(record.assets[1].localPath || ""),
+        await fs.readFile(png?.localPath || ""),
         Buffer.from(pngBytes),
+      );
+      assert.match(
+        (pdf?.localPath || "").replace(/\\/g, "/"),
+        /\/assets\/objects\/[a-f0-9]{32}\/[a-f0-9]{16}\/[a-f0-9]{32}$/,
       );
       assert.match(record.assets[0].sha256 || "", /^sha256:[a-f0-9]{64}$/);
       assert.equal(record.assets[0].size, pdfBytes.length);
@@ -235,6 +246,171 @@ describe("workflow product storage", function () {
       removeWorkflowProduct(record.productId);
       await fs.rm(sourceDir, { recursive: true, force: true });
     }
+  });
+
+  it("keeps deep logical paths portable while managed object paths stay fixed", async function () {
+    const requestId = `req-product-deep-${Date.now()}`;
+    const api = createProductStorageApi({
+      manifest: { id: "wf-deep", label: "Deep" },
+      resultContext: {
+        async resolveArtifactBytes() {
+          throw new Error("not used");
+        },
+      } as any,
+      runResult: { requestId },
+    });
+    const relativePath = [
+      "papers",
+      "paper-001",
+      "Images_IX5R2J7K",
+      "3eaea079af5149973da73e7a15b0a5d1ec5f7e95f2dcb1df302e3340a4bddc98.jpg",
+    ].join("/");
+    const sourcePath = path.join(tempRoot, "source", "image.jpg");
+    await fs.mkdir(path.dirname(sourcePath), { recursive: true });
+    await fs.writeFile(sourcePath, "image-bytes", "utf8");
+    const receipt = await api.registerProduct({
+      productKey: "deep",
+      kind: "research_bundle",
+      title: "Deep Product",
+      failurePolicy: "atomic",
+      assets: [
+        {
+          assetId: "image",
+          productAssetPath: relativePath,
+          contentType: "image/jpeg",
+          source: { kind: "local-file", path: sourcePath },
+        },
+      ],
+    });
+    const resolved = await resolveManagedWorkflowProductAsset(
+      receipt.productId,
+      "image",
+    );
+    assert.match(
+      (resolved?.localPath || "").replace(/\\/g, "/"),
+      /\/assets\/objects\/[a-f0-9]{32}\/[a-f0-9]{16}\/[a-f0-9]{32}$/,
+    );
+    assert.notInclude(resolved?.localPath || "", "Images_IX5R2J7K");
+    assert.equal(
+      (
+        await resolveManagedWorkflowProductAssetByRelativePath(
+          receipt.productId,
+          relativePath,
+        )
+      )?.asset.assetId,
+      "image",
+    );
+    const exportDir = path.join(tempRoot, "exported");
+    await exportWorkflowProductToDirectory({
+      productId: receipt.productId,
+      outputDir: exportDir,
+    });
+    assert.equal(
+      await fs.readFile(
+        path.join(exportDir, ...relativePath.split("/")),
+        "utf8",
+      ),
+      "image-bytes",
+    );
+  });
+
+  it("migrates legacy product trees once without normal read fallback", async function () {
+    const productId = "legacy-product";
+    const oldRoot = path.join(
+      getRuntimePersistencePaths().workflowProductsDir,
+      "assets",
+      productId,
+    );
+    const oldAsset = path.join(oldRoot, "draft", "intro.md");
+    await fs.mkdir(path.dirname(oldAsset), { recursive: true });
+    await fs.writeFile(oldAsset, "# Legacy", "utf8");
+    upsertPluginTaskRowEntry(PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS, "products", {
+      taskId: productId,
+      requestId: "legacy-request",
+      backendId: "workflow-product",
+      state: "available",
+      updatedAt: "2026-07-19T00:00:00.000Z",
+      payload: JSON.stringify({
+        productId,
+        productKey: "legacy",
+        kind: "writing.test",
+        title: "Legacy",
+        workflowId: "legacy-workflow",
+        workflowLabel: "Legacy Workflow",
+        backendType: "workflow-product",
+        requestId: "legacy-request",
+        storageMode: "persistent-cache",
+        cacheDir: oldRoot,
+        assets: [
+          {
+            assetId: "intro",
+            label: "Intro",
+            path: "draft/intro.md",
+            relativePath: "draft/intro.md",
+            sourceKind: "product-cache",
+            localPath: oldAsset,
+          },
+        ],
+        metadata: {},
+        createdAt: "2026-07-19T00:00:00.000Z",
+        updatedAt: "2026-07-19T00:00:00.000Z",
+      }),
+    });
+
+    assert.isNull(getWorkflowProduct(productId));
+    await initializeWorkflowProductStorage();
+    const migrated = getWorkflowProduct(productId)!;
+    assert.equal(migrated.schemaVersion, 2);
+    assert.equal(migrated.assets[0].availability, "available");
+    assert.isFalse(
+      await fs
+        .stat(oldRoot)
+        .then(() => true)
+        .catch(() => false),
+    );
+    assert.include(
+      (await readProductAssetPreview(productId, "intro")).text,
+      "# Legacy",
+    );
+    assert.equal(getWorkflowProductMigrationStatus().state, "ready");
+  });
+
+  it("keeps an invalid legacy row retryable instead of publishing mixed storage", async function () {
+    upsertPluginTaskRowEntry(PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS, "products", {
+      taskId: "legacy-invalid",
+      requestId: "legacy-request",
+      backendId: "workflow-product",
+      state: "available",
+      updatedAt: "2026-07-19T00:00:00.000Z",
+      payload: JSON.stringify({
+        productId: "legacy-invalid",
+        productKey: "legacy-invalid",
+        kind: "writing.test",
+        title: "Legacy invalid",
+        workflowId: "legacy-workflow",
+        workflowLabel: "Legacy Workflow",
+        backendType: "workflow-product",
+        requestId: "legacy-request",
+        cacheDir: path.join(tempRoot, "foreign"),
+        assets: [],
+        metadata: {},
+        createdAt: "2026-07-19T00:00:00.000Z",
+        updatedAt: "2026-07-19T00:00:00.000Z",
+      }),
+    });
+
+    let error: any;
+    try {
+      await initializeWorkflowProductStorage();
+    } catch (caught) {
+      error = caught;
+    }
+    assert.equal(error?.code, "workflow_product_store_migration_incomplete");
+    assert.deepInclude(getWorkflowProductMigrationStatus(), {
+      state: "failed",
+      failedProductIds: ["legacy-invalid"],
+    });
+    assert.isNull(getWorkflowProduct("legacy-invalid"));
   });
 
   it("rolls back atomic product registration on duplicate targets", async function () {
@@ -311,6 +487,148 @@ describe("workflow product storage", function () {
     }
   });
 
+  it("keeps the published revision readable when an atomic update fails", async function () {
+    const requestId = `req-product-update-${Date.now()}`;
+    const api = createProductStorageApi({
+      manifest: { id: "wf-update", label: "Update" },
+      resultContext: {
+        async resolveArtifactBytes() {
+          throw new Error("not used");
+        },
+      } as any,
+      runResult: { requestId },
+    });
+    const first = await api.registerProduct({
+      productKey: "same",
+      kind: "writing.test",
+      title: "First",
+      failurePolicy: "atomic",
+      assets: [
+        {
+          assetId: "body",
+          productAssetPath: "body.md",
+          source: { kind: "inline-text", text: "first revision" },
+        },
+      ],
+    });
+    let error: unknown;
+    try {
+      await api.registerProduct({
+        productKey: "same",
+        kind: "writing.test",
+        title: "Broken",
+        failurePolicy: "atomic",
+        assets: [
+          {
+            assetId: "body",
+            productAssetPath: "body.md",
+            source: {
+              kind: "local-file",
+              path: path.join(tempRoot, "missing.md"),
+            },
+          },
+        ],
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    assert.instanceOf(error, Error);
+    assert.include(
+      (await readProductAssetPreview(first.productId, "body")).text,
+      "first revision",
+    );
+    assert.equal(getWorkflowProduct(first.productId)?.title, "First");
+  });
+
+  it("serializes concurrent revisions for the same Product", async function () {
+    const requestId = `req-product-concurrent-${Date.now()}`;
+    let releaseSlow!: () => void;
+    let reportSlowStarted!: () => void;
+    const slowGate = new Promise<void>((resolve) => {
+      releaseSlow = resolve;
+    });
+    const slowStarted = new Promise<void>((resolve) => {
+      reportSlowStarted = resolve;
+    });
+    const api = createProductStorageApi({
+      manifest: { id: "wf-concurrent", label: "Concurrent" },
+      resultContext: {
+        async resolveArtifactBytes(args: { rawPath?: unknown }) {
+          const value = String(args.rawPath || "");
+          if (value === "slow") {
+            reportSlowStarted();
+            await slowGate;
+          }
+          return {
+            bytes: new TextEncoder().encode(value),
+            entryPath: "body.md",
+          };
+        },
+      } as any,
+      runResult: { requestId },
+    });
+    const input = (title: string, rawPath: string) => ({
+      productKey: "same",
+      kind: "writing.test",
+      title,
+      failurePolicy: "atomic" as const,
+      assets: [
+        {
+          assetId: "body",
+          productAssetPath: "body.md",
+          rawPath,
+        },
+      ],
+    });
+    const slow = api.registerProduct(input("Slow", "slow"));
+    await slowStarted;
+    const fast = api.registerProduct(input("Fast", "fast"));
+    releaseSlow();
+    await Promise.all([slow, fast]);
+    const productId = `${requestId}:same`;
+    assert.equal(getWorkflowProduct(productId)?.title, "Fast");
+    assert.equal(
+      (await readProductAssetPreview(productId, "body")).text,
+      "fast",
+    );
+  });
+
+  it("keeps declared missing local assets fatal for atomic products", async function () {
+    const requestId = `req-product-missing-local-${Date.now()}`;
+    const api = createProductStorageApi({
+      manifest: { id: "wf-missing-local", label: "Missing Local" },
+      resultContext: {
+        async resolveArtifactBytes() {
+          throw new Error("not used");
+        },
+      } as any,
+      runResult: { requestId },
+    });
+    const missingPath = path.join(tempRoot, "missing-image.png");
+
+    let error: unknown;
+    try {
+      await api.registerProduct({
+        productKey: "missing-local",
+        kind: "atomic.test",
+        title: "Missing Local",
+        failurePolicy: "atomic",
+        assets: [
+          {
+            assetId: "image",
+            productAssetPath: "images/missing.png",
+            source: { kind: "local-file", path: missingPath },
+          },
+        ],
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    assert.match(String(error), /local product asset does not exist/i);
+    assert.isNull(getWorkflowProduct(`${requestId}:missing-local`));
+  });
+
   it("detects duplicates from the final resolved product target", async function () {
     const requestId = `req-product-final-target-${Date.now()}`;
     const api = createProductStorageApi({
@@ -371,7 +689,7 @@ describe("workflow product storage", function () {
       resultContext,
       runResult: { requestId },
     });
-    const record = await api.registerProduct({
+    const receipt = await api.registerProduct({
       productKey: "resolve",
       kind: "writing.test",
       title: "Resolvable Product",
@@ -379,20 +697,20 @@ describe("workflow product storage", function () {
     });
     try {
       const resolved = await resolveManagedWorkflowProductAsset(
-        record.productId,
+        receipt.productId,
         "asset",
       );
-      assert.equal(resolved?.product.productId, record.productId);
+      assert.equal(resolved?.product.productId, receipt.productId);
       assert.equal(resolved?.asset.assetId, "asset");
       assert.isNull(
-        await resolveManagedWorkflowProductAsset(record.productId, "missing"),
+        await resolveManagedWorkflowProductAsset(receipt.productId, "missing"),
       );
     } finally {
-      removeWorkflowProduct(record.productId);
+      removeWorkflowProduct(receipt.productId);
     }
   });
 
-  it("rejects tampered managed asset ownership metadata", async function () {
+  it("rejects tampered logical ownership metadata and missing objects", async function () {
     const requestId = `req-product-tampered-${Date.now()}`;
     const resultContext = await createWorkflowResultContext({
       runResult: { status: "succeeded", requestId, fetchType: "result" },
@@ -408,7 +726,7 @@ describe("workflow product storage", function () {
       resultContext,
       runResult: { requestId },
     });
-    const record = await api.registerProduct({
+    const receipt = await api.registerProduct({
       productKey: "owned",
       kind: "ownership.test",
       title: "Owned product",
@@ -420,6 +738,7 @@ describe("workflow product storage", function () {
         },
       ],
     });
+    const record = getWorkflowProduct(receipt.productId)!;
     const persist = (next: typeof record) =>
       upsertPluginTaskRowEntry(
         PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS,
@@ -435,15 +754,8 @@ describe("workflow product storage", function () {
       );
 
     try {
-      const parentCacheDir = path.dirname(record.cacheDir || "");
-      const traversedPath = path.join(parentCacheDir, "outside.txt");
-      const traversalLocalPath = `${record.cacheDir}${path.sep}..${path.sep}outside.txt`;
-      const foreignPath = path.join(tempRoot, "foreign", "asset.txt");
-      await fs.writeFile(traversedPath, "outside", "utf8");
-      await fs.mkdir(path.dirname(foreignPath), { recursive: true });
-      await fs.writeFile(foreignPath, "foreign", "utf8");
       for (const tampered of [
-        { ...record, cacheDir: parentCacheDir },
+        { ...record, storageRevision: "not-a-revision" },
         {
           ...record,
           assets: [
@@ -453,33 +765,19 @@ describe("workflow product storage", function () {
             },
           ],
         },
-        {
-          ...record,
-          assets: [
-            {
-              ...record.assets[0],
-              localPath: traversalLocalPath,
-            },
-          ],
-        },
-        {
-          ...record,
-          assets: [
-            {
-              ...record.assets[0],
-              localPath: foreignPath,
-            },
-          ],
-        },
       ]) {
-        persist(tampered);
+        persist(tampered as typeof record);
         assert.isNull(
           await resolveManagedWorkflowProductAsset(record.productId, "asset"),
         );
       }
 
       persist(record);
-      await fs.rm(record.assets[0].localPath || "");
+      const resolved = await resolveManagedWorkflowProductAsset(
+        record.productId,
+        "asset",
+      );
+      await fs.rm(resolved?.localPath || "");
       assert.isNull(
         await resolveManagedWorkflowProductAsset(record.productId, "asset"),
       );
@@ -780,7 +1078,7 @@ describe("workflow product storage", function () {
       resultContext,
       runResult: { requestId, responseJson: { provider: "acp" } },
     });
-    const record = await api.registerProduct({
+    const receipt = await api.registerProduct({
       productKey: "custom",
       kind: "custom.workflow.product",
       title: "Custom Product",
@@ -792,10 +1090,11 @@ describe("workflow product storage", function () {
         },
       ],
     });
+    const record = getWorkflowProduct(receipt.productId)!;
     try {
       assert.equal(record.workflowId, "custom-product-workflow");
-      assert.equal(record.storageMode, "persistent-cache");
-      assert.equal(record.assets[0].sourceKind, "product-cache");
+      assert.equal(record.schemaVersion, 2);
+      assert.equal(record.assets[0].availability, "available");
     } finally {
       removeWorkflowProduct(record.productId);
     }
@@ -834,7 +1133,7 @@ describe("workflow product storage", function () {
       resultContext,
       runResult: { requestId, responseJson: { provider: "skillrunner" } },
     });
-    const record = await api.registerProduct({
+    const receipt = await api.registerProduct({
       productKey: "manuscript-literature-framing",
       kind: "writing.manuscript_literature_framing",
       title: "Manuscript Literature Framing",
@@ -855,9 +1154,10 @@ describe("workflow product storage", function () {
         },
       ],
     });
+    const record = getWorkflowProduct(receipt.productId)!;
     try {
-      assert.equal(record.assets[0].sourceKind, "product-cache");
-      assert.equal(record.assets[0].entryPath, "result/introduction.tex");
+      assert.equal(record.assets[0].availability, "available");
+      assert.equal(record.assets[0].relativePath, "result/introduction.tex");
       const preview = await readProductAssetPreview(
         record.productId,
         "introduction_tex",
@@ -881,8 +1181,9 @@ describe("workflow product storage", function () {
         calls.push(input);
         return {
           productId: "product-manuscript",
-          storageMode: "persistent-cache",
-          assets: [{ assetId: "introduction_tex" }],
+          assetCount: 1,
+          availableAssetCount: 1,
+          missingAssetCount: 0,
         };
       },
     };

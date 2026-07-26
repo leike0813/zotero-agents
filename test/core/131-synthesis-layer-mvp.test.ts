@@ -545,9 +545,16 @@ describe("Synthesis Layer MVP real-data closure", function () {
       paperRef,
     );
     assert.equal(
-      mcpResponse.result.structuredContent.result.rows[0].paper_ref,
+      mcpResponse.result.structuredContent.result.entries[0].paper_ref,
       paperRef,
     );
+    assert.deepInclude(mcpResponse.result.structuredContent.result, {
+      nextCursor: "",
+      hasMore: false,
+      returned: 1,
+      total: 1,
+      limit: 25,
+    });
     assert.match(graph.graph_hash, /^sha256:/);
     assert.equal(snapshot.graph.diagnostics.cache_status, "ready");
   });

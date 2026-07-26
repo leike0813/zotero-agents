@@ -23,6 +23,13 @@ import {
   ZOTERO_MCP_TOOL_RESOLVERS_RESOLVE,
   ZOTERO_MCP_TOOL_TOPICS_LIST,
 } from "../../src/modules/zoteroMcpProtocol";
+import { runtimeHttpResponseInternalsForTests } from "../../src/modules/runtimeHttpResponse";
+import {
+  getRuntimePersistencePaths,
+  removeRuntimePath,
+  writeRuntimeBytes,
+} from "../../src/modules/runtimePersistence";
+import { joinPath } from "../../src/utils/path";
 
 const ZOTERO_MCP_TOOL_GET_CURRENT_VIEW = "context.get_current_view";
 const ZOTERO_MCP_TOOL_GET_SELECTED_ITEMS = "context.get_selected_items";
@@ -162,9 +169,14 @@ async function createMcpSdkClient(args: {
 }
 
 describe("embedded Zotero MCP server protocol", function () {
-  afterEach(function () {
+  const temporaryRuntimeFiles: string[] = [];
+
+  afterEach(async function () {
     resetZoteroMcpServerForTests();
     clearRuntimeLogs();
+    await Promise.all(
+      temporaryRuntimeFiles.splice(0).map((path) => removeRuntimePath(path)),
+    );
   });
 
   it("responds to initialize with tool capability", async function () {
@@ -208,6 +220,7 @@ describe("embedded Zotero MCP server protocol", function () {
 
   it("records initialize response shape for diagnostics", async function () {
     const token = configureZoteroMcpServerForTests();
+    runtimeHttpResponseInternalsForTests.resetMetrics();
     await handleZoteroMcpHttpRequestForTests({
       method: "POST",
       path: "/mcp",
@@ -237,6 +250,11 @@ describe("embedded Zotero MCP server protocol", function () {
       "application/json; charset=utf-8",
     );
     assert.isAbove(entry.responseBodyLength, 0);
+    assert.deepEqual(runtimeHttpResponseInternalsForTests.getMetrics(), {
+      jsonSerializations: 1,
+      bodyEncodes: 1,
+      maxWriteChunkBytes: 0,
+    });
   });
 
   it("derives host-side MCP health from server and client activity", async function () {
@@ -952,10 +970,18 @@ describe("embedded Zotero MCP server protocol", function () {
           }) as any,
       },
     );
-    const notes = (notesResponse as any).result.structuredContent.data;
+    const notesPage = (notesResponse as any).result.structuredContent.data;
+    const notes = notesPage.items;
     assert.strictEqual(notes[0].key, "NOTEKEY1");
     assert.strictEqual(notes[0].textLength, largeText.length);
     assert.notProperty(notes[0], "html");
+    assert.deepInclude(notesPage, {
+      nextCursor: "",
+      hasMore: false,
+      returned: 1,
+      total: 1,
+      limit: 25,
+    });
     const notesText = toolText(notesResponse);
     assert.include(notesText, "NOTEKEY1");
     assert.include(notesText, "libraryId=1");
@@ -1046,6 +1072,23 @@ describe("embedded Zotero MCP server protocol", function () {
   });
 
   it("returns remote-compatible attachment access metadata without file content", async function () {
+    const attachmentRoot = getRuntimePersistencePaths().tmpDir;
+    const attachmentSuffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const markdownPath = joinPath(
+      attachmentRoot,
+      `mcp-attachment-${attachmentSuffix}.md`,
+    );
+    const pdfPath = joinPath(
+      attachmentRoot,
+      `mcp-attachment-${attachmentSuffix}.pdf`,
+    );
+    temporaryRuntimeFiles.push(markdownPath, pdfPath);
+    await writeRuntimeBytes(markdownPath, new TextEncoder().encode("# paper"), {
+      overwrite: true,
+    });
+    await writeRuntimeBytes(pdfPath, new Uint8Array([0x25, 0x50, 0x44, 0x46]), {
+      overwrite: true,
+    });
     const response = await handleZoteroMcpRequestForTests(
       {
         jsonrpc: "2.0",
@@ -1069,7 +1112,7 @@ describe("embedded Zotero MCP server protocol", function () {
                   libraryId: 1,
                   title: "paper.md",
                   contentType: "text/markdown",
-                  path: "C:\\Users\\leike\\Zotero\\storage\\ATTACHMD\\paper.md",
+                  path: markdownPath,
                   filename: "paper.md",
                 },
                 {
@@ -1078,7 +1121,7 @@ describe("embedded Zotero MCP server protocol", function () {
                   libraryId: 1,
                   title: "paper.pdf",
                   contentType: "application/pdf",
-                  path: "C:\\Users\\leike\\Zotero\\storage\\ATTACH1\\paper.pdf",
+                  path: pdfPath,
                   filename: "paper.pdf",
                 },
                 {
@@ -1096,13 +1139,21 @@ describe("embedded Zotero MCP server protocol", function () {
       },
     );
 
-    const attachments = (response as any).result.structuredContent.data;
+    const attachmentPage = (response as any).result.structuredContent.data;
+    const attachments = attachmentPage.attachments;
     assert.strictEqual(attachments[0].access.mode, "bridge-download");
     assert.strictEqual(attachments[0].access.file.displayName, "paper.md");
     assert.strictEqual(attachments[0].access.file.owner.itemKey, "ATTACHMD");
     assert.isUndefined(attachments[0].path);
     assert.strictEqual(attachments[2].access.mode, "unavailable");
     assert.notProperty(attachments[0], "content");
+    assert.deepInclude(attachmentPage, {
+      nextCursor: "",
+      hasMore: false,
+      returned: 3,
+      total: 3,
+      limit: 25,
+    });
     const text = toolText(response);
     assert.include(text, "ATTACHMD");
     assert.include(text, "ATTACH1");
@@ -1156,6 +1207,38 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.strictEqual(
       result.structuredContent.tool,
       ZOTERO_MCP_TOOL_GET_ITEM_NOTES,
+    );
+  });
+
+  it("publishes string library cursors and returns non-retryable cursor errors", async function () {
+    const listed = await handleZoteroMcpRequestForTests({
+      jsonrpc: "2.0",
+      id: "cursor-tools",
+      method: "tools/list",
+      params: {},
+    });
+    const tool = (listed as any).result.tools.find(
+      (entry: any) => entry.name === ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS,
+    );
+    assert.deepEqual(tool.inputSchema.properties.cursor, { type: "string" });
+
+    const called = await handleZoteroMcpRequestForTests({
+      jsonrpc: "2.0",
+      id: "bad-library-cursor",
+      method: "tools/call",
+      params: {
+        name: ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS,
+        arguments: { cursor: "damaged!", limit: 1 },
+      },
+    });
+    assert.strictEqual((called as any).result.isError, true);
+    assert.strictEqual(
+      (called as any).result.structuredContent.error_code,
+      "invalid_library_cursor",
+    );
+    assert.strictEqual(
+      (called as any).result.structuredContent.retryable,
+      false,
     );
   });
 
@@ -1223,12 +1306,20 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.include(listedText, "digest-markdown");
     assert.include(listedText, "references-json");
     assert.include(listedText, ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD);
+    const payloadPage = (listed as any).result.structuredContent.data;
     assert.deepEqual(
-      (listed as any).result.structuredContent.data.map(
+      payloadPage.payloads.map(
         (entry: { payloadType: string }) => entry.payloadType,
       ),
       ["digest-markdown", "references-json"],
     );
+    assert.deepInclude(payloadPage, {
+      nextCursor: "",
+      hasMore: false,
+      returned: 2,
+      total: 2,
+      limit: 25,
+    });
 
     const detail = await handleZoteroMcpRequestForTests(
       {
@@ -1398,14 +1489,29 @@ describe("embedded Zotero MCP server protocol", function () {
           arguments: {
             operation: "literature.ingest",
             paper: {
-              title: "Zotero Skills MCP Ingest Paper",
-              authors: ["Ada Lovelace", "Grace Hopper"],
-              year: 2026,
-              doi,
+              itemType: "journalArticle",
+              fields: {
+                title: "Zotero Skills MCP Ingest Paper",
+                date: "2026",
+                DOI: doi,
+                publicationTitle: "Journal of Agentic Libraries",
+              },
+              creators: [
+                {
+                  firstName: "Ada",
+                  lastName: "Lovelace",
+                  creatorType: "author",
+                },
+                {
+                  firstName: "Grace",
+                  lastName: "Hopper",
+                  creatorType: "author",
+                },
+              ],
+              identifiers: { doi },
               landingUrl: "https://example.test/papers/zs-mcp-ingest",
               pdfUrl: "https://example.test/papers/zs-mcp-ingest.pdf",
               attachLandingUrlOnMissingPdf: true,
-              venue: "Journal of Agentic Libraries",
             },
           },
         },
@@ -1438,8 +1544,13 @@ describe("embedded Zotero MCP server protocol", function () {
           arguments: {
             operation: "literature.ingest",
             paper: {
-              title: "Zotero Skills MCP Ingest Paper",
-              doi,
+              itemType: "journalArticle",
+              fields: {
+                title: "Zotero Skills MCP Ingest Paper",
+                DOI: doi,
+              },
+              creators: [],
+              identifiers: { doi },
             },
           },
         },
@@ -1455,6 +1566,163 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.strictEqual(duplicateIngest.attachmentStatus, "skipped");
   });
 
+  it("ingests typed non-journal metadata without splitting Chinese creators", async function () {
+    const response = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "ingest-typed-thesis",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_EXECUTE_MUTATION,
+          arguments: {
+            operation: "literature.ingest",
+            paper: {
+              itemType: "thesis",
+              fields: {
+                title: "面向学术知识发现的智能体方法研究",
+                university: "示例大学",
+                thesisType: "博士学位论文",
+                language: "zh-CN",
+              },
+              creators: [
+                {
+                  name: "欧阳明",
+                  creatorType: "author",
+                },
+                {
+                  name: "示例研究院",
+                  creatorType: "contributor",
+                },
+              ],
+              identifiers: {},
+              landingUrl: "https://example.test/theses/agentic-discovery",
+            },
+          },
+        },
+      },
+      { requestToolPermission: () => true },
+    );
+
+    const ingest = (response as any).result.structuredContent.data.result
+      .ingest;
+    assert.strictEqual(ingest.status, "created");
+    const item = Zotero.Items.get(ingest.item.id)!;
+    assert.strictEqual(item.itemType, "thesis");
+    assert.strictEqual(item.getField("university"), "示例大学");
+    assert.strictEqual(item.getField("thesisType"), "博士学位论文");
+    assert.deepEqual((item as any).getCreators(), [
+      { name: "欧阳明", creatorType: "author" },
+      { name: "示例研究院", creatorType: "contributor" },
+    ]);
+  });
+
+  it("keeps identifiers in Extra when the conservative document type has no typed identifier field", async function () {
+    const doi = "10.5555/zs.mcp.document.001";
+    const response = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "ingest-typed-document",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_EXECUTE_MUTATION,
+          arguments: {
+            operation: "literature.ingest",
+            paper: {
+              itemType: "document",
+              fields: { title: "Conservatively typed source" },
+              creators: [],
+              identifiers: { doi },
+            },
+          },
+        },
+      },
+      { requestToolPermission: () => true },
+    );
+
+    const ingest = (response as any).result.structuredContent.data.result
+      .ingest;
+    assert.strictEqual(ingest.status, "created");
+    const item = Zotero.Items.get(ingest.item.id)!;
+    assert.strictEqual(item.itemType, "document");
+    assert.include(String(item.getField("extra") || ""), `DOI: ${doi}`);
+  });
+
+  it("maps an identifier-only DOI to the native journal article field", async function () {
+    const doi = "10.5555/zs.mcp.native-doi.001";
+    const response = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "ingest-native-doi",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_EXECUTE_MUTATION,
+          arguments: {
+            operation: "literature.ingest",
+            paper: {
+              itemType: "journalArticle",
+              fields: {
+                title: "Identifier-only DOI paper",
+                extra: `DOI: ${doi}\nSource note`,
+              },
+              creators: [],
+              identifiers: { doi },
+            },
+          },
+        },
+      },
+      { requestToolPermission: () => true },
+    );
+
+    const ingest = (response as any).result.structuredContent.data.result
+      .ingest;
+    assert.strictEqual(ingest.status, "created");
+    const item = Zotero.Items.get(ingest.item.id)!;
+    assert.strictEqual(item.getField("DOI"), doi);
+    assert.notInclude(String(item.getField("extra") || ""), "DOI:");
+    assert.include(String(item.getField("extra") || ""), "Source note");
+  });
+
+  it("rejects conflicting typed DOI representations before permission", async function () {
+    let permissionCalls = 0;
+    const response = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "ingest-conflicting-doi",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_EXECUTE_MUTATION,
+          arguments: {
+            operation: "literature.ingest",
+            paper: {
+              itemType: "journalArticle",
+              fields: {
+                title: "Conflicting DOI paper",
+                DOI: "10.5555/zs.mcp.native-doi.fields",
+              },
+              creators: [],
+              identifiers: {
+                doi: "10.5555/zs.mcp.native-doi.identifiers",
+              },
+            },
+          },
+        },
+      },
+      {
+        requestToolPermission: () => {
+          permissionCalls += 1;
+          return true;
+        },
+      },
+    );
+
+    assert.strictEqual((response as any).error?.code, -32602);
+    assert.match(
+      String((response as any).error?.message || ""),
+      /DOI.*conflict/i,
+    );
+    assert.strictEqual(permissionCalls, 0);
+  });
+
   it("attaches a landing URL when requested and no PDF is available", async function () {
     const doi = "10.5555/zs.mcp.ingest.landing.001";
     const landingUrl = "https://example.test/papers/zs-mcp-landing";
@@ -1468,8 +1736,13 @@ describe("embedded Zotero MCP server protocol", function () {
           arguments: {
             operation: "literature.ingest",
             paper: {
-              title: "Zotero Skills MCP Ingest Landing Link",
-              doi,
+              itemType: "journalArticle",
+              fields: {
+                title: "Zotero Skills MCP Ingest Landing Link",
+                DOI: doi,
+              },
+              creators: [],
+              identifiers: { doi },
               landingUrl,
               attachLandingUrlOnMissingPdf: true,
             },
@@ -1506,8 +1779,13 @@ describe("embedded Zotero MCP server protocol", function () {
           arguments: {
             operation: "literature.ingest",
             paper: {
-              title: "Zotero Skills MCP Ingest Landing Link",
-              doi,
+              itemType: "journalArticle",
+              fields: {
+                title: "Zotero Skills MCP Ingest Landing Link",
+                DOI: doi,
+              },
+              creators: [],
+              identifiers: { doi },
               landingUrl,
               attachLandingUrlOnMissingPdf: true,
             },
@@ -1537,8 +1815,13 @@ describe("embedded Zotero MCP server protocol", function () {
           arguments: {
             operation: "literature.ingest",
             paper: {
-              title: "Zotero Skills MCP Ingest Landing Failure",
-              doi: "10.5555/zs.mcp.ingest.landing.002",
+              itemType: "journalArticle",
+              fields: {
+                title: "Zotero Skills MCP Ingest Landing Failure",
+                DOI: "10.5555/zs.mcp.ingest.landing.002",
+              },
+              creators: [],
+              identifiers: { doi: "10.5555/zs.mcp.ingest.landing.002" },
               landingUrl: "https://example.test/fail?paper=landing",
               attachLandingUrlOnMissingPdf: true,
             },
@@ -1572,8 +1855,13 @@ describe("embedded Zotero MCP server protocol", function () {
           arguments: {
             operation: "literature.ingest",
             paper: {
-              title: "Zotero Skills MCP Ingest PDF Failure",
-              doi: "10.5555/zs.mcp.ingest.002",
+              itemType: "journalArticle",
+              fields: {
+                title: "Zotero Skills MCP Ingest PDF Failure",
+                DOI: "10.5555/zs.mcp.ingest.002",
+              },
+              creators: [],
+              identifiers: { doi: "10.5555/zs.mcp.ingest.002" },
               pdfUrl: "https://example.test/fail?paper=zs-mcp-ingest",
             },
           },

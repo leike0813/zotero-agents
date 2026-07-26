@@ -130,6 +130,183 @@ Assistant Workspace SHALL project prompt interruption state independently from t
 #### Scenario: Requested interruption disables repeated input
 - **WHEN** interruption state is `requested`
 - **THEN** the reply input and submit action MUST be disabled
-- **AND** mode, model, and reasoning controls MUST remain disabled
+- **AND** model and reasoning controls MUST remain disabled
+- **AND** the connected mode control MUST remain enabled
 - **AND** a repeated cancel action MUST NOT be emitted.
 
+### Requirement: ACP Chat routes runtime changes to bounded regions
+
+ACP Chat SHALL classify runtime UI changes as baseline/status, message-counts, transcript, plan, permission, reply/hint, or context/details. Message-count changes SHALL NOT be treated as metadata/status, and transcript append, streaming, loading, page, or revision changes SHALL request only transcript-region work.
+
+A runtime transition that changes more than one managed-region DTO SHALL classify every affected change kind additively. A queued transcript boundary SHALL NOT suppress a concurrent lifecycle status change. Lifecycle status SHALL route through independently guarded owner-control and composer publications.
+
+Only backend or session scope changes, lifecycle structure, or a user-visible baseline status change SHALL request a baseline publication. ACP Chat SHALL NOT use a generalized reason fallback to build a full panel snapshot.
+
+#### Scenario: Message count changes
+
+- **WHEN** only ACP Chat semantic message counts change
+- **THEN** baseline or full snapshot prepare, signature, and post counts SHALL remain zero
+- **AND** any visible count update SHALL use its own bounded region publication.
+
+#### Scenario: Transcript advances
+
+- **WHEN** transcript content streams, appends, loads, changes page, or advances revision
+- **THEN** ACP Chat SHALL publish only the selected owner's transcript region
+- **AND** unrelated managed regions SHALL retain DOM identity.
+
+#### Scenario: Structural status changes
+
+- **WHEN** backend/session scope, lifecycle structure, or user-visible baseline status changes
+- **THEN** ACP Chat MAY publish only the affected baseline or status region.
+
+#### Scenario: Continuation resumes prompting after cancellation
+
+- **GIVEN** an ACP Chat turn has confirmed cancellation and the composer accepts a continuation
+- **WHEN** the new user transcript boundary and `prompting` lifecycle state occur in the same critical transition
+- **THEN** ACP Chat SHALL publish transcript, owner-control, and composer work for that owner
+- **AND** the composer SHALL show its busy interruption state without an owner or tab switch
+- **AND** managed regions whose DTOs are unchanged SHALL retain DOM identity.
+
+#### Scenario: Concurrent live state cannot suppress a terminal boundary
+
+- **GIVEN** a non-transcript live region change is pending for an ACP Chat owner
+- **WHEN** the same flush completes a streaming transcript item
+- **THEN** the publication SHALL retain the pending region kind and add transcript-boundary and status kinds
+- **AND** the hard-boundary completion patch SHALL be delivered in that mutation.
+
+#### Scenario: Permission policy change updates its owning regions
+
+- **WHEN** the active conversation's permission auto-approval policy changes
+- **THEN** ACP Chat SHALL publish both permission and owner-control regions
+- **AND** unrelated transcript, composer, toolbar, plan, and drawer regions SHALL retain identity when their DTOs are unchanged.
+
+### Requirement: ACP Chat region publication preserves interaction behavior
+
+Region publication SHALL preserve existing live, boundary, and silent projection; tool update coalescing; plan and permission behavior; cancel and resume controls; and owner switching. Side-channel message-count or transcript activity SHALL NOT split assistant text segments or rebuild interaction regions whose visible DTO is unchanged.
+
+#### Scenario: Tool update during streaming
+
+- **WHEN** a tool update or usage side-channel arrives during an assistant text segment
+- **THEN** the assistant segment SHALL remain continuous
+- **AND** unchanged plan, permission, reply, and drawer regions SHALL not rebuild.
+
+#### Scenario: Permission is requested
+
+- **WHEN** the current owner requests permission
+- **THEN** the permission region SHALL publish immediately
+- **AND** transcript and unrelated managed regions SHALL retain identity unless their own DTO changes.
+
+### Requirement: Chat steady publication is mutation proportional
+
+ACP Chat SHALL obtain the active owner without frontend snapshot materialization and SHALL publish message counts from the shared count snapshot. Steady transcript publication SHALL use producer-native shared mutations and SHALL perform zero transcript-page, frontend, or panel materialization.
+
+#### Scenario: Boundary assistant message completes
+
+- **WHEN** held assistant text reaches a hard boundary
+- **THEN** Chat releases the shared mutation batch without reading the complete page
+- **AND** forbidden materialization counts remain zero.
+
+### Requirement: Chat formal publication budget is enforced
+
+For the accepted boundary trace, Chat actual posted bytes per formal round SHALL be below 2.7 MB, steady transcript snapshots SHALL be zero outside explicit lifecycle/rebase causes, and transcript bytes SHALL grow with new mutations rather than accumulated history.
+
+#### Scenario: Formal Chat replay completes
+
+- **WHEN** all formal runs share trace digest, cadence, and user-selected boundary mode
+- **THEN** the report passes the byte, materialization, identity, and lifecycle budgets.
+
+### Requirement: Chat browser transcript cost is mutation proportional
+
+ACP Chat steady transcript application SHALL update only the shared item model entry, row, or text node affected by the mutation. It SHALL NOT clone or reindex the complete page, include `uiRevision` in DOM order identity, clear the transcript container, or rerender Markdown for unaffected rows.
+
+#### Scenario: Equal chunks append to an increasingly long transcript
+
+- **WHEN** equal-sized chunks append to the same visible Chat item while the page grows
+- **THEN** receiver and renderer work remains bounded by the suffix and target row
+- **AND** accumulated page items and accumulated text are absent from the steady operation cost.
+
+### Requirement: Chat structural boundary rendering is mutation proportional
+
+ACP Chat steady boundary rendering SHALL create, update, remove and measure work proportional to dirty presentation rows. It SHALL NOT scan, clone, canonicalize, reattach or measure a complete selected page because a new tool or message item was appended.
+
+#### Scenario: Accepted boundary trace creates a tool row
+
+- **WHEN** a tool call releases held assistant or thought text and appends one tool item
+- **THEN** Chat uses the shared structural delta path
+- **AND** steady full-render count and unaffected-row reattachment count remain zero.
+
+### Requirement: Chat count publication avoids panel materialization
+
+ACP Chat SHALL read message counts from the selected owner progress state and SHALL render them through the typed count region. Count publication and child rendering SHALL perform zero frontend, panel and transcript-page materialization.
+
+#### Scenario: Tool count changes without another chrome change
+
+- **WHEN** a tool call increments the selected execution count
+- **THEN** the count publication carries only the typed counts DTO
+- **AND** neither Host nor child constructs a complete panel read model.
+
+### Requirement: Valid Chat transcript streams stay incremental
+
+ACP Chat target-active steady transcript changes SHALL remain deltas through producer, coordinator, Shell, child, and renderer. A valid sequence SHALL produce no gap, automatic rebase snapshot, complete-page render, full-panel materialization, or frontend materialization.
+
+#### Scenario: Tool boundaries append and finalize rows
+
+- **WHEN** boundary mode releases assistant text and a sequence of new tool rows with later updates
+- **THEN** each accepted mutation updates only affected rows
+- **AND** unrelated row and managed-region DOM identities remain stable.
+
+### Requirement: Chat target-active evidence removes snapshot amplification
+
+Formal same-provenance Replay SHALL attribute Chat steady publications by typed kind and SHALL show no snapshot amplification from valid delta continuity. Existing posted-byte and recorded-cadence drift budgets remain mandatory.
+
+#### Scenario: Formal Chat boundary replay completes
+
+- **WHEN** the fixed Chat trace runs target-active
+- **THEN** transcript is visible, measurement identity is complete, and valid steady gap/rebase snapshot counts are zero
+- **AND** target-active recorded-cadence overhead improves without a greater-than-100-millisecond drift regression.
+
+### Requirement: Chat presentation uses one actionable navigation catalog
+
+ACP Chat banner, selectors, session drawer, and actions SHALL resolve the same
+complete backend/session navigation catalog and canonical owners. The catalog
+SHALL include session title, backend display name, status, time, message count,
+and error semantics. Runtime/session id SHALL NOT substitute for conversation
+id.
+
+#### Scenario: A historical session is selected
+
+- **WHEN** the user selects it after a backend refresh
+- **THEN** navigation, banner, drawer, and actions resolve the same canonical
+  session owner
+- **AND** its indexed transcript page is visible without a full snapshot.
+
+#### Scenario: A drawer displays another session
+
+- **WHEN** the user selects or archives that session
+- **THEN** the action targets the displayed session
+- **AND** session, runtime, and conversation identifiers are not substituted.
+
+### Requirement: Chat steady updates do not materialize legacy snapshots
+
+Steady transcript, count, and progress changes SHALL perform zero frontend,
+panel, or full-snapshot materialization.
+
+#### Scenario: A streaming mutation arrives
+
+- **WHEN** the selected Chat owner receives one transcript mutation
+- **THEN** publication cost grows with that mutation
+- **AND** it does not grow with accumulated transcript or page size.
+
+### Requirement: Chat UI restoration remains page-first and mutation proportional
+
+The Assistant Workspace SHALL keep restored Chat selectors, banner actions,
+permissions, composer, navigation, and details free of full panel/session
+snapshots and SHALL NOT make details or full-mirror hydration a prerequisite
+for the first indexed transcript page.
+Steady transcript work SHALL remain proportional to the visible mutation.
+
+#### Scenario: A cold Chat session is selected
+
+- **WHEN** the selected conversation has no cold full-mirror cache entry
+- **THEN** Chat publishes owner-first loading and renders the indexed page when ready
+- **AND** details and full-mirror hydration proceed independently without rebuilding chrome.

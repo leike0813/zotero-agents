@@ -6,11 +6,13 @@ import {
   type ZoteroHostCapabilityBrokerApis,
 } from "./hostBridgeCapabilityRegistry";
 import type { SynthesisClient } from "../../packages/synthesis-contracts/src/index";
+import { HostBridgeCursorError } from "./hostBridgePagination";
 import {
   ZoteroCollectionNotFoundError,
   ZoteroItemNotFoundError,
   ZoteroNoteNotFoundError,
 } from "./zoteroHostCapabilityBroker";
+import { ZoteroLibraryCursorError } from "./zoteroLibraryPageQuery";
 import type { WorkflowHostApi } from "../workflows/types";
 import type { AcpHostContext } from "./acpTypes";
 import type {
@@ -565,6 +567,24 @@ function validateToolArguments(
   }
 }
 
+const LIBRARY_CURSOR_TOOL_NAMES = new Set([
+  "library.list_items",
+  "library.sync_snapshot",
+  "library.readiness_audit",
+  ZOTERO_MCP_TOOL_LIST_LIBRARY_ITEMS,
+]);
+
+function hasInvalidLibraryCursorType(
+  toolName: string,
+  args: Record<string, unknown>,
+) {
+  return (
+    LIBRARY_CURSOR_TOOL_NAMES.has(toolName) &&
+    Object.prototype.hasOwnProperty.call(args, "cursor") &&
+    typeof args.cursor !== "string"
+  );
+}
+
 function compactText(value: unknown, limit = 160) {
   const text = String(value ?? "")
     .replace(/\s+/g, " ")
@@ -816,7 +836,7 @@ function buildLibraryListArgs(
       MCP_LIBRARY_LIST_LIMIT_DEFAULT,
       MCP_LIBRARY_LIST_LIMIT_MAX,
     ),
-    cursor: args.cursor as number | string | undefined,
+    cursor: args.cursor as string | undefined,
   };
 }
 
@@ -977,7 +997,18 @@ function summarizeHostBridgeCapabilityResult(
   if (Array.isArray(data)) {
     parts.push(`items=${data.length}`);
   }
-  if (Array.isArray(payload.items)) {
+  if (
+    capabilityName === "library.get_item_notes" &&
+    Array.isArray(payload.items)
+  ) {
+    parts.push(`notes=${payload.items.length}`);
+    payload.items.slice(0, 5).forEach((note) => {
+      if (isPlainObject(note)) {
+        parts.push(formatNoteLine(note as Partial<ZoteroHostNoteDto>));
+      }
+    });
+    parts.push("next=library.get_note_detail");
+  } else if (Array.isArray(payload.items)) {
     parts.push(`items=${payload.items.length}`);
     payload.items.slice(0, 5).forEach((item) => {
       if (isPlainObject(item)) {
@@ -998,15 +1029,6 @@ function summarizeHostBridgeCapabilityResult(
     }
     parts.push("next=library.get_item_notes");
     parts.push("next=library.get_item_attachments");
-  }
-  if (capabilityName === "library.get_item_notes" && Array.isArray(data)) {
-    parts.push(`notes=${data.length}`);
-    data.slice(0, 5).forEach((note) => {
-      if (isPlainObject(note)) {
-        parts.push(formatNoteLine(note as Partial<ZoteroHostNoteDto>));
-      }
-    });
-    parts.push("next=library.get_note_detail");
   }
   if (Array.isArray(payload.notes)) {
     parts.push(`notes=${payload.notes.length}`);
@@ -1062,12 +1084,9 @@ function summarizeHostBridgeCapabilityResult(
       parts.push(`hasMore=${Boolean(payload.hasMore)}`);
     }
   }
-  if (
-    Array.isArray(data) &&
-    capabilityName === "library.get_item_attachments"
-  ) {
-    parts.push(`attachments=${data.length}`);
-    data.slice(0, 5).forEach((attachment) => {
+  if (Array.isArray(payload.attachments)) {
+    parts.push(`attachments=${payload.attachments.length}`);
+    payload.attachments.slice(0, 5).forEach((attachment) => {
       if (isPlainObject(attachment)) {
         parts.push(formatAttachmentLine(attachment as ZoteroHostAttachmentDto));
       }
@@ -1208,17 +1227,29 @@ async function callHostBridgeCapabilityAsMcpTool(
   if (allowedArgs) {
     assertKnownArgs(capability.name, normalizedInput, allowedArgs);
   }
-  const data = await capability.handler(normalizedInput, {
-    getStatus:
-      context.options.resolveHostBridgeStatus ||
-      (() =>
-        (context.options.resolveMcpStatus?.() ||
-          {}) as HostBridgeStatusSnapshot),
-    connectionMode: "local",
-    resolveHostBridgeApis: () =>
-      resolveHostBridgeApis(context.options, context.hostApi),
-    resolveSynthesisClient: context.options.resolveSynthesisClient,
-  });
+  let data: unknown;
+  try {
+    data = await capability.handler(normalizedInput, {
+      getStatus:
+        context.options.resolveHostBridgeStatus ||
+        (() =>
+          (context.options.resolveMcpStatus?.() ||
+            {}) as HostBridgeStatusSnapshot),
+      connectionMode: "local",
+      resolveHostBridgeApis: () =>
+        resolveHostBridgeApis(context.options, context.hostApi),
+      resolveSynthesisClient: context.options.resolveSynthesisClient,
+    });
+  } catch (error) {
+    if (error instanceof HostBridgeCursorError) {
+      throw new ZoteroMcpToolInputError(error.message, {
+        code: error.code,
+        reason: error.reason,
+        ...error.details,
+      });
+    }
+    throw error;
+  }
   return buildToolResult({
     tool: capability.name,
     summary: summarizeHostBridgeCapabilityResult(capability.name, data),
@@ -1322,6 +1353,19 @@ export async function handleZoteroMcpJsonRpc(
           error instanceof Error
             ? error.message
             : String(error || "Invalid params");
+        if (hasInvalidLibraryCursorType(toolName, toolArguments)) {
+          return {
+            jsonrpc: "2.0",
+            id: request.id ?? null,
+            result: buildToolErrorResult({
+              tool: toolName,
+              message: "library cursor must be an opaque string",
+              errorCode: "invalid_library_cursor",
+              retryable: false,
+              details: { reason: "invalid_type" },
+            }),
+          };
+        }
         return jsonRpcError(request.id ?? null, -32602, message, {
           toolName,
           errorName: error instanceof Error ? error.name : "Error",
@@ -1356,13 +1400,17 @@ export async function handleZoteroMcpJsonRpc(
         const isNoteNotFound = error instanceof ZoteroNoteNotFoundError;
         const isCollectionNotFound =
           error instanceof ZoteroCollectionNotFoundError;
+        const isInvalidLibraryCursor =
+          error instanceof ZoteroLibraryCursorError;
         const structuredCode = isItemNotFound
           ? "zotero_item_not_found"
           : isNoteNotFound
             ? "zotero_note_not_found"
             : isCollectionNotFound
               ? "zotero_collection_not_found"
-              : undefined;
+              : isInvalidLibraryCursor
+                ? error.code
+                : undefined;
         await options.onToolCall?.({
           toolName,
           arguments: toolArguments,
@@ -1381,9 +1429,11 @@ export async function handleZoteroMcpJsonRpc(
               errorCode: structuredCode,
               retryable: false,
               details:
-                error instanceof Error && "ref" in error
-                  ? (error as { ref?: unknown }).ref
-                  : undefined,
+                error instanceof ZoteroLibraryCursorError
+                  ? error.details
+                  : error instanceof Error && "ref" in error
+                    ? (error as { ref?: unknown }).ref
+                    : undefined,
             }),
           };
         }

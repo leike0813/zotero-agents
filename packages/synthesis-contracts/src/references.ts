@@ -96,6 +96,9 @@ export type SynthesisReferenceQueryRequest = SynthesisJsonObject;
 export type SynthesisReferenceQueryResult = SynthesisJsonObject;
 
 export interface SynthesisReferencesClient {
+  startRefresh(
+    request?: SynthesisReferenceQueryRequest,
+  ): Promise<SynthesisReferenceCommandResult>;
   getSidecarIndex(
     request?: SynthesisReferenceQueryRequest,
   ): Promise<SynthesisReferenceQueryResult>;

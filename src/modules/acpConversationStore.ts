@@ -21,7 +21,6 @@ import {
   type AcpChatSessionSummary,
   type AcpConversationItem,
   type AcpConversationSnapshot,
-  type AcpDiagnosticsEntry,
   type AcpHostContext,
   type AcpPendingPermissionRequest,
   type AcpSelectableOption,
@@ -230,46 +229,6 @@ function parsePendingPermissionRequest(
   };
 }
 
-function parseDiagnostics(value: unknown) {
-  if (!Array.isArray(value)) {
-    return [] as AcpDiagnosticsEntry[];
-  }
-  return value
-    .map((entry) => {
-      if (!isRecord(entry)) {
-        return undefined;
-      }
-      const id = normalizeString(entry.id);
-      if (!id) {
-        return undefined;
-      }
-      const level = normalizeString(entry.level);
-      const normalized: AcpDiagnosticsEntry = {
-        id,
-        ts: normalizeString(entry.ts) || nowIso(),
-        kind: normalizeString(entry.kind),
-        level:
-          level === "warn" || level === "error"
-            ? (level as "warn" | "error")
-            : "info",
-        message: normalizeString(entry.message),
-        detail: normalizeString(entry.detail),
-        stage: normalizeString(entry.stage) || undefined,
-        errorName: normalizeString(entry.errorName) || undefined,
-        stack: normalizeString(entry.stack) || undefined,
-        cause: normalizeString(entry.cause) || undefined,
-        code:
-          typeof entry.code === "number" || typeof entry.code === "string"
-            ? entry.code
-            : undefined,
-        data: entry.data,
-        raw: entry.raw,
-      };
-      return normalized;
-    })
-    .filter((entry): entry is AcpDiagnosticsEntry => !!entry);
-}
-
 function parseHostContext(value: unknown): AcpHostContext | null {
   if (!isRecord(value)) {
     return null;
@@ -372,7 +331,6 @@ function normalizeSnapshotPayload(args: {
     snapshot.pendingPermissionRequest = parsePendingPermissionRequest(
       parsed.pendingPermissionRequest,
     );
-    snapshot.diagnostics = parseDiagnostics(parsed.diagnostics);
     snapshot.transcriptPath = normalizeString(parsed.transcriptPath);
     snapshot.transcriptIndexPath = normalizeString(parsed.transcriptIndexPath);
     snapshot.transcriptRevision = Math.max(
@@ -403,8 +361,6 @@ function normalizeSnapshotPayload(args: {
     snapshot.sessionCwd = normalizeString(parsed.sessionCwd);
     snapshot.workspaceDir = normalizeString(parsed.workspaceDir);
     snapshot.runtimeDir = normalizeString(parsed.runtimeDir);
-    snapshot.stderrTail = normalizeString(parsed.stderrTail);
-    snapshot.lastLifecycleEvent = normalizeString(parsed.lastLifecycleEvent);
     snapshot.updatedAt = normalizeString(parsed.updatedAt) || nowIso();
   } catch {
     snapshot.updatedAt = nowIso();
@@ -426,6 +382,10 @@ export function resolveAcpChatRuntimePaths(
   return {
     agentWorkspaceDir,
     conversationStorageDir,
+    diagnosticsAuditPath: joinPath(
+      conversationStorageDir,
+      "diagnostics.ndjson",
+    ),
     workspaceDir: agentWorkspaceDir,
     storageDir: conversationStorageDir,
     runtimeDir: conversationStorageDir,
@@ -912,7 +872,6 @@ export function saveAcpConversationState(snapshot: AcpConversationSnapshot) {
             })),
           }
         : null,
-      diagnostics: snapshot.diagnostics.map((entry) => ({ ...entry })),
       transcriptPath: snapshot.transcriptPath,
       transcriptIndexPath: snapshot.transcriptIndexPath,
       transcriptRevision: snapshot.transcriptRevision,
@@ -928,8 +887,6 @@ export function saveAcpConversationState(snapshot: AcpConversationSnapshot) {
       sessionCwd: snapshot.sessionCwd,
       workspaceDir: snapshot.workspaceDir,
       runtimeDir: snapshot.runtimeDir,
-      stderrTail: snapshot.stderrTail,
-      lastLifecycleEvent: snapshot.lastLifecycleEvent,
       updatedAt: snapshot.updatedAt || nowIso(),
     }),
   });

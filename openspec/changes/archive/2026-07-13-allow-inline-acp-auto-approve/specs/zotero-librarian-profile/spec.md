@@ -7,4 +7,3 @@ The Zotero Librarian profile SHALL distinguish a provider, a configured backend,
 
 - **WHEN** an external workflow preset supplies an ACP backend and `autoApproveAcpPermissions: true` in its provider profile
 - **THEN** the profile guidance directs the agent to submit that profile without treating it as a persisted Host Bridge configuration
-

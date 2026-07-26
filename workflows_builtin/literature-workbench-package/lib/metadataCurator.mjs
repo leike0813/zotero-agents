@@ -36,6 +36,7 @@ const FIELD_ALLOWLIST = [
   "callNumber",
   "rights",
   "accessDate",
+  "extra",
 ];
 
 export function isObject(value) {
@@ -98,6 +99,41 @@ function extractDoiFromText(value) {
   const decoded = decodeUrlComponentSafe(normalizeString(value));
   const match = decoded.match(/\b10\.\d{4,9}\/[^\s"'<>]+/i);
   return match ? normalizeDoi(trimIdentifierTail(match[0])) : "";
+}
+
+function extractPrefixedIdentifier(value, label, normalizer) {
+  const pattern = new RegExp(`(?:^|\\n)\\s*${label}\\s*:\\s*([^\\n]+)`, "i");
+  const match = normalizeString(value).match(pattern);
+  return match ? normalizer(trimIdentifierTail(match[1])) : "";
+}
+
+export function selectIdentifierFromExtra(value) {
+  const raw = normalizeString(value);
+  if (!raw) {
+    return null;
+  }
+  const doi = extractPrefixedIdentifier(raw, "DOI", normalizeDoi);
+  if (doi) {
+    return { type: "DOI", value: doi, normalized: doi, source: "extra" };
+  }
+  const isbn = extractPrefixedIdentifier(raw, "ISBN(?:-1[03])?", normalizeIsbn);
+  if (isbn) {
+    return { type: "ISBN", value: isbn, normalized: isbn, source: "extra" };
+  }
+  const arxiv = extractPrefixedIdentifier(raw, "arXiv", normalizeArxiv);
+  if (arxiv) {
+    return {
+      type: "arXiv",
+      value: arxiv,
+      normalized: arxiv.toLowerCase(),
+      source: "extra",
+    };
+  }
+  const pmid = extractPrefixedIdentifier(raw, "PMID", normalizePmid);
+  if (pmid) {
+    return { type: "PMID", value: pmid, normalized: pmid, source: "extra" };
+  }
+  return null;
 }
 
 export function selectIdentifierFromUrl(value) {
@@ -264,6 +300,10 @@ export function selectIdentifier(snapshot) {
       normalized: isbn,
     };
   }
+  const extraIdentifier = selectIdentifierFromExtra(snapshot?.fields?.extra);
+  if (extraIdentifier) {
+    return extraIdentifier;
+  }
   const urlIdentifier = selectIdentifierFromUrl(
     snapshot?.url || snapshot?.fields?.url,
   );
@@ -323,24 +363,34 @@ export function candidateMatchesIdentifier(candidate, identifier) {
   if (!identifier) {
     return false;
   }
+  const extraIdentifier = selectIdentifierFromExtra(candidate?.extra);
   if (identifier.type === "DOI") {
-    return normalizeDoi(candidate?.DOI) === identifier.normalized;
+    return (
+      normalizeDoi(candidate?.DOI) === identifier.normalized ||
+      (extraIdentifier?.type === "DOI" &&
+        extraIdentifier.normalized === identifier.normalized)
+    );
   }
   if (identifier.type === "ISBN") {
-    return normalizeIsbn(candidate?.ISBN) === identifier.normalized;
+    return (
+      normalizeIsbn(candidate?.ISBN) === identifier.normalized ||
+      (extraIdentifier?.type === "ISBN" &&
+        extraIdentifier.normalized === identifier.normalized)
+    );
   }
   if (identifier.type === "arXiv") {
     const candidateArxiv =
       normalizeArxiv(candidate?.archiveID) ||
       normalizeArxiv(candidate?.arXiv) ||
-      normalizeArxiv(candidate?.extra);
+      (extraIdentifier?.type === "arXiv" ? extraIdentifier.normalized : "");
     return candidateArxiv.toLowerCase() === identifier.normalized;
   }
   if (identifier.type === "PMID") {
     return (
       normalizePmid(candidate?.PMID) === identifier.normalized ||
       normalizePmid(candidate?.pmid) === identifier.normalized ||
-      normalizePmid(candidate?.extra) === identifier.normalized
+      (extraIdentifier?.type === "PMID" &&
+        extraIdentifier.normalized === identifier.normalized)
     );
   }
   return false;
@@ -360,21 +410,167 @@ export function hasCoreBibliographicMetadata(candidate) {
   );
 }
 
+function detectOriginalScript(value) {
+  const text = normalizeString(value);
+  const groups = [
+    ["han", /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/u],
+    ["kana", /[\u3040-\u30ff]/u],
+    ["hangul", /[\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]/u],
+    ["cyrillic", /[\u0400-\u052f]/u],
+    ["arabic", /[\u0600-\u06ff\u0750-\u077f]/u],
+    ["hebrew", /[\u0590-\u05ff]/u],
+    ["devanagari", /[\u0900-\u097f]/u],
+    ["thai", /[\u0e00-\u0e7f]/u],
+    ["greek", /[\u0370-\u03ff]/u],
+  ];
+  return groups.find(([, pattern]) => pattern.test(text))?.[0] || "";
+}
+
+function creatorText(creators) {
+  return normalizeCreators(creators)
+    .map((creator) =>
+      normalizeString(
+        creator.name || `${creator.firstName || ""}${creator.lastName || ""}`,
+      ),
+    )
+    .join(" ");
+}
+
+function appendWarningOnce(warnings, warning) {
+  if (!warnings.some((entry) => entry?.code === warning.code)) {
+    warnings.push(warning);
+  }
+}
+
+export function protectOriginalScriptMetadata(args) {
+  const parent = args?.parent?.fields
+    ? args.parent
+    : args?.parent && typeof args.parent.getField === "function"
+      ? buildParentSnapshot(args.parent)
+      : args?.parent || {};
+  const metadata = {
+    ...(isObject(args?.metadata) ? args.metadata : {}),
+    fields: {
+      ...(isObject(args?.metadata?.fields) ? args.metadata.fields : {}),
+    },
+  };
+  const warnings = Array.isArray(args?.warnings) ? [...args.warnings] : [];
+
+  const parentTitle = normalizeString(parent?.title || parent?.fields?.title);
+  const candidateTitle = normalizeString(metadata.fields.title);
+  const titleScript = detectOriginalScript(parentTitle);
+  if (
+    titleScript &&
+    candidateTitle &&
+    detectOriginalScript(candidateTitle) !== titleScript
+  ) {
+    delete metadata.fields.title;
+    appendWarningOnce(warnings, {
+      code: "native_title_translation_only",
+      message:
+        "The candidate title uses a different script, so the original-script title was preserved.",
+    });
+  }
+
+  const parentCreatorScript = detectOriginalScript(creatorText(parent?.creators));
+  const candidateCreators = normalizeCreators(metadata.creators);
+  if (
+    parentCreatorScript &&
+    candidateCreators.length > 0 &&
+    detectOriginalScript(creatorText(candidateCreators)) !== parentCreatorScript
+  ) {
+    delete metadata.creators;
+    appendWarningOnce(warnings, {
+      code: "native_creator_names_unverified",
+      message:
+        "The candidate creators do not preserve the authoritative original-script names.",
+    });
+  }
+  return { metadata, warnings };
+}
+
+function normalizeSemanticMetadata(source) {
+  const originalTitle = isObject(source?.originalTitle)
+    ? {
+        value: normalizeString(source.originalTitle.value),
+        ...(normalizeString(source.originalTitle.language)
+          ? { language: normalizeString(source.originalTitle.language) }
+          : {}),
+        ...(normalizeString(source.originalTitle.script)
+          ? { script: normalizeString(source.originalTitle.script) }
+          : {}),
+      }
+    : null;
+  const alternateTitles = (Array.isArray(source?.alternateTitles)
+    ? source.alternateTitles
+    : []
+  )
+    .filter(isObject)
+    .map((entry) => ({
+      value: normalizeString(entry.value),
+      role: normalizeString(entry.role) || "alternate",
+      ...(normalizeString(entry.language)
+        ? { language: normalizeString(entry.language) }
+        : {}),
+      ...(normalizeString(entry.script)
+        ? { script: normalizeString(entry.script) }
+        : {}),
+    }))
+    .filter((entry) => entry.value);
+  const containers = (Array.isArray(source?.containers)
+    ? source.containers
+    : []
+  )
+    .filter(isObject)
+    .map((entry) => ({
+      role: normalizeString(entry.role),
+      title: normalizeString(entry.title),
+      ...(normalizeString(entry.language)
+        ? { language: normalizeString(entry.language) }
+        : {}),
+      ...(normalizeString(entry.script)
+        ? { script: normalizeString(entry.script) }
+        : {}),
+    }))
+    .filter((entry) => entry.role && entry.title);
+  const creatorCompleteness = normalizeString(source?.creatorCompleteness);
+  return {
+    ...(originalTitle?.value ? { originalTitle } : {}),
+    ...(alternateTitles.length ? { alternateTitles } : {}),
+    ...(containers.length ? { containers } : {}),
+    ...(normalizeString(source?.language)
+      ? { language: normalizeString(source.language) }
+      : {}),
+    ...(normalizeString(source?.script)
+      ? { script: normalizeString(source.script) }
+      : {}),
+    ...(creatorCompleteness
+      ? { creatorCompleteness }
+      : {}),
+  };
+}
+
 export function canonicalResultFromMetadata(args) {
   const fields = normalizeMetadataFields(args?.metadata || {});
   const creators = normalizeCreators(args?.metadata?.creators);
   const itemType = normalizeString(args?.metadata?.itemType);
-  return {
-    kind: METADATA_CURATION_KIND,
-    status: "succeeded",
-    source: normalizeString(args?.source) || "unknown",
+  const protectedResult = protectOriginalScriptMetadata({
+    parent: args?.parent,
     metadata: {
       ...(itemType ? { itemType } : {}),
       fields,
       ...(creators.length > 0 ? { creators } : {}),
+      ...normalizeSemanticMetadata(args?.metadata),
     },
+    warnings: args?.warnings,
+  });
+  return {
+    kind: METADATA_CURATION_KIND,
+    status: "succeeded",
+    source: normalizeString(args?.source) || "unknown",
+    metadata: protectedResult.metadata,
     evidence: Array.isArray(args?.evidence) ? args.evidence : [],
-    warnings: Array.isArray(args?.warnings) ? args.warnings : [],
+    warnings: protectedResult.warnings,
   };
 }
 

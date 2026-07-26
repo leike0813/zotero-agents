@@ -1,6 +1,17 @@
 import { defineConfig } from "zotero-plugin-scaffold";
+import path from "node:path";
 import pkg from "./package.json";
+import { assertPluginNativeAssets } from "./scripts/check-plugin-native-assets";
 import { patchGeneratedZoteroTestRunner } from "./scripts/patch-zotero-test-runner";
+import { runtimeDiagnosticsSideEffectsPlugin } from "./scripts/runtime-diagnostics-esbuild";
+import {
+  ACP_RUNTIME_PERFORMANCE_PROFILER_ENABLED,
+  ACP_RUNTIME_REPLAY_PROFILER_ENABLED,
+  ACP_RUNTIME_SEMANTIC_TRACE_RECORDER_ENABLED,
+  SKILLRUNNER_CONNECTION_AUDIT_ENABLED,
+  SKILLRUNNER_SNAPSHOT_WIRE_ASSERT_ENABLED,
+  WORKSPACE_PUBLICATION_WIRE_ASSERT_ENABLED,
+} from "./src/modules/debugMode";
 
 type TestDomain = "all" | "core" | "ui" | "workflow";
 type TestMode = "lite" | "full";
@@ -79,7 +90,8 @@ async function resolveGitBranch(): Promise<string> {
   }
 }
 
-const DEBUG_MODE = (await resolveGitBranch()) === "dev";
+const branch = await resolveGitBranch();
+const DEBUG_MODE = branch === "dev" || branch.startsWith("dev-");
 
 export default defineConfig({
   source: ["src", "addon"],
@@ -101,6 +113,18 @@ export default defineConfig({
   },
 
   build: {
+    hooks: {
+      "build:pack": (ctx) => {
+        assertPluginNativeAssets({
+          xpiPath: path.join(ctx.dist, `${ctx.xpiName}.xpi`),
+          hostBridgeReleasePath: path.join(
+            "cli",
+            "zotero-bridge",
+            "release.json",
+          ),
+        });
+      },
+    },
     assets: [
       "addon/**/*.*",
       "addon/bin/**/*",
@@ -124,8 +148,28 @@ export default defineConfig({
         define: {
           __env__: `"${process.env.NODE_ENV}"`,
           __debug_mode__: String(DEBUG_MODE),
+          __acp_runtime_performance_profiler_enabled__: String(
+            ACP_RUNTIME_PERFORMANCE_PROFILER_ENABLED,
+          ),
+          __acp_runtime_semantic_trace_recorder_enabled__: String(
+            ACP_RUNTIME_SEMANTIC_TRACE_RECORDER_ENABLED,
+          ),
+          __acp_runtime_replay_profiler_enabled__: String(
+            ACP_RUNTIME_REPLAY_PROFILER_ENABLED,
+          ),
+          __skillrunner_connection_audit_enabled__: String(
+            SKILLRUNNER_CONNECTION_AUDIT_ENABLED,
+          ),
+          __workspace_publication_wire_assert_enabled__: String(
+            WORKSPACE_PUBLICATION_WIRE_ASSERT_ENABLED,
+          ),
+          __skillrunner_snapshot_wire_assert_enabled__: String(
+            SKILLRUNNER_SNAPSHOT_WIRE_ASSERT_ENABLED,
+          ),
         },
         bundle: true,
+        minifySyntax: true,
+        plugins: [runtimeDiagnosticsSideEffectsPlugin],
         target: "firefox115",
         outfile: `.scaffold/build/addon/content/scripts/${pkg.config.addonRef}.js`,
       },
@@ -140,6 +184,32 @@ export default defineConfig({
         bundle: true,
         target: "firefox115",
         outfile: ".scaffold/build/addon/content/workspace/app.bundle.js",
+      },
+      {
+        entryPoints: ["src/sidebar/acpChildApp.js"],
+        bundle: true,
+        target: "firefox115",
+        outfile: ".scaffold/build/addon/content/sidebar/acp-child.bundle.js",
+      },
+      {
+        entryPoints: ["src/sidebar/runDialogApp.js"],
+        bundle: true,
+        target: "firefox115",
+        outfile: ".scaffold/build/addon/content/sidebar/run-dialog.bundle.js",
+      },
+      {
+        entryPoints: ["src/sidebar/assistantWorkspaceApp.js"],
+        bundle: true,
+        target: "firefox115",
+        outfile:
+          ".scaffold/build/addon/content/sidebar/assistant-workspace.bundle.js",
+      },
+      {
+        entryPoints: ["src/workers/runtimeFileRangeWorker.ts"],
+        bundle: true,
+        target: "firefox115",
+        outfile:
+          ".scaffold/build/addon/content/workers/runtime-file-range-worker.js",
       },
     ],
   },

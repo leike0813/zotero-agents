@@ -1,8 +1,9 @@
 import type { PluginSkillRegistryEntry } from "./pluginSkillRegistry";
 import {
-  collectRuntimeFiles,
-  runtimeRelativePath,
+  RUNTIME_TREE_POLICIES,
   runtimePathExists,
+  scanRuntimeTree,
+  type RuntimeTreeManifest,
 } from "./runtimePersistence";
 import { joinPath } from "../utils/path";
 
@@ -26,8 +27,12 @@ export type AcpSkillResourceManifest = {
 
 export async function buildAcpSkillResourceManifest(
   entry: PluginSkillRegistryEntry,
+  runtimeTreeManifest?: RuntimeTreeManifest,
 ): Promise<AcpSkillResourceManifest> {
-  const files = await collectRuntimeFiles(entry.sourceDir);
+  const tree =
+    runtimeTreeManifest ||
+    entry.runtimeTreeManifest ||
+    (await scanRuntimeTree(entry.sourceDir, RUNTIME_TREE_POLICIES.skill));
   const assetsDir = joinPath(entry.sourceDir, "assets");
   const scriptsDir = joinPath(entry.sourceDir, "scripts");
   const referencesDir = joinPath(entry.sourceDir, "references");
@@ -41,10 +46,12 @@ export async function buildAcpSkillResourceManifest(
     scriptsDir,
     referencesDir,
     runnerJsonPath: entry.runnerJsonPath,
-    files: files.map((absolutePath) => ({
-      relativePath: runtimeRelativePath(entry.sourceDir, absolutePath),
-      absolutePath,
-    })),
+    files: tree.entries
+      .filter((file) => file.kind === "file")
+      .map((file) => ({
+        relativePath: file.relativePath,
+        absolutePath: file.absolutePath,
+      })),
   };
 }
 

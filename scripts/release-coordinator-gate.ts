@@ -32,7 +32,7 @@ export type ReleaseGateCommandRunner = (
 ) => Promise<ReleaseGateCommandResult>;
 
 export type ReleaseGateRemoteState = {
-  name: "origin" | "gitee";
+  name: "origin";
   main: {
     status: "synced" | "local_ahead" | "local_behind" | "diverged" | "unknown";
     ahead: number;
@@ -47,7 +47,7 @@ export type ReleaseGateRemoteState = {
 };
 
 export type ReleaseGateReport = {
-  schema: "zotero-agents.release-gate.v1";
+  schema: "zotero-agents.release-gate.v2";
   generated_at: string;
   branch: string;
   head: string;
@@ -62,7 +62,6 @@ export type ReleaseGateReport = {
   content_package: {
     candidate: boolean;
     release_verified: boolean;
-    mirror_verified: boolean;
     matched_files: string[];
   };
   local_gates: {
@@ -95,41 +94,44 @@ export type ReleaseGateArgs = {
   testNodeFullPassed?: boolean;
   lintCheckPassed?: boolean;
   contentPackageReleaseVerified?: boolean;
-  contentPackageMirrorVerified?: boolean;
   repo?: string;
 };
 
 const execFileAsync = promisify(execFile);
-const RELEASE_GATE_SCHEMA = "zotero-agents.release-gate.v1" as const;
+const RELEASE_GATE_SCHEMA = "zotero-agents.release-gate.v2" as const;
 const DEFAULT_REPO = "leike0813/zotero-agents";
 
 const HOST_BRIDGE_PREFIXES = [
   "cli/zotero-bridge/",
   "skills_builtin/zotero-bridge-cli/",
-  "skills_src/zotero-bridge-cli/semantic/",
+  "skills_src/zotero-bridge-cli/",
   "skills_src/zotero-library-agent/",
-  "skills_src/host-bridge-shared/",
   "skills_builtin/zotero-library-agent/",
   "profiles_src/hermes/zotero-librarian/",
   "profiles/hermes/zotero-librarian/",
+  "host-bridge/",
+  "schemas/host-bridge.",
+  ".agents/skills/host-bridge-",
+  "scripts/host-bridge-",
+  "scripts/render-host-bridge-",
 ] as const;
 
 const HOST_BRIDGE_EXACT_FILES = new Set([
   "src/modules/hostBridgeCapabilityRegistry.ts",
   "src/modules/zoteroHostCapabilityBroker.ts",
   "scripts/host-bridge-surface-catalog.ts",
-  "scripts/render-zotero-librarian-profile.ts",
-  "scripts/check-zotero-librarian-profile.ts",
-  "scripts/zotero-librarian-profile-version.ts",
-  "scripts/render-zotero-library-agent-bundle.ts",
-  "scripts/check-zotero-library-agent-bundle.ts",
-  "scripts/zotero-library-agent-bundle-version.ts",
+  "scripts/render-host-bridge-surfaces.ts",
+  "scripts/check-host-bridge-skill-packages.ts",
+  "scripts/host-bridge-surface-version.ts",
   "scripts/build-zotero-bridge-cli.mjs",
   "scripts/package-zotero-bridge-cli.mjs",
   "scripts/publish-host-bridge-cli-bundle.ps1",
   "scripts/publish-zotero-librarian-profile.ps1",
   "scripts/publish-zotero-library-agent-bundle.ps1",
-  ".github/workflows/build-zotero-bridge-cli.yml",
+  "scripts/materialize-host-bridge-surfaces.ts",
+  "scripts/prepare-host-bridge-release.ts",
+  "scripts/render-host-bridge-release-set.ts",
+  ".github/workflows/release-host-bridge.yml",
 ]);
 
 const CONTENT_PACKAGE_PREFIXES = [
@@ -146,6 +148,7 @@ const CONTENT_PACKAGE_EXACT_FILES = new Set([
   "scripts/bump-content-package-version.ts",
   "scripts/prepare-content-package-release.ts",
   "scripts/check-content-package-release.ts",
+  "scripts/publish-content-package-github.ts",
 ]);
 
 async function defaultRunCommand(command: string, args: string[]) {
@@ -302,8 +305,23 @@ function parseTagState(result: Awaited<ReturnType<typeof runOptional>>) {
   };
 }
 
+function parseGitHubReleaseState(
+  result: Awaited<ReturnType<typeof runOptional>>,
+) {
+  if (
+    !result.ok &&
+    /release not found|\b404\b.*\bnot found\b/i.test(result.stderr)
+  ) {
+    return {
+      exists: false,
+      status: "missing" as const,
+    };
+  }
+  return parseTagState(result);
+}
+
 async function inspectRemote(args: {
-  name: "origin" | "gitee";
+  name: "origin";
   targetVersion: string;
   commandRunner: ReleaseGateCommandRunner;
 }): Promise<ReleaseGateRemoteState> {
@@ -390,7 +408,6 @@ function suggestedCommands(args: {
         "npm run release:content-package -- <patch|minor|major|version>",
         "npm run release:content-package -- --dispatch --watch",
         "npm run check:content-package-release",
-        "npm run check:content-package-mirror",
       ];
     case "run_local_gates":
       return ["npm run test:node:full", "npm run lint:check"];
@@ -441,11 +458,9 @@ export async function analyzeReleaseGate(
   const contentPackageMatchedFiles = changedFiles.filter(
     isContentPackageCandidateFile,
   );
-  const remotes = await Promise.all(
-    (["origin", "gitee"] as const).map((name) =>
-      inspectRemote({ name, targetVersion, commandRunner }),
-    ),
-  );
+  const remotes = [
+    await inspectRemote({ name: "origin", targetVersion, commandRunner }),
+  ];
   const localTag = targetVersion
     ? parseTagState(
         await runOptional(commandRunner, "git", [
@@ -456,7 +471,7 @@ export async function analyzeReleaseGate(
       )
     : { exists: false, status: "missing" as const };
   const githubRelease = targetVersion
-    ? parseTagState(
+    ? parseGitHubReleaseState(
         await runOptional(commandRunner, "gh", [
           "release",
           "view",
@@ -629,7 +644,6 @@ export async function analyzeReleaseGate(
     content_package: {
       candidate: contentPackageMatchedFiles.length > 0,
       release_verified: args.contentPackageReleaseVerified === true,
-      mirror_verified: args.contentPackageMirrorVerified === true,
       matched_files: contentPackageMatchedFiles,
     },
     local_gates: {
@@ -687,11 +701,6 @@ export function parseReleaseGateCliArgs(argv: string[]): ReleaseGateArgs {
     }
     if (entry === "--content-package-release-verified") {
       args.contentPackageReleaseVerified = true;
-      index += 1;
-      continue;
-    }
-    if (entry === "--content-package-mirror-verified") {
-      args.contentPackageMirrorVerified = true;
       index += 1;
       continue;
     }

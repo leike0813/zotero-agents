@@ -6,6 +6,7 @@
 
 ```json
 {
+  "schemaVersion": 2,
   "id": "my-workflow",
   "label": "My Workflow",
   "version": "1.0.0",
@@ -14,7 +15,15 @@
     "core": false,
     "emoji": "🔧"
   },
-  "inputs": { "unit": "parent" },
+  "trigger": { "requiresSelection": true },
+  "inputs": {
+    "member": { "kind": "parent" },
+    "grouping": { "mode": "each" }
+  },
+  "validateSelection": {
+    "select": { "policy": "input-member", "source": "selected" },
+    "filters": []
+  },
   "parameters": {},
   "execution": {},
   "request": { "kind": "pass-through.run.v1" },
@@ -67,135 +76,92 @@
 | `taskNameTemplate` | string | `{파라미터 이름}` 자리표시자를 사용하는 작업 이름 템플릿, 실행 시 실제 값으로 대체 |
 | `debug_only` | boolean | `true`이면 디버그 모드에서만 표시 |
 
-### 입력 정의
+### Input Planning Contracts
+
+`inputs` and `validateSelection` have separate, non-interchangeable roles.
+`inputs` is the consumer contract for prepared execution members and grouping;
+`validateSelection` is the producer contract for raw-selection validation,
+candidate selection, ordered filtering, and candidate cardinality.
+
+#### `inputs` — Execution Input Contract
 
 ```json
 {
   "inputs": {
-    "unit": "attachment",
-    "accepts": {
-      "mime": ["text/markdown", "text/x-markdown", "application/pdf"]
+    "member": {
+      "kind": "attachment",
+      "accepts": {
+        "mime": ["text/markdown", "text/x-markdown", "application/pdf"]
+      }
     },
-    "per_parent": {
-      "min": 1,
-      "max": 1
-    }
+    "grouping": { "mode": "parent" }
   }
 }
 ```
 
-| 필드 | 설명 |
-|------|------|
-| `unit` | **입력 유닛 타입**. `"attachment"` (첨부파일), `"parent"` (부모 항목), `"note"` (노트), `"workflow"` (항목 선택 불필요, Dashboard에서 직접 트리거) |
-| `accepts.mime` | 허용되는 MIME 타입 (`unit: "attachment"`일 때만 적용). 지정되지 않으면 모든 타입 허용 |
-| `per_parent.min` | 부모 항목당 최소 첨부파일 수 |
-| `per_parent.max` | 부모 항목당 최대 첨부파일 수 |
+- `member.kind`: `selection`, `parent`, `child`, `attachment`,
+  `note`, `generated-note`, or `digest-image-target`.
+- `member.accepts.mime` applies only to attachment execution members.
+- `grouping.mode: "each"` creates one unit per candidate.
+- `grouping.mode: "all"` creates one unit containing all candidates.
+- `grouping.mode: "parent"` creates stable parent groups. Candidates without
+  parent identity are skipped as `missing-parent`.
 
-`unit: "workflow"`일 때, 트리거에 사용자 선택 항목이 필요하지 않습니다 (예: "주제 종합 생성").
-
-### validateSelection — 선택 검증 {#selection-validation}
-
-`validateSelection`은 선언적 선택 검증입니다. "이미 결과가 있는 항목 건너뛰기" 또는 "특정 타입의 선택만 허용"과 같은 일반적인 시나리오를 다룹니다 — JavaScript를 작성할 필요 없이.
+#### `validateSelection` — Candidate Production Contract {#selection-validation}
 
 ```json
 {
   "validateSelection": {
-    "select": {
-      "policy": "literature-source"
-    },
     "require": {
-      "counts": {
-        "parents": 1
+      "selection": {
+        "counts": {
+          "parents": { "min": 1 },
+          "total": { "min": 1 }
+        },
+        "allowMixed": false
       },
-      "allowMixed": false
+      "candidates": { "min": 1 }
     },
-    "exclude": [
+    "select": {
+      "policy": "input-member",
+      "source": "related"
+    },
+    "filters": [
       {
-        "kind": "generated-notes-all",
-        "noteKinds": ["digest", "references", "citation-analysis"]
+        "kind": "source-file-exists",
+        "phase": "availability"
       }
     ]
   }
 }
 ```
 
-### `select` — 선택 정책
+`require.selection` checks the raw SelectionContext exactly once.
+`select` then produces ordered atomic candidates. MIME compatibility and
+`filters` run before `require.candidates`. Count rules use either
+`{ "exact": n }` or non-negative `min`/`max` values.
 
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `select.policy` | string | 선택 정책. 지원 값은 아래 참조 |
-| `select.unit` | string | 선택 검증을 위한 입력 유닛 재정의. `"attachment"` / `"parent"` / `"note"` / `"workflow"` |
+Supported selectors are `input-member` (`source: selected|related`),
+`selection`, `literature-source`, `generated-note-candidates`, and
+`digest-representative-image`. Supported filters are
+`source-file-exists`, `candidates-per-parent`,
+`generated-note-kinds-absent`, and `artifact-absent`. Parameter-dependent
+artifact checks require `phase: "execute"`; availability filters run during
+preview and are reapplied during confirmed planning.
 
-**지원되는 `select.policy` 값:**
-
-| 정책 | 설명 |
-|------|------|
-| `input-unit` | 입력 유닛에 일치하는 항목 허용 |
-| `literature-source` | 문헌 출처 허용 (첨부파일 또는 확장 가능한 첨부파일이 있는 부모 항목) |
-| `pdf-attachment` | PDF 첨부파일만 허용 |
-| `selected-parent` | 선택 항목의 부모 항목 허용 |
-| `generated-note-candidates` | 생성된 노트의 후보 항목 허용 |
-| `digest-representative-image` | 대표 이미지 추출 대상 항목 |
-
-### `require` — 선택 요구사항
-
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `require.counts.parents` | number | 최소 필요 부모 항목 수 |
-| `require.counts.attachments` | number | 최소 필요 첨부파일 항목 수 |
-| `require.counts.notes` | number | 최소 필요 노트 항목 수 |
-| `require.counts.children` | number | 최소 필요 자식 항목 수 |
-| `require.counts.total` | number | 최소 필요 전체 항목 수 |
-| `require.allowMixed` | boolean | 선택에서 다양한 항목 타입을 혼합할 수 있는지 여부 |
-
-### `exclude` — 제외 규칙
-
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `exclude[]` | array | 제외 규칙 목록. 어떤 규칙이라도 일치하면 현재 항목이 건너져집니다 |
-
-**지원되는 `exclude.kind` 값:**
-
-| kind | 설명 | 추가 파라미터 |
-|------|------|--------------|
-| `generated-notes-all` | 항목에 이미 지정된 타입의 생성된 노트가 있음 | `noteKinds`: 노트 타입 목록, 예: `["digest", "references", "citation-analysis"]` |
-| `artifact-exists` | 항목에 이미 지정된 아티팩트가 있음 (중복 실행 방지) | `target`: `"deep-reading-html"` / `"translator-markdown"` / `"mineru-markdown"`; `parameter`: 아티팩트 매칭을 위한 선택적 언어 파라미터 |
-
-### `derive` — 파생 선택
-
-| 필드 | 타입 | 설명 |
-|------|------|------|
-| `derive[]` | array | 파생 선택 작업. `"exportCandidates"` — 노트 내보내기를 위한 후보 파생; `"digestRepresentativeImageTarget"` — digest 노트에서 대표 이미지 대상 파생 |
-
-**예시:**
-
-```json
-{
-  "validateSelection": {
-    "select": { "policy": "literature-source" },
-    "exclude": [
-      { "kind": "artifact-exists", "target": "deep-reading-html" }
-    ]
-  }
-}
-```
-
-> 이 예시에서는 심층 읽기 HTML 아티팩트가 이미 있는 항목이 자동으로 건너져되며, 사용자가 수동으로 필터링할 필요가 없습니다.
-
-### 트리거 제어
+#### `trigger` — Empty-selection Gate
 
 ```json
 {
   "trigger": {
-    "requiresSelection": false
+    "requiresSelection": true
   }
 }
 ```
 
-| 필드 | 설명 |
-|------|------|
-| `requiresSelection` | 트리거에 사용자 선택 항목이 필요한지 여부. 기본값은 `true`. `false`로 설정하면 항목을 선택하지 않고도 Dashboard에서 Workflow를 실행할 수 있습니다. 일반적으로 `inputs.unit: "workflow"`일 때 `false`로 설정 |
-
+`trigger.requiresSelection` is required in schema v2. It controls only whether
+an empty selection may enter planning; it does not replace
+`require.selection`.
 ### 실행 제어
 
 ```json
@@ -330,15 +296,31 @@
 
 ```json
 {
+  "schemaVersion": 2,
   "id": "my-literature-analysis",
   "label": "내 문헌 분석",
   "version": "1.0.0",
   "provider": "skillrunner",
   "display": { "emoji": "📄" },
+  "trigger": { "requiresSelection": true },
   "inputs": {
-    "unit": "attachment",
-    "accepts": { "mime": ["application/pdf"] },
-    "per_parent": { "min": 1, "max": 1 }
+    "member": {
+      "kind": "attachment",
+      "accepts": { "mime": ["application/pdf"] }
+    },
+    "grouping": { "mode": "each" }
+  },
+  "validateSelection": {
+    "require": {
+      "selection": {
+        "counts": { "attachments": { "min": 1 } },
+        "allowMixed": false
+      }
+    },
+    "select": { "policy": "input-member", "source": "selected" },
+    "filters": [
+      { "kind": "source-file-exists", "phase": "availability" }
+    ]
   },
   "parameters": {
     "language": {

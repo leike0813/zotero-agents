@@ -23,6 +23,11 @@ const CONTENT_VERSION_FILE = "content-package.version.json";
 const DEFAULT_RELEASE_REPO = "leike0813/zotero-agents-workflows";
 let trackedContentSourceFiles: Promise<Set<string> | null> | undefined;
 
+type GeneratedAtCommandRunner = (
+  command: string,
+  args: string[],
+) => Promise<{ stdout: string; stderr: string }>;
+
 function argValue(name: string) {
   const prefix = `${name}=`;
   const inline = process.argv.find((entry) => entry.startsWith(prefix));
@@ -134,6 +139,38 @@ async function readGitRevision() {
   } catch {
     return "unknown";
   }
+}
+
+export async function resolveContentPackageGeneratedAt(args?: {
+  explicit?: string;
+  revision?: string;
+  runCommand?: GeneratedAtCommandRunner;
+}) {
+  const explicit = String(
+    args?.explicit ?? process.env.CONTENT_PACKAGE_GENERATED_AT ?? "",
+  ).trim();
+  if (explicit) {
+    return new Date(explicit).toISOString();
+  }
+  const revision =
+    String(args?.revision ?? process.env.GITHUB_SHA ?? "").trim() || "HEAD";
+  const runCommand: GeneratedAtCommandRunner =
+    args?.runCommand ||
+    (async (command, commandArgs) => {
+      const result = await execFileAsync(command, commandArgs);
+      return { stdout: result.stdout || "", stderr: result.stderr || "" };
+    });
+  const result = await runCommand("git", [
+    "show",
+    "-s",
+    "--format=%cI",
+    revision,
+  ]);
+  const commitTimestamp = result.stdout.trim();
+  if (!commitTimestamp) {
+    throw new Error(`Unable to resolve commit timestamp for ${revision}`);
+  }
+  return new Date(commitTimestamp).toISOString();
 }
 
 async function readTrackedContentSourceFiles() {
@@ -496,9 +533,7 @@ async function writeChannel(args: {
 async function main() {
   const outRoot = argValue("--out") || "artifact/content-packages";
   const revision = await readGitRevision();
-  const generatedAt =
-    String(process.env.CONTENT_PACKAGE_GENERATED_AT || "").trim() ||
-    new Date().toISOString();
+  const generatedAt = await resolveContentPackageGeneratedAt({ revision });
   const descriptor = await readContentVersionDescriptor();
   await fs.rm(outRoot, { recursive: true, force: true });
   for (const channel of resolveChannels()) {

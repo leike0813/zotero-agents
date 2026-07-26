@@ -1,0 +1,404 @@
+# 研究任务模型
+
+## 适用范围
+
+本参考负责跨越五个有边界研究领域的决策，并假定协调器合同已加载。它用于选择任务所有者、汇合任务结果、选择工作流所有权、保留可移植证据以及恢复多阶段请求。精确 CLI binding 仍归随附 CLI Skill 所有，无人值守监管则归托管 Librarian facet 所有。
+
+## 路由决策
+
+| 请求结果 | 主要 Skill | 必须解析的输入 | 完成证据 |
+| --- | --- | --- | --- |
+| 识别当前 selection、搜索条目、检查笔记或附件，或依据当前文献库状态回答 | `zotero-library-query` | 问题、实时 scope、新鲜度、结果上限 | 稳定对象 ref、locator、完整分页及基于来源的答案 |
+| 发现文献、评估候选项、导入已批准记录、处理重复项或准备来源 | `zotero-literature-acquisition` | 纳入规则、目标 library/collection、候选 provenance、写权限 | 候选理由或已验证的获取条目/附件状态 |
+| 摘要、提取、比较或解释一篇或多篇论文 | `zotero-literature-analysis` | 已解析条目/附件、分析视角、可用来源层级 | 带来源定位的发现与已声明报告 artifact |
+| 将来源与问题、topic、claim、graph、gap 或研究 bundle 建立联系 | `zotero-research-synthesis` | 明确来源边界、Synthesis 模型、预期交付物 | 可追溯关系、分歧/gap 报告或已验证工作流输出 |
+| 修正或整理元数据、标签、分类、笔记、链接、文件或 readiness | `zotero-library-curation` | 实时目标、当前与期望状态、变更权限 | 已批准变更 receipt 加变更后实时读取 |
+
+按请求结果路由，而不是按首个可能有用的命令路由。“查找论文并比较其方法”是先获取后分析；“哪些所选论文缺少 PDF？”是查询，“获取这些 PDF”则增加获取；“解释该 topic 并将结果保存为笔记”是先综合后整理。周期性监控请求不属于 Generic 任务：回答其中有边界的问题后，把调度交给托管 facet。
+
+路由下游操作前先解析“这篇论文”“这些笔记”或“所选分类”等指示性语言。所选对象是笔记或附件时，保留其自身身份；仅对要求父条目的合同派生顶层父条目。
+
+## 任务组合
+
+若一个 Skill 的完成条件可直接满足请求，就只使用该 Skill。只有一项任务的已验证输出是另一项任务的声明输入时才进行组合。开始序列前，说明：
+
+1. 每项任务的所有者与有界结果；
+2. 跨越每个边界的稳定身份与证据；
+3. 哪些阶段只读，哪些阶段引入新的权限决策；
+4. 证明每个阶段完成的 artifact 或实时状态证据；
+5. 后续阶段失败时的首个安全恢复点。
+
+典型组合包括 acquisition → analysis → synthesis、query → curation → query verification，以及用户单独请求回写时的 analysis → curation。不得把各阶段合并成不透明的“research workflow”，从而隐藏选择标准、失败条目、approval 或中间证据。
+
+handoff 时保留稳定 Zotero ref、topic/Product ID、workflow 或 operation handle、来源 locator、artifact role、机制返回的 checksum 及诊断。当新鲜度重要、handle 已过期、前置任务不完整，或下一步可修改 Zotero 时，重新读取实时数据。下游任务可将输入缩小到前置任务成功条目，但必须报告被排除或失败对象。
+
+## 工作流执行所有权
+
+只有工作流实时描述与预期结果匹配，且声明所需执行模式时才使用该工作流。工作流发现用于识别候选项；requirements 与 validation 决定当前 selection 和选项是否可接受。
+
+对于 Zotero 托管执行：
+
+1. 描述工作流及其 selection/options 合同；
+2. 只归一该合同要求的 selection 身份；
+3. 校验工作流输入；
+4. 单独描述并校验 backend provider profile；
+5. 确认 provider 兼容性，并通过工作流汇合点提交；
+6. 按返回的 admission contract 分支：direct admission 时保留 `workflowRunId`；native host-queue admission 时保留 `submissionId` 并检查不可变 unit projection，直到 admitted tasks 暴露真实 run identities；
+7. 将预期 Product、artifact 及已变更 Zotero 对象与 run 终态分开检查。
+
+queued admission 时，将 submission projection 作为 aggregate SSOT；active queue 只用于观察或取消仍处于 pending 的 units；submission-filtered task discovery 用于关联 admitted work。queue cancellation 不会取消 admitted run；admission 后通过正常 control plane 定位真实 run。native slot 一直占用到 terminal execution 与 apply-back，并且每个 promised Product、artifact 或 live change 都要单独验证。
+
+active native submission projection 是 process-local 的。Host restart 后该 projection 不可用时，通过 submission-filtered task discovery 与真实 run state 恢复已 admitted work，保留原始 bounded source scope，并报告哪些 units 不再能作为 pending 被观察。不得合成 replacement queue entries，也不得自动 resubmit unresolved remainder；replacement submission 是新的 state-changing operation，具有新的 authority boundary。
+
+active/recent 列表仅用于发现。使用返回的 `skillRunId` 定位 reply 或 connect；检查 permission，但不得假装 CLI 能决定它。通知是生命周期提示，不是 transcript 或授权。direct submission 不确定时，创建另一个 run 前先搜索当前/近期匹配 run。queued submission 不确定时，创建另一 submission 前检查原始 `submissionId` 及其 admitted tasks；初始响应没有 run handle 是预期行为，不构成 resubmit 权限。
+
+当工作流声明支持，且当前 Agent 将履行每份已下载请求合同时，选择 Agent 自主执行。除非实时合同明确声明，否则该模式不能携带 Zotero 托管工作流选项或 backend provider profile。
+
+## Agent 自主 handoff
+
+以显式 selection 或声明的无 selection 形式准备一次 handoff。保留 `agentRunId`、全部 `agentRequestId`、bundle 路径、checksum、lease 事实和输出合同位置。
+
+对每个请求：
+
+1. 在本地检查 handoff bundle；
+2. 读取请求输入及其自身输出合同；
+3. 执行有边界的语义工作，不虚构结果文件或 namespace；
+4. 严格按声明组装结果目录或 ZIP；
+5. 按该请求合同运行本地结果校验；
+6. 保留已校验的请求到结果映射，直至所有必要请求均已就绪。
+
+本地检查与校验属于结构预检。它们不联系 Zotero、不续租、不消费 run handle、不判断语义质量，也不授权回写。除非实时 apply 合同明确允许，不得仅因一个请求完成就应用部分映射。
+
+使用原始 `agentRunId` 应用完整映射。Zotero 在 approval 或消费 handle 前预检全部结果。一旦执行开始，将该 handle 视为一次性。响应为失败、混合或不确定时，读取 apply-status receipt；preflight rejection、已应用请求、失败请求、状态变化、消费和恢复均以该 receipt 为权威。不得通过 Zotero 托管 run 命令检查此 handoff。
+
+## 证据、文件与 Product
+
+每个最终结果都使用 `zotero-library-task.result.v1`：
+
+```json
+{
+  "schema": "zotero-library-task.result.v1",
+  "status": "completed",
+  "summary": "Compared three current abstracts within the requested scope.",
+  "evidence": [{
+    "kind": "zotero-item",
+    "ref": { "libraryId": 1, "key": "ABCD1234" },
+    "locator": "abstract",
+    "description": "Source for one comparison row."
+  }],
+  "artifacts": [{
+    "path": "comparison.md",
+    "role": "report",
+    "mediaType": "text/markdown"
+  }]
+}
+```
+
+`completed` 需要有界结果及其完成证据。`canceled` 标识缺少决策、权限、输入或可解析身份。`failed` 记录已尝试但无法安全完成的路径。diagnostics 保留稳定 code 与可操作上下文。
+
+内联 evidence 用于来源身份、locator、workflow/operation handle、approval 结果或带 checksum 的交付事实。artifact 指向任务生成文件；其路径只是 locator，不是持久身份或 Zotero 状态证明。不得创建第二个 evidence envelope。排除 token、authorization header、cookie、完整私有 transcript 及无关附件内容。
+
+区分本地路径、bridge 签发的 `fileId`、Dashboard Product ID、工作流 artifact 与 Zotero 附件。终态 run 不代表 Product 存在；Product 不代表附件存在；已下载 artifact 不证明已回写。使用返回的 checksum 与大小验证传输字节，通过所属 Zotero 对象验证持久状态。
+
+## 多阶段研究生命周期
+
+完整的文献到综合请求可包含以下证据相互独立的阶段：
+
+1. 搜索与 ingest：校验候选边界和 provider profile，随后保留 provenance 及成功 ingest 的条目 ref。
+2. 文献分析：只对成功或明确选择的父条目运行；逐篇记录 digest、references、citation analysis 与失败。
+3. Reference-sidecar refresh：提交成功论文 scope，保留 operation ID、终态 receipt、basis hash、成功 ref 与失败 ref。
+4. Citation-graph update：使用已提交 scope 和预期 basis hash 启动单独获批 operation；保留其自身 receipt。
+5. Topic synthesis：对新 seed 选择创建，对已识别 topic 选择更新；随后验证 topic ID 和请求报告，而不只验证 run 终态。
+6. Research-bundle export：验证预期 Product，下载所选 asset，并保留文件元数据或 digest。
+
+每项 approval 只属于相应阶段。sidecar 完成不等于 graph 完成；graph 完成不等于 topic 完成；topic 完成不构成 export 证据。从首个缺少稳定完成证据的阶段恢复，不重放更早的变更阶段。
+
+## 恢复与易错边界
+
+- 搜索命中、标题、引文或缓存索引行在实时 Zotero 读取确认身份前都只是候选项。
+- 有界搜索为空可以是完整答案；未完成分页或被截断的搜索不能证明不存在。
+- failed 或 canceled 任务是该阶段的终态边界。下游工作只能基于明确有效的成功对象继续。
+- 报告可以完成，但请求写入仍未获批。返回报告 artifact，并将待执行 mutation 标记为 `canceled`，不得声称全部完成。
+- 工作流完成但缺少预期 artifact 或 Product 时，保留 run 证据并报告缺失交付物。
+- 文件 handle 过期时，从所属附件、Product 或 artifact 重新获取访问，不得猜测路径。
+- scope 变化会改变候选项或结论时，请求新决策；不得静默扩大任务。
+- 用户请求持续监管时，不得用重复轮询模拟常驻。将持续监管路由到托管 facet。
+
+## 自然语言任务输入理解
+
+当用户的措辞结合了几个看似合理的研究结果或默认可能会严重改变结果时，请使用此扩展输入理解过程。
+
+### 结果阶梯
+
+询问用户最终想要拥有什么：
+
+|想要拥有 |任务解读|
+| --- | --- |
+|关于当前 Zotero 内容的直接回答 |查询 |
+|一组有出处的外部候选项 |采集，仅限候选项 |
+|新的或更新的 Zotero 来源|带有写入阶段的采集 |
+|摘要、摘录、翻译或比较 |分析|
+|跨源索赔图、差距分析、主题、图表解释或导出 | Synthesis |
+|更改的元数据、标签、注释、集合、文件、链接或应用的结果 |整理|
+|定期报告或持续监督 |任何有限任务之后的托管方面 |
+
+不要仅从动词推断出想要的占有。 “收集”可以指制作阅读列表、导入引文或获取附件。 “分析”可以意味着总结一个项目、比较一组或综合一个领域。 “保存”可能意味着返回artifact或将其保留在 Zotero 中。
+
+### 范围阶梯
+
+从最窄的稳定源解析范围：
+
+1. 由用户提供的显式稳定 Zotero refs。
+2. 使用指示性措辞时实时显示当前选择。
+3. 显式集合或主题标识。
+4. 有界实时文献库查询。
+5. 有界的外部搜索条件。
+
+当较窄的步骤不明确时，不要落入较宽的步骤。当前选择为空需要提问；它不授权进行全库检索。模糊的标题需要候选项消歧；它不授权选择第一个匹配项。
+
+### 新鲜度阶梯
+
+选择结论所需的新鲜度基础：
+
+- 当前元数据、成员资格、注释或附件状态的当前库对象。
+- 当前执行声明的 workflow/运行/操作receipt。
+- 当前 Product 或 artifact 读取可交付索赔。
+- Synthesis 解释的当前派生模型状态。
+- 仅当用户明确询问过去的状态时才生成历史快照。
+
+缓存的索引和先前的任务结果可能会缩小发现范围，但无法取代当前状态控制答案或写入的实时读取。
+
+### 证据深度阶梯
+
+说明每个来源最有力的可用基础：
+
+1. 仅元数据。
+2. 抽象的。
+3. 注释或注释。
+4. 部分内容或 OCR。
+5. 已提交全文。
+6. workflow 生成的分析根据其来源进行检查。
+
+永远不要将这些平均化为模糊的“论文进行了分析”。在比较和综合中，混合深度必须保持可见。当改变可以负责任地声明的内容时，询问用户是否接受较弱的基础。
+
+### 状态变化阶梯
+
+一次将权限升级一个边界：
+
+1. 阅读。
+2. 候选项或变更提案。
+3. workflow/provider 验证。
+4. 当前提交或写入变更权威。
+5. 申报时 Zotero 方批准。
+6. 耐用receipt。
+7. 实时状态后验证。
+
+前一级别的证据并不支持下一级别的证据。候选报告不授权导入，有效 workflow 不授权提交，上传文件不授权附件，生成结果不授权申请退回。
+
+### 默认披露
+
+当使用安全默认值时，请在执行前用一句话或在最终答案中说明：
+
+> 我将使用当前的实时库，保持此单次执行只读，搜索指定的集合，并返回对话答案；如果现有证据弱于全文，我将报告。
+
+不要给用户带来没有实质性影响的默认设置的负担。务必公开任何默认的管理范围、新鲜度、证据、可交付成果、成本/provider或状态变更。
+
+## 可见的多阶段计划
+
+当需要多个任务所有者时，请使用阶段表。
+
+|舞台|负责方 |输入证据|输出证据|新权威|恢复点 |
+| --- | --- | --- | --- | --- | --- |
+| 1 |任务Skill |稳定的来源或标准|特定任务验证结果 |无或完全新效果 |第一个缺失的事实|
+
+在第一次状态更改调用之前填充每一行。只读的第一阶段可以开始，而后面的写入阶段仍然显式地挂起。
+
+### 构图规则
+
+- 一个阶段只有一个域所有者。
+- 协调者拥有排序和移交，而不是域决策。
+- 每个阶段都有自己的有界完成证据。
+- 下游阶段仅消耗成功的、明确有效的主题。
+- 失败或被排除的受试者仍处于诊断中。
+- 每一个新的状态变化都会收到新的权威决定。
+- 恢复从第一阶段开始，缺乏持久的完成证据。
+
+### 交接记录
+
+仅携带下一个任务所需的字段：
+
+- 稳定 Zotero refs；
+- 选择或收集标识；
+- 来源深度记录；
+- 来源locators；
+- 候选项出处；
+- Product/artifact角色及验证路径；
+- workflow，以其原始类型运行、操作或应用回handle；
+- 结构化诊断；
+- 前任声明的完成边界。
+
+请勿携带：
+
+- 不记名令牌或provider凭证；
+- 私有存储路径；
+- 投机refs；
+- 事先批准为可重用权限；
+- 头衔代替稳定的身份；
+- 终端运行状态代替输出证据；
+- 本地 artifact 代替实时 Zotero 状态。
+
+### 计划更新
+
+在以下情况下更新计划：
+
+- 身份解析改变了主题集；
+- 无法提供所要求的证据；
+- workflow 可用性或输入合约改变执行路径；
+- 必须拆分一批；
+- 用户否认或缩小权限；
+- 部分成功会更改下一个有效输入集。
+
+在继续之前报告更新。不要默默地替换新的provider、workflow、源集、派生模型、目标集合或写入效果。
+
+### 跨阶段完成
+
+仅当每个请求的阶段完成时，协调器才会返回`completed`。如果有限的读取或报告已完成，但后来请求的写入缺乏权限，则保留有效的artifact/证据并为整个请求返回`canceled`。如果后续阶段的尝试失败，则返回`failed`，同时保留先前完成的证据。
+
+不要发明`partial`状态。使用摘要、证据、artifacts和诊断来保留三态合同中的部分事实。
+
+## 端到端组合
+
+### 组合 1：查找、分析并添加到集合中
+
+用户：“找到最近十篇关于多模态检索的论文，总结他们的方法，并将它们添加到我的项目集合中。”
+
+释义：
+
+- 获取标准需要具体的日期窗口、来源覆盖范围、结果限制和预印本政策；
+- 分析需要经过验证的源集和可接受的证据深度；
+- collection 归属关系是单独的整理写入；
+- 进口和收集变更需要当前授权。
+
+可见计划：
+
+1. 获取准备候选项，检查实时副本，并获得任何导入的批准。
+2. 分析仅使用经过验证的项目/附件 refs 并报告每个来源的方法证据。
+3. 整理建议成功验证项目的收藏归属关系。
+
+权威机构：
+
+- 候选发现是只读的。
+- 导入权限不会自动包含馆藏变更。
+- 收集批准发生在知道最终解决的项目集之后。
+
+完成：
+
+- 候选集具有出处和重复决策。
+- 进口或现有的物品均经过实时验证。
+- 分析有来源locators和明显的证据差距。
+- 批准更改后，将重新读取集合成员资格。
+
+恢复：
+
+- 如果两次导入失败，仅在仍然满足所披露的有界结果的情况下才分析八个有效项目。
+- 保留失败的候选项。
+- 重试剩余的两个项目时，请勿重新导入成功的项目。
+
+### 组合 2：解释所选论文并保存笔记
+
+用户：“比较这些论文并将结果保存为笔记。”
+
+释义：
+
+- 查询解析当前选择。
+- 分析比较已解决的来源。
+- Curation 将经过验证的artifact 写为注释。
+
+需要澄清：
+
+- 如果选择是空的或异构的，询问哪些论文是预期的。
+- 如果只有部分全文可用，请询问是否可以接受混合深度比较。
+- 解决注释的目标父级和替换/追加行为。
+
+完成：
+
+- 比较artifact 存在并且是源接地的。
+- 注释提案指定了确切的目标和内容角色。
+- 目前已获得批准。
+- 写入后会重新读取实时笔记。
+
+有惊无险：
+
+- 完成的比较并不能证明该注释存在。
+- 本地 Markdown artifact 不是 Zotero 笔记标识。
+
+### 组合 3：刷新主题并导出
+
+用户：“该主题看起来陈旧；刷新它并导出最新的综合。”
+
+释义：
+
+- 查询/综合首先诊断主题身份、源范围和模型新鲜度。
+- 维护是一项经过特殊批准的操作。
+- Synthesis 验证刷新后的主题报告。
+- 出口验证Product或artifact交货。
+
+所需的决定：
+
+- 确切的主题；
+- 过时的模型和范围；
+- 保养效果；
+- 导出格式和目的地。
+
+完成：
+
+- 维护receipt识别变更的主题和承诺的基础。
+- 维护后检查主题/报告。
+- 预期存在 Product 或 artifact。
+- 下载校验和和字节数已验证。
+
+恢复：
+
+- 空主题结果不授权维护。
+- 维护成功并不能证明导出已完成。
+- 重试从第一个缺失的 receipt 或输出开始，而不是从主题创建开始。
+
+### 组合 4：文献库中无结果，继而进行外部发现
+
+用户：“如果我的文献库不包含有关 X 的作品，请为我找一些。”
+
+释义：
+
+- 查询必须在声明不存在之前完成有界库搜索。
+- 仅当查询支持条件时才开始获取。
+- “查找”默认为候选报告，不导入。
+
+完成：
+
+- 查询报告库/集合范围、过滤器和分页完成。
+- 采集报告外部源覆盖范围、候选者、出处和实时复制状态。
+
+有惊无险：
+
+- 第一页未命中不会触发采集。
+- 候选项报告并未声称添加了 Zotero 条目。
+
+### 组合 5：持续监控请求
+
+用户：“关注新论文并每周告诉我。”
+
+释义：
+
+- 如果需要，Generic 可以执行一次有界电流采集查询。
+- 循环计划和驻留状态属于托管方面。
+
+交接：
+
+- 主题标准；
+- 来源覆盖范围；
+- 报告门槛；
+- 目标文献库/馆藏；
+- 允许的读/写权限；
+- 当前的有限结果。
+
+不要无限期地循环、睡眠、轮询或声明已创建计划。托管方面仍必须将其一次性服务与外部cron 配置区分开来。

@@ -16,9 +16,11 @@ import {
 import { createWorkflowResultContext } from "./resultContext";
 import {
   detachAcpSkillRunControllerAfterApplyResult,
+  getAcpSkillRunRecord,
   markAcpSkillRunApplyResult,
 } from "../acpSkillRunStore";
 import {
+  getSkillRunnerRunRecordByRequest,
   updateSkillRunnerRunApplyState,
   updateSkillRunnerRunResult,
   updateSkillRunnerRunStateByRequest,
@@ -36,6 +38,8 @@ import {
 import { buildWorkflowTaskRecordFromJob } from "../taskRuntime";
 import { canWorkflowRunWithoutSelection } from "../workflowSelectionPolicy";
 import { collectSkillRunFeedbackSidecar } from "../skillRunFeedback";
+import { normalizeWorkflowApplyDiagnostics } from "./applyDiagnostics";
+import { getSequenceRunState } from "./sequenceStateStore";
 
 type RunResultLike = {
   status?: string;
@@ -96,6 +100,106 @@ function getJobResultStatus(job?: { result?: unknown }) {
       ? (job.result as { status?: unknown })
       : undefined;
   return String(result?.status || "").trim();
+}
+
+function resolveDeferredTerminalOutcome(args: {
+  runState: WorkflowRunState;
+  jobId: string;
+  requestId: string;
+}) {
+  const job = args.runState.queue.getJob(args.jobId);
+  let terminalRequestId = args.requestId;
+  const requestKind =
+    job?.request &&
+    typeof job.request === "object" &&
+    !Array.isArray(job.request)
+      ? String((job.request as { kind?: unknown }).kind || "").trim()
+      : "";
+  if (requestKind === "skillrunner.sequence.v1") {
+    const sequenceState = getSequenceRunState(
+      `${args.runState.runId}-${args.jobId}`,
+    );
+    if (
+      sequenceState?.status === "failed" ||
+      sequenceState?.status === "canceled"
+    ) {
+      return {
+        status: "failed" as const,
+        terminalState:
+          sequenceState.status === "canceled"
+            ? ("canceled" as const)
+            : ("failed" as const),
+        reason: sequenceState.error || `sequence ${sequenceState.status}`,
+      };
+    }
+    if (sequenceState?.status === "completed") {
+      terminalRequestId =
+        [...sequenceState.steps]
+          .reverse()
+          .map((step) => String(step.requestId || "").trim())
+          .find(Boolean) || terminalRequestId;
+    }
+  }
+
+  const backendType = String(job?.meta.backendType || "").trim();
+  if (backendType === "skillrunner") {
+    const record = getSkillRunnerRunRecordByRequest({
+      backendId: job?.meta.backendId as string | undefined,
+      requestId: terminalRequestId,
+    });
+    if (record?.status === "failed" || record?.status === "canceled") {
+      return {
+        status: "failed" as const,
+        terminalState:
+          record.status === "canceled"
+            ? ("canceled" as const)
+            : ("failed" as const),
+        reason: record.error || `provider ${record.status}`,
+      };
+    }
+    if (
+      record?.status === "succeeded" &&
+      (record.apply.state === "succeeded" || record.apply.state === "skipped")
+    ) {
+      return { status: "succeeded" as const };
+    }
+    if (record?.apply.state === "failed") {
+      return {
+        status: "failed" as const,
+        terminalState: "failed" as const,
+        reason: record.apply.error || "workflow apply failed",
+      };
+    }
+  }
+
+  if (backendType === "acp") {
+    const record = getAcpSkillRunRecord(terminalRequestId);
+    if (record?.status === "failed" || record?.status === "canceled") {
+      return {
+        status: "failed" as const,
+        terminalState:
+          record.status === "canceled"
+            ? ("canceled" as const)
+            : ("failed" as const),
+        reason: record.error || `provider ${record.status}`,
+      };
+    }
+    if (
+      record?.status === "succeeded" &&
+      record.applyResultState === "succeeded"
+    ) {
+      return { status: "succeeded" as const };
+    }
+    if (record?.applyResultState === "failed") {
+      return {
+        status: "failed" as const,
+        terminalState: "failed" as const,
+        reason: record.error || "workflow apply failed",
+      };
+    }
+  }
+
+  return null;
 }
 
 function isPendingWorkflowJobState(state: string) {
@@ -444,6 +548,67 @@ export async function runWorkflowApplySeam(
         continue;
       }
       if (resultStatus === "deferred") {
+        const terminalOutcome = resolveDeferredTerminalOutcome({
+          runState: args.runState,
+          jobId: job.id,
+          requestId: result.requestId,
+        });
+        if (terminalOutcome?.status === "succeeded") {
+          succeeded += 1;
+          jobOutcomes.push({
+            index: i,
+            taskLabel,
+            succeeded: true,
+            terminalState: "succeeded",
+            jobId: job.id,
+            requestId: result.requestId,
+          });
+          resolved.appendRuntimeLog({
+            level: "info",
+            scope: "job",
+            workflowId: args.runState.workflow.manifest.id,
+            jobId: job.id,
+            requestId: result.requestId,
+            stage: "provider-deferred-terminal-applied",
+            message:
+              "deferred provider execution and workflow apply reached terminal success",
+            details: { index: i, taskLabel },
+          });
+          continue;
+        }
+        if (terminalOutcome?.status === "failed") {
+          failed += 1;
+          const reason = terminalOutcome.reason || "deferred execution failed";
+          failureReasons.push(
+            `job-${i} (request_id=${result.requestId}): ${reason}`,
+          );
+          jobOutcomes.push({
+            index: i,
+            taskLabel,
+            succeeded: false,
+            terminalState: terminalOutcome.terminalState,
+            reason,
+            jobId: job.id,
+            requestId: result.requestId,
+          });
+          resolved.appendRuntimeLog({
+            level: "error",
+            scope: "job",
+            workflowId: args.runState.workflow.manifest.id,
+            jobId: job.id,
+            requestId: result.requestId,
+            stage: "provider-deferred-terminal-failed",
+            message:
+              "deferred provider execution or workflow apply reached terminal failure",
+            details: {
+              index: i,
+              taskLabel,
+              terminalState: terminalOutcome.terminalState,
+              reason,
+            },
+          });
+          continue;
+        }
         pending += 1;
         resolved.appendRuntimeLog({
           level: "info",
@@ -752,7 +917,7 @@ export async function runWorkflowApplySeam(
         runId: String(job.meta.runId || "").trim() || undefined,
         ...(sequenceApplyContext ? { sequence: sequenceApplyContext } : {}),
       };
-      await resolved.executeApplyResult({
+      const hookResult = await resolved.executeApplyResult({
         workflow: args.runState.workflow,
         parent: applyParent,
         bundleReader,
@@ -760,6 +925,7 @@ export async function runWorkflowApplySeam(
         request: args.runState.requests[i],
         runResult: enrichedRunResult,
       });
+      const applyDiagnostics = normalizeWorkflowApplyDiagnostics(hookResult);
       await resolved.collectSkillRunFeedback({
         workflow: args.runState.workflow,
         request: args.runState.requests[i],
@@ -808,17 +974,20 @@ export async function runWorkflowApplySeam(
         requestId: result.requestId,
       });
       resolved.appendRuntimeLog({
-        level: "info",
+        level: applyDiagnostics ? "warn" : "info",
         scope: "job",
         workflowId: args.runState.workflow.manifest.id,
         jobId: job.id,
         requestId: result.requestId,
         stage: "apply-succeeded",
-        message: "applyResult succeeded",
+        message: applyDiagnostics
+          ? "applyResult succeeded with warnings"
+          : "applyResult succeeded",
         details: {
           index: i,
           taskLabel,
           targetParentID: applyParent || undefined,
+          ...(applyDiagnostics ? { applyDiagnostics } : {}),
         },
       });
     } catch (error) {
@@ -911,7 +1080,7 @@ export async function runWorkflowApplySeam(
         manifest: args.runState.workflow.manifest,
         preflight: entry.preflight,
       });
-      await resolved.executeApplyResult({
+      const hookResult = await resolved.executeApplyResult({
         workflow: args.runState.workflow,
         parent: entry.parent,
         bundleReader,
@@ -919,6 +1088,7 @@ export async function runWorkflowApplySeam(
         request: entry.request,
         runResult: entry.runResult,
       });
+      const applyDiagnostics = normalizeWorkflowApplyDiagnostics(hookResult);
       succeeded += 1;
       jobOutcomes.push({
         index: entry.index,
@@ -929,16 +1099,19 @@ export async function runWorkflowApplySeam(
         requestId,
       });
       resolved.appendRuntimeLog({
-        level: "info",
+        level: applyDiagnostics ? "warn" : "info",
         scope: "job",
         workflowId: args.runState.workflow.manifest.id,
         jobId: requestId,
         requestId,
         stage: "apply-succeeded-preflight-short-circuit",
-        message: "preflight short-circuit applyResult succeeded",
+        message: applyDiagnostics
+          ? "preflight short-circuit applyResult succeeded with warnings"
+          : "preflight short-circuit applyResult succeeded",
         details: {
           index: entry.index,
           taskLabel: entry.taskLabel,
+          ...(applyDiagnostics ? { applyDiagnostics } : {}),
         },
       });
     } catch (error) {
@@ -1071,7 +1244,7 @@ export async function runWorkflowApplySeam(
       const targetParentID = resolveTargetParentIDFromRequest(
         args.runState.requests[firstRequestIndex],
       );
-      await resolved.executeApplyResult({
+      const hookResult = await resolved.executeApplyResult({
         workflow: args.runState.workflow,
         parent:
           typeof targetParentID === "number" && targetParentID > 0
@@ -1085,6 +1258,7 @@ export async function runWorkflowApplySeam(
         },
         runResult: aggregateRunResult,
       });
+      const applyDiagnostics = normalizeWorkflowApplyDiagnostics(hookResult);
       succeeded += 1;
       jobOutcomes.push({
         index: firstRequestIndex,
@@ -1093,6 +1267,21 @@ export async function runWorkflowApplySeam(
         terminalState: "succeeded",
         jobId: aggregateRequestId,
         requestId: aggregateRequestId,
+      });
+      resolved.appendRuntimeLog({
+        level: applyDiagnostics ? "warn" : "info",
+        scope: "job",
+        workflowId: args.runState.workflow.manifest.id,
+        jobId: aggregateRequestId,
+        requestId: aggregateRequestId,
+        stage: "apply-succeeded-preflight-aggregate",
+        message: applyDiagnostics
+          ? "preflight aggregate applyResult succeeded with warnings"
+          : "preflight aggregate applyResult succeeded",
+        details: {
+          aggregateId: aggregate.id,
+          ...(applyDiagnostics ? { applyDiagnostics } : {}),
+        },
       });
     } catch (error) {
       failed += 1;

@@ -2,6 +2,11 @@ import { assert } from "chai";
 import { promises as fs } from "fs";
 import path from "path";
 import { recordTestPerformanceSpan } from "../../../src/modules/testPerformanceProbeBridge";
+import { setDebugModeOverrideForTests } from "../../../src/modules/debugMode";
+import {
+  incrementAcpRuntimeMetric,
+  startAcpRuntimeProfile,
+} from "../../../src/modules/acpRuntimePerformanceProfiler";
 import {
   __performanceProbeTestOnly,
   captureZoteroPerformanceSnapshot,
@@ -19,6 +24,7 @@ describe("zotero test performance probe digest", function () {
   };
 
   afterEach(function () {
+    setDebugModeOverrideForTests();
     if (typeof originalEnv.probe === "string") {
       process.env.ZOTERO_TEST_PERF_PROBE = originalEnv.probe;
     } else {
@@ -84,8 +90,18 @@ describe("zotero test performance probe digest", function () {
       "performance-probe-digest-test.json",
     );
     resetZoteroPerformanceProbeDigestForTests();
+    setDebugModeOverrideForTests(true);
 
     installZoteroPerformanceProbeDigest();
+    startAcpRuntimeProfile({
+      requestId: "digest-profile",
+      displayMode: "silent",
+      transport: "stdio",
+      zoteroMajor: 9,
+    });
+    incrementAcpRuntimeMetric("digest-profile", "session_update", {
+      updateClass: "assistant-message",
+    });
     await noteZoteroPerformanceProbeTestStart({
       domain: "workflow",
       fullTitle: "perf case 1",
@@ -134,6 +150,12 @@ describe("zotero test performance probe digest", function () {
         topSlowTests: Array<{ name: string }>;
       };
       suspicions: Array<{ metric: string }>;
+      runtimePerformanceProfiles?: {
+        active: Array<{
+          requestId: string;
+          metrics: Array<{ name: string; counter?: { total: number } }>;
+        }>;
+      };
     };
 
     assert.lengthOf(payload.spans, 3);
@@ -153,6 +175,16 @@ describe("zotero test performance probe digest", function () {
       payload.suspicions.some(
         (entry) => entry.metric === "buildSelectionContext",
       ),
+    );
+    assert.equal(
+      payload.runtimePerformanceProfiles?.active[0].requestId,
+      "digest-profile",
+    );
+    assert.equal(
+      payload.runtimePerformanceProfiles?.active[0].metrics.find(
+        (entry) => entry.name === "session_update",
+      )?.counter?.total,
+      1,
     );
   });
 

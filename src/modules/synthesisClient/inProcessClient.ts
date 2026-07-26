@@ -92,13 +92,16 @@ export interface LegacySynthesisPort {
   getCitationGraphMetrics?: LegacySynthesisJsonPort;
   rankLibraryPapers?: LegacySynthesisJsonPort;
   refreshCitationGraphMetricsNow?: LegacySynthesisJsonPort;
+  startCitationGraphUpdate?: LegacySynthesisJsonPort;
   getReferenceSidecarIndex?: LegacySynthesisJsonPort;
   rankExternalReferences?: LegacySynthesisJsonPort;
   getAttentionQueue?: LegacySynthesisJsonPort;
+  startReferenceSidecarRefresh?: LegacySynthesisJsonPort;
   getPaperArtifactManifest?: LegacySynthesisJsonPort;
   exportFilteredPaperArtifacts?: LegacySynthesisJsonPort;
   queryConceptKb?: LegacySynthesisJsonPort;
   getSchemas?: LegacySynthesisJsonPort;
+  getPublicMaintenanceOperation?: LegacySynthesisJsonPort;
   getLibraryIndex?: LegacySynthesisJsonPort;
   getReviewInput?: LegacySynthesisJsonPort;
   debugSynthesisSnapshot?: LegacySynthesisJsonPort;
@@ -152,6 +155,8 @@ export interface LegacySynthesisPort {
   readPaperArtifacts?(
     request: SynthesisPaperArtifactsRequest,
   ): Promise<unknown>;
+  initializeBuiltinTagPolicy?(): Promise<unknown>;
+  isBuiltinTagPolicyInitialized?(): boolean | Promise<boolean>;
   loadTagVocabulary?(): Promise<unknown>;
   saveTagVocabulary?(request: Record<string, unknown>): Promise<unknown>;
   validateTagVocabulary?(): Promise<unknown>;
@@ -251,6 +256,22 @@ export interface LegacySynthesisPort {
 function normalizeClientError(error: unknown): SynthesisClientError {
   if (error instanceof SynthesisClientError) {
     return error;
+  }
+  if (
+    error &&
+    typeof error === "object" &&
+    (error as { name?: unknown }).name === "SynthesisMaintenanceError"
+  ) {
+    const reasonCode = String((error as { code?: unknown }).code || "").trim();
+    return new SynthesisClientError(
+      reasonCode === "maintenance_idempotency_conflict"
+        ? "conflict"
+        : "invalid_request",
+      error instanceof Error
+        ? error.message
+        : "Invalid Synthesis maintenance request",
+      reasonCode ? { reasonCode } : undefined,
+    );
   }
   if (isTransientStorageBusyError(error)) {
     return new SynthesisClientError(
@@ -1192,6 +1213,13 @@ export function createInProcessSynthesisClient(
       },
     },
     graph: {
+      async startUpdate(request = {}) {
+        return runLegacyJsonPort(
+          legacy.startCitationGraphUpdate,
+          "graph.startUpdate",
+          request,
+        ) as Promise<SynthesisGraphCommandResult>;
+      },
       async queryCluster(request = {}) {
         return runLegacyJsonPort(
           legacy.queryCitationGraphCluster,
@@ -1351,6 +1379,13 @@ export function createInProcessSynthesisClient(
       },
     },
     references: {
+      async startRefresh(request = {}) {
+        return runLegacyJsonPort(
+          legacy.startReferenceSidecarRefresh,
+          "references.startRefresh",
+          request,
+        ) as Promise<SynthesisReferenceCommandResult>;
+      },
       async getSidecarIndex(request = {}) {
         return runLegacyJsonPort(
           legacy.getReferenceSidecarIndex,
@@ -1617,6 +1652,13 @@ export function createInProcessSynthesisClient(
       },
     },
     maintenance: {
+      async getOperation(request) {
+        return runLegacyJsonPort(
+          legacy.getPublicMaintenanceOperation,
+          "maintenance.getOperation",
+          request,
+        );
+      },
       async getSchemas(request = {}) {
         return runLegacyJsonPort(
           legacy.getSchemas,
@@ -1737,6 +1779,32 @@ export function createInProcessSynthesisClient(
       },
     },
     tags: {
+      async initializeBuiltinTagPolicy() {
+        return runLegacy(
+          async () =>
+            normalizeLegacyObject(
+              await requireLegacyPort(
+                legacy.initializeBuiltinTagPolicy,
+                "tags.initializeBuiltinTagPolicy",
+              )(),
+            ) as SynthesisTagVocabularySnapshot,
+        );
+      },
+      async isBuiltinTagPolicyInitialized() {
+        return runLegacy(async () => {
+          const initialized = await requireLegacyPort(
+            legacy.isBuiltinTagPolicyInitialized,
+            "tags.isBuiltinTagPolicyInitialized",
+          )();
+          if (typeof initialized !== "boolean") {
+            throw new SynthesisClientError(
+              "internal",
+              "Builtin tag policy initialization response is invalid",
+            );
+          }
+          return initialized;
+        });
+      },
       async loadTagVocabulary() {
         return runLegacy(
           async () =>

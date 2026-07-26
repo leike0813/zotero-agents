@@ -612,9 +612,35 @@ async function applyResultImpl({
     representative_image: representativeImage,
     reference_quality: referencesPayload.quality,
   };
+  const statusWarnings = [];
+  let statusTransition;
+  try {
+    const transition = requireHostApi(runtime)?.statusTags?.transition;
+    if (typeof transition !== "function") {
+      throw new Error("literature-analysis statusTags API is unavailable");
+    }
+    statusTransition = await transition({
+      item: parentItem,
+      remove: ["need-analysis"],
+    });
+    statusWarnings.push(
+      ...(statusTransition?.warnings || []).map((warning) => ({
+        code: "literature_analysis_status_transition_failed",
+        ...warning,
+      })),
+    );
+  } catch (error) {
+    statusWarnings.push({
+      code: "literature_analysis_status_transition_failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
   return appendSkillDiagnosticsToResult(
     {
       ...appliedWithRepresentativeImage,
+      partial: statusWarnings.length > 0,
+      status_transition: statusTransition,
+      status_warnings: statusWarnings,
       sidecar_apply: sidecarApply,
       literature_matching_metadata: literatureMatchingMetadataResolved.payload
         ? {

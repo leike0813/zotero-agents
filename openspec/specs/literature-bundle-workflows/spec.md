@@ -183,3 +183,64 @@ After whole-bundle validation succeeds, failure to create a parent or any requir
 - **WHEN** at least one parent succeeds and any warning or parent failure occurs
 - **THEN** the workflow SHALL return a structured partial result with created item refs, failed parent ids, and warning codes
 - **AND** user-visible feedback SHALL summarize counts without exposing internal implementation details.
+
+---
+
+## Source-only export mode
+
+### Requirement: `sourceOnly` parameter selects a flat, title-renamed, import-incompatible export format
+
+When `export-literature-bundle` is invoked with `sourceOnly: true`, the produced ZIP SHALL differ from the standard bundle format and SHALL be rejected by `import-literature-bundle`.
+
+#### Scenario: Source-only is disabled by default
+- **GIVEN** no `sourceOnly` parameter is set
+- **THEN** the workflow SHALL produce a standard `zotero-agents-literature-bundle` bundle as specified above.
+
+#### Scenario: Markdown is preferred over PDF
+- **GIVEN** a parent item has both a readable Markdown attachment and a readable PDF attachment
+- **WHEN** `sourceOnly` is enabled
+- **THEN** the exported source file SHALL be the Markdown attachment.
+
+#### Scenario: PDF fallback when no Markdown is available
+- **GIVEN** a parent item has no readable Markdown attachment but has a readable PDF
+- **WHEN** `sourceOnly` is enabled
+- **THEN** the exported source file SHALL be the PDF.
+
+#### Scenario: Markdown images are NOT included
+- **GIVEN** a Markdown source file references local images
+- **WHEN** `sourceOnly` is enabled
+- **THEN** the ZIP SHALL NOT contain any image files referenced by the Markdown
+- **AND** the Markdown content SHALL be written verbatim without path rewriting.
+
+#### Scenario: No readable source file
+- **GIVEN** a parent item has no readable Markdown or PDF attachment
+- **WHEN** `sourceOnly` is enabled
+- **THEN** that item SHALL be recorded with `path: null` in the manifest
+- **AND** a warning with code `no_source_file` SHALL be emitted for that item.
+
+#### Scenario: Files are renamed after parent item title
+- **GIVEN** a parent item has title "Deep Learning Basics"
+- **WHEN** `sourceOnly` is enabled
+- **THEN** the exported file SHALL be named `Deep_Learning_Basics.md` or `Deep_Learning_Basics.pdf` (after `sanitizeFileNameSegment` applied to the title).
+
+#### Scenario: Fallback to bundle-local id when title is empty
+- **GIVEN** a parent item has no title
+- **WHEN** `sourceOnly` is enabled
+- **THEN** the exported file SHALL be named using the bundle-local id (e.g. `i1.md`).
+
+#### Scenario: Name collision resolved by numeric suffix
+- **GIVEN** two parent items share the same sanitized title
+- **WHEN** `sourceOnly` is enabled
+- **THEN** the first item's file SHALL use the base name, and the second SHALL be suffixed `_2` (e.g. `Paper.md` and `Paper_2.md`).
+
+#### Scenario: Source-only manifest kind is rejected by import
+- **GIVEN** a ZIP produced with `sourceOnly` has `manifest.json` with `kind: "zotero-agents-literature-bundle-source-only"`
+- **WHEN** `import-literature-bundle` attempts to validate it
+- **THEN** validation SHALL fail with an unsupported kind error and the import SHALL NOT proceed.
+
+#### Scenario: Source-only bundle structure
+- **GIVEN** a source-only export completes successfully
+- **THEN** the ZIP SHALL contain exactly `manifest.json` and one file per item that has a source file, all under `items/`
+- **AND** the manifest SHALL list `kind`, `createdAt`, `source`, `warnings`, `items`, and `files`
+- **AND** the manifest SHALL NOT contain `schemaVersion`.
+

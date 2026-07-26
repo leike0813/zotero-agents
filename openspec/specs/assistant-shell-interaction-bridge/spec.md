@@ -60,3 +60,44 @@ The Assistant shell and managed panel runtime SHALL NOT change child page backen
 - **Then** waiting_user reply, waiting_auth reply, auth import, cancel, drawer, and task-selection actions route to the original SkillRunner host dispatch path
 - **And** SkillRunner backend protocol and assistant revision/replacement semantics remain unchanged.
 
+### Requirement: Waiting-user interactions use one bounded Assistant contract
+
+The Assistant shell SHALL represent open text, single choice, confirmation, and file upload requests with one exact-key validated pending-interaction DTO. The DTO SHALL preserve JSON option values, limit options to 16 and file slots to 8, and reject oversized, malformed, or unknown nested wire data. It SHALL NOT introduce an interaction token when the backend protocol provides no such entity.
+
+#### Scenario: Structured choice remains typed
+
+- **WHEN** a waiting-user hint declares an option whose label differs from a boolean or object value
+- **THEN** the child model SHALL retain the original JSON value as `responseValue`
+- **AND** use the label only for visible display and transcript text
+
+#### Scenario: Stale interaction action arrives
+
+- **WHEN** an action's owner or waiting state no longer matches the current pending interaction
+- **THEN** the host SHALL reject it without submitting a continuation
+
+### Requirement: Canonical actions are model-owned
+
+The Assistant panel model SHALL produce canonical host actions for waiting-user controls, and the shared renderer SHALL render those descriptors without inventing backend action names.
+
+#### Scenario: SkillRunner quick option is selected
+
+- **WHEN** the user selects a SkillRunner pending option
+- **THEN** the model SHALL emit `reply-run` with the typed response value and visible label
+- **AND** the host boundary SHALL route it to the selected pending run
+
+#### Scenario: Legacy literal reaches the host boundary
+
+- **WHEN** a supported historical literal such as `reply` or `cancel` reaches the canonicalizer
+- **THEN** the boundary MAY translate that literal once
+- **AND** no renderer or alias table SHALL become a second action source of truth
+
+### Requirement: Shared reply DOM reads only current user input
+
+The shared managed reply region MUST keep its textarea and action button stable across equivalent publications. Reply dispatch SHALL use the currently entered text and canonical selected owner without carrying a synthetic interaction identity.
+
+#### Scenario: Sequential waiting turns reuse a stable reply mount
+
+- **WHEN** the same owner enters two serialized waiting-user turns without a structural reply-state change
+- **THEN** the textarea and reply button identities SHALL remain stable
+- **AND** each dispatch SHALL send the current typed response to the current waiting owner
+- **AND** no interaction token SHALL be emitted.

@@ -4,6 +4,7 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import { createSynthesisTagVocabularyService } from "../../src/modules/synthesis/tagVocabulary";
+import { getBuiltinStatusPolicy } from "../../src/modules/synthesis/builtinTagPolicy";
 import { WORKFLOW_HOST_API_VERSION } from "../../src/workflows/hostApi";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { workflowsPath } from "../zotero/workflow-test-utils";
@@ -24,6 +25,9 @@ async function makeRuntime() {
       hostApiVersion: WORKFLOW_HOST_API_VERSION,
       hostApi: {
         synthesis: service,
+        statusTags: {
+          getPolicy: getBuiltinStatusPolicy,
+        },
       },
     },
   };
@@ -64,6 +68,10 @@ async function validateBootstrapperOutput(payload: Record<string, unknown>) {
       resolve({ exitCode, stdout, stderr });
     });
   });
+}
+
+function customVocabularyEntries<T extends { source?: string }>(entries: T[]) {
+  return entries.filter((entry) => entry.source !== "builtin");
 }
 
 function validBootstrapperOutput(overrides: Record<string, unknown> = {}) {
@@ -140,7 +148,8 @@ describe("workflow: tag-bootstrapper", function () {
         )} warnings=${JSON.stringify(loaded.warnings)} errors=${JSON.stringify(loaded.errors)}`,
     );
     assert.equal(workflow?.manifest.trigger?.requiresSelection, false);
-    assert.equal(workflow?.manifest.inputs?.unit, "workflow");
+    assert.equal(workflow?.manifest.inputs.member.kind, "selection");
+    assert.equal(workflow?.manifest.inputs.grouping.mode, "all");
     assert.equal(workflow?.manifest.display?.core, false);
     assert.isTrue(workflow?.manifest.execution?.zoteroHostAccess?.required);
     assert.equal(workflow?.manifest.request?.kind, "skillrunner.job.v1");
@@ -232,13 +241,16 @@ describe("workflow: tag-bootstrapper", function () {
     assert.equal(request.fetch_type, "result");
     assert.notProperty(request.input, "library_index");
     assert.notProperty(request.input, "papers");
-    assert.deepEqual(request.input.existing_tags, [
-      {
-        tag: "field:CS/AI",
-        facet: "field",
-        note: "AI",
-      },
-    ]);
+    assert.deepInclude(
+      request.input.existing_tags.find(
+        (entry: any) => entry.tag === "field:CS/AI",
+      ),
+      { tag: "field:CS/AI", facet: "field", note: "AI" },
+    );
+    assert.includeMembers(
+      request.input.existing_tags.map((entry: any) => entry.tag),
+      Object.values(getBuiltinStatusPolicy()),
+    );
     assert.include(request.input.protocol.facets, "field");
     assert.equal(request.parameter.tag_note_language, "en-US");
   });
@@ -282,7 +294,7 @@ describe("workflow: tag-bootstrapper", function () {
 
     const snapshot = await service.loadTagVocabulary();
     assert.deepEqual(
-      snapshot.entries.map((entry) => entry.tag),
+      customVocabularyEntries(snapshot.entries).map((entry) => entry.tag),
       ["field:CS/AI", "method:survey", "model:DL/Transformer"],
     );
     assert.deepEqual(result.added, ["method:survey", "model:DL/Transformer"]);
@@ -338,7 +350,7 @@ describe("workflow: tag-bootstrapper", function () {
 
     const snapshot = await service.loadTagVocabulary();
     assert.deepEqual(
-      snapshot.entries.map((entry) => entry.tag),
+      customVocabularyEntries(snapshot.entries).map((entry) => entry.tag),
       ["field:CS/AI", "method:survey"],
     );
     const staged = await service.listStagedTagSuggestions();
@@ -392,7 +404,7 @@ describe("workflow: tag-bootstrapper", function () {
 
     const snapshot = await service.loadTagVocabulary();
     assert.deepEqual(
-      snapshot.entries.map((entry) => entry.tag),
+      customVocabularyEntries(snapshot.entries).map((entry) => entry.tag),
       ["field:CS/AI", "method:survey"],
     );
     assert.deepEqual(applied.added, ["method:survey"]);
@@ -402,6 +414,37 @@ describe("workflow: tag-bootstrapper", function () {
       applied.skill_diagnostics?.error?.message,
       "model reported a recoverable issue",
     );
+  });
+
+  it("filters plugin builtin statuses without modifying or counting them", async function () {
+    const { runtime, service } = await makeRuntime();
+    const before = await service.loadTagVocabulary();
+    const builtinTag = "status:need-analysis";
+    const original = before.entries.find((entry) => entry.tag === builtinTag);
+
+    const applied = (await applyResult({
+      runtime: runtime as never,
+      runResult: {
+        resultJson: {
+          data: {
+            add_tags: [
+              { tag: builtinTag, facet: "topic", note: "overwrite" },
+              { tag: "topic:custom-workflow", note: "Custom workflow" },
+            ],
+            warnings: [],
+            error: null,
+          },
+        },
+      },
+    })) as Record<string, any>;
+
+    const after = await service.loadTagVocabulary();
+    assert.deepEqual(
+      after.entries.find((entry) => entry.tag === builtinTag),
+      original,
+    );
+    assert.deepEqual(applied.added, ["topic:custom-workflow"]);
+    assert.deepEqual(applied.skipped_builtin, [builtinTag]);
   });
 
   it("skips empty additions while preserving non-null error diagnostics", async function () {
@@ -425,7 +468,7 @@ describe("workflow: tag-bootstrapper", function () {
     })) as Record<string, any>;
 
     const snapshot = await service.loadTagVocabulary();
-    assert.deepEqual(snapshot.entries, []);
+    assert.deepEqual(customVocabularyEntries(snapshot.entries), []);
     assert.equal(applied.applied, false);
     assert.equal(applied.skipped, true);
     assert.deepEqual(applied.added, []);
@@ -461,6 +504,6 @@ describe("workflow: tag-bootstrapper", function () {
     }
 
     const snapshot = await service.loadTagVocabulary();
-    assert.deepEqual(snapshot.entries, []);
+    assert.deepEqual(customVocabularyEntries(snapshot.entries), []);
   });
 });

@@ -21,12 +21,27 @@ import {
   localizeWorkflowLabel,
 } from "../../../src/workflows/localization";
 import { clearPackageHookBundleCacheForTests } from "../../../src/workflows/packageHookBundler";
+import { WORKFLOW_HOST_API_VERSION } from "../../../src/workflows/hostApi";
 import {
   fixturePath,
   joinPath,
   mkTempDir,
   writeUtf8,
 } from "../../core/workflow-test-utils";
+
+function withWorkflowPlanningV2Defaults(manifest: Record<string, unknown>) {
+  manifest.schemaVersion ??= 2;
+  manifest.trigger ??= { requiresSelection: true };
+  manifest.inputs ??= {
+    member: { kind: "selection" },
+    grouping: { mode: "all" },
+  };
+  manifest.validateSelection ??= {
+    select: { policy: "selection" },
+    filters: [],
+  };
+  return manifest;
+}
 
 async function makeWorkflow(
   rootDir: string,
@@ -50,6 +65,7 @@ async function makeWorkflow(
     normalizedManifest.__test_skip_skillrunner_request_mode_autofill === true;
   delete normalizedManifest.__test_skip_provider_autofill;
   delete normalizedManifest.__test_skip_skillrunner_request_mode_autofill;
+  withWorkflowPlanningV2Defaults(normalizedManifest);
   const provider = String(normalizedManifest.provider || "").trim();
   const requestKind = String(normalizedManifest.request?.kind || "").trim();
   if (!provider && !skipProviderAutoFill) {
@@ -138,7 +154,20 @@ async function makeWorkflowPackage(args: {
     JSON.stringify(args.packageManifest, null, 2),
   );
   for (const [relativePath, content] of Object.entries(args.files)) {
-    await writeUtf8(joinPath(packageRoot, relativePath), content);
+    let rendered = content;
+    if (relativePath.endsWith("/workflow.json")) {
+      try {
+        const manifest = JSON.parse(content) as Record<string, unknown>;
+        rendered = JSON.stringify(
+          withWorkflowPlanningV2Defaults(manifest),
+          null,
+          2,
+        );
+      } catch {
+        // Preserve deliberately malformed JSON fixtures.
+      }
+    }
+    await writeUtf8(joinPath(packageRoot, relativePath), rendered);
   }
 }
 
@@ -694,7 +723,7 @@ describe("workflow loader validation", function () {
       });
       assert.deepInclude(result as Record<string, unknown>, {
         hasHostApi: true,
-        hostApiVersion: 8,
+        hostApiVersion: WORKFLOW_HOST_API_VERSION,
       });
       assert.equal((result as Record<string, unknown>).consoleState, "ok");
       const bundleLog = listRuntimeLogs().find(
@@ -1627,52 +1656,38 @@ describe("workflow loader validation", function () {
     }
   });
 
-  it("defaults workflow input unit and no-selection trigger as equivalent", async function () {
-    const cases = [
+  it("requires explicit no-selection trigger and selection-wide input planning", async function () {
+    const id = "explicit-no-selection-workflow";
+    const tmpRoot = await mkTempDir("zotero-skills-wf");
+    await makeWorkflow(
+      tmpRoot,
+      id,
       {
-        id: "workflow-unit-defaults-trigger",
-        manifest: {
-          id: "workflow-unit-defaults-trigger",
-          label: "Workflow Unit Defaults Trigger",
-          provider: "pass-through",
-          inputs: { unit: "workflow" },
-          hooks: { applyResult: "hooks/applyResult.js" },
-        },
-        verifyLoaded: (manifest: any) => {
-          assert.strictEqual(manifest.inputs?.unit, "workflow");
-          assert.strictEqual(manifest.trigger?.requiresSelection, false);
-        },
+        id,
+        label: "Explicit No Selection Workflow",
+        provider: "pass-through",
+        trigger: { requiresSelection: false },
+        hooks: { applyResult: "hooks/applyResult.js" },
       },
       {
-        id: "no-selection-trigger-defaults-workflow-unit",
-        manifest: {
-          id: "no-selection-trigger-defaults-workflow-unit",
-          label: "No Selection Trigger Defaults Workflow Unit",
-          provider: "pass-through",
-          trigger: { requiresSelection: false },
-          hooks: { applyResult: "hooks/applyResult.js" },
-        },
-        verifyLoaded: (manifest: any) => {
-          assert.strictEqual(manifest.inputs?.unit, "workflow");
-          assert.strictEqual(manifest.trigger?.requiresSelection, false);
-        },
-      },
-    ];
-
-    for (const entry of cases) {
-      const tmpRoot = await mkTempDir("zotero-skills-wf");
-      await makeWorkflow(tmpRoot, entry.id, entry.manifest, {
         "applyResult.js":
           "export async function applyResult(){ return { ok: true }; }",
-      });
-      const loaded = await loadWorkflowManifests(tmpRoot);
-      assert.lengthOf(
-        loaded.workflows,
-        1,
-        `${entry.id}: diagnostics=${JSON.stringify(loaded.diagnostics || [])}`,
-      );
-      entry.verifyLoaded(loaded.workflows[0].manifest);
-    }
+      },
+    );
+    const loaded = await loadWorkflowManifests(tmpRoot);
+    assert.lengthOf(
+      loaded.workflows,
+      1,
+      `diagnostics=${JSON.stringify(loaded.diagnostics || [])}`,
+    );
+    assert.strictEqual(
+      loaded.workflows[0].manifest.trigger.requiresSelection,
+      false,
+    );
+    assert.deepEqual(loaded.workflows[0].manifest.inputs, {
+      member: { kind: "selection" },
+      grouping: { mode: "all" },
+    });
   });
 
   it("validates skill-level mode presence for skillrunner workflows", async function () {

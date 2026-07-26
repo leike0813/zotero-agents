@@ -83,6 +83,11 @@
   mask-image: url("../icons/material-symbols/right_panel_close.svg");
 }
 
+.zs-icon-close {
+  -webkit-mask-image: url("../icons/material-symbols/close.svg");
+  mask-image: url("../icons/material-symbols/close.svg");
+}
+
 .zs-icon-subject {
   -webkit-mask-image: url("../icons/material-symbols/subject.svg");
   mask-image: url("../icons/material-symbols/subject.svg");

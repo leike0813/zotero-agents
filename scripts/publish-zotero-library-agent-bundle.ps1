@@ -20,15 +20,7 @@ $installPs1 = Join-Path $repoRoot "cli" "zotero-bridge" "scripts" "install.ps1"
 $installSh = Join-Path $repoRoot "cli" "zotero-bridge" "scripts" "install.sh"
 $mainRepository = "https://github.com/leike0813/zotero-agents"
 $releaseRepository = "https://github.com/leike0813/zotero-library-agent-bundle"
-$platforms = @(
-  @{ platform = "win32-x64"; binary = "zotero-bridge.exe" },
-  @{ platform = "darwin-x64"; binary = "zotero-bridge" },
-  @{ platform = "darwin-arm64"; binary = "zotero-bridge" },
-  @{ platform = "linux-x86"; binary = "zotero-bridge" },
-  @{ platform = "linux-x64"; binary = "zotero-bridge" },
-  @{ platform = "linux-arm"; binary = "zotero-bridge" },
-  @{ platform = "linux-arm64"; binary = "zotero-bridge" }
-)
+$releaseSetPath = Join-Path $repoRoot "host-bridge" "release-set.json"
 
 function Invoke-BundleGit {
   param([string[]]$GitArgs)
@@ -66,11 +58,20 @@ function Clear-DirectoryExceptGit {
 }
 
 Assert-File (Join-Path $agentSkillRoot "SKILL.md")
+Assert-File (Join-Path $agentSkillRoot "README.md")
 Assert-File (Join-Path $wrapperSkillRoot "SKILL.md")
 Assert-File $profileTemplate
 Assert-File $installPs1
 Assert-File $installSh
 Assert-File $cliReleasePath
+Assert-File $releaseSetPath
+$releaseSet = Get-Content -LiteralPath $releaseSetPath -Raw | ConvertFrom-Json
+if ([string]$releaseSet.schema -notin @("host-bridge.release-set.v1", "host-bridge.release-set.v2", "host-bridge.release-set.v3")) {
+  throw "Invalid Host Bridge release set"
+}
+$platforms = @($releaseSet.cli.binaries | ForEach-Object {
+  @{ platform = [string]$_.platform; binary = [string]$_.binary }
+})
 
 $dirty = (& git -C $repoRoot status --porcelain)
 if ($dirty -and -not $AllowDirty) {
@@ -152,11 +153,13 @@ if ($Push) {
 try {
   Clear-DirectoryExceptGit $WorktreePath
   Copy-DirectoryContents $agentSkillRoot (Join-Path $WorktreePath "skills" "zotero-library-agent")
+  Copy-Item -LiteralPath (Join-Path $agentSkillRoot "README.md") -Destination (Join-Path $WorktreePath "README.md") -Force
   Copy-DirectoryContents $wrapperSkillRoot (Join-Path $WorktreePath "skills" "zotero-bridge-cli")
   New-Item -ItemType Directory -Force -Path (Join-Path $WorktreePath "assets") | Out-Null
   Copy-Item -LiteralPath $profileTemplate -Destination (Join-Path $WorktreePath "assets" "profile.template.json") -Force
   Copy-Item -LiteralPath $installPs1 -Destination (Join-Path $WorktreePath "install.ps1") -Force
   Copy-Item -LiteralPath $installSh -Destination (Join-Path $WorktreePath "install.sh") -Force
+  Copy-Item -LiteralPath $cliReleasePath -Destination (Join-Path $WorktreePath "cli-release.json") -Force
   New-Item -ItemType Directory -Force -Path (Join-Path $WorktreePath "schemas") | Out-Null
   Copy-Item -LiteralPath (Join-Path $agentSkillRoot "assets" "evidence-bundle.schema.json") -Destination (Join-Path $WorktreePath "schemas" "evidence-bundle.schema.json") -Force
   New-Item -ItemType Directory -Force -Path (Join-Path $WorktreePath "scripts") | Out-Null
@@ -171,7 +174,9 @@ try {
   }
 
   $manifest = [ordered]@{
-    schema = "zotero-library-agent.bundle.release-manifest.v1"
+    schema = "host-bridge.surface-release.v1"
+    releaseSetId = [string]$releaseSet.releaseSetId
+    releaseSet = $releaseSet
     bundle = [ordered]@{
       name = "zotero-library-agent-bundle"
       version = $bundleVersion
@@ -180,10 +185,13 @@ try {
     releaseRepository = $releaseRepository
     sourceCommit = $sourceCommit
     dirty = [bool]$dirty
-    generatedAt = (Get-Date).ToUniversalTime().ToString("o")
+    cliIdentity = $releaseSet.cli.identity
     cli = [ordered]@{
       version = $cliVersion
-      releaseManifest = "cli/zotero-bridge/release.json"
+      buildFingerprint = [string]$releaseSet.cli.buildFingerprint
+      commandCatalogChecksum = [string]$releaseSet.cli.commandCatalogChecksum
+      binaryAggregateSha256 = [string]$releaseSet.cli.binaryAggregateSha256
+      releaseManifest = "cli-release.json"
       binaries = $binaryManifest
     }
     skills = @(
@@ -195,14 +203,6 @@ try {
     profileTemplate = "assets/profile.template.json"
   }
   Set-Content -LiteralPath (Join-Path $WorktreePath "manifest.json") -Value (($manifest | ConvertTo-Json -Depth 12) + "`n") -Encoding UTF8
-
-  @"
-# Zotero Library Agent Bundle
-
-Use the `zotero-library-agent` Skill for bounded, on-demand Zotero library and Zotero Agents work. Use the bundled `zotero-bridge-cli` Skill for connection and command details.
-
-The bundle contains verified Host Bridge CLI prebuilds, installers, a profile template, portable evidence tooling, and no resident scheduler or background state service.
-"@ | Set-Content -LiteralPath (Join-Path $WorktreePath "README.md") -Encoding UTF8
 
   Invoke-BundleGit @("add", "-A")
   Invoke-BundleGit @("update-index", "--chmod=+x", "install.sh")

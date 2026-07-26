@@ -1,6 +1,9 @@
 {
+  "schemaVersion": 2,
   "id": "create-topic-synthesis",
   "label": "Create Topic Synthesis",
+  "description": "Create a new topic synthesis from a natural-language seed using the current library, reference, and citation-graph evidence.",
+  "executionModes": ["auto"],
   "provider": "skillrunner",
   "version": "0.2.0",
   "display": {
@@ -12,7 +15,12 @@
     "requiresSelection": false
   },
   "inputs": {
-    "unit": "workflow"
+    "member": {
+      "kind": "selection"
+    },
+    "grouping": {
+      "mode": "all"
+    }
   },
   "parameters": {
     "topicSeed": {
@@ -37,6 +45,12 @@
       "allowCustom": true,
       "default": "zh-CN"
     }
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "selection"
+    },
+    "filters": []
   },
   "request": {
     "kind": "skillrunner.sequence.v1",

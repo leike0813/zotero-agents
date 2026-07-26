@@ -1,0 +1,60 @@
+{
+  "schema": "host-bridge.cli-build-recipe.v1",
+  "toolchain": {
+    "node": "22.17.0",
+    "rust": "1.88.0",
+    "zig": "0.13.0",
+    "cargoZigbuild": "0.20.1"
+  },
+  "targets": [
+    {
+      "runner": "windows-2022",
+      "platform": "win32-x64",
+      "target": "x86_64-pc-windows-msvc",
+      "binary": "zotero-bridge.exe",
+      "runtimeIdentity": true
+    },
+    {
+      "runner": "macos-14",
+      "platform": "darwin-x64",
+      "target": "x86_64-apple-darwin",
+      "binary": "zotero-bridge",
+      "runtimeIdentity": true
+    },
+    {
+      "runner": "macos-14",
+      "platform": "darwin-arm64",
+      "target": "aarch64-apple-darwin",
+      "binary": "zotero-bridge",
+      "runtimeIdentity": true
+    },
+    {
+      "runner": "ubuntu-24.04",
+      "platform": "linux-x86",
+      "target": "i686-unknown-linux-gnu",
+      "binary": "zotero-bridge",
+      "runtimeIdentity": true
+    },
+    {
+      "runner": "ubuntu-24.04",
+      "platform": "linux-x64",
+      "target": "x86_64-unknown-linux-gnu",
+      "binary": "zotero-bridge",
+      "runtimeIdentity": true
+    },
+    {
+      "runner": "ubuntu-24.04",
+      "platform": "linux-arm",
+      "target": "armv7-unknown-linux-gnueabihf",
+      "binary": "zotero-bridge",
+      "runtimeIdentity": false
+    },
+    {
+      "runner": "ubuntu-24.04",
+      "platform": "linux-arm64",
+      "target": "aarch64-unknown-linux-gnu",
+      "binary": "zotero-bridge",
+      "runtimeIdentity": false
+    }
+  ]
+}

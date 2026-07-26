@@ -7,6 +7,18 @@ is the central registry of all Host Bridge capabilities. It defines what
 operations are available through the `/bridge/v1/call` endpoint and the MCP tool
 system.
 
+Within the agent-facing architecture, this registry supplies runtime mechanism
+facts for the Minimum layer. The generated
+`host-bridge.agent-surface.v5` descriptor and CLI mappings expose those facts
+as commands, schemas, effects, approvals, handles, recovery, targets, and
+operational aliases. Research-task policy and Hermes resident policy are not
+registry responsibilities; their ownership and composition are defined in
+[Host Bridge Agent-facing Surfaces](host-bridge-agent-surfaces.md).
+
+The registry remains the source for callable Host Bridge capabilities. It does
+not select a Generic task, define a Skill workflow, or authorize resident
+automation beyond the approval requirement declared for each capability.
+
 ---
 
 ## Core Types

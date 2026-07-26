@@ -154,63 +154,63 @@ export function preflight({ selectionContext }) {
 }
 ```
 
-### 添付ファイルのフィルタリング
-
-一般的な添付ファイルのフィルタリングには宣言的な `validateSelection` を使用します：
+### Attachment Candidate Planning
 
 ```json
 {
+  "inputs": {
+    "member": {
+      "kind": "attachment",
+      "accepts": { "mime": ["application/pdf"] }
+    },
+    "grouping": { "mode": "each" }
+  },
   "validateSelection": {
-    "select": { "policy": "pdf-attachment" },
     "require": {
-      "counts": { "attachments": 1 },
-      "allowMixed": false
-    }
-  }
-}
-```
-
-解決済みのユニットに依存するランタイムのみの判断には、`preflight` でスキップまたは続行します：
-
-```js
-export function preflight({ selectionContext, runtime }) {
-  const { helpers } = runtime;
-
-  const hasPdf = selectionContext.items.attachments.some(
-    a => helpers.isPdfAttachment(a)
-  );
-
-  if (!hasPdf) {
-    return { kind: "skip", reason: "no PDF attachments" };
-  }
-
-  return { kind: "continue" };
-}
-```
-
-### アイテム未選択時の Workflow
-
-`inputs.unit: "workflow"` かつ `trigger.requiresSelection: false` の場合、Workflow はアイテムを選択せずにトリガーできる。この場合、`selectionContext.selectionType` は `"none"` になり、`items` 内のすべての配列が空になる。このモードはグローバル操作の作成（例：「トピック合成の作成」）に適する。
-
-## 宣言的な選択検証
-
-Workflow が**すでに結果を持つアイテムをスキップする**、または**特定種別の入力をフィルタリングする**だけであれば、JavaScript フックを書かずに宣言的な `validateSelection` フィールドを使用できる。
-
-```json
-{
-  "validateSelection": {
-    "select": { "policy": "literature-source" },
-    "exclude": [
-      { "kind": "generated-notes-all", "noteKinds": ["digest"] }
+      "selection": {
+        "counts": { "attachments": { "min": 1 } },
+        "allowMixed": false
+      }
+    },
+    "select": { "policy": "input-member", "source": "selected" },
+    "filters": [
+      { "kind": "source-file-exists", "phase": "availability" }
     ]
   }
 }
 ```
 
-完全なドキュメントは[マニフェストの作成](#doc/workflows%2Fcustom%2Fmanifest#selection-validation)を参照。
+`require.selection` reads the original SelectionContext once. The selector
+produces ordered candidates, attachment MIME compatibility runs before filters,
+and `inputs.grouping` creates immutable top-level units.
 
-> **選択のガイド：** 可能な限り宣言的な `validateSelection` を使用すること — JavaScript ゼロ、メンテナンスゼロで済む。複雑な選択ロジックは `buildRequest` フックで実装できる。
+### Workflows Without Selected Items
 
+Use `member.kind: "selection"`, `grouping.mode: "all"`, the `selection`
+selector, and `trigger.requiresSelection: false`. The selector then produces
+the complete empty SelectionContext as the single member. Selection
+requirements remain active and must not make the empty selection impossible.
+
+## Declarative Candidate Filters
+
+```json
+{
+  "validateSelection": {
+    "select": { "policy": "generated-note-candidates" },
+    "filters": [
+      {
+        "kind": "generated-note-kinds-absent",
+        "phase": "availability",
+        "noteKinds": ["digest"]
+      }
+    ]
+  }
+}
+```
+
+`validateSelection` owns candidate production and filtering. `inputs` owns
+the execution member and grouping. Hooks consume the prepared unit and must not
+reconstruct selection planning.
 ## 次のステップ
 
 - [ホスト API リファレンス](#doc/workflows%2Fcustom%2Fhost-api) — フックで Zotero データを操作する完全な API

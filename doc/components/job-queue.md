@@ -71,12 +71,25 @@ Job {
 
 - 并发池满：任务进入 `queued`
 - 执行异常：任务标记 `failed` 并记录错误
-- waiting：不是失败；任务从队列并发占位释放，等待用户 reply/auth 触发前台 continuation
+- provider waiting 不是失败；Host submission queue 的执行单元继续占用 admission
+  槽位，直到 provider 终态和必要的 Host apply 均结束
 
 ## 测试点（TDD）
 
 - FIFO 顺序入队/出队
 - provider 驱动的并发策略正确生效
 - 任务状态流转正确（含 `running -> waiting_* -> running -> terminal`）
-- waiting 任务释放队列占位后，后续任务可继续调度
+- waiting 单元保持占位，终态与 apply 完成后才按 FIFO 放行后续单元
 - 与 Provider 联调：后端型 workflow 的多个 request 可并发 dispatch，`pass-through` 保持串行
+
+## Workflow submission queue
+
+`src/jobQueue/workflowSubmissionQueue.ts` 管理当前插件进程内的顶层工作流执行
+单元。每次 submission 冻结自己的并发上限并独立 FIFO 调度；空值和 `0`
+表示不限制，`1` 表示串行。公开快照只包含队列、workflow、backend 与显示
+身份，不包含 provider request、凭据或输入载荷。
+
+只有 pending 单元可通过 `queueId` 取消。admission 先从公开快照移除单元，
+再开始 provider 工作，因此 stale cancel 不会转发到 provider cancel API。
+关闭插件时先停止 admission，pending 单元以 skipped 收束并清空所有索引和
+订阅；队列状态不持久化。

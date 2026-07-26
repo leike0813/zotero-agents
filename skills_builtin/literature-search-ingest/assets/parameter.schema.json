@@ -16,6 +16,22 @@
         "targeted_ingest"
       ]
     },
+    "searchBreadth": {
+      "type": "string",
+      "enum": [
+        "broad",
+        "balanced",
+        "quick"
+      ],
+      "default": "broad"
+    },
+    "languageHints": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
     "targetCollection": {
       "type": "string"
     }

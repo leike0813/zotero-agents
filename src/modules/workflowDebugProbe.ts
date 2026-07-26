@@ -31,7 +31,7 @@ import { resolveProvider } from "../providers/registry";
 import { summarizeWorkflowExecutionError } from "../workflows/errorMeta";
 import { summarizeWorkflowRuntimeCapabilities } from "./workflowPackageDiagnostics";
 import type { LoadedWorkflow } from "../workflows/types";
-import { evaluateWorkflowSelection } from "../workflows/workflowSelectionValidation";
+import { evaluateWorkflowSelection } from "../workflows/workflowInputPlanning";
 
 export type WorkflowDebugProbeCheck = {
   workflowId: string;

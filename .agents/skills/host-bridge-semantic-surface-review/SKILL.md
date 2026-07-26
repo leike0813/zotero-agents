@@ -1,56 +1,61 @@
 ---
 name: host-bridge-semantic-surface-review
-description: Review Host Bridge capability, CLI, workflow control, shared protocol facts, CLI wrapper, Zotero Library Agent, Zotero Librarian profile, and release-render changes before running the Host Bridge release pipeline renderer.
+description: Review Host Bridge's three agent-facing surfaces against their operational contracts. Use when Host Bridge behavior, surface composition, Skill guidance, or release identity changes before rendering governed content.
 ---
 
 # Host Bridge Semantic Surface Review
 
-Use this skill before `npm run render:host-bridge-surface` when Host Bridge capability, REST endpoint, CLI, workflow control, workflow catalog, OpenSpec Host Bridge specs, shared protocol facts, CLI wrapper, Zotero Library Agent, or Zotero Librarian profile semantic sources changed.
+## Goal
 
-## First Action
+Verify that the minimum-core CLI, Generic research-task suite, and Hermes hosted facet have complete, non-overlapping current guidance that matches the Agent Control Contract, preserves the declared semantic baseline without downgrade, and follows the surface manifest.
 
-Run the read-only context collector from the repository root:
+## Inputs
 
-```powershell
-npx tsx scripts/host-bridge-semantic-review-context.ts
-```
-
-Use the returned JSON to decide review focus. The script classifies changed files; it does not decide whether the semantic layer is correct.
+- The current working tree and changed-file context.
+- `host-bridge/surfaces.json`, CLI release identity, and affected behavior or OpenSpec contracts.
+- The source Skill packages and hosted facet sources named by the surface map.
+- The baseline commit and semantic-parity matrix declared by the active surface-design change when a structural rewrite is in scope.
 
 ## Workflow
 
-1. Read `references/surface-map.md` to identify the relevant spec layer, semantic sources, and generated targets.
-2. Read `references/review-playbook.md` and inspect the changed spec-layer files plus the semantic source files it names.
-3. Confirm that the CLI wrapper, on-demand Zotero Library Agent, and resident Zotero Librarian profile each explain the changed control surface accurately without sharing task policy.
-4. If the current semantic sources already explain the changed control surface accurately, report that no semantic-source edit is needed.
-5. If the semantic sources are incomplete or misleading, update only the semantic sources.
-6. Do not edit generated output as the source of truth. After semantic review completes, return control to `$host-bridge-release-pipeline` so it can run the renderer and checks.
+1. Run the read-only collector from the repository root:
 
-## LLM And Script Boundary
+   ```sh
+   npx tsx scripts/host-bridge-semantic-review-context.ts
+   ```
 
-The LLM owns semantic comparison, wording, scope decisions, and final review judgment.
+2. Read [review operations](references/review-operations.md). Select every changed source and contract required by the returned focus.
+3. Resolve affected surfaces from `host-bridge/surfaces.json`. Check that minimum-core owns exact CLI facts, Generic owns bounded research-task policy, and Hermes owns resident automation policy.
+4. Check each governed Skill as an executable contract: `SKILL.md` contains goal, process, hard constraints, completion, and failure handling; all references are directly linked; no required constraint is only in a reference.
+5. For a rewrite, compare every unique baseline goal, decision, procedure, constraint, evidence rule, completion condition, failure path, recovery rule, and near miss with the semantic-parity matrix. Require one current owner or a complete generated equivalent.
+5a. Before editing, record every explicit deletion authorized by the active plan. Treat every other existing instruction as preservation-required: do not compress, delete, merge, reorder, or rewrite it merely to make room for new guidance. Add new instructions at the same operational thickness and level of detail as adjacent guidance.
+6. Check package-local uniqueness: `SKILL.md` owns normative workflow and constraints; references add domain decisions and examples without repeating the same meaning. Run the deterministic duplicate gate after semantic review.
+7. Run the materialized package depth gate. Treat hard failures as blockers. Review every item in the structured instruction-depth warnings and record whether its content is accepted or expanded; a warning may not disappear silently from the handoff.
+8. Compare guidance with the current command contract, handles, approvals, recovery, workflow ownership, result contracts, component composition, and release identity.
+9. Edit only source guidance when it is incomplete, duplicated, downgraded, or would lead an agent to cross a boundary or misstate a result. Then hand off using the return contract in [review operations](references/review-operations.md).
 
-Scripts only collect changed-file context and run deterministic checks. Do not write scripts that summarize intent, choose wording, or replace the semantic review.
+## Hard constraints
 
-## Optional Subagent Path
+- Treat `host-bridge/surfaces.json` as the composition source of truth and resolve inheritance before judging a surface.
+- Keep operational command facts in minimum-core, research-task semantics in Generic, and resident automation policy in Hermes; do not duplicate them across layers.
+- Treat `SKILL.md` as the minimum complete execution contract. References expand detail but never contain the only required hard constraint.
+- A rewritten surface must be a semantic superset of its declared clean baseline after baseline duplicates are collapsed. No valid semantic unit may be omitted or weakened into a summary.
+- Except for instructions named in the approved explicit deletion inventory, do not compress, delete, merge, reorder, or paraphrase existing guidance into a thinner form. Additions must match the surrounding instruction thickness, detail, branches, evidence, and recovery coverage.
+- Within one Skill package, assign every semantic rule one normative owner. Do not duplicate the same instruction between `SKILL.md` and references or across references.
+- Enforce materialized instruction-depth floors without confusing them for semantic proof: a `SKILL.md` below 100 lines or a reference below 200 lines blocks; a `SKILL.md` below 200 lines or a reference below 350 lines produces an instruction-depth warning that the reviewer must explicitly accept or expand.
+- Use current behavior only. Do not add compatibility, migration, or historical wording to governed instructions.
+- Do not edit generated targets, publish releases, dispatch workflows, synchronize prebuilds, or make release-version decisions during semantic review.
 
-If the current environment can delegate to subagents, independent semantic-source files may be reviewed in parallel. If subagents are unavailable, review the same files serially.
+## Completion
 
-The main agent keeps final responsibility for merging findings, editing semantic sources, and reporting the result. Subagents must not run render commands or edit generated targets.
+Return the following fields: semantic review ran; context reviewRequired; baseline commit; semantic source edits; minimum-core result; Generic result; Hermes result; Skill-package result; semantic parity result; unmapped semantic count; downgraded semantic count; intra-package duplicate count; reference-depth result; instruction-depth warnings and their accepted-or-expanded disposition; Agent Control Contract result; release identity result; alignment result; next commands; and blocker only when blocked. Finish only when all three counts are zero, every warning is accepted or expanded with a reason, and every applicable result is aligned or corrected, or when a named unresolved contract makes the review blocked.
 
-## Completion Report
+Also return the explicit deletion inventory and unauthorized dropped semantic count. Finish only when the unauthorized dropped semantic count is zero; an authorized deletion must name its approved inventory entry rather than disappearing through compression.
 
-Return these fields to the release pipeline:
+## Failure handling
 
-- semantic review ran: yes/no
-- context collector result: review required yes/no
-- semantic source edits: list of files or none
-- surface boundary result: independent or blocked
-- alignment result: aligned or edits applied
-- next commands: render and checks to run
+When a behavior, ownership boundary, result contract, or source of truth cannot be confirmed, report `blocked`, name the uncertain contract and affected surface, and stop before rendering or release preparation. Do not infer command syntax, approvals, handles, or generated contents. A blocked review is terminal until that contract or source changes.
 
 ## References
 
-- `references/surface-map.md`: path groups and review focus.
-- `references/review-playbook.md`: review steps, boundaries, and completion criteria.
-- `references/nested-call-contract.md`: handoff contract with the Host Bridge release pipeline.
+Read [review operations](references/review-operations.md) before selecting sources, comparing the three surface contracts, running gates, or handing the review to release preparation.

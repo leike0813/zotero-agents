@@ -1,16 +1,27 @@
 {
+  "schemaVersion": 2,
   "id": "export-notes",
   "label": "Export Notes",
+  "description": "Export supported generated Zotero notes as editable external files.",
+  "executionModes": ["auto"],
   "version": "1.0.0",
   "provider": "pass-through",
+  "trigger": {
+    "requiresSelection": true
+  },
   "inputs": {
-    "unit": "workflow"
+    "member": {
+      "kind": "generated-note"
+    },
+    "grouping": {
+      "mode": "all"
+    }
   },
   "validateSelection": {
     "select": {
       "policy": "generated-note-candidates"
     },
-    "derive": ["exportCandidates"]
+    "filters": []
   },
   "hooks": {
     "buildRequest": "hooks/buildRequest.mjs",

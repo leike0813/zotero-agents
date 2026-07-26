@@ -15,6 +15,7 @@ import {
   configureNoAcpBackendForTests,
   configureZoteroMcpServerForTests,
   connectAcpConversation,
+  createAcpChatWorkspaceOwner,
   createAcpBackendFromPreset,
   createBackendsPrefsDocument,
   deleteActiveAcpConversation,
@@ -33,6 +34,8 @@ import {
   os,
   path,
   prepareAcpChatPanelSnapshot,
+  readAcpChatWorkspacePublication,
+  resolveAcpChatWorkspacePublicationKinds,
   readActiveTranscriptItems,
   readAcpConversationTranscriptPage,
   readTranscriptItemsForConversation,
@@ -54,7 +57,7 @@ import {
   setActiveAcpConversation,
   setAssistantStreamingRenderEnabled,
   setAssistantTranscriptPaginationVirtualizationEnabled,
-  shouldRefreshAcpChatSnapshotForChange,
+  shouldPublishAcpChatWorkspaceChange,
   shutdownAcpSessionManager,
   startNewAcpConversation,
   subscribeAcpChatPanelSnapshots,
@@ -78,6 +81,25 @@ import { setAssistantExecutionDisplayMode } from "../../src/modules/assistantExe
 
 describe("acp session manager", function () {
   const harness = installAcpSessionManagerTestHooks();
+  const useScriptedPrompt = (
+    script: (
+      adapter: FakeAcpConnectionAdapter,
+      args: { sessionId: string; message: string },
+    ) => Promise<{ stopReason: string }>,
+  ) => {
+    setAcpConnectionAdapterFactoryForTests(async (factoryArgs) => {
+      const adapter = new FakeAcpConnectionAdapter();
+      adapter.semanticTraceContext = factoryArgs.semanticTraceContext;
+      adapter.prompt = async (args) => {
+        adapter.prompts.push(args.message);
+        return script(adapter, args);
+      };
+      harness.lastAdapter = adapter;
+      harness.lastFactoryArgs = factoryArgs;
+      harness.adapters.add(adapter);
+      return adapter;
+    });
+  };
 
   it("initializes empty ACP Chat counters and promotes legacy counters at the next prompt", async function () {
     await startNewAcpConversation();
@@ -162,6 +184,141 @@ describe("acp session manager", function () {
       tool: 1,
     });
     assert.isFalse((panel.messageCounts as any)?.active);
+  });
+
+  it("persists only the final silent assistant segment across semantic boundaries", async function () {
+    useScriptedPrompt(async (adapter, args) => {
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "discarded" },
+        },
+      });
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: { sessionUpdate: "usage_update", used: 1, size: 10 },
+      });
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: " continuation" },
+        },
+      });
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: { sessionUpdate: "tool_call", toolCallId: "tool-1" },
+      });
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "kept" },
+        },
+      });
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: { sessionUpdate: "tool_call_update", toolCallId: "tool-1" },
+      });
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: " final" },
+        },
+      });
+      return { stopReason: "end_turn" };
+    });
+    setAssistantExecutionDisplayMode("silent");
+
+    await sendAcpConversationPrompt({ message: "segmented silent result" });
+
+    const assistant = (await readActiveTranscriptItems()).filter(
+      (entry) => entry.kind === "message" && entry.role === "assistant",
+    );
+    assert.deepEqual(
+      assistant.map((entry) => entry.text),
+      ["kept final"],
+    );
+    assert.equal(assistant[0]?.state, "complete");
+  });
+
+  it("preserves the silent assistant candidate on prompt error", async function () {
+    useScriptedPrompt(async (adapter, args) => {
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "partial result" },
+        },
+      });
+      throw new Error("scripted prompt failure");
+    });
+    setAssistantExecutionDisplayMode("silent");
+
+    let thrown: unknown;
+    try {
+      await sendAcpConversationPrompt({ message: "failing silent result" });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.instanceOf(thrown, Error);
+    const assistant = (await readActiveTranscriptItems()).filter(
+      (entry) => entry.kind === "message" && entry.role === "assistant",
+    );
+    assert.deepEqual(
+      assistant.map((entry) => entry.text),
+      ["partial result"],
+    );
+    assert.equal(assistant[0]?.state, "error");
+  });
+
+  it("starts a fresh silent terminal segment after a live mode transition", async function () {
+    let releasePrompt: (() => void) | undefined;
+    let markPromptReady: (() => void) | undefined;
+    const promptReady = new Promise<void>((resolve) => {
+      markPromptReady = resolve;
+    });
+    useScriptedPrompt(async () => {
+      await new Promise<void>((resolve) => {
+        releasePrompt = resolve;
+        markPromptReady?.();
+      });
+      return { stopReason: "end_turn" };
+    });
+
+    const prompt = sendAcpConversationPrompt({ message: "mode transition" });
+    await promptReady;
+    const prompting = await waitForAcpConversationSnapshot(
+      (snapshot) => snapshot.busy,
+    );
+    await harness.lastAdapter?.emitSessionUpdate({
+      sessionId: prompting.sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "visible before" },
+      },
+    });
+    setAssistantExecutionDisplayMode("silent");
+    await harness.lastAdapter?.emitSessionUpdate({
+      sessionId: prompting.sessionId,
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "silent after" },
+      },
+    });
+    releasePrompt?.();
+    await prompt;
+
+    const assistant = (await readActiveTranscriptItems()).filter(
+      (entry) => entry.kind === "message" && entry.role === "assistant",
+    );
+    assert.deepEqual(
+      assistant.map((entry) => entry.text),
+      ["visible before", "silent after"],
+    );
   });
 
   it("seals visible history and never backfills content across silent transitions", async function () {
@@ -764,6 +921,12 @@ describe("acp session manager", function () {
         skillId: "zotero-bridge-cli",
         body: "# Stale Claude Copy\n\nOLD CLAUDE COPY",
       });
+      await fs.mkdir(chatWorkspaceDir, { recursive: true });
+      await fs.writeFile(
+        path.join(chatWorkspaceDir, "AGENTS.md"),
+        "# User workspace notes\n\nKeep this user-authored instruction.",
+        "utf8",
+      );
 
       await sendAcpConversationPrompt({
         message: "Hello ACP",
@@ -873,17 +1036,14 @@ describe("acp session manager", function () {
         harness.lastAdapter?.prompts[0] || "",
         "zotero-bridge-cli",
       );
+      assert.include(harness.lastAdapter?.prompts[0] || "", "AGENTS.md");
       assert.notInclude(
         harness.lastAdapter?.prompts[0] || "",
         "[Zotero Host Bridge CLI]",
       );
       const expectedSkillRootSuffixes = [
         [".agents", "skills"],
-        [".codex", "skills"],
-        [".claude", "skills"],
-        [".gemini", "skills"],
-        [".qwen", "skills"],
-        [".kilo", "skills"],
+        [".opencode", "skills"],
       ];
       for (const rootSuffix of expectedSkillRootSuffixes) {
         const root = joinPath(
@@ -907,6 +1067,62 @@ describe("acp session manager", function () {
         );
         assert.include(literatureMetadataSearchSkill, "USER LMS OVERRIDE");
       }
+      assert.isFalse(
+        await fs
+          .stat(
+            joinPath(
+              expectedStoragePaths.agentWorkspaceDir,
+              ".claude",
+              "skills",
+              "zotero-bridge-cli",
+            ),
+          )
+          .then(
+            () => true,
+            () => false,
+          ),
+      );
+      const chatWorkspaceInstructions = await fs.readFile(
+        joinPath(expectedStoragePaths.agentWorkspaceDir, "AGENTS.md"),
+        "utf8",
+      );
+      assert.include(
+        chatWorkspaceInstructions,
+        "<!-- zotero-agents:acp-chat-workspace:start -->",
+      );
+      assert.include(chatWorkspaceInstructions, "shared ACP Chat workspace");
+      assert.include(chatWorkspaceInstructions, "outside this workspace");
+      assert.include(
+        chatWorkspaceInstructions,
+        "Keep this user-authored instruction.",
+      );
+      const injectedSkillsManifest = JSON.parse(
+        await fs.readFile(
+          path.join(
+            expectedStoragePaths.agentWorkspaceDir,
+            "..",
+            "injected-skills-manifest.json",
+          ),
+          "utf8",
+        ),
+      ) as {
+        schema?: string;
+        targets?: Array<{ relativeRoot?: string; skillId?: string }>;
+      };
+      assert.equal(
+        injectedSkillsManifest.schema,
+        "zotero-agents.acp-chat-injected-skills.v1",
+      );
+      assert.sameMembers(
+        Array.from(
+          new Set(
+            (injectedSkillsManifest.targets || []).map(
+              (entry) => entry.relativeRoot,
+            ),
+          ),
+        ),
+        [".agents/skills", ".opencode/skills"],
+      );
       assert.isOk(
         snapshot.diagnostics.find(
           (entry) => entry.kind === "acp_chat_injected_skills_ready",
@@ -988,6 +1204,60 @@ describe("acp session manager", function () {
     }
   });
 
+  it("refreshes only the managed ACP Chat AGENTS block and skips malformed markers", async function () {
+    const dataDirectory = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-acp-agents-"),
+    );
+    (
+      Zotero as typeof Zotero & { DataDirectory?: { dir?: string } }
+    ).DataDirectory = {
+      dir: dataDirectory,
+    };
+    try {
+      const workspaceDir = resolveAcpChatRuntimePaths(
+        ACP_OPENCODE_BACKEND_ID,
+      ).agentWorkspaceDir;
+      await fs.mkdir(workspaceDir, { recursive: true });
+      const agentsPath = path.join(workspaceDir, "AGENTS.md");
+      await fs.writeFile(
+        agentsPath,
+        [
+          "<!-- zotero-agents:acp-chat-workspace:start -->",
+          "OLD MANAGED POLICY",
+          "<!-- zotero-agents:acp-chat-workspace:end -->",
+          "",
+          "Keep this user tail.",
+        ].join("\n"),
+        "utf8",
+      );
+
+      await connectAcpConversation();
+      const refreshed = await fs.readFile(agentsPath, "utf8");
+      assert.notInclude(refreshed, "OLD MANAGED POLICY");
+      assert.include(refreshed, "shared ACP Chat workspace");
+      assert.include(refreshed, "Keep this user tail.");
+
+      await disconnectAcpConversation();
+      const malformed = [
+        "<!-- zotero-agents:acp-chat-workspace:start -->",
+        "Do not overwrite this malformed file.",
+      ].join("\n");
+      await fs.writeFile(agentsPath, malformed, "utf8");
+      await connectAcpConversation();
+
+      assert.equal(await fs.readFile(agentsPath, "utf8"), malformed);
+      assert.isOk(
+        getAcpConversationSnapshot().diagnostics.find(
+          (entry) =>
+            entry.kind === "acp_chat_workspace_instructions_unavailable",
+        ),
+      );
+      assert.equal(getAcpConversationSnapshot().status, "connected");
+    } finally {
+      await fs.rm(dataDirectory, { recursive: true, force: true });
+    }
+  });
+
   it("prepends ACP Chat startup preamble only to the first conversation prompt", async function () {
     await sendAcpConversationPrompt({ message: "First startup prompt" });
     await sendAcpConversationPrompt({ message: "Second ordinary prompt" });
@@ -1024,10 +1294,7 @@ describe("acp session manager", function () {
 
     await setActiveAcpConversation({ conversationId: previousConversationId });
     const initial = getAcpConversationUiSnapshot();
-    assert.include(
-      ["loading", "ready"],
-      initial.transcriptState?.state || "ready",
-    );
+    assert.equal(initial.conversationId, previousConversationId);
 
     const ready = await waitForAcpConversationUiSnapshot((snapshot) =>
       snapshot.items.some(
@@ -1037,7 +1304,6 @@ describe("acp session manager", function () {
           entry.text === "Cold hydrate chat transcript",
       ),
     );
-    assert.equal(ready.transcriptState?.state, "ready");
     assert.isTrue(
       ready.items.some(
         (entry) =>
@@ -1058,7 +1324,17 @@ describe("acp session manager", function () {
     const disconnected = getAcpConversationUiSnapshot();
     assert.equal(disconnected.conversationId, firstConversationId);
     assert.equal(disconnected.status, "idle");
-    assert.equal(disconnected.transcriptState?.state, "ready");
+    assert.isNotEmpty(disconnected.remoteSessionId);
+    const disconnectedControl = await readAcpChatWorkspacePublication({
+      owner: createAcpChatWorkspaceOwner(
+        getAcpFrontendSnapshot().activeBackendId,
+        firstConversationId,
+      ),
+      publicationKind: "owner-control",
+    });
+    assert.isFalse(disconnectedControl?.connection.connected);
+    assert.isTrue(disconnectedControl?.connection.canConnect);
+    assert.isFalse(disconnectedControl?.connection.canDisconnect);
     assert.isTrue(
       disconnected.items.some(
         (entry) =>
@@ -1072,7 +1348,6 @@ describe("acp session manager", function () {
     await setActiveAcpConversation({ conversationId: firstConversationId });
     const ready = getAcpConversationUiSnapshot();
     assert.equal(ready.conversationId, firstConversationId);
-    assert.equal(ready.transcriptState?.state, "ready");
     assert.isTrue(
       ready.items.some(
         (entry) =>
@@ -1083,25 +1358,17 @@ describe("acp session manager", function () {
     );
   });
 
-  it("streams ACP chat text naturally while preserving the final transcript", async function () {
+  it("emits typed ACP chat text mutations while preserving the final transcript", async function () {
     setAcpConnectionAdapterFactoryForTests(async () => {
       harness.lastAdapter = new FakeAcpConnectionAdapter();
       harness.lastAdapter.streamingChunkCount = 100;
       return harness.lastAdapter;
     });
-    let streamingAssistantSnapshotCount = 0;
-    const unsubscribe = subscribeAcpConversationSnapshots((snapshot) => {
-      if (
-        snapshot.items.some(
-          (entry) =>
-            entry.kind === "message" &&
-            entry.role === "assistant" &&
-            entry.state === "streaming" &&
-            entry.text.length > 0,
-        )
-      ) {
-        streamingAssistantSnapshotCount += 1;
-      }
+    let liveTextMutationCount = 0;
+    const unsubscribe = subscribeAcpChatPanelSnapshots((change) => {
+      liveTextMutationCount += (change.transcriptEvents || []).filter(
+        (event) => event.boundary === "text-continuation",
+      ).length;
     });
 
     await sendAcpConversationPrompt({
@@ -1114,7 +1381,7 @@ describe("acp session manager", function () {
       (entry) => entry.kind === "message" && entry.role === "assistant",
     );
     assert.equal(assistant?.text.length, 100);
-    assert.isAbove(streamingAssistantSnapshotCount, 0);
+    assert.isAbove(liveTextMutationCount, 0);
     assert.equal(
       getAcpConversationUiSnapshot().items.find(
         (entry) => entry.kind === "message" && entry.role === "assistant",
@@ -1298,7 +1565,6 @@ describe("acp session manager", function () {
     assert.equal(structural.transcriptRevision, full.transcriptRevision);
     assert.equal(structural.transcriptItemCount, full.transcriptItemCount);
     assert.equal(structural.transcriptPreview, full.transcriptPreview);
-    assert.deepEqual(structural.transcriptState, full.transcriptState);
 
     const frontend = getAcpFrontendSnapshot({ itemMode: "structural" });
     assert.deepEqual(
@@ -1385,20 +1651,16 @@ describe("acp session manager", function () {
         (entry) => entry.kind === "plan",
       ),
     );
-    const selectedPage = panel.selectedTranscriptPage as
+    const selectedPage = panel.transcriptRegion.page as
       | {
-          backendId: string;
-          conversationId: string;
-          requestId: string;
+          pageKey: string;
           items: unknown[];
         }
       | undefined;
     assert.isOk(selectedPage);
-    assert.equal(selectedPage?.backendId, active.backendId);
-    assert.equal(selectedPage?.conversationId, active.conversationId);
     assert.equal(
-      selectedPage?.requestId,
-      acpChatTranscriptPageKey(active.backendId, active.conversationId),
+      selectedPage?.pageKey,
+      `${acpChatTranscriptPageKey(active.backendId, active.conversationId)}\ntail:80`,
     );
     assert.isAtLeast(selectedPage?.items.length || 0, 1);
   });
@@ -1422,7 +1684,8 @@ describe("acp session manager", function () {
     assert.equal(panel.backendAvailability, "selected");
     assert.equal(panel.conversationAvailability, "selected");
     assert.equal(panel.transcriptPaginationVirtualizationEnabled, true);
-    assert.isUndefined(panel.selectedTranscriptPage);
+    assert.equal(panel.transcriptRegion.status, "failed");
+    assert.isNull(panel.transcriptRegion.page);
     assert.isAtLeast(
       ((panel.backendChatSessions as unknown[]) || []).length,
       1,
@@ -1450,7 +1713,8 @@ describe("acp session manager", function () {
     assert.deepEqual(panel.backendOptions, []);
     assert.deepEqual(panel.chatSessions, []);
     assert.deepEqual(panel.backendChatSessions, []);
-    assert.isUndefined(panel.selectedTranscriptPage);
+    assert.equal(panel.transcriptRegion.status, "idle");
+    assert.isNull(panel.transcriptRegion.page);
     assert.equal(pageReadCount, 0);
   });
 
@@ -1472,7 +1736,8 @@ describe("acp session manager", function () {
     assert.equal(panel.activeBackendId, ACP_OPENCODE_BACKEND_ID);
     assert.equal(panel.activeConversationId, "");
     assert.equal(panel.conversationId, "");
-    assert.isUndefined(panel.selectedTranscriptPage);
+    assert.equal(panel.transcriptRegion.status, "idle");
+    assert.isNull(panel.transcriptRegion.page);
     assert.equal(pageReadCount, 0);
   });
 
@@ -1497,20 +1762,17 @@ describe("acp session manager", function () {
     });
 
     assert.equal(panel.activeConversationId, firstConversationId);
-    assert.equal(
-      (panel.transcriptState as { state?: string } | undefined)?.state,
-      "ready",
-    );
+    assert.equal(panel.transcriptRegion.status, "ready");
     assert.isTrue(
       (
         (
-          panel.selectedTranscriptPage as
-            | { items?: Array<{ kind?: string; text?: string }> }
+          panel.transcriptRegion.page as
+            | { items?: Array<{ itemKind?: string; text?: string }> }
             | undefined
         )?.items || []
       ).some(
         (item) =>
-          item.kind === "message" &&
+          item.itemKind === "message" &&
           String(item.text || "").includes("Panel mirror loading source"),
       ),
     );
@@ -1555,11 +1817,8 @@ describe("acp session manager", function () {
     });
 
     assert.equal(loadingPanel.activeConversationId, coldConversationId);
-    assert.equal(
-      (loadingPanel.transcriptState as { state?: string } | undefined)?.state,
-      "loading",
-    );
-    assert.isUndefined(loadingPanel.selectedTranscriptPage);
+    assert.equal(loadingPanel.transcriptRegion.status, "loading");
+    assert.isNull(loadingPanel.transcriptRegion.page);
     assert.equal(pageReadCount, 0);
     const afterLoadingDiagnostics =
       getAcpChatTranscriptMirrorDiagnosticsForTests({
@@ -1578,20 +1837,17 @@ describe("acp session manager", function () {
     });
 
     assert.equal(pagePanel.activeConversationId, coldConversationId);
-    assert.equal(
-      (pagePanel.transcriptState as { state?: string } | undefined)?.state,
-      "ready",
-    );
+    assert.equal(pagePanel.transcriptRegion.status, "ready");
     assert.isTrue(
       (
         (
-          pagePanel.selectedTranscriptPage as
-            | { items?: Array<{ kind?: string; text?: string }> }
+          pagePanel.transcriptRegion.page as
+            | { items?: Array<{ itemKind?: string; text?: string }> }
             | undefined
         )?.items || []
       ).some(
         (item) =>
-          item.kind === "message" &&
+          item.itemKind === "message" &&
           String(item.text || "").includes("ACP Chat owner-first cold"),
       ),
     );
@@ -1664,10 +1920,10 @@ describe("acp session manager", function () {
     });
     const thoughtOnlyItems =
       (
-        thoughtOnlyPanel.selectedTranscriptPage as
+        thoughtOnlyPanel.transcriptRegion.page as
           | {
               items?: Array<{
-                kind?: string;
+                itemKind?: string;
                 text?: string;
               }>;
             }
@@ -1676,7 +1932,7 @@ describe("acp session manager", function () {
     assert.isUndefined(
       thoughtOnlyItems.find(
         (entry) =>
-          entry.kind === "thought" && entry.text === "visible thinking",
+          entry.itemKind === "thought" && entry.text === "visible thinking",
       ),
     );
 
@@ -1712,10 +1968,10 @@ describe("acp session manager", function () {
     });
     const hiddenItems =
       (
-        hiddenPanel.selectedTranscriptPage as
+        hiddenPanel.transcriptRegion.page as
           | {
               items?: Array<{
-                kind?: string;
+                itemKind?: string;
                 role?: string;
                 text?: string;
                 toolCallId?: string;
@@ -1726,7 +1982,7 @@ describe("acp session manager", function () {
     assert.isUndefined(
       hiddenItems.find(
         (entry) =>
-          entry.kind === "message" &&
+          entry.itemKind === "message" &&
           entry.role === "assistant" &&
           entry.text === "hidden partial",
       ),
@@ -1734,7 +1990,7 @@ describe("acp session manager", function () {
     assert.isOk(
       hiddenItems.find(
         (entry) =>
-          entry.kind === "thought" && entry.text === "visible thinking",
+          entry.itemKind === "thought" && entry.text === "visible thinking",
       ) as unknown,
     );
     setAssistantStreamingRenderEnabled(true);
@@ -1743,10 +1999,10 @@ describe("acp session manager", function () {
     });
     const visibleItems =
       (
-        visiblePanel.selectedTranscriptPage as
+        visiblePanel.transcriptRegion.page as
           | {
               items?: Array<{
-                kind?: string;
+                itemKind?: string;
                 role?: string;
                 text?: string;
               }>;
@@ -1756,7 +2012,7 @@ describe("acp session manager", function () {
     assert.isOk(
       visibleItems.find(
         (entry) =>
-          entry.kind === "message" &&
+          entry.itemKind === "message" &&
           entry.role === "assistant" &&
           entry.text === "hidden partial",
       ),
@@ -1777,10 +2033,10 @@ describe("acp session manager", function () {
     });
     const boundaryItems =
       (
-        boundaryPanel.selectedTranscriptPage as
+        boundaryPanel.transcriptRegion.page as
           | {
               items?: Array<{
-                kind?: string;
+                itemKind?: string;
                 role?: string;
                 text?: string;
                 toolCallId?: string;
@@ -1791,14 +2047,15 @@ describe("acp session manager", function () {
     assert.isOk(
       boundaryItems.find(
         (entry) =>
-          entry.kind === "message" &&
+          entry.itemKind === "message" &&
           entry.role === "assistant" &&
           entry.text === "hidden partial",
       ),
     );
     assert.isOk(
       boundaryItems.find(
-        (entry) => entry.kind === "tool_call" && entry.toolCallId === "tool-1",
+        (entry) =>
+          entry.itemKind === "tool-call" && entry.toolCallId === "tool-1",
       ) as unknown,
     );
   });
@@ -1812,25 +2069,25 @@ describe("acp session manager", function () {
     };
 
     assert.isTrue(
-      shouldRefreshAcpChatSnapshotForChange(base, {
+      shouldPublishAcpChatWorkspaceChange(base, {
         active: true,
         kinds: ["status"],
       }),
     );
     assert.isTrue(
-      shouldRefreshAcpChatSnapshotForChange(base, {
+      shouldPublishAcpChatWorkspaceChange(base, {
         active: true,
         kinds: ["transcript-boundary"],
       }),
     );
     assert.isTrue(
-      shouldRefreshAcpChatSnapshotForChange(base, {
+      shouldPublishAcpChatWorkspaceChange(base, {
         active: true,
         kinds: ["transcript-append"],
       }),
     );
     assert.isFalse(
-      shouldRefreshAcpChatSnapshotForChange(
+      shouldPublishAcpChatWorkspaceChange(
         {
           ...base,
           executionDisplayMode: "boundary" as const,
@@ -1842,7 +2099,7 @@ describe("acp session manager", function () {
       ),
     );
     assert.isFalse(
-      shouldRefreshAcpChatSnapshotForChange(base, {
+      shouldPublishAcpChatWorkspaceChange(base, {
         active: false,
         kinds: ["transcript-append"],
       }),
@@ -1853,6 +2110,131 @@ describe("acp session manager", function () {
         kinds: ["transcript-append"],
       }),
     );
+  });
+
+  it("routes ACP chat changes to bounded owner-scoped publications", function () {
+    const base = {
+      activeTab: "acp-chat" as const,
+      hasActiveTarget: true,
+      transcriptPaginationVirtualizationEnabled: true,
+      executionDisplayMode: "live" as const,
+    };
+
+    assert.deepEqual(
+      resolveAcpChatWorkspacePublicationKinds(base, {
+        backendId: "backend-a",
+        conversationId: "conversation-a",
+        active: true,
+        kinds: ["message-counts"],
+      }),
+      ["message-counts"],
+    );
+    assert.deepEqual(
+      resolveAcpChatWorkspacePublicationKinds(base, {
+        backendId: "backend-a",
+        conversationId: "conversation-a",
+        active: true,
+        kinds: ["transcript-append"],
+      }),
+      ["transcript"],
+    );
+    assert.deepEqual(
+      resolveAcpChatWorkspacePublicationKinds(base, {
+        backendId: "backend-a",
+        conversationId: "conversation-a",
+        active: true,
+        kinds: ["status"],
+      }),
+      ["owner-control", "composer"],
+    );
+    assert.deepEqual(
+      resolveAcpChatWorkspacePublicationKinds(base, {
+        backendId: "backend-a",
+        conversationId: "conversation-a",
+        active: true,
+        kinds: ["permission"],
+      }),
+      ["permission", "owner-control"],
+    );
+    for (const kind of [
+      "transcript-append",
+      "permission",
+      "plan",
+      "status",
+      "composer",
+    ] as const) {
+      assert.deepEqual(
+        resolveAcpChatWorkspacePublicationKinds(base, {
+          backendId: "backend-a",
+          conversationId: "conversation-a",
+          active: false,
+          kinds: [kind],
+        }),
+        [],
+        `background ${kind} must stay owner-local`,
+      );
+    }
+  });
+
+  it("builds canonical count and baseline regions without transcript state", async function () {
+    await startNewAcpConversation();
+    const active = getAcpFrontendSnapshot({ itemMode: "structural" });
+    const owner = createAcpChatWorkspaceOwner(
+      active.activeBackendId,
+      active.activeConversationId,
+    );
+    const counts = await readAcpChatWorkspacePublication({
+      owner,
+      publicationKind: "message-counts",
+    });
+    assert.hasAllKeys(counts, ["counts"]);
+    assert.isObject(counts?.counts);
+    assert.notProperty(counts, "selectedTranscriptPage");
+    assert.notProperty(counts, "transcriptRevision");
+
+    const baseline = await readAcpChatWorkspacePublication({
+      owner,
+      publicationKind: "owner-control",
+    });
+    for (const field of [
+      "selectedTranscriptPage",
+      "transcriptState",
+      "transcriptRevision",
+      "transcriptEventSeq",
+      "transcriptItemCount",
+      "counts",
+      "items",
+    ]) {
+      assert.notProperty(baseline, field);
+    }
+    assert.hasAllKeys(baseline, [
+      "status",
+      "busy",
+      "hint",
+      "interaction",
+      "connection",
+      "execution",
+      "authentication",
+      "permissionPolicy",
+    ]);
+    assert.isNull(baseline?.interaction);
+    assert.hasAllKeys(baseline?.connection, [
+      "status",
+      "sessionAvailable",
+      "connected",
+      "canConnect",
+      "canDisconnect",
+    ]);
+    assert.hasAllKeys(baseline?.execution, ["canCancel", "canInterrupt"]);
+    assert.hasAllKeys(baseline?.authentication, [
+      "required",
+      "canAuthenticate",
+      "methodId",
+    ]);
+    assert.hasAllKeys(baseline?.permissionPolicy, [
+      "autoApprove",
+      "canSetAutoApprove",
+    ]);
   });
 
   it("emits typed ACP chat panel snapshot changes from existing publish boundaries", async function () {
@@ -1873,7 +2255,66 @@ describe("acp session manager", function () {
     assert.isTrue(hasKind("backend"));
     assert.isTrue(hasKind("transcript-append"));
     assert.isTrue(hasKind("transcript-boundary"));
+    assert.isTrue(hasKind("message-counts"));
     assert.isTrue(changes.some((change) => change.active === true));
+    const transcriptEvents = changes.flatMap(
+      (change) => change.transcriptEvents || [],
+    );
+    assert.isTrue(
+      transcriptEvents.some((event) => event.boundary === "text-continuation"),
+    );
+    assert.isTrue(
+      transcriptEvents.some((event) => event.boundary === "hard-boundary"),
+    );
+  });
+
+  it("keeps terminal transcript semantics when a live composer change is pending", async function () {
+    useScriptedPrompt(async (adapter, args) => {
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "**terminal markdown**" },
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 220));
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: { sessionUpdate: "usage_update", used: 1, size: 10 },
+      });
+      return { stopReason: "end_turn" };
+    });
+    setAssistantExecutionDisplayMode("live");
+    const changes: AcpChatPanelSnapshotChange[] = [];
+    const unsubscribe = subscribeAcpChatPanelSnapshots((change) => {
+      changes.push(change);
+    });
+
+    try {
+      await sendAcpConversationPrompt({ message: "terminal publication" });
+    } finally {
+      unsubscribe();
+    }
+
+    const assistant = (await readActiveTranscriptItems()).find(
+      (item) => item.kind === "message" && item.role === "assistant",
+    );
+    assert.equal(assistant?.state, "complete");
+    const terminalChange = changes.find(
+      (change) =>
+        change.kinds.includes("composer") &&
+        change.kinds.includes("transcript-boundary") &&
+        change.kinds.includes("status"),
+    );
+    assert.isOk(terminalChange);
+    assert.isTrue(
+      (terminalChange?.transcriptEvents || []).some(
+        (event) =>
+          event.boundary === "hard-boundary" &&
+          event.mutation.op === "patch_item" &&
+          event.mutation.patch.status === "complete",
+      ),
+    );
   });
 
   it("suppresses ACP chat text chunk UI notifications when streaming render is disabled", async function () {
@@ -2059,6 +2500,7 @@ describe("acp session manager", function () {
 
   it("does not fan out high-frequency diagnostics as one UI snapshot per trace", async function () {
     await reconnectAcpConversation();
+    const before = getAcpConversationSnapshot();
     let snapshotCount = 0;
     const unsubscribe = subscribeAcpConversationSnapshots(() => {
       snapshotCount += 1;
@@ -2071,6 +2513,18 @@ describe("acp session manager", function () {
     const snapshot = getAcpConversationSnapshot();
     assert.isAtMost(snapshot.diagnostics.length, 40);
     assert.isBelow(snapshotCount, 20);
+    assert.equal(snapshot.updatedAt, before.updatedAt);
+
+    toggleAcpConversationStatusDetails();
+    const requestId = `conversation:${snapshot.backendId}:${snapshot.conversationId}`;
+    const persisted = getPluginTaskRequestEntry(
+      PLUGIN_TASK_DOMAIN_ACP,
+      requestId,
+    );
+    const payload = JSON.parse(String(persisted?.payload || "{}"));
+    assert.notProperty(payload, "diagnostics");
+    assert.notProperty(payload, "stderrTail");
+    assert.notProperty(payload, "lastLifecycleEvent");
   });
 
   it("keeps trailing transcript updates in the active turn while cancellation is requested", async function () {
@@ -2108,6 +2562,55 @@ describe("acp session manager", function () {
           item.kind === "message" && item.text.includes("final trailing text"),
       ),
     );
+  });
+
+  it("publishes composer state when prompting resumes after cancellation", async function () {
+    await connectAcpConversation();
+    harness.lastAdapter!.promptStopReason = "cancelled";
+    const releaseFirstPrompt = harness.lastAdapter!.holdPrompt();
+    const firstPrompt = sendAcpConversationPrompt({ message: "First turn" });
+    await waitForAcpConversationSnapshot((snapshot) => snapshot.busy);
+    await cancelAcpConversationPrompt();
+    releaseFirstPrompt();
+    await firstPrompt;
+    assert.equal(
+      getAcpConversationSnapshot().promptInterruptState,
+      "confirmed",
+    );
+
+    const changes: AcpChatPanelSnapshotChange[] = [];
+    const unsubscribe = subscribeAcpChatPanelSnapshots((change) => {
+      changes.push(change);
+    });
+    harness.lastAdapter!.promptStopReason = "end_turn";
+    const releaseSecondPrompt = harness.lastAdapter!.holdPrompt();
+    const secondPrompt = sendAcpConversationPrompt({ message: "Continue" });
+    try {
+      const prompting = await waitForAcpConversationSnapshot(
+        (snapshot) => snapshot.busy && snapshot.status === "prompting",
+      );
+      const owner = createAcpChatWorkspaceOwner(
+        prompting.backendId,
+        prompting.conversationId,
+      );
+      const composer = await readAcpChatWorkspacePublication({
+        owner,
+        publicationKind: "composer",
+      });
+
+      assert.equal(composer?.reply.status, "busy");
+      assert.isTrue(
+        changes.some(
+          (change) =>
+            change.kinds.includes("transcript-boundary") &&
+            change.kinds.includes("status"),
+        ),
+      );
+    } finally {
+      unsubscribe();
+      releaseSecondPrompt();
+      await secondPrompt;
+    }
   });
 
   it("persists ACP chat display mode and compact status expansion state", async function () {

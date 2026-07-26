@@ -1,4 +1,9 @@
 import { assert } from "chai";
+import fs from "fs/promises";
+import {
+  resetHostBridgeFileRegistryForTests,
+  resolveHostBridgeFileDownload,
+} from "../../src/modules/hostBridgeFileRegistry";
 import { handleZoteroMcpRequestForTests } from "../../src/modules/zoteroMcpServer";
 import {
   createInProcessSynthesisClient,
@@ -27,6 +32,10 @@ function request(id: number, name: string, args: Record<string, unknown> = {}) {
 }
 
 describe("Synthesis review input MCP tool", function () {
+  afterEach(function () {
+    resetHostBridgeFileRegistryForTests();
+  });
+
   it("lists and routes the read-only review input tool", async function () {
     const list: any = await handleZoteroMcpRequestForTests({
       jsonrpc: "2.0",
@@ -44,6 +53,11 @@ describe("Synthesis review input MCP tool", function () {
         return {
           kind: "synthesis.review_workflow_input",
           topic: { topic_id: args.topicId },
+          registry_rows: [{ paper_ref: "1:ABCD1234" }],
+          citation_graph_slice: {
+            nodes: [{ node_id: "zotero:item:ABCD1234" }],
+            edges: [],
+          },
           structured_topic: {
             claims: [{ id: "claim-1" }],
             timeline_events: {
@@ -71,17 +85,27 @@ describe("Synthesis review input MCP tool", function () {
       response.result.structuredContent.tool,
       "topics.get_review_input",
     );
-    assert.equal(
-      response.result.structuredContent.result.kind,
-      "synthesis.review_workflow_input",
+    const result = response.result.structuredContent.result;
+    assert.deepInclude(result.topic, { topic_id: "topic-alpha" });
+    assert.deepEqual(result.summary, {
+      registryRows: 1,
+      graphNodes: 1,
+      graphEdges: 0,
+    });
+    assert.equal(result.delivery.mode, "bridge-download");
+    assert.match(result.delivery.file.fileId, /^file-/);
+    assert.notProperty(result.delivery.file, "localPath");
+
+    const downloaded = await resolveHostBridgeFileDownload(
+      result.delivery.file.fileId,
     );
-    assert.deepEqual(
-      response.result.structuredContent.result.structured_topic.claims,
-      [{ id: "claim-1" }],
+    const reviewInput = JSON.parse(
+      await fs.readFile(downloaded.source.path, "utf8"),
     );
+    assert.equal(reviewInput.kind, "synthesis.review_workflow_input");
+    assert.deepEqual(reviewInput.structured_topic.claims, [{ id: "claim-1" }]);
     assert.equal(
-      response.result.structuredContent.result.structured_topic
-        .external_literature_analysis.summary,
+      reviewInput.structured_topic.external_literature_analysis.summary,
       "External context.",
     );
   });

@@ -1,8 +1,18 @@
 import { assert } from "chai";
+import { execFile } from "child_process";
 import fs from "fs/promises";
+import os from "os";
 import path from "path";
+import { promisify } from "util";
 import { pathToFileURL } from "url";
 import { chromium, type Browser, type Page } from "playwright";
+import {
+  applySynthesisUiAction,
+  buildSynthesisUiSnapshot,
+  createDefaultSynthesisUiState,
+} from "../../src/modules/synthesis/uiModel";
+
+const execFileAsync = promisify(execFile);
 
 const sampleRoot = path.resolve(
   "test",
@@ -425,6 +435,74 @@ async function assertCitationGraphInteractions(page: Page) {
     assert.isAtLeast(graphState.width, 520);
     assert.isAtLeast(graphState.height, 360);
     assert.isFalse(graphState.hasControlDrawer);
+    const identityBefore = await page.evaluate(() => {
+      const frame = document.querySelector(
+        "[data-citation-graph-synthesis-frame]",
+      ) as HTMLIFrameElement | null;
+      const frameWindow = frame?.contentWindow as
+        | (Window & { __citationGraphIdentity?: Record<string, unknown> })
+        | null;
+      const stage = frame?.contentDocument?.querySelector(".sigma-stage");
+      const canvases = Array.from(stage?.querySelectorAll("canvas") || []);
+      const contexts = canvases
+        .map(
+          (canvas) => canvas.getContext("webgl2") || canvas.getContext("webgl"),
+        )
+        .filter(Boolean);
+      if (frameWindow) {
+        frameWindow.__citationGraphIdentity = { stage, canvases, contexts };
+      }
+      return { canvasCount: canvases.length, contextCount: contexts.length };
+    });
+    assert.isAtLeast(identityBefore.canvasCount, 1);
+    assert.isAtLeast(identityBefore.contextCount, 1);
+    await page
+      .frameLocator("[data-citation-graph-synthesis-frame]")
+      .locator(".sigma-stage")
+      .click({ position: { x: 12, y: 12 } });
+    await page.setViewportSize({ width: 1320, height: 1000 });
+    await page.waitForTimeout(200);
+    const identityAfter = await page.evaluate(() => {
+      const frame = document.querySelector(
+        "[data-citation-graph-synthesis-frame]",
+      ) as HTMLIFrameElement | null;
+      const frameWindow = frame?.contentWindow as
+        | (Window & {
+            __citationGraphIdentity?: {
+              stage?: Element;
+              canvases?: HTMLCanvasElement[];
+              contexts?: WebGLRenderingContext[];
+            };
+          })
+        | null;
+      const previous = frameWindow?.__citationGraphIdentity;
+      const stage = frame?.contentDocument?.querySelector(".sigma-stage");
+      const canvases = Array.from(stage?.querySelectorAll("canvas") || []);
+      const contexts = canvases
+        .map(
+          (canvas) => canvas.getContext("webgl2") || canvas.getContext("webgl"),
+        )
+        .filter(Boolean);
+      return {
+        sameStage: previous?.stage === stage,
+        sameCanvases:
+          previous?.canvases?.length === canvases.length &&
+          previous.canvases.every(
+            (canvas, index) => canvas === canvases[index],
+          ),
+        sameContexts:
+          previous?.contexts?.length === contexts.length &&
+          previous.contexts.every(
+            (context, index) => context === contexts[index],
+          ),
+        contextLost: contexts.some((context) => context.isContextLost()),
+      };
+    });
+    assert.isTrue(identityAfter.sameStage);
+    assert.isTrue(identityAfter.sameCanvases);
+    assert.isTrue(identityAfter.sameContexts);
+    assert.isFalse(identityAfter.contextLost);
+    await page.setViewportSize({ width: 1440, height: 1000 });
     return;
   }
 
@@ -529,5 +607,223 @@ describe("literature deep reading DETR browser visual regression", function () {
     } finally {
       await page.close();
     }
+  });
+});
+
+describe("Synthesis Citation Graph WebGL lifecycle", function () {
+  this.timeout(90_000);
+
+  let browser: Browser;
+  let tempRoot = "";
+  let page: Page;
+  const pageErrors: string[] = [];
+
+  function lifecycleSnapshot(args?: {
+    tab?: "overview" | "graph";
+    selectedNodeId?: string;
+    expanded?: boolean;
+  }) {
+    let uiState = createDefaultSynthesisUiState();
+    uiState = applySynthesisUiAction(uiState, {
+      action: "selectTab",
+      payload: { tab: args?.tab || "graph" },
+    }).state;
+    if (args?.selectedNodeId) {
+      uiState = applySynthesisUiAction(uiState, {
+        action: "setGraphView",
+        payload: {
+          selectedElement: { kind: "node", id: args.selectedNodeId },
+        },
+      }).state;
+    }
+    const nodes = [
+      {
+        id: "zotero:item:A",
+        label: "Alpha",
+        kind: "library_paper" as const,
+        x: -1,
+        y: 0,
+      },
+      {
+        id: "ref:X",
+        label: "Shared external",
+        kind: "external_reference" as const,
+        display_tier: "shared_external" as const,
+        x: 1,
+        y: 0,
+      },
+      ...(args?.expanded
+        ? [
+            {
+              id: "zotero:item:B",
+              label: "Beta",
+              kind: "library_paper" as const,
+              x: 0,
+              y: 1,
+            },
+          ]
+        : []),
+    ];
+    const edges = [
+      {
+        id: "edge:A:X",
+        source: "zotero:item:A",
+        target: "ref:X",
+        primary_role: "background",
+        mention_count: 1,
+      },
+      ...(args?.expanded
+        ? [
+            {
+              id: "edge:B:X",
+              source: "zotero:item:B",
+              target: "ref:X",
+              primary_role: "method",
+              mention_count: 1,
+            },
+          ]
+        : []),
+    ];
+    return buildSynthesisUiSnapshot(
+      {
+        libraryId: 1,
+        graph: {
+          graph_hash: args?.expanded ? "sha256:expanded" : "sha256:initial",
+          layoutStatus: "ready",
+          nodes,
+          edges,
+          diagnostics: {
+            cache_status: "ready",
+            library_node_count: args?.expanded ? 2 : 1,
+            shared_external_count: 1,
+            hover_only_external_count: 0,
+          },
+        },
+      },
+      uiState,
+    );
+  }
+
+  async function sendSnapshot(snapshot: unknown) {
+    await page.evaluate((payload) => {
+      window.postMessage({ type: "synthesis:snapshot", payload }, "*");
+    }, snapshot);
+    await page.waitForTimeout(100);
+  }
+
+  async function graphIdentity() {
+    return page.evaluate(() => {
+      const lifecycleWindow = window as Window & {
+        __graphLifecycleIdentity?: {
+          surface: Element;
+          stage: Element;
+          canvases: HTMLCanvasElement[];
+          contexts: WebGLRenderingContext[];
+        };
+      };
+      const surface = document.querySelector(
+        '[data-synthesis-persistent-surface="graph"]',
+      );
+      const stage = surface?.querySelector(".sigma-stage");
+      const canvases = Array.from(stage?.querySelectorAll("canvas") || []);
+      const contexts = canvases
+        .map(
+          (canvas) => canvas.getContext("webgl2") || canvas.getContext("webgl"),
+        )
+        .filter((context): context is WebGLRenderingContext =>
+          Boolean(context),
+        );
+      const previous = lifecycleWindow.__graphLifecycleIdentity;
+      if (!previous && surface && stage) {
+        lifecycleWindow.__graphLifecycleIdentity = {
+          surface,
+          stage,
+          canvases,
+          contexts,
+        };
+      }
+      return {
+        surfacePresent: Boolean(surface),
+        canvasCount: canvases.length,
+        contextCount: contexts.length,
+        sameSurface: !previous || previous.surface === surface,
+        sameStage: !previous || previous.stage === stage,
+        sameCanvases:
+          !previous ||
+          (previous.canvases.length === canvases.length &&
+            previous.canvases.every(
+              (canvas, index) => canvas === canvases[index],
+            )),
+        sameContexts:
+          !previous ||
+          (previous.contexts.length === contexts.length &&
+            previous.contexts.every(
+              (context, index) => context === contexts[index],
+            )),
+        contextLost: contexts.some((context) => context.isContextLost()),
+      };
+    });
+  }
+
+  before(async function () {
+    tempRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zotero-agents-citation-graph-lifecycle-"),
+    );
+    const bundlePath = path.join(tempRoot, "app.js");
+    const htmlPath = path.join(tempRoot, "index.html");
+    const esbuildBin = path.resolve("node_modules", ".bin", "esbuild");
+    await execFileAsync(esbuildBin, [
+      path.resolve("src", "synthesisWorkbenchApp.ts"),
+      "--bundle",
+      "--format=iife",
+      "--target=es2020",
+      `--outfile=${bundlePath}`,
+    ]);
+    const stylesheetUrl = pathToFileURL(
+      path.resolve("addon", "content", "synthesis", "styles.css"),
+    ).toString();
+    const bundleUrl = pathToFileURL(bundlePath).toString();
+    await fs.writeFile(
+      htmlPath,
+      `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="${stylesheetUrl}"><style>html,body{width:100%;height:100%;margin:0}</style></head><body><div id="app" class="synthesis-root"></div><script src="${bundleUrl}"></script></body></html>`,
+      "utf8",
+    );
+    browser = await chromium.launch();
+    page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+    await page.goto(pathToFileURL(htmlPath).toString(), { waitUntil: "load" });
+  });
+
+  after(async function () {
+    await page?.close();
+    await browser?.close();
+    if (tempRoot) {
+      await fs.rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves canvas and WebGL context identity across routine updates", async function () {
+    await sendSnapshot(lifecycleSnapshot());
+    await page.waitForSelector(".sigma-stage canvas", { timeout: 20_000 });
+    const initial = await graphIdentity();
+    assert.isTrue(initial.surfacePresent);
+    assert.isAtLeast(initial.canvasCount, 1);
+    assert.isAtLeast(initial.contextCount, 1);
+
+    await page.locator(".sidebar-collapse-toggle").click();
+    await sendSnapshot(lifecycleSnapshot({ selectedNodeId: "zotero:item:A" }));
+    await sendSnapshot(lifecycleSnapshot({ tab: "overview" }));
+    await sendSnapshot(lifecycleSnapshot());
+    await sendSnapshot(lifecycleSnapshot({ expanded: true }));
+    await page.setViewportSize({ width: 980, height: 800 });
+    await page.waitForTimeout(200);
+
+    const afterUpdates = await graphIdentity();
+    assert.isTrue(afterUpdates.sameSurface);
+    assert.isTrue(afterUpdates.sameStage);
+    assert.isTrue(afterUpdates.sameCanvases);
+    assert.isTrue(afterUpdates.sameContexts);
+    assert.isFalse(afterUpdates.contextLost);
+    assert.deepEqual(pageErrors, []);
   });
 });

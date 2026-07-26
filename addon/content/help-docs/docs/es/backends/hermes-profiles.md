@@ -107,16 +107,9 @@ La utilidad principal del perfil es `zotero_librarian_index_service.py`. Mantien
 
 ### Gestión de biblioteca
 
-**Triaje diario de bandeja de entrada** (`cron/inbox-triage.yaml`)
+**Triaje diario de estados de workflow** (`cron/workflow-status-triage.yaml`)
 
-El cron de triaje de bandeja de entrada del perfil se ejecuta diariamente y verifica la integridad de los nuevos elementos en su biblioteca:
-
-- Elementos con estado `0-inbox` (sin procesar)
-- Etiquetas o asignaciones de colección faltantes
-- DOI, URL o archivos adjuntos faltantes
-- Artefactos de resumen o digest faltantes
-
-Produce un informe de acciones sugeridas pero no realiza ninguna mutación en Zotero sin su aprobación.
+Este cron de solo lectura busca `status:need-*` e informa las tareas de workflow pendientes. No infiere estados, no modifica etiquetas ni cambia Zotero.
 
 **Higiene semanal de biblioteca** (`cron/library-hygiene.yaml`)
 
@@ -227,7 +220,7 @@ El perfil incluye seis plantillas cron preconfiguradas en el directorio `cron/`:
 | `index-refresh` | Cada 6 horas | Pagina a través de `library snapshot` para mantener actualizado el índice SQLite local. Informa `[SILENT]` cuando no se detectan cambios. |
 | `workflow-catalog-refresh` | Diario a las 03:00 | Llama a `workflow list` + `workflow describe` para actualizar la caché del catálogo de workflows. Informa `[SILENT]` cuando no hay cambios. |
 | `run-monitor` | Cada 5 minutos | Llama a `run-watch` para verificar las ejecuciones registradas activas. Informa solo cambios de estado, estados terminales o elementos que requieren atención. |
-| `inbox-triage` | Diario a las 09:00 | Busca elementos con `status:0-inbox`, etiquetas faltantes, colecciones faltantes, metadatos faltantes. Genera un informe de solo lectura. |
+| `workflow-status-triage` | Diario a las 09:00 | Busca `status:need-*` y genera un informe de workflows pendientes de solo lectura. |
 | `library-hygiene` | Semanal los lunes | Escanea entradas duplicadas, elementos huérfanos, colecciones vacías y problemas de calidad de datos. |
 | `attention-queue` | Diario a las 18:00 | Combina los conocimientos de la cola de atención con datos del índice local para clasificar tareas de alta prioridad. |
 

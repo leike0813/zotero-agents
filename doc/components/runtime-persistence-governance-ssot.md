@@ -15,7 +15,8 @@ Runtime-scoped data lives under `runtime/` below this root: `{root}/runtime/logs
 ## Managed Categories
 - `state/`: plugin runtime SQLite state, including SkillRunner ledger and ACP conversation rows.
 - `runtime/logs/`: runtime log persistence.
-- `runtime/acp/chat/workspace/`: the shared ACP Chat agent working directory (`agentWorkspaceDir`/`sessionCwd`) used by all ACP Chat conversations.
+- `runtime/acp/chat/workspace/`: the shared ACP Chat agent working directory (`agentWorkspaceDir`/`sessionCwd`) used by all ACP Chat conversations. Its root `AGENTS.md` contains a packaged plugin-managed policy block while preserving user content outside that block.
+- `runtime/acp/chat/injected-skills-manifest.json`: the exact project-root and skill-id targets currently owned by ACP Chat injection; stale reconciliation may delete only these recorded whitelist directories.
 - `runtime/acp/chat/conversations/`: plugin-private ACP Chat per-conversation storage; this is not the user-facing workspace and must not live inside `runtime/acp/chat/workspace/`.
 - `runtime/acp/chat/runtime/`: plugin-private ACP Chat backend runtime state.
 - `runtime/acp/skill-runs/`: ACP SkillRunner-compatible run workspaces.
@@ -38,3 +39,23 @@ Migration is conservative. Existing runtime state may be copied into the new roo
 Any new persistent runtime content that can grow over time must register a semantic path/category through the runtime persistence module and appear in preferences usage monitoring.
 
 `workspace` is reserved for directories where an agent process actually runs. Plugin-private persistence directories such as ACP Chat `conversations/` and `runtime/` must not be described as workspaces in user-facing UI.
+
+## Async Runtime File I/O
+
+Runtime text append and indexed text range reads have one runtime-owned I/O
+boundary:
+
+- Node uses `fs/promises` behind the same ordered append contract.
+- Zotero append uses per-path serialized, surrogate-safe chunks with
+  `IOUtils.writeUTF8(..., { mode: "appendOrCreate" })`.
+- Zotero indexed ranges use the packaged runtime file range worker. One bounded
+  physical batch opens the source once and returns one packed transferable byte
+  buffer plus a length vector.
+- Complete and stale-tail transcript index recovery scans UTF-8 bytes in fixed
+  chunks and applies valid events to one ordered builder.
+
+Runtime persistence must not restore synchronous Components streams or
+whole-file read/rewrite and byte-offset/string-offset fallbacks. Missing worker
+or asynchronous I/O capabilities are structured runtime errors. The worker is
+terminated only after ACP and runtime-log persistence drains during controlled
+plugin shutdown.

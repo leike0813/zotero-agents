@@ -144,6 +144,25 @@ describe("literature portable bundle workflows", function () {
     assert.equal(result.assets[0]?.relativePath, "assets/m1/shared.png");
   });
 
+  it("keeps the original image link when local path probing rejects", async function () {
+    const result = await rewriteMarkdownLocalImages({
+      markdown: "![missing](figures/missing.png)",
+      sourcePath: "/papers/paper.md",
+      assetPolicy: { kind: "preserve-source-tree" },
+      resolveLocalPath: async () => {
+        throw new Error("NS_ERROR_FILE_UNRECOGNIZED_PATH");
+      },
+    });
+
+    assert.equal(result.markdown, "![missing](figures/missing.png)");
+    assert.deepEqual(result.assets, []);
+    assert.deepInclude(result.warnings, {
+      code: "markdown_image_missing",
+      path: "/papers/figures/missing.png",
+      reason: "probe_failed",
+    });
+  });
+
   it("rejects manifests whose declared file closure does not match the archive", function () {
     const manifest = {
       kind: "zotero-agents-literature-bundle",

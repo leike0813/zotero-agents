@@ -39,6 +39,12 @@ import {
   buildSynthesisTagVocabularyIndexWithEngine,
   validateSynthesisTagVocabularyWithEngine,
 } from "./tagVocabularyEngineAdapter";
+import {
+  hasInitializedBuiltinTagPolicy,
+  isBuiltinStatusTag,
+  protectBuiltinStatusProtocol,
+  protectBuiltinTagVocabularyEntries,
+} from "./builtinTagPolicy";
 
 export const SYNTHESIS_TAG_INDEX_TARGET = "tag-index";
 export const SYNTHESIS_TAG_VOCABULARY_SCHEMA_ID = "synthesis.tag_vocabulary";
@@ -140,6 +146,7 @@ export type SynthesisTagImportConflict = {
 
 export type SynthesisTagImportPreview = {
   action: "preview";
+  builtins: SynthesisTagImportConflict[];
   additions: SynthesisTagVocabularyEntry[];
   unchanged: SynthesisTagVocabularyEntry[];
   conflicts: SynthesisTagImportConflict[];
@@ -558,8 +565,15 @@ function buildImportPreview(args: {
   const additions: SynthesisTagVocabularyEntry[] = [];
   const unchanged: SynthesisTagVocabularyEntry[] = [];
   const conflicts: SynthesisTagImportConflict[] = [];
+  const builtins: SynthesisTagImportConflict[] = [];
   for (const imported of args.imported) {
     const local = localByTag.get(imported.tag);
+    if (isBuiltinStatusTag(imported.tag)) {
+      if (local) {
+        builtins.push({ tag: imported.tag, local, imported });
+      }
+      continue;
+    }
     if (!local) {
       additions.push(imported);
     } else if (entriesEqual(local, imported)) {
@@ -579,6 +593,7 @@ function buildImportPreview(args: {
   });
   return {
     action: "preview",
+    builtins: builtins.sort((left, right) => left.tag.localeCompare(right.tag)),
     additions: sortEntries(additions),
     unchanged: sortEntries(unchanged),
     conflicts: conflicts.sort((left, right) =>
@@ -853,10 +868,18 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
     transactionId?: string;
   }) {
     const timestamp = now();
-    const entries = dedupeEntries(args.entries);
+    repository.initialize();
+    const existingEntries = repository
+      .listTagVocabularyEntries()
+      .map(tagEntryFromRecord);
+    const entries = dedupeEntries(
+      protectBuiltinTagVocabularyEntries(args.entries, existingEntries),
+    );
     const aliases = normalizeRecordMap(args.aliases || {});
     const abbrev = normalizeAbbrevRegistry(args.abbrev || {});
-    const protocol = validateProtocolShape(args.protocol || DEFAULT_PROTOCOL);
+    const protocol = protectBuiltinStatusProtocol(
+      validateProtocolShape(args.protocol || DEFAULT_PROTOCOL),
+    );
     const warnings = validateSynthesisTagVocabularyWithEngine({
       engine,
       input: { entries, aliases, abbrev, protocol },
@@ -907,15 +930,57 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
 
   async function initializeIfMissing() {
     repository.initialize();
-    if (repository.getTagProtocol()) {
+    const protocolRecord = repository.getTagProtocol();
+    if (!protocolRecord) {
+      await commitAssets({
+        entries: [],
+        aliases: {},
+        abbrev: {},
+        protocol: DEFAULT_PROTOCOL,
+        transactionId: "tag-vocabulary-init",
+      });
+      return;
+    }
+    const entries = dedupeEntries(
+      repository.listTagVocabularyEntries().map(tagEntryFromRecord),
+    );
+    const protocol = tagProtocolFromRecord(protocolRecord);
+    const protectedEntries = dedupeEntries(
+      protectBuiltinTagVocabularyEntries(entries),
+    );
+    const protectedProtocol = protectBuiltinStatusProtocol(protocol);
+    if (
+      hashCanonicalJson({ entries, protocol }) ===
+      hashCanonicalJson({
+        entries: protectedEntries,
+        protocol: protectedProtocol,
+      })
+    ) {
       return;
     }
     await commitAssets({
-      entries: [],
-      aliases: {},
-      abbrev: {},
-      protocol: DEFAULT_PROTOCOL,
-      transactionId: "tag-vocabulary-init",
+      entries: protectedEntries,
+      aliases: tagAliasesFromRecords(repository.listTagAliases()),
+      abbrev: tagAbbrevFromRecords(repository.listTagAbbrevs()),
+      protocol: protectedProtocol,
+      transactionId: "tag-vocabulary-builtin-policy-upgrade",
+    });
+  }
+
+  async function initializeBuiltinTagPolicy() {
+    await initializeIfMissing();
+    return loadTagVocabulary();
+  }
+
+  function isBuiltinTagPolicyInitialized() {
+    repository.initialize();
+    const protocolRecord = repository.getTagProtocol();
+    if (!protocolRecord) {
+      return false;
+    }
+    return hasInitializedBuiltinTagPolicy({
+      entries: repository.listTagVocabularyEntries().map(tagEntryFromRecord),
+      protocol: tagProtocolFromRecord(protocolRecord),
     });
   }
 
@@ -1462,7 +1527,19 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
       abbrev = { ...current.abbrev, ...imported.abbrev };
       protocol = imported.protocol || current.protocol;
     } else if (args.action === "merge-non-conflicting") {
-      entries = dedupeEntries([...current.entries, ...preview.additions]);
+      const importedBuiltins = imported.entries.filter((entry) =>
+        isBuiltinStatusTag(entry.tag),
+      );
+      const importedBuiltinTags = new Set(
+        importedBuiltins.map((entry) => entry.tag),
+      );
+      entries = dedupeEntries([
+        ...current.entries.filter(
+          (entry) => !importedBuiltinTags.has(entry.tag),
+        ),
+        ...preview.additions,
+        ...importedBuiltins,
+      ]);
       abbrev = { ...current.abbrev, ...imported.abbrev };
       protocol = imported.protocol || current.protocol;
     }
@@ -1551,6 +1628,8 @@ export function createSynthesisTagVocabularyService(options: ServiceOptions) {
   }
 
   return {
+    initializeBuiltinTagPolicy,
+    isBuiltinTagPolicyInitialized,
     loadTagVocabulary,
     saveTagVocabulary,
     exportTagVocabularyCheckpoint,

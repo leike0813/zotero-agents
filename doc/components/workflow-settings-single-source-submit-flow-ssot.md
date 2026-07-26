@@ -17,7 +17,7 @@
 ### 2.1 Persisted Source
 
 - 唯一持久化来源：`workflowSettingsJson`
-- 持久字段：`backendId`、`workflowParams`、`providerOptions`
+- 持久字段：`backendId`、`workflowParams`、`providerOptions`、`hostOptions`
 
 ### 2.2 Submit Snapshot
 
@@ -78,6 +78,10 @@ workflow 被判定为“可配置”当且仅当以下任一维度可编辑：
 - `persist=true`：先写入持久配置，再执行
 - `persist=false`：只用于本次执行
 - `status="error"`：必须中止提交，并给出显式失败反馈；不得静默吞掉
+- 当 ACP/SkillRunner 提交存在两个或更多合法执行单元时，弹窗左侧显示执行单元列表，并在列表下方显示 Host 最大并发数；右侧保留既有 workflow/provider 选项
+- 执行单元列表与最大并发数属于同一个 multi-unit 区域；合法执行单元不超过一个、preview 失败或 provider 不支持 Host queue 时，两者同时隐藏，弹窗保持单一选项区域
+- 最大并发数为空或 `0` 表示不限并发，正安全整数表示本次提交冻结的上限
+- 用户勾选保存 workflow 默认值时，弹窗通过同一 settings domain 持久化该 Host 选项
 
 ### 4.3 Dashboard Workflow Options Contract
 
@@ -86,6 +90,8 @@ workflow 被判定为“可配置”当且仅当以下任一维度可编辑：
 - 编辑行为：防抖持久化（无确认按钮）
 - 可观测保存状态：`saving` / `saved` / `error`
 - 处于 `workflow-options` tab 时，周期刷新与任务变更刷新不得重建表单
+- 该页面不独立显示 Host 最大并发数；它仅编辑既有 workflow/provider
+  选项，更新这些字段时不得清除已经持久化的 `hostOptions`
 
 ### 4.4 SkillRunner Runtime Options Mode Contract
 
@@ -163,9 +169,14 @@ workflow 被判定为“可配置”当且仅当以下任一维度可编辑：
 5. dialog confirm -> receive `{executionOptions, persist}`  
 6. if `persist` -> `updateWorkflowSettings`  
 7. run preparation seam with `executionOptionsOverride`  
-8. build requests / dispatch
+8. duplicate check and Host admission for ACP/SkillRunner execution units
+9. unit-local preflight / request build / provider run / required apply
+10. await the submission summary and emit one final feedback result
 
-## 7. Compatibility Notes
+## 7. Current-state boundaries
 
-- 旧 run-once API 保留兼容壳，返回/写入不再影响执行语义。
-- 旧 workflow settings 对话框不在主路径调用链中，仅保留兼容窗口。
+- `WorkflowExecutionOptions` 是 confirmed submit snapshot 的唯一事实源。
+- `hostOptions` 与 workflow parameters、provider options 分域存储和归一化。
+- provider hooks 与序列化边界不会收到 `hostOptions`。
+- 保存默认值与 Dashboard workflow-options 编辑器复用同一 settings domain；
+  run-once 值不写入持久设置。

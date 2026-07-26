@@ -1,5 +1,10 @@
 import { assert } from "chai";
 import { SkillRunnerConnectionGovernor } from "../../src/modules/skillRunnerConnectionGovernor";
+import { getSkillRunnerConnectionGovernorSnapshot } from "../../src/modules/skillRunnerConnectionAudit";
+import {
+  setDebugModeOverrideForTests,
+  setSkillRunnerConnectionAuditSourceOverrideForTests,
+} from "../../src/modules/debugMode";
 
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -20,15 +25,23 @@ describe("skillrunner connection governor", function () {
   let governor: SkillRunnerConnectionGovernor;
 
   beforeEach(function () {
+    setDebugModeOverrideForTests(true);
+    setSkillRunnerConnectionAuditSourceOverrideForTests(true);
     governor = new SkillRunnerConnectionGovernor();
   });
 
   afterEach(function () {
     governor.resetForTests();
+    setSkillRunnerConnectionAuditSourceOverrideForTests();
+    setDebugModeOverrideForTests();
   });
 
+  function snapshot() {
+    return getSkillRunnerConnectionGovernorSnapshot(governor);
+  }
+
   it("defaults to six active connections per backend", function () {
-    assert.equal(governor.snapshot().maxActivePerBackend, 6);
+    assert.equal(snapshot().maxActivePerBackend, 6);
   });
 
   it("records connection lifecycle events and summary counts", async function () {
@@ -44,29 +57,29 @@ describe("skillrunner connection governor", function () {
     });
 
     await tick();
-    let snapshot = governor.snapshot();
-    assert.equal(snapshot.summary.activeTotal, 1);
-    assert.deepInclude(snapshot.summary.activeByBackend, {
+    let view = snapshot();
+    assert.equal(view.summary.activeTotal, 1);
+    assert.deepInclude(view.summary.activeByBackend, {
       backendId: "local-skillrunner-backend",
       count: 1,
     });
-    assert.deepInclude(snapshot.summary.activeByLane, {
+    assert.deepInclude(view.summary.activeByLane, {
       lane: "reconcile",
       count: 1,
     });
     assert.includeMembers(
-      snapshot.events.map((event) => event.type),
+      view.events.map((event) => event.type),
       ["queued", "started"],
     );
 
     release.resolve();
     await task;
-    snapshot = governor.snapshot();
+    view = snapshot();
     assert.include(
-      snapshot.events.map((event) => event.type),
+      view.events.map((event) => event.type),
       "finished",
     );
-    assert.equal(snapshot.summary.activeTotal, 0);
+    assert.equal(view.summary.activeTotal, 0);
   });
 
   it("records late settlement after timeout", async function () {
@@ -94,11 +107,11 @@ describe("skillrunner connection governor", function () {
 
     release.resolve("late");
     await tick();
-    const types = governor.snapshot().events.map((event) => event.type);
+    const types = snapshot().events.map((event) => event.type);
     assert.include(types, "timeout");
     assert.include(types, "late_resolve_after_timeout");
-    assert.equal(governor.snapshot().summary.timeoutCount, 1);
-    assert.equal(governor.snapshot().summary.lateSettlementCount, 1);
+    assert.equal(snapshot().summary.timeoutCount, 1);
+    assert.equal(snapshot().summary.lateSettlementCount, 1);
   });
 
   it("keeps only the latest audit events in the ring buffer", async function () {
@@ -114,9 +127,56 @@ describe("skillrunner connection governor", function () {
       );
     }
     await Promise.all(tasks);
-    const events = governor.snapshot().events;
+    const events = snapshot().events;
     assert.lengthOf(events, 200);
     assert.isAbove(events[0].id, 1);
+  });
+
+  it("keeps audit state isolated by governor instance", async function () {
+    const other = new SkillRunnerConnectionGovernor();
+    try {
+      await governor.run({
+        backendId: "backend-a",
+        lane: "submit",
+        operation: "primary",
+        task: async () => undefined,
+      });
+      await other.run({
+        backendId: "backend-b",
+        lane: "submit",
+        operation: "other",
+        task: async () => undefined,
+      });
+
+      assert.deepEqual(
+        snapshot()
+          .events.map((event) => event.operation)
+          .filter(Boolean),
+        ["primary", "primary", "primary"],
+      );
+      assert.deepEqual(
+        getSkillRunnerConnectionGovernorSnapshot(other)
+          .events.map((event) => event.operation)
+          .filter(Boolean),
+        ["other", "other", "other"],
+      );
+    } finally {
+      other.resetForTests();
+    }
+  });
+
+  it("does not collect events when the source switch is disabled", async function () {
+    setSkillRunnerConnectionAuditSourceOverrideForTests(false);
+    await governor.run({
+      backendId: "backend-a",
+      lane: "submit",
+      operation: "source-off",
+      task: async () => undefined,
+    });
+
+    setSkillRunnerConnectionAuditSourceOverrideForTests(true);
+    assert.deepEqual(snapshot().events, []);
+    assert.equal(snapshot().summary.activeTotal, 0);
   });
 
   it("serializes work inside the same backend lane", async function () {
@@ -149,7 +209,7 @@ describe("skillrunner connection governor", function () {
 
     await tick();
     assert.deepEqual(order, ["first:start"]);
-    assert.equal(governor.snapshot().queued.length, 1);
+    assert.equal(snapshot().queued.length, 1);
 
     first.resolve("first");
     await firstTask;
@@ -203,8 +263,8 @@ describe("skillrunner connection governor", function () {
 
     await tick();
     assert.sameMembers(started, ["query", "settlement"]);
-    assert.equal(governor.snapshot().active.length, 2);
-    assert.equal(governor.snapshot().queued.length, 1);
+    assert.equal(snapshot().active.length, 2);
+    assert.equal(snapshot().queued.length, 1);
 
     releaseQuery.resolve();
     await queryTask;
@@ -275,8 +335,8 @@ describe("skillrunner connection governor", function () {
     await tick();
     assert.sameMembers(started, ["stream", "query", "settlement", "submit"]);
     assert.notInclude(started, "background");
-    assert.equal(governor.snapshot().active.length, 4);
-    assert.equal(governor.snapshot().queued.length, 1);
+    assert.equal(snapshot().active.length, 4);
+    assert.equal(snapshot().queued.length, 1);
 
     releaseSubmit.resolve();
     await submitTask;
@@ -401,8 +461,7 @@ describe("skillrunner connection governor", function () {
     await tick();
     assert.sameMembers(started, ["first", "second"]);
     assert.sameMembers(
-      governor
-        .snapshot()
+      snapshot()
         .active.map((entry) => entry.requestId)
         .filter(Boolean),
       ["req-1", "req-2"],
@@ -444,8 +503,7 @@ describe("skillrunner connection governor", function () {
     await tick();
     assert.sameMembers(started, ["req-1", "req-2", "req-3"]);
     assert.sameMembers(
-      governor
-        .snapshot()
+      snapshot()
         .active.map((entry) => entry.requestId)
         .filter(Boolean),
       ["req-2", "req-3"],
@@ -484,9 +542,9 @@ describe("skillrunner connection governor", function () {
       rejected = error;
     }
 
-    assert.equal(governor.snapshot().active.length, 1);
+    assert.equal(snapshot().active.length, 1);
     assert.include(
-      governor.snapshot().events.map((event) => event.type),
+      snapshot().events.map((event) => event.type),
       "duplicate_stream_rejected",
     );
     assert.match(String((rejected as Error | undefined)?.name || ""), /Abort/);
@@ -536,11 +594,11 @@ describe("skillrunner connection governor", function () {
 
     assert.include(started, "submit");
     assert.sameMembers(
-      governor.snapshot().active.map((entry) => entry.operation),
+      snapshot().active.map((entry) => entry.operation),
       ["stream-req-2", "submit"],
     );
     assert.include(
-      governor.snapshot().events.map((event) => event.type),
+      snapshot().events.map((event) => event.type),
       "evicted_stream",
     );
 
@@ -590,7 +648,7 @@ describe("skillrunner connection governor", function () {
 
     assert.include(started, "reconcile");
     assert.sameMembers(
-      governor.snapshot().active.map((entry) => entry.operation),
+      snapshot().active.map((entry) => entry.operation),
       ["stream-req-2", "get-run-state"],
     );
 
@@ -617,11 +675,11 @@ describe("skillrunner connection governor", function () {
     await new Promise((resolve) => setTimeout(resolve, 20));
     await timeoutTask;
 
-    let snapshot = governor.snapshot();
-    assert.equal(snapshot.summary.physicalDebtTotal, 1);
-    assert.equal(snapshot.summary.degradedBackendCount, 1);
+    let view = snapshot();
+    assert.equal(view.summary.physicalDebtTotal, 1);
+    assert.equal(view.summary.degradedBackendCount, 1);
     assert.include(
-      snapshot.events.map((event) => event.type),
+      view.events.map((event) => event.type),
       "physical_debt_recorded",
     );
 
@@ -635,8 +693,8 @@ describe("skillrunner connection governor", function () {
       .catch((error) => error);
     assert.equal((skipped as Error).name, "SkillRunnerConnectionSkippedError");
 
-    snapshot = governor.snapshot();
-    assert.equal(snapshot.summary.skippedHistoryCount, 1);
+    view = snapshot();
+    assert.equal(view.summary.skippedHistoryCount, 1);
 
     const submitResult = await governor.run({
       backendId: "backend-a",
@@ -645,9 +703,41 @@ describe("skillrunner connection governor", function () {
       task: async () => "ok",
     });
     assert.equal(submitResult, "ok");
-    assert.equal(governor.snapshot().summary.physicalDebtTotal, 0);
+    assert.equal(snapshot().summary.physicalDebtTotal, 0);
 
     release.resolve();
     await tick();
+  });
+
+  it("projects expired physical debt without mutating governor state", async function () {
+    const release = deferred<void>();
+    await governor
+      .run({
+        backendId: "backend-a",
+        lane: "reconcile",
+        operation: "timeout-for-snapshot",
+        timeoutMs: 5,
+        task: async () => release.promise,
+      })
+      .catch(() => undefined);
+
+    const eventCount = snapshot().events.length;
+    const originalNow = Date.now;
+    const advancedNow = originalNow() + 31_000;
+    Date.now = () => advancedNow;
+    try {
+      assert.equal(snapshot().summary.physicalDebtTotal, 0);
+      assert.lengthOf(snapshot().events, eventCount);
+      assert.notInclude(
+        snapshot()
+          .events.slice(eventCount)
+          .map((event) => event.type),
+        "physical_debt_released",
+      );
+    } finally {
+      Date.now = originalNow;
+      release.resolve();
+      await tick();
+    }
   });
 });

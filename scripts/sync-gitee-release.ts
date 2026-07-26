@@ -1,5 +1,9 @@
 import fs from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 
 type CliOptions = {
   repo: string;
@@ -8,6 +12,7 @@ type CliOptions = {
   body: string;
   prerelease: boolean;
   target: string;
+  replaceExisting: boolean;
   files: string[];
 };
 
@@ -23,11 +28,14 @@ type GiteeAttachment = {
   id?: number | string;
   name?: string;
   filename?: string;
+  browser_download_url?: string;
+  download_url?: string;
 };
 
 const API_BASE = (
   process.env.GITEE_API_BASE || "https://gitee.com/api/v5"
 ).replace(/\/+$/, "");
+const execFileAsync = promisify(execFile);
 
 function usage(): string {
   return [
@@ -40,6 +48,7 @@ function usage(): string {
     "  --body <body>             Release body",
     "  --prerelease <bool>       Mark release as prerelease",
     "  --target <branch-or-sha>  Target commitish",
+    "  --replace-existing <bool> Replace same-name assets for release recovery",
     "  --file <path>             Add one file; can be repeated",
     "",
     "Requires GITEE_TOKEN in the environment.",
@@ -58,6 +67,7 @@ function parseArgs(argv: string[]): CliOptions {
     body: "",
     prerelease: false,
     target: "",
+    replaceExisting: false,
     files: [],
   };
 
@@ -89,6 +99,8 @@ function parseArgs(argv: string[]): CliOptions {
       options.prerelease = parseBoolean(readValue());
     } else if (entry === "--target") {
       options.target = readValue();
+    } else if (entry === "--replace-existing") {
+      options.replaceExisting = parseBoolean(readValue());
     } else if (entry === "--file") {
       options.files.push(readValue());
     } else if (entry.startsWith("--")) {
@@ -228,25 +240,17 @@ async function updateRelease(args: {
     body: args.body,
     prerelease: String(args.prerelease),
   });
-  try {
-    await requestJson<GiteeRelease>(
-      `/repos/${args.owner}/${args.repo}/releases/${args.releaseId}`,
-      args.token,
-      {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body,
+  await requestJson<GiteeRelease>(
+    `/repos/${args.owner}/${args.repo}/releases/${args.releaseId}`,
+    args.token,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
       },
-    );
-  } catch (error) {
-    console.warn(
-      `[gitee-release] release update skipped: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-  }
+      body,
+    },
+  );
 }
 
 async function listAttachments(args: {
@@ -284,17 +288,121 @@ async function uploadAttachment(args: {
   releaseId: number | string;
   filePath: string;
   token: string;
+  sendUpload?: () => Promise<void>;
 }): Promise<void> {
-  const bytes = await fs.readFile(args.filePath);
-  const form = new FormData();
-  form.append("file", new Blob([bytes]), path.basename(args.filePath));
-  await requestJson(
-    `/repos/${args.owner}/${args.repo}/releases/${args.releaseId}/attach_files`,
-    args.token,
-    {
-      method: "POST",
-      body: form,
-    },
+  const fileName = path.basename(args.filePath);
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      if (args.sendUpload) {
+        await args.sendUpload();
+      } else {
+        const endpoint = apiUrl(
+          `/repos/${args.owner}/${args.repo}/releases/${args.releaseId}/attach_files`,
+          args.token,
+        );
+        await execFileAsync(
+          "curl",
+          [
+            "--fail-with-body",
+            "--silent",
+            "--show-error",
+            "--http1.1",
+            "--connect-timeout",
+            "30",
+            "--max-time",
+            "900",
+            "--header",
+            "Expect:",
+            "--form",
+            `file=@${args.filePath}`,
+            endpoint,
+          ],
+          { maxBuffer: 1024 * 1024 },
+        );
+      }
+      return;
+    } catch (error) {
+      const attachments = await listAttachments(args);
+      const uploaded = attachments.some(
+        (attachment) => (attachment.name || attachment.filename) === fileName,
+      );
+      if (uploaded) {
+        console.warn(
+          `[gitee-release] upload response failed after Gitee accepted ${fileName}`,
+        );
+        return;
+      }
+      if (attempt === 3) {
+        throw new Error(
+          `Gitee did not accept ${fileName} after ${attempt} attempts`,
+          { cause: error },
+        );
+      }
+      console.warn(
+        `[gitee-release] retrying ${fileName} after upload attempt ${attempt}`,
+      );
+    }
+  }
+}
+
+async function sha256File(filePath: string) {
+  return createHash("sha256")
+    .update(await fs.readFile(filePath))
+    .digest("hex");
+}
+
+async function attachmentMatches(
+  attachment: GiteeAttachment,
+  expectedSha256: string,
+  token: string,
+) {
+  const rawUrl =
+    attachment.browser_download_url || attachment.download_url || "";
+  if (!rawUrl) {
+    throw new Error("Gitee attachment does not include a download URL");
+  }
+  const url = new URL(rawUrl);
+  if (url.hostname === "gitee.com") {
+    url.searchParams.set("access_token", token);
+  }
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Gitee attachment download failed: ${response.status}`);
+  }
+  const actual = createHash("sha256")
+    .update(new Uint8Array(await response.arrayBuffer()))
+    .digest("hex");
+  return actual === expectedSha256;
+}
+
+async function verifyUploadedAttachment(args: {
+  owner: string;
+  repo: string;
+  releaseId: number | string;
+  fileName: string;
+  expectedSha256: string;
+  token: string;
+}) {
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const attachments = await listAttachments(args);
+    const candidates = attachments.filter(
+      (attachment) =>
+        (attachment.name || attachment.filename) === args.fileName,
+    );
+    const matches = await Promise.all(
+      candidates.map((attachment) =>
+        attachmentMatches(attachment, args.expectedSha256, args.token).catch(
+          () => false,
+        ),
+      ),
+    );
+    if (matches.some(Boolean)) return;
+    if (attempt < 5) {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+  }
+  throw new Error(
+    `Gitee asset ${args.fileName} is missing or has an unexpected checksum`,
   );
 }
 
@@ -364,6 +472,30 @@ async function main() {
     const existing = attachments.filter(
       (attachment) => (attachment.name || attachment.filename) === fileName,
     );
+    const expectedSha256 = await sha256File(filePath);
+    const matching = await Promise.all(
+      existing.map(async (attachment) => {
+        try {
+          return await attachmentMatches(attachment, expectedSha256, token);
+        } catch {
+          return null;
+        }
+      }),
+    );
+    if (matching.some(Boolean)) {
+      console.log(`[gitee-release] reused existing asset ${fileName}`);
+      continue;
+    }
+    if (matching.some((result) => result === null)) {
+      throw new Error(
+        `Unable to verify existing Gitee asset ${fileName}; no asset was replaced`,
+      );
+    }
+    if (existing.length > 0 && !options.replaceExisting) {
+      throw new Error(
+        `Gitee asset ${fileName} differs; rerun with --replace-existing true`,
+      );
+    }
     for (const attachment of existing) {
       if (attachment.id === undefined || attachment.id === null) continue;
       await deleteAttachment({
@@ -376,11 +508,30 @@ async function main() {
       console.log(`[gitee-release] deleted existing asset ${fileName}`);
     }
     await uploadAttachment({ owner, repo, releaseId, filePath, token });
+    await verifyUploadedAttachment({
+      owner,
+      repo,
+      releaseId,
+      fileName,
+      expectedSha256,
+      token,
+    });
     console.log(`[gitee-release] uploaded ${fileName}`);
   }
 }
 
-void main().catch((error) => {
-  console.error(error instanceof Error ? error.stack || error.message : error);
-  process.exit(1);
-});
+export const syncGiteeReleaseInternalsForTests = {
+  uploadAttachment,
+};
+
+const invokedModule = process.argv[1]
+  ? pathToFileURL(path.resolve(process.argv[1])).href
+  : "";
+if (import.meta.url === invokedModule) {
+  void main().catch((error) => {
+    console.error(
+      error instanceof Error ? error.stack || error.message : error,
+    );
+    process.exit(1);
+  });
+}

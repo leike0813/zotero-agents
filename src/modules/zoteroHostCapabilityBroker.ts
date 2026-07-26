@@ -24,6 +24,7 @@ import {
   type LibraryArtifactItem,
 } from "./libraryArtifactReadiness";
 import type { AcpHostContext } from "./acpTypes";
+import { queryZoteroLibraryPage } from "./zoteroLibraryPageQuery";
 
 export type ZoteroHostItemRefInput =
   | Zotero.Item
@@ -173,7 +174,7 @@ export type ZoteroHostLibraryListArgs = {
   itemType?: string;
   query?: string;
   limit?: number | string;
-  cursor?: string | number;
+  cursor?: string;
 };
 
 export type ZoteroHostLibraryReadinessCheck = "pdf" | "markdown" | "analysis";
@@ -282,6 +283,7 @@ export type ZoteroHostNoteDetailChunkDto = {
   hasMore: boolean;
   totalChars: number;
   truncated: boolean;
+  maxChars: number;
   parent?: {
     id: number;
     key: string;
@@ -298,7 +300,9 @@ export type ZoteroHostNotePayloadSummaryDto = Omit<
 export type ZoteroHostNotePayloadDetailDto = Omit<
   ZoteroNotePayloadDetail,
   "encodedValue" | "decodedText"
->;
+> & {
+  maxChars: number;
+};
 
 export type ZoteroHostNotePayloadDetailArgs = {
   payloadType?: string;
@@ -320,19 +324,18 @@ export type ZoteroHostMutationOperation =
   | "collection.removeItems";
 
 export type ZoteroHostIngestPaperInput = {
-  title?: string;
-  authors?: string[] | string;
-  year?: string | number;
-  doi?: string;
-  arxiv?: string;
-  pmid?: string;
-  isbn?: string;
+  itemType: string;
+  fields: Record<string, string | number | boolean | null>;
+  creators: ZoteroHostMetadataCreatorDto[];
+  identifiers: {
+    doi?: string;
+    arxiv?: string;
+    pmid?: string;
+    isbn?: string;
+  };
   landingUrl?: string;
-  url?: string;
   pdfUrl?: string;
   attachLandingUrlOnMissingPdf?: boolean;
-  abstract?: string;
-  venue?: string;
 };
 
 export type ZoteroHostIngestPaperResult = {
@@ -554,8 +557,8 @@ const PAYLOAD_IMAGE_FALLBACK_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 const SEARCH_LIMIT_DEFAULT = 20;
 const SEARCH_LIMIT_MAX = 50;
-const LIBRARY_LIST_LIMIT_DEFAULT = 100;
-const LIBRARY_LIST_LIMIT_MAX = 200;
+const LIBRARY_LIST_LIMIT_DEFAULT = 25;
+const LIBRARY_LIST_LIMIT_MAX = 100;
 const LIBRARY_READINESS_CHECKS: ZoteroHostLibraryReadinessCheck[] = [
   "pdf",
   "markdown",
@@ -1188,6 +1191,7 @@ function serializeNoteDetailChunk(
     hasMore: nextOffset < fullContent.length,
     totalChars: fullContent.length,
     truncated: nextOffset < fullContent.length,
+    maxChars,
     parent,
     warnings: warnings.length ? warnings : undefined,
   };
@@ -1280,6 +1284,13 @@ async function serializeNotePayloadDetail(
     hasMore: detail.hasMore,
     totalChars: detail.totalChars,
     truncated: detail.truncated,
+    maxChars: Math.min(
+      NOTE_DETAIL_CHUNK_MAX,
+      Math.max(
+        1,
+        parsePositiveInteger(args.maxChars) || NOTE_DETAIL_CHUNK_DEFAULT,
+      ),
+    ),
   };
 }
 
@@ -1579,18 +1590,6 @@ function isRegularVisibleItem(item: Zotero.Item) {
   return regular && !deleted;
 }
 
-function isTopLevelRegularVisibleItem(item: Zotero.Item) {
-  const topLevel =
-    typeof (item as any).isTopLevelItem === "function"
-      ? (item as any).isTopLevelItem()
-      : !parsePositiveInteger(
-          (item as unknown as { parentItemID?: unknown; parentID?: unknown })
-            .parentItemID ||
-            (item as unknown as { parentID?: unknown }).parentID,
-        );
-  return isRegularVisibleItem(item) && topLevel;
-}
-
 function rejectUnsafeObjectRefString(value: string) {
   const ref = value.trim();
   if (!ref) {
@@ -1843,18 +1842,8 @@ function validateFieldPatch(item: Zotero.Item, fields: unknown) {
   return normalized;
 }
 
-function assertValidFieldForItem(item: Zotero.Item, field: string) {
+function isValidFieldForItemType(fieldID: number, itemTypeID: number) {
   const zotero = resolveZotero();
-  if (!zotero.ItemFields?.getID) {
-    return;
-  }
-  const fieldID = zotero.ItemFields.getID(field);
-  if (!fieldID) {
-    throw new Error(`Invalid field: ${field}`);
-  }
-  const itemTypeID =
-    (item as unknown as { itemTypeID?: number }).itemTypeID ||
-    zotero.ItemTypes?.getID?.(item.itemType);
   let isValid = zotero.ItemFields.isValidForType(fieldID, itemTypeID);
   if (!isValid) {
     const baseFieldID = zotero.ItemFields.getBaseIDFromTypeAndField(
@@ -1869,6 +1858,35 @@ function assertValidFieldForItem(item: Zotero.Item, field: string) {
       isValid = Boolean(mappedFieldID);
     }
   }
+  return isValid;
+}
+
+function itemTypeSupportsField(itemType: string, field: string) {
+  const zotero = resolveZotero();
+  const fieldID = zotero.ItemFields?.getID?.(field);
+  const itemTypeID = zotero.ItemTypes?.getID?.(itemType);
+  return Boolean(
+    fieldID &&
+    itemTypeID &&
+    isValidFieldForItemType(Number(fieldID), Number(itemTypeID)),
+  );
+}
+
+function assertValidFieldForItem(item: Zotero.Item, field: string) {
+  const zotero = resolveZotero();
+  if (!zotero.ItemFields?.getID) {
+    return;
+  }
+  const fieldID = zotero.ItemFields.getID(field);
+  if (!fieldID) {
+    throw new Error(`Invalid field: ${field}`);
+  }
+  const itemTypeID =
+    (item as unknown as { itemTypeID?: number }).itemTypeID ||
+    zotero.ItemTypes?.getID?.(item.itemType);
+  const isValid =
+    Boolean(itemTypeID) &&
+    isValidFieldForItemType(Number(fieldID), Number(itemTypeID));
   if (!isValid) {
     throw new Error(`Invalid field for item type: ${field}`);
   }
@@ -2128,16 +2146,47 @@ function normalizeIdentifier(value: unknown) {
     .trim();
 }
 
-function normalizePaperAuthors(value: unknown) {
-  const raw = Array.isArray(value)
-    ? value
-    : String(value ?? "")
-        .split(/\s*(?:;|\band\b|\n)\s*/i)
-        .filter(Boolean);
-  return raw
-    .map((entry) => normalizePaperText(entry, 300))
-    .filter(Boolean)
-    .slice(0, 50);
+function normalizePaperCreators(value: unknown) {
+  if (!Array.isArray(value)) {
+    throw new Error("paper.creators must be an array");
+  }
+  return value.slice(0, 50).map((creator, index) => {
+    if (!creator || typeof creator !== "object" || Array.isArray(creator)) {
+      throw new Error(`paper.creators[${index}] must be an object`);
+    }
+    const input = creator as ZoteroHostMetadataCreatorDto;
+    const name = normalizePaperText(input.name, 300);
+    const firstName = normalizePaperText(input.firstName, 150);
+    const lastName = normalizePaperText(input.lastName, 150);
+    const creatorType = normalizePaperText(input.creatorType, 80) || "author";
+    if (name) {
+      return { name, creatorType };
+    }
+    if (firstName || lastName) {
+      return { firstName, lastName, creatorType };
+    }
+    throw new Error(
+      `paper.creators[${index}] requires name or firstName/lastName`,
+    );
+  });
+}
+
+function normalizePaperFields(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("paper.fields must be an object");
+  }
+  const fields: Record<string, string | number | boolean> = {};
+  for (const [field, raw] of Object.entries(value)) {
+    const key = String(field || "").trim();
+    if (!key || raw === null || raw === undefined || raw === "") {
+      continue;
+    }
+    if (!["string", "number", "boolean"].includes(typeof raw)) {
+      throw new Error(`paper.fields.${key} must be a scalar value`);
+    }
+    fields[key] = typeof raw === "string" ? normalizePaperText(raw, 4000) : raw;
+  }
+  return fields;
 }
 
 function normalizeIngestPaper(request: ZoteroHostMutationRequest) {
@@ -2154,27 +2203,100 @@ function normalizeIngestPaper(request: ZoteroHostMutationRequest) {
     throw new Error("paper must be an object");
   }
   const input = request.paper;
-  const title = normalizePaperText(input.title, 500);
-  const doi = normalizeIdentifier(input.doi);
-  const arxiv = normalizeIdentifier(input.arxiv);
-  const pmid = normalizeIdentifier(input.pmid);
-  const isbn = normalizeIdentifier(input.isbn);
+  const itemType = normalizePaperText(input.itemType, 100);
+  if (!itemType) {
+    throw new Error("paper.itemType is required");
+  }
+  const fields = normalizePaperFields(input.fields);
+  const creators = normalizePaperCreators(input.creators);
+  if (
+    !input.identifiers ||
+    typeof input.identifiers !== "object" ||
+    Array.isArray(input.identifiers)
+  ) {
+    throw new Error("paper.identifiers must be an object");
+  }
+  const identifierDoi = normalizeIdentifier(input.identifiers.doi);
+  const fieldDoi = normalizeIdentifier(fields.DOI);
+  if (
+    identifierDoi &&
+    fieldDoi &&
+    normalizedComparable(identifierDoi) !== normalizedComparable(fieldDoi)
+  ) {
+    throw new Error("paper DOI representations conflict");
+  }
+  const doi = identifierDoi || fieldDoi;
+  const arxiv = normalizeIdentifier(input.identifiers.arxiv);
+  const pmid = normalizeIdentifier(input.identifiers.pmid);
+  const isbn = normalizeIdentifier(input.identifiers.isbn || fields.ISBN);
+  const supportsNativeDoi = Boolean(
+    doi && itemTypeSupportsField(itemType, "DOI"),
+  );
+  if (supportsNativeDoi) {
+    fields.DOI = doi;
+  } else {
+    delete fields.DOI;
+  }
+  const title = normalizePaperText(fields.title, 500);
   if (!title && !doi && !arxiv && !pmid && !isbn) {
     throw new Error("paper requires title or identifier");
   }
+  const landingUrl = normalizePaperText(input.landingUrl, 1000);
+  const existingExtra = normalizePaperText(fields.extra, 4000);
+  const existingLines = existingExtra
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const doiExtraPattern = /^DOI:\s*(.+)$/i;
+  if (doi) {
+    for (const line of existingLines) {
+      const extraDoi = line.match(doiExtraPattern)?.[1];
+      if (
+        extraDoi &&
+        normalizedComparable(extraDoi) !== normalizedComparable(doi)
+      ) {
+        throw new Error("paper DOI representations conflict");
+      }
+    }
+  }
+  const retainedExtraLines = doi
+    ? existingLines.filter((line) => !doiExtraPattern.test(line))
+    : existingLines;
+  const extraIdentifiers = [
+    doi && !supportsNativeDoi ? `DOI: ${doi}` : "",
+    isbn && !fields.ISBN ? `ISBN: ${isbn}` : "",
+    arxiv ? `arXiv: ${arxiv}` : "",
+    pmid ? `PMID: ${pmid}` : "",
+  ].filter(Boolean);
+  if (doi || extraIdentifiers.length > 0) {
+    const seen = new Set(retainedExtraLines.map((line) => line.toLowerCase()));
+    fields.extra = [
+      ...retainedExtraLines,
+      ...extraIdentifiers.filter((line) => {
+        const key = line.toLowerCase();
+        if (seen.has(key)) {
+          return false;
+        }
+        seen.add(key);
+        return true;
+      }),
+    ].join("\n");
+    if (!fields.extra) {
+      delete fields.extra;
+    }
+  }
   return {
+    itemType,
+    fields,
+    creators,
     title,
-    authors: normalizePaperAuthors(input.authors),
-    year: normalizePaperText(input.year, 40),
     doi,
     arxiv,
     pmid,
     isbn,
-    landingUrl: normalizePaperText(input.landingUrl || input.url, 1000),
+    landingUrl,
     pdfUrl: normalizePaperText(input.pdfUrl, 1000),
     attachLandingUrlOnMissingPdf: input.attachLandingUrlOnMissingPdf === true,
-    abstract: normalizePaperText(input.abstract, 4000),
-    venue: normalizePaperText(input.venue, 500),
   };
 }
 
@@ -2241,106 +2363,32 @@ function setItemFieldIfPresent(
   if (normalized === undefined || normalized === null || normalized === "") {
     return;
   }
-  try {
-    item.setField(field as any, normalized as any);
-  } catch {
-    // Some item types do not support every bibliographic field. Best-effort ingest
-    // should keep the item rather than fail on one non-critical field.
-  }
+  item.setField(field as any, normalized as any);
 }
 
-function setItemCreators(item: Zotero.Item, authors: string[]) {
-  if (!authors.length) {
+function setItemCreators(
+  item: Zotero.Item,
+  creators: ZoteroHostMetadataCreatorDto[],
+) {
+  if (!creators.length) {
     return;
   }
-  const creatorData = authors.map((author) => {
-    const parts = author.split(/\s+/).filter(Boolean);
-    if (parts.length <= 1) {
-      return {
-        name: author,
-        creatorType: "author",
-      };
-    }
-    return {
-      firstName: parts.slice(0, -1).join(" "),
-      lastName: parts[parts.length - 1],
-      creatorType: "author",
-    };
-  });
   const target = item as unknown as {
-    setCreators?: (creators: typeof creatorData) => void;
+    setCreators?: (creators: ZoteroHostMetadataCreatorDto[]) => void;
   };
-  try {
-    target.setCreators?.(creatorData);
-  } catch {
-    // Creator normalization is best-effort for mock/runtime compatibility.
-  }
-}
-
-async function tryTranslateIdentifier(
-  paper: ReturnType<typeof normalizeIngestPaper>,
-  libraryID: number,
-) {
-  const Translate = (resolveZotero() as any).Translate;
-  if (!Translate?.Search) {
-    return null;
-  }
-  if (!paper.doi && !paper.arxiv && !paper.isbn && !paper.pmid) {
-    return null;
-  }
-  try {
-    const translate = new Translate.Search();
-    if (paper.doi || paper.arxiv || paper.pmid) {
-      translate.setIdentifier?.({
-        ...(paper.doi ? { DOI: paper.doi } : {}),
-        ...(paper.arxiv ? { arXiv: paper.arxiv } : {}),
-        ...(paper.pmid ? { PMID: paper.pmid } : {}),
-      });
-    } else if (paper.isbn) {
-      translate.setSearch?.({
-        itemType: "book",
-        ISBN: paper.isbn,
-      });
-    }
-    const translators = await translate.getTranslators?.();
-    if (translators?.length) {
-      translate.setTranslator?.(translators);
-    }
-    const items = await translate.translate?.({
-      libraryID,
-      saveAttachments: false,
-    });
-    return Array.isArray(items) && items[0] ? (items[0] as Zotero.Item) : null;
-  } catch {
-    return null;
-  }
+  target.setCreators?.(creators);
 }
 
 async function createMetadataPaperItem(
   paper: ReturnType<typeof normalizeIngestPaper>,
   libraryID: number,
 ) {
-  const item = new Zotero.Item("journalArticle" as any);
+  const item = new Zotero.Item(paper.itemType as any);
   (item as any).libraryID = libraryID;
-  setItemFieldIfPresent(
-    item,
-    "title",
-    paper.title || paper.doi || paper.arxiv || paper.pmid || paper.isbn,
-  );
-  setItemFieldIfPresent(item, "date", paper.year);
-  setItemFieldIfPresent(item, "DOI", paper.doi);
-  setItemFieldIfPresent(item, "ISBN", paper.isbn);
-  setItemFieldIfPresent(item, "url", paper.landingUrl);
-  setItemFieldIfPresent(item, "abstractNote", paper.abstract);
-  setItemFieldIfPresent(item, "publicationTitle", paper.venue);
-  const extra = [
-    paper.arxiv ? `arXiv: ${paper.arxiv}` : "",
-    paper.pmid ? `PMID: ${paper.pmid}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
-  setItemFieldIfPresent(item, "extra", extra);
-  setItemCreators(item, paper.authors);
+  for (const [field, value] of Object.entries(paper.fields)) {
+    setItemFieldIfPresent(item, field, value);
+  }
+  setItemCreators(item, paper.creators);
   await item.saveTx();
   return item;
 }
@@ -2493,9 +2541,7 @@ async function ingestOnePaper(
             (collection as unknown as { libraryID?: unknown }).libraryID,
           )
         : normalizeLibraryId(undefined);
-      item =
-        (await tryTranslateIdentifier(paper, libraryID)) ||
-        (await createMetadataPaperItem(paper, libraryID));
+      item = await createMetadataPaperItem(paper, libraryID);
     }
     if (collection) {
       try {
@@ -2897,7 +2943,7 @@ async function executeMutationOrThrow(
       );
       const attachment = await handlers.attachment.createFromPath({
         parent: item,
-        path: uploaded.localPath,
+        path: uploaded.source.path,
         title: request.displayName || uploaded.descriptor.displayName,
         mimeType: request.contentType || uploaded.descriptor.contentType,
       });
@@ -3003,79 +3049,53 @@ async function executeMutationOrThrow(
   }
 }
 
-function searchMatch(item: Zotero.Item, query: string) {
-  const haystack = [
-    getItemTitle(item),
-    getCreators(item).join(" "),
-    readField(item, "date"),
-    readField(item, "publicationTitle"),
-    readField(item, "abstractNote", FIELD_TEXT_LIMIT),
-    getTags(item).join(" "),
-    trimText(item.key),
-  ]
-    .join(" ")
-    .toLowerCase();
-  return haystack.includes(query);
-}
-
 async function selectLibraryItemPage(args: ZoteroHostLibraryListArgs = {}) {
   const limit = Math.min(
     LIBRARY_LIST_LIMIT_MAX,
     Math.max(1, parsePositiveInteger(args.limit) || LIBRARY_LIST_LIMIT_DEFAULT),
   );
-  const cursor = parseNonNegativeInteger(args.cursor);
   const requestedLibraryId = parsePositiveInteger(args.libraryId);
-  const scanLibraryId = normalizeLibraryId(args.libraryId);
   const collection = requireCollectionForList(args);
   const collectionId = collection
     ? parsePositiveInteger((collection as unknown as { id?: unknown }).id)
     : 0;
-  const collectionKey = collection
-    ? trimText((collection as unknown as { key?: unknown }).key)
-    : "";
-  const tag = trimText(args.tag).toLowerCase();
-  const itemType = trimText(args.itemType);
-  const query = trimText(args.query, FIELD_TEXT_LIMIT).toLowerCase();
-  const allItems = await getAllRegularZoteroItems(scanLibraryId);
-  const filtered = allItems
-    .filter(isTopLevelRegularVisibleItem)
-    .filter(
-      (item) => normalizeLibraryId((item as any).libraryID) === scanLibraryId,
-    )
-    .filter((item) => !itemType || trimText(item.itemType) === itemType)
-    .filter((item) => {
-      if (!tag) {
-        return true;
-      }
-      return getTags(item).some((entry) => entry.toLowerCase() === tag);
-    })
-    .filter((item) => {
-      if (!collection) {
-        return true;
-      }
-      const collections = getCollections(item).map((entry) => String(entry));
-      return (
-        (collectionId > 0 && collections.includes(String(collectionId))) ||
-        (!!collectionKey && collections.includes(collectionKey))
-      );
-    })
-    .filter((item) => !query || searchMatch(item, query))
-    .sort((a, b) => parsePositiveInteger(a.id) - parsePositiveInteger(b.id));
-  const page = filtered.slice(cursor, cursor + limit);
-  const nextOffset = cursor + page.length;
-  const hasMore = nextOffset < filtered.length;
+  const collectionLibraryId = collection
+    ? parsePositiveInteger(
+        (collection as unknown as { libraryID?: unknown }).libraryID,
+      )
+    : 0;
+  const scanLibraryId =
+    requestedLibraryId || collectionLibraryId || normalizeLibraryId(undefined);
+  const selection = await queryZoteroLibraryPage(
+    {
+      libraryId: scanLibraryId,
+      collectionId,
+      tag: args.tag,
+      itemType: args.itemType,
+      query: args.query,
+      limit,
+      cursor: args.cursor,
+    },
+    {
+      defaultLibraryId: scanLibraryId,
+      defaultLimit: LIBRARY_LIST_LIMIT_DEFAULT,
+      maxLimit: LIBRARY_LIST_LIMIT_MAX,
+    },
+  );
   return {
-    page,
-    nextCursor: hasMore ? String(nextOffset) : "",
-    totalScanned: filtered.length,
-    returned: page.length,
-    hasMore,
+    page: selection.items,
+    nextCursor: selection.nextCursor,
+    totalScanned: selection.totalScanned,
+    returned: selection.returned,
+    hasMore: selection.hasMore,
+    criteriaHash: selection.criteriaHash,
+    afterItemId: selection.afterItemId,
     filters: {
       libraryId: requestedLibraryId || undefined,
       collection: collection ? serializeCollection(collection) : undefined,
-      tag: tag || undefined,
-      itemType: itemType || undefined,
-      query: query || undefined,
+      tag: selection.criteria.tag || undefined,
+      itemType: selection.criteria.itemType || undefined,
+      query: selection.criteria.query || undefined,
     },
   };
 }
@@ -3096,14 +3116,14 @@ async function syncLibrarySnapshot(
 ): Promise<ZoteroHostLibrarySyncSnapshotResponse> {
   const selection = await selectLibraryItemPage(args);
   const generatedAt = new Date().toISOString();
-  const cursorPart = trimText(args.cursor) || "0";
   return {
     schema: "zotero.library.snapshot.v1",
     generatedAt,
     snapshotId: [
       "zotero-library",
       generatedAt.replace(/[^0-9]/g, ""),
-      cursorPart,
+      selection.criteriaHash.slice(0, 16),
+      selection.afterItemId,
       selection.returned,
       selection.totalScanned,
     ].join("-"),
@@ -3403,7 +3423,7 @@ export function createZoteroHostCapabilityBrokerApis() {
       syncSnapshot: syncLibrarySnapshot,
       readinessAudit,
       async searchItems(args: ZoteroHostItemSearchArgs) {
-        const query = trimText(args?.query, FIELD_TEXT_LIMIT).toLowerCase();
+        const query = trimText(args?.query, FIELD_TEXT_LIMIT);
         if (!query) {
           throw new Error("query must be non-empty");
         }
@@ -3415,15 +3435,19 @@ export function createZoteroHostCapabilityBrokerApis() {
           ),
         );
         const scanLibraryId = normalizeLibraryId(args?.libraryId);
-        const items = await getAllRegularZoteroItems(scanLibraryId);
-        return items
-          .filter(
-            (item) =>
-              normalizeLibraryId((item as any).libraryID) === scanLibraryId,
-          )
-          .filter((item) => searchMatch(item, query))
-          .slice(0, limit)
-          .map(serializeZoteroItemSummary);
+        const selection = await queryZoteroLibraryPage(
+          {
+            libraryId: scanLibraryId,
+            query,
+            limit,
+          },
+          {
+            defaultLibraryId: scanLibraryId,
+            defaultLimit: SEARCH_LIMIT_DEFAULT,
+            maxLimit: SEARCH_LIMIT_MAX,
+          },
+        );
+        return selection.items.map(serializeZoteroItemSummary);
       },
       async getItemDetail(ref: ZoteroHostItemRefInput) {
         const item = resolveItem(ref);

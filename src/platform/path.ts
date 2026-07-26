@@ -141,9 +141,27 @@ export function getParentPath(pathRaw: unknown) {
 }
 
 export function normalizeNativeLocalPath(targetPath: string) {
-  const path = normalizeString(targetPath);
+  let path = normalizeString(targetPath);
   if (!path) {
     return "";
+  }
+  if (/^file:/i.test(path)) {
+    try {
+      const parsed = new URL(path);
+      const hostname = decodeURIComponent(parsed.hostname || "").toLowerCase();
+      if (
+        parsed.protocol !== "file:" ||
+        (hostname && hostname !== "localhost")
+      ) {
+        return "";
+      }
+      path = decodeURIComponent(parsed.pathname);
+      if (/^\/[A-Za-z]:[\\/]/.test(path)) {
+        path = path.slice(1);
+      }
+    } catch {
+      return "";
+    }
   }
   if (inferPathStyle(path) === "windows" && /^[A-Za-z]:\//.test(path)) {
     return path.replace(/\//g, "\\");

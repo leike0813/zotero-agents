@@ -1,8 +1,11 @@
 {
+  "schemaVersion": 2,
   "id": "literature-metadata-curator",
   "label": "Literature Metadata Curator",
+  "description": "Audit and repair bibliographic metadata for selected literature using identifier and search evidence.",
+  "executionModes": ["auto"],
   "provider": "skillrunner",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "display": {
     "core": true,
     "emoji": "📇"
@@ -12,13 +15,27 @@
     "requiresSelection": true
   },
   "inputs": {
-    "unit": "parent"
+    "member": {
+      "kind": "parent"
+    },
+    "grouping": {
+      "mode": "each"
+    }
+  },
+  "parameters": {
+    "skip_identifier_fast_path": {
+      "type": "boolean",
+      "title": "Skip identifier fast path",
+      "description": "Bypass Zotero identifier lookup and run literature-metadata-search directly.",
+      "default": false
+    }
   },
   "validateSelection": {
     "select": {
-      "policy": "literature-parent",
-      "unit": "parent"
-    }
+      "policy": "input-member",
+      "source": "related"
+    },
+    "filters": []
   },
   "request": {
     "kind": "skillrunner.job.v1",

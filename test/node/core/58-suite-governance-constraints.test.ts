@@ -1,6 +1,15 @@
 import { assert } from "chai";
-import { existsSync, readdirSync, readFileSync, statSync } from "fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "fs";
+import { tmpdir } from "os";
 import { dirname, extname, join, resolve } from "path";
+import ts from "typescript";
 import packageJson from "../../../package.json";
 import { getCiGateStages } from "../../../scripts/ci-gate-plan";
 import { resolveSynthesisSidecarStage1Suite } from "../../../scripts/synthesis-sidecar-stage1-node-suite";
@@ -73,7 +82,54 @@ function extractModuleSpecifiers(source: string) {
   return specifiers;
 }
 
+function findBareRuntimeGlobals(source: string) {
+  const sourceFile = ts.createSourceFile(
+    "workflow-package.mjs",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.JS,
+  );
+  const found = new Set<string>();
+  const visit = (node: ts.Node) => {
+    const directRuntimeGlobal =
+      (ts.isPropertyAccessExpression(node) ||
+        ts.isElementAccessExpression(node)) &&
+      ts.isIdentifier(node.expression)
+        ? node.expression.text
+        : ts.isTypeOfExpression(node) && ts.isIdentifier(node.expression)
+          ? node.expression.text
+          : "";
+    if (directRuntimeGlobal === "Zotero" || directRuntimeGlobal === "addon") {
+      found.add(directRuntimeGlobal);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found;
+}
+
 describe("suite governance constraints", function () {
+  it("classifies executable bare runtime globals without matching prose", function () {
+    const found = findBareRuntimeGlobals(`
+      Zotero.Items.get(1);
+      Zotero["Items"].get(1);
+      addon.data.config;
+      typeof addon;
+      "Zotero. This sentence is localized prose.";
+      globalThis.Zotero.Items.get(1);
+      globalThis.addon.data.config;
+    `);
+    assert.deepEqual([...found].sort(), ["Zotero", "addon"]);
+    assert.isEmpty(
+      findBareRuntimeGlobals(`
+        "Zotero. This sentence is localized prose.";
+        globalThis.Zotero.Items.get(1);
+        globalThis.addon.data.config;
+      `),
+    );
+  });
+
   it("Risk: builtin workflow code allows same-package imports but blocks cross-package imports and tag-vocab core bridges", function () {
     const builtinRoot = join(process.cwd(), "workflows_builtin");
     const checkedFiles = collectJavaScriptFiles(builtinRoot);
@@ -103,14 +159,13 @@ describe("suite governance constraints", function () {
           ".mjs",
           `workflow-package hook/lib files must use .mjs: ${filePath}`,
         );
-        assert.notMatch(
-          source,
-          /(^|[^\w$.])Zotero\./m,
+        const bareRuntimeGlobals = findBareRuntimeGlobals(source);
+        assert.isFalse(
+          bareRuntimeGlobals.has("Zotero"),
           `workflow-package hook/lib files must not use bare Zotero globals in ESM scope: ${filePath}`,
         );
-        assert.notMatch(
-          source,
-          /typeof\s+addon\b|(^|[^\w$.])addon(?:\?\.|\.)/m,
+        assert.isFalse(
+          bareRuntimeGlobals.has("addon"),
           `workflow-package hook/lib files must not use bare addon globals in ESM scope: ${filePath}`,
         );
       }
@@ -331,7 +386,8 @@ describe("suite governance constraints", function () {
     );
   });
 
-  it("Risk: content feed publishing updates GitHub feed before slow Gitee release assets", function () {
+  it("Risk: canonical publication stays GitHub-only and exposes one manual Gitee command", function () {
+    const scripts = getScripts();
     const workflowSource = readFileSync(
       join(process.cwd(), ".github", "workflows", "publish-content-feed.yml"),
       "utf8",
@@ -342,22 +398,97 @@ describe("suite governance constraints", function () {
     const githubFeedIndex = workflowSource.indexOf(
       "name: Publish content-feed branch to GitHub content repo",
     );
-    const giteeReleaseIndex = workflowSource.indexOf(
-      "name: Publish Gitee release assets",
-    );
 
     assert.isAtLeast(githubReleaseIndex, 0);
     assert.isAtLeast(githubFeedIndex, 0);
-    assert.isAtLeast(giteeReleaseIndex, 0);
     assert.isBelow(githubReleaseIndex, githubFeedIndex);
-    assert.isBelow(githubFeedIndex, giteeReleaseIndex);
+    assert.notMatch(workflowSource, /GITEE_TOKEN|gitee\.com|Publish Gitee/i);
     assert.match(
-      workflowSource,
-      /name: Publish Gitee release assets[\s\S]*?continue-on-error: true/,
+      scripts["sync:gitee-release"] || "",
+      /sync-gitee-publication\.ts/i,
     );
-    assert.match(
-      workflowSource,
-      /name: Publish content-feed branch to Gitee mirror[\s\S]*?continue-on-error: true/,
-    );
+    assert.notProperty(scripts, "sync:gitee-plugin-release");
+  });
+
+  it("recovers a timed-out Gitee upload only after the attachment is visible", async function () {
+    const root = mkdtempSync(join(tmpdir(), "zs-gitee-upload-"));
+    const asset = join(root, "package.zip");
+    writeFileSync(asset, "package");
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (
+      _input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      return new Response(JSON.stringify([{ name: "package.zip" }]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+    try {
+      const { syncGiteeReleaseInternalsForTests } =
+        await import("../../../scripts/sync-gitee-release");
+      await syncGiteeReleaseInternalsForTests.uploadAttachment({
+        owner: "owner",
+        repo: "repo",
+        releaseId: 1,
+        filePath: asset,
+        token: "token",
+        sendUpload: async () => {
+          throw new DOMException("timed out", "TimeoutError");
+        },
+      });
+      globalThis.fetch = (async (
+        _input: string | URL | Request,
+        init?: RequestInit,
+      ) => {
+        return new Response("[]", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }) as typeof fetch;
+      let missingAttachmentError: unknown;
+      try {
+        await syncGiteeReleaseInternalsForTests.uploadAttachment({
+          owner: "owner",
+          repo: "repo",
+          releaseId: 1,
+          filePath: asset,
+          token: "token",
+          sendUpload: async () => {
+            throw new DOMException("timed out", "TimeoutError");
+          },
+        });
+      } catch (error) {
+        missingAttachmentError = error;
+      }
+      assert.match(String(missingAttachmentError), /did not accept/);
+
+      let uploadAttempts = 0;
+      globalThis.fetch = (async (
+        _input: string | URL | Request,
+        init?: RequestInit,
+      ) => {
+        return new Response("[]", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }) as typeof fetch;
+      await syncGiteeReleaseInternalsForTests.uploadAttachment({
+        owner: "owner",
+        repo: "repo",
+        releaseId: 1,
+        filePath: asset,
+        token: "token",
+        sendUpload: async () => {
+          uploadAttempts += 1;
+          if (uploadAttempts === 1) {
+            throw new DOMException("timed out", "TimeoutError");
+          }
+        },
+      });
+      assert.strictEqual(uploadAttempts, 2);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

@@ -832,6 +832,76 @@ function selectPrimaryRole(
   })[0][0];
 }
 
+export type SynthesisCitationGraphBuildAggregateEvidence = {
+  sourceId: string;
+  targetId: string;
+  mentionCount: number;
+  roleEvidence: SynthesisCitationGraphBuildRoleEvidence[];
+  sourceRefs: string[];
+};
+
+export function aggregateSynthesisCitationGraphBuildEdges(
+  evidence: SynthesisCitationGraphBuildAggregateEvidence[],
+  rolePriority: string[],
+): SynthesisCitationGraphBuildAggregateEdge[] {
+  const aggregate = new Map<
+    string,
+    {
+      sourceId: string;
+      targetId: string;
+      mentionCount: number;
+      roleCounts: Map<string, number>;
+      sourceRefs: string[];
+    }
+  >();
+  for (const edge of evidence) {
+    const aggregateKey = `${edge.sourceId}\0${edge.targetId}`;
+    const entry = aggregate.get(aggregateKey) || {
+      sourceId: edge.sourceId,
+      targetId: edge.targetId,
+      mentionCount: 0,
+      roleCounts: new Map<string, number>(),
+      sourceRefs: [],
+    };
+    entry.mentionCount += edge.mentionCount;
+    entry.sourceRefs.push(...edge.sourceRefs);
+    for (const role of edge.roleEvidence) {
+      entry.roleCounts.set(
+        role.role,
+        (entry.roleCounts.get(role.role) || 0) + role.count,
+      );
+    }
+    aggregate.set(aggregateKey, entry);
+  }
+  return [...aggregate.values()]
+    .map((entry): SynthesisCitationGraphBuildAggregateEdge => {
+      const primaryRole = selectPrimaryRole(entry.roleCounts, rolePriority);
+      const roleEvidence = [...entry.roleCounts.entries()]
+        .map(([role, count]) => ({ role, count }))
+        .sort(
+          (left, right) =>
+            right.count - left.count ||
+            compareSynthesisEngineStrings(left.role, right.role),
+        );
+      return {
+        sourceId: entry.sourceId,
+        targetId: entry.targetId,
+        mentionCount: entry.mentionCount,
+        primaryRole,
+        auxRoles: roleEvidence
+          .filter((entry) => entry.role !== primaryRole)
+          .map((entry) => ({ ...entry })),
+        roleEvidence,
+        sourceRefs: entry.sourceRefs,
+      };
+    })
+    .sort(
+      (left, right) =>
+        compareSynthesisEngineStrings(left.sourceId, right.sourceId) ||
+        compareSynthesisEngineStrings(left.targetId, right.targetId),
+    );
+}
+
 type SynthesisCitationGraphBuildComputeOptions = {
   bounds?: SynthesisCitationGraphBuildBounds;
   checkpoint?: SynthesisCitationGraphBuildCheckpoint;
@@ -873,16 +943,7 @@ export function computeRebuiltSynthesisCitationGraphBuild(
     );
   }
   const resolvedEdges: SynthesisCitationGraphBuildResolvedEdge[] = [];
-  const aggregate = new Map<
-    string,
-    {
-      sourceId: string;
-      targetId: string;
-      mentionCount: number;
-      roleCounts: Map<string, number>;
-      sourceRefs: string[];
-    }
-  >();
+  const aggregateEvidence: SynthesisCitationGraphBuildAggregateEvidence[] = [];
   for (const [index, reference] of request.references.entries()) {
     if (index % checkpointInterval === 0) {
       options.checkpoint?.({
@@ -923,56 +984,23 @@ export function computeRebuiltSynthesisCitationGraphBuild(
       roles: [...reference.roles],
       weight: reference.weight,
     });
-    const aggregateKey = `${reference.sourceId}\0${reference.targetId}`;
-    const entry = aggregate.get(aggregateKey) || {
+    aggregateEvidence.push({
       sourceId: reference.sourceId,
       targetId: reference.targetId,
-      mentionCount: 0,
-      roleCounts: new Map<string, number>(),
-      sourceRefs: [],
-    };
-    entry.mentionCount += reference.weight;
-    entry.sourceRefs.push(reference.sourceRef || reference.referenceId);
-    for (const role of reference.roles) {
-      entry.roleCounts.set(role, (entry.roleCounts.get(role) || 0) + 1);
-    }
-    aggregate.set(aggregateKey, entry);
+      mentionCount: reference.weight,
+      roleEvidence: reference.roles.map((role) => ({ role, count: 1 })),
+      sourceRefs: [reference.sourceRef || reference.referenceId],
+    });
   }
   options.checkpoint?.({
     phase: "aggregate",
     processed: request.references.length,
     total: request.references.length,
   });
-  const aggregateEdges = [...aggregate.values()]
-    .map((entry): SynthesisCitationGraphBuildAggregateEdge => {
-      const primaryRole = selectPrimaryRole(
-        entry.roleCounts,
-        request.rolePriority,
-      );
-      const roleEvidence = [...entry.roleCounts.entries()]
-        .map(([role, count]) => ({ role, count }))
-        .sort(
-          (left, right) =>
-            right.count - left.count ||
-            compareSynthesisEngineStrings(left.role, right.role),
-        );
-      return {
-        sourceId: entry.sourceId,
-        targetId: entry.targetId,
-        mentionCount: entry.mentionCount,
-        primaryRole,
-        auxRoles: roleEvidence
-          .filter((entry) => entry.role !== primaryRole)
-          .map((entry) => ({ ...entry })),
-        roleEvidence,
-        sourceRefs: entry.sourceRefs,
-      };
-    })
-    .sort(
-      (left, right) =>
-        compareSynthesisEngineStrings(left.sourceId, right.sourceId) ||
-        compareSynthesisEngineStrings(left.targetId, right.targetId),
-    );
+  const aggregateEdges = aggregateSynthesisCitationGraphBuildEdges(
+    aggregateEvidence,
+    request.rolePriority,
+  );
   resolvedEdges.sort((left, right) =>
     compareSynthesisEngineStrings(left.referenceId, right.referenceId),
   );

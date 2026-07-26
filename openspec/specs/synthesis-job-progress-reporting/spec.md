@@ -77,3 +77,11 @@ Advanced Reference Matching SHALL continue reporting binding and canonical-dedup
 - **WHEN** binding and dedupe results have been validated and promoted
 - **THEN** operation diagnostics SHALL report indexed papers, processed binding inputs, accepted bindings, binding proposals, dedupe clusters/actions, redirects, merge proposals, rejected proposals preserved, and budget counters
 - **AND** no completed status SHALL be emitted before atomic promotion succeeds.
+
+### Requirement: Public maintenance operation handles SHALL be queryable
+The formal Synthesis status surface SHALL accept a maintenance operation id and return its pending, running, or terminal progress and receipt.
+
+#### Scenario: Agent polls a maintenance operation
+- **WHEN** an agent queries status with an operation id returned by sidecar refresh or graph update
+- **THEN** the response identifies the operation type, phase, scope, progress counts, timestamps, and current outcome
+- **AND** polling does not mutate operation state.

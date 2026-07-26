@@ -2,7 +2,12 @@ use std::{
     collections::HashMap,
     io::{Read, Write},
     net::TcpStream,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex, OnceLock,
+    },
     time::Duration,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use serde_json::{json, Map, Value};
@@ -14,6 +19,58 @@ use crate::{
 };
 
 const PROTOCOL: &str = "host-bridge.v1";
+static OPERATION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+static LAST_OPERATION_ID: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+
+fn record_operation_id(operation_id: &str) {
+    if let Ok(mut current) = LAST_OPERATION_ID.get_or_init(|| Mutex::new(None)).lock() {
+        *current = Some(operation_id.to_string());
+    }
+}
+
+pub fn last_operation_id() -> Option<String> {
+    LAST_OPERATION_ID
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .ok()
+        .and_then(|current| current.clone())
+}
+
+fn generated_operation_id() -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let sequence = OPERATION_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    format!("cli-{}-{nanos:x}-{sequence:x}", std::process::id())
+}
+
+fn operation_id_for(config: &BridgeConfig, suffix: Option<&str>) -> String {
+    match (config.operation_id.as_deref(), suffix) {
+        (Some(base), Some(suffix)) => format!("{base}:{suffix}"),
+        (Some(base), None) => base.to_string(),
+        (None, _) => generated_operation_id(),
+    }
+}
+
+fn operation_context(mut error: CliError, operation_id: &str) -> CliError {
+    if !matches!(
+        error.code.as_str(),
+        "bridge_request_failed" | "bridge_response_failed"
+    ) {
+        return error;
+    }
+    let mut details = error.details.take().unwrap_or_else(|| json!({}));
+    if let Some(object) = details.as_object_mut() {
+        object.insert("operationId".to_string(), json!(operation_id));
+    }
+    error.details = Some(details);
+    error.next_command = Some(format!("operation get {operation_id}"));
+    error.safe_next_actions = Some(vec![
+        "inspect the durable operation receipt before deciding whether to retry".to_string(),
+    ]);
+    error
+}
 
 #[derive(Debug, Clone)]
 struct ParsedEndpoint {
@@ -78,6 +135,8 @@ pub fn upload(
         .map(serde_json::to_string)
         .transpose()
         .map_err(|error| CliError::internal("internal_json_error", error.to_string()))?;
+    let operation_id = operation_id_for(config, None);
+    record_operation_id(&operation_id);
     let request = build_http_request_bytes(
         "POST",
         &endpoint.host,
@@ -85,11 +144,13 @@ pub fn upload(
         Some(config.require_token()?),
         scope_text.as_deref(),
         config.connection_mode.as_deref(),
+        Some(&operation_id),
         content_type.unwrap_or("application/octet-stream"),
         display_name.map(sanitize_header_value).as_deref(),
         bytes,
     );
-    let raw = send_http_bytes(&endpoint, &request)?;
+    let raw = send_http_bytes(&endpoint, &request)
+        .map_err(|error| operation_context(error, &operation_id))?;
     let parsed = parse_http_response_bytes(&raw)?;
     let response_body = String::from_utf8(parsed.body.clone()).map_err(|error| {
         CliError::protocol(
@@ -108,7 +169,7 @@ pub fn upload(
     if parsed.status == 401 {
         return Err(CliError::auth(
             "unauthorized",
-            "Host Bridge rejected the bearer token",
+            "Zotero Bridge service rejected the bearer token",
         ));
     }
     if parsed.status >= 400 {
@@ -148,6 +209,7 @@ pub fn download(config: &BridgeConfig, path: &str) -> Result<DownloadResponse, C
         scope_text.as_deref(),
         config.connection_mode.as_deref(),
         None,
+        None,
     );
     for attempt in 1..=2 {
         match download_once(&endpoint, &request, attempt) {
@@ -168,7 +230,7 @@ pub fn download(config: &BridgeConfig, path: &str) -> Result<DownloadResponse, C
     Err(CliError::new(
         "download_retry_exhausted",
         ErrorCategory::Download,
-        "Host Bridge download retry was exhausted",
+        "Zotero Bridge download retry was exhausted",
     )
     .with_details(json!({ "attempts": 2 })))
 }
@@ -183,7 +245,7 @@ fn download_once(
     if parsed.status == 401 {
         return Err(CliError::auth(
             "unauthorized",
-            "Host Bridge rejected the bearer token",
+            "Zotero Bridge service rejected the bearer token",
         ));
     }
     if parsed.status >= 400 {
@@ -197,7 +259,7 @@ fn download_once(
                 CliError::new(
                     "download_truncated",
                     ErrorCategory::Download,
-                    "Host Bridge download Content-Length is invalid",
+                    "Zotero Bridge download Content-Length is invalid",
                 )
                 .with_details(json!({
                     "bytesReceived": parsed.body.len(),
@@ -211,7 +273,7 @@ fn download_once(
             return Err(CliError::new(
                 "download_truncated",
                 ErrorCategory::Download,
-                "Host Bridge download body length did not match Content-Length",
+                "Zotero Bridge download body length did not match Content-Length",
             )
             .with_details(json!({
                 "bytesExpected": expected,
@@ -230,7 +292,7 @@ fn download_once(
             return Err(CliError::new(
                 "download_checksum_mismatch",
                 ErrorCategory::Download,
-                "Host Bridge download checksum did not match",
+                "Zotero Bridge download checksum did not match",
             )
             .with_details(json!({
                 "bytesExpected": bytes_expected,
@@ -278,7 +340,7 @@ fn download_retry_exhausted(error: CliError, attempts: usize) -> CliError {
     CliError::new(
         "download_retry_exhausted",
         ErrorCategory::Download,
-        "Host Bridge download retry was exhausted",
+        "Zotero Bridge download retry was exhausted",
     )
     .with_details(Value::Object(details))
 }
@@ -326,6 +388,10 @@ fn request_json(
     } else {
         None
     };
+    let operation_id = (method != "GET").then(|| operation_id_for(config, None));
+    if let Some(operation_id) = operation_id.as_deref() {
+        record_operation_id(operation_id);
+    }
     let request = build_http_request(
         method,
         &endpoint.host,
@@ -337,9 +403,15 @@ fn request_json(
         } else {
             None
         },
+        operation_id.as_deref(),
         body_text.as_deref(),
     );
-    let raw = send_http(&endpoint, &request)?;
+    let raw = send_http(&endpoint, &request).map_err(|error| {
+        operation_id
+            .as_deref()
+            .map(|operation_id| operation_context(error.clone(), operation_id))
+            .unwrap_or(error)
+    })?;
     let parsed = parse_http_response_bytes(&raw)?;
     let response_body = String::from_utf8(parsed.body.clone()).map_err(|error| {
         CliError::protocol(
@@ -358,7 +430,7 @@ fn request_json(
     if parsed.status == 401 {
         return Err(CliError::auth(
             "unauthorized",
-            "Host Bridge rejected the bearer token",
+            "Zotero Bridge service rejected the bearer token",
         ));
     }
     if parsed.status >= 400 {
@@ -383,47 +455,104 @@ fn bridge_error_from_json(status: u16, body: &[u8]) -> CliError {
 }
 
 fn bridge_error_from_value(status: u16, json: Value) -> CliError {
-    let code = json
-        .pointer("/error/code")
+    let bridge_error = json.get("error").unwrap_or(&Value::Null);
+    let code = bridge_error
+        .get("code")
         .and_then(Value::as_str)
         .unwrap_or("bridge_error");
-    let category = match code {
-        "capability_not_found" | "capability_failed" => crate::error::ErrorCategory::Capability,
-        "workflow_not_found"
-        | "workflow_run_not_found"
-        | "workflow_submit_failed"
-        | "backend_not_found"
-        | "skill_run_not_found"
-        | "skill_run_not_waiting"
-        | "skill_run_not_recoverable"
-        | "unsupported_interaction_backend" => crate::error::ErrorCategory::Workflow,
-        "workflow_submit_requires_approval"
-        | "approval_required"
-        | "permission_request_not_found"
-        | "permission_denied"
-        | "permission_timeout"
-        | "permission_ui_unavailable" => crate::error::ErrorCategory::Permission,
-        "file_not_found"
-        | "file_handle_expired"
-        | "file_unavailable"
-        | "download_failed"
-        | "upload_failed" => crate::error::ErrorCategory::Download,
-        "invalid_capability_input"
-        | "invalid_workflow_agent_run_request"
-        | "invalid_workflow_input"
-        | "invalid_workflow_submit_request"
-        | "invalid_workflow_describe_request"
-        | "invalid_skill_run_id"
-        | "invalid_object_ref"
-        | "invalid_file_id"
-        | "upload_empty"
-        | "upload_too_large"
-        | "unsupported_cache_scope"
-        | "bad_request" => crate::error::ErrorCategory::Validation,
-        _ => crate::error::ErrorCategory::Protocol,
+    let category = match bridge_error.get("category").and_then(Value::as_str) {
+        Some("usage") => crate::error::ErrorCategory::Usage,
+        Some("config") => crate::error::ErrorCategory::Config,
+        Some("connection") => crate::error::ErrorCategory::Connection,
+        Some("auth") => crate::error::ErrorCategory::Auth,
+        Some("permission") => crate::error::ErrorCategory::Permission,
+        Some("validation") => crate::error::ErrorCategory::Validation,
+        Some("capability") => crate::error::ErrorCategory::Capability,
+        Some("workflow") => crate::error::ErrorCategory::Workflow,
+        Some("download") => crate::error::ErrorCategory::Download,
+        Some("internal") => crate::error::ErrorCategory::Internal,
+        Some("protocol") => crate::error::ErrorCategory::Protocol,
+        _ => match code {
+            "capability_not_found" | "capability_failed" => crate::error::ErrorCategory::Capability,
+            "workflow_not_found"
+            | "workflow_run_not_found"
+            | "workflow_submit_failed"
+            | "backend_not_found"
+            | "skill_run_not_found"
+            | "skill_run_not_waiting"
+            | "skill_run_not_recoverable"
+            | "unsupported_interaction_backend" => crate::error::ErrorCategory::Workflow,
+            "workflow_submit_requires_approval"
+            | "approval_required"
+            | "permission_request_not_found"
+            | "permission_denied"
+            | "permission_timeout"
+            | "permission_ui_unavailable" => crate::error::ErrorCategory::Permission,
+            "file_not_found"
+            | "file_handle_expired"
+            | "file_unavailable"
+            | "download_failed"
+            | "upload_failed" => crate::error::ErrorCategory::Download,
+            "invalid_capability_input"
+            | "invalid_workflow_agent_run_request"
+            | "invalid_workflow_input"
+            | "invalid_workflow_submit_request"
+            | "invalid_workflow_describe_request"
+            | "invalid_skill_run_id"
+            | "invalid_object_ref"
+            | "invalid_file_id"
+            | "upload_empty"
+            | "upload_too_large"
+            | "unsupported_cache_scope"
+            | "bad_request" => crate::error::ErrorCategory::Validation,
+            _ => crate::error::ErrorCategory::Protocol,
+        },
     };
-    CliError::new(code, category, "Host Bridge returned an error")
+    let message = bridge_error
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("Zotero Bridge service returned an error");
+    let safe_next_actions = bridge_error
+        .get("safeNextActions")
+        .and_then(Value::as_array)
+        .map(|actions| {
+            actions
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        });
+    let mut error = CliError::new(code, category, message)
         .with_details(json!({ "status": status, "bridge": json }))
+        .with_control(
+            bridge_error.get("retryable").and_then(Value::as_bool),
+            None,
+            None,
+            safe_next_actions,
+        );
+    if let Some(value) = bridge_error.get("stateChange").and_then(Value::as_str) {
+        error.state_change = match value {
+            "unchanged" => Some(crate::error::StateChange::Unchanged),
+            "changed" => Some(crate::error::StateChange::Changed),
+            "unknown" => Some(crate::error::StateChange::Unknown),
+            _ => error.state_change,
+        };
+    }
+    if let Some(value) = bridge_error
+        .get("handleConsumption")
+        .and_then(Value::as_str)
+    {
+        error.handle_consumption = match value {
+            "unconsumed" => Some(crate::error::HandleConsumption::Unconsumed),
+            "consumed" => Some(crate::error::HandleConsumption::Consumed),
+            "unknown" => Some(crate::error::HandleConsumption::Unknown),
+            _ => error.handle_consumption,
+        };
+    }
+    if let Some(next_command) = bridge_error.get("nextCommand").and_then(Value::as_str) {
+        error = error.with_next_command(next_command);
+    }
+    error
 }
 
 fn check_protocol(result: Value) -> Result<Value, CliError> {
@@ -431,7 +560,7 @@ fn check_protocol(result: Value) -> Result<Value, CliError> {
     if protocol != PROTOCOL {
         return Err(CliError::protocol(
             "incompatible_bridge_protocol",
-            "Host Bridge protocol version is incompatible",
+            "Zotero Bridge protocol version is incompatible",
         )
         .with_details(json!({
             "expected": PROTOCOL,
@@ -445,7 +574,7 @@ fn parse_endpoint(endpoint: &str) -> Result<ParsedEndpoint, CliError> {
     let without_scheme = endpoint.strip_prefix("http://").ok_or_else(|| {
         CliError::config(
             "config_unsupported_endpoint",
-            "Only http:// Host Bridge endpoints are supported in v1",
+            "Only http:// Zotero Bridge service endpoints are supported in v1",
         )
     })?;
     let (authority, path) = without_scheme.split_once('/').ok_or_else(|| {
@@ -471,6 +600,7 @@ fn build_http_request(
     token: Option<&str>,
     scope: Option<&str>,
     connection_mode: Option<&str>,
+    operation_id: Option<&str>,
     body: Option<&str>,
 ) -> String {
     let body = body.unwrap_or("");
@@ -491,6 +621,9 @@ fn build_http_request(
             "X-Zotero-Bridge-Connection-Mode: {connection_mode}"
         ));
     }
+    if let Some(operation_id) = operation_id {
+        lines.push(format!("X-Zotero-Bridge-Operation-Id: {operation_id}"));
+    }
     if !body.is_empty() {
         lines.push("Content-Type: application/json".to_string());
     }
@@ -507,6 +640,7 @@ fn build_http_request_bytes(
     token: Option<&str>,
     scope: Option<&str>,
     connection_mode: Option<&str>,
+    operation_id: Option<&str>,
     content_type: &str,
     display_name: Option<&str>,
     body: &[u8],
@@ -529,6 +663,9 @@ fn build_http_request_bytes(
             "X-Zotero-Bridge-Connection-Mode: {connection_mode}"
         ));
     }
+    if let Some(operation_id) = operation_id {
+        lines.push(format!("X-Zotero-Bridge-Operation-Id: {operation_id}"));
+    }
     if let Some(display_name) = display_name {
         lines.push(format!("X-Zotero-Bridge-Display-Name: {display_name}"));
     }
@@ -547,21 +684,34 @@ fn send_http(endpoint: &ParsedEndpoint, request: &str) -> Result<Vec<u8>, CliErr
 fn send_http_bytes(endpoint: &ParsedEndpoint, request: &[u8]) -> Result<Vec<u8>, CliError> {
     let address = format!("{}:{}", endpoint.host, endpoint.port);
     let mut stream = TcpStream::connect(address).map_err(|error| {
-        CliError::connection("bridge_unavailable", "Cannot connect to Host Bridge")
-            .with_details(json!({ "message": error.to_string() }))
+        CliError::connection(
+            "bridge_unavailable",
+            "Cannot connect to the Zotero Bridge service",
+        )
+        .with_details(json!({ "message": error.to_string() }))
     })?;
     stream
         .set_read_timeout(Some(Duration::from_secs(30)))
         .map_err(|error| {
             CliError::connection("connection_timeout_setup_failed", error.to_string())
         })?;
-    stream
-        .write_all(request)
-        .map_err(|error| CliError::connection("bridge_request_failed", error.to_string()))?;
+    stream.write_all(request).map_err(|error| {
+        CliError::connection("bridge_request_failed", error.to_string()).with_outcome(
+            false,
+            crate::error::StateChange::Unknown,
+            crate::error::HandleConsumption::Unknown,
+            vec!["inspect operation receipt when an operation id is available".to_string()],
+        )
+    })?;
     let mut raw = Vec::new();
-    stream
-        .read_to_end(&mut raw)
-        .map_err(|error| CliError::connection("bridge_response_failed", error.to_string()))?;
+    stream.read_to_end(&mut raw).map_err(|error| {
+        CliError::connection("bridge_response_failed", error.to_string()).with_outcome(
+            false,
+            crate::error::StateChange::Unknown,
+            crate::error::HandleConsumption::Unknown,
+            vec!["inspect operation receipt when an operation id is available".to_string()],
+        )
+    })?;
     Ok(raw)
 }
 
@@ -651,6 +801,7 @@ mod tests {
             Some("secret-token"),
             None,
             None,
+            None,
             Some("{}"),
         );
         assert!(request.starts_with("POST /bridge/v1/call HTTP/1.1"));
@@ -668,6 +819,7 @@ mod tests {
             Some("secret-token"),
             Some(scope),
             None,
+            None,
             Some("{}"),
         );
 
@@ -684,6 +836,7 @@ mod tests {
             Some("secret-token"),
             None,
             Some("remote"),
+            None,
             Some("{}"),
         );
 
@@ -739,12 +892,50 @@ mod tests {
         }
     }
 
+    #[test]
+    fn preserves_host_bridge_error_control_envelope() {
+        let error = bridge_error_from_value(
+            409,
+            json!({
+                "status": "error",
+                "error": {
+                    "code": "agent_run_already_consumed",
+                    "category": "workflow",
+                    "message": "Agent run was already consumed",
+                    "retryable": false,
+                    "stateChange": "changed",
+                    "handleConsumption": "consumed",
+                    "safeNextActions": ["workflow agent-apply-status"],
+                    "nextCommand": "workflow agent-apply-status agent-1"
+                }
+            }),
+        );
+        let payload = error.to_payload();
+        assert_eq!(payload.category, crate::error::ErrorCategory::Workflow);
+        assert_eq!(payload.message, "Agent run was already consumed");
+        assert!(!payload.retryable);
+        assert_eq!(payload.state_change, crate::error::StateChange::Changed);
+        assert_eq!(
+            payload.handle_consumption,
+            crate::error::HandleConsumption::Consumed
+        );
+        assert_eq!(
+            payload.safe_next_actions,
+            vec!["workflow agent-apply-status".to_string()]
+        );
+        assert_eq!(
+            payload.next_command.as_deref(),
+            Some("workflow agent-apply-status agent-1")
+        );
+    }
+
     fn download_config(port: u16) -> BridgeConfig {
         BridgeConfig {
             endpoint: format!("http://127.0.0.1:{port}/bridge/v1"),
             token: Some("secret-token".to_string()),
             scope: None,
             connection_mode: Some("remote".to_string()),
+            operation_id: None,
         }
     }
 
@@ -849,6 +1040,7 @@ mod tests {
             token: Some("secret-token".to_string()),
             scope: None,
             connection_mode: Some("remote".to_string()),
+            operation_id: None,
         };
         let result = manifest(&config).unwrap();
 

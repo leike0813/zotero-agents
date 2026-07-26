@@ -203,7 +203,7 @@ const STATE_FILE_NAME = "content-package-install-state.json";
 const CONTENT_INSTALL_SCHEMA = "zotero-agents.content-install-state.v1";
 const CONTENT_FEED_SCHEMA = "zotero-agents.content-feed.v1";
 const CONTENT_PACKAGE_SCHEMA = "zotero-agents.content-package.v1";
-export const CONTENT_API_VERSION = "1.0.0";
+export const CONTENT_API_VERSION = "3.0.0";
 
 const CONTENT_PACKAGE_INSTALL_PROGRESS_STEPS: Array<{
   stage: ContentPackageInstallProgressStage;

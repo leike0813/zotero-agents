@@ -3,7 +3,8 @@ import { handlers } from "../../src/handlers";
 import { buildSelectionContext } from "../../src/modules/selectionContext";
 import { createHookHelpers } from "../../src/workflows/helpers";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
-import { evaluateWorkflowSelection } from "../../src/workflows/workflowSelectionValidation";
+import { evaluateWorkflowSelection } from "../../src/workflows/workflowInputPlanning";
+import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 import {
   executeApplyResult,
   executeBuildRequests,
@@ -130,9 +131,10 @@ describe("workflow: mineru", function () {
     assert.equal(workflow.manifest.provider, "generic-http");
     assert.equal(workflow.manifest.request?.kind, "generic-http.steps.v1");
     assert.equal(
-      workflow.manifest.validateSelection?.select?.policy,
-      "pdf-attachment",
+      workflow.manifest.validateSelection.select.policy,
+      "input-member",
     );
+    assert.equal(workflow.manifest.inputs.member.kind, "attachment");
     assert.isFunction(workflow.hooks.preflight);
     assert.isFunction(workflow.hooks.buildRequest);
     assert.isFunction(workflow.hooks.applyResult);
@@ -370,13 +372,16 @@ describe("workflow: mineru", function () {
       __stats?: {
         totalUnits?: number;
         skippedUnits?: number;
+        candidateStats?: { total?: number; skipped?: number };
       };
     };
 
     assert.lengthOf(requests, 1);
     assert.equal(requests[0].sourceAttachmentPaths?.[0], keep.pdfPath);
-    assert.equal(requests.__stats?.totalUnits, 2);
-    assert.equal(requests.__stats?.skippedUnits, 1);
+    assert.equal(requests.__stats?.totalUnits, 1);
+    assert.equal(requests.__stats?.skippedUnits, 0);
+    assert.equal(requests.__stats?.candidateStats?.total, 2);
+    assert.equal(requests.__stats?.candidateStats?.skipped, 1);
     assert.notEqual(requests[0].sourceAttachmentPaths?.[0], skip.pdfPath);
   });
 
@@ -418,10 +423,14 @@ describe("workflow: mineru", function () {
         code?: string;
         totalUnits?: number;
         skippedUnits?: number;
+        candidateTotal?: number;
+        candidateSkipped?: number;
       };
       assert.equal(typed.code, "NO_VALID_INPUT_UNITS");
-      assert.equal(typed.totalUnits, 2);
-      assert.equal(typed.skippedUnits, 2);
+      assert.equal(typed.totalUnits, 0);
+      assert.equal(typed.skippedUnits, 0);
+      assert.equal(typed.candidateTotal, 2);
+      assert.equal(typed.candidateSkipped, 2);
     },
   );
 
@@ -654,7 +663,8 @@ describe("workflow: mineru", function () {
     await writeUtf8(joinPath(bundleDir, "images", "figure-1.png"), "png-1");
     await writeUtf8(joinPath(bundleDir, "images", "figure-2.png"), "png-2");
 
-    await executeApplyResult({
+    const statusTransitions: unknown[] = [];
+    const applied = (await executeApplyResult({
       workflow,
       parent,
       bundleReader: {
@@ -663,7 +673,19 @@ describe("workflow: mineru", function () {
       },
       request: await buildMineruRequest(source.attachment, source.pdfPath),
       runResult: {},
-    });
+      runtime: {
+        hostApi: {
+          ...createWorkflowHostApi(),
+          statusTags: {
+            getPolicy: () => ({}),
+            transition: async (args: unknown) => {
+              statusTransitions.push(args);
+              return { added: [], removed: [], warnings: [] };
+            },
+          },
+        } as any,
+      },
+    })) as { partial?: boolean };
 
     const targetMdPath = joinPath(tempDir, "paper.md");
     const targetImages = joinPath(tempDir, `Images_${source.attachment.key}`);
@@ -680,6 +702,13 @@ describe("workflow: mineru", function () {
       ),
       `expected linked markdown attachment=${targetMdPath}, got=${attachmentPaths.join(",")}`,
     );
+    assert.deepEqual(statusTransitions, [
+      {
+        item: parent,
+        remove: ["need-fulltext", "need-markdown"],
+      },
+    ]);
+    assert.isFalse(applied.partial);
   });
 
   it("merges aggregate child bundles in order with one blank line", async function () {

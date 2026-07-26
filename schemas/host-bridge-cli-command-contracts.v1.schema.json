@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/retorquere/zotero-better-bibtex/schemas/host-bridge-cli-command-contracts.v1.schema.json",
+  "title": "Zotero Bridge CLI command contracts v1",
+  "type": "object",
+  "required": ["schema", "commands"],
+  "properties": {
+    "schema": {
+      "const": "zotero-bridge.command-contracts.v1"
+    },
+    "commands": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/commandContract"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "jsonSchema": {
+      "type": "object"
+    },
+    "example": {
+      "type": "object",
+      "required": ["kind", "value", "prerequisites"],
+      "properties": {
+        "kind": {
+          "enum": ["shape-only", "executable"]
+        },
+        "value": true,
+        "prerequisites": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "inputContract": {
+      "type": "object",
+      "required": ["token", "required", "requiredWhen", "schema", "examples"],
+      "properties": {
+        "token": {
+          "type": "string",
+          "minLength": 1
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "requiredWhen": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "schema": {
+          "$ref": "#/$defs/jsonSchema"
+        },
+        "examples": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/example"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "commandContract": {
+      "type": "object",
+      "required": ["inputs", "payloadSchema", "resultSchema"],
+      "properties": {
+        "inputs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/inputContract"
+          }
+        },
+        "payloadSchema": {
+          "$ref": "#/$defs/jsonSchema"
+        },
+        "resultSchema": {
+          "$ref": "#/$defs/jsonSchema"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

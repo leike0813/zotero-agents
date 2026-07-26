@@ -869,6 +869,15 @@ tr.clickable {
   align-items: center;
 }
 
+.host-queued-workflow-row {
+  background: var(--accent-soft);
+}
+
+.host-queued-workflow-row .icon-btn {
+  min-width: 30px;
+  padding: 5px;
+}
+
 .bound-task {
   display: flex;
   flex-wrap: wrap;
@@ -1085,6 +1094,317 @@ tr.clickable {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.profiler-toolbar,
+.profiler-toolbar-actions,
+.profiler-export-actions {
+  flex-wrap: wrap;
+}
+
+.profiler-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.profiler-title-wrap .page-title {
+  margin-bottom: 0;
+}
+
+.profiler-capture-panel {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.profiler-fields {
+  display: grid;
+  grid-template-columns: minmax(180px, 2fr) minmax(150px, 1fr) 100px auto;
+  gap: 10px;
+  align-items: end;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.profiler-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.profiler-field-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.profiler-checkbox-field {
+  flex-direction: row;
+  align-items: center;
+  min-height: 32px;
+  white-space: nowrap;
+}
+
+.profiler-checkbox {
+  margin: 0;
+}
+
+.profiler-input:disabled {
+  color: var(--muted);
+  opacity: 0.72;
+}
+
+.profiler-start {
+  flex: 0 0 auto;
+}
+
+.profiler-warnings {
+  margin-bottom: 12px;
+  border: 1px solid var(--zs-warning-border);
+  border-radius: 10px;
+  background: var(--zs-warning-soft);
+  color: var(--text);
+  padding: 10px 12px;
+}
+
+.profiler-warning-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.profiler-group-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 10px;
+}
+
+.profiler-group-card {
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+.profiler-group-title {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.profiler-group-values {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  margin: 0;
+}
+
+.profiler-group-values dt {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.profiler-group-values dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.profiler-metrics-table td {
+  max-width: 280px;
+  overflow-wrap: anywhere;
+}
+
+.profiler-metrics-table td:nth-child(1),
+.profiler-metrics-table td:nth-child(5) {
+  text-align: center;
+}
+
+.profiler-export-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  margin-top: 12px;
+}
+
+.profiler-export-info {
+  min-width: 0;
+}
+
+.profiler-saved-path {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.profiler-sensitive-warning {
+  margin-bottom: 12px;
+  white-space: normal;
+}
+
+.acp-trace-replay-workflow {
+  display: grid;
+  gap: 16px;
+}
+
+.acp-trace-replay-step {
+  padding: 16px;
+}
+
+.acp-trace-replay-step .section-title {
+  margin: 0 0 12px;
+}
+
+.acp-trace-replay-step .profiler-capture-panel {
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
+.profiler-trace-control {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.profiler-trace-control .profiler-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.profiler-trace-summary {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0 0 12px;
+}
+
+.profiler-trace-summary dt {
+  color: var(--muted);
+}
+
+.profiler-trace-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.acp-trace-replay-details {
+  width: 100%;
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.acp-trace-replay-details-summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.acp-trace-advanced-fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 10px;
+}
+
+.acp-replay-identity {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+  width: 100%;
+  color: var(--muted);
+}
+
+.acp-replay-sample-name {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.acp-replay-matrix-grid,
+.acp-replay-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 12px;
+}
+
+.acp-replay-matrix-surface,
+.acp-replay-summary-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--panel);
+}
+
+.acp-replay-matrix-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.acp-replay-matrix-slot {
+  margin-top: 5px;
+  border-left: 4px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--zs-subtle-bg);
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.acp-replay-matrix-slot.is-current {
+  border-left-color: var(--accent);
+  font-weight: 700;
+}
+
+.acp-replay-matrix-slot.is-complete {
+  border-left-color: var(--zs-success-border);
+}
+
+.acp-replay-matrix-slot.is-incomplete,
+.acp-replay-matrix-slot.is-warning {
+  border-left-color: var(--zs-warning-border);
+}
+
+.acp-replay-summary-card .mono + .mono {
+  margin-top: 5px;
+  color: var(--muted);
+}
+
+.acp-replay-run-evidence {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 920px) {
+  .profiler-capture-panel,
+  .profiler-export-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .profiler-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .profiler-start {
+    align-self: flex-start;
+  }
+
+  .acp-replay-matrix-grid,
+  .acp-replay-summary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 620px) {
+  .profiler-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .acp-trace-advanced-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .btn.active {

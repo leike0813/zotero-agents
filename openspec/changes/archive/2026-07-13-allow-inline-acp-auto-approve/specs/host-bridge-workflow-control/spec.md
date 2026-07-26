@@ -17,4 +17,3 @@ The Host Bridge workflow control surface SHALL accept `autoApproveAcpPermissions
 
 - **WHEN** a provider profile contains credentials, endpoint values, or local-path values
 - **THEN** Host Bridge rejects the request as an invalid workflow submit request
-

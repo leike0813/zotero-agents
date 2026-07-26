@@ -412,3 +412,63 @@ verified Synthesis runtime with an explicit environment and open stdin.
 - **AND** only documented OS-required variables SHALL be copied
 - **AND** stdin, stdout, stderr, wait, and direct kill handles SHALL remain
   available to the supervisor.
+
+### Requirement: Mozilla subprocess transports SHALL drain pipes from process creation
+
+The Mozilla ACP subprocess transport SHALL start stdout and stderr consumers immediately after subprocess creation and before asynchronous process identity discovery.
+
+#### Scenario: Process exits during identity discovery
+- **WHEN** a newly created Mozilla subprocess writes stderr and exits before process identity discovery completes
+- **THEN** the stderr consumer SHALL already be active
+- **AND** the exit diagnostic SHALL be retained in the final transport snapshot
+
+### Requirement: ACP transport close snapshots SHALL finalize after bounded pipe drain
+
+The transport `closed` completion SHALL wait for process settlement and a bounded completion of stdout and stderr consumers before exposing its final immutable snapshot.
+
+#### Scenario: Buffered stderr arrives after process exit
+- **WHEN** the subprocess settles while buffered stderr remains readable
+- **THEN** `closed` SHALL wait within the pipe-drain bound
+- **AND** its final snapshot SHALL include the captured stderr tail
+
+#### Scenario: Pipe does not complete
+- **WHEN** a pipe consumer does not settle within the configured bound
+- **THEN** transport close SHALL complete without an unbounded wait
+- **AND** the snapshot SHALL retain the available output and pipe-drain status
+
+### Requirement: ACP client close completion SHALL preserve origin and reason
+
+`AcpClientConnection.closed` SHALL remain an awaitable property and SHALL resolve with a structured close result distinguishing local close, remote EOF, and receive-loop error. Receive-loop failures SHALL retain their original reason or error metadata.
+
+#### Scenario: User closes connection
+- **WHEN** the caller actively closes the ACP client connection
+- **THEN** `closed` SHALL resolve with local close origin
+
+#### Scenario: Remote stream reaches EOF
+- **WHEN** the ACP receive stream ends without a receive-loop exception
+- **THEN** `closed` SHALL resolve with remote EOF origin
+
+#### Scenario: Receive loop rejects
+- **WHEN** the ACP receive loop throws while reading or parsing a message
+- **THEN** `closed` SHALL resolve with receive-error origin
+- **AND** the structured result SHALL retain the receive failure reason
+
+### Requirement: Runtime file boundaries SHALL normalize local path inputs
+
+Shared runtime file boundaries SHALL convert supported native paths, Windows drive paths using forward slashes, and local `file:` URLs through the platform path service before invoking platform filesystem primitives.
+
+#### Scenario: Windows drive path reaches Zotero file API
+
+- **WHEN** a workflow passes a local path such as `E:/research/image.jpg` to the Host file surface
+- **THEN** the system SHALL pass a native Windows-shaped path to Zotero IOUtils.
+
+#### Scenario: Local file URL reaches Product storage
+
+- **WHEN** a workflow registers a Product local-file source using a local `file:` URL
+- **THEN** Product storage SHALL normalize the source before existence checks and copy operations.
+
+#### Scenario: Existence probe cannot parse or access a path
+
+- **WHEN** path normalization fails or the platform existence primitive rejects the input
+- **THEN** the Host file existence probe SHALL return `false`
+- **AND** strict read, write, and copy operations SHALL continue to reject invalid inputs.

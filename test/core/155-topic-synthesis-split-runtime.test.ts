@@ -391,13 +391,21 @@ import fs from "fs";
 import path from "path";
 
 const args = process.argv.slice(2);
-const inputIndex = args.indexOf("--input");
-const inputRef = inputIndex >= 0 ? args[inputIndex + 1] : "";
-let input = {};
-if (inputRef.startsWith("@")) {
-  input = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), inputRef.slice(1)), "utf8"));
+if (args.includes("--input")) {
+  console.error("semantic reads must use --query");
+  process.exit(64);
 }
-const command = args.slice(0, inputIndex >= 0 ? inputIndex : args.length).join(" ");
+const queryIndex = args.indexOf("--query");
+if (queryIndex < 0) {
+  console.error("missing --query");
+  process.exit(64);
+}
+const queryRef = args[queryIndex + 1] || "";
+let input = {};
+if (queryRef.startsWith("@")) {
+  input = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), queryRef.slice(1)), "utf8"));
+}
+const command = args.slice(0, queryIndex).join(" ");
 fs.mkdirSync(path.join(process.cwd(), "runtime"), { recursive: true });
 fs.appendFileSync(path.join(process.cwd(), "runtime", "bridge-calls.jsonl"), JSON.stringify({ command, input }) + "\n");
 const papers = (input.paper_refs || ["1:DETR", "1:DINO"]).map((ref) => ({

@@ -1,5 +1,6 @@
 import type { BackendInstance } from "../backends/types";
 import type { ProviderExecutionResult } from "./contracts";
+import type { AcpRuntimeSemanticTraceContext } from "../modules/acpRuntimeSemanticTraceRecorder";
 
 export type ProviderProgressEventRequestCreated = {
   type: "request-created";
@@ -55,6 +56,8 @@ export type ProviderOrchestrationContext = {
   workflowId?: string;
   workflowLabel?: string;
   workflowRunId?: string;
+  parentWorkflowRunId?: string;
+  semanticTraceContext?: AcpRuntimeSemanticTraceContext;
   jobId?: string;
   sequenceStepId?: string;
   sequenceStepIndex?: number;
@@ -80,6 +83,7 @@ export type ProviderRuntimeOptionType = "string" | "number" | "boolean";
 
 export type ProviderRuntimeOptionSchemaEntry = {
   type: ProviderRuntimeOptionType;
+  retention?: "workflow" | "backend";
   title?: string;
   description?: string;
   placeholder?: string;

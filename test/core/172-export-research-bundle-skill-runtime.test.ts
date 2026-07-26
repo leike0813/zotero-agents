@@ -340,10 +340,9 @@ describe("export research bundle skill runtime", function () {
         )
         .map((row: any) => row.paper_ref),
     );
-    const bridgeCalls = (await fs.readFile(
-      path.join(runRoot, "bridge-calls.jsonl"),
-      "utf8",
-    ))
+    const bridgeCalls = (
+      await fs.readFile(path.join(runRoot, "bridge-calls.jsonl"), "utf8")
+    )
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));

@@ -56,9 +56,14 @@ separate Zotero side-pane button.
 - **AND** Assistant sidebar panels SHALL reference shared Assistant panel assets
   from `content/shared/assistant` rather than `content/dashboard`.
 
-### Requirement: ACP visual alignment
+### Requirement: ACP visual alignment preserves semantic presentation
 
-ACP Chat and ACP Skills SHALL share the same core visual semantics for running state, permission state, disconnected/error state, Host Bridge status, tool status LEDs, plan status icons, reply surfaces, and details drawers.
+ACP Chat and ACP Skills SHALL share the same core visual semantics for running
+state, permission state, disconnected/error state, service status, tool status
+LEDs, plan status icons, reply surfaces, and details drawers. The shared ACP
+panel SHALL render service availability as service indicators, numeric usage as
+a gauge, and recovery/workspace metadata in detail sections. It SHALL NOT
+convert arbitrary presentation fields into LED indicators.
 
 #### Scenario: Host Bridge indicator is visible
 
@@ -68,11 +73,81 @@ ACP Chat and ACP Skills SHALL share the same core visual semantics for running s
 - **AND** the indicator SHALL show ready, starting/recovering, fallback, or
   unavailable/error state using the shared indicator tones.
 
-#### Scenario: MCP indicator remains hidden
+#### Scenario: Zotero MCP indicator is visible
 
-- **WHEN** ACP Chat or ACP Skills receives MCP diagnostic data
-- **THEN** the normal banner indicators SHALL NOT include an MCP indicator
-- **AND** MCP diagnostic data MAY remain available in diagnostic bundles.
+- **WHEN** ACP Chat or ACP Skills receives Zotero MCP service status
+- **THEN** the normal banner indicators SHALL include the `zotero-mcp` service
+- **AND** its tone SHALL derive from the same service-status DTO as Host Bridge.
+
+#### Scenario: A run reports usage and workspace metadata
+
+- **WHEN** ACP Skills projects the selected owner
+- **THEN** usage appears in the shared gauge
+- **AND** workspace metadata appears in details without creating LEDs.
+
+#### Scenario: Indicators do not expose raw runtime values
+
+- **WHEN** a connection or service indicator receives an internal state such as
+  `idle`, `running`, or `waiting_user`
+- **THEN** the banner SHALL render the localized indicator label and semantic
+  tone
+- **AND** it SHALL NOT append the raw state value to the visible label.
+
+### Requirement: ACP banner controls remain resident
+
+ACP Chat and ACP Skills SHALL keep their source-specific banner controls
+resident while an owner is selected. Connect, Disconnect, and source-specific
+Authenticate, auto-approval, or Cancel controls SHALL express unavailable
+capabilities through disabled state rather than disappearing.
+
+#### Scenario: A restorable Chat session has no live transport
+
+- **GIVEN** a Chat conversation retains a remote session identity
+- **AND** its current transport adapter is absent
+- **WHEN** the conversation banner and composer render
+- **THEN** Connect SHALL be enabled while Disconnect and Authenticate remain
+  visible and disabled
+- **AND** runtime option selectors SHALL be disabled
+- **AND** the reasoning selector SHALL show the localized Default option.
+
+#### Scenario: A waiting Skills run remains connected
+
+- **WHEN** a connected Skills run is waiting for user input
+- **THEN** Connect and Disconnect SHALL remain visible with capability-derived
+  disabled states
+- **AND** Cancel SHALL remain visible according to run terminal state.
+
+### Requirement: ACP status hint is semantic and independent
+
+ACP Chat and ACP Skills SHALL render the managed interaction hint from the
+semantic owner-control hint kind. Raw workflow/backend state SHALL NOT be shown
+as hint text, and composer footer status SHALL NOT duplicate the managed hint.
+
+#### Scenario: Skills waits for a reply
+
+- **WHEN** the selected run reports `waiting_user`
+- **THEN** the hint SHALL show the localized waiting-for-agent text
+- **AND** the composer footer SHALL remain empty unless it has independent
+  composer-only information.
+
+### Requirement: ACP banner metadata is source-specific
+
+ACP Chat SHALL show backend and workspace metadata and MAY show an actual live
+session title or id. ACP Skills SHALL show backend and workspace metadata.
+Raw workflow status, backend status, update timestamps, and fallback owner
+titles SHALL NOT be inserted into the normal banner metadata row.
+
+For a sequence workflow task, ACP Skills SHALL render the subtitle as
+`step-marker skill-name/workflow-name` in both owner presentation and task
+navigation. Skill and workflow labels SHALL NOT be deduplicated when their
+display strings are equal because they identify different semantic roles.
+
+#### Scenario: Sequence skill and workflow labels match
+
+- **WHEN** the selected first sequence step has the same visible skill and
+  workflow label
+- **THEN** both roles remain visible after the `1️⃣` marker separated by `/`
+- **AND** banner and navigation subtitles match.
 
 ### Requirement: ACP Skills reply scaffold
 
@@ -393,10 +468,11 @@ ACP Skills workspace activity transcript rows SHALL display a concise file activ
 - **THEN** it SHALL display a file icon and the relative path
 - **AND** it SHALL NOT display the verbose workspace activity sentence.
 
-### Requirement: Assistant drawers remain interactive during live updates
+### Requirement: ACP drawers target the selected item
 
-Assistant drawer task lists SHALL preserve interactive DOM state while live
-task metadata changes.
+Chat session and Skills task drawer cards, selectors, and item actions SHALL
+remain interactive during live updates, preserve interactive DOM state while
+metadata changes, and target the item the user activated.
 
 #### Scenario: Running task timestamp updates while drawer is open
 
@@ -404,6 +480,12 @@ task metadata changes.
 - **AND** a running task only changes update metadata such as `updatedAt`
 - **THEN** the drawer SHALL remain open and interactive
 - **AND** the renderer SHALL NOT replace the whole drawer subtree.
+
+#### Scenario: User selects a historical Chat session
+
+- **WHEN** the session card is clicked
+- **THEN** the Host selects that session's canonical owner
+- **AND** owner-first loading is rendered before its indexed transcript page.
 
 ### Requirement: ACP Skills composer reflects running and waiting states
 
@@ -665,14 +747,39 @@ authentication actions.
 - **WHEN** ACP Chat renders a conversation banner
 - **THEN** the banner action row SHALL include an auto-approval toggle
 - **AND** the toggle state SHALL reflect the active conversation's
-  `autoApproveAcpPermissions` value.
+   `autoApproveAcpPermissions` value.
 
 #### Scenario: Toggle updates active conversation
 
 - **WHEN** the user changes the ACP Chat auto-approval toggle
-- **THEN** the action payload SHALL include the selected `backendId`,
-  `conversationId`, and enabled state
+- **THEN** the action owner envelope SHALL identify the selected conversation
+- **AND** the action payload SHALL include only the enabled state
 - **AND** only that conversation's setting SHALL change.
+
+#### Scenario: Successful toggle converges the current banner immediately
+
+- **WHEN** the active conversation's auto-approval action succeeds
+- **THEN** the current banner action and state label SHALL reflect the persisted value in the same publication cycle
+- **AND** no owner switch or tab switch SHALL be required
+- **AND** transcript and unrelated managed regions SHALL retain identity.
+
+### Requirement: ACP Chat runtime options remain visible while connected
+
+ACP Chat SHALL project the complete current mode, model, and reasoning option groups whenever the selected conversation is connected. Prompting, permission wait, and requested interruption SHALL NOT erase the current values or option domains. Mode SHALL remain editable in those connected states, while model and reasoning SHALL remain disabled until model configuration is editable.
+
+#### Scenario: Prompting preserves current runtime values
+
+- **GIVEN** an ACP Chat conversation is connected with selected mode, model, and reasoning values
+- **WHEN** the conversation enters prompting, permission wait, or requested interruption
+- **THEN** all three selectors SHALL continue to display their current values and options
+- **AND** mode SHALL remain enabled
+- **AND** model and reasoning SHALL be disabled.
+
+#### Scenario: Disconnected conversation has no editable runtime values
+
+- **WHEN** the selected ACP Chat conversation is disconnected or has no owner
+- **THEN** mode, model, and reasoning SHALL be disabled
+- **AND** the UI SHALL NOT present cached values as live editable configuration.
 
 ### Requirement: Shared transcript renderer owns paginated virtualization
 
@@ -683,7 +790,7 @@ dedupe, and stickiness behavior for panels that opt into virtualized rendering.
 For virtualized transcript rows, the renderer SHALL use measured row heights
 when available, SHALL use estimated row heights only for rows that have not
 been measured, and SHALL compute virtual windows, spacer heights, and page
-boundary checks from cumulative row heights rather than fixed item counts.
+boundary checks from cumulative row heights rather than fixed item counts. Content-changing measurements SHALL converge against the committed live owner state. Tail-follow work SHALL be bounded per transcript container and SHALL NOT override an explicit user scroll-away anchor.
 
 #### Scenario: Virtualized transcript renders a selected page
 
@@ -733,6 +840,21 @@ boundary checks from cumulative row heights rather than fixed item counts.
   offscreen rows
 - **AND** it SHALL use the configured estimated row height only for rows without
   a measurement.
+
+#### Scenario: Live tall-row measurement converges
+
+- **GIVEN** a visible live transcript row grows beyond its estimated height
+- **WHEN** the steady mutation commits the new measured height
+- **THEN** the virtual window and spacers SHALL converge from that committed measurement
+- **AND** the existing row identity SHALL be preserved.
+
+#### Scenario: Repeated tail-follow requests are coalesced
+
+- **GIVEN** a transcript container is following the live tail
+- **WHEN** multiple chunks request bottom-stick work before the pending animation work settles
+- **THEN** the renderer SHALL keep one active bottom-stick chain for the container
+- **AND** an older callback SHALL NOT clear the programmatic-scroll state owned by newer work
+- **AND** the transcript SHALL converge to the latest tail position without visible oscillation.
 
 #### Scenario: Page requests are deduplicated
 
@@ -818,3 +940,293 @@ The counter SHALL remain after terminal state and SHALL NOT be represented as a 
 - **THEN** the counter occupies its own natural-height row
 - **AND** the main or empty content slot retains the remaining flexible height.
 
+### Requirement: ACP children share one exact implementation
+
+ACP Chat and ACP Skills SHALL load one shared child JS/CSS implementation over
+equivalent data-role DOM. Canonical publication state and local drawer, collapse,
+draft, focus, and display-mode state SHALL remain separate.
+
+#### Scenario: A local drawer opens
+
+- **WHEN** the user opens or closes a drawer
+- **THEN** the child reprojects from unchanged canonical state
+- **AND** no owner presentation publication field is rewritten.
+
+### Requirement: ACP action routing has one strict envelope
+
+The shared child SHALL use one bridge key, message type, and action envelope.
+Owner identity SHALL exist only in the canonical owner envelope, and missing
+bridge/shared modules SHALL fail explicitly.
+
+#### Scenario: The bridge is absent
+
+- **WHEN** an ACP action is attempted without the Workspace bridge
+- **THEN** the child reports a bounded local failure
+- **AND** it does not broadcast a postMessage fallback.
+
+### Requirement: Assistant panel layout remains mounted without an owner
+
+The shared ACP main and conversation layout containers SHALL remain mounted
+with transcript and composer through empty selection, loading, ready, and owner
+switch. The empty selection state SHALL be rendered inside the conversation
+region.
+
+#### Scenario: ACP Skills has no selected task
+
+- **WHEN** the empty state is visible
+- **THEN** transcript and reply geometry remains stable
+- **AND** selecting a task does not replace the main layout container.
+
+### Requirement: Assistant panels preserve empty-state chrome
+
+ACP Chat、ACP Skills 与 SkillRunner 在没有选中 conversation、run 或 task 时 SHALL 保持与非空态相同的 banner、transcript、reply 和 toolbar managed regions。固定信息槽位 SHALL 保持可见并以渲染层 `-` 表示缺失值；owner-scoped badge、LED、selectors 和 actions SHALL 保持可见但显示 unavailable、muted 或 disabled。全局 Host Bridge 状态与 shell navigation SHALL 保持真实且可用。
+
+#### Scenario: ACP Chat has no selected conversation
+
+- **WHEN** ACP Chat 没有 selected owner
+- **THEN** banner SHALL 显示"无会话"副标题、不可用 badge、backend/conversation/workspace 空槽位和 muted Connection LED
+- **AND** Chat banner selectors/actions 与 reply controls SHALL 保持可见且禁用
+- **AND** Host Bridge 与 shell navigation SHALL 保持真实状态和可用性。
+
+#### Scenario: ACP Skills has no selected run
+
+- **WHEN** ACP Skills 没有 selected owner
+- **THEN** banner SHALL 显示"无任务"副标题、不可用 badge、backend/workspace 空槽位和 muted Connection LED
+- **AND** Skills run actions 与 reply controls SHALL 保持可见且禁用
+- **AND** Host Bridge 与 shell navigation SHALL 保持真实状态和可用性。
+
+#### Scenario: SkillRunner has no selected task
+
+- **WHEN** SkillRunner workspace envelope 显式包含 `session: null`
+- **THEN** banner SHALL 显示"无任务"副标题、不可用 badge、固定 metadata、muted Interaction LED 和 disabled Cancel action
+- **AND** transcript 与 disabled reply region SHALL 继续挂载
+- **AND** 页面 SHALL NOT 切换到独立空态布局。
+
+#### Scenario: SkillRunner selected task is preparing
+
+- **WHEN** SkillRunner envelope 包含 selected session 但尚无 requestId
+- **THEN** panel SHALL 将其视为已选任务的 preparing 状态
+- **AND** SHALL NOT 投影为空态。
+
+#### Scenario: Empty and selected owners preserve managed region identity
+
+- **WHEN** 任一 Assistant panel 从空态切换到 selected owner 再返回空态，或只更新 transcript
+- **THEN** non-transcript managed regions SHALL NOT 因该切换被页面级结构替换
+- **AND** main、banner、reply 和 drawer 容器 SHALL 保持稳定 identity。
+
+### Requirement: ACP Chat and ACP Skills expose the complete shared toolbar contract
+
+Both ACP panels SHALL expose context navigation, Details, Manage Backends, a
+right-aligned Live/By message/Silent radiogroup, and a transcript-local
+Plain/Bubble switch. Display-mode keyboard navigation SHALL support arrow keys,
+Home, and End. View changes SHALL preserve the selected owner's scroll,
+expansion, reply draft, and unrelated managed-region identity.
+
+#### Scenario: Display mode changes from the toolbar
+
+- **WHEN** the user selects a different execution display mode
+- **THEN** the selected transcript is rebased under that canonical mode
+- **AND** unrelated toolbar, banner, plan, hint, composer, and drawer nodes are not rebuilt.
+
+### Requirement: ACP banners expose source-specific current-state controls
+
+Chat SHALL retain the product title/subtitle, backend/session metadata,
+connection and Host Bridge indicators, bounded backend/session selectors, and
+New, Connect, Disconnect, Authenticate, and Auto-approve actions under their
+canonical availability rules. Skills SHALL derive title, subtitle, run status,
+backend/workspace metadata, connection and Host Bridge indicators, and Connect,
+Disconnect, and Cancel Task availability from run/task SSOT. Neither banner
+SHALL render a Zotero MCP LED.
+
+Connection, disconnection, and authentication controls SHALL remain rendered
+for the selected Chat conversation, and connection/disconnection controls
+SHALL remain rendered for the selected Skills run. Unavailable controls SHALL
+be disabled rather than omitted. A restorable remote Chat session SHALL NOT be
+presented as a live connection. Indicator status values SHALL NOT render raw
+tokens beside the localized Connection and Host Bridge labels. Skills banner
+metadata SHALL contain backend and workspace only; workflow and task/backend/
+apply status axes remain in the task drawer.
+
+For a sequence workflow task, the Skills subtitle SHALL preserve both semantic
+roles as `step-marker skill-name/workflow-name`. The skill and workflow labels
+SHALL both remain visible when their text is identical; visual string equality
+is not a reason to collapse either role. The same subtitle projection SHALL be
+used by owner presentation and task navigation.
+
+#### Scenario: Chat session selector exceeds its bound
+
+- **WHEN** the current backend has more than eight recent sessions
+- **THEN** the selector contains at most the recent eight plus the selected session when necessary and localized Show more
+- **AND** Show more opens the complete grouped session drawer.
+
+#### Scenario: A sequence step and its workflow have the same label
+
+- **WHEN** the first sequence step has skill name `文献分析` and workflow name
+  `文献分析`
+- **THEN** the Skills subtitle renders `1️⃣ 文献分析/文献分析`
+- **AND** the banner and task navigation entry use the same value.
+
+### Requirement: Hint, permission, and composer form one interaction contract
+
+The hint SHALL prioritize pending permission, recoverable connection/error,
+waiting user, running/repairing, completed, and canceled state in that order.
+Permission UI SHALL render every backend option plus localized Cancel and use
+the same canonical request in hint and drawer. Composer enablement, busy
+interrupt/cancel state, runtime selectors, usage gauge, keyboard send,
+per-owner drafts, and the latest fifty per-owner history entries SHALL follow
+the source-specific canonical control DTO.
+
+The owner-control DTO SHALL provide a semantic hint kind and optional bounded
+message. Composer state SHALL NOT be used as a fallback source for the panel
+hint and SHALL NOT repeat a stop reason or lifecycle token in the composer
+footer. A waiting-user hint without a provider message SHALL use the localized
+waiting-reply label. Chat SHALL display a localized disabled Default reasoning
+option when the backend exposes no reasoning choices.
+
+#### Scenario: A pending permission replaces ordinary run status
+
+- **WHEN** the selected owner has a pending ACP-tool or Zotero-write request
+- **THEN** the permission hint and optional drawer render the same request and actions
+- **AND** ordinary send controls are disabled until the request is resolved or canceled.
+
+### Requirement: Context and details drawers restore bounded dev semantics
+
+Context drawers SHALL group Chat sessions by backend and Skills tasks by
+running/completed section and backend, preserve keyed card identity, close
+synchronously on selection, and expose Archive only for eligible terminal or
+idle items. Details SHALL open immediately with localized loading, then render
+bounded Chat session/path/diagnostic sections or Skills path/runner/validation/
+dependency/revision/log/result sections and the canonical copy/open actions.
+
+#### Scenario: Details opens before data is available
+
+- **WHEN** the user activates Details for a selected owner without cached details
+- **THEN** the drawer opens immediately with localized loading and requests owner details
+- **AND** transcript page and full mirror reads are not prerequisites.
+
+### Requirement: Assistant Navigation Drawer Projection Is Source-Aware
+
+The Assistant Workspace MUST derive visible drawer structure from the selected source while preserving the complete canonical owner-navigation catalog.
+
+#### Scenario: ACP Skills drawer is projected
+
+- **WHEN** ACP Skills navigation contains active and completed tasks
+- **THEN** the drawer MUST expose active and completed sections
+- **AND** each section MUST include only backend groups that contain a card in that section.
+
+#### Scenario: Empty backend is added to canonical navigation
+
+- **WHEN** a backend with no visible cards is added to canonical owner navigation
+- **THEN** the visible drawer DTO MUST remain unchanged
+- **AND** the drawer managed region MUST preserve its DOM identity.
+
+### Requirement: Drawer Stable Signature Covers Visible Structure
+
+The drawer managed-region signature MUST include every visible structural field and exclude non-visible catalog data.
+
+#### Scenario: Visible section title policy changes
+
+- **WHEN** a visible section changes whether its title is hidden
+- **THEN** the drawer signature MUST change
+- **AND** the drawer region MUST refresh.
+
+#### Scenario: Visible backend identity or label changes
+
+- **WHEN** a visible backend group changes its id or display name
+- **THEN** the drawer signature MUST change
+- **AND** the drawer region MUST refresh.
+
+#### Scenario: Transcript-only state changes
+
+- **WHEN** only transcript revision, loading, streaming, event counts, or prompting tails change for the same owner
+- **THEN** the drawer and other non-transcript managed regions MUST preserve DOM identity.
+
+### Requirement: Shared transcript renderer preserves multi-page continuity
+
+The shared virtual transcript renderer SHALL retain non-overlapping cached pages when a tail page, historical page, or terminal mutation arrives. It SHALL reconcile rows and virtual gaps by stable keys, preserve a stable row-or-gap anchor across structural and measurement commits, and apply bottom following only for the current owner generation while the user remains explicitly at the tail.
+
+#### Scenario: Tail update preserves older pages
+
+- **GIVEN** a virtual transcript has a tail page and at least two older cached pages
+- **WHEN** a new tail page and a terminal item patch are rendered
+- **THEN** all non-overlapping older pages SHALL remain available without duplicate rows
+- **AND** the terminal row SHALL remain at its stable logical position.
+
+#### Scenario: Page replacement is range-scoped
+
+- **WHEN** an incoming page has the same page identity or overlaps an existing logical index range
+- **THEN** the renderer SHALL replace only the same or overlapping range
+- **AND** it SHALL preserve every non-overlapping cached page.
+
+#### Scenario: Spacer DOM matches the virtual layout
+
+- **WHEN** page merges or row measurements change unloaded and offscreen gaps
+- **THEN** keyed edge, inter-page, and loading spacers SHALL appear in logical order
+- **AND** their DOM heights SHALL match the current virtual layout.
+
+#### Scenario: Terminal update does not pull an anchored user to the bottom
+
+- **GIVEN** the user has scrolled away from the tail
+- **WHEN** a terminal patch or row-height remeasurement commits
+- **THEN** the renderer SHALL restore the stable visible anchor and offset
+- **AND** it SHALL NOT scroll to the bottom.
+
+#### Scenario: Stale bottom-stick callback cannot move the viewport
+
+- **GIVEN** bottom-stick animation work is pending
+- **WHEN** the owner or document generation changes, or the user scrolls away
+- **THEN** the callback SHALL revalidate those conditions before writing `scrollTop`
+- **AND** stale work SHALL leave the viewport unchanged.
+
+### Requirement: ACP task drawer status axes SHALL be source-aware and localized
+
+ACP Chat and ACP Skills task drawers SHALL use the shared task status projection and shared Assistant status labels. ACP Skills SHALL show Backend and Apply axes for every task. ACP Chat SHALL show Backend and SHALL hide Apply. Presentation fallbacks SHALL NOT replace nullable `backendStatus` or `applyState` facts in owner-navigation publications.
+
+#### Scenario: ACP Chat task omits explicit axis states
+
+- **WHEN** an ACP Chat task has no explicit backend or apply state
+- **THEN** its Backend axis uses the projected main state
+- **AND** its Apply axis remains hidden.
+
+#### Scenario: ACP drawer labels use the active locale
+
+- **WHEN** localized shared `status.backend`, `status.apply`, and `status.overall` labels are provided
+- **THEN** ACP drawer task axes use those labels
+- **AND** the renderer does not expose its English fallback.
+
+#### Scenario: Task status changes preserve unrelated managed regions
+
+- **WHEN** only an ACP drawer task status changes
+- **THEN** the task drawer updates through its own stable signature
+- **AND** transcript, toolbar, banner, plan, hint, reply, details, and permission regions preserve DOM identity.
+
+### Requirement: Tail-follow renders the tail window without speculative history requests
+
+When the virtual transcript renderer follows the tail (stick-to-bottom intent), it SHALL compute the render window from the tail of the virtual layout rather than the container's pre-stick `scrollTop`, and the loading-gap evaluation SHALL use the same tail position. A tail-follow render SHALL NOT emit page requests or loading sentinels for gaps the tail window cannot reveal. Non-stick renders SHALL continue to compute the window from the live `scrollTop`.
+
+#### Scenario: First stick-to-bottom render of a long transcript
+
+- **GIVEN** a virtual transcript whose cached tail page has an unloaded previous page
+- **AND** the container is in stick-to-bottom state
+- **WHEN** the first render for an owner commits
+- **THEN** the window SHALL cover the tail rows of the cached page
+- **AND** no previous-page request or loading sentinel SHALL be emitted for the offscreen gap
+- **AND** the transcript SHALL NOT flash a top-spacer frame before sticking to the bottom.
+
+#### Scenario: Short transcript still prefetches the visible gap
+
+- **GIVEN** a virtual transcript whose full layout fits inside the viewport
+- **AND** the container is in stick-to-bottom state
+- **WHEN** the first render commits with an unloaded previous page
+- **THEN** the renderer MAY request the previous page and show its loading sentinel, because the gap is visible from the tail position.
+
+### Requirement: Incremental renders keep scroll bookkeeping in sync
+
+After an incremental transcript effect restores the viewport anchor or the preserved scroll position, the renderer SHALL write the resulting `scrollTop` to the last-scroll-top marker, matching the full render path. Scroll bookkeeping SHALL NOT leave a stale marker that a later scroll event can misread as an upward user scroll.
+
+#### Scenario: Anchor restore after a tail patch
+
+- **GIVEN** a virtual transcript is anchored away from the bottom
+- **WHEN** an incremental effect restores the viewport
+- **THEN** the last-scroll-top marker SHALL equal the restored `scrollTop`
+- **AND** the tail-follow state SHALL NOT be cleared unless a real user scroll moves upward.

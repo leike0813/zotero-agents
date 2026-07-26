@@ -11,7 +11,10 @@ import {
 import {
   isTrackedContentSourceFile,
   normalizeContentPackageFileBytes,
+  resolveContentPackageGeneratedAt,
 } from "../../../scripts/build-content-package-feed";
+import { parseGithubContentPublicationArgs } from "../../../scripts/publish-content-package-github";
+import { parseGiteePublicationArgs } from "../../../scripts/sync-gitee-publication";
 import { verifyContentPackageRelease } from "../../../scripts/check-content-package-release";
 import {
   parseContentPackageReleaseArgs,
@@ -123,6 +126,61 @@ describe("content package release scripts", function () {
 
   beforeEach(async function () {
     tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "zs-release-scripts-"));
+  });
+
+  it("uses a stable commit timestamp for repeat builds", async function () {
+    const runCommand = async () => ({
+      stdout: "2026-07-18T10:41:14+00:00\n",
+      stderr: "",
+    });
+
+    assert.equal(
+      await resolveContentPackageGeneratedAt({ runCommand }),
+      "2026-07-18T10:41:14.000Z",
+    );
+    assert.equal(
+      await resolveContentPackageGeneratedAt({ runCommand }),
+      "2026-07-18T10:41:14.000Z",
+    );
+  });
+
+  it("parses the single manual Gitee publication command", function () {
+    assert.deepEqual(
+      parseGiteePublicationArgs([], {
+        pluginVersion: "0.7.0",
+        contentVersion: "0.5.0",
+      }),
+      { pluginVersion: "v0.7.0", contentVersion: "0.5.0" },
+    );
+    assert.deepEqual(
+      parseGiteePublicationArgs(
+        ["--plugin-version", "v0.8.0", "--content-version=0.6.0"],
+        { pluginVersion: "0.7.0", contentVersion: "0.5.0" },
+      ),
+      { pluginVersion: "v0.8.0", contentVersion: "0.6.0" },
+    );
+  });
+
+  it("requires explicit immutable GitHub content release assets", function () {
+    assert.deepEqual(
+      parseGithubContentPublicationArgs([
+        "--repo",
+        "owner/repo",
+        "--tag",
+        "official-workflows-v0.5.0",
+        "--title",
+        "Official workflows v0.5.0",
+        "stable.zip",
+        "stable.zip.sha256",
+      ]),
+      {
+        repo: "owner/repo",
+        tag: "official-workflows-v0.5.0",
+        title: "Official workflows v0.5.0",
+        notes: "",
+        files: ["stable.zip", "stable.zip.sha256"],
+      },
+    );
   });
 
   afterEach(async function () {
@@ -321,7 +379,7 @@ describe("content package release scripts", function () {
     assert.isFalse(result.dispatched);
     assert.includeMembers(result.nextCommands, [
       "git add content-package.version.json",
-      "gh workflow run publish-content-feed.yml --repo leike0813/zotero-agents --ref main",
+      "npm run release:content-package -- --dispatch --watch --repo leike0813/zotero-agents --ref main",
     ]);
   });
 
@@ -361,25 +419,84 @@ describe("content package release scripts", function () {
 
   it("dispatches the content package publish workflow only from a clean tree", async function () {
     const calls: Array<{ command: string; args: string[] }> = [];
+    let runListAttempts = 0;
+    const releaseSetFile = path.join(tempRoot, "release-set.json");
+    const receiptFile = path.join(tempRoot, "receipt.json");
+    await fs.writeFile(
+      releaseSetFile,
+      JSON.stringify({ releaseSetId: "hbrs-ready" }),
+    );
+    await fs.writeFile(
+      receiptFile,
+      JSON.stringify({ status: "complete", releaseSetId: "hbrs-ready" }),
+    );
 
     const result = await prepareContentPackageRelease({
       dispatch: true,
       watch: true,
       repo: "owner/repo",
       ref: "release-branch",
+      requestId: "content-request-1",
+      hostReleaseSetFile: releaseSetFile,
+      hostReceiptFile: receiptFile,
       runCommand: async (command, args) => {
         calls.push({ command, args });
+        if (command === "git" && args[0] === "rev-parse") {
+          return { stdout: "source-sha\n", stderr: "" };
+        }
+        if (command === "gh" && args[0] === "run" && args[1] === "list") {
+          runListAttempts += 1;
+          return {
+            stdout: JSON.stringify(
+              runListAttempts === 1
+                ? []
+                : [
+                    {
+                      databaseId: 123,
+                      displayTitle: "Content package content-request-1",
+                      event: "workflow_dispatch",
+                      headBranch: "release-branch",
+                      headSha: "source-sha",
+                      url: "https://example.invalid/runs/123",
+                    },
+                  ],
+            ),
+            stderr: "",
+          };
+        }
         return { stdout: "", stderr: "" };
       },
     });
 
     assert.isTrue(result.dispatched);
+    assert.strictEqual(result.runId, 123);
     assert.deepEqual(calls, [
       { command: "git", args: ["status", "--porcelain"] },
       { command: "git", args: ["fetch", "origin", "release-branch"] },
       {
         command: "git",
         args: ["merge-base", "--is-ancestor", "HEAD", "origin/release-branch"],
+      },
+      {
+        command: "git",
+        args: ["rev-parse", "HEAD"],
+      },
+      {
+        command: "gh",
+        args: [
+          "run",
+          "list",
+          "--repo",
+          "owner/repo",
+          "--workflow",
+          "publish-content-feed.yml",
+          "--event",
+          "workflow_dispatch",
+          "--limit",
+          "30",
+          "--json",
+          "databaseId,displayTitle,event,headBranch,headSha,url",
+        ],
       },
       {
         command: "gh",
@@ -391,10 +508,65 @@ describe("content package release scripts", function () {
           "owner/repo",
           "--ref",
           "release-branch",
+          "-f",
+          "request_id=content-request-1",
         ],
       },
-      { command: "gh", args: ["run", "watch", "--repo", "owner/repo"] },
+      {
+        command: "gh",
+        args: [
+          "run",
+          "list",
+          "--repo",
+          "owner/repo",
+          "--workflow",
+          "publish-content-feed.yml",
+          "--event",
+          "workflow_dispatch",
+          "--limit",
+          "30",
+          "--json",
+          "databaseId,displayTitle,event,headBranch,headSha,url",
+        ],
+      },
+      {
+        command: "gh",
+        args: ["run", "watch", "123", "--repo", "owner/repo", "--exit-status"],
+      },
     ]);
+  });
+
+  it("keeps the Host Bridge receipt gate in the content workflow", async function () {
+    const workflow = await fs.readFile(
+      ".github/workflows/publish-content-feed.yml",
+      "utf8",
+    );
+    assert.include(workflow, "latest-complete-release-receipt.json");
+    assert.include(workflow, 'test "$(jq -r .status');
+    assert.include(workflow, 'test "$(jq -r .releaseSetId');
+  });
+
+  it("rejects content dispatch while the Host Bridge release is pending", async function () {
+    const releaseSetFile = path.join(tempRoot, "pending-release-set.json");
+    const receiptFile = path.join(tempRoot, "stale-receipt.json");
+    await fs.writeFile(
+      releaseSetFile,
+      JSON.stringify({ releaseSetId: "hbrs-pending" }),
+    );
+    await fs.writeFile(
+      receiptFile,
+      JSON.stringify({ status: "complete", releaseSetId: "hbrs-old" }),
+    );
+
+    await expectRejects(
+      prepareContentPackageRelease({
+        dispatch: true,
+        hostReleaseSetFile: releaseSetFile,
+        hostReceiptFile: receiptFile,
+        runCommand: async () => ({ stdout: "", stderr: "" }),
+      }),
+      /Host Bridge.*hbrs-pending.*complete receipt/i,
+    );
   });
 
   it("rejects workflow dispatch when local HEAD has not reached the remote ref", async function () {
@@ -572,13 +744,18 @@ describe("content package release scripts", function () {
     );
   });
 
-  it("keeps submodule tracked files eligible while excluding local git metadata", function () {
+  it("keeps tracked skill files eligible while excluding local git metadata", function () {
     const trackedFiles = new Set([
       "skills_builtin/literature-analysis/SKILL.md",
       "skills_builtin/literature-analysis/assets/runner.json",
       "skills_builtin/literature-metadata-search/assets/input.schema.json",
       "skills_builtin/literature-metadata-search/assets/output.schema.json",
       "skills_builtin/literature-metadata-search/assets/runner.json",
+      "skills_builtin/tag-regulator/SKILL.md",
+      "skills_builtin/tag-regulator/references/tag_standard.md",
+      "skills_builtin/tag-regulator/scripts/normalize_output.py",
+      "skills_builtin/tag-regulator/assets/output.schema.json",
+      "skills_builtin/tag-regulator/assets/runner.json",
     ]);
 
     assert.isTrue(
@@ -639,6 +816,25 @@ describe("content package release scripts", function () {
         trackedFiles,
       }),
     );
+    for (const relativePath of [
+      "SKILL.md",
+      "references/tag_standard.md",
+      "scripts/normalize_output.py",
+      "assets/output.schema.json",
+      "assets/runner.json",
+    ]) {
+      assert.isTrue(
+        isTrackedContentSourceFile({
+          filePath: path.join(
+            process.cwd(),
+            "skills_builtin",
+            "tag-regulator",
+            ...relativePath.split("/"),
+          ),
+          trackedFiles,
+        }),
+      );
+    }
   });
 
   it("normalizes text package file line endings without rewriting binary files", function () {

@@ -28,11 +28,18 @@ my-workflow/
 
 ```json
 {
+  "schemaVersion": 2,
   "id": "hello-world",
   "label": "Hello World",
   "provider": "pass-through",
+  "trigger": { "requiresSelection": true },
   "inputs": {
-    "unit": "parent"
+    "member": { "kind": "parent" },
+    "grouping": { "mode": "each" }
+  },
+  "validateSelection": {
+    "select": { "policy": "input-member", "source": "selected" },
+    "filters": []
   },
   "hooks": {
     "applyResult": "hooks/applyResult.mjs"
@@ -96,7 +103,12 @@ Workflow Manager — 发现、加载、校验
   "id": "唯一标识符",
   "label": "显示名称",
   "provider": "后端类型",
-  "inputs": { "unit": "输入单元类型" },
+  "trigger": { "requiresSelection": true },
+  "inputs": {
+    "member": { "kind": "execution member type" },
+    "grouping": { "mode": "each | all | parent" }
+  },
+  "validateSelection": { /* candidate production contract */ },
   "parameters": { /* 可配置参数 */ },
   "execution": { /* 执行控制 */ },
   "request": { "kind": "请求种类" },

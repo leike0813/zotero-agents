@@ -6,7 +6,7 @@ import {
   removeRuntimePath,
   writeRuntimeBytes,
 } from "../modules/runtimePersistence";
-import { joinPath } from "../utils/path";
+import { joinPath, normalizeNativeLocalPath } from "../utils/path";
 import { resolveRuntimeZotero } from "../utils/runtimeBridge";
 import { sha256Hex } from "../utils/sha256";
 
@@ -243,7 +243,9 @@ async function hashBytes(bytes: Uint8Array) {
 }
 
 async function readLocalBytes(path: string) {
-  return new Uint8Array(await readRuntimeBytes(path));
+  return new Uint8Array(
+    await readRuntimeBytes(normalizeNativeLocalPath(path)),
+  );
 }
 
 async function writeLocalBytes(path: string, bytes: Uint8Array) {

@@ -12,9 +12,9 @@ import {
 } from "../runtimePersistence";
 import {
   registerHostBridgeExportFile,
-  sha256Bytes,
   type HostBridgeFileDescriptor,
 } from "../hostBridgeFileRegistry";
+import { sha256PrefixedHex } from "../../utils/sha256";
 import { createStoreZipBytes } from "../zipStore";
 
 type SynthesisHostExportDeliveryAdapterOptions = {
@@ -72,7 +72,7 @@ export function createSynthesisHostExportDeliveryPort(
             text: entry.text,
           })),
         );
-        const sha256 = await sha256Bytes(bytes);
+        const sha256 = await sha256PrefixedHex(bytes);
         if (!sha256) {
           return unavailable(request);
         }

@@ -7,14 +7,102 @@ import {
   assertRequiredWorkflowParameters,
   listMissingRequiredWorkflowParameters,
   normalizeSavedWorkflowSettings,
+  normalizeHostQueueMaxConcurrency,
   normalizeWorkflowParamsBySchema,
+  parseExecutionOptionsPatch,
   parseSettingsRecord,
+  rebaseProviderOptionsForBackendChange,
   serializeSettingsRecord,
   type WorkflowExecutionOptions,
 } from "../../src/modules/workflowSettingsDomain";
 import type { WorkflowManifest } from "../../src/workflows/types";
+import type { ProviderRuntimeOptionSchema } from "../../src/providers/types";
+import { AcpProvider } from "../../src/providers/acp/provider";
+import { SkillRunnerProvider } from "../../src/providers/skillrunner/provider";
 
 describe("workflow settings domain", function () {
+  it("classifies backend identity fields separately from workflow behavior options", function () {
+    for (const { schema, backendKeys, workflowKeys } of [
+      {
+        schema: new AcpProvider().getRuntimeOptionSchema(),
+        backendKeys: [
+          "acpModeId",
+          "acpModelProvider",
+          "acpModelId",
+          "acpReasoningEffort",
+        ],
+        workflowKeys: ["autoApproveAcpPermissions", "hard_timeout_seconds"],
+      },
+      {
+        schema: new SkillRunnerProvider().getRuntimeOptionSchema(),
+        backendKeys: ["engine", "provider_id", "model", "effort"],
+        workflowKeys: [
+          "no_cache",
+          "interactive_auto_reply",
+          "interactive_reply_timeout_sec",
+          "hard_timeout_seconds",
+        ],
+      },
+    ]) {
+      assert.deepEqual(
+        backendKeys.filter((key) => schema[key]?.retention !== "backend"),
+        [],
+      );
+      assert.deepEqual(
+        workflowKeys.filter((key) => schema[key]?.retention !== "workflow"),
+        [],
+      );
+    }
+  });
+
+  it("drops backend-scoped and foreign provider options when backend identity changes", function () {
+    const schema: ProviderRuntimeOptionSchema = {
+      acpModeId: { type: "string", retention: "backend" },
+      acpModelProvider: { type: "string", retention: "backend" },
+      acpModelId: { type: "string", retention: "backend" },
+      acpReasoningEffort: { type: "string", retention: "backend" },
+      autoApproveAcpPermissions: { type: "boolean", retention: "workflow" },
+      hard_timeout_seconds: { type: "number", retention: "workflow" },
+    };
+
+    const rebased = rebaseProviderOptionsForBackendChange({
+      previousBackendId: "acp-kilo",
+      nextBackendId: "acp-opencode",
+      targetSchema: schema,
+      options: {
+        acpModeId: "code",
+        acpModelProvider: "openai",
+        acpModelId: "gpt-5-codex",
+        acpRawModelId: "gpt-5-codex@high",
+        acpReasoningEffort: "high",
+        autoApproveAcpPermissions: true,
+        hard_timeout_seconds: 900,
+        engine: "opencode",
+      },
+    });
+
+    assert.deepEqual(rebased, {
+      autoApproveAcpPermissions: true,
+      hard_timeout_seconds: 900,
+    });
+  });
+
+  it("preserves backend-scoped options while the backend owner is unchanged", function () {
+    const schema: ProviderRuntimeOptionSchema = {
+      acpModeId: { type: "string", retention: "backend" },
+      hard_timeout_seconds: { type: "number", retention: "workflow" },
+    };
+    assert.deepEqual(
+      rebaseProviderOptionsForBackendChange({
+        previousBackendId: "acp-kilo",
+        nextBackendId: "acp-kilo",
+        targetSchema: schema,
+        options: { acpModeId: "code", hard_timeout_seconds: 900 },
+      }),
+      { acpModeId: "code", hard_timeout_seconds: 900 },
+    );
+  });
+
   it("merges run-once overrides over persisted settings deterministically", function () {
     const base: WorkflowExecutionOptions = {
       backendId: "skillrunner-local",
@@ -71,6 +159,83 @@ describe("workflow settings domain", function () {
     assert.equal(merged.workflowParams?.keep, "base");
     assert.notProperty(merged.providerOptions, "hard_timeout_seconds");
     assert.notProperty(merged.providerOptions, "model");
+  });
+
+  it("normalizes Host queue maximum concurrency through one domain contract", function () {
+    const cases: Array<{
+      input: unknown;
+      status: "valid" | "invalid";
+      value?: number;
+    }> = [
+      { input: undefined, status: "valid" },
+      { input: null, status: "valid" },
+      { input: "", status: "valid" },
+      { input: "   ", status: "valid" },
+      { input: 0, status: "valid" },
+      { input: "0", status: "valid" },
+      { input: 1, status: "valid", value: 1 },
+      { input: "3", status: "valid", value: 3 },
+      { input: -1, status: "invalid" },
+      { input: 1.5, status: "invalid" },
+      { input: "not-a-number", status: "invalid" },
+      { input: Number.NaN, status: "invalid" },
+      { input: Number.POSITIVE_INFINITY, status: "invalid" },
+      { input: Number.MAX_SAFE_INTEGER + 1, status: "invalid" },
+    ];
+
+    for (const testCase of cases) {
+      const result = normalizeHostQueueMaxConcurrency(testCase.input);
+      assert.equal(result.status, testCase.status);
+      if (result.status === "valid") {
+        assert.equal(result.maxConcurrency, testCase.value);
+      }
+    }
+  });
+
+  it("persists positive Host limits and treats explicit zero as clearing", function () {
+    const base: WorkflowExecutionOptions = {
+      hostOptions: {
+        queue: {
+          maxConcurrency: 4,
+        },
+      },
+    };
+    assert.deepEqual(
+      mergeExecutionOptions(base, {
+        hostOptions: { queue: { maxConcurrency: 2 } },
+      }).hostOptions,
+      { queue: { maxConcurrency: 2 } },
+    );
+    assert.deepEqual(
+      mergeExecutionOptions(base, {
+        hostOptions: { queue: { maxConcurrency: 0 } },
+      }).hostOptions,
+      {},
+    );
+    assert.deepEqual(mergeExecutionOptions(base, {}).hostOptions, {
+      queue: { maxConcurrency: 4 },
+    });
+  });
+
+  it("ignores invalid stored Host limits and rejects invalid patches", function () {
+    const parsed = parseSettingsRecord({
+      schemaVersion: 1,
+      workflows: {
+        legacy: {
+          workflowParams: { language: "zh-CN" },
+          hostOptions: { queue: { maxConcurrency: -2 } },
+        },
+      },
+    });
+    assert.deepEqual(parsed.legacy?.workflowParams, { language: "zh-CN" });
+    assert.deepEqual(parsed.legacy?.hostOptions, {});
+    assert.throws(
+      () =>
+        parseExecutionOptionsPatch({
+          hostOptions: { queue: { maxConcurrency: 1.5 } },
+        }),
+      /maximum concurrency/i,
+    );
   });
 
   it("keeps persisted normalization workflow-agnostic in domain layer", function () {
@@ -150,6 +315,28 @@ describe("workflow settings domain", function () {
       language: "fr-FR",
     });
     assert.equal(normalized.language, "zh-CN");
+  });
+
+  it("normalizes string-array workflow parameters without losing non-Latin values", function () {
+    const manifest = {
+      id: "multilingual-search",
+      label: "Multilingual Search",
+      hooks: { applyResult: "hooks/applyResult.js" },
+      parameters: {
+        languageHints: {
+          type: "array",
+          items: { type: "string" },
+          default: [],
+        },
+      },
+    } as WorkflowManifest;
+
+    assert.deepEqual(
+      normalizeWorkflowParamsBySchema(manifest, {
+        languageHints: [" zh-CN ", "日本語", "zh-CN", 42],
+      }).languageHints,
+      ["zh-CN", "日本語"],
+    );
   });
 
   it("validates required workflow parameters without rejecting false or zero", function () {
@@ -260,6 +447,7 @@ describe("workflow settings domain", function () {
       },
     };
     const document = createWorkflowSettingsDocument(record);
+    assert.equal(WORKFLOW_SETTINGS_SCHEMA_VERSION, 2);
     assert.equal(document.schemaVersion, WORKFLOW_SETTINGS_SCHEMA_VERSION);
     assert.deepEqual(document.workflows, record);
 

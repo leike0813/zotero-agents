@@ -11,4 +11,3 @@ The Zotero Librarian profile SHALL remain the Hermes-specific surface for contin
 - **WHEN** the profile consumes shared Host Bridge control invariants
 - **THEN** those protocol facts SHALL match the CLI wrapper and general library agent copies
 - **AND** the profile SHALL retain its independent resident task policy.
-

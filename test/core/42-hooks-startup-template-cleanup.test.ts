@@ -1,18 +1,23 @@
 import { assert } from "chai";
-import fs from "node:fs";
-import path from "node:path";
 import { config } from "../../package.json";
-import hooks from "../../src/hooks";
+import hooks, {
+  initializeSynthesisBuiltinTagsOnStartup,
+} from "../../src/hooks";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { getSkillRunnerBackendReachabilityCoordinatorRuntimeForTests } from "../../src/modules/skillRunnerBackendReachabilityCoordinator";
 import {
   clearRuntimeLogs,
   getRuntimeLogDiagnosticMode,
+  getRuntimeLogPersistenceStateForTests,
   listRuntimeLogs,
+  resetRuntimeLogHydrationForTests,
   resetRuntimeLogAllowedLevels,
   setRuntimeLogDiagnosticMode,
 } from "../../src/modules/runtimeLogManager";
+import { writeRuntimeTextFile } from "../../src/modules/runtimePersistence";
 import { cleanupBackgroundRuntimeForZoteroTests } from "../../src/modules/testRuntimeCleanup";
+import { getBuiltinStatusPolicy } from "../../src/modules/synthesis/builtinTagPolicy";
+import { getDefaultSynthesisClient } from "../../src/modules/synthesisClient/defaultClient";
 
 type LocalizationRequest = {
   id: string;
@@ -90,7 +95,7 @@ describe("hooks startup template cleanup", function () {
   });
 
   it("emits runtime startup preflight info logs", async function () {
-    clearRuntimeLogs();
+    await clearRuntimeLogs();
 
     await hooks.onStartup();
 
@@ -110,6 +115,69 @@ describe("hooks startup template cleanup", function () {
       assert.notInclude(JSON.stringify(entry.details || {}), "OPENAI_API_KEY");
       assert.notInclude(JSON.stringify(entry.details || {}), "PATH=");
     }
+  });
+
+  it("initializes runtime log persistence before startup log producers", async function () {
+    await clearRuntimeLogs();
+    resetRuntimeLogHydrationForTests();
+    await writeRuntimeTextFile(
+      getRuntimeLogPersistenceStateForTests().path,
+      JSON.stringify({
+        entries: [
+          {
+            id: "log-before-startup",
+            ts: new Date().toISOString(),
+            level: "info",
+            scope: "system",
+            schemaVersion: 1,
+            diagnosticMode: false,
+            stage: "before-startup",
+            message: "hydrate before startup producers",
+          },
+        ],
+      }),
+    );
+
+    await hooks.onStartup();
+
+    assert.equal(
+      listRuntimeLogs().find((entry) => entry.stage === "before-startup")?.id,
+      "log-before-startup",
+    );
+  });
+
+  it("initializes builtin status vocabulary before startup completes", async function () {
+    await hooks.onStartup();
+
+    assert.isTrue(Boolean((globalThis as any).addon?.data?.initialized));
+    const snapshot = await (
+      await getDefaultSynthesisClient()
+    ).tags.loadTagVocabulary();
+    assert.includeMembers(
+      snapshot.entries.map((entry) => entry.tag),
+      Object.values(getBuiltinStatusPolicy()),
+    );
+  });
+
+  it("keeps startup incomplete with a structured error when builtin policy initialization fails", async function () {
+    (globalThis as any).addon.data.initialized = true;
+    try {
+      await initializeSynthesisBuiltinTagsOnStartup({
+        async initializeBuiltinTagPolicy() {
+          throw new Error("synthetic repository failure");
+        },
+      } as any);
+      assert.fail("expected startup initialization failure");
+    } catch (error) {
+      assert.match(String(error), /synthetic repository failure/);
+    }
+
+    assert.isFalse((globalThis as any).addon.data.initialized);
+    assert.deepInclude((globalThis as any).addon.data.startupError, {
+      stage: "synthesis-builtin-tag-policy",
+      code: "builtin_tag_policy_initialization_failed",
+      message: "synthetic repository failure",
+    });
   });
 
   it("registers preferences pane on startup", async function () {
@@ -140,22 +208,6 @@ describe("hooks startup template cleanup", function () {
     assert.isTrue(runtime.timerActive || runtime.pendingProbeTimerCount > 0);
   });
 
-  it("starts and stops the Synthesis sidecar supervisor through plugin lifecycle", function () {
-    const source = fs.readFileSync(
-      path.join(process.cwd(), "src/hooks.ts"),
-      "utf8",
-    );
-    assert.include(source, "startSynthesisSidecarRuntimeSupervisor()");
-    assert.include(source, "shutdownDefaultSynthesisClient");
-    assert.include(source, '"synthesis-client-dispose"');
-    assert.include(source, '"synthesis-sidecar-supervisor-stop"');
-    assert.include(source, "stopSynthesisSidecarRuntimeSupervisor");
-    assert.isBelow(
-      source.indexOf('"synthesis-client-dispose"'),
-      source.indexOf('"synthesis-sidecar-supervisor-stop"'),
-    );
-  });
-
   it("enables runtime diagnostic log mode on startup when hardcoded debug mode is on", async function () {
     setDebugModeOverrideForTests(true);
     setRuntimeLogDiagnosticMode(false);
@@ -163,5 +215,38 @@ describe("hooks startup template cleanup", function () {
     await hooks.onStartup();
 
     assert.isTrue(getRuntimeLogDiagnosticMode());
+  });
+
+  it("completes debug startup when the privileged host has no performance global", async function () {
+    const performanceDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "performance",
+    );
+    setDebugModeOverrideForTests(true);
+    setRuntimeLogDiagnosticMode(false);
+    if (usedAddonObject?.data) {
+      (usedAddonObject.data as { initialized?: boolean }).initialized = false;
+    }
+    Object.defineProperty(globalThis, "performance", {
+      configurable: true,
+      writable: true,
+      value: undefined,
+    });
+
+    try {
+      await hooks.onStartup();
+
+      assert.isTrue(
+        (usedAddonObject?.data as { initialized?: boolean } | undefined)
+          ?.initialized,
+      );
+      assert.isTrue(getRuntimeLogDiagnosticMode());
+    } finally {
+      if (performanceDescriptor) {
+        Object.defineProperty(globalThis, "performance", performanceDescriptor);
+      } else {
+        delete (globalThis as { performance?: unknown }).performance;
+      }
+    }
   });
 });

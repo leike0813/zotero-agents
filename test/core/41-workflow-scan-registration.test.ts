@@ -25,6 +25,18 @@ import {
 
 const workflowDirPrefKey = `${config.prefsPrefix}.workflowDir`;
 const skillDirPrefKey = `${config.prefsPrefix}.skillDir`;
+const workflowInputPlanningV2 = {
+  schemaVersion: 2,
+  trigger: { requiresSelection: true },
+  inputs: {
+    member: { kind: "selection" },
+    grouping: { mode: "all" },
+  },
+  validateSelection: {
+    select: { policy: "selection" },
+    filters: [],
+  },
+} as const;
 
 describe("workflow scan + registry integration", function () {
   let prevAddon: unknown;
@@ -142,6 +154,7 @@ describe("workflow scan + registry integration", function () {
       joinPath(packageRoot, args.workflowId, "workflow.json"),
       `${JSON.stringify(
         {
+          ...workflowInputPlanningV2,
           id: args.workflowId,
           label: args.label,
           provider: args.skillId ? "skillrunner" : "pass-through",
@@ -391,6 +404,7 @@ describe("workflow scan + registry integration", function () {
         joinPath(workflowDir, "workflow.json"),
         `${JSON.stringify(
           {
+            ...workflowInputPlanningV2,
             id: workflowId,
             label: args.label,
             ...(args.debugOnly ? { debug_only: true } : {}),
@@ -467,6 +481,7 @@ describe("workflow scan + registry integration", function () {
       joinPath(devWorkflows, workflowId, "workflow.json"),
       `${JSON.stringify(
         {
+          ...workflowInputPlanningV2,
           id: workflowId,
           label: "Dev Local Skillrunner Workflow",
           provider: "skillrunner",
@@ -545,6 +560,7 @@ describe("workflow scan + registry integration", function () {
       joinPath(devWorkflows, workflowId, "workflow.json"),
       `${JSON.stringify(
         {
+          ...workflowInputPlanningV2,
           id: workflowId,
           label: "Default Dev Local Workflow",
           provider: "pass-through",

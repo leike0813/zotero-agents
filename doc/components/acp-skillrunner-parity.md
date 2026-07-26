@@ -372,3 +372,48 @@ Warning codes:
 | Output Convergence | Assistant text + runnerJson | `AcpSkillOutputConvergenceResult` | `convergeAcpSkillTurnOutput()` |
 | Result File Fallback | Workspace dir + runnerJson | `AcpSkillResultFileFallbackResolution` | `resolveAcpSkillResultFileFallback()` |
 | Output Validation | Candidate payload + runnerJson | `AcpSkillOutputValidationResult` | `validateAcpSkillFinalPayload()` |
+
+---
+
+## Assistant Workspace publication parity
+
+ACP Skills and ACP Chat use the same Workspace transcript region, page, item,
+mutation, publication, acknowledgement, and receiver vocabulary. ACP Skills
+`progress` maps to the shared `message-counts` region and `runtime-options`
+maps to `composer`; transcript events are normalized at the store seam and
+processed by the same boundary projection used by Chat.
+
+The Skills run store and persistence format remain Skills-specific. That
+difference ends at the adapter boundary: no Skills-only transcript field,
+revision state machine, page continuity rule, or browser apply path exists.
+Indexed page readiness is independent from full mirror hydration, so a ready
+page is renderable while cold mirror hydration continues in the background.
+
+Both producers use the same before/after item projector. New items become
+`upsert_item`; text growth becomes suffix-only `append_text`; stable items
+become minimal `patch_item`; removal becomes `delete_item`. Mutations,
+initialization snapshots, page transitions, and rebase share one
+owner-scoped coordinator lane, and only terminal child acknowledgement advances
+that lane.
+
+The browser path is also identical: one FIFO waits behind owner-first full
+snapshots, one receiver owns continuity and idempotence, and one renderer effect
+updates the affected row. Append followed by finalization is evaluated against
+the preceding mutation result, so the final patch cannot overwrite newly
+appended text. Full-page clone/reindex and transcript revision in DOM order
+identity are not part of steady publication. Shell delivery and acknowledgement
+are scoped to the current child document generation for both surfaces.
+
+Item and row identity are deliberately separate on both surfaces. Domain pages
+and mutations expose only `itemId`, `itemKind`, and `status`; ordinary
+presentation rows use `rowKey=item:<itemId>`, while a bubble tool run uses
+`rowKey=tool-run:<firstItemId>` and declares every represented `itemId`.
+Chat and Skills share the same bounded selected-page model, structural keyed
+reconciler, direct typed message-count renderer, render failure/rebase rule,
+and dirty-row measurement path. A steady structural mutation never falls back
+to a full transcript or panel render.
+
+Workspace task cards do not project raw run status directly. Their primary
+state comes from `resolveAcpSkillRunWorkflowTaskState`; backend status, apply
+state, recovery, connection, attention, and selected-run lifecycle remain
+independent. Missing values remain absent rather than borrowing another axis.

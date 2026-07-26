@@ -1,181 +1,117 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Literature Search Ingest final output",
   "type": "object",
   "oneOf": [
-    {
+    { "$ref": "#/$defs/completedOutput" },
+    { "$ref": "#/$defs/canceledOutput" }
+  ],
+  "$defs": {
+    "itemRef": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "successfulOutcome": {
       "type": "object",
       "required": [
-        "kind",
-        "ingested_references",
-        "missing_pdf_references"
+        "title",
+        "ingestStatus",
+        "itemRef",
+        "pdfStatus",
+        "needsCuration"
       ],
       "properties": {
-        "kind": {
-          "const": "literature_search_ingest"
-        },
-        "query": {
-          "type": "string"
-        },
-        "search_mode": {
+        "title": { "type": "string" },
+        "ingestStatus": {
           "type": "string",
-          "enum": [
-            "guided",
-            "topic_expansion",
-            "paper_seed_expansion",
-            "targeted_ingest"
-          ]
+          "enum": ["created", "existing"]
         },
-        "ingested_references": {
-          "type": "array",
-          "description": "Successfully ingested reference items. Each entry has index, title, and status.",
-          "items": {
-            "type": "object",
-            "required": [
-              "index",
-              "title",
-              "status"
-            ],
-            "properties": {
-              "index": {
-                "type": "number"
-              },
-              "title": {
-                "type": "string"
-              },
-              "status": {
-                "type": "string",
-                "enum": [
-                  "created",
-                  "existing"
-                ]
-              },
-              "itemRef": {
-                "type": "object"
-              },
-              "doi": {
-                "type": "string"
-              },
-              "arxiv": {
-                "type": "string"
-              },
-              "pmid": {
-                "type": "string"
-              },
-              "isbn": {
-                "type": "string"
-              },
-              "landingUrl": {
-                "type": "string"
-              }
-            },
-            "additionalProperties": true
-          }
+        "itemRef": { "$ref": "#/$defs/itemRef" },
+        "pdfStatus": {
+          "type": "string",
+          "enum": ["attached", "missing", "skipped", "failed"]
         },
-        "missing_pdf_references": {
-          "type": "array",
-          "description": "Ingested references without PDF attachments, with landing page and manual search links.",
-          "items": {
-            "type": "object",
-            "required": [
-              "index",
-              "title"
-            ],
-            "properties": {
-              "index": {
-                "type": "number"
-              },
-              "title": {
-                "type": "string"
-              },
-              "status": {
-                "type": "string",
-                "enum": [
-                  "created",
-                  "existing"
-                ]
-              },
-              "itemRef": {
-                "type": "object"
-              },
-              "doi": {
-                "type": "string"
-              },
-              "arxiv": {
-                "type": "string"
-              },
-              "pmid": {
-                "type": "string"
-              },
-              "isbn": {
-                "type": "string"
-              },
-              "landingUrl": {
-                "type": "string"
-              },
-              "manualSearchLinks": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "reason": {
-                "type": "string"
-              }
-            },
-            "additionalProperties": true
-          }
-        },
-        "ingest_failures": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "required": [
-              "index",
-              "title",
-              "error"
-            ],
-            "properties": {
-              "index": {
-                "type": "number"
-              },
-              "title": {
-                "type": "string"
-              },
-              "error": {
-                "type": "object"
-              }
-            },
-            "additionalProperties": true
-          }
+        "needsCuration": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "unsuccessfulOutcome": {
+      "type": "object",
+      "required": ["title", "ingestStatus"],
+      "properties": {
+        "title": { "type": "string" },
+        "ingestStatus": {
+          "type": "string",
+          "enum": ["failed", "not_attempted"]
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
-    {
+    "completedOutput": {
       "type": "object",
       "required": [
         "kind",
         "status",
-        "reason",
-        "message"
+        "summary",
+        "outcomes",
+        "searchLedgerPath"
       ],
       "properties": {
-        "kind": {
-          "const": "literature_search_ingest_canceled"
+        "__SKILL_DONE__": { "type": "boolean" },
+        "kind": { "const": "literature_search_ingest" },
+        "status": { "const": "completed" },
+        "summary": {
+          "type": "object",
+          "required": [
+            "discovered",
+            "selected",
+            "created",
+            "existing",
+            "failed",
+            "notAttempted"
+          ],
+          "properties": {
+            "discovered": { "type": "integer", "minimum": 0 },
+            "selected": { "type": "integer", "minimum": 0 },
+            "created": { "type": "integer", "minimum": 0 },
+            "existing": { "type": "integer", "minimum": 0 },
+            "failed": { "type": "integer", "minimum": 0 },
+            "notAttempted": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
         },
-        "status": {
-          "const": "canceled"
+        "outcomes": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              { "$ref": "#/$defs/successfulOutcome" },
+              { "$ref": "#/$defs/unsuccessfulOutcome" }
+            ]
+          }
         },
-        "reason": {
-          "type": "string",
-          "description": "Machine-readable reason code explaining the cancellation."
-        },
-        "message": {
-          "type": "string",
-          "description": "Human-readable explanation message."
+        "searchLedgerPath": {
+          "const": "result/search-ledger.json",
+          "x-type": "artifact",
+          "x-role": "search-ledger"
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
+    },
+    "canceledOutput": {
+      "type": "object",
+      "required": ["kind", "status", "reason", "message"],
+      "properties": {
+        "__SKILL_DONE__": { "type": "boolean" },
+        "kind": { "const": "literature_search_ingest_canceled" },
+        "status": { "const": "canceled" },
+        "reason": { "type": "string", "minLength": 1 },
+        "message": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
     }
-  ]
+  }
 }

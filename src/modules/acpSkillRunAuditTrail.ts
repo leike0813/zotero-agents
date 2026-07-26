@@ -15,7 +15,7 @@ import {
 } from "./bufferedWriteCoordinator";
 import type { SessionNotification } from "./acpProtocol";
 import type { AcpSkillRunEvent, AcpSkillRunRecord } from "./acpSkillRunStore";
-import type { AcpDiagnosticsEntry } from "./acpTypes";
+import type { AcpDiagnosticEvidenceRecord } from "./acpDiagnostics";
 import type { AcpSkillRunnerWorkspace } from "./acpSkillRunnerWorkspace";
 import { isDebugModeEnabled } from "./debugMode";
 
@@ -33,6 +33,8 @@ const MAX_STDERR_LENGTH = 64 * 1024;
 const MAX_DEPTH = 6;
 const MAX_ARRAY_ITEMS = 100;
 const MAX_OBJECT_KEYS = 200;
+const AUDIT_MAX_PENDING_ENTRIES = 2048;
+const AUDIT_MAX_PENDING_BYTES = 2 * 1024 * 1024;
 const SENSITIVE_KEY_PATTERN =
   /(authorization|token|secret|password|api[-_]?key|cookie|bearer)/i;
 const auditWriteKeys = new Map<string, string>();
@@ -190,6 +192,20 @@ function appendRuntimeTextFile(args: {
     owner: args.owner,
     entry: args.line,
     bytes: new TextEncoder().encode(args.line).length,
+    performanceProfileRequestId: args.requestId,
+    performanceChannel: "audit",
+    hardPendingLimit: {
+      maxEntries: AUDIT_MAX_PENDING_ENTRIES,
+      maxBytes: AUDIT_MAX_PENDING_BYTES,
+      overflow: "drop-oldest",
+      onOverflow: (event) => {
+        recordAuditOverflow({
+          requestId: args.requestId,
+          path: args.path,
+          ...event,
+        });
+      },
+    },
     sink: async (lines) => {
       try {
         await appendRuntimeTextFilePrimitive(args.path, lines.join(""));
@@ -211,6 +227,18 @@ export async function flushAcpSkillRunAuditTrailWrites(runtimeDir?: string) {
     .filter(([, entryOwner]) => !owner || entryOwner === owner)
     .map(([key]) => key);
   await Promise.all(keys.map((key) => flushBufferedWriteKey(key)));
+}
+
+export async function releaseAcpSkillRunAuditTrailWrites(runtimeDir?: string) {
+  const owner = normalizeString(runtimeDir);
+  const keys = Array.from(auditWriteKeys.entries())
+    .filter(([, entryOwner]) => !owner || entryOwner === owner)
+    .map(([key]) => key);
+  await Promise.allSettled(keys.map((key) => flushBufferedWriteKey(key)));
+  for (const key of keys) {
+    discardBufferedWriteKey(key);
+    auditWriteKeys.delete(key);
+  }
 }
 
 export async function flushAcpSkillRunAuditTrailWritesForTests() {
@@ -243,6 +271,28 @@ function recordAuditFailure(args: {
       stage: args.stage,
       message: "ACP skill run audit trail write failed.",
       error: args.error,
+    });
+  });
+}
+
+function recordAuditOverflow(args: {
+  requestId: string;
+  path: string;
+  droppedEntries: number;
+  droppedBytes: number;
+  overflowEpisode: number;
+}) {
+  void import("./runtimeLogManager").then(({ appendRuntimeLog }) => {
+    appendRuntimeLog({
+      level: "warn",
+      scope: "provider",
+      providerId: "acp",
+      requestId: args.requestId,
+      component: "acp-skill-run-audit-trail",
+      operation: "buffer",
+      stage: "audit-buffer-overflow",
+      message: "ACP skill run audit buffer dropped pending evidence.",
+      details: args,
     });
   });
 }
@@ -411,7 +461,7 @@ export function appendAcpSkillRunAuditEvent(args: {
 export function appendAcpSkillRunAuditDiagnostic(args: {
   requestId: string;
   runtimeDir?: string;
-  entry: AcpDiagnosticsEntry;
+  entry: AcpDiagnosticEvidenceRecord;
 }) {
   if (!shouldWriteDetailedAcpAuditArtifacts()) {
     return Promise.resolve();
@@ -667,35 +717,39 @@ export function writeAcpSkillRunAuditFinalState(args: {
     requestId: args.requestId,
     stage: "audit-write-final-state-failed",
     run: async () => {
-      await flushAcpSkillRunAuditTrailWrites(runtimeDir);
-      const record = args.record;
-      await writeRuntimeTextFile(
-        auditFiles(runtimeDir).finalState,
-        `${JSON.stringify(
-          sanitizeValue({
-            schema: ACP_FINAL_STATE_SCHEMA,
-            generatedAt: new Date().toISOString(),
-            requestId: args.requestId,
-            status: args.status || record?.status,
-            backendStatus: record?.backendStatus,
-            sessionId: record?.sessionId,
-            conversationState: record?.conversationState,
-            conversationRecoveryState: record?.conversationRecoveryState,
-            validationStatus: record?.validationStatus,
-            validationErrors: record?.validationErrors,
-            repairRounds: record?.repairRounds,
-            resultJsonPath: record?.resultJsonPath,
-            inputManifestPath: record?.inputManifestPath,
-            lastPromptStopReason: record?.lastPromptStopReason,
-            error: args.error || record?.error,
-            stderr: previewText(args.stderrText || ""),
-            transportLifecycle: args.transportLifecycle,
-            updatedAt: record?.updatedAt,
-          }),
-          null,
-          2,
-        )}\n`,
-      );
+      try {
+        await flushAcpSkillRunAuditTrailWrites(runtimeDir);
+        const record = args.record;
+        await writeRuntimeTextFile(
+          auditFiles(runtimeDir).finalState,
+          `${JSON.stringify(
+            sanitizeValue({
+              schema: ACP_FINAL_STATE_SCHEMA,
+              generatedAt: new Date().toISOString(),
+              requestId: args.requestId,
+              status: args.status || record?.status,
+              backendStatus: record?.backendStatus,
+              sessionId: record?.sessionId,
+              conversationState: record?.conversationState,
+              conversationRecoveryState: record?.conversationRecoveryState,
+              validationStatus: record?.validationStatus,
+              validationErrors: record?.validationErrors,
+              repairRounds: record?.repairRounds,
+              resultJsonPath: record?.resultJsonPath,
+              inputManifestPath: record?.inputManifestPath,
+              lastPromptStopReason: record?.lastPromptStopReason,
+              error: args.error || record?.error,
+              stderr: previewText(args.stderrText || ""),
+              transportLifecycle: args.transportLifecycle,
+              updatedAt: record?.updatedAt,
+            }),
+            null,
+            2,
+          )}\n`,
+        );
+      } finally {
+        await releaseAcpSkillRunAuditTrailWrites(runtimeDir);
+      }
     },
   });
 }

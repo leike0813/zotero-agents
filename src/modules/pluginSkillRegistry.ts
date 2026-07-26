@@ -8,16 +8,19 @@ import {
   type AcpSkillSchemaKey,
 } from "./acpSkillSchemaAssets";
 import {
-  collectRuntimeFiles,
   listRuntimeChildDirectories,
   readRuntimeTextFile,
+  RUNTIME_TREE_POLICIES,
   runtimePathExists,
   runtimeRelativePath,
+  scanRuntimeTree,
   statRuntimePath,
+  type RuntimeTreeManifest,
 } from "./runtimePersistence";
 import { isDebugModeEnabled } from "./debugMode";
 import { getOfficialSkillDir } from "./contentPackageSubscription";
 import { getDevLocalSkillDir, getEffectiveSkillDir } from "./workflowRuntime";
+import { createSha256Accumulator } from "../utils/sha256";
 
 export const PLUGIN_SKILL_USER_ROOT = "skills";
 export const PLUGIN_SKILL_BUILTIN_ROOT = "skills_builtin";
@@ -51,6 +54,7 @@ export type PluginSkillRegistryEntry = {
   skillMdPath: string;
   runnerJsonPath: string;
   checksum: string;
+  runtimeTreeManifest?: RuntimeTreeManifest;
   diagnostics: PluginSkillRegistryDiagnostic[];
 };
 
@@ -245,66 +249,57 @@ async function validateSchemaAssetForRegistry(args: {
   }
 }
 
-async function collectFiles(root: string) {
-  return (await collectRuntimeFiles(root)).sort((left, right) =>
-    runtimeRelativePath(root, left).localeCompare(
-      runtimeRelativePath(root, right),
-    ),
-  );
-}
-
 async function computeDirectoryChecksum(root: string) {
-  const files = await collectFiles(root);
-  const payloadParts: string[] = [];
-  for (const filePath of files) {
-    const relativePath = runtimeRelativePath(root, filePath);
-    payloadParts.push(
-      relativePath,
-      "\0",
-      await readRuntimeTextFile(filePath),
-      "\0",
-    );
+  const runtimeTreeManifest = await scanRuntimeTree(
+    root,
+    RUNTIME_TREE_POLICIES.skill,
+  );
+  if (runtimeTreeManifest.issues.length) {
+    throw new Error("skill runtime tree scan was incomplete");
   }
-  const payload = payloadParts.join("");
-  const runtime = globalThis as {
-    crypto?: {
-      subtle?: {
-        digest?: (algorithm: string, data: Uint8Array) => Promise<ArrayBuffer>;
-      };
-    };
-    TextEncoder?: typeof TextEncoder;
-    process?: unknown;
-  };
-  const Encoder = runtime.TextEncoder || TextEncoder;
-  if (typeof runtime.crypto?.subtle?.digest === "function") {
-    const digest = await runtime.crypto.subtle.digest(
-      "SHA-256",
-      new Encoder().encode(payload),
-    );
-    return `sha256:${Array.from(new Uint8Array(digest))
-      .map((byte) => byte.toString(16).padStart(2, "0"))
-      .join("")}`;
-  }
-  if (runtime.process) {
-    try {
-      const dynamicImport = new Function(
-        "specifier",
-        "return import(specifier)",
-      ) as (specifier: string) => Promise<any>;
-      const crypto = await dynamicImport("crypto");
-      const hash = crypto.createHash("sha256");
-      hash.update(payload);
-      return `sha256:${hash.digest("hex")}`;
-    } catch {
-      // fall through to deterministic non-cryptographic fallback
+  const files = runtimeTreeManifest.entries.filter(
+    (entry) => entry.kind === "file",
+  );
+  const accumulator = await createSha256Accumulator();
+  const encoder = new TextEncoder();
+  let fallbackHash = 2166136261;
+  const updateText = (text: string) => {
+    if (!accumulator) {
+      for (let index = 0; index < text.length; index += 1) {
+        fallbackHash ^= text.charCodeAt(index);
+        fallbackHash = Math.imul(fallbackHash, 16777619) >>> 0;
+      }
+      return;
     }
+    for (let offset = 0; offset < text.length; ) {
+      let end = Math.min(text.length, offset + 16_384);
+      if (
+        end < text.length &&
+        text.charCodeAt(end - 1) >= 0xd800 &&
+        text.charCodeAt(end - 1) <= 0xdbff
+      ) {
+        end -= 1;
+      }
+      accumulator.update(encoder.encode(text.slice(offset, end)));
+      offset = end;
+    }
+  };
+  for (const file of files) {
+    updateText(file.relativePath);
+    updateText("\0");
+    updateText(await readRuntimeTextFile(file.absolutePath));
+    updateText("\0");
   }
-  let hash = 2166136261;
-  for (let index = 0; index < payload.length; index += 1) {
-    hash ^= payload.charCodeAt(index);
-    hash = Math.imul(hash, 16777619) >>> 0;
+  if (accumulator) {
+    return {
+      checksum: `sha256:${accumulator.digestHex()}`,
+      runtimeTreeManifest,
+    };
   }
-  return `fnv1a32:${hash.toString(16).padStart(8, "0")}`;
+  return {
+    checksum: `fnv1a32:${fallbackHash.toString(16).padStart(8, "0")}`,
+    runtimeTreeManifest,
+  };
 }
 
 async function inspectCandidate(
@@ -392,6 +387,7 @@ async function inspectCandidate(
     }
   }
 
+  const directoryChecksum = await computeDirectoryChecksum(candidate.sourceDir);
   return {
     skillId,
     skillName: normalizeString(runnerJson.name) || undefined,
@@ -401,7 +397,8 @@ async function inspectCandidate(
     sourceDir: candidate.sourceDir,
     skillMdPath,
     runnerJsonPath,
-    checksum: await computeDirectoryChecksum(candidate.sourceDir),
+    checksum: directoryChecksum.checksum,
+    runtimeTreeManifest: directoryChecksum.runtimeTreeManifest,
     diagnostics: [],
   };
 }
@@ -453,7 +450,12 @@ async function collectCandidates(args: {
   }
 }
 
-export async function scanPluginSkillRegistry(
+const registryScanInflight = new Map<
+  string,
+  Promise<PluginSkillRegistrySnapshot>
+>();
+
+async function scanPluginSkillRegistryImpl(
   options: PluginSkillRegistryScanOptions = {},
 ): Promise<PluginSkillRegistrySnapshot> {
   const roots = resolvePluginSkillRoots(options);
@@ -548,4 +550,25 @@ export async function scanPluginSkillRegistry(
     entriesById,
     diagnostics,
   };
+}
+
+export function scanPluginSkillRegistry(
+  options: PluginSkillRegistryScanOptions = {},
+): Promise<PluginSkillRegistrySnapshot> {
+  const key = JSON.stringify({
+    builtinRoot: normalizeString(options.builtinRoot),
+    userRoot: normalizeString(options.userRoot),
+    devLocalRoot: normalizeString(options.devLocalRoot),
+    cwd: normalizeString(options.cwd),
+    debug: isDebugModeEnabled(),
+  });
+  const existing = registryScanInflight.get(key);
+  if (existing) return existing;
+  const promise = scanPluginSkillRegistryImpl(options).finally(() => {
+    if (registryScanInflight.get(key) === promise) {
+      registryScanInflight.delete(key);
+    }
+  });
+  registryScanInflight.set(key, promise);
+  return promise;
 }

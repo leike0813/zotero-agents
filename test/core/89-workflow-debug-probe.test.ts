@@ -13,7 +13,10 @@ import {
   installRuntimeBridgeOverrideForTests,
   resetRuntimeBridgeOverrideForTests,
 } from "../../src/utils/runtimeBridge";
-import { resetWorkflowHostApiForTests } from "../../src/workflows/hostApi";
+import {
+  resetWorkflowHostApiForTests,
+  WORKFLOW_HOST_API_VERSION,
+} from "../../src/workflows/hostApi";
 import { buildSelectionContext } from "../../src/modules/selectionContext";
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import { executeApplyResult } from "../../src/workflows/runtime";
@@ -40,13 +43,22 @@ function makePassThroughWorkflow(args: {
   }
   return {
     manifest: {
+      schemaVersion: 2,
       id: args.id,
       label: args.label,
       provider: "pass-through",
+      trigger: { requiresSelection: true },
+      inputs: {
+        member: { kind: "parent" },
+        grouping: { mode: "each" },
+      },
       debug_only: args.debugOnly === true,
-      ...(args.validateSelection
-        ? { validateSelection: args.validateSelection }
-        : {}),
+      validateSelection:
+        args.validateSelection ||
+        ({
+          select: { policy: "input-member", source: "selected" },
+          filters: [],
+        } as const),
       hooks: {
         applyResult: "hooks/applyResult.js",
         ...(args.buildRequest ? { buildRequest: "hooks/buildRequest.js" } : {}),
@@ -141,10 +153,14 @@ describe("workflow debug probe", function () {
           packageId: "debug-package",
           validateSelection: {
             require: {
-              counts: {
-                parents: { exact: 2 },
+              selection: {
+                counts: {
+                  parents: { exact: 2 },
+                },
               },
             },
+            select: { policy: "input-member", source: "selected" },
+            filters: [],
           },
         }),
         makePassThroughWorkflow({
@@ -205,7 +221,14 @@ describe("workflow debug probe", function () {
         };
       },
     });
-    workflow.manifest.inputs = { unit: "workflow" };
+    workflow.manifest.inputs = {
+      member: { kind: "selection" },
+      grouping: { mode: "all" },
+    };
+    workflow.manifest.validateSelection = {
+      select: { policy: "selection" },
+      filters: [],
+    };
 
     const checks = await collectWorkflowDebugProbeChecks({
       selectionContext,
@@ -333,7 +356,7 @@ describe("workflow debug probe", function () {
       prefs: true,
       editor: true,
     });
-    assert.equal(checks[0].hostApiVersion, 8);
+    assert.equal(checks[0].hostApiVersion, WORKFLOW_HOST_API_VERSION);
     assert.equal(checks[0].compiledHookSource, "scan-time-precompile");
   });
 

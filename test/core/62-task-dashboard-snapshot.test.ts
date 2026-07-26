@@ -5,6 +5,7 @@ import {
   mergeDashboardTaskRows,
   normalizeDashboardBackends,
   normalizeDashboardTabKey,
+  projectDashboardQueuedRows,
 } from "../../src/modules/taskDashboardSnapshot";
 import type { TaskDashboardHistoryRecord } from "../../src/modules/taskDashboardHistory";
 import type { WorkflowTaskRecord } from "../../src/modules/taskRuntime";
@@ -177,24 +178,76 @@ describe("task dashboard snapshot", function () {
     assert.equal(normalized, "products");
   });
 
-  it("keeps SkillRunner connection audit tab only when debug mode is enabled", function () {
+  it("keeps SkillRunner connection audit tab only when both gates are enabled", function () {
     const backends = [makeBackend("skillrunner-primary", "skillrunner")];
     assert.equal(
       normalizeDashboardTabKey({
         requestedTabKey: "skillrunner-connection-audit",
         backends,
         debugModeEnabled: true,
+        skillRunnerConnectionAuditEnabled: true,
       }),
       "skillrunner-connection-audit",
     );
-    assert.equal(
-      normalizeDashboardTabKey({
-        requestedTabKey: "skillrunner-connection-audit",
-        backends,
-        debugModeEnabled: false,
-      }),
-      "home",
-    );
+    for (const gates of [
+      { debugModeEnabled: false, skillRunnerConnectionAuditEnabled: true },
+      { debugModeEnabled: true, skillRunnerConnectionAuditEnabled: false },
+      { debugModeEnabled: false, skillRunnerConnectionAuditEnabled: false },
+    ]) {
+      assert.equal(
+        normalizeDashboardTabKey({
+          requestedTabKey: "skillrunner-connection-audit",
+          backends,
+          ...gates,
+        }),
+        "home",
+      );
+    }
+  });
+
+  it("normalizes ACP recorder and replay diagnostics into one debug surface", function () {
+    const backends = [makeBackend("skillrunner-primary", "skillrunner")];
+    for (const args of [
+      { acpTraceRecorderEnabled: true },
+      { acpReplayProfilerEnabled: true },
+    ]) {
+      assert.equal(
+        normalizeDashboardTabKey({
+          requestedTabKey: "acp-trace-replay",
+          backends,
+          debugModeEnabled: true,
+          ...args,
+        }),
+        "acp-trace-replay",
+      );
+    }
+    for (const [legacyKey, flag] of [
+      ["acp-trace-recorder", "acpTraceRecorderEnabled"],
+      ["acp-replay-profiler", "acpReplayProfilerEnabled"],
+    ] as const) {
+      assert.equal(
+        normalizeDashboardTabKey({
+          requestedTabKey: legacyKey,
+          backends,
+          debugModeEnabled: true,
+          [flag]: true,
+        }),
+        "acp-trace-replay",
+      );
+    }
+    for (const args of [
+      { debugModeEnabled: false, acpTraceRecorderEnabled: true },
+      { debugModeEnabled: true },
+    ]) {
+      assert.equal(
+        normalizeDashboardTabKey({
+          requestedTabKey: "acp-trace-replay",
+          backends,
+          ...args,
+        }),
+        "home",
+      );
+    }
   });
 
   it("maps managed local backend id to localized display name", function () {
@@ -214,5 +267,49 @@ describe("task dashboard snapshot", function () {
       "My Generic Backend",
     );
     assert.equal(displayName, "My Generic Backend");
+  });
+
+  it("projects only matching backend Host queue rows without provider identities", function () {
+    const rows = projectDashboardQueuedRows({
+      backend: {
+        ...makeBackend("acp-a", "acp"),
+        displayName: "ACP A",
+      },
+      queuedStateLabel: "Queued",
+      queued: [
+        {
+          queueId: "queue-1",
+          submissionId: "submission-1",
+          unitId: "unit-1",
+          unitOrder: 0,
+          workflowId: "workflow-a",
+          workflowLabel: "Workflow A",
+          taskName: "Paper A",
+          backendType: "acp",
+          backendId: "acp-a",
+          createdAt: "2026-07-23T00:00:00.000Z",
+          canCancel: true,
+        },
+        {
+          queueId: "queue-2",
+          submissionId: "submission-2",
+          unitId: "unit-2",
+          unitOrder: 0,
+          workflowId: "workflow-b",
+          workflowLabel: "Workflow B",
+          taskName: "Paper B",
+          backendType: "skillrunner",
+          backendId: "skillrunner-b",
+          createdAt: "2026-07-23T00:00:01.000Z",
+          canCancel: true,
+        },
+      ] as any,
+    });
+    assert.lengthOf(rows, 1);
+    assert.equal(rows[0].id, "host-queue:queue-1");
+    assert.equal(rows[0].queueId, "queue-1");
+    assert.notProperty(rows[0], "requestId");
+    assert.notProperty(rows[0], "runKey");
+    assert.notProperty(rows[0], "jobId");
   });
 });

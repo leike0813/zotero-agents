@@ -18,13 +18,36 @@ pub enum ErrorCategory {
     Internal,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StateChange {
+    Unchanged,
+    Changed,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HandleConsumption {
+    Unconsumed,
+    Consumed,
+    Unknown,
+}
+
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ErrorPayload {
     pub code: String,
     pub category: ErrorCategory,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<Value>,
+    pub retryable: bool,
+    pub state_change: StateChange,
+    pub handle_consumption: HandleConsumption,
+    pub safe_next_actions: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_command: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -33,6 +56,11 @@ pub struct CliError {
     pub category: ErrorCategory,
     pub message: String,
     pub details: Option<Value>,
+    pub next_command: Option<String>,
+    pub retryable: Option<bool>,
+    pub state_change: Option<StateChange>,
+    pub handle_consumption: Option<HandleConsumption>,
+    pub safe_next_actions: Option<Vec<String>>,
 }
 
 impl CliError {
@@ -46,11 +74,61 @@ impl CliError {
             category,
             message: message.into(),
             details: None,
+            next_command: None,
+            retryable: None,
+            state_change: None,
+            handle_consumption: None,
+            safe_next_actions: None,
         }
     }
 
     pub fn with_details(mut self, details: Value) -> Self {
         self.details = Some(details);
+        self
+    }
+
+    pub fn with_next_command(mut self, command: impl Into<String>) -> Self {
+        self.next_command = Some(command.into());
+        self
+    }
+
+    pub fn with_control(
+        mut self,
+        retryable: Option<bool>,
+        state_changed: Option<bool>,
+        handle_consumed: Option<bool>,
+        safe_next_actions: Option<Vec<String>>,
+    ) -> Self {
+        self.retryable = retryable;
+        self.state_change = state_changed.map(|changed| {
+            if changed {
+                StateChange::Changed
+            } else {
+                StateChange::Unchanged
+            }
+        });
+        self.handle_consumption = handle_consumed.map(|consumed| {
+            if consumed {
+                HandleConsumption::Consumed
+            } else {
+                HandleConsumption::Unconsumed
+            }
+        });
+        self.safe_next_actions = safe_next_actions;
+        self
+    }
+
+    pub fn with_outcome(
+        mut self,
+        retryable: bool,
+        state_change: StateChange,
+        handle_consumption: HandleConsumption,
+        safe_next_actions: Vec<String>,
+    ) -> Self {
+        self.retryable = Some(retryable);
+        self.state_change = Some(state_change);
+        self.handle_consumption = Some(handle_consumption);
+        self.safe_next_actions = Some(safe_next_actions);
         self
     }
 
@@ -95,11 +173,31 @@ impl CliError {
     }
 
     pub fn to_payload(&self) -> ErrorPayload {
+        let retryable = self.retryable.unwrap_or_else(|| {
+            matches!(
+                self.category,
+                ErrorCategory::Connection | ErrorCategory::Download
+            )
+        });
+        let safe_next_actions = self.safe_next_actions.clone().unwrap_or_else(|| {
+            if retryable {
+                vec!["bridge status".to_string(), "retry command".to_string()]
+            } else {
+                vec!["surface describe".to_string()]
+            }
+        });
         ErrorPayload {
             code: self.code.clone(),
             category: self.category,
             message: self.message.clone(),
             details: self.details.clone(),
+            retryable,
+            state_change: self.state_change.unwrap_or(StateChange::Unchanged),
+            handle_consumption: self
+                .handle_consumption
+                .unwrap_or(HandleConsumption::Unconsumed),
+            safe_next_actions,
+            next_command: self.next_command.clone(),
         }
     }
 }

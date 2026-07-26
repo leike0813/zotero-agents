@@ -25,7 +25,10 @@ describe("Manuscript Literature Framing workflow contract", function () {
       workflow.taskNameTemplate,
       "Frame manuscript literature: {paperTitle}",
     );
-    assert.equal(workflow.inputs?.unit, "workflow");
+    assert.deepInclude(workflow.inputs, {
+      member: { kind: "selection" },
+      grouping: { mode: "all" },
+    });
     assert.equal(workflow.request?.create?.mode, "interactive");
     assert.equal(workflow.provider, "skillrunner");
     assert.equal(workflow.result?.fetch?.type, "bundle");

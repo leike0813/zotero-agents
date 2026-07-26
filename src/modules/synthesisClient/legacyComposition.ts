@@ -186,6 +186,9 @@ function createLegacyPort(
         request as Parameters<typeof service.refreshCitationGraphMetricsNow>[0],
       );
     },
+    async startCitationGraphUpdate(request) {
+      return resolveService().startCitationGraphUpdate(request);
+    },
     async getReferenceSidecarIndex(request) {
       return resolveService().getReferenceSidecarIndex(request);
     },
@@ -194,6 +197,9 @@ function createLegacyPort(
     },
     async getAttentionQueue(request) {
       return resolveService().getAttentionQueue(request);
+    },
+    async startReferenceSidecarRefresh(request) {
+      return resolveService().startReferenceSidecarRefresh(request);
     },
     async getPaperArtifactManifest(request) {
       return resolveService().getPaperArtifactManifest(request);
@@ -207,6 +213,9 @@ function createLegacyPort(
     async getSchemas(request) {
       void request;
       return resolveService().getSchemas();
+    },
+    async getPublicMaintenanceOperation(request) {
+      return resolveService().getPublicMaintenanceOperation(request);
     },
     async getLibraryIndex(request) {
       return resolveService().getLibraryIndex(request);
@@ -285,6 +294,12 @@ function createLegacyPort(
     },
     async readPaperArtifacts(request) {
       return resolveService().readPaperArtifacts(request);
+    },
+    async initializeBuiltinTagPolicy() {
+      return resolveService().initializeBuiltinTagPolicy();
+    },
+    isBuiltinTagPolicyInitialized() {
+      return resolveService().isBuiltinTagPolicyInitialized();
     },
     async loadTagVocabulary() {
       return resolveService().loadTagVocabulary();

@@ -10,6 +10,8 @@
 
 > **建议**：如果这篇文章已经执行过 [Literature Analysis](../literature-analysis/README.md)，AI 会利用已有的摘要（digest）来提升标签推断质量。
 
+五个 `status:need-*` 内建 workflow 状态会出现在有效受控词表中，因此审计时属于合规标签；但它们由对应 workflow 生命周期和用户直接操作维护。Regulator 不得根据元数据或 digest 推断这些状态，其 `add_tags`、`remove_tags` 或建议中出现的内建状态都会在 apply 边界被忽略并记录 diagnostic。其他自定义标签照常处理。
+
 ## 怎么输入？
 
 - **选中父条目**：在 Zotero 条目列表中选中一个或多个条目，右键运行此 workflow
@@ -35,6 +37,7 @@
 - **remove_tags**：从条目中移除不在词表的标签
 - **add_tags**：向条目添加推荐的规范标签
 - 直接应用到选中的 Zotero 条目
+- 内建 `status:need-*` 的增删会被过滤，不影响同批普通标签变更
 
 ### 2. 建议标签（弹窗审核）
 - AI 提议的新标签通过弹窗展示

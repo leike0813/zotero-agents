@@ -208,6 +208,30 @@ async function applyResultImpl({
     });
   }
 
+  const statusWarnings = [];
+  let statusTransition;
+  try {
+    const transition = hostApi?.statusTags?.transition;
+    if (typeof transition !== "function") {
+      throw new Error("literature-deep-reading statusTags API is unavailable");
+    }
+    statusTransition = await transition({
+      item: parentItem,
+      remove: ["need-deep-reading"],
+    });
+    statusWarnings.push(
+      ...(statusTransition?.warnings || []).map((warning) => ({
+        code: "literature_deep_reading_status_transition_failed",
+        ...warning,
+      })),
+    );
+  } catch (error) {
+    statusWarnings.push({
+      code: "literature_deep_reading_status_transition_failed",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+
   return appendSkillDiagnosticsToResult(
     {
       ok: true,
@@ -218,6 +242,9 @@ async function applyResultImpl({
       htmlEntryPath: htmlResolved.entryPath,
       manifest,
       diagnostics,
+      partial: statusWarnings.length > 0,
+      statusTransition,
+      statusWarnings,
     },
     skillOutputDiagnostics,
   );

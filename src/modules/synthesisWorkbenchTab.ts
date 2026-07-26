@@ -58,6 +58,10 @@ import {
 } from "./synthesis/uiModel";
 import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 import { yieldToEventLoop } from "../utils/runtimeCompatibility";
+import {
+  BUILTIN_STATUS_FACET,
+  isBuiltinStatusTag,
+} from "./synthesis/builtinTagPolicy";
 
 type SynthesisBridgeMessageType =
   | "synthesis:init"
@@ -2827,6 +2831,19 @@ function handleAction(
         "updateTagVocabularyEntry",
         { originalTag },
         async () => {
+          const requestedFacet = String(
+            commandArgs.facet || tag.split(":")[0] || "topic",
+          );
+          if (
+            (isBuiltinStatusTag(originalTag) &&
+              (tag !== originalTag ||
+                requestedFacet !== BUILTIN_STATUS_FACET ||
+                commandArgs.deprecated === true ||
+                String(commandArgs.replacement || "").trim())) ||
+            (!isBuiltinStatusTag(originalTag) && isBuiltinStatusTag(tag))
+          ) {
+            throw new Error("Builtin tag identity is protected");
+          }
           const client = await getDefaultSynthesisClient();
           return client.tags
             .updateTagVocabularyEntry({ originalTag, tag, facet, note })
@@ -2849,6 +2866,9 @@ function handleAction(
         "deleteTagVocabularyEntry",
         { originalTag },
         async () => {
+          if (isBuiltinStatusTag(originalTag)) {
+            throw new Error("Builtin tags cannot be deleted");
+          }
           const client = await getDefaultSynthesisClient();
           return client.tags
             .deleteTagVocabularyEntry({ originalTag })

@@ -185,3 +185,64 @@ boolean. The default SHALL be false.
 - **AND** the result SHALL include `landingAttachmentStatus: "failed"` and a
   structured `landingAttachmentError`.
 
+### Requirement: Literature ingest SHALL accept a typed bibliographic item payload
+The canonical `literature.ingest` mutation SHALL accept an explicit Zotero item type, item-type-compatible fields, structured creators, normalized identifiers, and source URLs, and SHALL reject the legacy flat paper shape. It SHALL store a normalized DOI in the native Zotero DOI field whenever that field is valid for the selected item type, using `Extra` only when no native DOI field exists.
+
+#### Scenario: Non-journal type preserves semantic fields
+- **WHEN** a request ingests a thesis, book, book section, conference paper, report, or generic document
+- **THEN** the Host creates that item type and maps only fields valid for that type.
+
+#### Scenario: Unknown item type does not become journal article
+- **WHEN** a traceable record has no confidently resolved bibliographic type
+- **THEN** the caller uses `document` rather than the Host guessing `journalArticle`.
+
+#### Scenario: Structured creator names are not heuristically split
+- **WHEN** a creator is supplied as a single-field Chinese personal name or organization name
+- **THEN** the Host stores the single-field name without splitting it on whitespace.
+
+#### Scenario: Invalid field role is rejected
+- **WHEN** a typed payload assigns a field that is invalid for its item type
+- **THEN** the mutation returns a structured validation failure instead of silently redirecting the value to another field.
+
+#### Scenario: Identifier-only DOI uses the native field
+- **WHEN** a typed payload supplies `paper.identifiers.doi` for an item type whose Zotero schema supports DOI and omits `paper.fields.DOI`
+- **THEN** the Host SHALL write the normalized identifier to the native DOI field
+- **AND** it SHALL NOT append that DOI to `Extra`.
+
+#### Scenario: Unsupported item type retains DOI in Extra
+- **WHEN** a typed payload supplies a DOI for an item type without a native DOI field
+- **THEN** the Host SHALL preserve one normalized `DOI: ...` line in `Extra`.
+
+#### Scenario: DOI representations conflict
+- **WHEN** normalized `paper.identifiers.doi` and `paper.fields.DOI` values are both present and differ
+- **THEN** the mutation SHALL return a structured validation failure without creating or updating an item.
+
+### Requirement: Workflow Host API executes ordered text export translators
+
+Workflow Host API v10 SHALL expose a generic item text-export operation that executes registered Zotero export translators in caller-provided priority order.
+
+#### Scenario: Preferred translator succeeds
+
+- **WHEN** `hostApi.items.exportText()` receives Zotero items, ordered translator candidates, and bounded display options
+- **AND** the first candidate is a registered export translator that returns non-empty text
+- **THEN** the host SHALL return that text, the actual translator identity, `fallbackUsed: false`, and an ordered successful attempt record
+- **AND** SHALL pass the supplied item set to one `Zotero.Translate.Export` execution.
+
+#### Scenario: Host advances to fallback translator
+
+- **WHEN** a candidate is unavailable, translator lookup fails, translation throws, or translation returns empty text
+- **THEN** the host SHALL record a structured attempt status
+- **AND** SHALL try the next candidate without requiring plugin-specific workflow logic
+- **AND** a later success SHALL report `fallbackUsed: true` and the actual translator identity.
+
+#### Scenario: Every candidate fails
+
+- **WHEN** every ordered translator candidate is unavailable or cannot return non-empty text
+- **THEN** the host SHALL return a structured failure containing all attempt records
+- **AND** SHALL NOT claim a successful translator or output.
+
+#### Scenario: Workflow remains decoupled from plugin-private interfaces
+
+- **WHEN** a workflow requests Better BibTeX output through the registered translator candidate
+- **THEN** the workflow SHALL NOT require a Better BibTeX global object, add-on-manager lookup, fixed localhost port, or JSON-RPC call.
+

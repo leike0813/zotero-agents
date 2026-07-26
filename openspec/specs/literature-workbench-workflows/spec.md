@@ -52,27 +52,26 @@ Specification for literature workbench workflow sequences, including digest anal
 - **WHEN** the deep_reading step later fails
 - **THEN** the translator Markdown and alignment JSON remain materialized.
 
-### Requirement: Literature search ingest returns concise user-facing output
+### Requirement: Literature search ingest returns structured user-facing outcomes
 
-`literature-search-ingest` SHALL return a concise final JSON object after
-ingest completion. The success branch SHALL list successful ingest references,
-missing-PDF references, and non-empty ingest failures only.
+`literature-search-ingest` SHALL return one final JSON object after ingest
+completion or cancellation. The completed branch SHALL summarize the executed
+search and retain one structured outcome for every important displayed
+candidate.
 
-#### Scenario: Successful ingest output is concise
+#### Scenario: Completed ingest output is auditable
 
-- **WHEN** `literature-search-ingest` completes at least one successful
-  `literature.ingest` call
-- **THEN** the final JSON SHALL include `kind: "literature_search_ingest"`
-- **AND** it SHALL include `ingested_references`
-- **AND** it SHALL include `missing_pdf_references`
-- **AND** it SHALL NOT require `confirmed_references`, `summary`, or full
-  per-call `results`.
+- **WHEN** `literature-search-ingest` finishes processing the user's candidate decisions
+- **THEN** the final JSON SHALL include `kind: "literature_search_ingest"` and `status: "completed"`
+- **AND** it SHALL include `searchSummary`, `outcomes`, and `searchLedgerPath`
+- **AND** every approved candidate SHALL record `created`, `existing`, `failed`, or `not_attempted` as its ingest status
+- **AND** PDF and metadata-curation status SHALL remain associated with the same candidate outcome.
 
-#### Scenario: Partial failures are visible only when present
+#### Scenario: Search or ingest cannot continue
 
-- **WHEN** one or more requested literature ingest calls fail
-- **THEN** the final JSON SHALL include `ingest_failures` with the failed
-  references and structured error details.
+- **WHEN** the user cancels or rejects ingest, a required tool is unavailable, or execution cannot continue
+- **THEN** the final JSON SHALL include `kind: "literature_search_ingest_canceled"` and `status: "canceled"`
+- **AND** it SHALL include a structured reason and message instead of remaining pending.
 
 #### Scenario: Skill requests ingest-time landing URL attachment
 
@@ -86,11 +85,21 @@ missing-PDF references, and non-empty ingest failures only.
 #### Scenario: Local identifier lookup short-circuits provider dispatch
 
 - **GIVEN** the selected parent item has a DOI, ISBN, or supported URL-derived identifier
+- **AND** `skip_identifier_fast_path` is absent or `false`
 - **AND** Zotero Translate Search returns a trustworthy metadata item for that identifier through the Host API metadata facade
 - **WHEN** the workflow preflight runs under the precompiled package hook contract
 - **THEN** preflight SHALL return `kind: "short-circuit-apply"`
 - **AND** the short-circuit result JSON SHALL use `kind: "literature_metadata_curation"`
 - **AND** provider dispatch SHALL NOT be required for that input unit.
+
+#### Scenario: Explicit skip dispatches the metadata search skill
+
+- **GIVEN** the selected parent item has a supported identifier
+- **AND** `skip_identifier_fast_path` is `true`
+- **WHEN** the workflow preflight runs
+- **THEN** preflight SHALL NOT call the Host API or direct-runtime Zotero Translate Search
+- **AND** `buildRequest` SHALL create one automatic `skillrunner.job.v1` request for `literature-metadata-search`
+- **AND** the selected identifier SHALL remain in the request input as search context.
 
 #### Scenario: Inconclusive local lookup falls back to SkillRunner
 
@@ -141,6 +150,39 @@ The `literature-metadata-search` skill SHALL search for bibliographic metadata w
 - **THEN** it SHALL output a JSON object with `kind: "literature_metadata_curation"`
 - **AND** it SHALL include normalized metadata under `metadata.fields` and optionally `metadata.creators`.
 
+### Requirement: Literature metadata search skill SHALL preserve authoritative Chinese creator names
+
+For a direct bibliographic work originally published in Chinese, the skill SHALL
+prefer the complete Chinese-character author list from an authoritative original
+source over romanized or translated author names. This applies to articles,
+conference contributions, books, theses, reports, preprints, and other supported
+work types.
+
+#### Scenario: Complete Chinese creator list is verified
+
+- **GIVEN** the direct work's original publication language is Chinese
+- **AND** an authoritative original source verifies the complete author list and order
+- **WHEN** the skill emits `metadata.creators`
+- **THEN** each personal author SHALL use the verified complete Chinese-character name in the single Zotero `name` field and preserve source order
+- **AND** it SHALL NOT split a Chinese personal name into `firstName` and `lastName`
+- **AND** it SHALL NOT substitute pinyin or translated names.
+
+#### Scenario: Complete Chinese creator list cannot be verified
+
+- **GIVEN** the direct work's original publication language is Chinese
+- **AND** only romanized names or an incomplete Chinese author list can be verified
+- **WHEN** the skill emits otherwise applicable metadata
+- **THEN** it SHALL NOT infer or back-transliterate Chinese characters
+- **AND** it SHALL emit an empty `metadata.creators` array so existing creators are preserved
+- **AND** it SHALL include a warning with code `native_creator_names_unverified`.
+
+#### Scenario: Chinese authors publish a non-Chinese-language work
+
+- **GIVEN** the direct work's original publication language is not Chinese
+- **WHEN** the skill evaluates creator names
+- **THEN** author nationality, name, affiliation, or publication country alone SHALL NOT trigger Chinese-character replacement
+- **AND** the skill SHALL preserve the officially published creator form.
+
 ### Requirement: Literature metadata search skill SHALL expose an automation-facing contract
 
 The `literature-metadata-search` skill SHALL provide runner-readable schemas and instructions so it can be executed by workflows or injected agents without plugin-specific assumptions.
@@ -178,3 +220,119 @@ ACP Chat SHALL materialize the `literature-metadata-search` skill alongside the 
 - **THEN** the injected skill id list SHALL include `literature-metadata-search`
 - **AND** the skill SHALL be copied into each resolved ACP Chat skill root when present in the plugin skill registry.
 
+### Requirement: Literature search ingest SHALL expose search breadth and candidate outcomes
+The final result SHALL expose a structured search summary, one outcome ledger, and a run-scoped search-ledger artifact rather than parallel success, missing-PDF, and failure arrays.
+
+#### Scenario: Search result exposes candidate tier and curation need
+- **WHEN** the interactive workflow completes
+- **THEN** each admitted candidate outcome exposes its discovery tier, source trace, decision, ingest status, item reference when available, and `needsCuration`
+
+### Requirement: Literature metadata curator SHALL protect authoritative original-script metadata
+The curator SHALL treat translated and romanized titles and creators as matching evidence and SHALL NOT replace an existing authoritative original-script primary field unless a complete authoritative source in the same script supports the replacement.
+
+#### Scenario: English translation does not replace Chinese title
+- **WHEN** an exact identifier lookup returns only an English translated title for an item with an authoritative Chinese title
+- **THEN** the curator preserves the Chinese title while allowing supported language-neutral fields to be filled
+
+#### Scenario: Romanized creators do not replace native creators
+- **WHEN** an identifier lookup returns an incomplete or romanized creator list for an item with authoritative native-script creators
+- **THEN** the curator preserves the existing creators and emits a structured warning
+
+### Requirement: Literature metadata curator SHALL preserve semantic field roles
+The curator SHALL distinguish direct-work title, alternate title, journal title, book title, proceedings title, conference name, university, and institution before applying Zotero fields for the resolved item type.
+
+#### Scenario: Container title cannot become work title
+- **WHEN** a metadata source exposes only a journal, proceedings, or book container title
+- **THEN** the curator does not write that value into the direct-work `title` field
+
+### Requirement: Literature metadata curator SHALL close the curation-tag lifecycle
+The curator SHALL remove `status:need-metadata-curation` after metadata is successfully applied or authoritatively verified as requiring no changes, and SHALL retain it for unresolved, conflicted, skipped, or failed results.
+
+#### Scenario: Successful curation removes tag
+- **WHEN** curation finishes as `applied` or `verified_no_change`
+- **THEN** the workflow removes the status tag from the parent item
+
+#### Scenario: Cleanup failure is partial
+- **WHEN** metadata succeeds but tag removal fails
+- **THEN** the workflow reports a cleanup warning without rolling back metadata and the tag remains available for retry
+
+### Requirement: Workflow status transitions SHALL follow artifact ownership
+Each participating builtin workflow MUST only remove the status that represents its own completed artifact, except MinerU which also establishes that PDF/fulltext input was available.
+
+#### Scenario: Curator completes without a metadata change
+- **WHEN** Curator verifies the existing metadata and performs no field mutation
+- **THEN** it SHALL remove `need-metadata-curation`
+
+#### Scenario: Manual PDF attachment occurs outside MinerU
+- **WHEN** a user manually attaches a PDF
+- **THEN** the plugin SHALL NOT automatically remove `need-fulltext`
+
+#### Scenario: Translation or Explainer completes
+- **WHEN** Translation or Literature Explainer applies a result
+- **THEN** no builtin workflow status transition SHALL occur
+
+
+### Requirement: Literature search ingest SHALL serialize Zotero mutations through the main agent
+
+Stage 70 literature-ingest commands SHALL be executed only by the main agent, one approved metadata-qualified paper at a time. The main agent SHALL wait for the current mutation's terminal Host outcome, preserve its raw receipt, bind the outcome to the same paper payload, and only then start another paper mutation. Serial mutation applies even while subagent research continues.
+
+#### Scenario: Workers cannot mutate Zotero
+
+- **WHEN** a subagent performs metadata or PDF research
+- **THEN** it SHALL NOT execute, queue, retry, or monitor a Zotero mutation
+- **AND** it SHALL NOT own a Host receipt.
+
+#### Scenario: Main agent executes one Host mutation at a time
+
+- **GIVEN** one or more validated paper payloads are ready
+- **WHEN** the main agent starts ingestion
+- **THEN** it SHALL invoke at most one literature-ingest mutation
+- **AND** it SHALL wait for that mutation's terminal outcome before the next paper mutation.
+
+#### Scenario: Receipt remains associated with the paper
+
+- **WHEN** the main agent records a Host outcome
+- **THEN** it SHALL associate the raw receipt and outcome with the same paper payload
+- **AND** it SHALL NOT reuse the receipt for another candidate.
+
+### Requirement: Literature search ingest SHALL enforce canonical Zotero metadata names before submission and ingestion
+
+Every direct ingest payload SHALL use item-type-compatible canonical Zotero metadata names including `abstractNote`. Titles, creators, identifiers, landing/PDF URLs, and attachment decisions SHALL remain in their designated Host structures. The main agent SHALL repair only unambiguous evidence-backed mapping errors before mutation.
+
+#### Scenario: Canonical abstract field is accepted
+
+- **WHEN** a payload supplies a supported abstract as `abstractNote`
+- **THEN** the main agent SHALL preserve it under that canonical field.
+
+#### Scenario: Noncanonical abstract alias is rejected
+
+- **WHEN** a payload contains `abstract`
+- **THEN** the main agent SHALL reject or repair the payload before mutation
+- **AND** it SHALL NOT defer the invalid field to Host Bridge.
+
+#### Scenario: Dedicated values remain in designated structures
+
+- **WHEN** a payload contains title, identifiers, creators, or PDF information
+- **THEN** the main agent SHALL verify that each value is placed in its designated Host structure
+- **AND** it SHALL NOT accept a conflicting generic-field placement.
+
+#### Scenario: Canonical names remain item-type appropriate
+
+- **WHEN** the main agent accepts a canonical Zotero metadata field
+- **THEN** the field SHALL be semantically compatible with the selected `itemType`.
+
+### Requirement: Literature metadata search SHALL retain the canonical abstract field contract independently
+
+`literature-metadata-search` SHALL validate its own canonical metadata output independently of the `literature-search-ingest` assignment runtime. Its metadata field contract SHALL accept `abstractNote` and reject `abstract`.
+
+#### Scenario: Metadata search emits a canonical abstract
+
+- **WHEN** `literature-metadata-search` returns trustworthy abstract metadata
+- **THEN** it SHALL place the value in `metadata.fields.abstractNote`
+- **AND** its output validation SHALL accept the canonical field.
+
+#### Scenario: Metadata search rejects the noncanonical alias
+
+- **WHEN** `literature-metadata-search` output contains `metadata.fields.abstract`
+- **THEN** its output validation SHALL reject that payload
+- **AND** no ingest-assignment runtime dependency SHALL be required to enforce the rejection.

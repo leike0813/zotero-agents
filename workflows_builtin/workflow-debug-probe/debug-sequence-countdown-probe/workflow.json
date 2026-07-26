@@ -1,6 +1,9 @@
 {
+  "schemaVersion": 2,
   "id": "debug-sequence-countdown-probe",
   "label": "Debug: Sequence Countdown Probe",
+  "description": "Run the Debug: Sequence Countdown Probe diagnostic workflow to verify its named workflow-engine behavior.",
+  "executionModes": ["auto"],
   "version": "0.1.0",
   "provider": "skillrunner",
   "debug_only": true,
@@ -8,7 +11,12 @@
     "requiresSelection": false
   },
   "inputs": {
-    "unit": "workflow"
+    "member": {
+      "kind": "selection"
+    },
+    "grouping": {
+      "mode": "all"
+    }
   },
   "parameters": {
     "countdown_seconds": {
@@ -18,6 +26,12 @@
       "default": 120,
       "min": 1
     }
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "selection"
+    },
+    "filters": []
   },
   "execution": {
     "feedback": {

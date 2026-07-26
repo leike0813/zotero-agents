@@ -379,3 +379,130 @@ Workflow execution SHALL finish successful non-final ACP sequence-step lifecycle
 #### Scenario: Cleanup and downstream initialization do not overlap
 - **WHEN** controller detach for a completed non-final ACP sequence step remains pending
 - **THEN** Host SHALL NOT dispatch or initialize the next sequence step until the detach operation settles.
+
+### Requirement: Workflow trace ownership uses the canonical top-level execution
+
+When Workflow semantic trace capture is armed, `runWorkflowExecutionSeam` SHALL use canonical `runState.runId` as the only eligible recording root and SHALL propagate a transient parent recording context to concrete ordinary and sequence ACP requests. Request, job, sequence, and Host Bridge identifiers SHALL NOT substitute for or replace that root.
+
+#### Scenario: Multi-job execution runs
+- **WHEN** one top-level execution dispatches multiple concurrent or serial ACP requests
+- **THEN** every request activity SHALL belong to one root identified by `runState.runId`.
+
+#### Scenario: Sequence execution runs
+- **WHEN** multiple concrete ACP sequence stages execute
+- **THEN** all stages SHALL share the parent workflow recording root
+- **AND** their existing composite run and Host Bridge identities SHALL remain unchanged.
+
+### Requirement: Workflow trace completion follows execution idle
+
+Only a new top-level execution containing at least one executable ACP request SHALL claim an armed Workflow recording. Concrete request terminals SHALL close their own registered activities but SHALL NOT infer root completion. The execution SHALL aggregate succeeded, failed, or canceled outcome after all jobs and requests settle, finish the unique root, and freeze capture before the business apply seam continues.
+
+#### Scenario: Execution has no ACP request
+- **WHEN** preparation halts or a workflow contains no executable ACP request
+- **THEN** it SHALL NOT claim the armed recorder.
+
+#### Scenario: Recovered request is reconciled
+- **WHEN** startup or historical request recovery publishes lifecycle state
+- **THEN** it SHALL NOT claim a newly armed recorder.
+
+#### Scenario: A request fails
+- **WHEN** all execution activity is closed and the aggregate business outcome is failed or canceled
+- **THEN** the trace MAY still be capture-complete
+- **AND** its root end SHALL preserve that business outcome.
+
+### Requirement: Parameter-dependent artifact exclusions SHALL be execution-only
+
+A declarative `artifact-exists` exclusion that names a workflow `parameter`
+MUST NOT participate in menu or diagnostic availability filtering. It MUST be
+evaluated during execute-mode selection validation using the user's confirmed
+workflow parameters.
+
+#### Scenario: Persisted parameter target already exists
+
+- **WHEN** an artifact exists for the persisted or default value of a parameter-dependent exclusion
+- **AND** menu or diagnostic availability is evaluated
+- **THEN** the exclusion SHALL NOT disable the workflow or remove the source unit
+
+#### Scenario: Confirmed parameter target already exists
+
+- **WHEN** execute-mode validation resolves an existing artifact from the confirmed parameter value
+- **THEN** the matching source unit SHALL be counted as skipped
+- **AND** request construction and provider submission SHALL NOT occur for that unit
+
+#### Scenario: Artifact exists for a different parameter value
+
+- **WHEN** an artifact exists for parameter value A
+- **AND** execute-mode validation is confirmed with parameter value B whose target artifact does not exist
+- **THEN** the source unit SHALL remain executable
+
+#### Scenario: Mixed execution batch contains matching and non-matching units
+
+- **WHEN** a confirmed parameter-dependent exclusion matches only some selected source units
+- **THEN** matching units SHALL be counted as skipped
+- **AND** non-matching units SHALL continue to request construction
+
+#### Scenario: Every execution unit is skipped
+
+- **WHEN** a confirmed parameter-dependent exclusion matches every selected source unit
+- **THEN** execute-mode validation SHALL produce zero valid units with the existing no-valid-input outcome
+- **AND** its statistics SHALL preserve the skipped-unit count
+
+### Requirement: Static artifact exclusions SHALL preserve availability behavior
+
+An `artifact-exists` exclusion without `parameter` MUST retain its existing
+menu, diagnostic, and execute-mode filtering behavior.
+
+#### Scenario: Static target exists during menu evaluation
+
+- **WHEN** menu availability evaluates a parameter-independent artifact target that already exists
+- **THEN** the matching source unit SHALL be excluded according to the existing rule
+
+#### Scenario: Static target does not exist
+
+- **WHEN** a parameter-independent artifact target does not exist
+- **THEN** the source unit SHALL retain its existing availability and execute eligibility
+
+### Requirement: Artifact target parameter declarations SHALL be authoritative
+
+When an artifact target path depends on a workflow parameter, the manifest MUST
+declare that parameter. Target resolution MUST read the confirmed value using
+`rule.parameter` and MUST NOT infer the parameter name from a workflow id,
+target kind, parameter value, locale, or persisted default.
+
+#### Scenario: Explicit parameter declaration is evaluated
+
+- **WHEN** execute-mode validation evaluates a parameter-dependent artifact exclusion
+- **THEN** it SHALL resolve the target from `workflowParams[rule.parameter]`
+
+#### Scenario: Parameterized target omits its parameter declaration
+
+- **WHEN** a workflow manifest declares a target kind that requires a workflow parameter but omits `parameter`
+- **THEN** manifest validation SHALL reject the ambiguous rule
+
+### Requirement: Confirmed prepared units SHALL be execution truth
+The runtime SHALL execute units from one confirmed workflow input plan and SHALL NOT rerun raw selection or candidate cardinality validation while building an individual unit.
+
+#### Scenario: Each unit follows a multi-parent admission requirement
+- **WHEN** a confirmed plan satisfying `parents.min: 2` emits multiple one-parent units
+- **THEN** every admitted unit can build and run without failing the original multi-parent requirement
+
+### Requirement: Preflight expansion SHALL stay inside a top-level unit
+Preflight SHALL run after grouping and MAY replace or expand provider requests inside one prepared unit, but SHALL NOT alter top-level unit count or consume additional Host concurrency slots.
+
+#### Scenario: Preflight produces multiple requests
+- **WHEN** preflight expands one prepared unit into multiple provider requests
+- **THEN** the queue and concurrency model continue to count one top-level unit
+
+### Requirement: Execution summaries SHALL distinguish candidate and unit outcomes
+Candidate exclusions before grouping SHALL be reported as candidate skips; duplicate refusal, queued cancellation, preflight skip, and other top-level results SHALL be reported as unit skips; success and failure SHALL count only top-level units.
+
+#### Scenario: Filter removes one member and duplicate guard rejects one group
+- **WHEN** candidate filtering removes one member and duplicate confirmation rejects a later prepared unit
+- **THEN** the summary records one candidate skip and one unit skip without counting either as success or failure
+
+### Requirement: Admission SHALL prevent later regrouping
+After a prepared unit is admitted, selection-count changes, candidate-count changes, peer state, or stale source files SHALL NOT cause the runtime to reconstruct or repartition the batch.
+
+#### Scenario: Source becomes stale after admission
+- **WHEN** one admitted unit's source disappears before build
+- **THEN** only that unit's build/run outcome changes and peer units retain their original membership

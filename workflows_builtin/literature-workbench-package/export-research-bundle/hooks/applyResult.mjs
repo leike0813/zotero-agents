@@ -15,13 +15,21 @@ export async function applyResult(context = {}) {
     runtime: context.runtime,
     productStorage: context.productStorage,
   });
+  const warningCodeCounts = {};
+  for (const warning of materialized.manifest.warnings) {
+    const code = String(warning?.code || "apply_warning").trim() || "apply_warning";
+    warningCodeCounts[code] = (warningCodeCounts[code] || 0) + 1;
+  }
   return {
     ok: true,
     status: "recorded",
     product: {
       productId: materialized.product.productId,
-      assetCount: materialized.product.assets.length,
+      assetCount: materialized.product.assetCount,
     },
-    warningCount: materialized.manifest.warnings.length,
+    applyDiagnostics: {
+      warningCount: materialized.manifest.warnings.length,
+      warningCodeCounts,
+    },
   };
 }

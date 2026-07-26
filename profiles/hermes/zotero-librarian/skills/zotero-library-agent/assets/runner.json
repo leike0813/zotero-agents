@@ -1,0 +1,19 @@
+{
+  "id": "zotero-library-agent",
+  "name": "📚 Zotero Library Agent",
+  "description": "Route bounded Zotero library research tasks.",
+  "execution_modes": [
+    "auto",
+    "interactive"
+  ],
+  "schemas": {
+    "output": "assets/output.schema.json"
+  },
+  "entrypoint": {
+    "result_json_filename": "zotero-library-agent.result.json",
+    "prompts": {
+      "common": "Treat SKILL.md as the authoritative procedure and use the bundled zotero-bridge-cli Skill for exact commands. Return exactly one final JSON object with __SKILL_DONE__: true plus schema, status, summary, optional evidence, artifacts, and diagnostics matching assets/output.schema.json. Return __SKILL_DONE__: false only while a concrete user decision is required."
+    }
+  },
+  "version": "0.4.1"
+}

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -10,22 +10,61 @@ export const ADDON_RELEASE_MANIFEST_PATH =
   "addon/bin/zotero-bridge-release.json";
 export const CARGO_TOML_PATH = "cli/zotero-bridge/Cargo.toml";
 export const CARGO_LOCK_PATH = "cli/zotero-bridge/Cargo.lock";
+export const BUILD_RECIPE_PATH = "host-bridge/cli-build-recipe.json";
 
-export const EXPECTED_PREBUILDS = [
-  { platform: "win32-x64", binary: "zotero-bridge.exe" },
-  { platform: "darwin-x64", binary: "zotero-bridge" },
-  { platform: "darwin-arm64", binary: "zotero-bridge" },
-  { platform: "linux-x86", binary: "zotero-bridge" },
-  { platform: "linux-x64", binary: "zotero-bridge" },
-  { platform: "linux-arm", binary: "zotero-bridge" },
-  { platform: "linux-arm64", binary: "zotero-bridge" },
-];
+export function readHostBridgeCliBuildRecipe(options = {}) {
+  const root = path.resolve(options.root || process.cwd());
+  const recipe = JSON.parse(
+    readFileSync(repoPath(root, BUILD_RECIPE_PATH), "utf8"),
+  );
+  if (
+    recipe.schema !== "host-bridge.cli-build-recipe.v1" ||
+    !recipe.toolchain ||
+    !Array.isArray(recipe.targets) ||
+    recipe.targets.length !== 7
+  ) {
+    throw new Error(
+      "Host Bridge CLI build recipe must declare exactly seven targets",
+    );
+  }
+  for (const field of ["node", "rust", "zig", "cargoZigbuild"]) {
+    if (!String(recipe.toolchain[field] || "").trim()) {
+      throw new Error(
+        `Host Bridge CLI build recipe is missing toolchain.${field}`,
+      );
+    }
+  }
+  const platforms = new Set();
+  for (const target of recipe.targets) {
+    if (
+      !String(target.runner || "").trim() ||
+      !String(target.platform || "").trim() ||
+      !String(target.target || "").trim() ||
+      !String(target.binary || "").trim() ||
+      typeof target.runtimeIdentity !== "boolean" ||
+      platforms.has(target.platform)
+    ) {
+      throw new Error(
+        "Host Bridge CLI build recipe contains an invalid or duplicate target",
+      );
+    }
+    platforms.add(target.platform);
+  }
+  return recipe;
+}
+
+const MODULE_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
+export const EXPECTED_PREBUILDS = readHostBridgeCliBuildRecipe({
+  root: MODULE_ROOT,
+}).targets.map(({ platform, binary }) => ({ platform, binary }));
 
 const BUILD_INPUT_EXACT_PATHS = new Set([
-  ".github/workflows/build-zotero-bridge-cli.yml",
+  BUILD_RECIPE_PATH,
   "scripts/build-zotero-bridge-cli.mjs",
   "scripts/package-zotero-bridge-cli.mjs",
-  "scripts/host-bridge-cli-release-governance.mjs",
   CARGO_TOML_PATH,
   CARGO_LOCK_PATH,
 ]);
@@ -195,6 +234,14 @@ export function bumpPatchVersion(version) {
   return `${match[1]}.${match[2]}.${Number(match[3]) + 1}${match[4] || ""}`;
 }
 
+export function bumpMinorVersion(version) {
+  const match = String(version || "").match(/^(\d+)\.(\d+)\.(\d+)(.*)$/);
+  if (!match) {
+    throw new Error(`Unsupported Cargo package version: ${version}`);
+  }
+  return `${match[1]}.${Number(match[2]) + 1}.0${match[4] || ""}`;
+}
+
 export function replaceCargoPackageVersion(source, version) {
   let inPackage = false;
   return String(source || "")
@@ -252,6 +299,7 @@ async function readReleaseManifest(root) {
       schema: "zotero-bridge-cli-release.v1",
       version: "",
       buildFingerprint: "",
+      binariesBuildFingerprint: "",
       fingerprintInputs: [],
       binaries: [],
     };
@@ -306,7 +354,9 @@ export async function bumpHostBridgeCliPatchVersion(options = {}) {
   const previousVersion = status.currentVersion;
   const version = options.noBump
     ? previousVersion
-    : bumpPatchVersion(previousVersion);
+    : options.intent === "minor"
+      ? bumpMinorVersion(previousVersion)
+      : bumpPatchVersion(previousVersion);
   if (!options.noBump) {
     const cargoToml = await readText(root, CARGO_TOML_PATH);
     const cargoLock = await readText(root, CARGO_LOCK_PATH);
@@ -325,6 +375,9 @@ export async function bumpHostBridgeCliPatchVersion(options = {}) {
     schema: "zotero-bridge-cli-release.v1",
     version,
     buildFingerprint: status.fingerprint,
+    binariesBuildFingerprint: String(
+      manifest.binariesBuildFingerprint || manifest.buildFingerprint || "",
+    ),
     fingerprintInputs: status.files,
     binaries: Array.isArray(manifest.binaries) ? manifest.binaries : [],
     dispatchReason: options.dispatchReason || manifest.dispatchReason || "",
@@ -337,8 +390,11 @@ export async function bumpHostBridgeCliPatchVersion(options = {}) {
   };
 }
 
-async function readSha256File(root, platform, binary) {
-  const raw = await readText(root, `addon/bin/${platform}/${binary}.sha256`);
+async function readSha256File(binaryRoot, platform, binary) {
+  const raw = await fs.readFile(
+    path.join(binaryRoot, platform, `${binary}.sha256`),
+    "utf8",
+  );
   const checksum = raw.trim().split(/\s+/)[0] || "";
   if (!/^[a-f0-9]{64}$/i.test(checksum)) {
     throw new Error(`Invalid sha256 file for ${platform}/${binary}`);
@@ -348,6 +404,9 @@ async function readSha256File(root, platform, binary) {
 
 export async function recordHostBridgeCliBinaryChecksums(options = {}) {
   const root = path.resolve(options.root || process.cwd());
+  const binaryRoot = path.resolve(
+    options.binaryRoot || repoPath(root, "addon/bin"),
+  );
   const status = await getHostBridgeCliReleaseStatus({ root });
   const manifest = await readReleaseManifest(root);
   const currentVersion = readCargoPackageVersion(
@@ -356,12 +415,21 @@ export async function recordHostBridgeCliBinaryChecksums(options = {}) {
   const binaries = [];
   const aggregate = createHash("sha256");
   for (const entry of EXPECTED_PREBUILDS) {
-    const binaryPath = repoPath(
-      root,
-      `addon/bin/${entry.platform}/${entry.binary}`,
-    );
+    const binaryPath = path.join(binaryRoot, entry.platform, entry.binary);
     const stat = await fs.stat(binaryPath);
-    const sha256 = await readSha256File(root, entry.platform, entry.binary);
+    const sha256 = await readSha256File(
+      binaryRoot,
+      entry.platform,
+      entry.binary,
+    );
+    const actualSha256 = createHash("sha256")
+      .update(await fs.readFile(binaryPath))
+      .digest("hex");
+    if (actualSha256 !== sha256) {
+      throw new Error(
+        `Binary checksum does not match sidecar for ${entry.platform}/${entry.binary}`,
+      );
+    }
     aggregate.update(
       `${entry.platform}/${entry.binary}:${sha256}:${stat.size}\n`,
     );
@@ -376,6 +444,7 @@ export async function recordHostBridgeCliBinaryChecksums(options = {}) {
     schema: "zotero-bridge-cli-release.v1",
     version: currentVersion,
     buildFingerprint: status.fingerprint,
+    binariesBuildFingerprint: status.fingerprint,
     fingerprintInputs: status.files,
     binaryAggregateSha256: aggregate.digest("hex"),
     binaries,
@@ -411,6 +480,10 @@ async function main(argv) {
     printJson(await computeHostBridgeCliBuildFingerprint());
     return;
   }
+  if (command === "recipe") {
+    printJson(readHostBridgeCliBuildRecipe());
+    return;
+  }
   if (command === "status") {
     printJson(await getHostBridgeCliReleaseStatus());
     return;
@@ -422,6 +495,19 @@ async function main(argv) {
     const noBump = args.includes("--no-bump");
     printJson(
       await bumpHostBridgeCliPatchVersion({ force, dispatchReason, noBump }),
+    );
+    return;
+  }
+  if (command === "bump-minor") {
+    if (!write) {
+      throw new Error("bump-minor requires --write");
+    }
+    printJson(
+      await bumpHostBridgeCliPatchVersion({
+        force,
+        dispatchReason,
+        intent: "minor",
+      }),
     );
     return;
   }

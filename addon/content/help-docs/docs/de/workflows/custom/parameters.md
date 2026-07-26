@@ -44,6 +44,22 @@ Parameter werden im `parameters`-Feld von `workflow.json` definiert:
 | `number` | Nummer | Zahleneingabe (unterstützt min/max-Einschränkungen) |
 | `boolean` | Boolesch | Umschalter / Kontrollkästchen |
 
+## Erforderliche Parameter
+
+Setzen Sie `required: true`, wenn ein Workflow ohne einen Parameter nicht ausgeführt werden kann:
+
+```json
+{
+  "collectionScope": {
+    "type": "string",
+    "required": true,
+    "title": "Collection Scope"
+  }
+}
+```
+
+Erforderliche Strings müssen nicht-leer sein, erforderliche Zahlen müssen endlich sein, und beide Werte eines erforderlichen Booleschen sind gültig. Fehlende erforderliche Werte werden vor dem Provider-Dispatch abgelehnt. Parameter bleiben optional, wenn `required` auf `false` gesetzt oder weggelassen wird.
+
 ## Enum-Werte und benutzerdefinierte Werte
 
 ```json

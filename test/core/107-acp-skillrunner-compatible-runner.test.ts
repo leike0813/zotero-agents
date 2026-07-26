@@ -9,14 +9,18 @@ import {
   ACP_SKILL_RUN_REQUEST_KIND,
 } from "../../src/config/defaults";
 import {
+  buildAcpSkillRunPanelSnapshot,
+  prepareAcpSkillRunPanelSnapshot,
+  subscribeAcpSkillRunSnapshots,
+} from "../helpers/acpSkillRunWorkspaceHarness";
+import {
   buildAcpChatSkillInjectionPlan,
   buildAcpSkillInjectionPlan,
-  defaultAcpChatSkillRoots,
+  defaultAcpSkillRootsForFamily,
   resolveAcpAgentFamily,
 } from "../../src/modules/acpAgentFamilyResolver";
 import {
   appendAcpSkillRunUserReply,
-  buildAcpSkillRunPanelSnapshot,
   cancelAcpSkillRun,
   archiveAcpSkillRun,
   connectAcpSkillRun,
@@ -24,6 +28,7 @@ import {
   endAcpSkillRunSession,
   flushAcpSkillRunRuntimeFileWritesForTests,
   getAcpSkillRunRecord,
+  getAcpSkillRunRuntimeCatalog,
   getSelectedAcpSkillRunRequestId,
   getAcpSkillRunTranscriptMirrorDiagnosticsForTests,
   hasAcpSkillRunController,
@@ -31,8 +36,9 @@ import {
   interruptAcpSkillRunCurrentTurn,
   listAcpSkillRunSummaries,
   listAcpSkillRuns,
-  prepareAcpSkillRunPanelSnapshot,
   projectAcpSkillRunOutputEnvelopeToTranscript,
+  readAcpSkillRunTranscriptRegion,
+  readAcpSkillRunTranscriptRegionFromMemoryForTests,
   recordAcpSkillRunSessionUpdate,
   reconcileAcpSkillRunWorkflowTasksOnStartup,
   registerAcpSkillRunController,
@@ -45,12 +51,19 @@ import {
   setAcpSkillRunRecoveryHandlerForTests,
   setAcpSkillRunPermissionRequest,
   setAcpSkillRunReasoningEffort,
-  setAcpSkillRunRuntimeOptions,
+  setAcpSkillRunRuntimeCatalog,
   shutdownAcpSkillRunConversations,
-  subscribeAcpSkillRunSnapshots,
+  subscribeAcpSkillRunWorkspaceChanges,
+  type AcpSkillRunWorkspaceChange,
   upsertAcpSkillRun,
 } from "../../src/modules/acpSkillRunStore";
 import { readAcpSkillRunOutputRevisions } from "../../src/modules/acpSkillRunPayloadStore";
+import {
+  pickAssistantInteractionFiles,
+  resetAcpSkillRunInteractionFileFlowsForTests,
+  stageAcpSkillRunInteractionFiles,
+  submitAcpSkillRunInteractionFiles,
+} from "../../src/modules/acpSkillRunInteractionFiles";
 import { insertAcpSkillProxyPatchBlock } from "../../src/modules/acpSkillReferenceRewriter";
 import {
   buildAcpRuntimeDependencyPlan,
@@ -81,6 +94,7 @@ import {
   loadAcpRuntimePromptTemplate,
   renderAcpRuntimePromptTemplate,
 } from "../../src/modules/acpRuntimePromptTemplates";
+import { buildAcpStartupPromptPreamble } from "../../src/modules/acpStartupPromptPreambles";
 import { rescanWorkflowRegistry } from "../../src/modules/workflowRuntime";
 import {
   buildAcpSkillOutputRepairPrompt,
@@ -107,10 +121,16 @@ import { resolveProvider } from "../../src/providers/registry";
 import type { AcpConnectionAdapter } from "../../src/modules/acpConnectionAdapter";
 import { RequestError } from "../../src/modules/acpProtocol";
 import { setAssistantExecutionDisplayMode } from "../../src/modules/assistantExecutionDisplayPolicy";
+import {
+  ACP_SKILLS_WORKSPACE_ADAPTER,
+  readAcpSkillRunWorkspaceRegions,
+} from "../../src/modules/acpSkillsWorkspaceSurface";
 
 const setAssistantStreamingRenderEnabled = (enabled: boolean) =>
   setAssistantExecutionDisplayMode(enabled ? "live" : "boundary");
 import {
+  listPluginRunEventStoreEntries,
+  listPluginRunStoreEntries,
   resetPluginStateStoreForTests,
   upsertPluginRunStoreEntry,
 } from "../../src/modules/pluginStateStore";
@@ -137,12 +157,7 @@ async function mkTempRoot() {
 }
 
 async function readRunTranscriptItems(requestId: string) {
-  const snapshot = await prepareAcpSkillRunPanelSnapshot({
-    selectedRequestId: requestId,
-  });
-  return Array.isArray(snapshot.selectedTranscriptPage?.items)
-    ? snapshot.selectedTranscriptPage.items
-    : [];
+  return readCanonicalRunTranscriptItems(requestId);
 }
 
 async function readCanonicalRunTranscriptItems(requestId: string) {
@@ -381,10 +396,19 @@ async function createRecoveryApplyWorkflowRoot(
   await fs.writeFile(
     path.join(workflowDir, "workflow.json"),
     JSON.stringify({
+      schemaVersion: 2,
       id: workflowId,
       label: "Recovered Sequence Apply Workflow",
       provider: "acp",
       trigger: { requiresSelection: false },
+      inputs: {
+        member: { kind: "selection" },
+        grouping: { mode: "all" },
+      },
+      validateSelection: {
+        select: { policy: "selection" },
+        filters: [],
+      },
       request: {
         kind: "skillrunner.sequence.v1",
         sequence: {
@@ -470,25 +494,31 @@ function createFinalOutputAdapter(resultJson: Record<string, unknown>) {
   } satisfies AcpConnectionAdapter;
 }
 
-function createKiloNoneFallbackAdapter() {
+function createKiloRejectedReasoningAdapter(args: {
+  effortId: string;
+  errorCode: number;
+}) {
   const base = createFinalOutputAdapter({ ok: true });
   const configSelections: string[] = [];
   let promptCount = 0;
   return {
     adapter: {
       ...base,
-      prompt: async (args: { sessionId: string; message: string }) => {
+      prompt: async (request: { sessionId: string; message: string }) => {
         promptCount += 1;
-        return base.prompt(args);
+        return base.prompt(request);
       },
-      setConfigOption: async (args: {
+      setConfigOption: async (request: {
         sessionId: string;
         category: string;
         value: string;
       }) => {
-        configSelections.push(`${args.category}:${args.value}`);
-        if (args.category === "thought_level" && args.value === "none") {
-          throw new RequestError(-32602, "invalid reasoning effort");
+        configSelections.push(`${request.category}:${request.value}`);
+        if (
+          request.category === "thought_level" &&
+          request.value === args.effortId
+        ) {
+          throw new RequestError(args.errorCode, "rejected reasoning effort");
         }
         return true;
       },
@@ -496,29 +526,6 @@ function createKiloNoneFallbackAdapter() {
     configSelections,
     getPromptCount: () => promptCount,
   };
-}
-
-function createKiloRejectedReasoningAdapter(args: {
-  effortId: string;
-  errorCode: number;
-}) {
-  const base = createFinalOutputAdapter({ ok: true });
-  return {
-    ...base,
-    setConfigOption: async (request: {
-      sessionId: string;
-      category: string;
-      value: string;
-    }) => {
-      if (
-        request.category === "thought_level" &&
-        request.value === args.effortId
-      ) {
-        throw new RequestError(args.errorCode, "rejected reasoning effort");
-      }
-      return true;
-    },
-  } satisfies AcpConnectionAdapter;
 }
 
 function createPromptStopAdapter(args: {
@@ -615,6 +622,91 @@ function createPromptStopAdapter(args: {
   return {
     adapter,
     getPromptCount: () => promptCount,
+  };
+}
+
+function createDiagnosticBurstAdapter() {
+  let updateListener: ((event: any) => void | Promise<void>) | null = null;
+  let diagnosticListener: ((entry: any) => void | Promise<void>) | null = null;
+  let resolvePromptStarted!: () => void;
+  let resolvePromptRelease!: () => void;
+  const promptStarted = new Promise<void>((resolve) => {
+    resolvePromptStarted = resolve;
+  });
+  const promptRelease = new Promise<void>((resolve) => {
+    resolvePromptRelease = resolve;
+  });
+  const adapter = {
+    initialize: async () => ({
+      authMethods: [],
+      agentName: "fake",
+      agentVersion: "1",
+      commandLabel: "fake",
+      commandLine: "fake",
+      canLoadSession: true,
+      canResumeSession: true,
+      canUseHttpMcp: true,
+      canUseSseMcp: false,
+    }),
+    onUpdate: (listener: (event: any) => void | Promise<void>) => {
+      updateListener = listener;
+      return () => {
+        updateListener = null;
+      };
+    },
+    onClose: () => () => undefined,
+    onDiagnostics: (listener: (entry: any) => void | Promise<void>) => {
+      diagnosticListener = listener;
+      return () => {
+        diagnosticListener = null;
+      };
+    },
+    onPermissionRequest: () => () => undefined,
+    newSession: async () => ({ sessionId: "session-diagnostic-burst" }),
+    loadSession: async ({ sessionId }: { sessionId: string }) => ({
+      sessionId,
+    }),
+    resumeSession: async ({ sessionId }: { sessionId: string }) => ({
+      sessionId,
+    }),
+    prompt: async ({ sessionId }: { sessionId: string }) => {
+      resolvePromptStarted();
+      await promptRelease;
+      await updateListener?.({
+        sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: JSON.stringify({ __SKILL_DONE__: true, ok: true }),
+          },
+        },
+      });
+      return { stopReason: "end_turn" };
+    },
+    cancel: async () => undefined,
+    setMode: async () => undefined,
+    setModel: async () => undefined,
+    authenticate: async () => undefined,
+    close: async () => undefined,
+  } satisfies AcpConnectionAdapter;
+  return {
+    adapter,
+    promptStarted,
+    releasePrompt: () => resolvePromptRelease(),
+    emitInfoDiagnostics: async (count: number) => {
+      assert.isFunction(diagnosticListener);
+      for (let index = 0; index < count; index += 1) {
+        await diagnosticListener?.({
+          id: `diagnostic-${index}`,
+          ts: "2026-07-17T00:00:00.000Z",
+          kind: "jsonrpc_trace",
+          level: "info",
+          message: "JSON-RPC trace",
+          detail: `direction=in method=session/update index=${index}`,
+        });
+      }
+    },
   };
 }
 
@@ -721,6 +813,8 @@ function createRuntimeModelAdapter(args: {
 function createBackendWithRuntimeModels(args: {
   currentRawModelId: string;
   currentDisplayModelId?: string;
+  additionalRawModelIds?: string[];
+  reasoningEffortIds?: string[];
 }) {
   return createBackend({
     acp: {
@@ -733,6 +827,10 @@ function createBackendWithRuntimeModels(args: {
             id: args.currentRawModelId,
             label: args.currentRawModelId,
           },
+          ...(args.additionalRawModelIds || []).map((modelId) => ({
+            id: modelId,
+            label: modelId,
+          })),
           {
             id: "alibaba-coding-plan:qwen3.6-plus",
             label: "qwen3.6-plus",
@@ -751,7 +849,10 @@ function createBackendWithRuntimeModels(args: {
         ],
         currentDisplayModelId:
           args.currentDisplayModelId || args.currentRawModelId,
-        reasoningEfforts: [],
+        reasoningEfforts: (args.reasoningEffortIds || []).map((effortId) => ({
+          id: effortId,
+          label: effortId,
+        })),
         currentReasoningEffortId: "",
       },
     },
@@ -860,63 +961,90 @@ describe("ACP SkillRunner-compatible runner", function () {
     seedRecoveredRunBackendsForTests();
   });
 
-  it("continues a Kilo task after none is rejected before the first prompt", async function () {
-    const root = await mkTempRoot();
-    const { entry } = await createSkill(root);
-    const { adapter, configSelections, getPromptCount } =
-      createKiloNoneFallbackAdapter();
-    try {
-      const result = await runDemoAcpSkill({
-        root,
-        entry,
-        adapter,
-        backend: createBackend({ acp: { agentFamily: "kilo" } }),
-        providerOptions: { acpReasoningEffort: "none" },
-      });
-
-      assert.equal(getPromptCount(), 1);
-      assert.deepEqual(configSelections, ["thought_level:none"]);
-      const record = getAcpSkillRunRecord(result.requestId);
-      assert.isUndefined(record?.acpReasoningEffort);
-      assert.isTrue(
-        (record?.events || []).some(
-          (event) => event.stage === "runtime-reasoning-fallback",
-        ),
-      );
-    } finally {
-      await fs.rm(root, { recursive: true, force: true });
-    }
-  });
-
-  for (const { effortId, errorCode } of [
-    { effortId: "high", errorCode: -32602 },
-    { effortId: "none", errorCode: -32000 },
-  ]) {
-    it(`preserves Kilo reasoning errors for ${effortId} with ${errorCode}`, async function () {
+  for (const effortId of ["none", "high"] as const) {
+    it(`falls back when Kilo rejects explicit ${effortId} reasoning`, async function () {
       const root = await mkTempRoot();
       const { entry } = await createSkill(root);
+      const { adapter, configSelections, getPromptCount } =
+        createKiloRejectedReasoningAdapter({
+          effortId,
+          errorCode: -32602,
+        });
       try {
-        let caught: unknown;
-        try {
-          await runDemoAcpSkill({
-            root,
-            entry,
-            adapter: createKiloRejectedReasoningAdapter({
-              effortId,
-              errorCode,
-            }),
-            backend: createBackend({ acp: { agentFamily: "kilo" } }),
-            providerOptions: { acpReasoningEffort: effortId },
-          });
-        } catch (error) {
-          caught = error;
-        }
-        assert.instanceOf(caught, Error);
+        const result = await runDemoAcpSkill({
+          root,
+          entry,
+          adapter,
+          backend: createBackend({
+            acp: {
+              agentFamily: "kilo",
+              runtimeOptionsCache: {
+                reasoningEfforts: [
+                  { id: "high", label: "High" },
+                  { id: "none", label: "None" },
+                ],
+                reasoningSource: "explicit",
+              },
+            },
+          }),
+          providerOptions: { acpReasoningEffort: effortId },
+        });
+        const fallback = getAcpSkillRunRecord(result.requestId)?.events.find(
+          (event) => event.stage === "provider-profile-option-fallback",
+        );
+
+        assert.equal(result.status, "succeeded");
+        assert.equal(getPromptCount(), 1);
+        assert.deepEqual(configSelections, [`thought_level:${effortId}`]);
+        assert.equal(
+          fallback?.details?.reasonCode,
+          "provider_profile_reasoning_effort_fallback",
+        );
       } finally {
         await fs.rm(root, { recursive: true, force: true });
       }
     });
   }
+
+  it("preserves Kilo reasoning errors outside the fallback boundary", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const { adapter, configSelections, getPromptCount } =
+      createKiloRejectedReasoningAdapter({
+        effortId: "none",
+        errorCode: -32000,
+      });
+    try {
+      let caught: unknown;
+      try {
+        await runDemoAcpSkill({
+          root,
+          entry,
+          adapter,
+          backend: createBackend({
+            acp: {
+              agentFamily: "kilo",
+              runtimeOptionsCache: {
+                reasoningEfforts: [
+                  { id: "high", label: "High" },
+                  { id: "none", label: "None" },
+                ],
+                reasoningSource: "explicit",
+              },
+            },
+          }),
+          providerOptions: { acpReasoningEffort: "none" },
+        });
+      } catch (error) {
+        caught = error;
+      }
+      assert.instanceOf(caught, Error);
+      assert.equal(getPromptCount(), 0);
+      assert.deepEqual(configSelections, ["thought_level:none"]);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 
   afterEach(async function () {
     await flushAcpSkillRunAuditTrailWritesForTests();
@@ -929,6 +1057,100 @@ describe("ACP SkillRunner-compatible runner", function () {
     resetWorkflowTasks();
     resetPluginStateStoreForTests();
     resetRuntimeCommandRegistryForTests();
+  });
+
+  it("keeps adapter diagnostic bursts out of canonical run persistence and publication", async function () {
+    this.timeout(20_000);
+    setDebugModeOverrideForTests(false);
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const diagnosticAdapter = createDiagnosticBurstAdapter();
+    let requestId = "";
+    const changes: unknown[] = [];
+    const unsubscribe = subscribeAcpSkillRunWorkspaceChanges((change) => {
+      changes.push(change);
+    });
+    try {
+      const runPromise = runDemoAcpSkill({
+        root,
+        entry,
+        adapter: diagnosticAdapter.adapter,
+        createWorkspace: async (workspaceArgs) => {
+          const workspace = await createAcpSkillRunnerWorkspace({
+            ...workspaceArgs,
+            rootDir: root,
+          });
+          requestId = workspace.requestId;
+          return workspace;
+        },
+      });
+      await diagnosticAdapter.promptStarted;
+      await flushAcpSkillRunRuntimeFileWritesForTests();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      changes.length = 0;
+
+      const beforeRecord = getAcpSkillRunRecord(requestId);
+      const beforeRunRow = listPluginRunStoreEntries("acp").find(
+        (row) => row.requestId === requestId,
+      );
+      const beforeEventRows = listPluginRunEventStoreEntries({
+        kind: "acp",
+        runKey: beforeRunRow?.runKey || requestId,
+      });
+      const beforeProjection = {
+        status: beforeRecord?.status,
+        updatedAt: beforeRecord?.updatedAt,
+        events: beforeRecord?.events,
+        transcriptRevision: beforeRecord?.transcriptRevision,
+        transcriptEventSeq: beforeRecord?.transcriptEventSeq,
+        transcriptItemCount: beforeRecord?.transcriptItemCount,
+        result: beforeRecord?.result,
+        pendingPermission: beforeRecord?.pendingPermissionRequest,
+        recoveryState: beforeRecord?.conversationRecoveryState,
+      };
+
+      await diagnosticAdapter.emitInfoDiagnostics(10_000);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      const afterRecord = getAcpSkillRunRecord(requestId);
+      const afterRunRow = listPluginRunStoreEntries("acp").find(
+        (row) => row.requestId === requestId,
+      );
+      const afterEventRows = listPluginRunEventStoreEntries({
+        kind: "acp",
+        runKey: afterRunRow?.runKey || requestId,
+      });
+      assert.deepEqual(
+        {
+          status: afterRecord?.status,
+          updatedAt: afterRecord?.updatedAt,
+          events: afterRecord?.events,
+          transcriptRevision: afterRecord?.transcriptRevision,
+          transcriptEventSeq: afterRecord?.transcriptEventSeq,
+          transcriptItemCount: afterRecord?.transcriptItemCount,
+          result: afterRecord?.result,
+          pendingPermission: afterRecord?.pendingPermissionRequest,
+          recoveryState: afterRecord?.conversationRecoveryState,
+        },
+        beforeProjection,
+      );
+      assert.deepEqual(afterRunRow, beforeRunRow);
+      assert.deepEqual(afterEventRows, beforeEventRows);
+      assert.deepEqual(changes, []);
+
+      diagnosticAdapter.releasePrompt();
+      const result = await runPromise;
+      assert.equal(result.requestId, requestId);
+      assert.equal(result.status, "succeeded");
+      assert.equal(
+        getAcpSkillRunRecord(requestId)?.outputConvergenceState,
+        "final",
+      );
+    } finally {
+      diagnosticAdapter.releasePrompt();
+      unsubscribe();
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("batches plugin-owned audit updates into one physical append", async function () {
@@ -1344,7 +1566,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
-  it("resolves agent family from backend metadata and builds skill roots", async function () {
+  it("resolves agent families and builds family-specific and dynamic Chat skill roots", async function () {
     const root = await mkTempRoot();
     const codex = createBackend();
     assert.equal(resolveAcpAgentFamily(codex), "codex");
@@ -1379,7 +1601,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       buildAcpSkillInjectionPlan({ backend: kilo, workspaceDir: root })
         .skillRoots.map((entry) => entry.replace(/\\/g, "/"))
         .map((entry) => entry.slice(root.replace(/\\/g, "/").length + 1)),
-      [".kilo/skills"],
+      [".agents/skills", ".kilo/skills"],
     );
 
     const overridden = createBackend({
@@ -1395,29 +1617,66 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(plan.family, "qwen-code");
     assert.match(plan.skillRoots[0].replace(/\\/g, "/"), /\.custom\/skills$/);
 
-    assert.deepEqual(defaultAcpChatSkillRoots(), [
-      ".agents/skills",
-      ".codex/skills",
-      ".claude/skills",
-      ".gemini/skills",
-      ".qwen/skills",
-      ".kilo/skills",
-    ]);
+    const expectedRootsByFamily = {
+      codex: [".agents/skills", ".codex/skills"],
+      "claude-code": [".agents/skills", ".claude/skills"],
+      opencode: [".agents/skills", ".opencode/skills"],
+      "gemini-cli": [".agents/skills", ".gemini/skills"],
+      "qwen-code": [".agents/skills", ".qwen/skills"],
+      kilo: [".agents/skills", ".kilo/skills"],
+      codebuddy: [".agents/skills", ".codebuddy/skills"],
+      "kimi-code": [".agents/skills", ".kimi-code/skills"],
+      unknown: [".agents/skills"],
+      hermes: [],
+    } as const;
+    for (const [family, expectedRoots] of Object.entries(
+      expectedRootsByFamily,
+    )) {
+      assert.deepEqual(
+        defaultAcpSkillRootsForFamily(
+          family as keyof typeof expectedRootsByFamily,
+        ),
+        [...expectedRoots],
+        family,
+      );
+    }
+
+    const codebuddy = createBackend({
+      id: "backend-acp-codebuddy",
+      command: "cbc",
+      args: ["--acp"],
+      enabled: false,
+    });
+    assert.equal(resolveAcpAgentFamily(codebuddy), "codebuddy");
+    assert.equal(
+      resolveAcpAgentFamily(
+        createBackend({
+          id: "backend-acp-token-boundary",
+          displayName: "Token Boundary ACP",
+          command: "abcbc",
+          args: [],
+        }),
+      ),
+      "unknown",
+    );
+    const kimi = createBackend({
+      id: "backend-acp-kimi",
+      command: "kimi",
+      args: ["acp"],
+    });
+    assert.equal(resolveAcpAgentFamily(kimi), "kimi-code");
+
     assert.deepEqual(
       buildAcpChatSkillInjectionPlan({
-        backend: overridden,
+        backends: [overridden, codebuddy, kimi],
         workspaceDir: root,
-      })
-        .skillRoots.map((entry) => entry.replace(/\\/g, "/"))
-        .map((entry) => entry.slice(root.replace(/\\/g, "/").length + 1)),
+      }).relativeSkillRoots,
       [
         ".agents/skills",
-        ".codex/skills",
-        ".claude/skills",
-        ".gemini/skills",
         ".qwen/skills",
-        ".kilo/skills",
         ".custom/skills",
+        ".codebuddy/skills",
+        ".kimi-code/skills",
       ],
     );
   });
@@ -1483,9 +1742,19 @@ describe("ACP SkillRunner-compatible runner", function () {
     await fs.writeFile(
       path.join(workflowRoot, "workflow.json"),
       JSON.stringify({
+        schemaVersion: 2,
         id: workflowId,
         label: "Localized ACP Skill Workflow",
         provider: "acp",
+        trigger: { requiresSelection: false },
+        inputs: {
+          member: { kind: "selection" },
+          grouping: { mode: "all" },
+        },
+        validateSelection: {
+          select: { policy: "selection" },
+          filters: [],
+        },
         request: {
           kind: "skillrunner.job.v1",
           create: {
@@ -2125,6 +2394,92 @@ describe("ACP SkillRunner-compatible runner", function () {
     );
   });
 
+  it("projects a disconnected waiting Skills run as waiting with resident reconnect controls", async function () {
+    upsertAcpSkillRun({
+      requestId: "acp-waiting-surface",
+      backendId: "backend-acp",
+      backendType: "acp",
+      backendLabel: "ACP Backend",
+      workspaceDir: "/workspace/acp-waiting-surface",
+      sessionId: "session-waiting",
+      status: "waiting_user",
+      conversationState: "closed",
+      conversationRecoveryState: "available",
+      connectionActionState: "idle",
+      activePrompt: false,
+    });
+
+    const regions = await readAcpSkillRunWorkspaceRegions({
+      requestId: "acp-waiting-surface",
+      kinds: ["owner-control", "composer", "owner-presentation"],
+    });
+
+    assert.deepInclude(regions["owner-control"]?.connection, {
+      connected: false,
+      canConnect: true,
+      canDisconnect: false,
+    });
+    assert.equal(regions["owner-control"]?.hint.kind, "waiting_user");
+    assert.equal(regions.composer?.reply.status, "disabled");
+    assert.deepEqual(regions["owner-presentation"]?.metadata, [
+      { fieldId: "backend", value: "ACP Backend" },
+      { fieldId: "workspace", value: "/workspace/acp-waiting-surface" },
+    ]);
+  });
+
+  it("projects an interrupted connected Skills turn as waiting for a reply", async function () {
+    upsertAcpSkillRun({
+      requestId: "acp-interrupted-surface",
+      backendId: "backend-acp",
+      backendType: "acp",
+      sessionId: "session-interrupted",
+      status: "running",
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+      connectionActionState: "idle",
+      replyState: "idle",
+      promptInterruptState: "forced",
+      activePrompt: false,
+    });
+
+    const regions = await readAcpSkillRunWorkspaceRegions({
+      requestId: "acp-interrupted-surface",
+      kinds: ["owner-control", "composer"],
+    });
+
+    assert.equal(regions["owner-control"]?.hint.kind, "waiting_user");
+    assert.equal(regions.composer?.reply.status, "enabled");
+  });
+
+  it("keeps both sequence skill and workflow roles in the Skills subtitle when their labels match", async function () {
+    upsertAcpSkillRun({
+      requestId: "acp-sequence-subtitle",
+      backendId: "backend-acp",
+      backendType: "acp",
+      status: "waiting_user",
+      skillName: "📊 文献分析",
+      workflowLabel: "📊 文献分析",
+      sequenceStepId: "digest",
+      sequenceStepIndex: 0,
+    });
+    selectAcpSkillRun("acp-sequence-subtitle");
+
+    const regions = await readAcpSkillRunWorkspaceRegions({
+      requestId: "acp-sequence-subtitle",
+      kinds: ["owner-presentation"],
+    });
+    const navigation = await ACP_SKILLS_WORKSPACE_ADAPTER.readOwnerNavigation();
+    const expectedSubtitle = "1️⃣ 📊 文献分析/📊 文献分析";
+
+    assert.equal(regions["owner-presentation"]?.subtitle, expectedSubtitle);
+    assert.equal(
+      navigation.entries.find(
+        (entry) => entry.owner.requestId === "acp-sequence-subtitle",
+      )?.subtitle,
+      expectedSubtitle,
+    );
+  });
+
   it("removes archived ACP skill runs from the active run projection", function () {
     recordWorkflowTaskUpdate(
       makeAcpWorkflowTaskJob({
@@ -2361,7 +2716,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     });
   });
 
-  it("interrupts an active ACP skill prompt without closing the live adapter", async function () {
+  it("keeps an interrupted active prompt out of output repair after end_turn", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root);
     let updateListener: ((event: any) => void | Promise<void>) | null = null;
@@ -2410,7 +2765,7 @@ describe("ACP SkillRunner-compatible runner", function () {
           resolvePrompt = resolve;
           resolvePromptStarted();
         });
-        return { stopReason: "cancelled" };
+        return { stopReason: "end_turn" };
       },
       cancel: async () => {
         cancelCalls += 1;
@@ -2453,6 +2808,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     await interruptAcpSkillRunCurrentTurn(requestId);
     const result = await runPromise;
     const record = getAcpSkillRunRecord(requestId);
+    const stages = (record?.events || []).map((event) => event.stage);
 
     assert.equal(cancelCalls, 1);
     assert.equal(closeCalls, 0);
@@ -2472,6 +2828,9 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(record?.conversationState, "active");
     assert.equal(record?.conversationRecoveryState, "connected");
     assert.equal(record?.promptInterruptState, "confirmed");
+    assert.include(stages, "interrupt-confirmed");
+    assert.notInclude(stages, "output-validation-failed");
+    assert.notInclude(stages, "repair-started");
     assert.isUndefined(record?.removedAt);
   });
 
@@ -3431,15 +3790,22 @@ describe("ACP SkillRunner-compatible runner", function () {
       ACP_RUNTIME_PROMPT_TEMPLATES.map((template) => template.id),
       [
         "acp_chat_startup_preamble",
+        "acp_chat_workspace_agents",
         "acp_skills_startup_preamble",
         "mcp_required_guard",
         "recovered_continuation_guard",
+        "interaction_file_reply",
       ],
     );
     for (const template of ACP_RUNTIME_PROMPT_TEMPLATES) {
       const content = await loadAcpRuntimePromptTemplate(template);
       assert.isNotEmpty(content, template.filename);
     }
+    const chatWorkspaceInstructions = await loadAcpRuntimePromptTemplate(
+      ACP_RUNTIME_PROMPT_TEMPLATES_BY_ID.acp_chat_workspace_agents,
+    );
+    assert.include(chatWorkspaceInstructions, "shared ACP Chat workspace");
+    assert.include(chatWorkspaceInstructions, "outside this workspace");
 
     const guardPrompt = renderAcpRuntimePromptTemplate({
       template: await loadAcpRuntimePromptTemplate(
@@ -3476,6 +3842,17 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.include(chatStartupPrompt, "ACP Chat assistant");
     assert.include(chatStartupPrompt, "zotero-bridge-cli");
     assert.notInclude(chatStartupPrompt, "Agent family");
+    const familyIndependentChatStartup = await buildAcpStartupPromptPreamble({
+      surface: "acp-chat",
+      workspaceDir: "workspace",
+      instructionFile: "CLAUDE.md",
+    });
+    assert.include(familyIndependentChatStartup, "AGENTS.md");
+    assert.include(
+      familyIndependentChatStartup,
+      "Read and follow the runtime instruction file before acting",
+    );
+    assert.notInclude(familyIndependentChatStartup, "CLAUDE.md");
 
     const skillsStartupPrompt = renderAcpRuntimePromptTemplate({
       template: await loadAcpRuntimePromptTemplate(
@@ -3590,16 +3967,22 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.notInclude(readme, "secret-token");
     assert.strictEqual(injection.env.ZOTERO_BRIDGE_TOKEN, "secret-token");
     assert.isString(injection.shimDir);
-    const shellShim = await fs.readFile(
-      path.join(injection.shimDir || "", "zotero-bridge"),
-      "utf8",
-    );
+    const shellShimPath = path.join(injection.shimDir || "", "zotero-bridge");
+    const shellShim = await fs.readFile(shellShimPath, "utf8");
     const cmdShim = await fs.readFile(
       path.join(injection.shimDir || "", "zotero-bridge.cmd"),
       "utf8",
     );
     assert.include(shellShim, formatPortablePathForTest(cliPath));
     assert.include(cmdShim, cliPath);
+    if (process.platform !== "win32") {
+      const shellShimMode = (await fs.stat(shellShimPath)).mode;
+      assert.notEqual(
+        shellShimMode & 0o100,
+        0,
+        "the Host Bridge shell shim must be executable by its owner",
+      );
+    }
     assert.include(injection.env.PATH, injection.shimDir || "");
     assert.include(injection.env.PATH, path.dirname(cliPath));
     assert.strictEqual(injection.env.Path, injection.env.PATH);
@@ -5627,27 +6010,291 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(record?.conversationRecoveryState, "connected");
   });
 
-  it("allows ACP skill run mode changes during active prompts but rejects model and reasoning changes", async function () {
-    const requestId = "run-runtime-active";
-    const modeSelections: string[] = [];
-    const modelSelections: string[] = [];
+  it("allows mode changes while frozen runtime configuration rejects model changes", async function () {
+    const frozenStates = [
+      { suffix: "active", activePrompt: true },
+      { suffix: "preparing", activePrompt: false },
+    ];
+
+    for (const state of frozenStates) {
+      const requestId = `run-runtime-${state.suffix}`;
+      const sessionId = `session-runtime-${state.suffix}`;
+      const modeSelections: string[] = [];
+      const modelSelections: string[] = [];
+      upsertAcpSkillRun({
+        requestId,
+        status: "running",
+        sessionId,
+        conversationState: "active",
+        conversationRecoveryState: "connected",
+        activePrompt: state.activePrompt,
+        acpModeId: "code",
+        acpModelId: "gpt-5",
+        acpReasoningEffort: "medium",
+        acpRawModelId: "gpt-5@medium",
+      });
+      setAcpSkillRunRuntimeCatalog(requestId, {
+        modeOptions: [
+          { id: "code", label: "Code" },
+          { id: "plan", label: "Plan" },
+        ],
+        modelOptions: [
+          { id: "gpt-5@medium", label: "GPT-5 Medium" },
+          { id: "gpt-5@high", label: "GPT-5 High" },
+        ],
+        displayModelOptions: [{ id: "gpt-5", label: "GPT-5" }],
+        reasoningEffortOptions: [
+          { id: "medium", label: "Medium" },
+          { id: "high", label: "High" },
+        ],
+      });
+      registerAcpSkillRunController(requestId, {
+        cancel: async () => undefined,
+        setMode: async ({ sessionId: selectedSessionId, modeId }) => {
+          modeSelections.push(`${selectedSessionId}:${modeId}`);
+        },
+        setModel: async ({ sessionId: selectedSessionId, modelId }) => {
+          modelSelections.push(`${selectedSessionId}:${modelId}`);
+        },
+      });
+
+      await setAcpSkillRunMode({ requestId, modeId: "plan" });
+      assert.deepEqual(modeSelections, [`${sessionId}:plan`], state.suffix);
+      assert.equal(
+        getAcpSkillRunRecord(requestId)?.acpModeId,
+        "plan",
+        state.suffix,
+      );
+
+      for (const change of [
+        () => setAcpSkillRunModel({ requestId, modelId: "gpt-5" }),
+        () => setAcpSkillRunReasoningEffort({ requestId, effortId: "high" }),
+      ]) {
+        try {
+          await change();
+          assert.fail(
+            `expected ${state.suffix} model configuration change to be rejected`,
+          );
+        } catch (error) {
+          assert.include(
+            error instanceof Error ? error.message : String(error),
+            "configuration is frozen",
+            state.suffix,
+          );
+        }
+      }
+      assert.deepEqual(modelSelections, [], state.suffix);
+    }
+  });
+
+  it("maps model configuration changes in editable idle states", async function () {
+    for (const status of ["waiting_user", "failed_retriable"] as const) {
+      const requestId = `run-runtime-idle-${status}`;
+      const sessionId = `session-runtime-idle-${status}`;
+      const modelSelections: string[] = [];
+      upsertAcpSkillRun({
+        requestId,
+        status,
+        sessionId,
+        conversationState: "active",
+        conversationRecoveryState: "connected",
+        activePrompt: false,
+        acpModeId: "code",
+        acpModelId: "gpt-5",
+        acpReasoningEffort: "medium",
+        acpRawModelId: "gpt-5@medium",
+      });
+      setAcpSkillRunRuntimeCatalog(requestId, {
+        modeOptions: [{ id: "code", label: "Code" }],
+        modelOptions: [
+          { id: "gpt-5@medium", label: "GPT-5 Medium" },
+          { id: "gpt-5@high", label: "GPT-5 High" },
+          { id: "claude-4@default", label: "Claude 4 Default" },
+          { id: "claude-4@high", label: "Claude 4 High" },
+        ],
+        displayModelOptions: [
+          { id: "gpt-5", label: "GPT-5" },
+          { id: "claude-4", label: "Claude 4" },
+        ],
+        reasoningEffortOptions: [
+          { id: "default", label: "Default" },
+          { id: "medium", label: "Medium" },
+          { id: "high", label: "High" },
+        ],
+        reasoningSource: "model-derived",
+      });
+      registerAcpSkillRunController(requestId, {
+        cancel: async () => undefined,
+        setModel: async ({ sessionId: selectedSessionId, modelId }) => {
+          modelSelections.push(`${selectedSessionId}:${modelId}`);
+        },
+      });
+
+      await setAcpSkillRunReasoningEffort({ requestId, effortId: "high" });
+      assert.deepEqual(modelSelections, [`${sessionId}:gpt-5@high`], status);
+      assert.equal(
+        getAcpSkillRunRecord(requestId)?.acpReasoningEffort,
+        "high",
+        status,
+      );
+      assert.equal(
+        getAcpSkillRunRecord(requestId)?.acpRawModelId,
+        "gpt-5@high",
+        status,
+      );
+
+      await setAcpSkillRunModel({ requestId, modelId: "claude-4" });
+      assert.deepEqual(
+        modelSelections,
+        [`${sessionId}:gpt-5@high`, `${sessionId}:claude-4@high`],
+        status,
+      );
+      assert.equal(
+        getAcpSkillRunRecord(requestId)?.acpModelId,
+        "claude-4",
+        status,
+      );
+      assert.equal(
+        getAcpSkillRunRecord(requestId)?.acpReasoningEffort,
+        "high",
+        status,
+      );
+      assert.equal(
+        getAcpSkillRunRecord(requestId)?.acpRawModelId,
+        "claude-4@high",
+        status,
+      );
+    }
+  });
+
+  it("rejects catalog-external runtime actions before controller transport", async function () {
+    const requestId = "run-runtime-invalid-action";
+    const transported: string[] = [];
     upsertAcpSkillRun({
       requestId,
-      status: "running",
-      sessionId: "session-runtime-active",
+      status: "waiting_user",
+      sessionId: "session-runtime-invalid-action",
       conversationState: "active",
       conversationRecoveryState: "connected",
-      activePrompt: true,
+      activePrompt: false,
       acpModeId: "code",
-      acpModelId: "gpt-5",
-      acpReasoningEffort: "medium",
-      acpRawModelId: "gpt-5@medium",
+      acpModelId: "model-a",
+      acpRawModelId: "model-a",
+      acpReasoningEffort: "low",
     });
-    setAcpSkillRunRuntimeOptions(requestId, {
-      modeOptions: [
-        { id: "code", label: "Code" },
-        { id: "plan", label: "Plan" },
+    setAcpSkillRunRuntimeCatalog(requestId, {
+      modeOptions: [{ id: "code", label: "Code" }],
+      modelOptions: [{ id: "model-a", label: "Model A" }],
+      displayModelOptions: [{ id: "model-a", label: "Model A" }],
+      reasoningEffortOptions: [{ id: "low", label: "Low" }],
+      reasoningSource: "explicit",
+    });
+    registerAcpSkillRunController(requestId, {
+      cancel: async () => undefined,
+      setMode: async ({ modeId }) => {
+        transported.push(`mode:${modeId}`);
+      },
+      setModel: async ({ modelId }) => {
+        transported.push(`model:${modelId}`);
+      },
+      setConfigOption: async ({ category, value }) => {
+        transported.push(`${category}:${value}`);
+        return true;
+      },
+    });
+
+    for (const action of [
+      () => setAcpSkillRunMode({ requestId, modeId: "plan" }),
+      () => setAcpSkillRunModel({ requestId, modelId: "model-b" }),
+      () => setAcpSkillRunReasoningEffort({ requestId, effortId: "high" }),
+    ]) {
+      let caught: unknown;
+      try {
+        await action();
+      } catch (error) {
+        caught = error;
+      }
+      assert.instanceOf(caught, Error);
+    }
+    assert.deepEqual(transported, []);
+    const record = getAcpSkillRunRecord(requestId);
+    assert.equal(record?.acpModeId, "code");
+    assert.equal(record?.acpModelId, "model-a");
+    assert.equal(record?.acpRawModelId, "model-a");
+    assert.equal(record?.acpReasoningEffort, "low");
+  });
+
+  it("routes independent Skills reasoning through thought_level without folding plain models", async function () {
+    const requestId = "run-runtime-independent-reasoning";
+    const sessionId = "session-runtime-independent-reasoning";
+    const modelSelections: string[] = [];
+    const configSelections: string[] = [];
+    upsertAcpSkillRun({
+      requestId,
+      status: "waiting_user",
+      sessionId,
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+      activePrompt: false,
+      acpModelId: "model-a",
+      acpRawModelId: "model-a",
+      acpReasoningEffort: "low",
+    });
+    setAcpSkillRunRuntimeCatalog(requestId, {
+      modelOptions: [
+        { id: "model-a", label: "Model A" },
+        { id: "model-b", label: "Model B" },
       ],
+      displayModelOptions: [
+        { id: "model-a", label: "Model A" },
+        { id: "model-b", label: "Model B" },
+      ],
+      reasoningEffortOptions: [
+        { id: "low", label: "Low" },
+        { id: "high", label: "High" },
+      ],
+      reasoningSource: "explicit",
+    });
+    registerAcpSkillRunController(requestId, {
+      cancel: async () => undefined,
+      setModel: async ({ modelId }) => {
+        modelSelections.push(modelId);
+      },
+      setConfigOption: async ({ category, value }) => {
+        configSelections.push(`${category}:${value}`);
+        return true;
+      },
+    });
+
+    await setAcpSkillRunModel({ requestId, modelId: "model-b" });
+    assert.deepEqual(modelSelections, ["model-b"]);
+    assert.equal(getAcpSkillRunRecord(requestId)?.acpModelId, "model-b");
+    assert.equal(getAcpSkillRunRecord(requestId)?.acpReasoningEffort, "low");
+
+    await setAcpSkillRunReasoningEffort({ requestId, effortId: "high" });
+    assert.deepEqual(configSelections, ["thought_level:high"]);
+    assert.equal(getAcpSkillRunRecord(requestId)?.acpModelId, "model-b");
+    assert.equal(getAcpSkillRunRecord(requestId)?.acpReasoningEffort, "high");
+  });
+
+  it("exposes stored model and reasoning options on the idle connected Skills composer", async function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-composer-options",
+      status: "waiting_user",
+      backendId: "backend-acp",
+      backendType: "acp",
+      sessionId: "session-composer-options",
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+      activePrompt: false,
+      replyState: "idle",
+      acpModelId: "gpt-5",
+      acpRawModelId: "gpt-5@medium",
+      acpReasoningEffort: "medium",
+    });
+    setAcpSkillRunRuntimeCatalog("run-composer-options", {
+      modeOptions: [{ id: "code", label: "Code" }],
       modelOptions: [
         { id: "gpt-5@medium", label: "GPT-5 Medium" },
         { id: "gpt-5@high", label: "GPT-5 High" },
@@ -5658,97 +6305,528 @@ describe("ACP SkillRunner-compatible runner", function () {
         { id: "high", label: "High" },
       ],
     });
-    registerAcpSkillRunController(requestId, {
-      cancel: async () => undefined,
-      setMode: async ({ sessionId, modeId }) => {
-        modeSelections.push(`${sessionId}:${modeId}`);
-      },
-      setModel: async ({ sessionId, modelId }) => {
-        modelSelections.push(`${sessionId}:${modelId}`);
-      },
+
+    const regions = await readAcpSkillRunWorkspaceRegions({
+      requestId: "run-composer-options",
+      kinds: ["composer"],
     });
 
-    await setAcpSkillRunMode({ requestId, modeId: "plan" });
-    assert.deepEqual(modeSelections, ["session-runtime-active:plan"]);
-    assert.equal(getAcpSkillRunRecord(requestId)?.acpModeId, "plan");
-
-    try {
-      await setAcpSkillRunModel({ requestId, modelId: "gpt-5" });
-      assert.fail("expected active prompt model change to be rejected");
-    } catch (error) {
-      assert.include(
-        error instanceof Error ? error.message : String(error),
-        "prompt is running",
-      );
-    }
-    try {
-      await setAcpSkillRunReasoningEffort({ requestId, effortId: "high" });
-      assert.fail("expected active prompt reasoning change to be rejected");
-    } catch (error) {
-      assert.include(
-        error instanceof Error ? error.message : String(error),
-        "prompt is running",
-      );
-    }
-    assert.deepEqual(modelSelections, []);
+    const modeGroup = regions.composer?.runtimeOptions?.mode;
+    const modelGroup = regions.composer?.runtimeOptions?.model;
+    const reasoningGroup = regions.composer?.runtimeOptions?.reasoningEffort;
+    assert.isTrue(modeGroup?.enabled);
+    assert.isTrue(modelGroup?.enabled);
+    assert.deepEqual(
+      modelGroup?.options.map((entry) => entry.optionId),
+      ["gpt-5"],
+    );
+    assert.equal(modelGroup?.selectedOptionId, "gpt-5");
+    assert.isTrue(reasoningGroup?.enabled);
+    assert.deepEqual(
+      reasoningGroup?.options.map((entry) => entry.optionId),
+      ["medium", "high"],
+    );
+    assert.equal(reasoningGroup?.selectedOptionId, "medium");
   });
 
-  it("maps ACP skill run model and reasoning changes to raw model ids outside active prompts", async function () {
-    const requestId = "run-runtime-idle";
-    const modelSelections: string[] = [];
-    upsertAcpSkillRun({
-      requestId,
-      status: "waiting_user",
-      sessionId: "session-runtime-idle",
-      conversationState: "active",
-      conversationRecoveryState: "connected",
-      activePrompt: false,
-      acpModeId: "code",
-      acpModelId: "gpt-5",
-      acpReasoningEffort: "medium",
-      acpRawModelId: "gpt-5@medium",
+  it("keeps current runtime options visible while model configuration is frozen", async function () {
+    const promptingStates = [
+      {
+        suffix: "active",
+        status: "running" as const,
+        activePrompt: true,
+        replyState: "idle" as const,
+      },
+      {
+        suffix: "submitted",
+        status: "running" as const,
+        activePrompt: false,
+        replyState: "submitted" as const,
+      },
+      {
+        suffix: "accepted",
+        status: "running" as const,
+        activePrompt: false,
+        replyState: "accepted" as const,
+      },
+      {
+        suffix: "queued",
+        status: "queued" as const,
+        activePrompt: false,
+        replyState: "idle" as const,
+      },
+      {
+        suffix: "preparing",
+        status: "running" as const,
+        activePrompt: false,
+        replyState: "idle" as const,
+      },
+      {
+        suffix: "repairing",
+        status: "repairing" as const,
+        activePrompt: false,
+        replyState: "idle" as const,
+      },
+    ];
+
+    for (const state of promptingStates) {
+      resetAcpSkillRunsForTests();
+      const requestId = `run-composer-options-${state.suffix}`;
+      upsertAcpSkillRun({
+        requestId,
+        status: state.status,
+        backendId: "backend-acp",
+        backendType: "acp",
+        sessionId: `session-composer-options-${state.suffix}`,
+        conversationState: "active",
+        conversationRecoveryState: "connected",
+        activePrompt: state.activePrompt,
+        replyState: state.replyState,
+        acpModelId: "gpt-5",
+        acpRawModelId: "gpt-5@medium",
+        acpReasoningEffort: "medium",
+      });
+      setAcpSkillRunRuntimeCatalog(requestId, {
+        modeOptions: [{ id: "code", label: "Code" }],
+        modelOptions: [
+          { id: "gpt-5@medium", label: "GPT-5 Medium" },
+          { id: "gpt-5@high", label: "GPT-5 High" },
+        ],
+        displayModelOptions: [{ id: "gpt-5", label: "GPT-5" }],
+        reasoningEffortOptions: [
+          { id: "medium", label: "Medium" },
+          { id: "high", label: "High" },
+        ],
+      });
+
+      const regions = await readAcpSkillRunWorkspaceRegions({
+        requestId,
+        kinds: ["composer"],
+      });
+      const modeGroup = regions.composer?.runtimeOptions?.mode;
+      const modelGroup = regions.composer?.runtimeOptions?.model;
+      const reasoningGroup = regions.composer?.runtimeOptions?.reasoningEffort;
+
+      assert.isTrue(modeGroup?.enabled, state.suffix);
+      assert.isFalse(modelGroup?.enabled, state.suffix);
+      assert.deepEqual(
+        modelGroup?.options.map((entry) => entry.optionId),
+        ["gpt-5"],
+        state.suffix,
+      );
+      assert.equal(modelGroup?.selectedOptionId, "gpt-5", state.suffix);
+      assert.isFalse(reasoningGroup?.enabled, state.suffix);
+      assert.deepEqual(
+        reasoningGroup?.options.map((entry) => entry.optionId),
+        ["medium", "high"],
+        state.suffix,
+      );
+      assert.equal(reasoningGroup?.selectedOptionId, "medium", state.suffix);
+    }
+  });
+
+  it("derives Skills runtime options from the session models when the backend cache is cold", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const adapter = createRuntimeModelAdapter({
+      currentModelId: "gpt-5@medium",
+      setModelCalls: [],
     });
-    setAcpSkillRunRuntimeOptions(requestId, {
-      modeOptions: [{ id: "code", label: "Code" }],
-      modelOptions: [
-        { id: "gpt-5@medium", label: "GPT-5 Medium" },
-        { id: "gpt-5@high", label: "GPT-5 High" },
-        { id: "claude-4@default", label: "Claude 4 Default" },
-        { id: "claude-4@high", label: "Claude 4 High" },
-      ],
-      displayModelOptions: [
-        { id: "gpt-5", label: "GPT-5" },
-        { id: "claude-4", label: "Claude 4" },
-      ],
-      reasoningEffortOptions: [
-        { id: "default", label: "Default" },
-        { id: "medium", label: "Medium" },
-        { id: "high", label: "High" },
-      ],
-    });
-    registerAcpSkillRunController(requestId, {
-      cancel: async () => undefined,
-      setModel: async ({ sessionId, modelId }) => {
-        modelSelections.push(`${sessionId}:${modelId}`);
+    adapter.newSession = async () => ({
+      sessionId: "session-cold-cache",
+      models: {
+        currentModelId: "gpt-5@medium",
+        availableModels: [
+          { modelId: "gpt-5@medium", name: "GPT-5 Medium" },
+          { modelId: "gpt-5@high", name: "GPT-5 High" },
+        ],
       },
     });
+    try {
+      const result = await runDemoAcpSkill({
+        root,
+        entry,
+        adapter,
+        backend: createBackend(),
+      });
 
-    await setAcpSkillRunReasoningEffort({ requestId, effortId: "high" });
-    assert.deepEqual(modelSelections, ["session-runtime-idle:gpt-5@high"]);
-    assert.equal(getAcpSkillRunRecord(requestId)?.acpReasoningEffort, "high");
-    assert.equal(getAcpSkillRunRecord(requestId)?.acpRawModelId, "gpt-5@high");
+      const options = getAcpSkillRunRuntimeCatalog(result.requestId);
+      assert.deepEqual(
+        (options?.displayModelOptions || []).map((entry) => entry.id),
+        ["gpt-5"],
+      );
+      assert.deepEqual(
+        (options?.reasoningEffortOptions || []).map((entry) => entry.id),
+        ["medium", "high"],
+      );
+      const record = getAcpSkillRunRecord(result.requestId);
+      assert.equal(record?.acpModelId, "gpt-5");
+      assert.equal(record?.acpRawModelId, "gpt-5@medium");
+      assert.equal(record?.acpReasoningEffort, "medium");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
 
-    await setAcpSkillRunModel({ requestId, modelId: "claude-4" });
-    assert.deepEqual(modelSelections, [
-      "session-runtime-idle:gpt-5@high",
-      "session-runtime-idle:claude-4@high",
-    ]);
-    assert.equal(getAcpSkillRunRecord(requestId)?.acpModelId, "claude-4");
-    assert.equal(getAcpSkillRunRecord(requestId)?.acpReasoningEffort, "high");
-    assert.equal(
-      getAcpSkillRunRecord(requestId)?.acpRawModelId,
-      "claude-4@high",
-    );
+  it("does not invent a Skills current selection from the first handshake option", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const setModelCalls: string[] = [];
+    const adapter = createRuntimeModelAdapter({
+      currentModelId: "",
+      setModelCalls,
+    });
+    adapter.newSession = async () => ({
+      sessionId: "session-without-current",
+      models: {
+        currentModelId: "",
+        availableModels: [
+          { modelId: "gpt-5@medium", name: "GPT-5 Medium" },
+          { modelId: "gpt-5@high", name: "GPT-5 High" },
+        ],
+      },
+    });
+    try {
+      const result = await runDemoAcpSkill({
+        root,
+        entry,
+        adapter,
+        backend: createBackend(),
+      });
+
+      assert.deepEqual(setModelCalls, []);
+      const record = getAcpSkillRunRecord(result.requestId);
+      assert.isUndefined(record?.acpModelId);
+      assert.isUndefined(record?.acpRawModelId);
+      assert.isUndefined(record?.acpReasoningEffort);
+      const regions = await readAcpSkillRunWorkspaceRegions({
+        requestId: result.requestId,
+        kinds: ["composer"],
+      });
+      assert.isNull(
+        regions.composer?.runtimeOptions?.model.selectedOptionId || null,
+      );
+      assert.isNull(
+        regions.composer?.runtimeOptions?.reasoningEffort.selectedOptionId ||
+          null,
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("initializes Skills selection from a real handshake current missing from its catalog", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const setModelCalls: string[] = [];
+    const adapter = createRuntimeModelAdapter({
+      currentModelId: "gpt-5@high",
+      setModelCalls,
+    });
+    adapter.newSession = async () => ({
+      sessionId: "session-current-outside-catalog",
+      models: {
+        currentModelId: "gpt-5@high",
+        availableModels: [{ modelId: "gpt-5@medium", name: "GPT-5 Medium" }],
+      },
+    });
+    try {
+      const result = await runDemoAcpSkill({
+        root,
+        entry,
+        adapter,
+        backend: createBackend(),
+      });
+
+      assert.deepEqual(setModelCalls, []);
+      const record = getAcpSkillRunRecord(result.requestId);
+      assert.equal(record?.acpModelId, "gpt-5");
+      assert.equal(record?.acpRawModelId, "gpt-5@high");
+      assert.equal(record?.acpReasoningEffort, "high");
+      assert.deepEqual(
+        (
+          getAcpSkillRunRuntimeCatalog(result.requestId)?.modelOptions || []
+        ).map((entry) => entry.id),
+        ["gpt-5@medium", "gpt-5@high"],
+      );
+      const regions = await readAcpSkillRunWorkspaceRegions({
+        requestId: result.requestId,
+        kinds: ["composer"],
+      });
+      assert.equal(
+        regions.composer?.runtimeOptions?.model.selectedOptionId,
+        "gpt-5",
+      );
+      assert.equal(
+        regions.composer?.runtimeOptions?.reasoningEffort.selectedOptionId,
+        "high",
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("derives Skills runtime options from session config options when the backend cache is cold", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const adapter = createRuntimeModelAdapter({
+      currentModelId: "",
+      setModelCalls: [],
+    });
+    adapter.newSession = async () => ({
+      sessionId: "session-config-options",
+      configOptions: [
+        {
+          id: "mode",
+          name: "Mode",
+          type: "select",
+          currentValue: "code",
+          options: [
+            { value: "code", name: "Code" },
+            { value: "plan", name: "Plan" },
+          ],
+        },
+        {
+          id: "model",
+          name: "Model",
+          type: "select",
+          currentValue: "gpt-5@high",
+          options: [
+            { value: "gpt-5@medium", name: "GPT-5 Medium" },
+            { value: "gpt-5@high", name: "GPT-5 High" },
+          ],
+        },
+      ],
+    });
+    try {
+      const result = await runDemoAcpSkill({
+        root,
+        entry,
+        adapter,
+        backend: createBackend(),
+      });
+
+      const options = getAcpSkillRunRuntimeCatalog(result.requestId);
+      assert.deepEqual(
+        (options?.modeOptions || []).map((entry) => entry.id),
+        ["code", "plan"],
+      );
+      assert.deepEqual(
+        (options?.displayModelOptions || []).map((entry) => entry.id),
+        ["gpt-5"],
+      );
+      assert.deepEqual(
+        (options?.reasoningEffortOptions || []).map((entry) => entry.id),
+        ["medium", "high"],
+      );
+      const record = getAcpSkillRunRecord(result.requestId);
+      assert.equal(record?.acpModeId, "code");
+      assert.equal(record?.acpModelId, "gpt-5");
+      assert.equal(record?.acpRawModelId, "gpt-5@high");
+      assert.equal(record?.acpReasoningEffort, "high");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps submitted Skills runtime selections authoritative over live session defaults", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root);
+    const setModelCalls: string[] = [];
+    const adapter = createRuntimeModelAdapter({
+      currentModelId: "gpt-5@high",
+      setModelCalls,
+    });
+    adapter.newSession = async () => ({
+      sessionId: "session-live-current",
+      models: {
+        currentModelId: "gpt-5@high",
+        availableModels: [
+          { modelId: "gpt-5@medium", name: "GPT-5 Medium" },
+          { modelId: "gpt-5@high", name: "GPT-5 High" },
+          { modelId: "claude-4@medium", name: "Claude 4 Medium" },
+          { modelId: "claude-4@high", name: "Claude 4 High" },
+        ],
+      },
+    });
+    const backend = createBackend({
+      acp: {
+        runtimeOptionsCache: {
+          refreshedAt: "2026-07-20T00:00:00.000Z",
+          modes: [],
+          currentModeId: "",
+          rawModels: [
+            { id: "gpt-5@medium", label: "GPT-5 Medium" },
+            { id: "gpt-5@high", label: "GPT-5 High" },
+            { id: "claude-4@medium", label: "Claude 4 Medium" },
+            { id: "claude-4@high", label: "Claude 4 High" },
+          ],
+          currentRawModelId: "gpt-5@high",
+          displayModels: [
+            { id: "gpt-5", label: "GPT-5" },
+            { id: "claude-4", label: "Claude 4" },
+          ],
+          currentDisplayModelId: "gpt-5",
+          reasoningEfforts: [
+            { id: "medium", label: "Medium" },
+            { id: "high", label: "High" },
+          ],
+          currentReasoningEffortId: "medium",
+          reasoningSource: "model-derived",
+        },
+      },
+    });
+    try {
+      const result = await runDemoAcpSkill({
+        root,
+        entry,
+        adapter,
+        backend,
+        providerOptions: {
+          acpModelId: "claude-4",
+          acpReasoningEffort: "medium",
+        },
+      });
+      const options = getAcpSkillRunRuntimeCatalog(result.requestId);
+      assert.deepEqual(
+        (options?.displayModelOptions || []).map((entry) => entry.id),
+        ["gpt-5", "claude-4"],
+      );
+      assert.deepEqual(setModelCalls, ["claude-4@medium"]);
+      const record = getAcpSkillRunRecord(result.requestId);
+      assert.equal(record?.acpModelId, "claude-4");
+      assert.equal(record?.acpRawModelId, "claude-4@medium");
+      assert.equal(record?.acpReasoningEffort, "medium");
+      const regions = await readAcpSkillRunWorkspaceRegions({
+        requestId: result.requestId,
+        kinds: ["composer"],
+      });
+      assert.equal(
+        regions.composer?.runtimeOptions?.model.selectedOptionId,
+        "claude-4",
+      );
+      assert.equal(
+        regions.composer?.runtimeOptions?.reasoningEffort.selectedOptionId,
+        "medium",
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("restores persisted Skills runtime selections instead of resume defaults", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+    });
+    const workspace = await createAcpSkillRunnerWorkspace({
+      rootDir: root,
+      backendId: "backend-acp",
+      skillId: "demo-skill",
+      workflowId: "demo-skill",
+      jobId: "runtime-recovery",
+    });
+    const setModelCalls: string[] = [];
+    const configSelections: string[] = [];
+    const adapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: true,
+        canResumeSession: true,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: () => () => undefined,
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "unused" }),
+      loadSession: async ({ sessionId }) => ({ sessionId }),
+      resumeSession: async ({ sessionId }) => ({
+        sessionId,
+        models: {
+          currentModelId: "gpt-5@high",
+          availableModels: [
+            { modelId: "gpt-5@medium", name: "GPT-5 Medium" },
+            { modelId: "gpt-5@high", name: "GPT-5 High" },
+          ],
+        },
+      }),
+      prompt: async () => ({ stopReason: "end_turn" }),
+      cancel: async () => undefined,
+      setMode: async () => undefined,
+      setModel: async ({ modelId }) => {
+        setModelCalls.push(modelId);
+      },
+      setConfigOption: async ({ category, value }) => {
+        configSelections.push(`${category}:${value}`);
+        return true;
+      },
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+    try {
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "waiting_user",
+        backendId: "backend-acp",
+        backendType: "acp",
+        skillId: "demo-skill",
+        requestedSkillId: "demo-skill",
+        sessionId: "session-runtime-recovery",
+        workspaceDir: workspace.workspaceDir,
+        runtimeDir: workspace.runtimeDir,
+        inputManifestPath: workspace.inputManifestPath,
+        resultJsonPath: workspace.resultJsonPath,
+        primarySkillDir: entry.sourceDir,
+        runnerJson: { execution_modes: ["interactive"] },
+        executionMode: "interactive",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        acpModelId: "gpt-5",
+        acpRawModelId: "gpt-5@medium",
+        acpReasoningEffort: "medium",
+        pendingInteraction: {
+          message: "Need user input.",
+          uiHints: { prompt: "Reply" },
+          candidateText: '{"__SKILL_DONE__":false}',
+        },
+      });
+
+      await recoverAcpSkillRunConversation({
+        requestId: workspace.requestId,
+        reason: "connect",
+        dependencies: {
+          createAdapter: async () => adapter,
+          dependencyProbe: async () => ({ ok: true }),
+        },
+      });
+
+      assert.deepEqual(setModelCalls, ["gpt-5@medium"]);
+      assert.deepEqual(configSelections, []);
+      const record = getAcpSkillRunRecord(workspace.requestId);
+      assert.equal(record?.acpModelId, "gpt-5");
+      assert.equal(record?.acpRawModelId, "gpt-5@medium");
+      assert.equal(record?.acpReasoningEffort, "medium");
+      const regions = await readAcpSkillRunWorkspaceRegions({
+        requestId: workspace.requestId,
+        kinds: ["composer"],
+      });
+      assert.equal(
+        regions.composer?.runtimeOptions?.model.selectedOptionId,
+        "gpt-5",
+      );
+      assert.equal(
+        regions.composer?.runtimeOptions?.reasoningEffort.selectedOptionId,
+        "medium",
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 
   it("marks tool updates with output payload as completed when ACP omits status", async function () {
@@ -5821,6 +6899,80 @@ describe("ACP SkillRunner-compatible runner", function () {
       buildAcpSkillRunPanelSnapshot({}).selectedRun?.requestId,
       "run-selected-original",
     );
+  });
+
+  it("keeps pending ACP Skills workspace changes partitioned by request id", function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-owner-a",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+    });
+    upsertAcpSkillRun({
+      requestId: "run-owner-b",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+    });
+    const changes: AcpSkillRunWorkspaceChange[] = [];
+    const unsubscribe = subscribeAcpSkillRunWorkspaceChanges((change) => {
+      changes.push(change);
+    });
+    try {
+      const cases = [
+        {
+          label: "workspace activity",
+          trigger() {
+            upsertAcpSkillRun({
+              requestId: "run-owner-b",
+              event: {
+                stage: "workspace-activity",
+                message: "result/output.json",
+                level: "info",
+                details: { relativePath: "result/output.json" },
+              },
+            });
+          },
+        },
+        {
+          label: "permission request",
+          trigger() {
+            setAcpSkillRunPermissionRequest("run-owner-b", {
+              requestId: "permission-owner-b",
+              sessionId: "session-b",
+              toolCallId: "tool-owner-b",
+              toolTitle: "Background tool",
+              requestedAt: "2026-07-20T00:00:00.000Z",
+              options: [],
+              resolve() {},
+            });
+          },
+        },
+      ];
+      for (const [index, testCase] of cases.entries()) {
+        changes.length = 0;
+        recordAcpSkillRunSessionUpdate("run-owner-a", {
+          sessionId: "session-a",
+          update: {
+            sessionUpdate: "usage_update",
+            used: 10 + index,
+            size: 100,
+          },
+        } as any);
+        testCase.trigger();
+
+        assert.deepEqual(
+          changes.map((change) => change.requestIds),
+          [["run-owner-a"], ["run-owner-b"]],
+          testCase.label,
+        );
+        assert.isUndefined(changes[0]?.transcriptEvents, testCase.label);
+        assert.isNotEmpty(changes[1]?.transcriptEvents || [], testCase.label);
+      }
+    } finally {
+      unsubscribe();
+    }
   });
 
   it("surfaces workspace activity as visible status while ACP prompt is active", async function () {
@@ -6249,7 +7401,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.equal(snapshot.selectedRun?.requestId, "run-lightweight-list-a");
       assert.isAtLeast(snapshot.selectedRun?.events.length || 0, 1);
       assert.notProperty(snapshot.selectedRun as any, "transcriptItems");
-      assert.isArray(snapshot.selectedTranscriptPage?.items);
+      assert.isArray(snapshot.transcriptRegion.page?.items);
       assert.notProperty(snapshot.selectedRun as any, "outputRevisions");
       const transcript = await readRunTranscriptItems("run-lightweight-list-a");
       assert.isAtLeast(transcript.length, 1);
@@ -6321,9 +7473,9 @@ describe("ACP SkillRunner-compatible runner", function () {
 
       assert.equal(snapshot.selectedRun?.requestId, "run-live-mirror");
       assert.isTrue(
-        (snapshot.selectedTranscriptPage?.items || []).some(
+        (snapshot.transcriptRegion.page?.items || []).some(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             String(item.text || "").includes("Mirror text"),
         ),
       );
@@ -6395,9 +7547,9 @@ describe("ACP SkillRunner-compatible runner", function () {
 
       assert.equal(snapshot.selectedRun?.requestId, "run-release-a");
       assert.isTrue(
-        (snapshot.selectedTranscriptPage?.items || []).some(
+        (snapshot.transcriptRegion.page?.items || []).some(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             String(item.text || "").includes("persisted transcript"),
         ),
       );
@@ -6479,11 +7631,11 @@ describe("ACP SkillRunner-compatible runner", function () {
         readySnapshot.selectedRun?.requestId,
         "run-release-settled-a",
       );
-      assert.equal(readySnapshot.selectedTranscript?.state, "ready");
+      assert.equal(readySnapshot.transcriptRegion.status, "ready");
       assert.isTrue(
-        (readySnapshot.selectedTranscriptPage?.items || []).some(
+        (readySnapshot.transcriptRegion.page?.items || []).some(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             String(item.text || "").includes("persisted transcript"),
         ),
       );
@@ -6552,9 +7704,9 @@ describe("ACP SkillRunner-compatible runner", function () {
         selectedRequestId: "run-recover-a",
       });
       assert.isTrue(
-        (snapshot.selectedTranscriptPage?.items || []).some(
+        (snapshot.transcriptRegion.page?.items || []).some(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             String(item.text || "").includes("old transcript new transcript"),
         ),
       );
@@ -6629,8 +7781,8 @@ describe("ACP SkillRunner-compatible runner", function () {
         loadingSnapshot.selectedRun?.requestId,
         "run-partial-complete-a",
       );
-      assert.equal(loadingSnapshot.selectedTranscript?.state, "loading");
-      assert.isUndefined(loadingSnapshot.selectedTranscriptPage);
+      assert.equal(loadingSnapshot.transcriptRegion.status, "loading");
+      assert.isNull(loadingSnapshot.transcriptRegion.page);
       assert.isUndefined(
         getAcpSkillRunTranscriptMirrorDiagnosticsForTests(
           "run-partial-complete-a",
@@ -6641,11 +7793,11 @@ describe("ACP SkillRunner-compatible runner", function () {
         selectedRequestId: "run-partial-complete-a",
         transcriptReadMode: "page-first",
       });
-      assert.equal(snapshot.selectedTranscript?.state, "ready");
+      assert.equal(snapshot.transcriptRegion.status, "ready");
       assert.isTrue(
-        (snapshot.selectedTranscriptPage?.items || []).some(
+        (snapshot.transcriptRegion.page?.items || []).some(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             String(item.text || "").includes("old persisted"),
         ),
       );
@@ -6913,11 +8065,11 @@ describe("ACP SkillRunner-compatible runner", function () {
       });
 
       assert.equal(prepared.selectedRun?.requestId, "run-coalesced-hydrate-a");
-      assert.equal(snapshot.selectedTranscript?.state, "ready");
+      assert.equal(snapshot.transcriptRegion.status, "ready");
       assert.isTrue(
-        (snapshot.selectedTranscriptPage?.items || []).some(
+        (snapshot.transcriptRegion.page?.items || []).some(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             String(item.text || "").includes("coalesced hydrate transcript"),
         ),
       );
@@ -6977,19 +8129,144 @@ describe("ACP SkillRunner-compatible runner", function () {
         "run-implicit-selection",
       );
       assert.equal(getSelectedAcpSkillRunRequestId(), "run-implicit-selection");
-      assert.equal(readySnapshot.selectedTranscript?.state, "ready");
+      assert.equal(readySnapshot.transcriptRegion.status, "ready");
       assert.equal(
-        readySnapshot.selectedTranscriptPage?.requestId,
-        "run-implicit-selection",
+        readySnapshot.transcriptRegion.page?.pageKey,
+        "run-implicit-selection\ntail:80",
       );
       assert.isTrue(
-        (readySnapshot.selectedTranscriptPage?.items || []).some(
+        (readySnapshot.transcriptRegion.page?.items || []).some(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             String(item.text || "").includes("implicit persisted transcript"),
         ),
       );
     } finally {
+      resetAcpSkillRunsForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("restores an implicit ACP Skills selection through the production workspace surface", async function () {
+    const root = await mkTempRoot();
+    resetAcpSkillRunsForTests();
+    try {
+      upsertAcpSkillRun({
+        requestId: "run-workspace-implicit-a",
+        status: "succeeded",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir: root,
+        runtimeDir: path.join(root, ".acp-a"),
+        activePrompt: false,
+      });
+      upsertAcpSkillRun({
+        requestId: "run-workspace-implicit-b",
+        status: "succeeded",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir: root,
+        runtimeDir: path.join(root, ".acp-b"),
+        activePrompt: false,
+      });
+      await selectAcpSkillRun("");
+
+      assert.equal(getSelectedAcpSkillRunRequestId(), "");
+
+      assert.equal(
+        ACP_SKILLS_WORKSPACE_ADAPTER.selectedOwner()?.requestId,
+        "run-workspace-implicit-b",
+      );
+      assert.equal(
+        getSelectedAcpSkillRunRequestId(),
+        "run-workspace-implicit-b",
+      );
+
+      const navigation =
+        await ACP_SKILLS_WORKSPACE_ADAPTER.readOwnerNavigation();
+      assert.equal(
+        navigation.selectedOwner?.requestId,
+        "run-workspace-implicit-b",
+      );
+
+      await selectAcpSkillRun("run-workspace-implicit-a");
+      assert.equal(
+        ACP_SKILLS_WORKSPACE_ADAPTER.selectedOwner()?.requestId,
+        "run-workspace-implicit-a",
+      );
+    } finally {
+      resetAcpSkillRunsForTests();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("projects boundary-mode visibility on cold ACP Skills transcript store reads", async function () {
+    const root = await mkTempRoot();
+    const runtimeDir = path.join(root, ".acp");
+    resetAcpSkillRunsForTests();
+    try {
+      upsertAcpSkillRun({
+        requestId: "run-cold-boundary",
+        status: "running",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir: root,
+        runtimeDir,
+        activePrompt: true,
+      });
+      appendAcpSkillRunUserReply({
+        requestId: "run-cold-boundary",
+        message: "visible user turn",
+      });
+      recordAcpSkillRunSessionUpdate("run-cold-boundary", {
+        sessionId: "session-cold-boundary",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "in-flight assistant draft" },
+        },
+      } as any);
+      await flushAcpSkillRunRuntimeFileWritesForTests();
+      upsertAcpSkillRun({
+        requestId: "run-cold-boundary",
+        status: "succeeded",
+        activePrompt: false,
+      });
+      await selectAcpSkillRun("");
+      assert.isFalse(
+        getAcpSkillRunTranscriptMirrorDiagnosticsForTests("run-cold-boundary")
+          .mirrorLoaded,
+      );
+
+      setAssistantStreamingRenderEnabled(false);
+      const boundaryRegion = await readAcpSkillRunTranscriptRegion({
+        requestId: "run-cold-boundary",
+        transcriptReadMode: "page-first",
+      });
+      assert.equal(boundaryRegion.status, "ready");
+      assert.equal(boundaryRegion.page?.totalVisibleItemCount, 1);
+      assert.isFalse(
+        (boundaryRegion.page?.items || []).some((item) =>
+          String((item as any).text || "").includes(
+            "in-flight assistant draft",
+          ),
+        ),
+      );
+
+      setAssistantStreamingRenderEnabled(true);
+      const liveRegion = await readAcpSkillRunTranscriptRegion({
+        requestId: "run-cold-boundary",
+        transcriptReadMode: "page-first",
+      });
+      assert.equal(liveRegion.page?.totalVisibleItemCount, 2);
+      assert.isTrue(
+        (liveRegion.page?.items || []).some((item) =>
+          String((item as any).text || "").includes(
+            "in-flight assistant draft",
+          ),
+        ),
+      );
+    } finally {
+      setAssistantStreamingRenderEnabled(true);
       resetAcpSkillRunsForTests();
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -7038,11 +8315,11 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.equal(snapshot.selectedRun?.requestId, "run-stale-page-b");
       assert.equal(getSelectedAcpSkillRunRequestId(), "run-stale-page-b");
       assert.notEqual(
-        snapshot.selectedTranscriptPage?.requestId,
+        snapshot.transcriptRegion.page?.pageKey,
         "run-stale-page-a",
       );
       assert.isFalse(
-        (snapshot.selectedTranscriptPage?.items || []).some((item) =>
+        (snapshot.transcriptRegion.page?.items || []).some((item) =>
           String((item as any).text || "").includes("stale page transcript A"),
         ),
       );
@@ -7100,7 +8377,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         selectedRequestId: "run-coalesced-updates",
       });
       assert.notProperty(visibleSnapshot.selectedRun as any, "transcriptItems");
-      assert.isArray(visibleSnapshot.selectedTranscriptPage?.items);
+      assert.isArray(visibleSnapshot.transcriptRegion.page?.items);
     } finally {
       unsubscribe();
       await fs.rm(root, { recursive: true, force: true });
@@ -7162,7 +8439,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         thought: 0,
         tool: 1,
       });
-      assert.equal(active.selectedTranscriptPage?.total, 0);
+      assert.equal(active.transcriptRegion.page?.totalVisibleItemCount, 0);
 
       projectAcpSkillRunOutputEnvelopeToTranscript({
         requestId: "run-silent",
@@ -7196,8 +8473,14 @@ describe("ACP SkillRunner-compatible runner", function () {
       runtimeDir: path.join(root, ".acp"),
     });
     let notifications = 0;
-    const unsubscribe = subscribeAcpSkillRunSnapshots(() => {
+    const notificationKinds: string[][] = [];
+    const transcriptBoundaries: string[] = [];
+    const unsubscribe = subscribeAcpSkillRunSnapshots((change) => {
       notifications += 1;
+      notificationKinds.push([...(change?.kinds || [])]);
+      transcriptBoundaries.push(
+        ...(change?.transcriptEvents || []).map((event) => event.boundary),
+      );
     });
     try {
       recordAcpSkillRunSessionUpdate("run-streaming-render-disabled", {
@@ -7215,7 +8498,9 @@ describe("ACP SkillRunner-compatible runner", function () {
         },
       } as any);
       await delay(120);
-      assert.equal(notifications, 0);
+      assert.equal(notifications, 1);
+      assert.deepEqual(notificationKinds, [["progress"]]);
+      assert.deepEqual(transcriptBoundaries, []);
 
       recordAcpSkillRunSessionUpdate("run-streaming-render-disabled", {
         sessionId: "session-1",
@@ -7227,7 +8512,11 @@ describe("ACP SkillRunner-compatible runner", function () {
         },
       } as any);
       await delay(120);
-      assert.equal(notifications, 1);
+      assert.equal(notifications, 2);
+      assert.include(notificationKinds[1], "transcript");
+      assert.include(notificationKinds[1], "progress");
+      assert.include(transcriptBoundaries, "text-continuation");
+      assert.include(transcriptBoundaries, "hard-boundary");
 
       const transcript = await readRunTranscriptItems(
         "run-streaming-render-disabled",
@@ -7271,8 +8560,9 @@ describe("ACP SkillRunner-compatible runner", function () {
         selectedRequestId: "run-streaming-usage-side-channel",
       });
       assert.isUndefined(
-        (thoughtOnlySnapshot.selectedTranscriptPage?.items || []).find(
-          (item) => item.kind === "thought" && item.text === "visible thinking",
+        (thoughtOnlySnapshot.transcriptRegion.page?.items || []).find(
+          (item) =>
+            item.itemKind === "thought" && item.text === "visible thinking",
         ),
       );
 
@@ -7309,18 +8599,19 @@ describe("ACP SkillRunner-compatible runner", function () {
         selectedRequestId: "run-streaming-usage-side-channel",
       });
       assert.notProperty(beforeBoundary.selectedRun as any, "transcriptItems");
-      assert.isArray(beforeBoundary.selectedTranscriptPage?.items);
+      assert.isArray(beforeBoundary.transcriptRegion.page?.items);
       assert.isUndefined(
-        (beforeBoundary.selectedTranscriptPage?.items || []).find(
+        (beforeBoundary.transcriptRegion.page?.items || []).find(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             item.role === "assistant" &&
             item.text === "partial",
         ),
       );
       assert.isOk(
-        (beforeBoundary.selectedTranscriptPage?.items || []).find(
-          (item) => item.kind === "thought" && item.text === "visible thinking",
+        (beforeBoundary.transcriptRegion.page?.items || []).find(
+          (item) =>
+            item.itemKind === "thought" && item.text === "visible thinking",
         ) as unknown,
       );
 
@@ -7338,14 +8629,16 @@ describe("ACP SkillRunner-compatible runner", function () {
         selectedRequestId: "run-streaming-usage-side-channel",
       });
       assert.notProperty(afterBoundary.selectedRun as any, "transcriptItems");
-      assert.isArray(afterBoundary.selectedTranscriptPage?.items);
+      assert.isArray(afterBoundary.transcriptRegion.page?.items);
       const visibleMessage = (
-        afterBoundary.selectedTranscriptPage?.items || []
-      ).find((item) => item.kind === "message" && item.role === "assistant");
-      assert.equal(visibleMessage?.kind, "message");
-      if (visibleMessage?.kind === "message") {
+        afterBoundary.transcriptRegion.page?.items || []
+      ).find(
+        (item) => item.itemKind === "message" && item.role === "assistant",
+      );
+      assert.equal(visibleMessage?.itemKind, "message");
+      if (visibleMessage?.itemKind === "message") {
         assert.equal(visibleMessage.text, "partial");
-        assert.equal(visibleMessage.state, "complete");
+        assert.equal(visibleMessage.status, "complete");
       }
     } finally {
       await fs.rm(root, { recursive: true, force: true });
@@ -7390,23 +8683,22 @@ describe("ACP SkillRunner-compatible runner", function () {
         selectedRequestId: "run-streaming-workspace-activity-disabled",
       });
       assert.notProperty(visibleSnapshot.selectedRun as any, "transcriptItems");
-      assert.isArray(visibleSnapshot.selectedTranscriptPage?.items);
-      const visible = await readRunTranscriptItems(
-        "run-streaming-workspace-activity-disabled",
-      );
+      assert.isArray(visibleSnapshot.transcriptRegion.page?.items);
+      const visible = visibleSnapshot.transcriptRegion.page?.items || [];
       assert.isUndefined(
         visible.find(
           (item) =>
-            item.kind === "message" &&
+            item.itemKind === "message" &&
             item.role === "assistant" &&
             item.text === "held partial",
         ),
       );
       const activity = visible.find(
-        (item) => item.kind === "status" && item.label === "workspace-activity",
+        (item) =>
+          item.itemKind === "status" && item.label === "workspace-activity",
       );
-      assert.equal(activity?.kind, "status");
-      if (activity?.kind === "status") {
+      assert.equal(activity?.itemKind, "status");
+      if (activity?.itemKind === "status") {
         assert.equal(activity.text, "result/output.json");
       }
     } finally {
@@ -7518,6 +8810,441 @@ describe("ACP SkillRunner-compatible runner", function () {
     );
   });
 
+  it("continues an interrupted live run through a second waiting turn without a token", async function () {
+    this.timeout(10000);
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+    });
+    const firstPromptStarted = createDeferred();
+    const firstPromptRelease = createDeferred();
+    const thirdPromptStarted = createDeferred();
+    const thirdPromptRelease = createDeferred();
+    let promptCount = 0;
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    const promptMessages: string[] = [];
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({ sessionId: "session-two-waiting-turns" }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId, message }) => {
+        promptCount += 1;
+        promptMessages.push(message);
+        if (promptCount === 1) {
+          firstPromptStarted.resolve();
+          await firstPromptRelease.promise;
+          return { stopReason: "cancelled", cancelRequested: true };
+        }
+        if (promptCount === 2) {
+          await updateListener?.({
+            sessionId,
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: {
+                type: "text",
+                text: JSON.stringify({
+                  __SKILL_DONE__: false,
+                  message: "Need a second answer.",
+                  ui_hints: {
+                    kind: "open_text",
+                    prompt: "Provide the second answer.",
+                  },
+                }),
+              },
+            },
+          });
+          return { stopReason: "end_turn" };
+        }
+        thirdPromptStarted.resolve();
+        await thirdPromptRelease.promise;
+        return { stopReason: "cancelled", cancelRequested: true };
+      },
+      cancel: async () => {
+        if (promptCount === 1) firstPromptRelease.resolve();
+        if (promptCount === 3) thirdPromptRelease.resolve();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => undefined,
+    };
+    let requestId = "";
+    const execution = executeAcpSkillRunnerJob({
+      requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+      backend: createBackend(),
+      request: {
+        kind: ACP_SKILL_RUN_REQUEST_KIND,
+        skill_id: "demo-skill",
+        fetch_type: "result",
+        runtime_options: { execution_mode: "interactive" },
+      },
+      onProgress: (event) => {
+        if (event.type === "request-created") {
+          requestId = String(event.requestId);
+        }
+      },
+      dependencies: {
+        scanRegistry: async () => ({
+          entries: [entry],
+          entriesById: { "demo-skill": entry },
+          diagnostics: [],
+        }),
+        createWorkspace: (args) =>
+          import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+            mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+          ),
+        createAdapter: async () => fakeAdapter,
+        sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+      },
+    });
+    try {
+      resetAcpSkillRunsForTests();
+      await firstPromptStarted.promise;
+      assert.isNotEmpty(requestId);
+      await interruptAcpSkillRunCurrentTurn(requestId);
+      const deferred = await execution;
+      assert.equal(deferred.status, "deferred");
+      assert.equal(deferred.backendStatus, "waiting_user");
+
+      const firstReply = replyAcpSkillRun({
+        requestId,
+        displayMessage: "First visible reply",
+        promptMessage: "first transport reply",
+      });
+      await waitForAcpSkillRun(
+        requestId,
+        (record) =>
+          record?.status === "waiting_user" &&
+          record.pendingInteraction?.message === "Need a second answer.",
+      );
+      const secondReply = replyAcpSkillRun({
+        requestId,
+        displayMessage: "Second visible reply",
+        promptMessage: "second transport reply",
+      });
+      await Promise.all([secondReply, thirdPromptStarted.promise]);
+      await interruptAcpSkillRunCurrentTurn(requestId);
+      await firstReply;
+
+      assert.equal(promptCount, 3);
+      assert.deepEqual(promptMessages.slice(1), [
+        "first transport reply",
+        "second transport reply",
+      ]);
+      const userMessages = readAcpSkillRunTranscriptRegionFromMemoryForTests({
+        requestId,
+      }).page.items.filter(
+        (item) => item.itemKind === "message" && item.role === "user",
+      );
+      assert.deepEqual(
+        userMessages.slice(-2).map((item) => item.text),
+        ["First visible reply", "Second visible reply"],
+      );
+    } finally {
+      await shutdownAcpSkillRunConversations().catch(() => undefined);
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("atomically stages flat collision-safe ACP interaction files without source-path leakage", async function () {
+    const root = await mkTempRoot();
+    try {
+      const workspaceDir = path.join(root, "workspace");
+      const firstDir = path.join(root, "source-a");
+      const secondDir = path.join(root, "source-b");
+      await fs.mkdir(firstDir, { recursive: true });
+      await fs.mkdir(secondDir, { recursive: true });
+      const firstPath = path.join(firstDir, "paper.pdf");
+      const secondPath = path.join(secondDir, "paper.pdf");
+      await fs.writeFile(firstPath, "first");
+      await fs.writeFile(secondPath, "second");
+
+      const staged = await stageAcpSkillRunInteractionFiles({
+        requestId: `request-${"x".repeat(300)}`,
+        workspaceDir,
+        submissionKey: "abc12345",
+        selections: [
+          { slot: "primary", sourcePath: firstPath, displayName: "paper.pdf" },
+          {
+            slot: "secondary",
+            sourcePath: secondPath,
+            displayName: "paper.pdf",
+          },
+        ],
+      });
+
+      assert.match(
+        staged.directoryRelativePath,
+        /^\.acp-inputs\/[a-f0-9]{12}-abc12345$/,
+      );
+      assert.deepEqual(
+        staged.files.map((entry) => entry.relativePath.split("/").length),
+        [3, 3],
+      );
+      assert.deepEqual(
+        staged.files.map((entry) => path.posix.basename(entry.relativePath)),
+        ["paper.pdf", "paper-2.pdf"],
+      );
+      const manifest = await fs.readFile(
+        path.join(staged.directoryPath, "manifest.json"),
+        "utf8",
+      );
+      assert.notInclude(manifest, firstPath);
+      assert.notInclude(manifest, secondPath);
+      assert.notInclude(manifest, staged.directoryPath);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("applies required and optional cancellation semantics to sequential file picking", async function () {
+    const slots = [
+      { name: "primary", required: true, hint: null, accept: ".pdf" },
+      { name: "notes", required: false, hint: null, accept: null },
+    ];
+    const requiredCancelled = await pickAssistantInteractionFiles({
+      slots,
+      pickFile: async () => null,
+    });
+    assert.deepEqual(requiredCancelled, {
+      status: "cancelled",
+      selections: [],
+    });
+
+    let pickIndex = 0;
+    const optionalSkipped = await pickAssistantInteractionFiles({
+      slots,
+      pickFile: async () => ["/tmp/paper.pdf", null][pickIndex++] || null,
+    });
+    assert.equal(optionalSkipped.status, "selected");
+    assert.deepEqual(optionalSkipped.selections, [
+      {
+        slot: "primary",
+        sourcePath: "/tmp/paper.pdf",
+        displayName: "paper.pdf",
+      },
+    ]);
+  });
+
+  it("cleans a temporary staging directory after a copy source fails", async function () {
+    const root = await mkTempRoot();
+    try {
+      const workspaceDir = path.join(root, "workspace");
+      let caught: unknown;
+      try {
+        await stageAcpSkillRunInteractionFiles({
+          requestId: "request-copy-failure",
+          workspaceDir,
+          submissionKey: "deadbeef",
+          selections: [
+            {
+              slot: "primary",
+              sourcePath: path.join(root, "missing.pdf"),
+              displayName: "missing.pdf",
+            },
+          ],
+        });
+      } catch (error) {
+        caught = error;
+      }
+      assert.ok(caught);
+      let temporaryDirectoryExists = true;
+      try {
+        await fs.stat(path.join(workspaceDir, ".acp-inputs", ".tmp-deadbeef"));
+      } catch {
+        temporaryDirectoryExists = false;
+      }
+      assert.isFalse(temporaryDirectoryExists);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("revalidates file waiting state and permits only one picker per request", async function () {
+    resetAcpSkillRunsForTests();
+    resetAcpSkillRunInteractionFileFlowsForTests();
+    const requestId = "run-file-flow-guard";
+    upsertAcpSkillRun({
+      requestId,
+      status: "waiting_user",
+      backendId: "backend-acp",
+      backendType: "acp",
+      workspaceDir: "/tmp/file-flow-workspace",
+      pendingInteraction: {
+        message: "Upload",
+        uiHints: { kind: "upload_files" },
+      },
+    });
+    let releasePicker: ((value: string | null) => void) | undefined;
+    const picker = new Promise<string | null>((resolve) => {
+      releasePicker = resolve;
+    });
+    const staleFlow = submitAcpSkillRunInteractionFiles({
+      requestId,
+      slots: [{ name: "primary", required: true, hint: null, accept: null }],
+      pickFile: async () => picker,
+    });
+    upsertAcpSkillRun({ requestId, status: "running" });
+    releasePicker?.("/tmp/should-not-stage.pdf");
+    let staleError: unknown;
+    try {
+      await staleFlow;
+    } catch (error) {
+      staleError = error;
+    }
+    assert.instanceOf(staleError, Error);
+
+    upsertAcpSkillRun({ requestId, status: "waiting_user" });
+    let releaseCurrentPicker: ((value: string | null) => void) | undefined;
+    const currentPicker = new Promise<string | null>((resolve) => {
+      releaseCurrentPicker = resolve;
+    });
+    const first = submitAcpSkillRunInteractionFiles({
+      requestId,
+      slots: [{ name: "primary", required: true, hint: null, accept: null }],
+      pickFile: async () => currentPicker,
+    });
+    const duplicate = await submitAcpSkillRunInteractionFiles({
+      requestId,
+      slots: [{ name: "primary", required: true, hint: null, accept: null }],
+      pickFile: async () => "/tmp/should-not-open.pdf",
+    });
+    assert.deepEqual(duplicate, { status: "in-flight" });
+    releaseCurrentPicker?.(null);
+    assert.deepEqual(await first, { status: "cancelled" });
+  });
+
+  it("retains promoted ACP files when continuation fails after staging", async function () {
+    const root = await mkTempRoot();
+    try {
+      resetAcpSkillRunsForTests();
+      resetAcpSkillRunInteractionFileFlowsForTests();
+      const requestId = "run-file-recovery";
+      const workspaceDir = path.join(root, "workspace");
+      const sourcePath = path.join(root, "paper.pdf");
+      await fs.writeFile(sourcePath, "recovery input");
+      upsertAcpSkillRun({
+        requestId,
+        status: "waiting_user",
+        backendId: "backend-acp",
+        backendType: "acp",
+        workspaceDir,
+        sessionId: "session-recovery",
+        conversationState: "active",
+        conversationRecoveryState: "connected",
+        pendingInteraction: {
+          message: "Upload",
+          uiHints: { kind: "upload_files" },
+        },
+      });
+      registerAcpSkillRunController(requestId, {
+        cancel: async () => undefined,
+        replyRequest: async () => {
+          throw new Error("transport lost after acceptance");
+        },
+      });
+      let caught: unknown;
+      try {
+        await submitAcpSkillRunInteractionFiles({
+          requestId,
+          slots: [
+            { name: "primary", required: true, hint: null, accept: ".pdf" },
+          ],
+          pickFile: async () => sourcePath,
+        });
+      } catch (error) {
+        caught = error;
+      }
+      assert.match(String(caught), /transport lost after acceptance/);
+      const entries = await fs.readdir(path.join(workspaceDir, ".acp-inputs"));
+      const promoted = entries.filter((entry) => !entry.startsWith(".tmp-"));
+      assert.lengthOf(promoted, 1);
+      assert.include(
+        await fs.readdir(path.join(workspaceDir, ".acp-inputs", promoted[0])),
+        "manifest.json",
+      );
+      assert.equal(getAcpSkillRunRecord(requestId)?.replyState, "rejected");
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("publishes a busy Skills composer while an accepted reply is active", async function () {
+    resetAcpSkillRunsForTests();
+    upsertAcpSkillRun({
+      requestId: "run-active-reply",
+      status: "waiting_user",
+      backendId: "backend-acp",
+      backendType: "acp",
+      sessionId: "session-1",
+      conversationState: "active",
+      conversationRecoveryState: "connected",
+      replyState: "idle",
+      promptInterruptState: "confirmed",
+    });
+    let releaseReply: (() => void) | undefined;
+    const replyHeld = new Promise<void>((resolve) => {
+      releaseReply = resolve;
+    });
+    let replyCalls = 0;
+    registerAcpSkillRunController("run-active-reply", {
+      cancel: async () => undefined,
+      reply: async () => {
+        replyCalls += 1;
+        await replyHeld;
+      },
+      disconnect: async () => undefined,
+    });
+    const changes: Array<{ kinds?: readonly string[] }> = [];
+    const unsubscribe = subscribeAcpSkillRunWorkspaceChanges((change) => {
+      changes.push(change);
+    });
+
+    const reply = replyAcpSkillRun({
+      requestId: "run-active-reply",
+      message: "continue",
+    });
+    try {
+      while (
+        getAcpSkillRunRecord("run-active-reply")?.replyState !== "accepted"
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      const regions = await readAcpSkillRunWorkspaceRegions({
+        requestId: "run-active-reply",
+        kinds: ["composer"],
+      });
+
+      assert.equal(regions.composer?.reply.status, "busy");
+      assert.equal(replyCalls, 1);
+      assert.isTrue(changes.some((change) => change.kinds?.includes("run")));
+    } finally {
+      unsubscribe();
+      releaseReply?.();
+      await reply;
+    }
+  });
+
   it("rejects continuation replies for terminal canceled ACP runs", async function () {
     resetAcpSkillRunsForTests();
     upsertAcpSkillRun({
@@ -7613,6 +9340,222 @@ describe("ACP SkillRunner-compatible runner", function () {
     );
   });
 
+  it("reapplies Host Bridge CLI env before creating a recovered adapter", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+    });
+    const workspace = await createAcpSkillRunnerWorkspace({
+      rootDir: root,
+      backendId: "backend-acp",
+      skillId: "demo-skill",
+      workflowId: "demo-skill",
+      jobId: "job-host-bridge-recovery",
+    });
+    const { adapter } = createPromptStopAdapter({
+      assistantText:
+        '{"__SKILL_DONE__":false,"message":"Continue","ui_hints":{}}',
+    });
+    const shimDir = path.join(workspace.workspaceDir, ".zotero-bridge", "bin");
+    const cliDir = path.join(root, "host-bridge-cli");
+    const profilePath = path.join(
+      workspace.workspaceDir,
+      ".zotero-bridge",
+      "profile.json",
+    );
+    const recoveryToken = "recovery-secret-token";
+    let launchedBackend: BackendInstance | undefined;
+    let injectionArgs:
+      | {
+          workspaceDir: string;
+          requestId: string;
+          autoApproveWrites?: boolean;
+        }
+      | undefined;
+    try {
+      resetAcpSkillRunsForTests();
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "waiting_user",
+        backendId: "backend-acp",
+        backendType: "acp",
+        skillId: "demo-skill",
+        requestedSkillId: "demo-skill",
+        sessionId: "session-recovered-host-bridge",
+        workspaceDir: workspace.workspaceDir,
+        runtimeDir: workspace.runtimeDir,
+        inputManifestPath: workspace.inputManifestPath,
+        resultJsonPath: workspace.resultJsonPath,
+        primarySkillDir: entry.sourceDir,
+        requestPayload: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "bundle",
+          runtime_options: {
+            zotero_host_access: {
+              auto_approve_writes: true,
+            },
+          },
+        },
+        runnerJson: { execution_modes: ["interactive"] },
+        executionMode: "interactive",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        pendingInteraction: {
+          message: "Need user input.",
+          uiHints: { prompt: "Reply" },
+          candidateText: '{"__SKILL_DONE__":false}',
+        },
+      });
+
+      await recoverAcpSkillRunConversation({
+        requestId: workspace.requestId,
+        reason: "reply",
+        dependencies: {
+          hostBridgeCliInjection: async (args) => {
+            injectionArgs = args;
+            const injectedPath = [shimDir, cliDir].join(path.delimiter);
+            return {
+              available: true,
+              endpoint: "http://127.0.0.1:26570/bridge/v1",
+              tokenMasked: "reco...oken",
+              profilePath,
+              readmePath: path.join(
+                workspace.workspaceDir,
+                ".zotero-bridge",
+                "README.md",
+              ),
+              shimDir,
+              cliDir,
+              binaryPath: path.join(cliDir, "zotero-bridge"),
+              binarySource: "env",
+              pathInjected: true,
+              autoApproveWrites: true,
+              env: {
+                ZOTERO_BRIDGE_PROFILE: profilePath,
+                ZOTERO_BRIDGE_TOKEN: recoveryToken,
+                PATH: injectedPath,
+                Path: injectedPath,
+              },
+            };
+          },
+          createAdapter: async (args) => {
+            launchedBackend = args.backend;
+            return adapter;
+          },
+          dependencyProbe: async () => ({ ok: true }),
+        },
+      });
+
+      assert.deepEqual(injectionArgs, {
+        workspaceDir: workspace.workspaceDir,
+        requestId: workspace.requestId,
+        autoApproveWrites: true,
+      });
+      assert.strictEqual(
+        launchedBackend?.env?.ZOTERO_BRIDGE_PROFILE,
+        profilePath,
+      );
+      assert.strictEqual(
+        launchedBackend?.env?.ZOTERO_BRIDGE_TOKEN,
+        recoveryToken,
+      );
+      assert.include(launchedBackend?.env?.PATH || "", shimDir);
+      assert.include(launchedBackend?.env?.PATH || "", cliDir);
+      assert.strictEqual(
+        launchedBackend?.env?.Path,
+        launchedBackend?.env?.PATH,
+      );
+      assert.notInclude(
+        JSON.stringify(getAcpSkillRunRecord(workspace.requestId)),
+        recoveryToken,
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps Host Bridge CLI disabled when a recovered request disables host access", async function () {
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+    });
+    const workspace = await createAcpSkillRunnerWorkspace({
+      rootDir: root,
+      backendId: "backend-acp",
+      skillId: "demo-skill",
+      workflowId: "demo-skill",
+      jobId: "job-host-bridge-recovery-disabled",
+    });
+    const { adapter } = createPromptStopAdapter({
+      assistantText:
+        '{"__SKILL_DONE__":false,"message":"Continue","ui_hints":{}}',
+    });
+    let injectionCalls = 0;
+    let launchedBackend: BackendInstance | undefined;
+    try {
+      resetAcpSkillRunsForTests();
+      upsertAcpSkillRun({
+        requestId: workspace.requestId,
+        status: "waiting_user",
+        backendId: "backend-acp",
+        backendType: "acp",
+        skillId: "demo-skill",
+        requestedSkillId: "demo-skill",
+        sessionId: "session-recovered-host-bridge-disabled",
+        workspaceDir: workspace.workspaceDir,
+        runtimeDir: workspace.runtimeDir,
+        inputManifestPath: workspace.inputManifestPath,
+        resultJsonPath: workspace.resultJsonPath,
+        primarySkillDir: entry.sourceDir,
+        requestPayload: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "demo-skill",
+          fetch_type: "bundle",
+          runtime_options: {
+            zotero_host_access: {
+              required: false,
+            },
+          },
+        },
+        runnerJson: { execution_modes: ["interactive"] },
+        executionMode: "interactive",
+        conversationState: "closed",
+        conversationRecoveryState: "available",
+        pendingInteraction: {
+          message: "Need user input.",
+          uiHints: { prompt: "Reply" },
+          candidateText: '{"__SKILL_DONE__":false}',
+        },
+      });
+
+      await recoverAcpSkillRunConversation({
+        requestId: workspace.requestId,
+        reason: "reply",
+        dependencies: {
+          hostBridgeCliInjection: async () => {
+            injectionCalls += 1;
+            throw new Error("disabled host access must not materialize a CLI");
+          },
+          createAdapter: async (args) => {
+            launchedBackend = args.backend;
+            return adapter;
+          },
+          dependencyProbe: async () => ({ ok: true }),
+        },
+      });
+
+      assert.strictEqual(injectionCalls, 0);
+      assert.notProperty(launchedBackend?.env || {}, "ZOTERO_BRIDGE_PROFILE");
+      assert.notProperty(launchedBackend?.env || {}, "ZOTERO_BRIDGE_TOKEN");
+      assert.isFalse(
+        getAcpSkillRunRecord(workspace.requestId)?.hostBridgeCli?.available,
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("wraps recovered workflow replies with a continuation guard", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
@@ -7627,6 +9570,14 @@ describe("ACP SkillRunner-compatible runner", function () {
     });
     let capturedMessage = "";
     let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    let diagnosticListener:
+      | ((entry: {
+          kind: "info" | "stderr" | "lifecycle";
+          message: string;
+          data?: unknown;
+        }) => void)
+      | null = null;
+    let unsubscribeWorkspaceChanges: (() => void) | null = null;
     const fakeAdapter: AcpConnectionAdapter = {
       initialize: async () => ({
         authMethods: [],
@@ -7646,7 +9597,12 @@ describe("ACP SkillRunner-compatible runner", function () {
         };
       },
       onClose: () => () => undefined,
-      onDiagnostics: () => () => undefined,
+      onDiagnostics: (listener) => {
+        diagnosticListener = listener;
+        return () => {
+          diagnosticListener = null;
+        };
+      },
       onPermissionRequest: () => () => undefined,
       newSession: async () => ({ sessionId: "unused" }),
       loadSession: async ({ sessionId }) => ({ sessionId }),
@@ -7708,6 +9664,40 @@ describe("ACP SkillRunner-compatible runner", function () {
           dependencyProbe: async () => ({ ok: true }),
         },
       });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const workspaceChanges: unknown[] = [];
+      unsubscribeWorkspaceChanges = subscribeAcpSkillRunWorkspaceChanges(
+        (change) => workspaceChanges.push(change),
+      );
+      const beforeRecord = getAcpSkillRunRecord(workspace.requestId);
+      const beforeRunRow = listPluginRunStoreEntries("acp").find(
+        (row) => row.requestId === workspace.requestId,
+      );
+      const beforeEventRows = listPluginRunEventStoreEntries({
+        kind: "acp",
+        runKey: beforeRunRow?.runKey || workspace.requestId,
+      });
+      diagnosticListener?.({
+        kind: "info",
+        message: "recovered adapter diagnostic",
+        data: { token: "must-not-enter-canonical-state" },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      assert.deepEqual(getAcpSkillRunRecord(workspace.requestId), beforeRecord);
+      assert.deepEqual(
+        listPluginRunStoreEntries("acp").find(
+          (row) => row.requestId === workspace.requestId,
+        ),
+        beforeRunRow,
+      );
+      assert.deepEqual(
+        listPluginRunEventStoreEntries({
+          kind: "acp",
+          runKey: beforeRunRow?.runKey || workspace.requestId,
+        }),
+        beforeEventRows,
+      );
+      assert.deepEqual(workspaceChanges, []);
       await replyAcpSkillRun({
         requestId: workspace.requestId,
         message: "continue from here",
@@ -7726,6 +9716,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       assert.include(capturedMessage, "Do not output Markdown fences.");
       assert.include(capturedMessage, "continue from here");
     } finally {
+      unsubscribeWorkspaceChanges?.();
       await fs.rm(root, { recursive: true, force: true });
     }
   });
@@ -8894,6 +10885,11 @@ describe("ACP SkillRunner-compatible runner", function () {
       jobId: "job",
     });
     let promptCalls = 0;
+    let resolveSecondPromptStarted: (() => void) | null = null;
+    let releaseSecondPrompt: (() => void) | null = null;
+    const secondPromptStarted = new Promise<void>((resolve) => {
+      resolveSecondPromptStarted = resolve;
+    });
     const fakeAdapter: AcpConnectionAdapter = {
       initialize: async () => ({
         authMethods: [],
@@ -8918,6 +10914,10 @@ describe("ACP SkillRunner-compatible runner", function () {
         if (promptCalls === 1) {
           throw new Error("first recovered prompt failed");
         }
+        resolveSecondPromptStarted?.();
+        await new Promise<void>((resolve) => {
+          releaseSecondPrompt = resolve;
+        });
         return { stopReason: "end_turn" };
       },
       cancel: async () => undefined,
@@ -8965,16 +10965,37 @@ describe("ACP SkillRunner-compatible runner", function () {
         );
       }
 
-      await replyAcpSkillRun({
+      const failedRecord = getAcpSkillRunRecord(workspace.requestId);
+      assert.equal(failedRecord?.status, "failed_retriable");
+      assert.equal(failedRecord?.activePrompt, false);
+      assert.equal(failedRecord?.replyState, "rejected");
+
+      const secondReply = replyAcpSkillRun({
         requestId: workspace.requestId,
         message: "second",
       });
+      await secondPromptStarted;
+
+      const resumedRecord = getAcpSkillRunRecord(workspace.requestId);
+      const resumedRegions = await readAcpSkillRunWorkspaceRegions({
+        requestId: workspace.requestId,
+        kinds: ["owner-control"],
+      });
+      assert.equal(resumedRecord?.status, "running");
+      assert.equal(resumedRecord?.activePrompt, true);
+      assert.equal(resumedRecord?.replyState, "accepted");
+      assert.equal(resumedRecord?.promptInterruptState, "idle");
+      assert.equal(resumedRegions["owner-control"]?.status, "running");
+      assert.equal(resumedRegions["owner-control"]?.hint.kind, "running");
+
+      releaseSecondPrompt?.();
+      await secondReply;
 
       assert.equal(promptCalls, 2);
-      assert.equal(
-        getAcpSkillRunRecord(workspace.requestId)?.replyState,
-        "idle",
-      );
+      const settledRecord = getAcpSkillRunRecord(workspace.requestId);
+      assert.equal(settledRecord?.status, "waiting_user");
+      assert.equal(settledRecord?.activePrompt, false);
+      assert.equal(settledRecord?.replyState, "idle");
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
@@ -9095,7 +11116,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
-  it("interrupts a recovered active prompt without detaching the session", async function () {
+  it("keeps an interrupted recovered prompt out of convergence after end_turn", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root, {
       executionModes: ["interactive"],
@@ -9151,7 +11172,7 @@ describe("ACP SkillRunner-compatible runner", function () {
         await new Promise<void>((resolve) => {
           releasePrompt = resolve;
         });
-        return { stopReason: "cancelled" };
+        return { stopReason: "end_turn" };
       },
       cancel: async () => {
         cancelCalls += 1;
@@ -10016,7 +12037,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(panelSnapshot.selectedRun?.validationStatus, "valid");
     assert.notProperty(panelSnapshot.selectedRun as any, "outputRevisions");
     assert.notProperty(panelSnapshot.selectedRun as any, "transcriptItems");
-    assert.isArray(panelSnapshot.selectedTranscriptPage?.items);
+    assert.isArray(panelSnapshot.transcriptRegion.page?.items);
     const outputRevisions = await readRunOutputRevisions(result.requestId);
     assert.deepEqual(
       outputRevisions.map((entry) => entry.status),
@@ -10089,6 +12110,9 @@ describe("ACP SkillRunner-compatible runner", function () {
     let promptCount = 0;
     let updateListener: ((event: any) => void | Promise<void>) | null = null;
     const promptSessionIds: string[] = [];
+    const promptModelIds: string[] = [];
+    const setModelCalls: string[] = [];
+    let currentModelId = "gpt-5@high";
     const fakeAdapter: AcpConnectionAdapter = {
       initialize: async () => ({
         authMethods: [],
@@ -10110,11 +12134,21 @@ describe("ACP SkillRunner-compatible runner", function () {
       onClose: () => () => undefined,
       onDiagnostics: () => () => undefined,
       onPermissionRequest: () => () => undefined,
-      newSession: async () => ({ sessionId: "session-interactive" }),
+      newSession: async () => ({
+        sessionId: "session-interactive",
+        models: {
+          currentModelId,
+          availableModels: [
+            { modelId: "gpt-5@medium", name: "GPT-5 Medium" },
+            { modelId: "gpt-5@high", name: "GPT-5 High" },
+          ],
+        },
+      }),
       loadSession: async () => ({ sessionId: "loaded" }),
       resumeSession: async () => ({ sessionId: "resumed" }),
       prompt: async ({ sessionId }) => {
         promptSessionIds.push(sessionId);
+        promptModelIds.push(currentModelId);
         promptCount += 1;
         await updateListener?.({
           sessionId,
@@ -10123,7 +12157,7 @@ describe("ACP SkillRunner-compatible runner", function () {
             content: {
               type: "text",
               text:
-                promptCount === 1
+                promptCount < 3
                   ? JSON.stringify({
                       __SKILL_DONE__: false,
                       message: "Need user confirmation.",
@@ -10142,14 +12176,18 @@ describe("ACP SkillRunner-compatible runner", function () {
       },
       cancel: async () => undefined,
       setMode: async () => undefined,
-      setModel: async () => undefined,
+      setModel: async ({ modelId }) => {
+        currentModelId = modelId;
+        setModelCalls.push(modelId);
+      },
       authenticate: async () => undefined,
       close: async () => undefined,
     };
     let capturedWaiting: NonNullable<
       ReturnType<typeof buildAcpSkillRunPanelSnapshot>["selectedRun"]
     > | null = null;
-    let autoReplied = false;
+    let handledWaitingTurns = 0;
+    let changedComposerReasoning = "";
     let autoReplyError: Error | null = null;
     const unsubscribe = subscribeAcpSkillRunSnapshots(() => {
       const snapshot = buildAcpSkillRunPanelSnapshot({});
@@ -10161,22 +12199,56 @@ describe("ACP SkillRunner-compatible runner", function () {
             selectedRequestId: waitingSummary.requestId,
           }).selectedRun
         : snapshot.selectedRun;
-      if (autoReplied || waiting?.status !== "waiting_user") {
+      if (
+        handledWaitingTurns >= 2 ||
+        promptCount <= handledWaitingTurns ||
+        waiting?.status !== "waiting_user"
+      ) {
         return;
       }
-      autoReplied = true;
-      capturedWaiting = waiting;
-      void replyAcpSkillRun({
-        requestId: waiting.requestId || "",
-        message: "Please finish.",
-      }).catch((error) => {
+      handledWaitingTurns += 1;
+      const waitingTurn = handledWaitingTurns;
+      if (waitingTurn === 1) {
+        capturedWaiting = waiting;
+      }
+      void (async () => {
+        if (waitingTurn === 2) {
+          await setAcpSkillRunReasoningEffort({
+            requestId: waiting.requestId || "",
+            effortId: "high",
+          });
+          const regions = await readAcpSkillRunWorkspaceRegions({
+            requestId: waiting.requestId || "",
+            kinds: ["composer"],
+          });
+          changedComposerReasoning =
+            regions.composer?.runtimeOptions?.reasoningEffort
+              .selectedOptionId || "";
+        }
+        await replyAcpSkillRun({
+          requestId: waiting.requestId || "",
+          message:
+            waitingTurn === 1
+              ? "Please continue."
+              : "Please finish with high reasoning.",
+        });
+      })().catch((error) => {
         autoReplyError =
           error instanceof Error ? error : new Error(String(error));
       });
     });
     const runPromise = executeAcpSkillRunnerJob({
       requestKind: ACP_SKILL_RUN_REQUEST_KIND,
-      backend: createBackend(),
+      backend: createBackendWithRuntimeModels({
+        currentRawModelId: "gpt-5@high",
+        currentDisplayModelId: "gpt-5",
+        additionalRawModelIds: ["gpt-5@medium"],
+        reasoningEffortIds: ["medium", "high"],
+      }),
+      providerOptions: {
+        acpModelId: "gpt-5",
+        acpReasoningEffort: "medium",
+      },
       request: {
         kind: ACP_SKILL_RUN_REQUEST_KIND,
         skill_id: "demo-skill",
@@ -10259,7 +12331,27 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.deepEqual(promptSessionIds, [
       "session-interactive",
       "session-interactive",
+      "session-interactive",
     ]);
+    assert.deepEqual(setModelCalls, ["gpt-5@medium", "gpt-5@high"]);
+    assert.deepEqual(promptModelIds, [
+      "gpt-5@medium",
+      "gpt-5@medium",
+      "gpt-5@high",
+    ]);
+    assert.equal(changedComposerReasoning, "high");
+    const composer = await readAcpSkillRunWorkspaceRegions({
+      requestId: result.requestId,
+      kinds: ["composer"],
+    });
+    assert.equal(
+      composer.composer?.runtimeOptions?.model.selectedOptionId,
+      "gpt-5",
+    );
+    assert.equal(
+      composer.composer?.runtimeOptions?.reasoningEffort.selectedOptionId,
+      "high",
+    );
     const finishedSnapshot = buildAcpSkillRunPanelSnapshot({
       selectedRequestId: result.requestId,
     });
@@ -10269,7 +12361,7 @@ describe("ACP SkillRunner-compatible runner", function () {
     assert.equal(finished?.applyResultState, "pending");
     assert.equal(finished?.pendingInteraction, undefined);
     assert.notProperty(finished as any, "transcriptItems");
-    assert.isArray(finishedSnapshot.selectedTranscriptPage?.items);
+    assert.isArray(finishedSnapshot.transcriptRegion.page?.items);
     assert.notProperty(finished as any, "outputRevisions");
     const finalAssistantMessages = transcriptAfterInteractiveReply.filter(
       (item) => item.kind === "message" && item.role === "assistant",
@@ -10289,7 +12381,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       (await readRunOutputRevisions(result.requestId)).map(
         (entry) => entry.status,
       ),
-      ["pending", "final"],
+      ["pending", "pending", "final"],
     );
     assert.isTrue(
       await fs
@@ -10789,7 +12881,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       );
       assert.notProperty(finished as any, "outputRevisions");
       assert.notProperty(finished as any, "transcriptItems");
-      assert.isArray(finishedSnapshot.selectedTranscriptPage?.items);
+      assert.isArray(finishedSnapshot.transcriptRegion.page?.items);
       const assistantMessages = (
         await readRunTranscriptItems(requestId)
       ).filter((item) => item.kind === "message" && item.role === "assistant");
@@ -11021,6 +13113,237 @@ describe("ACP SkillRunner-compatible runner", function () {
         "succeeded",
       );
       assert.equal(promptCount, 3);
+    } finally {
+      if (typeof previousWorkflowDir === "string") {
+        process.env.ZOTERO_TEST_WORKFLOW_DIR = previousWorkflowDir;
+      } else {
+        delete process.env.ZOTERO_TEST_WORKFLOW_DIR;
+      }
+      await shutdownAcpSkillRunConversations().catch(() => undefined);
+      await rescanWorkflowRegistry();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps an interrupted live deferred reply out of output repair after end_turn", async function () {
+    this.timeout(10000);
+    const root = await mkTempRoot();
+    const { entry } = await createSkill(root, {
+      executionModes: ["interactive"],
+      skillId: "topic-synthesis-finalize",
+    });
+    const recoveryWorkflow = await createRecoveryApplyWorkflowRoot(root);
+    const previousWorkflowDir = process.env.ZOTERO_TEST_WORKFLOW_DIR;
+    const backend = createBackend({ id: ACP_OPENCODE_BACKEND_ID });
+    const workflowRunId = "workflow-run-live-deferred-interrupt";
+    const jobId = "job-live-deferred-interrupt";
+    let updateListener: ((event: any) => void | Promise<void>) | null = null;
+    let promptCount = 0;
+    let closeCalls = 0;
+    let resolveFirstPromptStarted: (() => void) | null = null;
+    let releaseFirstPrompt: (() => void) | null = null;
+    let resolveReplyPromptStarted: (() => void) | null = null;
+    let releaseReplyPrompt: (() => void) | null = null;
+    const firstPromptStarted = new Promise<void>((resolve) => {
+      resolveFirstPromptStarted = resolve;
+    });
+    const replyPromptStarted = new Promise<void>((resolve) => {
+      resolveReplyPromptStarted = resolve;
+    });
+    const fakeAdapter: AcpConnectionAdapter = {
+      initialize: async () => ({
+        authMethods: [],
+        agentName: "fake",
+        agentVersion: "1",
+        commandLabel: "fake",
+        commandLine: "fake",
+        canLoadSession: false,
+        canResumeSession: false,
+        canUseHttpMcp: true,
+        canUseSseMcp: false,
+      }),
+      onUpdate: (listener: (event: any) => void | Promise<void>) => {
+        updateListener = listener;
+        return () => {
+          updateListener = null;
+        };
+      },
+      onClose: () => () => undefined,
+      onDiagnostics: () => () => undefined,
+      onPermissionRequest: () => () => undefined,
+      newSession: async () => ({
+        sessionId: "session-live-deferred-interrupt",
+      }),
+      loadSession: async () => ({ sessionId: "loaded" }),
+      resumeSession: async () => ({ sessionId: "resumed" }),
+      prompt: async ({ sessionId }) => {
+        promptCount += 1;
+        if (promptCount === 1) {
+          await new Promise<void>((resolve) => {
+            releaseFirstPrompt = resolve;
+            resolveFirstPromptStarted?.();
+          });
+          return { stopReason: "cancelled", cancelRequested: true };
+        }
+        if (promptCount !== 2) {
+          throw new Error("Interrupted detached reply must not start repair.");
+        }
+        await updateListener?.({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "not valid json after interrupt" },
+          },
+        });
+        await new Promise<void>((resolve) => {
+          releaseReplyPrompt = resolve;
+          resolveReplyPromptStarted?.();
+        });
+        return { stopReason: "end_turn" };
+      },
+      cancel: async () => {
+        if (promptCount === 1) {
+          releaseFirstPrompt?.();
+          return;
+        }
+        releaseReplyPrompt?.();
+      },
+      setMode: async () => undefined,
+      setModel: async () => undefined,
+      authenticate: async () => undefined,
+      close: async () => {
+        closeCalls += 1;
+      },
+    };
+    const sequenceRequest = {
+      kind: "skillrunner.sequence.v1" as const,
+      steps: [
+        {
+          id: "finalize",
+          skill_id: "topic-synthesis-finalize",
+          mode: "interactive",
+          workspace: "reuse-workflow" as const,
+        },
+      ],
+      final_step_id: "finalize",
+    };
+    let requestId = "";
+    try {
+      resetAcpSkillRunsForTests();
+      resetWorkflowTasks();
+      process.env.ZOTERO_TEST_WORKFLOW_DIR = recoveryWorkflow.workflowsDir;
+      await rescanWorkflowRegistry({
+        workflowsDir: recoveryWorkflow.workflowsDir,
+      });
+      initializeSequenceRunState({
+        request: sequenceRequest,
+        backend,
+        providerOptions: { mode: "live-deferred-interrupt-test" },
+        workflowId: recoveryWorkflow.workflowId,
+        workflowLabel: "Recovered Sequence Apply Workflow",
+        workflowRunId,
+        jobId,
+      });
+      const execution = executeAcpSkillRunnerJob({
+        requestKind: ACP_SKILL_RUN_REQUEST_KIND,
+        backend,
+        request: {
+          kind: ACP_SKILL_RUN_REQUEST_KIND,
+          skill_id: "topic-synthesis-finalize",
+          fetch_type: "result",
+          runtime_options: { execution_mode: "interactive" },
+        },
+        orchestrationContext: {
+          workflowId: recoveryWorkflow.workflowId,
+          workflowLabel: "Recovered Sequence Apply Workflow",
+          workflowRunId,
+          jobId,
+          sequenceStepId: "finalize",
+          finalStepId: "finalize",
+        },
+        onProgress: (event) => {
+          if (event.type !== "request-created") return;
+          requestId = String(event.requestId);
+          recordSequenceStepRequestCreated({
+            sequenceRunId: workflowRunId,
+            stepIndex: 0,
+            requestId,
+          });
+          recordWorkflowTaskUpdate(
+            makeAcpWorkflowTaskJob({
+              requestId,
+              workflowId: recoveryWorkflow.workflowId,
+              backendId: ACP_OPENCODE_BACKEND_ID,
+              state: "running",
+            }),
+          );
+        },
+        dependencies: {
+          scanRegistry: async () => ({
+            entries: [entry],
+            entriesById: { "topic-synthesis-finalize": entry },
+            diagnostics: [],
+          }),
+          createWorkspace: (args) =>
+            import("../../src/modules/acpSkillRunnerWorkspace").then((mod) =>
+              mod.createAcpSkillRunnerWorkspace({ ...args, rootDir: root }),
+            ),
+          createAdapter: async () => fakeAdapter,
+          maxRepairRounds: 2,
+          sharedSkillCatalogRootDir: path.join(root, "shared-catalog"),
+        },
+      });
+      await firstPromptStarted;
+      assert.isNotEmpty(requestId);
+      await interruptAcpSkillRunCurrentTurn(requestId);
+      const deferred = await execution;
+      assert.equal(deferred.status, "deferred");
+      assert.equal(deferred.backendStatus, "waiting_user");
+
+      const replyPromise = replyAcpSkillRun({
+        requestId,
+        message: "continue but interrupt this reply",
+      });
+      await replyPromptStarted;
+      const resumedRecord = getAcpSkillRunRecord(requestId);
+      const resumedRegions = await readAcpSkillRunWorkspaceRegions({
+        requestId,
+        kinds: ["owner-control"],
+      });
+      assert.equal(resumedRecord?.status, "running");
+      assert.equal(resumedRecord?.activePrompt, true);
+      assert.equal(resumedRecord?.replyState, "accepted");
+      assert.equal(resumedRecord?.promptInterruptState, "idle");
+      assert.equal(resumedRegions["owner-control"]?.status, "running");
+      assert.equal(resumedRegions["owner-control"]?.hint.kind, "running");
+      await interruptAcpSkillRunCurrentTurn(requestId);
+      await replyPromise;
+
+      const record = getAcpSkillRunRecord(requestId);
+      const stages = (record?.events || []).map((event) => event.stage);
+      assert.equal(promptCount, 2);
+      assert.equal(closeCalls, 0);
+      assert.equal(record?.status, "waiting_user");
+      assert.equal(record?.activePrompt, false);
+      assert.equal(record?.replyState, "idle");
+      assert.equal(record?.conversationState, "active");
+      assert.equal(record?.conversationRecoveryState, "connected");
+      assert.equal(record?.promptInterruptState, "confirmed");
+      assert.equal(record?.repairRounds, 0);
+      assert.notEqual(record?.applyResultState, "succeeded");
+      assert.deepEqual(await readRunOutputRevisions(requestId), []);
+      assert.lengthOf(
+        stages.filter((stage) => stage === "interrupt-confirmed"),
+        2,
+      );
+      assert.notInclude(stages, "output-validation-failed");
+      assert.notInclude(stages, "repair-started");
+      assert.notInclude(stages, "apply-succeeded");
+      assert.notInclude(stages, "succeeded");
+      assert.equal(
+        listWorkflowTasks().find((task) => task.requestId === requestId)?.state,
+        "running",
+      );
     } finally {
       if (typeof previousWorkflowDir === "string") {
         process.env.ZOTERO_TEST_WORKFLOW_DIR = previousWorkflowDir;

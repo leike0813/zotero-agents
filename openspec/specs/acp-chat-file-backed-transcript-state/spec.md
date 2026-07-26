@@ -380,14 +380,15 @@ ACP Chat soft tool and status side-channel updates SHALL use the shared trailing
 
 In silent mode, ACP Chat SHALL apply semantic segmentation before transcript mirror mutation. Suppressed assistant chunks, thoughts, tool calls/updates, plans, ordinary statuses, usage, and session metadata SHALL NOT create transcript events, increment transcript metadata, enqueue writer entries, or checkpoint indexes. User content and critical interaction state SHALL remain durable.
 
-At prompt settlement, ACP Chat SHALL persist at most the final assistant segment following the most recent hard boundary. A normal result SHALL be complete; an abnormal stop with candidate text SHALL be error-state. If no candidate exists, only critical terminal state SHALL be recorded.
+ACP Chat SHALL keep the silent terminal assistant candidate as prompt-local, owner-scoped in-memory state separate from shared execution progress. At prompt settlement, ACP Chat SHALL persist at most the final assistant segment collected after entering silent mode and following the most recent hard boundary. A normal result SHALL be complete; an abnormal stop with candidate text SHALL be error-state. If no candidate exists, only critical terminal state SHALL be recorded.
 
 #### Scenario: suppressed stream leaves persistence unchanged
 
 - **GIVEN** an ACP Chat prompt starts in silent mode
 - **WHEN** it emits many assistant/thought/tool/metadata updates without terminating
 - **THEN** transcript item count, event sequence, writer pending entries, and index state remain unchanged
-- **AND** semantic agent-message progress may advance in memory.
+- **AND** semantic agent-message progress may advance in memory
+- **AND** shared execution progress SHALL NOT retain assistant text.
 
 #### Scenario: only last assistant segment is committed
 
@@ -399,7 +400,15 @@ At prompt settlement, ACP Chat SHALL persist at most the final assistant segment
 
 - **WHEN** an active Chat prompt enters silent mode
 - **THEN** its old-mode active row is sealed once and existing history is retained
+- **AND** the silent terminal collector starts empty and collects only subsequent eligible assistant text
 - **AND** leaving silent discards omitted candidate text without backfill.
+
+#### Scenario: abnormal settlement preserves the current projection contract
+
+- **GIVEN** a silent Chat prompt has collected a non-empty terminal assistant candidate
+- **WHEN** the prompt settles abnormally through the existing error path
+- **THEN** exactly that candidate is persisted as an error-state assistant item
+- **AND** no other suppressed process content is persisted.
 
 ### Requirement: ACP Chat persists conversation message-count metadata
 
@@ -437,3 +446,60 @@ An ACP Chat conversation with no transcript history and no persisted count metad
 - **WHEN** silent Thought or Tool activity advances count metadata
 - **THEN** the conversation count summary is updated
 - **AND** transcript item count, event sequence, writer entries, and index schema remain unchanged.
+
+### Requirement: Chat page-first state uses the shared transcript region
+
+ACP Chat owner switches SHALL publish the new owner in shared loading state before indexed page read or full mirror hydrate. A successful indexed page SHALL replace that state with the shared ready region, independently of full mirror readiness.
+
+#### Scenario: Cold conversation is selected
+
+- **WHEN** its cold mirror is absent
+- **THEN** Chat publishes loading for the new owner and then a ready indexed page through the same transcript region
+- **AND** no Chat-specific transcript lifecycle field is required.
+
+### Requirement: Chat store fields stop at the adapter boundary
+
+Chat store item identifiers, revisions, backend identity, and conversation identity SHALL be converted once by the Chat adapter. Store-specific fields SHALL NOT leak into shared page, item, mutation, receiver, or acknowledgement DTOs.
+
+#### Scenario: Chat page is normalized
+
+- **WHEN** the indexed Chat page enters Workspace publication
+- **THEN** owner details exist only in the owner envelope and canonical sequence exists only as eventSeq.
+
+### Requirement: First-open Chat transcript delivery is self-contained
+
+The first foreground ACP Chat owner after plugin startup SHALL render its indexed selected page after owner-first loading without requiring a session switch, tab switch, later transcript event, or full-mirror hydration. Loss or rejection of the first typed page publication SHALL trigger retained replay or current-owner snapshot rebase.
+
+#### Scenario: Workspace opens before Chat child readiness
+
+- **WHEN** the default Chat page is read before the Chat child declares ready
+- **THEN** the page publication is retained and rendered after readiness
+- **AND** loading resolves to the ready page without user interaction.
+
+#### Scenario: Page publication observes an old owner
+
+- **WHEN** the active owner's page publication is rejected because owner commit has not completed
+- **THEN** the shared delivery path replays it after owner commit or publishes a current-page rebase
+- **AND** it is not silently discarded.
+
+### Requirement: Chat publication count is display-projected
+
+ACP Chat SHALL maintain raw persisted transcript count inside its domain store and SHALL expose `totalVisibleItemCount` to Workspace only through the selected display projection. Snapshot and delta metadata SHALL use the same projected count.
+
+#### Scenario: Boundary text remains held
+
+- **WHEN** a Chat assistant chunk is persisted but remains hidden until a hard boundary
+- **THEN** raw storage may advance while `totalVisibleItemCount` does not
+- **AND** a visible tool patch cannot leak the held text or raw count.
+
+### Requirement: Chat cold selection is owner-first
+
+Selecting a Chat backend/conversation SHALL publish the new owner loading state
+before indexed page read or full mirror hydration. Indexed page readiness and
+full mirror readiness SHALL remain independent.
+
+#### Scenario: The cold full mirror cache misses
+
+- **WHEN** a historical conversation is selected
+- **THEN** the indexed page can render the selected page
+- **AND** full mirror cache absence does not hide the transcript.

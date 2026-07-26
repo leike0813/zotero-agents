@@ -114,32 +114,7 @@
 - [x] workflow 多语言文案机制
 - [x] Dashboard 增加 Tag Manager 快捷方式（可选，要做的话也得做成注册式的）
 - [x] host bridge 的取消 workflow 能力
-- [x] MinerU还没完全修好，仍然会有以下报错而不是跳过：
-
-```
-  {
-    "id": "log-243",
-    "ts": "2026-07-09T01:39:20.171Z",
-    "level": "error",
-    "scope": "workflow-trigger",
-    "schemaVersion": 1,
-    "diagnosticMode": false,
-    "workflowId": "mineru",
-    "stage": "build-requests-failed",
-    "message": "build requests failed",
-    "details": {
-      "reason": "Could not determine if `Harnessing Vision Models for Time Series Analysis: A Survey PDF' exists: could not parse path (NS_ERROR_FILE_UNRECOGNIZED_PATH)",
-      "errorMessage": "OperationError: Could not determine if `Harnessing Vision Models for Time Series Analysis: A Survey PDF' exists: could not parse path (NS_ERROR_FILE_UNRECOGNIZED_PATH)"
-    },
-    "error": {
-      "name": "OperationError",
-      "message": "Could not determine if `Harnessing Vision Models for Time Series Analysis: A Survey PDF' exists: could not parse path (NS_ERROR_FILE_UNRECOGNIZED_PATH)",
-      "stack": "pathExists2@jar:file:///home/joshua/.zotero/zotero/7jcjn08q.default/extensions/zotero-skills@leike0813@gmail.com.xpi!/content/scripts/zotero-skills.js:79313:17\nfileExists@jar:file:///home/joshua/.zotero/zotero/7jcjn08q.default/extensions/zotero-skills@leike0813@gmail.com.xpi!/content/scripts/zotero-skills.js:103207:37\nfilterMissingSourceFiles@jar:file:///home/joshua/.zotero/zotero/7jcjn08q.default/extensions/zotero-skills@leike0813@gmail.com.xpi!/content/scripts/zotero-skills.js:103221:17\n",
-      "category": "unknown"
-    }
-  }
-```
-
+- [x] MinerU还没完全修好，仍然会有报错而不是跳过
 - [x] 增加opencode和kilo code ACP后端预设的注入环境变量，将`question`工具禁用
 - [x] kilo ACP 有一个小BUG: kilo会提供“none"这个推理强度，而这个推理强度对于某些模型不可用，会导致任务提交失败。不知道有没有办法进行自动fallback
 - [x] 优化transcript写盘的IO负载
@@ -154,6 +129,18 @@
 - [x] 新增collection-collector workflow
 - [x] zotero-librarian-profile 版本号治理（major/minor跟随CLI，patch单列）
 - [x] 观测到ACP Chat在prompting状态下点击Cancel(interrupt)后前端已经乐观变为cancelled，但后端仍在继续执行，需要复核这个interrupt的逻辑。ACP Skills中很有可能存在相同问题
+- [x] 产物区UI，scroll重置，markdown渲染不生效
+- [x] transcript窗口遇到超长agent消息卷不动，transcript窗口内容高频跳变（未修好！）
+- [x] ACP Chat 自动批注开关在点击后显示状态不会立刻改变（实际状态已变），切换窗口后恢复正常
+- [x] ACP Chat 的 turn terminal 消息的markdown渲染不会在消息完整收到后立刻生效，也是得切换窗口才正常
+- [x] ACP Chat 在 prompting 状态不显示模式、模型（推理强度显示“默认”，应该也有问题）。这里应该和ACP Skills对齐，除断开状态外，任何时候都应该显示这些选项的值，然后在prompting状态禁用模型和推理强度的下拉菜单（当然后端也禁用切换）；模式应该可以随时切换
+- [x] **Agent-facing 的界面需要大幅优化**：1. 提交workflow时的provider profile格式需要按具体的backend来查询，因为每个backend的profile格式、允许的选项都不一样；2. provider profile应该有校验接口，并且支持环境变量指定默认的provider profile；3. 存在provider profile不生效的问题（在ACP Skills任务中复现，SkillRunner未知）；4. 所有的CLI接口都应该有自解释性，例如所有的选项的含义、所有的workflow的功能描述，否则agent只能靠猜
+- [ ] 解决ACP后端在windows下运行时powershell在提交json payload或输出json时频繁出现的编码问题（一般出现在中文论文中）
+- [x] Dashboard/popover对于SkillRunner任务的显示有问题（运行中任务只显示一个，waiting状态任务不显示）
+- [x] ACP Skills任务提交后，到agent真正开始执行的这个时间窗口内，任务抽屉会被反复关闭
+- [x] 之前修复的错误推理强度问题，没完全修好，表现为M3按none提交会报错“low不存在”，但按其他强度提交依然会报错
+- [x] **literature-search-ingest需要升级**。现在存在以下问题：1. 跳过PDF探测的偷懒行为极其高发，需要升级为硬stage技能；2.文献元数据搜索极其偷懒； 3. 文献元数据录入不规范，DOI放到“其他”字段中，中文论文的录入不稳定，有时按英文标题录入、有时按英文作者录入、有时又录入双语标题；
+- [ ] ACP Skills状态机还是有点问题，已完成任务无法继续对话，和最初设计意图不一致。需要进行一次整体升级，合理设计自由对话和任务执行的关系。
 - [ ] **初次启动时的使用指导demo**
 - [ ] mock skillrunner 改为 mock acp backend，规避端口问题
 - [ ] **独立的 Rust 服务程序，卸载重计算到这个服务程序上，避免界面阻塞**
@@ -167,4 +154,3 @@
 
 - [c] 更详细的前后端通讯状态机
 - [c] **MCP 服务公开化，MCP插件调用能力**（非远程调用能力，远程调用比较麻烦，以后再说）
-

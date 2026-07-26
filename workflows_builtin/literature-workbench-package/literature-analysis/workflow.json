@@ -1,35 +1,47 @@
 {
+  "schemaVersion": 2,
   "id": "literature-analysis",
   "label": "Literature Analysis",
+  "description": "Analyze one literature source and apply its digest, structured references, citation analysis, and optional normalized tags to Zotero.",
+  "executionModes": ["auto"],
   "provider": "skillrunner",
   "version": "0.1.0",
   "display": {
     "core": true,
     "emoji": "📊"
   },
+  "trigger": {
+    "requiresSelection": true
+  },
   "inputs": {
-    "unit": "attachment",
-    "accepts": {
-      "mime": [
-        "text/markdown",
-        "text/x-markdown",
-        "text/plain",
-        "application/pdf"
-      ]
+    "member": {
+      "kind": "attachment",
+      "accepts": {
+        "mime": [
+          "text/markdown",
+          "text/x-markdown",
+          "text/plain",
+          "application/pdf"
+        ]
+      }
     },
-    "per_parent": {
-      "min": 1,
-      "max": 1
+    "grouping": {
+      "mode": "each"
     }
   },
   "validateSelection": {
     "select": {
       "policy": "literature-source"
     },
-    "exclude": [
+    "filters": [
       {
-        "kind": "generated-notes-all",
-        "noteKinds": ["digest", "references", "citation-analysis"]
+        "kind": "generated-note-kinds-absent",
+        "phase": "availability",
+        "noteKinds": [
+          "digest",
+          "references",
+          "citation-analysis"
+        ]
       }
     ]
   },

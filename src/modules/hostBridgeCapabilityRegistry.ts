@@ -1,41 +1,45 @@
 import { getHostBridgeApprovalRequirement } from "./hostBridgePermissionManager";
 import {
   registerHostBridgeFileHandle,
+  registerHostBridgeFileHandlesInOrder,
   registerHostBridgeWorkflowArtifactFile,
+  type HostBridgeFileDescriptor,
 } from "./hostBridgeFileRegistry";
-import { isDebugModeEnabled } from "./debugMode";
 import {
-  copyRuntimeFile,
+  isDebugModeEnabled,
+  isSkillRunnerConnectionAuditAvailable,
+} from "./debugMode";
+import {
   getRuntimePersistencePaths,
   readRuntimeBytes,
-  runtimePathExists,
   scanRuntimePersistenceUsage,
   writeRuntimeBytes,
 } from "./runtimePersistence";
 import { joinPath } from "../utils/path";
 import { createStoreZipBytes } from "./zipStore";
 import {
+  chunkHostBridgeText,
+  paginateHostBridgeRows,
+} from "./hostBridgePagination";
+import {
+  assertWorkflowProductStorageReady,
+  exportWorkflowProductToDirectory,
   getWorkflowProduct,
   listWorkflowProducts,
   removeWorkflowProduct,
   resolveManagedWorkflowProductAsset,
+  resolveManagedWorkflowProductAssetByRelativePath,
   WORKFLOW_PRODUCT_KIND_SKILL_RUN_FEEDBACK,
   type WorkflowProductAsset,
   type WorkflowProductRecord,
 } from "./workflowProductStore";
 import { scanPersistenceIntegrity } from "./persistenceIntegrity";
-import {
-  listActiveWorkflowTaskSummaries,
-  listWorkflowTasks,
-} from "./taskRuntime";
-import { listAcpSkillRunSummaries } from "./acpSkillRunStore";
-import { getSkillRunnerConnectionGovernorSnapshot } from "./skillRunnerConnectionGovernor";
-import { reapplyAcpSkillRunResult } from "./acpSkillRunnerOrchestrator";
 import type {
   HostBridgeApprovalRequirement,
   HostBridgeCapabilityCategory,
   HostBridgeCapabilityManifestEntry,
   HostBridgeConnectionMode,
+  HostBridgeErrorCategory,
   HostBridgeStatusSnapshot,
 } from "./hostBridgeProtocol";
 import {
@@ -67,28 +71,61 @@ export type ZoteroHostCapabilityBrokerApis = ReturnType<
   typeof createZoteroHostCapabilityBrokerApis
 >;
 
+export type JsonSerializableValue =
+  | null
+  | boolean
+  | number
+  | string
+  | undefined
+  | object;
+
 export type HostBridgeCapabilityHandler = (
   input: unknown,
   context: HostBridgeCapabilityContext,
-) => unknown | Promise<unknown>;
+) => JsonSerializableValue | Promise<JsonSerializableValue>;
 
 export type HostBridgeCapabilityDefinition =
   HostBridgeCapabilityManifestEntry & {
     handler: HostBridgeCapabilityHandler;
   };
 
-export class HostBridgeWorkflowProductError extends Error {
-  readonly code:
-    | "workflow_product_not_found"
-    | "workflow_product_asset_not_found";
+type HostBridgeWorkflowProductErrorCode =
+  | "workflow_product_not_found"
+  | "workflow_product_asset_not_found"
+  | "workflow_product_store_migration_incomplete"
+  | "workflow_product_export_path_too_long"
+  | "workflow_product_export_failed";
 
-  constructor(
-    code: "workflow_product_not_found" | "workflow_product_asset_not_found",
-    message: string,
-  ) {
+export class HostBridgeWorkflowProductError extends Error {
+  readonly code: HostBridgeWorkflowProductErrorCode;
+  readonly httpStatus: number;
+  readonly statusText: string;
+  readonly category: HostBridgeErrorCategory;
+
+  constructor(code: HostBridgeWorkflowProductErrorCode, message: string) {
     super(message);
     this.name = "HostBridgeWorkflowProductError";
     this.code = code;
+    if (
+      code === "workflow_product_not_found" ||
+      code === "workflow_product_asset_not_found"
+    ) {
+      this.httpStatus = 404;
+      this.statusText = "Not Found";
+      this.category = "not_found";
+    } else if (code === "workflow_product_export_path_too_long") {
+      this.httpStatus = 400;
+      this.statusText = "Bad Request";
+      this.category = "validation";
+    } else if (code === "workflow_product_store_migration_incomplete") {
+      this.httpStatus = 503;
+      this.statusText = "Service Unavailable";
+      this.category = "workflow";
+    } else {
+      this.httpStatus = 500;
+      this.statusText = "Internal Server Error";
+      this.category = "capability";
+    }
   }
 }
 
@@ -104,6 +141,66 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function asObject(input: unknown): Record<string, unknown> {
   return isPlainObject(input) ? input : {};
+}
+
+function capabilityPageCriteria(
+  input: Record<string, unknown>,
+  pagingKeys: string[] = ["cursor", "limit"],
+) {
+  const omitted = new Set(pagingKeys);
+  return Object.fromEntries(
+    Object.entries(input).filter(([key]) => !omitted.has(key)),
+  );
+}
+
+function capabilityPageRowKey(value: unknown) {
+  const object = asObject(value);
+  for (const key of [
+    "productId",
+    "assetId",
+    "artifact_id",
+    "artifactId",
+    "paper_ref",
+    "paperRef",
+    "topic_id",
+    "topicId",
+    "payloadType",
+    "node_id",
+    "nodeId",
+    "eventId",
+    "id",
+    "key",
+  ]) {
+    const candidate = String(object[key] || "").trim();
+    if (candidate) return `${key}:${candidate}`;
+  }
+  return JSON.stringify(value);
+}
+
+function paginateCapabilityRows<T>(args: {
+  scope: string;
+  section: string;
+  input: Record<string, unknown>;
+  rows: readonly T[];
+  result?: Record<string, unknown>;
+}) {
+  const page = paginateHostBridgeRows({
+    scope: args.scope,
+    criteria: capabilityPageCriteria(args.input),
+    rows: args.rows,
+    key: capabilityPageRowKey,
+    cursor: args.input.cursor,
+    limit: args.input.limit,
+  });
+  return {
+    ...(args.result || {}),
+    [args.section]: page.page,
+    nextCursor: page.nextCursor,
+    hasMore: page.hasMore,
+    returned: page.returned,
+    total: page.total,
+    limit: page.limit,
+  };
 }
 
 function itemRefFromInput(input: unknown): ZoteroHostItemRefInput {
@@ -123,15 +220,9 @@ function libraryListArgsFromInput(input: unknown): ZoteroHostLibraryListArgs {
   return args;
 }
 
-function normalizeJsonSafeValue(value: unknown): unknown {
-  if (value === undefined) {
-    return null;
-  }
-  return JSON.parse(JSON.stringify(value));
-}
-
-async function toBridgeAttachmentDescriptor(
+function toBridgeAttachmentDescriptor(
   attachment: ZoteroHostAttachmentDto,
+  file?: HostBridgeFileDescriptor,
 ) {
   const path = String(attachment.path || "").trim();
   const { path: _path, ...safeAttachment } = attachment;
@@ -144,17 +235,15 @@ async function toBridgeAttachmentDescriptor(
       },
     };
   }
-  const file = await registerHostBridgeFileHandle({
-    localPath: path,
-    sourceKind: "zotero-attachment",
-    displayName: attachment.filename || attachment.title,
-    contentType: attachment.contentType,
-    owner: {
-      capability: "library.get_item_attachments",
-      itemKey: attachment.parent?.key || attachment.key,
-      libraryId: attachment.libraryId,
-    },
-  });
+  if (!file) {
+    return {
+      ...safeAttachment,
+      access: {
+        mode: "unavailable",
+        file: null,
+      },
+    };
+  }
   return {
     ...safeAttachment,
     access: {
@@ -177,7 +266,32 @@ async function toBridgeAttachmentDescriptorsWithContext(
   const attachments = await resolveHostBridgeApis(
     context,
   ).library.getItemAttachments(itemRefFromInput(input));
-  return Promise.all(attachments.map(toBridgeAttachmentDescriptor));
+  const registerable = attachments.filter(
+    (attachment) =>
+      String(attachment.path || "").trim() && !attachment.errors?.length,
+  );
+  const files = await registerHostBridgeFileHandlesInOrder(
+    registerable.map((attachment) => ({
+      localPath: String(attachment.path).trim(),
+      sourceKind: "zotero-attachment" as const,
+      displayName: attachment.filename || attachment.title,
+      contentType: attachment.contentType,
+      owner: {
+        capability: "library.get_item_attachments",
+        itemKey: attachment.parent?.key || attachment.key,
+        libraryId: attachment.libraryId,
+      },
+    })),
+  );
+  let fileIndex = 0;
+  return attachments.map((attachment) => {
+    const canRegister =
+      String(attachment.path || "").trim() && !attachment.errors?.length;
+    return toBridgeAttachmentDescriptor(
+      attachment,
+      canRegister ? files[fileIndex++] : undefined,
+    );
+  });
 }
 
 function capability(
@@ -186,6 +300,7 @@ function capability(
   summary: string,
   input: HostBridgeCapabilityManifestEntry["input"],
   handler: HostBridgeCapabilityHandler,
+  requestEffect: HostBridgeCapabilityManifestEntry["requestEffect"] = "read",
 ): HostBridgeCapabilityDefinition {
   const approval = getHostBridgeApprovalRequirement(name);
   return {
@@ -193,9 +308,10 @@ function capability(
     category,
     summary,
     approval,
+    requestEffect,
     input,
     handler: async (rawInput, context) =>
-      normalizeJsonSafeValue(await handler(rawInput, context)),
+      (await handler(rawInput, context)) ?? null,
   };
 }
 
@@ -209,6 +325,7 @@ function debugCapability(
   name: string,
   summary: string,
   handler: HostBridgeCapabilityHandler,
+  requestEffect: HostBridgeCapabilityManifestEntry["requestEffect"] = "read",
 ): HostBridgeCapabilityDefinition {
   return capability(
     name,
@@ -219,14 +336,15 @@ function debugCapability(
       assertDebugModeEnabled();
       return handler(input, context);
     },
+    requestEffect,
   );
 }
 
-function debugLimit(input: Record<string, unknown>, fallback = 100) {
+function debugLimit(input: Record<string, unknown>, fallback = 25) {
   return Math.max(
     1,
     Math.min(
-      1000,
+      100,
       Math.floor(Number(input.limit ?? input.maxRows ?? fallback) || fallback),
     ),
   );
@@ -252,22 +370,30 @@ function debugEnvelope(
   };
 }
 
-const WORKFLOW_PRODUCT_PAGE_DEFAULT = 100;
-const WORKFLOW_PRODUCT_PAGE_MAX = 200;
-
 function normalizedWorkflowProductId(value: unknown) {
   return String(value || "").trim();
+}
+
+function assertHostWorkflowProductStorageReady() {
+  try {
+    assertWorkflowProductStorageReady();
+  } catch {
+    throw new HostBridgeWorkflowProductError(
+      "workflow_product_store_migration_incomplete",
+      "Workflow Product storage migration is incomplete",
+    );
+  }
 }
 
 function publicWorkflowProductAsset(asset: WorkflowProductAsset) {
   return {
     assetId: asset.assetId,
     label: asset.label,
-    path: asset.path,
     relativePath: asset.relativePath,
     contentType: asset.contentType,
-    sourceKind: asset.sourceKind,
+    availability: asset.availability,
     size: asset.size,
+    sha256: asset.sha256,
     diagnostics: asset.diagnostics,
   };
 }
@@ -285,7 +411,6 @@ function publicWorkflowProduct(product: WorkflowProductRecord) {
     runKey: product.runKey,
     requestId: product.requestId,
     runId: product.runId,
-    storageMode: product.storageMode,
     assets: product.assets.map(publicWorkflowProductAsset),
     createdAt: product.createdAt,
     updatedAt: product.updatedAt,
@@ -300,20 +425,17 @@ function isNormalWorkflowProduct(
 
 function workflowProductPageInput(input: unknown) {
   const object = asObject(input);
-  const cursor = Math.max(0, Math.floor(Number(object.cursor) || 0));
-  const requestedLimit = Math.floor(
-    Number(object.limit) || WORKFLOW_PRODUCT_PAGE_DEFAULT,
-  );
   return {
     workflowId: normalizedWorkflowProductId(object.workflowId),
     backendId: normalizedWorkflowProductId(object.backendId),
     requestId: normalizedWorkflowProductId(object.requestId),
-    cursor,
-    limit: Math.max(1, Math.min(WORKFLOW_PRODUCT_PAGE_MAX, requestedLimit)),
+    cursor: object.cursor,
+    limit: object.limit,
   };
 }
 
 function selectWorkflowProducts(input: unknown) {
+  assertHostWorkflowProductStorageReady();
   const filters = workflowProductPageInput(input);
   const matches = listWorkflowProducts().filter((product) => {
     if (!isNormalWorkflowProduct(product)) return false;
@@ -323,19 +445,16 @@ function selectWorkflowProducts(input: unknown) {
       (!filters.requestId || product.requestId === filters.requestId)
     );
   });
-  const products = matches
-    .slice(filters.cursor, filters.cursor + filters.limit)
-    .map(publicWorkflowProduct);
-  const next = filters.cursor + products.length;
-  return {
-    products,
-    total: matches.length,
-    nextCursor: next < matches.length ? next : null,
-    hasMore: next < matches.length,
-  };
+  return paginateCapabilityRows({
+    scope: "product list",
+    section: "products",
+    input: asObject(input),
+    rows: matches.map(publicWorkflowProduct),
+  });
 }
 
 function workflowProductOrThrow(productId: unknown) {
+  assertHostWorkflowProductStorageReady();
   const product = getWorkflowProduct(normalizedWorkflowProductId(productId));
   if (!isNormalWorkflowProduct(product)) {
     throw new HostBridgeWorkflowProductError(
@@ -348,13 +467,23 @@ function workflowProductOrThrow(productId: unknown) {
 
 async function managedWorkflowProductAssetOrThrow(
   productId: unknown,
-  assetId: unknown,
+  selector: { assetId?: unknown; relativePath?: unknown },
 ) {
   const product = workflowProductOrThrow(productId);
-  const resolved = await resolveManagedWorkflowProductAsset(
-    product.productId,
-    normalizedWorkflowProductId(assetId),
-  );
+  const assetId = normalizedWorkflowProductId(selector.assetId);
+  const relativePath = normalizedWorkflowProductId(selector.relativePath);
+  if (Boolean(assetId) === Boolean(relativePath)) {
+    throw new HostBridgeWorkflowProductError(
+      "workflow_product_asset_not_found",
+      "Exactly one workflow product asset selector is required",
+    );
+  }
+  const resolved = assetId
+    ? await resolveManagedWorkflowProductAsset(product.productId, assetId)
+    : await resolveManagedWorkflowProductAssetByRelativePath(
+        product.productId,
+        relativePath,
+      );
   if (!resolved) {
     throw new HostBridgeWorkflowProductError(
       "workflow_product_asset_not_found",
@@ -387,7 +516,7 @@ async function exportWorkflowProduct(
   const requestedAssetId = normalizedWorkflowProductId(object.assetId);
   const assets = requestedAssetId
     ? product.assets.filter((asset) => asset.assetId === requestedAssetId)
-    : product.assets;
+    : product.assets.filter((asset) => asset.availability === "available");
   if (!assets.length) {
     throw new HostBridgeWorkflowProductError(
       "workflow_product_asset_not_found",
@@ -396,7 +525,9 @@ async function exportWorkflowProduct(
   }
   const resolved = await Promise.all(
     assets.map((asset) =>
-      managedWorkflowProductAssetOrThrow(product.productId, asset.assetId),
+      managedWorkflowProductAssetOrThrow(product.productId, {
+        assetId: asset.assetId,
+      }),
     ),
   );
   if (context.connectionMode !== "remote") {
@@ -406,26 +537,32 @@ async function exportWorkflowProduct(
         "workflow_products.export requires outputDir for local callers",
       );
     }
-    const overwrite = object.overwrite === true;
-    const files = [];
-    for (const entry of resolved) {
-      const relativePath = safeWorkflowProductExportPath(
-        entry.asset.relativePath,
-      );
-      const targetPath = joinPath(outputDir, relativePath);
-      if ((await runtimePathExists(targetPath)) && !overwrite) {
-        throw new Error("workflow product export output already exists");
-      }
-      await copyRuntimeFile({ sourcePath: entry.localPath, targetPath });
-      files.push({
-        assetId: entry.asset.assetId,
-        relativePath,
-        size: entry.asset.size,
+    let exported;
+    try {
+      exported = await exportWorkflowProductToDirectory({
+        productId: product.productId,
+        outputDir,
+        assetId: requestedAssetId || undefined,
+        overwrite: object.overwrite === true,
       });
+    } catch (error) {
+      const code = isPlainObject(error) ? String(error.code || "") : "";
+      if (
+        code === "workflow_product_export_path_too_long" ||
+        code === "workflow_product_export_failed"
+      ) {
+        throw new HostBridgeWorkflowProductError(
+          code,
+          error instanceof Error
+            ? error.message
+            : "Workflow Product export failed",
+        );
+      }
+      throw error;
     }
     return {
       product: publicWorkflowProduct(product),
-      delivery: { mode: "local", files },
+      delivery: { mode: "local", files: exported.files },
     };
   }
   const exportRoot = joinPath(
@@ -464,6 +601,234 @@ async function exportWorkflowProduct(
       unpackHint: `unzip ${zipName} -d .`,
     },
   };
+}
+
+async function registerBoundedOutputFile(args: {
+  capability: string;
+  displayName: string;
+  contentType: string;
+  content: string;
+  owner?: { requestId?: string; itemKey?: string; libraryId?: number };
+}) {
+  const exportRoot = joinPath(
+    getRuntimePersistencePaths().tmpDir,
+    "host-bridge-exports",
+    "bounded-output",
+    `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
+  const localPath = joinPath(exportRoot, args.displayName);
+  const bytes = new TextEncoder().encode(args.content);
+  await writeRuntimeBytes(localPath, bytes);
+  return registerHostBridgeFileHandle({
+    localPath,
+    sourceKind: "bridge-export",
+    displayName: args.displayName,
+    contentType: args.contentType,
+    size: bytes.byteLength,
+    owner: {
+      capability: args.capability,
+      ...(args.owner || {}),
+    },
+  });
+}
+
+function synthesisTextChunk(
+  result: unknown,
+  field: "markdown" | "digest_markdown",
+  input: Record<string, unknown>,
+) {
+  const object = asObject(result);
+  const chunk = chunkHostBridgeText(object[field], {
+    offset: input.offset,
+    maxChars: input.maxChars ?? input.max_chars,
+  });
+  return {
+    ...object,
+    [field]: chunk.text,
+    offset: chunk.offset,
+    nextOffset: chunk.nextOffset,
+    totalChars: chunk.totalChars,
+    hasMore: chunk.hasMore,
+    truncated: chunk.truncated,
+    maxChars: chunk.maxChars,
+  };
+}
+
+function normalizeSynthesisPageResult(
+  result: unknown,
+  sourceSection: string,
+  targetSection = sourceSection,
+) {
+  const object = asObject(result);
+  const rows = Array.isArray(object[sourceSection])
+    ? object[sourceSection]
+    : [];
+  const normalized = { ...object };
+  if (targetSection !== sourceSection) {
+    delete normalized[sourceSection];
+  }
+  delete normalized.next_cursor;
+  delete normalized.has_more;
+  normalized[targetSection] = rows;
+  normalized.nextCursor = String(object.nextCursor ?? object.next_cursor ?? "");
+  normalized.hasMore = Boolean(object.hasMore ?? object.has_more);
+  const returned = Math.max(
+    0,
+    Math.floor(Number(object.returned) || rows.length),
+  );
+  normalized.returned = returned;
+  normalized.total = Math.max(
+    returned,
+    Math.floor(Number(object.total ?? object.total_papers) || rows.length),
+  );
+  normalized.limit = Math.max(
+    1,
+    Math.min(100, Math.floor(Number(object.limit) || 25)),
+  );
+  return normalized;
+}
+
+const SYNTHESIS_CURSOR_CAPABILITIES = new Set([
+  "topics.list",
+  "citation_graph.get_metrics",
+  "citation_graph.rank_external_references",
+  "citation_graph.rank_library_papers",
+  "reference_index.get",
+  "resolvers.resolve",
+]);
+
+function normalizeSynthesisCapabilityInput(
+  capabilityName: string,
+  input: Record<string, unknown>,
+) {
+  if (!SYNTHESIS_CURSOR_CAPABILITIES.has(capabilityName)) {
+    return input;
+  }
+  const requestedLimit = Math.floor(Number(input.limit) || 25);
+  return {
+    ...input,
+    limit: Math.max(1, Math.min(100, requestedLimit)),
+  };
+}
+
+async function applySynthesisOutputBoundary(
+  capabilityName: string,
+  input: Record<string, unknown>,
+  result: unknown,
+) {
+  if (capabilityName === "paper_artifacts.get_manifest") {
+    const object = asObject(result);
+    const papers = Array.isArray(object.papers)
+      ? object.papers
+      : Array.isArray(object.artifacts)
+        ? object.artifacts
+        : [];
+    const boundedResult = { ...object };
+    delete boundedResult.artifacts;
+    return paginateCapabilityRows({
+      scope: "synthesis artifact manifest",
+      section: "papers",
+      input,
+      rows: papers,
+      result: boundedResult,
+    });
+  }
+  if (capabilityName === "topics.list") {
+    return normalizeSynthesisPageResult(result, "topics");
+  }
+  if (capabilityName === "citation_graph.get_metrics") {
+    return normalizeSynthesisPageResult(result, "items", "metrics");
+  }
+  if (capabilityName === "citation_graph.rank_external_references") {
+    return normalizeSynthesisPageResult(result, "items", "references");
+  }
+  if (capabilityName === "citation_graph.rank_library_papers") {
+    return normalizeSynthesisPageResult(result, "items", "papers");
+  }
+  if (capabilityName === "reference_index.get") {
+    return normalizeSynthesisPageResult(result, "rows", "entries");
+  }
+  if (capabilityName === "resolvers.resolve") {
+    return normalizeSynthesisPageResult(result, "papers", "candidates");
+  }
+  if (capabilityName === "topics.get_report") {
+    return synthesisTextChunk(result, "markdown", input);
+  }
+  if (capabilityName === "paper_artifacts.resolve_topic_digest") {
+    return synthesisTextChunk(result, "digest_markdown", input);
+  }
+  if (capabilityName === "topics.get_review_input") {
+    const object = asObject(result);
+    const topic = asObject(object.topic);
+    const file = await registerBoundedOutputFile({
+      capability: capabilityName,
+      displayName: `synthesis-review-input-${String(topic.topic_id || input.topicId || input.topic_id || "topic")}.json`,
+      contentType: "application/json",
+      content: `${JSON.stringify(result, null, 2)}\n`,
+    });
+    return {
+      topic: {
+        topic_id: topic.topic_id || input.topicId || input.topic_id,
+        title: topic.title,
+      },
+      summary: {
+        registryRows: Array.isArray(object.registry_rows)
+          ? object.registry_rows.length
+          : 0,
+        graphNodes: Array.isArray(asObject(object.citation_graph_slice).nodes)
+          ? (asObject(object.citation_graph_slice).nodes as unknown[]).length
+          : 0,
+        graphEdges: Array.isArray(asObject(object.citation_graph_slice).edges)
+          ? (asObject(object.citation_graph_slice).edges as unknown[]).length
+          : 0,
+      },
+      diagnostics: object.diagnostics || {},
+      delivery: { mode: "bridge-download", file },
+    };
+  }
+  if (capabilityName === "paper_artifacts.read") {
+    const paperRefs = [
+      ...(Array.isArray(input.paper_refs) ? input.paper_refs : []),
+      ...(Array.isArray(input.paperRefs) ? input.paperRefs : []),
+      input.paper_ref,
+      input.paperRef,
+    ]
+      .map((entry) => String(entry || "").trim())
+      .filter(Boolean);
+    if (!paperRefs.length) {
+      const error = new Error(
+        "paper_artifacts.read requires paper_ref or paper_refs",
+      );
+      (error as { code?: string }).code = "invalid_capability_input";
+      throw error;
+    }
+    const object = asObject(result);
+    const artifacts = Array.isArray(object.artifacts) ? object.artifacts : [];
+    const file = await registerBoundedOutputFile({
+      capability: capabilityName,
+      displayName: `synthesis-paper-artifacts-${Date.now()}.json`,
+      contentType: "application/json",
+      content: `${JSON.stringify(result, null, 2)}\n`,
+    });
+    return {
+      paperRefs: Array.from(new Set(paperRefs)),
+      manifest: artifacts.map((entry) => {
+        const artifact = asObject(entry);
+        return {
+          paper_ref: artifact.paper_ref,
+          artifact_type: artifact.artifact_type,
+          payload_type: artifact.payload_type,
+          note_key: artifact.note_key,
+          status: artifact.status,
+          hash: artifact.hash,
+        };
+      }),
+      diagnostics: Array.isArray(object.diagnostics) ? object.diagnostics : [],
+      summary: { artifacts: artifacts.length },
+      delivery: { mode: "bridge-download", file },
+    };
+  }
+  return result;
 }
 
 const DEBUG_ZOTERO_EVAL_SCHEMA = "host_bridge.debug.zotero.eval.v1";
@@ -757,6 +1122,12 @@ async function debugStatus(
   context: HostBridgeCapabilityContext,
 ) {
   const object = asObject(input);
+  const [taskRuntime, acpSkillRunDashboard] = await Promise.all([
+    import("./taskRuntime"),
+    import("./acpSkillRunDashboardFacade"),
+  ]);
+  const { listActiveWorkflowTaskSummaries, listWorkflowTasks } = taskRuntime;
+  const { listAcpSkillRunSummaries } = acpSkillRunDashboard;
   const tasks = listWorkflowTasks();
   const activeTasks = listActiveWorkflowTaskSummaries();
   const runs = listAcpSkillRunSummaries();
@@ -775,7 +1146,7 @@ async function debugStatus(
     tasks: {
       total: tasks.length,
       active: activeTasks.length,
-      recent: tasks.slice(0, debugLimit(object, 20)),
+      recent: tasks.slice(0, debugLimit(object)),
     },
     acpSkillRuns: {
       total: runs.length,
@@ -785,11 +1156,10 @@ async function debugStatus(
           run.status !== "failed" &&
           run.status !== "canceled",
       ).length,
-      recent: runs.slice(0, debugLimit(object, 20)).map(summarizeRun),
+      recent: runs.slice(0, debugLimit(object)).map(summarizeRun),
     },
     truncated:
-      tasks.length > debugLimit(object, 20) ||
-      runs.length > debugLimit(object, 20),
+      tasks.length > debugLimit(object) || runs.length > debugLimit(object),
   });
 }
 
@@ -809,6 +1179,12 @@ async function debugPersistenceSnapshot(input: unknown) {
 async function debugTasksSnapshot(input: unknown) {
   const object = asObject(input);
   const limit = debugLimit(object);
+  const [taskRuntime, acpSkillRunDashboard] = await Promise.all([
+    import("./taskRuntime"),
+    import("./acpSkillRunDashboardFacade"),
+  ]);
+  const { listActiveWorkflowTaskSummaries, listWorkflowTasks } = taskRuntime;
+  const { listAcpSkillRunSummaries } = acpSkillRunDashboard;
   const tasks = listWorkflowTasks();
   const activeTasks = listActiveWorkflowTaskSummaries({ limit });
   const runs = listAcpSkillRunSummaries({ limit });
@@ -828,6 +1204,8 @@ async function debugTasksSnapshot(input: unknown) {
 
 async function debugSkillRunnerConnectionsSnapshot(input: unknown) {
   const object = asObject(input);
+  const { getSkillRunnerConnectionGovernorSnapshot } =
+    await import("./skillRunnerConnectionAudit");
   return debugEnvelope(
     "host_bridge.debug.skillrunner.connections.snapshot.v1",
     object,
@@ -851,23 +1229,72 @@ function synthesisCapability(
     type: "object",
     required: false,
   },
+  requestEffect: HostBridgeCapabilityManifestEntry["requestEffect"] = "read",
 ): HostBridgeCapabilityDefinition {
-  return capability(name, category, summary, input, async (input, context) => {
-    const client = await (context.resolveSynthesisClient?.() ||
-      getDefaultSynthesisClient());
-    return invoke(client, asObject(input) as SynthesisJsonObject, {
-      mode: context.connectionMode,
-    });
-  });
+  return capability(
+    name,
+    category,
+    summary,
+    input,
+    async (input, context) => {
+      const client = await (context.resolveSynthesisClient?.() ||
+        getDefaultSynthesisClient());
+      const normalizedInput = normalizeSynthesisCapabilityInput(
+        name,
+        asObject(input),
+      ) as SynthesisJsonObject;
+      const result = await invoke(client, normalizedInput, {
+        mode: context.connectionMode,
+      });
+      return applySynthesisOutputBoundary(name, normalizedInput, result);
+    },
+    requestEffect,
+  );
 }
 
 async function callSynthesisDebugClient(
   context: HostBridgeCapabilityContext,
+  capabilityName: string,
+  input: unknown,
   invoke: (client: SynthesisClient) => Promise<SynthesisJsonObject>,
 ) {
   const client = await (context.resolveSynthesisClient?.() ||
     getDefaultSynthesisClient());
-  return invoke(client);
+  const result = await invoke(client);
+  const object = asObject(input);
+  const includeFull =
+    object.includeFull === true || object.include_full === true;
+  const requiresFileDelivery =
+    (capabilityName === "debug.synthesis.snapshot" &&
+      (includeFull ||
+        object.includeUiSnapshot === true ||
+        object.include_ui_snapshot === true)) ||
+    (includeFull &&
+      [
+        "debug.synthesis.profiler.list",
+        "debug.synthesis.paper.inspect",
+        "debug.synthesis.topic.inspect",
+      ].includes(capabilityName));
+  if (!requiresFileDelivery) {
+    return result;
+  }
+  const displayName = `${capabilityName.replace(/[^A-Za-z0-9._-]+/g, "-")}.json`;
+  const file = await registerBoundedOutputFile({
+    capability: capabilityName,
+    displayName,
+    contentType: "application/json",
+    content: `${JSON.stringify(result, null, 2)}\n`,
+  });
+  return {
+    schema: "host_bridge.debug.file_delivery.v1",
+    diagnostic: capabilityName,
+    delivery: {
+      mode: "bridge-download",
+      bundle: file,
+      downloadCommand: `zotero-bridge file download ${file.fileId} --output ${displayName}`,
+    },
+    truncated: false,
+  };
 }
 
 function topicReportRequest(
@@ -960,7 +1387,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
         itemType: { type: "string" },
         query: { type: "string" },
         limit: { type: ["number", "string"], minimum: 1 },
-        cursor: { type: ["number", "string"] },
+        cursor: { type: "string" },
       },
     },
     (input, context) =>
@@ -985,7 +1412,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
         itemType: { type: "string" },
         query: { type: "string" },
         limit: { type: ["number", "string"], minimum: 1 },
-        cursor: { type: ["number", "string"] },
+        cursor: { type: "string" },
       },
     },
     (input, context) =>
@@ -1010,7 +1437,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
         itemType: { type: "string" },
         query: { type: "string" },
         limit: { type: ["number", "string"], minimum: 1 },
-        cursor: { type: ["number", "string"] },
+        cursor: { type: "string" },
         checks: {},
         missingOnly: { type: ["boolean", "string", "number"] },
         missing_only: { type: ["boolean", "string", "number"] },
@@ -1036,11 +1463,29 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "library",
     "Return bounded child note summaries for one Zotero item.",
     { type: "object", required: true },
-    (input, context) =>
-      resolveHostBridgeApis(context).library.getItemNotes(
-        itemRefFromInput(input),
-        asObject(input),
-      ),
+    async (input, context) => {
+      const object = asObject(input);
+      const notes = [];
+      const sourceLimit = 100;
+      for (let cursor = 0; ; cursor += sourceLimit) {
+        const batch = await resolveHostBridgeApis(context).library.getItemNotes(
+          itemRefFromInput(input),
+          {
+            ...object,
+            cursor,
+            limit: sourceLimit,
+          },
+        );
+        notes.push(...batch);
+        if (batch.length < sourceLimit) break;
+      }
+      return paginateCapabilityRows({
+        scope: "library item notes",
+        section: "items",
+        input: object,
+        rows: notes,
+      });
+    },
   ),
   capability(
     "library.get_note_detail",
@@ -1057,11 +1502,26 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "library.list_note_payloads",
     "library",
     "List workflow note payloads from embedded attachments and note payload blocks.",
-    { type: "item-ref", required: true },
-    (input, context) =>
-      resolveHostBridgeApis(context).library.listNotePayloads(
-        itemRefFromInput(input),
-      ),
+    {
+      type: "object",
+      required: true,
+      properties: {
+        key: { type: "string" },
+        id: { type: ["number", "string"] },
+        libraryId: { type: ["number", "string"] },
+        cursor: { type: "string" },
+        limit: { type: ["number", "string"], minimum: 1 },
+      },
+    },
+    async (input, context) =>
+      paginateCapabilityRows({
+        scope: "library note payloads",
+        section: "payloads",
+        input: asObject(input),
+        rows: await resolveHostBridgeApis(context).library.listNotePayloads(
+          itemRefFromInput(input),
+        ),
+      }),
   ),
   capability(
     "library.get_note_payload",
@@ -1078,30 +1538,82 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "library.get_item_attachments",
     "library",
     "Return child attachment metadata with broker-issued download handles when available.",
-    { type: "item-ref", required: true },
-    (input, context) =>
-      toBridgeAttachmentDescriptorsWithContext(input, context),
+    {
+      type: "object",
+      required: true,
+      properties: {
+        key: { type: "string" },
+        id: { type: ["number", "string"] },
+        libraryId: { type: ["number", "string"] },
+        cursor: { type: "string" },
+        limit: { type: ["number", "string"], minimum: 1 },
+      },
+    },
+    async (input, context) =>
+      paginateCapabilityRows({
+        scope: "library item attachments",
+        section: "attachments",
+        input: asObject(input),
+        rows: await toBridgeAttachmentDescriptorsWithContext(input, context),
+      }),
   ),
   capability(
     "library.list_annotations",
     "library",
     "List reader annotations for one Zotero item when the Zotero runtime exposes them.",
-    { type: "item-ref", required: true },
-    (input, context) =>
-      resolveHostBridgeApis(context).library.listAnnotations(
-        itemRefFromInput(input),
-      ),
+    {
+      type: "object",
+      required: true,
+      properties: {
+        key: { type: "string" },
+        id: { type: ["number", "string"] },
+        libraryId: { type: ["number", "string"] },
+        cursor: { type: "string" },
+        limit: { type: ["number", "string"], minimum: 1 },
+      },
+    },
+    async (input, context) =>
+      paginateCapabilityRows({
+        scope: "library annotation list",
+        section: "annotations",
+        input: asObject(input),
+        rows: await resolveHostBridgeApis(context).library.listAnnotations(
+          itemRefFromInput(input),
+        ),
+      }),
   ),
   capability(
     "library.export_annotations",
     "library",
     "Export reader annotations for one Zotero item as markdown or JSON.",
     { type: "object", required: true },
-    (input, context) =>
-      resolveHostBridgeApis(context).library.exportAnnotations(
+    async (input, context) => {
+      const object = asObject(input);
+      const exported = await resolveHostBridgeApis(
+        context,
+      ).library.exportAnnotations(
         itemRefFromInput(input),
-        asObject(input) as { format?: string },
-      ),
+        object as { format?: string },
+      );
+      const format = String(exported.format || "markdown");
+      const content =
+        format === "json"
+          ? `${JSON.stringify(exported.annotations || [], null, 2)}\n`
+          : String(exported.markdown || "");
+      const file = await registerBoundedOutputFile({
+        capability: "library.export_annotations",
+        displayName: `zotero-annotations.${format === "json" ? "json" : "md"}`,
+        contentType: format === "json" ? "application/json" : "text/markdown",
+        content,
+      });
+      return {
+        format,
+        count: Array.isArray(exported.annotations)
+          ? exported.annotations.length
+          : 0,
+        delivery: { mode: "bridge-download", file },
+      };
+    },
   ),
   capability(
     "workflow_products.list",
@@ -1127,14 +1639,39 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     {
       type: "object",
       required: true,
-      properties: { productId: { type: "string" } },
+      properties: {
+        productId: { type: "string" },
+        cursor: { type: "string" },
+        limit: { type: ["number", "string"], minimum: 1 },
+      },
       requiredProperties: ["productId"],
     },
-    (input) => ({
-      product: publicWorkflowProduct(
-        workflowProductOrThrow(asObject(input).productId),
-      ),
-    }),
+    (input) => {
+      const object = asObject(input);
+      const product = publicWorkflowProduct(
+        workflowProductOrThrow(object.productId),
+      );
+      const page = paginateHostBridgeRows({
+        scope: "product get",
+        criteria: capabilityPageCriteria(object),
+        rows: product.assets,
+        key: capabilityPageRowKey,
+        cursor: object.cursor,
+        limit: object.limit,
+      });
+      return {
+        product: { ...product, assets: page.page },
+        pagination: {
+          assets: {
+            nextCursor: page.nextCursor,
+            hasMore: page.hasMore,
+            returned: page.returned,
+            total: page.total,
+            limit: page.limit,
+          },
+        },
+      };
+    },
   ),
   capability(
     "workflow_products.read_asset",
@@ -1146,14 +1683,15 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
       properties: {
         productId: { type: "string" },
         assetId: { type: "string" },
+        relativePath: { type: "string" },
       },
-      requiredProperties: ["productId", "assetId"],
+      requiredProperties: ["productId"],
     },
     async (input) => {
       const object = asObject(input);
       const resolved = await managedWorkflowProductAssetOrThrow(
         object.productId,
-        object.assetId,
+        { assetId: object.assetId, relativePath: object.relativePath },
       );
       const file = await registerHostBridgeWorkflowArtifactFile({
         localPath: resolved.localPath,
@@ -1208,6 +1746,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
       }
       return { productId: product.productId, removed: true };
     },
+    "state-change",
   ),
   capability(
     "mutation.preview",
@@ -1228,6 +1767,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
       resolveHostBridgeApis(context).mutations.execute(
         asObject(input) as ZoteroHostMutationRequest,
       ),
+    "state-change",
   ),
   capability(
     "diagnostic.get_status",
@@ -1251,16 +1791,23 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "Return debug-only workflow task and ACP run diagnostics.",
     debugTasksSnapshot,
   ),
-  debugCapability(
-    "debug.skillrunner.connections.snapshot",
-    "Return debug-only SkillRunner connection governor diagnostics.",
-    debugSkillRunnerConnectionsSnapshot,
-  ),
+  ...(typeof __debug_mode__ === "undefined" ||
+  (__debug_mode__ && __skillrunner_connection_audit_enabled__)
+    ? [
+        debugCapability(
+          "debug.skillrunner.connections.snapshot",
+          "Return debug-only SkillRunner connection governor diagnostics.",
+          debugSkillRunnerConnectionsSnapshot,
+        ),
+      ]
+    : []),
   debugCapability(
     "debug.acpSkillRun.reapplyResult",
     "Debug-only operation: re-run applyResult for an existing ACP skill run result.",
-    (input) => {
+    async (input) => {
       const object = asObject(input);
+      const { reapplyAcpSkillRunResult } =
+        await import("./acpSkillRunnerOrchestrator");
       return reapplyAcpSkillRunResult({
         requestId: object.requestId as string | undefined,
         runId: object.runId as string | undefined,
@@ -1280,75 +1827,111 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
             : undefined,
       });
     },
+    "state-change",
   ),
   debugCapability(
     "debug.zotero.eval",
     "Debug-only operation: execute approved JavaScript in the Zotero host context.",
     (input) => debugZoteroEval(input),
+    "state-change",
   ),
   debugCapability(
     "debug.synthesis.snapshot",
     "Return a debug-only Synthesis operation, cache, table-count, and UI snapshot.",
     (input, context) =>
-      callSynthesisDebugClient(context, (client) =>
-        client.debug.snapshot(asObject(input) as SynthesisJsonObject),
+      callSynthesisDebugClient(
+        context,
+        "debug.synthesis.snapshot",
+        input,
+        (client) =>
+          client.debug.snapshot(asObject(input) as SynthesisJsonObject),
       ),
   ),
   debugCapability(
     "debug.synthesis.operations.list",
     "List debug-only Synthesis explicit operations and background job rows.",
     (input, context) =>
-      callSynthesisDebugClient(context, (client) =>
-        client.debug.listOperations(asObject(input) as SynthesisJsonObject),
+      callSynthesisDebugClient(
+        context,
+        "debug.synthesis.operations.list",
+        input,
+        (client) =>
+          client.debug.listOperations(asObject(input) as SynthesisJsonObject),
       ),
   ),
   debugCapability(
     "debug.synthesis.profiler.list",
     "List debug-only Synthesis profiler runs and phase timings.",
     (input, context) =>
-      callSynthesisDebugClient(context, (client) =>
-        client.debug.listProfiler(asObject(input) as SynthesisJsonObject),
+      callSynthesisDebugClient(
+        context,
+        "debug.synthesis.profiler.list",
+        input,
+        (client) =>
+          client.debug.listProfiler(asObject(input) as SynthesisJsonObject),
       ),
   ),
   debugCapability(
     "debug.synthesis.paper.inspect",
     "Inspect one paper across Zotero payloads and Synthesis repository caches.",
     (input, context) =>
-      callSynthesisDebugClient(context, (client) =>
-        client.debug.inspectPaper(asObject(input) as SynthesisJsonObject),
+      callSynthesisDebugClient(
+        context,
+        "debug.synthesis.paper.inspect",
+        input,
+        (client) =>
+          client.debug.inspectPaper(asObject(input) as SynthesisJsonObject),
       ),
   ),
   debugCapability(
     "debug.synthesis.topic.inspect",
     "Inspect one topic across artifacts, graph, freshness, and discovery state.",
     (input, context) =>
-      callSynthesisDebugClient(context, (client) =>
-        client.debug.inspectTopic(asObject(input) as SynthesisJsonObject),
+      callSynthesisDebugClient(
+        context,
+        "debug.synthesis.topic.inspect",
+        input,
+        (client) =>
+          client.debug.inspectTopic(asObject(input) as SynthesisJsonObject),
       ),
   ),
   debugCapability(
     "debug.synthesis.diff",
     "Compare Zotero payload availability against Synthesis repository caches.",
     (input, context) =>
-      callSynthesisDebugClient(context, (client) =>
-        client.debug.diff(asObject(input) as SynthesisJsonObject),
+      callSynthesisDebugClient(
+        context,
+        "debug.synthesis.diff",
+        input,
+        (client) => client.debug.diff(asObject(input) as SynthesisJsonObject),
       ),
   ),
   debugCapability(
     "debug.synthesis.cache.list",
     "List debug-only Synthesis sidecar cache basis rows.",
     (input, context) =>
-      callSynthesisDebugClient(context, (client) =>
-        client.debug.listCache(asObject(input) as SynthesisJsonObject),
+      callSynthesisDebugClient(
+        context,
+        "debug.synthesis.cache.list",
+        input,
+        (client) =>
+          client.debug.listCache(asObject(input) as SynthesisJsonObject),
       ),
   ),
   debugCapability(
     "debug.synthesis.cleanInstallReset",
     "Dangerous debug operation: reset Synthesis DB state and delete data/synthesis.",
     (input, context) =>
-      callSynthesisDebugClient(context, (client) =>
-        client.debug.cleanInstallReset(asObject(input) as SynthesisJsonObject),
+      callSynthesisDebugClient(
+        context,
+        "debug.synthesis.cleanInstallReset",
+        input,
+        (client) =>
+          client.debug.cleanInstallReset(
+            asObject(input) as SynthesisJsonObject,
+          ),
       ),
+    "state-change",
   ),
   synthesisCapability(
     "topics.list",
@@ -1363,6 +1946,7 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
         limit: { type: ["number", "string"], minimum: 1 },
       },
     },
+    "state-change",
   ),
   synthesisCapability(
     "topics.find_by_paper_ref",
@@ -1490,6 +2074,40 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     (client, input) => client.references.getSidecarIndex(input),
   ),
   synthesisCapability(
+    "reference_sidecar.refresh",
+    "reference_index",
+    "Start an independently approved reference-sidecar refresh for one library or a bounded same-library paper-ref scope and return a persistent operation handle.",
+    (client, input) => client.references.startRefresh(input),
+    {
+      type: "object",
+      required: false,
+      properties: {
+        scope: { type: "string", enum: ["library", "papers"] },
+        library_id: { type: ["number", "string"] },
+        libraryId: { type: ["number", "string"] },
+        paper_refs: { type: "array" },
+        paperRefs: { type: "array" },
+        idempotency_key: { type: "string" },
+        idempotencyKey: { type: "string" },
+      },
+    },
+    "state-change",
+  ),
+  synthesisCapability(
+    "synthesis.operation.get",
+    "diagnostic",
+    "Read one persistent public Synthesis maintenance operation and its terminal receipt without mutating operation state.",
+    (client, input) => client.maintenance.getOperation(input),
+    {
+      type: "object",
+      required: true,
+      properties: {
+        operation_id: { type: "string" },
+        operationId: { type: "string" },
+      },
+    },
+  ),
+  synthesisCapability(
     "citation_graph.get_overview",
     "citation_graph",
     "Return paged read-only Synthesis citation graph overview arrays with summary counts.",
@@ -1588,6 +2206,30 @@ const CAPABILITIES: HostBridgeCapabilityDefinition[] = [
     "citation_graph",
     "Diagnostic repair: refresh persisted citation graph complex metrics from the current graph cache without rebuilding graph structure.",
     (client, input) => client.graph.refreshMetricsNow(input),
+    { type: "object", required: false },
+    "state-change",
+  ),
+  synthesisCapability(
+    "citation_graph.update",
+    "citation_graph",
+    "Start an independently approved atomic citation-graph update for one library or a bounded paper closure and return a persistent operation handle.",
+    (client, input) => client.graph.startUpdate(input),
+    {
+      type: "object",
+      required: false,
+      properties: {
+        scope: { type: "string", enum: ["library", "papers"] },
+        library_id: { type: ["number", "string"] },
+        libraryId: { type: ["number", "string"] },
+        paper_refs: { type: "array" },
+        paperRefs: { type: "array" },
+        expected_reference_basis_hash: { type: "string" },
+        expectedReferenceBasisHash: { type: "string" },
+        idempotency_key: { type: "string" },
+        idempotencyKey: { type: "string" },
+      },
+    },
+    "state-change",
   ),
   synthesisCapability(
     "paper_artifacts.get_manifest",
@@ -1644,7 +2286,10 @@ function withCurrentApproval<T extends HostBridgeCapabilityManifestEntry>(
 
 export function listHostBridgeCapabilities(): HostBridgeCapabilityManifestEntry[] {
   return CAPABILITIES.filter(
-    (entry) => entry.category !== "debug" || isDebugModeEnabled(),
+    (entry) =>
+      (entry.category !== "debug" || isDebugModeEnabled()) &&
+      (entry.name !== "debug.skillrunner.connections.snapshot" ||
+        isSkillRunnerConnectionAuditAvailable()),
   ).map(({ handler: _handler, ...entry }) => ({
     ...withCurrentApproval(entry),
   }));
@@ -1658,6 +2303,12 @@ export function getHostBridgeCapability(
     return null;
   }
   if (capability.category === "debug" && !isDebugModeEnabled()) {
+    return null;
+  }
+  if (
+    capability.name === "debug.skillrunner.connections.snapshot" &&
+    !isSkillRunnerConnectionAuditAvailable()
+  ) {
     return null;
   }
   return withCurrentApproval(capability);

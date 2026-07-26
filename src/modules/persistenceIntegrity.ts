@@ -11,11 +11,16 @@ import {
   validateManagedAbsolutePath,
   validateManagedRelativePath,
 } from "./runtimePersistence";
-import { listWorkflowProducts } from "./workflowProductStore";
+import {
+  deriveWorkflowProductAssetLocalPath,
+  getWorkflowProductMigrationStatus,
+  listWorkflowProducts,
+} from "./workflowProductStore";
 
 export type PersistenceIntegrityIssueType =
   | "missing_file_for_db_row"
   | "orphan_file_without_db_row"
+  | "workflow_product_migration_incomplete"
   | "expired_runtime_asset"
   | "forbidden_durable_asset_in_runtime"
   | "legacy_synthesis_root_present"
@@ -247,10 +252,13 @@ export async function scanPersistenceIntegrity(args?: {
 
   for (const product of listWorkflowProducts()) {
     for (const asset of product.assets || []) {
-      const localPath = cleanString(asset.localPath);
-      if (!localPath) {
+      if (asset.availability !== "available") {
         continue;
       }
+      const localPath = await deriveWorkflowProductAssetLocalPath(
+        product,
+        asset,
+      );
       referencedFiles.add(normalizePath(localPath));
       if (!(await runtimePathExists(localPath))) {
         issues.push({
@@ -266,6 +274,21 @@ export async function scanPersistenceIntegrity(args?: {
         });
       }
     }
+  }
+  const productMigration = getWorkflowProductMigrationStatus();
+  if (productMigration.state === "failed") {
+    issues.push({
+      id: issueId(
+        "workflow_product_migration_incomplete",
+        productMigration.failedProductIds.join("\n"),
+        "workflow-products",
+      ),
+      type: "workflow_product_migration_incomplete",
+      severity: "error",
+      owner: "workflow-products",
+      eligibleForCleanup: false,
+      reason: "workflow Product storage migration is incomplete and retryable",
+    });
   }
   reportProgress("integrity:workflow-products-db", "Workflow product records");
 

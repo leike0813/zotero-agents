@@ -225,7 +225,9 @@ the active Assistant workspace SkillRunner tab and host.
 
 ### Requirement: SkillRunner sidebar refreshes use Assistant Workspace publish governance
 
-SkillRunner sidebar snapshots SHALL use the global `live`, `boundary`, or `silent` Assistant Workspace policy. Canonical run state, foreground SSE, pending/auth refresh, interaction, permission, terminal handling, and semantic message counting SHALL remain active in every mode.
+SkillRunner sidebar snapshots SHALL use the global `live`, `boundary`, or `silent` Assistant Workspace policy. Canonical run state, foreground SSE, HTTP history catch-up, pending/auth refresh, interaction, permission, terminal handling, and semantic message counting SHALL remain active in every mode.
+
+SkillRunner SHALL keep canonical backend history separate from its UI-visible publication mirror. When a selected run starts with local pre-request notices and later receives backend history, the next eligible snapshot SHALL publish that history with a new transcript revision. A critical refresh SHALL NOT leave the live-mode mirror pinned to local notices. HTTP history and SSE entries SHALL use the same normalized semantic-boundary classifier.
 
 SkillRunner SHALL normalize Assistant replacement identity and Thought/Tool process identity before counting. Assistant final promotion SHALL not double-count an intermediate message. Each reasoning segment and new tool/command call SHALL count once, while updates for the same stable identity SHALL not increment. Silent process entries SHALL remain absent from the visible transcript while their counts advance.
 
@@ -235,6 +237,21 @@ SkillRunner SHALL normalize Assistant replacement identity and Thought/Tool proc
 - **WHEN** SkillRunner receives assistant or process text
 - **THEN** the visible transcript advances without waiting for metadata cadence
 - **AND** semantic category counts advance.
+
+#### Scenario: critical history catch-up replaces local-only mirror
+
+- **GIVEN** mode is `live`
+- **AND** a selected SkillRunner run has published only local pre-request notices
+- **WHEN** a critical refresh catches up backend history for the same owner
+- **THEN** the first snapshot reflecting the new semantic counts SHALL include the eligible backend messages
+- **AND** its transcript revision SHALL be newer than the local-only snapshot.
+
+#### Scenario: boundary history uses SSE semantic classification
+
+- **GIVEN** mode is `boundary`
+- **AND** a selected SkillRunner run has unpublished backend history
+- **WHEN** a history batch contains an entry classified as a semantic boundary by the SSE boundary rule
+- **THEN** the accumulated eligible history SHALL publish once with a new transcript revision.
 
 #### Scenario: boundary behavior remains unchanged
 
@@ -263,3 +280,112 @@ SkillRunner SHALL normalize Assistant replacement identity and Thought/Tool proc
 - **THEN** its last current and cumulative category values are restored
 - **AND** foreground observation and critical-state behavior remain unchanged.
 
+### Requirement: SkillRunner waiting-user replies are canonical and interaction-id-bound
+
+The SkillRunner host runtime SHALL route Assistant waiting-user actions through the current selected run and preserve the backend-native numeric interaction id required by the SkillRunner API. The Assistant DTO and child action SHALL NOT expose a duplicate interaction token.
+
+#### Scenario: Current quick reply is submitted
+
+- **WHEN** the user submits text or a typed option for the selected waiting run
+- **THEN** the host SHALL read the current pending `interactionId`
+- **AND** submit that id and the canonical response to the backend.
+
+#### Scenario: File interaction changes during selection
+
+- **WHEN** the native picker completes after the current pending interaction id or waiting state changed
+- **THEN** the host SHALL not upload the selected files
+- **AND** the Assistant child SHALL not need to echo an interaction token.
+
+### Requirement: SkillRunner file replies are capability-gated
+
+The plugin SHALL treat file reply as unsupported unless handshake capability `skillrunner.interaction-files.v1` is present. It SHALL retain a text composer and show a localized unsupported state when disabled. When enabled, it SHALL enforce the lower of plugin and advertised limits and submit multipart metadata and repeated file parts through the management client.
+
+#### Scenario: Existing backend requests files
+
+- **WHEN** the handshake omits the file-reply capability
+- **THEN** the Assistant SHALL display the requested slots and unsupported status
+- **AND** SHALL NOT issue a multipart request
+
+#### Scenario: Capable backend accepts files
+
+- **WHEN** the capability is present and selected files fit effective limits
+- **THEN** the client SHALL POST to `/v1/jobs/{requestId}/interaction/reply/files`
+- **AND** metadata SHALL bind interaction id, idempotency key, slots, and file indexes
+- **AND** the multipart body SHALL carry repeated `files` parts
+
+### Requirement: Run-workspace snapshot boundary is verified behaviorally
+
+The SkillRunner run-workspace snapshot contract SHALL be verified by tests
+that capture a production `RunWorkspaceSnapshot` through the real host
+assembly (`attachSkillRunnerSidebarHost` with an injected `publishSnapshot`)
+and consume it through the real receiver projection
+(`projectSkillRunnerPanelSnapshot`), rather than by matching source-file
+text. Receiver field consumption SHALL be recorded with a recursive Proxy:
+consuming a field the producer never sends SHALL fail; every curated critical
+field SHALL be consumed; produced-but-unconsumed fields SHALL be reported
+without failing.
+
+#### Scenario: Phantom receiver read
+
+- **WHEN** the receiver projection reads a snapshot field path that the
+  production snapshot never provides
+- **THEN** the contract test SHALL fail naming the missing path.
+
+#### Scenario: Lifecycle snapshot semantics
+
+- **WHEN** waiting-user, terminal, pending-interaction, and pending-auth runs
+  are seeded
+- **THEN** the production snapshot SHALL expose the matching status
+  semantics, reply/cancel capabilities, pending interaction pass-through, and
+  auth pass-through, and the receiver projection SHALL render them without
+  throwing.
+
+#### Scenario: Dialog scaffold linkage
+
+- **WHEN** the run dialog HTML changes
+- **THEN** every mount point the renderer or dialog script looks up SHALL
+  exist in the document, and shared assistant panel assets SHALL remain
+  referenced.
+
+### Requirement: Run-workspace snapshots are schema-versioned and validated
+
+Every run-workspace snapshot SHALL carry
+`schema: "zotero-agents.skillrunner-workspace-snapshot.v1"` from the single
+production builder. The receiver SHALL validate each inbound snapshot through
+the shared `validate` implementation in
+`src/shared/skillRunnerSnapshotContract.ts` before rendering and SHALL drop
+and trace invalid payloads. Validation SHALL cover schema equality, required
+structural keys (including the own `session` key), per-level known-key
+whitelists rejecting unknown fields, and L2 type spot checks; decorated
+fields (hostMode, badges, sidebar, renderHints) SHALL remain optional.
+
+#### Scenario: Snapshot without an own session key arrives
+
+- **WHEN** an inbound snapshot lacks the own `session` key
+- **THEN** the receiver SHALL drop and trace it
+- **AND** the panel model's envelope-as-session sniffing fallback SHALL NOT
+  be reached.
+
+#### Scenario: Producer emits a malformed snapshot in a debug build
+
+- **WHEN** the debug-gated producer self-check is enabled and the built
+  snapshot violates the v1 contract
+- **THEN** the host SHALL throw before delivery.
+
+#### Scenario: Both sides validate identically
+
+- **WHEN** the TS assert and the receiver gate evaluate the same payload
+- **THEN** they SHALL accept or reject identically, because both call the
+  same shared validate implementation.
+
+### Requirement: Temporary SkillRunner host detach MUST preserve transcript publication continuity
+The SkillRunner host runtime MUST distinguish temporary host detachment from complete runtime teardown. Temporary detachment MUST preserve the owner transcript revision and published transcript cache, while complete runtime teardown MUST clear them.
+
+#### Scenario: Same owner reattaches after backend history advances
+- **WHEN** a selected SkillRunner owner publishes revision N, its host temporarily detaches, backend history advances, and the same runtime reattaches to the retained consumer
+- **THEN** the reattached publication revision is not lower than N
+- **AND** the first eligible transcript update advances the revision and displays the new history without another owner switch.
+
+#### Scenario: Runtime is completely destroyed
+- **WHEN** plugin shutdown, test reset, or standalone dialog destruction performs complete runtime teardown
+- **THEN** the runtime clears its transcript publication clock and published transcript cache.

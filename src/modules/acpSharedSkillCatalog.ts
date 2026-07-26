@@ -4,6 +4,7 @@ import type {
 } from "./pluginSkillRegistry";
 import {
   copyRuntimeDirectory,
+  copyRuntimeTree,
   getRuntimePersistencePaths,
   readRuntimeTextFile,
   runtimePathExists,
@@ -75,7 +76,7 @@ async function readJsonFile(path: string) {
   }
 }
 
-export async function buildAcpSharedSkillCatalog(args: {
+async function buildAcpSharedSkillCatalogImpl(args: {
   registry: PluginSkillRegistrySnapshot;
   catalogRootDir?: string;
 }): Promise<AcpSharedSkillCatalog> {
@@ -97,19 +98,29 @@ export async function buildAcpSharedSkillCatalog(args: {
   const entries: AcpSharedSkillCatalogEntry[] = [];
   for (const entry of effectiveEntries) {
     const catalogSkillRoot = joinPath(skillsRoot, entry.skillId);
+    let catalogTree;
     if (!canReuse || !(await runtimePathExists(catalogSkillRoot))) {
-      await copyRuntimeDirectory({
-        sourceDir: entry.sourceDir,
-        targetDir: catalogSkillRoot,
-      });
+      catalogTree = entry.runtimeTreeManifest
+        ? await copyRuntimeTree({
+            manifest: entry.runtimeTreeManifest,
+            targetDir: catalogSkillRoot,
+          })
+        : await copyRuntimeDirectory({
+            sourceDir: entry.sourceDir,
+            targetDir: catalogSkillRoot,
+          });
     }
     const catalogEntry: PluginSkillRegistryEntry = {
       ...entry,
       sourceDir: catalogSkillRoot,
       skillMdPath: joinPath(catalogSkillRoot, "SKILL.md"),
       runnerJsonPath: joinPath(catalogSkillRoot, "assets", "runner.json"),
+      ...(catalogTree ? { runtimeTreeManifest: catalogTree } : {}),
     };
-    const resourceManifest = await buildAcpSkillResourceManifest(catalogEntry);
+    const resourceManifest = await buildAcpSkillResourceManifest(
+      catalogEntry,
+      catalogTree,
+    );
     entries.push({
       skillId: entry.skillId,
       skillName: entry.skillName,
@@ -157,4 +168,29 @@ export async function buildAcpSharedSkillCatalog(args: {
     ),
     diagnostics,
   };
+}
+
+const catalogBuildInflight = new Map<string, Promise<AcpSharedSkillCatalog>>();
+
+export function buildAcpSharedSkillCatalog(args: {
+  registry: PluginSkillRegistrySnapshot;
+  catalogRootDir?: string;
+}): Promise<AcpSharedSkillCatalog> {
+  const key = JSON.stringify({
+    catalogRootDir: normalizeString(args.catalogRootDir),
+    entries: args.registry.entries.map((entry) => [
+      entry.skillId,
+      entry.sourceKind,
+      entry.checksum,
+    ]),
+  });
+  const existing = catalogBuildInflight.get(key);
+  if (existing) return existing;
+  const promise = buildAcpSharedSkillCatalogImpl(args).finally(() => {
+    if (catalogBuildInflight.get(key) === promise) {
+      catalogBuildInflight.delete(key);
+    }
+  });
+  catalogBuildInflight.set(key, promise);
+  return promise;
 }

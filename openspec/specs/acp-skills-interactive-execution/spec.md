@@ -38,6 +38,51 @@ The pending envelope `message` SHALL be projected into the canonical assistant t
 - **AND** `ui_hints` controls the hint widget prompt, hint, and quick reply options
 - **AND** workflow apply is not triggered.
 
+### Requirement: ACP Skills publishes structured waiting-user controls
+
+ACP Skills SHALL preserve validated `ui_hints` in its Assistant pending-interaction projection. A pending message SHALL appear in transcript only, while prompt, hint, options, and file declarations SHALL drive only the interaction region. Reply submission SHALL use the selected request's current waiting lifecycle without deriving an interaction token from output state.
+
+#### Scenario: Choice interaction is published
+
+- **WHEN** ACP output enters waiting-user with structured options
+- **THEN** the selected owner snapshot SHALL include a typed choice interaction without a synthetic token
+- **AND** choosing a current option SHALL deterministically convert its JSON value to continuation prompt text
+
+#### Scenario: Detached continuation asks for another reply
+
+- **GIVEN** an interrupted live run continues through its existing serialized prompt chain
+- **WHEN** that continuation publishes another waiting-user interaction
+- **THEN** the next reply SHALL reach the current controller without requiring a synthetic interaction identity
+- **AND** its visible response SHALL be appended to the user transcript once.
+
+### Requirement: ACP file replies use shallow managed workspace staging
+
+ACP Skills SHALL select declared files through host-native pickers and atomically stage them under `.acp-inputs/<short-request-key>-<submission-key>/<safe-file-name>`. The final directory SHALL contain no per-slot directories, original paths, or file bytes in its manifest.
+
+#### Scenario: Required file selection is cancelled
+
+- **WHEN** a required slot picker is cancelled
+- **THEN** the whole submission SHALL stop without continuation
+
+#### Scenario: Optional file selection is cancelled
+
+- **WHEN** an optional slot picker is cancelled
+- **THEN** that slot SHALL be skipped
+- **AND** the submission SHALL continue only if at least one file remains
+
+#### Scenario: Files are staged successfully
+
+- **WHEN** all accepted selections copy and the manifest is written
+- **THEN** the temporary sibling directory SHALL be atomically renamed to the final shallow directory
+- **AND** transcript SHALL show display filenames only
+- **AND** ACP prompt text SHALL use shallow workspace-relative paths only
+
+#### Scenario: Pending interaction changes during selection
+
+- **WHEN** the selected request is no longer waiting for a file interaction before picker completion
+- **THEN** the host SHALL not stage or submit those selections
+- **AND** one request SHALL have at most one in-flight native file-selection flow.
+
 ### Requirement: ACP Skill Result Envelope Is Runner-Generated
 
 ACP Skills SHALL write the runner-owned result JSON path only after final turn
@@ -62,7 +107,11 @@ marker SHALL be removed from the visible canonical message.
 Plain-text replies from the ACP Skills panel SHALL be sent as additional
 `session/prompt` requests on the existing ACP session. If the local controller
 is missing but the run has a recoverable `sessionId`, ACP Skills SHALL restore
-that remote session before sending the reply.
+that remote session before sending the reply. Initial execution, same-session
+reply, repair, and recovered execution SHALL use the persisted run-effective
+runtime selection. Lifecycle code SHALL NOT retain a second frozen selection
+after the run is created and SHALL NOT reapply model settings before an ordinary
+same-session reply.
 
 #### Scenario: Reply After Local Controller Loss
 
@@ -79,6 +128,56 @@ that remote session before sending the reply.
 - **THEN** the prompt SHALL identify the same run workspace and requested skill
 - **AND** it SHALL repeat the JSON-only final/pending branch contract
 - **AND** it SHALL forbid explanations and Markdown fences.
+
+#### Scenario: Accepted Reply Starts An Active Prompt Turn
+
+- **GIVEN** a non-terminal ACP Skill run is waiting for user input on a reusable
+  ACP session
+- **WHEN** the user's reply is accepted and the next `session/prompt` request is
+  about to start
+- **THEN** the main run status SHALL transition to `running`
+- **AND** `activePrompt` SHALL be `true`
+- **AND** stale pending-interaction and prompt-interruption state SHALL be cleared
+- **AND** the ACP Skills panel SHALL project the run as running rather than
+  waiting for user input.
+
+#### Scenario: Recovered Follow-Up Without Workflow Convergence Settles
+
+- **GIVEN** a recovered non-terminal run can reuse its ACP session but has no
+  workflow-output convergence context
+- **WHEN** a user reply starts a follow-up prompt
+- **THEN** the run SHALL be `running` while that prompt is active
+- **AND** a normally completed prompt SHALL settle the run back to `waiting_user`
+- **AND** a failed prompt SHALL settle the run to `failed_retriable` while keeping
+  the recovered session available for a later reply.
+
+#### Scenario: Direct reply preserves the session selection
+
+- **GIVEN** a run executed its first prompt with model B and is waiting for user input
+- **WHEN** the user sends a direct reply without editing runtime options
+- **THEN** the runner SHALL send the reply without an additional model setter
+- **AND** the next turn and composer SHALL remain on model B.
+
+#### Scenario: Explicit edit changes the next turn
+
+- **GIVEN** a waiting run uses model B
+- **WHEN** a successful explicit setter changes the run-effective model to C
+- **THEN** exactly that setter SHALL perform the remote change
+- **AND** the next prompt and composer SHALL use model C.
+
+#### Scenario: Recovery reapplies the persisted selection
+
+- **GIVEN** a recoverable run persists model B
+- **AND** the recovered session handshake reports model A
+- **WHEN** ACP Skills reconnects the existing session
+- **THEN** the shared lifecycle applicator SHALL apply model B before recovered execution
+- **AND** the run and composer SHALL continue to display model B.
+
+#### Scenario: Reasoning transport follows catalog provenance
+
+- **WHEN** a run-effective reasoning choice has `explicit` provenance
+- **THEN** the lifecycle applicator SHALL use the independent thought-level transport
+- **AND** when the choice has `model-derived` provenance it SHALL select only the corresponding raw model variant.
 
 ### Requirement: ACP Skill Apply Is Single-Shot
 
@@ -113,7 +212,7 @@ The main transcript SHALL show only canonical assistant messages. Invalid or rep
 
 ### Requirement: ACP Skills run archive marker
 
-ACP Skills SHALL support archiving terminal runs without deleting persisted run diagnostics, logs, workspace artifacts, result artifacts, or transcript records.
+ACP Skills SHALL support archiving terminal runs without deleting canonical business run history, request-scoped logs, workspace artifacts, result artifacts, transcript records, or debug audit artifacts already materialized before archive. Archiving SHALL NOT require adapter diagnostics to exist as canonical run events.
 
 Archived runs SHALL be hidden from the default ACP Skills Runs drawer and selected-run snapshot.
 
@@ -125,7 +224,7 @@ ACP Skills `Cancel Run` SHALL remain a non-terminal run lifecycle action and SHA
 - **When** the user activates the Archive item action for that run
 - **Then** the run record is marked with `archivedAt`
 - **And** the run no longer appears in default ACP Skills panel snapshots
-- **And** the run record and diagnostics remain persisted.
+- **And** canonical business history, transcript, result artifacts, request-scoped logs, and existing debug audit artifacts remain under their existing retention policy.
 
 ### Requirement: ACP Skills interruption is confirmed by prompt settlement
 
@@ -143,10 +242,12 @@ ACP Skills SHALL keep the current prompt active after sending `session/cancel` a
 - **AND** the interruption state MUST be `confirmed`
 - **AND** the adapter MUST remain available for continuation.
 
-#### Scenario: Skill turn returns a non-cancelled result
-- **WHEN** the original prompt returns a non-cancelled result after interruption was requested
-- **THEN** the run MUST set the interruption state to `unconfirmed`
-- **AND** it MUST process the real result through the existing convergence or failure path.
+#### Scenario: Skill turn settles after interruption
+- **WHEN** the original prompt settles after interruption was requested
+- **THEN** the run MUST move to `waiting_user`
+- **AND** the interruption state MUST be `confirmed`
+- **AND** the adapter MUST remain available for continuation
+- **AND** assistant text from the interrupted turn MUST NOT enter result-file fallback, output validation, output repair, or workflow apply.
 
 ### Requirement: ACP Skills interruption has a recovery-aware force-stop
 
@@ -178,4 +279,3 @@ ACP Skills SHALL record each interrupt transition once from the orchestrator and
 - **WHEN** a skill turn progresses through interruption request and completion
 - **THEN** the run MUST record `interrupt-requested` once
 - **AND** it MUST record exactly one of `interrupt-confirmed` or `interrupt-forced` when applicable.
-

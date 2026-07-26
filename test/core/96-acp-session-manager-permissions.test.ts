@@ -40,6 +40,7 @@ import {
   resetAcpSessionManagerForTests,
   resetPluginStateStoreForTests,
   renameAcpConversation,
+  resolveAcpChatWorkspacePublicationKinds,
   resolveAcpChatRuntimePaths,
   resolveAcpConversationPermission,
   sendAcpConversationPrompt,
@@ -53,7 +54,6 @@ import {
   setActiveAcpConversation,
   setAssistantStreamingRenderEnabled,
   setAssistantTranscriptPaginationVirtualizationEnabled,
-  shouldRefreshAcpChatSnapshotForChange,
   shutdownAcpSessionManager,
   startNewAcpConversation,
   subscribeAcpChatPanelSnapshots,
@@ -191,14 +191,36 @@ describe("acp session manager", function () {
 
   it("publishes ACP Chat auto-approval toggles to the UI snapshot immediately", async function () {
     await startNewAcpConversation();
+    const changes: AcpChatPanelSnapshotChange[] = [];
+    const unsubscribe = subscribeAcpChatPanelSnapshots((change) => {
+      changes.push(change);
+    });
 
     setAcpConversationAutoApprovePermissions({ enabled: true });
     assert.isTrue(getAcpConversationSnapshot().autoApproveAcpPermissions);
     assert.isTrue(getAcpConversationUiSnapshot().autoApproveAcpPermissions);
 
+    const permissionChange = changes.find((change) =>
+      change.kinds.includes("permission"),
+    );
+    assert.isOk(permissionChange);
+    assert.include(
+      resolveAcpChatWorkspacePublicationKinds(
+        {
+          activeTab: "acp-chat",
+          hasActiveTarget: true,
+          transcriptPaginationVirtualizationEnabled: true,
+          executionDisplayMode: "live",
+        },
+        permissionChange!,
+      ),
+      "owner-control",
+    );
+
     setAcpConversationAutoApprovePermissions({ enabled: false });
     assert.isFalse(getAcpConversationSnapshot().autoApproveAcpPermissions);
     assert.isFalse(getAcpConversationUiSnapshot().autoApproveAcpPermissions);
+    unsubscribe();
   });
 
   it("allows ACP Chat auto-approval to be enabled before the first local conversation is created", async function () {

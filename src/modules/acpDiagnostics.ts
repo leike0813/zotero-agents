@@ -1,7 +1,75 @@
 import type { AcpDiagnosticsEntry } from "./acpTypes";
 
+const DIAGNOSTIC_EVIDENCE_STRING_LIMIT = 4000;
+const DIAGNOSTIC_REDACTED = "<redacted>";
+
+export type AcpDiagnosticEvidenceRecord = {
+  id: string;
+  ts: string;
+  kind: string;
+  level: "info" | "warn" | "error";
+  message: string;
+  detail?: string;
+  stage?: string;
+  errorName?: string;
+  code?: string | number;
+};
+
 function normalizeString(value: unknown) {
   return String(value || "").trim();
+}
+
+function truncateDiagnosticEvidence(value: string) {
+  if (value.length <= DIAGNOSTIC_EVIDENCE_STRING_LIMIT) {
+    return value;
+  }
+  return `${value.slice(0, DIAGNOSTIC_EVIDENCE_STRING_LIMIT)}...<truncated>`;
+}
+
+function sanitizeDiagnosticEvidenceString(value: unknown) {
+  return truncateDiagnosticEvidence(
+    normalizeString(value)
+      .replace(
+        /Bearer\s+[A-Za-z0-9._~+/=-]+/gi,
+        `Bearer ${DIAGNOSTIC_REDACTED}`,
+      )
+      .replace(
+        /(authorization\s*[:=]\s*)([^\s,;]+)/gi,
+        `$1${DIAGNOSTIC_REDACTED}`,
+      )
+      .replace(/(token\s*[:=]\s*)([^\s,;]+)/gi, `$1${DIAGNOSTIC_REDACTED}`)
+      .replace(
+        /(api[-_]?key\s*[:=]\s*)([^\s,;]+)/gi,
+        `$1${DIAGNOSTIC_REDACTED}`,
+      )
+      .replace(/(password\s*[:=]\s*)([^\s,;]+)/gi, `$1${DIAGNOSTIC_REDACTED}`)
+      .replace(/(cookie\s*[:=]\s*)([^\n\r]+)/gi, `$1${DIAGNOSTIC_REDACTED}`),
+  );
+}
+
+export function projectAcpDiagnosticEvidence(
+  entry: AcpDiagnosticsEntry,
+): AcpDiagnosticEvidenceRecord {
+  const detail = sanitizeDiagnosticEvidenceString(entry.detail);
+  const stage = sanitizeDiagnosticEvidenceString(entry.stage);
+  const errorName = sanitizeDiagnosticEvidenceString(entry.errorName);
+  const code =
+    typeof entry.code === "number"
+      ? entry.code
+      : sanitizeDiagnosticEvidenceString(entry.code) || undefined;
+  return {
+    id: sanitizeDiagnosticEvidenceString(entry.id),
+    ts: sanitizeDiagnosticEvidenceString(entry.ts),
+    kind: sanitizeDiagnosticEvidenceString(entry.kind) || "diagnostic",
+    level:
+      entry.level === "warn" || entry.level === "error" ? entry.level : "info",
+    message:
+      sanitizeDiagnosticEvidenceString(entry.message) || "ACP diagnostic",
+    detail: detail || undefined,
+    stage: stage || undefined,
+    errorName: errorName || undefined,
+    code,
+  };
 }
 
 function safeJson(value: unknown) {

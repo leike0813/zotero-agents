@@ -162,10 +162,9 @@ export async function applyResult(context = {}) {
     product: productReceipt
       ? {
           productId: productReceipt.productId,
-          storageMode: productReceipt.storageMode,
-          assetCount: Array.isArray(productReceipt.assets)
-            ? productReceipt.assets.length
-            : 0,
+          assetCount: productReceipt.assetCount,
+          availableAssetCount: productReceipt.availableAssetCount,
+          missingAssetCount: productReceipt.missingAssetCount,
         }
       : null,
   };

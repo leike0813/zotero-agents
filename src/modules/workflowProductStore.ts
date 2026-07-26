@@ -1,7 +1,7 @@
-import { joinPath } from "../utils/path";
+import { joinPath, normalizeNativeLocalPath } from "../utils/path";
+import { isWindowsRuntime } from "../platform/runtimePlatform";
 import {
   assertManagedRelativePath,
-  copyRuntimeDirectory,
   copyRuntimeFile,
   getRuntimePersistencePaths,
   readRuntimeBytes,
@@ -12,11 +12,13 @@ import {
   writeRuntimeBytes,
   writeRuntimeTextFile,
 } from "./runtimePersistence";
-import { sha256Bytes } from "./hostBridgeFileRegistry";
+import { sha256Hex, sha256PrefixedHex } from "../utils/sha256";
 import {
   PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS,
   deletePluginTaskRowEntry,
+  getPluginMetaValue,
   listPluginTaskRowEntries,
+  setPluginMetaValue,
   upsertPluginTaskRowEntry,
 } from "./pluginStateStore";
 import type {
@@ -24,26 +26,19 @@ import type {
   WorkflowResultContext,
 } from "./workflowExecution/resultContext";
 
-export type WorkflowProductStorageMode =
-  | "persistent-cache"
-  | "local-workspace"
-  | "cached-bundle";
-
 export type WorkflowProductAsset = {
   assetId: string;
   label: string;
-  path: string;
   relativePath: string;
   contentType?: string;
-  sourceKind: "product-cache" | "local-path" | "bundle-entry" | "missing";
-  localPath?: string;
-  entryPath?: string;
+  availability: "available" | "missing";
   size?: number;
   sha256?: string;
   diagnostics?: string[];
 };
 
 export type WorkflowProductRecord = {
+  schemaVersion: 2;
   productId: string;
   productKey: string;
   kind: string;
@@ -55,14 +50,18 @@ export type WorkflowProductRecord = {
   runKey?: string;
   requestId: string;
   runId?: string;
-  storageMode: WorkflowProductStorageMode;
-  workspaceDir?: string;
-  cacheDir?: string;
-  resultJsonPath?: string;
+  storageRevision: string;
   assets: WorkflowProductAsset[];
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+};
+
+export type WorkflowProductRegistrationReceipt = {
+  productId: string;
+  assetCount: number;
+  availableAssetCount: number;
+  missingAssetCount: number;
 };
 
 export type WorkflowProductPreview = {
@@ -121,31 +120,45 @@ export type RegisterProductInput = {
 export type ProductStorageApi = {
   registerProduct: (
     input: RegisterProductInput,
-  ) => Promise<WorkflowProductRecord>;
-  cacheBundleAsset: (
-    input: ProductStorageAssetInput,
-  ) => Promise<WorkflowProductAsset>;
-  registerLocalAsset: (
-    input: ProductStorageAssetInput,
-  ) => Promise<WorkflowProductAsset>;
-  listProducts: () => WorkflowProductRecord[];
-  getProduct: (productId: string) => WorkflowProductRecord | null;
-  removeProduct: (productId: string) => boolean;
-  resolveProductAsset: (
-    productId: string,
-    assetId: string,
-  ) => WorkflowProductAsset | null;
-  readProductAssetPreview: (
-    productId: string,
-    assetId: string,
-    options?: { maxBytes?: number },
-  ) => Promise<WorkflowProductPreview>;
+  ) => Promise<WorkflowProductRegistrationReceipt>;
+};
+
+export type WorkflowProductMigrationStatus = {
+  state: "idle" | "running" | "ready" | "failed";
+  failedProductIds: string[];
+  errorCode?: string;
 };
 
 export const WORKFLOW_PRODUCT_KIND_SKILL_RUN_FEEDBACK = "skill_run_feedback";
 export const SKILL_RUN_FEEDBACK_ASSET_ID = "feedback";
 const STORE_SCOPE = "products";
+const RECORD_SCHEMA_VERSION = 2;
 const DEFAULT_PREVIEW_BYTES = 256 * 1024;
+const MIGRATION_META_KEY = "workflow_product_object_store_v2";
+const OBJECTS_DIR = "objects";
+const DIGEST_LENGTH = 32;
+const REVISION_LENGTH = 16;
+
+let migrationRoot = "";
+let migrationPromise: Promise<void> | null = null;
+let migrationStatus: WorkflowProductMigrationStatus = {
+  state: "idle",
+  failedProductIds: [],
+};
+const registrationTails = new Map<string, Promise<void>>();
+
+function productStorageError(code: string, message: string, cause?: unknown) {
+  return Object.assign(new Error(message), { code, cause });
+}
+
+function assertObjectPathBudget(path: string) {
+  if (isWindowsRuntime() && path.length > 240) {
+    throw productStorageError(
+      "workflow_product_storage_path_too_long",
+      "workflow Product storage root is too long for managed assets",
+    );
+  }
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -177,19 +190,6 @@ function safeId(value: unknown, fallback = "product") {
   return normalized || fallback;
 }
 
-function workflowProductCacheDir(productIdRaw: string) {
-  const productId = safeId(productIdRaw);
-  return joinPath(
-    getRuntimePersistencePaths().workflowProductsDir,
-    "assets",
-    safeSegment(productId),
-  );
-}
-
-function normalizedAbsolutePath(pathRaw: unknown) {
-  return cleanString(pathRaw).replace(/\\/g, "/").replace(/\/+$/g, "");
-}
-
 function extensionOf(path: string) {
   const base = path.replace(/\\/g, "/").split("/").pop() || "";
   const index = base.lastIndexOf(".");
@@ -197,11 +197,11 @@ function extensionOf(path: string) {
 }
 
 function inferPreviewKind(
-  path: string,
+  logicalPath: string,
   contentType?: string,
 ): WorkflowProductPreview["kind"] {
   const type = cleanString(contentType).toLowerCase();
-  const ext = extensionOf(path);
+  const ext = extensionOf(logicalPath);
   if (type.includes("markdown") || ext === "md" || ext === "markdown")
     return "markdown";
   if (type.includes("json") || ext === "json") return "json";
@@ -239,15 +239,13 @@ function languageForKind(kind: WorkflowProductPreview["kind"]) {
 }
 
 function languageForPath(
-  path: string,
+  logicalPath: string,
   kind: WorkflowProductPreview["kind"],
   contentType?: string,
 ) {
-  if (kind !== "text") {
-    return languageForKind(kind);
-  }
+  if (kind !== "text") return languageForKind(kind);
   const type = cleanString(contentType).toLowerCase();
-  const ext = extensionOf(path);
+  const ext = extensionOf(logicalPath);
   if (type.includes("html") || ext === "html" || ext === "htm") return "html";
   if (type.includes("xml") || ext === "xml") return "xml";
   if (type.includes("css") || ext === "css") return "css";
@@ -259,7 +257,7 @@ function languageForPath(
   if (type.includes("csv") || ext === "csv") return "csv";
   if (ext === "tsv") return "tsv";
   if (ext === "log") return "log";
-  return languageForKind(kind);
+  return "text";
 }
 
 function prettyJson(text: string) {
@@ -281,82 +279,90 @@ function cloneRecord(record: WorkflowProductRecord): WorkflowProductRecord {
   };
 }
 
-function parseProduct(payload: string): WorkflowProductRecord | null {
+function normalizeDiagnostics(value: unknown) {
+  return Array.isArray(value)
+    ? value.map(cleanString).filter(Boolean).slice(0, 20)
+    : undefined;
+}
+
+function normalizeV2Asset(
+  raw: unknown,
+  index = 0,
+): WorkflowProductAsset | null {
+  if (!isRecord(raw)) return null;
+  const assetId = safeId(raw.assetId || `asset-${index + 1}`, "");
+  let relativePath = "";
   try {
-    const parsed = JSON.parse(payload);
-    if (!isRecord(parsed)) {
+    relativePath = assertManagedRelativePath(raw.relativePath);
+  } catch {
+    return null;
+  }
+  const availability = cleanString(raw.availability);
+  if (!assetId || !["available", "missing"].includes(availability)) {
+    return null;
+  }
+  return {
+    assetId,
+    label: cleanString(raw.label) || assetId,
+    relativePath,
+    contentType: cleanString(raw.contentType) || undefined,
+    availability: availability as WorkflowProductAsset["availability"],
+    size: Number.isFinite(Number(raw.size))
+      ? Math.max(0, Number(raw.size))
+      : undefined,
+    sha256: cleanString(raw.sha256) || undefined,
+    diagnostics: normalizeDiagnostics(raw.diagnostics),
+  };
+}
+
+function parseV2Product(payload: string): WorkflowProductRecord | null {
+  try {
+    const raw = JSON.parse(payload);
+    if (!isRecord(raw) || Number(raw.schemaVersion) !== RECORD_SCHEMA_VERSION) {
       return null;
     }
-    return normalizeProductRecord(parsed);
+    const productId = safeId(raw.productId || raw.id, "");
+    const revision = cleanString(raw.storageRevision).toLowerCase();
+    const assets = Array.isArray(raw.assets)
+      ? raw.assets.map(normalizeV2Asset)
+      : [];
+    if (
+      !productId ||
+      !new RegExp(`^[a-f0-9]{${REVISION_LENGTH}}$`).test(revision) ||
+      assets.some((asset) => !asset)
+    ) {
+      return null;
+    }
+    const now = nowIso();
+    return {
+      schemaVersion: 2,
+      productId,
+      productKey: safeId(raw.productKey || productId),
+      kind: cleanString(raw.kind) || "workflow.product",
+      title: cleanString(raw.title) || productId,
+      workflowId: cleanString(raw.workflowId),
+      workflowLabel: cleanString(raw.workflowLabel),
+      backendId: cleanString(raw.backendId) || undefined,
+      backendType: cleanString(raw.backendType),
+      runKey: cleanString(raw.runKey) || undefined,
+      requestId: cleanString(raw.requestId),
+      runId: cleanString(raw.runId) || undefined,
+      storageRevision: revision,
+      assets: assets as WorkflowProductAsset[],
+      metadata: isRecord(raw.metadata) ? { ...raw.metadata } : {},
+      createdAt: cleanString(raw.createdAt) || now,
+      updatedAt: cleanString(raw.updatedAt) || now,
+    };
   } catch {
     return null;
   }
 }
 
-function normalizeAsset(raw: unknown, index = 0): WorkflowProductAsset {
-  const source = isRecord(raw) ? raw : {};
-  const assetId = safeId(source.assetId || source.id || `asset-${index + 1}`);
-  const path = safeSegment(source.path || source.relativePath || assetId);
-  return {
-    assetId,
-    label: cleanString(source.label) || assetId,
-    path,
-    relativePath: safeSegment(source.relativePath || path),
-    contentType: cleanString(source.contentType) || undefined,
-    sourceKind: [
-      "product-cache",
-      "local-path",
-      "bundle-entry",
-      "missing",
-    ].includes(cleanString(source.sourceKind))
-      ? (cleanString(source.sourceKind) as WorkflowProductAsset["sourceKind"])
-      : "missing",
-    localPath: cleanString(source.localPath) || undefined,
-    entryPath: cleanString(source.entryPath) || undefined,
-    size: Number.isFinite(Number(source.size))
-      ? Math.max(0, Number(source.size))
-      : undefined,
-    sha256: cleanString(source.sha256) || undefined,
-    diagnostics: Array.isArray(source.diagnostics)
-      ? source.diagnostics.map(cleanString).filter(Boolean)
-      : undefined,
-  };
-}
-
-function normalizeProductRecord(
-  raw: Record<string, unknown>,
-): WorkflowProductRecord {
-  const productId = safeId(raw.productId || raw.id);
-  const now = nowIso();
-  return {
-    productId,
-    productKey: safeId(raw.productKey || productId),
-    kind: cleanString(raw.kind) || "workflow.product",
-    title: cleanString(raw.title) || productId,
-    workflowId: cleanString(raw.workflowId),
-    workflowLabel: cleanString(raw.workflowLabel),
-    backendId: cleanString(raw.backendId) || undefined,
-    backendType: cleanString(raw.backendType),
-    runKey: cleanString(raw.runKey) || undefined,
-    requestId: cleanString(raw.requestId),
-    runId: cleanString(raw.runId) || undefined,
-    storageMode: [
-      "persistent-cache",
-      "cached-bundle",
-      "local-workspace",
-    ].includes(cleanString(raw.storageMode))
-      ? (cleanString(raw.storageMode) as WorkflowProductStorageMode)
-      : "local-workspace",
-    workspaceDir: cleanString(raw.workspaceDir) || undefined,
-    cacheDir: cleanString(raw.cacheDir) || undefined,
-    resultJsonPath: cleanString(raw.resultJsonPath) || undefined,
-    assets: Array.isArray(raw.assets)
-      ? raw.assets.map((asset, index) => normalizeAsset(asset, index))
-      : [],
-    metadata: isRecord(raw.metadata) ? { ...raw.metadata } : {},
-    createdAt: cleanString(raw.createdAt) || now,
-    updatedAt: cleanString(raw.updatedAt) || now,
-  };
+function productRows() {
+  return listPluginTaskRowEntries(
+    PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS,
+    STORE_SCOPE,
+  );
 }
 
 function persistProduct(record: WorkflowProductRecord) {
@@ -371,32 +377,192 @@ function persistProduct(record: WorkflowProductRecord) {
 }
 
 export function listWorkflowProducts() {
-  return listPluginTaskRowEntries(
-    PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS,
-    STORE_SCOPE,
-  )
-    .map((entry) => parseProduct(entry.payload))
+  if (migrationStatus.state === "failed") return [];
+  return productRows()
+    .map((entry) => parseV2Product(entry.payload))
     .filter((entry): entry is WorkflowProductRecord => Boolean(entry))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     .map(cloneRecord);
 }
 
+export function getWorkflowProduct(productIdRaw: string) {
+  const productId = safeId(productIdRaw, "");
+  if (!productId) return null;
+  return (
+    listWorkflowProducts().find((record) => record.productId === productId) ||
+    null
+  );
+}
+
+async function digestText(value: string) {
+  const digest = await sha256Hex(new TextEncoder().encode(value));
+  if (!digest) throw new Error("SHA-256 is unavailable in the current runtime");
+  return digest.slice(0, DIGEST_LENGTH);
+}
+
+async function productDigest(productId: string) {
+  return digestText(`product\0${productId}`);
+}
+
+async function assetDigest(
+  asset: Pick<WorkflowProductAsset, "assetId" | "relativePath">,
+) {
+  return digestText(`asset\0${asset.assetId}\0${asset.relativePath}`);
+}
+
+function objectsRoot() {
+  return joinPath(
+    getRuntimePersistencePaths().workflowProductsDir,
+    "assets",
+    OBJECTS_DIR,
+  );
+}
+
+async function productObjectRoot(productId: string) {
+  return joinPath(objectsRoot(), await productDigest(productId));
+}
+
+async function revisionRoot(productId: string, revision: string) {
+  return joinPath(await productObjectRoot(productId), revision);
+}
+
+async function assetObjectPath(
+  productId: string,
+  revision: string,
+  asset: Pick<WorkflowProductAsset, "assetId" | "relativePath">,
+) {
+  return joinPath(
+    await revisionRoot(productId, revision),
+    await assetDigest(asset),
+  );
+}
+
+export async function deriveWorkflowProductAssetLocalPath(
+  product: WorkflowProductRecord,
+  asset: Pick<WorkflowProductAsset, "assetId" | "relativePath">,
+) {
+  return assetObjectPath(product.productId, product.storageRevision, asset);
+}
+
+function randomHex(bytes: number) {
+  const output = new Uint8Array(bytes);
+  const cryptoRuntime = (globalThis as { crypto?: Crypto }).crypto;
+  if (typeof cryptoRuntime?.getRandomValues === "function") {
+    cryptoRuntime.getRandomValues(output);
+  } else {
+    for (let index = 0; index < output.length; index += 1) {
+      output[index] = Math.floor(Math.random() * 256);
+    }
+  }
+  return Array.from(output, (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
+  );
+}
+
+async function createStorageRevision(productId: string) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const revision = randomHex(REVISION_LENGTH / 2);
+    if (!(await runtimePathExists(await revisionRoot(productId, revision)))) {
+      return revision;
+    }
+  }
+  throw new Error("unable to allocate workflow product storage revision");
+}
+
+async function assertDigestOwnership(
+  productId: string,
+  assets: WorkflowProductAsset[],
+) {
+  const digest = await productDigest(productId);
+  for (const product of listWorkflowProducts()) {
+    if (
+      product.productId !== productId &&
+      (await productDigest(product.productId)) === digest
+    ) {
+      throw new Error("workflow product storage digest collision");
+    }
+  }
+  const identities = new Map<string, string>();
+  for (const asset of assets) {
+    const digestValue = await assetDigest(asset);
+    const identity = `${asset.assetId}\0${asset.relativePath}`;
+    const existing = identities.get(digestValue);
+    if (existing && existing !== identity) {
+      throw new Error("workflow product asset digest collision");
+    }
+    identities.set(digestValue, identity);
+  }
+}
+
+export async function resolveManagedWorkflowProductAsset(
+  productIdRaw: string,
+  assetIdRaw: string,
+): Promise<ResolvedWorkflowProductAsset | null> {
+  const product = getWorkflowProduct(productIdRaw);
+  if (!product) return null;
+  const asset = product.assets.find(
+    (entry) => entry.assetId === safeId(assetIdRaw, ""),
+  );
+  return resolveProductAssetRecord(product, asset);
+}
+
+export async function resolveManagedWorkflowProductAssetByRelativePath(
+  productIdRaw: string,
+  relativePathRaw: string,
+): Promise<ResolvedWorkflowProductAsset | null> {
+  const product = getWorkflowProduct(productIdRaw);
+  if (!product) return null;
+  let relativePath = "";
+  try {
+    relativePath = assertManagedRelativePath(relativePathRaw);
+  } catch {
+    return null;
+  }
+  const asset = product.assets.find(
+    (entry) => entry.relativePath === relativePath,
+  );
+  return resolveProductAssetRecord(product, asset);
+}
+
+async function resolveProductAssetRecord(
+  product: WorkflowProductRecord,
+  asset?: WorkflowProductAsset,
+): Promise<ResolvedWorkflowProductAsset | null> {
+  if (!asset || asset.availability !== "available") return null;
+  const localPath = await assetObjectPath(
+    product.productId,
+    product.storageRevision,
+    asset,
+  );
+  const stat = await statRuntimePath(localPath);
+  if (
+    !stat.exists ||
+    (typeof asset.size === "number" && stat.size !== asset.size)
+  ) {
+    return null;
+  }
+  return { product: cloneRecord(product), asset: { ...asset }, localPath };
+}
+
+export function removeWorkflowProduct(productIdRaw: string) {
+  const productId = safeId(productIdRaw, "");
+  if (!productId) return false;
+  return deletePluginTaskRowEntry(
+    PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS,
+    productId,
+  );
+}
+
 export function listSkillRunFeedbackProducts(skillIdRaw?: string) {
   const skillId = cleanString(skillIdRaw);
   return listWorkflowProducts().filter((product) => {
-    if (product.kind !== WORKFLOW_PRODUCT_KIND_SKILL_RUN_FEEDBACK) {
-      return false;
-    }
-    if (!skillId) {
-      return true;
-    }
-    return cleanString(product.metadata?.skillId) === skillId;
+    if (product.kind !== WORKFLOW_PRODUCT_KIND_SKILL_RUN_FEEDBACK) return false;
+    return !skillId || cleanString(product.metadata?.skillId) === skillId;
   });
 }
 
 function formatFeedbackAuditValue(value: unknown) {
-  const normalized = cleanString(value);
-  return normalized || "-";
+  return cleanString(value) || "-";
 }
 
 function buildFeedbackAuditHeader(product: WorkflowProductRecord) {
@@ -437,7 +603,6 @@ export async function buildSkillRunFeedbackExportMarkdown(
           maxBytes: 1024 * 1024,
         })
       : null;
-    const body = preview?.previewable ? preview.text : "";
     sections.push(
       [
         `## ${product.title || product.productId}`,
@@ -446,7 +611,7 @@ export async function buildSkillRunFeedbackExportMarkdown(
         buildFeedbackAuditHeader(product),
         "```",
         "",
-        body || "_Feedback body unavailable._",
+        preview?.previewable ? preview.text : "_Feedback body unavailable._",
       ].join("\n"),
     );
   }
@@ -468,88 +633,71 @@ export async function exportSkillRunFeedbackMarkdownFile(
   productIdsRaw: string[],
 ) {
   const text = await buildSkillRunFeedbackExportMarkdown(productIdsRaw);
-  const exportDir = joinPath(
-    getRuntimePersistencePaths().runtimeRoot,
-    "workflow-products",
-    "exports",
-  );
   const filePath = joinPath(
-    exportDir,
+    getRuntimePersistencePaths().workflowProductsDir,
+    "exports",
     `skill-run-feedback-${timestampForFilename()}.md`,
   );
   await writeRuntimeTextFile(filePath, text);
-  return {
-    filePath,
-    text,
-  };
+  return { filePath, text };
 }
 
-export function getWorkflowProduct(productIdRaw: string) {
-  const productId = safeId(productIdRaw, "");
-  if (!productId) {
-    return null;
+export async function exportWorkflowProductToDirectory(args: {
+  productId: string;
+  outputDir: string;
+  assetId?: string;
+  overwrite?: boolean;
+}) {
+  const product = getWorkflowProduct(args.productId);
+  if (!product) throw new Error("workflow product was not found");
+  const selected = args.assetId
+    ? product.assets.filter(
+        (asset) => asset.assetId === safeId(args.assetId, ""),
+      )
+    : product.assets.filter((asset) => asset.availability === "available");
+  if (!selected.length) throw new Error("workflow product asset was not found");
+  const resolved: ResolvedWorkflowProductAsset[] = [];
+  for (const asset of selected) {
+    const entry = await resolveManagedWorkflowProductAsset(
+      product.productId,
+      asset.assetId,
+    );
+    if (!entry) throw new Error("workflow product asset was not found");
+    const targetPath = joinPath(
+      args.outputDir,
+      assertManagedRelativePath(asset.relativePath),
+    );
+    if (isWindowsRuntime() && targetPath.length > 240) {
+      throw productStorageError(
+        "workflow_product_export_path_too_long",
+        "workflow Product export path is too long; use ZIP or a shorter directory",
+      );
+    }
+    if ((await runtimePathExists(targetPath)) && args.overwrite !== true) {
+      throw new Error("workflow product export output already exists");
+    }
+    resolved.push(entry);
   }
-  return (
-    listWorkflowProducts().find((record) => record.productId === productId) ||
-    null
-  );
-}
-
-export function removeWorkflowProduct(productIdRaw: string) {
-  const productId = safeId(productIdRaw, "");
-  if (!productId) {
-    return false;
+  const files: Array<{ assetId: string; relativePath: string; size?: number }> =
+    [];
+  for (const entry of resolved) {
+    const targetPath = joinPath(args.outputDir, entry.asset.relativePath);
+    try {
+      await copyRuntimeFile({ sourcePath: entry.localPath, targetPath });
+    } catch (error) {
+      throw productStorageError(
+        "workflow_product_export_failed",
+        "unable to export workflow Product asset",
+        error,
+      );
+    }
+    files.push({
+      assetId: entry.asset.assetId,
+      relativePath: entry.asset.relativePath,
+      size: entry.asset.size,
+    });
   }
-  return deletePluginTaskRowEntry(
-    PLUGIN_TASK_DOMAIN_WORKFLOW_PRODUCTS,
-    productId,
-  );
-}
-
-/**
- * Resolve an asset only when its persisted path is still inside the owning
- * product's managed cache and is available. Host-facing callers must use this
- * instead of trusting the persisted localPath field directly.
- */
-export async function resolveManagedWorkflowProductAsset(
-  productIdRaw: string,
-  assetIdRaw: string,
-): Promise<ResolvedWorkflowProductAsset | null> {
-  const product = getWorkflowProduct(productIdRaw);
-  if (!product) {
-    return null;
-  }
-  const asset = product.assets.find(
-    (entry) => entry.assetId === safeId(assetIdRaw, ""),
-  );
-  if (!asset || asset.sourceKind !== "product-cache") {
-    return null;
-  }
-  let relativePath: string;
-  try {
-    relativePath = assertManagedRelativePath(asset.relativePath);
-  } catch {
-    return null;
-  }
-  const cacheDir = workflowProductCacheDir(product.productId);
-  const localPath = joinPath(cacheDir, relativePath);
-  if (
-    normalizedAbsolutePath(product.cacheDir) !==
-      normalizedAbsolutePath(cacheDir) ||
-    normalizedAbsolutePath(asset.localPath) !==
-      normalizedAbsolutePath(localPath) ||
-    !(await runtimePathExists(localPath))
-  ) {
-    return null;
-  }
-  return {
-    product: cloneRecord(product),
-    asset: {
-      ...asset,
-      diagnostics: asset.diagnostics ? [...asset.diagnostics] : undefined,
-    },
-    localPath,
-  };
+  return { product: cloneRecord(product), outputDir: args.outputDir, files };
 }
 
 function resolveRequestId(source: unknown) {
@@ -594,12 +742,30 @@ function resolveBackendId(source: unknown) {
   );
 }
 
-async function statAsset(path?: string) {
-  if (!path) {
-    return undefined;
+type ResolvedAssetInput = Partial<WorkflowResolvedArtifact> & {
+  bytes?: Uint8Array;
+  entryPath: string;
+  sourcePath?: string;
+};
+
+async function withProductRegistration<T>(
+  productId: string,
+  operation: () => Promise<T>,
+) {
+  const previous = registrationTails.get(productId) || Promise.resolve();
+  let release!: () => void;
+  const tail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  registrationTails.set(productId, tail);
+  await previous.catch(() => undefined);
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (registrationTails.get(productId) === tail)
+      registrationTails.delete(productId);
   }
-  const stat = await statRuntimePath(path);
-  return stat.exists ? stat.size : undefined;
 }
 
 export function createProductStorageApi(args: {
@@ -618,15 +784,6 @@ export function createProductStorageApi(args: {
   const workflowLabel = cleanString(args.manifest?.label) || workflowId;
   const backendId = resolveBackendId(args.runResult);
   const backendType = resolveBackendType(args.runResult);
-  const workspaceDir = cleanString(args.resultContext?.workspaceDir);
-  const resultJsonPath = cleanString(args.resultContext?.resultJsonPath);
-
-  const productBase = (productKeyRaw?: string) => {
-    const productKey = safeId(productKeyRaw || "default");
-    const productId = safeId(`${requestId}:${productKey}`);
-    const cacheDir = workflowProductCacheDir(productId);
-    return { productId, productKey, cacheDir };
-  };
 
   const normalizeSource = (input: ProductStorageAssetInput) =>
     input.source || {
@@ -635,10 +792,11 @@ export function createProductStorageApi(args: {
       fallbackPath: input.fallbackPath,
     };
 
-  const resolveInput = async (input: ProductStorageAssetInput) => {
-    if (!args.resultContext) {
+  const resolveInput = async (
+    input: ProductStorageAssetInput,
+  ): Promise<ResolvedAssetInput> => {
+    if (!args.resultContext)
       throw new Error("workflow resultContext is unavailable");
-    }
     const source = normalizeSource(input);
     if (source.kind === "inline-text") {
       return {
@@ -647,13 +805,12 @@ export function createProductStorageApi(args: {
       };
     }
     if (source.kind === "local-file") {
-      if (!(await runtimePathExists(source.path))) {
+      const sourcePath = normalizeNativeLocalPath(source.path);
+      if (!sourcePath) throw new Error("local product asset path is invalid");
+      if (!(await runtimePathExists(sourcePath))) {
         throw new Error(`local product asset does not exist: ${source.path}`);
       }
-      return {
-        entryPath: source.path,
-        sourcePath: source.path,
-      };
+      return { entryPath: sourcePath, sourcePath };
     }
     return args.resultContext.resolveArtifactBytes({
       fieldName: input.assetId || input.label || "product asset",
@@ -662,198 +819,154 @@ export function createProductStorageApi(args: {
     });
   };
 
-  type ResolvedAssetInput = Partial<WorkflowResolvedArtifact> & {
-    bytes?: Uint8Array;
-    entryPath: string;
-    sourcePath?: string;
-  };
-
-  type ProductAssetTarget = {
-    assetId: string;
-    label: string;
-    relativePath: string;
-    targetPath: string;
-  };
-
-  const resolveAssetTarget = (
-    input: ProductStorageAssetInput,
-    resolved: ResolvedAssetInput | null,
-    targetDir: string,
-  ): ProductAssetTarget => {
-    const assetId = safeId(
-      input.assetId || input.label || input.productAssetPath,
-    );
-    const explicitPath = cleanString(input.productAssetPath);
-    const inferredPath = safeSegment(
-      input.fallbackPath || resolved?.entryPath || assetId,
-      assetId,
-    );
-    const relativePath = assertManagedRelativePath(
-      explicitPath || inferredPath,
-    );
-    return {
-      assetId,
-      label: cleanString(input.label) || assetId,
-      relativePath,
-      targetPath: joinPath(targetDir, relativePath),
-    };
-  };
-
-  const missingAsset = (
-    input: ProductStorageAssetInput,
-    target: ProductAssetTarget,
-    error: unknown,
-  ): WorkflowProductAsset => ({
-    assetId: target.assetId,
-    label: target.label,
-    path: target.relativePath,
-    relativePath: target.relativePath,
-    contentType: cleanString(input.contentType) || undefined,
-    sourceKind: "missing",
-    diagnostics: [error instanceof Error ? error.message : String(error)],
-  });
-
-  const makeAsset = async (
-    input: ProductStorageAssetInput,
-    resolved: ResolvedAssetInput,
-    target: ProductAssetTarget,
-  ): Promise<WorkflowProductAsset> => {
-    if (resolved.sourcePath) {
-      await copyRuntimeFile({
-        sourcePath: resolved.sourcePath,
-        targetPath: target.targetPath,
-      });
-    } else if (resolved.bytes) {
-      await writeRuntimeBytes(target.targetPath, resolved.bytes, {
-        overwrite: true,
-      });
-    } else {
-      throw new Error(
-        `product asset has no readable content: ${resolved.entryPath}`,
-      );
-    }
-    const managedBytes = await readRuntimeBytes(target.targetPath);
-    return {
-      assetId: target.assetId,
-      label: target.label,
-      path: target.relativePath,
-      relativePath: target.relativePath,
-      contentType: cleanString(input.contentType) || undefined,
-      sourceKind: "product-cache",
-      localPath: target.targetPath,
-      entryPath: resolved.entryPath,
-      size: await statAsset(target.targetPath),
-      sha256: await sha256Bytes(managedBytes),
-    };
-  };
-
-  const cacheSingleAsset = async (input: ProductStorageAssetInput) => {
-    const { cacheDir } = productBase("adhoc");
-    const resolved = await resolveInput(input);
-    const target = resolveAssetTarget(input, resolved, cacheDir);
-    return makeAsset(input, resolved, target);
-  };
-
-  const api: ProductStorageApi = {
-    cacheBundleAsset: cacheSingleAsset,
-    registerLocalAsset: cacheSingleAsset,
+  return {
     async registerProduct(input) {
-      const { productId, productKey, cacheDir } = productBase(
-        input.productKey || input.kind,
-      );
-      const atomic = input.failurePolicy === "atomic";
-      const stagingDir = atomic
-        ? `${cacheDir}.staging-${Date.now()}`
-        : cacheDir;
-      if (atomic) {
-        await removeRuntimePath(stagingDir);
-      }
-      const existing = getWorkflowProduct(productId);
-      const createdAt = existing?.createdAt || nowIso();
-      const assets: WorkflowProductAsset[] = [];
-      const seenPaths = new Set<string>();
-      const claimTarget = (target: ProductAssetTarget) => {
-        if (seenPaths.has(target.relativePath)) {
-          throw new Error(
-            `duplicate product asset path: ${target.relativePath}`,
-          );
-        }
-        seenPaths.add(target.relativePath);
-      };
-      try {
-        for (const assetInput of input.assets || []) {
-          let resolved: ResolvedAssetInput;
-          try {
-            resolved = await resolveInput(assetInput);
-          } catch (error) {
-            if (atomic) throw error;
-            const target = resolveAssetTarget(assetInput, null, stagingDir);
-            claimTarget(target);
-            assets.push(missingAsset(assetInput, target, error));
-            continue;
+      await ensureWorkflowProductStorageReady();
+      const productKey = safeId(input.productKey || input.kind || "default");
+      const productId = safeId(`${requestId}:${productKey}`);
+      return withProductRegistration(productId, async () => {
+        const existing = getWorkflowProduct(productId);
+        const revision = await createStorageRevision(productId);
+        const revisionDir = await revisionRoot(productId, revision);
+        const atomic = input.failurePolicy === "atomic";
+        const assets: WorkflowProductAsset[] = [];
+        const seenPaths = new Set<string>();
+        try {
+          for (const assetInput of input.assets || []) {
+            const assetId = safeId(
+              assetInput.assetId ||
+                assetInput.label ||
+                assetInput.productAssetPath,
+            );
+            let resolved: ResolvedAssetInput | null = null;
+            let resolutionError: unknown;
+            try {
+              resolved = await resolveInput(assetInput);
+            } catch (error) {
+              resolutionError = error;
+              if (atomic) throw error;
+            }
+            const inferredPath = safeSegment(
+              assetInput.fallbackPath || resolved?.entryPath || assetId,
+              assetId,
+            );
+            const relativePath = assertManagedRelativePath(
+              cleanString(assetInput.productAssetPath) || inferredPath,
+            );
+            if (seenPaths.has(relativePath)) {
+              throw new Error(`duplicate product asset path: ${relativePath}`);
+            }
+            seenPaths.add(relativePath);
+            const baseAsset: WorkflowProductAsset = {
+              assetId,
+              label: cleanString(assetInput.label) || assetId,
+              relativePath,
+              contentType: cleanString(assetInput.contentType) || undefined,
+              availability: resolved ? "available" : "missing",
+            };
+            if (!resolved) {
+              baseAsset.diagnostics = [
+                resolutionError instanceof Error
+                  ? resolutionError.message
+                  : String(resolutionError),
+              ];
+              assets.push(baseAsset);
+              continue;
+            }
+            const targetPath = await assetObjectPath(
+              productId,
+              revision,
+              baseAsset,
+            );
+            try {
+              assertObjectPathBudget(targetPath);
+              if (resolved.sourcePath) {
+                await copyRuntimeFile({
+                  sourcePath: resolved.sourcePath,
+                  targetPath,
+                });
+              } else if (resolved.bytes) {
+                await writeRuntimeBytes(targetPath, resolved.bytes, {
+                  overwrite: false,
+                });
+              } else {
+                throw new Error(
+                  `product asset has no readable content: ${resolved.entryPath}`,
+                );
+              }
+              const bytes = await readRuntimeBytes(targetPath);
+              baseAsset.size = bytes.byteLength;
+              baseAsset.sha256 = await sha256PrefixedHex(bytes);
+              assets.push(baseAsset);
+            } catch (error) {
+              if (atomic) {
+                if (
+                  isRecord(error) &&
+                  cleanString(error.code) ===
+                    "workflow_product_storage_path_too_long"
+                ) {
+                  throw error;
+                }
+                throw productStorageError(
+                  "workflow_product_asset_materialization_failed",
+                  "unable to materialize workflow Product asset",
+                  error,
+                );
+              }
+              await removeRuntimePath(targetPath).catch(() => undefined);
+              assets.push({
+                ...baseAsset,
+                availability: "missing",
+                diagnostics: [
+                  error instanceof Error ? error.message : String(error),
+                ],
+              });
+            }
           }
-          const target = resolveAssetTarget(assetInput, resolved, stagingDir);
-          claimTarget(target);
-          try {
-            assets.push(await makeAsset(assetInput, resolved, target));
-          } catch (error) {
-            if (atomic) throw error;
-            assets.push(missingAsset(assetInput, target, error));
+          await assertDigestOwnership(productId, assets);
+          const record: WorkflowProductRecord = {
+            schemaVersion: 2,
+            productId,
+            productKey,
+            kind: cleanString(input.kind) || "workflow.product",
+            title: cleanString(input.title) || productId,
+            workflowId,
+            workflowLabel,
+            backendId: backendId || undefined,
+            backendType,
+            runKey,
+            requestId,
+            runId,
+            storageRevision: revision,
+            assets,
+            metadata: isRecord(input.metadata) ? { ...input.metadata } : {},
+            createdAt: existing?.createdAt || nowIso(),
+            updatedAt: nowIso(),
+          };
+          persistProduct(record);
+          if (existing?.storageRevision) {
+            const oldRevision = await revisionRoot(
+              productId,
+              existing.storageRevision,
+            );
+            await removeRuntimePath(oldRevision).catch(() => undefined);
           }
+          const availableAssetCount = assets.filter(
+            (asset) => asset.availability === "available",
+          ).length;
+          return {
+            productId,
+            assetCount: assets.length,
+            availableAssetCount,
+            missingAssetCount: assets.length - availableAssetCount,
+          };
+        } catch (error) {
+          await removeRuntimePath(revisionDir).catch(() => undefined);
+          throw error;
         }
-        if (atomic) {
-          await removeRuntimePath(cacheDir);
-          await copyRuntimeDirectory({
-            sourceDir: stagingDir,
-            targetDir: cacheDir,
-          });
-          await removeRuntimePath(stagingDir);
-          for (const asset of assets) {
-            asset.localPath = joinPath(cacheDir, asset.relativePath);
-          }
-        }
-        const record: WorkflowProductRecord = {
-          productId,
-          productKey,
-          kind: cleanString(input.kind) || "workflow.product",
-          title: cleanString(input.title) || productId,
-          workflowId,
-          workflowLabel,
-          backendId: backendId || undefined,
-          backendType,
-          runKey,
-          requestId,
-          runId,
-          storageMode: "persistent-cache",
-          workspaceDir: workspaceDir || undefined,
-          cacheDir,
-          resultJsonPath: resultJsonPath || undefined,
-          assets,
-          metadata: isRecord(input.metadata) ? { ...input.metadata } : {},
-          createdAt,
-          updatedAt: nowIso(),
-        };
-        persistProduct(record);
-        return cloneRecord(record);
-      } catch (error) {
-        if (atomic) await removeRuntimePath(stagingDir);
-        throw error;
-      }
+      });
     },
-    listProducts: listWorkflowProducts,
-    getProduct: getWorkflowProduct,
-    removeProduct: removeWorkflowProduct,
-    resolveProductAsset(productId, assetId) {
-      const product = getWorkflowProduct(productId);
-      if (!product) return null;
-      return (
-        product.assets.find((asset) => asset.assetId === safeId(assetId)) ||
-        null
-      );
-    },
-    readProductAssetPreview,
   };
-  return api;
 }
 
 export async function readProductAssetPreview(
@@ -877,73 +990,254 @@ export async function readProductAssetPreview(
     productIdRaw,
     assetId,
   );
-  if (!resolved) {
-    return { ...fallback, error: "product asset not found" };
-  }
-  const { product, asset, localPath: path } = resolved;
-  const stat = await statRuntimePath(path);
-  const kind = inferPreviewKind(path, asset.contentType);
+  if (!resolved) return { ...fallback, error: "product asset not found" };
+  const { product, asset, localPath } = resolved;
+  const stat = await statRuntimePath(localPath);
+  const kind = inferPreviewKind(asset.relativePath, asset.contentType);
   const maxBytes = Math.max(
     4096,
     Number(options?.maxBytes || DEFAULT_PREVIEW_BYTES) || DEFAULT_PREVIEW_BYTES,
   );
   if (kind === "binary") {
     return {
+      ...fallback,
       productId: product.productId,
       assetId: asset.assetId,
-      path: asset.path,
+      path: asset.relativePath,
       exists: true,
-      previewable: false,
-      truncated: false,
       kind,
-      language: "text",
-      text: "",
       size: stat.size,
       error: "binary or unsupported file type",
     };
   }
   if (stat.size > maxBytes) {
     return {
+      ...fallback,
       productId: product.productId,
       assetId: asset.assetId,
-      path: asset.path,
+      path: asset.relativePath,
       exists: true,
-      previewable: false,
       truncated: true,
       kind,
-      language: languageForPath(path, kind, asset.contentType),
-      text: "",
+      language: languageForPath(asset.relativePath, kind, asset.contentType),
       size: stat.size,
       error: `file is too large to preview (${stat.size} bytes)`,
     };
   }
-  const text = await readRuntimeTextFile(path);
+  const text = await readRuntimeTextFile(localPath);
   if (text.includes("\u0000")) {
     return {
+      ...fallback,
       productId: product.productId,
       assetId: asset.assetId,
-      path: asset.path,
+      path: asset.relativePath,
       exists: true,
-      previewable: false,
-      truncated: false,
       kind: "binary",
-      language: "text",
-      text: "",
       size: stat.size,
-      error: "file contains binary content",
+      error: "binary or unsupported file type",
     };
   }
   return {
     productId: product.productId,
     assetId: asset.assetId,
-    path: asset.path,
+    path: asset.relativePath,
     exists: true,
     previewable: true,
     truncated: false,
     kind,
-    language: languageForPath(path, kind, asset.contentType),
+    language: languageForPath(asset.relativePath, kind, asset.contentType),
     text,
-    formattedText: kind === "json" ? prettyJson(text) : text,
+    formattedText: kind === "json" ? prettyJson(text) : undefined,
     size: stat.size,
   };
+}
+
+function legacyCacheDir(productId: string) {
+  return joinPath(
+    getRuntimePersistencePaths().workflowProductsDir,
+    "assets",
+    safeSegment(productId),
+  );
+}
+
+async function migrateLegacyProduct(raw: Record<string, unknown>) {
+  const productId = safeId(raw.productId || raw.id, "");
+  if (!productId) throw new Error("legacy workflow product id is invalid");
+  const revision = await createStorageRevision(productId);
+  const revisionDir = await revisionRoot(productId, revision);
+  const oldRoot = legacyCacheDir(productId);
+  const oldCache = cleanString(raw.cacheDir)
+    .replace(/\\/g, "/")
+    .replace(/\/+$/g, "");
+  if (
+    oldCache &&
+    oldCache !== oldRoot.replace(/\\/g, "/").replace(/\/+$/g, "")
+  ) {
+    throw new Error("legacy workflow product ownership is invalid");
+  }
+  const assets: WorkflowProductAsset[] = [];
+  try {
+    for (const [index, rawAsset] of (Array.isArray(raw.assets)
+      ? raw.assets
+      : []
+    ).entries()) {
+      const source = isRecord(rawAsset) ? rawAsset : {};
+      const assetId = safeId(
+        source.assetId || source.id || `asset-${index + 1}`,
+      );
+      const relativePath = assertManagedRelativePath(
+        source.relativePath || source.path || assetId,
+      );
+      const base: WorkflowProductAsset = {
+        assetId,
+        label: cleanString(source.label) || assetId,
+        relativePath,
+        contentType: cleanString(source.contentType) || undefined,
+        availability: "missing",
+      };
+      if (cleanString(source.sourceKind) === "missing") {
+        base.diagnostics = normalizeDiagnostics(source.diagnostics) || [
+          "legacy asset was unavailable",
+        ];
+        assets.push(base);
+        continue;
+      }
+      const expectedSource = joinPath(oldRoot, relativePath);
+      const persistedSource = cleanString(source.localPath);
+      if (
+        persistedSource &&
+        persistedSource.replace(/\\/g, "/") !==
+          expectedSource.replace(/\\/g, "/")
+      ) {
+        throw new Error("legacy workflow product asset ownership is invalid");
+      }
+      if (!(await runtimePathExists(expectedSource))) {
+        base.diagnostics = ["legacy_asset_missing"];
+        assets.push(base);
+        continue;
+      }
+      const bytes = await readRuntimeBytes(expectedSource);
+      const actualHash = await sha256PrefixedHex(bytes);
+      const expectedHash = cleanString(source.sha256);
+      if (expectedHash && expectedHash !== actualHash) {
+        base.diagnostics = ["legacy_asset_integrity_mismatch"];
+        assets.push(base);
+        continue;
+      }
+      const target = await assetObjectPath(productId, revision, base);
+      assertObjectPathBudget(target);
+      await writeRuntimeBytes(target, bytes, { overwrite: false });
+      assets.push({
+        ...base,
+        availability: "available",
+        size: bytes.byteLength,
+        sha256: actualHash,
+        diagnostics: undefined,
+      });
+    }
+    await assertDigestOwnership(productId, assets);
+    const record: WorkflowProductRecord = {
+      schemaVersion: 2,
+      productId,
+      productKey: safeId(raw.productKey || productId),
+      kind: cleanString(raw.kind) || "workflow.product",
+      title: cleanString(raw.title) || productId,
+      workflowId: cleanString(raw.workflowId),
+      workflowLabel: cleanString(raw.workflowLabel),
+      backendId: cleanString(raw.backendId) || undefined,
+      backendType: cleanString(raw.backendType),
+      runKey: cleanString(raw.runKey) || undefined,
+      requestId: cleanString(raw.requestId),
+      runId: cleanString(raw.runId) || undefined,
+      storageRevision: revision,
+      assets,
+      metadata: isRecord(raw.metadata) ? { ...raw.metadata } : {},
+      createdAt: cleanString(raw.createdAt) || nowIso(),
+      updatedAt: cleanString(raw.updatedAt) || nowIso(),
+    };
+    persistProduct(record);
+    await removeRuntimePath(oldRoot).catch(() => undefined);
+  } catch (error) {
+    await removeRuntimePath(revisionDir).catch(() => undefined);
+    throw error;
+  }
+}
+
+export function getWorkflowProductMigrationStatus(): WorkflowProductMigrationStatus {
+  return {
+    ...migrationStatus,
+    failedProductIds: [...migrationStatus.failedProductIds],
+  };
+}
+
+export function assertWorkflowProductStorageReady() {
+  if (migrationStatus.state === "failed") {
+    throw productStorageError(
+      "workflow_product_store_migration_incomplete",
+      "workflow Product storage migration is incomplete",
+    );
+  }
+}
+
+export async function initializeWorkflowProductStorage() {
+  const root = getRuntimePersistencePaths().runtimeRoot;
+  if (migrationRoot !== root) {
+    migrationRoot = root;
+    migrationPromise = null;
+    migrationStatus = { state: "idle", failedProductIds: [] };
+  }
+  if (migrationPromise) return migrationPromise;
+  migrationPromise = (async () => {
+    migrationStatus = { state: "running", failedProductIds: [] };
+    const failed: string[] = [];
+    for (const row of productRows()) {
+      if (parseV2Product(row.payload)) continue;
+      try {
+        const raw = JSON.parse(row.payload);
+        if (!isRecord(raw))
+          throw new Error("legacy workflow product record is invalid");
+        await migrateLegacyProduct(raw);
+      } catch {
+        failed.push(row.taskId);
+      }
+    }
+    if (failed.length) {
+      migrationStatus = {
+        state: "failed",
+        failedProductIds: failed,
+        errorCode: "workflow_product_store_migration_incomplete",
+      };
+      setPluginMetaValue(
+        MIGRATION_META_KEY,
+        JSON.stringify({
+          state: "failed",
+          failedProductIds: failed,
+          updatedAt: nowIso(),
+        }),
+      );
+      throw Object.assign(
+        new Error("workflow product storage migration is incomplete"),
+        {
+          code: "workflow_product_store_migration_incomplete",
+        },
+      );
+    }
+    setPluginMetaValue(MIGRATION_META_KEY, "done");
+    migrationStatus = { state: "ready", failedProductIds: [] };
+  })().catch((error) => {
+    migrationPromise = null;
+    throw error;
+  });
+  return migrationPromise;
+}
+
+async function ensureWorkflowProductStorageReady() {
+  if (
+    migrationRoot === getRuntimePersistencePaths().runtimeRoot &&
+    migrationStatus.state === "ready" &&
+    getPluginMetaValue(MIGRATION_META_KEY) === "done"
+  ) {
+    return;
+  }
+  await initializeWorkflowProductStorage();
 }

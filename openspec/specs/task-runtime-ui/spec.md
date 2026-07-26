@@ -251,6 +251,21 @@ Dashboard browser rendering SHALL keep the top-level app shell stable and update
 
 Dashboard Products and Skill Feedback SHALL use the same stable product browsing model for filtering, selection, preview, and export controls.
 
+#### Scenario: Product selection preserves list position
+
+- **GIVEN** the user has scrolled the Products list or a skill-filtered Skill Feedback list
+- **WHEN** selecting a product, product file, or feedback record refreshes the Products surface
+- **THEN** Dashboard SHALL restore the matching list by a stable scroll owner key
+- **AND** SHALL NOT reset that list to the first row.
+
+#### Scenario: Product tree starts collapsed and restores owner state
+
+- **GIVEN** a product file tree is shown for the first time in the current Dashboard page lifecycle
+- **THEN** every folder SHALL start collapsed
+- **WHEN** the user expands folders, scrolls the tree, switches products, and returns
+- **THEN** Dashboard SHALL restore the expansion and scroll state owned by that product
+- **AND** a different product SHALL NOT inherit that state.
+
 #### Scenario: Skill Feedback remains selected during background activity
 
 - **GIVEN** the user selected one or more Skill Feedback records
@@ -653,3 +668,94 @@ workspace attention, and Dashboard history projections SHALL NOT treat
 - **THEN** the old row MAY be deleted
 - **AND** it SHALL NOT be used as fallback metadata for active or history
   projection.
+
+### Requirement: Disabled connection audit MUST add no governor runtime work
+
+SkillRunner task runtime MUST preserve connection scheduling behavior without connection-audit state or work whenever debug mode or the connection-audit source switch is disabled.
+
+#### Scenario: Audit collection is compiled out
+
+- **WHEN** a non-debug or source-disabled runtime bundle is built
+- **THEN** the audit Store and snapshot facade MUST contribute zero bytes to the main runtime output
+- **AND** governor hot paths MUST contain no audit event construction, record calls, bounded-ledger maintenance, or audit-summary work
+
+#### Scenario: Scheduling runs without audit collection
+
+- **WHEN** SkillRunner connections are queued, started, aborted, timed out, settled, or evicted while audit collection is disabled
+- **THEN** connection admission, lane ordering, timeout, abort, physical-debt, and settlement results MUST match enabled behavior
+- **AND** no audit state MUST be allocated on governor instances
+
+#### Scenario: Audit snapshot is observational
+
+- **WHEN** an enabled diagnostic caller reads the connection-audit snapshot
+- **THEN** snapshot construction MUST NOT mutate governor scheduling or physical-debt state
+
+### Requirement: Dashboard Products export logical Product trees
+
+Dashboard SHALL preview Product assets through the Product resolver and SHALL export a Product before opening it in the system file manager.
+
+#### Scenario: User exports a Product
+
+- **WHEN** the user chooses Export Product and selects a destination directory
+- **THEN** Dashboard SHALL reconstruct the Product beneath that directory using logical relative paths
+- **AND** open the destination only after export succeeds
+- **AND** SHALL never open the managed object directory as a Product tree.
+
+### Requirement: Dashboard queued entries SHALL be backend-tab-only
+
+Host-queued units MUST be visible only in the matching ACP Skills or SkillRunner
+backend tab. They MUST NOT appear on Dashboard Home, in Home task counts or
+summary cards, in active-task popovers, or in completed/history projections.
+
+#### Scenario: Dashboard Home is rendered with pending units
+
+- **WHEN** one or more Host-queued units exist
+- **THEN** Dashboard Home task lists, counts, and summary cards SHALL ignore them
+- **AND** Home SHALL continue to reflect only its existing provider-task sources
+
+#### Scenario: Active-task popover is opened
+
+- **WHEN** Host-queued units exist and the user opens the Dashboard active-task popover
+- **THEN** the popover SHALL not list or count those units
+
+#### Scenario: Matching backend tab is opened
+
+- **WHEN** the user opens the ACP Skills or SkillRunner backend tab that owns queued units
+- **THEN** the tab SHALL display those units alongside its provider-task projection with an explicit queued presentation
+- **AND** queued rows SHALL remain distinguishable from backend `queued` or `running` states
+
+### Requirement: Dashboard queued actions SHALL remain Host-local
+
+A Dashboard queued row MUST provide a Material icon-only pending-cancel action
+and MUST NOT provide open-details, archive, provider retry, or provider cancel
+actions. Successful cancellation MUST remove the row and contribute a skipped
+outcome to its originating workflow submission.
+
+#### Scenario: User clicks a queued row body
+
+- **WHEN** the user clicks a Host-queued Dashboard row outside its cancel action
+- **THEN** no task details, transcript, or foreground workspace SHALL open
+
+#### Scenario: User cancels a queued row
+
+- **WHEN** the Host confirms that the row is still pending
+- **THEN** the unit SHALL be removed from the backend-tab projection
+- **AND** no backend API SHALL be called
+- **AND** no completed or archived Dashboard row SHALL be created
+
+### Requirement: Dashboard queue refresh SHALL be subscription-driven and scoped
+
+Dashboard backend-tab queue projections MUST refresh from Host queue change
+subscriptions. A queue-only event MUST NOT force Dashboard Home or an unrelated
+backend tab to rebuild.
+
+#### Scenario: Visible backend queue changes
+
+- **WHEN** a queued unit changes for the currently visible backend tab
+- **THEN** that backend's queue projection SHALL refresh without polling
+
+#### Scenario: Hidden backend queue changes
+
+- **WHEN** a queued unit changes for a backend other than the currently visible tab
+- **THEN** Dashboard SHALL update the stored backend snapshot or dirty marker
+- **AND** it SHALL NOT rebuild the visible unrelated tab

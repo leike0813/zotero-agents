@@ -1,6 +1,9 @@
 {
+  "schemaVersion": 2,
   "id": "debug-apply-sequence-bundle",
   "label": "Debug: Apply Sequence Bundle",
+  "description": "Run the Debug: Apply Sequence Bundle diagnostic workflow to verify its named workflow-engine behavior.",
+  "executionModes": ["auto"],
   "version": "0.1.0",
   "provider": "skillrunner",
   "debug_only": true,
@@ -8,7 +11,18 @@
     "requiresSelection": false
   },
   "inputs": {
-    "unit": "workflow"
+    "member": {
+      "kind": "selection"
+    },
+    "grouping": {
+      "mode": "all"
+    }
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "selection"
+    },
+    "filters": []
   },
   "request": {
     "kind": "skillrunner.sequence.v1",

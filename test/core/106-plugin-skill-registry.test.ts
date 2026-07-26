@@ -242,7 +242,7 @@ describe("plugin skill registry", function () {
     assert.match(registry.entriesById["user-demo"].checksum, /^sha256:/);
   });
 
-  it("discovers the Host Bridge CLI wrapper as a valid official skill", async function () {
+  it("discovers the Zotero Bridge CLI access skill with task-oriented triggers", async function () {
     const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
     const entry = registry.entriesById["zotero-bridge-cli"];
 
@@ -252,8 +252,11 @@ describe("plugin skill registry", function () {
       entry.sourceDir.replace(/\\/g, "/"),
       "skills_builtin/zotero-bridge-cli",
     );
-    assert.include(entry.description, "ZoteroBridge CLI");
+    assert.include(entry.description, "Zotero Bridge CLI");
     assert.include(entry.description, "Zotero library");
+    assert.include(entry.description, "workflow");
+    assert.include(entry.description, "Synthesis");
+    assert.notInclude(entry.description, "Host Bridge");
     assert.match(entry.checksum, /^sha256:/);
   });
 
@@ -749,7 +752,7 @@ describe("plugin skill registry", function () {
     );
   });
 
-  it("copies skill directories through read/write fallback when native copy fails", async function () {
+  it("does not fall back to whole-file read/write when native copy fails", async function () {
     const sourceDir = path.join(tempRoot, "source-skill");
     const targetDir = path.join(tempRoot, "target-skill");
     await fs.mkdir(path.join(sourceDir, "assets", "nested"), {
@@ -761,37 +764,68 @@ describe("plugin skill registry", function () {
       JSON.stringify({ ok: true }),
       "utf8",
     );
+    await fs.mkdir(targetDir, { recursive: true });
+    await fs.writeFile(path.join(targetDir, "existing.txt"), "keep", "utf8");
 
     const runtime = globalThis as { IOUtils?: unknown };
     const previousIOUtils = runtime.IOUtils;
+    let readCalls = 0;
+    let writeCalls = 0;
     runtime.IOUtils = {
       copy: async () => {
         throw new Error("native copy unavailable");
       },
-      read: async (filePath: string) =>
-        new Uint8Array(await fs.readFile(filePath)),
-      write: async (filePath: string, bytes: Uint8Array) => {
-        await fs.mkdir(path.dirname(filePath), { recursive: true });
-        await fs.writeFile(filePath, Buffer.from(bytes));
+      read: async () => {
+        readCalls += 1;
+        return new Uint8Array();
+      },
+      write: async () => {
+        writeCalls += 1;
       },
     };
+    let message = "";
     try {
       await copyRuntimeDirectory({ sourceDir, targetDir });
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
     } finally {
       runtime.IOUtils = previousIOUtils;
     }
 
+    assert.include(message, "native copy unavailable");
+    assert.equal(readCalls, 0);
+    assert.equal(writeCalls, 0);
     assert.equal(
-      await fs.readFile(path.join(targetDir, "SKILL.md"), "utf8"),
-      "# demo\n",
+      await fs.readFile(path.join(targetDir, "existing.txt"), "utf8"),
+      "keep",
     );
+  });
+
+  it("promotes a staged runtime tree over an existing target", async function () {
+    const sourceDir = path.join(tempRoot, "atomic-source");
+    const targetDir = path.join(tempRoot, "atomic-target");
+    await fs.mkdir(path.join(sourceDir, "nested"), { recursive: true });
+    await fs.writeFile(
+      path.join(sourceDir, "nested", "current.txt"),
+      "current",
+      "utf8",
+    );
+    await fs.mkdir(targetDir, { recursive: true });
+    await fs.writeFile(path.join(targetDir, "stale.txt"), "stale", "utf8");
+
+    await copyRuntimeDirectory({ sourceDir, targetDir });
+
     assert.equal(
-      await fs.readFile(
-        path.join(targetDir, "assets", "nested", "config.json"),
-        "utf8",
-      ),
-      JSON.stringify({ ok: true }),
+      await fs.readFile(path.join(targetDir, "nested", "current.txt"), "utf8"),
+      "current",
     );
+    let staleExists = true;
+    try {
+      await fs.access(path.join(targetDir, "stale.txt"));
+    } catch {
+      staleExists = false;
+    }
+    assert.isFalse(staleExists);
   });
 
   it("builds deterministic local skill package zip from effective registry entry", async function () {

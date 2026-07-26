@@ -327,6 +327,80 @@ describe("separated ACP and SkillRunner run stores", function () {
     assert.isAtLeast(diagnostics.lightweightProjectionReadCount, 3);
   });
 
+  it("applies active SkillRunner limits after lifecycle projection", function () {
+    const backendId = "skillrunner-active-limit";
+    const states = [
+      "running",
+      "running",
+      "waiting_user",
+      "succeeded",
+      "succeeded",
+      "succeeded",
+    ] as const;
+
+    states.forEach((state, index) => {
+      const requestId = `sr-active-limit-${index}`;
+      recordSkillRunnerRunFromJob({
+        id: `job-active-limit-${index}`,
+        workflowId: "workflow-debug-probe",
+        request: {
+          kind: "skillrunner.job.v1",
+          skill_id: "debug-host-bridge-connectivity-probe",
+        },
+        meta: {
+          runId: `workflow-run-active-limit-${index}`,
+          workflowLabel: "Debug Probe",
+          taskName: `active limit task ${index}`,
+          providerId: "skillrunner",
+          backendId,
+          backendType: "skillrunner",
+          requestId,
+          skillId: "debug-host-bridge-connectivity-probe",
+        },
+        state: "running",
+        result: { requestId },
+        createdAt: `2026-06-18T00:00:0${index}.000Z`,
+        updatedAt: `2026-06-18T00:00:1${index}.000Z`,
+      });
+      if (state !== "running") {
+        updateSkillRunnerRunStateByRequest({
+          backendId,
+          requestId,
+          state,
+          updatedAt: `2026-06-18T00:01:1${index}.000Z`,
+        });
+      }
+    });
+
+    const expectedRequestIds = [
+      "sr-active-limit-0",
+      "sr-active-limit-1",
+      "sr-active-limit-2",
+    ];
+    const projections = listSkillRunnerRunProjectionSummaries({
+      activeOnly: true,
+      backendId,
+      limit: 3,
+    });
+    assert.sameMembers(
+      projections.map((entry) => entry.requestId),
+      expectedRequestIds,
+    );
+    assert.include(
+      projections.map((entry) => entry.state),
+      "waiting_user",
+    );
+
+    const activeTasks = listActiveWorkflowTaskSummaries({
+      backendId,
+      limit: 3,
+    });
+    assert.sameMembers(
+      activeTasks.map((entry) => entry.requestId),
+      expectedRequestIds,
+    );
+  });
+
   it("reads SkillRunner projections from run records for explicit scoped reads", function () {
     recordSkillRunnerRunFromJob({
       id: "job-legacy-projection",

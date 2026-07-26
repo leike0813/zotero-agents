@@ -60,6 +60,8 @@ export type SynthesisTagAuditReplaceRequest = {
 };
 
 export interface SynthesisTagsClient {
+  initializeBuiltinTagPolicy(): Promise<SynthesisTagVocabularySnapshot>;
+  isBuiltinTagPolicyInitialized(): Promise<boolean>;
   loadTagVocabulary(): Promise<SynthesisTagVocabularySnapshot>;
   saveTagVocabulary(request: SynthesisJsonObject): Promise<SynthesisJsonValue>;
   validateTagVocabulary(): Promise<SynthesisJsonValue>;

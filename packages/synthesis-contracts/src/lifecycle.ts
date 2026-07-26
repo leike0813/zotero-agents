@@ -19,6 +19,7 @@ export type SynthesisDatabaseResetResult = {
 };
 
 export interface SynthesisMaintenanceClient {
+  getOperation(request: SynthesisJsonObject): Promise<SynthesisJsonObject>;
   getSchemas(request?: SynthesisJsonObject): Promise<SynthesisJsonObject>;
   resetDatabase(
     request: SynthesisDatabaseResetRequest,

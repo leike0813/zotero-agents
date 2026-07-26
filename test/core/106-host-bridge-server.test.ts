@@ -27,6 +27,13 @@ import {
   resetZoteroMcpServerForTests,
 } from "../../src/modules/zoteroMcpServer";
 import { getPref, setPref } from "../../src/utils/prefs";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import {
+  enableAcpRuntimePerformanceProfiler,
+  resetAcpRuntimePerformanceProfilerForTests,
+  snapshotAcpRuntimeProfiles,
+  startAcpRuntimeProfile,
+} from "../../src/modules/acpRuntimePerformanceProfiler";
 
 function parseRawHttpResponse(raw: string) {
   const splitIndex = raw.indexOf("\r\n\r\n");
@@ -95,6 +102,8 @@ function readTemporaryWellKnownProfile(root: string) {
 
 describe("host bridge server phase 1", function () {
   afterEach(function () {
+    resetAcpRuntimePerformanceProfilerForTests();
+    setDebugModeOverrideForTests();
     resetHostBridgeServerForTests();
     resetZoteroMcpServerForTests();
     setPref("hostBridgeLanEnabled", false);
@@ -106,6 +115,190 @@ describe("host bridge server phase 1", function () {
     setPref("hostBridgeMasterTokenUpdatedAt", "");
     setPref("hostBridgeMasterTokenKeyMaterial", "");
     setPref("hostBridgeDisableWriteApproval", false);
+  });
+
+  it("attributes scoped Host Bridge requests to the ACP runtime profile", async function () {
+    setDebugModeOverrideForTests(true);
+    enableAcpRuntimePerformanceProfiler();
+    startAcpRuntimeProfile({
+      requestId: "profiled-host-request",
+      displayMode: "silent",
+      transport: "stdio",
+      zoteroMajor: 9,
+    });
+    configureHostBridgeServerForTests({ token: "phase-one-secret-token" });
+
+    await handleHostBridgeHttpRequestForTests({
+      method: "GET",
+      path: "/bridge/v1/health",
+      headers: {
+        "X-Zotero-Bridge-Scope": JSON.stringify({
+          kind: "acp-skill-run",
+          requestId: "profiled-host-request",
+        }),
+      },
+    });
+
+    const metrics = snapshotAcpRuntimeProfiles()?.active[0].metrics;
+    assert.isAbove(
+      metrics?.find((entry) => entry.name === "host_response_bytes")?.counter
+        ?.total || 0,
+      0,
+    );
+    assert.equal(
+      metrics?.find((entry) => entry.name === "host_request_duration")?.duration
+        ?.count,
+      1,
+    );
+    assert.deepEqual(
+      metrics?.find((entry) => entry.name === "host_request_inflight")?.gauge,
+      { current: 0, max: 1 },
+    );
+  });
+
+  it("profiles asynchronous Host Bridge input waits without a real Zotero socket", async function () {
+    setDebugModeOverrideForTests(true);
+    enableAcpRuntimePerformanceProfiler();
+    startAcpRuntimeProfile({
+      requestId: "profiled-host-input",
+      displayMode: "silent",
+      transport: "stdio",
+      zoteroMajor: 9,
+    });
+    const raw = rawHttpRequestBytes({
+      method: "POST",
+      path: "/bridge/v1/health",
+      headers: {
+        "X-Zotero-Bridge-Scope": JSON.stringify({
+          kind: "acp-skill-run",
+          requestId: "profiled-host-input",
+        }),
+      },
+      bodyBytes: new TextEncoder().encode("{}"),
+    });
+    const chunks = [raw.slice(0, 23), raw.slice(23)];
+    let readError: Error | null = null;
+    let callback: { onInputStreamReady(input: unknown): void } | null = null;
+    const inputStream = {
+      asyncWait(nextCallback: typeof callback) {
+        callback = nextCallback;
+        if (callback && chunks.length) {
+          const ready = callback;
+          queueMicrotask(() => ready.onInputStreamReady(inputStream));
+        }
+      },
+      close() {
+        return;
+      },
+    };
+    const binaryStream = {
+      setInputStream() {
+        return;
+      },
+      available() {
+        return chunks[0]?.byteLength || 0;
+      },
+      readByteArray() {
+        if (readError) throw readError;
+        return Array.from(chunks.shift() || []);
+      },
+      close: () => inputStream.close(),
+    };
+    const runtime = globalThis as typeof globalThis & {
+      Components?: unknown;
+      Services?: unknown;
+    };
+    const previous = Object.getOwnPropertyDescriptor(runtime, "Components");
+    const previousServices = Object.getOwnPropertyDescriptor(
+      runtime,
+      "Services",
+    );
+    Object.defineProperty(runtime, "Components", {
+      configurable: true,
+      value: {
+        classes: {
+          "@mozilla.org/binaryinputstream;1": {
+            createInstance: () => binaryStream,
+          },
+          "@mozilla.org/thread-manager;1": {
+            getService: () => ({
+              mainThread: (runtime as any).Services.tm.mainThread,
+            }),
+          },
+        },
+        interfaces: {
+          nsIAsyncInputStream: {},
+          nsIBinaryInputStream: {},
+          nsIThreadManager: {},
+        },
+      },
+    });
+    Object.defineProperty(runtime, "Services", {
+      configurable: true,
+      value: { tm: { mainThread: {} } },
+    });
+    try {
+      const request =
+        await hostBridgeServerInternalsForTests.readProfiledHostBridgeRequest(
+          inputStream,
+        );
+      assert.equal(request.path, "/bridge/v1/health");
+      const metrics = snapshotAcpRuntimeProfiles()?.active[0].metrics || [];
+      assert.equal(
+        metrics.find((entry) => entry.name === "host_input_fragment")?.counter
+          ?.total,
+        2,
+      );
+      assert.equal(
+        metrics.find((entry) => entry.name === "host_input_wait")?.counter
+          ?.total,
+        2,
+      );
+      assert.equal(
+        metrics.find(
+          (entry) => entry.name === "host_input_callback_max_duration",
+        )?.duration?.count,
+        1,
+      );
+      assert.isUndefined(
+        metrics.find((entry) => entry.name === "host_input_unavailable"),
+      );
+
+      readError = new Error("synthetic input failure");
+      chunks.push(Uint8Array.of(1));
+      let failure: unknown;
+      try {
+        await hostBridgeServerInternalsForTests.readProfiledHostBridgeRequest(
+          inputStream,
+        );
+      } catch (error) {
+        failure = error;
+      }
+      assert.equal((failure as { code?: string })?.code, "read_failed");
+      const failedMetrics = snapshotAcpRuntimeProfiles()?.global.metrics || [];
+      assert.equal(
+        failedMetrics.find((entry) => entry.name === "host_input_wait")?.counter
+          ?.total,
+        1,
+      );
+      assert.equal(
+        failedMetrics.find(
+          (entry) => entry.name === "host_input_callback_max_duration",
+        )?.duration?.count,
+        1,
+      );
+    } finally {
+      if (previous) {
+        Object.defineProperty(runtime, "Components", previous);
+      } else {
+        delete runtime.Components;
+      }
+      if (previousServices) {
+        Object.defineProperty(runtime, "Services", previousServices);
+      } else {
+        delete runtime.Services;
+      }
+    }
   });
 
   it("serves unauthenticated health without leaking token or paths", async function () {
@@ -225,7 +418,7 @@ describe("host bridge server phase 1", function () {
     });
     assert.deepEqual(parsed.json.result.cli, {
       supported: true,
-      schema: "zotero-bridge.cli.v1",
+      schema: "zotero-bridge.cli.v4",
     });
     assert.strictEqual(
       parsed.json.result.auth.tokenMasked,
@@ -234,6 +427,53 @@ describe("host bridge server phase 1", function () {
     assert.notInclude(parsed.body, token);
     assert.notInclude(parsed.body, "localPath");
     assert.notInclude(parsed.body, "handler");
+  });
+
+  it("pages the authenticated capability manifest with opaque criteria-bound cursors", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "manifest-page-token",
+    });
+    const names: string[] = [];
+    let cursor = "";
+    do {
+      const parsed = parseRawHttpResponse(
+        await handleHostBridgeHttpRequestForTests({
+          method: "GET",
+          path: `/bridge/v1/manifest?limit=7${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+          headers: { authorization: `Bearer ${token}` },
+        }),
+      );
+      assert.strictEqual(parsed.status, 200);
+      assert.isAtMost(parsed.json.result.capabilities.length, 7);
+      assert.strictEqual(
+        parsed.json.result.returned,
+        parsed.json.result.capabilities.length,
+      );
+      assert.strictEqual(parsed.json.result.limit, 7);
+      names.push(
+        ...parsed.json.result.capabilities.map(
+          (capability: { name: string }) => capability.name,
+        ),
+      );
+      cursor = parsed.json.result.nextCursor;
+      if (!parsed.json.result.hasMore) break;
+      assert.isString(cursor);
+      assert.isNotEmpty(cursor);
+      // eslint-disable-next-line no-constant-condition
+    } while (true);
+    assert.lengthOf(names, new Set(names).size);
+    assert.include(names, "library.get_item_detail");
+    assert.include(names, "topics.get_report");
+
+    const invalid = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "GET",
+        path: "/bridge/v1/manifest?cursor=not-a-cursor",
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    );
+    assert.strictEqual(invalid.status, 400);
+    assert.strictEqual(invalid.json.error.code, "invalid_host_bridge_cursor");
   });
 
   it("serves redacted Host Bridge profile diagnostics for agents", async function () {

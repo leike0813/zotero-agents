@@ -29,6 +29,7 @@ import { setDiagnosticVerboseOverrideForTests } from "./diagnosticVerbosity";
 import { setSkillRunnerInteractiveAutoReplyEnabledForTests } from "./skillRunnerInteractiveAutoReply";
 import { resetWorkflowRuntimeForTests } from "./workflowRuntime";
 import { resetSynthesisSidecarRuntimeSupervisorForTests } from "./synthesisSidecarRuntimeSupervisor";
+import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
 
 type CleanupDeps = {
   stopSkillRunnerModelCacheAutoRefresh: () => void;
@@ -41,7 +42,7 @@ type CleanupDeps = {
   setSkillRunnerBackendReconcileFailureToastEmitterForTests: () => void;
   setSkillRunnerTaskLifecycleToastEmitterForTests: () => void;
   resetWorkflowTasks: () => void;
-  clearRuntimeLogs: () => void;
+  clearRuntimeLogs: () => void | Promise<void>;
   resetSkillRunnerSessionSyncForTests: () => void | Promise<void>;
   resetSkillRunnerTaskReconcilerForTests: () => void | Promise<void>;
   resetSkillRunnerRunDialogForTests: () => void | Promise<void>;
@@ -58,6 +59,7 @@ type CleanupDeps = {
   setSkillRunnerInteractiveAutoReplyEnabledForTests: () => void;
   resetWorkflowRuntimeForTests: () => void;
   resetSynthesisSidecarRuntimeSupervisorForTests: () => void | Promise<void>;
+  resetWorkflowSubmissionQueueForTests: () => void;
 };
 
 const defaultCleanupDeps: CleanupDeps = {
@@ -88,6 +90,8 @@ const defaultCleanupDeps: CleanupDeps = {
   setSkillRunnerInteractiveAutoReplyEnabledForTests,
   resetWorkflowRuntimeForTests,
   resetSynthesisSidecarRuntimeSupervisorForTests,
+  resetWorkflowSubmissionQueueForTests: () =>
+    workflowSubmissionQueue.resetForTests(),
 };
 
 let cleanupDeps: CleanupDeps = defaultCleanupDeps;
@@ -122,7 +126,7 @@ export async function cleanupBackgroundRuntimeForZoteroTests() {
   cleanupDeps.setSkillRunnerBackendReconcileFailureToastEmitterForTests();
   cleanupDeps.setSkillRunnerTaskLifecycleToastEmitterForTests();
   cleanupDeps.resetWorkflowTasks();
-  cleanupDeps.clearRuntimeLogs();
+  await Promise.resolve(cleanupDeps.clearRuntimeLogs());
   cleanupDeps.resetWorkflowSettingsReadDiagnosticsForTests();
   cleanupDeps.resetTestPerformanceProbeHooksForTests();
   cleanupDeps.resetWorkflowHostApiForTests();
@@ -133,4 +137,5 @@ export async function cleanupBackgroundRuntimeForZoteroTests() {
   cleanupDeps.setDiagnosticVerboseOverrideForTests();
   cleanupDeps.setSkillRunnerInteractiveAutoReplyEnabledForTests();
   cleanupDeps.resetWorkflowRuntimeForTests();
+  cleanupDeps.resetWorkflowSubmissionQueueForTests();
 }

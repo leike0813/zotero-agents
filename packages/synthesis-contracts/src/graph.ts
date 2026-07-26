@@ -19,6 +19,9 @@ export type SynthesisGraphQueryRequest = SynthesisJsonObject;
 export type SynthesisGraphQueryResult = SynthesisJsonObject;
 
 export interface SynthesisGraphClient {
+  startUpdate(
+    request?: SynthesisGraphQueryRequest,
+  ): Promise<SynthesisGraphCommandResult>;
   queryCluster(
     request?: SynthesisGraphQueryRequest,
   ): Promise<SynthesisGraphQueryResult>;

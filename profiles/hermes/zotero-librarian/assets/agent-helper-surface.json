@@ -1,0 +1,28 @@
+{
+  "schema": "agent-helper-surface.v2",
+  "package": "zotero-librarian-profile",
+  "helpers": [
+    {
+      "id": "install-zotero-bridge-cli",
+      "executable": "scripts/install_zotero_bridge_cli.py",
+      "description": "Install the packaged Zotero Bridge CLI and link its well-known connection profile.",
+      "effects": ["installs a user executable", "may create a well-known profile link"]
+    },
+    {
+      "id": "zotero-librarian-service",
+      "executable": "scripts/zotero_librarian_service.py",
+      "description": "Run one bounded resident operation against the local state projection and live Zotero data.",
+      "globalOptions": ["--db", "--bridge", "--quiet"],
+      "receiptSchema": "zotero-librarian.operation-receipt.v1",
+      "domains": {
+        "index": ["refresh", "search", "item", "stats"],
+        "workflow": ["catalog-refresh", "show"],
+        "run": ["register", "watch"],
+        "notification": ["sync", "inbox", "summary", "ack"],
+        "maintenance": ["workflow-status", "library-hygiene"],
+        "synthesis": ["attention-queue"]
+      },
+      "constraints": ["one pass only", "cron never submits", "native workflow queue stays owned by Zotero"]
+    }
+  ]
+}

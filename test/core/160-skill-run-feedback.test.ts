@@ -10,11 +10,19 @@ import {
 function workflow(): LoadedWorkflow {
   return {
     manifest: {
+      schemaVersion: 2,
       id: "feedback-runtime-option",
       label: "Feedback Runtime Option",
       provider: "skillrunner",
       trigger: { requiresSelection: false },
-      inputs: { unit: "workflow" },
+      inputs: {
+        member: { kind: "selection" },
+        grouping: { mode: "all" },
+      },
+      validateSelection: {
+        select: { policy: "selection" },
+        filters: [],
+      },
       request: {
         kind: "skillrunner.job.v1",
         create: { skill_id: "demo-skill", mode: "interactive" },

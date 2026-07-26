@@ -1,0 +1,235 @@
+{
+  "schema": "zotero-agents.acp-runtime-governance-baseline.v1",
+  "capture": {
+    "kind": "automated",
+    "phase": "before-governance",
+    "measurement": "mechanism",
+    "scenarioId": "silent-1000-production-seams-open-inactive",
+    "surfaceState": "open-inactive",
+    "runIndex": 1,
+    "warmup": false,
+    "completion": "complete"
+  },
+  "environment": {
+    "pluginVersion": "0.6.1",
+    "zoteroVersion": "mock",
+    "zoteroMajor": 9,
+    "platform": "node-mock"
+  },
+  "warnings": [],
+  "summary": {
+    "groups": [
+      {
+        "key": "R1",
+        "label": "ACP event and persistence",
+        "counters": 1255,
+        "bytes": 187643,
+        "gauges": 0,
+        "durations": 153,
+        "metrics": [
+          {
+            "name": "buffered_write_batch",
+            "labels": {
+              "persistenceChannel": "transcript"
+            },
+            "counter": 1
+          },
+          {
+            "name": "buffered_write_bytes",
+            "labels": {
+              "persistenceChannel": "transcript"
+            },
+            "bytes": 64
+          },
+          {
+            "name": "buffered_write_duration",
+            "labels": {
+              "persistenceChannel": "transcript"
+            },
+            "durationCount": 1
+          },
+          {
+            "name": "change_emitted",
+            "labels": {
+              "changeKind": "other"
+            },
+            "counter": 1
+          },
+          {
+            "name": "change_emitted",
+            "labels": {
+              "changeKind": "run"
+            },
+            "counter": 51
+          },
+          {
+            "name": "change_emitted",
+            "labels": {
+              "changeKind": "transcript"
+            },
+            "counter": 50
+          },
+          {
+            "name": "jsonrpc_message",
+            "labels": {
+              "updateClass": "notification"
+            },
+            "counter": 1000
+          },
+          {
+            "name": "run_persist_bytes",
+            "labels": {
+              "persistenceChannel": "run"
+            },
+            "bytes": 187579
+          },
+          {
+            "name": "run_persist_duration",
+            "labels": {
+              "persistenceChannel": "run"
+            },
+            "durationCount": 51
+          },
+          {
+            "name": "run_persist",
+            "labels": {},
+            "counter": 51
+          },
+          {
+            "name": "state_store_write_duration",
+            "labels": {
+              "persistenceChannel": "event"
+            },
+            "durationCount": 50
+          },
+          {
+            "name": "state_store_write_duration",
+            "labels": {
+              "persistenceChannel": "run"
+            },
+            "durationCount": 51
+          },
+          {
+            "name": "state_store_write",
+            "labels": {
+              "persistenceChannel": "event"
+            },
+            "counter": 50
+          },
+          {
+            "name": "state_store_write",
+            "labels": {
+              "persistenceChannel": "run"
+            },
+            "counter": 51
+          }
+        ]
+      },
+      {
+        "key": "R2",
+        "label": "Host Bridge request handling",
+        "counters": 2,
+        "bytes": 537,
+        "gauges": 1,
+        "durations": 2,
+        "metrics": [
+          {
+            "name": "host_input_bytes",
+            "labels": {},
+            "bytes": 152
+          },
+          {
+            "name": "host_input_duration",
+            "labels": {},
+            "durationCount": 1
+          },
+          {
+            "name": "host_input_fragment",
+            "labels": {},
+            "counter": 2
+          },
+          {
+            "name": "host_input_unavailable",
+            "labels": {},
+            "counter": 0
+          },
+          {
+            "name": "host_request_duration",
+            "labels": {
+              "operationClass": "diagnostic"
+            },
+            "durationCount": 1
+          },
+          {
+            "name": "host_request_inflight",
+            "labels": {
+              "operationClass": "diagnostic"
+            },
+            "gaugeCurrent": 0,
+            "gaugeMax": 1
+          },
+          {
+            "name": "host_response_bytes",
+            "labels": {
+              "operationClass": "diagnostic"
+            },
+            "bytes": 385
+          }
+        ]
+      },
+      {
+        "key": "R3",
+        "label": "Assistant Workspace publication",
+        "counters": 5,
+        "bytes": 35090,
+        "gauges": 0,
+        "durations": 5,
+        "metrics": [
+          {
+            "name": "panel_post_duration",
+            "labels": {
+              "operationClass": "panel"
+            },
+            "durationCount": 1
+          },
+          {
+            "name": "panel_post",
+            "labels": {
+              "operationClass": "panel"
+            },
+            "counter": 1
+          },
+          {
+            "name": "panel_prepare_duration",
+            "labels": {
+              "surfaceState": "open-inactive"
+            },
+            "durationCount": 2
+          },
+          {
+            "name": "panel_prepare",
+            "labels": {
+              "surfaceState": "open-inactive"
+            },
+            "counter": 2
+          },
+          {
+            "name": "panel_signature_bytes",
+            "labels": {},
+            "bytes": 35090
+          },
+          {
+            "name": "panel_signature_duration",
+            "labels": {},
+            "durationCount": 2
+          },
+          {
+            "name": "panel_signature",
+            "labels": {},
+            "counter": 2
+          }
+        ]
+      }
+    ]
+  }
+}

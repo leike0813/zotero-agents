@@ -45,6 +45,8 @@ export type HostBridgePermissionScope = {
   requestId?: string;
   runId?: string;
   autoApproveWrites?: boolean;
+  grantId?: string;
+  connectionMode?: "local" | "remote";
 };
 
 export type HostBridgePermissionRequest = {
@@ -247,13 +249,22 @@ function registerPermissionProjection(
   request: HostBridgePermissionRequest & { requestId: string },
 ) {
   const createdAt = nowIso();
+  const projectedScope = request.scope
+    ? {
+        kind: request.scope.kind,
+        ...(request.scope.requestId
+          ? { requestId: request.scope.requestId }
+          : {}),
+        ...(request.scope.runId ? { runId: request.scope.runId } : {}),
+      }
+    : null;
   permissionProjections.set(request.requestId, {
     permissionRequestId: request.requestId,
     action: normalizeString(request.action),
     title: normalizeString(request.title),
     summary: normalizeString(request.summary),
     source: normalizeString(request.source) || "host-bridge",
-    scope: request.scope || null,
+    scope: projectedScope,
     workflowRunId: relatedWorkflowRunId(request.scope),
     skillRunId: relatedSkillRunId(request.scope),
     requestId:
@@ -440,10 +451,10 @@ async function requestAcpRunScopedPermission(
     };
   }
   const { setAcpSkillRunPermissionRequest } =
-    await import("./acpSkillRunStore");
+    await import("./acpSkillRunPermissionFacade");
   const outcomePromise = new Promise<HostBridgePermissionDecision>(
     (resolve) => {
-      setAcpSkillRunPermissionRequest(runRequestId, {
+      const registered = setAcpSkillRunPermissionRequest(runRequestId, {
         requestId: request.requestId,
         sessionId: "host-bridge",
         toolCallId: request.requestId,
@@ -471,6 +482,15 @@ async function requestAcpRunScopedPermission(
           );
         },
       });
+      if (!registered) {
+        resolve({
+          outcome: "ui_unavailable",
+          requestId: request.requestId,
+          channel: "acp-skill-run",
+          reason:
+            "ACP Skills approval UI is unavailable for this Host Bridge operation.",
+        });
+      }
     },
   );
 
@@ -554,9 +574,13 @@ export function getHostBridgeApprovalRequirement(
   if (
     capability === "debug.synthesis.cleanInstallReset" ||
     capability === "debug.zotero.eval" ||
-    capability === "citation_graph.refresh_metrics"
+    capability === "citation_graph.refresh_metrics" ||
+    capability === "reference_sidecar.refresh" ||
+    capability === "citation_graph.update"
   ) {
     requirement = "zotero-ui-required";
+  } else if (capability === "synthesis.operation.get") {
+    requirement = "none";
   } else if (capability.startsWith("debug.")) {
     requirement = "none";
   } else if (
@@ -603,6 +627,7 @@ export function parseHostBridgePermissionScope(
     requestId: normalizeString(source.requestId) || undefined,
     runId: normalizeString(source.runId) || undefined,
     autoApproveWrites: source.autoApproveWrites === true,
+    grantId: normalizeString(source.grantId) || undefined,
   };
 }
 

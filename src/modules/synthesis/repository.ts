@@ -77,6 +77,11 @@ import {
   type SynthesisTopicGraphNodeRecord,
   type SynthesisTopicGraphReviewItemRecord,
 } from "../../../packages/synthesis-repository/src/index";
+import {
+  BUILTIN_STATUS_POLICY,
+  BUILTIN_STATUS_FACET,
+  isBuiltinStatusTag,
+} from "./builtinTagPolicy";
 
 export type {
   SqlAdapter,
@@ -6972,6 +6977,7 @@ export class SynthesisRepository {
     if (!tag) {
       throw new Error("tag must be non-empty");
     }
+    const builtin = isBuiltinStatusTag(tag);
     const timestamp = this.now();
     this.db.run(
       `
@@ -7006,11 +7012,11 @@ export class SynthesisRepository {
       `,
       {
         tag,
-        facet: cleanString(record.facet),
+        facet: builtin ? BUILTIN_STATUS_FACET : cleanString(record.facet),
         note: cleanString(record.note),
-        source: cleanString(record.source),
-        deprecated: record.deprecated ? 1 : 0,
-        replacement: cleanString(record.replacement),
+        source: builtin ? "builtin" : cleanString(record.source),
+        deprecated: builtin ? 0 : record.deprecated ? 1 : 0,
+        replacement: builtin ? "" : cleanString(record.replacement),
         aliases_json: cleanString(record.aliasesJson) || "[]",
         abbrev_json: cleanString(record.abbrevJson) || "[]",
         usage_count: Math.max(0, Math.floor(Number(record.usageCount) || 0)),
@@ -7089,6 +7095,19 @@ export class SynthesisRepository {
     this.initialize();
     const protocolId = cleanString(record.protocolId) || "default";
     const timestamp = this.now();
+    const facets = (() => {
+      try {
+        const parsed = JSON.parse(cleanString(record.facetsJson) || "[]");
+        return Array.from(
+          new Set([
+            ...(Array.isArray(parsed) ? parsed.map(cleanString) : []),
+            BUILTIN_STATUS_FACET,
+          ]),
+        ).filter(Boolean);
+      } catch {
+        return [BUILTIN_STATUS_FACET];
+      }
+    })();
     this.db.run(
       `
         INSERT OR REPLACE INTO synt_tag_protocol (
@@ -7116,7 +7135,7 @@ export class SynthesisRepository {
           1,
           Math.floor(Number(record.maxTagLength) || 120),
         ),
-        facets_json: cleanString(record.facetsJson) || "[]",
+        facets_json: JSON.stringify(facets),
         updated_at: cleanString(record.updatedAt) || timestamp,
       },
     );
@@ -7166,12 +7185,36 @@ export class SynthesisRepository {
     args: SynthesisTagVocabularyStateRecords,
   ) {
     this.initialize();
+    const currentEntries = this.listTagVocabularyEntries();
+    const incomingByTag = new Map(
+      args.entries.map((entry) => [entry.tag, entry]),
+    );
+    const currentByTag = new Map(
+      currentEntries.map((entry) => [entry.tag, entry]),
+    );
+    const protectedEntries = [
+      ...args.entries.filter((entry) => !isBuiltinStatusTag(entry.tag)),
+      ...BUILTIN_STATUS_POLICY.map((definition) => {
+        const existing =
+          incomingByTag.get(definition.tag) || currentByTag.get(definition.tag);
+        return {
+          ...(existing || {}),
+          tag: definition.tag,
+          facet: BUILTIN_STATUS_FACET,
+          note: existing ? existing.note : definition.note,
+          source: "builtin",
+          deprecated: false,
+          replacement: undefined,
+          aliasesJson: existing?.aliasesJson || "[]",
+        } satisfies SynthesisTagVocabularyEntryRecord;
+      }),
+    ];
     this.db.run("DELETE FROM synt_tag_validation_warning");
     this.db.run("DELETE FROM synt_tag_protocol");
     this.db.run("DELETE FROM synt_tag_abbrev");
     this.db.run("DELETE FROM synt_tag_alias");
     this.db.run("DELETE FROM synt_tag_vocabulary_entry");
-    for (const entry of args.entries) {
+    for (const entry of protectedEntries) {
       this.upsertTagVocabularyEntry(entry);
     }
     for (const alias of args.aliases) {

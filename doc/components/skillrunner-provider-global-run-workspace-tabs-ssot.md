@@ -160,14 +160,16 @@ For a backend with health gating active:
 
 ## Debug Connection Audit
 
-Dashboard exposes a debug-only `skillrunner-connection-audit` tab for
-SkillRunner connection governor diagnostics.
+Dashboard exposes a source-gated, debug-only `skillrunner-connection-audit`
+tab for SkillRunner connection governor diagnostics.
 
 Rules:
 
-- The tab exists only when debug mode is enabled.
-- When debug mode is disabled, Dashboard tab normalization rejects the audit
-  tab and snapshot construction does not read governor audit data.
+- The tab exists only when the hard-coded connection-audit source switch and
+  debug mode are both enabled. The source switch defaults to disabled.
+- When either gate is disabled, Dashboard tab normalization rejects the audit
+  tab, governor hot paths do not collect audit data, and snapshot modules are
+  removed from the main runtime bundle.
 - The audit tab is read-only. It can copy the already-rendered JSON snapshot,
   but it does not abort connections, clear buffers, retry runs, or change
   connection scheduling.
@@ -223,5 +225,17 @@ state settles.
 
 ### INV-WS-CONNECTION-AUDIT-DEBUG-ONLY
 
-SkillRunner connection audit is available only in debug mode, reads governor
-diagnostic metadata only when selected, and never mutates connection state.
+SkillRunner connection audit is available only when its source switch and
+debug mode are enabled, loads diagnostic metadata only when selected, and
+never mutates connection state.
+
+### INV-WS-HOST-QUEUED-SOURCE-ROWS
+
+The SkillRunner drawer places pending Host workflow units in a separate Queued
+section grouped by backend. These rows are non-selectable, have no run or
+request identity, and expose only Host queue cancellation by `queueId`.
+Running, Queued, and Completed use the shared localized section model; all are
+collapsible, with Running expanded and the other two collapsed by default.
+Their subtle blue, amber, and neutral treatments use shared light/dark theme
+tokens. Provider running/completed groups and their selection semantics remain
+owned by the SkillRunner run store.

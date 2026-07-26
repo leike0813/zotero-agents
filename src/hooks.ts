@@ -83,6 +83,7 @@ import { MANAGED_LOCAL_BACKEND_ID } from "./modules/skillRunnerLocalRuntimeConst
 import { isDebugModeEnabled } from "./modules/debugMode";
 import { emitVerboseConsole } from "./modules/diagnosticVerbosity";
 import { untrackSkillRunnerBackendHealth } from "./modules/skillRunnerBackendHealthRegistry";
+import { workflowSubmissionQueue } from "./jobQueue/workflowSubmissionQueue";
 import {
   startSkillRunnerBackendReachabilityCoordinator,
   stopSkillRunnerBackendReachabilityCoordinator,
@@ -91,6 +92,7 @@ import { shutdownSkillRunnerAsyncLifecycle } from "./modules/skillRunnerAsyncLif
 import {
   appendRuntimeLog,
   flushRuntimeLogsPersistence,
+  initializeRuntimeLogsPersistence,
 } from "./modules/runtimeLogManager";
 import {
   closeAssistantWorkspaceSidebar,
@@ -106,7 +108,8 @@ import {
   setAssistantExecutionDisplayMode,
 } from "./modules/assistantExecutionDisplayPolicy";
 import { shutdownAcpSessionManager } from "./modules/acpSessionManager";
-import { flushAcpSkillRunAuditTrailWrites } from "./modules/acpSkillRunAuditTrail";
+import { releaseAcpSkillRunAuditTrailWrites } from "./modules/acpSkillRunAuditTrail";
+import { initializeWorkflowProductStorage } from "./modules/workflowProductStore";
 import { shutdownAcpWebSocketBridgeService } from "./modules/acpWebSocketBridgeService";
 import {
   reconcileAcpSkillRunWorkflowTasksOnStartup,
@@ -119,6 +122,7 @@ import {
   scanRuntimePersistenceUsage,
   type RuntimePersistenceCategory,
 } from "./modules/runtimePersistence";
+import { shutdownRuntimeFileRangeReader } from "./modules/runtimeFileRangeReader";
 import {
   cleanupPersistenceIssues,
   scanPersistenceIntegrity,
@@ -152,6 +156,7 @@ import {
   invalidateDefaultSynthesisClient,
   shutdownDefaultSynthesisClient,
 } from "./modules/synthesisClient/defaultClient";
+import type { SynthesisClient } from "../packages/synthesis-contracts/src/index";
 import { cleanupRetiredSynthesisGitSyncRuntime } from "./modules/synthesis/syncRuntimeCleanup";
 import {
   clearWebDavSyncCredential,
@@ -819,6 +824,7 @@ async function onStartup() {
     Zotero.unlockPromise,
     Zotero.uiReadyPromise,
   ]);
+  await initializeRuntimeLogsPersistence();
 
   initLocale();
   installWorkflowEditorHostBridge();
@@ -842,10 +848,17 @@ async function onStartup() {
       );
     }
   });
+  try {
+    await initializeWorkflowProductStorage();
+  } catch (error) {
+    Zotero.logError(error instanceof Error ? error : new Error(String(error)));
+  }
+  await initializeSynthesisBuiltinTagsOnStartup();
 
   await ensureDefaultWorkflowDirExistsOnStartup();
   await rescanWorkflowRegistry();
   reconcileRecoveredRuntimeTasksOnStartup();
+  workflowSubmissionQueue.start();
   purgeSkillRunnerBackendReconcileState(LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID);
   untrackSkillRunnerBackendHealth(LEGACY_REMOVED_SKILLRUNNER_BACKEND_ID);
   startSkillRunnerModelCacheAutoRefresh();
@@ -882,6 +895,28 @@ async function onStartup() {
   prewarmSynthesisWorkbenchAfterStartup();
   scheduleOfficialWorkflowPackageUpdateCheck();
   scheduleHostBridgeCliInstallPrompt();
+}
+
+export async function initializeSynthesisBuiltinTagsOnStartup(
+  tags?: Pick<
+    SynthesisClient["tags"],
+    "initializeBuiltinTagPolicy"
+  >,
+) {
+  addon.data.startupError = undefined;
+  try {
+    const clientTags = tags || (await getDefaultSynthesisClient()).tags;
+    await clientTags.initializeBuiltinTagPolicy();
+  } catch (error) {
+    addon.data.initialized = false;
+    addon.data.startupError = {
+      stage: "synthesis-builtin-tag-policy",
+      code: "builtin_tag_policy_initialization_failed",
+      message: error instanceof Error ? error.message : String(error),
+      occurredAt: new Date().toISOString(),
+    };
+    throw error;
+  }
 }
 
 async function onMainWindowLoad(win: _ZoteroTypes.MainWindow): Promise<void> {
@@ -1100,6 +1135,9 @@ async function runShutdownStepWithTimeout(
 }
 
 async function onShutdown(): Promise<void> {
+  await runShutdownStepWithTimeout("workflow-submission-queue-shutdown", () =>
+    workflowSubmissionQueue.shutdown(),
+  );
   await runShutdownStepWithTimeout(
     "synthesis-client-dispose",
     shutdownDefaultSynthesisClient,
@@ -1122,7 +1160,7 @@ async function onShutdown(): Promise<void> {
   );
   await runShutdownStepWithTimeout(
     "acp-audit-drain",
-    flushAcpSkillRunAuditTrailWrites,
+    releaseAcpSkillRunAuditTrailWrites,
   );
   await runShutdownStepWithTimeout(
     "acp-websocket-bridge-shutdown",
@@ -1140,10 +1178,43 @@ async function onShutdown(): Promise<void> {
     "skillrunner-async-lifecycle-shutdown",
     shutdownSkillRunnerAsyncLifecycle,
   );
+  if (
+    __acp_runtime_semantic_trace_recorder_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+  ) {
+    await runShutdownStepWithTimeout(
+      "acp-runtime-semantic-trace-recorder-shutdown",
+      async () => {
+        const { shutdownAcpRuntimeSemanticTraceRecorder } =
+          await import("./modules/acpRuntimeSemanticTraceRecorder");
+        await shutdownAcpRuntimeSemanticTraceRecorder();
+      },
+    );
+  }
+  if (
+    __acp_runtime_replay_profiler_enabled__ &&
+    (typeof __debug_mode__ === "undefined"
+      ? isDebugModeEnabled()
+      : __debug_mode__)
+  ) {
+    await runShutdownStepWithTimeout(
+      "acp-runtime-replay-controller-shutdown",
+      async () => {
+        const { shutdownAcpRuntimeReplayController } =
+          await import("./modules/acpRuntimeReplayController");
+        await shutdownAcpRuntimeReplayController();
+      },
+    );
+  }
   await runShutdownStepWithTimeout(
     "runtime-log-flush",
     flushRuntimeLogsPersistence,
   );
+  await runShutdownStepWithTimeout("runtime-file-range-reader-shutdown", () => {
+    shutdownRuntimeFileRangeReader();
+  });
   for (const win of Zotero.getMainWindows?.() || []) {
     removeDashboardToolbarButton(win);
     removeAssistantWorkspaceSidebarShell(win);
@@ -1314,7 +1385,7 @@ async function onPrefsEvent(type: string, data: { [key: string]: any }) {
       const [activeTasks, acpSkillRuns, filter, displayName] =
         await Promise.all([
           import("./modules/taskRuntime"),
-          import("./modules/acpSkillRunStore"),
+          import("./modules/acpSkillRunDashboardFacade"),
           import("./modules/dashboardActiveTasks"),
           import("./backends/displayName"),
         ]);

@@ -42,6 +42,7 @@ import {
   assertRequiredWorkflowParameters,
   listMissingRequiredWorkflowParameters,
   mergeExecutionOptions,
+  rebaseProviderOptionsForBackendChange,
   normalizeWorkflowParamsBySchema,
   parseSettingsRecord,
   serializeSettingsRecord,
@@ -73,12 +74,13 @@ type WorkflowExecutionContext = {
   workflowParams: Record<string, unknown>;
   providerOptions: Record<string, unknown>;
   runOptions: WorkflowRunOptions;
+  hostOptions: WorkflowExecutionOptions["hostOptions"];
   providerId: string;
 };
 
 type WorkflowSettingsSchemaEntry = {
   key: string;
-  type: "string" | "number" | "boolean";
+  type: "string" | "number" | "boolean" | "array";
   title?: string;
   description?: string;
   placeholder?: string;
@@ -100,6 +102,36 @@ type WorkflowSettingsSchemaEntry = {
   max?: number;
 };
 
+export function rebaseWorkflowProviderOptionsForBackendChange(args: {
+  workflow: LoadedWorkflow;
+  previousBackendId?: string;
+  nextBackendId?: string;
+  options?: Record<string, unknown>;
+  candidateBackends: BackendInstance[];
+}) {
+  const nextBackendId = String(args.nextBackendId || "").trim();
+  const nextBackend = args.candidateBackends.find(
+    (backend) => String(backend.id || "").trim() === nextBackendId,
+  );
+  const providerId = resolveProviderIdForBackend({
+    workflow: args.workflow,
+    backend: nextBackend,
+  });
+  const provider = resolveProviderById(providerId);
+  const targetSchema = provider.getRuntimeOptionSchema?.() || {};
+  const rebased = rebaseProviderOptionsForBackendChange({
+    previousBackendId: args.previousBackendId,
+    nextBackendId,
+    targetSchema,
+    options: args.options,
+  });
+  return normalizeProviderRuntimeOptions({
+    providerId,
+    options: rebased,
+    backend: nextBackend,
+  });
+}
+
 type WorkflowSettingsProfileOption = {
   id: string;
   label: string;
@@ -117,6 +149,8 @@ export type WorkflowSettingsUiDescriptor = {
   workflowParams: Record<string, unknown>;
   providerOptions: Record<string, unknown>;
   runOptions: WorkflowRunOptions;
+  hostOptions: NonNullable<WorkflowExecutionOptions["hostOptions"]>;
+  hostQueueSupported: boolean;
   workflowSchemaEntries: WorkflowSettingsSchemaEntry[];
   providerSchemaEntries: WorkflowSettingsSchemaEntry[];
   runSchemaEntries: WorkflowSettingsSchemaEntry[];
@@ -956,11 +990,15 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
   const profileMissing = requiresBackendProfile && profiles.length === 0;
   const hasProfileConfigDimension =
     requiresBackendProfile && profiles.length !== 1;
+  const hostQueueSupported =
+    String(selectedBackend?.type || "").trim() === "acp" ||
+    String(selectedBackend?.type || "").trim() === "skillrunner";
   const hasConfigurableSettings =
     hasProfileConfigDimension ||
     workflowSchemaEntries.length > 0 ||
     providerSchemaEntries.length > 0 ||
-    runSchemaEntries.length > 0;
+    runSchemaEntries.length > 0 ||
+    hostQueueSupported;
 
   return {
     workflowId: args.workflow.manifest.id,
@@ -974,6 +1012,10 @@ export async function buildWorkflowSettingsUiDescriptor(args: {
     workflowParams,
     providerOptions: uiProviderOptions,
     runOptions,
+    hostOptions: merged.hostOptions?.queue
+      ? { queue: { ...merged.hostOptions.queue } }
+      : {},
+    hostQueueSupported,
     workflowSchemaEntries,
     providerSchemaEntries,
     runSchemaEntries,
@@ -1126,6 +1168,9 @@ export async function resolveWorkflowExecutionContext(args: {
     workflowParams,
     providerOptions: constrainedProviderOptions,
     runOptions,
+    hostOptions: merged.hostOptions?.queue
+      ? { queue: { ...merged.hostOptions.queue } }
+      : {},
     providerId,
   };
 }
@@ -1177,5 +1222,8 @@ export function resolveWorkflowExecutionOptionsPreview(args: {
       manifest: args.workflow.manifest,
       source: normalizeWorkflowRunOptions(merged.runOptions),
     }),
+    hostOptions: merged.hostOptions?.queue
+      ? { queue: { ...merged.hostOptions.queue } }
+      : {},
   };
 }

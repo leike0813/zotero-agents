@@ -142,7 +142,7 @@ describe("Synthesis Citation Graph build sidecar baseline", function () {
     };
     assert.equal(
       inventory.method_groups.flatMap((group) => group.methods).length,
-      108,
+      113,
     );
     assert.lengthOf(inventory.direct_consumers, 1);
     assert.deepInclude(

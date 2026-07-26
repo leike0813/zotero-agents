@@ -6,6 +6,7 @@ import {
 } from "../config/defaults";
 import type { TaskDashboardHistoryRecord } from "./taskDashboardHistory";
 import type { WorkflowTaskRecord } from "./taskRuntime";
+import type { QueuedWorkflowUnitSnapshot } from "../jobQueue/workflowSubmissionQueueContracts";
 
 function cloneBackend(backend: BackendInstance): BackendInstance {
   return {
@@ -118,10 +119,70 @@ export function mergeDashboardTaskRows(args: {
   );
 }
 
+export type TaskDashboardQueuedRow = {
+  id: string;
+  rowKind: "host-queued-workflow-unit";
+  queueId: string;
+  workflowId: string;
+  workflowLabel: string;
+  backendId: string;
+  backendType: "acp" | "skillrunner";
+  backendLabel: string;
+  taskName: string;
+  state: "queued";
+  stateSemantics: {
+    normalized: "queued";
+    terminal: false;
+    waiting: false;
+  };
+  stateLabel: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export function projectDashboardQueuedRows(args: {
+  backend: Pick<BackendInstance, "id" | "type" | "displayName">;
+  queued: ReadonlyArray<QueuedWorkflowUnitSnapshot>;
+  queuedStateLabel: string;
+}): TaskDashboardQueuedRow[] {
+  if (args.backend.type !== "acp" && args.backend.type !== "skillrunner") {
+    return [];
+  }
+  return args.queued
+    .filter(
+      (entry) =>
+        entry.backendId === args.backend.id &&
+        entry.backendType === args.backend.type,
+    )
+    .map((entry) => ({
+      id: `host-queue:${entry.queueId}`,
+      rowKind: "host-queued-workflow-unit" as const,
+      queueId: entry.queueId,
+      workflowId: entry.workflowId,
+      workflowLabel: entry.workflowLabel,
+      backendId: entry.backendId,
+      backendType: entry.backendType,
+      backendLabel: args.backend.displayName || entry.backendId,
+      taskName: entry.taskName,
+      state: "queued" as const,
+      stateSemantics: {
+        normalized: "queued" as const,
+        terminal: false as const,
+        waiting: false as const,
+      },
+      stateLabel: args.queuedStateLabel,
+      createdAt: entry.createdAt,
+      updatedAt: entry.createdAt,
+    }));
+}
+
 export function normalizeDashboardTabKey(args: {
   requestedTabKey?: string;
   backends: BackendInstance[];
   debugModeEnabled?: boolean;
+  skillRunnerConnectionAuditEnabled?: boolean;
+  acpTraceRecorderEnabled?: boolean;
+  acpReplayProfilerEnabled?: boolean;
 }) {
   const requested = String(args.requestedTabKey || "").trim();
   if (
@@ -134,9 +195,24 @@ export function normalizeDashboardTabKey(args: {
   }
   if (
     args.debugModeEnabled === true &&
+    args.skillRunnerConnectionAuditEnabled === true &&
     requested === "skillrunner-connection-audit"
   ) {
     return requested;
+  }
+  const diagnosticsEnabled =
+    args.debugModeEnabled === true &&
+    (args.acpTraceRecorderEnabled === true ||
+      args.acpReplayProfilerEnabled === true);
+  if (
+    diagnosticsEnabled &&
+    (requested === "acp-trace-replay" ||
+      (requested === "acp-trace-recorder" &&
+        args.acpTraceRecorderEnabled === true) ||
+      (requested === "acp-replay-profiler" &&
+        args.acpReplayProfilerEnabled === true))
+  ) {
+    return "acp-trace-replay";
   }
   if (requested.startsWith("backend:")) {
     const backendId = requested.slice("backend:".length);

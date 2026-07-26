@@ -1,15 +1,17 @@
 import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { bumpContentPackageVersion } from "./bump-content-package-version";
+import {
+  type CommandRunner,
+  createGithubWorkflowRequestId,
+  dispatchAndResolveGithubWorkflowRun,
+  watchGithubWorkflowRun,
+} from "./github-workflow-run";
 
-type CommandResult = {
-  stdout: string;
-  stderr: string;
-};
-
-type RunCommand = (command: string, args: string[]) => Promise<CommandResult>;
+type RunCommand = CommandRunner;
 
 export type ContentPackageReleaseArgs = {
   target?: string;
@@ -20,6 +22,9 @@ export type ContentPackageReleaseArgs = {
   repo?: string;
   ref?: string;
   runCommand?: RunCommand;
+  requestId?: string;
+  hostReleaseSetFile?: string;
+  hostReceiptFile?: string;
 };
 
 export type ContentPackageReleaseResult = {
@@ -28,6 +33,8 @@ export type ContentPackageReleaseResult = {
     version: string;
   };
   dispatched: boolean;
+  runId?: number;
+  runUrl?: string;
   nextCommands: string[];
 };
 
@@ -168,32 +175,34 @@ async function assertRemoteRefContainsHead(args: {
   }
 }
 
-function workflowDispatchCommand(args: { repo: string; ref: string }) {
-  return [
-    "gh",
-    "workflow",
-    "run",
-    WORKFLOW_FILE,
-    "--repo",
-    args.repo,
-    "--ref",
-    args.ref,
-  ];
-}
-
-function workflowWatchCommand(args: { repo: string }) {
-  return ["gh", "run", "watch", "--repo", args.repo];
-}
-
 function nextCommands(args: { repo: string; ref: string }) {
-  const dispatch = workflowDispatchCommand(args).join(" ");
   return [
     `git add ${DEFAULT_VERSION_FILE}`,
     'git commit -m "chore: bump content package version"',
     `git push origin ${args.ref}`,
-    dispatch,
-    `gh run watch --repo ${args.repo}`,
+    `npm run release:content-package -- --dispatch --watch --repo ${args.repo} --ref ${args.ref}`,
   ];
+}
+
+async function assertHostBridgeReleaseComplete(args: {
+  releaseSetFile: string;
+  receiptFile: string;
+}) {
+  const releaseSet = JSON.parse(await readFile(args.releaseSetFile, "utf8"));
+  let receipt: Record<string, unknown> = {};
+  try {
+    receipt = JSON.parse(await readFile(args.receiptFile, "utf8"));
+  } catch {
+    // Missing receipt is handled by the common mismatch error below.
+  }
+  if (
+    receipt.status !== "complete" ||
+    receipt.releaseSetId !== releaseSet.releaseSetId
+  ) {
+    throw new Error(
+      `Host Bridge ${releaseSet.releaseSetId} has no matching complete receipt; finish that publication before dispatching content packages.`,
+    );
+  }
 }
 
 export async function prepareContentPackageRelease(
@@ -227,12 +236,33 @@ export async function prepareContentPackageRelease(
   if (args.dispatch) {
     await assertCleanWorkingTree(commandRunner);
     await assertRemoteRefContainsHead({ commandRunner, ref });
-    const [, ...dispatchArgs] = workflowDispatchCommand({ repo, ref });
-    await commandRunner("gh", dispatchArgs);
+    await assertHostBridgeReleaseComplete({
+      releaseSetFile: args.hostReleaseSetFile || "host-bridge/release-set.json",
+      receiptFile:
+        args.hostReceiptFile ||
+        "host-bridge/latest-complete-release-receipt.json",
+    });
+    const requestId =
+      args.requestId || createGithubWorkflowRequestId("content");
+    const selected = await dispatchAndResolveGithubWorkflowRun({
+      workflow: WORKFLOW_FILE,
+      repo,
+      ref,
+      inputs: { request_id: requestId },
+      expectedDisplayTitle: `Content package ${requestId}`,
+      resolveExpectedHeadSha: async () =>
+        (await commandRunner("git", ["rev-parse", "HEAD"])).stdout.trim(),
+      commandRunner,
+    });
     result.dispatched = true;
+    result.runId = selected.databaseId;
+    result.runUrl = selected.url;
     if (args.watch) {
-      const [, ...watchArgs] = workflowWatchCommand({ repo });
-      await commandRunner("gh", watchArgs);
+      await watchGithubWorkflowRun({
+        repo,
+        runId: selected.databaseId,
+        commandRunner,
+      });
     }
   }
 
@@ -251,7 +281,9 @@ function formatResult(result: ContentPackageReleaseResult) {
     );
   }
   if (result.dispatched) {
-    lines.push(`[content-package] dispatched ${WORKFLOW_FILE}`);
+    lines.push(
+      `[content-package] dispatched ${WORKFLOW_FILE} run ${result.runId}`,
+    );
   }
   if (result.nextCommands.length > 0 && !result.dispatched) {
     lines.push("[content-package] next steps:");

@@ -204,3 +204,46 @@ library or Synthesis graph size.
 - **THEN** it SHALL NOT include local private paths, transcript text, backend
   private payloads, or decoded note payload bodies.
 
+### Requirement: Host Bridge library reads share opaque keyset pagination
+
+Host Bridge SHALL route `library.list_items`, `library.sync_snapshot`, `library.readiness_audit`, and `library.search_items` through the shared Zotero library page-query contract.
+
+#### Scenario: Host Bridge returns a library page
+
+- **WHEN** a client calls a paginated library capability
+- **THEN** the result SHALL preserve the capability's bounded DTO shape and current-condition total count
+- **AND** any `nextCursor` SHALL be an opaque string bound to the normalized criteria.
+
+#### Scenario: Host Bridge receives an invalid cursor
+
+- **WHEN** a library capability receives a malformed, unsupported, criteria-mismatched, or non-zero numeric cursor
+- **THEN** Host Bridge SHALL return structured code `invalid_library_cursor`
+- **AND** the error SHALL be non-retryable without corrected input.
+
+### Requirement: Host Bridge SHALL derive locality from trusted transport context
+Host Bridge SHALL derive effective local or remote mode from the accepted socket peer and listener, not from a client-controlled header.
+
+#### Scenario: Remote peer declares local
+- **WHEN** a non-loopback or unknown peer declares local connection mode
+- **THEN** Host Bridge SHALL treat the request as remote.
+
+#### Scenario: Local peer requests remote behavior
+- **WHEN** a loopback peer explicitly declares remote mode
+- **THEN** Host Bridge SHALL use the more restrictive remote behavior.
+
+#### Scenario: Trusted peer information is unavailable
+- **WHEN** peer locality cannot be established
+- **THEN** Host Bridge SHALL fail closed to remote delivery semantics.
+
+### Requirement: Host Bridge service SHALL route workflow queue and submission resources
+The authenticated HTTP v1 service SHALL route pending queue list/cancel and active submission inspection through the workflow control module.
+
+#### Scenario: Authenticated queue request
+- **WHEN** a bearer-authenticated client calls a workflow queue or submission route
+- **THEN** the service SHALL parse only declared filters/body fields and return the workflow-control result envelope
+
+#### Scenario: Unauthenticated queue request
+- **WHEN** a caller omits or fails bearer authentication
+- **THEN** the service SHALL reject the request before reading or mutating queue state
+
+

@@ -1304,9 +1304,37 @@ button.is-busy {
 }
 
 .main {
+  position: relative;
   min-height: 0;
   overflow: auto;
   padding: 16px;
+}
+
+.workbench-surface {
+  min-width: 0;
+  min-height: 0;
+}
+
+.workbench-content-surface {
+  width: 100%;
+  min-height: 100%;
+}
+
+.workbench-graph-surface {
+  width: 100%;
+  height: 100%;
+}
+
+.workbench-graph-surface.is-active {
+  position: relative;
+  visibility: visible;
+}
+
+.workbench-graph-surface.is-inactive {
+  position: absolute;
+  inset: 16px;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .action-statusbar {
@@ -3281,6 +3309,10 @@ th {
   width: 132px;
 }
 
+.registry-col-actions {
+  width: 190px;
+}
+
 .registry-table th:last-child,
 .registry-table td:last-child {
   color: var(--zs-muted);
@@ -3295,6 +3327,25 @@ th {
 .registry-table td.registry-artifacts-cell,
 .registry-table td.registry-references-cell {
   text-align: center;
+}
+
+.registry-table th.registry-actions-header,
+.registry-table td.registry-actions-cell {
+  text-align: right;
+}
+
+.registry-table td.registry-actions-cell {
+  color: inherit;
+  font-size: inherit;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.registry-row-actions {
+  display: inline-flex;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .registry-column-header-label,
@@ -3572,6 +3623,10 @@ th {
   inset: 0;
   width: 100%;
   height: 100%;
+}
+
+.sigma-stage.is-inactive {
+  visibility: hidden;
 }
 
 .graph-scope-badge {

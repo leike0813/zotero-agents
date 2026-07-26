@@ -1,5 +1,6 @@
 import { assert } from "chai";
 import fs from "node:fs";
+import path from "node:path";
 import { config } from "../../package.json";
 import {
   appendRuntimeLog,
@@ -11,13 +12,24 @@ import {
   getRuntimeLogDiagnosticMode,
   getRuntimeLogPersistenceStateForTests,
   getRuntimeLogRetentionConfig,
+  getRuntimeLogSummary,
+  initializeRuntimeLogsPersistence,
   listRuntimeLogs,
   resetRuntimeLogHydrationForTests,
   resetRuntimeLogAllowedLevels,
+  setRuntimeLogPersistenceWriterForTests,
   setRuntimeLogDiagnosticMode,
   setRuntimeLogAllowedLevels,
   snapshotRuntimeLogs,
+  subscribeRuntimeLogs,
 } from "../../src/modules/runtimeLogManager";
+import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+import {
+  enableAcpRuntimePerformanceProfiler,
+  incrementAcpRuntimeMetric,
+  resetAcpRuntimePerformanceProfilerForTests,
+  startAcpRuntimeProfile,
+} from "../../src/modules/acpRuntimePerformanceProfiler";
 
 describe("runtime log manager", function () {
   function readPersistedRuntimeLogDocument() {
@@ -28,16 +40,57 @@ describe("runtime log manager", function () {
     return JSON.parse(raw || "{}") as { entries?: Array<{ stage?: string }> };
   }
 
-  beforeEach(function () {
-    clearRuntimeLogs();
+  beforeEach(async function () {
+    resetRuntimeLogHydrationForTests();
+    await initializeRuntimeLogsPersistence();
+    await clearRuntimeLogs();
     resetRuntimeLogAllowedLevels();
     setRuntimeLogDiagnosticMode(false);
   });
 
-  afterEach(function () {
-    clearRuntimeLogs();
+  afterEach(async function () {
+    setRuntimeLogPersistenceWriterForTests(null);
+    resetAcpRuntimePerformanceProfilerForTests();
+    setDebugModeOverrideForTests();
+    await clearRuntimeLogs();
     resetRuntimeLogAllowedLevels();
     setRuntimeLogDiagnosticMode(false);
+    await flushRuntimeLogsPersistence();
+  });
+
+  it("includes active profiler aggregates only when the debug profiler is enabled", function () {
+    assert.notProperty(buildRuntimeDiagnosticBundle(), "performanceProfiles");
+    assert.notProperty(
+      buildRuntimeIssueDiagnosticBundle(),
+      "performanceProfiles",
+    );
+
+    setDebugModeOverrideForTests(true);
+    enableAcpRuntimePerformanceProfiler();
+    startAcpRuntimeProfile({
+      requestId: "diagnostic-profile",
+      displayMode: "silent",
+      transport: "stdio",
+      zoteroMajor: 9,
+    });
+    incrementAcpRuntimeMetric("diagnostic-profile", "session_update", {
+      updateClass: "assistant-message",
+    });
+
+    const rawBundle = buildRuntimeDiagnosticBundle();
+    const issueBundle = buildRuntimeIssueDiagnosticBundle();
+    assert.equal(
+      rawBundle.performanceProfiles?.active[0].requestId,
+      "diagnostic-profile",
+    );
+    assert.equal(
+      issueBundle.performanceProfiles?.active[0].requestId,
+      "diagnostic-profile",
+    );
+    assert.equal(
+      rawBundle.performanceProfiles?.active[0].metrics[0].counter?.total,
+      1,
+    );
   });
 
   it("normalizes schema and redacts sensitive fields", function () {
@@ -207,7 +260,7 @@ describe("runtime log manager", function () {
     const parsedPersisted = readPersistedRuntimeLogDocument();
     assert.equal(parsedPersisted.entries?.length || 0, 1);
 
-    clearRuntimeLogs();
+    await clearRuntimeLogs();
     const rawCleared = String(
       (globalThis as any).Zotero.Prefs.get(prefKey, true) || "",
     );
@@ -247,6 +300,7 @@ describe("runtime log manager", function () {
       "legacy-pref-stage",
     );
 
+    await initializeRuntimeLogsPersistence();
     const entries = listRuntimeLogs();
     assert.lengthOf(entries, 1);
     assert.equal(entries[0].stage, "legacy-pref-stage");
@@ -282,6 +336,8 @@ describe("runtime log manager", function () {
     assert.deepInclude(getRuntimeLogPersistenceStateForTests(), {
       dirty: true,
       hasPendingTimer: true,
+      hasIdleTimer: true,
+      hasMaxDelayTimer: true,
       flushCount: baseline,
     });
 
@@ -290,11 +346,13 @@ describe("runtime log manager", function () {
     assert.deepInclude(getRuntimeLogPersistenceStateForTests(), {
       dirty: false,
       hasPendingTimer: false,
+      hasIdleTimer: false,
+      hasMaxDelayTimer: false,
       flushCount: baseline + 1,
     });
   });
 
-  it("flushes pending persistence before snapshot and bundle export", function () {
+  it("keeps snapshot and bundle reads pure while persistence remains scheduled", function () {
     appendRuntimeLog({
       level: "info",
       scope: "system",
@@ -310,11 +368,9 @@ describe("runtime log manager", function () {
     const snapshot = snapshotRuntimeLogs();
     assert.lengthOf(snapshot.entries, 1);
     assert.deepInclude(getRuntimeLogPersistenceStateForTests(), {
-      dirty: false,
-      hasPendingTimer: false,
+      dirty: true,
+      hasPendingTimer: true,
     });
-    const persistedAfterSnapshot = readPersistedRuntimeLogDocument();
-    assert.equal(persistedAfterSnapshot.entries?.[0]?.stage, "snapshot-stage");
 
     appendRuntimeLog({
       level: "error",
@@ -335,15 +391,225 @@ describe("runtime log manager", function () {
     });
     assert.equal(bundle.entries.length, 1);
     assert.deepInclude(getRuntimeLogPersistenceStateForTests(), {
-      dirty: false,
-      hasPendingTimer: false,
+      dirty: true,
+      hasPendingTimer: true,
     });
-    const persistedAfterBundle = readPersistedRuntimeLogDocument();
-    assert.equal(
-      persistedAfterBundle.entries?.[persistedAfterBundle.entries.length - 1]
-        ?.stage,
-      "bundle-stage",
+  });
+
+  it("hydrates an existing runtime log file only during explicit async initialization", async function () {
+    resetRuntimeLogHydrationForTests();
+    const state = getRuntimeLogPersistenceStateForTests();
+    fs.mkdirSync(path.dirname(state.path), { recursive: true });
+    fs.writeFileSync(
+      state.path,
+      JSON.stringify({
+        entries: [
+          {
+            id: "log-async-hydration",
+            ts: new Date().toISOString(),
+            level: "info",
+            scope: "system",
+            schemaVersion: 1,
+            diagnosticMode: false,
+            stage: "async-hydration-stage",
+            message: "hydrated asynchronously",
+          },
+        ],
+      }),
+      "utf8",
     );
+
+    assert.lengthOf(listRuntimeLogs(), 0);
+    await initializeRuntimeLogsPersistence();
+
+    assert.equal(listRuntimeLogs()[0]?.stage, "async-hydration-stage");
+  });
+
+  it("leaves a malformed runtime log file untouched and records hydration failure", async function () {
+    resetRuntimeLogHydrationForTests();
+    const state = getRuntimeLogPersistenceStateForTests();
+    fs.mkdirSync(path.dirname(state.path), { recursive: true });
+    fs.writeFileSync(state.path, '{"entries":[bad json', "utf8");
+    const failuresBefore = state.fileFailureCount;
+
+    await initializeRuntimeLogsPersistence();
+
+    assert.lengthOf(listRuntimeLogs(), 0);
+    assert.equal(fs.readFileSync(state.path, "utf8"), '{"entries":[bad json');
+    assert.equal(
+      getRuntimeLogPersistenceStateForTests().fileFailureCount,
+      failuresBefore + 1,
+    );
+  });
+
+  it("serializes each accepted entry once and reuses it for reads and persistence", async function () {
+    const baseline =
+      getRuntimeLogPersistenceStateForTests().entrySerializationCount;
+    appendRuntimeLog({
+      level: "info",
+      scope: "provider",
+      backendId: "backend-a",
+      workflowId: "workflow-a",
+      stage: "serialized-once",
+      message: "serialized-once",
+      details: { nested: { value: 1 } },
+    });
+
+    listRuntimeLogs();
+    snapshotRuntimeLogs();
+    getRuntimeLogSummary();
+    await flushRuntimeLogsPersistence();
+
+    assert.equal(
+      getRuntimeLogPersistenceStateForTests().entrySerializationCount,
+      baseline + 1,
+    );
+  });
+
+  it("publishes lightweight changes and aggregate summary facets", function () {
+    const changes: Array<Record<string, unknown>> = [];
+    const unsubscribe = subscribeRuntimeLogs((change) => {
+      changes.push(change as unknown as Record<string, unknown>);
+    });
+    try {
+      appendRuntimeLog({
+        level: "info",
+        scope: "provider",
+        backendId: "backend-a",
+        workflowId: "workflow-a",
+        stage: "summary-a",
+        message: "summary-a",
+      });
+      appendRuntimeLog({
+        level: "warn",
+        scope: "provider",
+        backendId: "backend-b",
+        workflowId: "workflow-a",
+        stage: "summary-b",
+        message: "summary-b",
+      });
+    } finally {
+      unsubscribe();
+    }
+
+    assert.equal(changes.length, 2);
+    assert.equal(changes[0].kind, "append");
+    assert.property(changes[0], "revision");
+    assert.property(changes[0], "entry");
+    assert.notProperty(changes[0], "entries");
+    assert.notProperty(changes[0], "snapshot");
+    const summary = getRuntimeLogSummary();
+    assert.equal(summary.entryCount, 2);
+    assert.deepEqual(summary.facets.backendIds, ["backend-a", "backend-b"]);
+    assert.deepEqual(summary.facets.workflowIds, ["workflow-a"]);
+  });
+
+  it("keeps one save in flight and drains revisions appended during the write", async function () {
+    const documents: string[] = [];
+    let activeSaves = 0;
+    let maxActiveSaves = 0;
+    let releaseFirst!: () => void;
+    let markFirstStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => {
+      markFirstStarted = resolve;
+    });
+    const firstRelease = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    setRuntimeLogPersistenceWriterForTests(async ({ fragments }) => {
+      activeSaves += 1;
+      maxActiveSaves = Math.max(maxActiveSaves, activeSaves);
+      if (documents.length === 0) {
+        markFirstStarted();
+        await firstRelease;
+      }
+      documents.push(Array.from(fragments).join(""));
+      activeSaves -= 1;
+    });
+
+    appendRuntimeLog({
+      level: "info",
+      scope: "system",
+      stage: "first-revision",
+      message: "first-revision",
+    });
+    const firstFlush = flushRuntimeLogsPersistence();
+    await firstStarted;
+    appendRuntimeLog({
+      level: "info",
+      scope: "system",
+      stage: "second-revision",
+      message: "second-revision",
+    });
+    const secondFlush = flushRuntimeLogsPersistence();
+    releaseFirst();
+    await Promise.all([firstFlush, secondFlush]);
+
+    assert.equal(maxActiveSaves, 1);
+    assert.equal(documents.length, 2);
+    assert.deepEqual(
+      (
+        JSON.parse(documents[1]) as { entries: Array<{ stage: string }> }
+      ).entries.map((entry) => entry.stage),
+      ["first-revision", "second-revision"],
+    );
+    assert.isFalse(getRuntimeLogPersistenceStateForTests().dirty);
+  });
+
+  it("does not resolve flush before the controlled write completes", async function () {
+    let release!: () => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    setRuntimeLogPersistenceWriterForTests(async () => {
+      markStarted();
+      await blocked;
+    });
+    appendRuntimeLog({
+      level: "info",
+      scope: "system",
+      stage: "true-flush",
+      message: "true-flush",
+    });
+
+    let resolved = false;
+    const flush = flushRuntimeLogsPersistence().then(() => {
+      resolved = true;
+    });
+    await started;
+    await Promise.resolve();
+    assert.isFalse(resolved);
+    release();
+    await flush;
+    assert.isTrue(resolved);
+  });
+
+  it("keeps failed revisions dirty and retries them on a later flush", async function () {
+    let attempts = 0;
+    setRuntimeLogPersistenceWriterForTests(async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw new Error("controlled persistence failure");
+      }
+    });
+    appendRuntimeLog({
+      level: "error",
+      scope: "system",
+      stage: "retry-dirty",
+      message: "retry-dirty",
+    });
+
+    await flushRuntimeLogsPersistence();
+    assert.isTrue(getRuntimeLogPersistenceStateForTests().dirty);
+    assert.equal(attempts, 1);
+
+    await flushRuntimeLogsPersistence();
+    assert.isFalse(getRuntimeLogPersistenceStateForTests().dirty);
+    assert.equal(attempts, 2);
   });
 
   it("supports diagnostic mode toggle", function () {

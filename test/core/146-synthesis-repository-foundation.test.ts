@@ -33,6 +33,9 @@ import {
   SYNTHESIS_REPOSITORY_FOUNDATION_TABLES,
 } from "../../packages/synthesis-repository/src/index";
 import { openSynthesisSidecarIsolatedRepository } from "../../apps/synthesis-service/src/isolatedRepository";
+import { BUILTIN_STATUS_POLICY } from "../../src/modules/synthesis/builtinTagPolicy";
+
+const BUILTIN_STATUS_TAGS = BUILTIN_STATUS_POLICY.map((entry) => entry.tag);
 
 function createSynthesisBusyError() {
   const error = new Error("database is locked: SQLITE_BUSY");
@@ -547,7 +550,10 @@ describe("Synthesis repository foundation", function () {
     assert.equal(repository.countRows("synt_artifact_sidecar"), 1);
     assert.equal(repository.countRows("synt_topic_graph_node"), 1);
     assert.equal(repository.countRows("synt_concept"), 1);
-    assert.equal(repository.countRows("synt_tag_vocabulary_entry"), 1);
+    assert.equal(
+      repository.countRows("synt_tag_vocabulary_entry"),
+      BUILTIN_STATUS_TAGS.length + 1,
+    );
     assert.equal(repository.countRows("synt_review_item"), 1);
     assert.equal(repository.countRows("synt_operation"), 1);
     assert.equal(repository.countRows("synt_cache_basis"), 1);
@@ -559,7 +565,7 @@ describe("Synthesis repository foundation", function () {
       synt_artifact_sidecar: 1,
       synt_topic_graph_node: 1,
       synt_concept: 1,
-      synt_tag_vocabulary_entry: 1,
+      synt_tag_vocabulary_entry: BUILTIN_STATUS_TAGS.length + 1,
       synt_review_item: 1,
       synt_operation: 1,
       synt_cache_basis: 1,
@@ -1442,14 +1448,21 @@ describe("Synthesis repository foundation", function () {
       ],
     });
 
-    assert.equal(repository.countRows("synt_tag_vocabulary_entry"), 2);
+    assert.equal(
+      repository.countRows("synt_tag_vocabulary_entry"),
+      BUILTIN_STATUS_TAGS.length + 2,
+    );
     assert.equal(repository.countRows("synt_tag_alias"), 1);
     assert.equal(repository.countRows("synt_tag_abbrev"), 1);
     assert.equal(repository.countRows("synt_tag_protocol"), 1);
     assert.equal(repository.countRows("synt_tag_validation_warning"), 1);
     assert.deepEqual(
       repository.listTagVocabularyEntries().map((row) => row.tag),
-      ["field:object_detection", "status:deprecated_sample"],
+      [
+        "field:object_detection",
+        "status:deprecated_sample",
+        ...BUILTIN_STATUS_TAGS,
+      ].sort(),
     );
     assert.equal(repository.listTagAbbrevs()[0]?.abbrevValue, "OD");
     assert.deepInclude(repository.getTagProtocol(), {

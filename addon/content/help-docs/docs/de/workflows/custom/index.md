@@ -28,11 +28,18 @@ my-workflow/
 
 ```json
 {
+  "schemaVersion": 2,
   "id": "hello-world",
   "label": "Hello World",
   "provider": "pass-through",
+  "trigger": { "requiresSelection": true },
   "inputs": {
-    "unit": "parent"
+    "member": { "kind": "parent" },
+    "grouping": { "mode": "each" }
+  },
+  "validateSelection": {
+    "select": { "policy": "input-member", "source": "selected" },
+    "filters": []
   },
   "hooks": {
     "applyResult": "hooks/applyResult.mjs"
@@ -96,7 +103,12 @@ Basierend auf der Ausführungsmethode und dem Backend-Typ lassen sich Workflows 
   "id": "eindeutiger Bezeichner",
   "label": "Anzeigename",
   "provider": "Backend-Typ",
-  "inputs": { "unit": "Eingabeeinheitentyp" },
+  "trigger": { "requiresSelection": true },
+  "inputs": {
+    "member": { "kind": "execution member type" },
+    "grouping": { "mode": "each | all | parent" }
+  },
+  "validateSelection": { /* candidate production contract */ },
   "parameters": { /* konfigurierbare Parameter */ },
   "execution": { /* Ausführungssteuerung */ },
   "request": { "kind": "Anfragetyp" },

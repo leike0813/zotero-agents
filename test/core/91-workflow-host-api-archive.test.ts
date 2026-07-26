@@ -2,6 +2,7 @@ import { assert } from "chai";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
+import { pathToFileURL } from "url";
 import {
   createWorkflowHostApi,
   resetWorkflowHostApiForTests,
@@ -102,6 +103,21 @@ describe("workflow host api archive facade", function () {
       cleanupError = error;
     }
     assert.instanceOf(cleanupError, Error);
+  });
+
+  it("measures local file URL sources through the native path boundary", async function () {
+    const sourcePath = path.join(root, "source.bin");
+    await fs.writeFile(sourcePath, Buffer.from([1, 2, 3, 4]));
+
+    const measured = await createWorkflowHostApi().archive.measureEntries([
+      {
+        name: "files/source.bin",
+        sourcePath: pathToFileURL(sourcePath).href,
+      },
+    ]);
+
+    assert.equal(measured.files["files/source.bin"].size, 4);
+    assert.match(measured.files["files/source.bin"].sha256, /^[a-f0-9]{64}$/);
   });
 
   it("uses nsICryptoHash when WebCrypto is unavailable", async function () {

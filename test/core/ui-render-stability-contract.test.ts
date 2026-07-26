@@ -43,14 +43,30 @@ describe("UI render stability contract", function () {
     assert.notInclude(source, "JSON.stringify(snapshot) :");
   });
 
-  it("does not destroy graph renderers from generic shell rendering", async function () {
+  it("keeps one graph renderer across shell, surface, tab, and resize updates", async function () {
     const source = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
     const shell = functionBody(source, "renderShell");
+    const selectedTab = functionBody(source, "renderSelectedTabShell");
+    const surface = functionBody(source, "renderSurface");
+    const resize = functionBody(source, "scheduleSigmaResize");
 
-    assert.include(source, "function disposeGraphRenderer");
+    assert.include(source, "function ensurePersistentGraphSurface");
+    assert.include(source, "function preserveGraphSurfaceWhileRebuildingRoot");
+    assert.include(source, "state.sigma.setGraph(graph)");
+    assert.include(source, 'toggleAttribute("inert", !active)');
+    assert.include(
+      source,
+      'setAttribute("aria-hidden", active ? "false" : "true")',
+    );
     assert.include(source, "graphCamera");
-    assert.notInclude(shell, "state.sigma?.kill()");
-    assert.notInclude(shell, "state.sigmaResizeObserver?.disconnect()");
+    assert.notInclude(source, "disposeGraphRenderer");
+    assert.notInclude(source, ".kill()");
+    assert.notInclude(shell, "clear(root)");
+    assert.notInclude(selectedTab, "clear(main)");
+    assert.notInclude(surface, "clear(main)");
+    assert.include(resize, "state.sigmaResizeFrame");
+    assert.include(resize, "window.requestAnimationFrame");
+    assert.notInclude(resize, "setTimeout");
   });
 
   it("uses stable keys for scroll, focus, expanded details, and workspace mounts", async function () {

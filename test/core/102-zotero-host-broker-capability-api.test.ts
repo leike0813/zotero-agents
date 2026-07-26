@@ -11,6 +11,12 @@ import {
   handleZoteroMcpRequestForTests,
   resetZoteroMcpServerForTests,
 } from "../../src/modules/zoteroMcpServer";
+import {
+  resetZoteroLibraryPageQueryAdapterForTests,
+  setZoteroLibraryPageQueryAdapterForTests,
+} from "../../src/modules/zoteroLibraryPageQuery";
+import { createMockZoteroLibraryPageQueryAdapter } from "../helpers/zoteroLibraryPageQueryAdapter";
+import { getDefaultSynthesisService } from "../../src/modules/synthesis/service";
 
 const HOST_BRIDGE_CONTEXT_GET_CURRENT_VIEW = "context.get_current_view";
 
@@ -98,18 +104,83 @@ async function withMockTranslate<T>(
   }
 }
 
+async function withMockExportTranslators<T>(
+  args: {
+    translators: Record<string, Record<string, unknown> | null>;
+    outputs: Record<string, string | Error>;
+  },
+  callback: (calls: Array<Record<string, unknown>>) => Promise<T>,
+): Promise<T> {
+  const calls: Array<Record<string, unknown>> = [];
+  class Export {
+    items: unknown[] = [];
+    translatorID = "";
+    displayOptions: Record<string, unknown> = {};
+    string = "";
+
+    setItems(items: unknown[]) {
+      this.items = items;
+    }
+
+    setTranslator(translatorID: string) {
+      this.translatorID = translatorID;
+    }
+
+    setDisplayOptions(displayOptions: Record<string, unknown>) {
+      this.displayOptions = displayOptions;
+    }
+
+    async translate() {
+      calls.push({
+        translatorID: this.translatorID,
+        items: this.items,
+        displayOptions: this.displayOptions,
+      });
+      const output = args.outputs[this.translatorID];
+      if (output instanceof Error) throw output;
+      this.string = output;
+      return [];
+    }
+  }
+
+  const previousTranslate = (Zotero as any).Translate;
+  const previousTranslators = (Zotero as any).Translators;
+  (Zotero as any).Translate = { ...(previousTranslate || {}), Export };
+  (Zotero as any).Translators = {
+    ...(previousTranslators || {}),
+    async get(translatorID: string) {
+      return args.translators[translatorID] || null;
+    },
+  };
+  resetWorkflowHostApiForTests();
+  try {
+    return await callback(calls);
+  } finally {
+    (Zotero as any).Translate = previousTranslate;
+    (Zotero as any).Translators = previousTranslators;
+    resetWorkflowHostApiForTests();
+  }
+}
+
 describe("zotero host broker capability api", function () {
+  beforeEach(function () {
+    setZoteroLibraryPageQueryAdapterForTests(
+      createMockZoteroLibraryPageQueryAdapter(),
+    );
+  });
+
   afterEach(function () {
+    resetZoteroLibraryPageQueryAdapterForTests();
     resetWorkflowHostApiForTests();
     resetZoteroMcpServerForTests();
   });
 
-  it("exposes v8 broker domains without removing legacy APIs", async function () {
+  it("exposes v10 broker domains without removing legacy APIs", async function () {
     const hostApi = createWorkflowHostApi();
     const item = await createParentItem("Broker Legacy Compatibility");
 
     assert.strictEqual(hostApi.version, WORKFLOW_HOST_API_VERSION);
-    assert.strictEqual(WORKFLOW_HOST_API_VERSION, 8);
+    assert.strictEqual(WORKFLOW_HOST_API_VERSION, 10);
     assert.isFunction(hostApi.context.getCurrentView);
     assert.isFunction(hostApi.library.searchItems);
     assert.isFunction(hostApi.mutations.preview);
@@ -124,8 +195,11 @@ describe("zotero host broker capability api", function () {
     assert.isFunction(hostApi.archive.writeZipAtomic);
     assert.isFunction(hostApi.archive.withExtractedZip);
     assert.isFunction(hostApi.items.exportPortableJson);
+    assert.isFunction(hostApi.items.exportText);
     assert.isFunction(hostApi.items.createFromJson);
     assert.isFunction(hostApi.items.remove);
+    assert.isFunction(hostApi.statusTags.getPolicy);
+    assert.isFunction(hostApi.statusTags.transition);
     assert.isFunction(hostApi.attachments.importStoredFromPath);
     assert.strictEqual(hostApi.items.get(item.id), item);
 
@@ -133,6 +207,154 @@ describe("zotero host broker capability api", function () {
       title: "Broker Legacy Updated",
     });
     assert.strictEqual(item.getField("title"), "Broker Legacy Updated");
+  });
+
+  it("exports item text with ordered translator fallback", async function () {
+    const betterBibtexID = "ca65189f-8815-4afe-8c8b-8c7c15f0edca";
+    const nativeBibtexID = "9cb70025-a888-4a29-a210-93ec52da40d4";
+    const item = { id: 1, key: "AAAA1111" } as Zotero.Item;
+
+    await withMockExportTranslators(
+      {
+        translators: {
+          [betterBibtexID]: {
+            translatorID: betterBibtexID,
+            label: "Better BibTeX",
+            target: "bib",
+            translatorType: 3,
+          },
+          [nativeBibtexID]: {
+            translatorID: nativeBibtexID,
+            label: "BibTeX",
+            target: "bib",
+            translatorType: 3,
+          },
+        },
+        outputs: {
+          [betterBibtexID]: new Error("BBT failed"),
+          [nativeBibtexID]: "@article{native, title={Fallback}}\n",
+        },
+      },
+      async (calls) => {
+        const result = await createWorkflowHostApi().items.exportText({
+          items: [item],
+          translatorCandidates: [
+            { translatorID: betterBibtexID, label: "Better BibTeX" },
+            { translatorID: nativeBibtexID, label: "BibTeX" },
+          ],
+          displayOptions: {
+            exportNotes: false,
+            exportFileData: false,
+            keepUpdated: false,
+          },
+        });
+
+        assert.isTrue(result.ok);
+        if (!result.ok) throw new Error("expected export success");
+        assert.strictEqual(result.translator.translatorID, nativeBibtexID);
+        assert.isTrue(result.fallbackUsed);
+        assert.deepEqual(
+          result.attempts.map((attempt) => attempt.status),
+          ["failed", "succeeded"],
+        );
+        assert.deepEqual(
+          calls.map((call) => call.translatorID),
+          [betterBibtexID, nativeBibtexID],
+        );
+        assert.deepEqual(calls[1].items, [item]);
+      },
+    );
+  });
+
+  it("normalizes Host file paths and keeps exists a total boolean probe", async function () {
+    const runtime = globalThis as {
+      IOUtils?: {
+        exists?: (path: string) => Promise<boolean>;
+        readUTF8?: (path: string) => Promise<string>;
+      };
+    };
+    const previousIOUtils = runtime.IOUtils;
+    const probed: string[] = [];
+    const read: string[] = [];
+    runtime.IOUtils = {
+      async exists(target) {
+        probed.push(target);
+        if (target.includes("broken")) {
+          throw new Error("NS_ERROR_FILE_UNRECOGNIZED_PATH");
+        }
+        return true;
+      },
+      async readUTF8(target) {
+        read.push(target);
+        return "content";
+      },
+    };
+    resetWorkflowHostApiForTests();
+    try {
+      const hostApi = createWorkflowHostApi();
+      assert.isTrue(await hostApi.file.exists("E:/research/a b.md"));
+      assert.isFalse(await hostApi.file.exists("E:/research/broken.md"));
+      assert.isFalse(await hostApi.file.exists("file:///%"));
+      try {
+        await hostApi.file.readText("file:///%");
+        assert.fail("expected malformed strict file read to fail");
+      } catch (error) {
+        assert.instanceOf(error, TypeError);
+      }
+      assert.equal(
+        await hostApi.file.readText("file:///E:/research/a%20b.md"),
+        "content",
+      );
+      assert.deepEqual(probed, [
+        "E:\\research\\a b.md",
+        "E:\\research\\broken.md",
+      ]);
+      assert.deepEqual(read, ["E:\\research\\a b.md"]);
+    } finally {
+      if (previousIOUtils === undefined) {
+        delete runtime.IOUtils;
+      } else {
+        runtime.IOUtils = previousIOUtils;
+      }
+      resetWorkflowHostApiForTests();
+    }
+  });
+
+  it("transitions builtin workflow status instances idempotently by stable key", async function () {
+    await getDefaultSynthesisService().initializeBuiltinTagPolicy();
+    const hostApi = createWorkflowHostApi();
+    const item = await createParentItem("Broker Status Transition");
+
+    const added = await hostApi.statusTags.transition({
+      item,
+      add: ["need-analysis", "need-fulltext"],
+    });
+    assert.sameMembers(added.added, [
+      "status:need-analysis",
+      "status:need-fulltext",
+    ]);
+    assert.deepEqual(added.warnings, []);
+
+    const idempotent = await hostApi.statusTags.transition({
+      item,
+      add: ["need-analysis"],
+      remove: ["need-fulltext"],
+    });
+    assert.deepEqual(idempotent.added, []);
+    assert.deepEqual(idempotent.removed, ["status:need-fulltext"]);
+    assert.deepEqual(await handlers.tag.list(item), ["status:need-analysis"]);
+
+    for (const request of [
+      { item, add: ["unknown"] },
+      { item, add: ["need-analysis"], remove: ["need-analysis"] },
+    ]) {
+      try {
+        await hostApi.statusTags.transition(request as any);
+        assert.fail("expected invalid status transition to fail");
+      } catch (error) {
+        assert.match(String(error), /status key|added and removed/i);
+      }
+    }
   });
 
   it("projects only a real selected collection into current view", async function () {
@@ -366,7 +588,7 @@ describe("zotero host broker capability api", function () {
     assert.doesNotThrow(() => JSON.stringify(snapshot));
   });
 
-  it("enumerates library items through Zotero.Items.getAll(libraryId) without sparse ID fallback", async function () {
+  it("hydrates only the current database-selected page, including sparse ids", async function () {
     const hostApi = createWorkflowHostApi();
     const highIdItem = new Zotero.Item("journalArticle");
     highIdItem.id = 1892;
@@ -376,34 +598,34 @@ describe("zotero host broker capability api", function () {
     highIdItem.setCreators?.([{ lastName: "Sparse" }]);
     await highIdItem.saveTx();
 
-    const previousGetAll = (Zotero.Items as any).getAll;
-    const previousGet = Zotero.Items.get;
-    const getAllLibraryIds: unknown[] = [];
-    const getItemIds: number[] = [];
-    (Zotero.Items as any).getAll = async (libraryId: unknown) => {
-      getAllLibraryIds.push(libraryId);
-      return previousGetAll.call(Zotero.Items, libraryId);
-    };
-    (Zotero.Items as any).get = (id: number) => {
-      getItemIds.push(id);
-      return previousGet.call(Zotero.Items, id);
+    const secondHighIdItem = new Zotero.Item("journalArticle");
+    secondHighIdItem.id = 2892;
+    secondHighIdItem.key = "HIGH2892";
+    secondHighIdItem.libraryID = Zotero.Libraries.userLibraryID;
+    secondHighIdItem.setField("title", "Broker Sparse High ID Paper Two");
+    await secondHighIdItem.saveTx();
+
+    const previousGetAsync = (Zotero.Items as any).getAsync;
+    const hydrateCalls: number[][] = [];
+    (Zotero.Items as any).getAsync = async (ids: number[]) => {
+      assert.isArray(ids);
+      hydrateCalls.push([...ids]);
+      return previousGetAsync.call(Zotero.Items, ids);
     };
 
     try {
       const list = await hostApi.library.listItems({
         query: "Sparse High ID",
-        limit: 10,
+        limit: 1,
       });
       const search = await hostApi.library.searchItems({
         query: "Sparse High ID",
-        limit: 10,
+        limit: 1,
       });
 
-      assert.deepEqual(getAllLibraryIds, [
-        Zotero.Libraries.userLibraryID,
-        Zotero.Libraries.userLibraryID,
-      ]);
-      assert.deepEqual(getItemIds, []);
+      assert.deepEqual(hydrateCalls, [[highIdItem.id], [highIdItem.id]]);
+      assert.isTrue(list.hasMore);
+      assert.match(list.nextCursor, /^[A-Za-z0-9_-]+$/);
       assert.include(
         list.items.map((item) => item.key),
         highIdItem.key,
@@ -413,8 +635,7 @@ describe("zotero host broker capability api", function () {
         highIdItem.key,
       );
     } finally {
-      (Zotero.Items as any).getAll = previousGetAll;
-      (Zotero.Items as any).get = previousGet;
+      (Zotero.Items as any).getAsync = previousGetAsync;
     }
   });
 

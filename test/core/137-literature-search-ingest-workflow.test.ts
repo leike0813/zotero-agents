@@ -11,36 +11,31 @@ import { buildWorkflowSettingsUiDescriptor } from "../../src/modules/workflowSet
 import { resolveWorkflowParameterOptionsSource } from "../../src/modules/workflowParameterOptions";
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
+import { applyResult } from "../../workflows_builtin/literature-workbench-package/literature-search-ingest/hooks/applyResult.mjs";
 
-function completedPayload(searchMode = "topic_expansion") {
+function completedPayload() {
   return {
     __SKILL_DONE__: true,
     kind: "literature_search_ingest",
-    query: "foundation models for visual inspection",
-    search_mode: searchMode,
-    ingested_references: [
+    status: "completed",
+    summary: {
+      discovered: 1,
+      selected: 1,
+      created: 1,
+      existing: 0,
+      failed: 0,
+      notAttempted: 0,
+    },
+    outcomes: [
       {
-        index: 1,
         title: "A Survey of Visual Inspection Foundation Models",
-        status: "created",
-        doi: "10.5555/example",
-        landingUrl: "https://doi.org/10.5555/example",
+        ingestStatus: "created",
+        pdfStatus: "missing",
+        needsCuration: true,
+        itemRef: { id: 101 },
       },
     ],
-    missing_pdf_references: [
-      {
-        index: 1,
-        title: "A Survey of Visual Inspection Foundation Models",
-        status: "created",
-        doi: "10.5555/example",
-        landingUrl: "https://doi.org/10.5555/example",
-        manualSearchLinks: [
-          "https://doi.org/10.5555/example",
-          "https://scholar.google.com/scholar?q=%22A%20Survey%20of%20Visual%20Inspection%20Foundation%20Models%22",
-        ],
-        reason: "no_public_pdf_url",
-      },
-    ],
+    searchLedgerPath: "result/search-ledger.json",
   };
 }
 
@@ -102,7 +97,13 @@ describe("Literature Search Ingest workflow contract", function () {
       "targeted_ingest",
     ]);
     assert.equal(workflow.parameters?.searchMode?.default, "auto");
-    assert.isUndefined(workflow.parameters?.language);
+    assert.equal(workflow.parameters?.searchBreadth?.default, "broad");
+    assert.deepEqual(workflow.parameters?.searchBreadth?.enum, [
+      "broad",
+      "balanced",
+      "quick",
+    ]);
+    assert.equal(workflow.parameters?.languageHints?.type, "array");
     assert.equal(workflow.parameters?.targetCollection?.type, "string");
     assert.isFalse(workflow.parameters?.targetCollection?.allowCustom);
     assert.equal(
@@ -419,6 +420,8 @@ describe("Literature Search Ingest workflow contract", function () {
         workflowParams: {
           query: "retrieval augmented generation evaluation",
           searchMode: "targeted_ingest",
+          searchBreadth: "balanced",
+          languageHints: ["en", "zh-CN"],
           targetCollection: "RAG",
         },
         runOptions: {
@@ -443,6 +446,8 @@ describe("Literature Search Ingest workflow contract", function () {
       "retrieval augmented generation evaluation",
     );
     assert.equal(requests[0].parameter?.searchMode, "targeted_ingest");
+    assert.equal(requests[0].parameter?.searchBreadth, "balanced");
+    assert.deepEqual(requests[0].parameter?.languageHints, ["en", "zh-CN"]);
     assert.isUndefined(requests[0].parameter?.autoApproveZoteroWrites);
     assert.isUndefined(
       (requests[0] as any).runtime_options?.zotero_host_access,
@@ -550,6 +555,15 @@ describe("Literature Search Ingest workflow contract", function () {
     assert.include(files, "assets/runner.json");
     assert.include(files, "assets/parameter.schema.json");
     assert.include(files, "assets/output.schema.json");
+    assert.include(files, "references/search-planning-and-discovery.md");
+    assert.include(files, "references/metadata-resolution.md");
+    assert.include(files, "references/pdf-probe.md");
+    assert.include(files, "references/ingest-output-recovery.md");
+    assert.notInclude(files, "references/stage-playbooks.md");
+    assert.notInclude(files, "assets/runtime-action.schema.json");
+    assert.notInclude(files, "scripts/gate_runtime.py");
+    assert.notInclude(files, "scripts/stage_runtime.py");
+    assert.notInclude(files, "scripts/batch_runtime.py");
   });
 
   it("loads literature workbench workflows after syncing only packaged manifest files", async function () {
@@ -607,22 +621,113 @@ describe("Literature Search Ingest workflow contract", function () {
       primarySkillDir,
     });
 
-    const guided = await validateAcpSkillFinalPayload({
-      payload: completedPayload("guided"),
-      runnerJson,
-      primarySkillDir,
-    });
-
     assert.isTrue(completed.ok, completed.errors.join("; "));
     assert.isTrue(
       completedAfterConvergence.ok,
       completedAfterConvergence.errors.join("; "),
     );
     assert.isTrue(canceled.ok, canceled.errors.join("; "));
-    assert.isTrue(guided.ok, guided.errors.join("; "));
+    const verbose = completedPayload() as any;
+    verbose.outcomes[0].candidateId = "doi:10.5555/example";
+    const rejectedVerbose = await validateAcpSkillFinalPayload({
+      payload: verbose,
+      runnerJson,
+      primarySkillDir,
+    });
+    assert.isFalse(rejectedVerbose.ok);
   });
 
-  it("keeps detailed skill rules while delegating runner behavior", async function () {
+  it("adds the governed metadata-curation tag after final outcomes are known", async function () {
+    const transitions: any[] = [];
+    const result = (await applyResult({
+      runResult: { resultJson: completedPayload() },
+      runtime: {
+        hostApiVersion: 9,
+        hostApi: {
+          statusTags: {
+            async transition(value: unknown) {
+              transitions.push(value);
+              return { added: [], removed: [], warnings: [] };
+            },
+          },
+        },
+      },
+    } as any)) as any;
+
+    assert.deepEqual(transitions, [
+      {
+        item: 101,
+        add: [
+          "need-markdown",
+          "need-analysis",
+          "need-deep-reading",
+          "need-metadata-curation",
+          "need-fulltext",
+        ],
+      },
+    ]);
+    assert.isTrue(result.applied);
+    assert.deepEqual(result.taggedItemIds, [101]);
+  });
+
+  it("does not requeue existing items and omits fulltext when this search attached a PDF", async function () {
+    const existing = completedPayload();
+    existing.outcomes[0].ingestStatus = "existing";
+    const createdWithPdf = completedPayload();
+    createdWithPdf.outcomes[0].pdfStatus = "attached";
+    createdWithPdf.outcomes[0].needsCuration = false;
+
+    const calls: unknown[] = [];
+    const runtime = {
+      hostApiVersion: 9,
+      hostApi: {
+        statusTags: {
+          async transition(value: unknown) {
+            calls.push(value);
+            return { added: [], removed: [], warnings: [] };
+          },
+        },
+      },
+    };
+    await applyResult({ runResult: { resultJson: existing }, runtime } as any);
+    await applyResult({
+      runResult: { resultJson: createdWithPdf },
+      runtime,
+    } as any);
+
+    assert.deepEqual(calls, [
+      {
+        item: 101,
+        add: ["need-metadata-curation", "need-fulltext"],
+      },
+      {
+        item: 101,
+        add: ["need-markdown", "need-analysis", "need-deep-reading"],
+      },
+    ]);
+  });
+
+  it("does not mutate vocabulary or tags without eligible outcomes", async function () {
+    let calls = 0;
+    const result = (await applyResult({
+      runResult: { resultJson: canceledPayload() },
+      runtime: {
+        hostApi: {
+          statusTags: {
+            transition() {
+              calls += 1;
+            },
+          },
+        },
+      },
+    } as any)) as any;
+
+    assert.equal(calls, 0);
+    assert.isFalse(result.applied);
+    assert.isTrue(result.skipped);
+  });
+
+  it("ships a complete interactive instruction-backed skill contract", async function () {
     const skill = await fs.readFile(
       "skills_builtin/literature-search-ingest/SKILL.md",
       "utf8",
@@ -635,43 +740,34 @@ describe("Literature Search Ingest workflow contract", function () {
     );
     const prompt = runner.entrypoint?.prompts?.common || "";
 
-    assert.include(prompt, "必须先阅读 SKILL.md");
-    assert.notInclude(prompt, "China DOI");
-    assert.notInclude(prompt, "attachLandingUrlOnMissingPdf");
-    assert.include(skill, "`guided`");
-    assert.include(skill, "`query.trim()`");
-    assert.include(skill, "本地 Zotero/Synthesis");
-    assert.include(skill, "不得联网、下载、创建或写入条目");
-    assert.include(skill, "不得重新选择、映射或分类为原三种策略");
-    assert.include(skill, "确认后直接进入候选搜索");
-    assert.include(skill, "open_text");
-    assert.include(skill, "普通 assistant 消息");
-    assert.include(skill, "synthesis topic list");
-    assert.include(skill, "synthesis index library get");
-    assert.include(skill, "synthesis artifact read");
-    assert.include(skill, "targeted_ingest");
-    assert.include(skill, "China DOI");
-    assert.include(skill, "知网");
-    assert.include(skill, "万方");
-    assert.include(skill, "PDC");
-    assert.include(skill, "filetype:pdf");
-    assert.include(skill, "identifier_not_found");
-    assert.include(skill, "等待用户确认");
-    assert.include(skill, "逐篇调用");
-    assert.include(skill, "ingest-paper-001.json");
-    assert.include(skill, "papers[]");
-    assert.include(skill, "最终输出必须是单个合法 JSON object");
-    assert.include(skill, "hasPdfAttachment");
-    assert.include(skill, "manualSearchLinks");
-    assert.include(skill, "不得以仅有标题");
-    assert.include(skill, "`ingested_references`");
-    assert.include(skill, "`missing_pdf_references`");
-    assert.include(skill, '"literature_search_ingest"');
-    assert.include(skill, '"literature_search_ingest_canceled"');
-    assert.include(skill, '"user_cancelled"');
-    assert.notInclude(skill, "confirmed_references");
-    assert.notInclude(skill, "confirmed-papers.json");
-    assert.notInclude(prompt, "confirmed-papers.json");
+    assert.deepEqual(runner.execution_modes, ["interactive"]);
+    assert.equal(runner.runtime?.language, "python");
+    assert.equal(runner.runtime?.version, "3.11");
+    assert.deepEqual(runner.runtime?.dependencies, []);
+    assert.include(prompt, "SKILL.md");
+    assert.match(prompt, /最终.*JSON/);
+    for (const stage of [
+      "阶段 10",
+      "阶段 20",
+      "阶段 30",
+      "阶段 40",
+      "阶段 50",
+    ]) {
+      assert.include(skill, `### ${stage}`, stage);
+    }
+    for (const reference of [
+      "references/search-planning-and-discovery.md",
+      "references/metadata-resolution.md",
+      "references/pdf-probe.md",
+      "references/ingest-output-recovery.md",
+    ]) {
+      assert.include(skill, reference);
+    }
+    assert.include(skill, "abstractNote");
+    assert.include(skill, "skipped_after_verified_pdf");
+    assert.match(skill, /一次只.*一篇|逐篇.*串行/);
+    assert.notInclude(skill, "gate_runtime.py");
+    assert.notInclude(skill, "runtime-action.schema.json");
     assert.isUndefined(runner.mcp);
     assert.notInclude(skill, "MCP");
     assert.notInclude(prompt, "MCP");

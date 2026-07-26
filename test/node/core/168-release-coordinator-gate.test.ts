@@ -19,9 +19,7 @@ function commandRunner(
     "git describe --tags --abbrev=0": "v0.5.3\n",
     "git diff --name-only v0.5.3..HEAD": "",
     "git rev-list --left-right --count HEAD...origin/main": "0\t0\n",
-    "git rev-list --left-right --count HEAD...gitee/main": "0\t0\n",
     "git ls-remote --tags origin refs/tags/v0.5.5": "",
-    "git ls-remote --tags gitee refs/tags/v0.5.5": "",
     "git tag --list v0.5.5": "",
     "gh release view v0.5.5 --repo leike0813/zotero-agents": "",
   };
@@ -69,10 +67,52 @@ describe("release coordinator gate", function () {
         contentPackageReleaseVerified: true,
       });
 
-      assert.equal(report.schema, "zotero-agents.release-gate.v1");
+      assert.equal(report.schema, "zotero-agents.release-gate.v2");
       assert.equal(report.next_action, "ready_to_release");
       assert.deepEqual(report.blockers, []);
       assert.include(report.suggested_commands, "npm run release -- v0.5.5");
+    });
+  });
+
+  it("treats a GitHub release not-found response as a missing release", async function () {
+    await withPackageVersion("0.5.4", async (packageJsonPath) => {
+      const report = await analyzeReleaseGate({
+        packageJsonPath,
+        targetVersion: "v0.5.5",
+        commandRunner: commandRunner({
+          "gh release view v0.5.5 --repo leike0813/zotero-agents": new Error(
+            "release not found",
+          ),
+        }),
+        testNodeFullPassed: true,
+        lintCheckPassed: true,
+        contentPackageReleaseVerified: true,
+      });
+
+      assert.equal(report.github_release.status, "missing");
+      assert.notInclude(blockerCodes(report), "target_release_state_unknown");
+      assert.equal(report.next_action, "ready_to_release");
+    });
+  });
+
+  it("keeps unexpected GitHub release lookup failures unknown", async function () {
+    await withPackageVersion("0.5.4", async (packageJsonPath) => {
+      const report = await analyzeReleaseGate({
+        packageJsonPath,
+        targetVersion: "v0.5.5",
+        commandRunner: commandRunner({
+          "gh release view v0.5.5 --repo leike0813/zotero-agents": new Error(
+            "HTTP 401 authentication required",
+          ),
+        }),
+        testNodeFullPassed: true,
+        lintCheckPassed: true,
+        contentPackageReleaseVerified: true,
+      });
+
+      assert.equal(report.github_release.status, "unknown");
+      assert.include(blockerCodes(report), "target_release_state_unknown");
+      assert.equal(report.next_action, "recover_release_state");
     });
   });
 
@@ -118,6 +158,23 @@ describe("release coordinator gate", function () {
     });
   });
 
+  it("routes the unified Host Bridge release workflow to its pipeline", async function () {
+    await withPackageVersion("0.5.4", async (packageJsonPath) => {
+      const report = await analyzeReleaseGate({
+        packageJsonPath,
+        targetVersion: "v0.5.5",
+        changedFiles: [".github/workflows/release-host-bridge.yml"],
+        commandRunner: commandRunner(),
+        testNodeFullPassed: true,
+        lintCheckPassed: true,
+        contentPackageReleaseVerified: true,
+      });
+
+      assert.equal(report.next_action, "run_host_bridge_pipeline");
+      assert.isTrue(report.host_bridge.required);
+    });
+  });
+
   it("requires content package verification for content package candidate changes", async function () {
     await withPackageVersion("0.5.4", async (packageJsonPath) => {
       const report = await analyzeReleaseGate({
@@ -157,25 +214,28 @@ describe("release coordinator gate", function () {
     });
   });
 
-  it("does not block plugin release readiness on Gitee mirror drift", async function () {
+  it("does not inspect Gitee state in the canonical release gate", async function () {
     await withPackageVersion("0.5.4", async (packageJsonPath) => {
+      const calls: string[] = [];
+      const runner = commandRunner();
       const report = await analyzeReleaseGate({
         packageJsonPath,
         targetVersion: "v0.5.5",
-        commandRunner: commandRunner({
-          "git rev-list --left-right --count HEAD...gitee/main": "1\t0\n",
-        }),
+        commandRunner: async (command, args) => {
+          calls.push([command, ...args].join(" "));
+          return runner(command, args);
+        },
         testNodeFullPassed: true,
         lintCheckPassed: true,
         contentPackageReleaseVerified: true,
       });
 
       assert.equal(report.next_action, "ready_to_release");
-      assert.notInclude(blockerCodes(report), "main_not_synced_gitee");
-      assert.equal(
-        report.remotes.find((remote) => remote.name === "gitee")?.main.status,
-        "local_ahead",
+      assert.deepEqual(
+        report.remotes.map((remote) => remote.name),
+        ["origin"],
       );
+      assert.isFalse(calls.some((call) => /gitee/i.test(call)));
     });
   });
 
@@ -207,7 +267,6 @@ describe("release coordinator gate", function () {
       "--test-node-full-passed",
       "--lint-check-passed",
       "--content-package-release-verified",
-      "--content-package-mirror-verified",
     ]);
 
     assert.equal(args.targetVersion, "v0.5.5");
@@ -216,6 +275,5 @@ describe("release coordinator gate", function () {
     assert.isTrue(args.testNodeFullPassed);
     assert.isTrue(args.lintCheckPassed);
     assert.isTrue(args.contentPackageReleaseVerified);
-    assert.isTrue(args.contentPackageMirrorVerified);
   });
 });

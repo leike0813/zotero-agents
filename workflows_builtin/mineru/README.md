@@ -85,6 +85,8 @@ MinerU 精准解析接口对单次解析有页数限制。此 workflow 会在执
 - 在父条目下创建链接到 `.md` 文件的 Zotero 附件
 - 已在同目录存在同名 `.md` 时跳过
 
+Markdown 成功写入并附加后，workflow 会同时移除父条目上的 `status:need-markdown` 和 `status:need-fulltext`。失败、跳过或尚未附加正式产物时保留；状态清理失败只产生部分成功警告，不回滚 Markdown 和图片产物。用户后来手工添加 PDF 不会触发自动清理。
+
 ## 参数说明
 
 无用户可配置参数。

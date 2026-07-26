@@ -1,11 +1,10 @@
 # Host Bridge CLI 说明书
 
-本文档描述当前实现中的 Host Bridge 与 `zotero-bridge` CLI。它面向
-开发者、workflow 作者以及需要理解 ACP run workspace 行为的维护者。
-
-本文档以 `artifact/host_bridge_cli_refactor_design_20260520.md` 为背景，
-但只记录当前代码中已经实现的行为。若设计文档与本文档不一致，以当前
-实现和本文档为准。
+本文档描述 Host Bridge 与 `zotero-bridge` CLI 的机制层接口。它面向开发者、
+workflow 作者以及需要理解 ACP run workspace 行为的维护者。三层发布面的
+所有权、组合、Skill 包约束和发布身份由
+[Host Bridge Agent-facing Surfaces](components/host-bridge-agent-surfaces.md)
+统一定义；本文只覆盖其中的 Minimum 机制层。
 
 ## 1. 定位
 
@@ -20,10 +19,15 @@ MCP server/protocol 作为面向第三方 Agent 的另一种 Host capability bro
 默认 host access 路径仍是 Host Bridge CLI；CLI 不可用时，默认记录诊断并
 继续当前 run 流程，不自动切换到显式 MCP 兼容路径。
 
+Minimum 通过 `host-bridge.agent-surface.v5` 发布命令路径、完整参数元数据、结构化输入 schema、示例与命令级输出
+schema、副作用、审批、handle、恢复、目标和操作别名。研究任务选择属于
+Generic 层，常驻自动化属于 Hermes 层；两者不进入 CLI 的机制描述符或构建
+身份。
+
 ### 1.1 Generated Host Bridge Surface
 
 <!-- host-bridge-surface:doc-surface:start -->
-This section is generated from the Host Bridge capability registry and Rust CLI mappings. Edit the registry or CLI source, then run `npm run render:host-bridge-surface`.
+This section is generated from the Host Bridge capability registry and Rust CLI mappings. It is the mechanism-only v4 command surface. Edit the registry or CLI source, then run `npm run render:host-bridge-surface`.
 
 #### Public capabilities
 
@@ -62,9 +66,11 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `citation_graph.rank_external_references` | citation_graph | `none` | `object` | `synthesis graph rank-external-references` | cache-view, response:paged, mcp-mirror |
 | `citation_graph.rank_library_papers` | citation_graph | `none` | `object` | `synthesis graph rank-library-papers` | cache-view, response:paged, mcp-mirror |
 | `citation_graph.refresh_metrics` | citation_graph | `zotero-ui-required` | `object` | `synthesis graph refresh-metrics` | dangerous, mcp-mirror |
+| `citation_graph.update` | citation_graph | `zotero-ui-required` | `object` | `synthesis graph update` | dangerous, mcp-mirror |
 | `library_index.get` | library_index | `none` | `object` | `synthesis index library get` | cache-view, response:paged, mcp-mirror |
 | `resolvers.resolve` | resolvers | `none` | `object` | `synthesis resolver resolve` | response:paged, mcp-mirror |
 | `reference_index.get` | reference_index | `none` | `object` | `synthesis index reference get` | cache-view, response:paged, mcp-mirror |
+| `reference_sidecar.refresh` | reference_index | `zotero-ui-required` | `object` | `synthesis cache refresh-reference-sidecar` | dangerous, mcp-mirror |
 | `paper_artifacts.export_filtered` | paper_artifacts | `none` | `object` | `synthesis artifact export-filtered` | response:file-output, mcp-mirror |
 | `paper_artifacts.get_manifest` | paper_artifacts | `none` | `object` | `synthesis artifact manifest` | response:selector-bounded, mcp-mirror |
 | `paper_artifacts.read` | paper_artifacts | `none` | `object` | `synthesis artifact read` | response:selector-bounded, mcp-mirror |
@@ -74,6 +80,7 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `mutation.preview` | mutation | `none` | `mutation-preview required` | `mutation preview` | mcp-mirror |
 | `workflow_products.remove` | mutation | `zotero-ui-required` | `object required` | `product remove` | mcp-mirror |
 | `diagnostic.get_status` | diagnostic | `none` | `none` | `raw call only` | raw-only, mcp-mirror |
+| `synthesis.operation.get` | diagnostic | `none` | `object required` | `synthesis cache status` | mcp-mirror |
 
 #### CLI mappings
 
@@ -105,7 +112,9 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `synthesis artifact read` | `paper_artifacts.read` | capability | - |
 | `synthesis artifact resolve-topic-digest` | `paper_artifacts.resolve_topic_digest` | capability | - |
 | `synthesis cache invalidate` | `POST /bridge/v1/synthesis/cache/invalidate` | endpoint | - |
+| `synthesis cache refresh-reference-sidecar` | `reference_sidecar.refresh` | capability | dangerous |
 | `synthesis cache status` | `GET /bridge/v1/synthesis/cache/status` | endpoint | - |
+| `synthesis cache status` | `synthesis.operation.get` | capability | - |
 | `synthesis concept query` | `concepts.query` | capability | - |
 | `synthesis graph get-layout` | `citation_graph.get_layout` | capability | cache-view |
 | `synthesis graph get-metrics` | `citation_graph.get_metrics` | capability | cache-view |
@@ -115,6 +124,7 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `synthesis graph rank-external-references` | `citation_graph.rank_external_references` | capability | cache-view |
 | `synthesis graph rank-library-papers` | `citation_graph.rank_library_papers` | capability | cache-view |
 | `synthesis graph refresh-metrics` | `citation_graph.refresh_metrics` | capability | dangerous |
+| `synthesis graph update` | `citation_graph.update` | capability | dangerous |
 | `synthesis index library get` | `library_index.get` | capability | cache-view |
 | `synthesis index reference get` | `reference_index.get` | capability | cache-view |
 | `synthesis index status` | `GET /bridge/v1/synthesis/index/status` | endpoint | - |
@@ -126,10 +136,16 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `synthesis topic get-report` | `topics.get_report` | capability | - |
 | `synthesis topic get-review-input` | `topics.get_review_input` | capability | - |
 | `synthesis topic list` | `topics.list` | capability | - |
+| `workflow agent-abandon` | `POST /bridge/v1/workflows/agent-runs/{agentRunId}/abandon` | endpoint | - |
 | `workflow agent-apply` | `POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply` | endpoint | - |
+| `workflow agent-apply-status` | `GET /bridge/v1/workflows/agent-runs/{agentRunId}/apply` | endpoint | - |
+| `workflow agent-renew` | `POST /bridge/v1/workflows/agent-runs/{agentRunId}/renew` | endpoint | - |
 | `workflow agent-run` | `POST /bridge/v1/workflows/agent-run` | endpoint | - |
 | `workflow describe` | `POST /bridge/v1/workflows/describe` | endpoint | - |
 | `workflow list` | `GET /bridge/v1/workflows` | endpoint | - |
+| `workflow profile describe` | `POST /bridge/v1/workflows/provider-profiles/describe` | endpoint | - |
+| `workflow profile list` | `GET /bridge/v1/workflows/provider-profiles` | endpoint | - |
+| `workflow profile validate` | `POST /bridge/v1/workflows/provider-profiles/validate` | endpoint | - |
 | `workflow requirements` | `POST /bridge/v1/workflows/requirements` | endpoint | - |
 | `workflow submit` | `POST /bridge/v1/workflows/submit` | endpoint | - |
 | `workflow validate` | `POST /bridge/v1/workflows/validate` | endpoint | - |
@@ -167,8 +183,16 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `debug acp-skill-run reapply-result` | `debug.acpSkillRun.reapplyResult` | capability | - |
 | `debug persistence` | `debug.persistence.snapshot` | capability | - |
 | `debug status` | `debug.status` | capability | - |
+| `debug synthesis cache` | `debug.synthesis.cache.list` | capability | - |
+| `debug synthesis clean-install-reset` | `debug.synthesis.cleanInstallReset` | capability | dangerous |
 | `debug synthesis diff` | `debug.synthesis.diff` | capability | - |
+| `debug synthesis inspect-paper` | `debug.synthesis.paper.inspect` | capability | - |
+| `debug synthesis inspect-topic` | `debug.synthesis.topic.inspect` | capability | - |
+| `debug synthesis operations` | `debug.synthesis.operations.list` | capability | - |
+| `debug synthesis profiler` | `debug.synthesis.profiler.list` | capability | - |
+| `debug synthesis snapshot` | `debug.synthesis.snapshot` | capability | - |
 | `debug tasks` | `debug.tasks.snapshot` | capability | - |
+| `call` | `POST /bridge/v1/call` | service | - |
 | `context collection open` | `POST /bridge/v1/context/collections/open` | endpoint | - |
 | `context current` | `GET /bridge/v1/context/current` | endpoint | - |
 | `context current` | `context.get_current_view` | capability | - |
@@ -177,6 +201,7 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `context selection get` | `GET /bridge/v1/context/selection` | endpoint | - |
 | `context selection get` | `context.get_selected_items` | capability | - |
 | `context selection open` | `POST /bridge/v1/context/selection/open` | endpoint | - |
+| `operation get` | `GET /bridge/v1/operations/{operationId}` | endpoint | - |
 | `product download` | `workflow_products.export` | capability | - |
 | `product get` | `workflow_products.get` | capability | - |
 | `product list` | `workflow_products.list` | capability | - |
@@ -187,12 +212,12 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 - Use inline JSON with `--query` by default. Use stdin, `@file`, or a bare JSON file path only when that source is intentional.
 - Use `zotero-bridge library item search --query '{"text":"graph","limit":10}'` for finite candidate discovery.
 - Use `zotero-bridge library items list --query '{"limit":50,"collectionKey":"COLL"}'` for bounded library inventory pages.
-- Use `zotero-bridge library snapshot --query '{"limit":200,"cursor":"0"}'` for local metadata indexes.
+- Use `zotero-bridge library snapshot --query '{"limit":200}'` for the first local metadata index page.
 - Use `zotero-bridge library readiness missing-pdf|missing-markdown|missing-analysis --query '{"limit":100}'` before scheduling PDF retrieval, Markdown conversion, or literature-analysis work.
 - `library items list` accepts `collectionKey`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--query`.
 - `library snapshot` accepts `collectionKey`, `collectionId`, `tag`, `itemType`, `query`, `cursor`, and `limit` in `--query`.
 - `library readiness audit` accepts the same library filters plus `checks` and `missingOnly`; Markdown and analysis readiness reuse the Zotero Artifacts column rules.
-- Use `nextCursor` with `hasMore` to page library and snapshot results.
+- Omit `cursor` on the first library, snapshot, or readiness page. When `hasMore` is true, pass the exact returned opaque `nextCursor`; never construct or increment a cursor.
 
 #### Large response pagination
 
@@ -237,14 +262,14 @@ This section is generated from the Host Bridge capability registry and Rust CLI 
 | `debug.persistence.snapshot` | debug | `none` | `object` | `debug persistence` | debug-only, mcp-mirror |
 | `debug.skillrunner.connections.snapshot` | debug | `none` | `object` |  | debug-only, mcp-mirror |
 | `debug.status` | debug | `none` | `object` | `debug status` | debug-only, mcp-mirror |
-| `debug.synthesis.cache.list` | debug | `none` | `object` |  | debug-only, mcp-mirror |
-| `debug.synthesis.cleanInstallReset` | debug | `zotero-ui-required` | `object` |  | debug-only, dangerous, mcp-mirror |
+| `debug.synthesis.cache.list` | debug | `none` | `object` | `debug synthesis cache` | debug-only, mcp-mirror |
+| `debug.synthesis.cleanInstallReset` | debug | `zotero-ui-required` | `object` | `debug synthesis clean-install-reset` | debug-only, dangerous, mcp-mirror |
 | `debug.synthesis.diff` | debug | `none` | `object` | `debug synthesis diff` | debug-only, mcp-mirror |
-| `debug.synthesis.operations.list` | debug | `none` | `object` |  | debug-only, mcp-mirror |
-| `debug.synthesis.paper.inspect` | debug | `none` | `object` |  | debug-only, mcp-mirror |
-| `debug.synthesis.profiler.list` | debug | `none` | `object` |  | debug-only, mcp-mirror |
-| `debug.synthesis.snapshot` | debug | `none` | `object` |  | debug-only, mcp-mirror |
-| `debug.synthesis.topic.inspect` | debug | `none` | `object` |  | debug-only, mcp-mirror |
+| `debug.synthesis.operations.list` | debug | `none` | `object` | `debug synthesis operations` | debug-only, mcp-mirror |
+| `debug.synthesis.paper.inspect` | debug | `none` | `object` | `debug synthesis inspect-paper` | debug-only, mcp-mirror |
+| `debug.synthesis.profiler.list` | debug | `none` | `object` | `debug synthesis profiler` | debug-only, mcp-mirror |
+| `debug.synthesis.snapshot` | debug | `none` | `object` | `debug synthesis snapshot` | debug-only, mcp-mirror |
+| `debug.synthesis.topic.inspect` | debug | `none` | `object` | `debug synthesis inspect-topic` | debug-only, mcp-mirror |
 | `debug.tasks.snapshot` | debug | `none` | `object` | `debug tasks` | debug-only, mcp-mirror |
 | `debug.zotero.eval` | debug | `zotero-ui-required` | `object` | `raw call only` | debug-only, dangerous, raw-only, mcp-mirror |
 
@@ -1542,18 +1567,30 @@ canonical mutation operation：
 {
   "operation": "literature.ingest",
   "paper": {
-    "title": "Paper title",
-    "authors": ["Author One"],
-    "year": 2026,
-    "doi": "10.1000/example",
-    "arxiv": "2601.00001",
-    "pmid": "12345678",
-    "isbn": "9780000000000",
+    "itemType": "journalArticle",
+    "fields": {
+      "title": "Paper title",
+      "date": "2026",
+      "DOI": "10.1000/example",
+      "publicationTitle": "Journal",
+      "abstractNote": "Optional abstract",
+      "url": "https://example.org/paper"
+    },
+    "creators": [
+      {
+        "firstName": "Author",
+        "lastName": "One",
+        "creatorType": "author"
+      }
+    ],
+    "identifiers": {
+      "doi": "10.1000/example",
+      "arxiv": "2601.00001",
+      "pmid": "12345678"
+    },
     "landingUrl": "https://example.org/paper",
     "pdfUrl": "https://example.org/paper.pdf",
-    "attachLandingUrlOnMissingPdf": true,
-    "abstract": "Optional abstract",
-    "venue": "Journal"
+    "attachLandingUrlOnMissingPdf": true
   },
   "collection": {
     "key": "COLLKEY",
@@ -1990,7 +2027,14 @@ GET <endpoint>/workflows
       "packageId": "package-id",
       "configurable": true,
       "acceptsNoSelection": false,
-      "inputUnit": "item",
+      "inputs": {
+        "member": { "kind": "parent" },
+        "grouping": { "mode": "each" }
+      },
+      "validateSelection": {
+        "select": { "policy": "input-member", "source": "selected" },
+        "filters": []
+      },
       "parameters": ["language"]
     }
   ]
@@ -2063,9 +2107,10 @@ CLI agent-run 只发送 `workflowId`、`selection` 和 `delivery`。它返回 ha
 bundle 的下载句柄；传入 `--output-dir` 时，CLI 会把 zip 下载到该目录并在
 stdout JSON 中加入 `download.outputPath`。
 
-agent-run 发包只要求 selection 满足 manifest `inputs`。`validateSelection`
-结果只体现在 `applyStatus`；当 `applyStatus.allowed=false` 时，agent 可以继续
-self-owned 执行，但不得假定可以写回 Zotero。
+agent-run 发包根据 manifest `validateSelection` 生成候选，并按 `inputs`
+描述的成员类型与 grouping 规划输入。`applyStatus` 仍是写回边界；当
+`applyStatus.allowed=false` 时，agent 可以继续 self-owned 执行，但不得假定
+可以写回 Zotero。
 
 `--items` 必须是 item ref 数组，每个 ref 必须且只能包含 `id` 或 `key`；
 `libraryId` 只用于 `key` 查找：
@@ -2079,8 +2124,10 @@ self-owned 执行，但不得假定可以写回 Zotero。
 ]
 ```
 
-`workflow submit --none` 只允许 no-selection workflow。`workflow agent-run --none`
-只在 workflow 的 `inputs.unit` 为 `workflow` 时可发包：
+`workflow submit --none` 只允许 `trigger.requiresSelection=false` 且其 selection
+requirements 允许空选择的 workflow。`workflow agent-run --none` 使用同一空选择
+门禁；典型契约为 `member.kind=selection`、`grouping.mode=all` 与
+`select.policy=selection`：
 
 ```json
 {

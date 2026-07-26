@@ -3,13 +3,37 @@
   "$id": "workflow.schema.json",
   "title": "WorkflowManifest",
   "type": "object",
-  "required": ["id", "label", "provider", "hooks"],
+  "required": [
+    "schemaVersion",
+    "id",
+    "label",
+    "provider",
+    "trigger",
+    "inputs",
+    "validateSelection",
+    "hooks"
+  ],
   "properties": {
+    "schemaVersion": {
+      "const": 2
+    },
     "id": {
       "$ref": "#/$defs/nonEmptyString"
     },
     "label": {
       "$ref": "#/$defs/nonEmptyString"
+    },
+    "description": {
+      "$ref": "#/$defs/nonEmptyString"
+    },
+    "executionModes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["auto", "interactive"]
+      }
     },
     "provider": {
       "$ref": "#/$defs/nonEmptyString"
@@ -210,7 +234,7 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["string", "number", "boolean"]
+          "enum": ["string", "number", "boolean", "array"]
         },
         "required": {
           "type": "boolean"
@@ -229,6 +253,16 @@
           "type": "array",
           "minItems": 1,
           "items": {}
+        },
+        "items": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "string"
+            }
+          },
+          "required": ["type"],
+          "additionalProperties": false
         },
         "allowCustom": {
           "type": "boolean"
@@ -339,17 +373,18 @@
     },
     "countRule": {
       "type": "object",
+      "minProperties": 1,
       "properties": {
         "min": {
-          "type": "number",
+          "type": "integer",
           "minimum": 0
         },
         "max": {
-          "type": "number",
+          "type": "integer",
           "minimum": 0
         },
         "exact": {
-          "type": "number",
+          "type": "integer",
           "minimum": 0
         }
       },
@@ -357,63 +392,113 @@
     },
     "validateSelectionSpec": {
       "type": "object",
+      "required": ["select", "filters"],
       "properties": {
         "require": {
           "type": "object",
           "properties": {
-            "counts": {
+            "selection": {
               "type": "object",
               "properties": {
-                "parents": { "$ref": "#/$defs/countRule" },
-                "attachments": { "$ref": "#/$defs/countRule" },
-                "notes": { "$ref": "#/$defs/countRule" },
-                "children": { "$ref": "#/$defs/countRule" },
-                "total": { "$ref": "#/$defs/countRule" }
+                "counts": {
+                  "type": "object",
+                  "minProperties": 1,
+                  "properties": {
+                    "parents": { "$ref": "#/$defs/countRule" },
+                    "attachments": { "$ref": "#/$defs/countRule" },
+                    "notes": { "$ref": "#/$defs/countRule" },
+                    "children": { "$ref": "#/$defs/countRule" },
+                    "total": { "$ref": "#/$defs/countRule" }
+                  },
+                  "additionalProperties": false
+                },
+                "allowMixed": {
+                  "type": "boolean"
+                }
               },
               "additionalProperties": false
             },
-            "allowMixed": {
-              "type": "boolean"
-            }
+            "candidates": { "$ref": "#/$defs/countRule" }
           },
           "additionalProperties": false
         },
         "select": {
-          "type": "object",
-          "properties": {
-            "policy": {
-              "type": "string",
-              "enum": [
-                "input-unit",
-                "literature-source",
-                "literature-parent",
-                "pdf-attachment",
-                "selected-parent",
-                "generated-note-candidates",
-                "digest-representative-image"
-              ]
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["policy", "source"],
+              "properties": {
+                "policy": { "const": "input-member" },
+                "source": {
+                  "type": "string",
+                  "enum": ["selected", "related"]
+                }
+              },
+              "additionalProperties": false
             },
-            "unit": {
-              "type": "string",
-              "enum": ["attachment", "parent", "note", "workflow"]
+            {
+              "type": "object",
+              "required": ["policy"],
+              "properties": { "policy": { "const": "selection" } },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["policy"],
+              "properties": { "policy": { "const": "literature-source" } },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["policy"],
+              "properties": {
+                "policy": { "const": "generated-note-candidates" }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["policy"],
+              "properties": {
+                "policy": { "const": "digest-representative-image" }
+              },
+              "additionalProperties": false
             }
-          },
-          "additionalProperties": false
+          ]
         },
-        "exclude": {
+        "filters": {
           "type": "array",
           "items": {
             "oneOf": [
               {
                 "type": "object",
-                "required": ["kind", "noteKinds"],
+                "required": ["kind", "phase"],
                 "properties": {
-                  "kind": {
-                    "const": "generated-notes-all"
-                  },
+                  "kind": { "const": "source-file-exists" },
+                  "phase": { "const": "availability" }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": ["kind", "phase", "counts"],
+                "properties": {
+                  "kind": { "const": "candidates-per-parent" },
+                  "phase": { "const": "availability" },
+                  "counts": { "$ref": "#/$defs/countRule" }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": ["kind", "phase", "noteKinds"],
+                "properties": {
+                  "kind": { "const": "generated-note-kinds-absent" },
+                  "phase": { "const": "availability" },
                   "noteKinds": {
                     "type": "array",
                     "minItems": 1,
+                    "uniqueItems": true,
                     "items": {
                       "type": "string",
                       "enum": [
@@ -430,19 +515,24 @@
               },
               {
                 "type": "object",
-                "required": ["kind", "target"],
+                "required": ["kind", "phase", "target"],
                 "properties": {
-                  "kind": {
-                    "const": "artifact-exists"
-                  },
+                  "kind": { "const": "artifact-absent" },
+                  "phase": { "const": "availability" },
                   "target": {
                     "type": "string",
-                    "enum": [
-                      "deep-reading-html",
-                      "translator-markdown",
-                      "mineru-markdown"
-                    ]
-                  },
+                    "enum": ["deep-reading-html", "mineru-markdown"]
+                  }
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "required": ["kind", "phase", "target", "parameter"],
+                "properties": {
+                  "kind": { "const": "artifact-absent" },
+                  "phase": { "const": "execute" },
+                  "target": { "const": "translator-markdown" },
                   "parameter": {
                     "$ref": "#/$defs/nonEmptyString"
                   }
@@ -451,54 +541,74 @@
               }
             ]
           }
-        },
-        "derive": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": ["exportCandidates", "digestRepresentativeImageTarget"]
-          }
         }
       },
       "additionalProperties": false
     },
     "inputsSpec": {
       "type": "object",
-      "required": ["unit"],
+      "required": ["member", "grouping"],
       "properties": {
-        "unit": {
-          "type": "string",
-          "enum": ["attachment", "parent", "note", "workflow"]
-        },
-        "accepts": {
+        "member": {
           "type": "object",
+          "required": ["kind"],
           "properties": {
-            "mime": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          },
-          "additionalProperties": false
-        },
-        "per_parent": {
-          "type": "object",
-          "properties": {
-            "min": {
-              "type": "number"
+            "kind": {
+              "type": "string",
+              "enum": [
+                "selection",
+                "parent",
+                "child",
+                "attachment",
+                "note",
+                "generated-note",
+                "digest-image-target"
+              ]
             },
-            "max": {
-              "type": "number"
+            "accepts": {
+              "type": "object",
+              "required": ["mime"],
+              "properties": {
+                "mime": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": { "$ref": "#/$defs/nonEmptyString" }
+                }
+              },
+              "additionalProperties": false
             }
           },
           "additionalProperties": false
+        },
+        "grouping": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["mode"],
+              "properties": { "mode": { "const": "each" } },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["mode"],
+              "properties": { "mode": { "const": "all" } },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["mode"],
+              "properties": { "mode": { "const": "parent" } },
+              "additionalProperties": false
+            }
+          ]
         }
       },
       "additionalProperties": false
     },
     "triggerSpec": {
       "type": "object",
+      "required": ["requiresSelection"],
       "properties": {
         "requiresSelection": {
           "type": "boolean"

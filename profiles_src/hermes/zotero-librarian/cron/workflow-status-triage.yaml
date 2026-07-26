@@ -1,0 +1,6 @@
+schema: hermes.cron.v1
+name: workflow-status-triage
+schedule: { time: "09:00" }
+command:
+  [scripts/zotero_librarian_service.py, --quiet, maintenance, workflow-status]
+behavior: { unchanged: "[SILENT]", mutation: never }

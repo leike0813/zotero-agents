@@ -27,8 +27,53 @@ import {
   shouldPromptHostBridgeCliInstall,
   shouldRunHostBridgeCliStartupPrompt,
 } from "../../src/modules/hostBridgeCliInstallPrompt";
+import {
+  syncHostBridgeCliPrebuildInternalsForTests,
+  syncHostBridgeCliPrebuilds,
+} from "../../scripts/sync-host-bridge-cli-prebuilds";
+import { stageHostBridgeCliPrebuildSet } from "../../scripts/stage-host-bridge-cli-prebuilds";
+import {
+  assertLockedHostBridgeCliIdentity,
+  assertPrebuildSourceState,
+  parsePrebuildCliArgs,
+  prebuildZoteroBridgeCli,
+} from "../../scripts/prebuild-zotero-bridge-cli";
 
 const execFileAsync = promisify(execFile);
+
+const COMMAND_CATALOG_PATH = "references/command-catalog.md";
+
+async function pathExists(target: string) {
+  try {
+    await fs.access(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readCommandReferences(packageRoot: string) {
+  const result = new Map<string, string>();
+  const root = path.join(packageRoot, "references", "commands");
+  if (!(await pathExists(root))) return result;
+
+  async function visit(directory: string) {
+    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+      const target = path.join(directory, entry.name);
+      if (entry.isDirectory()) await visit(target);
+      else if (entry.isFile() && entry.name.endsWith(".md")) {
+        result.set(
+          path
+            .relative(path.join(packageRoot, "references"), target)
+            .replaceAll(path.sep, "/"),
+          await fs.readFile(target, "utf8"),
+        );
+      }
+    }
+  }
+  await visit(root);
+  return result;
+}
 
 function encodeText(value: string) {
   return new TextEncoder().encode(value);
@@ -62,8 +107,8 @@ async function createFreshnessFixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-fresh-"));
   await writeTextFile(
     root,
-    ".github/workflows/build-zotero-bridge-cli.yml",
-    "name: build\n",
+    "host-bridge/cli-build-recipe.json",
+    `${JSON.stringify({ schema: "host-bridge.cli-build-recipe.v1" })}\n`,
   );
   await writeTextFile(
     root,
@@ -74,11 +119,6 @@ async function createFreshnessFixture() {
     root,
     "scripts/package-zotero-bridge-cli.mjs",
     "console.log('package');\n",
-  );
-  await writeTextFile(
-    root,
-    "scripts/host-bridge-cli-release-governance.mjs",
-    "console.log('govern');\n",
   );
   await writeTextFile(
     root,
@@ -123,6 +163,7 @@ async function createFreshnessFixture() {
     schema: "zotero-bridge-cli-release.v1",
     version: "0.1.0",
     buildFingerprint: fingerprint.fingerprint,
+    binariesBuildFingerprint: fingerprint.fingerprint,
     fingerprintInputs: fingerprint.files,
     binaries,
   };
@@ -136,193 +177,997 @@ async function createFreshnessFixture() {
     "addon/bin/zotero-bridge-release.json",
     `${JSON.stringify(manifest, null, 2)}\n`,
   );
-  return { root, freshness };
+  return { root, freshness, governance };
 }
 
 describe("host bridge cli packaging and install", function () {
-  it("documents resolve-resolver with the direct resolver payload contract", async function () {
-    const cliArgs = await fs.readFile(
-      path.join(process.cwd(), "cli/zotero-bridge/src/args.rs"),
-      "utf8",
+  it("keeps the Minimum source as a task-neutral executable CLI contract", async function () {
+    const root = path.join(process.cwd(), "skills_src/zotero-bridge-cli");
+    const skill = await fs.readFile(path.join(root, "SKILL.md"), "utf8");
+    const runner = JSON.parse(
+      await fs.readFile(path.join(root, "runner.json"), "utf8"),
     );
-    const wrapperSkill = await fs.readFile(
-      path.join(process.cwd(), "skills_builtin/zotero-bridge-cli/SKILL.md"),
-      "utf8",
-    );
-    const wrapperReference = await fs.readFile(
-      path.join(
-        process.cwd(),
-        "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
-      ),
-      "utf8",
-    );
-    const terminologySource = await fs.readFile(
-      path.join(process.cwd(), "skills_src/host-bridge-shared/terminology.md"),
-      "utf8",
-    );
-    const terminologyReference = await fs.readFile(
-      path.join(
-        process.cwd(),
-        "skills_builtin/zotero-bridge-cli/references/terminology.md",
-      ),
-      "utf8",
-    );
-    const docs = await fs.readFile(
-      path.join(process.cwd(), "doc/host-bridge-cli.md"),
-      "utf8",
-    );
+    const references = await readCommandReferences(root);
 
-    for (const source of [wrapperReference, docs]) {
-      assert.include(source, "collection_key");
-      assert.include(source, "paper_refs");
-      assert.include(source, "combine");
-      assert.include(source, "intersection");
-      assert.include(source, "topic_resolver");
-    }
-    assert.include(cliArgs, "paper_refs");
-    assert.include(cliArgs, "combine");
-    assert.include(cliArgs, "direct resolver fields");
-    assert.include(cliArgs, "Do not pass a top-level resolver wrapper");
-    assert.include(
-      wrapperReference,
-      "do not wrap them in a top-level `resolver` object",
-    );
-    assert.include(wrapperReference, "unsupported fields and are rejected");
-    assert.include(wrapperSkill, "references/host-bridge-cli.md");
-    assert.notInclude(wrapperReference, 'top-level `"resolver"` field');
-    assert.notInclude(docs, "带顶层 `resolver` 字段");
-  });
-
-  it("renders wrapper skill discovery from the current semantic CLI surface", async function () {
-    const wrapperSkill = await fs.readFile(
-      path.join(process.cwd(), "skills_builtin/zotero-bridge-cli/SKILL.md"),
-      "utf8",
-    );
-    const wrapperReference = await fs.readFile(
-      path.join(
-        process.cwd(),
-        "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
-      ),
-      "utf8",
-    );
-    const terminologySource = await fs.readFile(
-      path.join(process.cwd(), "skills_src/host-bridge-shared/terminology.md"),
-      "utf8",
-    );
-    const terminologyReference = await fs.readFile(
-      path.join(
-        process.cwd(),
-        "skills_builtin/zotero-bridge-cli/references/terminology.md",
-      ),
-      "utf8",
-    );
-
-    for (const source of [wrapperSkill, wrapperReference]) {
-      assert.include(source, ".\\.zotero-bridge\\bin\\zotero-bridge.cmd");
-      assert.include(source, "./.zotero-bridge/bin/zotero-bridge");
-      assert.include(source, "<zotero-bridge>");
-      assert.include(source, "ZOTERO_BRIDGE_PROFILE");
-    }
-
-    for (const commandGroup of ["bridge", "library", "synthesis", "run"]) {
-      assert.include(wrapperReference, `zotero-bridge ${commandGroup} --help`);
-    }
-    assert.include(wrapperReference, "`library items list`");
-    assert.include(wrapperReference, "`library snapshot`");
-    assert.include(wrapperReference, "`library readiness missing-analysis`");
-    assert.include(wrapperReference, "`synthesis index library get`");
-    assert.include(wrapperReference, "`synthesis index reference get`");
-    assert.include(wrapperReference, "`synthesis resolver resolve`");
-    assert.include(wrapperSkill, "references/terminology.md");
-    assert.equal(terminologyReference, terminologySource);
-    for (const term of [
-      "citation graph",
-      "三件套",
-      "digest",
-      "references",
-      "citation-analysis",
-      "workflowRunId",
-      "skillRunId",
-      "fileId",
+    assert.match(skill, /^---\nname: zotero-bridge-cli\ndescription: .+\n/m);
+    const description = skill.match(/^description: (.+)$/m)?.[1] || "";
+    assert.isAtMost([...description].length, 240);
+    assert.match(description, /Use when/i);
+    for (const heading of [
+      "## Goal",
+      "## Inputs",
+      "## Workflow",
+      "## Hard constraints",
+      "## Completion",
+      "## Failure handling",
+      "## References",
     ]) {
-      assert.include(terminologyReference, term);
+      assert.include(skill, heading);
+    }
+    assert.include(skill, COMMAND_CATALOG_PATH);
+    assert.isTrue(await pathExists(path.join(root, COMMAND_CATALOG_PATH)));
+    assert.isEmpty(references);
+    assert.notMatch(skill, /references\/commands\//);
+    assert.strictEqual(runner.version, "__HOST_BRIDGE_SURFACE_VERSION__");
+    assert.include(runner.entrypoint.prompts.common, "references/commands/");
+    assert.include(runner.entrypoint.prompts.common, COMMAND_CATALOG_PATH);
+    const profileTemplate = await fs.readFile(
+      path.join(root, "profile.template.json"),
+      "utf8",
+    );
+    assert.strictEqual(
+      await fs.readFile(
+        "skills_builtin/zotero-bridge-cli/assets/profile.template.json",
+        "utf8",
+      ),
+      profileTemplate,
+    );
+    assert.strictEqual(
+      await fs.readFile(
+        "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli/assets/profile.template.json",
+        "utf8",
+      ),
+      profileTemplate,
+    );
+  });
+
+  it("replaces only managed prebuild files after a complete staged set verifies", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-sync-"));
+    const sourceRoot = path.join(root, "source");
+    const targetRoot = path.join(root, "target");
+    const staleMarker = path.join(targetRoot, "linux-x64", "stale");
+    const acpBridge = path.join(
+      targetRoot,
+      "win32-x64",
+      "zotero-acp-bridge.exe",
+    );
+    const acpBridgeSidecar = `${acpBridge}.sha256`;
+    await writeTextFile(targetRoot, "linux-x64/stale", "preserve-on-error");
+    await writeTextFile(
+      targetRoot,
+      "win32-x64/zotero-acp-bridge.exe",
+      "preserve-acp-binary",
+    );
+    await writeTextFile(
+      targetRoot,
+      "win32-x64/zotero-acp-bridge.exe.sha256",
+      "preserve-acp-sidecar",
+    );
+
+    let missingError: unknown;
+    try {
+      await syncHostBridgeCliPrebuildInternalsForTests.replacePrebuilds(
+        sourceRoot,
+        targetRoot,
+      );
+    } catch (error) {
+      missingError = error;
+    }
+    assert.match(String(missingError), /Missing Host Bridge CLI prebuilds/);
+    assert.strictEqual(
+      await fs.readFile(staleMarker, "utf8"),
+      "preserve-on-error",
+    );
+
+    for (const {
+      platform,
+      binary,
+    } of syncHostBridgeCliPrebuildInternalsForTests.expectedPlatforms) {
+      await writeTextFile(sourceRoot, `${platform}/${binary}`, platform);
+      await writeTextFile(
+        sourceRoot,
+        `${platform}/${binary}.sha256`,
+        `${sha256Hex(encodeText(platform))}  ${binary}\n`,
+      );
+    }
+
+    await syncHostBridgeCliPrebuildInternalsForTests.replacePrebuilds(
+      sourceRoot,
+      targetRoot,
+    );
+    assert.strictEqual(
+      await fs.readFile(staleMarker, "utf8"),
+      "preserve-on-error",
+    );
+    assert.strictEqual(
+      await fs.readFile(acpBridge, "utf8"),
+      "preserve-acp-binary",
+    );
+    assert.strictEqual(
+      await fs.readFile(acpBridgeSidecar, "utf8"),
+      "preserve-acp-sidecar",
+    );
+    for (const {
+      platform,
+      binary,
+    } of syncHostBridgeCliPrebuildInternalsForTests.expectedPlatforms) {
+      assert.strictEqual(
+        await fs.readFile(path.join(targetRoot, platform, binary), "utf8"),
+        platform,
+      );
     }
   });
 
-  it("documents library snapshot/list semantic CLI commands for Zotero library indexes", async function () {
-    const cliArgs = await fs.readFile(
-      path.join(process.cwd(), "cli/zotero-bridge/src/args.rs"),
+  it("validates an explicit prebuild result without consulting a stale local aggregate", function () {
+    const result =
+      syncHostBridgeCliPrebuildInternalsForTests.readPrebuildResultText(
+        JSON.stringify({
+          schema: "host-bridge-cli-prebuild-result.v1",
+          repository: "owner/repo",
+          workflow: "build-host-bridge-cli-prebuilds.yml",
+          runId: 42,
+          requestId: "hbcp-request",
+          sourceSha: "a".repeat(40),
+          ref: "dev",
+          cliVersion: "0.3.0",
+          buildFingerprint: "b".repeat(64),
+          binaryAggregateSha256: "c".repeat(64),
+          prebuildBranch: "host-bridge-cli-prebuilds",
+          prebuildCommit: "d".repeat(40),
+          setPath: `sets/${"c".repeat(64)}`,
+        }),
+      );
+
+    assert.strictEqual(result.binaryAggregateSha256, "c".repeat(64));
+    assert.strictEqual(result.cliVersion, "0.3.0");
+    assert.throws(
+      () =>
+        syncHostBridgeCliPrebuildInternalsForTests.assertPrebuildResultIdentity(
+          result,
+          { cliVersion: "0.4.0" },
+        ),
+      /cliVersion.*expected identity/i,
+    );
+    assert.throws(
+      () =>
+        syncHostBridgeCliPrebuildInternalsForTests.readPrebuildResultText(
+          JSON.stringify({
+            ...result,
+            setPath: `sets/${"e".repeat(64)}`,
+          }),
+        ),
+      /set path/i,
+    );
+  });
+
+  it("synchronizes the explicit result set when the local aggregate is stale", async function () {
+    const fixture = await createFreshnessFixture();
+    const storeRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-cli-remote-store-"),
+    );
+    const sourceRoot = path.join(storeRoot, "source");
+    const releaseManifest = path.join(storeRoot, "release.json");
+    const prebuildCommit = "d".repeat(40);
+    try {
+      const status = await fixture.governance.getHostBridgeCliReleaseStatus({
+        root: fixture.root,
+      });
+      for (const {
+        platform,
+        binary,
+      } of syncHostBridgeCliPrebuildInternalsForTests.expectedPlatforms) {
+        const bytes = encodeText(`remote:${platform}:${binary}`);
+        await writeBinaryFixture(sourceRoot, `${platform}/${binary}`, bytes);
+        await writeTextFile(
+          sourceRoot,
+          `${platform}/${binary}.sha256`,
+          `${sha256Hex(bytes)}  ${binary}\n`,
+        );
+      }
+      const remoteManifest =
+        await fixture.governance.recordHostBridgeCliBinaryChecksums({
+          root: fixture.root,
+          binaryRoot: sourceRoot,
+          dispatchReason: "prebuild-only",
+        });
+      await fs.writeFile(
+        releaseManifest,
+        `${JSON.stringify(remoteManifest, null, 2)}\n`,
+      );
+      await stageHostBridgeCliPrebuildSet({
+        outputRoot: storeRoot,
+        sourceRoot,
+        releaseManifest,
+      });
+
+      const localManifestPath = path.join(
+        fixture.root,
+        "cli",
+        "zotero-bridge",
+        "release.json",
+      );
+      const staleLocalManifest = JSON.parse(
+        await fs.readFile(localManifestPath, "utf8"),
+      );
+      staleLocalManifest.binaryAggregateSha256 = "e".repeat(64);
+      await fs.writeFile(
+        localManifestPath,
+        `${JSON.stringify(staleLocalManifest, null, 2)}\n`,
+      );
+      await fs.writeFile(
+        path.join(fixture.root, "addon", "bin", "zotero-bridge-release.json"),
+        `${JSON.stringify(staleLocalManifest, null, 2)}\n`,
+      );
+
+      const identity = {
+        schema: "host-bridge-cli-prebuild-result.v1",
+        repository: "owner/repo",
+        workflow: "build-host-bridge-cli-prebuilds.yml",
+        runId: 42,
+        requestId: "hbcp-stale-local",
+        sourceSha: "a".repeat(40),
+        ref: "dev",
+        cliVersion: "0.1.0",
+        buildFingerprint: status.fingerprint,
+        binaryAggregateSha256: remoteManifest.binaryAggregateSha256,
+        prebuildBranch: "host-bridge-cli-prebuilds",
+        prebuildCommit,
+        setPath: `sets/${remoteManifest.binaryAggregateSha256}`,
+      } as const;
+      const downloadDir = path.join(fixture.root, ".scaffold", "sync-test");
+
+      await syncHostBridgeCliPrebuilds({
+        repo: identity.repository,
+        identity,
+        root: fixture.root,
+        downloadDir,
+        commandRunner: async (command, args) => {
+          if (command === "gh" && args[0] === "repo") {
+            await fs.cp(storeRoot, downloadDir, { recursive: true });
+          }
+          if (command === "git" && args.includes("rev-parse")) {
+            return { stdout: `${prebuildCommit}\n`, stderr: "" };
+          }
+          return { stdout: "", stderr: "" };
+        },
+      });
+
+      const synchronized = JSON.parse(
+        await fs.readFile(localManifestPath, "utf8"),
+      );
+      assert.strictEqual(
+        synchronized.binaryAggregateSha256,
+        remoteManifest.binaryAggregateSha256,
+      );
+      assert.strictEqual(
+        await fs.readFile(
+          path.join(fixture.root, "addon", "bin", "linux-x64", "zotero-bridge"),
+          "utf8",
+        ),
+        "remote:linux-x64:zotero-bridge",
+      );
+    } finally {
+      await fs.rm(fixture.root, { recursive: true, force: true });
+      await fs.rm(storeRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("requires a locked CLI version and build fingerprint before prebuild dispatch", function () {
+    assert.doesNotThrow(() =>
+      assertLockedHostBridgeCliIdentity({
+        currentVersion: "0.3.0",
+        manifestVersion: "0.3.0",
+        fingerprint: "a".repeat(64),
+        manifestFingerprint: "a".repeat(64),
+      }),
+    );
+    assert.throws(
+      () =>
+        assertLockedHostBridgeCliIdentity({
+          currentVersion: "0.3.0",
+          manifestVersion: "0.3.0",
+          fingerprint: "a".repeat(64),
+          manifestFingerprint: "b".repeat(64),
+        }),
+      /lock.*identity|fingerprint/i,
+    );
+  });
+
+  it("parses explicit prebuild CLI identity and resume arguments", function () {
+    const sourceSha = "a".repeat(40);
+    assert.deepEqual(
+      parsePrebuildCliArgs(
+        [
+          "--repo",
+          "owner/repo",
+          "--ref=feature/prebuild",
+          "--source-sha",
+          sourceSha,
+          "--resume-run-id=77",
+        ],
+        {
+          repo: "default/repo",
+          ref: "main",
+          sourceSha: "b".repeat(40),
+        },
+      ),
+      {
+        repo: "owner/repo",
+        ref: "feature/prebuild",
+        sourceSha,
+        resumeRunId: 77,
+      },
+    );
+  });
+
+  it("requires an attached clean branch whose upstream tip equals HEAD", async function () {
+    const head = "a".repeat(40);
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const state = await assertPrebuildSourceState({
+      ref: "dev",
+      sourceSha: head,
+      commandRunner: async (command, args) => {
+        calls.push({ command, args });
+        const key = `${command} ${args.join(" ")}`;
+        const stdout =
+          key === "git branch --show-current"
+            ? "dev\n"
+            : key === "git status --porcelain"
+              ? ""
+              : key === "git rev-parse HEAD"
+                ? `${head}\n`
+                : key ===
+                    "git rev-parse --abbrev-ref --symbolic-full-name @{upstream}"
+                  ? "origin/dev\n"
+                  : key === "git rev-parse @{upstream}"
+                    ? `${head}\n`
+                    : key === "git rev-parse refs/remotes/origin/dev"
+                      ? `${head}\n`
+                      : "";
+        return { stdout, stderr: "" };
+      },
+    });
+
+    assert.deepEqual(state, {
+      branch: "dev",
+      upstream: "origin/dev",
+      remote: "origin",
+      ref: "dev",
+      sourceSha: head,
+    });
+    assert.deepInclude(calls, {
+      command: "git",
+      args: ["fetch", "origin", "refs/heads/dev:refs/remotes/origin/dev"],
+    });
+  });
+
+  it("rejects detached, dirty, missing-upstream, and unpushed prebuild sources", async function () {
+    const head = "a".repeat(40);
+    const cases = [
+      { branch: "", status: "", upstream: "origin/dev", remoteSha: head },
+      {
+        branch: "dev",
+        status: " M package.json\n",
+        upstream: "origin/dev",
+        remoteSha: head,
+      },
+      { branch: "dev", status: "", upstream: "", remoteSha: head },
+      {
+        branch: "dev",
+        status: "",
+        upstream: "origin/dev",
+        remoteSha: "b".repeat(40),
+      },
+    ];
+
+    for (const fixture of cases) {
+      let error: unknown;
+      try {
+        await assertPrebuildSourceState({
+          ref: "dev",
+          sourceSha: head,
+          commandRunner: async (_command, args) => {
+            const key = args.join(" ");
+            const stdout =
+              key === "branch --show-current"
+                ? `${fixture.branch}\n`
+                : key === "status --porcelain"
+                  ? fixture.status
+                  : key === "rev-parse HEAD"
+                    ? `${head}\n`
+                    : key ===
+                        "rev-parse --abbrev-ref --symbolic-full-name @{upstream}"
+                      ? `${fixture.upstream}\n`
+                      : key === "rev-parse @{upstream}"
+                        ? `${fixture.remoteSha}\n`
+                        : key === "rev-parse refs/remotes/origin/dev"
+                          ? `${fixture.remoteSha}\n`
+                          : "";
+            return { stdout, stderr: "" };
+          },
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      assert.instanceOf(error, Error);
+    }
+  });
+
+  it("resumes an exact prebuild run without dispatching another workflow", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-resume-"));
+    const head = "a".repeat(40);
+    const fingerprint = "b".repeat(64);
+    const aggregate = "c".repeat(64);
+    const artifact = {
+      schema: "host-bridge-cli-prebuild-result.v1",
+      repository: "owner/repo",
+      workflow: "build-host-bridge-cli-prebuilds.yml",
+      runId: 77,
+      requestId: "hbcp-resume",
+      sourceSha: head,
+      ref: "dev",
+      cliVersion: "0.3.0",
+      buildFingerprint: fingerprint,
+      binaryAggregateSha256: aggregate,
+      prebuildBranch: "host-bridge-cli-prebuilds",
+      prebuildCommit: "d".repeat(40),
+      setPath: `sets/${aggregate}`,
+    } as const;
+    const calls: Array<{ command: string; args: string[] }> = [];
+    let synchronizedIdentity: unknown;
+    try {
+      const result = await prebuildZoteroBridgeCli({
+        repo: "owner/repo",
+        ref: "dev",
+        sourceSha: head,
+        resumeRunId: 77,
+        artifactRoot: root,
+        commandRunner: async (command, args) => {
+          calls.push({ command, args });
+          const key = `${command} ${args.join(" ")}`;
+          if (key === "git branch --show-current") {
+            return { stdout: "dev\n", stderr: "" };
+          }
+          if (key === "git status --porcelain") {
+            return { stdout: "", stderr: "" };
+          }
+          if (
+            key === "git rev-parse HEAD" ||
+            key === "git rev-parse @{upstream}" ||
+            key === "git rev-parse refs/remotes/origin/dev"
+          ) {
+            return { stdout: `${head}\n`, stderr: "" };
+          }
+          if (
+            key ===
+            "git rev-parse --abbrev-ref --symbolic-full-name @{upstream}"
+          ) {
+            return { stdout: "origin/dev\n", stderr: "" };
+          }
+          if (key === "gh api repos/owner/repo/actions/runs/77 --method GET") {
+            return {
+              stdout: JSON.stringify({
+                id: 77,
+                display_title: "Host Bridge CLI prebuild hbcp-resume",
+                event: "workflow_dispatch",
+                head_branch: "dev",
+                head_sha: head,
+                html_url: "https://example.invalid/runs/77",
+                path: ".github/workflows/build-host-bridge-cli-prebuilds.yml",
+              }),
+              stderr: "",
+            };
+          }
+          if (args[0] === "run" && args[1] === "download") {
+            await fs.writeFile(
+              path.join(root, "host-bridge-cli-prebuild-result.json"),
+              JSON.stringify(artifact),
+            );
+          }
+          return { stdout: "", stderr: "" };
+        },
+        getReleaseStatus: async () => ({
+          currentVersion: "0.3.0",
+          manifestVersion: "0.3.0",
+          fingerprint,
+          manifestFingerprint: fingerprint,
+        }),
+        syncPrebuilds: async ({ identity }) => {
+          synchronizedIdentity = identity;
+          return { ok: true };
+        },
+        checkFreshness: async () => ({ ok: true }),
+      });
+
+      assert.strictEqual(result.runId, 77);
+      assert.deepEqual(synchronizedIdentity, artifact);
+      assert.isFalse(
+        calls.some(
+          ({ command, args }) =>
+            command === "gh" && args[0] === "workflow" && args[1] === "run",
+        ),
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reports exact resume evidence when workflow observation fails", async function () {
+    const head = "a".repeat(40);
+    let caught: unknown;
+    try {
+      await prebuildZoteroBridgeCli({
+        repo: "owner/repo",
+        ref: "dev",
+        sourceSha: head,
+        resumeRunId: 77,
+        commandRunner: async (command, args) => {
+          const key = `${command} ${args.join(" ")}`;
+          if (key === "git branch --show-current") {
+            return { stdout: "dev\n", stderr: "" };
+          }
+          if (key === "git status --porcelain") {
+            return { stdout: "", stderr: "" };
+          }
+          if (
+            key === "git rev-parse HEAD" ||
+            key === "git rev-parse @{upstream}" ||
+            key === "git rev-parse refs/remotes/origin/dev"
+          ) {
+            return { stdout: `${head}\n`, stderr: "" };
+          }
+          if (
+            key ===
+            "git rev-parse --abbrev-ref --symbolic-full-name @{upstream}"
+          ) {
+            return { stdout: "origin/dev\n", stderr: "" };
+          }
+          if (key === "gh api repos/owner/repo/actions/runs/77 --method GET") {
+            return {
+              stdout: JSON.stringify({
+                id: 77,
+                display_title: "Host Bridge CLI prebuild hbcp-resume",
+                event: "workflow_dispatch",
+                head_branch: "dev",
+                head_sha: head,
+                html_url: "https://example.invalid/runs/77",
+                path: ".github/workflows/build-host-bridge-cli-prebuilds.yml",
+              }),
+              stderr: "",
+            };
+          }
+          if (key.startsWith("gh run watch 77 ")) {
+            throw new Error("network interrupted");
+          }
+          return { stdout: "", stderr: "" };
+        },
+        getReleaseStatus: async () => ({
+          currentVersion: "0.3.0",
+          manifestVersion: "0.3.0",
+          fingerprint: "b".repeat(64),
+          manifestFingerprint: "b".repeat(64),
+        }),
+      });
+    } catch (error) {
+      caught = error;
+    }
+    assert.match(String(caught), /--resume-run-id 77/);
+    assert.match(String(caught), /hbcp-resume/);
+    assert.match(String(caught), /runs\/77/);
+  });
+
+  it("rolls back managed binaries and manifests after a partial install failure", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-rollback-"));
+    const sourceRoot = path.join(root, "source");
+    const oldManifest = '{"schema":"old"}\n';
+    try {
+      for (const {
+        platform,
+        binary,
+      } of syncHostBridgeCliPrebuildInternalsForTests.expectedPlatforms) {
+        const nextBytes = encodeText(`next:${platform}`);
+        await writeBinaryFixture(
+          sourceRoot,
+          `${platform}/${binary}`,
+          nextBytes,
+        );
+        await writeTextFile(
+          sourceRoot,
+          `${platform}/${binary}.sha256`,
+          `${sha256Hex(nextBytes)}  ${binary}\n`,
+        );
+        const oldBytes = encodeText(`old:${platform}`);
+        await writeBinaryFixture(
+          root,
+          `addon/bin/${platform}/${binary}`,
+          oldBytes,
+        );
+        await writeTextFile(
+          root,
+          `addon/bin/${platform}/${binary}.sha256`,
+          `${sha256Hex(oldBytes)}  ${binary}\n`,
+        );
+      }
+      await writeTextFile(root, "cli/zotero-bridge/release.json", oldManifest);
+      await writeTextFile(
+        root,
+        "addon/bin/zotero-bridge-release.json",
+        oldManifest,
+      );
+      await writeTextFile(
+        root,
+        "addon/bin/win32-x64/zotero-acp-bridge.exe",
+        "unrelated",
+      );
+
+      let caught: unknown;
+      try {
+        await syncHostBridgeCliPrebuildInternalsForTests.replacePrebuildsAndManifests(
+          {
+            root,
+            sourceRoot,
+            manifest: { schema: "next" },
+            beforeInstall: (_relativePath, index) => {
+              if (index === 2) throw new Error("injected install failure");
+            },
+          },
+        );
+      } catch (error) {
+        caught = error;
+      }
+      assert.match(String(caught), /injected install failure/);
+      for (const {
+        platform,
+        binary,
+      } of syncHostBridgeCliPrebuildInternalsForTests.expectedPlatforms) {
+        assert.strictEqual(
+          await fs.readFile(
+            path.join(root, "addon", "bin", platform, binary),
+            "utf8",
+          ),
+          `old:${platform}`,
+        );
+      }
+      assert.strictEqual(
+        await fs.readFile(
+          path.join(root, "cli", "zotero-bridge", "release.json"),
+          "utf8",
+        ),
+        oldManifest,
+      );
+      assert.strictEqual(
+        await fs.readFile(
+          path.join(root, "addon", "bin", "zotero-bridge-release.json"),
+          "utf8",
+        ),
+        oldManifest,
+      );
+      assert.strictEqual(
+        await fs.readFile(
+          path.join(root, "addon", "bin", "win32-x64", "zotero-acp-bridge.exe"),
+          "utf8",
+        ),
+        "unrelated",
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("continues rollback and preserves recovery backups when one restore fails", async function () {
+    const root = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-cli-rollback-recovery-"),
+    );
+    const targetA = path.join(root, "target-a");
+    const targetB = path.join(root, "target-b");
+    const backupA = path.join(root, "backup", "target-a");
+    const backupB = path.join(root, "backup", "target-b");
+    await fs.mkdir(path.dirname(backupA), { recursive: true });
+    await fs.writeFile(targetA, "new-a");
+    await fs.writeFile(targetB, "new-b");
+    await fs.writeFile(backupA, "old-a");
+    await fs.writeFile(backupB, "old-b");
+
+    const rollbackErrors =
+      await syncHostBridgeCliPrebuildInternalsForTests.rollbackChangedFiles(
+        [
+          {
+            target: targetA,
+            backup: backupA,
+            hadOriginal: true,
+            installed: true,
+          },
+          {
+            target: targetB,
+            backup: backupB,
+            hadOriginal: true,
+            installed: true,
+          },
+        ],
+        (_state, index) => {
+          if (index === 1) throw new Error("injected rollback failure");
+        },
+      );
+
+    assert.lengthOf(rollbackErrors, 1);
+    assert.strictEqual(await fs.readFile(targetB, "utf8"), "old-b");
+    assert.strictEqual(await fs.readFile(targetA, "utf8"), "new-a");
+    assert.strictEqual(await fs.readFile(backupA, "utf8"), "old-a");
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it("stages one immutable seven-platform prebuild set and reuses it by aggregate", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-store-"));
+    const sourceRoot = path.join(root, "addon", "bin");
+    const outputRoot = path.join(root, "store");
+    const releaseManifest = path.join(root, "release.json");
+    const aggregate = "a".repeat(64);
+    try {
+      for (const {
+        platform,
+        binary,
+      } of syncHostBridgeCliPrebuildInternalsForTests.expectedPlatforms) {
+        const bytes = encodeText(`${platform}:${binary}`);
+        await writeBinaryFixture(sourceRoot, `${platform}/${binary}`, bytes);
+        await writeTextFile(
+          sourceRoot,
+          `${platform}/${binary}.sha256`,
+          `${sha256Hex(bytes)}  ${binary}\n`,
+        );
+      }
+      await fs.writeFile(
+        releaseManifest,
+        `${JSON.stringify({
+          version: "0.3.0",
+          buildFingerprint: "b".repeat(64),
+          binaryAggregateSha256: aggregate,
+        })}\n`,
+      );
+
+      const first = await stageHostBridgeCliPrebuildSet({
+        outputRoot,
+        sourceRoot,
+        releaseManifest,
+      });
+      const second = await stageHostBridgeCliPrebuildSet({
+        outputRoot,
+        sourceRoot,
+        releaseManifest,
+      });
+      assert.isFalse(first.reused);
+      assert.isTrue(second.reused);
+      const manifest = JSON.parse(
+        await fs.readFile(
+          path.join(outputRoot, "sets", aggregate, "manifest.json"),
+          "utf8",
+        ),
+      );
+      assert.lengthOf(manifest.archives, 7);
+      manifest.archives.pop();
+      await fs.writeFile(
+        path.join(outputRoot, "sets", aggregate, "manifest.json"),
+        `${JSON.stringify(manifest, null, 2)}\n`,
+      );
+      let incompleteError: unknown;
+      try {
+        await syncHostBridgeCliPrebuildInternalsForTests.verifyArchiveSet(
+          path.join(outputRoot, "sets", aggregate),
+          aggregate,
+          {
+            cliVersion: "0.3.0",
+            buildFingerprint: "b".repeat(64),
+          },
+        );
+      } catch (error) {
+        incompleteError = error;
+      }
+      assert.match(String(incompleteError), /exactly seven archives/i);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("renders exhaustive disjoint mechanism command references from the embedded descriptor", async function () {
+    const descriptor = JSON.parse(
+      await fs.readFile("cli/zotero-bridge/src/agent-surface.json", "utf8"),
+    );
+    const references = await readCommandReferences(
+      "skills_builtin/zotero-bridge-cli",
+    );
+    const hermesReferences = await readCommandReferences(
+      "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli",
+    );
+    const renderedCommands: string[] = [];
+    assert.strictEqual(references.size, 125);
+    for (const [referencePath, reference] of references) {
+      assert.strictEqual(reference, hermesReferences.get(referencePath));
+      const commands = [
+        ...reference.matchAll(/^# `zotero-bridge (.+)`$/gm),
+      ].map((match) => match[1]);
+      assert.lengthOf(commands, 1, referencePath);
+      renderedCommands.push(...commands);
+    }
+    assert.deepEqual(
+      [...renderedCommands].sort(),
+      descriptor.commands
+        .map((entry: { command: string }) => entry.command)
+        .sort(),
+    );
+    assert.strictEqual(new Set(renderedCommands).size, renderedCommands.length);
+    assert.isFalse(
+      await pathExists(
+        "skills_builtin/zotero-bridge-cli/references/command-reference.md",
+      ),
+    );
+    assert.notProperty(descriptor, "workflowCatalog");
+  });
+
+  it("keeps global controls and leaf-local JSON bindings distinct", async function () {
+    const descriptor = JSON.parse(
+      await fs.readFile("cli/zotero-bridge/src/agent-surface.json", "utf8"),
+    ) as {
+      globalOptions: Array<{ token: string }>;
+      commands: Array<{
+        command: string;
+        arguments: Array<{ token: string; aliases: string[] }>;
+      }>;
+    };
+    const command = (name: string) => {
+      const value = descriptor.commands.find((entry) => entry.command === name);
+      assert.exists(value, name);
+      return value!;
+    };
+    const tokens = (name: string) =>
+      command(name).arguments.map((argument) => argument.token);
+
+    assert.deepEqual(
+      descriptor.globalOptions.map((option) => option.token).sort(),
+      ["--endpoint", "--operation-id", "--profile", "--schema"],
+    );
+    assert.notInclude(tokens("bridge status"), "--json");
+    for (const name of [
+      "surface identity",
+      "surface describe",
+      "surface search",
+    ]) {
+      assert.include(tokens(name), "--json", name);
+    }
+    assert.deepEqual(tokens("library items list"), ["--query"]);
+    assert.deepEqual(command("library items list").arguments[0].aliases, [
+      "input",
+    ]);
+    assert.deepEqual(tokens("mutation preview"), ["--input"]);
+
+    const statusCard = await fs.readFile(
+      "skills_builtin/zotero-bridge-cli/references/commands/bridge/status.md",
       "utf8",
     );
+    assert.include(statusCard, "command_input_schema_unavailable");
+  });
+
+  it("renders one intent-first command catalog before detailed command selection", async function () {
+    const descriptor = JSON.parse(
+      await fs.readFile("cli/zotero-bridge/src/agent-surface.json", "utf8"),
+    ) as { commands: Array<{ command: string; summary: string }> };
+    const catalog = await fs.readFile(
+      path.join("skills_builtin/zotero-bridge-cli", COMMAND_CATALOG_PATH),
+      "utf8",
+    );
+    const hermesCatalog = await fs.readFile(
+      path.join(
+        "profiles/hermes/zotero-librarian/skills/zotero-bridge-cli",
+        COMMAND_CATALOG_PATH,
+      ),
+      "utf8",
+    );
+    assert.strictEqual(catalog, hermesCatalog);
+    for (const command of descriptor.commands) {
+      const row = `| \`zotero-bridge ${command.command}\` |`;
+      assert.strictEqual(
+        catalog.split(row).length - 1,
+        1,
+        `${command.command} must appear once in the compact command index`,
+      );
+      assert.include(catalog, command.summary);
+      const catalogRow = catalog
+        .split(/\r?\n/)
+        .find((line) => line.startsWith(row));
+      assert.isString(catalogRow, command.command);
+      assert.match(catalogRow || "", /\[Open card\]\(commands\/[^)]+\.md\)/);
+    }
+    for (const cardLabel of [
+      "- Argv:",
+      "- Payload schema:",
+      "- Effects:",
+      "- Approval:",
+      "- Handle transitions:",
+      "- Recovery:",
+    ]) {
+      assert.notInclude(catalog, cardLabel);
+    }
+  });
+
+  it("keeps every materialized minimum reference above the hard depth floor", async function () {
+    const referenceRoot = "skills_builtin/zotero-bridge-cli/references";
+    const references = await readCommandReferences(
+      "skills_builtin/zotero-bridge-cli",
+    );
+    const files = [
+      [
+        COMMAND_CATALOG_PATH.replace(/^references\//, ""),
+        await fs.readFile(
+          path.join(
+            referenceRoot,
+            COMMAND_CATALOG_PATH.replace(/^references\//, ""),
+          ),
+          "utf8",
+        ),
+      ] as const,
+      ...references.entries(),
+    ];
+    for (const [file, content] of files) {
+      assert.isAtLeast(
+        content.split(/\r?\n/).length,
+        200,
+        `${file} is too shallow for an unfamiliar agent`,
+      );
+    }
+  });
+
+  it("covers library commands in the generated command reference", async function () {
     const commands = await fs.readFile(
       path.join(process.cwd(), "cli/zotero-bridge/src/commands.rs"),
       "utf8",
     );
-    const wrapperReference = await fs.readFile(
-      path.join(
-        process.cwd(),
-        "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
-      ),
-      "utf8",
-    );
-    const docs = await fs.readFile(
-      path.join(process.cwd(), "doc/host-bridge-cli.md"),
-      "utf8",
-    );
-
-    for (const source of [cliArgs, commands, wrapperReference, docs]) {
-      assert.include(source, "library.sync_snapshot");
-      assert.include(source, "library.list_items");
-      assert.include(source, "library.readiness_audit");
+    for (const [file, command] of [
+      ["library/items/list.md", "zotero-bridge library items list"],
+      ["library/snapshot.md", "zotero-bridge library snapshot"],
+      [
+        "library/readiness/missing-analysis.md",
+        "zotero-bridge library readiness missing-analysis",
+      ],
+    ]) {
+      const wrapperReference = await fs.readFile(
+        `skills_builtin/zotero-bridge-cli/references/commands/${file}`,
+        "utf8",
+      );
+      assert.include(wrapperReference, command);
     }
-    for (const source of [wrapperReference, docs]) {
-      assert.include(source, "zotero-bridge library items list");
-      assert.include(source, "zotero-bridge library snapshot");
-      assert.include(source, "library readiness missing-analysis");
-      assert.include(source, "collectionKey");
-      assert.include(source, "nextCursor");
+    for (const type of [
+      "LibraryItemsCommand::List",
+      "LibraryCommand::Snapshot",
+      "LibraryReadinessCommand::MissingAnalysis",
+    ]) {
+      assert.include(commands, type);
     }
-    assert.include(commands, "LibraryItemsCommand::List");
-    assert.include(commands, "LibraryCommand::Snapshot");
-    assert.include(commands, "LibraryReadinessCommand::MissingAnalysis");
   });
 
-  it("documents topic get-context views and file output across CLI and wrapper surfaces", async function () {
+  it("covers synthesis topic context in the generated command reference", async function () {
     const cliArgs = await fs.readFile(
       path.join(process.cwd(), "cli/zotero-bridge/src/args.rs"),
       "utf8",
     );
-    const wrapperSkill = await fs.readFile(
-      path.join(process.cwd(), "skills_builtin/zotero-bridge-cli/SKILL.md"),
-      "utf8",
-    );
     const wrapperReference = await fs.readFile(
-      path.join(
-        process.cwd(),
-        "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
-      ),
-      "utf8",
-    );
-    const docs = await fs.readFile(
-      path.join(process.cwd(), "doc/host-bridge-cli.md"),
+      "skills_builtin/zotero-bridge-cli/references/commands/synthesis/topic/get-context.md",
       "utf8",
     );
 
     assert.include(cliArgs, "topics.get_context");
     assert.include(cliArgs, "get-context");
-    for (const source of [wrapperSkill, wrapperReference, docs]) {
-      assert.include(source, "synthesis topic get-context");
-    }
-    for (const source of [cliArgs, wrapperSkill, wrapperReference, docs]) {
-      assert.include(source, "view");
-      assert.include(source, "semantic");
-      assert.include(source, "audit");
-      assert.include(source, "outputPath");
-    }
-    assert.include(cliArgs, "Omitting view keeps the flat response");
-    assert.include(wrapperSkill, "flat topic context response");
-    assert.include(wrapperReference, "compact file envelope");
-    assert.include(docs, "omitted_inline_result");
+    assert.include(
+      wrapperReference,
+      "zotero-bridge synthesis topic get-context",
+    );
   });
 
   it("declares remote Host Bridge profile and master token preference controls", async function () {
@@ -426,23 +1271,40 @@ describe("host bridge cli packaging and install", function () {
       path.join(process.cwd(), "scripts/publish-host-bridge-cli-bundle.ps1"),
       "utf8",
     );
+    const releaseWorkflow = await fs.readFile(
+      path.join(process.cwd(), ".github/workflows/release-host-bridge.yml"),
+      "utf8",
+    );
 
     assert.include(packageScript, "chmod(target, 0o755)");
     assert.include(publishScript, "update-index --chmod=+x install.sh");
     assert.include(publishScript, "$entry.platform -notlike 'win32-*'");
     assert.include(publishScript, "update-index --chmod=+x $entry.binaryPath");
+    assert.include(releaseWorkflow, "restore_surface_executable_modes");
+    assert.include(releaseWorkflow, 'update-index --chmod=+x "$relative_path"');
+    assert.include(
+      releaseWorkflow,
+      'update-index --chmod=+x "addon/bin/$platform/$binary"',
+    );
   });
 
   it("keeps tracked POSIX Host Bridge artifacts executable", async function () {
     if (process.platform === "win32") {
       this.skip();
     }
+    const release = JSON.parse(
+      await fs.readFile(
+        path.join(process.cwd(), "cli/zotero-bridge/release.json"),
+        "utf8",
+      ),
+    ) as {
+      binaries: Array<{ platform: string; binary: string }>;
+    };
     const executablePaths = [
       "cli/zotero-bridge/scripts/install.sh",
-      "addon/bin/linux-x86/zotero-bridge",
-      "addon/bin/linux-x64/zotero-bridge",
-      "addon/bin/linux-arm/zotero-bridge",
-      "addon/bin/linux-arm64/zotero-bridge",
+      ...release.binaries
+        .filter((entry) => !entry.platform.startsWith("win32-"))
+        .map((entry) => `addon/bin/${entry.platform}/${entry.binary}`),
     ];
 
     for (const relativePath of executablePaths) {
@@ -1241,7 +2103,17 @@ describe("host bridge cli packaging and install", function () {
     );
     assert.isTrue(
       governance.isHostBridgeCliBuildInputPath(
-        ".github/workflows/build-zotero-bridge-cli.yml",
+        "host-bridge/cli-build-recipe.json",
+      ),
+    );
+    assert.isFalse(
+      governance.isHostBridgeCliBuildInputPath(
+        ".github/workflows/release-host-bridge.yml",
+      ),
+    );
+    assert.isFalse(
+      governance.isHostBridgeCliBuildInputPath(
+        "scripts/check-zotero-bridge-cli-binary-identity.mjs",
       ),
     );
     assert.isFalse(
@@ -1272,6 +2144,34 @@ describe("host bridge cli packaging and install", function () {
     );
   });
 
+  it("keeps pipeline edits out of the CLI fingerprint while recipe edits change it", async function () {
+    const { root, governance } = await createFreshnessFixture();
+    try {
+      const first = await governance.computeHostBridgeCliBuildFingerprint({
+        root,
+      });
+      await writeTextFile(
+        root,
+        ".github/workflows/release-host-bridge.yml",
+        "name: changed pipeline\n",
+      );
+      const pipelineChanged =
+        await governance.computeHostBridgeCliBuildFingerprint({ root });
+      assert.strictEqual(pipelineChanged.fingerprint, first.fingerprint);
+
+      await writeTextFile(
+        root,
+        "host-bridge/cli-build-recipe.json",
+        `${JSON.stringify({ schema: "host-bridge.cli-build-recipe.v2" })}\n`,
+      );
+      const recipeChanged =
+        await governance.computeHostBridgeCliBuildFingerprint({ root });
+      assert.notStrictEqual(recipeChanged.fingerprint, first.fingerprint);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("checks Host Bridge CLI prebuild freshness against release manifests", async function () {
     const { root, freshness } = await createFreshnessFixture();
     try {
@@ -1300,6 +2200,31 @@ describe("host bridge cli packaging and install", function () {
       assert.isFalse(result.ok);
       if (!result.ok) {
         assert.strictEqual(result.code, "host_bridge_cli_fingerprint_stale");
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails Host Bridge CLI freshness when binaries belong to another fingerprint", async function () {
+    const { root, freshness } = await createFreshnessFixture();
+    try {
+      const manifestPath = path.join(root, "cli/zotero-bridge/release.json");
+      const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+      manifest.binariesBuildFingerprint = "0".repeat(64);
+      await fs.writeFile(
+        manifestPath,
+        `${JSON.stringify(manifest, null, 2)}\n`,
+      );
+      const result = await freshness.checkHostBridgeCliPrebuildFreshness({
+        root,
+      });
+      assert.isFalse(result.ok);
+      if (!result.ok) {
+        assert.strictEqual(
+          result.code,
+          "host_bridge_cli_binary_identity_stale",
+        );
       }
     } finally {
       await fs.rm(root, { recursive: true, force: true });
@@ -1592,16 +2517,19 @@ describe("host bridge cli packaging and install", function () {
 
   it("declares CLI release packaging workflow and addon bin directories", async function () {
     const workflow = await fs.readFile(
-      ".github/workflows/build-zotero-bridge-cli.yml",
+      ".github/workflows/release-host-bridge.yml",
       "utf8",
     );
-    const surfaceWorkflow = await fs.readFile(
-      ".github/workflows/publish-host-bridge-surfaces.yml",
+    const prebuildWorkflow = await fs.readFile(
+      ".github/workflows/build-host-bridge-cli-prebuilds.yml",
       "utf8",
     );
     const releaseWorkflow = await fs.readFile(
       ".github/workflows/release.yml",
       "utf8",
+    );
+    const recipe = JSON.parse(
+      await fs.readFile("host-bridge/cli-build-recipe.json", "utf8"),
     );
     for (const platform of [
       "win32-x64",
@@ -1612,7 +2540,7 @@ describe("host bridge cli packaging and install", function () {
       "linux-arm",
       "linux-arm64",
     ]) {
-      assert.include(workflow, platform);
+      assert.include(JSON.stringify(recipe), platform);
       const stat = await fs.stat(path.join("addon", "bin", platform));
       assert.isTrue(stat.isDirectory());
     }
@@ -1624,56 +2552,105 @@ describe("host bridge cli packaging and install", function () {
       "x86_64-apple-darwin",
       "aarch64-apple-darwin",
     ]) {
-      assert.include(workflow, rustTarget);
+      assert.include(JSON.stringify(recipe), rustTarget);
     }
-    assert.include(workflow, "cargo install cargo-zigbuild --locked");
-    assert.include(workflow, "mlugg/setup-zig@v2");
-    assert.include(workflow, "Detect CLI build input changes");
-    assert.include(workflow, "host-bridge-cli-release-governance.mjs status");
-    assert.include(workflow, "bump-patch --write");
-    assert.include(workflow, "record-binaries --write");
+    assert.include(
+      prebuildWorkflow,
+      "cargo install cargo-zigbuild --locked --version",
+    );
+    assert.include(prebuildWorkflow, "goto-bus-stop/setup-zig@v2");
+    assert.include(
+      prebuildWorkflow,
+      "node scripts/check-zotero-bridge-cli-binary-identity.mjs",
+    );
+    assert.include(
+      prebuildWorkflow,
+      "fromJSON(needs.plan.outputs.build_matrix)",
+    );
+    assert.include(
+      prebuildWorkflow,
+      "run-name: Host Bridge CLI prebuild ${{ inputs.request_id }}",
+    );
+    assert.match(
+      prebuildWorkflow,
+      /request_id:\s*\n\s+description:.*\n\s+required: true/,
+    );
+    assert.include(prebuildWorkflow, "host-bridge-cli-prebuild-result.v1");
+    assert.include(prebuildWorkflow, "name: host-bridge-cli-prebuild-result");
+    assert.include(
+      prebuildWorkflow,
+      "host-bridge-cli-release-governance.mjs status --json",
+    );
+    assert.include(prebuildWorkflow, "if: ${{ !matrix.runtimeIdentity }}");
+    assert.include(prebuildWorkflow, "if: matrix.runtimeIdentity");
+    assert.include(workflow, "group: host-bridge-release");
+    assert.include(workflow, "--output=.host-bridge-plan.json");
+    assert.include(prebuildWorkflow, "record-binaries --write");
     assert.include(workflow, "npm run render:host-bridge-surface");
-    assert.include(workflow, "npm run check:host-bridge-doc-sync");
     assert.include(
       workflow,
       "npm run check:host-bridge-cli-prebuild-freshness",
     );
-    assert.include(workflow, "npm run check:zotero-librarian-profile");
-    assert.include(workflow, "Publish Host Bridge CLI bundle branch");
-    assert.include(workflow, "Publish zotero-librarian profile repository");
-    assert.include(workflow, "scripts/publish-host-bridge-cli-bundle.ps1");
-    assert.include(workflow, "scripts/publish-zotero-librarian-profile.ps1");
-    assert.include(workflow, "leike0813/zotero-librarian-profile.git");
-    assert.include(workflow, "-AllowDirty -Push");
-    assert.isBelow(
-      workflow.indexOf("record-binaries --write"),
-      workflow.indexOf("npm run render:host-bridge-surface"),
+    assert.include(workflow, "npm run check:host-bridge-surface");
+    assert.include(workflow, "materialize-host-bridge-surfaces.ts");
+    assert.include(workflow, "host-bridge-artifacts/surfaces");
+    assert.include(workflow, "actions/attest-build-provenance@v2");
+    assert.include(workflow, "Publish immutable commits and tags");
+    assert.include(workflow, "Verify immutable manifests");
+    assert.include(
+      workflow,
+      "Advance mutable pointers after all immutable surfaces verify",
     );
-    assert.isBelow(
-      workflow.indexOf("npm run render:host-bridge-surface"),
-      workflow.indexOf("npm run check:host-bridge-doc-sync"),
+    assert.include(workflow, "advance_mutable_pointer()");
+    assert.include(workflow, 'push --force-with-lease="$remote_ref:$expected"');
+    assert.include(
+      workflow,
+      "advance_mutable_pointer .publish/cli host-bridge/zotero-bridge-cli-bundle",
     );
+    assert.notInclude(workflow, "cargo zigbuild");
+    assert.notInclude(workflow, "needs.build");
+    assert.include(
+      workflow,
+      'test "$(jq -r .prebuildRequired .host-bridge-plan.json)" = "false"',
+    );
+    assert.include(
+      workflow,
+      'aggregate="${{ needs.plan.outputs.cli_aggregate }}"',
+    );
+    assert.include(workflow, "host-bridge-release-controller.ts");
+    assert.notInclude(workflow, "bump-patch --write");
     assert.isBelow(
       workflow.indexOf("npm run check:host-bridge-cli-prebuild-freshness"),
-      workflow.indexOf("Publish Host Bridge CLI bundle branch"),
+      workflow.indexOf("materialize-host-bridge-surfaces.ts"),
     );
     assert.isBelow(
-      workflow.indexOf("npm run check:zotero-librarian-profile"),
-      workflow.indexOf("Publish zotero-librarian profile repository"),
+      workflow.indexOf("Verify immutable manifests"),
+      workflow.indexOf(
+        "Advance mutable pointers after all immutable surfaces verify",
+      ),
     );
-    assert.include(workflow, "doc/host-bridge-cli.md");
-    assert.include(workflow, "skills_builtin/zotero-bridge-cli");
-    assert.include(workflow, "profiles/hermes/zotero-librarian");
-    assert.notInclude(workflow, "profiles/hermes/zotero-librarian/**");
-    assert.include(surfaceWorkflow, "profiles/hermes/zotero-librarian/**");
-    assert.include(surfaceWorkflow, "npm run sync:host-bridge-cli-prebuilds");
-    assert.include(surfaceWorkflow, "npm run check:host-bridge-surface");
-    assert.include(surfaceWorkflow, "npm run render:host-bridge-surface");
-    assert.include(surfaceWorkflow, "Publish Host Bridge CLI bundle branch");
+    assert.notInclude(workflow, "  push:");
+    assert.include(workflow, "source_sha:");
+    assert.include(workflow, "request_id:");
+    assert.include(workflow, "host-bridge-cli-prebuilds");
+    assert.include(workflow, "sets/$aggregate");
     assert.include(
-      surfaceWorkflow,
-      "Publish zotero-librarian profile repository",
+      workflow,
+      'fetch --depth=1 origin "refs/heads/${PREBUILD_BRANCH}:refs/remotes/origin/${PREBUILD_BRANCH}"',
     );
+    assert.include(
+      workflow,
+      'checkout -B "$PREBUILD_BRANCH" "origin/$PREBUILD_BRANCH"',
+    );
+    assert.include(
+      prebuildWorkflow,
+      'push origin "HEAD:refs/heads/$PREBUILD_BRANCH"',
+    );
+    assert.notInclude(workflow, "gh release create");
+    assert.notInclude(workflow, "gh release download");
+    assert.include(workflow, "Finalize source main");
+    assert.include(workflow, "latest-complete-release-receipt.json");
+    assert.include(workflow, "npm run sync:host-bridge-cli-prebuilds");
     assert.include(workflow, "actions/download-artifact@v4");
     assert.include(
       releaseWorkflow,
@@ -1720,12 +2697,30 @@ describe("host bridge cli packaging and install", function () {
     );
     assert.include(syncScript, "host-bridge-cli-prebuilds");
     assert.include(syncScript, "gh");
-    assert.include(syncScript, "zotero-bridge-*.zip");
-    assert.include(syncScript, "addon/bin");
+    assert.include(syncScript, "--identity-file");
+    assert.include(syncScript, "host-bridge-cli-prebuild-result.v1");
+    assert.include(syncScript, "replacePrebuildsAndManifests");
+    assert.include(syncScript, 'path.join(setDirectory, "manifest.json")');
+    assert.include(syncScript, 'path.join("addon", "bin")');
+    assert.include(syncScript, "--aggregate");
+    assert.notInclude(syncScript, '"release"');
+    assert.notInclude(syncScript, "release download");
     const packageJson = JSON.parse(await fs.readFile("package.json", "utf8"));
     assert.strictEqual(
       packageJson.scripts["sync:host-bridge-cli-prebuilds"],
       "tsx scripts/sync-host-bridge-cli-prebuilds.ts",
+    );
+    assert.strictEqual(
+      packageJson.scripts["prebuild:zotero-bridge-cli"],
+      "tsx scripts/prebuild-zotero-bridge-cli.ts",
+    );
+    assert.strictEqual(
+      packageJson.scripts["build:local:zotero-bridge-cli"],
+      "node scripts/build-zotero-bridge-cli.mjs",
+    );
+    assert.notInclude(
+      packageJson.scripts["build:local:zotero-bridge-cli"],
+      "github",
     );
     assert.strictEqual(
       packageJson.scripts["check:zotero-bridge-cli-governance"],
@@ -1753,12 +2748,13 @@ describe("host bridge cli packaging and install", function () {
       ".agents/skills/host-bridge-release-pipeline/SKILL.md",
       "utf8",
     );
-    assert.include(releaseSkill, "npm run check:zotero-librarian-profile");
-    assert.include(releaseSkill, "leike0813/zotero-librarian-profile");
-    assert.include(releaseSkill, "npm run sync:host-bridge-cli-prebuilds");
+    assert.include(releaseSkill, "npm run check:host-bridge-content");
+    assert.include(workflow, "leike0813/zotero-librarian-profile");
     assert.include(releaseSkill, "check:host-bridge-cli-prebuild-freshness");
-    assert.include(releaseSkill, "publish-host-bridge-surfaces.yml");
-    assert.notInclude(releaseSkill, "npm run prebuild:zotero-bridge-cli");
+    assert.include(releaseSkill, "release-host-bridge.yml");
+    assert.include(releaseSkill, "release:host-bridge:dispatch");
+    assert.include(releaseSkill, "host-bridge-cli-prebuilds");
+    assert.notInclude(releaseSkill, "automatic `push`");
     assert.notInclude(
       releaseSkill,
       "publish-host-bridge-cli-bundle.ps1 -AllowDirty -Push",
@@ -1773,85 +2769,106 @@ describe("host bridge cli packaging and install", function () {
     assert.strictEqual(profileTemplate.auth.tokenEnv, "ZOTERO_BRIDGE_TOKEN");
   });
 
+  it("checks cross-compiled CLI identity without executing the target binary", async function () {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "zs-cli-identity-"));
+    try {
+      const version = "0.3.0";
+      const buildFingerprint = "a".repeat(64);
+      const commandCatalogChecksum = "b".repeat(64);
+      const binary = "zotero-bridge";
+      await writeTextFile(
+        root,
+        "cli/zotero-bridge/release.json",
+        `${JSON.stringify({ version, buildFingerprint })}\n`,
+      );
+      await writeTextFile(
+        root,
+        "cli/zotero-bridge/src/agent-surface.json",
+        `${JSON.stringify({
+          protocol: "host-bridge.v1",
+          cliSchema: "zotero-bridge.cli.v2",
+          commandCatalogChecksum,
+        })}\n`,
+      );
+      await writeBinaryFixture(
+        root,
+        `addon/bin/linux-arm64/${binary}`,
+        encodeText(
+          [
+            version,
+            buildFingerprint,
+            commandCatalogChecksum,
+            "host-bridge.v1",
+            "zotero-bridge.cli.v2",
+          ].join("\0"),
+        ),
+      );
+      const identity =
+        await import("../../scripts/check-zotero-bridge-cli-binary-identity.mjs");
+      const current = await identity.checkHostBridgeCliBinaryIdentity({
+        root,
+        platform: "linux-arm64",
+        binary,
+      });
+      assert.isTrue(current.ok);
+
+      await writeBinaryFixture(
+        root,
+        `addon/bin/linux-arm64/${binary}`,
+        encodeText("wrong binary"),
+      );
+      const stale = await identity.checkHostBridgeCliBinaryIdentity({
+        root,
+        platform: "linux-arm64",
+        binary,
+      });
+      assert.isFalse(stale.ok);
+      assert.include(stale.missing, buildFingerprint);
+      assert.include(stale.missing, commandCatalogChecksum);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("declares the standalone Zotero Library Agent bundle surface", async function () {
     const packageJson = JSON.parse(await fs.readFile("package.json", "utf8"));
-    const buildWorkflow = await fs.readFile(
-      ".github/workflows/build-zotero-bridge-cli.yml",
-      "utf8",
-    );
-    const surfaceWorkflow = await fs.readFile(
-      ".github/workflows/publish-host-bridge-surfaces.yml",
+    const releaseWorkflow = await fs.readFile(
+      ".github/workflows/release-host-bridge.yml",
       "utf8",
     );
     const publisher = await fs.readFile(
       "scripts/publish-zotero-library-agent-bundle.ps1",
       "utf8",
     );
-    const versionSource = JSON.parse(
-      await fs.readFile(
-        "skills_src/zotero-library-agent/bundle-version.json",
-        "utf8",
-      ),
+    const surfaces = JSON.parse(
+      await fs.readFile("host-bridge/surfaces.json", "utf8"),
     );
     const skill = await fs.readFile(
       "skills_builtin/zotero-library-agent/SKILL.md",
       "utf8",
     );
-    const controlSource = await fs.readFile(
-      "skills_src/host-bridge-shared/control-invariants.md",
-      "utf8",
+    const genericSurface = surfaces.surfaces.find(
+      (surface: { id: string }) => surface.id === "zotero-library-agent",
     );
-    const agentControl = await fs.readFile(
-      "skills_builtin/zotero-library-agent/references/control-invariants.md",
-      "utf8",
-    );
-    const wrapperControl = await fs.readFile(
-      "skills_builtin/zotero-bridge-cli/references/control-invariants.md",
-      "utf8",
-    );
-    const profileControl = await fs.readFile(
-      "profiles/hermes/zotero-librarian/skills/zotero-librarian/references/control-invariants.md",
-      "utf8",
-    );
-
-    assert.strictEqual(
-      versionSource.schema,
-      "zotero-library-agent.bundle.version.v1",
-    );
-    assert.strictEqual(versionSource.cliMajorMinor, "0.2");
-    assert.strictEqual(versionSource.patch, 0);
-    assert.include(skill, "references/task-routing.md");
-    assert.include(skill, "references/workflow-execution.md");
-    assert.include(skill, "references/evidence-handoff.md");
+    assert.isAtLeast(genericSurface.patch, 0);
+    assert.include(skill, "references/research-task-model.md");
     assert.notMatch(skill, /HERMES_HOME|cron|SQLite|run-register/);
-    assert.strictEqual(agentControl, controlSource);
-    assert.strictEqual(wrapperControl, controlSource);
-    assert.strictEqual(profileControl, controlSource);
 
-    for (const workflow of [buildWorkflow, surfaceWorkflow]) {
-      assert.include(workflow, "npm run check:zotero-library-agent-bundle");
-      assert.include(
-        workflow,
-        "Publish Zotero Library Agent bundle repository",
-      );
-      assert.include(workflow, "publish-zotero-library-agent-bundle.ps1");
-      assert.include(workflow, "leike0813/zotero-library-agent-bundle.git");
-    }
-    assert.include(
-      publisher,
-      "zotero-library-agent.bundle.release-manifest.v1",
-    );
+    assert.include(releaseWorkflow, "npm run check:host-bridge-surface");
+    assert.include(releaseWorkflow, "materialize-host-bridge-surfaces.ts");
+    assert.include(releaseWorkflow, "leike0813/zotero-library-agent-bundle");
+    assert.include(publisher, "host-bridge.surface-release.v1");
     assert.include(publisher, "skills/zotero-library-agent");
     assert.include(publisher, "skills/zotero-bridge-cli");
     assert.include(publisher, "cli/zotero-bridge/release.json");
     assert.notMatch(publisher, /profiles\/hermes|zotero_librarian_index/);
     assert.strictEqual(
       packageJson.scripts["check:zotero-library-agent-bundle"],
-      "tsx scripts/check-zotero-library-agent-bundle.ts",
+      "tsx scripts/check-host-bridge-skill-packages.ts skills_builtin/zotero-library-agent skills_builtin/zotero-library-query skills_builtin/zotero-literature-acquisition skills_builtin/zotero-literature-analysis skills_builtin/zotero-research-synthesis skills_builtin/zotero-library-curation",
     );
     assert.strictEqual(
       packageJson.scripts["inspect:zotero-library-agent-bundle-version"],
-      "tsx scripts/zotero-library-agent-bundle-version.ts",
+      "tsx scripts/host-bridge-surface-version.ts --surface=zotero-library-agent",
     );
   });
 
@@ -1868,11 +2885,6 @@ describe("host bridge cli packaging and install", function () {
       "skills_builtin/zotero-bridge-cli/SKILL.md",
       "utf8",
     );
-    const wrapperReference = await fs.readFile(
-      "skills_builtin/zotero-bridge-cli/references/host-bridge-cli.md",
-      "utf8",
-    );
-    const docs = await fs.readFile("doc/host-bridge-cli.md", "utf8");
 
     for (const source of [installPs1, installSh]) {
       assert.include(source, "zotero-agents");
@@ -1880,13 +2892,38 @@ describe("host bridge cli packaging and install", function () {
       assert.include(source, "ZOTERO_BRIDGE_TOKEN");
       assert.include(source, "Platform override is not supported");
     }
-    for (const source of [wrapperSkill, wrapperReference, docs]) {
-      assert.include(source, "install.ps1");
-      assert.include(source, "install.sh");
-      assert.include(source, "--yes --json");
+    assert.include(wrapperSkill, COMMAND_CATALOG_PATH);
+    assert.notMatch(wrapperSkill, /references\/commands\//);
+    assert.notInclude(wrapperSkill, "references/operating-contract.md");
+  });
+
+  it("renders every public Agent Surface command field into the offline command references", async function () {
+    const descriptor = JSON.parse(
+      await fs.readFile(
+        "skills_builtin/zotero-bridge-cli/assets/agent-surface.json",
+        "utf8",
+      ),
+    );
+    const references = await readCommandReferences(
+      "skills_builtin/zotero-bridge-cli",
+    );
+    const reference = [...references.values()].join("\n");
+    const count = (label: string) => reference.split(label).length - 1;
+
+    assert.lengthOf(descriptor.commands, 125);
+    for (const label of [
+      "## Global parameters",
+      "## Local options and positionals",
+      "## Invocation schema",
+      "## Structured input schemas",
+      "## Composed payload schema",
+      "## Result schema",
+      "## Examples",
+      "## Complete command descriptor",
+      "## Operational contract",
+    ]) {
+      assert.strictEqual(count(label), descriptor.commands.length, label);
     }
-    assert.include(docs, "zotero-agents");
-    assert.notInclude(wrapperReference, "--platform");
   });
 
   it("packages a target-triple release binary into the requested platform directory", async function () {

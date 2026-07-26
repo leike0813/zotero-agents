@@ -1,6 +1,6 @@
 {
   "schema": "zotero-agents.help-docs.v1",
-  "generated_at": "2026-07-12T14:06:15.293Z",
+  "generated_at": "2026-07-23T17:33:47.663Z",
   "default_doc": "installation",
   "locales": ["en", "de", "es", "fr", "it", "ja", "ko", "ru", "zh-CN"],
   "docs": [
@@ -51,6 +51,12 @@
       "locale": "de",
       "title": "Skill-Runner-Bereitstellung & -Konfiguration",
       "path": "docs/de/backends/skill-runner.md"
+    },
+    {
+      "id": "backends/zotero-library-agent",
+      "locale": "de",
+      "title": "Zotero Library Agent",
+      "path": "docs/de/backends/zotero-library-agent.md"
     },
     {
       "id": "dashboard",
@@ -161,6 +167,12 @@
       "path": "docs/de/synthesis/webdav-sync.md"
     },
     {
+      "id": "workflows/collection-collector",
+      "locale": "de",
+      "title": "Collection Collector",
+      "path": "docs/de/workflows/collection-collector.md"
+    },
+    {
       "id": "workflows/custom/debugging",
       "locale": "de",
       "title": "Debugging & Testen",
@@ -227,10 +239,22 @@
       "path": "docs/de/workflows/debug-probe.md"
     },
     {
+      "id": "workflows/export-import-literature-bundle",
+      "locale": "de",
+      "title": "Export/Import Literature Bundle",
+      "path": "docs/de/workflows/export-import-literature-bundle.md"
+    },
+    {
       "id": "workflows/export-import-notes",
       "locale": "de",
       "title": "Export/Import Notes",
       "path": "docs/de/workflows/export-import-notes.md"
+    },
+    {
+      "id": "workflows/export-research-bundle",
+      "locale": "de",
+      "title": "Export Research Bundle",
+      "path": "docs/de/workflows/export-research-bundle.md"
     },
     {
       "id": "workflows/index",
@@ -263,10 +287,22 @@
       "path": "docs/de/workflows/literature-explainer.md"
     },
     {
+      "id": "workflows/literature-metadata-curator",
+      "locale": "de",
+      "title": "Literature Metadata Curator",
+      "path": "docs/de/workflows/literature-metadata-curator.md"
+    },
+    {
       "id": "workflows/literature-search-ingest",
       "locale": "de",
       "title": "Literature Search & Ingest",
       "path": "docs/de/workflows/literature-search-ingest.md"
+    },
+    {
+      "id": "workflows/literature-translator",
+      "locale": "de",
+      "title": "Literature Translator",
+      "path": "docs/de/workflows/literature-translator.md"
     },
     {
       "id": "workflows/manuscript-literature-framing",
@@ -279,6 +315,12 @@
       "locale": "de",
       "title": "MinerU PDF-Parsung",
       "path": "docs/de/workflows/mineru.md"
+    },
+    {
+      "id": "workflows/tag-auditor",
+      "locale": "de",
+      "title": "Tag Auditor",
+      "path": "docs/de/workflows/tag-auditor.md"
     },
     {
       "id": "workflows/tag-bootstrapper",
@@ -345,6 +387,12 @@
       "locale": "en",
       "title": "Skill-Runner Deployment & Configuration",
       "path": "docs/en/backends/skill-runner.md"
+    },
+    {
+      "id": "backends/zotero-library-agent",
+      "locale": "en",
+      "title": "Zotero Library Agent",
+      "path": "docs/en/backends/zotero-library-agent.md"
     },
     {
       "id": "dashboard",
@@ -677,6 +725,12 @@
       "path": "docs/es/backends/skill-runner.md"
     },
     {
+      "id": "backends/zotero-library-agent",
+      "locale": "es",
+      "title": "Zotero Library Agent",
+      "path": "docs/es/backends/zotero-library-agent.md"
+    },
+    {
       "id": "dashboard",
       "locale": "es",
       "title": "Dashboard",
@@ -785,6 +839,12 @@
       "path": "docs/es/synthesis/webdav-sync.md"
     },
     {
+      "id": "workflows/collection-collector",
+      "locale": "es",
+      "title": "Collection Collector",
+      "path": "docs/es/workflows/collection-collector.md"
+    },
+    {
       "id": "workflows/custom/debugging",
       "locale": "es",
       "title": "Depuración y Pruebas",
@@ -851,10 +911,22 @@
       "path": "docs/es/workflows/debug-probe.md"
     },
     {
+      "id": "workflows/export-import-literature-bundle",
+      "locale": "es",
+      "title": "Export/Import Literature Bundle",
+      "path": "docs/es/workflows/export-import-literature-bundle.md"
+    },
+    {
       "id": "workflows/export-import-notes",
       "locale": "es",
       "title": "Export/Import Notes",
       "path": "docs/es/workflows/export-import-notes.md"
+    },
+    {
+      "id": "workflows/export-research-bundle",
+      "locale": "es",
+      "title": "Export Research Bundle",
+      "path": "docs/es/workflows/export-research-bundle.md"
     },
     {
       "id": "workflows/index",
@@ -887,10 +959,22 @@
       "path": "docs/es/workflows/literature-explainer.md"
     },
     {
+      "id": "workflows/literature-metadata-curator",
+      "locale": "es",
+      "title": "Literature Metadata Curator",
+      "path": "docs/es/workflows/literature-metadata-curator.md"
+    },
+    {
       "id": "workflows/literature-search-ingest",
       "locale": "es",
       "title": "Literature Search & Ingest",
       "path": "docs/es/workflows/literature-search-ingest.md"
+    },
+    {
+      "id": "workflows/literature-translator",
+      "locale": "es",
+      "title": "Literature Translator",
+      "path": "docs/es/workflows/literature-translator.md"
     },
     {
       "id": "workflows/manuscript-literature-framing",
@@ -903,6 +987,12 @@
       "locale": "es",
       "title": "MinerU PDF Parsing",
       "path": "docs/es/workflows/mineru.md"
+    },
+    {
+      "id": "workflows/tag-auditor",
+      "locale": "es",
+      "title": "Tag Auditor",
+      "path": "docs/es/workflows/tag-auditor.md"
     },
     {
       "id": "workflows/tag-bootstrapper",
@@ -969,6 +1059,12 @@
       "locale": "fr",
       "title": "Déploiement et configuration du Skill-Runner",
       "path": "docs/fr/backends/skill-runner.md"
+    },
+    {
+      "id": "backends/zotero-library-agent",
+      "locale": "fr",
+      "title": "Zotero Library Agent",
+      "path": "docs/fr/backends/zotero-library-agent.md"
     },
     {
       "id": "dashboard",
@@ -1079,6 +1175,12 @@
       "path": "docs/fr/synthesis/webdav-sync.md"
     },
     {
+      "id": "workflows/collection-collector",
+      "locale": "fr",
+      "title": "Collection Collector",
+      "path": "docs/fr/workflows/collection-collector.md"
+    },
+    {
       "id": "workflows/custom/debugging",
       "locale": "fr",
       "title": "Débogage et Tests",
@@ -1145,10 +1247,22 @@
       "path": "docs/fr/workflows/debug-probe.md"
     },
     {
+      "id": "workflows/export-import-literature-bundle",
+      "locale": "fr",
+      "title": "Export/Import Literature Bundle",
+      "path": "docs/fr/workflows/export-import-literature-bundle.md"
+    },
+    {
       "id": "workflows/export-import-notes",
       "locale": "fr",
       "title": "Export/Import Notes",
       "path": "docs/fr/workflows/export-import-notes.md"
+    },
+    {
+      "id": "workflows/export-research-bundle",
+      "locale": "fr",
+      "title": "Export Research Bundle",
+      "path": "docs/fr/workflows/export-research-bundle.md"
     },
     {
       "id": "workflows/index",
@@ -1181,10 +1295,22 @@
       "path": "docs/fr/workflows/literature-explainer.md"
     },
     {
+      "id": "workflows/literature-metadata-curator",
+      "locale": "fr",
+      "title": "Literature Metadata Curator",
+      "path": "docs/fr/workflows/literature-metadata-curator.md"
+    },
+    {
       "id": "workflows/literature-search-ingest",
       "locale": "fr",
       "title": "Literature Search & Ingest",
       "path": "docs/fr/workflows/literature-search-ingest.md"
+    },
+    {
+      "id": "workflows/literature-translator",
+      "locale": "fr",
+      "title": "Literature Translator",
+      "path": "docs/fr/workflows/literature-translator.md"
     },
     {
       "id": "workflows/manuscript-literature-framing",
@@ -1197,6 +1323,12 @@
       "locale": "fr",
       "title": "MinerU PDF Parsing",
       "path": "docs/fr/workflows/mineru.md"
+    },
+    {
+      "id": "workflows/tag-auditor",
+      "locale": "fr",
+      "title": "Tag Auditor",
+      "path": "docs/fr/workflows/tag-auditor.md"
     },
     {
       "id": "workflows/tag-bootstrapper",
@@ -1263,6 +1395,12 @@
       "locale": "it",
       "title": "Distribuzione e configurazione di Skill-Runner",
       "path": "docs/it/backends/skill-runner.md"
+    },
+    {
+      "id": "backends/zotero-library-agent",
+      "locale": "it",
+      "title": "Zotero Library Agent",
+      "path": "docs/it/backends/zotero-library-agent.md"
     },
     {
       "id": "dashboard",
@@ -1373,6 +1511,12 @@
       "path": "docs/it/synthesis/webdav-sync.md"
     },
     {
+      "id": "workflows/collection-collector",
+      "locale": "it",
+      "title": "Collection Collector",
+      "path": "docs/it/workflows/collection-collector.md"
+    },
+    {
       "id": "workflows/custom/debugging",
       "locale": "it",
       "title": "Debugging e Test",
@@ -1439,10 +1583,22 @@
       "path": "docs/it/workflows/debug-probe.md"
     },
     {
+      "id": "workflows/export-import-literature-bundle",
+      "locale": "it",
+      "title": "Export/Import Literature Bundle",
+      "path": "docs/it/workflows/export-import-literature-bundle.md"
+    },
+    {
       "id": "workflows/export-import-notes",
       "locale": "it",
       "title": "Esporta/Importa note",
       "path": "docs/it/workflows/export-import-notes.md"
+    },
+    {
+      "id": "workflows/export-research-bundle",
+      "locale": "it",
+      "title": "Export Research Bundle",
+      "path": "docs/it/workflows/export-research-bundle.md"
     },
     {
       "id": "workflows/index",
@@ -1475,10 +1631,22 @@
       "path": "docs/it/workflows/literature-explainer.md"
     },
     {
+      "id": "workflows/literature-metadata-curator",
+      "locale": "it",
+      "title": "Literature Metadata Curator",
+      "path": "docs/it/workflows/literature-metadata-curator.md"
+    },
+    {
       "id": "workflows/literature-search-ingest",
       "locale": "it",
-      "title": "Ricerca e acquisizione della letteratura",
+      "title": "Literature Search & Ingest",
       "path": "docs/it/workflows/literature-search-ingest.md"
+    },
+    {
+      "id": "workflows/literature-translator",
+      "locale": "it",
+      "title": "Literature Translator",
+      "path": "docs/it/workflows/literature-translator.md"
     },
     {
       "id": "workflows/manuscript-literature-framing",
@@ -1491,6 +1659,12 @@
       "locale": "it",
       "title": "Analisi PDF MinerU",
       "path": "docs/it/workflows/mineru.md"
+    },
+    {
+      "id": "workflows/tag-auditor",
+      "locale": "it",
+      "title": "Tag Auditor",
+      "path": "docs/it/workflows/tag-auditor.md"
     },
     {
       "id": "workflows/tag-bootstrapper",
@@ -1557,6 +1731,12 @@
       "locale": "ja",
       "title": "Skill-Runnerデプロイと設定",
       "path": "docs/ja/backends/skill-runner.md"
+    },
+    {
+      "id": "backends/zotero-library-agent",
+      "locale": "ja",
+      "title": "Zotero Library Agent",
+      "path": "docs/ja/backends/zotero-library-agent.md"
     },
     {
       "id": "dashboard",
@@ -1667,6 +1847,12 @@
       "path": "docs/ja/synthesis/webdav-sync.md"
     },
     {
+      "id": "workflows/collection-collector",
+      "locale": "ja",
+      "title": "Collection Collector",
+      "path": "docs/ja/workflows/collection-collector.md"
+    },
+    {
       "id": "workflows/custom/debugging",
       "locale": "ja",
       "title": "デバッグとテスト",
@@ -1733,10 +1919,22 @@
       "path": "docs/ja/workflows/debug-probe.md"
     },
     {
+      "id": "workflows/export-import-literature-bundle",
+      "locale": "ja",
+      "title": "Export/Import Literature Bundle",
+      "path": "docs/ja/workflows/export-import-literature-bundle.md"
+    },
+    {
       "id": "workflows/export-import-notes",
       "locale": "ja",
       "title": "Export/Import Notes",
       "path": "docs/ja/workflows/export-import-notes.md"
+    },
+    {
+      "id": "workflows/export-research-bundle",
+      "locale": "ja",
+      "title": "Export Research Bundle",
+      "path": "docs/ja/workflows/export-research-bundle.md"
     },
     {
       "id": "workflows/index",
@@ -1769,10 +1967,22 @@
       "path": "docs/ja/workflows/literature-explainer.md"
     },
     {
+      "id": "workflows/literature-metadata-curator",
+      "locale": "ja",
+      "title": "Literature Metadata Curator",
+      "path": "docs/ja/workflows/literature-metadata-curator.md"
+    },
+    {
       "id": "workflows/literature-search-ingest",
       "locale": "ja",
       "title": "Literature Search & Ingest",
       "path": "docs/ja/workflows/literature-search-ingest.md"
+    },
+    {
+      "id": "workflows/literature-translator",
+      "locale": "ja",
+      "title": "Literature Translator",
+      "path": "docs/ja/workflows/literature-translator.md"
     },
     {
       "id": "workflows/manuscript-literature-framing",
@@ -1785,6 +1995,12 @@
       "locale": "ja",
       "title": "MinerU PDF解析",
       "path": "docs/ja/workflows/mineru.md"
+    },
+    {
+      "id": "workflows/tag-auditor",
+      "locale": "ja",
+      "title": "Tag Auditor",
+      "path": "docs/ja/workflows/tag-auditor.md"
     },
     {
       "id": "workflows/tag-bootstrapper",
@@ -1851,6 +2067,12 @@
       "locale": "ko",
       "title": "Skill-Runner Deployment & Configuration",
       "path": "docs/ko/backends/skill-runner.md"
+    },
+    {
+      "id": "backends/zotero-library-agent",
+      "locale": "ko",
+      "title": "Zotero Library Agent",
+      "path": "docs/ko/backends/zotero-library-agent.md"
     },
     {
       "id": "dashboard",
@@ -1961,6 +2183,12 @@
       "path": "docs/ko/synthesis/webdav-sync.md"
     },
     {
+      "id": "workflows/collection-collector",
+      "locale": "ko",
+      "title": "Collection Collector",
+      "path": "docs/ko/workflows/collection-collector.md"
+    },
+    {
       "id": "workflows/custom/debugging",
       "locale": "ko",
       "title": "디버깅 및 테스트",
@@ -2027,10 +2255,22 @@
       "path": "docs/ko/workflows/debug-probe.md"
     },
     {
+      "id": "workflows/export-import-literature-bundle",
+      "locale": "ko",
+      "title": "Export/Import Literature Bundle",
+      "path": "docs/ko/workflows/export-import-literature-bundle.md"
+    },
+    {
       "id": "workflows/export-import-notes",
       "locale": "ko",
       "title": "Export/Import Notes",
       "path": "docs/ko/workflows/export-import-notes.md"
+    },
+    {
+      "id": "workflows/export-research-bundle",
+      "locale": "ko",
+      "title": "Export Research Bundle",
+      "path": "docs/ko/workflows/export-research-bundle.md"
     },
     {
       "id": "workflows/index",
@@ -2063,10 +2303,22 @@
       "path": "docs/ko/workflows/literature-explainer.md"
     },
     {
+      "id": "workflows/literature-metadata-curator",
+      "locale": "ko",
+      "title": "Literature Metadata Curator",
+      "path": "docs/ko/workflows/literature-metadata-curator.md"
+    },
+    {
       "id": "workflows/literature-search-ingest",
       "locale": "ko",
       "title": "Literature Search & Ingest",
       "path": "docs/ko/workflows/literature-search-ingest.md"
+    },
+    {
+      "id": "workflows/literature-translator",
+      "locale": "ko",
+      "title": "Literature Translator",
+      "path": "docs/ko/workflows/literature-translator.md"
     },
     {
       "id": "workflows/manuscript-literature-framing",
@@ -2079,6 +2331,12 @@
       "locale": "ko",
       "title": "MinerU PDF Parsing",
       "path": "docs/ko/workflows/mineru.md"
+    },
+    {
+      "id": "workflows/tag-auditor",
+      "locale": "ko",
+      "title": "Tag Auditor",
+      "path": "docs/ko/workflows/tag-auditor.md"
     },
     {
       "id": "workflows/tag-bootstrapper",
@@ -2145,6 +2403,12 @@
       "locale": "ru",
       "title": "Развёртывание и настройка Skill-Runner",
       "path": "docs/ru/backends/skill-runner.md"
+    },
+    {
+      "id": "backends/zotero-library-agent",
+      "locale": "ru",
+      "title": "Zotero Library Agent",
+      "path": "docs/ru/backends/zotero-library-agent.md"
     },
     {
       "id": "dashboard",
@@ -2255,6 +2519,12 @@
       "path": "docs/ru/synthesis/webdav-sync.md"
     },
     {
+      "id": "workflows/collection-collector",
+      "locale": "ru",
+      "title": "Collection Collector",
+      "path": "docs/ru/workflows/collection-collector.md"
+    },
+    {
       "id": "workflows/custom/debugging",
       "locale": "ru",
       "title": "Отладка и тестирование",
@@ -2321,10 +2591,22 @@
       "path": "docs/ru/workflows/debug-probe.md"
     },
     {
+      "id": "workflows/export-import-literature-bundle",
+      "locale": "ru",
+      "title": "Export/Import Literature Bundle",
+      "path": "docs/ru/workflows/export-import-literature-bundle.md"
+    },
+    {
       "id": "workflows/export-import-notes",
       "locale": "ru",
       "title": "Экспорт/Импорт заметок",
       "path": "docs/ru/workflows/export-import-notes.md"
+    },
+    {
+      "id": "workflows/export-research-bundle",
+      "locale": "ru",
+      "title": "Export Research Bundle",
+      "path": "docs/ru/workflows/export-research-bundle.md"
     },
     {
       "id": "workflows/index",
@@ -2357,10 +2639,22 @@
       "path": "docs/ru/workflows/literature-explainer.md"
     },
     {
+      "id": "workflows/literature-metadata-curator",
+      "locale": "ru",
+      "title": "Literature Metadata Curator",
+      "path": "docs/ru/workflows/literature-metadata-curator.md"
+    },
+    {
       "id": "workflows/literature-search-ingest",
       "locale": "ru",
-      "title": "Поиск и приём литературы",
+      "title": "Literature Search & Ingest",
       "path": "docs/ru/workflows/literature-search-ingest.md"
+    },
+    {
+      "id": "workflows/literature-translator",
+      "locale": "ru",
+      "title": "Literature Translator",
+      "path": "docs/ru/workflows/literature-translator.md"
     },
     {
       "id": "workflows/manuscript-literature-framing",
@@ -2373,6 +2667,12 @@
       "locale": "ru",
       "title": "Разбор PDF MinerU",
       "path": "docs/ru/workflows/mineru.md"
+    },
+    {
+      "id": "workflows/tag-auditor",
+      "locale": "ru",
+      "title": "Tag Auditor",
+      "path": "docs/ru/workflows/tag-auditor.md"
     },
     {
       "id": "workflows/tag-bootstrapper",
@@ -2439,6 +2739,12 @@
       "locale": "zh-CN",
       "title": "Skill-Runner 部署与配置",
       "path": "docs/zh-CN/backends/skill-runner.md"
+    },
+    {
+      "id": "backends/zotero-library-agent",
+      "locale": "zh-CN",
+      "title": "Zotero Library Agent",
+      "path": "docs/zh-CN/backends/zotero-library-agent.md"
     },
     {
       "id": "dashboard",
@@ -2621,10 +2927,22 @@
       "path": "docs/zh-CN/workflows/debug-probe.md"
     },
     {
+      "id": "workflows/export-import-literature-bundle",
+      "locale": "zh-CN",
+      "title": "导出/导入文献包",
+      "path": "docs/zh-CN/workflows/export-import-literature-bundle.md"
+    },
+    {
       "id": "workflows/export-import-notes",
       "locale": "zh-CN",
       "title": "导出/导入笔记",
       "path": "docs/zh-CN/workflows/export-import-notes.md"
+    },
+    {
+      "id": "workflows/export-research-bundle",
+      "locale": "zh-CN",
+      "title": "导出研究包",
+      "path": "docs/zh-CN/workflows/export-research-bundle.md"
     },
     {
       "id": "workflows/index",
@@ -2657,10 +2975,22 @@
       "path": "docs/zh-CN/workflows/literature-explainer.md"
     },
     {
+      "id": "workflows/literature-metadata-curator",
+      "locale": "zh-CN",
+      "title": "文献元数据整理",
+      "path": "docs/zh-CN/workflows/literature-metadata-curator.md"
+    },
+    {
       "id": "workflows/literature-search-ingest",
       "locale": "zh-CN",
       "title": "文献搜索与入库",
       "path": "docs/zh-CN/workflows/literature-search-ingest.md"
+    },
+    {
+      "id": "workflows/literature-translator",
+      "locale": "zh-CN",
+      "title": "文献翻译",
+      "path": "docs/zh-CN/workflows/literature-translator.md"
     },
     {
       "id": "workflows/manuscript-literature-framing",
@@ -2673,6 +3003,12 @@
       "locale": "zh-CN",
       "title": "MinerU PDF 解析",
       "path": "docs/zh-CN/workflows/mineru.md"
+    },
+    {
+      "id": "workflows/tag-auditor",
+      "locale": "zh-CN",
+      "title": "标签审计",
+      "path": "docs/zh-CN/workflows/tag-auditor.md"
     },
     {
       "id": "workflows/tag-bootstrapper",
@@ -2764,6 +3100,11 @@
             "type": "doc",
             "id": "backends/generic-http",
             "label": "Generic HTTP Backend Configuration"
+          },
+          {
+            "type": "doc",
+            "id": "backends/zotero-library-agent",
+            "label": "Zotero Library Agent"
           }
         ]
       },
@@ -3058,6 +3399,11 @@
             "type": "doc",
             "id": "backends/generic-http",
             "label": "Generisches-HTTP-Backend-Konfiguration"
+          },
+          {
+            "type": "doc",
+            "id": "backends/zotero-library-agent",
+            "label": "Zotero Library Agent"
           }
         ]
       },
@@ -3098,6 +3444,11 @@
                 "type": "doc",
                 "id": "workflows/literature-search-ingest",
                 "label": "Literature Search & Ingest"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/collection-collector",
+                "label": "Collection Collector"
               },
               {
                 "type": "doc",
@@ -3347,6 +3698,11 @@
             "type": "doc",
             "id": "backends/generic-http",
             "label": "Configuración del backend HTTP genérico"
+          },
+          {
+            "type": "doc",
+            "id": "backends/zotero-library-agent",
+            "label": "Zotero Library Agent"
           }
         ]
       },
@@ -3387,6 +3743,11 @@
                 "type": "doc",
                 "id": "workflows/literature-search-ingest",
                 "label": "Literature Search & Ingest"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/collection-collector",
+                "label": "Collection Collector"
               },
               {
                 "type": "doc",
@@ -3636,6 +3997,11 @@
             "type": "doc",
             "id": "backends/generic-http",
             "label": "Configuration du backend Generic HTTP"
+          },
+          {
+            "type": "doc",
+            "id": "backends/zotero-library-agent",
+            "label": "Zotero Library Agent"
           }
         ]
       },
@@ -3676,6 +4042,11 @@
                 "type": "doc",
                 "id": "workflows/literature-search-ingest",
                 "label": "Literature Search & Ingest"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/collection-collector",
+                "label": "Collection Collector"
               },
               {
                 "type": "doc",
@@ -3925,6 +4296,11 @@
             "type": "doc",
             "id": "backends/generic-http",
             "label": "Configurazione del backend Generic HTTP"
+          },
+          {
+            "type": "doc",
+            "id": "backends/zotero-library-agent",
+            "label": "Zotero Library Agent"
           }
         ]
       },
@@ -3964,7 +4340,12 @@
               {
                 "type": "doc",
                 "id": "workflows/literature-search-ingest",
-                "label": "Ricerca e acquisizione della letteratura"
+                "label": "Literature Search & Ingest"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/collection-collector",
+                "label": "Collection Collector"
               },
               {
                 "type": "doc",
@@ -4214,6 +4595,11 @@
             "type": "doc",
             "id": "backends/generic-http",
             "label": "Generic HTTPバックエンド設定"
+          },
+          {
+            "type": "doc",
+            "id": "backends/zotero-library-agent",
+            "label": "Zotero Library Agent"
           }
         ]
       },
@@ -4254,6 +4640,11 @@
                 "type": "doc",
                 "id": "workflows/literature-search-ingest",
                 "label": "Literature Search & Ingest"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/collection-collector",
+                "label": "Collection Collector"
               },
               {
                 "type": "doc",
@@ -4503,6 +4894,11 @@
             "type": "doc",
             "id": "backends/generic-http",
             "label": "Generic HTTP Backend Configuration"
+          },
+          {
+            "type": "doc",
+            "id": "backends/zotero-library-agent",
+            "label": "Zotero Library Agent"
           }
         ]
       },
@@ -4543,6 +4939,11 @@
                 "type": "doc",
                 "id": "workflows/literature-search-ingest",
                 "label": "Literature Search & Ingest"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/collection-collector",
+                "label": "Collection Collector"
               },
               {
                 "type": "doc",
@@ -4792,6 +5193,11 @@
             "type": "doc",
             "id": "backends/generic-http",
             "label": "Конфигурация бэкенда Generic HTTP"
+          },
+          {
+            "type": "doc",
+            "id": "backends/zotero-library-agent",
+            "label": "Zotero Library Agent"
           }
         ]
       },
@@ -4831,7 +5237,12 @@
               {
                 "type": "doc",
                 "id": "workflows/literature-search-ingest",
-                "label": "Поиск и приём литературы"
+                "label": "Literature Search & Ingest"
+              },
+              {
+                "type": "doc",
+                "id": "workflows/collection-collector",
+                "label": "Collection Collector"
               },
               {
                 "type": "doc",
@@ -5081,6 +5492,11 @@
             "type": "doc",
             "id": "backends/generic-http",
             "label": "Generic HTTP 后端配置"
+          },
+          {
+            "type": "doc",
+            "id": "backends/zotero-library-agent",
+            "label": "Zotero Library Agent"
           }
         ]
       },

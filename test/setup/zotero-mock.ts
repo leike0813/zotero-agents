@@ -42,7 +42,10 @@ type ZoteroMock = {
       key: string,
     ) => MockItem | undefined;
     getAll?: (libraryID: number) => Promise<MockItem[]>;
-    getAsync?: (id: number) => Promise<MockItem | undefined>;
+    getAsync?: {
+      (id: number): Promise<MockItem | undefined>;
+      (ids: number[]): Promise<MockItem[]>;
+    };
     trashTx?: (ids: number[]) => Promise<void>;
   };
   Attachments: {
@@ -2645,7 +2648,12 @@ function createZoteroMock(): ZoteroMock {
             !(item as any).deleted,
         );
       },
-      getAsync: async (id: number) => itemsById.get(id),
+      getAsync: async (idOrIds: number | number[]) =>
+        Array.isArray(idOrIds)
+          ? idOrIds
+              .map((id) => itemsById.get(id))
+              .filter((item): item is MockItem => Boolean(item))
+          : itemsById.get(idOrIds),
       trashTx: async (ids: number[]) => {
         for (const rawId of ids || []) {
           const id = Number(rawId);

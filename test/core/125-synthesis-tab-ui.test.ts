@@ -487,7 +487,7 @@ describe("Synthesis tab UI model", function () {
   it("renders citation graph direction and hover labels for pinned external neighbors", async function () {
     const source = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
     const css = await fs.readFile("addon/content/synthesis/styles.css", "utf8");
-    const block = extractFunctionBlock(source, "renderSigmaGraph");
+    const block = extractFunctionBlock(source, "syncSigmaGraph");
 
     assert.include(source, "CITATION_GRAPH_INCOMING_EDGE_COLOR");
     assert.include(source, "CITATION_GRAPH_OUTGOING_EDGE_COLOR");
@@ -495,7 +495,10 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "renderCitationGraphLegend");
     assert.include(source, "graphNodeSearchText(node)");
     assert.include(source, "searchable: graphNodeSearchText(node)");
-    assert.include(source, "currentGraphSearchQuery(snapshot)");
+    assert.include(
+      source,
+      "currentGraphSearchQuery(state.snapshot || undefined)",
+    );
     assert.include(
       source,
       "graphNodeMatchesSearchText(data.searchable, query)",
@@ -1202,6 +1205,53 @@ describe("Synthesis tab UI model", function () {
       }),
       "updateTagVocabularyEntry:model:detr",
     );
+  });
+
+  it("marks builtin status rows and guards identity and deletion controls", async function () {
+    const snapshot = buildSynthesisUiSnapshot(
+      {
+        libraryId: 1,
+        tags: {
+          entries: [
+            {
+              tag: "status:need-analysis",
+              facet: "status",
+              note: "Editable note",
+              source: "builtin",
+            },
+            {
+              tag: "status:custom-review",
+              facet: "status",
+              note: "Custom status",
+              source: "manual",
+            },
+          ],
+          protocol: { facets: ["status"] },
+        },
+      },
+      createDefaultSynthesisUiState(),
+    );
+
+    assert.isTrue(
+      snapshot.tags.rows.find((row) => row.tag === "status:need-analysis")
+        ?.builtin,
+    );
+    assert.isFalse(
+      snapshot.tags.rows.find((row) => row.tag === "status:custom-review")
+        ?.builtin,
+    );
+    const app = await fs.readFile("src/synthesisWorkbenchApp.ts", "utf8");
+    const tab = await fs.readFile(
+      "src/modules/synthesisWorkbenchTab.ts",
+      "utf8",
+    );
+    const vocabulary = extractFunctionBlock(app, "renderVocabularySubview");
+    assert.include(vocabulary, 't("synthesis-tags-builtin")');
+    assert.include(vocabulary, "tagInput.disabled = builtin");
+    assert.include(vocabulary, "facetSelect.disabled = builtin");
+    assert.include(vocabulary, "if (!builtin)");
+    assert.include(tab, "Builtin tag identity is protected");
+    assert.include(tab, "Builtin tags cannot be deleted");
   });
 
   it("refreshes the Tags surface after tag import preview and apply commands", async function () {
@@ -4381,6 +4431,13 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "new Sigma");
     assert.include(source, "ResizeObserver");
     assert.include(source, "scheduleSigmaResize");
+    assert.include(source, "ensurePersistentGraphSurface");
+    assert.include(source, "preserveGraphSurfaceWhileRebuildingRoot");
+    assert.include(source, "sigmaGraphModelSignature");
+    assert.include(source, "sigmaGraphLayoutSignature");
+    assert.include(source, "state.sigma.setGraph(graph)");
+    assert.notInclude(source, "disposeGraphRenderer");
+    assert.notInclude(source, ".kill()");
     assert.include(source, 'label: ""');
     assert.include(source, "buildCitationGraphNodeImportance");
     assert.include(source, "citationGraphNodeSize");
@@ -4479,6 +4536,9 @@ describe("Synthesis tab UI model", function () {
     assert.include(source, "detail.tabIndex = 0");
     assert.notInclude(source, "renderGraphSvg");
     assert.include(css, ".sigma-stage");
+    assert.include(css, ".workbench-graph-surface.is-active");
+    assert.include(css, ".workbench-graph-surface.is-inactive");
+    assert.include(css, ".sigma-stage.is-inactive");
     assert.include(css, "height: 100%;");
     assert.include(css, ".citation-graph-legend-node");
     assert.include(css, ".citation-graph-legend-node.is-halo.is-library");
@@ -5833,8 +5893,8 @@ describe("Synthesis tab UI model", function () {
     assert.include(app, "function restoreCachedSurfaceSnapshot");
     assert.include(app, "snapshot?: Snapshot");
     const tabShellBlock = extractFunctionBlock(app, "renderSelectedTabShell");
-    assert.include(tabShellBlock, "renderSurfaceLoading");
-    assert.include(tabShellBlock, "renderCurrentView(main, state.snapshot)");
+    assert.include(tabShellBlock, "renderWorkbenchSurfaceLoading");
+    assert.include(tabShellBlock, "renderWorkbenchMain(main, state.snapshot)");
     assert.notInclude(tabShellBlock, "snapshotContentSignature");
     const surfaceMessageBlock = extractIfBlock(
       app,

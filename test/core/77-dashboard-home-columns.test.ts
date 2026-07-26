@@ -83,6 +83,18 @@ describe("dashboard home columns", function () {
     assert.include(harness, 'productsNoFiles: "No product files."');
   });
 
+  it("exports a logical Product tree instead of opening managed storage", async function () {
+    const ts = await readProjectFile("src/modules/taskManagerDialog.ts");
+    assert.include(ts, "exportWorkflowProductToDirectory({");
+    assert.include(ts, 'mode: "folder"');
+    assert.include(ts, 'label: "product export folder"');
+    assert.notInclude(ts, "product?.cacheDir");
+    assert.include(
+      ts,
+      '"task-dashboard-products-open-workspace",\n      "Export Product"',
+    );
+  });
+
   it("filters stale ACP skill run task rows from the home running list", async function () {
     const ts = await readProjectFile("src/modules/taskManagerDialog.ts");
     const activeTasksTs = await readProjectFile(

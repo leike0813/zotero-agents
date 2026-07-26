@@ -5,7 +5,7 @@ Define the `collection-collector` SkillRunner workflow that builds an auditable 
 ## Requirements
 ### Requirement: Collection collector workflow is discoverable
 
-The system SHALL provide a core automatic SkillRunner workflow named `collection-collector` that requires no Zotero selection.
+The system SHALL provide a non-core automatic SkillRunner workflow named `collection-collector` that requires no Zotero selection.
 
 #### Scenario: Workflow parameters are configured
 
@@ -68,3 +68,14 @@ The workflow apply hook SHALL be the only collection write path used by this wor
 - **WHEN** selected items were added to the collection before apply
 - **THEN** apply SHALL remove those refs from the pending mutation
 - **AND** repeated apply SHALL not duplicate membership.
+
+### Requirement: Collection collector passes through opaque library cursors
+
+The collection collector SHALL start library inventory paging without a cursor and SHALL continue only with the exact opaque cursor returned by the previous page.
+
+#### Scenario: Inventory pagination starts and continues
+
+- **WHEN** the runtime requests the first library inventory page
+- **THEN** it SHALL omit `cursor`
+- **AND** when a page returns `nextCursor`, the next request SHALL pass that value through unchanged
+- **AND** it MUST NOT initialize, parse, or increment a numeric offset cursor.

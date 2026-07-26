@@ -6,6 +6,19 @@ import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import { joinPath, mkTempDir, writeUtf8 } from "./workflow-test-utils";
 
+const parentInputPlanningV2 = {
+  schemaVersion: 2,
+  trigger: { requiresSelection: true },
+  inputs: {
+    member: { kind: "parent" },
+    grouping: { mode: "each" },
+  },
+  validateSelection: {
+    select: { policy: "input-member", source: "selected" },
+    filters: [],
+  },
+} as const;
+
 async function createPassThroughWorkflowRoot() {
   const root = await mkTempDir("zotero-skills-pass-through");
   const workflowRoot = joinPath(root, "pass-through-local-test");
@@ -16,6 +29,7 @@ async function createPassThroughWorkflowRoot() {
         id: "pass-through-local-test",
         label: "Pass Through Local Test",
         provider: "pass-through",
+        ...parentInputPlanningV2,
         hooks: {
           applyResult: "hooks/applyResult.js",
         },
@@ -52,6 +66,7 @@ describe("pass-through provider", function () {
           id: "legacy-filterinputs",
           label: "Legacy Filter Inputs",
           provider: "pass-through",
+          ...parentInputPlanningV2,
           hooks: {
             filterInputs: "hooks/filterInputs.js",
             applyResult: "hooks/applyResult.js",
@@ -89,10 +104,12 @@ describe("pass-through provider", function () {
           id: "unknown-selection-policy",
           label: "Unknown Selection Policy",
           provider: "pass-through",
+          ...parentInputPlanningV2,
           validateSelection: {
             select: {
               policy: "arbitrary-js-expression",
             },
+            filters: [],
           },
           hooks: {
             applyResult: "hooks/applyResult.js",
@@ -115,6 +132,103 @@ describe("pass-through provider", function () {
         (entry) =>
           entry.category === "manifest_validation_error" &&
           String(entry.reason || "").includes("validateSelection"),
+      ),
+      `diagnostics=${JSON.stringify(loaded.diagnostics)}`,
+    );
+  });
+
+  it("accepts static artifact exclusions and rejects a parameterized target without its parameter declaration", async function () {
+    const root = await mkTempDir("zotero-skills-artifact-rule-schema");
+    const staticWorkflowRoot = joinPath(root, "static-artifact-rule");
+    const parameterizedWorkflowRoot = joinPath(
+      root,
+      "missing-parameter-artifact-rule",
+    );
+    const applyHook =
+      "export async function applyResult(){ return { ok: true }; }";
+    await writeUtf8(
+      joinPath(staticWorkflowRoot, "workflow.json"),
+      JSON.stringify(
+        {
+          id: "static-artifact-rule",
+          label: "Static Artifact Rule",
+          provider: "pass-through",
+          schemaVersion: 2,
+          trigger: { requiresSelection: true },
+          inputs: {
+            member: { kind: "attachment" },
+            grouping: { mode: "each" },
+          },
+          validateSelection: {
+            select: { policy: "input-member", source: "selected" },
+            filters: [
+              {
+                kind: "artifact-absent",
+                phase: "availability",
+                target: "mineru-markdown",
+              },
+            ],
+          },
+          hooks: {
+            applyResult: "hooks/applyResult.js",
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeUtf8(
+      joinPath(staticWorkflowRoot, "hooks", "applyResult.js"),
+      applyHook,
+    );
+    await writeUtf8(
+      joinPath(parameterizedWorkflowRoot, "workflow.json"),
+      JSON.stringify(
+        {
+          id: "missing-parameter-artifact-rule",
+          label: "Missing Parameter Artifact Rule",
+          provider: "pass-through",
+          schemaVersion: 2,
+          trigger: { requiresSelection: true },
+          inputs: {
+            member: { kind: "attachment" },
+            grouping: { mode: "each" },
+          },
+          validateSelection: {
+            select: { policy: "literature-source" },
+            filters: [
+              {
+                kind: "artifact-absent",
+                phase: "execute",
+                target: "translator-markdown",
+                parameter: "target_language",
+              },
+            ],
+          },
+          hooks: {
+            applyResult: "hooks/applyResult.js",
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    await writeUtf8(
+      joinPath(parameterizedWorkflowRoot, "hooks", "applyResult.js"),
+      applyHook,
+    );
+
+    const loaded = await loadWorkflowManifests(root);
+
+    assert.deepEqual(
+      loaded.workflows.map((entry) => entry.manifest.id),
+      ["static-artifact-rule"],
+    );
+    assert.isTrue(
+      (loaded.diagnostics || []).some(
+        (entry) =>
+          entry.category === "manifest_validation_error" &&
+          entry.entry === "missing-parameter-artifact-rule",
       ),
       `diagnostics=${JSON.stringify(loaded.diagnostics)}`,
     );

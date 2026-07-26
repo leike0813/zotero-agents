@@ -1,0 +1,146 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "zotero-library-task.result.v1",
+  "title": "Zotero library task result",
+  "description": "The final business payload returned by a Generic Zotero research-task Skill after the Runner transport marker has been removed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "status", "summary"],
+  "properties": {
+    "schema": {
+      "description": "Stable business result contract identifier.",
+      "const": "zotero-library-task.result.v1"
+    },
+    "status": {
+      "description": "completed when the declared bounded objective is verified; canceled when a material decision, identity, input, or authority is missing before safe completion; failed when an attempted objective cannot complete safely.",
+      "type": "string",
+      "enum": ["completed", "canceled", "failed"]
+    },
+    "summary": {
+      "description": "A non-empty truthful account of what completed or stopped, including the material scope and limitations. Do not use a bare success label.",
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence": {
+      "description": "Inline source-oriented evidence supporting material claims or preserving stable recovery identity.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "ref"],
+        "properties": {
+          "kind": {
+            "description": "Evidence family such as zotero-item, attachment, note, collection, workflow-run, operation-receipt, product, artifact, or source-locator.",
+            "type": "string",
+            "minLength": 1
+          },
+          "ref": {
+            "description": "The stable reference returned by the owning Zotero or workflow contract. Preserve its machine shape."
+          },
+          "locator": {
+            "description": "A page, section, annotation, quote span, cursor, asset role, or other precise locator when known.",
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "description": "Why this evidence supports the summary or matters for recovery.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "description": "Files actually produced and available to the caller. Do not declare planned, missing, or Zotero-private paths.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "role"],
+        "properties": {
+          "path": {
+            "description": "An existing agent-accessible artifact path.",
+            "type": "string",
+            "minLength": 1,
+            "x-type": "artifact"
+          },
+          "role": {
+            "description": "The artifact's task role, such as candidate-report, analysis, synthesis-export, or residual-proposal.",
+            "type": "string",
+            "minLength": 1
+          },
+          "mediaType": {
+            "description": "The artifact media type when known.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "diagnostics": {
+      "description": "Structured limits, missing decisions, stable failure codes, and safe recovery information.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message"],
+        "properties": {
+          "code": {
+            "description": "A stable machine-oriented diagnostic code.",
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "description": "A concise human-readable explanation that does not expose credentials or private local paths.",
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "schema": "zotero-library-task.result.v1",
+      "status": "completed",
+      "summary": "Searched the complete bounded collection and found four current Zotero items matching the declared topic.",
+      "evidence": [
+        {
+          "kind": "zotero-item",
+          "ref": { "libraryId": 1, "key": "ABCD1234" },
+          "description": "One of the four live items supporting the bounded answer."
+        }
+      ]
+    },
+    {
+      "schema": "zotero-library-task.result.v1",
+      "status": "canceled",
+      "summary": "Stopped before importing candidates because the target library and collection were not specified.",
+      "diagnostics": [
+        {
+          "code": "target_collection_required",
+          "message": "Choose the target library and collection before any acquisition write."
+        }
+      ]
+    },
+    {
+      "schema": "zotero-library-task.result.v1",
+      "status": "failed",
+      "summary": "Analyzed one of three requested papers, but the overall comparison could not complete because the other two full texts were unavailable.",
+      "evidence": [
+        {
+          "kind": "attachment",
+          "ref": { "libraryId": 1, "key": "WXYZ5678" },
+          "locator": "pages 4-9",
+          "description": "The one available full-text source."
+        }
+      ],
+      "diagnostics": [
+        {
+          "code": "asymmetric_source_depth",
+          "message": "Two requested papers had metadata only; no full-text comparison was claimed."
+        }
+      ]
+    }
+  ]
+}

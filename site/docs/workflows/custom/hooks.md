@@ -4,7 +4,9 @@ Hooks are the extensibility points of a workflow — at different stages of work
 
 A workflow can contain up to **4 Hooks**, of which `applyResult` is the only required one.
 
-> **Note on input filtering:** The old `filterInputs` hook has been replaced by the declarative `validateSelection` mechanism. Use `validateSelection` in `workflow.json` to define input constraints without writing JavaScript. See [Manifest File Authoring](manifest#selection-validation) for details.
+> **Input planning:** Declare candidate production and filtering in
+> `validateSelection`; declare the execution member and grouping in `inputs`.
+> Hooks consume prepared units and do not participate in menu availability.
 
 ## Hook Script Structure
 
@@ -142,7 +144,10 @@ export async function buildRequest({ selectionContext, executionOptions, runtime
 
 ## 2. preflight — Plan or Short-Circuit Execution
 
-`preflight` runs after declarative selection resolution and before `buildRequest` or declarative request construction. Use it for lightweight local decisions that need the resolved input unit but should not be part of menu enablement.
+`preflight` runs after declarative selection resolution and grouping, before
+`buildRequest` or declarative request construction. Use it for lightweight local
+decisions that need the prepared top-level unit but should not be part of menu
+enablement.
 
 `preflight` must not write Zotero data, must not construct provider requests, and must not replace `validateSelection`. All Zotero writes still belong in `applyResult`, and all provider request payloads still belong in `buildRequest` or the manifest `request` field.
 
@@ -150,7 +155,7 @@ export async function buildRequest({ selectionContext, executionOptions, runtime
 
 ```ts
 function preflight({
-  selectionContext,  // Resolved input unit context
+  selectionContext,  // Scoped context merged for the prepared unit
   parent,            // Parent item for the current unit when available
   attachment,        // Attachment item for the current unit when available
   note,              // Note item for the current unit when available
@@ -180,7 +185,7 @@ export async function preflight({ parent }) {
 
 **Outcome: Skip**
 
-Skip only the current input unit:
+Skip only the current top-level unit:
 
 ```js
 export function preflight({ parent }) {
@@ -191,7 +196,7 @@ export function preflight({ parent }) {
 }
 ```
 
-If every input unit is skipped, the execution ends without submitting provider jobs.
+If every top-level unit is skipped, the execution ends without submitting provider jobs.
 
 **Outcome: Short-Circuit Apply**
 
@@ -219,7 +224,7 @@ This is useful for workflows such as a metadata curator: if a trusted identifier
 
 **Outcome: Replace Units**
 
-Replace one resolved input unit with multiple virtual request units:
+Expand one prepared top-level unit into multiple requests:
 
 ```js
 export function preflight({ attachment }) {

@@ -14,23 +14,28 @@ The system SHALL expose loaded workflow summaries through the Host Bridge.
   the public workflow metadata needed for submission.
 
 ### Requirement: Host Bridge submits workflows with explicit input
-The system SHALL allow authenticated clients to submit workflow runs only when
-explicit input units are provided.
+The system SHALL allow authenticated clients to submit workflow runs only when an explicit raw selection is provided. Host Bridge SHALL perform confirmed Input Planning v2 locally and SHALL route ACP/SkillRunner prepared units through the native Host submission queue after Zotero-side approval.
 
-#### Scenario: Explicit input workflow submission succeeds
-- **WHEN** an authenticated client submits a valid `workflowId`, explicit input
-  units, and optional execution options
-- **THEN** the bridge SHALL execute the workflow through the existing workflow
-  preparation, execution, provider, queue, and apply seams
-- **AND** it SHALL return a run id, job ids, and initial task status metadata.
-- **AND** the bridge SHALL require Zotero-side approval before starting the
-  workflow run.
+#### Scenario: Queue-managed workflow submission succeeds
+- **WHEN** an authenticated client submits a valid `workflowId`, explicit raw `selection`, optional workflow/provider options, and optional Host queue options for an ACP or SkillRunner workflow
+- **THEN** the bridge SHALL validate and confirm the workflow plan, obtain Zotero-side approval, and register the duplicate-approved prepared units as one Host submission
+- **AND** it SHALL return HTTP `202` with a queue-managed result containing `submissionId`, workflow/backend identity, unit counts, normalized queue concurrency, permission outcome, and a status URL
+- **AND** it SHALL NOT return invented workflow run or job handles before admission
+
+#### Scenario: Direct-provider workflow submission succeeds
+- **WHEN** an authenticated client submits a valid Generic HTTP or pass-through workflow
+- **THEN** the bridge SHALL preserve its existing direct execution ownership
+- **AND** it SHALL return the direct result under a distinct `admission` discriminator
 
 #### Scenario: Missing explicit input is rejected
-- **WHEN** an authenticated client submits a workflow without explicit input
-  units
+- **WHEN** an authenticated client submits a workflow without explicit raw selection
 - **THEN** the bridge SHALL return a structured validation error
-- **AND** it MUST NOT use the current Zotero UI selection as fallback input.
+- **AND** it MUST NOT use the current Zotero UI selection as fallback input
+
+#### Scenario: Client uploads planned input
+- **WHEN** a client supplies candidates, an input plan, prepared units, or grouping output
+- **THEN** Host Bridge SHALL reject that client-owned planning state
+- **AND** it SHALL derive the confirmed plan only from the explicit raw selection and live workflow contract
 
 ### Requirement: Host Bridge exposes workflow run and task status
 
@@ -104,35 +109,22 @@ skill run handles, and the CLI SHALL expose those operations under
 - **THEN** the bridge SHALL return a stable structured error.
 
 ### Requirement: Host Bridge exposes agent-owned workflow handoff and apply-back
+Host Bridge SHALL persist prepared agent runs and their apply lifecycle, and SHALL expose apply, status, renew, and abandon operations for explicit agent-owned handoff.
 
-Host Bridge SHALL let authenticated agents prepare workflow handoff context and
-later submit finalized local SkillRunner-style bundles for explicit apply-back.
-
-#### Scenario: Agent-run prepares request context without backend dispatch
-
+#### Scenario: Agent-run prepares durable request context
 - **WHEN** Host Bridge receives a valid workflow agent-run request
-- **THEN** it SHALL build prepared workflow requests from the explicit selection
-- **AND** it SHALL return `agentRunId`, `expiresAt`, and lightweight request metadata
-- **AND** it SHALL include prepared request context in the handoff bundle
-- **AND** it SHALL NOT dispatch backend jobs or apply workflow results.
+- **THEN** it SHALL persist the agent run and return `agentRunId`, lease and retention timestamps, request metadata, and the handoff bundle
+- **AND** SHALL NOT dispatch a backend or apply results.
 
-#### Scenario: Agent-run apply-back applies a finalized bundle once
+#### Scenario: Concurrent apply attempts race
+- **WHEN** two apply requests target one prepared agentRunId
+- **THEN** exactly one SHALL acquire the durable apply lease before asynchronous work
+- **AND** the other SHALL receive a lifecycle conflict without applying a result.
 
-- **WHEN** an authenticated client submits finalized result bundles for a known
-  unexpired `agentRunId`
-- **THEN** Host Bridge SHALL validate each bundle against its stored request namespace
-- **AND** it SHALL re-evaluate current apply readiness before requesting approval
-- **AND** it SHALL request Zotero-side write approval before invoking `applyResult`
-- **AND** it SHALL seal the agent-run record before side effects begin
-- **AND** it SHALL reject later apply attempts for the same `agentRunId`.
-
-#### Scenario: Apply-back rejects invalid state
-
-- **WHEN** the agent run is unknown, expired, already consumed, references an
-  unknown request id, supplies an invalid bundle, or current apply readiness is
-  not allowed
-- **THEN** Host Bridge SHALL return a stable structured error
-- **AND** it SHALL NOT invoke `applyResult`.
+#### Scenario: Agent renews or abandons a run
+- **WHEN** an eligible prepared or expired run is renewed or abandoned
+- **THEN** Host Bridge SHALL perform one atomic lifecycle transition
+- **AND** a consumed or terminal run SHALL NOT be revived.
 
 ### Requirement: Host Bridge exposes a notification inbox
 
@@ -273,12 +265,13 @@ Host Bridge SHALL provide authenticated diagnostics endpoints for profile inspec
 
 ### Requirement: Workflow validation SHALL not start execution
 
-Host Bridge SHALL provide workflow validation and requirements endpoints that reuse workflow submit/describe validation without starting tasks or requesting execution approval.
+Host Bridge SHALL provide workflow validation and requirements endpoints that validate workflow-owned selection, workflow options, and execution-mode requirements without resolving or validating a provider profile and without starting tasks or requesting execution approval.
 
-#### Scenario: Workflow validation checks compatibility only
+#### Scenario: Workflow validation checks workflow input only
 
 - **WHEN** a client calls `POST /bridge/v1/workflows/validate`
-- **THEN** Host Bridge validates selection, workflow options, and provider profile compatibility
+- **THEN** Host Bridge validates selection, workflow options, and execution-mode requirements
+- **AND** it does not read a default provider profile or return a backend-specific provider option schema
 - **AND** no workflow task, backend run, Zotero mutation, or execution approval request is created.
 
 ### Requirement: Permission visibility SHALL be read-only
@@ -385,4 +378,126 @@ The Host Bridge workflow control surface SHALL accept `autoApproveAcpPermissions
 
 - **WHEN** a provider profile contains credentials, endpoint values, or local-path values
 - **THEN** Host Bridge rejects the request as an invalid workflow submit request
+### Requirement: Workflow descriptions SHALL declare execution ownership modes
+
+Workflow describe and requirements responses SHALL include structured `executionModes` for Host-owned and agent-owned execution, including support, accepted option classes, monitoring, required parameters, and apply-back requirements. Agent-facing guidance SHALL route execution from these fields rather than infer ownership from workflow names or prose.
+
+#### Scenario: Workflow requires options unavailable to agent-run
+
+- **WHEN** a workflow requires parameters that `workflow agent-run` cannot accept
+- **THEN** `executionModes.agentOwned.supported` SHALL be false
+- **AND** agent-facing semantic surfaces SHALL not recommend agent-owned execution.
+
+#### Scenario: Host-owned execution is supported
+
+- **WHEN** a workflow declares Host-owned support and its required parameters are available
+- **THEN** the response SHALL identify the submit command, monitoring handle, and whether any agent apply-back is required.
+
+#### Scenario: Agent-owned execution is supported
+
+- **WHEN** a workflow declares agent-owned support
+- **THEN** the response SHALL identify request-bundle parameters, the returned agent-run handle, monitoring behavior, and apply-back requirement.
+
+### Requirement: Agent apply-back SHALL preflight and retain receipts
+Host Bridge SHALL retain agent-run and per-request apply receipts for 30 days after the latest lifecycle transition. Receipt reads SHALL not extend retention.
+
+#### Scenario: One bundle is invalid
+- **WHEN** any supplied result bundle fails preflight
+- **THEN** no approval or write SHALL occur
+- **AND** the durable run SHALL remain recoverable.
+
+#### Scenario: One result fails after another applies
+- **WHEN** one result succeeds and a later result fails
+- **THEN** the v2 receipt SHALL identify each request as pending, succeeded, failed, or unknown with structured recovery facts.
+
+#### Scenario: Host restarts during apply
+- **WHEN** startup finds an agent run left in applying
+- **THEN** Host Bridge SHALL mark it outcome_unknown and consumed
+- **AND** SHALL NOT automatically repeat any result.
+
+### Requirement: Workflow submission SHALL join independently validated contracts
+Workflow submission SHALL independently validate workflow input and the submitted provider profile, then check workflow provider requirements against backend capabilities before requesting approval or dispatching execution.
+
+#### Scenario: Valid profile is incompatible with workflow
+- **WHEN** both contracts validate independently but the backend lacks a required workflow capability
+- **THEN** submission returns a workflow-provider compatibility error
+- **AND** no approval, task, run, or backend request is created.
+
+### Requirement: Provider profile endpoints SHALL be workflow-independent
+Host Bridge SHALL expose backend profile list, describe, and validate operations that do not accept a workflow identifier.
+
+#### Scenario: Provider profile is validated
+- **WHEN** a client validates a provider profile
+- **THEN** Host Bridge returns normalized backend-owned options or structured provider errors
+- **AND** it does not evaluate workflow selection, parameters, or compatibility.
+
+### Requirement: Agent handoff bundles SHALL be locally inspectable
+The CLI SHALL inspect an existing agent-owned workflow handoff directory or zip and expose its agent run identity, request identities, and output contracts without calling Host Bridge.
+
+#### Scenario: Offline handoff inspection
+- **WHEN** a valid handoff bundle is supplied while Host Bridge is unavailable
+- **THEN** inspection succeeds without changing workflow or handle state
+
+### Requirement: Agent result bundles SHALL support local contract validation
+The CLI SHALL validate a result directory or zip against an authoritative output-contract file before apply-back. Local validation SHALL NOT replace Host apply preflight and SHALL NOT consume or renew the agent run handle.
+
+#### Scenario: Local validation is read-only
+- **WHEN** a valid result bundle is checked repeatedly
+- **THEN** each check returns the same contract result and no Host state changes
+
+#### Scenario: Apply retains authority
+- **WHEN** a locally valid result is later submitted through agent apply
+- **THEN** Host Bridge still performs authoritative preflight and approval processing
+
+### Requirement: Host Bridge SHALL project input and validation contracts separately
+Workflow list, describe, validate, and apply-readiness projections SHALL expose `inputs` and `validateSelection` as distinct v2 fields and SHALL NOT synthesize a mixed `inputUnit` field.
+
+#### Scenario: Agent describes a workflow
+- **WHEN** Host Bridge returns workflow contract metadata
+- **THEN** member/grouping consumption and selection/candidate production are independently inspectable
+
+### Requirement: Zotero-managed submission SHALL build allowed prepared units
+Host Bridge SHALL confirm one v2 plan and pass each allowed immutable prepared unit to the shared submission seam without rebuilding units from raw selection or flattening them before Host admission.
+
+#### Scenario: One group is refused as duplicate
+- **WHEN** a confirmed submission contains multiple prepared units and one grouped unit is refused
+- **THEN** Host Bridge SHALL preserve the remaining units unchanged
+- **AND** the queue-managed result SHALL report accepted and initially skipped unit counts under one `submissionId`
+
+### Requirement: Host Bridge ownership and return contracts SHALL remain stable
+The v2 planner SHALL NOT change self-owned agent-run apply boundaries, Generic HTTP/pass-through queue ownership, or existing run/skill handle types. Zotero-managed queue submissions SHALL use a distinct submission result contract because backend run and job handles do not exist before admission.
+
+#### Scenario: Agent-owned workflow uses v2 manifest
+- **WHEN** an agent-owned workflow is described or handed off
+- **THEN** its existing ownership and apply-readiness authority remain unchanged
+
+#### Scenario: Caller handles submit result
+- **WHEN** a caller receives a workflow submit response
+- **THEN** it SHALL branch on `admission = host-queue | direct`
+- **AND** each branch SHALL retain a stable schema and typed next handle
+
+### Requirement: Host Bridge SHALL expose pending queue control
+Host Bridge SHALL expose authenticated pending queue listing and pending-only cancellation using opaque queue handles.
+
+#### Scenario: Client lists pending units
+- **WHEN** a client lists the workflow queue with optional submission, workflow, backend type, or backend id filters
+- **THEN** the response SHALL contain only pending cancelable units with safe labels, member counts, timestamps, and typed handles
+
+#### Scenario: Client cancels a pending unit
+- **WHEN** a client cancels a syntactically valid queue id
+- **THEN** the response SHALL be `canceled` if the pending transition wins and `not-pending` otherwise
+- **AND** the operation SHALL never be redirected to backend run cancellation
+
+### Requirement: Host Bridge SHALL expose active submission inspection
+Host Bridge SHALL expose a lightweight active submission view and task filtering by submission identity.
+
+#### Scenario: Client follows a queued submission
+- **WHEN** a client reads a known active `submissionId`
+- **THEN** the response SHALL combine pending units, admitted units, and matching lightweight task projections
+- **AND** it SHALL expose the next valid queue or run handles without private payloads
+
+#### Scenario: Active submission is no longer retained
+- **WHEN** a submission completed or process-local state expired
+- **THEN** active inspection SHALL report not found or expired
+- **AND** the client SHALL use already discovered task/run handles or current live state rather than infer an outcome
 

@@ -29,7 +29,9 @@ export function resolveSynthesisSidecarStage1Suite(
   const candidates = new Map<number, string[]>();
   for (const inputPath of allTestFiles) {
     const filePath = normalizeTestPath(inputPath);
-    const match = /^test\/core\/(\d+)-[^/]+\.test\.ts$/.exec(filePath);
+    const match = /^test\/core\/(\d+)-synthesis-[^/]+\.test\.ts$/.exec(
+      filePath,
+    );
     if (!match) {
       continue;
     }

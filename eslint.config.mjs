@@ -1,5 +1,6 @@
 // @ts-check Let TS check this config file
 
+import globals from "globals";
 import zotero from "@zotero-plugin/eslint-config";
 
 const projectIgnores = {
@@ -93,4 +94,28 @@ export default [
       },
     ],
   }),
+  {
+    name: "zotero-agents/sidebar-import-boundary",
+    files: ["src/sidebar/**/*.js"],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+      },
+    },
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: "^(?!(\\./|\\.\\./shared/|([^/]+/)*src/shared/)).+$",
+              message:
+                "Sidebar page bundles may only import same-directory relative paths or src/shared/** modules.",
+            },
+          ],
+        },
+      ],
+      "no-unused-vars": ["error", { caughtErrorsIgnorePattern: "^_" }],
+    },
+  },
 ];

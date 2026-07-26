@@ -19,21 +19,37 @@ import {
   writeRuntimeTextFile,
 } from "../modules/runtimePersistence";
 import { createWorkflowSynthesisHostApi } from "../modules/synthesisClient/workflowHostClient";
+import { getDefaultSynthesisClient } from "../modules/synthesisClient/defaultClient";
 import {
   resolveRuntimeAddon,
-  resolveRuntimeToolkit,
   resolveRuntimeZotero,
 } from "../utils/runtimeBridge";
 import { joinPath } from "../utils/path";
-import { getParentPath } from "../platform/path";
+import {
+  getParentPath,
+  normalizeNativeLocalPath,
+} from "../platform/path";
+import {
+  openRuntimeFilePicker,
+  resolveRuntimeFilePickerParentWindow,
+} from "../platform/filePicker";
 import type {
   WorkflowHostApi,
   WorkflowImagePreparationOptions,
   WorkflowPreparedNoteImage,
 } from "./types";
 import { createWorkflowArchiveApi } from "./archive";
+import {
+  getBuiltinStatusPolicy,
+  getBuiltinStatusTag,
+  isBuiltinStatusKey,
+  type BuiltinStatusKey,
+  type BuiltinStatusTag,
+} from "../modules/synthesis/builtinTagPolicy";
 
-export const WORKFLOW_HOST_API_VERSION = 8;
+import { exportZoteroItemsAsText } from "../modules/zoteroItemTextExporter";
+
+export const WORKFLOW_HOST_API_VERSION = 10;
 
 type DynamicImport = (specifier: string) => Promise<any>;
 
@@ -122,6 +138,84 @@ function assertHostItem(ref: Zotero.Item | number | string) {
   return item;
 }
 
+function normalizeBuiltinStatusKeys(values: unknown): BuiltinStatusKey[] {
+  const keys = Array.from(
+    new Set(
+      (Array.isArray(values) ? values : [])
+        .map((entry) => String(entry || "").trim())
+        .filter(Boolean),
+    ),
+  );
+  const unknown = keys.filter((key) => !isBuiltinStatusKey(key));
+  if (unknown.length) {
+    throw new Error(`Unknown builtin status key: ${unknown.join(", ")}`);
+  }
+  return keys as BuiltinStatusKey[];
+}
+
+async function transitionBuiltinStatusTags(args: {
+  item: Zotero.Item | number | string;
+  add?: BuiltinStatusKey[];
+  remove?: BuiltinStatusKey[];
+}) {
+  const addKeys = normalizeBuiltinStatusKeys(args?.add);
+  const removeKeys = normalizeBuiltinStatusKeys(args?.remove);
+  const removeSet = new Set(removeKeys);
+  const overlapping = addKeys.filter((key) => removeSet.has(key));
+  if (overlapping.length) {
+    throw new Error(
+      `Builtin status keys cannot be added and removed together: ${overlapping.join(", ")}`,
+    );
+  }
+  const synthesisClient = await getDefaultSynthesisClient();
+  if (!(await synthesisClient.tags.isBuiltinTagPolicyInitialized())) {
+    throw new Error("Builtin status tag policy is not initialized");
+  }
+  const item = assertHostItem(args.item);
+  const current = new Set(await handlers.tag.list(item));
+  const addTags = addKeys
+    .map(getBuiltinStatusTag)
+    .filter((tag) => !current.has(tag));
+  const removeTags = removeKeys
+    .map(getBuiltinStatusTag)
+    .filter((tag) => current.has(tag));
+  const added: BuiltinStatusTag[] = [];
+  const removed: BuiltinStatusTag[] = [];
+  const warnings: Array<{
+    code: string;
+    operation: "add" | "remove";
+    tags: BuiltinStatusTag[];
+    message: string;
+  }> = [];
+  if (addTags.length) {
+    try {
+      await handlers.tag.add(item, addTags);
+      added.push(...addTags);
+    } catch (error) {
+      warnings.push({
+        code: "builtin_status_add_failed",
+        operation: "add",
+        tags: addTags,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  if (removeTags.length) {
+    try {
+      await handlers.tag.remove(item, removeTags);
+      removed.push(...removeTags);
+    } catch (error) {
+      warnings.push({
+        code: "builtin_status_remove_failed",
+        operation: "remove",
+        tags: removeTags,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return { added, removed, warnings };
+}
+
 function resolveIOUtils() {
   const runtime = globalThis as typeof globalThis & {
     IOUtils?: {
@@ -138,60 +232,71 @@ function resolveIOUtils() {
 }
 
 async function readText(path: string) {
+  const nativePath = requireHostFilePath(path);
   const io = resolveIOUtils();
   if (typeof io?.readUTF8 === "function") {
-    return io.readUTF8(path);
+    return io.readUTF8(nativePath);
   }
   const fs = await dynamicImport("fs/promises");
-  return fs.readFile(path, "utf8");
+  return fs.readFile(nativePath, "utf8");
 }
 
 async function writeText(path: string, content: string) {
+  const nativePath = requireHostFilePath(path);
   const io = resolveIOUtils();
   if (typeof io?.writeUTF8 === "function") {
-    await io.writeUTF8(path, String(content || ""));
+    await io.writeUTF8(nativePath, String(content || ""));
     return;
   }
   const fs = await dynamicImport("fs/promises");
-  await fs.writeFile(path, String(content || ""), "utf8");
+  await fs.writeFile(nativePath, String(content || ""), "utf8");
 }
 
 async function readBytes(path: string) {
+  const nativePath = requireHostFilePath(path);
   const runtime = globalThis as typeof globalThis & {
     IOUtils?: { read?: (path: string) => Promise<Uint8Array> };
   };
   if (typeof runtime.IOUtils?.read === "function") {
-    return runtime.IOUtils.read(path);
+    return runtime.IOUtils.read(nativePath);
   }
   const fs = await dynamicImport("fs/promises");
-  return new Uint8Array(await fs.readFile(path));
+  return new Uint8Array(await fs.readFile(nativePath));
 }
 
 async function writeBytes(path: string, bytes: Uint8Array | ArrayBuffer) {
+  const nativePath = requireHostFilePath(path);
   const data = toUint8Array(bytes);
   const runtime = globalThis as typeof globalThis & {
     IOUtils?: { write?: (path: string, data: Uint8Array) => Promise<void> };
   };
   if (typeof runtime.IOUtils?.write === "function") {
-    await runtime.IOUtils.write(path, data);
+    await runtime.IOUtils.write(nativePath, data);
     return;
   }
   const fs = await dynamicImport("fs/promises");
-  await fs.writeFile(path, data);
+  await fs.writeFile(nativePath, data);
 }
 
 async function copyFile(sourcePath: string, targetPath: string) {
-  await copyRuntimeFile({ sourcePath, targetPath });
+  await copyRuntimeFile({
+    sourcePath: requireHostFilePath(sourcePath),
+    targetPath: requireHostFilePath(targetPath),
+  });
 }
 
 async function pathExists(path: string) {
-  const io = resolveIOUtils();
-  if (typeof io?.exists === "function") {
-    return io.exists(path);
-  }
-  const fs = await dynamicImport("fs/promises");
   try {
-    await fs.access(path);
+    const nativePath = normalizeNativeLocalPath(path);
+    if (!nativePath) {
+      return false;
+    }
+    const io = resolveIOUtils();
+    if (typeof io?.exists === "function") {
+      return Boolean(await io.exists(nativePath));
+    }
+    const fs = await dynamicImport("fs/promises");
+    await fs.access(nativePath);
     return true;
   } catch {
     return false;
@@ -199,13 +304,22 @@ async function pathExists(path: string) {
 }
 
 async function makeDirectory(path: string) {
+  const nativePath = requireHostFilePath(path);
   const io = resolveIOUtils();
   if (typeof io?.makeDirectory === "function") {
-    await io.makeDirectory(path, { createAncestors: true });
+    await io.makeDirectory(nativePath, { createAncestors: true });
     return;
   }
   const fs = await dynamicImport("fs/promises");
-  await fs.mkdir(path, { recursive: true });
+  await fs.mkdir(nativePath, { recursive: true });
+}
+
+function requireHostFilePath(path: string) {
+  const nativePath = normalizeNativeLocalPath(path);
+  if (!nativePath) {
+    throw new TypeError("Host file path is invalid");
+  }
+  return nativePath;
 }
 
 function normalizeManagedPathSegment(value: unknown, fallback: string) {
@@ -681,86 +795,6 @@ async function importEmbeddedImage(
   };
 }
 
-type ToolkitFilePickerCtor = new (
-  title: string,
-  mode: string,
-  filters: [string, string][],
-  suggestion: string,
-  window: Window | undefined,
-  filterMask?: string,
-  directory?: string,
-) => {
-  open: () => Promise<unknown> | unknown;
-};
-
-function resolveToolkitFilePicker() {
-  const toolkit = resolveRuntimeToolkit() as
-    | {
-        FilePicker?: ToolkitFilePickerCtor;
-      }
-    | undefined;
-  return typeof toolkit?.FilePicker === "function" ? toolkit.FilePicker : null;
-}
-
-function resolveFilePickerParentWindow() {
-  const runtimeAddon = resolveRuntimeAddon() as
-    | {
-        data?: {
-          dialog?: { window?: Window };
-          prefs?: { window?: Window };
-        };
-      }
-    | undefined;
-  const runtimeZotero = resolveRuntimeZotero() as
-    | {
-        getMainWindow?: () => Window | null | undefined;
-      }
-    | undefined;
-  return (
-    runtimeAddon?.data?.dialog?.window ||
-    runtimeAddon?.data?.prefs?.window ||
-    runtimeZotero?.getMainWindow?.() ||
-    undefined
-  );
-}
-
-async function openToolkitFilePicker(args: {
-  title?: string;
-  mode: "folder" | "open" | "multiple" | "save";
-  filters?: [string, string][];
-  directory?: string;
-  suggestion?: string;
-}): Promise<string | string[] | null> {
-  const FilePicker = resolveToolkitFilePicker();
-  if (!FilePicker) {
-    return null;
-  }
-  const selected = await new FilePicker(
-    String(args.title || "").trim(),
-    args.mode,
-    Array.isArray(args.filters) ? args.filters : [],
-    String(args.suggestion || "").trim(),
-    resolveFilePickerParentWindow(),
-    undefined,
-    String(args.directory || "").trim() || undefined,
-  ).open();
-  if (args.mode === "multiple") {
-    if (Array.isArray(selected)) {
-      const normalized = selected
-        .map((entry) => String(entry || "").trim())
-        .filter(Boolean);
-      return normalized.length > 0 ? normalized : null;
-    }
-    if (typeof selected === "string" && selected.trim()) {
-      return [selected.trim()];
-    }
-    return null;
-  }
-  return typeof selected === "string" && selected.trim()
-    ? selected.trim()
-    : null;
-}
-
 async function openNativeMultiFilePicker(args: {
   title?: string;
   filters?: [string, string][];
@@ -804,7 +838,7 @@ async function openNativeMultiFilePicker(args: {
     }
     const picker = new Picker();
     picker.init(
-      resolveFilePickerParentWindow(),
+      resolveRuntimeFilePickerParentWindow(),
       String(args.title || "").trim(),
       picker.modeOpenMultiple,
     );
@@ -892,6 +926,9 @@ export function createWorkflowHostApi(): WorkflowHostApi {
       exportPortableJson(ref) {
         return handlers.item.exportPortableJson(ref);
       },
+      exportText(args) {
+        return exportZoteroItemsAsText(resolveHostZotero() as any, args);
+      },
       createFromJson(args) {
         return handlers.item.createFromJson(args);
       },
@@ -948,6 +985,10 @@ export function createWorkflowHostApi(): WorkflowHostApi {
       },
     },
     tags: handlers.tag,
+    statusTags: {
+      getPolicy: getBuiltinStatusPolicy,
+      transition: transitionBuiltinStatusTags,
+    },
     collections: handlers.collection,
     command: handlers.command,
     editor: {
@@ -974,7 +1015,7 @@ export function createWorkflowHostApi(): WorkflowHostApi {
     },
     file: {
       pathToFile(path: string) {
-        return resolveHostZotero().File.pathToFile(path);
+        return resolveHostZotero().File.pathToFile(requireHostFilePath(path));
       },
       readText,
       writeText,
@@ -989,14 +1030,14 @@ export function createWorkflowHostApi(): WorkflowHostApi {
         return String(tempDir?.path || "").trim();
       },
       async pickDirectory(args) {
-        return openToolkitFilePicker({
+        return openRuntimeFilePicker({
           title: args?.title,
           mode: "folder",
           directory: args?.directory,
         }) as Promise<string | null>;
       },
       async pickFile(args) {
-        return openToolkitFilePicker({
+        return openRuntimeFilePicker({
           title: args?.title,
           mode: "open",
           filters: args?.filters,
@@ -1004,7 +1045,7 @@ export function createWorkflowHostApi(): WorkflowHostApi {
         }) as Promise<string | null>;
       },
       async pickSaveFile(args) {
-        return openToolkitFilePicker({
+        return openRuntimeFilePicker({
           title: args?.title,
           mode: "save",
           filters: args?.filters,
@@ -1021,7 +1062,7 @@ export function createWorkflowHostApi(): WorkflowHostApi {
         if (nativePickerResult.supported) {
           return nativePickerResult.selected;
         }
-        return openToolkitFilePicker({
+        return openRuntimeFilePicker({
           title: args?.title,
           mode: "multiple",
           filters: args?.filters,
@@ -1045,6 +1086,7 @@ export function summarizeWorkflowHostApiCapabilities(
     notes: !!hostApi?.notes,
     attachments: !!hostApi?.attachments,
     tags: !!hostApi?.tags,
+    statusTags: !!hostApi?.statusTags,
     collections: !!hostApi?.collections,
     editor: !!hostApi?.editor,
     notifications: !!hostApi?.notifications,
