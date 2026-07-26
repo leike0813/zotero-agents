@@ -338,17 +338,6 @@ function applyAttachmentMimeFilter(
   });
 }
 
-function withScopedAttachments(
-  selection: SelectionLike,
-  attachments: AttachmentLike[],
-  runtime: RuntimeLike,
-) {
-  return runtime.helpers.withFilteredAttachments(
-    selection,
-    attachments as unknown[],
-  ) as SelectionLike;
-}
-
 function parentKeyFromEntry(entry: ParentLike | null | undefined) {
   const item = entry?.item || {};
   const id = Number(item.id || 0);
@@ -1220,17 +1209,9 @@ function scopeSingleEntry(args: {
   kind: WorkflowInputMemberKind;
   entry: unknown;
   selection: SelectionLike;
-  runtime: RuntimeLike;
 }) {
   if (args.kind === "selection") {
     return copySelection(args.selection);
-  }
-  if (args.kind === "attachment") {
-    return withScopedAttachments(
-      args.selection,
-      [args.entry as AttachmentLike],
-      args.runtime,
-    );
   }
   const cloned = copySelection(args.selection);
   cloned.items = {
@@ -1244,13 +1225,16 @@ function scopeSingleEntry(args: {
           ]
         : [],
     notes: args.kind === "note" ? [args.entry as NoteLike] : [],
-    attachments: [],
+    attachments:
+      args.kind === "attachment"
+        ? [args.entry as AttachmentLike]
+        : [],
   };
   cloned.summary = {
     parentCount: args.kind === "parent" ? 1 : 0,
     childCount: args.kind === "child" ? 1 : 0,
     noteCount: args.kind === "note" ? 1 : 0,
-    attachmentCount: 0,
+    attachmentCount: args.kind === "attachment" ? 1 : 0,
   };
   cloned.selectionType = args.kind;
   return cloned;
@@ -1273,7 +1257,6 @@ function freezeCandidate(args: {
         kind: args.kind,
         entry: args.entry,
         selection: args.selection,
-        runtime: args.runtime,
       }),
   );
   return Object.freeze({

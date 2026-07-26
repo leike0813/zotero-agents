@@ -2502,6 +2502,10 @@ describe("workflow: literature-analysis", function () {
       };
 
       assert.lengthOf(requests, 1);
+      assert.equal(
+        (requests[0] as LiteratureAnalysisSequenceRequest).targetParentID,
+        parentRun.id,
+      );
       assert.equal(requests.__stats?.totalUnits, 1);
       assert.equal(requests.__stats?.skippedUnits, 0);
       assert.equal(requests.__stats?.candidateStats?.total, 2);

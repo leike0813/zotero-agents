@@ -487,6 +487,7 @@ describe("workflow debug probe", function () {
       loaded.workflows.map((entry) => entry.manifest.id),
     );
     for (const workflowId of [
+      "debug-apply-existing-parent-bundle",
       "debug-apply-manifest-bundle",
       "debug-apply-single-bundle",
       "debug-apply-single-result",
@@ -741,6 +742,79 @@ describe("workflow debug probe", function () {
       String(mixedModeParent.getField("title") || ""),
       String(mixedModeRequests[0].parameter.run_key || ""),
     );
+  });
+
+  it("debug existing-parent bundle probe builds one isolated request per selected parent", async function () {
+    const parentOne = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Debug Existing Parent One" },
+    });
+    const parentTwo = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Debug Existing Parent Two" },
+    });
+    const workflow = await getBuiltinDebugWorkflow(
+      "debug-apply-existing-parent-bundle",
+    );
+    const requests = (await executeBuildRequests({
+      workflow,
+      selectionContext: await buildSelectionContext([parentOne, parentTwo]),
+    })) as Array<{
+      kind: string;
+      skill_id?: string;
+      targetParentID?: number;
+      fetch_type?: string;
+      parameter?: Record<string, unknown>;
+    }>;
+
+    assert.lengthOf(requests, 2);
+    assert.deepEqual(
+      requests.map((request) => request.targetParentID),
+      [parentOne.id, parentTwo.id],
+    );
+    for (const request of requests) {
+      assert.equal(request.kind, "skillrunner.job.v1");
+      assert.equal(request.skill_id, "debug-apply-bundle-probe");
+      assert.equal(request.fetch_type, "bundle");
+      assert.deepInclude(request.parameter || {}, {
+        workflow_id: "debug-apply-existing-parent-bundle",
+        step_id: "bundle",
+      });
+      assert.isNotEmpty(String(request.parameter?.run_key || ""));
+    }
+  });
+
+  it("debug existing-parent bundle probe rejects a missing request target", async function () {
+    const workflow = await getBuiltinDebugWorkflow(
+      "debug-apply-existing-parent-bundle",
+    );
+    let thrown: unknown;
+    try {
+      await executeApplyResult({
+        workflow,
+        bundleReader: {
+          readText: async () => {
+            throw new Error("strict target validation must run first");
+          },
+        },
+        request: { targetParentID: 999999999 },
+        runResult: {
+          resultJson: {
+            kind: "debug_apply_contract_result",
+            workflow_id: "debug-apply-existing-parent-bundle",
+            step_id: "bundle",
+            run_key: "missing-parent",
+            apply_mode: "bundle",
+            artifact_path: "result/debug-apply-artifact.txt",
+          },
+        },
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.isOk(thrown);
+    assert.include(String((thrown as Error).message || thrown), "parent");
   });
 
   it("debug apply hook applies canonical resultJson and ignores stale responseJson", async function () {

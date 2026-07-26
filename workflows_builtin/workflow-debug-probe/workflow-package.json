@@ -7,6 +7,7 @@
     "debug-host-bridge-connectivity-sequence-probe/workflow.json",
     "debug-host-queue-probe/workflow.json",
     "debug-interactive-choice-probe/workflow.json",
+    "debug-apply-existing-parent-bundle/workflow.json",
     "debug-apply-manifest-bundle/workflow.json",
     "debug-apply-single-bundle/workflow.json",
     "debug-apply-single-result/workflow.json",

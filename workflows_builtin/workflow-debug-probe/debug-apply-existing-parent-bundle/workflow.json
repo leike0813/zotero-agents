@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 2,
+  "id": "debug-apply-existing-parent-bundle",
+  "label": "Debug: Apply Bundle to Existing Parent",
+  "description": "Run one debug bundle probe per selected parent and attach its declared artifact to that same existing item.",
+  "executionModes": ["auto"],
+  "version": "0.1.0",
+  "provider": "skillrunner",
+  "debug_only": true,
+  "trigger": {
+    "requiresSelection": true
+  },
+  "inputs": {
+    "member": {
+      "kind": "parent"
+    },
+    "grouping": {
+      "mode": "each"
+    }
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "input-member",
+      "source": "selected"
+    },
+    "filters": []
+  },
+  "request": {
+    "kind": "skillrunner.job.v1",
+    "create": {
+      "mode": "auto"
+    }
+  },
+  "execution": {
+    "feedback": {
+      "showNotifications": true
+    }
+  },
+  "result": {
+    "fetch": {
+      "type": "bundle"
+    }
+  },
+  "hooks": {
+    "buildRequest": "../hooks/buildExistingParentDebugApplyRequest.mjs",
+    "applyResult": "../hooks/applyExistingParentDebugBundleResult.mjs"
+  }
+}
