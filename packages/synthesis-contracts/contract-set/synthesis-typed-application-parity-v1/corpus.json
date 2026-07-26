@@ -1,0 +1,234 @@
+{
+  "schema": "synthesis-typed-application-parity-v1",
+  "reportSchema": "synthesis-typed-application-parity-report.v1",
+  "profileId": "1111111111111111111111111111111111111111111111111111111111111111",
+  "dataRootId": "2222222222222222222222222222222222222222222222222222222222222222",
+  "clock": "2026-07-26T12:00:00.000Z",
+  "operationIds": [
+    "topic-apply:missing-update",
+    "topic-apply:create",
+    "topic-apply:duplicate-create",
+    "topic-apply:update-full",
+    "topic-apply:stale-basis",
+    "topic-apply:update-patch",
+    "topic-apply:patch-conflict",
+    "topic-apply:create-beta",
+    "topic-apply:compute-failure",
+    "topic-apply:compute-cancel",
+    "topic-apply:drain",
+    "topic-apply:canonical-busy",
+    "topic-apply:failed-recovered",
+    "topic-apply:repair-required",
+    "topic-apply:projection-warning",
+    "topic-apply:receipt-warning"
+  ],
+  "transactionIds": [
+    "00000000-0000-4000-8000-000000000001",
+    "00000000-0000-4000-8000-000000000002",
+    "00000000-0000-4000-8000-000000000003",
+    "00000000-0000-4000-8000-000000000004",
+    "00000000-0000-4000-8000-000000000005",
+    "00000000-0000-4000-8000-000000000006",
+    "00000000-0000-4000-8000-000000000007",
+    "00000000-0000-4000-8000-000000000008",
+    "00000000-0000-4000-8000-000000000009",
+    "00000000-0000-4000-8000-000000000010"
+  ],
+  "workbench": {
+    "cacheRows": [
+      {
+        "cacheKey": "reference-sidecar:library",
+        "cacheKind": "reference-sidecar",
+        "status": "ready",
+        "refreshedAt": "2026-07-26T00:10:00.000Z",
+        "updatedAt": "2026-07-26T00:10:00.000Z"
+      },
+      {
+        "cacheKey": "citation-graph:library",
+        "cacheKind": "citation_graph",
+        "status": "failed",
+        "updatedAt": "2026-07-26T00:10:00.000Z"
+      }
+    ],
+    "operationRows": [
+      {
+        "operationId": "old-reference-failure",
+        "operationType": "reference_sidecar_refresh",
+        "status": "failed",
+        "createdAt": "2026-07-26T12:00:00.000Z",
+        "startedAt": "2026-07-26T12:00:00.000Z",
+        "updatedAt": "2026-07-26T00:05:00.000Z"
+      },
+      {
+        "operationId": "graph-failure",
+        "operationType": "citation_graph_cache_rebuild",
+        "status": "failed",
+        "createdAt": "2026-07-26T12:00:00.000Z",
+        "startedAt": "2026-07-26T12:00:00.000Z",
+        "updatedAt": "2026-07-26T00:08:00.000Z"
+      },
+      {
+        "operationId": "running-newer",
+        "operationType": "canonical_maintenance",
+        "status": "running",
+        "label": "Canonical maintenance",
+        "phaseLabel": "Index",
+        "progressMode": "determinate",
+        "processedCount": 3,
+        "totalCount": 4,
+        "createdAt": "2026-07-26T12:00:00.000Z",
+        "startedAt": "2026-07-26T12:00:00.000Z",
+        "updatedAt": "2026-07-26T00:20:00.000Z"
+      }
+    ],
+    "generatedBounds": {
+      "runningCount": 51,
+      "failedCount": 21,
+      "updatedAt": "2026-07-26T00:15:00.000Z"
+    }
+  },
+  "topic": {
+    "topicId": "topic-alpha",
+    "apply": {
+      "bundle": {
+        "kind": "topic_synthesis",
+        "operation": "create",
+        "mode": "create",
+        "language": "en",
+        "topic_id": "topic-alpha",
+        "topic_definition": {
+          "id": "topic-alpha",
+          "title": "Typed Topic",
+          "definition": "Typed parity reference slice"
+        },
+        "resolver_manifest_path": "asset/resolver",
+        "analysis_manifest_path": "asset/manifest",
+        "artifact_metadata": {},
+        "markdown": ""
+      },
+      "assets": [
+        {
+          "id": "asset/manifest",
+          "mediaType": "application/json",
+          "text": "{\"language\":\"en\",\"schema_id\":\"synthesis.topic_analysis_manifest\",\"schema_version\":\"3.0.0\",\"sections\":{\"claims\":{\"path\":\"asset/claims\"},\"source_papers\":{\"path\":\"asset/papers\"}},\"topic_id\":\"topic-alpha\"}"
+        },
+        {
+          "id": "asset/claims",
+          "mediaType": "application/json",
+          "text": "[{\"id\":\"claim:one\",\"text\":\"One\"}]"
+        },
+        {
+          "id": "asset/papers",
+          "mediaType": "application/json",
+          "text": "[{\"paper_ref\":\"1:AAAA\"}]"
+        },
+        {
+          "id": "asset/resolver",
+          "mediaType": "application/json",
+          "text": "{\"resolved_paper_set\":{\"papers\":[{\"paper_ref\":\"1:AAAA\"}]},\"resolver\":{\"query\":\"typed\"}}"
+        }
+      ]
+    },
+    "patch": {
+      "bundle": {
+        "kind": "topic_synthesis",
+        "operation": "update_patch",
+        "mode": "update",
+        "language": "en",
+        "topic_id": "topic-alpha",
+        "topic_definition": {},
+        "analysis_manifest_path": "asset/patch-manifest",
+        "artifact_metadata": {},
+        "read_section_hashes": {},
+        "base_hashes": {},
+        "markdown": ""
+      },
+      "assets": [
+        {
+          "id": "asset/patch-manifest",
+          "mediaType": "application/json",
+          "text": "{\"schema_id\":\"synthesis.topic_section_patch_manifest\",\"schema_version\":\"2.0.0\",\"patch\":{\"changed_sections\":[\"claims\"],\"sections\":{\"claims\":{\"path\":\"asset/patch-claims\"}}}}"
+        },
+        {
+          "id": "asset/patch-claims",
+          "mediaType": "application/json",
+          "text": "[{\"id\":\"claim:two\",\"text\":\"Two\"}]"
+        }
+      ]
+    },
+    "limits": {
+      "maxAssetBytes": 5242880
+    },
+    "faults": {
+      "canonicalBusy": {
+        "phase": "promotion",
+        "status": "canonical_store_busy"
+      },
+      "failedRecovered": {
+        "phase": "promotion",
+        "status": "failed_recovered"
+      },
+      "repairRequired": {
+        "phase": "promotion",
+        "status": "repair_required"
+      },
+      "computeFailure": {
+        "phase": "assembly",
+        "status": "invalid_request",
+        "warning": "topic_apply_invalid"
+      },
+      "computeCancel": {
+        "phase": "assembly",
+        "status": "invalid_request",
+        "warning": "topic_apply_invalid"
+      },
+      "projectionWarning": {
+        "phase": "projection",
+        "status": "persisted",
+        "warning": "topic_projection_failed"
+      },
+      "receiptWarning": {
+        "phase": "operation_receipt",
+        "status": "persisted",
+        "warning": "topic_operation_receipt_failed"
+      }
+    }
+  },
+  "coverage": {
+    "workbench": [
+      "empty",
+      "populated",
+      "old_failure_suppression",
+      "deterministic_order",
+      "running_50_bound",
+      "failed_20_bound",
+      "restart_reconciliation"
+    ],
+    "topic": [
+      "absent",
+      "list_paging",
+      "detail",
+      "create",
+      "duplicate_create",
+      "missing_update",
+      "update_full",
+      "update_patch_inheritance",
+      "stale_basis",
+      "patch_conflict",
+      "invalid_field",
+      "invalid_asset",
+      "invalid_path",
+      "invalid_size",
+      "canonical_busy",
+      "failed_recovered",
+      "repair_required",
+      "compute_failure",
+      "compute_cancel",
+      "projection_warning",
+      "receipt_warning",
+      "stop_admission",
+      "drain",
+      "reopen"
+    ]
+  }
+}

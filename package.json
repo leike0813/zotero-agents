@@ -121,6 +121,7 @@
     "test:node:synthesis-sidecar:stage1": "npm run build:synthesis-rust-sidecar && tsx scripts/run-node-test-shards.ts --suite synthesis-sidecar-stage1",
     "check:synthesis-cross-language-contracts": "tsx scripts/check-synthesis-cross-language-contracts.ts",
     "check:synthesis-durable-foundation-parity": "tsx scripts/check-synthesis-durable-foundation-parity.ts",
+    "check:synthesis-typed-application-parity": "tsx scripts/check-synthesis-typed-application-parity.ts",
     "check:synthesis-rust-license-inventory": "tsx scripts/check-synthesis-rust-license-inventory.ts",
     "test:node:core": "tsx scripts/run-zotero-test-with-mock.ts test:node:raw:core lite core",
     "test:node:core:full": "tsx scripts/run-zotero-test-with-mock.ts test:node:raw:core full core",

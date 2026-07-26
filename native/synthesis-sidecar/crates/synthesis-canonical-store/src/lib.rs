@@ -56,6 +56,24 @@ pub struct CanonicalReceipt {
     pub artifact_hash: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum CurrentTopic {
+    Absent {
+        topic_id: String,
+        path_id: String,
+    },
+    Ready {
+        snapshot: TopicSnapshot,
+        basis: CanonicalBasis,
+    },
+    Invalid {
+        topic_id: String,
+        path_id: String,
+        diagnostics: Vec<String>,
+    },
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FaultPoint {
@@ -211,7 +229,7 @@ fn json_bytes(value: &Value) -> Result<Vec<u8>, String> {
         .map_err(|_| "canonical_json_invalid".into())
 }
 
-fn canonical_topic_path_id(topic_id: &str) -> Result<String, String> {
+pub fn canonical_topic_path_id(topic_id: &str) -> Result<String, String> {
     validate_identity_part(topic_id)?;
     let mut slug = String::new();
     let mut pending_dash = false;
@@ -592,6 +610,46 @@ fn descriptor(current: &Path, topic_id: &str, path_id: &str) -> Result<Value, St
     }))
 }
 
+fn collect_markdown(
+    current: &Path,
+    directory: &Path,
+    output: &mut BTreeMap<String, String>,
+) -> Result<(), String> {
+    for entry in
+        fs::read_dir(directory).map_err(|error| format!("canonical_read_failed:{error}"))?
+    {
+        let entry = entry.map_err(|error| format!("canonical_read_failed:{error}"))?;
+        let path = entry.path();
+        let relative = path
+            .strip_prefix(current)
+            .map_err(|_| "canonical_path_invalid".to_owned())?
+            .to_string_lossy()
+            .replace('\\', "/");
+        if matches!(
+            relative.as_str(),
+            "manifest.json" | "artifact.json" | "metadata.json" | "sections"
+        ) {
+            continue;
+        }
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|error| format!("canonical_read_failed:{error}"))?;
+        if metadata.file_type().is_symlink() {
+            return Err("canonical_symlink_rejected".into());
+        }
+        if metadata.is_dir() {
+            collect_markdown(current, &path, output)?;
+        } else if metadata.is_file() {
+            validate_relative_file(&relative)?;
+            let text =
+                fs::read_to_string(&path).map_err(|_| "canonical_snapshot_invalid".to_owned())?;
+            output.insert(relative, text);
+        } else {
+            return Err("canonical_unknown_file".into());
+        }
+    }
+    Ok(())
+}
+
 impl CanonicalStore {
     pub fn open(profile_runtime_root: &Path, identity: CanonicalIdentity) -> Result<Self, String> {
         validate_identity_part(&identity.profile_id)?;
@@ -709,6 +767,87 @@ impl CanonicalStore {
                 "diagnostics":[error],
             })),
         }
+    }
+
+    pub fn read_current(&self, topic_id: &str) -> Result<CurrentTopic, String> {
+        validate_identity_part(topic_id)?;
+        let path_id = canonical_topic_path_id(topic_id)?;
+        let current = self.topic_root(&path_id)?.join("current");
+        if !current.exists() {
+            return Ok(CurrentTopic::Absent {
+                topic_id: topic_id.into(),
+                path_id,
+            });
+        }
+        let descriptor = match descriptor(&current, topic_id, &path_id) {
+            Ok(descriptor) => descriptor,
+            Err(error) => {
+                return Ok(CurrentTopic::Invalid {
+                    topic_id: topic_id.into(),
+                    path_id,
+                    diagnostics: vec![error],
+                });
+            }
+        };
+        let (manifest, _) = read_json(&current.join("manifest.json"))?;
+        let (artifact, _) = read_json(&current.join("artifact.json"))?;
+        let (metadata, _) = read_json(&current.join("metadata.json"))?;
+        let mut sections = BTreeMap::new();
+        let section_names = manifest["sections"]
+            .as_object()
+            .ok_or_else(|| "canonical_snapshot_invalid".to_owned())?;
+        for name in section_names.keys() {
+            let file_name = section_file_name(name)?;
+            let (section, _) = read_json(&current.join("sections").join(file_name))?;
+            sections.insert(name.clone(), section);
+        }
+        let mut markdown = BTreeMap::new();
+        collect_markdown(&current, &current, &mut markdown)?;
+        Ok(CurrentTopic::Ready {
+            snapshot: TopicSnapshot {
+                topic_id: topic_id.into(),
+                path_id,
+                manifest,
+                artifact,
+                metadata,
+                sections,
+                markdown,
+            },
+            basis: CanonicalBasis {
+                manifest_hash: descriptor["manifestHash"]
+                    .as_str()
+                    .ok_or_else(|| "canonical_snapshot_invalid".to_owned())?
+                    .into(),
+                artifact_hash: descriptor["artifactHash"]
+                    .as_str()
+                    .ok_or_else(|| "canonical_snapshot_invalid".to_owned())?
+                    .into(),
+            },
+        })
+    }
+
+    pub fn receipt(&self, topic_id: &str) -> Result<Option<CanonicalReceipt>, String> {
+        validate_identity_part(topic_id)?;
+        let path_id = canonical_topic_path_id(topic_id)?;
+        let path = self.topic_root(&path_id)?.join("receipt.json");
+        if !path.exists() {
+            return Ok(None);
+        }
+        let receipt: CanonicalReceipt = serde_json::from_slice(
+            &fs::read(path).map_err(|error| format!("canonical_read_failed:{error}"))?,
+        )
+        .map_err(|_| "canonical_receipt_invalid".to_owned())?;
+        if receipt.schema != RECEIPT_SCHEMA
+            || receipt.topic_id != topic_id
+            || receipt.path_id != path_id
+        {
+            return Err("canonical_receipt_invalid".into());
+        }
+        Ok(Some(receipt))
+    }
+
+    pub fn repair_required(&self) -> bool {
+        self.repair_required
     }
 
     fn inspect_path(&self, topic_id: &str, path_id: &str) -> Result<Option<Value>, String> {
@@ -1162,6 +1301,21 @@ mod tests {
         let inspected = store.inspect("topic:r7").expect("inspect");
         assert_eq!(inspected["status"], "ready");
         assert_eq!(inspected["manifestHash"], first.manifest_hash);
+        let CurrentTopic::Ready { snapshot, basis } =
+            store.read_current("topic:r7").expect("typed current")
+        else {
+            panic!("ready current");
+        };
+        assert_eq!(snapshot.topic_id, "topic:r7");
+        assert_eq!(basis.manifest_hash, first.manifest_hash);
+        assert_eq!(
+            store
+                .receipt("topic:r7")
+                .expect("typed receipt")
+                .expect("receipt")
+                .transaction_id,
+            first.transaction_id
+        );
         assert_eq!(
             store
                 .promote(promotion(

@@ -750,6 +750,7 @@ export function openSynthesisSidecarTopicCanonicalStore(options: {
   profileId: string;
   dataRootId: string;
   fault?: (point: FaultPoint) => void;
+  createTransactionId?: () => string;
 }): SynthesisTopicCanonicalStore & { paths: StorePaths } {
   if (!path.isAbsolute(options.profileRuntimeRoot)) {
     throw new Error("canonical_store_runtime_root_invalid");
@@ -867,7 +868,7 @@ export function openSynthesisSidecarTopicCanonicalStore(options: {
       const hashes = computeSynthesisTopicCurrentHashes(snapshot);
       const journal: TransactionJournal = {
         schema: JOURNAL_SCHEMA,
-        transactionId: crypto.randomUUID(),
+        transactionId: options.createTransactionId?.() ?? crypto.randomUUID(),
         topicId: snapshot.topicId,
         pathId: snapshot.pathId,
         hadCurrent: current.status === "ready",

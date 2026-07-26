@@ -470,4 +470,29 @@ describe("Synthesis sidecar Workbench chrome read model", function () {
       "service_unavailable",
     );
   });
+
+  it("keeps Rust Workbench policy in a typed application owner", function () {
+    const applicationRoot = path.resolve(
+      "native/synthesis-sidecar/crates/synthesis-application/src",
+    );
+    const facade = fs.readFileSync(
+      path.join(applicationRoot, "lib.rs"),
+      "utf8",
+    );
+    const workbench = fs.readFileSync(
+      path.join(applicationRoot, "workbench.rs"),
+      "utf8",
+    );
+    const repository = fs.readFileSync(
+      "native/synthesis-sidecar/crates/synthesis-repository/src/lib.rs",
+      "utf8",
+    );
+
+    assert.include(facade, "pub mod workbench");
+    assert.include(workbench, "pub struct WorkbenchApplication");
+    assert.include(workbench, "const RUNNING_LIMIT: usize = 50");
+    assert.include(workbench, "const FAILED_LIMIT: usize = 20");
+    assert.notInclude(repository, "pub fn workbench_chrome");
+    assert.notInclude(repository, 'format!("application:');
+  });
 });

@@ -43,7 +43,6 @@ type Corpus = {
     };
     absentInspect: unknown;
   };
-  applications: Array<{ kind: string; operation: string }>;
   canaries: string[];
 };
 
@@ -54,7 +53,6 @@ export type SynthesisDurableFoundationParityCheck = {
   tables: number;
   indexes: number;
   faultPoints: number;
-  applications: number;
   canaries: number;
   implementations: {
     node: { role: "oracle"; sourceFingerprint: string };
@@ -204,7 +202,6 @@ export function checkSynthesisDurableFoundationParity(
     }
 
     check(errors, "fault_point_count", corpus.canonical.faultPoints.length, 7);
-    check(errors, "application_count", corpus.applications.length, 13);
     check(errors, "canaries", corpus.canaries, [
       "workbench.chrome.read",
       "topics.canonical.inspect",
@@ -221,7 +218,6 @@ export function checkSynthesisDurableFoundationParity(
     tables: corpus.repository.tables.length,
     indexes: corpus.repository.indexes.length,
     faultPoints: corpus.canonical.faultPoints.length,
-    applications: corpus.applications.length,
     canaries: corpus.canaries.length,
     implementations: {
       node: {

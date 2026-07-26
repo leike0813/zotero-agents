@@ -303,18 +303,21 @@ HTTP runtime、SQLite binding、压缩/归档、签名或跨平台辅助 crate �
 
 **canonical store 必须保持**：CAS、exclusive staging、file/directory fsync、atomic promotion、journal phase、backup/forward recovery、durable import receipt。
 
-**状态（2026-07-26）**：active change `migrate-synthesis-durable-foundation-to-rust` 已实现独立 Rust repository、canonical-store 和 application crates，并把 Core 203–217 的稳定 inventory/DTO/canonical 事实收敛到共享 corpus。候选 `serve` 仅新增 `workbench.chrome.read` 与 `topics.canonical.inspect` 两个 authenticated、bounded、mutation-disabled read canary；生产客户端、数据库、canonical owner 和 runtime manifest 未改变。本地 workspace tests、Node/Rust corpus checker、许可证、15-operation/native smoke 和单目标 15 MiB 门禁已建立；五平台 workflow 已接入同一套 locking、recovery、parity、smoke 与 15/75 MiB 门禁，远端执行证据留待受控 workflow。
+**状态（2026-07-26）**：repository 与 canonical-store durable parity 已通过独立 roots、51 表/40 索引、PRAGMA、transaction、journal、receipt 和 recovery corpus 验证。此前 Rust application crate 的十三类通用状态机只证明 inventory，不能证明 application parity，现已删除。change `establish-synthesis-rust-typed-application-parity-harness` 建立了第一份真实 typed differential：Workbench 与 Topic 分别通过 typed repository/canonical/Structured Artifact ports 执行 Node oracle 与 Rust candidate，并比较公开 DTO、稳定 code/warning、全部表、canonical bytes/hash/receipt 和 reopen 结果。候选 `serve` 仍只暴露 `workbench.chrome.read` 与 `topics.canonical.inspect` 两个 authenticated、bounded、mutation-disabled read canary；生产客户端、数据库、canonical owner 和 runtime manifest 未改变。Citation/Reference、Tag/Concept/Topic Graph、Checkpoint/Bundle/WebDAV/Debug 三个后续领域簇尚未获得同级 typed parity，因此 R7 application parity 仍未完成。
 
 **退出条件**：
 
 - 五平台运行 crash/restart、锁竞争、事务回滚和每个 journal phase 的 fault injection；
 - Node/Rust 使用独立 shadow roots，仅比较结果，不共享 live owner；
-- application invariants、workbench read 与 canonical inspect parity 全绿；
+- 每个 application family 都由真实 typed Node/Rust use-case differential 覆盖；enum/inventory、generic command 或 synthetic state row 不计为证据；
+- Workbench、Topic 与后续领域簇的公开 DTO、稳定失败、durable side effects 和 reopen 结果全绿；
 - 任何差异都有显式 schema/version 决策，不以兼容分支掩盖。
 
 ### R8：native service、lifecycle 与 manifest v2
 
 **目标**：让插件只认识 native executable，而不认识 Node runtime 结构。
+
+**当前门禁**：R8 保持阻塞。只有 R7 的全部 typed application parity slices 完成后，才能启动 `introduce-synthesis-native-runtime-manifest-v2`。
 
 **任务**：
 

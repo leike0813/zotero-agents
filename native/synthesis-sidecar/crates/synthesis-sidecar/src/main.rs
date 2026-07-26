@@ -8,7 +8,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Duration;
-use synthesis_application::{Application, DisabledCompute, DisabledRemoteEffects};
+use synthesis_application::{
+    CanonicalStorePort, RepositoryPort, TopicCanonicalPort, WorkbenchApplication,
+};
 use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
 use synthesis_protocol::{
     DeterministicAckFrame, DeterministicPageFrame, DeterministicRawPageFrame,
@@ -943,7 +945,9 @@ struct CallEnvelope {
 struct ServeState {
     token: String,
     profile: String,
-    application: Application,
+    repository: Arc<Mutex<Repository>>,
+    workbench: WorkbenchApplication,
+    canonical: CanonicalStorePort,
     stopping: AtomicBool,
     compute_busy: AtomicBool,
 }
@@ -1024,14 +1028,13 @@ fn handle_connection(mut stream: TcpStream, state: Arc<ServeState>) -> Result<()
             return response(&mut stream, 400, error_response("invalid_request"));
         }
         let repository = state
-            .application
-            .repository()
+            .repository
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
             .pragma_snapshot()?;
         let canonical = state
-            .application
-            .canonical()
+            .canonical
+            .owner()
             .lock()
             .map_err(|_| "canonical_store_unavailable".to_owned())?
             .store_id()
@@ -1131,7 +1134,7 @@ fn handle_connection(mut stream: TcpStream, state: Arc<ServeState>) -> Result<()
             if !exact_payload(&call.payload, &["state"]) || !call.payload["state"].is_object() {
                 return response(&mut stream, 400, error_response("invalid_request"));
             }
-            let data = state.application.workbench_chrome_read()?;
+            let data = state.workbench.read_json()?;
             bounded_response(
                 &mut stream,
                 200,
@@ -1146,7 +1149,7 @@ fn handle_connection(mut stream: TcpStream, state: Arc<ServeState>) -> Result<()
             let Some(topic_id) = call.payload["topicId"].as_str() else {
                 return response(&mut stream, 400, error_response("invalid_request"));
             };
-            let data = state.application.canonical_inspect(topic_id)?;
+            let data = state.canonical.inspect(topic_id)?;
             bounded_response(
                 &mut stream,
                 200,
@@ -1209,16 +1212,17 @@ fn serve(config_path: &str) -> Result<(), String> {
             data_root_id,
         },
     )?;
-    let application = Application::new(
-        Arc::new(Mutex::new(repository)),
-        Arc::new(Mutex::new(canonical)),
-        Arc::new(DisabledCompute),
-        Arc::new(DisabledRemoteEffects),
-    );
+    let repository = Arc::new(Mutex::new(repository));
+    let canonical = Arc::new(Mutex::new(canonical));
+    let repository_port = RepositoryPort::new(Arc::clone(&repository));
+    let canonical_port = CanonicalStorePort::new(Arc::clone(&canonical));
+    let workbench = WorkbenchApplication::new(Arc::new(repository_port));
     let state = Arc::new(ServeState {
         token: config.client_token,
         profile: config.profile_id,
-        application,
+        repository,
+        workbench,
+        canonical: canonical_port,
         stopping: AtomicBool::new(false),
         compute_busy: AtomicBool::new(false),
     });
@@ -1251,7 +1255,7 @@ fn serve(config_path: &str) -> Result<(), String> {
         let _ = handler.join();
     }
     let state = Arc::try_unwrap(state).map_err(|_| "shutdown_incomplete".to_owned())?;
-    let repository = state.application.repository();
+    let repository = Arc::clone(&state.repository);
     drop(state);
     Arc::try_unwrap(repository)
         .map_err(|_| "shutdown_incomplete".to_owned())?

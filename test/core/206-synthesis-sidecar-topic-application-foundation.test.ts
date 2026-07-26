@@ -470,4 +470,30 @@ describe("Synthesis sidecar Topic application foundation", function () {
       owner.repository.close();
     }
   });
+
+  it("exposes a typed Rust Topic library owner without a mutation capability", function () {
+    const applicationRoot = path.resolve(
+      "native/synthesis-sidecar/crates/synthesis-application/src",
+    );
+    const facade = fs.readFileSync(
+      path.join(applicationRoot, "lib.rs"),
+      "utf8",
+    );
+    const topic = fs.readFileSync(
+      path.join(applicationRoot, "topic.rs"),
+      "utf8",
+    );
+    const candidate = fs.readFileSync(
+      "native/synthesis-sidecar/crates/synthesis-sidecar/src/main.rs",
+      "utf8",
+    );
+
+    assert.include(facade, "pub mod topic");
+    assert.include(topic, "pub struct TopicApplication");
+    assert.include(topic, "pub fn stop_admission");
+    assert.include(topic, "pub fn shutdown");
+    assert.notInclude(facade, "ApplicationKind");
+    assert.notInclude(facade, "ApplicationCommand");
+    assert.notInclude(candidate, '"topics.canonical.apply"');
+  });
 });

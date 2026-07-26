@@ -67,7 +67,7 @@ struct IdentityMarker {
     repository_id: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct OperationRecord {
     pub operation_id: String,
@@ -75,26 +75,131 @@ pub struct OperationRecord {
     #[serde(default)]
     pub library_id: i64,
     #[serde(default)]
+    pub scope_kind: String,
+    #[serde(default)]
+    pub scope_ref: String,
+    #[serde(default)]
     pub status: String,
     #[serde(default)]
     pub label: String,
     #[serde(default)]
     pub phase: String,
     #[serde(default)]
+    pub phase_label: String,
+    #[serde(default)]
     pub message: String,
+    #[serde(default)]
+    pub progress_mode: String,
+    #[serde(default)]
+    pub processed_count: i64,
+    #[serde(default)]
+    pub skipped_count: i64,
+    #[serde(default)]
+    pub failed_count: i64,
+    #[serde(default)]
+    pub total_count: i64,
+    #[serde(default)]
+    pub basis_kind: String,
+    #[serde(default)]
+    pub basis_value: String,
+    #[serde(default)]
+    pub source_hash: String,
+    #[serde(default)]
+    pub diagnostics_json: String,
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
+    pub started_at: String,
+    #[serde(default)]
+    pub completed_at: String,
+    #[serde(default)]
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CacheBasisRecord {
+    pub cache_key: String,
+    pub cache_kind: String,
+    #[serde(default)]
+    pub scope_kind: String,
+    #[serde(default)]
+    pub scope_ref: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub basis_kind: String,
+    #[serde(default)]
+    pub basis_value: String,
+    #[serde(default)]
+    pub source_hash: String,
+    #[serde(default)]
+    pub policy_version: String,
+    #[serde(default)]
+    pub active_operation_id: String,
+    #[serde(default)]
+    pub refreshed_at: String,
+    #[serde(default)]
+    pub stale_reason: String,
+    #[serde(default)]
+    pub diagnostics_json: String,
+    #[serde(default)]
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TopicApplicationStateRecord {
+    pub topic_id: String,
+    pub path_id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub definition: String,
+    #[serde(default)]
+    pub language: String,
+    #[serde(default)]
+    pub operation: String,
+    pub manifest_hash: String,
+    pub artifact_hash: String,
+    pub metadata_hash: String,
+    pub bundle_hash: String,
+    #[serde(default)]
+    pub paper_count: i64,
+    #[serde(default)]
+    pub topic_definition_json: String,
+    #[serde(default)]
+    pub topic_resolver_json: String,
+    #[serde(default)]
+    pub resolved_paper_set_json: String,
     #[serde(default)]
     pub created_at: String,
     #[serde(default)]
     pub updated_at: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ApplicationState {
-    pub kind: String,
-    pub basis: String,
-    pub payload: Value,
+pub struct TopicApplicationProjectionRecord {
+    pub topic_id: String,
+    #[serde(default)]
+    pub topic_graph_json: String,
+    #[serde(default)]
+    pub concepts_json: String,
+    #[serde(default)]
+    pub interest_metadata_json: String,
+    #[serde(default)]
+    pub discovery_json: String,
+    #[serde(default)]
     pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OperationQuery {
+    pub statuses: Vec<String>,
+    pub operation_types: Vec<String>,
+    pub include_completed: bool,
+    pub limit: usize,
 }
 
 #[derive(Debug)]
@@ -230,6 +335,23 @@ fn json_value(value: ValueRef<'_>) -> Result<Value, String> {
 
 impl Repository {
     pub fn open(profile_runtime_root: &Path, identity: RepositoryIdentity) -> Result<Self, String> {
+        Self::open_internal(profile_runtime_root, identity, "")
+    }
+
+    pub fn open_at(
+        profile_runtime_root: &Path,
+        identity: RepositoryIdentity,
+        reconcile_now: &str,
+    ) -> Result<Self, String> {
+        validate_identity_part(reconcile_now)?;
+        Self::open_internal(profile_runtime_root, identity, reconcile_now)
+    }
+
+    fn open_internal(
+        profile_runtime_root: &Path,
+        identity: RepositoryIdentity,
+        reconcile_now: &str,
+    ) -> Result<Self, String> {
         validate_identity_part(&identity.profile_id)?;
         validate_identity_part(&identity.data_root_id)?;
         let root = profile_runtime_root
@@ -315,8 +437,18 @@ impl Repository {
                 .map_err(map_sqlite_error)?;
             connection
                 .execute(
-                    "UPDATE synt_operation SET status='canceled',phase='service_restart',updated_at=CASE WHEN updated_at='' THEN created_at ELSE updated_at END WHERE status='running'",
-                    [],
+                    "UPDATE synt_operation SET
+                       status='canceled',
+                       phase='service_restart',
+                       message='Interrupted by sidecar service restart.',
+                       completed_at=CASE WHEN ?1='' THEN completed_at ELSE ?1 END,
+                       updated_at=CASE
+                         WHEN ?1<>'' THEN ?1
+                         WHEN updated_at='' THEN created_at
+                         ELSE updated_at
+                       END
+                     WHERE status='running'",
+                    [reconcile_now],
                 )
                 .map_err(map_sqlite_error)?;
             connection
@@ -519,22 +651,46 @@ impl Repository {
     pub fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String> {
         validate_identity_part(&record.operation_id)?;
         validate_identity_part(&record.operation_type)?;
-        if record.library_id.abs() > JS_SAFE_INTEGER_MAX {
+        if [
+            record.library_id,
+            record.processed_count,
+            record.skipped_count,
+            record.failed_count,
+            record.total_count,
+        ]
+        .iter()
+        .any(|value| value.abs() > JS_SAFE_INTEGER_MAX || *value < 0)
+        {
             return Err("repository_sqlite_integer_unsafe".into());
         }
         self.connection()?
             .execute(
                 "INSERT INTO synt_operation(
-                   operation_id,operation_type,library_id,status,label,phase,message,created_at,updated_at
-                 ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)
+                   operation_id,operation_type,library_id,scope_kind,scope_ref,status,label,phase,
+                   phase_label,message,progress_mode,processed_count,skipped_count,failed_count,
+                   total_count,basis_kind,basis_value,source_hash,diagnostics_json,created_at,
+                   started_at,completed_at,updated_at
+                 ) VALUES(
+                   ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,
+                   ?20,?21,?22,?23
+                 )
                  ON CONFLICT(operation_id) DO UPDATE SET
                    operation_type=excluded.operation_type,library_id=excluded.library_id,
-                   status=excluded.status,label=excluded.label,phase=excluded.phase,
-                   message=excluded.message,updated_at=excluded.updated_at",
+                   scope_kind=excluded.scope_kind,scope_ref=excluded.scope_ref,status=excluded.status,
+                   label=excluded.label,phase=excluded.phase,phase_label=excluded.phase_label,
+                   message=excluded.message,progress_mode=excluded.progress_mode,
+                   processed_count=excluded.processed_count,skipped_count=excluded.skipped_count,
+                   failed_count=excluded.failed_count,total_count=excluded.total_count,
+                   basis_kind=excluded.basis_kind,basis_value=excluded.basis_value,
+                   source_hash=excluded.source_hash,diagnostics_json=excluded.diagnostics_json,
+                   started_at=excluded.started_at,completed_at=excluded.completed_at,
+                   updated_at=excluded.updated_at",
                 params![
                     record.operation_id,
                     record.operation_type,
                     record.library_id,
+                    record.scope_kind,
+                    record.scope_ref,
                     if record.status.is_empty() {
                         "pending"
                     } else {
@@ -542,7 +698,253 @@ impl Repository {
                     },
                     record.label,
                     record.phase,
+                    record.phase_label,
                     record.message,
+                    if record.progress_mode.is_empty() {
+                        "indeterminate"
+                    } else {
+                        &record.progress_mode
+                    },
+                    record.processed_count,
+                    record.skipped_count,
+                    record.failed_count,
+                    record.total_count,
+                    record.basis_kind,
+                    record.basis_value,
+                    record.source_hash,
+                    if record.diagnostics_json.is_empty() {
+                        "[]"
+                    } else {
+                        &record.diagnostics_json
+                    },
+                    record.created_at,
+                    record.started_at,
+                    record.completed_at,
+                    record.updated_at,
+                ],
+            )
+            .map_err(map_sqlite_error)?;
+        Ok(())
+    }
+
+    pub fn get_operation(&self, operation_id: &str) -> Result<Option<OperationRecord>, String> {
+        validate_identity_part(operation_id)?;
+        self.query(
+            "SELECT * FROM synt_operation WHERE operation_id=?1 LIMIT 1",
+            &[json!(operation_id)],
+        )?
+        .into_iter()
+        .next()
+        .map(operation_record)
+        .transpose()
+    }
+
+    pub fn list_operations(&self, query: &OperationQuery) -> Result<Vec<OperationRecord>, String> {
+        let limit = query.limit.clamp(1, 1_000);
+        let mut clauses = Vec::new();
+        let mut values = Vec::new();
+        let mut placeholders = |items: &[String]| -> Result<String, String> {
+            let mut result = Vec::new();
+            for item in items {
+                validate_identity_part(item)?;
+                values.push(json!(item));
+                result.push(format!("?{}", values.len()));
+            }
+            Ok(result.join(","))
+        };
+        if !query.statuses.is_empty() {
+            clauses.push(format!("status IN ({})", placeholders(&query.statuses)?));
+        } else if !query.include_completed {
+            clauses.push("status NOT IN ('completed','succeeded','failed','canceled')".to_owned());
+        }
+        if !query.operation_types.is_empty() {
+            clauses.push(format!(
+                "operation_type IN ({})",
+                placeholders(&query.operation_types)?
+            ));
+        }
+        values.push(json!(limit));
+        let sql = format!(
+            "SELECT * FROM synt_operation {} ORDER BY updated_at DESC,operation_id ASC LIMIT ?{}",
+            if clauses.is_empty() {
+                String::new()
+            } else {
+                format!("WHERE {}", clauses.join(" AND "))
+            },
+            values.len()
+        );
+        self.query(&sql, &values)?
+            .into_iter()
+            .map(operation_record)
+            .collect()
+    }
+
+    pub fn update_operation_status(
+        &self,
+        operation_id: &str,
+        status: &str,
+        phase: &str,
+        diagnostics: &[String],
+        now: &str,
+    ) -> Result<Option<OperationRecord>, String> {
+        let Some(mut record) = self.get_operation(operation_id)? else {
+            return Ok(None);
+        };
+        record.status = status.into();
+        record.phase = phase.into();
+        record.diagnostics_json =
+            serde_json::to_string(diagnostics).map_err(|_| "repository_operation_invalid")?;
+        record.updated_at = now.into();
+        if matches!(status, "completed" | "succeeded" | "failed" | "canceled") {
+            record.completed_at = now.into();
+        }
+        self.upsert_operation(&record)?;
+        Ok(Some(record))
+    }
+
+    pub fn get_cache_basis(&self, cache_key: &str) -> Result<Option<CacheBasisRecord>, String> {
+        validate_identity_part(cache_key)?;
+        self.query(
+            "SELECT * FROM synt_cache_basis WHERE cache_key=?1 LIMIT 1",
+            &[json!(cache_key)],
+        )?
+        .into_iter()
+        .next()
+        .map(cache_basis_record)
+        .transpose()
+    }
+
+    pub fn upsert_cache_basis(&self, record: &CacheBasisRecord) -> Result<(), String> {
+        validate_identity_part(&record.cache_key)?;
+        validate_identity_part(&record.cache_kind)?;
+        self.connection()?
+            .execute(
+                "INSERT INTO synt_cache_basis(
+                   cache_key,cache_kind,scope_kind,scope_ref,status,basis_kind,basis_value,
+                   source_hash,policy_version,active_operation_id,refreshed_at,stale_reason,
+                   diagnostics_json,updated_at
+                 ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
+                 ON CONFLICT(cache_key) DO UPDATE SET
+                   cache_kind=excluded.cache_kind,scope_kind=excluded.scope_kind,
+                   scope_ref=excluded.scope_ref,status=excluded.status,basis_kind=excluded.basis_kind,
+                   basis_value=excluded.basis_value,source_hash=excluded.source_hash,
+                   policy_version=excluded.policy_version,
+                   active_operation_id=excluded.active_operation_id,
+                   refreshed_at=excluded.refreshed_at,stale_reason=excluded.stale_reason,
+                   diagnostics_json=excluded.diagnostics_json,updated_at=excluded.updated_at",
+                params![
+                    record.cache_key,
+                    record.cache_kind,
+                    record.scope_kind,
+                    record.scope_ref,
+                    if record.status.is_empty() {
+                        "missing"
+                    } else {
+                        &record.status
+                    },
+                    record.basis_kind,
+                    record.basis_value,
+                    record.source_hash,
+                    record.policy_version,
+                    record.active_operation_id,
+                    record.refreshed_at,
+                    record.stale_reason,
+                    if record.diagnostics_json.is_empty() {
+                        "[]"
+                    } else {
+                        &record.diagnostics_json
+                    },
+                    record.updated_at,
+                ],
+            )
+            .map_err(map_sqlite_error)?;
+        Ok(())
+    }
+
+    pub fn get_topic_application_state(
+        &self,
+        topic_id: &str,
+    ) -> Result<Option<TopicApplicationStateRecord>, String> {
+        validate_identity_part(topic_id)?;
+        self.query(
+            "SELECT * FROM synt_topic_application_state WHERE topic_id=?1 LIMIT 1",
+            &[json!(topic_id)],
+        )?
+        .into_iter()
+        .next()
+        .map(topic_state_record)
+        .transpose()
+    }
+
+    pub fn list_topic_application_states(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<TopicApplicationStateRecord>, usize), String> {
+        let limit = limit.clamp(1, 250);
+        let total = self
+            .query(
+                "SELECT COUNT(*) AS total FROM synt_topic_application_state",
+                &[],
+            )?
+            .first()
+            .and_then(|row| row["total"].as_i64())
+            .unwrap_or_default()
+            .max(0) as usize;
+        let rows = self.query(
+            "SELECT * FROM synt_topic_application_state
+             ORDER BY updated_at DESC,topic_id ASC LIMIT ?1 OFFSET ?2",
+            &[json!(limit), json!(offset)],
+        )?;
+        Ok((
+            rows.into_iter()
+                .map(topic_state_record)
+                .collect::<Result<Vec<_>, _>>()?,
+            total,
+        ))
+    }
+
+    pub fn upsert_topic_application_state(
+        &self,
+        record: &TopicApplicationStateRecord,
+    ) -> Result<(), String> {
+        validate_topic_state(record)?;
+        self.connection()?
+            .execute(
+                "INSERT INTO synt_topic_application_state(
+                   topic_id,path_id,title,definition,language,operation,manifest_hash,artifact_hash,
+                   metadata_hash,bundle_hash,paper_count,topic_definition_json,topic_resolver_json,
+                   resolved_paper_set_json,created_at,updated_at
+                 ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)
+                 ON CONFLICT(topic_id) DO UPDATE SET
+                   path_id=excluded.path_id,title=excluded.title,definition=excluded.definition,
+                   language=excluded.language,operation=excluded.operation,
+                   manifest_hash=excluded.manifest_hash,artifact_hash=excluded.artifact_hash,
+                   metadata_hash=excluded.metadata_hash,bundle_hash=excluded.bundle_hash,
+                   paper_count=excluded.paper_count,
+                   topic_definition_json=excluded.topic_definition_json,
+                   topic_resolver_json=excluded.topic_resolver_json,
+                   resolved_paper_set_json=excluded.resolved_paper_set_json,
+                   updated_at=excluded.updated_at",
+                params![
+                    record.topic_id,
+                    record.path_id,
+                    record.title,
+                    record.definition,
+                    if record.language.is_empty() {
+                        "auto"
+                    } else {
+                        &record.language
+                    },
+                    record.operation,
+                    record.manifest_hash,
+                    record.artifact_hash,
+                    record.metadata_hash,
+                    record.bundle_hash,
+                    record.paper_count,
+                    object_json(&record.topic_definition_json)?,
+                    object_json(&record.topic_resolver_json)?,
+                    object_json(&record.resolved_paper_set_json)?,
                     record.created_at,
                     record.updated_at,
                 ],
@@ -551,196 +953,57 @@ impl Repository {
         Ok(())
     }
 
-    pub fn workbench_chrome(&self) -> Result<Value, String> {
-        let mut cache_readiness = Vec::new();
-        for (cache_key, cache_kind) in [
-            ("reference-sidecar:library", "reference-sidecar"),
-            ("citation-graph:library", "citation_graph"),
-        ] {
-            let row = self
-                .query(
-                    "SELECT status,refreshed_at,updated_at,stale_reason
-                     FROM synt_cache_basis WHERE cache_key=?1",
-                    &[json!(cache_key)],
-                )?
-                .into_iter()
-                .next();
-            let mut descriptor = Map::from_iter([
-                ("cacheKey".into(), json!(cache_key)),
-                ("cacheKind".into(), json!(cache_kind)),
-                (
-                    "status".into(),
-                    row.as_ref()
-                        .and_then(|row| row["status"].as_str())
-                        .map(|value| json!(value))
-                        .unwrap_or_else(|| json!("missing")),
-                ),
-            ]);
-            if let Some(row) = row {
-                for (source, target) in [
-                    ("refreshed_at", "refreshedAt"),
-                    ("updated_at", "updatedAt"),
-                    ("stale_reason", "staleReason"),
-                ] {
-                    if let Some(value) = row[source].as_str().filter(|value| !value.is_empty()) {
-                        descriptor.insert(target.into(), json!(value));
-                    }
-                }
-            }
-            cache_readiness.push(Value::Object(descriptor));
-        }
-        let running = self.query(
-            "SELECT * FROM synt_operation WHERE status='running'
-             ORDER BY updated_at DESC,operation_id ASC LIMIT 50",
-            &[],
-        )?;
-        let failed = self.query(
-            "SELECT * FROM synt_operation
-             WHERE status='failed'
-               AND operation_type IN ('reference_sidecar_refresh','citation_graph_cache_rebuild')
-             ORDER BY updated_at DESC,operation_id ASC LIMIT 20",
-            &[],
-        )?;
-        let mut jobs = Vec::new();
-        for row in running.into_iter().chain(failed) {
-            let operation_id = row["operation_id"].as_str().unwrap_or_default();
-            let operation_type = row["operation_type"].as_str().unwrap_or_default();
-            let source = match operation_type {
-                "reference_sidecar_refresh"
-                | "citation_graph_cache_rebuild"
-                | "citation_graph_layout"
-                | "webdav_sync"
-                | "canonical_maintenance" => operation_type,
-                _ => "operation",
-            };
-            let total = row["total_count"].as_i64().unwrap_or(0).max(0);
-            let current = row["processed_count"].as_i64().unwrap_or(0).clamp(0, total);
-            let label = row["label"]
-                .as_str()
-                .filter(|value| !value.is_empty())
-                .unwrap_or(operation_id);
-            let detail = ["message", "phase_label", "phase"]
-                .iter()
-                .find_map(|key| row[*key].as_str().filter(|value| !value.is_empty()));
-            let progress = if row["progress_mode"] == "determinate" && total > 0 {
-                json!({
-                    "mode":"determinate",
-                    "current":current,
-                    "total":total,
-                    "percent":((current as f64 / total as f64) * 100.0).round() as i64,
-                })
-            } else {
-                json!({"mode":"indeterminate"})
-            };
-            let mut job = Map::from_iter([
-                ("job_id".into(), json!(operation_id)),
-                ("source".into(), json!(source)),
-                (
-                    "status".into(),
-                    json!(if row["status"] == "running" {
-                        "running"
-                    } else {
-                        "failed"
-                    }),
-                ),
-                ("label".into(), json!(label)),
-                ("progress".into(), progress),
-            ]);
-            if let Some(detail) = detail {
-                job.insert("detail".into(), json!(detail));
-            }
-            if let Some(updated_at) = row["updated_at"].as_str().filter(|value| !value.is_empty()) {
-                job.insert("updated_at".into(), json!(updated_at));
-            }
-            jobs.push(Value::Object(job));
-        }
-        jobs.sort_by(|left, right| {
-            right["updated_at"]
-                .as_str()
-                .unwrap_or_default()
-                .cmp(left["updated_at"].as_str().unwrap_or_default())
-                .then_with(|| {
-                    left["job_id"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .cmp(right["job_id"].as_str().unwrap_or_default())
-                })
-        });
-        Ok(json!({"maintenance":{
-            "cacheReadiness":cache_readiness,
-            "backgroundJobs":jobs,
-        }}))
+    pub fn get_topic_application_projection(
+        &self,
+        topic_id: &str,
+    ) -> Result<Option<TopicApplicationProjectionRecord>, String> {
+        validate_identity_part(topic_id)?;
+        self.query(
+            "SELECT * FROM synt_topic_application_projection WHERE topic_id=?1 LIMIT 1",
+            &[json!(topic_id)],
+        )?
+        .into_iter()
+        .next()
+        .map(topic_projection_record)
+        .transpose()
     }
 
-    pub fn application_state(&self, kind: &str) -> Result<Option<ApplicationState>, String> {
-        validate_identity_part(kind)?;
-        let rows = self.query(
-            "SELECT cache_kind,basis_value,diagnostics_json,updated_at
-             FROM synt_cache_basis WHERE cache_key=?1",
-            &[json!(format!("application:{kind}"))],
-        )?;
-        rows.into_iter()
+    pub fn upsert_topic_application_projection(
+        &self,
+        record: &TopicApplicationProjectionRecord,
+    ) -> Result<(), String> {
+        validate_identity_part(&record.topic_id)?;
+        self.connection()?
+            .execute(
+                "INSERT INTO synt_topic_application_projection(
+                   topic_id,topic_graph_json,concepts_json,interest_metadata_json,discovery_json,updated_at
+                 ) VALUES(?1,?2,?3,?4,?5,?6)
+                 ON CONFLICT(topic_id) DO UPDATE SET
+                   topic_graph_json=excluded.topic_graph_json,concepts_json=excluded.concepts_json,
+                   interest_metadata_json=excluded.interest_metadata_json,
+                   discovery_json=excluded.discovery_json,updated_at=excluded.updated_at",
+                params![
+                    record.topic_id,
+                    object_json(&record.topic_graph_json)?,
+                    object_json(&record.concepts_json)?,
+                    object_json(&record.interest_metadata_json)?,
+                    object_json(&record.discovery_json)?,
+                    record.updated_at,
+                ],
+            )
+            .map_err(map_sqlite_error)?;
+        Ok(())
+    }
+
+    pub fn application_state_rows_absent(&self) -> Result<bool, String> {
+        Ok(self
+            .query(
+                "SELECT cache_key FROM synt_cache_basis WHERE cache_key LIKE 'application:%' LIMIT 1",
+                &[],
+            )?
+            .into_iter()
             .next()
-            .map(|row| {
-                let payload = serde_json::from_str(
-                    row["diagnostics_json"]
-                        .as_str()
-                        .ok_or_else(|| "repository_application_state_invalid".to_owned())?,
-                )
-                .map_err(|_| "repository_application_state_invalid".to_owned())?;
-                Ok(ApplicationState {
-                    kind: row["cache_kind"]
-                        .as_str()
-                        .ok_or_else(|| "repository_application_state_invalid".to_owned())?
-                        .to_owned(),
-                    basis: row["basis_value"]
-                        .as_str()
-                        .ok_or_else(|| "repository_application_state_invalid".to_owned())?
-                        .to_owned(),
-                    payload,
-                    updated_at: row["updated_at"]
-                        .as_str()
-                        .ok_or_else(|| "repository_application_state_invalid".to_owned())?
-                        .to_owned(),
-                })
-            })
-            .transpose()
-    }
-
-    pub fn compare_and_swap_application_state(
-        &mut self,
-        next: ApplicationState,
-        expected_basis: Option<&str>,
-    ) -> Result<bool, String> {
-        validate_identity_part(&next.kind)?;
-        validate_identity_part(&next.basis)?;
-        validate_json_safe(&next.payload)?;
-        self.transaction(|repository| {
-            let current = repository.application_state(&next.kind)?;
-            if current.as_ref().map(|state| state.basis.as_str()) != expected_basis {
-                return Ok(false);
-            }
-            repository
-                .connection()?
-                .execute(
-                    "INSERT INTO synt_cache_basis(
-                       cache_key,cache_kind,status,basis_kind,basis_value,diagnostics_json,updated_at
-                     ) VALUES(?1,?2,'ready','application',?3,?4,?5)
-                     ON CONFLICT(cache_key) DO UPDATE SET
-                       cache_kind=excluded.cache_kind,status='ready',basis_kind='application',
-                       basis_value=excluded.basis_value,diagnostics_json=excluded.diagnostics_json,
-                       updated_at=excluded.updated_at",
-                    params![
-                        format!("application:{}", next.kind),
-                        next.kind,
-                        next.basis,
-                        canonical_application_payload(&next.payload)?,
-                        next.updated_at,
-                    ],
-                )
-                .map_err(map_sqlite_error)?;
-            Ok(true)
-        })
+            .is_none())
     }
 
     pub fn table_snapshot(&self) -> Result<Value, String> {
@@ -760,7 +1023,7 @@ impl Repository {
                 return Err("repository_schema_invalid".into());
             }
             let mut rows = self.query(&format!("SELECT * FROM {name}"), &[])?;
-            rows.sort_by_key(|row| serde_json::to_string(row).unwrap_or_default());
+            rows.sort_by_key(stable_value_key);
             snapshot.insert(name.to_owned(), rows);
         }
         serde_json::to_value(snapshot).map_err(|_| "repository_snapshot_invalid".into())
@@ -793,8 +1056,146 @@ impl Repository {
     }
 }
 
-fn canonical_application_payload(value: &Value) -> Result<String, String> {
-    serde_json::to_string(value).map_err(|_| "repository_application_state_invalid".into())
+fn row_text(row: &Value, key: &str) -> Result<String, String> {
+    row[key]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| "repository_typed_row_invalid".into())
+}
+
+fn stable_value_key(value: &Value) -> String {
+    fn normalize(value: &Value) -> Value {
+        match value {
+            Value::Array(values) => Value::Array(values.iter().map(normalize).collect()),
+            Value::Object(object) => Value::Object(
+                object
+                    .iter()
+                    .map(|(key, value)| (key.clone(), normalize(value)))
+                    .collect::<BTreeMap<_, _>>()
+                    .into_iter()
+                    .collect(),
+            ),
+            value => value.clone(),
+        }
+    }
+    serde_json::to_string(&normalize(value)).unwrap_or_default()
+}
+
+fn row_integer(row: &Value, key: &str) -> Result<i64, String> {
+    row[key]
+        .as_i64()
+        .filter(|value| *value >= 0 && *value <= JS_SAFE_INTEGER_MAX)
+        .ok_or_else(|| "repository_typed_row_invalid".into())
+}
+
+fn operation_record(row: Value) -> Result<OperationRecord, String> {
+    Ok(OperationRecord {
+        operation_id: row_text(&row, "operation_id")?,
+        operation_type: row_text(&row, "operation_type")?,
+        library_id: row_integer(&row, "library_id")?,
+        scope_kind: row_text(&row, "scope_kind")?,
+        scope_ref: row_text(&row, "scope_ref")?,
+        status: row_text(&row, "status")?,
+        label: row_text(&row, "label")?,
+        phase: row_text(&row, "phase")?,
+        phase_label: row_text(&row, "phase_label")?,
+        message: row_text(&row, "message")?,
+        progress_mode: row_text(&row, "progress_mode")?,
+        processed_count: row_integer(&row, "processed_count")?,
+        skipped_count: row_integer(&row, "skipped_count")?,
+        failed_count: row_integer(&row, "failed_count")?,
+        total_count: row_integer(&row, "total_count")?,
+        basis_kind: row_text(&row, "basis_kind")?,
+        basis_value: row_text(&row, "basis_value")?,
+        source_hash: row_text(&row, "source_hash")?,
+        diagnostics_json: row_text(&row, "diagnostics_json")?,
+        created_at: row_text(&row, "created_at")?,
+        started_at: row_text(&row, "started_at")?,
+        completed_at: row_text(&row, "completed_at")?,
+        updated_at: row_text(&row, "updated_at")?,
+    })
+}
+
+fn cache_basis_record(row: Value) -> Result<CacheBasisRecord, String> {
+    Ok(CacheBasisRecord {
+        cache_key: row_text(&row, "cache_key")?,
+        cache_kind: row_text(&row, "cache_kind")?,
+        scope_kind: row_text(&row, "scope_kind")?,
+        scope_ref: row_text(&row, "scope_ref")?,
+        status: row_text(&row, "status")?,
+        basis_kind: row_text(&row, "basis_kind")?,
+        basis_value: row_text(&row, "basis_value")?,
+        source_hash: row_text(&row, "source_hash")?,
+        policy_version: row_text(&row, "policy_version")?,
+        active_operation_id: row_text(&row, "active_operation_id")?,
+        refreshed_at: row_text(&row, "refreshed_at")?,
+        stale_reason: row_text(&row, "stale_reason")?,
+        diagnostics_json: row_text(&row, "diagnostics_json")?,
+        updated_at: row_text(&row, "updated_at")?,
+    })
+}
+
+fn object_json(value: &str) -> Result<String, String> {
+    let value = if value.is_empty() { "{}" } else { value };
+    let parsed: Value =
+        serde_json::from_str(value).map_err(|_| "repository_topic_json_invalid".to_owned())?;
+    if !parsed.is_object() {
+        return Err("repository_topic_json_invalid".into());
+    }
+    serde_json::to_string(&parsed).map_err(|_| "repository_topic_json_invalid".into())
+}
+
+fn validate_topic_state(record: &TopicApplicationStateRecord) -> Result<(), String> {
+    for value in [
+        &record.topic_id,
+        &record.path_id,
+        &record.manifest_hash,
+        &record.artifact_hash,
+        &record.metadata_hash,
+        &record.bundle_hash,
+    ] {
+        validate_identity_part(value)?;
+    }
+    if record.paper_count < 0 || record.paper_count > JS_SAFE_INTEGER_MAX {
+        return Err("repository_sqlite_integer_unsafe".into());
+    }
+    Ok(())
+}
+
+fn topic_state_record(row: Value) -> Result<TopicApplicationStateRecord, String> {
+    let record = TopicApplicationStateRecord {
+        topic_id: row_text(&row, "topic_id")?,
+        path_id: row_text(&row, "path_id")?,
+        title: row_text(&row, "title")?,
+        definition: row_text(&row, "definition")?,
+        language: row_text(&row, "language")?,
+        operation: row_text(&row, "operation")?,
+        manifest_hash: row_text(&row, "manifest_hash")?,
+        artifact_hash: row_text(&row, "artifact_hash")?,
+        metadata_hash: row_text(&row, "metadata_hash")?,
+        bundle_hash: row_text(&row, "bundle_hash")?,
+        paper_count: row_integer(&row, "paper_count")?,
+        topic_definition_json: object_json(&row_text(&row, "topic_definition_json")?)?,
+        topic_resolver_json: object_json(&row_text(&row, "topic_resolver_json")?)?,
+        resolved_paper_set_json: object_json(&row_text(&row, "resolved_paper_set_json")?)?,
+        created_at: row_text(&row, "created_at")?,
+        updated_at: row_text(&row, "updated_at")?,
+    };
+    validate_topic_state(&record)?;
+    Ok(record)
+}
+
+fn topic_projection_record(row: Value) -> Result<TopicApplicationProjectionRecord, String> {
+    let topic_id = row_text(&row, "topic_id")?;
+    validate_identity_part(&topic_id)?;
+    Ok(TopicApplicationProjectionRecord {
+        topic_id,
+        topic_graph_json: object_json(&row_text(&row, "topic_graph_json")?)?,
+        concepts_json: object_json(&row_text(&row, "concepts_json")?)?,
+        interest_metadata_json: object_json(&row_text(&row, "interest_metadata_json")?)?,
+        discovery_json: object_json(&row_text(&row, "discovery_json")?)?,
+        updated_at: row_text(&row, "updated_at")?,
+    })
 }
 
 #[cfg(test)]
@@ -900,6 +1301,7 @@ mod tests {
                     message: String::new(),
                     created_at: "2026-01-01".into(),
                     updated_at: "2026-01-01".into(),
+                    ..OperationRecord::default()
                 })?;
                 let nested = repository.transaction(|repository| {
                     repository.upsert_operation(&OperationRecord {
@@ -912,6 +1314,7 @@ mod tests {
                         message: String::new(),
                         created_at: "2026-01-01".into(),
                         updated_at: "2026-01-01".into(),
+                        ..OperationRecord::default()
                     })?;
                     Err::<(), _>("fixture_failure".into())
                 });
@@ -939,6 +1342,7 @@ mod tests {
                 message: String::new(),
                 created_at: "2026-01-01".into(),
                 updated_at: "2026-01-01".into(),
+                ..OperationRecord::default()
             })?;
             Err::<(), _>("outer_failure".into())
         });
@@ -1007,6 +1411,7 @@ mod tests {
                     message: String::new(),
                     created_at: "2026-01-01".into(),
                     updated_at: "2026-01-01".into(),
+                    ..OperationRecord::default()
                 })
                 .expect("operation");
         }
@@ -1070,6 +1475,7 @@ mod tests {
                 message: String::new(),
                 created_at: "2026-01-01".into(),
                 updated_at: "2026-01-01".into(),
+                ..OperationRecord::default()
             })
             .expect("operation");
         let expected = repository.table_snapshot().expect("snapshot");
@@ -1083,6 +1489,73 @@ mod tests {
             .expect("operation");
         assert_eq!(operation, "backup-fixture");
         assert_eq!(expected["synt_operation"].as_array().map(Vec::len), Some(1));
+        repository.close().expect("close");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn typed_application_rows_round_trip_without_synthetic_state() {
+        let root = root("typed-rows");
+        let repository = Repository::open(&root, identity()).expect("open");
+        let cache = CacheBasisRecord {
+            cache_key: "reference-sidecar:library".into(),
+            cache_kind: "reference-sidecar".into(),
+            status: "ready".into(),
+            refreshed_at: "2026-07-26".into(),
+            updated_at: "2026-07-26".into(),
+            ..CacheBasisRecord::default()
+        };
+        repository.upsert_cache_basis(&cache).expect("cache");
+        assert_eq!(
+            repository
+                .get_cache_basis(&cache.cache_key)
+                .expect("cache read"),
+            Some(CacheBasisRecord {
+                diagnostics_json: "[]".into(),
+                ..cache
+            })
+        );
+        let state = TopicApplicationStateRecord {
+            topic_id: "topic:typed".into(),
+            path_id: "topic-typed".into(),
+            manifest_hash: format!("sha256:{}", "1".repeat(64)),
+            artifact_hash: format!("sha256:{}", "2".repeat(64)),
+            metadata_hash: format!("sha256:{}", "3".repeat(64)),
+            bundle_hash: format!("sha256:{}", "4".repeat(64)),
+            topic_definition_json: r#"{"id":"topic:typed"}"#.into(),
+            topic_resolver_json: "{}".into(),
+            resolved_paper_set_json: "{}".into(),
+            ..TopicApplicationStateRecord::default()
+        };
+        repository
+            .upsert_topic_application_state(&state)
+            .expect("state");
+        assert_eq!(
+            repository
+                .get_topic_application_state(&state.topic_id)
+                .expect("state read")
+                .expect("state")
+                .topic_id,
+            state.topic_id
+        );
+        let projection = TopicApplicationProjectionRecord {
+            topic_id: "topic:typed".into(),
+            topic_graph_json: "{}".into(),
+            concepts_json: "{}".into(),
+            interest_metadata_json: "{}".into(),
+            discovery_json: "{}".into(),
+            ..TopicApplicationProjectionRecord::default()
+        };
+        repository
+            .upsert_topic_application_projection(&projection)
+            .expect("projection");
+        assert!(
+            repository
+                .get_topic_application_projection("topic:typed")
+                .expect("projection read")
+                .is_some()
+        );
+        assert!(repository.application_state_rows_absent().expect("absence"));
         repository.close().expect("close");
         fs::remove_dir_all(root).expect("cleanup");
     }

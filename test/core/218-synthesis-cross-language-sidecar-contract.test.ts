@@ -10,6 +10,7 @@ import { rebuildSynthesisSidecarCallRequest } from "../../packages/synthesis-con
 import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION as REPOSITORY_SCHEMA_VERSION } from "../../packages/synthesis-repository/src/index";
 import { checkSynthesisCrossLanguageContracts } from "../../scripts/check-synthesis-cross-language-contracts";
 import { checkSynthesisDurableFoundationParity } from "../../scripts/check-synthesis-durable-foundation-parity";
+import { checkSynthesisTypedApplicationParity } from "../../scripts/check-synthesis-typed-application-parity";
 import { checkSynthesisRustLicenseInventory } from "../../scripts/check-synthesis-rust-license-inventory";
 import { findSynthesisContractBoundaryViolations } from "../../scripts/check-synthesis-service-boundary";
 
@@ -25,6 +26,8 @@ function canonicalErrorCode(action: () => unknown) {
 }
 
 describe("Synthesis cross-language sidecar contract", function () {
+  this.timeout(30_000);
+
   it("strictly compiles the complete manifest and conforms to both corpora", async function () {
     const result = await checkSynthesisCrossLanguageContracts();
 
@@ -134,7 +137,6 @@ describe("Synthesis cross-language sidecar contract", function () {
     assert.equal(result.tables, 51);
     assert.equal(result.indexes, 40);
     assert.equal(result.faultPoints, 7);
-    assert.equal(result.applications, 13);
     assert.equal(result.canaries, 2);
     assert.equal(result.implementations.node.role, "oracle");
     assert.match(
@@ -149,6 +151,31 @@ describe("Synthesis cross-language sidecar contract", function () {
     assert.notEqual(
       result.implementations.node.sourceFingerprint,
       result.implementations.rust.sourceFingerprint,
+    );
+  });
+
+  it("executes the independent Workbench and Topic typed application differential", async function () {
+    const result = await checkSynthesisTypedApplicationParity();
+
+    assert.deepEqual(result.errors, []);
+    assert.isTrue(result.ok);
+    assert.equal(result.corpus, "synthesis-typed-application-parity-v1");
+    assert.equal(
+      result.reportSchema,
+      "synthesis-typed-application-parity-report.v1",
+    );
+    assert.equal(result.tables, 51);
+    assert.equal(result.workbenchCases, 7);
+    assert.equal(result.topicCases, 24);
+    assert.equal(result.implementations.node.role, "oracle");
+    assert.equal(result.implementations.rust.role, "candidate");
+    assert.match(
+      result.implementations.node.sourceFingerprint,
+      /^sha256:[a-f0-9]{64}$/,
+    );
+    assert.match(
+      result.implementations.rust.sourceFingerprint,
+      /^sha256:[a-f0-9]{64}$/,
     );
   });
 
