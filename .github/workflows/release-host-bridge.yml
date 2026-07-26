@@ -115,16 +115,10 @@ jobs:
         run: |
           set -euo pipefail
           root="host-bridge-artifacts/finalize"
-          mkdir -p "$root/addon" "$root/cli/zotero-bridge" "$root/host-bridge" \
-            "$root/skills_builtin/zotero-bridge-cli/assets" \
-            "$root/skills_builtin/zotero-library-agent/assets" \
-            "$root/profiles/hermes/zotero-librarian/assets"
+          mkdir -p "$root/addon" "$root/cli/zotero-bridge" "$root/host-bridge"
           cp -a addon/bin "$root/addon/"
           cp cli/zotero-bridge/release.json "$root/cli/zotero-bridge/release.json"
           cp host-bridge/release-set.json "$root/host-bridge/release-set.json"
-          cp skills_builtin/zotero-bridge-cli/assets/release-set.json "$root/skills_builtin/zotero-bridge-cli/assets/release-set.json"
-          cp skills_builtin/zotero-library-agent/assets/release-set.json "$root/skills_builtin/zotero-library-agent/assets/release-set.json"
-          cp profiles/hermes/zotero-librarian/assets/release-set.json "$root/profiles/hermes/zotero-librarian/assets/release-set.json"
       - uses: actions/attest-build-provenance@v2
         with:
           subject-path: "host-bridge-artifacts/surfaces/**"
@@ -294,10 +288,7 @@ jobs:
           cp -a host-bridge-artifacts/finalize/. .finalize/
           cp release-receipt.json .finalize/host-bridge/latest-complete-release-receipt.json
           git -C .finalize add \
-            addon/bin cli/zotero-bridge/release.json host-bridge \
-            skills_builtin/zotero-bridge-cli/assets/release-set.json \
-            skills_builtin/zotero-library-agent/assets/release-set.json \
-            profiles/hermes/zotero-librarian/assets/release-set.json
+            addon/bin cli/zotero-bridge/release.json host-bridge
           while IFS=$'\t' read -r platform binary; do
             git -C .finalize update-index --chmod=+x "addon/bin/$platform/$binary"
           done < <(
