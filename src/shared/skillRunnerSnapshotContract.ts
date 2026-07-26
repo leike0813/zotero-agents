@@ -856,71 +856,51 @@ export const SKILLRUNNER_SNAPSHOT_REQUIRED_CONSUMED_PATHS: readonly string[] = [
 // reads (String()/Number()/isObject() on every field). Payload interfaces
 // carry an index signature because the wire is open; the named keys document
 // the shape each action actually consumes.
+//
+// The payload types themselves now live in assistantActionContract.ts (the
+// SkillRunner run-action payload contract outlives this file, which is
+// deleted in Stage 4 of the skillrunner convergence change); they are
+// re-exported here so legacy import sites keep working until then. The
+// drawer-toggle payloads stay local: those actions are panel-local UI state
+// and die with the legacy bridge.
 // ---------------------------------------------------------------------------
+
+import type {
+  SkillRunnerArchiveRunPayload,
+  SkillRunnerAuthImportFilePayload,
+  SkillRunnerAuthImportRunPayload,
+  SkillRunnerCancelQueuedWorkflowUnitPayload,
+  SkillRunnerCancelRunPayload,
+  SkillRunnerCopyDiagnosticsPayload,
+  SkillRunnerCopyRequestIdPayload,
+  SkillRunnerOpenAuthUrlPayload,
+  SkillRunnerReplyRunAuthPayload,
+  SkillRunnerReplyRunInteractionPayload,
+  SkillRunnerReplyRunPayload,
+  SkillRunnerResolvePermissionPayload,
+  SkillRunnerSelectTaskPayload,
+  SkillRunnerSubmitInteractionFilesPayload,
+} from "./assistantActionContract";
+
+export type {
+  SkillRunnerArchiveRunPayload,
+  SkillRunnerAuthImportFilePayload,
+  SkillRunnerAuthImportRunPayload,
+  SkillRunnerCancelQueuedWorkflowUnitPayload,
+  SkillRunnerCancelRunPayload,
+  SkillRunnerCopyDiagnosticsPayload,
+  SkillRunnerCopyRequestIdPayload,
+  SkillRunnerOpenAuthUrlPayload,
+  SkillRunnerReplyRunAuthPayload,
+  SkillRunnerReplyRunInteractionPayload,
+  SkillRunnerReplyRunPayload,
+  SkillRunnerResolvePermissionPayload,
+  SkillRunnerSelectTaskPayload,
+  SkillRunnerSubmitInteractionFilesPayload,
+} from "./assistantActionContract";
 
 export type SkillRunnerLegacyActionName =
   (typeof SKILLRUNNER_LEGACY_ACTIONS)[keyof typeof SKILLRUNNER_LEGACY_ACTIONS];
-
-/** reply-run in auth mode (mode discriminator: "auth"). */
-export type SkillRunnerReplyRunAuthPayload = {
-  mode: "auth";
-  requestId?: string;
-  /** Method selection payload; mutually exclusive with submission. */
-  selection?: Record<string, unknown>;
-  /** Auth submission payload; mutually exclusive with selection. */
-  submission?: Record<string, unknown>;
-  authSessionId?: string;
-  replyKind?: string;
-  replyText?: string;
-  [key: string]: unknown;
-};
-
-/** reply-run in interaction mode (default when mode is absent). */
-export type SkillRunnerReplyRunInteractionPayload = {
-  mode?: "interaction";
-  requestId?: string;
-  interactionId?: number;
-  replyText?: string;
-  responseValue?: unknown;
-  option?: unknown;
-  responseObject?: unknown;
-  [key: string]: unknown;
-};
-
-export type SkillRunnerReplyRunPayload =
-  | SkillRunnerReplyRunAuthPayload
-  | SkillRunnerReplyRunInteractionPayload;
-
-export type SkillRunnerSubmitInteractionFilesPayload = {
-  requestId?: string;
-  [key: string]: unknown;
-};
-
-export type SkillRunnerSelectTaskPayload = {
-  taskKey?: string;
-  runKey?: string;
-  [key: string]: unknown;
-};
-
-export type SkillRunnerArchiveRunPayload = {
-  runKey?: string;
-  [key: string]: unknown;
-};
-
-export type SkillRunnerCancelRunPayload = {
-  requestId?: string;
-  [key: string]: unknown;
-};
-
-export type SkillRunnerCopyRequestIdPayload = {
-  requestId?: string;
-  [key: string]: unknown;
-};
-
-export type SkillRunnerCopyDiagnosticsPayload = {
-  requestId?: string;
-  [key: string]: unknown;
-};
 
 export type SkillRunnerToggleGroupCollapsePayload = {
   backendId?: string;
@@ -930,33 +910,6 @@ export type SkillRunnerToggleGroupCollapsePayload = {
 
 export type SkillRunnerToggleFinishedCollapsePayload = {
   backendId?: string;
-  [key: string]: unknown;
-};
-
-export type SkillRunnerOpenAuthUrlPayload = {
-  url?: string;
-  [key: string]: unknown;
-};
-
-export type SkillRunnerResolvePermissionPayload = {
-  requestId?: string;
-  permissionRequestId?: string;
-  outcome?: string;
-  optionId?: string;
-  [key: string]: unknown;
-};
-
-export type SkillRunnerAuthImportFilePayload = {
-  name?: string;
-  contentBase64?: string;
-  [key: string]: unknown;
-};
-
-export type SkillRunnerAuthImportRunPayload = {
-  requestId?: string;
-  providerId?: string;
-  files?: SkillRunnerAuthImportFilePayload[];
-  error?: string;
   [key: string]: unknown;
 };
 
@@ -975,10 +928,7 @@ export type SkillRunnerRunDialogActionPayloadMap = {
   [SKILLRUNNER_LEGACY_ACTIONS.REPLY_RUN]: SkillRunnerReplyRunPayload;
   [SKILLRUNNER_LEGACY_ACTIONS.RESOLVE_PERMISSION]: SkillRunnerResolvePermissionPayload;
   [SKILLRUNNER_LEGACY_ACTIONS.CANCEL_RUN]: SkillRunnerCancelRunPayload;
-  [SKILLRUNNER_LEGACY_ACTIONS.CANCEL_QUEUED_WORKFLOW_UNIT]: {
-    queueId?: string;
-    [key: string]: unknown;
-  };
+  [SKILLRUNNER_LEGACY_ACTIONS.CANCEL_QUEUED_WORKFLOW_UNIT]: SkillRunnerCancelQueuedWorkflowUnitPayload;
   [SKILLRUNNER_LEGACY_ACTIONS.ARCHIVE_RUN]: SkillRunnerArchiveRunPayload;
   [SKILLRUNNER_LEGACY_ACTIONS.COPY_REQUEST_ID]: SkillRunnerCopyRequestIdPayload;
   [SKILLRUNNER_LEGACY_ACTIONS.COPY_DIAGNOSTICS]: SkillRunnerCopyDiagnosticsPayload;

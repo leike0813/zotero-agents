@@ -130,6 +130,7 @@ import {
   ASSISTANT_WORKSPACE_ACTION_REGISTRY,
   createAcpChatWorkspaceOwner,
   createAcpSkillsWorkspaceOwner,
+  createSkillRunnerWorkspaceOwner,
   createAssistantWorkspaceUnownedScope,
   assertAssistantWorkspacePublicationAck,
   type AssistantWorkspacePublication,
@@ -137,6 +138,7 @@ import {
   type AssistantWorkspaceOwner,
   type AssistantWorkspacePublicationKind,
   type AssistantWorkspacePublicationLifecycle,
+  type AssistantWorkspacePublicationSource,
 } from "./assistantWorkspacePublication";
 import { AssistantWorkspacePublicationCoordinator } from "./assistantWorkspacePublicationCoordinator";
 import {
@@ -228,7 +230,7 @@ type AssistantWorkspaceHostRuntime = {
     AssistantWorkspacePublicationLifecycle & {
       acknowledgements: Set<string>;
       ownerKey: string;
-      source: "acp-chat" | "acp-skills";
+      source: AssistantWorkspacePublicationSource;
       kind: AssistantWorkspacePublicationKind;
       cause: AssistantWorkspacePublication["publicationCause"];
       form: AssistantWorkspacePublication["publicationForm"];
@@ -1400,7 +1402,7 @@ function trimWorkspacePublicationLifecycles(
 
 function registerWorkspacePublication(
   host: AssistantWorkspaceHostRuntime,
-  source: "acp-chat" | "acp-skills",
+  source: AssistantWorkspacePublicationSource,
   publicationId: string,
   publication?: AssistantWorkspacePublication,
 ) {
@@ -1429,7 +1431,7 @@ function registerWorkspacePublication(
 }
 
 function assistantWorkspacePublicationMetricLabels(
-  surface: "acp-chat" | "acp-skills",
+  surface: AssistantWorkspacePublicationSource,
   kind: AssistantWorkspacePublicationKind,
   causality:
     | "matching-target"
@@ -2406,7 +2408,7 @@ function normalizeTab(value: unknown): AssistantWorkspaceTab {
 }
 
 function parseAssistantWorkspaceActionOwner(
-  source: "acp-chat" | "acp-skills",
+  source: AssistantWorkspacePublicationSource,
   value: unknown,
 ) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -2435,6 +2437,16 @@ function parseAssistantWorkspaceActionOwner(
     const requestId = String(owner.requestId || "").trim();
     return requestId && String(owner.ownerKey || "") === requestId
       ? createAcpSkillsWorkspaceOwner(requestId)
+      : null;
+  }
+  if (
+    source === "skillrunner" &&
+    Object.keys(owner).sort().join(",") === "ownerKey,requestId,runKey,source"
+  ) {
+    const requestId = String(owner.requestId || "").trim() || null;
+    const runKey = String(owner.runKey || "").trim();
+    return runKey && String(owner.ownerKey || "") === (requestId || runKey)
+      ? createSkillRunnerWorkspaceOwner({ requestId, runKey })
       : null;
   }
   return null;
@@ -2696,6 +2708,11 @@ async function handleChildAction(
         owner,
         context: undefined,
       });
+      return;
+    }
+    if (owner.source !== "acp-chat") {
+      // The skillrunner surface adapter lands in Stage 2; no details reader
+      // is wired for it yet.
       return;
     }
     await host.publicationRuntime?.requestOwnerDetails({
@@ -3722,6 +3739,11 @@ export function installAssistantWorkspaceSidebarShell(
           ? createAcpChatWorkspaceOwner(active.backendId, active.conversationId)
           : null;
       }
+      if (source !== "acp-skills") {
+        // The skillrunner read model and surface adapter land in Stage 2;
+        // until then the skillrunner tab has no publication owner.
+        return null;
+      }
       const requestId = getSelectedAcpSkillRunRequestId();
       return requestId ? createAcpSkillsWorkspaceOwner(requestId) : null;
     },
@@ -3759,6 +3781,11 @@ export function installAssistantWorkspaceSidebarShell(
           cause: "rebase",
           force: true,
         });
+        return;
+      }
+      if (owner.source !== "acp-skills") {
+        // The skillrunner surface adapter lands in Stage 2; rebases have no
+        // page reader to route to yet.
         return;
       }
       if (getSelectedAcpSkillRunRequestId() !== owner.requestId) return;

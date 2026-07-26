@@ -1,10 +1,10 @@
 ## 1. Wire Schema Admits SkillRunner
 
-- [ ] 1.1 Extend `test/core/184` first: add a `createSkillRunnerWorkspaceOwner` fixture, extend the parameterized source loops to `"skillrunner"`, and flip the legacy-source rejection assertions; keep 190 green.
-- [ ] 1.2 `src/shared/assistantWireContract.ts`: add `"skillrunner"` to `AssistantWorkspacePublicationSource`, add the third `AssistantWorkspaceOwner` branch (`ownerKey`, `requestId`, `runKey`), remove `SKILLRUNNER_LEGACY_ACTIONS` as its actions migrate.
-- [ ] 1.3 `src/modules/assistantWorkspacePublication.ts`: skillrunner owner branch in `assertAssistantWorkspacePublication`; add `skillrunner` to the supported `sources` of the region kinds the adapter publishes; extend `ASSISTANT_WORKSPACE_ACTION_REGISTRY`.
-- [ ] 1.4 `src/shared/assistantActionContract.ts`: add the `SkillrunnerAction` union with payload types migrated from `skillRunnerSnapshotContract.ts` (reply-run interaction/auth modes, resolve-permission, select-task, cancel-run, archive-run, auth-import-run, copy actions, open-backend-manager); drift guards stay green.
-- [ ] 1.5 `src/modules/assistantWorkspaceTranscriptPublication.ts`: skillrunner branch in the owner/page-request parsers.
+- [x] 1.1 Extend `test/core/184` first: add a `createSkillRunnerWorkspaceOwner` fixture, extend the parameterized source loops to `"skillrunner"`, and flip the legacy-source rejection assertions; keep 190 green.
+- [x] 1.2 `src/shared/assistantWireContract.ts`: add `"skillrunner"` to `AssistantWorkspacePublicationSource`, add the third `AssistantWorkspaceOwner` branch (`ownerKey`, `requestId`, `runKey`), remove `SKILLRUNNER_LEGACY_ACTIONS` as its actions migrate.
+- [x] 1.3 `src/modules/assistantWorkspacePublication.ts`: skillrunner owner branch in `assertAssistantWorkspacePublication`; add `skillrunner` to the supported `sources` of the region kinds the adapter publishes; extend `ASSISTANT_WORKSPACE_ACTION_REGISTRY`.
+- [x] 1.4 `src/shared/assistantActionContract.ts`: add the `SkillrunnerAction` union with payload types migrated from `skillRunnerSnapshotContract.ts` (reply-run interaction/auth modes, resolve-permission, select-task, cancel-run, archive-run, auth-import-run, copy actions, open-backend-manager); drift guards stay green.
+- [x] 1.5 `src/modules/assistantWorkspaceTranscriptPublication.ts`: skillrunner branch in the owner/page-request parsers.
 
 ## 2. Read Model And Surface Adapter (lands dark)
 

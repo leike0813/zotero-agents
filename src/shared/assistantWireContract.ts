@@ -163,7 +163,10 @@ export type AssistantWorkspaceMessageType =
 /** Tabs hosted by the Assistant Workspace shell. */
 export type AssistantWorkspaceTab = "skillrunner" | "acp-chat" | "acp-skills";
 
-export type AssistantWorkspacePublicationSource = "acp-chat" | "acp-skills";
+export type AssistantWorkspacePublicationSource =
+  | "acp-chat"
+  | "acp-skills"
+  | "skillrunner";
 
 export type AssistantWorkspaceOwner =
   | {
@@ -176,6 +179,13 @@ export type AssistantWorkspaceOwner =
       source: "acp-skills";
       ownerKey: string;
       requestId: string;
+    }
+  | {
+      source: "skillrunner";
+      ownerKey: string;
+      /** Assigned backend request id; null for unassigned local runs. */
+      requestId: string | null;
+      runKey: string;
     };
 
 export type AssistantWorkspacePublicationAckStage =
@@ -287,7 +297,14 @@ export const ASSISTANT_WORKSPACE_CHILD_CONTROL_ACTIONS = {
   REQUEST_OWNER_DETAILS: "request-owner-details",
 } as const;
 
-/** SkillRunner legacy actions on the run-dialog / skillrunner-sidebar bridge. */
+/**
+ * SkillRunner legacy actions on the run-dialog / skillrunner-sidebar bridge.
+ * Scheduled for deletion with the Stage 3 cutover of
+ * openspec/changes/2026-07-21-assistant-workspace-skillrunner-convergence:
+ * the routed members migrate to ASSISTANT_WORKSPACE_ACTION_REGISTRY
+ * (Stage 1 added the "skillrunner" source there) and the panel-local
+ * members (drawer toggles, close-dialog) stay child-local UI state.
+ */
 export const SKILLRUNNER_LEGACY_ACTIONS = {
   SELECT_TASK: "select-task",
   TOGGLE_DRAWER: "toggle-drawer",
