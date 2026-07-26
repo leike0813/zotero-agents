@@ -81,31 +81,40 @@ if (
 ) {
   run("npx", [
     "tsx",
-    "scripts/zotero-bridge-wrapper-version.ts",
-    plan.versionBumps.cliBundle === "minor" ? "--bump-minor" : "--bump",
+    "scripts/host-bridge-surface-version.ts",
+    "--surface=zotero-bridge-cli",
+    plan.versionBumps.cliBundle === "minor" ? "--align-cli" : "--bump",
   ]);
 }
 if (plan.versionBumps.libraryAgent === "minor") {
   run("npx", [
     "tsx",
-    "scripts/zotero-library-agent-bundle-version.ts",
+    "scripts/host-bridge-surface-version.ts",
+    "--surface=zotero-library-agent",
     "--align-cli",
   ]);
 } else if (plan.versionBumps.libraryAgent === "patch") {
   run("npx", [
     "tsx",
-    "scripts/zotero-library-agent-bundle-version.ts",
+    "scripts/host-bridge-surface-version.ts",
+    "--surface=zotero-library-agent",
     "--bump",
   ]);
 }
 if (plan.versionBumps.librarianProfile === "minor") {
   run("npx", [
     "tsx",
-    "scripts/zotero-librarian-profile-version.ts",
+    "scripts/host-bridge-surface-version.ts",
+    "--surface=zotero-librarian",
     "--align-cli",
   ]);
 } else if (plan.versionBumps.librarianProfile === "patch") {
-  run("npx", ["tsx", "scripts/zotero-librarian-profile-version.ts", "--bump"]);
+  run("npx", [
+    "tsx",
+    "scripts/host-bridge-surface-version.ts",
+    "--surface=zotero-librarian",
+    "--bump",
+  ]);
 }
 run("npm", ["run", "render:host-bridge-surface"]);
 run("npm", ["run", "check:host-bridge-surface"]);

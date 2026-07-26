@@ -270,3 +270,69 @@ Each participating builtin workflow MUST only remove the status that represents 
 #### Scenario: Translation or Explainer completes
 - **WHEN** Translation or Literature Explainer applies a result
 - **THEN** no builtin workflow status transition SHALL occur
+
+
+### Requirement: Literature search ingest SHALL serialize Zotero mutations through the main agent
+
+Stage 70 literature-ingest commands SHALL be executed only by the main agent, one approved metadata-qualified paper at a time. The main agent SHALL wait for the current mutation's terminal Host outcome, preserve its raw receipt, bind the outcome to the same paper payload, and only then start another paper mutation. Serial mutation applies even while subagent research continues.
+
+#### Scenario: Workers cannot mutate Zotero
+
+- **WHEN** a subagent performs metadata or PDF research
+- **THEN** it SHALL NOT execute, queue, retry, or monitor a Zotero mutation
+- **AND** it SHALL NOT own a Host receipt.
+
+#### Scenario: Main agent executes one Host mutation at a time
+
+- **GIVEN** one or more validated paper payloads are ready
+- **WHEN** the main agent starts ingestion
+- **THEN** it SHALL invoke at most one literature-ingest mutation
+- **AND** it SHALL wait for that mutation's terminal outcome before the next paper mutation.
+
+#### Scenario: Receipt remains associated with the paper
+
+- **WHEN** the main agent records a Host outcome
+- **THEN** it SHALL associate the raw receipt and outcome with the same paper payload
+- **AND** it SHALL NOT reuse the receipt for another candidate.
+
+### Requirement: Literature search ingest SHALL enforce canonical Zotero metadata names before submission and ingestion
+
+Every direct ingest payload SHALL use item-type-compatible canonical Zotero metadata names including `abstractNote`. Titles, creators, identifiers, landing/PDF URLs, and attachment decisions SHALL remain in their designated Host structures. The main agent SHALL repair only unambiguous evidence-backed mapping errors before mutation.
+
+#### Scenario: Canonical abstract field is accepted
+
+- **WHEN** a payload supplies a supported abstract as `abstractNote`
+- **THEN** the main agent SHALL preserve it under that canonical field.
+
+#### Scenario: Noncanonical abstract alias is rejected
+
+- **WHEN** a payload contains `abstract`
+- **THEN** the main agent SHALL reject or repair the payload before mutation
+- **AND** it SHALL NOT defer the invalid field to Host Bridge.
+
+#### Scenario: Dedicated values remain in designated structures
+
+- **WHEN** a payload contains title, identifiers, creators, or PDF information
+- **THEN** the main agent SHALL verify that each value is placed in its designated Host structure
+- **AND** it SHALL NOT accept a conflicting generic-field placement.
+
+#### Scenario: Canonical names remain item-type appropriate
+
+- **WHEN** the main agent accepts a canonical Zotero metadata field
+- **THEN** the field SHALL be semantically compatible with the selected `itemType`.
+
+### Requirement: Literature metadata search SHALL retain the canonical abstract field contract independently
+
+`literature-metadata-search` SHALL validate its own canonical metadata output independently of the `literature-search-ingest` assignment runtime. Its metadata field contract SHALL accept `abstractNote` and reject `abstract`.
+
+#### Scenario: Metadata search emits a canonical abstract
+
+- **WHEN** `literature-metadata-search` returns trustworthy abstract metadata
+- **THEN** it SHALL place the value in `metadata.fields.abstractNote`
+- **AND** its output validation SHALL accept the canonical field.
+
+#### Scenario: Metadata search rejects the noncanonical alias
+
+- **WHEN** `literature-metadata-search` output contains `metadata.fields.abstract`
+- **THEN** its output validation SHALL reject that payload
+- **AND** no ingest-assignment runtime dependency SHALL be required to enforce the rejection.

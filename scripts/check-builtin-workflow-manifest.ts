@@ -101,6 +101,37 @@ async function main() {
     throw new Error(chunks.join("\n"));
   }
 
+  const invalidWorkflowDescriptors: string[] = [];
+  for (const relativePath of actualFiles.filter((entry) =>
+    entry.endsWith("/workflow.json"),
+  )) {
+    const raw = JSON.parse(
+      await fs.readFile(path.join(builtinRoot, relativePath), "utf8"),
+    ) as Record<string, unknown>;
+    if (!String(raw.description || "").trim()) {
+      invalidWorkflowDescriptors.push(`${relativePath}: missing description`);
+    }
+    const executionModes = Array.isArray(raw.executionModes)
+      ? raw.executionModes
+      : [];
+    if (
+      !executionModes.length ||
+      executionModes.some((mode) => mode !== "auto" && mode !== "interactive")
+    ) {
+      invalidWorkflowDescriptors.push(
+        `${relativePath}: invalid executionModes`,
+      );
+    }
+  }
+  if (invalidWorkflowDescriptors.length) {
+    throw new Error(
+      [
+        "[builtin-manifest-check] workflow descriptors failed",
+        ...invalidWorkflowDescriptors.map((entry) => `  - ${entry}`),
+      ].join("\n"),
+    );
+  }
+
   console.log(
     `[builtin-manifest-check] ok (version=${manifest.version}, files=${manifestFiles.length})`,
   );

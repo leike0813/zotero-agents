@@ -67,9 +67,19 @@ function createJsonResponse(payload: unknown, status = 200): Response {
 
 function sequenceManifest(overrides: Record<string, unknown> = {}) {
   return {
+    schemaVersion: 2,
     id: "sequence-workflow",
     label: "Sequence Workflow",
     provider: "acp",
+    trigger: { requiresSelection: true },
+    inputs: {
+      member: { kind: "selection" },
+      grouping: { mode: "all" },
+    },
+    validateSelection: {
+      select: { policy: "selection" },
+      filters: [],
+    },
     request: {
       kind: "skillrunner.sequence.v1",
       sequence: {

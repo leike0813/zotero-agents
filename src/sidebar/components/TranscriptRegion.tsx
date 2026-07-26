@@ -27,9 +27,11 @@ export const TranscriptRegion = memo(
     state: TranscriptRegionState;
     message: string;
     mode: "plain" | "bubble";
+    ownerKey: string;
     onResetVirtualState: (container: HTMLElement) => void;
   }) {
-    const { container, state, message, mode, onResetVirtualState } = props;
+    const { container, state, message, mode, ownerKey, onResetVirtualState } =
+      props;
     useLayoutEffect(() => {
       container.classList.toggle("bubble-mode", mode === "bubble");
       container.classList.toggle("plain-mode", mode !== "bubble");
@@ -38,14 +40,18 @@ export const TranscriptRegion = memo(
       if (state !== "ready") {
         onResetVirtualState(container);
       }
-    }, [container, state, message]);
+    }, [container, state, message, ownerKey]);
     if (state === "ready") return null;
     const className =
       state === "loading"
         ? "assistant-transcript-loading asst-spinner"
         : "assistant-transcript-empty";
     return (
-      <div class={className} data-assistant-transcript-state={state}>
+      <div
+        key={ownerKey}
+        class={className}
+        data-assistant-transcript-state={state}
+      >
         {message || ""}
       </div>
     );
@@ -53,7 +59,17 @@ export const TranscriptRegion = memo(
   (prev, next) =>
     prev.container === next.container &&
     equalBySignature(
-      { state: prev.state, message: prev.message, mode: prev.mode },
-      { state: next.state, message: next.message, mode: next.mode },
+      {
+        state: prev.state,
+        message: prev.message,
+        mode: prev.mode,
+        ownerKey: prev.ownerKey,
+      },
+      {
+        state: next.state,
+        message: next.message,
+        mode: next.mode,
+        ownerKey: next.ownerKey,
+      },
     ),
 );

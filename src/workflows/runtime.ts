@@ -27,6 +27,11 @@ import {
   summarizeWorkflowExecutionError,
 } from "./errorMeta";
 import { measureAsyncTestPerformanceSpan } from "../modules/testPerformanceProbeBridge";
+import { resolveInputUnitIdentityFromRequest } from "../modules/workflowExecution/requestMeta";
+import type {
+  PreparedWorkflowUnit,
+  WorkflowRequestBuildPlan,
+} from "../modules/workflowExecution/contracts";
 import type {
   LoadedWorkflow,
   WorkflowPreflightContext,
@@ -46,8 +51,11 @@ import {
   SKILL_RUN_FEEDBACK_RUNTIME_OPTION,
   isSkillRunFeedbackCollectionEnabled,
 } from "../modules/skillRunFeedback";
-import { evaluateWorkflowSelection } from "./workflowSelectionValidation";
-import type { WorkflowSelectionValidationMode } from "./workflowSelectionValidation";
+import { planWorkflowInput } from "./workflowInputPlanning";
+import type {
+  WorkflowScopedSelectionContext,
+  WorkflowSelectionValidationMode,
+} from "./workflowInputPlanning";
 import { resolveWorkflowDisplayLocale } from "./localization";
 
 type AttachmentLike = {
@@ -71,34 +79,24 @@ type NoteLike = {
   parent?: { id?: number | null; title?: string } | null;
 };
 
-type SelectionLike = {
-  items?: {
-    attachments?: AttachmentLike[];
-    parents?: Array<ParentLike & { attachments?: AttachmentLike[] }>;
-    children?: Array<{
-      item?: { id?: number; title?: string };
-      parent?: { id?: number | null; title?: string } | null;
-      attachments?: AttachmentLike[];
-    }>;
-    notes?: NoteLike[];
-  };
-  summary?: {
-    parentCount?: number;
-    childCount?: number;
-    attachmentCount?: number;
-    noteCount?: number;
-  };
-};
+type SelectionLike = WorkflowScopedSelectionContext;
 
 type ResolvedSelectionContexts = {
   contexts: SelectionLike[];
   totalUnits: number;
+  candidateStats: {
+    total: number;
+    accepted: number;
+    skipped: number;
+    reasons: Readonly<Record<string, number>>;
+  };
 };
 
 type BuildRequestStats = {
   totalUnits: number;
   requestCount: number;
   skippedUnits: number;
+  candidateStats: ResolvedSelectionContexts["candidateStats"];
 };
 
 type BuildRequestsResult = unknown[] & {
@@ -136,6 +134,8 @@ type NoValidInputUnitsError = Error & {
   workflowId: string;
   totalUnits: number;
   skippedUnits: number;
+  candidateTotal: number;
+  candidateSkipped: number;
 };
 
 const GLOBAL_WORKFLOW_EXECUTION_RUNTIME_KEY =
@@ -145,6 +145,8 @@ let workflowRuntimeScopeTail: Promise<void> = Promise.resolve();
 function createNoValidInputUnitsError(args: {
   workflowId: string;
   totalUnits: number;
+  candidateTotal?: number;
+  candidateSkipped?: number;
 }): NoValidInputUnitsError {
   const error = new Error(
     `Workflow ${args.workflowId} has no valid input units after filtering`,
@@ -154,6 +156,14 @@ function createNoValidInputUnitsError(args: {
   error.workflowId = args.workflowId;
   error.totalUnits = Math.max(0, Number(args.totalUnits || 0));
   error.skippedUnits = error.totalUnits;
+  error.candidateTotal = Math.max(
+    0,
+    Number(args.candidateTotal ?? args.totalUnits ?? 0),
+  );
+  error.candidateSkipped = Math.max(
+    0,
+    Number(args.candidateSkipped ?? error.candidateTotal),
+  );
   return error;
 }
 
@@ -734,89 +744,6 @@ async function runWorkflowHookWithDiagnostics<T>(args: {
   }
 }
 
-function copySelection(selectionContext: unknown): SelectionLike {
-  if (!selectionContext || typeof selectionContext !== "object") {
-    return {};
-  }
-  return JSON.parse(JSON.stringify(selectionContext)) as SelectionLike;
-}
-
-function hasAnySelectionItems(selectionContext: SelectionLike) {
-  const items = selectionContext?.items || {};
-  const attachmentCount = Array.isArray(items.attachments)
-    ? items.attachments.length
-    : 0;
-  const parentCount = Array.isArray(items.parents) ? items.parents.length : 0;
-  const childCount = Array.isArray(items.children) ? items.children.length : 0;
-  const noteCount = Array.isArray(items.notes) ? items.notes.length : 0;
-  return attachmentCount + parentCount + childCount + noteCount > 0;
-}
-
-function getSelectionItemCounts(selectionContext: SelectionLike) {
-  const items = selectionContext?.items || {};
-  return {
-    attachments: Array.isArray(items.attachments)
-      ? items.attachments.length
-      : 0,
-    parents: Array.isArray(items.parents) ? items.parents.length : 0,
-    children: Array.isArray(items.children) ? items.children.length : 0,
-    notes: Array.isArray(items.notes) ? items.notes.length : 0,
-  };
-}
-
-function countNonZeroKinds(counts: {
-  attachments: number;
-  parents: number;
-  children: number;
-  notes: number;
-}) {
-  return [
-    counts.attachments > 0,
-    counts.parents > 0,
-    counts.children > 0,
-    counts.notes > 0,
-  ].filter(Boolean).length;
-}
-
-function estimatePassThroughTotalUnits(selectionContext: SelectionLike) {
-  const counts = getSelectionItemCounts(selectionContext);
-  const nonZeroKinds = countNonZeroKinds(counts);
-  if (nonZeroKinds === 0) {
-    return 1;
-  }
-  if (nonZeroKinds > 1) {
-    return 1;
-  }
-  if (counts.notes > 0) {
-    return counts.notes;
-  }
-  if (counts.parents > 0) {
-    return counts.parents;
-  }
-  if (counts.children > 0) {
-    return counts.children;
-  }
-  if (counts.attachments > 0) {
-    return counts.attachments;
-  }
-  return 1;
-}
-
-function splitPassThroughSelectionUnits(selection: SelectionLike) {
-  const counts = getSelectionItemCounts(selection);
-  const nonZeroKinds = countNonZeroKinds(counts);
-  if (nonZeroKinds !== 1) {
-    return [selection];
-  }
-  if (counts.notes > 1) {
-    return buildNoteSelectionUnits(selection);
-  }
-  if (counts.parents > 1) {
-    return buildParentSelectionUnits(selection);
-  }
-  return [selection];
-}
-
 function flattenAttachments(selection: SelectionLike) {
   const items = selection.items || {};
   const direct = Array.isArray(items.attachments) ? items.attachments : [];
@@ -857,164 +784,8 @@ function collectAttachmentCandidates(selection: SelectionLike) {
   return flattenAttachments(selection);
 }
 
-function getAttachmentMime(entry: AttachmentLike) {
-  return (entry.mimeType || entry.item?.data?.contentType || "").trim();
-}
-
 function getAttachmentParentId(entry: AttachmentLike) {
   return entry.parent?.id || entry.item?.parentItemID || null;
-}
-
-function applyAttachmentMimeFilter(
-  attachments: AttachmentLike[],
-  mimes: string[] | undefined,
-) {
-  if (!mimes || mimes.length === 0) {
-    return attachments;
-  }
-  return attachments.filter((entry) => {
-    const mime = getAttachmentMime(entry);
-    if (mime && mimes.includes(mime)) {
-      return true;
-    }
-    const filePath = String(entry.filePath || "").toLowerCase();
-    if (
-      filePath.endsWith(".md") &&
-      (mimes.includes("text/markdown") ||
-        mimes.includes("text/x-markdown") ||
-        mimes.includes("text/plain"))
-    ) {
-      return true;
-    }
-    if (filePath.endsWith(".pdf") && mimes.includes("application/pdf")) {
-      return true;
-    }
-    return false;
-  });
-}
-
-function splitAttachmentsByPerParentRules(args: {
-  attachments: AttachmentLike[];
-  min: number;
-  max: number;
-}) {
-  const byParent = new Map<number, AttachmentLike[]>();
-  const valid: AttachmentLike[] = [];
-  const ambiguousParents = new Set<number>();
-
-  for (const entry of args.attachments) {
-    const parentId = getAttachmentParentId(entry);
-    if (!parentId) {
-      continue;
-    }
-    const entries = byParent.get(parentId) || [];
-    entries.push(entry);
-    byParent.set(parentId, entries);
-  }
-
-  for (const [parentId, entries] of byParent.entries()) {
-    if (entries.length < args.min) {
-      continue;
-    }
-    if (entries.length > args.max) {
-      ambiguousParents.add(parentId);
-      continue;
-    }
-    valid.push(...entries);
-  }
-  return { valid, ambiguousParents };
-}
-
-function withScopedAttachments(
-  selection: SelectionLike,
-  attachments: AttachmentLike[],
-  runtime: WorkflowRuntimeContext,
-) {
-  return runtime.helpers.withFilteredAttachments(
-    selection,
-    attachments as unknown[],
-  ) as SelectionLike;
-}
-
-function buildParentSelectionUnits(selection: SelectionLike) {
-  const parents = selection.items?.parents || [];
-  return parents.map((parent) => {
-    const cloned = copySelection(selection);
-    if (!cloned.items) {
-      cloned.items = {};
-    }
-    cloned.items.parents = [parent];
-    cloned.items.attachments = [];
-    cloned.items.children = [];
-    cloned.items.notes = [];
-    if (!cloned.summary) {
-      cloned.summary = {};
-    }
-    cloned.summary.parentCount = 1;
-    cloned.summary.attachmentCount = 0;
-    cloned.summary.childCount = 0;
-    cloned.summary.noteCount = 0;
-    return cloned;
-  });
-}
-
-function buildNoteSelectionUnits(selection: SelectionLike) {
-  const notes = selection.items?.notes || [];
-  return notes.map((note) => {
-    const cloned = copySelection(selection);
-    if (!cloned.items) {
-      cloned.items = {};
-    }
-    cloned.items.notes = [note];
-    cloned.items.attachments = [];
-    cloned.items.children = [];
-    cloned.items.parents = [];
-    if (!cloned.summary) {
-      cloned.summary = {};
-    }
-    cloned.summary.noteCount = 1;
-    cloned.summary.attachmentCount = 0;
-    cloned.summary.childCount = 0;
-    cloned.summary.parentCount = 0;
-    return cloned;
-  });
-}
-
-async function resolveAttachmentSelectionUnits(args: {
-  workflow: LoadedWorkflow;
-  selectionContext: unknown;
-  executionOptions?: {
-    workflowParams?: Record<string, unknown>;
-    providerOptions?: Record<string, unknown>;
-    runOptions?: WorkflowRunOptions;
-  };
-  runtime: WorkflowRuntimeContext;
-}): Promise<ResolvedSelectionContexts> {
-  const copied = copySelection(args.selectionContext);
-  const inputs = args.workflow.manifest.inputs;
-  const allowedMimes = inputs?.accepts?.mime;
-  const perParentMin = Math.max(0, inputs?.per_parent?.min ?? 0);
-  const rawMax = inputs?.per_parent?.max ?? Number.POSITIVE_INFINITY;
-  const perParentMax = Math.max(perParentMin, rawMax);
-
-  const candidates = applyAttachmentMimeFilter(
-    collectAttachmentCandidates(copied),
-    allowedMimes,
-  );
-  const split = splitAttachmentsByPerParentRules({
-    attachments: candidates,
-    min: perParentMin,
-    max: perParentMax,
-  });
-  const totalUnitsBeforeHook = split.valid.length + split.ambiguousParents.size;
-
-  const contexts = split.valid.map((entry) =>
-    withScopedAttachments(copied, [entry], args.runtime),
-  );
-  return {
-    contexts,
-    totalUnits: totalUnitsBeforeHook,
-  };
 }
 
 async function resolveSelectionContexts(args: {
@@ -1028,7 +799,7 @@ async function resolveSelectionContexts(args: {
   validationMode?: WorkflowSelectionValidationMode;
   runtime: WorkflowRuntimeContext;
 }): Promise<ResolvedSelectionContexts> {
-  const result = await evaluateWorkflowSelection({
+  const result = await planWorkflowInput({
     workflow: args.workflow,
     selectionContext: args.selectionContext,
     executionOptions: args.executionOptions,
@@ -1036,9 +807,51 @@ async function resolveSelectionContexts(args: {
     runtime: args.runtime,
   });
   return {
-    contexts: result.scopedSelectionContexts,
-    totalUnits: result.stats.totalUnits,
+    contexts: result.units.map((unit) => unit.selectionContext),
+    totalUnits: result.units.length + result.stats.units.skipped,
+    candidateStats: result.stats.candidates,
   };
+}
+
+export async function planWorkflowExecutionUnits(args: {
+  workflow: LoadedWorkflow;
+  selectionContext: unknown;
+  executionOptions?: {
+    workflowParams?: Record<string, unknown>;
+    providerOptions?: Record<string, unknown>;
+    runOptions?: WorkflowRunOptions;
+  };
+  validationMode?: WorkflowSelectionValidationMode;
+  runtime?: Partial<WorkflowRuntimeContext>;
+}): Promise<WorkflowRequestBuildPlan> {
+  const runtime = createRuntimeContext(args.runtime);
+  const inputPlan = await planWorkflowInput({
+    workflow: args.workflow,
+    selectionContext: args.selectionContext,
+    executionOptions: args.executionOptions,
+    mode: args.validationMode || "execute",
+    runtime,
+  });
+
+  if (inputPlan.units.length === 0) {
+    throw createNoValidInputUnitsError({
+      workflowId: args.workflow.manifest.id,
+      totalUnits: inputPlan.stats.units.total,
+      candidateTotal: inputPlan.stats.candidates.total,
+      candidateSkipped: inputPlan.stats.candidates.skipped,
+    });
+  }
+  const units = inputPlan.units;
+
+  return Object.freeze({
+    units: Object.freeze(units),
+    stats: Object.freeze({
+      totalUnits: units.length,
+      executableUnits: units.length,
+      skippedUnits: inputPlan.stats.units.skipped,
+      candidateStats: inputPlan.stats.candidates,
+    }),
+  });
 }
 
 export async function executeBuildRequests(args: {
@@ -1050,30 +863,44 @@ export async function executeBuildRequests(args: {
     runOptions?: WorkflowRunOptions;
   };
   validationMode?: WorkflowSelectionValidationMode;
+  preparedUnit?: PreparedWorkflowUnit;
   runtime?: Partial<WorkflowRuntimeContext>;
 }) {
   return measureAsyncTestPerformanceSpan(
     "executeBuildRequests",
     {
       workflowId: args.workflow.manifest.id,
-      inputUnit: args.workflow.manifest.inputs?.unit || "attachment",
+      inputUnit: args.workflow.manifest.inputs.member.kind,
       hasBuildHook: !!args.workflow.hooks.buildRequest,
     },
     async () => {
       const runtime = createRuntimeContext(args.runtime);
-      const resolved = await resolveSelectionContexts({
-        workflow: args.workflow,
-        selectionContext: args.selectionContext,
-        executionOptions: args.executionOptions,
-        validationMode: args.validationMode,
-        runtime,
-      });
+      const resolved = args.preparedUnit
+        ? {
+            contexts: [args.preparedUnit.selectionContext],
+            totalUnits: 1,
+            candidateStats: {
+              total: args.preparedUnit.memberCount,
+              accepted: args.preparedUnit.memberCount,
+              skipped: 0,
+              reasons: {},
+            },
+          }
+        : await resolveSelectionContexts({
+            workflow: args.workflow,
+            selectionContext: args.selectionContext,
+            executionOptions: args.executionOptions,
+            validationMode: args.validationMode,
+            runtime,
+          });
       const resolvedSelections = resolved.contexts;
 
       if (resolvedSelections.length === 0) {
         throw createNoValidInputUnitsError({
           workflowId: args.workflow.manifest.id,
           totalUnits: resolved.totalUnits,
+          candidateTotal: resolved.candidateStats.total,
+          candidateSkipped: resolved.candidateStats.skipped,
         });
       }
 
@@ -1322,6 +1149,7 @@ export async function executeBuildRequests(args: {
           requestCount:
             requests.length + preflightState.shortCircuitApplies.length,
           skippedUnits,
+          candidateStats: resolved.candidateStats,
         } satisfies BuildRequestStats,
         enumerable: false,
         configurable: true,

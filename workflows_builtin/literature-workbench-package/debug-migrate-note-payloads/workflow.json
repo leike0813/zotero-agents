@@ -1,14 +1,28 @@
 {
+  "schemaVersion": 2,
   "id": "debug-migrate-note-payloads",
   "label": "Debug: Migrate Note Payloads",
+  "description": "Run the Debug: Migrate Note Payloads diagnostic workflow to verify its named workflow-engine behavior.",
+  "executionModes": ["auto"],
   "version": "0.1.0",
   "provider": "pass-through",
   "debug_only": true,
   "inputs": {
-    "unit": "workflow"
+    "member": {
+      "kind": "selection"
+    },
+    "grouping": {
+      "mode": "all"
+    }
   },
   "trigger": {
     "requiresSelection": true
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "selection"
+    },
+    "filters": []
   },
   "execution": {
     "feedback": {

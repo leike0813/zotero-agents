@@ -59,8 +59,55 @@
   width: 100%;
 }
 
-.settings-grid {
+.settings-content-layout {
   margin-top: 10px;
+}
+
+.settings-content-layout.has-multi-unit-region {
+  display: grid;
+  gap: 10px;
+  align-items: stretch;
+  grid-template-columns: minmax(180px, 0.75fr) minmax(0, 2fr);
+}
+
+.settings-multi-unit-column {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-options-region {
+  min-width: 0;
+}
+
+.settings-content-layout.has-multi-unit-region .settings-options-region,
+.settings-content-layout.has-multi-unit-region .settings-grid {
+  height: 100%;
+}
+
+.settings-content-layout.has-multi-unit-region .workflow-execution-unit-preview,
+.settings-content-layout.has-multi-unit-region
+  .settings-options-column
+  > .settings-card:first-child {
+  flex: 1 1 auto;
+}
+
+.settings-content-layout.has-multi-unit-region
+  .workflow-execution-unit-preview {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-content-layout.has-multi-unit-region .workflow-execution-unit-list {
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: none;
+  align-content: start;
+}
+
+.settings-grid {
+  margin-top: 0;
   display: grid;
   align-items: stretch;
   gap: 10px;
@@ -91,6 +138,45 @@
   margin: 0 0 6px;
   font-size: 12px;
   font-weight: 700;
+}
+
+.workflow-execution-unit-list {
+  display: grid;
+  gap: 6px;
+  max-height: 168px;
+  overflow: auto;
+}
+
+.workflow-execution-unit-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.workflow-execution-unit-task,
+.workflow-execution-unit-input {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-execution-unit-input {
+  color: var(--muted);
+  font-size: 0.9em;
+}
+
+.workflow-host-options .field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+
+.workflow-host-options .field-input-col {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
 }
 
 .settings-empty {
@@ -246,8 +332,33 @@
 }
 
 @media (max-width: 540px) {
+  .settings-content-layout.has-multi-unit-region,
   .settings-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-content-layout.has-multi-unit-region .settings-options-region,
+  .settings-content-layout.has-multi-unit-region .settings-grid {
+    height: auto;
+  }
+
+  .settings-content-layout.has-multi-unit-region
+    .workflow-execution-unit-preview,
+  .settings-content-layout.has-multi-unit-region
+    .settings-options-column
+    > .settings-card:first-child {
+    flex: 0 0 auto;
+  }
+
+  .settings-content-layout.has-multi-unit-region
+    .workflow-execution-unit-preview {
+    display: block;
+  }
+
+  .settings-content-layout.has-multi-unit-region .workflow-execution-unit-list {
+    flex: none;
+    min-height: auto;
+    max-height: 168px;
   }
 
   .settings-banner-profile {
@@ -268,8 +379,33 @@
 }
 
 @container form-container (max-width: 540px) {
+  .settings-content-layout.has-multi-unit-region,
   .settings-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-content-layout.has-multi-unit-region .settings-options-region,
+  .settings-content-layout.has-multi-unit-region .settings-grid {
+    height: auto;
+  }
+
+  .settings-content-layout.has-multi-unit-region
+    .workflow-execution-unit-preview,
+  .settings-content-layout.has-multi-unit-region
+    .settings-options-column
+    > .settings-card:first-child {
+    flex: 0 0 auto;
+  }
+
+  .settings-content-layout.has-multi-unit-region
+    .workflow-execution-unit-preview {
+    display: block;
+  }
+
+  .settings-content-layout.has-multi-unit-region .workflow-execution-unit-list {
+    flex: none;
+    min-height: auto;
+    max-height: 168px;
   }
 
   .settings-banner-profile {

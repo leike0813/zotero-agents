@@ -220,9 +220,19 @@ class FakeDocument {
 function makeLoadedWorkflow(id: string, label: string): LoadedWorkflow {
   return {
     manifest: {
+      schemaVersion: 2,
       id,
       label,
       provider: "skillrunner",
+      trigger: { requiresSelection: true },
+      inputs: {
+        member: { kind: "parent" },
+        grouping: { mode: "each" },
+      },
+      validateSelection: {
+        select: { policy: "input-member", source: "selected" },
+        filters: [],
+      },
       request: {
         kind: "skillrunner.job.v1",
       },
@@ -247,16 +257,33 @@ function makePassThroughWorkflow(
 ): LoadedWorkflow {
   return {
     manifest: {
+      schemaVersion: 2,
       id,
       label,
       provider: "pass-through",
-      ...(options?.requiresSelection === false
-        ? {
-            trigger: {
-              requiresSelection: false,
+      trigger: {
+        requiresSelection: options?.requiresSelection !== false,
+      },
+      inputs:
+        options?.requiresSelection === false
+          ? {
+              member: { kind: "selection" },
+              grouping: { mode: "all" },
+            }
+          : {
+              member: { kind: "parent" },
+              grouping: { mode: "each" },
             },
-          }
-        : {}),
+      validateSelection:
+        options?.requiresSelection === false
+          ? {
+              select: { policy: "selection" },
+              filters: [],
+            }
+          : {
+              select: { policy: "input-member", source: "selected" },
+              filters: [],
+            },
       hooks: {
         applyResult: "hooks/applyResult.js",
       },
@@ -272,12 +299,21 @@ function makePassThroughWorkflow(
 function makeDebugOnlyWorkflow(id: string, label: string): LoadedWorkflow {
   return {
     manifest: {
+      schemaVersion: 2,
       id,
       label,
       provider: "pass-through",
       debug_only: true,
       trigger: {
         requiresSelection: false,
+      },
+      inputs: {
+        member: { kind: "selection" },
+        grouping: { mode: "all" },
+      },
+      validateSelection: {
+        select: { policy: "selection" },
+        filters: [],
       },
       hooks: {
         applyResult: "hooks/applyResult.js",
@@ -294,15 +330,25 @@ function makeDebugOnlyWorkflow(id: string, label: string): LoadedWorkflow {
 function makeNoValidInputWorkflow(id: string, label: string): LoadedWorkflow {
   return {
     manifest: {
+      schemaVersion: 2,
       id,
       label,
       provider: "pass-through",
+      trigger: { requiresSelection: true },
+      inputs: {
+        member: { kind: "parent" },
+        grouping: { mode: "each" },
+      },
       validateSelection: {
         require: {
-          counts: {
-            parents: { exact: 2 },
+          selection: {
+            counts: {
+              parents: { exact: 2 },
+            },
           },
         },
+        select: { policy: "input-member", source: "selected" },
+        filters: [],
       },
       hooks: {
         applyResult: "hooks/applyResult.js",
@@ -323,15 +369,25 @@ function makeCountingNoValidInputWorkflow(
 ): LoadedWorkflow {
   return {
     manifest: {
+      schemaVersion: 2,
       id,
       label,
       provider: "pass-through",
+      trigger: { requiresSelection: true },
+      inputs: {
+        member: { kind: "parent" },
+        grouping: { mode: "each" },
+      },
       validateSelection: {
         require: {
-          counts: {
-            parents: { exact: 2 },
+          selection: {
+            counts: {
+              parents: { exact: 2 },
+            },
           },
         },
+        select: { policy: "input-member", source: "selected" },
+        filters: [],
       },
       hooks: {
         applyResult: "hooks/applyResult.js",
@@ -351,9 +407,19 @@ function makeExplodingBuildRequestWorkflow(
 ): LoadedWorkflow {
   return {
     manifest: {
+      schemaVersion: 2,
       id,
       label,
       provider: "pass-through",
+      trigger: { requiresSelection: true },
+      inputs: {
+        member: { kind: "parent" },
+        grouping: { mode: "each" },
+      },
+      validateSelection: {
+        select: { policy: "input-member", source: "selected" },
+        filters: [],
+      },
       hooks: {
         buildRequest: "hooks/buildRequest.js",
         applyResult: "hooks/applyResult.js",
@@ -3502,9 +3568,19 @@ describe("gui: workflow runtime scan", function () {
       joinPath(workflowRoot, "workflow.json"),
       JSON.stringify(
         {
+          schemaVersion: 2,
           id: "gui-scan-workflow",
           label: "GUI Scan Workflow",
           provider: "skillrunner",
+          trigger: { requiresSelection: true },
+          inputs: {
+            member: { kind: "parent" },
+            grouping: { mode: "each" },
+          },
+          validateSelection: {
+            select: { policy: "input-member", source: "selected" },
+            filters: [],
+          },
           request: {
             kind: "skillrunner.job.v1",
             create: {
@@ -3920,7 +3996,14 @@ describe("gui: workflow context menu", function () {
       "workflow-menu-backend-fallback",
       "Backend Menu Fallback",
     );
-    workflow.manifest.inputs = { unit: "workflow" };
+    workflow.manifest.inputs = {
+      member: { kind: "selection" },
+      grouping: { mode: "all" },
+    };
+    workflow.manifest.validateSelection = {
+      select: { policy: "selection" },
+      filters: [],
+    };
     setWorkflowState([workflow]);
     const win = createMainWindow([parent]);
     ensureWorkflowMenuForWindow(win);
@@ -4057,6 +4140,73 @@ describe("gui: workflow context menu", function () {
     assert.equal(workflowItem!.getAttribute("disabled"), "true");
   });
 
+  it("context menu ignores parameterized artifact exclusion before settings confirmation", async function () {
+    const tempDir = await mkTempDir("zotero-skills-menu-parameter-artifact");
+    const sourcePath = joinPath(tempDir, "paper.pdf");
+    await writeUtf8(sourcePath, "pdf");
+    await writeUtf8(joinPath(tempDir, "paper_variant-a.md"), "exists");
+    const parent = await handlers.item.create({
+      itemType: "journalArticle",
+      fields: { title: "Parameterized Artifact Menu Parent" },
+    });
+    await handlers.attachment.createFromPath({
+      parent,
+      path: sourcePath,
+      title: "paper.pdf",
+      mimeType: "application/pdf",
+    });
+    const workflow = makePassThroughWorkflow(
+      "parameterized-artifact-menu",
+      "Parameterized Artifact Menu",
+    );
+    workflow.manifest.inputs = {
+      member: { kind: "attachment" },
+      grouping: { mode: "each" },
+    };
+    workflow.manifest.parameters = {
+      target_language: {
+        type: "string",
+        title: "Output Variant",
+        default: "variant-a",
+      },
+    };
+    workflow.manifest.validateSelection = {
+      select: { policy: "literature-source" },
+      filters: [
+        {
+          kind: "artifact-absent",
+          phase: "execute",
+          target: "translator-markdown",
+          parameter: "target_language",
+        },
+      ],
+    };
+    setWorkflowState([workflow]);
+    const win = createMainWindow([parent]);
+    ensureWorkflowMenuForWindow(win);
+    const popup = win.document.getElementById(
+      `${config.addonRef}-workflows-popup`,
+    ) as FakeXULElement;
+
+    await rebuildWorkflowActionPopup(win, popup as unknown as XULElement, {
+      includeSkillRunnerSidebarItem: false,
+      includeTaskManagerItem: false,
+      includeSynthesisWorkbenchItem: false,
+    });
+
+    const workflowItem = popup.children.find((child) =>
+      (child.getAttribute("label") || "").startsWith(
+        "Parameterized Artifact Menu",
+      ),
+    );
+    assert.isOk(workflowItem);
+    assert.equal(
+      workflowItem!.getAttribute("label"),
+      "Parameterized Artifact Menu",
+    );
+    assert.equal(workflowItem!.getAttribute("disabled"), null);
+  });
+
   it("context menu lets workflow-unit parameterized workflows open settings before request build", async function () {
     const parent = await handlers.item.create({
       itemType: "journalArticle",
@@ -4066,7 +4216,14 @@ describe("gui: workflow context menu", function () {
       "update-topic-synthesis",
       "Update Topic Synthesis",
     );
-    workflow.manifest.inputs = { unit: "workflow" };
+    workflow.manifest.inputs = {
+      member: { kind: "selection" },
+      grouping: { mode: "all" },
+    };
+    workflow.manifest.validateSelection = {
+      select: { policy: "selection" },
+      filters: [],
+    };
     workflow.manifest.parameters = {
       topicId: {
         type: "string",
@@ -4103,7 +4260,14 @@ describe("gui: workflow context menu", function () {
       "debug-apply-single-bundle",
       "Debug Apply Single Bundle",
     );
-    workflow.manifest.inputs = { unit: "workflow" };
+    workflow.manifest.inputs = {
+      member: { kind: "selection" },
+      grouping: { mode: "all" },
+    };
+    workflow.manifest.validateSelection = {
+      select: { policy: "selection" },
+      filters: [],
+    };
     setWorkflowState([workflow]);
     const win = createMainWindow([parent]);
     ensureWorkflowMenuForWindow(win);

@@ -83,10 +83,9 @@ describe("debug sequence probe workflows", function () {
       assert.equal(isWorkflowVisible(workflow), true);
     }
     for (const id of RUNNABLE_PROBE_WORKFLOW_IDS) {
-      assert.equal(
-        workflowById(loaded.workflows, id).manifest.inputs?.unit,
-        "workflow",
-      );
+      const inputs = workflowById(loaded.workflows, id).manifest.inputs;
+      assert.equal(inputs.member.kind, "selection");
+      assert.equal(inputs.grouping.mode, "all");
     }
 
     setDebugModeOverrideForTests(false);

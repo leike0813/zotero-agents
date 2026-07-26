@@ -27,6 +27,7 @@ import {
   ASSISTANT_WORKSPACE_TRANSCRIPT_DELTA_KEYS,
   ASSISTANT_WORKSPACE_TRANSCRIPT_SNAPSHOT_KEYS,
 } from "../shared/assistantWireContract.js";
+import { parseAssistantPendingInteraction } from "../shared/assistantInteractionContract.js";
 
 function text(value) {
   return String(value || "").trim();
@@ -115,6 +116,8 @@ function validPublicationPayload(publication) {
   if (publication.publicationKind === "owner-control") {
     return (
       hasExactKeys(payload.hint, ["kind", "message"]) &&
+      (payload.interaction === null ||
+        Boolean(parseAssistantPendingInteraction(payload.interaction))) &&
       [
         "hidden",
         "auth",
@@ -332,6 +335,10 @@ function rendererPage(region) {
 
 function errorMessage(region) {
   return text(region && region.error && region.error.message);
+}
+
+function transcriptStateSignature(ownerKey, kind, message) {
+  return [text(ownerKey), text(kind), text(message)].join("\u001f");
 }
 
 function createPageRequest(owner, cursor, limit) {
@@ -701,13 +708,24 @@ function createReceiver(options) {
           return rejected(publication, "invalid", snapshot);
         }
         const transcript = clone(publication.payload);
-        next.selection = Object.assign({}, next.selection, {
-          owner: transcript.owner || next.selection.owner,
-          phase: transcriptPhase(transcript),
-          transcript,
-        });
-        nextPageModel = createPageModel(transcript.page);
-        effect = { kind: "snapshot" };
+        if (
+          publication.publicationCause === "page-request" &&
+          transcript.status === "ready" &&
+          transcript.page &&
+          current &&
+          current.status === "ready" &&
+          current.page
+        ) {
+          effect = { kind: "cache-page", region: transcript };
+        } else {
+          next.selection = Object.assign({}, next.selection, {
+            owner: transcript.owner || next.selection.owner,
+            phase: transcriptPhase(transcript),
+            transcript,
+          });
+          nextPageModel = createPageModel(transcript.page);
+          effect = { kind: "snapshot" };
+        }
       } else if (publication.publicationForm === "delta") {
         const payload = publication.payload || {};
         if (
@@ -805,6 +823,7 @@ function createReceiver(options) {
       reason: null,
       snapshot: next,
       publicationKind: publication.publicationKind,
+      ownerChanged,
       effect,
       commit: function () {
         if (ownerChanged) revisions.clear();
@@ -1006,6 +1025,17 @@ function canonicalActionOwner(source, value) {
   return null;
 }
 
+function applyOwnerNavigationUiTransition(ui, ownerChanged, nextOwner) {
+  if (ownerChanged !== true) return false;
+  ui.replyDraft = nextOwner
+    ? ui.replyDraftByOwner.get(text(nextOwner.ownerKey)) || ""
+    : "";
+  ui.contextDrawerOpen = false;
+  ui.detailsDrawerOpen = false;
+  ui.permissionRequestOpen = false;
+  return true;
+}
+
 function resolvePanelActionEnvelope(
   action,
   data,
@@ -1146,6 +1176,8 @@ function createChildRuntime(source) {
     detailsDrawerOpen: false,
     permissionRequestOpen: false,
     completedCollapsed: true,
+    queuedCollapsed: true,
+    runningCollapsed: false,
     drawerGroupCollapsed: new Map(),
     expandedTranscriptRows: new Set(),
     replyDraft: "",
@@ -1286,6 +1318,7 @@ function createChildRuntime(source) {
       state,
       message: state === "failed" ? errorMessage(region) : "",
       mode: ui.chatDisplayMode,
+      ownerKey: owner ? owner.ownerKey : "",
       onResetVirtualState: function (container) {
         transcriptRenderer.resetAssistantTranscriptVirtualState(
           container,
@@ -1299,13 +1332,17 @@ function createChildRuntime(source) {
       return true;
     }
     const page = rendererPage(region);
+    return renderTranscriptPage(owner, page, region.transcriptRevision);
+  }
+
+  function renderTranscriptPage(owner, page, transcriptRevision) {
     transcriptRenderer.renderAssistantTranscript({
       container: elements.transcript,
       items: page.items,
       virtualized: ui.transcriptPaginationVirtualizationEnabled !== false,
       ownerKey: owner.ownerKey,
       page,
-      transcriptRevision: region.transcriptRevision,
+      transcriptRevision,
       mode: ui.chatDisplayMode,
       variant: source === "acp-chat" ? "acp-chat" : "skillrunner",
       expandedIds: ui.expandedTranscriptRows,
@@ -1392,14 +1429,22 @@ function createChildRuntime(source) {
       return;
     }
     if (action === "toggle-drawer-section") {
-      if (text(payload.sectionId) === "completed") {
+      if (text(payload.sectionId) === "running") {
+        ui.runningCollapsed = !ui.runningCollapsed;
+        renderPanel();
+      } else if (text(payload.sectionId) === "completed") {
         ui.completedCollapsed = !ui.completedCollapsed;
+        renderPanel();
+      } else if (text(payload.sectionId) === "queued") {
+        ui.queuedCollapsed = !ui.queuedCollapsed;
         renderPanel();
       }
       return;
     }
     if (action === "toggle-drawer-group") {
-      const key = text(payload.groupKey || payload.backendId);
+      const sectionId = text(payload.sectionId);
+      const groupKey = text(payload.groupKey || payload.backendId);
+      const key = sectionId && groupKey ? sectionId + "\n" + groupKey : "";
       if (key) {
         ui.drawerGroupCollapsed.set(
           key,
@@ -1619,25 +1664,26 @@ function createChildRuntime(source) {
       if (result.publicationKind === "transcript") {
         return result.effect && result.effect.kind === "mutations"
           ? renderMutationEffect(result, publication)
-          : (function () {
-              const previous = snapshot;
-              snapshot = result.snapshot;
-              try {
-                return renderTranscript();
-              } finally {
-                snapshot = previous;
-              }
-            })();
+          : result.effect && result.effect.kind === "cache-page"
+            ? renderTranscriptPage(
+                selectedOwner(result.snapshot),
+                rendererPage(result.effect.region),
+                result.effect.region.transcriptRevision,
+              )
+            : (function () {
+                const previous = snapshot;
+                snapshot = result.snapshot;
+                try {
+                  return renderTranscript();
+                } finally {
+                  snapshot = previous;
+                }
+              })();
       }
       if (result.publicationKind === "owner-navigation") {
         captureReplyDraft();
         const nextOwner = selectedOwner(result.snapshot);
-        ui.replyDraft = nextOwner
-          ? ui.replyDraftByOwner.get(nextOwner.ownerKey) || ""
-          : "";
-        ui.contextDrawerOpen = false;
-        ui.detailsDrawerOpen = false;
-        ui.permissionRequestOpen = false;
+        applyOwnerNavigationUiTransition(ui, result.ownerChanged, nextOwner);
       }
       const previous = snapshot;
       snapshot = result.snapshot;
@@ -1724,6 +1770,7 @@ function boot() {
 }
 
 export {
+  applyOwnerNavigationUiTransition,
   boot,
   createClient,
   createController,
@@ -1735,6 +1782,7 @@ export {
   readStateRegion,
   rendererPage,
   resolvePanelActionEnvelope,
+  transcriptStateSignature,
   wireFieldRegistry,
 };
 

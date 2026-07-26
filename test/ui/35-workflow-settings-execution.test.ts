@@ -9,6 +9,7 @@ import {
 import {
   buildWorkflowSettingsUiDescriptor,
   clearWorkflowSettings,
+  getWorkflowSettings,
   resolveWorkflowExecutionContext,
   resetRunOnceOverridesForSettingsOpen,
   updateWorkflowSettings,
@@ -107,6 +108,53 @@ describe("workflow settings execution", function () {
     restorePrefs = undefined;
   });
 
+  it("persists and explicitly clears the Host queue maximum", function () {
+    updateWorkflowSettings("host-queue-settings-test", {
+      hostOptions: {
+        queue: {
+          maxConcurrency: 4,
+        },
+      },
+    });
+    assert.deepEqual(
+      getWorkflowSettings("host-queue-settings-test").hostOptions,
+      { queue: { maxConcurrency: 4 } },
+    );
+
+    updateWorkflowSettings("host-queue-settings-test", {
+      hostOptions: {
+        queue: {
+          maxConcurrency: 0,
+        },
+      },
+    });
+    assert.deepEqual(
+      getWorkflowSettings("host-queue-settings-test").hostOptions,
+      {},
+    );
+  });
+
+  it("preserves a hidden Host maximum when another settings surface omits Host options", function () {
+    updateWorkflowSettings("host-queue-settings-test", {
+      hostOptions: {
+        queue: {
+          maxConcurrency: 4,
+        },
+      },
+    });
+
+    updateWorkflowSettings("host-queue-settings-test", {
+      workflowParams: {
+        language: "zh-CN",
+      },
+    });
+
+    assert.deepEqual(
+      getWorkflowSettings("host-queue-settings-test").hostOptions,
+      { queue: { maxConcurrency: 4 } },
+    );
+  });
+
   it("applies persisted workflow params/provider options/profile to request build", async function () {
     updateWorkflowSettings("literature-explainer", {
       backendId: "skillrunner-alt",
@@ -115,6 +163,11 @@ describe("workflow settings execution", function () {
         engine: "gemini",
         model: "gemini-2.5-flash",
         no_cache: true,
+      },
+      hostOptions: {
+        queue: {
+          maxConcurrency: 3,
+        },
       },
     });
 
@@ -135,6 +188,9 @@ describe("workflow settings execution", function () {
     assert.equal(context.providerOptions.provider_id, "google");
     assert.equal(context.providerOptions.effort, "default");
     assert.isUndefined(context.providerOptions.no_cache);
+    assert.deepEqual(context.hostOptions, {
+      queue: { maxConcurrency: 3 },
+    });
 
     const parent = await handlers.item.create({
       itemType: "journalArticle",
@@ -174,6 +230,8 @@ describe("workflow settings execution", function () {
       String(requests[0].input?.source_path || ""),
       /^inputs\/source_path\//,
     );
+    assert.notInclude(JSON.stringify(requests[0]), "hostOptions");
+    assert.notInclude(JSON.stringify(requests[0]), "maxConcurrency");
   });
 
   itZoteroFullOrNode(
@@ -1491,9 +1549,19 @@ describe("workflow settings execution", function () {
       joinPath(workflowRoot, "workflow.json"),
       JSON.stringify(
         {
+          schemaVersion: 2,
           id: "pass-through-minimal",
           label: "Pass Through Minimal",
           provider: "pass-through",
+          trigger: { requiresSelection: true },
+          inputs: {
+            member: { kind: "parent" },
+            grouping: { mode: "each" },
+          },
+          validateSelection: {
+            select: { policy: "input-member", source: "selected" },
+            filters: [],
+          },
           hooks: {
             applyResult: "hooks/applyResult.js",
           },
@@ -1563,9 +1631,19 @@ describe("workflow settings execution", function () {
         joinPath(workflowRoot, "workflow.json"),
         JSON.stringify(
           {
+            schemaVersion: 2,
             id: "pass-through-settings",
             label: "Pass Through Settings",
             provider: "pass-through",
+            trigger: { requiresSelection: true },
+            inputs: {
+              member: { kind: "parent" },
+              grouping: { mode: "each" },
+            },
+            validateSelection: {
+              select: { policy: "input-member", source: "selected" },
+              filters: [],
+            },
             parameters: {
               github_owner: { type: "string", default: "" },
               github_repo: { type: "string", default: "" },

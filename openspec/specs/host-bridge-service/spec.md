@@ -220,3 +220,30 @@ Host Bridge SHALL route `library.list_items`, `library.sync_snapshot`, `library.
 - **THEN** Host Bridge SHALL return structured code `invalid_library_cursor`
 - **AND** the error SHALL be non-retryable without corrected input.
 
+### Requirement: Host Bridge SHALL derive locality from trusted transport context
+Host Bridge SHALL derive effective local or remote mode from the accepted socket peer and listener, not from a client-controlled header.
+
+#### Scenario: Remote peer declares local
+- **WHEN** a non-loopback or unknown peer declares local connection mode
+- **THEN** Host Bridge SHALL treat the request as remote.
+
+#### Scenario: Local peer requests remote behavior
+- **WHEN** a loopback peer explicitly declares remote mode
+- **THEN** Host Bridge SHALL use the more restrictive remote behavior.
+
+#### Scenario: Trusted peer information is unavailable
+- **WHEN** peer locality cannot be established
+- **THEN** Host Bridge SHALL fail closed to remote delivery semantics.
+
+### Requirement: Host Bridge service SHALL route workflow queue and submission resources
+The authenticated HTTP v1 service SHALL route pending queue list/cancel and active submission inspection through the workflow control module.
+
+#### Scenario: Authenticated queue request
+- **WHEN** a bearer-authenticated client calls a workflow queue or submission route
+- **THEN** the service SHALL parse only declared filters/body fields and return the workflow-control result envelope
+
+#### Scenario: Unauthenticated queue request
+- **WHEN** a caller omits or fails bearer authentication
+- **THEN** the service SHALL reject the request before reading or mutating queue state
+
+

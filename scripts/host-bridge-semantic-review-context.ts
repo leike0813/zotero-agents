@@ -59,10 +59,17 @@ export function collectChangedFiles() {
 function isSemanticSource(path: string) {
   return (
     path === "skills_src/zotero-bridge-cli/README.md" ||
-    path.startsWith("skills_src/zotero-bridge-cli/semantic/") ||
-    path.startsWith("skills_src/zotero-library-agent/semantic/") ||
-    path.startsWith("skills_src/host-bridge-shared/") ||
-    path.startsWith("profiles_src/hermes/zotero-librarian/")
+    path === "skills_src/zotero-bridge-cli/SKILL.md" ||
+    path.startsWith("skills_src/zotero-bridge-cli/references/") ||
+    path.startsWith("skills_src/zotero-library-agent/skills/") ||
+    path.startsWith("skills_src/zotero-library-agent/shared/") ||
+    path.startsWith(".agents/skills/host-bridge-semantic-surface-review/") ||
+    path.startsWith(".agents/skills/host-bridge-review-mirror/") ||
+    path.startsWith(".agents/skills/host-bridge-release-pipeline/") ||
+    path === "profiles_src/hermes/zotero-librarian/SOUL.md" ||
+    path === "profiles_src/hermes/zotero-librarian/README.md" ||
+    path.startsWith("profiles_src/hermes/zotero-librarian/skills/") ||
+    path.startsWith("profiles_src/hermes/zotero-librarian/scripts/")
   );
 }
 
@@ -79,6 +86,7 @@ function isGeneratedTarget(path: string) {
     path === "doc/host-bridge-cli.md" ||
     path === "cli/zotero-bridge/agent-surface.json" ||
     path === "host-bridge/release-set.json" ||
+    path.startsWith("artifact/host-bridge-review/") ||
     path.startsWith("skills_builtin/zotero-bridge-cli/") ||
     path.startsWith("skills_builtin/zotero-library-agent/") ||
     path.startsWith("profiles/hermes/zotero-librarian/") ||
@@ -96,7 +104,7 @@ function isAgentControlContract(path: string) {
     path === "cli/zotero-bridge/src/surface.rs" ||
     path === "cli/zotero-bridge/src/error.rs" ||
     path === "scripts/host-bridge-agent-surface.ts" ||
-    path === "schemas/host-bridge.agent-surface.v2.schema.json" ||
+    path === "schemas/host-bridge.agent-surface.v5.schema.json" ||
     path === "src/modules/hostBridgeWorkflowAgentRunStore.ts"
   );
 }
@@ -105,11 +113,19 @@ function isReleaseContract(path: string) {
   return (
     path === "scripts/host-bridge-release-set.ts" ||
     path === "scripts/host-bridge-release-plan.ts" ||
+    path === "host-bridge/surfaces.json" ||
+    path === "scripts/host-bridge-surface-model.ts" ||
+    path === "scripts/render-host-bridge-surfaces.ts" ||
+    path === "scripts/check-host-bridge-skill-packages.ts" ||
+    path === "scripts/host-bridge-review-mirror.ts" ||
     path === "scripts/render-host-bridge-release-set.ts" ||
     path === "scripts/materialize-host-bridge-release.ts" ||
     path === "scripts/prepare-host-bridge-release.ts" ||
     path === "schemas/host-bridge.release-set.v1.schema.json" ||
     path === "schemas/host-bridge.release-receipt.v1.schema.json" ||
+    path === "schemas/host-bridge.release-set.v3.schema.json" ||
+    path === "schemas/host-bridge.release-receipt.v2.schema.json" ||
+    path === ".github/workflows/build-host-bridge-cli-prebuilds.yml" ||
     path === ".github/workflows/release-host-bridge.yml"
   );
 }
@@ -155,6 +171,11 @@ function isSpecLayer(path: string) {
     path === "cli/zotero-bridge/src/args.rs" ||
     path === "cli/zotero-bridge/src/commands.rs" ||
     path === "scripts/host-bridge-surface-catalog.ts" ||
+    path === "host-bridge/surfaces.json" ||
+    path === "scripts/host-bridge-surface-model.ts" ||
+    path === "scripts/render-host-bridge-surfaces.ts" ||
+    path === "scripts/check-host-bridge-skill-packages.ts" ||
+    path === "scripts/host-bridge-review-mirror.ts" ||
     isAgentControlContract(path) ||
     isReleaseContract(path) ||
     isWorkflowCatalog(path) ||

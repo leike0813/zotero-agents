@@ -15,7 +15,8 @@ Runtime-scoped data lives under `runtime/` below this root: `{root}/runtime/logs
 ## Managed Categories
 - `state/`: plugin runtime SQLite state, including SkillRunner ledger and ACP conversation rows.
 - `runtime/logs/`: runtime log persistence.
-- `runtime/acp/chat/workspace/`: the shared ACP Chat agent working directory (`agentWorkspaceDir`/`sessionCwd`) used by all ACP Chat conversations.
+- `runtime/acp/chat/workspace/`: the shared ACP Chat agent working directory (`agentWorkspaceDir`/`sessionCwd`) used by all ACP Chat conversations. Its root `AGENTS.md` contains a packaged plugin-managed policy block while preserving user content outside that block.
+- `runtime/acp/chat/injected-skills-manifest.json`: the exact project-root and skill-id targets currently owned by ACP Chat injection; stale reconciliation may delete only these recorded whitelist directories.
 - `runtime/acp/chat/conversations/`: plugin-private ACP Chat per-conversation storage; this is not the user-facing workspace and must not live inside `runtime/acp/chat/workspace/`.
 - `runtime/acp/chat/runtime/`: plugin-private ACP Chat backend runtime state.
 - `runtime/acp/skill-runs/`: ACP SkillRunner-compatible run workspaces.

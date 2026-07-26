@@ -1,11 +1,14 @@
 use std::{
-    fs,
+    cell::RefCell,
+    collections::BTreeMap,
+    fs::{self, File},
     io::Read,
     path::{Path, PathBuf},
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 use crate::{
@@ -18,7 +21,7 @@ use crate::{
         ContextNoteCommand, ContextObjectRefArgs, ContextSelectionCommand,
         ContextSelectionOpenArgs, DebugAcpSkillRunCommand, DebugArgs, DebugCommand, DebugInputArgs,
         DebugSynthesisCommand, FileArgs, FileCommand, FileDownloadArgs, FileUploadArgs,
-        InsightsArgs, InsightsCommand, ItemArgs, ItemCommand, ItemNotesArgs, ItemRefArgs,
+        InsightsArgs, InsightsCommand, ItemArgs, ItemCommand, ItemNotesArgs, ItemPageArgs, ItemRefArgs,
         ItemSearchArgs, LibraryArgs, LibraryCommand, LibraryItemsCommand, LibraryReadinessCommand,
         LiteratureIngestArgs, MutationArgs, MutationCollectionArgs, MutationCollectionCommand,
         MutationCollectionCreateArgs, MutationCollectionItemsArgs, MutationCommand,
@@ -26,17 +29,24 @@ use crate::{
         MutationNoteArgs, MutationNoteCommand, MutationNoteCreateArgs, MutationNotePayloadArgs,
         MutationNoteUpdateArgs, MutationTagArgs, MutationTagCommand, MutationTagsArgs, NoteArgs,
         NoteCommand, NoteDetailArgs, NotePayloadArgs, NotificationAckArgs, NotificationCommand,
-        NotificationListArgs, NotificationWaitArgs, PaperArtifactsArgs, PaperArtifactsCommand,
-        PermissionRequestIdArgs, ProductArgs, ProductCommand, ProductDownloadArgs, ProductIdArgs,
-        ProductListArgs, ResolversArgs, ResolversCommand, RunArgs, RunCommand, RunPermissionArgs,
-        RunPermissionCommand, RunWorkflowArgs, RunWorkflowCommand, RunWorkflowRecentArgs,
-        SchemasArgs, SchemasCommand, SkillRunCommand, SkillRunEventsArgs, SkillRunIdArgs,
-        SkillRunRecentArgs, SkillRunReplyArgs, SynthesisArgs, SynthesisCacheArgs,
-        SynthesisCacheCommand, SynthesisCacheInvalidateArgs, SynthesisCommand,
-        SynthesisIndexCommand, SynthesisIndexGetCommand, TaskListArgs, TaskRecentArgs, TopicsArgs,
-        TopicsCommand, WorkflowAgentApplyArgs, WorkflowAgentApplyStatusArgs, WorkflowAgentRunArgs,
+        NotificationListArgs, NotificationWaitArgs, OperationArgs, OperationCommand,
+        PageArgs, PaperArtifactsArgs, PaperArtifactsCommand, PermissionRequestIdArgs, ProductArgs,
+        ProductCommand, ProductDownloadArgs, ProductGetArgs, ProductIdArgs, ProductListArgs, ResolversArgs,
+        ResolversCommand, RunArgs, RunCommand, RunPermissionArgs, RunPermissionCommand,
+        RunWorkflowArgs, RunWorkflowCommand, RunWorkflowRecentArgs, SchemasArgs, SchemasCommand,
+        SkillRunCommand, SkillRunEventsArgs, SkillRunIdArgs, SkillRunRecentArgs, SkillRunReplyArgs,
+        SynthesisArgs, SynthesisCacheArgs, SynthesisCacheCommand, SynthesisCacheInvalidateArgs,
+        SynthesisCommand, SynthesisIndexCommand, SynthesisIndexGetCommand, TaskListArgs,
+        TaskRecentArgs, TopicsArgs, TopicsCommand, WorkflowAgentApplyArgs,
+        WorkflowAgentApplyStatusArgs, WorkflowAgentBundleArgs, WorkflowAgentBundleCommand,
+        WorkflowAgentBundleInspectArgs, WorkflowAgentResultArgs, WorkflowAgentResultCommand,
+        WorkflowAgentResultValidateArgs, WorkflowAgentRunArgs, WorkflowAgentRunLifecycleArgs,
         WorkflowArgs, WorkflowCancelArgs, WorkflowCommand, WorkflowDescribeArgs,
-        WorkflowRequirementsArgs, WorkflowRunArgs, WorkflowSubmitArgs,
+        WorkflowProfileArgs, WorkflowProfileCommand, WorkflowProfileDescribeArgs,
+        WorkflowProfileValidateArgs, WorkflowQueueArgs, WorkflowQueueCancelArgs,
+        WorkflowQueueCommand, WorkflowQueueListArgs, WorkflowRequirementsArgs, WorkflowRunArgs,
+        WorkflowSubmissionArgs, WorkflowSubmissionCommand, WorkflowSubmissionGetArgs,
+        WorkflowSubmitArgs, WorkflowValidateArgs,
     },
     client,
     config::BridgeConfig,
@@ -44,6 +54,9 @@ use crate::{
 };
 
 const PROTOCOL: &str = "host-bridge.v1";
+const AGENT_RUN_OUTPUT_CONTRACT_SCHEMA: &str = "zotero-bridge.agent-run.output-contract.v1";
+const MAX_BUNDLE_ENTRIES: usize = 4096;
+const MAX_BUNDLE_JSON_BYTES: u64 = 16 * 1024 * 1024;
 
 pub fn status(config: &BridgeConfig) -> Result<Value, CliError> {
     let result = client::health(config)?;
@@ -51,16 +64,34 @@ pub fn status(config: &BridgeConfig) -> Result<Value, CliError> {
     Ok(result)
 }
 
-pub fn manifest(config: &BridgeConfig) -> Result<Value, CliError> {
-    client::manifest(config)
+pub fn manifest(config: &BridgeConfig, args: PageArgs) -> Result<Value, CliError> {
+    client::get(config, &page_path("/manifest", args))
 }
 
 pub fn bridge(config: &BridgeConfig, args: BridgeArgs) -> Result<Value, CliError> {
     match args.command {
         BridgeCommand::Status => status(config),
-        BridgeCommand::Manifest => manifest(config),
+        BridgeCommand::Manifest(args) => manifest(config, args),
         BridgeCommand::Profile(args) => bridge_profile(config, args),
         BridgeCommand::Backend(args) => bridge_backend(config, args),
+    }
+}
+
+pub fn operation(config: &BridgeConfig, args: OperationArgs) -> Result<Value, CliError> {
+    match args.command {
+        OperationCommand::Get(args) => {
+            let operation_id = args.operation_id.trim();
+            if operation_id.is_empty() {
+                return Err(CliError::validation(
+                    "invalid_operation_id",
+                    "operation get requires an operation id",
+                ));
+            }
+            client::get(
+                config,
+                &format!("/operations/{}", percent_encode_path(operation_id)),
+            )
+        }
     }
 }
 
@@ -108,7 +139,7 @@ pub fn item(config: &BridgeConfig, args: ItemArgs) -> Result<Value, CliError> {
             call_capability(config, "library.get_item_notes", item_notes_input(args)?)
         }
         ItemCommand::Attachments(args) => {
-            call_capability(config, "library.get_item_attachments", item_ref(args)?)
+            call_capability(config, "library.get_item_attachments", item_page_input(args)?)
         }
     }
 }
@@ -119,7 +150,7 @@ pub fn note(config: &BridgeConfig, args: NoteArgs) -> Result<Value, CliError> {
             call_capability(config, "library.get_note_detail", note_detail_input(args)?)
         }
         NoteCommand::Payloads(args) => {
-            call_capability(config, "library.list_note_payloads", item_ref(args)?)
+            call_capability(config, "library.list_note_payloads", item_page_input(args)?)
         }
         NoteCommand::Payload(args) => call_capability(
             config,
@@ -167,14 +198,17 @@ pub fn annotation(config: &BridgeConfig, args: AnnotationArgs) -> Result<Value, 
 
 pub fn context(config: &BridgeConfig, args: ContextArgs) -> Result<Value, CliError> {
     match args.command {
-        ContextCommand::Current => client::get(config, "/context/current"),
+        ContextCommand::Current(args) => {
+            client::get(config, &page_path("/context/current", args))
+        }
         ContextCommand::Selection(args) => match args.command {
-            ContextSelectionCommand::Get => client::get(config, "/context/selection"),
-            ContextSelectionCommand::Open(args) => client::post(
-                config,
-                "/context/selection/open",
-                context_selection_open_input(args)?,
-            ),
+            ContextSelectionCommand::Get(args) => {
+                client::get(config, &page_path("/context/selection", args))
+            }
+            ContextSelectionCommand::Open(args) => {
+                let path = page_path("/context/selection/open", args.page.clone());
+                client::post(config, &path, context_selection_open_input(args)?)
+            }
         },
         ContextCommand::Item(args) => match args.command {
             ContextItemCommand::Open(args) => client::post(
@@ -228,7 +262,19 @@ pub fn synthesis(config: &BridgeConfig, args: SynthesisArgs) -> Result<Value, Cl
 
 fn synthesis_cache(config: &BridgeConfig, args: SynthesisCacheArgs) -> Result<Value, CliError> {
     match args.command {
-        SynthesisCacheCommand::Status => client::get(config, "/synthesis/cache/status"),
+        SynthesisCacheCommand::Status(args) => {
+            if let Some(operation_id) = args.operation_id {
+                return call_capability(
+                    config,
+                    "synthesis.operation.get",
+                    json!({ "operation_id": operation_id }),
+                );
+            }
+            client::get(config, "/synthesis/cache/status")
+        }
+        SynthesisCacheCommand::RefreshReferenceSidecar(input) => {
+            call_capability(config, "reference_sidecar.refresh", bridge_input(input)?)
+        }
         SynthesisCacheCommand::Invalidate(args) => client::post(
             config,
             "/synthesis/cache/invalidate",
@@ -269,7 +315,7 @@ pub fn product(config: &BridgeConfig, args: ProductArgs) -> Result<Value, CliErr
             call_capability(config, "workflow_products.list", product_list_input(args))
         }
         ProductCommand::Get(args) => {
-            call_capability(config, "workflow_products.get", product_id_input(args))
+            call_capability(config, "workflow_products.get", product_get_input(args))
         }
         ProductCommand::Download(args) => call_capability(
             config,
@@ -286,12 +332,19 @@ fn product_id_input(args: ProductIdArgs) -> Value {
     json!({ "productId": args.product_id.trim() })
 }
 
+fn product_get_input(args: ProductGetArgs) -> Value {
+    let mut input = Map::new();
+    input.insert("productId".to_string(), json!(args.product_id.trim()));
+    insert_page(&mut input, args.page);
+    Value::Object(input)
+}
+
 fn product_list_input(args: ProductListArgs) -> Value {
     let mut input = Map::new();
     push_value(&mut input, "workflowId", args.workflow_id);
     push_value(&mut input, "backendId", args.backend_id);
     push_value(&mut input, "requestId", args.request_id);
-    insert_u32(&mut input, "cursor", args.cursor);
+    push_value(&mut input, "cursor", args.cursor);
     insert_u32(&mut input, "limit", args.limit);
     Value::Object(input)
 }
@@ -327,16 +380,23 @@ pub fn concepts(config: &BridgeConfig, args: ConceptsArgs) -> Result<Value, CliE
 }
 
 pub fn citation_graph(config: &BridgeConfig, args: CitationGraphArgs) -> Result<Value, CliError> {
-    if let CitationGraphCommand::RefreshMetrics(input) = args.command {
-        return call_capability(
-            config,
-            "citation_graph.refresh_metrics",
-            bridge_input(input)?,
-        );
+    match args.command {
+        CitationGraphCommand::RefreshMetrics(input) => {
+            return call_capability(
+                config,
+                "citation_graph.refresh_metrics",
+                bridge_input(input)?,
+            );
+        }
+        CitationGraphCommand::Update(input) => {
+            return call_capability(config, "citation_graph.update", bridge_input(input)?);
+        }
+        command => {
+            let capability = citation_graph_capability(&command);
+            let input = bridge_query(citation_graph_input(command))?;
+            return call_capability(config, capability, input);
+        }
     }
-    let capability = citation_graph_capability(&args.command);
-    let input = bridge_query(citation_graph_input(args.command))?;
-    call_capability(config, capability, input)
 }
 
 pub fn resolvers(config: &BridgeConfig, args: ResolversArgs) -> Result<Value, CliError> {
@@ -365,9 +425,11 @@ pub fn workflow(config: &BridgeConfig, args: WorkflowArgs) -> Result<Value, CliE
             "/workflows/describe",
             workflow_describe_input(args)?,
         ),
-        WorkflowCommand::Validate(args) => {
-            client::post(config, "/workflows/validate", workflow_submit_input(args)?)
-        }
+        WorkflowCommand::Validate(args) => client::post(
+            config,
+            "/workflows/validate",
+            workflow_validate_input(args)?,
+        ),
         WorkflowCommand::Requirements(args) => client::post(
             config,
             "/workflows/requirements",
@@ -376,9 +438,652 @@ pub fn workflow(config: &BridgeConfig, args: WorkflowArgs) -> Result<Value, CliE
         WorkflowCommand::Submit(args) => {
             client::post(config, "/workflows/submit", workflow_submit_input(args)?)
         }
+        WorkflowCommand::Queue(args) => workflow_queue(config, args),
+        WorkflowCommand::Submission(args) => workflow_submission(config, args),
+        WorkflowCommand::Profile(args) => workflow_profile(config, args),
         WorkflowCommand::AgentRun(args) => workflow_agent_run(config, args),
+        WorkflowCommand::AgentBundle(args) => workflow_agent_bundle(args),
+        WorkflowCommand::AgentResult(args) => workflow_agent_result(args),
         WorkflowCommand::AgentApply(args) => workflow_agent_apply(config, args),
         WorkflowCommand::AgentApplyStatus(args) => workflow_agent_apply_status(config, args),
+        WorkflowCommand::AgentRenew(args) => workflow_agent_run_lifecycle(config, args, "renew"),
+        WorkflowCommand::AgentAbandon(args) => {
+            workflow_agent_run_lifecycle(config, args, "abandon")
+        }
+    }
+}
+
+fn workflow_queue(config: &BridgeConfig, args: WorkflowQueueArgs) -> Result<Value, CliError> {
+    match args.command {
+        WorkflowQueueCommand::List(args) => client::get(config, &workflow_queue_list_path(args)?),
+        WorkflowQueueCommand::Cancel(args) => {
+            client::post(config, &workflow_queue_cancel_path(args)?, json!({}))
+        }
+    }
+}
+
+fn workflow_submission(
+    config: &BridgeConfig,
+    args: WorkflowSubmissionArgs,
+) -> Result<Value, CliError> {
+    match args.command {
+        WorkflowSubmissionCommand::Get(args) => {
+            client::get(config, &workflow_submission_path(args)?)
+        }
+    }
+}
+
+fn workflow_agent_bundle(args: WorkflowAgentBundleArgs) -> Result<Value, CliError> {
+    match args.command {
+        WorkflowAgentBundleCommand::Inspect(args) => workflow_agent_bundle_inspect(args),
+    }
+}
+
+fn workflow_agent_result(args: WorkflowAgentResultArgs) -> Result<Value, CliError> {
+    match args.command {
+        WorkflowAgentResultCommand::Validate(args) => workflow_agent_result_validate(args),
+    }
+}
+
+struct ZipBundle {
+    archive: RefCell<zip::ZipArchive<File>>,
+    entries: BTreeMap<String, usize>,
+}
+
+enum LocalBundle {
+    Directory(PathBuf),
+    Zip(ZipBundle),
+}
+
+fn normalize_bundle_entry(entry: &str, label: &str) -> Result<String, CliError> {
+    let normalized = entry.replace('\\', "/");
+    let normalized = normalized.trim_end_matches('/');
+    if normalized.is_empty() || normalized.starts_with('/') || normalized.contains('\0') {
+        return Err(CliError::validation(
+            "invalid_bundle_path",
+            format!("{label} must be a safe relative bundle path"),
+        ));
+    }
+    let mut parts = Vec::new();
+    for part in normalized.split('/') {
+        if part.is_empty() || part == ".." {
+            return Err(CliError::validation(
+                "invalid_bundle_path",
+                format!("{label} must be a safe relative bundle path"),
+            ));
+        }
+        if part == "." {
+            continue;
+        }
+        if parts.is_empty() && part.ends_with(':') {
+            return Err(CliError::validation(
+                "invalid_bundle_path",
+                format!("{label} must be a safe relative bundle path"),
+            ));
+        }
+        parts.push(part);
+    }
+    if parts.is_empty() {
+        return Err(CliError::validation(
+            "invalid_bundle_path",
+            format!("{label} must be a safe relative bundle path"),
+        ));
+    }
+    Ok(parts.join("/"))
+}
+
+fn invalid_bundle_archive(message: impl Into<String>) -> CliError {
+    CliError::validation("invalid_bundle_archive", message)
+        .with_details(json!({ "inputKind": "zip" }))
+}
+
+impl LocalBundle {
+    fn open(path: &Path) -> Result<Self, CliError> {
+        if path.is_dir() {
+            let root = fs::canonicalize(path).map_err(|_| {
+                CliError::validation(
+                    "invalid_agent_bundle",
+                    "Agent bundle directory cannot be resolved",
+                )
+            })?;
+            return Ok(Self::Directory(root));
+        }
+        let is_zip = path.is_file()
+            && path
+                .extension()
+                .and_then(|value| value.to_str())
+                .is_some_and(|value| value.eq_ignore_ascii_case("zip"));
+        if !is_zip {
+            return Err(CliError::validation(
+                "invalid_agent_bundle",
+                "Agent bundle must be a readable directory or ZIP file",
+            ));
+        }
+        let file = File::open(path)
+            .map_err(|_| invalid_bundle_archive("ZIP agent bundle cannot be opened"))?;
+        let mut archive = zip::ZipArchive::new(file)
+            .map_err(|_| invalid_bundle_archive("ZIP agent bundle is malformed"))?;
+        if archive.len() > MAX_BUNDLE_ENTRIES {
+            return Err(CliError::validation(
+                "bundle_entry_limit_exceeded",
+                "ZIP agent bundle contains too many entries",
+            )
+            .with_details(json!({ "limit": MAX_BUNDLE_ENTRIES })));
+        }
+        let mut entries = BTreeMap::new();
+        for index in 0..archive.len() {
+            let entry = archive
+                .by_index(index)
+                .map_err(|_| invalid_bundle_archive("ZIP agent bundle entry cannot be read"))?;
+            let name = normalize_bundle_entry(entry.name(), "ZIP entry")?;
+            if entry.is_symlink() {
+                return Err(CliError::validation(
+                    "invalid_bundle_path",
+                    "ZIP agent bundle must not contain symbolic links",
+                ));
+            }
+            if entry.is_dir() {
+                continue;
+            }
+            if entries.insert(name, index).is_some() {
+                return Err(invalid_bundle_archive(
+                    "ZIP agent bundle contains duplicate file entries",
+                ));
+            }
+        }
+        Ok(Self::Zip(ZipBundle {
+            archive: RefCell::new(archive),
+            entries,
+        }))
+    }
+
+    fn directory_file(root: &Path, entry: &str, label: &str) -> Result<Option<PathBuf>, CliError> {
+        let relative = normalize_bundle_entry(entry, label)?;
+        let candidate = root.join(relative);
+        let resolved = match fs::canonicalize(&candidate) {
+            Ok(path) => path,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => {
+                return Err(CliError::validation(
+                    "bundle_entry_unreadable",
+                    format!("Bundle entry cannot be resolved: {label}"),
+                ));
+            }
+        };
+        if !resolved.starts_with(root) {
+            return Err(CliError::validation(
+                "invalid_bundle_path",
+                format!("{label} resolves outside the bundle root"),
+            ));
+        }
+        Ok(resolved.is_file().then_some(resolved))
+    }
+
+    fn contains_file(&self, entry: &str, label: &str) -> Result<bool, CliError> {
+        match self {
+            Self::Directory(root) => Ok(Self::directory_file(root, entry, label)?.is_some()),
+            Self::Zip(bundle) => {
+                let entry = normalize_bundle_entry(entry, label)?;
+                Ok(bundle.entries.contains_key(&entry))
+            }
+        }
+    }
+
+    fn read_json(&self, entry: &str, label: &str) -> Result<Value, CliError> {
+        match self {
+            Self::Directory(root) => {
+                let path = Self::directory_file(root, entry, label)?.ok_or_else(|| {
+                    CliError::validation(
+                        "bundle_entry_missing",
+                        format!("Bundle entry is missing: {label}"),
+                    )
+                    .with_details(json!({ "entry": label }))
+                })?;
+                read_local_json(&path, label)
+            }
+            Self::Zip(bundle) => {
+                let normalized = normalize_bundle_entry(entry, label)?;
+                let index = bundle.entries.get(&normalized).copied().ok_or_else(|| {
+                    CliError::validation(
+                        "bundle_entry_missing",
+                        format!("Bundle entry is missing: {label}"),
+                    )
+                    .with_details(json!({ "entry": label }))
+                })?;
+                let mut archive = bundle.archive.borrow_mut();
+                let mut file = archive
+                    .by_index(index)
+                    .map_err(|_| invalid_bundle_archive("ZIP agent bundle entry cannot be read"))?;
+                if file.size() > MAX_BUNDLE_JSON_BYTES {
+                    return Err(CliError::validation(
+                        "bundle_entry_too_large",
+                        format!("Bundle JSON entry exceeds the size limit: {label}"),
+                    )
+                    .with_details(json!({ "entry": label, "limitBytes": MAX_BUNDLE_JSON_BYTES })));
+                }
+                let mut raw = Vec::with_capacity(file.size() as usize);
+                file.by_ref()
+                    .take(MAX_BUNDLE_JSON_BYTES + 1)
+                    .read_to_end(&mut raw)
+                    .map_err(|_| {
+                        invalid_bundle_archive("ZIP agent bundle entry cannot be decompressed")
+                    })?;
+                if raw.len() as u64 > MAX_BUNDLE_JSON_BYTES {
+                    return Err(CliError::validation(
+                        "bundle_entry_too_large",
+                        format!("Bundle JSON entry exceeds the size limit: {label}"),
+                    )
+                    .with_details(json!({ "entry": label, "limitBytes": MAX_BUNDLE_JSON_BYTES })));
+                }
+                serde_json::from_slice(&raw).map_err(|error| {
+                    CliError::validation(
+                        "invalid_bundle_json",
+                        format!("Bundle entry is not valid JSON: {label}"),
+                    )
+                    .with_details(json!({
+                        "entry": label,
+                        "line": error.line(),
+                        "column": error.column()
+                    }))
+                })
+            }
+        }
+    }
+
+    fn output_contract_entries(&self) -> Result<Vec<String>, CliError> {
+        let mut entries = Vec::new();
+        match self {
+            Self::Directory(root) => {
+                let requests = root.join("agent-run/requests");
+                let request_entries = fs::read_dir(&requests).map_err(|_| {
+                    CliError::validation(
+                        "output_contract_missing",
+                        "Agent handoff contains no output contracts",
+                    )
+                })?;
+                for entry in request_entries.flatten() {
+                    if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+                        continue;
+                    }
+                    let request_id = entry.file_name().to_string_lossy().to_string();
+                    let contract_entry =
+                        format!("agent-run/requests/{request_id}/output-contract.json");
+                    if self.contains_file(&contract_entry, "output contract")? {
+                        entries.push(contract_entry);
+                    }
+                }
+            }
+            Self::Zip(bundle) => {
+                for name in bundle.entries.keys() {
+                    let Some(relative) = name.strip_prefix("agent-run/requests/") else {
+                        continue;
+                    };
+                    let Some(request_id) = relative.strip_suffix("/output-contract.json") else {
+                        continue;
+                    };
+                    if !request_id.is_empty() && !request_id.contains('/') {
+                        entries.push(name.clone());
+                    }
+                }
+            }
+        }
+        entries.sort();
+        Ok(entries)
+    }
+}
+
+fn read_local_json(path: &Path, label: &str) -> Result<Value, CliError> {
+    let raw = fs::read_to_string(path).map_err(|error| {
+        CliError::validation(
+            "bundle_entry_missing",
+            format!("Bundle entry is missing: {label}"),
+        )
+        .with_details(json!({ "entry": label, "reason": error.kind().to_string() }))
+    })?;
+    serde_json::from_str(&raw).map_err(|error| {
+        CliError::validation(
+            "invalid_bundle_json",
+            format!("Bundle entry is not valid JSON: {label}"),
+        )
+        .with_details(json!({ "entry": label, "line": error.line(), "column": error.column() }))
+    })
+}
+
+fn required_string(value: &Value, field: &str, error_code: &str) -> Result<String, CliError> {
+    value
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            CliError::validation(error_code, format!("{field} must be a non-empty string"))
+        })
+}
+
+fn required_object<'a>(
+    value: &'a Value,
+    label: &str,
+) -> Result<&'a serde_json::Map<String, Value>, CliError> {
+    value.as_object().ok_or_else(|| {
+        CliError::validation("invalid_bundle", format!("{label} must be a JSON object"))
+    })
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalPageCursor {
+    version: u8,
+    scope: String,
+    criteria: String,
+    issued_at: u64,
+    after_key: String,
+}
+
+fn encode_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn decode_hex(value: &str) -> Result<Vec<u8>, CliError> {
+    if value.len() % 2 != 0 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(CliError::validation(
+            "invalid_host_bridge_cursor",
+            "Pagination cursor is malformed",
+        ));
+    }
+    (0..value.len())
+        .step_by(2)
+        .map(|index| {
+            u8::from_str_radix(&value[index..index + 2], 16).map_err(|_| {
+                CliError::validation(
+                    "invalid_host_bridge_cursor",
+                    "Pagination cursor is malformed",
+                )
+            })
+        })
+        .collect()
+}
+
+fn now_unix_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+fn local_page_cursor(
+    value: Option<&str>,
+    scope: &str,
+    criteria: &str,
+) -> Result<Option<LocalPageCursor>, CliError> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let raw = decode_hex(value)?;
+    let cursor: LocalPageCursor = serde_json::from_slice(&raw).map_err(|_| {
+        CliError::validation(
+            "invalid_host_bridge_cursor",
+            "Pagination cursor is malformed",
+        )
+    })?;
+    if cursor.version != 1 || cursor.scope != scope {
+        return Err(CliError::validation(
+            "invalid_host_bridge_cursor",
+            "Pagination cursor belongs to another command",
+        ));
+    }
+    if cursor.criteria != criteria {
+        return Err(CliError::validation(
+            "invalid_host_bridge_cursor",
+            "Pagination cursor does not match the current bundle",
+        ));
+    }
+    if now_unix_seconds().saturating_sub(cursor.issued_at) > 30 * 60 {
+        return Err(CliError::validation(
+            "invalid_host_bridge_cursor",
+            "Pagination cursor has expired",
+        ));
+    }
+    Ok(Some(cursor))
+}
+
+fn workflow_agent_bundle_inspect(args: WorkflowAgentBundleInspectArgs) -> Result<Value, CliError> {
+    let bundle = LocalBundle::open(&args.bundle)?;
+    let context = bundle.read_json("agent-run/context.json", "agent-run/context.json")?;
+    let context = required_object(&context, "agent-run/context.json")?;
+    let agent_run_id = required_string(
+        context.get("agentRunId").unwrap_or(&Value::Null),
+        "agentRunId",
+        "invalid_agent_bundle",
+    )?;
+    let mut contracts = Vec::new();
+    for entry in bundle.output_contract_entries()? {
+        let contract = bundle.read_json(&entry, &entry)?;
+        let contract_object = required_object(&contract, "output contract")?;
+        if contract_object.get("schema").and_then(Value::as_str)
+            != Some(AGENT_RUN_OUTPUT_CONTRACT_SCHEMA)
+        {
+            return Err(CliError::validation(
+                "invalid_output_contract",
+                "Agent handoff contains an unsupported output contract schema",
+            ));
+        }
+        required_string(
+            contract_object
+                .get("agentRequestId")
+                .unwrap_or(&Value::Null),
+            "agentRequestId",
+            "invalid_output_contract",
+        )?;
+        contracts.push(contract);
+    }
+    contracts.sort_by(|left, right| {
+        left.get("agentRequestId")
+            .and_then(Value::as_str)
+            .cmp(&right.get("agentRequestId").and_then(Value::as_str))
+    });
+    if contracts.is_empty() {
+        return Err(CliError::validation(
+            "output_contract_missing",
+            "Agent handoff contains no output contracts",
+        ));
+    }
+    let agent_request_ids = contracts
+        .iter()
+        .filter_map(|contract| contract.get("agentRequestId").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    let criteria = format!("{}\n{}", args.bundle.display(), agent_run_id);
+    let cursor = local_page_cursor(args.page.cursor.as_deref(), "workflow agent-bundle inspect", &criteria)?;
+    let start = cursor
+        .as_ref()
+        .map(|cursor| {
+            agent_request_ids
+                .iter()
+                .position(|entry| **entry == cursor.after_key)
+                .map(|index| index + 1)
+                .ok_or_else(|| {
+                    CliError::validation(
+                        "invalid_host_bridge_cursor",
+                        "Pagination cursor anchor is no longer present",
+                    )
+                })
+        })
+        .transpose()?
+        .unwrap_or(0);
+    let limit = args.page.limit.unwrap_or(25).clamp(1, 100) as usize;
+    let end = (start + limit).min(contracts.len());
+    let page_contracts = contracts[start..end].to_vec();
+    let page_request_ids = agent_request_ids[start..end].to_vec();
+    let has_more = end < contracts.len();
+    let next_cursor = if has_more {
+        let cursor = LocalPageCursor {
+            version: 1,
+            scope: "workflow agent-bundle inspect".to_string(),
+            criteria,
+            issued_at: now_unix_seconds(),
+            after_key: page_request_ids.last().copied().unwrap_or_default().to_string(),
+        };
+        encode_hex(&serde_json::to_vec(&cursor).map_err(|_| {
+            CliError::internal("cursor_encode_failed", "Could not encode pagination cursor")
+        })?)
+    } else {
+        String::new()
+    };
+    Ok(json!({
+        "schema": "zotero-bridge.agent-bundle-inspection.v1",
+        "agentRunId": agent_run_id,
+        "agentRequestIds": page_request_ids,
+        "contracts": page_contracts,
+        "nextCursor": next_cursor,
+        "hasMore": has_more,
+        "returned": end - start,
+        "total": contracts.len(),
+        "limit": limit,
+    }))
+}
+
+fn namespace_from(value: &Value) -> Option<&str> {
+    value
+        .get("namespace")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            value
+                .get("run")
+                .and_then(Value::as_object)
+                .and_then(|run| run.get("namespace"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            value
+                .get("result")
+                .and_then(Value::as_object)
+                .and_then(|result| result.get("namespace"))
+                .and_then(Value::as_str)
+        })
+}
+
+fn validate_contract_artifacts(
+    bundle: &LocalBundle,
+    contract: &serde_json::Map<String, Value>,
+) -> Result<Vec<String>, CliError> {
+    let mut paths = Vec::new();
+    for field in ["artifactManifestPath", "requiredArtifactManifestPath"] {
+        if let Some(path) = contract.get(field).and_then(Value::as_str) {
+            if !bundle.contains_file(path, field)? {
+                return Err(CliError::validation(
+                    "artifact_manifest_missing",
+                    format!("Required artifact manifest is missing: {field}"),
+                ));
+            }
+            bundle.read_json(path, field)?;
+            paths.push(field.to_string());
+        }
+    }
+    if let Some(required) = contract
+        .get("requiredArtifactPaths")
+        .and_then(Value::as_array)
+    {
+        for (index, entry) in required.iter().enumerate() {
+            let raw = required_string(
+                entry,
+                &format!("requiredArtifactPaths[{index}]"),
+                "invalid_output_contract",
+            )?;
+            if !bundle.contains_file(&raw, "requiredArtifactPaths")? {
+                return Err(CliError::validation(
+                    "required_artifact_missing",
+                    format!("Required result artifact is missing: {raw}"),
+                ));
+            }
+            paths.push(raw);
+        }
+    }
+    Ok(paths)
+}
+
+fn workflow_agent_result_validate(
+    args: WorkflowAgentResultValidateArgs,
+) -> Result<Value, CliError> {
+    let contract = read_local_json(&args.contract, "output contract")?;
+    let contract = required_object(&contract, "output contract")?;
+    if contract.get("schema").and_then(Value::as_str) != Some(AGENT_RUN_OUTPUT_CONTRACT_SCHEMA) {
+        return Err(CliError::validation(
+            "invalid_output_contract",
+            "Output contract has an unsupported schema",
+        ));
+    }
+    let agent_request_id = required_string(
+        contract.get("agentRequestId").unwrap_or(&Value::Null),
+        "agentRequestId",
+        "invalid_output_contract",
+    )?;
+    let namespace = required_string(
+        contract.get("namespace").unwrap_or(&Value::Null),
+        "namespace",
+        "invalid_output_contract",
+    )?;
+    let result_json_path = required_string(
+        contract.get("resultJsonPath").unwrap_or(&Value::Null),
+        "resultJsonPath",
+        "invalid_output_contract",
+    )?;
+    let manifest_path = contract
+        .get("expectedBundleManifestPath")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("bundle/{namespace}/manifest.json"));
+    let bundle = LocalBundle::open(&args.result)?;
+    let result = bundle.read_json(&result_json_path, "resultJsonPath")?;
+    required_object(&result, "result JSON")?;
+    let manifest = bundle.read_json(&manifest_path, "expectedBundleManifestPath")?;
+    required_object(&manifest, "bundle manifest")?;
+    for (label, value) in [("result JSON", &result), ("bundle manifest", &manifest)] {
+        let actual = namespace_from(value)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                CliError::validation(
+                    "bundle_namespace_missing",
+                    format!("{label} must declare the result namespace"),
+                )
+            })?;
+        if actual != namespace {
+            return Err(CliError::validation(
+                "bundle_namespace_mismatch",
+                format!("{label} namespace does not match the output contract"),
+            )
+            .with_details(json!({ "expected": namespace, "actual": actual, "source": label })));
+        }
+    }
+    let artifact_requirements = validate_contract_artifacts(&bundle, contract)?;
+    Ok(json!({
+        "schema": "zotero-bridge.agent-result-validation.v1",
+        "agentRequestId": agent_request_id,
+        "namespace": namespace,
+        "resultJsonPath": result_json_path,
+        "manifestPath": manifest_path,
+        "artifactRequirements": artifact_requirements,
+    }))
+}
+
+fn workflow_profile(config: &BridgeConfig, args: WorkflowProfileArgs) -> Result<Value, CliError> {
+    match args.command {
+        WorkflowProfileCommand::List => client::get(config, "/workflows/provider-profiles"),
+        WorkflowProfileCommand::Describe(args) => client::post(
+            config,
+            "/workflows/provider-profiles/describe",
+            workflow_profile_describe_input(args)?,
+        ),
+        WorkflowProfileCommand::Validate(args) => client::post(
+            config,
+            "/workflows/provider-profiles/validate",
+            workflow_profile_validate_input(
+                args,
+                std::env::var("ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE")
+                    .ok()
+                    .as_deref(),
+            )?,
+        ),
     }
 }
 
@@ -391,7 +1096,7 @@ pub fn run(config: &BridgeConfig, args: RunArgs) -> Result<Value, CliError> {
             workflow_cancel_input(args),
         ),
         RunCommand::List(args) => client::get(config, &task_list_path(args)),
-        RunCommand::Active => client::get(config, "/tasks/active"),
+        RunCommand::Active(args) => client::get(config, &page_path("/tasks/active", args)),
         RunCommand::Recent(args) => client::get(config, &task_recent_path(args)),
         RunCommand::Workflow(args) => run_workflow(config, args),
         RunCommand::Skill(args) => match args.command {
@@ -429,9 +1134,20 @@ fn run_workflow(config: &BridgeConfig, args: RunWorkflowArgs) -> Result<Value, C
 
 fn run_permission(config: &BridgeConfig, args: RunPermissionArgs) -> Result<Value, CliError> {
     match args.command {
-        RunPermissionCommand::Pending => client::get(config, "/permissions/pending"),
+        RunPermissionCommand::Pending(args) => {
+            client::get(config, &page_path("/permissions/pending", args))
+        }
         RunPermissionCommand::Get(args) => client::get(config, &permission_path(args)),
     }
+}
+
+fn page_path(path: &str, args: PageArgs) -> String {
+    let mut query = Vec::new();
+    push_query(&mut query, "cursor", args.cursor);
+    if let Some(limit) = args.limit {
+        query.push(("limit".to_string(), limit.to_string()));
+    }
+    path_with_query(path, query)
 }
 
 pub fn file(config: &BridgeConfig, args: FileArgs) -> Result<Value, CliError> {
@@ -472,7 +1188,7 @@ fn ensure_debug_capability(config: &BridgeConfig, capability: &str) -> Result<()
     Err(CliError::new(
         "debug_mode_disabled",
         crate::error::ErrorCategory::Capability,
-        "Host Bridge debug capabilities are not exposed; enable hardcoded debug mode and restart Zotero",
+        "Zotero Bridge debug capabilities are not exposed; enable hardcoded debug mode and restart Zotero",
     )
     .with_details(json!({ "capability": capability })))
 }
@@ -580,6 +1296,7 @@ fn citation_graph_capability(command: &CitationGraphCommand) -> &'static str {
         }
         CitationGraphCommand::RankLibraryPapers(_) => "citation_graph.rank_library_papers",
         CitationGraphCommand::RefreshMetrics(_) => "citation_graph.refresh_metrics",
+        CitationGraphCommand::Update(_) => "citation_graph.update",
     }
 }
 
@@ -592,7 +1309,9 @@ fn citation_graph_input(command: CitationGraphCommand) -> BridgeQueryArgs {
         | CitationGraphCommand::GetMetrics(args)
         | CitationGraphCommand::RankExternalReferences(args)
         | CitationGraphCommand::RankLibraryPapers(args) => args,
-        CitationGraphCommand::RefreshMetrics(_) => unreachable!("mutation input uses --input"),
+        CitationGraphCommand::RefreshMetrics(_) | CitationGraphCommand::Update(_) => {
+            unreachable!("mutation input uses --input")
+        }
     }
 }
 
@@ -708,7 +1427,10 @@ fn refs_value(values: Vec<String>) -> Result<Value, CliError> {
 }
 
 fn annotation_item_input(args: AnnotationItemArgs) -> Result<Value, CliError> {
-    Ok(json!({ "ref": context_ref_value(&args.item)? }))
+    let mut input = Map::new();
+    input.insert("ref".to_string(), context_ref_value(&args.item)?);
+    insert_page(&mut input, args.page);
+    Ok(Value::Object(input))
 }
 
 fn annotation_export_input(args: AnnotationExportArgs) -> Result<Value, CliError> {
@@ -792,7 +1514,7 @@ fn mutation_item_update_input(args: MutationItemUpdateArgs) -> Result<Value, Cli
 }
 
 fn mutation_item_attach_file_input(args: MutationItemAttachFileArgs) -> Result<Value, CliError> {
-    let file_id = normalize_file_id(&args.file)?;
+    let file_id = normalize_file_id(&args.file_id)?;
     let mut object = Map::new();
     object.insert(
         "operation".to_string(),
@@ -876,12 +1598,67 @@ fn provider_profile_arg(input: Option<&str>) -> Result<Value, CliError> {
     )
 }
 
+fn resolved_provider_profile_arg(
+    explicit: Option<&str>,
+    environment_default: Option<&str>,
+) -> Result<Value, CliError> {
+    if let Some(explicit) = explicit {
+        return provider_profile_arg(Some(explicit));
+    }
+    let Some(environment_default) = environment_default else {
+        return provider_profile_arg(None);
+    };
+    let trimmed = environment_default.trim();
+    if trimmed == "-" {
+        return Err(CliError::validation(
+            "invalid_default_provider_profile",
+            "ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE does not accept stdin",
+        ));
+    }
+    if let Some(path) = trimmed.strip_prefix('@') {
+        if !std::path::Path::new(path).is_absolute() {
+            return Err(CliError::validation(
+                "invalid_default_provider_profile",
+                "ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE @file must be absolute",
+            ));
+        }
+    } else if !trimmed.starts_with('{') {
+        return Err(CliError::validation(
+            "invalid_default_provider_profile",
+            "ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE must be inline JSON or @absolute-file",
+        ));
+    }
+    provider_profile_arg(Some(trimmed))
+}
+
 fn workflow_describe_input(args: WorkflowDescribeArgs) -> Result<Value, CliError> {
     let workflow = workflow_id_arg(&args.workflow, "describe")?;
     Ok(json!({
         "workflowId": workflow,
-        "workflowOptions": workflow_options_arg(args.workflow_options.as_deref())?,
-        "providerProfile": provider_profile_arg(args.provider_profile.as_deref())?
+        "workflowOptions": workflow_options_arg(args.workflow_options.as_deref())?
+    }))
+}
+
+fn workflow_profile_describe_input(args: WorkflowProfileDescribeArgs) -> Result<Value, CliError> {
+    let backend = args.backend.trim();
+    if backend.is_empty() {
+        return Err(CliError::validation(
+            "missing_backend_id",
+            "workflow profile describe requires --backend",
+        ));
+    }
+    Ok(json!({ "backendId": backend }))
+}
+
+fn workflow_profile_validate_input(
+    args: WorkflowProfileValidateArgs,
+    environment_default: Option<&str>,
+) -> Result<Value, CliError> {
+    Ok(json!({
+        "providerProfile": resolved_provider_profile_arg(
+            args.provider_profile.as_deref(),
+            environment_default,
+        )?
     }))
 }
 
@@ -922,14 +1699,40 @@ fn workflow_selection(args: &WorkflowSubmitArgs) -> Result<Value, CliError> {
     workflow_selection_from(args.selection.as_deref(), args.none, "submit")
 }
 
+fn workflow_validate_input(args: WorkflowValidateArgs) -> Result<Value, CliError> {
+    let workflow = workflow_id_arg(&args.workflow, "validate")?;
+    Ok(json!({
+        "workflowId": workflow,
+        "selection": workflow_selection_from(
+            args.selection.as_deref(),
+            args.none,
+            "validate",
+        )?,
+        "workflowOptions": workflow_options_arg(args.workflow_options.as_deref())?
+    }))
+}
+
 fn workflow_submit_input(args: WorkflowSubmitArgs) -> Result<Value, CliError> {
     let workflow = workflow_id_arg(&args.workflow, "submit")?;
-    Ok(json!({
+    let mut input = json!({
         "workflowId": workflow,
         "selection": workflow_selection(&args)?,
         "workflowOptions": workflow_options_arg(args.workflow_options.as_deref())?,
-        "providerProfile": provider_profile_arg(args.provider_profile.as_deref())?
-    }))
+        "providerProfile": resolved_provider_profile_arg(
+            args.provider_profile.as_deref(),
+            std::env::var("ZOTERO_BRIDGE_DEFAULT_PROVIDER_PROFILE")
+                .ok()
+                .as_deref(),
+        )?
+    });
+    if let Some(max_concurrency) = args.max_concurrency {
+        input["hostOptions"] = json!({
+            "queue": {
+                "maxConcurrency": max_concurrency
+            }
+        });
+    }
+    Ok(input)
 }
 
 fn workflow_agent_run_input(args: &WorkflowAgentRunArgs) -> Result<Value, CliError> {
@@ -1053,10 +1856,36 @@ fn workflow_agent_apply_status(
     }
     client::get(
         config,
-        &format!(
-            "/workflows/agent-runs/{}/apply",
-            percent_encode_path(agent_run_id)
+        &page_path(
+            &format!(
+                "/workflows/agent-runs/{}/apply",
+                percent_encode_path(agent_run_id)
+            ),
+            args.page,
         ),
+    )
+}
+
+fn workflow_agent_run_lifecycle(
+    config: &BridgeConfig,
+    args: WorkflowAgentRunLifecycleArgs,
+    action: &str,
+) -> Result<Value, CliError> {
+    let agent_run_id = args.agent_run_id.trim();
+    if agent_run_id.is_empty() {
+        return Err(CliError::validation(
+            "missing_agent_run_id",
+            format!("workflow agent-{action} requires an agent run id"),
+        ));
+    }
+    client::post(
+        config,
+        &format!(
+            "/workflows/agent-runs/{}/{}",
+            percent_encode_path(agent_run_id),
+            action
+        ),
+        json!({}),
     )
 }
 
@@ -1068,7 +1897,10 @@ fn workflow_run_path(args: WorkflowRunArgs) -> Result<String, CliError> {
             "Workflow run status requires a run id",
         ));
     }
-    Ok(format!("/workflows/runs/{}", percent_encode_path(run_id)))
+    Ok(page_path(
+        &format!("/workflows/runs/{}", percent_encode_path(run_id)),
+        args.page,
+    ))
 }
 
 fn workflow_cancel_path(args: &WorkflowCancelArgs) -> Result<String, CliError> {
@@ -1138,6 +1970,7 @@ fn skill_run_recent_path(args: SkillRunRecentArgs) -> String {
     if let Some(limit) = args.limit {
         query.push(("limit".to_string(), limit.to_string()));
     }
+    push_query(&mut query, "cursor", args.cursor);
     path_with_query("/skill-runs/recent", query)
 }
 
@@ -1148,6 +1981,7 @@ fn skill_run_events_path(args: SkillRunEventsArgs) -> Result<String, CliError> {
     if let Some(limit) = args.limit {
         query.push(("limit".to_string(), limit.to_string()));
     }
+    push_query(&mut query, "cursor", args.cursor);
     Ok(path_with_query(
         &format!("/skill-runs/{}/events", percent_encode_path(skill_run_id)),
         query,
@@ -1253,12 +2087,67 @@ fn task_list_path(args: TaskListArgs) -> String {
     push_query(&mut query, "backendId", args.backend);
     push_query(&mut query, "backendType", args.backend_type);
     push_query(&mut query, "requestId", args.request);
+    push_query(&mut query, "submissionId", args.submission);
     push_query(&mut query, "runId", args.run);
     push_query(&mut query, "state", args.state);
     if args.active_only {
         query.push(("includeHistory".to_string(), "false".to_string()));
     }
+    push_query(&mut query, "cursor", args.cursor);
+    if let Some(limit) = args.limit {
+        query.push(("limit".to_string(), limit.to_string()));
+    }
     path_with_query("/tasks", query)
+}
+
+fn workflow_queue_list_path(args: WorkflowQueueListArgs) -> Result<String, CliError> {
+    if args.backend_type.is_some() != args.backend.is_some() {
+        return Err(CliError::validation(
+            "invalid_workflow_queue_scope",
+            "Workflow queue backend filtering requires both --backend-type and --backend",
+        ));
+    }
+    let mut query = Vec::new();
+    push_query(&mut query, "backendType", args.backend_type);
+    push_query(&mut query, "backendId", args.backend);
+    push_query(&mut query, "cursor", args.cursor);
+    if let Some(limit) = args.limit {
+        query.push(("limit".to_string(), limit.to_string()));
+    }
+    Ok(path_with_query("/workflows/queue", query))
+}
+
+fn workflow_queue_cancel_path(args: WorkflowQueueCancelArgs) -> Result<String, CliError> {
+    let queue_id = args.queue_id.trim();
+    if queue_id.is_empty() {
+        return Err(CliError::validation(
+            "missing_workflow_queue_id",
+            "Workflow queue cancel requires a queue id",
+        ));
+    }
+    Ok(format!(
+        "/workflows/queue/{}/cancel",
+        percent_encode_path(queue_id)
+    ))
+}
+
+fn workflow_submission_path(args: WorkflowSubmissionGetArgs) -> Result<String, CliError> {
+    let submission_id = args.submission_id.trim();
+    if submission_id.is_empty() {
+        return Err(CliError::validation(
+            "missing_workflow_submission_id",
+            "Workflow submission get requires a submission id",
+        ));
+    }
+    let mut query = Vec::new();
+    push_query(&mut query, "cursor", args.cursor);
+    if let Some(limit) = args.limit {
+        query.push(("limit".to_string(), limit.to_string()));
+    }
+    Ok(path_with_query(
+        &format!("/workflows/submissions/{}", percent_encode_path(submission_id)),
+        query,
+    ))
 }
 
 fn task_recent_path(args: TaskRecentArgs) -> String {
@@ -1269,6 +2158,7 @@ fn task_recent_path(args: TaskRecentArgs) -> String {
     if let Some(limit) = args.limit {
         query.push(("limit".to_string(), limit.to_string()));
     }
+    push_query(&mut query, "cursor", args.cursor);
     path_with_query("/tasks/recent", query)
 }
 
@@ -1278,6 +2168,7 @@ fn workflow_runs_path(args: RunWorkflowRecentArgs) -> String {
     if let Some(limit) = args.limit {
         query.push(("limit".to_string(), limit.to_string()));
     }
+    push_query(&mut query, "cursor", args.cursor);
     path_with_query("/workflows/runs", query)
 }
 
@@ -1350,7 +2241,7 @@ fn notification_ack_input(args: NotificationAckArgs) -> Result<Value, CliError> 
 
 fn notification_response_has_events(value: &Value) -> bool {
     value
-        .pointer("/result/notifications")
+        .pointer("/notifications")
         .and_then(Value::as_array)
         .map(|entries| !entries.is_empty())
         .unwrap_or(false)
@@ -1372,7 +2263,7 @@ fn notification_wait(config: &BridgeConfig, args: NotificationWaitArgs) -> Resul
             return Err(CliError::new(
                 "notification_wait_timeout",
                 ErrorCategory::Workflow,
-                "No matching Host Bridge notification arrived before the timeout",
+                "No matching Zotero notification arrived before the timeout",
             )
             .with_details(json!({
                 "timeoutMs": args.timeout_ms,
@@ -1542,7 +2433,7 @@ fn normalize_file_id(file_id: &str) -> Result<String, CliError> {
     {
         return Err(CliError::validation(
             "invalid_file_id",
-            "file commands require a Host Bridge opaque file-* handle, not a path",
+            "file commands require a bridge-issued opaque file-* handle, not a path",
         ));
     }
     Ok(file_id.to_string())
@@ -1628,7 +2519,7 @@ fn ensure_protocol(value: &Value) -> Result<(), CliError> {
     if protocol != PROTOCOL {
         return Err(CliError::protocol(
             "incompatible_bridge_protocol",
-            "Host Bridge protocol version is incompatible",
+            "Zotero Bridge protocol version is incompatible",
         )
         .with_details(json!({
             "expected": PROTOCOL,
@@ -1731,9 +2622,22 @@ fn item_search_input(args: ItemSearchArgs) -> Result<Value, CliError> {
 fn item_notes_input(args: ItemNotesArgs) -> Result<Value, CliError> {
     let mut input = into_object(item_ref(args.item)?);
     insert_u32(&mut input, "limit", args.limit);
-    insert_u32(&mut input, "cursor", args.cursor);
+    push_value(&mut input, "cursor", args.cursor);
     insert_u32(&mut input, "maxExcerptChars", args.max_excerpt_chars);
     Ok(Value::Object(input))
+}
+
+fn item_page_input(args: ItemPageArgs) -> Result<Value, CliError> {
+    let mut input = into_object(item_ref(args.item)?);
+    insert_page(&mut input, args.page);
+    Ok(Value::Object(input))
+}
+
+fn insert_page(input: &mut Map<String, Value>, page: PageArgs) {
+    if let Some(cursor) = page.cursor {
+        input.insert("cursor".to_string(), Value::String(cursor));
+    }
+    insert_u32(input, "limit", page.limit);
 }
 
 fn note_detail_input(args: NoteDetailArgs) -> Result<Value, CliError> {
@@ -1840,6 +2744,19 @@ fn read_json_arg(input: Option<&str>) -> Result<Value, CliError> {
 mod tests {
     use super::*;
     use crate::args::{BridgeInputArgs, BridgeQueryArgs};
+    use std::io::Write;
+
+    fn write_test_zip(path: &Path, entries: &[(String, Vec<u8>)]) {
+        let file = fs::File::create(path).unwrap();
+        let mut archive = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for (name, contents) in entries {
+            archive.start_file(name, options).unwrap();
+            archive.write_all(contents).unwrap();
+        }
+        archive.finish().unwrap();
+    }
 
     #[test]
     fn maps_item_search_json_query_to_bridge_input() {
@@ -1957,6 +2874,12 @@ mod tests {
                 input: None
             })),
             "citation_graph.refresh_metrics"
+        );
+        assert_eq!(
+            citation_graph_capability(&CitationGraphCommand::Update(BridgeInputArgs {
+                input: None
+            })),
+            "citation_graph.update"
         );
         assert_eq!(
             resolvers_capability(&ResolversCommand::Resolve(query())),
@@ -2238,7 +3161,7 @@ mod tests {
         assert_eq!(
             mutation_item_attach_file_input(MutationItemAttachFileArgs {
                 item: "ABC123".to_string(),
-                file: "file-abc".to_string(),
+                file_id: "file-abc".to_string(),
                 display_name: Some("artifact.md".to_string()),
                 content_type: Some("text/markdown".to_string()),
             })
@@ -2279,7 +3202,7 @@ mod tests {
 
         let attach_error = mutation_item_attach_file_input(MutationItemAttachFileArgs {
             item: "ABC123".to_string(),
-            file: "../artifact.md".to_string(),
+            file_id: "../artifact.md".to_string(),
             display_name: None,
             content_type: None,
         })
@@ -2288,7 +3211,7 @@ mod tests {
 
         let non_handle_error = mutation_item_attach_file_input(MutationItemAttachFileArgs {
             item: "ABC123".to_string(),
-            file: "artifact-md".to_string(),
+            file_id: "artifact-md".to_string(),
             display_name: None,
             content_type: None,
         })
@@ -2301,6 +3224,10 @@ mod tests {
         assert_eq!(
             annotation_item_input(AnnotationItemArgs {
                 item: "1:ABC123".to_string(),
+                page: PageArgs {
+                    cursor: None,
+                    limit: None,
+                },
             })
             .unwrap(),
             json!({ "ref": "1:ABC123" })
@@ -2325,6 +3252,7 @@ mod tests {
             provider_profile: Some(
                 "{\"schema\":\"zotero-bridge.provider-profile.v1\",\"backendId\":\"acp-opencode\",\"providerOptions\":{\"acpModelId\":\"gpt-5.2\",\"autoApproveAcpPermissions\":true}}".to_string(),
             ),
+            max_concurrency: Some(3),
         })
         .unwrap();
         assert_eq!(
@@ -2350,6 +3278,11 @@ mod tests {
                         "acpModelId": "gpt-5.2",
                         "autoApproveAcpPermissions": true
                     }
+                },
+                "hostOptions": {
+                    "queue": {
+                        "maxConcurrency": 3
+                    }
                 }
             })
         );
@@ -2363,6 +3296,7 @@ mod tests {
             none: true,
             workflow_options: None,
             provider_profile: None,
+            max_concurrency: None,
         })
         .unwrap();
         assert_eq!(
@@ -2453,7 +3387,6 @@ mod tests {
         let input = workflow_describe_input(WorkflowDescribeArgs {
             workflow: "topic-synthesis".to_string(),
             workflow_options: Some("{\"language\":\"en-US\"}".to_string()),
-            provider_profile: Some("{\"backendId\":\"skillrunner\"}".to_string()),
         })
         .unwrap();
         assert_eq!(
@@ -2462,11 +3395,46 @@ mod tests {
                 "workflowId": "topic-synthesis",
                 "workflowOptions": {
                     "language": "en-US"
-                },
-                "providerProfile": {
-                    "backendId": "skillrunner"
                 }
             })
+        );
+    }
+
+    #[test]
+    fn maps_workflow_provider_profile_commands_without_workflow_context() {
+        assert_eq!(
+            workflow_profile_describe_input(WorkflowProfileDescribeArgs {
+                backend: "acp-opencode".to_string(),
+            })
+            .unwrap(),
+            json!({ "backendId": "acp-opencode" })
+        );
+        assert_eq!(
+            workflow_profile_validate_input(
+                WorkflowProfileValidateArgs {
+                    provider_profile: Some("{\"backendId\":\"acp-opencode\"}".to_string()),
+                },
+                None,
+            )
+            .unwrap(),
+            json!({
+                "providerProfile": {
+                    "backendId": "acp-opencode"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn resolves_default_provider_profile_only_when_explicit_is_absent() {
+        let default = Some("{\"backendId\":\"default-backend\"}");
+        assert_eq!(
+            resolved_provider_profile_arg(Some("{}"), default).unwrap(),
+            json!({})
+        );
+        assert_eq!(
+            resolved_provider_profile_arg(None, default).unwrap(),
+            json!({ "backendId": "default-backend" })
         );
     }
 
@@ -2477,13 +3445,53 @@ mod tests {
             backend: Some("b".to_string()),
             backend_type: None,
             request: None,
+            submission: Some("workflow-submission-1".to_string()),
             run: Some("run-1".to_string()),
             state: Some("running".to_string()),
             active_only: true,
+            cursor: Some("cursor-1".to_string()),
+            limit: Some(25),
         });
         assert_eq!(
             path,
-            "/tasks?workflowId=w+1&backendId=b&runId=run-1&state=running&includeHistory=false"
+            "/tasks?workflowId=w+1&backendId=b&submissionId=workflow-submission-1&runId=run-1&state=running&includeHistory=false&cursor=cursor-1&limit=25"
+        );
+    }
+
+    #[test]
+    fn builds_native_workflow_queue_and_submission_paths() {
+        assert_eq!(
+            workflow_queue_list_path(WorkflowQueueListArgs {
+                backend_type: Some("skillrunner".to_string()),
+                backend: Some("backend a".to_string()),
+                cursor: Some("next".to_string()),
+                limit: Some(25),
+            })
+            .unwrap(),
+            "/workflows/queue?backendType=skillrunner&backendId=backend+a&cursor=next&limit=25"
+        );
+        assert!(workflow_queue_list_path(WorkflowQueueListArgs {
+            backend_type: Some("skillrunner".to_string()),
+            backend: None,
+            cursor: None,
+            limit: None,
+        })
+        .is_err());
+        assert_eq!(
+            workflow_queue_cancel_path(WorkflowQueueCancelArgs {
+                queue_id: "workflow queue/1".to_string(),
+            })
+            .unwrap(),
+            "/workflows/queue/workflow%20queue%2F1/cancel"
+        );
+        assert_eq!(
+            workflow_submission_path(WorkflowSubmissionGetArgs {
+                submission_id: "workflow submission/1".to_string(),
+                cursor: Some("next".to_string()),
+                limit: Some(10),
+            })
+            .unwrap(),
+            "/workflows/submissions/workflow%20submission%2F1?cursor=next&limit=10"
         );
     }
 
@@ -2512,6 +3520,10 @@ mod tests {
         assert_eq!(
             context_selection_open_input(ContextSelectionOpenArgs {
                 item_refs: vec!["ABC123".to_string(), "{\"id\":2}".to_string()],
+                page: PageArgs {
+                    cursor: None,
+                    limit: None,
+                },
             })
             .unwrap(),
             json!({ "items": ["ABC123", { "id": 2 }] })
@@ -2556,14 +3568,10 @@ mod tests {
     #[test]
     fn detects_notification_response_events() {
         assert!(notification_response_has_events(&json!({
-            "result": {
-                "notifications": [{ "eventId": "event-1" }]
-            }
+            "notifications": [{ "eventId": "event-1" }]
         })));
         assert!(!notification_response_has_events(&json!({
-            "result": {
-                "notifications": []
-            }
+            "notifications": []
         })));
     }
 
@@ -2649,6 +3657,202 @@ mod tests {
         };
         let error = workflow_agent_apply_input(&args).unwrap_err();
         assert_eq!(error.code, "invalid_agent_apply_result");
+    }
+
+    #[test]
+    fn inspects_and_validates_local_agent_bundles_without_a_bridge_client() {
+        let root = std::env::temp_dir().join(format!(
+            "zotero-bridge-local-agent-bundle-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("agent-run/requests/request-1")).unwrap();
+        fs::write(
+            root.join("agent-run/context.json"),
+            r#"{"agentRunId":"agent-run-1"}"#,
+        )
+        .unwrap();
+        let contract = json!({
+            "schema": AGENT_RUN_OUTPUT_CONTRACT_SCHEMA,
+            "agentRequestId": "request-1",
+            "namespace": "example",
+            "resultJsonPath": "result/result.json",
+            "expectedBundleManifestPath": "bundle/example/manifest.json",
+            "requiredArtifactPaths": ["artifacts/proof.txt"]
+        });
+        fs::write(
+            root.join("agent-run/requests/request-1/output-contract.json"),
+            serde_json::to_vec(&contract).unwrap(),
+        )
+        .unwrap();
+        let inspection = workflow_agent_bundle_inspect(WorkflowAgentBundleInspectArgs {
+            bundle: root.clone(),
+            page: PageArgs { cursor: None, limit: None },
+        })
+        .unwrap();
+        assert_eq!(inspection["agentRunId"], "agent-run-1");
+        assert_eq!(inspection["agentRequestIds"], json!(["request-1"]));
+
+        let result_root = root.join("result-bundle");
+        fs::create_dir_all(result_root.join("result")).unwrap();
+        fs::create_dir_all(result_root.join("bundle/example")).unwrap();
+        fs::create_dir_all(result_root.join("artifacts")).unwrap();
+        fs::write(
+            result_root.join("result/result.json"),
+            r#"{"namespace":"example"}"#,
+        )
+        .unwrap();
+        fs::write(
+            result_root.join("bundle/example/manifest.json"),
+            r#"{"namespace":"example"}"#,
+        )
+        .unwrap();
+        fs::write(result_root.join("artifacts/proof.txt"), "proof").unwrap();
+        let contract_path = root.join("contract.json");
+        fs::write(&contract_path, serde_json::to_vec(&contract).unwrap()).unwrap();
+        let validation = workflow_agent_result_validate(WorkflowAgentResultValidateArgs {
+            contract: contract_path,
+            result: result_root,
+        })
+        .unwrap();
+        assert_eq!(validation["namespace"], "example");
+        assert_eq!(validation["agentRequestId"], "request-1");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn inspects_and_validates_zip_agent_bundles_without_a_bridge_client() {
+        let root = std::env::temp_dir().join(format!(
+            "zotero-bridge-local-agent-zip-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let contract = json!({
+            "schema": AGENT_RUN_OUTPUT_CONTRACT_SCHEMA,
+            "agentRequestId": "request-zip",
+            "namespace": "example",
+            "resultJsonPath": "result/result.json",
+            "expectedBundleManifestPath": "bundle/example/manifest.json",
+            "requiredArtifactPaths": ["artifacts/proof.txt"]
+        });
+        let contract_bytes = serde_json::to_vec(&contract).unwrap();
+        let handoff_zip = root.join("handoff.zip");
+        write_test_zip(
+            &handoff_zip,
+            &[
+                (
+                    "agent-run/context.json".to_string(),
+                    br#"{"agentRunId":"agent-run-zip"}"#.to_vec(),
+                ),
+                (
+                    "agent-run/requests/request-zip/output-contract.json".to_string(),
+                    contract_bytes.clone(),
+                ),
+            ],
+        );
+        let inspection = workflow_agent_bundle_inspect(WorkflowAgentBundleInspectArgs {
+            bundle: handoff_zip,
+            page: PageArgs { cursor: None, limit: None },
+        })
+        .unwrap();
+        assert_eq!(inspection["agentRunId"], "agent-run-zip");
+        assert_eq!(inspection["agentRequestIds"], json!(["request-zip"]));
+
+        let result_zip = root.join("result.zip");
+        write_test_zip(
+            &result_zip,
+            &[
+                (
+                    "result/result.json".to_string(),
+                    br#"{"namespace":"example"}"#.to_vec(),
+                ),
+                (
+                    "bundle/example/manifest.json".to_string(),
+                    br#"{"namespace":"example"}"#.to_vec(),
+                ),
+                ("artifacts/proof.txt".to_string(), b"proof".to_vec()),
+            ],
+        );
+        let contract_path = root.join("contract.json");
+        fs::write(&contract_path, contract_bytes).unwrap();
+        let validation = workflow_agent_result_validate(WorkflowAgentResultValidateArgs {
+            contract: contract_path,
+            result: result_zip,
+        })
+        .unwrap();
+        assert_eq!(validation["namespace"], "example");
+        assert_eq!(validation["agentRequestId"], "request-zip");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rejects_malformed_zip_agent_bundle_with_structured_error() {
+        let zip = std::env::temp_dir().join(format!(
+            "zotero-bridge-malformed-agent-zip-test-{}.zip",
+            std::process::id()
+        ));
+        fs::write(&zip, b"PK\x03\x04").unwrap();
+        let error = workflow_agent_bundle_inspect(WorkflowAgentBundleInspectArgs {
+            bundle: zip.clone(),
+            page: PageArgs { cursor: None, limit: None },
+        })
+        .unwrap_err();
+        assert_eq!(error.code, "invalid_bundle_archive");
+        let _ = fs::remove_file(zip);
+    }
+
+    #[test]
+    fn rejects_zip_entries_that_escape_the_bundle_root() {
+        let zip = std::env::temp_dir().join(format!(
+            "zotero-bridge-unsafe-agent-zip-test-{}.zip",
+            std::process::id()
+        ));
+        write_test_zip(&zip, &[("../outside.json".to_string(), b"{}".to_vec())]);
+        let error = workflow_agent_bundle_inspect(WorkflowAgentBundleInspectArgs {
+            bundle: zip.clone(),
+            page: PageArgs { cursor: None, limit: None },
+        })
+        .unwrap_err();
+        assert_eq!(error.code, "invalid_bundle_path");
+        let _ = fs::remove_file(zip);
+    }
+
+    #[test]
+    fn rejects_unsafe_bundle_paths_consistently_across_platforms() {
+        for path in [
+            "../outside.json",
+            "/absolute.json",
+            "C:\\outside.json",
+            "./C:/outside.json",
+            "inside/../../outside.json",
+            "nul\0entry.json",
+        ] {
+            let error = normalize_bundle_entry(path, "test entry").unwrap_err();
+            assert_eq!(error.code, "invalid_bundle_path", "path: {path:?}");
+        }
+    }
+
+    #[test]
+    fn rejects_oversized_json_entries_in_zip_agent_bundles() {
+        let zip = std::env::temp_dir().join(format!(
+            "zotero-bridge-large-agent-zip-test-{}.zip",
+            std::process::id()
+        ));
+        write_test_zip(
+            &zip,
+            &[(
+                "agent-run/context.json".to_string(),
+                vec![b' '; 16 * 1024 * 1024 + 1],
+            )],
+        );
+        let error = workflow_agent_bundle_inspect(WorkflowAgentBundleInspectArgs {
+            bundle: zip.clone(),
+            page: PageArgs { cursor: None, limit: None },
+        })
+        .unwrap_err();
+        assert_eq!(error.code, "bundle_entry_too_large");
+        let _ = fs::remove_file(zip);
     }
 
     #[test]

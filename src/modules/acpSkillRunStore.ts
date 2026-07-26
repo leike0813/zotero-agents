@@ -72,6 +72,7 @@ import {
   resolveAcpRawModelIdForSelection,
   type AcpSelectableOption,
 } from "./acpModelOptionFolding";
+import type { AcpReasoningSource } from "./acpSessionConfigOptions";
 import { normalizeAcpPermissionOptionKind } from "./acpPermissionOptions";
 import type { AcpSkillRunAuditTrailState } from "./acpSkillRunAuditTrail";
 import {
@@ -96,7 +97,10 @@ import {
   registerAcpSkillRunPermissionRequestHandler,
   type AcpSkillRunPermissionRequestWithResolver,
 } from "./acpSkillRunPermissionFacade";
-import { registerAcpSkillRunAutoApprovalResolver } from "./hostBridgeWriteAutoApprovalRegistry";
+import {
+  registerAcpSkillRunAutoApprovalResolver,
+  revokeHostBridgeWriteAutoApprovalGrantsForRun,
+} from "./hostBridgeWriteAutoApprovalRegistry";
 import {
   createAcpSkillsWorkspaceOwner,
   createFailedTranscriptRegion,
@@ -334,6 +338,7 @@ export type AcpSkillRunRecord = {
   lastTurnOutput?: string;
   lastTurnOutputPreview?: string;
   pendingInteraction?: AcpSkillRunPendingInteraction;
+  outputRevisionCount?: number;
   conversationState?: AcpSkillRunConversationState;
   conversationRecoveryState?: AcpSkillRunRecoveryState;
   conversationError?: string;
@@ -351,7 +356,6 @@ export type AcpSkillRunRecord = {
   resultJson?: unknown;
   transcriptItems?: AcpSkillRunTranscriptItem[];
   outputRevisionsPath?: string;
-  outputRevisionCount?: number;
   outputRevisionPreview?: string;
   error?: string;
   usage?: {
@@ -437,15 +441,12 @@ export type AcpSkillRunSummaryListOptions = {
   limit?: number;
 };
 
-export type AcpSkillRunRuntimeOptionsSnapshot = {
+export type AcpSkillRunRuntimeCatalog = {
   modeOptions: AcpSelectableOption[];
-  currentMode?: AcpSelectableOption;
   modelOptions: AcpSelectableOption[];
-  currentModel?: AcpSelectableOption;
   displayModelOptions: AcpSelectableOption[];
-  currentDisplayModel?: AcpSelectableOption;
   reasoningEffortOptions: AcpSelectableOption[];
-  currentReasoningEffort?: AcpSelectableOption;
+  reasoningSource: AcpReasoningSource;
 };
 
 export type AcpSkillRunWorkspaceChangeKind =
@@ -483,6 +484,7 @@ export type AcpSkillRunWorkspaceReadModel = Readonly<{
   workspaceDir?: string;
   runtimeDir?: string;
   sessionId?: string;
+  acpModeId?: string;
   acpModelId?: string;
   acpRawModelId?: string;
   acpReasoningEffort?: string;
@@ -500,7 +502,7 @@ export type AcpSkillRunWorkspaceReadModel = Readonly<{
   usage?: { used: number; size: number };
   planEntries: AcpSkillRunPlanEntry[];
   updatedAt: string;
-  runtimeOptions: AcpSkillRunRuntimeOptionsSnapshot;
+  runtimeOptions: AcpSkillRunRuntimeCatalog;
 }>;
 
 export type AcpSkillRunWorkspaceDetailsReadModel = Readonly<{
@@ -551,6 +553,7 @@ type AcpSkillRunController = {
   cancel: () => Promise<void>;
   interruptTurn?: () => Promise<void>;
   reply?: (message: string) => Promise<void>;
+  replyRequest?: (request: AcpSkillRunReplyRequest) => Promise<void>;
   disconnect?: () => Promise<void>;
   endSession?: () => Promise<void>;
   setConfigOption?: (args: {
@@ -560,6 +563,11 @@ type AcpSkillRunController = {
   }) => Promise<boolean>;
   setMode?: (args: { sessionId: string; modeId: string }) => Promise<void>;
   setModel?: (args: { sessionId: string; modelId: string }) => Promise<void>;
+};
+
+export type AcpSkillRunReplyRequest = {
+  displayMessage: string;
+  promptMessage: string;
 };
 
 type AcpSkillRunWorkspaceListener = (
@@ -624,10 +632,7 @@ const SOFT_RUN_PERSIST_DELAY_MS = 2000;
 const softRunPersistTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const softRunPersistRecords = new Map<string, AcpSkillRunRecord>();
 const lastPersistedEventIds = new Map<string, string>();
-const runtimeOptionsByRequestId = new Map<
-  string,
-  AcpSkillRunRuntimeOptionsSnapshot
->();
+const runtimeCatalogByRequestId = new Map<string, AcpSkillRunRuntimeCatalog>();
 const permissionResolvers = new Map<
   string,
   {
@@ -1332,6 +1337,38 @@ async function readSelectedTranscriptPageFromStore(
   if (!hasDurableAcpSkillRunTranscript(record)) {
     return undefined;
   }
+  const executionDisplayMode = getAssistantExecutionDisplayMode();
+  if (executionDisplayMode !== "live") {
+    const { items, eventSeq } = await readFullTranscriptFromStore(record);
+    const itemsById = new Map(
+      items.map((item) => [String(item.id || ""), item]),
+    );
+    const page = readUiVisibleTranscriptPage<AcpSkillRunTranscriptItem>({
+      itemIds: items.map((item) => String(item.id || "")),
+      getItem: (itemId) => itemsById.get(itemId),
+      cloneItem: cloneAcpSkillRunTranscriptItem,
+      executionDisplayMode,
+      cursor: request?.cursor,
+      limit: request?.limit,
+      defaultLimit: ACP_SKILL_RUN_TRANSCRIPT_PAGE_DEFAULT_LIMIT,
+      maxLimit: ACP_SKILL_RUN_TRANSCRIPT_PAGE_MAX_LIMIT,
+    });
+    return {
+      items: page.items,
+      cursor: page.cursor,
+      prevCursor: page.prevCursor,
+      nextCursor: page.nextCursor,
+      total: page.total,
+      eventSeq,
+      requestId: record.requestId,
+      transcriptRevision: Math.max(
+        Number(eventSeq) || 0,
+        Number(record.transcriptRevision) || 0,
+        Number(record.transcriptEventSeq) || 0,
+      ),
+      limit: normalizeTranscriptPageLimit(request?.limit),
+    };
+  }
   const page = await readAcpSkillRunTranscriptPageFromStore({
     runtimeDir: record.runtimeDir,
     cursor: request?.cursor,
@@ -1670,6 +1707,9 @@ function setAcpSkillRunRecord(record: AcpSkillRunRecord) {
   delete (next as Record<string, unknown>).outputRevisions;
   runRecords.set(record.requestId, next);
   syncAcpSkillRunActiveIndex(next);
+  if (!isActiveAcpSkillRunRecordForSummary(next)) {
+    revokeHostBridgeWriteAutoApprovalGrantsForRun(next.requestId);
+  }
   syncWaitingUserDetachTimer(next);
 }
 
@@ -1797,41 +1837,21 @@ function normalizeSelectableOptions(value: unknown) {
     .filter((entry): entry is AcpSelectableOption => !!entry);
 }
 
-function cloneSelectableOption(option?: AcpSelectableOption) {
-  return option ? { ...option } : undefined;
-}
-
 function cloneSelectableOptions(options: AcpSelectableOption[]) {
   return options.map((entry) => ({ ...entry }));
 }
 
-function findSelectableOption(options: AcpSelectableOption[], idRaw: unknown) {
-  const id = normalizeString(idRaw);
-  if (!id) return undefined;
-  return (
-    options.find((entry) => normalizeString(entry.id) === id) || {
-      id,
-      label: id,
-    }
-  );
-}
-
-function cloneRuntimeOptions(
-  options: AcpSkillRunRuntimeOptionsSnapshot,
-): AcpSkillRunRuntimeOptionsSnapshot {
+function cloneRuntimeCatalog(
+  options: AcpSkillRunRuntimeCatalog,
+): AcpSkillRunRuntimeCatalog {
   return {
     modeOptions: cloneSelectableOptions(options.modeOptions),
-    currentMode: cloneSelectableOption(options.currentMode),
     modelOptions: cloneSelectableOptions(options.modelOptions),
-    currentModel: cloneSelectableOption(options.currentModel),
     displayModelOptions: cloneSelectableOptions(options.displayModelOptions),
-    currentDisplayModel: cloneSelectableOption(options.currentDisplayModel),
     reasoningEffortOptions: cloneSelectableOptions(
       options.reasoningEffortOptions,
     ),
-    currentReasoningEffort: cloneSelectableOption(
-      options.currentReasoningEffort,
-    ),
+    reasoningSource: options.reasoningSource,
   };
 }
 
@@ -3502,8 +3522,21 @@ export function upsertAcpSkillRun(update: {
   assignString("runtimeDir", update.runtimeDir);
   assignString("inputManifestPath", update.inputManifestPath);
   assignString("resultJsonPath", update.resultJsonPath);
-  assignString("acpModeId", update.acpModeId);
-  assignString("acpModelId", update.acpModelId);
+  for (const [key, value] of [
+    ["acpModeId", update.acpModeId],
+    ["acpModelId", update.acpModelId],
+    ["acpRawModelId", update.acpRawModelId],
+  ] as const) {
+    if (!Object.prototype.hasOwnProperty.call(update, key)) {
+      continue;
+    }
+    const normalized = normalizeString(value);
+    if (normalized) {
+      next[key] = normalized;
+    } else {
+      delete next[key];
+    }
+  }
   if (Object.prototype.hasOwnProperty.call(update, "acpReasoningEffort")) {
     const effort = normalizeString(update.acpReasoningEffort);
     if (effort) {
@@ -3512,7 +3545,6 @@ export function upsertAcpSkillRun(update: {
       delete next.acpReasoningEffort;
     }
   }
-  assignString("acpRawModelId", update.acpRawModelId);
   assignString("agentFamily", update.agentFamily);
   assignString("sharedSkillCatalogPath", update.sharedSkillCatalogPath);
   assignString("requestedSkillId", update.requestedSkillId);
@@ -4589,38 +4621,37 @@ export function hasAcpSkillRunController(requestIdRaw: string) {
   return !!requestId && controllers.has(requestId);
 }
 
-export function setAcpSkillRunRuntimeOptions(
+export function setAcpSkillRunRuntimeCatalog(
   requestIdRaw: string,
-  options: Partial<AcpSkillRunRuntimeOptionsSnapshot> | null | undefined,
+  options: Partial<AcpSkillRunRuntimeCatalog> | null | undefined,
 ) {
   const requestId = normalizeString(requestIdRaw);
   if (!requestId) {
     return;
   }
   if (!options) {
-    runtimeOptionsByRequestId.delete(requestId);
+    runtimeCatalogByRequestId.delete(requestId);
     scheduleWorkspaceChangedEmit(
       acpSkillRunWorkspaceChange(requestId, ["runtime-options"]),
     );
     return;
   }
-  const normalized: AcpSkillRunRuntimeOptionsSnapshot = {
+  const normalized: AcpSkillRunRuntimeCatalog = {
     modeOptions: normalizeSelectableOptions(options.modeOptions),
-    currentMode: normalizeSelectableOption(options.currentMode) || undefined,
     modelOptions: normalizeSelectableOptions(options.modelOptions),
-    currentModel: normalizeSelectableOption(options.currentModel) || undefined,
     displayModelOptions: normalizeSelectableOptions(
       options.displayModelOptions,
     ),
-    currentDisplayModel:
-      normalizeSelectableOption(options.currentDisplayModel) || undefined,
     reasoningEffortOptions: normalizeSelectableOptions(
       options.reasoningEffortOptions,
     ),
-    currentReasoningEffort:
-      normalizeSelectableOption(options.currentReasoningEffort) || undefined,
+    reasoningSource:
+      options.reasoningSource === "explicit" ||
+      options.reasoningSource === "model-derived"
+        ? options.reasoningSource
+        : "none",
   };
-  runtimeOptionsByRequestId.set(requestId, normalized);
+  runtimeCatalogByRequestId.set(requestId, normalized);
   scheduleWorkspaceChangedEmit(
     acpSkillRunWorkspaceChange(requestId, ["runtime-options"]),
   );
@@ -5023,14 +5054,21 @@ export function archiveAcpSkillRun(requestIdRaw: string) {
 
 export async function replyAcpSkillRun(args: {
   requestId: string;
-  message: string;
+  message?: string;
+  displayMessage?: string;
+  promptMessage?: string;
 }) {
   const requestId = normalizeString(args.requestId);
-  const message = String(args.message || "").trim();
+  const displayMessage = String(
+    args.displayMessage ?? args.message ?? args.promptMessage ?? "",
+  ).trim();
+  const promptMessage = String(
+    args.promptMessage ?? args.message ?? args.displayMessage ?? "",
+  ).trim();
   if (!requestId) {
     throw new Error("requestId is required");
   }
-  if (!message) {
+  if (!displayMessage || !promptMessage) {
     throw new Error("reply message is required");
   }
   const existing = getAcpSkillRunRecord(requestId);
@@ -5062,7 +5100,7 @@ export async function replyAcpSkillRun(args: {
     },
   });
   let controller = controllers.get(requestId);
-  if (!controller?.reply && recoveryHandler) {
+  if (!controller?.reply && !controller?.replyRequest && recoveryHandler) {
     try {
       await recoveryHandler({ requestId, reason: "reply" });
       controller = controllers.get(requestId);
@@ -5086,7 +5124,7 @@ export async function replyAcpSkillRun(args: {
       throw error;
     }
   }
-  if (!controller?.reply) {
+  if (!controller?.reply && !controller?.replyRequest) {
     upsertAcpSkillRun({
       requestId,
       conversationState: "closed",
@@ -5120,7 +5158,11 @@ export async function replyAcpSkillRun(args: {
     },
   });
   try {
-    await controller.reply(message);
+    if (controller.replyRequest) {
+      await controller.replyRequest({ displayMessage, promptMessage });
+    } else {
+      await controller.reply?.(promptMessage);
+    }
     upsertAcpSkillRun({
       requestId,
       replyState: "idle",
@@ -5175,38 +5217,46 @@ function requireRuntimeController(
     Required<Pick<AcpSkillRunController, typeof operation>>;
 }
 
-function runtimeOptionsForRun(run: AcpSkillRunRecord) {
-  const stored = runtimeOptionsByRequestId.get(run.requestId);
-  const base: AcpSkillRunRuntimeOptionsSnapshot = stored
-    ? cloneRuntimeOptions(stored)
+function runtimeCatalogForRun(run: AcpSkillRunRecord) {
+  const stored = runtimeCatalogByRequestId.get(run.requestId);
+  return stored
+    ? cloneRuntimeCatalog(stored)
     : {
         modeOptions: [],
         modelOptions: [],
         displayModelOptions: [],
         reasoningEffortOptions: [],
+        reasoningSource: "none" as const,
       };
-  base.currentMode =
-    findSelectableOption(base.modeOptions, run.acpModeId) ||
-    cloneSelectableOption(base.currentMode);
-  base.currentModel =
-    findSelectableOption(base.modelOptions, run.acpRawModelId) ||
-    cloneSelectableOption(base.currentModel);
-  base.currentDisplayModel =
-    findSelectableOption(
-      base.displayModelOptions,
-      run.acpModelId || run.acpRawModelId,
-    ) || cloneSelectableOption(base.currentDisplayModel);
-  base.currentReasoningEffort =
-    findSelectableOption(base.reasoningEffortOptions, run.acpReasoningEffort) ||
-    cloneSelectableOption(base.currentReasoningEffort);
-  return base;
 }
 
-export function getAcpSkillRunRuntimeOptions(requestIdRaw: string) {
+export function getAcpSkillRunRuntimeCatalog(requestIdRaw: string) {
   ensureHydrated();
   const requestId = normalizeString(requestIdRaw);
   const run = requestId ? runRecords.get(requestId) : undefined;
-  return run ? runtimeOptionsForRun(run) : null;
+  return run ? runtimeCatalogForRun(run) : null;
+}
+
+export function updateAcpSkillRunRuntimeSelection(args: {
+  requestId: string;
+  selection: {
+    modeId?: string;
+    modelId?: string;
+    rawModelId?: string;
+    reasoningEffort?: string | null;
+  };
+  event?: Omit<AcpSkillRunEvent, "ts"> & { ts?: string };
+}) {
+  return upsertAcpSkillRun({
+    requestId: args.requestId,
+    acpModeId: args.selection.modeId,
+    acpModelId: args.selection.modelId,
+    acpRawModelId: args.selection.rawModelId,
+    ...(Object.prototype.hasOwnProperty.call(args.selection, "reasoningEffort")
+      ? { acpReasoningEffort: args.selection.reasoningEffort }
+      : {}),
+    event: args.event,
+  });
 }
 
 function resolveEffortIdFromRawModel(
@@ -5237,11 +5287,15 @@ export async function setAcpSkillRunMode(args: {
       "No active ACP skill run session is available for mode changes.",
     );
   }
+  const runtimeCatalog = runtimeCatalogForRun(run);
+  if (!runtimeCatalog.modeOptions.some((entry) => entry.id === modeId)) {
+    throw new Error("ACP skill run mode is not available for this session.");
+  }
   const controller = requireRuntimeController(requestId, "setMode");
   await controller.setMode({ sessionId, modeId });
-  upsertAcpSkillRun({
+  updateAcpSkillRunRuntimeSelection({
     requestId,
-    acpModeId: modeId,
+    selection: { modeId },
     event: {
       stage: "runtime-mode-updated",
       message: "ACP skill run mode updated.",
@@ -5272,27 +5326,39 @@ export async function setAcpSkillRunModel(args: {
       "Cannot change ACP skill run model while model configuration is frozen.",
     );
   }
-  const runtimeOptions = runtimeOptionsForRun(run);
+  const runtimeCatalog = runtimeCatalogForRun(run);
+  const displayModelOptions = runtimeCatalog.displayModelOptions.length
+    ? runtimeCatalog.displayModelOptions
+    : runtimeCatalog.modelOptions;
+  if (!displayModelOptions.some((entry) => entry.id === modelId)) {
+    throw new Error("ACP skill run model is not available for this session.");
+  }
   const rawModelId = resolveAcpRawModelIdForSelection({
-    modelOptions: runtimeOptions.modelOptions,
+    modelOptions: runtimeCatalog.modelOptions,
     displayModelId: modelId,
-    effortId:
-      normalizeString(run.acpReasoningEffort) ||
-      normalizeString(runtimeOptions.currentReasoningEffort?.id),
+    effortId: normalizeString(run.acpReasoningEffort),
     currentRawModelId: run.acpRawModelId,
   });
+  if (!runtimeCatalog.modelOptions.some((entry) => entry.id === rawModelId)) {
+    throw new Error("ACP skill run model is not available for this session.");
+  }
   const controller = requireRuntimeController(requestId, "setModel");
   await controller.setModel({ sessionId, modelId: rawModelId });
-  const effortId = resolveEffortIdFromRawModel(
-    rawModelId,
-    runtimeOptions.modelOptions,
-    normalizeString(run.acpReasoningEffort),
-  );
-  upsertAcpSkillRun({
+  const effortId =
+    runtimeCatalog.reasoningSource === "model-derived"
+      ? resolveEffortIdFromRawModel(
+          rawModelId,
+          runtimeCatalog.modelOptions,
+          normalizeString(run.acpReasoningEffort),
+        )
+      : normalizeString(run.acpReasoningEffort);
+  updateAcpSkillRunRuntimeSelection({
     requestId,
-    acpModelId: modelId,
-    acpRawModelId: rawModelId,
-    acpReasoningEffort: effortId,
+    selection: {
+      modelId,
+      rawModelId,
+      ...(effortId ? { reasoningEffort: effortId } : {}),
+    },
     event: {
       stage: "runtime-model-updated",
       message: "ACP skill run model updated.",
@@ -5323,37 +5389,58 @@ export async function setAcpSkillRunReasoningEffort(args: {
       "Cannot change ACP skill run reasoning effort while model configuration is frozen.",
     );
   }
-  const runtimeOptions = runtimeOptionsForRun(run);
+  const runtimeCatalog = runtimeCatalogForRun(run);
+  if (
+    !runtimeCatalog.reasoningEffortOptions.some(
+      (entry) => entry.id === effortId,
+    )
+  ) {
+    throw new Error(
+      "ACP skill run reasoning effort is not available for this session.",
+    );
+  }
   const displayModelId =
-    normalizeString(run.acpModelId) ||
-    normalizeString(runtimeOptions.currentDisplayModel?.id) ||
-    normalizeString(run.acpRawModelId);
-  if (!displayModelId) {
+    normalizeString(run.acpModelId) || normalizeString(run.acpRawModelId);
+  const rawModelId = displayModelId
+    ? resolveAcpRawModelIdForSelection({
+        modelOptions: runtimeCatalog.modelOptions,
+        displayModelId,
+        effortId,
+        currentRawModelId: run.acpRawModelId,
+      })
+    : "";
+  if (
+    runtimeCatalog.reasoningSource === "model-derived" &&
+    !runtimeCatalog.modelOptions.some((entry) => entry.id === rawModelId)
+  ) {
+    throw new Error("ACP skill run model is not available for this session.");
+  }
+  const controller = requireRuntimeController(requestId, "setModel");
+  if (runtimeCatalog.reasoningSource === "explicit") {
+    const applied = await controller.setConfigOption?.({
+      sessionId,
+      category: "thought_level",
+      value: effortId,
+    });
+    if (applied !== true) {
+      throw new Error(
+        "ACP skill run reasoning configuration is not available for this session.",
+      );
+    }
+  } else if (runtimeCatalog.reasoningSource === "model-derived" && rawModelId) {
+    await controller.setModel({ sessionId, modelId: rawModelId });
+  } else {
     throw new Error(
       "No ACP skill run model is available for reasoning changes.",
     );
   }
-  const rawModelId = resolveAcpRawModelIdForSelection({
-    modelOptions: runtimeOptions.modelOptions,
-    displayModelId,
-    effortId,
-    currentRawModelId: run.acpRawModelId,
-  });
-  const controller = requireRuntimeController(requestId, "setModel");
-  const applied =
-    (await controller.setConfigOption?.({
-      sessionId,
-      category: "thought_level",
-      value: effortId,
-    })) === true;
-  if (!applied) {
-    await controller.setModel({ sessionId, modelId: rawModelId });
-  }
-  upsertAcpSkillRun({
+  updateAcpSkillRunRuntimeSelection({
     requestId,
-    acpModelId: displayModelId,
-    acpRawModelId: rawModelId,
-    acpReasoningEffort: effortId,
+    selection: {
+      modelId: displayModelId,
+      ...(rawModelId ? { rawModelId } : {}),
+      reasoningEffort: effortId,
+    },
     event: {
       stage: "runtime-reasoning-updated",
       message: "ACP skill run reasoning effort updated.",
@@ -5697,8 +5784,7 @@ export function markAcpSkillRunApplyResult(args: {
   });
 }
 
-export async function selectAcpSkillRun(requestIdRaw: string) {
-  ensureHydrated();
+function applyAcpSkillRunSelection(requestIdRaw: string) {
   selectedRequestId = normalizeString(requestIdRaw);
   pruneInactiveAcpSkillRunTranscriptMirrors();
   emitWorkspaceChanged(
@@ -5706,6 +5792,30 @@ export async function selectAcpSkillRun(requestIdRaw: string) {
       ? acpSkillRunWorkspaceChange(selectedRequestId, ["selection"])
       : createAcpSkillRunWorkspaceChange({ kinds: ["selection"] }),
   );
+}
+
+export async function selectAcpSkillRun(requestIdRaw: string) {
+  ensureHydrated();
+  applyAcpSkillRunSelection(requestIdRaw);
+}
+
+export function ensureAcpSkillRunWorkspaceSelection() {
+  ensureHydrated();
+  const current = normalizeString(selectedRequestId);
+  if (current) {
+    const record = runRecords.get(current);
+    if (record && !record.removedAt && !record.archivedAt) {
+      return current;
+    }
+  }
+  const implicit = listAcpSkillRunSummaries({
+    includeArchived: false,
+    limit: 1,
+  })[0]?.requestId;
+  if (implicit && implicit !== current) {
+    applyAcpSkillRunSelection(implicit);
+  }
+  return implicit || "";
 }
 
 export function getSelectedAcpSkillRunRequestId() {
@@ -6006,6 +6116,7 @@ export function getAcpSkillRunWorkspaceReadModel(
     workspaceDir: run.workspaceDir,
     runtimeDir: run.runtimeDir,
     sessionId: run.sessionId,
+    acpModeId: run.acpModeId,
     acpModelId: run.acpModelId,
     acpRawModelId: run.acpRawModelId,
     acpReasoningEffort: run.acpReasoningEffort,
@@ -6021,6 +6132,7 @@ export function getAcpSkillRunWorkspaceReadModel(
     pendingInteraction: run.pendingInteraction
       ? parsePendingInteraction(run.pendingInteraction)
       : undefined,
+    outputRevisionCount: Math.max(0, run.outputRevisionCount || 0),
     conversationState: run.conversationState,
     conversationRecoveryState: run.conversationRecoveryState,
     conversationError: run.conversationError,
@@ -6032,7 +6144,7 @@ export function getAcpSkillRunWorkspaceReadModel(
     usage: run.usage ? { ...run.usage } : undefined,
     planEntries: (run.planEntries || []).map((entry) => ({ ...entry })),
     updatedAt: run.updatedAt,
-    runtimeOptions: runtimeOptionsForRun(run),
+    runtimeOptions: runtimeCatalogForRun(run),
   });
 }
 
@@ -6113,10 +6225,19 @@ export function getAcpSkillRunDiagnostics(
   });
 }
 
-registerAcpSkillRunAutoApprovalResolver(
-  (requestId) =>
-    getAcpSkillRunRecord(requestId)?.hostBridgeCli?.autoApproveWrites === true,
-);
+registerAcpSkillRunAutoApprovalResolver((requestId) => {
+  const record = getAcpSkillRunRecord(requestId);
+  return !!(
+    record?.hostBridgeCli?.autoApproveWrites === true &&
+    [
+      "queued",
+      "running",
+      "waiting_user",
+      "repairing",
+      "failed_retriable",
+    ].includes(record.status)
+  );
+});
 
 function summarizeAcpSkillRun(run: AcpSkillRunRecord): AcpSkillRunSummary {
   return {
@@ -6371,7 +6492,7 @@ export function resetAcpSkillRunsForTests() {
   resetAcpTranscriptWritesForTests();
   controllers.clear();
   applyResultControllerDetachPromises.clear();
-  runtimeOptionsByRequestId.clear();
+  runtimeCatalogByRequestId.clear();
   permissionResolvers.clear();
   workspaceListeners.clear();
   selectedRequestId = "";
@@ -6382,7 +6503,7 @@ export function resetAcpSkillRunsForTests() {
 
 registerAcpSkillRunsMemoryClearer(() => {
   clearAcpSkillRunRecords();
-  runtimeOptionsByRequestId.clear();
+  runtimeCatalogByRequestId.clear();
   selectedRequestId = "";
   hydrated = false;
   clearPluginRunStore("acp");

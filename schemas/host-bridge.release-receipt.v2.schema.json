@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zotero-agents.dev/schemas/host-bridge.release-receipt.v2.schema.json",
+  "title": "Host Bridge Release Receipt v2",
+  "type": "object",
+  "required": [
+    "schema",
+    "status",
+    "releaseSetId",
+    "sourceCommit",
+    "workflowRun",
+    "pipelineRevision",
+    "updatedAt",
+    "steps",
+    "surfaces"
+  ],
+  "properties": {
+    "schema": { "const": "host-bridge.release-receipt.v2" },
+    "status": { "enum": ["in_progress", "partial", "complete", "failed"] },
+    "releaseSetId": { "type": "string", "pattern": "^hbrs-[a-f0-9]{24}$" },
+    "sourceCommit": { "type": "string", "minLength": 7 },
+    "workflowRun": { "type": "string", "minLength": 1 },
+    "pipelineRevision": { "type": "string", "minLength": 1 },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "payloadDigest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "prebuild": {
+      "type": "object",
+      "required": ["branch", "commit", "verified"],
+      "properties": {
+        "branch": { "const": "host-bridge-cli-prebuilds" },
+        "commit": { "type": "string", "minLength": 7 },
+        "verified": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "steps": {
+      "type": "object",
+      "additionalProperties": { "enum": ["pending", "complete", "failed"] }
+    },
+    "surfaces": {
+      "type": "object",
+      "required": ["cliBundle", "libraryAgent", "librarianProfile"],
+      "properties": {
+        "cliBundle": { "$ref": "#/$defs/surfaceReceipt" },
+        "libraryAgent": { "$ref": "#/$defs/surfaceReceipt" },
+        "librarianProfile": { "$ref": "#/$defs/surfaceReceipt" }
+      },
+      "additionalProperties": false
+    },
+    "failure": { "type": "object" }
+  },
+  "$defs": {
+    "surfaceReceipt": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["pending", "published", "verified", "failed"] },
+        "commit": { "type": "string" },
+        "contentDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

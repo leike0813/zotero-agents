@@ -15,12 +15,16 @@ describe("Host Bridge semantic surface review skill", function () {
       "cli/zotero-bridge/src/commands.rs",
       "cli/zotero-bridge/src/surface.rs",
       "scripts/host-bridge-agent-surface.ts",
-      "schemas/host-bridge.agent-surface.v2.schema.json",
+      "schemas/host-bridge.agent-surface.v5.schema.json",
+      "host-bridge/surfaces.json",
+      "scripts/host-bridge-surface-model.ts",
+      "scripts/render-host-bridge-surfaces.ts",
+      "scripts/check-host-bridge-skill-packages.ts",
       "scripts/host-bridge-release-plan.ts",
-      "schemas/host-bridge.release-receipt.v1.schema.json",
+      "schemas/host-bridge.release-receipt.v2.schema.json",
       "workflows_builtin/manifest.json",
       "openspec/specs/host-bridge-cli-interface/spec.md",
-      "skills_src/zotero-bridge-cli/semantic/SKILL.md",
+      "skills_src/zotero-library-agent/skills/zotero-library-query/SKILL.md",
     ]);
 
     assert.equal(context.schema, "host-bridge.semantic-review-context.v1");
@@ -29,16 +33,20 @@ describe("Host Bridge semantic surface review skill", function () {
       "cli/zotero-bridge/src/commands.rs",
       "cli/zotero-bridge/src/surface.rs",
       "openspec/specs/host-bridge-cli-interface/spec.md",
-      "schemas/host-bridge.agent-surface.v2.schema.json",
-      "schemas/host-bridge.release-receipt.v1.schema.json",
+      "host-bridge/surfaces.json",
+      "schemas/host-bridge.agent-surface.v5.schema.json",
+      "scripts/check-host-bridge-skill-packages.ts",
+      "schemas/host-bridge.release-receipt.v2.schema.json",
       "scripts/host-bridge-agent-surface.ts",
       "scripts/host-bridge-release-plan.ts",
+      "scripts/host-bridge-surface-model.ts",
+      "scripts/render-host-bridge-surfaces.ts",
       "src/modules/hostBridgeCapabilityRegistry.ts",
       "src/modules/workflowExecution/sequenceRuntime.ts",
       "workflows_builtin/manifest.json",
     ]);
     assert.sameMembers(context.semanticSourceChanges, [
-      "skills_src/zotero-bridge-cli/semantic/SKILL.md",
+      "skills_src/zotero-library-agent/skills/zotero-library-query/SKILL.md",
     ]);
     assert.include(
       context.recommendedFocus.join("\n"),
@@ -85,8 +93,8 @@ describe("Host Bridge semantic surface review skill", function () {
 
   it("classifies Zotero Library Agent semantic and version inputs", function () {
     const semantic = classifyChangedFiles([
-      "skills_src/zotero-library-agent/semantic/SKILL.md",
-      "skills_src/host-bridge-shared/control-invariants.md",
+      "skills_src/zotero-library-agent/skills/zotero-library-agent/SKILL.md",
+      "skills_src/zotero-library-agent/skills/zotero-library-curation/SKILL.md",
     ]);
     assert.isTrue(semantic.reviewRequired);
     assert.lengthOf(semantic.semanticSourceChanges, 2);
@@ -110,10 +118,42 @@ describe("Host Bridge semantic surface review skill", function () {
     ]);
   });
 
+  it("classifies semantic-review operations as governed semantic source", function () {
+    const context = classifyChangedFiles([
+      ".agents/skills/host-bridge-semantic-surface-review/references/review-operations.md",
+    ]);
+    assert.isTrue(context.reviewRequired);
+    assert.deepEqual(context.semanticSourceChanges, [
+      ".agents/skills/host-bridge-semantic-surface-review/references/review-operations.md",
+    ]);
+  });
+
+  it("classifies review-mirror governance and generated artifacts", function () {
+    const context = classifyChangedFiles([
+      ".agents/skills/host-bridge-review-mirror/SKILL.md",
+      ".agents/skills/host-bridge-review-mirror/references/review-operations.md",
+      "scripts/host-bridge-review-mirror.ts",
+      "artifact/host-bridge-review/INDEX.md",
+    ]);
+    assert.isTrue(context.reviewRequired);
+    assert.sameMembers(context.semanticSourceChanges, [
+      ".agents/skills/host-bridge-review-mirror/SKILL.md",
+      ".agents/skills/host-bridge-review-mirror/references/review-operations.md",
+    ]);
+    assert.include(
+      context.specLayerChanges,
+      "scripts/host-bridge-review-mirror.ts",
+    );
+    assert.include(
+      context.generatedTargetChanges,
+      "artifact/host-bridge-review/INDEX.md",
+    );
+  });
+
   it("includes every Profile semantic owner and Host Bridge OpenSpec surface", function () {
     const context = classifyChangedFiles([
-      "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/references/library-maintenance.md",
-      "profiles_src/hermes/zotero-librarian/skills/zotero-workflow-agent-runner/SKILL.md",
+      "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/references/automation-policy.md",
+      "profiles_src/hermes/zotero-librarian/scripts/zotero_librarian_service.py",
       "openspec/specs/zotero-librarian-profile/spec.md",
       "openspec/specs/zotero-librarian-profile-distribution/spec.md",
       "openspec/specs/zotero-library-agent-bundle/spec.md",
@@ -136,27 +176,79 @@ describe("Host Bridge semantic surface review skill", function () {
     );
 
     assert.include(skill, "name: host-bridge-semantic-surface-review");
-    assert.include(skill, "Host Bridge capability");
+    assert.include(skill, "three agent-facing surfaces");
     assert.include(skill, "Agent Control Contract");
     assert.include(
       skill,
       "npx tsx scripts/host-bridge-semantic-review-context.ts",
     );
-    assert.include(skill, "references/surface-map.md");
-    assert.include(skill, "references/review-playbook.md");
-    assert.include(skill, "references/nested-call-contract.md");
-  });
+    assert.include(skill, "references/review-operations.md");
+    assert.notInclude(skill, "references/surface-map.md");
+    assert.notInclude(skill, "references/review-playbook.md");
+    assert.notInclude(skill, "references/nested-call-contract.md");
+    assert.include(skill, "minimum-core result");
+    assert.include(skill, "semantic parity result");
+    assert.include(skill, "unmapped semantic count");
+    assert.include(skill, "intra-package duplicate count");
+    assert.include(skill, "unauthorized dropped semantic count");
+    assert.include(skill, "instruction-depth warnings");
+    assert.include(skill, "explicit deletion");
+    assert.include(skill, "compression");
+    assert.include(skill, "accepted or expanded");
+    assert.include(skill, "blocker only when blocked");
+    for (const heading of [
+      "Goal",
+      "Inputs",
+      "Workflow",
+      "Hard constraints",
+      "Completion",
+      "Failure handling",
+      "References",
+    ]) {
+      assert.include(skill, `## ${heading}`);
+    }
+    assert.notInclude(skill, "semantic/SKILL.md");
 
-  it("requires semantic review before Host Bridge surface rendering in the release pipeline", async function () {
-    const releaseSkill = await fs.readFile(
+    const operations = await fs.readFile(
       projectPath(
         ".agents",
         "skills",
-        "host-bridge-release-pipeline",
-        "SKILL.md",
+        "host-bridge-semantic-surface-review",
+        "references",
+        "review-operations.md",
       ),
       "utf8",
     );
+    assert.include(operations, "--baseline-ref");
+    assert.include(operations, "normalized prose");
+    assert.match(operations, /95(?:%| percent)/);
+    assert.include(operations, "unauthorized dropped semantic count");
+  });
+
+  it("keeps semantic review and build-only prebuild ownership explicit in the release pipeline", async function () {
+    const releaseRoot = projectPath(
+      ".agents",
+      "skills",
+      "host-bridge-release-pipeline",
+    );
+    const prebuildRoot = projectPath(
+      ".agents",
+      "skills",
+      "host-bridge-cli-prebuild",
+    );
+    const [releaseSkill, releaseOperations, prebuildSkill, prebuildOperations] =
+      await Promise.all([
+        fs.readFile(path.join(releaseRoot, "SKILL.md"), "utf8"),
+        fs.readFile(
+          path.join(releaseRoot, "references", "release-set-operations.md"),
+          "utf8",
+        ),
+        fs.readFile(path.join(prebuildRoot, "SKILL.md"), "utf8"),
+        fs.readFile(
+          path.join(prebuildRoot, "references", "prebuild-operations.md"),
+          "utf8",
+        ),
+      ]);
 
     const reviewIndex = releaseSkill.indexOf(
       "$host-bridge-semantic-surface-review",
@@ -164,16 +256,45 @@ describe("Host Bridge semantic surface review skill", function () {
     const renderIndex = releaseSkill.indexOf(
       "npm run prepare:host-bridge-release",
     );
+    const contentGateIndex = releaseSkill.indexOf(
+      "npm run check:host-bridge-content",
+    );
 
     assert.isAtLeast(reviewIndex, 0);
     assert.isAtLeast(renderIndex, 0);
+    assert.isAtLeast(contentGateIndex, 0);
     assert.isBelow(reviewIndex, renderIndex);
-    assert.include(releaseSkill, "npm run release:host-bridge:plan");
-    assert.include(releaseSkill, "release-host-bridge.yml");
-    assert.include(releaseSkill, "releaseSetId");
-    assert.include(releaseSkill, "release-receipt.json");
-    assert.include(releaseSkill, "host-bridge.release-receipt.v1");
-    assert.include(releaseSkill, "check:host-bridge-cli-prebuild-freshness");
+    assert.isBelow(contentGateIndex, renderIndex);
+
+    const releaseContract = `${releaseSkill}\n${releaseOperations}`;
+    for (const marker of [
+      "npm run release:host-bridge:plan",
+      "releaseSetId",
+      "host-bridge.release-receipt.v2",
+      "host-bridge/surfaces.json",
+      "$host-bridge-review-mirror",
+      "$host-bridge-cli-prebuild",
+      "npm run check:host-bridge-cli-prebuild-freshness",
+      "npm run release:host-bridge:dispatch",
+      "synchronized `main`",
+    ]) {
+      assert.include(releaseContract, marker);
+    }
+
+    const prebuildContract = `${prebuildSkill}\n${prebuildOperations}`;
+    for (const marker of [
+      "npm run prebuild:zotero-bridge-cli",
+      "--source-sha",
+      "--resume-run-id",
+      "host-bridge-cli-prebuild-result.v1",
+      "npm run check:host-bridge-cli-prebuild-freshness",
+      "host-bridge-cli-prebuilds",
+    ]) {
+      assert.include(prebuildContract, marker);
+    }
+
+    assert.notInclude(releaseSkill, "--resume-run-id");
+    assert.notInclude(releaseSkill, "host-bridge-cli-prebuild-result.v1");
   });
 
   it("keeps the project release coordinator on the unified release-set contract", async function () {
@@ -192,7 +313,7 @@ describe("Host Bridge semantic surface review skill", function () {
     );
     const contract = files.join("\n");
 
-    assert.include(contract, "host-bridge.release-receipt.v1");
+    assert.include(contract, "host-bridge.release-receipt.v2");
     assert.include(contract, "releaseSetId");
     assert.include(contract, "status: complete");
     assert.notInclude(contract, "build-zotero-bridge-cli.yml");

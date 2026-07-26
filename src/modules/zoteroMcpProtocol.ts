@@ -6,6 +6,7 @@ import {
   type HostBridgeCapabilityDefinition,
   type ZoteroHostCapabilityBrokerApis,
 } from "./hostBridgeCapabilityRegistry";
+import { HostBridgeCursorError } from "./hostBridgePagination";
 import type {
   SynthesisMcpService,
   SynthesisMcpServiceMethod,
@@ -3430,7 +3431,18 @@ function summarizeHostBridgeCapabilityResult(
   if (Array.isArray(data)) {
     parts.push(`items=${data.length}`);
   }
-  if (Array.isArray(payload.items)) {
+  if (
+    capabilityName === "library.get_item_notes" &&
+    Array.isArray(payload.items)
+  ) {
+    parts.push(`notes=${payload.items.length}`);
+    payload.items.slice(0, 5).forEach((note) => {
+      if (isPlainObject(note)) {
+        parts.push(formatNoteLine(note as Partial<ZoteroHostNoteDto>));
+      }
+    });
+    parts.push("next=library.get_note_detail");
+  } else if (Array.isArray(payload.items)) {
     parts.push(`items=${payload.items.length}`);
     payload.items.slice(0, 5).forEach((item) => {
       if (isPlainObject(item)) {
@@ -3451,15 +3463,6 @@ function summarizeHostBridgeCapabilityResult(
     }
     parts.push("next=library.get_item_notes");
     parts.push("next=library.get_item_attachments");
-  }
-  if (capabilityName === "library.get_item_notes" && Array.isArray(data)) {
-    parts.push(`notes=${data.length}`);
-    data.slice(0, 5).forEach((note) => {
-      if (isPlainObject(note)) {
-        parts.push(formatNoteLine(note as Partial<ZoteroHostNoteDto>));
-      }
-    });
-    parts.push("next=library.get_note_detail");
   }
   if (Array.isArray(payload.notes)) {
     parts.push(`notes=${payload.notes.length}`);
@@ -3515,12 +3518,9 @@ function summarizeHostBridgeCapabilityResult(
       parts.push(`hasMore=${Boolean(payload.hasMore)}`);
     }
   }
-  if (
-    Array.isArray(data) &&
-    capabilityName === "library.get_item_attachments"
-  ) {
-    parts.push(`attachments=${data.length}`);
-    data.slice(0, 5).forEach((attachment) => {
+  if (Array.isArray(payload.attachments)) {
+    parts.push(`attachments=${payload.attachments.length}`);
+    payload.attachments.slice(0, 5).forEach((attachment) => {
       if (isPlainObject(attachment)) {
         parts.push(formatAttachmentLine(attachment as ZoteroHostAttachmentDto));
       }
@@ -3661,17 +3661,29 @@ async function callHostBridgeCapabilityAsMcpTool(
   if (allowedArgs) {
     assertKnownArgs(capability.name, normalizedInput, allowedArgs);
   }
-  const data = await capability.handler(normalizedInput, {
-    getStatus:
-      context.options.resolveHostBridgeStatus ||
-      (() =>
-        (context.options.resolveMcpStatus?.() ||
-          {}) as HostBridgeStatusSnapshot),
-    connectionMode: "local",
-    resolveHostBridgeApis: () =>
-      resolveHostBridgeApis(context.options, context.hostApi),
-    resolveSynthesisService: context.options.resolveSynthesisService,
-  });
+  let data: unknown;
+  try {
+    data = await capability.handler(normalizedInput, {
+      getStatus:
+        context.options.resolveHostBridgeStatus ||
+        (() =>
+          (context.options.resolveMcpStatus?.() ||
+            {}) as HostBridgeStatusSnapshot),
+      connectionMode: "local",
+      resolveHostBridgeApis: () =>
+        resolveHostBridgeApis(context.options, context.hostApi),
+      resolveSynthesisService: context.options.resolveSynthesisService,
+    });
+  } catch (error) {
+    if (error instanceof HostBridgeCursorError) {
+      throw new ZoteroMcpToolInputError(error.message, {
+        code: error.code,
+        reason: error.reason,
+        ...error.details,
+      });
+    }
+    throw error;
+  }
   return buildToolResult({
     tool: capability.name,
     summary: summarizeHostBridgeCapabilityResult(capability.name, data),

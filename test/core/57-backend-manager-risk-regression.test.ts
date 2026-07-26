@@ -586,6 +586,7 @@ describe("backend manager risk regression", function () {
     assert.equal(codebuddy.id, "acp-codebuddy");
     assert.equal(codebuddy.command, "codebuddy");
     assert.deepEqual(codebuddy.args, ["--acp"]);
+    assert.equal(codebuddy.acp?.agentFamily, "codebuddy");
 
     const grok = createAcpBackendFromPreset("grok");
     assert.equal(grok.id, "acp-grok");

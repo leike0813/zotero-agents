@@ -21,9 +21,19 @@ async function createWorkflowRoot(args: {
     joinPath(workflowRoot, "workflow.json"),
     JSON.stringify(
       {
+        schemaVersion: 2,
         id: args.id,
         label: `Log Instrumentation ${args.id}`,
         provider: "pass-through",
+        trigger: { requiresSelection: true },
+        inputs: {
+          member: { kind: "parent" },
+          grouping: { mode: "each" },
+        },
+        validateSelection: {
+          select: { policy: "input-member", source: "selected" },
+          filters: [],
+        },
         hooks: {
           applyResult: "hooks/applyResult.js",
         },

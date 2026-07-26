@@ -111,29 +111,6 @@ The plugin release workflow SHALL verify restored Host Bridge CLI prebuilds agai
 - **THEN** CLI prebuild freshness is executed as a release workflow step
 - **AND** it is not added to `test:gate:release`
 
-### Requirement: Release pipeline SHALL publish composed semantic and generated Host Bridge guidance
-
-Host Bridge wrapper skill and Zotero Librarian profile release preparation SHALL
-render both semantic instruction sources and generated surface sections before
-publishing.
-
-#### Scenario: Host Bridge CLI bundle is prepared
-
-- **WHEN** the host-bridge-cli-bundle publication pipeline copies the wrapper
-  skill
-- **THEN** the copied package SHALL be the rendered output composed from wrapper
-  semantic source and generated Host Bridge surface sections
-- **AND** release checks SHALL fail if generated output is stale.
-
-#### Scenario: Zotero Librarian profile is prepared
-
-- **WHEN** the Zotero Librarian profile publication pipeline copies profile
-  files
-- **THEN** the profile SHALL be the rendered output composed from profile
-  semantic source, generated Host Bridge reference, and generated workflow
-  catalog reference
-- **AND** release checks SHALL fail if semantic/generated output is stale.
-
 ### Requirement: Release pipeline governs Profile patch decisions
 The Host Bridge release pipeline SHALL classify release inputs before rendering
 the Zotero Librarian profile and SHALL instruct operators to bump the
@@ -193,44 +170,38 @@ The unified Host Bridge release workflow SHALL verify the committed Zotero Libra
 - **WHEN** semantic, shared, schema, helper, version, or release identity sources do not match generated bundle files
 - **THEN** publication SHALL fail before any immutable or mutable external surface is updated.
 ### Requirement: Host Bridge releases SHALL publish one verifiable release set
+The pipeline SHALL generate `host-bridge.release-set.v2` only after a complete content-addressed seven-platform prebuild exists. Its releaseSetId SHALL bind CLI identity and bytes plus all three surface identities and content digests.
 
-The release pipeline SHALL materialize the CLI bundle, Zotero Library Agent bundle, and Zotero Librarian profile from one deterministic `host-bridge.release-set.v1` identity. Every surface manifest SHALL carry the same `releaseSetId`, source commit, CLI version, build fingerprint, command catalog checksum, binary aggregate checksum, and seven-platform binary set, plus its owned component version and content digest.
+#### Scenario: Binary input changed without a prebuild
+- **WHEN** the current build fingerprint lacks a verified seven-platform prebuild set
+- **THEN** preparation SHALL report `prebuild_required`
+- **AND** SHALL NOT create a publishable release set.
 
-#### Scenario: Surface identities differ
+#### Scenario: Candidate bytes or surface content differ
+- **WHEN** any binary hash, aggregate, surface digest, repository, mutable ref, or CLI identity differs
+- **THEN** release identity SHALL differ or validation SHALL fail before publication.
 
-- **WHEN** a candidate surface has the expected CLI SemVer but a different fingerprint, command catalog checksum, binary aggregate, source commit, or release-set identifier
-- **THEN** publication SHALL fail before any mutable branch is advanced.
-
-#### Scenario: CLI manifest names a missing file
-
-- **WHEN** a surface manifest references a CLI release manifest or artifact that is not included in that surface
-- **THEN** materialization SHALL fail before publication.
+#### Scenario: Historical v1 receipt is inspected
+- **WHEN** planning reads a historical complete v1 receipt
+- **THEN** it MAY use it as read-only baseline evidence
+- **AND** new dispatch SHALL require v2.
 
 ### Requirement: Host Bridge publication SHALL be recoverable and two-phase
+The release controller SHALL persist a `host-bridge.release-receipt.v2` from publication start through immutable publication, mutable advancement, and source finalize.
 
-The release pipeline SHALL publish immutable surface tags first, verify all three remote manifests by reading them back, and advance mutable branches only after every immutable surface is valid. It SHALL emit a `host-bridge.release-receipt.v1` recording target status, immutable commits, mutable pointer results, and overall completion. Recovery SHALL resume the same `releaseSetId` without rebuilding or overwriting immutable bytes.
+#### Scenario: A later target fails
+- **WHEN** an earlier immutable or mutable target succeeded and a later target fails
+- **THEN** the receipt SHALL be partial or failed with per-target results
+- **AND** it SHALL always be uploaded for recovery.
 
-#### Scenario: A later surface fails
+#### Scenario: Publication resumes
+- **WHEN** the same releaseSetId is resumed
+- **THEN** the controller SHALL verify and reuse matching remote tags and refs
+- **AND** SHALL reject existing identities with different payload bytes.
 
-- **WHEN** one or more immutable surfaces are already published and a later surface fails
-- **THEN** no mutable latest pointer SHALL advance
-- **AND** a retry with the same `releaseSetId` SHALL reuse verified immutable targets.
-
-#### Scenario: Recovery proposes different bytes
-
-- **WHEN** a retry would associate an existing component version or immutable target with different bytes
-- **THEN** recovery SHALL fail and require a new prepared release identity.
-
-#### Scenario: Every remote manifest verifies
-
-- **WHEN** all three immutable manifests match the prepared release set
-- **THEN** the workflow SHALL advance mutable pointers and emit a receipt with `status: complete`.
-
-#### Scenario: Successful publication finalizes source main
-
-- **WHEN** the receipt reports `status: complete` and Host inputs have not changed concurrently
-- **THEN** the workflow SHALL commit the exact CLI binaries, four release-set copies, CLI manifest, and complete receipt to `main`
-- **AND** a concurrent Host input change SHALL preserve a recovery artifact and prevent an unsafe source push.
+#### Scenario: All completion conditions succeed
+- **WHEN** all three immutable surfaces verify, mutable refs advance, and source main finalize succeeds
+- **THEN** and only then SHALL the receipt be complete.
 
 ### Requirement: Maintainers SHALL prepare releases through one coordinator
 
@@ -310,3 +281,87 @@ Each Host Bridge release surface SHALL publish a root README rendered from its o
 - **WHEN** the unified coordinator materializes the CLI bundle, Library Agent bundle, and Librarian Profile
 - **THEN** every release repository root SHALL contain its surface-owned README
 - **AND** the README SHALL participate in that surface's public content digest.
+
+### Requirement: Surface publication SHALL resolve one composition manifest
+Render, validation, materialization, and release-set generation SHALL resolve the same canonical surface graph, version patches, component identities, and mount paths.
+
+#### Scenario: Impact propagates through inheritance
+- **WHEN** a lower-layer component changes
+- **THEN** every extending surface is rematerialized and records the new inherited component digest
+
+### Requirement: Surface payload identity SHALL use staged bytes
+Each surface payload digest SHALL be computed from a normalized manifest of the final staged files. Generated release-set metadata SHALL NOT be embedded into and recursively hashed as part of the same payload.
+
+#### Scenario: Source digest cannot hide materialization drift
+- **WHEN** staged payload bytes differ while source path lists are unchanged
+- **THEN** the payload digest changes and stale publication is rejected
+
+### Requirement: Surface versions SHALL remain release-line bound
+Each surface version SHALL be the current CLI major/minor plus a surface-owned patch. Exact CLI identity, transitive component digests, payload digest, and release-set identity SHALL be published alongside the human version.
+
+#### Scenario: CLI patch changes inherited payload identity
+- **WHEN** only the CLI patch changes
+- **THEN** downstream human surface versions remain stable while their exact CLI and payload identities change without overwriting prior bytes
+
+### Requirement: Development prebuild orchestration SHALL remain build-only
+
+The repository SHALL allow an attached, clean, pushed development branch to
+dispatch and synchronize an exact Host Bridge CLI prebuild set without
+preparing or publishing a Host Bridge release.
+
+#### Scenario: Feature branch prebuild succeeds
+
+- **WHEN** a clean attached feature branch has an upstream whose tip equals the
+  requested full source SHA and the CLI version identity is already locked
+- **THEN** `prebuild:zotero-bridge-cli` SHALL dispatch the seven-platform
+  build-only workflow for that ref and source SHA
+- **AND** it SHALL synchronize and verify the resulting immutable set without
+  committing, pushing, or publishing any Host Bridge surface.
+
+#### Scenario: Formal release remains isolated
+
+- **WHEN** a development-branch prebuild completes
+- **THEN** `release:host-bridge:dispatch` SHALL still require a clean
+  synchronized `main`, an exact prepared release set, and explicit publication
+  authorization
+- **AND** neither ordinary pushes nor the prebuild command SHALL trigger
+  publication or Gitee synchronization.
+
+### Requirement: Prebuild workflow dispatch SHALL be exact and recoverable
+
+Every prebuild dispatch SHALL carry a unique request id, full source SHA, and
+explicit ref. Run discovery SHALL match that request id and identity rather
+than selecting the latest workflow run.
+
+#### Scenario: Operator resumes a known run
+
+- **WHEN** the operator supplies `--resume-run-id`
+- **THEN** the command SHALL reuse and validate that workflow run without
+  dispatching another run
+- **AND** SHALL continue from its structured result artifact.
+
+#### Scenario: Matching run cannot be proven
+
+- **WHEN** no workflow run matches the request id, workflow, ref, and source SHA
+- **THEN** orchestration SHALL fail with recovery evidence
+- **AND** SHALL NOT synchronize or modify local prebuild files.
+
+### Requirement: Repository workflow dispatchers SHALL share run mechanics
+
+Host Bridge release, content-package, and CLI prebuild dispatch paths SHALL use
+one repository helper for request-id handling, exact run lookup, watch, run
+validation, and artifact download.
+
+#### Scenario: Existing release dispatch uses shared mechanics
+
+- **WHEN** an existing release command dispatches or watches its workflow
+- **THEN** its command-specific authorization and identity gates SHALL remain
+  unchanged
+- **AND** run selection SHALL use the shared exact-match implementation.
+
+### Requirement: Host Bridge publication SHALL validate governed Skill contracts
+The content gate SHALL structurally validate every Skill declared by the three surfaces before materialization and SHALL require semantic-surface review for minimum completeness, semantic-baseline parity, package-local uniqueness, reference coherence, and layer independence.
+
+#### Scenario: Invalid Skill blocks release preparation
+- **WHEN** a governed Skill has a long/missing trigger description, missing mandatory section, orphan reference, duplicated substantive prose, or generated target used as source
+- **THEN** Host Bridge content validation fails before release dispatch can be prepared

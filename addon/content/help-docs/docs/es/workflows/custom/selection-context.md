@@ -154,63 +154,63 @@ export function preflight({ selectionContext }) {
 }
 ```
 
-### Filtrar adjuntos
-
-Usa `validateSelection` declarativo para el filtrado común de adjuntos:
+### Attachment Candidate Planning
 
 ```json
 {
+  "inputs": {
+    "member": {
+      "kind": "attachment",
+      "accepts": { "mime": ["application/pdf"] }
+    },
+    "grouping": { "mode": "each" }
+  },
   "validateSelection": {
-    "select": { "policy": "pdf-attachment" },
     "require": {
-      "counts": { "attachments": 1 },
-      "allowMixed": false
-    }
-  }
-}
-```
-
-Para decisiones solo en tiempo de ejecución que dependen de la unidad resuelta, usa `preflight` para omitir o continuar:
-
-```js
-export function preflight({ selectionContext, runtime }) {
-  const { helpers } = runtime;
-
-  const hasPdf = selectionContext.items.attachments.some(
-    a => helpers.isPdfAttachment(a)
-  );
-
-  if (!hasPdf) {
-    return { kind: "skip", reason: "no PDF attachments" };
-  }
-
-  return { kind: "continue" };
-}
-```
-
-### Workflows cuando no hay elementos seleccionados
-
-Cuando `inputs.unit: "workflow"` y `trigger.requiresSelection: false`, el workflow puede activarse sin ningún elemento seleccionado. En este caso, `selectionContext.selectionType` es `"none"`, y todos los arrays en `items` están vacíos. Este modo es adecuado para crear operaciones globales (p. ej., "Crear síntesis de tema").
-
-## Validación de selección declarativa
-
-Si tu workflow solo necesita **omitir elementos que ya tienen resultados** o **filtrar tipos específicos de entrada**, usa el campo declarativo `validateSelection` sin escribir un hook de JavaScript.
-
-```json
-{
-  "validateSelection": {
-    "select": { "policy": "literature-source" },
-    "exclude": [
-      { "kind": "generated-notes-all", "noteKinds": ["digest"] }
+      "selection": {
+        "counts": { "attachments": { "min": 1 } },
+        "allowMixed": false
+      }
+    },
+    "select": { "policy": "input-member", "source": "selected" },
+    "filters": [
+      { "kind": "source-file-exists", "phase": "availability" }
     ]
   }
 }
 ```
 
-Consulta la documentación completa en [Redacción del manifiesto](#doc/workflows%2Fcustom%2Fmanifest#selection-validation).
+`require.selection` reads the original SelectionContext once. The selector
+produces ordered candidates, attachment MIME compatibility runs before filters,
+and `inputs.grouping` creates immutable top-level units.
 
-> **Guía de selección:** Usa `validateSelection` declarativo siempre que sea posible — no requiere JavaScript y no requiere mantenimiento. La lógica de selección compleja puede implementarse en el Hook `buildRequest`.
+### Workflows Without Selected Items
 
+Use `member.kind: "selection"`, `grouping.mode: "all"`, the `selection`
+selector, and `trigger.requiresSelection: false`. The selector then produces
+the complete empty SelectionContext as the single member. Selection
+requirements remain active and must not make the empty selection impossible.
+
+## Declarative Candidate Filters
+
+```json
+{
+  "validateSelection": {
+    "select": { "policy": "generated-note-candidates" },
+    "filters": [
+      {
+        "kind": "generated-note-kinds-absent",
+        "phase": "availability",
+        "noteKinds": ["digest"]
+      }
+    ]
+  }
+}
+```
+
+`validateSelection` owns candidate production and filtering. `inputs` owns
+the execution member and grouping. Hooks consume the prepared unit and must not
+reconstruct selection planning.
 ## Próximos pasos
 
 - [Referencia de la API del host](#doc/workflows%2Fcustom%2Fhost-api) — API completa para manipular datos de Zotero en hooks

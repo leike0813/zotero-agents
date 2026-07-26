@@ -7,6 +7,7 @@ import {
   executeApplyResult,
   executeBuildRequests,
 } from "../../src/workflows/runtime";
+import { evaluateWorkflowSelection } from "../../src/workflows/workflowInputPlanning";
 import {
   ensureDir,
   existsPath,
@@ -112,8 +113,8 @@ describe("workflow: literature-translator", function () {
       "fast",
       "high_quality",
     ]);
-    assert.equal(workflow.manifest.inputs?.unit, "attachment");
-    assert.deepEqual(workflow.manifest.inputs?.accepts?.mime, [
+    assert.equal(workflow.manifest.inputs.member.kind, "attachment");
+    assert.deepEqual(workflow.manifest.inputs.member.accepts?.mime, [
       "text/markdown",
       "text/x-markdown",
       "text/plain",
@@ -178,6 +179,72 @@ describe("workflow: literature-translator", function () {
     assert.equal(requests[0].parameter?.mode, "high_quality");
   });
 
+  it("defers parameterized artifact exclusion until the parameter is confirmed for execution", async function () {
+    const loadedWorkflow = await getLiteratureTranslatorWorkflow();
+    const workflow = {
+      ...loadedWorkflow,
+      manifest: {
+        ...loadedWorkflow.manifest,
+        validateSelection: {
+          ...loadedWorkflow.manifest.validateSelection,
+          filters: [
+            {
+              kind: "artifact-absent" as const,
+              phase: "execute" as const,
+              target: "translator-markdown" as const,
+              parameter: "output_variant",
+            },
+          ],
+        },
+      },
+    };
+    const tempDir = await mkTempDir("zotero-skills-translator-phase");
+    const parent = await createParent("Translator Phase Parent");
+    await createAttachment({
+      parent,
+      dirPath: tempDir,
+      name: "paper.pdf",
+      mimeType: "application/pdf",
+    });
+    await writeUtf8(joinPath(tempDir, "paper_variant-a.md"), "exists");
+    const selection = await buildSelectionContext([parent]);
+    const cases = [
+      {
+        label: "menu availability ignores the unconfirmed parameter",
+        mode: "menu" as const,
+        value: "variant-a",
+        expectedState: "enabled",
+      },
+      {
+        label: "execute skips the matching parameter target",
+        mode: "execute" as const,
+        value: "variant-a",
+        expectedState: "disabled",
+      },
+      {
+        label: "execute keeps a different parameter target",
+        mode: "execute" as const,
+        value: "variant-b",
+        expectedState: "enabled",
+      },
+    ];
+
+    for (const entry of cases) {
+      const result = await evaluateWorkflowSelection({
+        workflow,
+        selectionContext: selection,
+        mode: entry.mode,
+        executionOptions: {
+          workflowParams: {
+            output_variant: entry.value,
+          },
+        },
+      });
+
+      assert.equal(result.state, entry.expectedState, entry.label);
+    }
+  });
+
   it("filters selected inputs when translated markdown target already exists", async function () {
     const workflow = await getLiteratureTranslatorWorkflow();
     const tempDir = await mkTempDir("zotero-skills-translator-filter");
@@ -195,24 +262,32 @@ describe("workflow: literature-translator", function () {
       name: "skip.pdf",
       mimeType: "application/pdf",
     });
-    await writeUtf8(joinPath(tempDir, "skip_zh-CN.md"), "already translated");
+    await writeUtf8(joinPath(tempDir, "skip_fr-FR.md"), "already translated");
 
     const selection = await buildSelectionContext([keepParent, skipParent]);
     const requests = (await executeBuildRequests({
       workflow,
       selectionContext: selection,
+      executionOptions: {
+        workflowParams: {
+          target_language: "fr-FR",
+        },
+      },
     })) as Array<{ sourceAttachmentPaths?: string[] }> & {
       __stats?: {
         totalUnits?: number;
         skippedUnits?: number;
+        candidateStats?: { total?: number; skipped?: number };
       };
     };
 
     assert.lengthOf(requests, 1);
     assert.equal(requests[0].sourceAttachmentPaths?.[0], keep.filePath);
     assert.notEqual(requests[0].sourceAttachmentPaths?.[0], skip.filePath);
-    assert.equal(requests.__stats?.totalUnits, 2);
-    assert.equal(requests.__stats?.skippedUnits, 1);
+    assert.equal(requests.__stats?.totalUnits, 1);
+    assert.equal(requests.__stats?.skippedUnits, 0);
+    assert.equal(requests.__stats?.candidateStats?.total, 2);
+    assert.equal(requests.__stats?.candidateStats?.skipped, 1);
   });
 
   it("reports no valid input units when every selected source already has target markdown", async function () {
@@ -225,7 +300,7 @@ describe("workflow: literature-translator", function () {
       name: "paper.pdf",
       mimeType: "application/pdf",
     });
-    await writeUtf8(joinPath(tempDir, "paper_zh-CN.md"), "already translated");
+    await writeUtf8(joinPath(tempDir, "paper_fr-FR.md"), "already translated");
 
     const selection = await buildSelectionContext([parent]);
     let thrown: unknown = null;
@@ -233,6 +308,11 @@ describe("workflow: literature-translator", function () {
       await executeBuildRequests({
         workflow,
         selectionContext: selection,
+        executionOptions: {
+          workflowParams: {
+            target_language: "fr-FR",
+          },
+        },
       });
     } catch (error) {
       thrown = error;
@@ -240,8 +320,10 @@ describe("workflow: literature-translator", function () {
 
     assert.isOk(thrown, "expected all existing translations to be skipped");
     assert.equal((thrown as { code?: string }).code, "NO_VALID_INPUT_UNITS");
-    assert.equal((thrown as { totalUnits?: number }).totalUnits, 1);
-    assert.equal((thrown as { skippedUnits?: number }).skippedUnits, 1);
+    assert.equal((thrown as { totalUnits?: number }).totalUnits, 0);
+    assert.equal((thrown as { skippedUnits?: number }).skippedUnits, 0);
+    assert.equal((thrown as { candidateTotal?: number }).candidateTotal, 1);
+    assert.equal((thrown as { candidateSkipped?: number }).candidateSkipped, 1);
   });
 
   it("materializes translated markdown next to source and does not duplicate linked attachment", async function () {

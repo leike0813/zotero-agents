@@ -9,10 +9,14 @@ export type AcpAgentFamily =
   | "hermes"
   | "qwen-code"
   | "kilo"
+  | "codebuddy"
+  | "kimi-code"
   | "unknown";
 
 export type AcpSkillInjectionPlan = {
   family: AcpAgentFamily;
+  families: AcpAgentFamily[];
+  relativeSkillRoots: string[];
   skillRoots: string[];
   diagnostics: Array<{
     level: "info" | "warning" | "error";
@@ -36,6 +40,8 @@ function normalizeFamily(value: unknown): AcpAgentFamily {
       "hermes",
       "qwen-code",
       "kilo",
+      "codebuddy",
+      "kimi-code",
     ].includes(normalized)
   ) {
     return normalized as AcpAgentFamily;
@@ -51,6 +57,9 @@ function normalizeFamily(value: unknown): AcpAgentFamily {
   }
   if (normalized === "kilocode") {
     return "kilo";
+  }
+  if (normalized === "kimi") {
+    return "kimi-code";
   }
   return "unknown";
 }
@@ -82,6 +91,12 @@ export function resolveAcpAgentFamily(
   if (/\bkilo(?:code)?\b|@kilocode\/cli/.test(source)) {
     return "kilo";
   }
+  if (/\b(?:codebuddy|cbc)\b/.test(source)) {
+    return "codebuddy";
+  }
+  if (/\bkimi\b/.test(source)) {
+    return "kimi-code";
+  }
   if (/\bhermes\b/.test(source)) {
     return "hermes";
   }
@@ -109,15 +124,19 @@ export function defaultAcpSkillRootsForFamily(family: AcpAgentFamily) {
     case "codex":
       return [".agents/skills", ".codex/skills"];
     case "claude-code":
-      return [".claude/skills"];
-    case "opencode":
       return [".agents/skills", ".claude/skills"];
+    case "opencode":
+      return [".agents/skills", ".opencode/skills"];
     case "gemini-cli":
       return [".agents/skills", ".gemini/skills"];
     case "qwen-code":
-      return [".qwen/skills"];
+      return [".agents/skills", ".qwen/skills"];
     case "kilo":
-      return [".kilo/skills"];
+      return [".agents/skills", ".kilo/skills"];
+    case "codebuddy":
+      return [".agents/skills", ".codebuddy/skills"];
+    case "kimi-code":
+      return [".agents/skills", ".kimi-code/skills"];
     case "hermes":
       return [];
     case "unknown":
@@ -126,51 +145,84 @@ export function defaultAcpSkillRootsForFamily(family: AcpAgentFamily) {
   }
 }
 
-export function defaultAcpChatSkillRoots() {
-  const roots: string[] = [];
-  for (const family of [
-    "codex",
-    "claude-code",
-    "opencode",
-    "gemini-cli",
-    "qwen-code",
-    "kilo",
-    "unknown",
-  ] satisfies AcpAgentFamily[]) {
-    roots.push(...defaultAcpSkillRootsForFamily(family));
+export function normalizeAcpProjectSkillRoot(value: unknown) {
+  const normalized = normalizeString(value).replace(/\\/g, "/");
+  if (
+    !normalized ||
+    normalized.includes("\u0000") ||
+    normalized.startsWith("/") ||
+    /^[A-Za-z]:\//.test(normalized) ||
+    /^[A-Za-z][A-Za-z0-9+.-]*:/.test(normalized)
+  ) {
+    return "";
   }
-  return Array.from(new Set(roots));
+  const segments = normalized.split("/").filter(Boolean);
+  if (
+    segments.length === 0 ||
+    segments.some((segment) => segment === "." || segment === "..")
+  ) {
+    return "";
+  }
+  return segments.join("/");
 }
 
 export function buildAcpChatSkillInjectionPlan(args: {
-  backend: BackendInstance;
+  backends: readonly BackendInstance[];
   workspaceDir: string;
 }): AcpSkillInjectionPlan {
-  const family = resolveAcpAgentFamily(args.backend);
-  const configuredRoots = Array.isArray(args.backend.acp?.skillRoots)
-    ? args.backend
-        .acp!.skillRoots!.map((entry) =>
-          normalizeString(entry).replace(/\\/g, "/"),
-        )
-        .filter(Boolean)
-    : [];
-  const relativeRoots = Array.from(
-    new Set([...defaultAcpChatSkillRoots(), ...configuredRoots]),
-  );
-  const skillRoots = relativeRoots.map((root) =>
+  const diagnostics: AcpSkillInjectionPlan["diagnostics"] = [];
+  const families: AcpAgentFamily[] = [];
+  const relativeSkillRoots: string[] = [];
+  const seenRoots = new Set<string>();
+  const appendRoot = (root: string) => {
+    if (seenRoots.has(root)) {
+      return;
+    }
+    seenRoots.add(root);
+    relativeSkillRoots.push(root);
+  };
+  for (const backend of args.backends) {
+    const family = resolveAcpAgentFamily(backend);
+    if (!families.includes(family)) {
+      families.push(family);
+    }
+    for (const root of defaultAcpSkillRootsForFamily(family)) {
+      appendRoot(root);
+    }
+    for (const entry of backend.acp?.skillRoots || []) {
+      const root = normalizeAcpProjectSkillRoot(entry);
+      if (!root) {
+        diagnostics.push({
+          level: "warning",
+          code: "acp_chat_skill_root_invalid",
+          message: `ACP Chat ignored an invalid project skill root from backend "${backend.id}".`,
+        });
+        continue;
+      }
+      appendRoot(root);
+    }
+  }
+  const skillRoots = relativeSkillRoots.map((root) =>
     joinPath(args.workspaceDir, root),
   );
-  const diagnostics: AcpSkillInjectionPlan["diagnostics"] = [];
-  if (configuredRoots.length > 0) {
+  if (
+    args.backends.some(
+      (backend) =>
+        Array.isArray(backend.acp?.skillRoots) &&
+        backend.acp!.skillRoots!.length > 0,
+    )
+  ) {
     diagnostics.push({
       level: "info",
       code: "acp_chat_skill_roots_override_appended",
       message:
-        "ACP Chat appended backend profile skill roots to known project skill roots",
+        "ACP Chat appended configured backend profile skill roots to family project skill roots",
     });
   }
   return {
-    family,
+    family: families[0] || "unknown",
+    families,
+    relativeSkillRoots,
     skillRoots,
     diagnostics,
   };
@@ -181,21 +233,27 @@ export function buildAcpSkillInjectionPlan(args: {
   workspaceDir: string;
 }): AcpSkillInjectionPlan {
   const family = resolveAcpAgentFamily(args.backend);
-  const configuredRoots = Array.isArray(args.backend.acp?.skillRoots)
-    ? args.backend
-        .acp!.skillRoots!.map((entry) =>
-          normalizeString(entry).replace(/\\/g, "/"),
-        )
-        .filter(Boolean)
-    : [];
-  const relativeRoots =
+  const diagnostics: AcpSkillInjectionPlan["diagnostics"] = [];
+  const configuredRoots: string[] = [];
+  for (const entry of args.backend.acp?.skillRoots || []) {
+    const root = normalizeAcpProjectSkillRoot(entry);
+    if (!root) {
+      diagnostics.push({
+        level: "warning",
+        code: "acp_skill_root_invalid",
+        message: "ACP skill root override was invalid and was ignored",
+      });
+      continue;
+    }
+    configuredRoots.push(root);
+  }
+  const relativeSkillRoots =
     configuredRoots.length > 0
-      ? configuredRoots
+      ? Array.from(new Set(configuredRoots))
       : defaultAcpSkillRootsForFamily(family);
-  const skillRoots = Array.from(new Set(relativeRoots)).map((root) =>
+  const skillRoots = relativeSkillRoots.map((root) =>
     joinPath(args.workspaceDir, root),
   );
-  const diagnostics: AcpSkillInjectionPlan["diagnostics"] = [];
   if (family === "unknown") {
     diagnostics.push({
       level: "warning",
@@ -213,6 +271,8 @@ export function buildAcpSkillInjectionPlan(args: {
   }
   return {
     family,
+    families: [family],
+    relativeSkillRoots,
     skillRoots,
     diagnostics,
   };

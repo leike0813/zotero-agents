@@ -256,6 +256,15 @@ content and the same approval actions.
 Waiting `ui_hints` SHALL drive prompt text, hint text, options, and future
 controls. The message body itself belongs in the conversation window.
 
+`AssistantPendingInteraction` is the shared waiting-user DTO for ACP Skills and
+SkillRunner. It owns the input kind, prompt, hint, typed options, file slots,
+and file-reply capability. The wire validator requires exact keys, bounds
+options to 16 and file slots to 8, and bounds nested JSON option values by depth
+and encoded size. Option values remain JSON values until the host action
+boundary; the renderer never invents a reply action or converts the value to
+display text. The shared DTO SHALL NOT add an interaction identity that the
+backend protocol does not define.
+
 The canonical `interaction` states are:
 
 - `permission`: ACP permission or command approval; highest priority
@@ -276,9 +285,42 @@ The shared `ui_hints` shape supports:
 - `prompt`: primary reply prompt
 - `hint`: secondary instruction or explanation
 - `options`: quick reply options; string options and `{ label, value }` options
-  normalize to plain-text replies
-- `files`: file-related hints; v1 only displays these hints and does not add
-  file upload behavior
+  preserve the typed `value` while the label remains presentation-only
+- `files`: ordered required or optional native-picker slots
+
+Waiting-user actions carry only the response data required by the action. The
+host SHALL revalidate the selected owner and waiting status immediately before
+submission. ACP text replies preserve the pre-token reply lifecycle:
+`replyState` records submission acknowledgement but is not a turn identity or a
+cross-turn lock. The existing one-shot pending resolver and serialized prompt
+chain route replies. A later waiting turn remains replyable even while an outer
+detached continuation is still settling. SkillRunner retains its backend-native
+numeric `interactionId`; it SHALL NOT mirror that id as a second Assistant
+identity. SkillRunner actions use canonical `reply-run`; literal `reply` and
+`cancel` are accepted only at the run-dialog host boundary.
+
+The managed reply textarea and button SHALL remain stable across equivalent
+publications. Transcript-only updates SHALL NOT rebuild the reply region or any
+other unchanged managed region. A sequential waiting turn dispatches the
+current typed text to the currently selected owner without a synthetic turn
+identity.
+
+ACP Skills file replies use one native single-file picker per declared slot.
+Selected files are copied into the run workspace under the flat managed path
+`.acp-inputs/<requestKey>-<submissionKey>/<safeFileName>`. A sibling temporary
+directory is atomically promoted after every file and the privacy-safe manifest
+have been written. The transcript contains display filenames only; the ACP
+prompt contains shallow workspace-relative paths only. Accepted submissions
+remain staged if continuation fails so the existing recovery state machine can
+reuse them.
+
+SkillRunner exposes the same picker only when the handshake declares
+`skillrunner.interaction-files.v1`. Without that capability the file slots and
+localized unavailable state remain visible and the text composer remains
+available. With the capability, the host sends multipart metadata and repeated
+file parts directly to the management route; paths and bytes never cross the
+child wire or transcript boundary. Plugin ceilings are 8 files, 32 MiB per
+file, and 64 MiB total, reduced when the backend declares lower limits.
 
 ### Reply Zone
 
@@ -294,6 +336,8 @@ Common rules:
 - keep send/reply action visually stable
 - show keyboard shortcut hints near the action controls
 - do not let transient hints or status messages resize the reply controls
+- keep dynamic action payloads outside structural and visible-live signatures
+  so the existing textarea and send control survive token-only publications
 - do not wrap the whole reply zone in an extra framed surface; the textarea and
   footer SHALL align horizontally with the conversation window
 
@@ -312,6 +356,29 @@ snapshot, and an ACP connect/attach result with empty `availableModes` or
 `availableModels` SHALL NOT clear a valid backend runtime options cache. Selector
 actions SHALL carry typed payload keys (`modeId`, `modelId`, `effortId`) in
 addition to the generic `value`.
+
+ACP Chat and ACP Skills SHALL resolve runtime options through the same canonical
+state policy. Selectable live `configOptions` win per category, live legacy
+mode/model state fills categories omitted by `configOptions`, and backend cache
+fills only categories omitted by both live sources. A successful setter is an
+immediate current-value override only when the value belongs to the resolved
+option domain. Explicit `thought_level` options are independent of model
+options: changing a plain model SHALL NOT clear or recompute explicit reasoning.
+Reasoning derived from model variants is recomputed only when its model group
+changes. Reasoning provenance is internal runtime/cache/run state and SHALL NOT
+be added to the Workspace wire DTO.
+
+For a connected ACP Chat owner, all three selectors SHALL retain their complete
+option domains and current values during prompting, permission wait, and
+requested interruption. Mode remains enabled in those states; model and
+reasoning effort remain visible but disabled until model configuration is
+editable. A disconnected or missing owner SHALL expose no cached runtime value
+as live editable configuration.
+
+ACP Skills model and reasoning controls SHALL use the same model-configuration
+editability gate. If the backend has no reasoning capability, the presentation
+MAY retain a disabled localized Default placeholder, but that placeholder SHALL
+NOT overwrite an explicit live or cached reasoning value.
 
 Usage gauges SHALL use compact token counts, not the word `Usage`. When both
 used tokens and context limit are known, the label SHALL use `k` units such as
@@ -361,6 +428,23 @@ clicked card, even when another session is currently selected. Backend
 selection and New conversation use a navigation-group action carrying only
 `groupId`.
 
+The canonical navigation model SHALL retain every configured backend. Visible
+drawer projection is source-specific: ACP Chat renders one untitled `sessions`
+section and preserves conversation order within backend groups; ACP Skills uses
+the canonical `running`, `queued`, and `completed` sections. Each visible
+section SHALL omit backend groups that contain no cards in that section.
+Adding a catalog-only backend therefore SHALL NOT change the drawer
+managed-region signature. The signature SHALL include section title
+visibility plus each visible backend id and display name.
+
+Selecting a valid Chat backend SHALL publish a complete owner atomically. If
+the backend has no selectable unarchived conversation, the session manager
+reuses an existing empty local placeholder or creates exactly one idle local
+placeholder before persisting and publishing the new backend/conversation
+selection. It SHALL NOT publish `conversationId: ""`, connect an adapter, or
+create a remote ACP session during backend selection. Repeated selection reuses
+the placeholder; invalid backend selection leaves the current owner unchanged.
+
 When the current backend has too many conversations, the conversation selector
 SHALL show only a bounded recent subset plus `Show more...`. Selecting
 `Show more...` SHALL open the all-session drawer and focus the current backend
@@ -393,9 +477,12 @@ result content.
 
 ACP Skills task cards use workflow-task state as their main status SSOT. Run
 lifecycle, backend status, apply state, attention, recovery, and connection are
-independent axes. A missing backend/apply value stays absent and is never
-replaced with run status. Selecting or archiving a task targets the clicked run
-owner and preserves unrelated keyed task-card DOM identity.
+independent axes. Explicit backend and apply facts take priority. A missing
+backend state uses the main task state; a successful task with no required Apply
+uses `not-required`, while other missing Apply states use `idle`. Selected
+SkillRunner cards prefer the full run record; unselected cards preserve these
+axes from the lightweight run projection. Selecting or archiving a task targets
+the clicked run owner and preserves unrelated keyed task-card DOM identity.
 
 ### SkillRunner
 
@@ -412,11 +499,30 @@ Mapping:
 - existing thinking, prompt, auth, and final cards map to `hint widget`
 - existing reply box maps to `reply zone`
 
-SkillRunner's Sessions drawer SHALL preserve the pre-migration workspace/task
-organization inside the managed drawer shell. It SHALL render Running and
-Completed sections, backend groups, active/finished task cards, selected/related
-task states, disabled task states, and the Completed-section collapse action.
-It SHALL NOT be flattened into a generic context-entry list.
+SkillRunner's Sessions drawer SHALL preserve its workspace/task organization
+inside the managed drawer shell. It SHALL render Running, Queued, and Completed
+sections, backend groups, active/finished task cards, selected/related task
+states, disabled task states, and independent section collapse actions. It
+SHALL NOT be flattened into a generic context-entry list.
+
+SkillRunner canonical backend history remains in the run-dialog session state;
+the snapshot producer owns a separate, owner-scoped UI-visible transcript
+mirror governed by the global execution display mode. `transcriptRevision`
+advances only when that published mirror changes, and the child continues to
+use the revision as its transcript render gate. In live mode, an immediate
+critical lifecycle or metadata snapshot must carry any concurrent changed
+transcript instead of canceling a queued live publication and retaining local
+pre-request notices. In boundary mode, HTTP history catch-up and foreground SSE
+use the same normalized semantic-boundary classifier so accumulated history is
+released once at the boundary. Silent mode continues to publish only its
+eligible projection; metadata snapshots must not expose suppressed content.
+Temporary sidebar or tab detach SHALL release host bindings, transient
+materialization, and pending render timers without resetting the transcript
+publication clock or published mirror state. Reattaching the same runtime,
+including the first A→B→A task return, SHALL therefore keep revisions monotonic
+and publish accumulated eligible history on the first return. Only complete
+runtime teardown such as plugin shutdown, test reset, or standalone dialog
+destruction SHALL clear the publication clock and mirror cache.
 
 The refactor SHALL NOT rewrite SkillRunner backend protocol, output
 convergence, reply/cancel semantics, or backend observation contracts.
@@ -474,3 +580,22 @@ protocol or state behavior.
 - This SSOT does not introduce a frontend framework.
 - This SSOT does not merge ACP Chat conversation store with ACP Skills run
   store.
+
+## Host queued workflow units
+
+ACP Skills and SkillRunner drawers may show a drawer-owned `Queued` section
+between Running and Completed. Queued rows are source-level DTOs: they do not
+create owners, run keys, request IDs, transcript selection, or provider
+placeholders. Their only action is an icon-only Host cancel carrying `queueId`.
+
+Running, Queued, and Completed are independently collapsible. Running is
+expanded by default; Queued and Completed are collapsed by default. The shared
+Assistant labels localize every section title, queued state, and queue cancel
+action. Running uses a subtle accent-blue treatment, Queued uses a subtle
+warning-amber treatment, and Completed remains neutral; all three derive light
+and dark values from shared theme tokens.
+
+Sections and backend groups have local collapse state and region-level
+signatures. Queue-only add/remove/collapse changes reconcile keyed drawer
+nodes without rebuilding transcript, Runner pane, toolbar, banner, plan, hint,
+reply, context/details drawers, or permission drawer.

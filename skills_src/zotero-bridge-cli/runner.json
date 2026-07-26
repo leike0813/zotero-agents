@@ -1,8 +1,8 @@
 {
   "id": "zotero-bridge-cli",
   "name": "🔌 Zotero Bridge CLI",
-  "description": "Wrapper skill for Zotero host access through the Zotero Agents Host Bridge CLI.",
-  "version": "0.3.1",
+  "description": "Operate the Zotero Bridge CLI when exact Zotero commands or structured recovery are needed.",
+  "version": "__HOST_BRIDGE_SURFACE_VERSION__",
   "execution_modes": [
     "auto"
   ],
@@ -11,7 +11,7 @@
   },
   "entrypoint": {
     "prompts": {
-      "common": "Read SKILL.md and references/host-bridge-cli.md. Use zotero-bridge for Zotero host access when needed. Never expose bearer tokens. If this wrapper skill is invoked directly, return one JSON object summarizing the Host Bridge CLI discovery or diagnostic result."
+      "common": "Read SKILL.md first. If the canonical command is unknown, use references/command-catalog.md to map the Zotero task intent to candidates. After selecting a command, read only its matching reference under references/commands/. Never expose bearer tokens. Return one JSON object that preserves the CLI result or structured failure."
     }
   }
 }

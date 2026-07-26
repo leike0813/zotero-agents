@@ -4,6 +4,7 @@ import {
   applyRunOnceWorkflowSettingsDraft,
   getWorkflowSettingsDialogInitialState,
   listProviderProfilesForWorkflow,
+  rebaseWorkflowProviderOptionsForBackendChange,
   savePersistentWorkflowSettingsDraft,
 } from "./workflowSettings";
 import { getString } from "../utils/locale";
@@ -573,6 +574,7 @@ function appendLabeledControlRow(args: {
   row.appendChild(args.control);
 
   args.root.appendChild(row);
+  return row;
 }
 
 async function pickWorkflowIdForSettings(args: {
@@ -949,6 +951,12 @@ export async function openWorkflowSettingsDialog(args?: {
           : renderModel.selectedProfile;
         return profileById.get(onceSelectedId || fallbackId);
       };
+      let lastPersistedBackendId = String(
+        resolvePersistedBackend()?.id || "",
+      ).trim();
+      let lastRunOnceBackendId = String(
+        resolveRunOnceBackend()?.id || "",
+      ).trim();
       renderProviderOptionsFields({
         container: persistedProviderFields,
         idPrefix: "zs-workflow-persisted-provider-option",
@@ -962,33 +970,66 @@ export async function openWorkflowSettingsDialog(args?: {
         resolveBackend: resolveRunOnceBackend,
       });
       profileSelect.addEventListener("change", () => {
-        renderProviderOptionsFields({
-          container: persistedProviderFields,
-          idPrefix: "zs-workflow-persisted-provider-option",
-          values: {
+        const nextPersistedBackendId = String(
+          resolvePersistedBackend()?.id || "",
+        ).trim();
+        const persistedValues = rebaseWorkflowProviderOptionsForBackendChange({
+          workflow,
+          previousBackendId: lastPersistedBackendId,
+          nextBackendId: nextPersistedBackendId,
+          options: {
             ...renderModel.persistedProviderOptions,
             ...collectSchemaValues(persistedProviderFields),
           },
+          candidateBackends: profiles,
+        });
+        lastPersistedBackendId = nextPersistedBackendId;
+        renderProviderOptionsFields({
+          container: persistedProviderFields,
+          idPrefix: "zs-workflow-persisted-provider-option",
+          values: persistedValues,
           resolveBackend: resolvePersistedBackend,
         });
-        renderProviderOptionsFields({
-          container: onceProviderFields,
-          idPrefix: "zs-workflow-once-provider-option",
-          values: {
+        const nextRunOnceBackendId = String(
+          resolveRunOnceBackend()?.id || "",
+        ).trim();
+        const runOnceValues = rebaseWorkflowProviderOptionsForBackendChange({
+          workflow,
+          previousBackendId: lastRunOnceBackendId,
+          nextBackendId: nextRunOnceBackendId,
+          options: {
             ...renderModel.runOnceProviderOptions,
             ...collectSchemaValues(onceProviderFields),
           },
+          candidateBackends: profiles,
+        });
+        lastRunOnceBackendId = nextRunOnceBackendId;
+        renderProviderOptionsFields({
+          container: onceProviderFields,
+          idPrefix: "zs-workflow-once-provider-option",
+          values: runOnceValues,
           resolveBackend: resolveRunOnceBackend,
         });
       });
       onceProfileSelect.addEventListener("change", () => {
-        renderProviderOptionsFields({
-          container: onceProviderFields,
-          idPrefix: "zs-workflow-once-provider-option",
-          values: {
+        const nextRunOnceBackendId = String(
+          resolveRunOnceBackend()?.id || "",
+        ).trim();
+        const runOnceValues = rebaseWorkflowProviderOptionsForBackendChange({
+          workflow,
+          previousBackendId: lastRunOnceBackendId,
+          nextBackendId: nextRunOnceBackendId,
+          options: {
             ...renderModel.runOnceProviderOptions,
             ...collectSchemaValues(onceProviderFields),
           },
+          candidateBackends: profiles,
+        });
+        lastRunOnceBackendId = nextRunOnceBackendId;
+        renderProviderOptionsFields({
+          container: onceProviderFields,
+          idPrefix: "zs-workflow-once-provider-option",
+          values: runOnceValues,
           resolveBackend: resolveRunOnceBackend,
         });
       });

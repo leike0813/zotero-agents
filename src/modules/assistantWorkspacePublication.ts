@@ -18,6 +18,10 @@ export {
   ASSISTANT_WORKSPACE_TRANSCRIPT_DELTA_KEYS,
   ASSISTANT_WORKSPACE_TRANSCRIPT_SNAPSHOT_KEYS,
 } from "../shared/assistantWireContract";
+import {
+  parseAssistantPendingInteraction,
+  type AssistantPendingInteraction,
+} from "../shared/assistantInteractionContract";
 
 // Shared wire identity types (AssistantWorkspaceOwner,
 // AssistantWorkspacePublicationAck, ...) also live in the shared wire
@@ -150,6 +154,11 @@ export const ASSISTANT_WORKSPACE_ACTION_REGISTRY = {
     sources: ["acp-skills"],
     payloadKeys: [],
   },
+  "cancel-queued-workflow-unit": {
+    scope: "global",
+    sources: ["acp-skills"],
+    payloadKeys: ["queueId"],
+  },
   "set-active-backend": {
     scope: "navigation-group",
     sources: ["acp-chat"],
@@ -234,6 +243,16 @@ export const ASSISTANT_WORKSPACE_ACTION_REGISTRY = {
     scope: "selected-owner",
     sources: ["acp-skills"],
     payloadKeys: ["message"],
+  },
+  "select-interaction-option": {
+    scope: "selected-owner",
+    sources: ["acp-skills"],
+    payloadKeys: ["responseValue", "responseLabel"],
+  },
+  "submit-interaction-files": {
+    scope: "selected-owner",
+    sources: ["acp-skills"],
+    payloadKeys: [],
   },
   "resolve-permission": {
     scope: "selected-owner",
@@ -407,6 +426,7 @@ export type AssistantWorkspaceOwnerControl = {
       | "notice";
     message: string | null;
   };
+  interaction: AssistantPendingInteraction | null;
   connection: {
     status: string;
     sessionAvailable: boolean;
@@ -433,6 +453,16 @@ export type AssistantWorkspaceMessageCounts = {
   counts: AssistantMessageCountsSnapshot | null;
 };
 
+export type AssistantWorkspaceQueuedNavigationEntry = {
+  queueId: string;
+  groupId: string;
+  label: string;
+  subtitle: string | null;
+  groupLabel: string | null;
+  updatedAt: string | null;
+  canCancel: boolean;
+};
+
 export type AssistantWorkspaceOwnerNavigation = {
   selectedOwner: AssistantWorkspaceOwner | null;
   selectedGroupId: string | null;
@@ -455,6 +485,7 @@ export type AssistantWorkspaceOwnerNavigation = {
     updatedAt: string | null;
     messageCount: number;
   }>;
+  queuedEntries: AssistantWorkspaceQueuedNavigationEntry[];
   canCreateOwner: boolean;
 };
 
@@ -587,6 +618,28 @@ export type AssistantWorkspaceOptionGroup = {
   options: AssistantWorkspaceOption[];
   enabled: boolean;
 };
+
+export function projectAssistantWorkspaceOptionGroup(
+  options:
+    | ReadonlyArray<{
+        id: string;
+        label: string;
+        description?: string | null;
+      }>
+    | undefined,
+  selectedOptionId: string | null | undefined,
+  enabled: boolean,
+): AssistantWorkspaceOptionGroup {
+  return {
+    selectedOptionId: selectedOptionId || null,
+    options: (options || []).map((option) => ({
+      optionId: option.id,
+      label: option.label,
+      description: option.description || null,
+    })),
+    enabled,
+  };
+}
 
 export type AssistantWorkspaceOwnerPresentation = {
   title: string;
@@ -1219,6 +1272,12 @@ function assertPublicationPayloadInvariant(
       ["kind", "message"],
       "assistant-workspace-owner-control-hint",
     );
+    if (
+      baseline.interaction !== null &&
+      !parseAssistantPendingInteraction(baseline.interaction)
+    ) {
+      throw new Error("assistant-workspace-owner-control-interaction");
+    }
     if (
       ![
         "hidden",

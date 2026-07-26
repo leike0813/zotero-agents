@@ -242,7 +242,7 @@ describe("plugin skill registry", function () {
     assert.match(registry.entriesById["user-demo"].checksum, /^sha256:/);
   });
 
-  it("discovers the Host Bridge CLI wrapper as a valid official skill", async function () {
+  it("discovers the Zotero Bridge CLI access skill with task-oriented triggers", async function () {
     const registry = await scanPluginSkillRegistry({ cwd: process.cwd() });
     const entry = registry.entriesById["zotero-bridge-cli"];
 
@@ -253,8 +253,10 @@ describe("plugin skill registry", function () {
       "skills_builtin/zotero-bridge-cli",
     );
     assert.include(entry.description, "Zotero Bridge CLI");
-    assert.include(entry.description, "surface identity");
-    assert.include(entry.description, "command contract");
+    assert.include(entry.description, "Zotero library");
+    assert.include(entry.description, "workflow");
+    assert.include(entry.description, "Synthesis");
+    assert.notInclude(entry.description, "Host Bridge");
     assert.match(entry.checksum, /^sha256:/);
   });
 

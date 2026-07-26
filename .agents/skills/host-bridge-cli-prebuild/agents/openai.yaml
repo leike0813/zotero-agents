@@ -1,0 +1,4 @@
+interface:
+  display_name: "Host Bridge CLI Prebuild"
+  short_description: "Run or resume exact seven-platform CLI prebuilds"
+  default_prompt: "Use $host-bridge-cli-prebuild to run or resume the exact Host Bridge CLI build-only prebuild workflow."

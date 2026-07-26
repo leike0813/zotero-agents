@@ -70,13 +70,23 @@ ACP agents use different local skill discovery roots. The compatibility layer re
 Default run-local roots:
 
 - `codex`: `.agents/skills`, `.codex/skills`
-- `claude-code`: `.claude/skills`
-- `opencode`: `.agents/skills`, `.claude/skills`
+- `claude-code`: `.agents/skills`, `.claude/skills`
+- `opencode`: `.agents/skills`, `.opencode/skills`
 - `gemini-cli`: `.agents/skills`, `.gemini/skills`
-- `qwen-code`: `.qwen/skills`
+- `qwen-code`: `.agents/skills`, `.qwen/skills`
+- `kilo`: `.agents/skills`, `.kilo/skills`
+- `codebuddy`: `.agents/skills`, `.codebuddy/skills`
+- `kimi-code`: `.agents/skills`, `.kimi-code/skills`
+- `hermes`: no project skill roots
 - `unknown`: `.agents/skills`
 
-Backend profiles may declare `acp.agentFamily` or `acp.skillRoots` to override inference. Overrides only affect ACP SkillRunner-compatible workflow runs.
+Backend profiles may declare `acp.agentFamily` or `acp.skillRoots` to override
+inference. ACP SkillRunner-compatible runs use configured `acp.skillRoots` in
+place of family defaults. ACP Chat uses the stable union of family defaults and
+additional `acp.skillRoots` from every configured ACP backend, including
+disabled profiles, because all Chat conversations share one agent workspace.
+The Chat workspace reconciles only manifest-owned whitelist directories when
+that configured union shrinks.
 
 ## Runtime Dependency Injection
 

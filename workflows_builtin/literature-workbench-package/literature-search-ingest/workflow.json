@@ -1,8 +1,11 @@
 {
+  "schemaVersion": 2,
   "id": "literature-search-ingest",
   "label": "Literature Search Ingest",
+  "description": "Search scholarly sources, review candidates, research approved papers in agent-chosen subagent groups, collect independent per-paper payloads as they complete, then serially ingest them into Zotero.",
+  "executionModes": ["auto"],
   "provider": "skillrunner",
-  "version": "0.2.0",
+  "version": "0.5.0",
   "display": {
     "core": true,
     "emoji": "🔎"
@@ -12,7 +15,12 @@
     "requiresSelection": false
   },
   "inputs": {
-    "unit": "workflow"
+    "member": {
+      "kind": "selection"
+    },
+    "grouping": {
+      "mode": "all"
+    }
   },
   "parameters": {
     "query": {
@@ -68,6 +76,12 @@
         "labelFormat": "path"
       }
     }
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "selection"
+    },
+    "filters": []
   },
   "request": {
     "kind": "skillrunner.job.v1",

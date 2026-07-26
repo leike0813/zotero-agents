@@ -1,6 +1,9 @@
 {
+  "schemaVersion": 2,
   "id": "literature-metadata-curator",
   "label": "Literature Metadata Curator",
+  "description": "Audit and repair bibliographic metadata for selected literature using identifier and search evidence.",
+  "executionModes": ["auto"],
   "provider": "skillrunner",
   "version": "0.3.0",
   "display": {
@@ -12,7 +15,12 @@
     "requiresSelection": true
   },
   "inputs": {
-    "unit": "parent"
+    "member": {
+      "kind": "parent"
+    },
+    "grouping": {
+      "mode": "each"
+    }
   },
   "parameters": {
     "skip_identifier_fast_path": {
@@ -24,9 +32,10 @@
   },
   "validateSelection": {
     "select": {
-      "policy": "literature-parent",
-      "unit": "parent"
-    }
+      "policy": "input-member",
+      "source": "related"
+    },
+    "filters": []
   },
   "request": {
     "kind": "skillrunner.job.v1",

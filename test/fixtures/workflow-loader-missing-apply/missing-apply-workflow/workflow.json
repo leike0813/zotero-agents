@@ -1,7 +1,25 @@
 {
+  "schemaVersion": 2,
   "id": "missing-apply-workflow",
   "label": "Missing Apply Workflow",
   "provider": "skillrunner",
+  "trigger": {
+    "requiresSelection": true
+  },
+  "inputs": {
+    "member": {
+      "kind": "selection"
+    },
+    "grouping": {
+      "mode": "all"
+    }
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "selection"
+    },
+    "filters": []
+  },
   "request": {
     "kind": "skillrunner.job.v1",
     "create": {

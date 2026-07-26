@@ -56,13 +56,30 @@ Data transfer between seams SHALL use explicit typed handoff contracts, not hidd
 - **THEN** feedback seam receives explicit outcome summaries to render final reporting
 
 ### Requirement: Backend-backed workflow batches SHALL dispatch fully in parallel
-The execution seam SHALL remove frontend concurrency throttling for
-backend-backed workflow providers while preserving local queue orchestration.
+The execution seam SHALL use full-parallel dispatch for backend-backed providers
+unless a supported ACP Skills or SkillRunner submission has captured a positive
+Host maximum-concurrency value. Host admission SHALL limit top-level execution
+units, while provider-owned concurrency inside an admitted unit remains
+authoritative.
 
-#### Scenario: SkillRunner batch uses full-parallel dispatch
-- **WHEN** the execution seam runs a batch for provider `skillrunner`
-- **THEN** queue concurrency equals the batch request count
+#### Scenario: SkillRunner batch uses full-parallel dispatch by default
+- **WHEN** the execution seam runs a SkillRunner batch with blank or zero Host maximum concurrency
+- **THEN** Host admission concurrency equals the top-level execution-unit count
 - **AND** the frontend SHALL NOT impose an extra fixed concurrency cap
+
+#### Scenario: SkillRunner batch uses an explicit Host limit
+- **WHEN** the execution seam runs a SkillRunner batch with positive Host maximum concurrency `N`
+- **THEN** the Host SHALL admit at most `N` top-level execution units from that submission
+- **AND** provider request fan-out inside each admitted unit SHALL retain its existing semantics
+
+#### Scenario: ACP Skills batch uses full-parallel dispatch by default
+- **WHEN** the execution seam runs an ACP Skills batch with blank or zero Host maximum concurrency
+- **THEN** the Host SHALL admit every top-level execution unit without throttling
+- **AND** the prior implicit serial default SHALL NOT apply
+
+#### Scenario: ACP Skills batch uses an explicit Host limit
+- **WHEN** the execution seam runs an ACP Skills batch with positive Host maximum concurrency `N`
+- **THEN** the Host SHALL admit at most `N` top-level execution units from that submission
 
 #### Scenario: Generic HTTP batch uses full-parallel dispatch
 - **WHEN** the execution seam runs a batch for provider `generic-http`
@@ -75,17 +92,44 @@ backend-backed workflow providers while preserving local queue orchestration.
 - **AND** pass-through local execution semantics remain unchanged
 
 ### Requirement: Local queue lifecycle SHALL remain the frontend execution model
-Removing frontend throttling MUST NOT remove the local queue or its lifecycle
-contracts.
+Host admission control MUST compose with, rather than replace, the existing
+frontend execution lifecycle. An admitted unit MUST still use the provider run,
+terminal-result, result-apply, and feedback seams, and trigger-level completion
+MUST wait for all admitted, queued, skipped, and canceled units to converge.
 
-#### Scenario: Batch completion still converges through queue idle
-- **WHEN** a workflow batch is dispatched with full backend-backed concurrency
-- **THEN** the seam MUST still wait for queue idle before result-apply and final summary aggregation
+#### Scenario: Admitted unit converges through apply before releasing its slot
+- **WHEN** a supported backend-backed unit reaches a provider terminal result
+- **THEN** the execution seam MUST complete unit-scoped result application
+- **AND** only then SHALL Host admission release that unit's slot
+
+#### Scenario: Submission completion waits for queued units
+- **WHEN** a submission still contains Host-queued units
+- **THEN** final feedback aggregation SHALL remain pending
+- **AND** it SHALL complete only after every unit has reached succeeded, failed, or skipped outcome
 
 #### Scenario: Pass-through keeps serialized execution semantics
 - **WHEN** the execution seam runs a batch for provider `pass-through`
 - **THEN** frontend dispatch MUST remain serialized
 - **AND** this change MUST NOT alter pass-through local execution semantics
+
+### Requirement: Preparation SHALL return explicit execution-unit plans
+
+The preparation seam MUST return a typed execution plan whose top-level entries
+correspond to legal declarative execution units. Each entry MUST retain the
+source identity, display label, workflow and backend context, and the data needed
+to execute provider preflight only after Host admission.
+
+#### Scenario: Multiple selected parent items are legal
+
+- **WHEN** declarative selection validation accepts multiple parent items for a workflow
+- **THEN** preparation SHALL produce one ordered top-level execution unit per accepted parent item
+- **AND** that order SHALL define the submission's FIFO queue order
+
+#### Scenario: Preflight remains deferred until admission
+
+- **WHEN** a prepared unit is waiting in the Host queue
+- **THEN** provider preflight and provider submission for that unit SHALL NOT run
+- **AND** the explicit plan SHALL retain enough data to run them after admission
 
 ### Requirement: Seam boundaries SHALL support deterministic testing
 Each seam SHALL be testable through dependency injection of side-effectful collaborators.
@@ -309,6 +353,27 @@ Workflow hook execution diagnostics MUST record hook execution start and failure
 #### Scenario: Package hook executes in debug mode
 - **WHEN** a package hook executes in debug mode
 - **THEN** diagnostics include workflow id, package id, hook name, workflow source kind, `executionMode`, `contract`, `hostApiVersion`, and `hostApiSummary`
+
+### Requirement: Preparation seams SHALL exchange prepared units
+The workflow execution preparation seam SHALL accept and return typed v2 candidates, prepared units, and statistics rather than legacy unit-kind or per-parent splitting hints.
+
+#### Scenario: Runtime builds a prepared unit
+- **WHEN** `buildPreparedWorkflowUnitExecution` is invoked
+- **THEN** it consumes the provided unit directly and does not call selection planning
+
+### Requirement: Scoped context merging SHALL preserve member order
+Grouping SHALL merge candidate scoped contexts in member order, deduplicate stable Zotero identities by first occurrence, and expose a shared target parent only when all members resolve to that same parent.
+
+#### Scenario: All grouping combines related attachments
+- **WHEN** an all-group contains ordered attachment candidates with overlapping scoped relations
+- **THEN** the merged context preserves first occurrence and does not duplicate related objects
+
+### Requirement: Selection validation SHALL be removed from downstream seams
+Duplicate, preflight, request-build, and queue seams SHALL NOT infer selection requirements or grouping from a scoped unit context.
+
+#### Scenario: Downstream seam sees one-parent scoped context
+- **WHEN** the original confirmed selection required multiple parents but the seam receives a one-parent prepared unit
+- **THEN** the seam does not reapply the original selection requirement
 
 ### Requirement: Debug-only workflow visibility SHALL be gated by debug mode
 The system SHALL allow builtin workflows to declare `debug_only: true` and SHALL
@@ -659,3 +724,19 @@ An apply hook MAY return structured `applyDiagnostics` without changing successf
 - **WHEN** a successful hook returns invalid or unbounded diagnostics
 - **THEN** the apply seam SHALL ignore or bound the invalid fields without failing apply
 - **AND** it SHALL NOT log the complete hook result or unrestricted warning messages.
+
+### Requirement: Prepared workflow submission SHALL have one shared execution seam
+Workflow UI and Host Bridge SHALL call one submission seam after confirmed planning and duplicate guarding. The seam SHALL accept resolved prepared execution state and immutable allowed prepared units, and SHALL own queue admission plus direct-provider fallback.
+
+#### Scenario: ACP unit is admitted
+- **WHEN** the submission queue admits an ACP or SkillRunner prepared unit
+- **THEN** the seam SHALL build and preflight that unit, run it to terminal state, and complete Host apply before releasing its queue slot
+
+#### Scenario: Input plan already exists
+- **WHEN** the seam receives a prepared execution and allowed units
+- **THEN** it SHALL NOT inspect raw selection, invoke the planner, delete members, or regroup units
+
+#### Scenario: UI and Host submit concurrently
+- **WHEN** UI and Host Bridge submit queue-managed workflows
+- **THEN** each entry path SHALL invoke the shared seam once
+- **AND** no path SHALL enqueue the same unit twice or bypass the native queue

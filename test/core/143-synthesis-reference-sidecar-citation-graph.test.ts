@@ -58,6 +58,22 @@ function embeddedPayloadBlocks(args: Parameters<typeof renderPayloadBlock>[0]) {
   };
 }
 
+async function waitForMaintenanceTerminal(
+  service: ReturnType<typeof makeService>["service"],
+  operationId: string,
+) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const operation = service.getPublicMaintenanceOperation({
+      operation_id: operationId,
+    });
+    if (["completed", "failed", "canceled"].includes(operation.status)) {
+      return operation;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`maintenance operation did not finish: ${operationId}`);
+}
+
 describe("Synthesis sidecar cache hard cut", function () {
   it("keeps the citation role allowlist aligned with literature-analysis runtime", async function () {
     const runtimeSource = await fs.readFile(
@@ -903,6 +919,77 @@ describe("Synthesis sidecar cache hard cut", function () {
     assert.equal(
       repository.getCacheBasis("citation-graph:library")?.status,
       "stale",
+    );
+  });
+
+  it("keeps public sidecar refresh and graph update independently idempotent", async function () {
+    const root = await makeRuntimeRoot();
+    const { service, repository } = makeService({
+      root,
+      registryInputs: [
+        {
+          libraryId: 1,
+          itemKey: "AAA",
+          title: "Attention Paper",
+          notes: [],
+        },
+      ],
+    });
+    const request = {
+      scope: "papers",
+      paper_refs: ["1:AAA"],
+      idempotency_key: "refresh-aaa",
+    };
+
+    const first = service.startReferenceSidecarRefresh(request);
+    const repeated = service.startReferenceSidecarRefresh(request);
+    assert.equal(first.status, "pending");
+    assert.equal(repeated.operation_id, first.operation_id);
+    assert.throws(
+      () =>
+        service.startReferenceSidecarRefresh({
+          scope: "library",
+          idempotency_key: "refresh-aaa",
+        }),
+      "maintenance_idempotency_conflict",
+    );
+
+    const refreshed = await waitForMaintenanceTerminal(
+      service,
+      first.operation_id,
+    );
+    assert.equal(refreshed.status, "completed");
+    assert.equal(refreshed.receipt?.kind, "reference_sidecar_refresh");
+    assert.deepEqual(refreshed.receipt?.safe_next_actions, [
+      "citation_graph.update",
+    ]);
+    assert.notInclude(
+      repository
+        .listOperations({ includeCompleted: true })
+        .map((operation) => operation.operationType),
+      "citation_graph_cache_incremental_refresh",
+    );
+
+    const graphBasisBefore = repository.getCacheBasis("citation-graph:library");
+    const graph = service.startCitationGraphUpdate({
+      scope: "papers",
+      paper_refs: ["1:AAA"],
+      expected_reference_basis_hash: "sha256:stale-client-basis",
+      idempotency_key: "graph-aaa",
+    });
+    const graphResult = await waitForMaintenanceTerminal(
+      service,
+      graph.operation_id,
+    );
+    assert.equal(graphResult.status, "failed");
+    assert.equal(graphResult.receipt?.state_changed, false);
+    assert.equal(
+      graphResult.receipt?.diagnostics?.[0]?.code,
+      "reference_basis_mismatch",
+    );
+    assert.deepEqual(
+      repository.getCacheBasis("citation-graph:library"),
+      graphBasisBefore,
     );
   });
 

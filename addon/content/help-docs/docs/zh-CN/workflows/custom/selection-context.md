@@ -154,63 +154,63 @@ export function preflight({ selectionContext }) {
 }
 ```
 
-### 过滤附件
-
-使用声明式 `validateSelection` 处理常见的附件过滤：
+### Attachment Candidate Planning
 
 ```json
 {
+  "inputs": {
+    "member": {
+      "kind": "attachment",
+      "accepts": { "mime": ["application/pdf"] }
+    },
+    "grouping": { "mode": "each" }
+  },
   "validateSelection": {
-    "select": { "policy": "pdf-attachment" },
     "require": {
-      "counts": { "attachments": 1 },
-      "allowMixed": false
-    }
-  }
-}
-```
-
-对于需要依赖已解析单元的运行时决策，使用 `preflight` 来跳过或继续：
-
-```js
-export function preflight({ selectionContext, runtime }) {
-  const { helpers } = runtime;
-
-  const hasPdf = selectionContext.items.attachments.some(
-    a => helpers.isPdfAttachment(a)
-  );
-
-  if (!hasPdf) {
-    return { kind: "skip", reason: "没有 PDF 附件" };
-  }
-
-  return { kind: "continue" };
-}
-```
-
-### 选中无条目时的 workflow
-
-当 `inputs.unit: "workflow"` 且 `trigger.requiresSelection: false` 时，workflow 可以在不选中任何条目的情况下触发。此时 `selectionContext.selectionType` 为 `"none"`，`items` 中所有数组为空。这种模式适合创建全局操作（如"创建 Topic 综合"）。
-
-## 声明式选择验证
-
-如果你的 workflow 只需要**跳过已有结果的条目**或**过滤特定类型的输入**，使用声明式 `validateSelection` 字段，无需编写 JavaScript hook。
-
-```json
-{
-  "validateSelection": {
-    "select": { "policy": "literature-source" },
-    "exclude": [
-      { "kind": "generated-notes-all", "noteKinds": ["digest"] }
+      "selection": {
+        "counts": { "attachments": { "min": 1 } },
+        "allowMixed": false
+      }
+    },
+    "select": { "policy": "input-member", "source": "selected" },
+    "filters": [
+      { "kind": "source-file-exists", "phase": "availability" }
     ]
   }
 }
 ```
 
-详见[清单文件编写](#doc/workflows%2Fcustom%2Fmanifest#selection-validation)中的完整说明。
+`require.selection` reads the original SelectionContext once. The selector
+produces ordered candidates, attachment MIME compatibility runs before filters,
+and `inputs.grouping` creates immutable top-level units.
 
-> **选择指南：** 尽可能使用声明式 `validateSelection`——零 JS 代码、零维护成本。复杂的筛选逻辑可以在 `buildRequest` Hook 中实现。
+### Workflows Without Selected Items
 
+Use `member.kind: "selection"`, `grouping.mode: "all"`, the `selection`
+selector, and `trigger.requiresSelection: false`. The selector then produces
+the complete empty SelectionContext as the single member. Selection
+requirements remain active and must not make the empty selection impossible.
+
+## Declarative Candidate Filters
+
+```json
+{
+  "validateSelection": {
+    "select": { "policy": "generated-note-candidates" },
+    "filters": [
+      {
+        "kind": "generated-note-kinds-absent",
+        "phase": "availability",
+        "noteKinds": ["digest"]
+      }
+    ]
+  }
+}
+```
+
+`validateSelection` owns candidate production and filtering. `inputs` owns
+the execution member and grouping. Hooks consume the prepared unit and must not
+reconstruct selection planning.
 ## 下一步
 
 - [Host API 参考](#doc/workflows%2Fcustom%2Fhost-api) — 在 hook 中操作 Zotero 数据的完整 API

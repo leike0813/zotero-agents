@@ -328,6 +328,18 @@ describe("skillrunner snapshot wire contract (v1)", function () {
       expectRejectedSnapshot(snapshot, "snapshot\\.session\\.canReply");
     });
 
+    it("rejects a non-boolean drawer section collapsible flag", function () {
+      const snapshot = mutatedSnapshot((draft) => {
+        const drawer = draft.drawer as Record<string, unknown>;
+        const sections = drawer.sections as Array<Record<string, unknown>>;
+        sections[0].collapsible = "yes";
+      });
+      expectRejectedSnapshot(
+        snapshot,
+        "snapshot\\.drawer\\.sections\\[0\\]\\.collapsible",
+      );
+    });
+
     it("rejects an invalid hostMode", function () {
       const snapshot = mutatedSnapshot((draft) => {
         draft.hostMode = "overlay";
@@ -347,6 +359,18 @@ describe("skillrunner snapshot wire contract (v1)", function () {
         (draft.session as Record<string, unknown>).surpriseField = 1;
       });
       expectRejectedSnapshot(snapshot, "snapshot\\.session\\.surpriseField");
+    });
+
+    it("rejects an unknown pending interaction key", function () {
+      const snapshot = mutatedSnapshot((draft) => {
+        const session = draft.session as Record<string, unknown>;
+        (session.pendingInteraction as Record<string, unknown>).surpriseField =
+          1;
+      });
+      expectRejectedSnapshot(
+        snapshot,
+        "snapshot\\.session\\.pendingInteraction",
+      );
     });
 
     it("rejects a broken statusSemantics", function () {

@@ -228,3 +228,14 @@ state settles.
 SkillRunner connection audit is available only when its source switch and
 debug mode are enabled, loads diagnostic metadata only when selected, and
 never mutates connection state.
+
+### INV-WS-HOST-QUEUED-SOURCE-ROWS
+
+The SkillRunner drawer places pending Host workflow units in a separate Queued
+section grouped by backend. These rows are non-selectable, have no run or
+request identity, and expose only Host queue cancellation by `queueId`.
+Running, Queued, and Completed use the shared localized section model; all are
+collapsible, with Running expanded and the other two collapsed by default.
+Their subtle blue, amber, and neutral treatments use shared light/dark theme
+tokens. Provider running/completed groups and their selection semantics remain
+owned by the SkillRunner run store.

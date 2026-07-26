@@ -135,7 +135,7 @@ if (-not (Test-Path -LiteralPath $ReleaseSetPath)) {
     Log-Error "Release set not found at host-bridge/release-set.json"
 }
 $releaseSet = Get-Content -Encoding UTF8 -LiteralPath $ReleaseSetPath -Raw | ConvertFrom-Json
-if ([string]$releaseSet.schema -ne 'host-bridge.release-set.v1' -or -not [string]$releaseSet.releaseSetId) {
+if ([string]$releaseSet.schema -notin @('host-bridge.release-set.v1', 'host-bridge.release-set.v2', 'host-bridge.release-set.v3') -or -not [string]$releaseSet.releaseSetId) {
     Log-Error "Invalid Host Bridge release set"
 }
 

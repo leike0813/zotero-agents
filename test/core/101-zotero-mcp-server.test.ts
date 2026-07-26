@@ -970,10 +970,18 @@ describe("embedded Zotero MCP server protocol", function () {
           }) as any,
       },
     );
-    const notes = (notesResponse as any).result.structuredContent.data;
+    const notesPage = (notesResponse as any).result.structuredContent.data;
+    const notes = notesPage.items;
     assert.strictEqual(notes[0].key, "NOTEKEY1");
     assert.strictEqual(notes[0].textLength, largeText.length);
     assert.notProperty(notes[0], "html");
+    assert.deepInclude(notesPage, {
+      nextCursor: "",
+      hasMore: false,
+      returned: 1,
+      total: 1,
+      limit: 25,
+    });
     const notesText = toolText(notesResponse);
     assert.include(notesText, "NOTEKEY1");
     assert.include(notesText, "libraryId=1");
@@ -1131,13 +1139,21 @@ describe("embedded Zotero MCP server protocol", function () {
       },
     );
 
-    const attachments = (response as any).result.structuredContent.data;
+    const attachmentPage = (response as any).result.structuredContent.data;
+    const attachments = attachmentPage.attachments;
     assert.strictEqual(attachments[0].access.mode, "bridge-download");
     assert.strictEqual(attachments[0].access.file.displayName, "paper.md");
     assert.strictEqual(attachments[0].access.file.owner.itemKey, "ATTACHMD");
     assert.isUndefined(attachments[0].path);
     assert.strictEqual(attachments[2].access.mode, "unavailable");
     assert.notProperty(attachments[0], "content");
+    assert.deepInclude(attachmentPage, {
+      nextCursor: "",
+      hasMore: false,
+      returned: 3,
+      total: 3,
+      limit: 25,
+    });
     const text = toolText(response);
     assert.include(text, "ATTACHMD");
     assert.include(text, "ATTACH1");
@@ -1290,12 +1306,20 @@ describe("embedded Zotero MCP server protocol", function () {
     assert.include(listedText, "digest-markdown");
     assert.include(listedText, "references-json");
     assert.include(listedText, ZOTERO_MCP_TOOL_GET_NOTE_PAYLOAD);
+    const payloadPage = (listed as any).result.structuredContent.data;
     assert.deepEqual(
-      (listed as any).result.structuredContent.data.map(
+      payloadPage.payloads.map(
         (entry: { payloadType: string }) => entry.payloadType,
       ),
       ["digest-markdown", "references-json"],
     );
+    assert.deepInclude(payloadPage, {
+      nextCursor: "",
+      hasMore: false,
+      returned: 2,
+      total: 2,
+      limit: 25,
+    });
 
     const detail = await handleZoteroMcpRequestForTests(
       {
@@ -1621,6 +1645,82 @@ describe("embedded Zotero MCP server protocol", function () {
     const item = Zotero.Items.get(ingest.item.id)!;
     assert.strictEqual(item.itemType, "document");
     assert.include(String(item.getField("extra") || ""), `DOI: ${doi}`);
+  });
+
+  it("maps an identifier-only DOI to the native journal article field", async function () {
+    const doi = "10.5555/zs.mcp.native-doi.001";
+    const response = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "ingest-native-doi",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_EXECUTE_MUTATION,
+          arguments: {
+            operation: "literature.ingest",
+            paper: {
+              itemType: "journalArticle",
+              fields: {
+                title: "Identifier-only DOI paper",
+                extra: `DOI: ${doi}\nSource note`,
+              },
+              creators: [],
+              identifiers: { doi },
+            },
+          },
+        },
+      },
+      { requestToolPermission: () => true },
+    );
+
+    const ingest = (response as any).result.structuredContent.data.result
+      .ingest;
+    assert.strictEqual(ingest.status, "created");
+    const item = Zotero.Items.get(ingest.item.id)!;
+    assert.strictEqual(item.getField("DOI"), doi);
+    assert.notInclude(String(item.getField("extra") || ""), "DOI:");
+    assert.include(String(item.getField("extra") || ""), "Source note");
+  });
+
+  it("rejects conflicting typed DOI representations before permission", async function () {
+    let permissionCalls = 0;
+    const response = await handleZoteroMcpRequestForTests(
+      {
+        jsonrpc: "2.0",
+        id: "ingest-conflicting-doi",
+        method: "tools/call",
+        params: {
+          name: ZOTERO_MCP_TOOL_EXECUTE_MUTATION,
+          arguments: {
+            operation: "literature.ingest",
+            paper: {
+              itemType: "journalArticle",
+              fields: {
+                title: "Conflicting DOI paper",
+                DOI: "10.5555/zs.mcp.native-doi.fields",
+              },
+              creators: [],
+              identifiers: {
+                doi: "10.5555/zs.mcp.native-doi.identifiers",
+              },
+            },
+          },
+        },
+      },
+      {
+        requestToolPermission: () => {
+          permissionCalls += 1;
+          return true;
+        },
+      },
+    );
+
+    assert.strictEqual((response as any).error?.code, -32602);
+    assert.match(
+      String((response as any).error?.message || ""),
+      /DOI.*conflict/i,
+    );
+    assert.strictEqual(permissionCalls, 0);
   });
 
   it("attaches a landing URL when requested and no PDF is available", async function () {

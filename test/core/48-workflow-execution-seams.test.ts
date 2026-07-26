@@ -17,9 +17,14 @@ import {
   shouldEmitWorkflowFinishSummaryToast,
 } from "../../src/modules/workflowExecution/feedbackSeam";
 import { createLocalizedMessageFormatter } from "../../src/modules/workflowExecution/messageFormatter";
-import { runWorkflowPreparationSeam } from "../../src/modules/workflowExecution/preparationSeam";
+import {
+  buildPreparedWorkflowUnitExecution,
+  runWorkflowPreparationSeam,
+} from "../../src/modules/workflowExecution/preparationSeam";
 import { runWorkflowApplySeam } from "../../src/modules/workflowExecution/applySeam";
 import { runWorkflowExecutionSeam } from "../../src/modules/workflowExecution/runSeam";
+import { submitPreparedWorkflowUnits } from "../../src/modules/workflowExecution/submissionSeam";
+import { WorkflowSubmissionQueue } from "../../src/jobQueue/workflowSubmissionQueue";
 import { buildWorkflowTaskRecordFromJob } from "../../src/modules/taskRuntime";
 import {
   listSkillRunnerRunRecords,
@@ -32,7 +37,10 @@ import {
 import { resetPluginStateStoreForTests } from "../../src/modules/pluginStateStore";
 import { listHostBridgeNotificationEvents } from "../../src/modules/hostBridgeNotificationInbox";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
-import { executeBuildRequests } from "../../src/workflows/runtime";
+import {
+  executeBuildRequests,
+  planWorkflowExecutionUnits,
+} from "../../src/workflows/runtime";
 import { joinPath, mkTempDir, writeUtf8 } from "./workflow-test-utils";
 import {
   armAcpRuntimeSemanticTraceRecorder,
@@ -43,6 +51,63 @@ import {
 } from "../../src/modules/acpRuntimeSemanticTraceRecorder";
 import { loadAcpRuntimeSemanticTrace } from "../../src/modules/acpRuntimeSemanticTrace";
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
+
+const parentInputPlanningV2 = {
+  schemaVersion: 2,
+  trigger: { requiresSelection: true },
+  inputs: {
+    member: { kind: "parent" },
+    grouping: { mode: "each" },
+  },
+  validateSelection: {
+    select: { policy: "input-member", source: "selected" },
+    filters: [],
+  },
+} as const;
+
+function deferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushMicrotasks() {
+  for (let index = 0; index < 8; index += 1) {
+    await Promise.resolve();
+  }
+}
+
+async function planSingleWorkflowUnit(args: { selectionContext: unknown }) {
+  return {
+    units: [
+      {
+        unitId: "unit-1",
+        order: 0,
+        taskName: "Test unit",
+        inputUnitIdentity: "parent:1",
+        memberIdentities: ["parent:1"],
+        memberCount: 1,
+        members: [],
+        selectionContext: args.selectionContext as any,
+      },
+    ],
+    stats: {
+      totalUnits: 1,
+      executableUnits: 1,
+      skippedUnits: 0,
+      candidateStats: {
+        total: 1,
+        accepted: 1,
+        skipped: 0,
+        reasons: {},
+      },
+    },
+  } as any;
+}
 
 async function createWorkflowRoot(args: {
   id: string;
@@ -61,6 +126,7 @@ async function createWorkflowRoot(args: {
         id: args.id,
         label: `Seam ${args.id}`,
         provider: "pass-through",
+        ...parentInputPlanningV2,
         ...(args.execution ? { execution: args.execution } : {}),
         ...(args.parameters ? { parameters: args.parameters } : {}),
         hooks: {
@@ -101,6 +167,84 @@ async function createWorkflowRoot(args: {
 }
 
 describe("workflow execution seams", function () {
+  it("submits the approved Input Planning v2 units unchanged and holds a queue slot through terminal apply", async function () {
+    const scheduled: Array<() => void> = [];
+    const queue = new WorkflowSubmissionQueue({
+      scheduleMicrotask: (run) => scheduled.push(run),
+      appendRuntimeLog: () => null,
+    });
+    const firstApply = deferred<void>();
+    const observedUnits: unknown[] = [];
+    const units = Object.freeze([
+      Object.freeze({
+        unitId: "unit-1",
+        order: 0,
+        taskName: "First approved unit",
+        inputUnitIdentity: "parent-id:1",
+        memberIdentities: Object.freeze(["parent-id:1"]),
+        memberCount: 1,
+      }),
+      Object.freeze({
+        unitId: "unit-2",
+        order: 1,
+        taskName: "Second approved unit",
+        inputUnitIdentity: "parent-id:2",
+        memberIdentities: Object.freeze(["parent-id:2"]),
+        memberCount: 1,
+      }),
+    ]) as any;
+
+    const submission = await submitPreparedWorkflowUnits(
+      {
+        prepared: {
+          workflow: { manifest: { id: "shared-seam" } },
+          executionContext: {
+            backend: { type: "skillrunner", id: "backend-a" },
+          },
+          executionOptions: {
+            hostOptions: { queue: { maxConcurrency: 1 } },
+          },
+        } as any,
+        units,
+        workflowLabel: "Shared seam",
+        skippedByGuard: 0,
+        messageFormatter: (() => "") as any,
+      },
+      {
+        submissionQueue: queue,
+        executePreparedUnit: async ({ unit }) => {
+          observedUnits.push(unit);
+          if (unit.unitId === "unit-1") {
+            await firstApply.promise;
+          }
+          return { outcome: { status: "succeeded" } };
+        },
+      },
+    );
+
+    assert.equal(submission.admission, "host-queue");
+    assert.equal(submission.total, 2);
+    assert.equal(submission.queued, 2);
+    assert.equal(observedUnits.length, 0);
+    scheduled.shift()!();
+    await flushMicrotasks();
+    assert.deepEqual(observedUnits, [units[0]]);
+    assert.strictEqual(observedUnits[0], units[0]);
+
+    firstApply.resolve();
+    await flushMicrotasks();
+    scheduled.shift()!();
+    await flushMicrotasks();
+    assert.deepEqual(observedUnits, [units[0], units[1]]);
+    assert.strictEqual(observedUnits[1], units[1]);
+    assert.deepInclude(await submission.completion, {
+      total: 2,
+      succeeded: 2,
+      failed: 0,
+      skipped: 0,
+    });
+  });
+
   it("uses the startup toast icon path for workflow toast lines", async function () {
     const feedback = await readFile(
       "src/modules/workflowExecution/feedbackSeam.ts",
@@ -122,6 +266,87 @@ describe("workflow execution seams", function () {
     resetWorkflowToastStateForTests();
   });
 
+  it("plans ordered declarative units without running preflight or request hooks", async function () {
+    let preflightCalled = false;
+    let buildCalled = false;
+    const workflow = {
+      manifest: {
+        id: "deferred-unit-plan",
+        label: "Deferred Unit Plan",
+        provider: "pass-through",
+        ...parentInputPlanningV2,
+        hooks: {
+          preflight: "hooks/preflight.js",
+          buildRequest: "hooks/buildRequest.js",
+          applyResult: "hooks/applyResult.js",
+        },
+      },
+      hooks: {
+        preflight: async () => {
+          preflightCalled = true;
+          return { kind: "continue" };
+        },
+        buildRequest: async () => {
+          buildCalled = true;
+          return { kind: "pass-through.run.v1" };
+        },
+        applyResult: async () => ({ ok: true }),
+      },
+    } as any;
+
+    const plan = await planWorkflowExecutionUnits({
+      workflow,
+      selectionContext: {
+        items: {
+          parents: [
+            { item: { id: 101, title: "First Parent" } },
+            { item: { id: 202, title: "Second Parent" } },
+          ],
+        },
+        summary: { parentCount: 2 },
+      },
+    });
+
+    assert.deepEqual(
+      plan.units.map((unit) => ({
+        unitId: unit.unitId,
+        order: unit.order,
+        taskName: unit.taskName,
+        targetParentID: unit.targetParentID,
+        inputUnitIdentity: unit.inputUnitIdentity,
+      })),
+      [
+        {
+          unitId: "unit-1",
+          order: 0,
+          taskName: "First Parent",
+          targetParentID: 101,
+          inputUnitIdentity: "parent-id:101",
+        },
+        {
+          unitId: "unit-2",
+          order: 1,
+          taskName: "Second Parent",
+          targetParentID: 202,
+          inputUnitIdentity: "parent-id:202",
+        },
+      ],
+    );
+    assert.deepEqual(plan.stats, {
+      totalUnits: 2,
+      executableUnits: 2,
+      skippedUnits: 0,
+      candidateStats: {
+        total: 2,
+        accepted: 2,
+        skipped: 0,
+        reasons: {},
+      },
+    });
+    assert.isFalse(preflightCalled);
+    assert.isFalse(buildCalled);
+  });
+
   it("passes preflight continue context to buildRequest without mutating selection", async function () {
     const captured: any[] = [];
     const workflow = {
@@ -129,7 +354,7 @@ describe("workflow execution seams", function () {
         id: "preflight-continue",
         label: "Preflight Continue",
         provider: "pass-through",
-        inputs: { unit: "parent" },
+        ...parentInputPlanningV2,
         hooks: {
           preflight: "hooks/preflight.js",
           buildRequest: "hooks/buildRequest.js",
@@ -180,7 +405,7 @@ describe("workflow execution seams", function () {
         id: "preflight-replace",
         label: "Preflight Replace",
         provider: "pass-through",
-        inputs: { unit: "parent" },
+        ...parentInputPlanningV2,
         hooks: {
           preflight: "hooks/preflight.js",
           buildRequest: "hooks/buildRequest.js",
@@ -247,7 +472,7 @@ describe("workflow execution seams", function () {
         id: "preflight-short-circuit",
         label: "Preflight Short Circuit",
         provider: "pass-through",
-        inputs: { unit: "parent" },
+        ...parentInputPlanningV2,
         hooks: {
           preflight: "hooks/preflight.js",
           buildRequest: "hooks/buildRequest.js",
@@ -395,7 +620,7 @@ describe("workflow execution seams", function () {
         id: "preflight-skip",
         label: "Preflight Skip",
         provider: "pass-through",
-        inputs: { unit: "parent" },
+        ...parentInputPlanningV2,
         hooks: {
           preflight: "hooks/preflight.js",
           buildRequest: "hooks/buildRequest.js",
@@ -470,7 +695,7 @@ describe("workflow execution seams", function () {
         resolveWorkflowExecutionContext: async () =>
           fakeExecutionContext as any,
         buildSelectionContext: async () => ({}),
-        executeBuildRequests: async () => {
+        planWorkflowExecutionUnits: async () => {
           const error = new Error("skip all");
           (error as any).code = "NO_VALID_INPUT_UNITS";
           (error as any).skippedUnits = 2;
@@ -542,6 +767,7 @@ describe("workflow execution seams", function () {
             runOptions: {},
           }) as any,
         buildSelectionContext: async () => ({ items: [] }) as any,
+        planWorkflowExecutionUnits: planSingleWorkflowUnit as any,
         executeBuildRequests: async () =>
           [
             {
@@ -575,7 +801,45 @@ describe("workflow execution seams", function () {
     if (result.status !== "ready") {
       return;
     }
-    assert.deepEqual(result.prepared.skillDisplayById, {
+    const built = await buildPreparedWorkflowUnitExecution(
+      {
+        prepared: result.prepared,
+        unit: result.prepared.plan.units[0],
+      },
+      {
+        executeBuildRequests: async () =>
+          [
+            {
+              kind: "skillrunner.sequence.v1",
+              steps: [
+                { id: "digest", skill_id: "literature-analysis" },
+                { id: "tag", skill_id: "tag-regulator" },
+              ],
+              final_step_id: "tag",
+            },
+          ] as any,
+        scanPluginSkillRegistry: async () =>
+          ({
+            entries: [],
+            entriesById: {
+              "literature-analysis": {
+                skillId: "literature-analysis",
+                skillName: "Literature Analysis",
+              },
+              "tag-regulator": {
+                skillId: "tag-regulator",
+                skillName: "Tag Regulator",
+              },
+            },
+            diagnostics: [],
+          }) as any,
+      },
+    );
+    assert.equal(built.status, "ready");
+    if (built.status !== "ready") {
+      return;
+    }
+    assert.deepEqual(built.built.skillDisplayById, {
       "literature-analysis": {
         skillId: "literature-analysis",
         skillName: "文献分析",
@@ -623,6 +887,7 @@ describe("workflow execution seams", function () {
       },
       {
         buildSelectionContext: async () => ({ items: { attachments: [] } }),
+        planWorkflowExecutionUnits: planSingleWorkflowUnit as any,
         executeBuildRequests: async () =>
           [
             {
@@ -651,7 +916,33 @@ describe("workflow execution seams", function () {
       result.prepared.executionContext.requestKind,
       "acp.skill.run.v1",
     );
-    assert.deepEqual(result.prepared.requests, [
+    const built = await buildPreparedWorkflowUnitExecution(
+      {
+        prepared: result.prepared,
+        unit: result.prepared.plan.units[0],
+      },
+      {
+        executeBuildRequests: async () =>
+          [
+            {
+              kind: "skillrunner.job.v1",
+              skill_id: "literature-analysis",
+              taskName: "Example",
+              upload_files: [
+                { key: "source_path", path: "D:/real/example.md" },
+              ],
+              input: {
+                source_path: "inputs/source_path/example.md",
+              },
+            },
+          ] as any,
+      },
+    );
+    assert.equal(built.status, "ready");
+    if (built.status !== "ready") {
+      return;
+    }
+    assert.deepEqual(built.built.requests, [
       {
         kind: "acp.skill.run.v1",
         skill_id: "literature-analysis",
@@ -716,6 +1007,7 @@ describe("workflow execution seams", function () {
       },
       {
         buildSelectionContext: async () => ({ items: { attachments: [] } }),
+        planWorkflowExecutionUnits: planSingleWorkflowUnit as any,
         executeBuildRequests: async () =>
           [
             {
@@ -762,7 +1054,55 @@ describe("workflow execution seams", function () {
     if (result.status !== "ready") {
       return;
     }
-    const runtimeOptions = (result.prepared.requests[0] as any).runtime_options;
+    const built = await buildPreparedWorkflowUnitExecution(
+      {
+        prepared: result.prepared,
+        unit: result.prepared.plan.units[0],
+      },
+      {
+        executeBuildRequests: async () =>
+          [
+            {
+              kind: "skillrunner.job.v1",
+              skill_id: "literature-search-ingest",
+              runtime_options: {
+                execution_mode: "interactive",
+                env: {
+                  KEEP_ME: "yes",
+                  ZOTERO_BRIDGE_ENDPOINT: "http://old.example/bridge/v1",
+                  ZOTERO_BRIDGE_CONNECTION_MODE: "local",
+                },
+                zotero_host_access: {
+                  required: true,
+                  auto_approve_writes: true,
+                },
+              },
+              parameter: { query: "exact paper" },
+            },
+          ] as any,
+        buildSkillRunnerHostBridgeEnv: async (args) => {
+          assert.deepEqual(args, { backendUrl: "http://127.0.0.1:8030" });
+          return {
+            ok: true,
+            endpoint: "http://127.0.0.1:27655/bridge/v1",
+            connectionMode: "local",
+            env: {
+              ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+              ZOTERO_BRIDGE_TOKEN: "runtime-token",
+              ZOTERO_BRIDGE_CONNECTION_MODE: "local",
+            },
+          };
+        },
+        appendRuntimeLog: (entry) => {
+          logs.push({ stage: entry.stage, details: entry.details });
+        },
+      },
+    );
+    assert.equal(built.status, "ready");
+    if (built.status !== "ready") {
+      return;
+    }
+    const runtimeOptions = (built.built.requests[0] as any).runtime_options;
     assert.equal(runtimeOptions.execution_mode, "interactive");
     assert.isTrue(runtimeOptions.no_cache);
     assert.notProperty(runtimeOptions, "workspace");
@@ -787,7 +1127,7 @@ describe("workflow execution seams", function () {
       "skillrunner_zotero_host_access_env_injected",
     );
     assert.isUndefined(
-      (result.prepared.requests[0] as any).runtime_options.zotero_host_access,
+      (built.built.requests[0] as any).runtime_options.zotero_host_access,
     );
   });
 
@@ -833,6 +1173,7 @@ describe("workflow execution seams", function () {
       },
       {
         buildSelectionContext: async () => ({ items: { attachments: [] } }),
+        planWorkflowExecutionUnits: planSingleWorkflowUnit as any,
         executeBuildRequests: async () =>
           [
             {
@@ -877,7 +1218,52 @@ describe("workflow execution seams", function () {
     if (result.status !== "ready") {
       return;
     }
-    const runtimeOptions = (result.prepared.requests[0] as any).runtime_options;
+    const built = await buildPreparedWorkflowUnitExecution(
+      {
+        prepared: result.prepared,
+        unit: result.prepared.plan.units[0],
+      },
+      {
+        executeBuildRequests: async () =>
+          [
+            {
+              kind: "skillrunner.sequence.v1",
+              steps: [
+                {
+                  id: "one",
+                  skill_id: "debug-sequence-probe-emit",
+                  mode: "auto",
+                },
+              ],
+              final_step_id: "one",
+              runtime_options: {
+                env: {
+                  KEEP_ME: "yes",
+                  ZOTERO_BRIDGE_TOKEN: "old-token",
+                },
+                zotero_host_access: {
+                  required: true,
+                },
+              },
+            },
+          ] as any,
+        buildSkillRunnerHostBridgeEnv: async () => ({
+          ok: true,
+          endpoint: "http://127.0.0.1:27655/bridge/v1",
+          connectionMode: "local",
+          env: {
+            ZOTERO_BRIDGE_ENDPOINT: "http://127.0.0.1:27655/bridge/v1",
+            ZOTERO_BRIDGE_TOKEN: "runtime-token",
+            ZOTERO_BRIDGE_CONNECTION_MODE: "local",
+          },
+        }),
+      },
+    );
+    assert.equal(built.status, "ready");
+    if (built.status !== "ready") {
+      return;
+    }
+    const runtimeOptions = (built.built.requests[0] as any).runtime_options;
     assert.isTrue(runtimeOptions.no_cache);
     assert.notProperty(runtimeOptions, "workspace");
     const env = runtimeOptions.env;
@@ -941,6 +1327,7 @@ describe("workflow execution seams", function () {
       },
       {
         buildSelectionContext: async () => ({ items: { attachments: [] } }),
+        planWorkflowExecutionUnits: planSingleWorkflowUnit as any,
         executeBuildRequests: async () =>
           [
             {
@@ -976,11 +1363,50 @@ describe("workflow execution seams", function () {
     );
 
     assert.equal(result.status, "ready");
-    assert.equal(envBuilderCalled, false);
     if (result.status !== "ready") {
       return;
     }
-    assert.deepEqual((result.prepared.requests[0] as any).runtime_options, {
+    const built = await buildPreparedWorkflowUnitExecution(
+      {
+        prepared: result.prepared,
+        unit: result.prepared.plan.units[0],
+      },
+      {
+        executeBuildRequests: async () =>
+          [
+            {
+              kind: "skillrunner.sequence.v1",
+              steps: [
+                {
+                  id: "one",
+                  skill_id: "debug-sequence-probe-emit",
+                  mode: "auto",
+                },
+              ],
+              final_step_id: "one",
+              runtime_options: {
+                zotero_host_access: {
+                  required: true,
+                },
+              },
+            },
+          ] as any,
+        buildSkillRunnerHostBridgeEnv: async () => {
+          envBuilderCalled = true;
+          return {
+            ok: false,
+            code: "should_not_be_called",
+            message: "ACP backend must not use SkillRunner env injection",
+          };
+        },
+      },
+    );
+    assert.equal(built.status, "ready");
+    assert.equal(envBuilderCalled, false);
+    if (built.status !== "ready") {
+      return;
+    }
+    assert.deepEqual((built.built.requests[0] as any).runtime_options, {
       zotero_host_access: {
         required: true,
       },
@@ -1032,6 +1458,7 @@ describe("workflow execution seams", function () {
       },
       {
         buildSelectionContext: async () => ({ items: { attachments: [] } }),
+        planWorkflowExecutionUnits: planSingleWorkflowUnit as any,
         executeBuildRequests: async () =>
           [
             {
@@ -1071,8 +1498,50 @@ describe("workflow execution seams", function () {
       },
     );
 
-    assert.equal(result.status, "halted");
-    assert.include(alerts[0], "host_bridge_remote_lan_disabled");
+    assert.equal(result.status, "ready");
+    if (result.status !== "ready") {
+      return;
+    }
+    let thrown: unknown;
+    try {
+      await buildPreparedWorkflowUnitExecution(
+        {
+          prepared: result.prepared,
+          unit: result.prepared.plan.units[0],
+        },
+        {
+          executeBuildRequests: async () =>
+            [
+              {
+                kind: "skillrunner.job.v1",
+                skill_id: "literature-search-ingest",
+                runtime_options: {
+                  zotero_host_access: {
+                    required: true,
+                  },
+                },
+              },
+            ] as any,
+          buildSkillRunnerHostBridgeEnv: async () => ({
+            ok: false,
+            code: "host_bridge_remote_lan_disabled",
+            message: "LAN access is disabled",
+            details: {
+              backendUrl: "http://192.168.13.10:9813",
+              advertisedHostSource: "auto",
+              token: "must-not-appear",
+            },
+          }),
+        },
+      );
+    } catch (error) {
+      thrown = error;
+    }
+    assert.equal(
+      (thrown as { code?: string } | undefined)?.code,
+      "host_bridge_remote_lan_disabled",
+    );
+    assert.lengthOf(alerts, 0);
   });
 
   it("keeps request-build failure messaging parity through seam entrypoint", async function () {
@@ -1140,7 +1609,7 @@ describe("workflow execution seams", function () {
     assert.isTrue(
       toasts.some(
         (entry) =>
-          /cannot run/.test(entry) && /build request exploded/.test(entry),
+          /failed=1/.test(entry) && /build request exploded/.test(entry),
       ),
       `missing build failure toast: ${JSON.stringify(toasts)}`,
     );
@@ -1235,7 +1704,7 @@ describe("workflow execution seams", function () {
           /succeeded=1/.test(entry) &&
           /failed=1/.test(entry) &&
           /Failure reasons:/.test(entry) &&
-          /job-1 .*forced apply failure/.test(entry),
+          /job-[01] .*forced apply failure/.test(entry),
       ),
       `missing summary toast: ${JSON.stringify(toasts)}`,
     );
@@ -1987,7 +2456,7 @@ describe("workflow execution seams", function () {
             },
           } as any,
           requests: [{ id: 1 }, { id: 2 }, { id: 3 }],
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "skillrunner",
             requestKind: "skillrunner.job.v1",
@@ -2046,7 +2515,7 @@ describe("workflow execution seams", function () {
               skillName: "Literature Analysis",
             },
           },
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "skillrunner",
             requestKind: "skillrunner.job.v1",
@@ -2409,7 +2878,7 @@ describe("workflow execution seams", function () {
               skillName: "Tag Regulator",
             },
           },
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "skillrunner",
             requestKind: "skillrunner.sequence.v1",
@@ -2569,7 +3038,7 @@ describe("workflow execution seams", function () {
               final_step_id: "digest",
             },
           ],
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "acp",
             requestKind: "skillrunner.sequence.v1",
@@ -2688,7 +3157,7 @@ describe("workflow execution seams", function () {
               final_step_id: "interactive",
             },
           ],
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "skillrunner",
             requestKind: "skillrunner.sequence.v1",
@@ -2761,7 +3230,7 @@ describe("workflow execution seams", function () {
               skill_id: "debug-host-bridge-connectivity-probe",
             },
           ],
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "skillrunner",
             requestKind: "acp.skill.run.v1",
@@ -2924,7 +3393,7 @@ describe("workflow execution seams", function () {
             },
           } as any,
           requests: [{ id: 1 }, { id: 2 }],
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "generic-http",
             requestKind: "generic-http.request.v1",
@@ -2969,7 +3438,7 @@ describe("workflow execution seams", function () {
             },
           } as any,
           requests: [{ id: 1 }, { id: 2 }, { id: 3 }],
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "pass-through",
             requestKind: "pass-through.run.v1",
@@ -3018,7 +3487,7 @@ describe("workflow execution seams", function () {
           requests: [
             { targetParentID: 3, runtime_options: { execution_mode: "auto" } },
           ],
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "skillrunner",
             requestKind: "skillrunner.job.v1",
@@ -3148,7 +3617,7 @@ describe("workflow execution seams", function () {
               runtime_options: { execution_mode: "interactive" },
             },
           ],
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "skillrunner",
             requestKind: "skillrunner.job.v1",
@@ -3280,7 +3749,7 @@ describe("workflow execution seams", function () {
           requests: [
             { targetParentID: 3, runtime_options: { execution_mode: "auto" } },
           ],
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "acp",
             requestKind: "acp.skill.run.v1",
@@ -3362,7 +3831,7 @@ describe("workflow execution seams", function () {
               runtime_options: { execution_mode: "interactive" },
             },
           ],
-          skippedByFilter: 0,
+          candidateSkipped: 0,
           executionContext: {
             providerId: "acp",
             requestKind: "acp.skill.run.v1",
@@ -3437,7 +3906,7 @@ describe("workflow execution seams", function () {
               { skill_id: "skill-a", requestId: "request-a" },
               { skill_id: "skill-b", requestId: "request-b" },
             ],
-            skippedByFilter: 0,
+            candidateSkipped: 0,
             executionContext: {
               providerId: "acp",
               requestKind: "acp.skill.run.v1",
@@ -3555,7 +4024,7 @@ describe("workflow execution seams", function () {
                 final_step_id: "finalize",
               },
             ],
-            skippedByFilter: 0,
+            candidateSkipped: 0,
             executionContext: {
               providerId: "acp",
               requestKind: "skillrunner.sequence.v1",
@@ -3652,7 +4121,7 @@ describe("workflow execution seams", function () {
                 },
               } as any,
               requests: [{ skill_id: `${outcome}-skill`, requestId: outcome }],
-              skippedByFilter: 0,
+              candidateSkipped: 0,
               executionContext: {
                 providerId: "acp",
                 requestKind: "acp.skill.run.v1",
@@ -3720,7 +4189,7 @@ describe("workflow execution seams", function () {
               },
             } as any,
             requests: [],
-            skippedByFilter: 0,
+            candidateSkipped: 0,
             executionContext: {
               providerId: "acp",
               requestKind: "acp.skill.run.v1",

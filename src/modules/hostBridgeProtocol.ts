@@ -1,4 +1,12 @@
-export const HOST_BRIDGE_PROTOCOL_VERSION = "host-bridge.v1";
+import {
+  HOST_BRIDGE_CLI_SCHEMA,
+  type HostBridgeHandleConsumption,
+  HOST_BRIDGE_PROTOCOL,
+  type HostBridgeStateChange,
+} from "../shared/hostBridgeAgentContract";
+
+export const HOST_BRIDGE_PROTOCOL_VERSION = HOST_BRIDGE_PROTOCOL;
+export { HOST_BRIDGE_CLI_SCHEMA };
 
 export type HostBridgeResponse<T = unknown> =
   | {
@@ -39,7 +47,9 @@ export type HostBridgeErrorCode =
   | "collection_not_found"
   | "context_navigation_failed"
   | "invalid_capability_input"
+  | "synthesis_maintenance_idempotency_conflict"
   | "invalid_library_cursor"
+  | "invalid_host_bridge_cursor"
   | "invalid_file_id"
   | "invalid_object_ref"
   | "invalid_request_body"
@@ -49,13 +59,28 @@ export type HostBridgeErrorCode =
   | "agent_run_not_found"
   | "agent_run_expired"
   | "agent_run_already_consumed"
+  | "agent_run_lifecycle_conflict"
+  | "invalid_operation_id"
+  | "operation_id_required"
+  | "idempotency_conflict"
+  | "operation_not_found"
   | "unknown_request"
   | "invalid_bundle"
   | "apply_not_allowed"
   | "invalid_workflow_describe_request"
+  | "invalid_workflow_validate_request"
   | "invalid_workflow_input"
   | "missing_required_workflow_parameter"
   | "invalid_workflow_submit_request"
+  | "invalid_provider_profile_request"
+  | "invalid_provider_profile"
+  | "provider_profile_backend_not_found"
+  | "provider_profile_backend_unready"
+  | "provider_profile_provider_unavailable"
+  | "provider_profile_option_unknown"
+  | "provider_profile_option_invalid"
+  | "provider_profile_option_unavailable"
+  | "workflow_provider_incompatible"
   | "item_not_found"
   | "internal_error"
   | "method_not_allowed"
@@ -92,8 +117,8 @@ export type HostBridgeError = {
   category: HostBridgeErrorCategory;
   details?: Record<string, unknown>;
   retryable: boolean;
-  stateChanged: boolean;
-  handleConsumed: boolean;
+  stateChange: HostBridgeStateChange;
+  handleConsumption: HostBridgeHandleConsumption;
   safeNextActions: string[];
   nextCommand?: string;
 };
@@ -192,6 +217,7 @@ export type HostBridgeCapabilityManifestEntry = {
   category: HostBridgeCapabilityCategory;
   summary: string;
   approval: HostBridgeApprovalRequirement;
+  requestEffect: "read" | "state-change";
   input: {
     type: "none" | "object" | "item-ref" | "mutation-preview";
     required: boolean;
@@ -265,7 +291,7 @@ export type HostBridgeManifest = {
   };
   cli: {
     supported: true;
-    schema: "zotero-bridge.cli.v1";
+    schema: typeof HOST_BRIDGE_CLI_SCHEMA;
   };
 };
 
@@ -285,15 +311,16 @@ export function hostBridgeError(
     Pick<
       HostBridgeError,
       | "retryable"
-      | "stateChanged"
-      | "handleConsumed"
+      | "stateChange"
+      | "handleConsumption"
       | "safeNextActions"
       | "nextCommand"
     >
   >,
 ): HostBridgeResponse<never> {
-  const handleConsumed =
-    control?.handleConsumed ?? code === "agent_run_already_consumed";
+  const handleConsumption =
+    control?.handleConsumption ??
+    (code === "agent_run_already_consumed" ? "consumed" : "unconsumed");
   const retryable =
     control?.retryable ??
     ["bridge_unavailable", "download_failed", "upload_failed"].includes(code);
@@ -311,8 +338,10 @@ export function hostBridgeError(
       message,
       category,
       retryable,
-      stateChanged: control?.stateChanged ?? handleConsumed,
-      handleConsumed,
+      stateChange:
+        control?.stateChange ??
+        (handleConsumption === "consumed" ? "changed" : "unchanged"),
+      handleConsumption,
       safeNextActions,
       ...(control?.nextCommand ? { nextCommand: control.nextCommand } : {}),
       ...(details ? { details } : {}),

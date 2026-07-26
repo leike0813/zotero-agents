@@ -16,7 +16,11 @@ export type HostBridgeReleaseChangePlan = {
 };
 
 export type HostBridgeCliIdentity = {
-  schema: "host-bridge.surface-identity.v1" | "host-bridge.surface-identity.v2";
+  schema:
+    | "host-bridge.surface-identity.v1"
+    | "host-bridge.surface-identity.v2"
+    | "host-bridge.surface-identity.v3"
+    | "host-bridge.surface-identity.v5";
   protocol: string;
   cliSchema: string;
   version: string;
@@ -106,7 +110,6 @@ export function classifyHostBridgeReleaseChanges(
       "cli/zotero-bridge/",
       "skills_src/zotero-bridge-cli/",
       "skills_src/zotero-library-agent/",
-      "skills_src/host-bridge-shared/",
       "skills_builtin/zotero-bridge-cli/",
       "skills_builtin/zotero-library-agent/",
       "profiles_src/hermes/zotero-librarian/",
@@ -114,8 +117,6 @@ export function classifyHostBridgeReleaseChanges(
       "workflows_builtin/",
       "scripts/host-bridge-",
       "scripts/render-host-bridge-",
-      "scripts/render-zotero-library-agent-",
-      "scripts/render-zotero-librarian-",
       "scripts/materialize-host-bridge-",
       "scripts/prepare-host-bridge-",
       "scripts/publish-host-bridge-",
@@ -145,23 +146,21 @@ export function classifyHostBridgeReleaseChanges(
   const cliBundle = sourceFiles.some(
     (path) =>
       path.startsWith("skills_src/zotero-bridge-cli/") ||
-      path.startsWith("skills_src/host-bridge-shared/") ||
       path.startsWith("scripts/host-bridge-") ||
       path.startsWith("scripts/render-host-bridge"),
   );
   const libraryAgent = sourceFiles.some(
     (path) =>
       path.startsWith("skills_src/zotero-library-agent/") ||
-      path.startsWith("skills_src/zotero-bridge-cli/") ||
-      path.startsWith("skills_src/host-bridge-shared/") ||
-      path === "scripts/render-zotero-library-agent-bundle.ts",
+      path.startsWith("skills_src/zotero-bridge-cli/"),
   );
   const librarianProfile = sourceFiles.some(
     (path) =>
       path.startsWith("profiles_src/hermes/zotero-librarian/") ||
-      path.startsWith("skills_src/host-bridge-shared/") ||
+      path.startsWith("skills_src/zotero-library-agent/") ||
+      path.startsWith("skills_src/zotero-bridge-cli/") ||
       path.startsWith("workflows_builtin/") ||
-      path === "scripts/render-zotero-librarian-profile.ts",
+      path === "scripts/render-host-bridge-surfaces.ts",
   );
   return {
     schema: "host-bridge.release-plan.v1",
@@ -193,11 +192,41 @@ function sha256(value: string) {
 }
 
 export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
+  const expectedPlatforms = [
+    "darwin-arm64",
+    "darwin-x64",
+    "linux-arm",
+    "linux-arm64",
+    "linux-x64",
+    "linux-x86",
+    "win32-x64",
+  ];
+  const actualPlatforms = input.cli.binaries
+    .map((entry) => entry.platform)
+    .sort((left, right) => left.localeCompare(right));
+  if (
+    actualPlatforms.length !== expectedPlatforms.length ||
+    actualPlatforms.some(
+      (platform, index) => platform !== expectedPlatforms[index],
+    ) ||
+    input.cli.binaries.some(
+      (entry) =>
+        !entry.sha256 ||
+        !Number.isInteger(entry.bytes) ||
+        Number(entry.bytes) <= 0,
+    )
+  ) {
+    throw new Error(
+      "Host Bridge release set requires the exact seven-platform prebuild with byte counts",
+    );
+  }
+  if (input.cli.binariesBuildFingerprint !== input.cli.buildFingerprint) {
+    throw new Error(
+      "Host Bridge release set requires a verified prebuild for the current CLI fingerprint",
+    );
+  }
   const cliIdentity: HostBridgeCliIdentity = {
-    schema:
-      input.cliSchema === "zotero-bridge.cli.v2"
-        ? "host-bridge.surface-identity.v2"
-        : "host-bridge.surface-identity.v1",
+    schema: "host-bridge.surface-identity.v5",
     protocol: input.protocol,
     cliSchema: input.cliSchema,
     version: input.cli.version,
@@ -211,9 +240,19 @@ export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
       version: input.cli.version,
       buildFingerprint: input.cli.buildFingerprint,
       commandCatalogChecksum: input.cli.commandCatalogChecksum,
+      binaryAggregateSha256: input.cli.binaryAggregateSha256,
+      binaries: input.cli.binaries.map(
+        ({ platform, binary, sha256, bytes }) => ({
+          platform,
+          binary,
+          sha256,
+          bytes,
+        }),
+      ),
     },
     surfaces: input.surfaces,
   };
+  const payloadDigest = `sha256:${sha256(stableJson(identityInput))}`;
   const releaseSetId = `hbrs-${sha256(stableJson(identityInput)).slice(0, 24)}`;
   const surfaces = Object.fromEntries(
     Object.entries(input.surfaces).map(([name, surface]) => [
@@ -226,9 +265,10 @@ export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
     ]),
   ) as Record<keyof HostBridgeReleaseSetInput["surfaces"], unknown>;
   return {
-    schema: "host-bridge.release-set.v1" as const,
+    schema: "host-bridge.release-set.v3" as const,
     releaseSetId,
     status: "planned" as const,
+    payloadDigest,
     source: {
       repository: "leike0813/zotero-agents",
       commit: input.sourceCommit,
@@ -236,10 +276,27 @@ export function buildHostBridgeReleaseSet(input: HostBridgeReleaseSetInput) {
     protocol: input.protocol,
     cliSchema: input.cliSchema,
     cli: {
-      ...input.cli,
-      prebuildRequired:
-        input.cli.binariesBuildFingerprint !== input.cli.buildFingerprint,
+      schema: "zotero-bridge-cli-release.v1" as const,
+      version: input.cli.version,
+      buildFingerprint: input.cli.buildFingerprint,
+      binariesBuildFingerprint: input.cli.binariesBuildFingerprint,
+      commandCatalogChecksum: input.cli.commandCatalogChecksum,
+      binaryAggregateSha256: input.cli.binaryAggregateSha256,
+      binaries: input.cli.binaries.map(
+        ({ platform, binary, sha256, bytes }) => ({
+          platform,
+          binary,
+          sha256,
+          bytes,
+        }),
+      ),
       identity: cliIdentity,
+      prebuild: {
+        verified: true as const,
+        branch: "host-bridge-cli-prebuilds" as const,
+        buildFingerprint: input.cli.binariesBuildFingerprint,
+        binaryAggregateSha256: input.cli.binaryAggregateSha256,
+      },
     },
     surfaces,
   };
@@ -294,22 +351,20 @@ export function contentDigest(root: string, paths: string[]) {
 
 export const HOST_BRIDGE_PUBLIC_CONTENT = {
   cliBundle: [
-    "skills_src/zotero-bridge-cli",
-    "skills_src/host-bridge-shared",
+    "skills_builtin/zotero-bridge-cli",
     "cli/zotero-bridge/scripts",
     "cli/zotero-bridge/src/agent-surface.json",
   ],
   libraryAgent: [
-    "skills_src/zotero-library-agent/semantic",
-    "skills_src/host-bridge-shared",
-    "skills_src/zotero-bridge-cli",
+    "skills_builtin/zotero-bridge-cli",
+    "skills_builtin/zotero-library-agent",
+    "skills_builtin/zotero-library-query",
+    "skills_builtin/zotero-literature-acquisition",
+    "skills_builtin/zotero-literature-analysis",
+    "skills_builtin/zotero-research-synthesis",
+    "skills_builtin/zotero-library-curation",
     "cli/zotero-bridge/scripts",
     "cli/zotero-bridge/src/agent-surface.json",
   ],
-  librarianProfile: [
-    "profiles_src/hermes/zotero-librarian",
-    "skills_src/host-bridge-shared",
-    "workflows_builtin/manifest.json",
-    "cli/zotero-bridge/src/agent-surface.json",
-  ],
+  librarianProfile: ["profiles/hermes/zotero-librarian"],
 } as const;

@@ -3,6 +3,30 @@
 ## Purpose
 TBD - created by archiving change govern-acp-skills-runtime-options. Update Purpose after archive.
 ## Requirements
+### Requirement: ACP Skills runtime selections SHALL belong to the active catalogs
+
+ACP Skills SHALL validate submitted, persisted, session-reconciled, and runtime-edited mode, display model, raw model, and reasoning selections against the selected backend or live session catalogs before persistence or transport. Legal explicit selections SHALL beat a different observed current; illegal selections SHALL use a legal observed current or remain unset. Catalog order alone SHALL NOT create a current selection.
+
+#### Scenario: Old backend mode reaches a new backend
+
+- **GIVEN** backend A selected `code`
+- **AND** backend B exposes only `ask` and `build` with current `build`
+- **WHEN** a run is submitted to backend B without editing mode
+- **THEN** the run and mode setter use `build`
+- **AND** `code` is never persisted or transported for backend B.
+
+#### Scenario: Live catalog differs from submission cache
+
+- **WHEN** a submitted selection is absent from the new session catalog
+- **THEN** ACP Skills atomically replaces it with the legal observed current or clears it
+- **AND** no invalid setter call is attempted.
+
+#### Scenario: Runtime action names an unknown option
+
+- **WHEN** a run-scoped mode, model, or reasoning action names a value outside its live catalog
+- **THEN** the action is rejected before transport
+- **AND** the persisted run-effective selection remains unchanged.
+
 ### Requirement: ACP Backend Connection Test
 
 
@@ -96,17 +120,63 @@ compiled into the request payload.
   schema
 - **AND** it SHALL show the localized default-timeout placeholder
 - **AND** no ACP-specific UI branch SHALL be required to show that field.
-### Requirement: Frozen Run Runtime Options
+### Requirement: Run-Effective Runtime Options
 
+ACP Skills SHALL persist each run's effective mode, model, raw model, and reasoning selection in the run record. The persisted run selection SHALL be the sole current-value source used by execution, recovery, and UI projection.
 
-ACP Skills runs MUST freeze selected runtime options at submission time.
+#### Scenario: Submitted selection survives a different handshake default
 
-#### Scenario: Run Starts
+- **GIVEN** a workflow is submitted with model B
+- **AND** the backend cache or new session reports model A as its current default
+- **WHEN** the runner creates the session and sends the first prompt
+- **THEN** it SHALL apply and execute model B
+- **AND** the persisted run and composer SHALL display model B.
 
-Given a workflow is submitted with ACP mode/model/reasoning options
-When the ACP task session is created
-Then the runner MUST apply the selected mode/model before sending the prompt
-And the run snapshot MUST display the frozen choices.
+#### Scenario: Real observed current initializes an absent selection
+
+- **GIVEN** a newly created run has no submitted selection for a runtime category
+- **WHEN** the session handshake reports a real current value for that category
+- **THEN** ACP Skills SHALL initialize that absent run field from the observed current value
+- **AND** later execution and UI projection SHALL read the initialized run field.
+
+#### Scenario: Catalog order does not invent a current selection
+
+- **GIVEN** a run has no selection for a runtime category
+- **AND** its catalog contains choices but exposes no real current value
+- **WHEN** ACP Skills projects the run
+- **THEN** the run SHALL remain unselected or Default for that category
+- **AND** ACP Skills SHALL NOT select the first catalog choice as current.
+
+#### Scenario: Successful run-scoped edit changes the effective selection
+
+- **GIVEN** a waiting run currently uses model B
+- **WHEN** the user changes the model to C and the remote setter succeeds
+- **THEN** ACP Skills SHALL atomically persist model C as the run-effective selection
+- **AND** subsequent execution and UI projection SHALL use model C.
+
+### Requirement: ACP Runtime Catalog Is Shared Without Sharing Current Ownership
+
+ACP Chat and ACP Skills SHALL share protocol-generic runtime catalog normalization without sharing ownership of current values. ACP Chat current values SHALL be owned by its live session configuration. ACP Skills current values SHALL be owned by the persisted run-effective selection.
+
+#### Scenario: Skills live catalog complements a persisted selection
+
+- **WHEN** an ACP Skills session exposes live choices for a category
+- **AND** the run already contains an effective selection for that category
+- **THEN** the live choices SHALL update the run's catalog
+- **AND** the live current or cached default SHALL NOT replace the persisted selection.
+
+#### Scenario: Chat current remains live-session owned
+
+- **WHEN** ACP Chat has live session configuration for a runtime category
+- **THEN** its live choices and current value SHALL drive Chat projection
+- **AND** ACP Skills run ownership SHALL NOT alter Chat precedence.
+
+#### Scenario: Successful Skills setter has one state transition
+
+- **WHEN** a run-scoped ACP Skills runtime setter succeeds
+- **THEN** ACP Skills SHALL update the persisted run-effective fields in one state transition
+- **AND** it SHALL NOT maintain a second writable per-run current snapshot.
+
 ### Requirement: ACP Skills SHALL expose auto-approve permission runtime option
 
 
@@ -170,3 +240,47 @@ Backend connection tests and runtime-options cache refresh probes SHALL close th
 - **WHEN** initialization or session creation fails
 - **THEN** the temporary controller SHALL use the same bounded, target-preserving close path
 - **AND** an existing user or ACP session process SHALL remain outside the cleanup target
+
+### Requirement: ACP Reasoning State Preserves Its Semantic Source
+
+ACP runtime state MUST distinguish explicit reasoning options from reasoning choices derived from model variants.
+
+#### Scenario: Backend exposes independent thought level
+
+- **WHEN** live `configOptions` contain an explicit `thought_level` selector
+- **THEN** its choices and current value MUST be used as reasoning state
+- **AND** an ordinary model update MUST NOT clear or recompute that reasoning state.
+
+#### Scenario: Reasoning is derived from model variants
+
+- **WHEN** the backend has no explicit reasoning data
+- **AND** the selected model group exposes reasoning variants
+- **THEN** reasoning MAY be derived from those variants
+- **AND** it MUST be recomputed only when the corresponding model group changes.
+
+#### Scenario: Backend exposes reasoning only
+
+- **WHEN** an ACP session exposes selectable reasoning configuration but no mode or model selector
+- **THEN** probing MUST recognize the session as having runtime option capability
+- **AND** the reasoning choices and current value MUST be retained.
+
+### Requirement: ACP Skills Model And Reasoning Share Editability
+
+ACP Skills MUST gate model and reasoning setters with the same `modelConfigurationEditable` state.
+
+#### Scenario: Model configuration is editable
+
+- **WHEN** the selected ACP Skills session permits model configuration
+- **AND** the backend exposes reasoning choices
+- **THEN** both model and reasoning controls MUST be enabled.
+
+#### Scenario: Model configuration is not editable
+
+- **WHEN** the selected ACP Skills session does not permit model configuration
+- **THEN** both model and reasoning controls MUST be disabled.
+
+#### Scenario: Backend has no reasoning capability
+
+- **WHEN** no live or cached reasoning capability exists
+- **THEN** the UI MUST show a disabled Default reasoning placeholder
+- **AND** that placeholder MUST NOT replace an existing real reasoning value.

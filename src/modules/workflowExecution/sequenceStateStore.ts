@@ -66,6 +66,10 @@ export type SequenceRunState = {
   updatedAt: string;
 };
 
+export type SequenceRunStateListener = (sequenceRunId: string) => void;
+
+const sequenceRunStateListeners = new Set<SequenceRunStateListener>();
+
 function normalizeString(value: unknown) {
   return String(value || "").trim();
 }
@@ -384,6 +388,13 @@ function migrateLegacySequenceRunStoreEntries() {
 
 function persistState(state: SequenceRunState) {
   upsertSequenceStateEntry(state);
+  for (const listener of [...sequenceRunStateListeners]) {
+    try {
+      listener(state.sequenceRunId);
+    } catch {
+      // One observer must not interrupt sequence state persistence.
+    }
+  }
 }
 
 function listSequenceStateEntries(
@@ -474,6 +485,15 @@ export function getSequenceRunState(sequenceRunIdRaw: string) {
   migrateLegacySequenceRunStoreEntries();
   const entry = getWorkflowSequenceRunStoreEntry(sequenceRunId);
   return entry ? parseStoredSequencePayload(entry.payload) : null;
+}
+
+export function subscribeSequenceRunStateStore(
+  listener: SequenceRunStateListener,
+) {
+  sequenceRunStateListeners.add(listener);
+  return () => {
+    sequenceRunStateListeners.delete(listener);
+  };
 }
 
 export function listSequenceRunStates(

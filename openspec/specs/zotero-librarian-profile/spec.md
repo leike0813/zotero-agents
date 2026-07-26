@@ -27,19 +27,6 @@ artifact, handle, and writeback terms consistently.
 - **AND** the profile manifest source checksum SHALL include that shared
   terminology content.
 
-### Requirement: Profile SHALL provide dedicated agent-owned workflow guidance
-
-The Zotero Librarian profile SHALL include a dedicated skill for agent-owned
-workflow handoffs and route suitable tasks to it.
-
-#### Scenario: Agent-run workflow task is routed
-
-- **WHEN** a task is suitable for agent-owned execution through `workflow agent-run`
-- **THEN** the main librarian skill SHALL route the agent to
-  `zotero-workflow-agent-runner`
-- **AND** the dedicated skill SHALL explain `agentRunId`, `agentRequestId`,
-  output bundle handling, and `workflow agent-apply`.
-
 ### Requirement: Profile SHALL define workflow execution policy
 
 The profile SHALL define current workflow execution rules for selection,
@@ -66,24 +53,6 @@ concurrency, and monitoring.
   `run get`, recent history, or skill-run events
 - **AND** profile service scripts SHALL NOT use long-polling notification wait
   loops.
-
-### Requirement: Profile SHALL include non-blocking helper scripts
-
-The profile SHALL include helper scripts for deterministic workflow planning,
-submission, and notification inbox maintenance.
-
-#### Scenario: Helper script submits workflows
-
-- **WHEN** the workflow helper submits a Host-owned or agent-owned workflow plan
-- **THEN** it SHALL return after launch with workflow or agent run handles
-- **AND** it SHALL NOT wait for workflow completion.
-
-#### Scenario: Notification helper syncs inbox
-
-- **WHEN** the notification helper synchronizes events
-- **THEN** it SHALL call `run notification list`
-- **AND** store lightweight event projections without transcript, workspace
-  path, or provider private payload assumptions.
 
 ### Requirement: Librarian profile treats large reads as paged work
 
@@ -162,15 +131,6 @@ The Zotero Librarian profile SHALL consume the same generated command and family
 - **WHEN** shared command facts or profile semantic supplements change
 - **THEN** the renderer SHALL compose the generated profile without copying bounded task policy into the CLI wrapper or resident policy into the general Library Agent.
 
-### Requirement: Librarian references SHALL use progressive domain disclosure
-
-The profile SHALL expose short first-level routing guidance and load domain, output, or error references only for the current task.
-
-#### Scenario: Librarian handles an unfamiliar Host Bridge domain
-- **WHEN** a task involves context navigation, attachments/files, Product lifecycle, workflow/run interaction, Synthesis subdomains, or diagnostics
-- **THEN** the profile SHALL route to the relevant generated domain reference
-- **AND** SHALL NOT require scanning one flat complete command table.
-
 ### Requirement: Librarian repository README SHALL select the resident surface
 
 The Librarian Profile release repository README SHALL explain installation, resident indexing and scheduling, live Host Bridge confirmation, default read-only scheduled behavior, monitoring, and reviewable recovery.
@@ -187,3 +147,111 @@ The Profile SHALL document local-index freshness and atomic refresh, every sched
 #### Scenario: Resident work reaches uncertain or mutable state
 - **WHEN** cached facts may be stale, a schedule proposes a write, or apply-back is interrupted
 - **THEN** the Profile SHALL identify the required live Host Bridge confirmation, approval or review stop, preserved local state, and auditable recovery command.
+
+### Requirement: Librarian guidance SHALL separate workflow and provider contracts
+The resident profile SHALL describe provider profiles as backend-scoped request input and SHALL not present them as workflow-owned settings or Host-persisted resources.
+
+#### Scenario: Resident agent plans workflow work
+- **WHEN** the profile evaluates a candidate workflow
+- **THEN** it inspects workflow requirements and provider capabilities separately
+- **AND** it does not infer provider options from the workflow id.
+
+### Requirement: Librarian profile SHALL document the ordered research journey
+The profile SHALL index the six-stage research journey while preserving resident planning, monitoring, approval, and maintenance boundaries.
+
+#### Scenario: Scheduled work encounters a mutating stage
+- **WHEN** a scheduled pass reaches sidecar refresh, graph update, workflow submit, or apply-back
+- **THEN** it records or reports the required action
+- **AND** does not bypass the current Host approval contract.
+
+### Requirement: Librarian SHALL follow durable recovery contracts
+The resident profile SHALL treat operation and agent-apply receipts as the authority for unknown, partial, or interrupted writes.
+
+#### Scenario: Apply is interrupted
+- **WHEN** the resident Agent loses an apply response or observes outcome_unknown
+- **THEN** it SHALL inspect the retained receipt and SHALL NOT blindly replay the write.
+
+### Requirement: Hermes SHALL be a hosted facet over Generic
+The Hermes profile SHALL include the Generic and Minimum components byte-identically and SHALL add only resident operating policy, persona, configuration, cron entries, installation support, and resident-service assets.
+
+#### Scenario: Hosted task uses Generic policy
+- **WHEN** Hermes answers a library question or performs a bounded research task
+- **THEN** it invokes the corresponding Generic task Skill and adds only resident freshness or automation behavior
+
+### Requirement: Librarian SHALL expose one resident service
+The profile SHALL expose `scripts/zotero_librarian_service.py` as the single formal entrypoint for index, workflow catalog, watched run, notification, maintenance, synthesis attention, and scheduled operations.
+
+#### Scenario: Cron invokes one-pass operations
+- **WHEN** a scheduled job fires
+- **THEN** it invokes one resident-service subcommand, receives a terminal receipt, and exits without long polling
+
+### Requirement: Resident state SHALL have one schema owner
+The resident service SHALL exclusively initialize and update `state.sqlite`. The database SHALL be a rebuildable cache and journal, while live Zotero and Host Bridge remain authoritative.
+
+#### Scenario: Concurrent initialization is safe
+- **WHEN** two read/monitor operations start against an empty state directory
+- **THEN** schema initialization is transactional and both observe one valid schema version
+
+### Requirement: Resident automation SHALL enforce authority tiers
+Default scheduled work SHALL be limited to indexing, reading, monitoring, notifications, maintenance analysis, and reports. Workflow submission SHALL require an enabled named automation policy or an interactive request; Zotero apply-back SHALL retain Host approval; destructive maintenance SHALL require a current human decision.
+
+#### Scenario: Default cron cannot submit
+- **WHEN** the shipped schedule is validated
+- **THEN** no default job can reach the workflow submit operation
+
+### Requirement: Librarian Skill SHALL use three coherent references
+The `zotero-librarian` Skill SHALL directly link comprehensive resident operations, automation policy, and state/recovery references. Resident operations SHALL cover every service command and receipt; automation policy SHALL cover workflow delegation, provider profiles, concurrency, cron, maintenance, and interactions; state/recovery SHALL cover freshness, atomic updates, handles, uncertain outcomes, and installation. Persona files SHALL NOT contain hidden execution constraints.
+
+#### Scenario: Resident hard constraints are visible
+- **WHEN** an agent loads only the Librarian `SKILL.md`
+- **THEN** it can determine authority, freshness, scheduling, completion, and failure rules without reading persona text
+
+#### Scenario: Self-owned work keeps one policy owner
+- **WHEN** the Librarian encounters a supported self-owned agent workflow
+- **THEN** it delegates the finite handoff to the inherited Generic coordinator and does not duplicate that playbook in resident references
+
+### Requirement: Librarian guidance SHALL translate resident user intent
+The Librarian Skill SHALL independently route natural-language library questions, one-pass supervision, run monitoring, maintenance proposals, and workflow planning while clarifying scope, schedule assumptions, reporting thresholds, interaction, and mutation authority.
+
+#### Scenario: User requests recurring monitoring
+- **WHEN** the user asks the resident agent to monitor on a cadence
+- **THEN** the Skill distinguishes a current one-pass operation from an existing external schedule and never claims to create or modify cron
+
+### Requirement: Workflow validation SHALL use the live selection contract
+The resident operation SHALL describe the live workflow, inspect `inputs` and `validateSelection` separately, preserve the explicit raw Zotero selection, and invoke Host validation before the current authorized submit. Candidate production, filtering, grouping, and immutable prepared-unit construction SHALL remain Host-owned.
+
+#### Scenario: Workflow requires attachments
+- **WHEN** the workflow input contract accepts attachment members
+- **THEN** the service SHALL preserve attachment identities in the raw selection
+- **AND** it SHALL NOT unconditionally convert them to parent items or construct prepared units
+
+#### Scenario: Live workflow contract changes
+- **WHEN** current describe or validation facts differ from the reviewed intent
+- **THEN** the operation SHALL stop before remote submission
+- **AND** it SHALL require a new current review rather than replay cached planning state
+
+### Requirement: Librarian SHALL delegate admission to the plugin-native queue
+Interactive Librarian workflow execution SHALL use the inherited Generic and Minimum contracts to validate live workflow input, submit one reviewed raw selection, inspect Host submission state, and register concrete run handles for resident monitoring.
+
+#### Scenario: Operator submits reviewed workflow
+- **WHEN** the current operator has reviewed live `inputs`, `validateSelection`, workflow options, provider profile, execution ownership, result contract, and raw selection
+- **THEN** Librarian SHALL invoke one Host workflow submission
+- **AND** it SHALL NOT create or reserve profile-owned pending entries
+
+#### Scenario: Submission is pending or admitted
+- **WHEN** Host submission inspection reports pending or admitted units
+- **THEN** the interactive operation SHALL report the current Host handles and next action
+- **AND** resident cron SHALL NOT submit, cancel, approve, or replay those units
+
+#### Scenario: Concrete run handles appear
+- **WHEN** task discovery returns workflow or skill run handles
+- **THEN** Librarian MAY register those handles with the existing watched-run service
+- **AND** monitoring SHALL remain separate from admission
+
+### Requirement: Retired plan state SHALL remain inert
+The resident service SHALL NOT create, read, update, submit, or recover profile-owned workflow plan or plan-entry queue state. Existing unknown tables or plan files SHALL remain untouched and SHALL NOT influence current operations.
+
+#### Scenario: Existing state database contains old plan tables
+- **WHEN** the current resident service opens that database
+- **THEN** it SHALL ignore those tables
+- **AND** it SHALL neither submit their rows nor delete their data

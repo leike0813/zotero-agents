@@ -8,24 +8,326 @@ import {
   searchHostBridgeAgentSurface,
 } from "../../scripts/host-bridge-agent-surface";
 import { buildHostBridgeSurfaceCatalog } from "../../scripts/host-bridge-surface-catalog";
+import {
+  findAgentLanguageViolations,
+  validateHostBridgeAgentLanguage,
+} from "../../scripts/check-host-bridge-agent-language";
+import { HOST_BRIDGE_HANDLE_KINDS } from "../../src/shared/hostBridgeAgentContract";
+import { loadHostBridgeCommandContracts } from "../../scripts/host-bridge-command-contracts";
+
+function schemaHasPath(schema: Record<string, any>, pathValue: string) {
+  let current: Record<string, any> | undefined = schema;
+  for (const part of pathValue.split(".")) {
+    current = current?.properties?.[part];
+    if (!current) return false;
+  }
+  return true;
+}
 
 describe("Host Bridge agent surface contract", function () {
   this.timeout(30_000);
+
+  it("governs every command result and every structured input from one registry", function () {
+    const root = process.cwd();
+    const registrySchema = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          root,
+          "schemas/host-bridge-cli-command-contracts.v1.schema.json",
+        ),
+        "utf8",
+      ),
+    );
+    const registry = JSON.parse(
+      fs.readFileSync(
+        path.join(root, "schemas/host-bridge-cli-command-contracts.v1.json"),
+        "utf8",
+      ),
+    );
+    const validate = new Ajv({ strict: false }).compile(registrySchema);
+    assert.isTrue(validate(registry), JSON.stringify(validate.errors));
+    const boundarySchema = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          root,
+          "schemas/host-bridge-cli-output-boundaries.v1.schema.json",
+        ),
+        "utf8",
+      ),
+    );
+    const boundaries = JSON.parse(
+      fs.readFileSync(
+        path.join(root, "schemas/host-bridge-cli-output-boundaries.v1.json"),
+        "utf8",
+      ),
+    );
+    const validateBoundaries = new Ajv({ strict: false }).compile(
+      boundarySchema,
+    );
+    assert.isTrue(
+      validateBoundaries(boundaries),
+      JSON.stringify(validateBoundaries.errors),
+    );
+
+    const catalog = buildHostBridgeSurfaceCatalog();
+    assert.deepEqual(
+      Object.keys(registry.commands).sort(),
+      catalog.commandInventory.map((entry) => entry.command).sort(),
+    );
+    assert.deepEqual(
+      Object.keys(boundaries.commands).sort(),
+      catalog.commandInventory.map((entry) => entry.command).sort(),
+    );
+    assert.lengthOf(Object.keys(boundaries.commands), 125);
+    assert.notInclude(
+      Object.values<any>(boundaries.commands).map((entry) => entry.strategy),
+      "none",
+    );
+    for (const inventory of catalog.commandInventory) {
+      const contract = registry.commands[inventory.command];
+      assert.isObject(contract.resultSchema, inventory.command);
+      assert.strictEqual(
+        contract.resultSchema.type,
+        "object",
+        inventory.command,
+      );
+      assert.isObject(contract.resultSchema.properties, inventory.command);
+      assert.isAbove(
+        Object.keys(contract.resultSchema.properties).length,
+        0,
+        inventory.command,
+      );
+      assert.isTrue(
+        contract.resultSchema.additionalProperties === false ||
+          typeof contract.resultSchema["x-openPropertiesReason"] === "string",
+        inventory.command,
+      );
+      for (const [argumentId, input] of Object.entries<any>(
+        contract.inputs || {},
+      )) {
+        assert.isTrue(
+          inventory.arguments.some((argument) => argument.id === argumentId),
+          `${inventory.command}:${argumentId}`,
+        );
+        assert.isObject(input.schema, `${inventory.command}:${argumentId}`);
+        assert.isNotEmpty(input.examples, `${inventory.command}:${argumentId}`);
+        for (const example of input.examples) {
+          assert.include(
+            ["shape-only", "executable"],
+            example.kind,
+            `${inventory.command}:${argumentId}`,
+          );
+          const validateExample = new Ajv({ strict: false }).compile(
+            input.schema,
+          );
+          assert.isTrue(
+            validateExample(example.value),
+            `${inventory.command}:${argumentId}:${JSON.stringify(
+              validateExample.errors,
+            )}`,
+          );
+        }
+      }
+    }
+  });
+
+  it("keeps all 125 output boundaries executable and continuation-complete", function () {
+    const registry = loadHostBridgeCommandContracts();
+    const catalog = buildHostBridgeSurfaceCatalog();
+    const inventory = new Map(
+      catalog.commandInventory.map((entry) => [entry.command, entry]),
+    );
+    assert.lengthOf(Object.keys(registry.commands), 125);
+
+    for (const [command, contract] of Object.entries(registry.commands)) {
+      const boundary = contract.outputBoundary;
+      const commandInventory = inventory.get(command)!;
+      assert.isOk(commandInventory, command);
+      const resultProperties = contract.resultSchema.properties as
+        | Record<string, unknown>
+        | undefined;
+      if (
+        resultProperties &&
+        ["capability", "approval", "data"].every((field) =>
+          Object.prototype.hasOwnProperty.call(resultProperties, field),
+        )
+      ) {
+        assert.sameMembers(
+          Object.keys(resultProperties),
+          ["capability", "approval", "data"],
+          `${command}: capability result schema must use only the canonical envelope`,
+        );
+      }
+      if (boundary.strategy === "cursor" || boundary.strategy === "offset") {
+        const argumentIds = new Set(
+          commandInventory.arguments.map((argument) => argument.id),
+        );
+        assert.isTrue(
+          argumentIds.has(boundary.cursorInput || "") ||
+            argumentIds.has("query") ||
+            argumentIds.has("input"),
+          `${command}: missing ${boundary.cursorInput} input`,
+        );
+        assert.isAtMost(
+          boundary.defaultLimit || Number.POSITIVE_INFINITY,
+          boundary.maxLimit || 0,
+          command,
+        );
+        for (const field of boundary.continuation || []) {
+          assert.isTrue(
+            schemaHasPath(contract.resultSchema, field),
+            `${command}: missing continuation ${field}`,
+          );
+        }
+      } else if (boundary.strategy === "limit") {
+        assert.isAtMost(
+          boundary.defaultLimit || Infinity,
+          boundary.maxLimit || 0,
+        );
+        assert.isTrue(
+          schemaHasPath(contract.resultSchema, boundary.truncatedField || ""),
+          `${command}: missing truncated field`,
+        );
+      } else if (boundary.strategy === "file") {
+        assert.isTrue(
+          schemaHasPath(contract.resultSchema, boundary.fileField || ""),
+          `${command}: missing file handle`,
+        );
+      } else if (boundary.strategy === "raw") {
+        assert.strictEqual(command, "call");
+      }
+    }
+
+    for (const command of [
+      "library item notes",
+      "library annotation export",
+      "product get",
+      "synthesis artifact read",
+      "synthesis topic get-report",
+      "synthesis topic list",
+    ]) {
+      const contract = registry.commands[command];
+      const boundary = contract.outputBoundary;
+      const governedPaths = [
+        boundary.section,
+        boundary.fileField,
+        boundary.truncatedField,
+        ...(boundary.continuation || []),
+      ].filter(Boolean) as string[];
+      assert.isNotEmpty(governedPaths, command);
+      assert.isTrue(
+        governedPaths.every((field) => field.startsWith("data.")),
+        `${command}: capability output boundaries must govern the data envelope`,
+      );
+      for (const field of governedPaths) {
+        const unscopedRoot = field.split(".")[1];
+        assert.notProperty(
+          contract.resultSchema.properties,
+          unscopedRoot,
+          `${command}: stale unscoped boundary field ${unscopedRoot}`,
+        );
+      }
+    }
+
+    const highCardinalityCommands = [
+      "bridge manifest",
+      "context current",
+      "context selection get",
+      "library item notes",
+      "library item attachments",
+      "library note payloads",
+      "library annotation list",
+      "product get",
+      "product list",
+      "run get",
+      "run list",
+      "run skill events",
+      "synthesis artifact manifest",
+      "workflow queue list",
+      "workflow submission get",
+    ];
+    for (const command of highCardinalityCommands) {
+      assert.notEqual(
+        registry.commands[command].outputBoundary.strategy,
+        "fixed",
+        command,
+      );
+    }
+  });
 
   it("describes canonical commands with control and recovery metadata", function () {
     const catalog = buildHostBridgeSurfaceCatalog();
     const descriptor = buildHostBridgeAgentSurfaceDescriptor(catalog);
 
-    assert.strictEqual(descriptor.schema, "host-bridge.agent-surface.v2");
-    assert.strictEqual(descriptor.cliSchema, "zotero-bridge.cli.v2");
-    assert.lengthOf(catalog.commandInventory, 112);
+    assert.strictEqual(descriptor.schema, "host-bridge.agent-surface.v5");
+    assert.strictEqual(descriptor.cliSchema, "zotero-bridge.cli.v4");
+    assert.lengthOf(catalog.commandInventory, 125);
+    assert.isNotEmpty(descriptor.globalOptions);
+    assert.isTrue(
+      descriptor.globalOptions.every((entry) => Boolean(entry.help)),
+    );
+    assert.notProperty(descriptor, "workflowCatalog");
     assert.deepEqual(
       descriptor.commands.map((entry) => entry.command),
       catalog.commandInventory.map((entry) => entry.command),
     );
+    assert.deepInclude(
+      descriptor.globalOptions.find((entry) => entry.id === "endpoint")!,
+      {
+        token: "--endpoint",
+        env: "ZOTERO_BRIDGE_ENDPOINT",
+        global: true,
+      },
+    );
+    assert.deepInclude(
+      descriptor.globalOptions.find((entry) => entry.id === "schema")!,
+      {
+        token: "--schema",
+        takesValue: false,
+        global: true,
+      },
+    );
     const commands = new Map(
       descriptor.commands.map((entry) => [entry.command, entry]),
     );
+    assert.strictEqual(commands.size, 125);
+    assert.deepInclude(commands.get("run list")!.outputBoundary, {
+      strategy: "cursor",
+      section: "items",
+      defaultLimit: 25,
+      maxLimit: 100,
+    });
+    assert.deepInclude(
+      commands.get("synthesis topic get-report")!.outputBoundary,
+      {
+        strategy: "offset",
+        defaultLimit: 8000,
+        maxLimit: 16000,
+      },
+    );
+    assert.deepInclude(
+      commands.get("synthesis artifact read")!.outputBoundary,
+      {
+        strategy: "file",
+        fileField: "data.delivery.file",
+      },
+    );
+    assert.strictEqual(commands.get("call")!.outputBoundary.strategy, "raw");
+    const submit = commands.get("workflow submit")!;
+    assert.deepInclude(
+      submit.arguments.find((entry) => entry.id === "max_concurrency")!,
+      {
+        token: "--max-concurrency",
+        takesValue: true,
+        repeatable: false,
+      },
+    );
+    assert.containsAllKeys(submit.inputSchemas, [
+      "selection",
+      "workflow_options",
+      "provider_profile",
+    ]);
+    assert.isNotEmpty(submit.inputSchemas.selection.examples);
     for (const command of [
       "surface identity",
       "surface describe",
@@ -33,8 +335,16 @@ describe("Host Bridge agent surface contract", function () {
       "context current",
       "product list",
       "workflow submit",
+      "workflow queue list",
+      "workflow queue cancel",
+      "workflow submission get",
       "workflow agent-run",
+      "workflow agent-bundle inspect",
+      "workflow agent-result validate",
       "workflow agent-apply",
+      "workflow agent-renew",
+      "workflow agent-abandon",
+      "operation get",
       "mutation apply",
     ]) {
       assert.isTrue(commands.has(command), command);
@@ -53,6 +363,93 @@ describe("Host Bridge agent surface contract", function () {
         .map((entry) => entry.handle),
       "agentRunId",
     );
+    assert.deepEqual(
+      commands
+        .get("workflow submit")!
+        .handleTransitions.filter((entry) => entry.direction === "produce")
+        .map((entry) => entry.handle),
+      ["workflowRunId", "submissionId"],
+    );
+    assert.deepEqual(
+      commands
+        .get("workflow queue list")!
+        .handleTransitions.filter((entry) => entry.direction === "produce")
+        .map((entry) => entry.handle),
+      ["queueId", "submissionId"],
+    );
+    assert.deepInclude(
+      commands
+        .get("workflow queue cancel")!
+        .handleTransitions.find((entry) => entry.handle === "queueId")!,
+      { direction: "consume", required: true },
+    );
+    assert.deepInclude(
+      commands
+        .get("workflow submission get")!
+        .handleTransitions.find((entry) => entry.handle === "submissionId")!,
+      { direction: "consume", required: true },
+    );
+    assert.containsAllKeys(
+      commands.get("workflow submit")!.resultSchema.properties as object,
+      ["admission", "submissionId", "workflowRunId"],
+    );
+    assert.containsAllKeys(
+      commands.get("run notification wait")!.resultSchema.properties as object,
+      ["notifications", "returned", "hasMore", "truncated"],
+    );
+    assert.notProperty(
+      commands.get("run notification wait")!.resultSchema.properties,
+      "result",
+    );
+    assert.includeMembers(
+      commands.get("workflow agent-apply")!.effects.map((entry) => entry.kind),
+      ["workflow-control", "zotero-library"],
+    );
+    assert.deepInclude(commands.get("workflow agent-renew")!, {
+      category: "write",
+    });
+    assert.deepInclude(commands.get("workflow agent-abandon")!, {
+      category: "write",
+    });
+    assert.containsAllKeys(
+      commands.get("operation get")!.resultSchema.properties as object,
+      ["operationId", "state", "stateChange", "handleConsumption"],
+    );
+    for (const command of [
+      "workflow agent-bundle inspect",
+      "workflow agent-result validate",
+    ]) {
+      assert.strictEqual(commands.get(command)!.category, "read", command);
+      assert.strictEqual(
+        commands.get(command)!.approvalContract.kind,
+        "none",
+        command,
+      );
+      assert.isEmpty(commands.get(command)!.handleTransitions, command);
+      assert.isTrue(
+        commands
+          .get(command)!
+          .effects.some(
+            (effect) => effect.kind === "none" && !effect.stateChanged,
+          ),
+        command,
+      );
+    }
+    assert.isUndefined(
+      commands.get("surface identity")!.recovery[0].nextCommand,
+    );
+    const workflowSubmitConstraints = commands.get("workflow submit")!
+      .invocationSchema.allOf as Array<{
+      not?: { required?: string[] };
+      oneOf?: Array<{ required?: string[] }>;
+    }>;
+    assert.includeMembers(
+      workflowSubmitConstraints.find((entry) => entry.not)?.not?.required || [],
+      ["none", "selection"],
+    );
+    assert.deepInclude(workflowSubmitConstraints, {
+      oneOf: [{ required: ["selection"] }, { required: ["none"] }],
+    });
     assert.include(
       commands
         .get("workflow agent-apply")!
@@ -108,30 +505,18 @@ describe("Host Bridge agent surface contract", function () {
       kind: "option",
       token: "--query",
     });
-    assert.strictEqual(
-      commands.get("run get")!.guidance.example,
-      "zotero-bridge run get 'run-id'",
-    );
-    assert.strictEqual(
-      commands.get("file download")!.guidance.example,
-      "zotero-bridge file download 'file-id' --output './output'",
-    );
+    const topicContextData = commands.get("synthesis topic get-context")!
+      .resultSchema.properties?.data as { properties: object };
+    assert.containsAllKeys(topicContextData.properties, ["delivery"]);
     assert.containsAllKeys(
-      commands.get("synthesis topic get-context")!.resultSchema
-        .properties as object,
-      ["delivery"],
-    );
-    assert.containsAllKeys(
-      (
-        commands.get("synthesis topic get-context")!.resultSchema.properties
-          ?.delivery as { properties: object }
-      ).properties,
+      (topicContextData.properties.delivery as { properties: object })
+        .properties,
       ["mode", "bundle", "downloadCommand", "unpackHint"],
     );
     for (const command of descriptor.commands) {
       assert.deepEqual(command.invocationSchema.additionalProperties, false);
       assert.deepEqual(command.payloadSchema.additionalProperties, false);
-      assert.deepEqual(command.resultSchema.additionalProperties, false);
+      assert.isBoolean(command.resultSchema.additionalProperties);
       assert.lengthOf(
         command.argvBindings,
         Object.keys(command.invocationSchema.properties || {}).length,
@@ -139,37 +524,14 @@ describe("Host Bridge agent surface contract", function () {
       );
       assert.isNotEmpty(command.effects, command.command);
       assert.isNotEmpty(command.recovery, command.command);
-      assert.isNotEmpty(command.guidance.operation, command.command);
-      assert.isTrue(command.guidance.commandSpecific, command.command);
-      assert.isNotEmpty(command.guidance.useWhen, command.command);
-      assert.isNotEmpty(command.guidance.avoidWhen, command.command);
-      assert.isNotEmpty(command.guidance.distinguishFrom, command.command);
-      assert.isNotEmpty(command.guidance.preconditions, command.command);
-      assert.isNotEmpty(command.guidance.evidence, command.command);
-      assert.isNotEmpty(command.guidance.failureChecks, command.command);
-      assert.isNotEmpty(command.guidance.example, command.command);
-      assert.notMatch(command.guidance.example, /\s--[a-z0-9]+_[a-z0-9_-]+/i);
-      for (const binding of command.argvBindings.filter(
-        (entry) => entry.required && entry.kind === "option",
-      )) {
-        assert.include(
-          command.guidance.example,
-          binding.token,
-          command.command,
-        );
-      }
+      assert.notProperty(command, "guidance", command.command);
+      assert.isNotEmpty(command.operationalAliases, command.command);
       assert.notDeepEqual(
         command.resultSchema.properties?.data?.type,
         ["object", "array", "string", "number", "boolean", "null"],
         command.command,
       );
     }
-    assert.strictEqual(
-      new Set(descriptor.commands.map((command) => command.guidance.useWhen[0]))
-        .size,
-      descriptor.commands.length,
-      "every leaf command needs a command-specific first selection rule",
-    );
     assert.containsAllKeys(
       commands.get("library items list")!.payloadSchema.properties as object,
       ["collectionKey", "tag", "itemType", "cursor", "limit"],
@@ -180,22 +542,18 @@ describe("Host Bridge agent surface contract", function () {
       ["topicId", "view", "outputPath", "overwrite"],
     );
     assert.include(
-      commands.get("library item search")!.guidance.preconditions.join(" "),
-      "maps that value to backend payload field `query`",
+      commands.get("library item search")!.operationalAliases,
+      "query",
     );
   });
 
-  it("validates the rendered Agent Surface and semantic manifest schemas", function () {
+  it("validates the rendered mechanism-only Agent Surface v5 schema", function () {
     const root = process.cwd();
     const ajv = new Ajv({ strict: false });
     for (const [schemaPath, dataPath] of [
       [
-        "schemas/host-bridge.agent-surface.v2.schema.json",
+        "schemas/host-bridge.agent-surface.v5.schema.json",
         "cli/zotero-bridge/src/agent-surface.json",
-      ],
-      [
-        "schemas/host-bridge.semantic-guidance.v2.schema.json",
-        "skills_src/host-bridge-shared/semantic/manifest.json",
       ],
     ]) {
       const schema = JSON.parse(
@@ -204,65 +562,49 @@ describe("Host Bridge agent surface contract", function () {
       const data = JSON.parse(
         fs.readFileSync(path.join(root, dataPath), "utf8"),
       );
+      assert.deepEqual(
+        schema.properties.commands.items.properties.handleTransitions.items
+          .properties.handle.enum,
+        [...HOST_BRIDGE_HANDLE_KINDS],
+      );
       const validate = ajv.compile(schema);
       assert.isTrue(validate(data), JSON.stringify(validate.errors));
     }
   });
 
-  it("keeps additive CLI, bounded-agent, and resident-profile guidance", function () {
-    const sources = {
-      cli: fs.readFileSync(
-        path.join(
-          process.cwd(),
-          "skills_src/zotero-bridge-cli/semantic/SKILL.md",
-        ),
-        "utf8",
-      ),
-      agent: fs.readFileSync(
-        path.join(
-          process.cwd(),
-          "skills_src/zotero-bridge-cli/semantic/references/agent-guidance.md",
-        ),
-        "utf8",
-      ),
-      library: fs.readFileSync(
-        path.join(
-          process.cwd(),
-          "skills_src/zotero-library-agent/semantic/references/task-routing.md",
-        ),
-        "utf8",
-      ),
-      profile: fs.readFileSync(
-        path.join(
-          process.cwd(),
-          "profiles_src/hermes/zotero-librarian/skills/zotero-librarian/SKILL.md",
-        ),
-        "utf8",
-      ),
-    };
+  it("does not read Generic sources to build a CLI descriptor", function () {
+    const catalog = buildHostBridgeSurfaceCatalog();
+    const descriptor = buildHostBridgeAgentSurfaceDescriptor(
+      catalog,
+      path.join(process.cwd(), "missing-generic-source-root"),
+    );
+    assert.strictEqual(descriptor.schema, "host-bridge.agent-surface.v5");
+    assert.match(descriptor.commandCatalogChecksum, /^[a-f0-9]{64}$/);
+  });
 
-    for (const marker of [
-      "Provider Runtime Profiles",
-      "autoApproveAcpPermissions",
-      "permission visibility as read-only",
-      "currentSkillRunId",
-      "Version mismatch alone is not a blocker",
-    ]) {
-      assert.include(`${sources.cli}\n${sources.agent}`, marker);
-    }
-    for (const marker of [
-      "Diagnostics and Readiness",
-      "Notification Inbox",
-      "Annotation Reads",
-      "checksum",
-      "Evidence and Artifacts",
-    ]) {
-      assert.include(sources.agent, marker);
-    }
-    assert.include(sources.library, "help-first");
-    assert.notMatch(sources.library, /cron|HERMES_HOME|index\.sqlite/);
-    assert.include(sources.profile, "expected CLI version");
-    assert.include(sources.profile, "--help");
+  it("keeps human-readable Agent Surface fields task-oriented", function () {
+    const descriptor = buildHostBridgeAgentSurfaceDescriptor(
+      buildHostBridgeSurfaceCatalog(),
+    );
+    assert.deepEqual(findAgentLanguageViolations(descriptor), []);
+    assert.strictEqual(descriptor.schema, "host-bridge.agent-surface.v5");
+    assert.strictEqual(descriptor.cliSchema, "zotero-bridge.cli.v4");
+  });
+
+  it("rejects internal prose while allowing formal bridge identifiers", function () {
+    assert.isNotEmpty(
+      findAgentLanguageViolations({ description: "Use Host Bridge access." }),
+    );
+    assert.deepEqual(
+      findAgentLanguageViolations({
+        schema: "host-bridge.agent-surface.v5",
+        protocol: "host-bridge.v1",
+        route: "/bridge/v1/manifest",
+        profile: "ZOTERO_BRIDGE_HOST_PROFILE",
+      }),
+      [],
+    );
+    assert.deepEqual(validateHostBridgeAgentLanguage(process.cwd()), []);
   });
 
   it("uses backend-aligned approval and state-change metadata", function () {
@@ -327,85 +669,6 @@ describe("Host Bridge agent surface contract", function () {
     );
   });
 
-  it("renders detailed command cards and direct reference routes", function () {
-    const root = process.cwd();
-    const cliSkill = fs.readFileSync(
-      path.join(root, "skills_builtin/zotero-bridge-cli/SKILL.md"),
-      "utf8",
-    );
-    for (const reference of [
-      "identity-and-connection.md",
-      "invocation-and-json-input.md",
-      "commands/library-items.md",
-      "commands/workflows-and-runs.md",
-      "output-and-recovery.md",
-    ]) {
-      assert.include(cliSkill, reference);
-    }
-    const commandManual = fs.readFileSync(
-      path.join(
-        root,
-        "skills_builtin/zotero-bridge-cli/references/commands/workflows-and-runs.md",
-      ),
-      "utf8",
-    );
-    for (const heading of [
-      "Backend and freshness",
-      "Choose this command",
-      "Invocation and payload",
-      "Result and evidence",
-      "Approval, effects, and handles",
-      "Failure and recovery",
-    ]) {
-      assert.include(commandManual, heading);
-    }
-    assert.include(commandManual, "Exact argv bindings");
-    assert.include(commandManual, "`run_id` → positional 1 as `RUN_ID`");
-    const libraryManual = fs.readFileSync(
-      path.join(
-        root,
-        "skills_builtin/zotero-bridge-cli/references/commands/library-items.md",
-      ),
-      "utf8",
-    );
-    assert.include(
-      libraryManual,
-      "maps that value to backend payload field `query`",
-    );
-
-    const librarySkill = fs.readFileSync(
-      path.join(root, "skills_builtin/zotero-library-agent/SKILL.md"),
-      "utf8",
-    );
-    for (const reference of [
-      "journeys/current-context-and-library-read.md",
-      "journeys/agent-owned-handoff.md",
-      "journeys/products-and-files.md",
-      "helper-script-contract.md",
-    ]) {
-      assert.include(librarySkill, reference);
-    }
-    const profileSkill = fs.readFileSync(
-      path.join(
-        root,
-        "profiles/hermes/zotero-librarian/skills/zotero-librarian/SKILL.md",
-      ),
-      "utf8",
-    );
-    for (const reference of [
-      "resident-index.md",
-      "scheduled-jobs.md",
-      "monitoring-and-notifications.md",
-      "maintenance-and-recovery.md",
-      "profile-script-contracts.md",
-    ]) {
-      assert.include(profileSkill, reference);
-    }
-    for (const skill of [cliSkill, librarySkill, profileSkill]) {
-      assert.notMatch(skill, /references\/[^\s`]*\*/);
-    }
-  });
-
   it("creates and searches an offline identity-bound descriptor", function () {
     const descriptor = buildHostBridgeAgentSurfaceDescriptor(
       buildHostBridgeSurfaceCatalog(),
@@ -415,14 +678,21 @@ describe("Host Bridge agent surface contract", function () {
       buildFingerprint: "f".repeat(64),
       descriptor,
     });
-    assert.strictEqual(identity.schema, "host-bridge.surface-identity.v2");
+    assert.strictEqual(identity.schema, "host-bridge.surface-identity.v5");
     assert.strictEqual(identity.version, "0.2.2");
     assert.match(identity.commandCatalogChecksum, /^[a-f0-9]{64}$/);
 
     const matches = searchHostBridgeAgentSurface(descriptor, "selected items");
     assert.strictEqual(matches[0]?.command.command, "context selection get");
-    assert.include(matches[0]?.matchReasons, "phrase:selected items");
+    assert.include(matches[0]?.matchReasons, "token:selected");
     assert.isAtMost(matches.length, 10);
+
+    const workflow = searchHostBridgeAgentSurface(
+      descriptor,
+      "workflow submit",
+    );
+    assert.strictEqual(workflow[0]?.command.command, "workflow submit");
+    assert.include(workflow[0]?.matchReasons, "phrase:workflow submit");
 
     const ordinary = searchHostBridgeAgentSurface(
       descriptor,

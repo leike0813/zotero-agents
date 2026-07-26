@@ -17,13 +17,37 @@ Preparation -> Duplicate Guard -> Run -> Provider Dispatch -> Apply Summary -> F
 
 ## Preparation Seam
 
-Preparation builds `SelectionContext`, executes workflow `buildRequests`,
+Preparation builds `SelectionContext`, runs the v2 input planner once, executes
+workflow request construction for the resulting immutable prepared units,
 resolves backend/profile/runtime options, adapts request shape for the selected
 backend, and returns either a ready execution or a halted workflow.
 
 Request adaptation is limited to the selected backend context. Workflow
 `provider` remains the backend compatibility source; `request.kind` describes
 payload shape after a backend is selected.
+
+## Input Planning Phases
+
+`planWorkflowExecutionUnits()` distinguishes availability preview from
+confirmed execution:
+
+- availability planning applies only filters declared with
+  `phase: "availability"`;
+- execute planning reapplies availability filters and also applies
+  `phase: "execute"` filters after settings are confirmed;
+- parameter-dependent `artifact-absent` filters must declare
+  `phase: "execute"` and read only their named workflow parameter.
+
+The planner validates raw selection requirements once, then selects ordered
+candidates, applies member/MIME compatibility, filters, candidate cardinality,
+and grouping. Candidate skips and top-level unit outcomes remain separate
+statistics.
+
+`buildPreparedWorkflowUnitExecution()` consumes an already prepared unit and
+must not invoke selection planning again. This preserves global requirements
+such as `parents.min: 2` after `grouping: each`. Preflight runs after grouping
+and may expand requests inside the unit, but all resulting requests retain one
+top-level queue/admission slot.
 
 ## Run Seam
 
@@ -206,3 +230,17 @@ Host-side failures are ordinary workflow outcomes and must be visible:
 
 No failure path may leave later submit requests waiting on an unbounded
 in-flight SkillRunner operation.
+
+## Execution-unit admission
+
+Preparation produces one ordered `WorkflowRequestBuildPlan`; each
+`PreparedWorkflowUnit` is one legal top-level selection unit and the Host queue
+outcome boundary. Declarative planning and settings preview do not run provider
+preflight, request builders, duplicate prompts, file mutations, or apply hooks.
+
+For ACP Skills and SkillRunner, admission occurs before unit-local provider
+preflight and request construction. The admitted unit owns provider fan-out,
+sequence execution, aggregate/short-circuit apply, and remains active through
+waiting states until provider terminal state and required Host apply settle.
+Generic HTTP remains full-parallel outside the Host queue; pass-through remains
+serialized outside it.

@@ -418,7 +418,7 @@ describe("host bridge server phase 1", function () {
     });
     assert.deepEqual(parsed.json.result.cli, {
       supported: true,
-      schema: "zotero-bridge.cli.v1",
+      schema: "zotero-bridge.cli.v4",
     });
     assert.strictEqual(
       parsed.json.result.auth.tokenMasked,
@@ -427,6 +427,53 @@ describe("host bridge server phase 1", function () {
     assert.notInclude(parsed.body, token);
     assert.notInclude(parsed.body, "localPath");
     assert.notInclude(parsed.body, "handler");
+  });
+
+  it("pages the authenticated capability manifest with opaque criteria-bound cursors", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "manifest-page-token",
+    });
+    const names: string[] = [];
+    let cursor = "";
+    do {
+      const parsed = parseRawHttpResponse(
+        await handleHostBridgeHttpRequestForTests({
+          method: "GET",
+          path: `/bridge/v1/manifest?limit=7${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+          headers: { authorization: `Bearer ${token}` },
+        }),
+      );
+      assert.strictEqual(parsed.status, 200);
+      assert.isAtMost(parsed.json.result.capabilities.length, 7);
+      assert.strictEqual(
+        parsed.json.result.returned,
+        parsed.json.result.capabilities.length,
+      );
+      assert.strictEqual(parsed.json.result.limit, 7);
+      names.push(
+        ...parsed.json.result.capabilities.map(
+          (capability: { name: string }) => capability.name,
+        ),
+      );
+      cursor = parsed.json.result.nextCursor;
+      if (!parsed.json.result.hasMore) break;
+      assert.isString(cursor);
+      assert.isNotEmpty(cursor);
+      // eslint-disable-next-line no-constant-condition
+    } while (true);
+    assert.lengthOf(names, new Set(names).size);
+    assert.include(names, "library.get_item_detail");
+    assert.include(names, "topics.get_report");
+
+    const invalid = parseRawHttpResponse(
+      await handleHostBridgeHttpRequestForTests({
+        method: "GET",
+        path: "/bridge/v1/manifest?cursor=not-a-cursor",
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    );
+    assert.strictEqual(invalid.status, 400);
+    assert.strictEqual(invalid.json.error.code, "invalid_host_bridge_cursor");
   });
 
   it("serves redacted Host Bridge profile diagnostics for agents", async function () {

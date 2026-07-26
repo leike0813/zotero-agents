@@ -419,6 +419,7 @@ describe("content package release scripts", function () {
 
   it("dispatches the content package publish workflow only from a clean tree", async function () {
     const calls: Array<{ command: string; args: string[] }> = [];
+    let runListAttempts = 0;
     const releaseSetFile = path.join(tempRoot, "release-set.json");
     const receiptFile = path.join(tempRoot, "receipt.json");
     await fs.writeFile(
@@ -444,15 +445,22 @@ describe("content package release scripts", function () {
           return { stdout: "source-sha\n", stderr: "" };
         }
         if (command === "gh" && args[0] === "run" && args[1] === "list") {
+          runListAttempts += 1;
           return {
-            stdout: JSON.stringify([
-              {
-                databaseId: 123,
-                displayTitle: "Content package content-request-1",
-                headSha: "source-sha",
-                url: "https://example.invalid/runs/123",
-              },
-            ]),
+            stdout: JSON.stringify(
+              runListAttempts === 1
+                ? []
+                : [
+                    {
+                      databaseId: 123,
+                      displayTitle: "Content package content-request-1",
+                      event: "workflow_dispatch",
+                      headBranch: "release-branch",
+                      headSha: "source-sha",
+                      url: "https://example.invalid/runs/123",
+                    },
+                  ],
+            ),
             stderr: "",
           };
         }
@@ -470,20 +478,9 @@ describe("content package release scripts", function () {
         args: ["merge-base", "--is-ancestor", "HEAD", "origin/release-branch"],
       },
       {
-        command: "gh",
-        args: [
-          "workflow",
-          "run",
-          "publish-content-feed.yml",
-          "--repo",
-          "owner/repo",
-          "--ref",
-          "release-branch",
-          "-f",
-          "request_id=content-request-1",
-        ],
+        command: "git",
+        args: ["rev-parse", "HEAD"],
       },
-      { command: "git", args: ["rev-parse", "HEAD"] },
       {
         command: "gh",
         args: [
@@ -498,7 +495,38 @@ describe("content package release scripts", function () {
           "--limit",
           "30",
           "--json",
-          "databaseId,displayTitle,headSha,url",
+          "databaseId,displayTitle,event,headBranch,headSha,url",
+        ],
+      },
+      {
+        command: "gh",
+        args: [
+          "workflow",
+          "run",
+          "publish-content-feed.yml",
+          "--repo",
+          "owner/repo",
+          "--ref",
+          "release-branch",
+          "-f",
+          "request_id=content-request-1",
+        ],
+      },
+      {
+        command: "gh",
+        args: [
+          "run",
+          "list",
+          "--repo",
+          "owner/repo",
+          "--workflow",
+          "publish-content-feed.yml",
+          "--event",
+          "workflow_dispatch",
+          "--limit",
+          "30",
+          "--json",
+          "databaseId,displayTitle,event,headBranch,headSha,url",
         ],
       },
       {

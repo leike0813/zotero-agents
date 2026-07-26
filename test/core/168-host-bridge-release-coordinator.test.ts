@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import Ajv from "ajv/dist/2020";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -22,16 +23,139 @@ import {
   resolveHostBridgeReleaseBase,
   writeHostBridgeReleasePlan,
 } from "../../scripts/host-bridge-release-plan";
-import { materializeHostBridgeSurfaces } from "../../scripts/materialize-host-bridge-surfaces";
+import {
+  materializeHostBridgeSurfaces,
+  stagedHostBridgePayloadDigests,
+} from "../../scripts/materialize-host-bridge-surfaces";
 import { resolveExactCliReleaseIntent } from "../../scripts/host-bridge-version-intent";
 import { renderHostBridgeReleaseSet } from "../../scripts/render-host-bridge-release-set";
 import {
+  resolveHostBridgePublicationRef,
   readImmutablePublicationSource,
   selectDispatchedHostBridgeRun,
 } from "../../scripts/dispatch-host-bridge-release";
+import {
+  dispatchAndResolveGithubWorkflowRun,
+  selectGithubWorkflowRun,
+  viewGithubWorkflowRun,
+} from "../../scripts/github-workflow-run";
+import {
+  advanceHostBridgeReleaseReceipt,
+  createHostBridgeReleaseReceipt,
+} from "../../scripts/host-bridge-release-controller";
+
+function releaseBinaries(buildFingerprint = "f".repeat(64)) {
+  return [
+    "darwin-arm64",
+    "darwin-x64",
+    "linux-arm",
+    "linux-arm64",
+    "linux-x64",
+    "linux-x86",
+    "win32-x64",
+  ].map((platform, index) => ({
+    platform,
+    binary: platform.startsWith("win32")
+      ? "zotero-bridge.exe"
+      : "zotero-bridge",
+    sha256: String(index + 1).repeat(64),
+    bytes: 12 + index,
+    buildFingerprint,
+  }));
+}
 
 describe("Host Bridge release coordinator", function () {
   this.timeout(30_000);
+
+  it("advances a resumable v2 receipt only from verified remote facts", function () {
+    const releaseSet = {
+      schema: "host-bridge.release-set.v2" as const,
+      releaseSetId: `hbrs-${"a".repeat(24)}`,
+      payloadDigest: `sha256:${"b".repeat(64)}`,
+      source: { commit: "abc1234" },
+      surfaces: {
+        cliBundle: { contentDigest: "1".repeat(64) },
+        libraryAgent: { contentDigest: "2".repeat(64) },
+        librarianProfile: { contentDigest: "3".repeat(64) },
+      },
+    };
+    let receipt = createHostBridgeReleaseReceipt({
+      releaseSet,
+      sourceCommit: "abc1234",
+      workflowRun: "run-1",
+      pipelineRevision: "workflow-sha",
+      prebuildCommit: "prebuild-sha",
+      now: "2026-01-01T00:00:00.000Z",
+    });
+    assert.strictEqual(receipt.status, "partial");
+    receipt = advanceHostBridgeReleaseReceipt(receipt, {
+      step: "publish",
+      status: "pending",
+      surfaces: {
+        cliBundle: {
+          status: "published",
+          commit: "cli-sha",
+          contentDigest: "1".repeat(64),
+        },
+      },
+    });
+    assert.strictEqual(receipt.surfaces.cliBundle.status, "published");
+    assert.strictEqual(receipt.surfaces.libraryAgent.status, "pending");
+    assert.throws(
+      () =>
+        advanceHostBridgeReleaseReceipt(receipt, {
+          step: "publish",
+          status: "complete",
+        }),
+      /all immutable surface facts/,
+    );
+    receipt = advanceHostBridgeReleaseReceipt(receipt, {
+      step: "publish",
+      status: "complete",
+      surfaces: {
+        libraryAgent: {
+          status: "published",
+          commit: "library-sha",
+          contentDigest: "2".repeat(64),
+        },
+        librarianProfile: {
+          status: "published",
+          commit: "profile-sha",
+          contentDigest: "3".repeat(64),
+        },
+      },
+    });
+    receipt = advanceHostBridgeReleaseReceipt(receipt, {
+      step: "verify",
+      status: "complete",
+      surfaces: {
+        cliBundle: {
+          status: "verified",
+          commit: "cli-sha",
+          contentDigest: "1".repeat(64),
+        },
+        libraryAgent: {
+          status: "verified",
+          commit: "library-sha",
+          contentDigest: "2".repeat(64),
+        },
+        librarianProfile: {
+          status: "verified",
+          commit: "profile-sha",
+          contentDigest: "3".repeat(64),
+        },
+      },
+    });
+    receipt = advanceHostBridgeReleaseReceipt(receipt, {
+      step: "mutablePointers",
+      status: "complete",
+    });
+    receipt = advanceHostBridgeReleaseReceipt(receipt, {
+      step: "finalize",
+      status: "complete",
+    });
+    assert.strictEqual(receipt.status, "complete");
+  });
 
   it("collects committed feature changes from a clean checkout", function () {
     const root = mkdtempSync(join(tmpdir(), "host-bridge-plan-"));
@@ -139,6 +263,189 @@ describe("Host Bridge release coordinator", function () {
     assert.strictEqual(selected?.databaseId, 2);
   });
 
+  it("keeps formal Host Bridge publication on main", function () {
+    assert.strictEqual(resolveHostBridgePublicationRef(undefined), "main");
+    assert.strictEqual(resolveHostBridgePublicationRef("main"), "main");
+    assert.throws(
+      () => resolveHostBridgePublicationRef("feature/prebuild"),
+      /must use ref main/i,
+    );
+  });
+
+  it("uses one exact request-aware GitHub workflow run resolver", async function () {
+    assert.strictEqual(
+      selectGithubWorkflowRun(
+        [
+          {
+            databaseId: 1,
+            displayTitle: "Build request-old",
+            headSha: "source",
+            url: "old",
+          },
+          {
+            databaseId: 2,
+            displayTitle: "Build request-new",
+            headSha: "source",
+            url: "new",
+          },
+        ],
+        {
+          displayTitle: "Build request-new",
+          headSha: "source",
+        },
+      )?.databaseId,
+      2,
+    );
+    assert.throws(
+      () =>
+        selectGithubWorkflowRun(
+          [
+            {
+              databaseId: 2,
+              displayTitle: "Build request-new",
+              headSha: "source",
+              url: "new",
+            },
+            {
+              databaseId: 3,
+              displayTitle: "Build request-new",
+              headSha: "source",
+              url: "newer",
+            },
+          ],
+          {
+            displayTitle: "Build request-new",
+            headSha: "source",
+          },
+        ),
+      /multiple workflow runs/i,
+    );
+
+    const calls: Array<{ command: string; args: string[] }> = [];
+    let listAttempts = 0;
+    const selected = await dispatchAndResolveGithubWorkflowRun({
+      workflow: "build.yml",
+      repo: "owner/repo",
+      ref: "dev",
+      inputs: {
+        source_sha: "a".repeat(40),
+        request_id: "request-new",
+      },
+      expectedDisplayTitle: "Build request-new",
+      expectedHeadSha: "a".repeat(40),
+      pollIntervalMs: 0,
+      commandRunner: async (command, args) => {
+        calls.push({ command, args });
+        if (args[0] === "run" && args[1] === "list") {
+          listAttempts += 1;
+          return {
+            stdout:
+              listAttempts === 1
+                ? JSON.stringify([
+                    {
+                      databaseId: 41,
+                      displayTitle: "Build request-new",
+                      event: "workflow_dispatch",
+                      headBranch: "dev",
+                      headSha: "a".repeat(40),
+                      url: "https://example.invalid/runs/41",
+                    },
+                  ])
+                : JSON.stringify([
+                    {
+                      databaseId: 41,
+                      displayTitle: "Build request-new",
+                      event: "workflow_dispatch",
+                      headBranch: "dev",
+                      headSha: "a".repeat(40),
+                      url: "https://example.invalid/runs/41",
+                    },
+                    {
+                      databaseId: 42,
+                      displayTitle: "Build request-new",
+                      event: "workflow_dispatch",
+                      headBranch: "dev",
+                      headSha: "a".repeat(40),
+                      url: "https://example.invalid/runs/42",
+                    },
+                  ]),
+            stderr: "",
+          };
+        }
+        return { stdout: "", stderr: "" };
+      },
+    });
+
+    assert.strictEqual(selected.databaseId, 42);
+    assert.strictEqual(listAttempts, 2);
+    assert.deepEqual(calls[1], {
+      command: "gh",
+      args: [
+        "workflow",
+        "run",
+        "build.yml",
+        "--repo",
+        "owner/repo",
+        "--ref",
+        "dev",
+        "-f",
+        `source_sha=${"a".repeat(40)}`,
+        "-f",
+        "request_id=request-new",
+      ],
+    });
+  });
+
+  it("validates a resumed run against workflow, event, ref, and source", async function () {
+    const headSha = "a".repeat(40);
+    const run = await viewGithubWorkflowRun({
+      repo: "owner/repo",
+      runId: 77,
+      expectedWorkflow: "build.yml",
+      expectedRef: "dev",
+      expectedHeadSha: headSha,
+      commandRunner: async () => ({
+        stdout: JSON.stringify({
+          id: 77,
+          display_title: "Build request-new",
+          event: "workflow_dispatch",
+          head_branch: "dev",
+          head_sha: headSha,
+          html_url: "https://example.invalid/runs/77",
+          path: ".github/workflows/build.yml@dev",
+        }),
+        stderr: "",
+      }),
+    });
+    assert.strictEqual(run.databaseId, 77);
+
+    let caught: unknown;
+    try {
+      await viewGithubWorkflowRun({
+        repo: "owner/repo",
+        runId: 77,
+        expectedWorkflow: "build.yml",
+        expectedRef: "dev",
+        expectedHeadSha: headSha,
+        commandRunner: async () => ({
+          stdout: JSON.stringify({
+            id: 77,
+            display_title: "Build request-new",
+            event: "push",
+            head_branch: "other",
+            head_sha: headSha,
+            html_url: "https://example.invalid/runs/77",
+            path: ".github/workflows/other.yml",
+          }),
+          stderr: "",
+        }),
+      });
+    } catch (error) {
+      caught = error;
+    }
+    assert.match(String(caught), /workflow run 77 does not match/i);
+  });
+
   it("uses an existing immutable manifest's historical source for a release-set resume", function () {
     assert.strictEqual(
       readImmutablePublicationSource(
@@ -167,8 +474,7 @@ describe("Host Bridge release coordinator", function () {
     const paths = [
       "cli/zotero-bridge/release.json",
       "skills_src/zotero-bridge-cli/runner.json",
-      "skills_src/zotero-library-agent/bundle-version.json",
-      "profiles_src/hermes/zotero-librarian/profile-version.json",
+      "host-bridge/surfaces.json",
       "host-bridge/release-set.json",
     ];
     const before = paths.map((path) =>
@@ -201,8 +507,7 @@ describe("Host Bridge release coordinator", function () {
     const identityPaths = [
       "cli/zotero-bridge/release.json",
       "skills_src/zotero-bridge-cli/runner.json",
-      "skills_src/zotero-library-agent/bundle-version.json",
-      "profiles_src/hermes/zotero-librarian/profile-version.json",
+      "host-bridge/surfaces.json",
       "host-bridge/release-set.json",
     ];
     const before = identityPaths.map((path) => readFileSync(path, "utf8"));
@@ -220,7 +525,7 @@ describe("Host Bridge release coordinator", function () {
       "utf8",
     );
     assert.notMatch(workflow, /GITEE_TOKEN|gitee\.com/i);
-    assert.include(workflow, "host-bridge.release-receipt.v1");
+    assert.include(workflow, "host-bridge-release-controller.ts");
     assert.notInclude(workflow, "  push:");
     assert.include(workflow, "workflow_dispatch:");
   });
@@ -258,8 +563,8 @@ describe("Host Bridge release coordinator", function () {
     const plan = classifyHostBridgeReleaseChanges([
       "cli/zotero-bridge/src/commands.rs",
       "cli/zotero-bridge/scripts/install.sh",
-      "skills_src/zotero-bridge-cli/semantic/SKILL.md",
-      "skills_src/zotero-library-agent/semantic/SKILL.md",
+      "skills_src/zotero-bridge-cli/SKILL.md",
+      "skills_src/zotero-library-agent/skills/zotero-library-agent/SKILL.md",
       "profiles_src/hermes/zotero-librarian/SOUL.md",
       "profiles/hermes/zotero-librarian/assets/profile-manifest-source.json",
     ]);
@@ -281,15 +586,15 @@ describe("Host Bridge release coordinator", function () {
         surfaces: {
           cliBundle: true,
           libraryAgent: true,
-          librarianProfile: false,
+          librarianProfile: true,
         },
       },
       {
-        path: "skills_src/zotero-library-agent/semantic/README.md",
+        path: "skills_src/zotero-library-agent/skills/zotero-library-agent/SKILL.md",
         surfaces: {
           cliBundle: false,
           libraryAgent: true,
-          librarianProfile: false,
+          librarianProfile: true,
         },
       },
       {
@@ -313,23 +618,16 @@ describe("Host Bridge release coordinator", function () {
 
   it("creates a deterministic release set from exact CLI and surface identities", function () {
     const input = {
-      sourceCommit: "abc123",
+      sourceCommit: "abc1234",
       protocol: "host-bridge.v1",
-      cliSchema: "zotero-bridge.cli.v1",
+      cliSchema: "zotero-bridge.cli.v4",
       cli: {
         version: "0.2.2",
         buildFingerprint: "f".repeat(64),
         commandCatalogChecksum: "c".repeat(64),
         binaryAggregateSha256: "b".repeat(64),
         binariesBuildFingerprint: "f".repeat(64),
-        binaries: [
-          {
-            platform: "linux-x64",
-            binary: "zotero-bridge",
-            sha256: "a".repeat(64),
-            bytes: 12,
-          },
-        ],
+        binaries: releaseBinaries(),
       },
       surfaces: {
         cliBundle: {
@@ -352,7 +650,24 @@ describe("Host Bridge release coordinator", function () {
 
     const first = buildHostBridgeReleaseSet(input);
     const second = buildHostBridgeReleaseSet(input);
-    assert.strictEqual(first.schema, "host-bridge.release-set.v1");
+    const validateReleaseSet = new Ajv({ strict: false }).compile(
+      JSON.parse(
+        readFileSync(
+          join(process.cwd(), "schemas/host-bridge.release-set.v3.schema.json"),
+          "utf8",
+        ),
+      ),
+    );
+    assert.strictEqual(first.schema, "host-bridge.release-set.v3");
+    assert.isTrue(
+      validateReleaseSet(first),
+      JSON.stringify(validateReleaseSet.errors),
+    );
+    assert.strictEqual(first.cli.schema, "zotero-bridge-cli-release.v1");
+    assert.strictEqual(
+      first.cli.identity.schema,
+      "host-bridge.surface-identity.v5",
+    );
     assert.strictEqual(first.releaseSetId, second.releaseSetId);
     assert.match(first.releaseSetId, /^hbrs-[a-f0-9]{24}$/);
     assert.strictEqual(
@@ -367,7 +682,11 @@ describe("Host Bridge release coordinator", function () {
 
     const changed = buildHostBridgeReleaseSet({
       ...input,
-      cli: { ...input.cli, buildFingerprint: "e".repeat(64) },
+      cli: {
+        ...input.cli,
+        buildFingerprint: "e".repeat(64),
+        binariesBuildFingerprint: "e".repeat(64),
+      },
     });
     assert.notStrictEqual(changed.releaseSetId, first.releaseSetId);
   });
@@ -376,14 +695,14 @@ describe("Host Bridge release coordinator", function () {
     const releaseSet = buildHostBridgeReleaseSet({
       sourceCommit: "abc123",
       protocol: "host-bridge.v1",
-      cliSchema: "zotero-bridge.cli.v1",
+      cliSchema: "zotero-bridge.cli.v4",
       cli: {
         version: "0.2.2",
         buildFingerprint: "f".repeat(64),
         commandCatalogChecksum: "c".repeat(64),
         binaryAggregateSha256: "b".repeat(64),
         binariesBuildFingerprint: "f".repeat(64),
-        binaries: [],
+        binaries: releaseBinaries(),
       },
       surfaces: {
         cliBundle: {
@@ -452,19 +771,37 @@ describe("Host Bridge release coordinator", function () {
           surface.name,
         );
       }
-      const readmeSources = {
-        cliBundle: "skills_src/zotero-bridge-cli/README.md",
-        libraryAgent: "skills_builtin/zotero-library-agent/README.md",
-        librarianProfile: "profiles/hermes/zotero-librarian/README.md",
-      } as const;
-      for (const surface of result.surfaces) {
-        assert.strictEqual(
-          readFileSync(join(surface.path, "README.md"), "utf8"),
-          readFileSync(readmeSources[surface.name], "utf8"),
-        );
-      }
+      const paths = Object.fromEntries(
+        result.surfaces.map((surface) => [surface.name, surface.path]),
+      ) as Record<string, string>;
+      assert.strictEqual(
+        readFileSync(join(paths.cliBundle, "README.md"), "utf8"),
+        readFileSync("skills_src/zotero-bridge-cli/README.md", "utf8"),
+      );
+      assert.include(
+        readFileSync(join(paths.libraryAgent, "README.md"), "utf8"),
+        "Zotero Library Agent",
+      );
+      assert.strictEqual(
+        readFileSync(join(paths.librarianProfile, "README.md"), "utf8"),
+        readFileSync("profiles/hermes/zotero-librarian/README.md", "utf8"),
+      );
     } finally {
       rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("derives release payload digests from deterministic envelope-free staging", function () {
+    const first = stagedHostBridgePayloadDigests(process.cwd());
+    const second = stagedHostBridgePayloadDigests(process.cwd());
+    assert.deepEqual(second, first);
+    assert.sameMembers(Object.keys(first), [
+      "cliBundle",
+      "libraryAgent",
+      "librarianProfile",
+    ]);
+    for (const digest of Object.values(first)) {
+      assert.match(digest, /^[a-f0-9]{64}$/);
     }
   });
 

@@ -1,49 +1,35 @@
 # Zotero Librarian Hermes Profile
 
-This repository is the resident Zotero library surface for Hermes. Choose it when work needs a reusable local index, scheduled discovery, run monitoring, notification synchronization, or ongoing maintenance. For a finite on-demand task, use the Zotero Library Agent bundle; for installation and low-level command integration only, use the Host Bridge CLI bundle.
-
-Source project: [leike0813/zotero-agents](https://github.com/leike0813/zotero-agents).
+Use this hosted surface for continuous Zotero library supervision, cached discovery, scheduled maintenance analysis, workflow-run monitoring, notification handling, attention reporting, and library questions. Finite query, acquisition, analysis, synthesis, curation, and self-owned workflow tasks use the bundled Generic Skills; exact Zotero operations use the bundled CLI Skill.
 
 ## Install and initialize
 
-Install the published profile repository:
+Install the published profile with:
 
-```shell
+```sh
 hermes profile install https://github.com/leike0813/zotero-librarian-profile.git <--alias>
 ```
 
-Run `scripts/install_zotero_bridge_cli.py` during profile initialization. It installs the packaged `zotero-bridge` binary and links the Hermes well-known Host Bridge profile path to the host `bridge-profile.json` without changing `HOME`.
+During initialization, run `scripts/install_zotero_bridge_cli.py`. It installs the packaged `zotero-bridge` binary and links its well-known connection profile without changing `HOME`. When profile discovery needs an explicit location, use `ZOTERO_BRIDGE_HOST_PROFILE` or `ZOTERO_BRIDGE_HOST_HOME`. Provide credentials through the Zotero Bridge service environment, normally `ZOTERO_BRIDGE_TOKEN`; never put tokens in profile files, cron jobs, receipts, command evidence, or local state.
 
-Use `assets/host-bridge/profile.example.json` as the connection template and provide the bearer token through `ZOTERO_BRIDGE_TOKEN`; never write tokens into profile files. If the host profile cannot be inferred, set `ZOTERO_BRIDGE_HOST_PROFILE` or pass `--host-profile`. Local state defaults to `$HERMES_HOME/zotero-librarian/index.sqlite`; set `ZOTERO_LIBRARIAN_STATE_DIR` when it must live elsewhere.
+Verify the installed executable offline with `zotero-bridge surface identity --json`. Compare protocol, CLI schema, version, build fingerprint, and command-catalog checksum with the packaged release identity. Use the matching profile copy and CLI shim when any identity field differs.
 
-Verify the installed CLI offline before resident work starts:
+## Resident model
 
-```sh
-zotero-bridge surface identity --json
-```
+Resident state defaults to `$HERMES_HOME/zotero-librarian/state.sqlite`. Set `ZOTERO_LIBRARIAN_STATE_DIR` to place it elsewhere. The state database is a local cache and journal, not a replacement for live Zotero facts.
 
-Compare the complete identity with `manifest.json.cliIdentity` and confirm the shared `releaseSetId`. A matching version alone does not establish compatibility.
+`scripts/zotero_librarian_service.py` is the only resident entrypoint and the only owner of the database schema. Interactive requests and cron jobs invoke one bounded subcommand and receive `zotero-librarian.operation-receipt.v1`. The shipped cron jobs may index, inspect, monitor, synchronize notification metadata, and produce review candidates; they never submit workflows or mutate Zotero.
 
-## Resident operating model
+Workflow submission is interactive and uses the bundled Generic and CLI Skills. Read the live workflow contract, validate selection and workflow options, validate the provider profile independently, and obtain current authority before the submission call. Pass an explicitly bounded concurrency value only for that authorized request. When Zotero returns host-queue admission, retain `submissionId`, inspect its immutable unit projection, and correlate admitted tasks with their real run handles; use `queueId` cancellation only while a unit is pending. Zotero owns pending ordering, admission, and slot lifetime through terminal execution and apply-back. The resident service does not persist a second plan-entry queue, reserve units, replay uncertain submissions, or submit from cron. Provider-profile decisions, unsupported selection/options, and self-owned agent handoffs continue to use the inherited Generic workflow contract.
 
-- Use the local index for repeated discovery and ranking.
-- Confirm current selection, permission, workflow, run, Product, and writeback facts through Host Bridge before acting.
-- Treat scheduled jobs as read-only by default. When a job reaches an approval or mutation boundary, produce a reviewable proposal and stop unless current policy explicitly authorizes the operation.
-- Keep workflow catalog refresh, run monitoring, notification synchronization, and maintenance state auditable through their profile services and receipts.
+The service performs one pass and exits. Shipped cron files provide fixed profile schedules for read-only supervision, but the Librarian Skill and service do not create, edit, enable, disable, or reschedule cron. A request such as “check every hour” must be treated as a one-time check or an external schedule-configuration need; never report that a schedule was created when only a pass ran.
 
-Read `SOUL.md` and `skills/zotero-librarian/SKILL.md` for first-level routing. Resident manuals separately cover index freshness and atomic refresh, every scheduled job, monitoring and notifications, workflow execution, maintenance recovery, and helper-script contracts. Generated `references/commands/` cards provide exact Host Bridge invocation and control facts because this profile is distributed independently. Agent-owned workflow handoff and apply-receipt recovery are governed separately by `skills/zotero-workflow-agent-runner/SKILL.md`.
+## Documentation map
 
-## Resident documentation map
+Read `SOUL.md` for librarian posture and `skills/zotero-librarian/SKILL.md` for the executable resident contract. That Skill directly links:
 
-- `resident-index.md`: cached discovery versus live confirmation and atomic refresh recovery.
-- `scheduled-jobs.md`: schedule, command, silence, report, mutation, and escalation policy for all seven jobs.
-- `monitoring-and-notifications.md`: one-pass run watch, notification sync, typed interaction handles, and retry behavior.
-- `workflows.md` plus `workflow-execution-policy.md`: generated catalog inputs/parameters/results and live execution-mode selection.
-- `maintenance-and-recovery.md`: cache, Synthesis index, graph metrics, and debug-repair boundaries.
-- `profile-script-contracts.md`: deterministic helper commands, outputs, state ownership, and failure behavior.
+- `resident-operations.md` for every service command, receipt, library question, run, notification, and scheduled pass;
+- `automation-policy.md` for authority, native queue ownership, submission, provider profiles, concurrency, cron, maintenance, and interaction;
+- `state-and-recovery.md` for cache freshness, atomic updates, typed handles, uncertain outcomes, installation, and state rebuild.
 
-## Safety and recovery
-
-Do not access or mutate Zotero database or storage files directly. Preserve typed handles and use Host-owned approval paths for writes. Scheduled maintenance must not convert a proposal into a write merely because a previous run was approved.
-
-On a failed Host Bridge operation, inspect `retryable`, `stateChanged`, `handleConsumed`, `safeNextActions`, and optional `nextCommand`. Re-read live Host state when a write may have changed it, query workflow or apply receipts before resuming, and do not reuse consumed handles. Local index or monitor failures may be repaired from their source services, but local cached state is never the authority for current Host facts.
+The bundled Generic and CLI Skills are part of the effective profile. Do not copy their task playbooks or command facts into the resident documentation.

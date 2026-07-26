@@ -148,7 +148,8 @@ describe("workflow: tag-bootstrapper", function () {
         )} warnings=${JSON.stringify(loaded.warnings)} errors=${JSON.stringify(loaded.errors)}`,
     );
     assert.equal(workflow?.manifest.trigger?.requiresSelection, false);
-    assert.equal(workflow?.manifest.inputs?.unit, "workflow");
+    assert.equal(workflow?.manifest.inputs.member.kind, "selection");
+    assert.equal(workflow?.manifest.inputs.grouping.mode, "all");
     assert.equal(workflow?.manifest.display?.core, false);
     assert.isTrue(workflow?.manifest.execution?.zoteroHostAccess?.required);
     assert.equal(workflow?.manifest.request?.kind, "skillrunner.job.v1");

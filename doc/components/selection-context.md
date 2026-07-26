@@ -15,6 +15,25 @@
 - 聚合父/子条目与附件信息，形成完整数据快照
 - 统一输出上下文结构供 Job/Workflow 使用
 
+SelectionContext 只描述原始 Zotero 选择与稳定关系，不负责决定 workflow
+执行单元。v2 input planner 按固定顺序消费它：
+
+```text
+trigger.requiresSelection
+  -> validateSelection.require.selection
+  -> validateSelection.select
+  -> inputs.member compatibility
+  -> validateSelection.filters
+  -> validateSelection.require.candidates
+  -> inputs.grouping
+  -> immutable prepared units
+```
+
+`require.selection` 每次 confirmed planning 只读取原始 SelectionContext
+一次；selector 生成的 candidate 会携带 scoped context，grouping 再将这些
+context 合并为 request/preflight 实际消费的顶层执行单元。SelectionContext
+本身不是候选列表或执行单元的事实源。
+
 ## 输入
 
 - Zotero 当前选中对象列表（可能为空、单选、多选）

@@ -3,7 +3,7 @@ import { handlers } from "../../src/handlers";
 import { createHookHelpers } from "../../src/workflows/helpers";
 import { createWorkflowHostApi } from "../../src/workflows/hostApi";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
-import { evaluateWorkflowSelection } from "../../src/workflows/workflowSelectionValidation";
+import { evaluateWorkflowSelection } from "../../src/workflows/workflowInputPlanning";
 import type { LoadedWorkflow } from "../../src/workflows/types";
 import { LITERATURE_ANALYSIS_FIXTURE_CASES } from "./literature-analysis-fixture-cases";
 import { isFullTestMode } from "./testMode";

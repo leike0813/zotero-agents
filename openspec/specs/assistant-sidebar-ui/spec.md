@@ -747,7 +747,7 @@ authentication actions.
 - **WHEN** ACP Chat renders a conversation banner
 - **THEN** the banner action row SHALL include an auto-approval toggle
 - **AND** the toggle state SHALL reflect the active conversation's
-  `autoApproveAcpPermissions` value.
+   `autoApproveAcpPermissions` value.
 
 #### Scenario: Toggle updates active conversation
 
@@ -755,6 +755,31 @@ authentication actions.
 - **THEN** the action owner envelope SHALL identify the selected conversation
 - **AND** the action payload SHALL include only the enabled state
 - **AND** only that conversation's setting SHALL change.
+
+#### Scenario: Successful toggle converges the current banner immediately
+
+- **WHEN** the active conversation's auto-approval action succeeds
+- **THEN** the current banner action and state label SHALL reflect the persisted value in the same publication cycle
+- **AND** no owner switch or tab switch SHALL be required
+- **AND** transcript and unrelated managed regions SHALL retain identity.
+
+### Requirement: ACP Chat runtime options remain visible while connected
+
+ACP Chat SHALL project the complete current mode, model, and reasoning option groups whenever the selected conversation is connected. Prompting, permission wait, and requested interruption SHALL NOT erase the current values or option domains. Mode SHALL remain editable in those connected states, while model and reasoning SHALL remain disabled until model configuration is editable.
+
+#### Scenario: Prompting preserves current runtime values
+
+- **GIVEN** an ACP Chat conversation is connected with selected mode, model, and reasoning values
+- **WHEN** the conversation enters prompting, permission wait, or requested interruption
+- **THEN** all three selectors SHALL continue to display their current values and options
+- **AND** mode SHALL remain enabled
+- **AND** model and reasoning SHALL be disabled.
+
+#### Scenario: Disconnected conversation has no editable runtime values
+
+- **WHEN** the selected ACP Chat conversation is disconnected or has no owner
+- **THEN** mode, model, and reasoning SHALL be disabled
+- **AND** the UI SHALL NOT present cached values as live editable configuration.
 
 ### Requirement: Shared transcript renderer owns paginated virtualization
 
@@ -1078,3 +1103,130 @@ dependency/revision/log/result sections and the canonical copy/open actions.
 - **WHEN** the user activates Details for a selected owner without cached details
 - **THEN** the drawer opens immediately with localized loading and requests owner details
 - **AND** transcript page and full mirror reads are not prerequisites.
+
+### Requirement: Assistant Navigation Drawer Projection Is Source-Aware
+
+The Assistant Workspace MUST derive visible drawer structure from the selected source while preserving the complete canonical owner-navigation catalog.
+
+#### Scenario: ACP Skills drawer is projected
+
+- **WHEN** ACP Skills navigation contains active and completed tasks
+- **THEN** the drawer MUST expose active and completed sections
+- **AND** each section MUST include only backend groups that contain a card in that section.
+
+#### Scenario: Empty backend is added to canonical navigation
+
+- **WHEN** a backend with no visible cards is added to canonical owner navigation
+- **THEN** the visible drawer DTO MUST remain unchanged
+- **AND** the drawer managed region MUST preserve its DOM identity.
+
+### Requirement: Drawer Stable Signature Covers Visible Structure
+
+The drawer managed-region signature MUST include every visible structural field and exclude non-visible catalog data.
+
+#### Scenario: Visible section title policy changes
+
+- **WHEN** a visible section changes whether its title is hidden
+- **THEN** the drawer signature MUST change
+- **AND** the drawer region MUST refresh.
+
+#### Scenario: Visible backend identity or label changes
+
+- **WHEN** a visible backend group changes its id or display name
+- **THEN** the drawer signature MUST change
+- **AND** the drawer region MUST refresh.
+
+#### Scenario: Transcript-only state changes
+
+- **WHEN** only transcript revision, loading, streaming, event counts, or prompting tails change for the same owner
+- **THEN** the drawer and other non-transcript managed regions MUST preserve DOM identity.
+
+### Requirement: Shared transcript renderer preserves multi-page continuity
+
+The shared virtual transcript renderer SHALL retain non-overlapping cached pages when a tail page, historical page, or terminal mutation arrives. It SHALL reconcile rows and virtual gaps by stable keys, preserve a stable row-or-gap anchor across structural and measurement commits, and apply bottom following only for the current owner generation while the user remains explicitly at the tail.
+
+#### Scenario: Tail update preserves older pages
+
+- **GIVEN** a virtual transcript has a tail page and at least two older cached pages
+- **WHEN** a new tail page and a terminal item patch are rendered
+- **THEN** all non-overlapping older pages SHALL remain available without duplicate rows
+- **AND** the terminal row SHALL remain at its stable logical position.
+
+#### Scenario: Page replacement is range-scoped
+
+- **WHEN** an incoming page has the same page identity or overlaps an existing logical index range
+- **THEN** the renderer SHALL replace only the same or overlapping range
+- **AND** it SHALL preserve every non-overlapping cached page.
+
+#### Scenario: Spacer DOM matches the virtual layout
+
+- **WHEN** page merges or row measurements change unloaded and offscreen gaps
+- **THEN** keyed edge, inter-page, and loading spacers SHALL appear in logical order
+- **AND** their DOM heights SHALL match the current virtual layout.
+
+#### Scenario: Terminal update does not pull an anchored user to the bottom
+
+- **GIVEN** the user has scrolled away from the tail
+- **WHEN** a terminal patch or row-height remeasurement commits
+- **THEN** the renderer SHALL restore the stable visible anchor and offset
+- **AND** it SHALL NOT scroll to the bottom.
+
+#### Scenario: Stale bottom-stick callback cannot move the viewport
+
+- **GIVEN** bottom-stick animation work is pending
+- **WHEN** the owner or document generation changes, or the user scrolls away
+- **THEN** the callback SHALL revalidate those conditions before writing `scrollTop`
+- **AND** stale work SHALL leave the viewport unchanged.
+
+### Requirement: ACP task drawer status axes SHALL be source-aware and localized
+
+ACP Chat and ACP Skills task drawers SHALL use the shared task status projection and shared Assistant status labels. ACP Skills SHALL show Backend and Apply axes for every task. ACP Chat SHALL show Backend and SHALL hide Apply. Presentation fallbacks SHALL NOT replace nullable `backendStatus` or `applyState` facts in owner-navigation publications.
+
+#### Scenario: ACP Chat task omits explicit axis states
+
+- **WHEN** an ACP Chat task has no explicit backend or apply state
+- **THEN** its Backend axis uses the projected main state
+- **AND** its Apply axis remains hidden.
+
+#### Scenario: ACP drawer labels use the active locale
+
+- **WHEN** localized shared `status.backend`, `status.apply`, and `status.overall` labels are provided
+- **THEN** ACP drawer task axes use those labels
+- **AND** the renderer does not expose its English fallback.
+
+#### Scenario: Task status changes preserve unrelated managed regions
+
+- **WHEN** only an ACP drawer task status changes
+- **THEN** the task drawer updates through its own stable signature
+- **AND** transcript, toolbar, banner, plan, hint, reply, details, and permission regions preserve DOM identity.
+
+### Requirement: Tail-follow renders the tail window without speculative history requests
+
+When the virtual transcript renderer follows the tail (stick-to-bottom intent), it SHALL compute the render window from the tail of the virtual layout rather than the container's pre-stick `scrollTop`, and the loading-gap evaluation SHALL use the same tail position. A tail-follow render SHALL NOT emit page requests or loading sentinels for gaps the tail window cannot reveal. Non-stick renders SHALL continue to compute the window from the live `scrollTop`.
+
+#### Scenario: First stick-to-bottom render of a long transcript
+
+- **GIVEN** a virtual transcript whose cached tail page has an unloaded previous page
+- **AND** the container is in stick-to-bottom state
+- **WHEN** the first render for an owner commits
+- **THEN** the window SHALL cover the tail rows of the cached page
+- **AND** no previous-page request or loading sentinel SHALL be emitted for the offscreen gap
+- **AND** the transcript SHALL NOT flash a top-spacer frame before sticking to the bottom.
+
+#### Scenario: Short transcript still prefetches the visible gap
+
+- **GIVEN** a virtual transcript whose full layout fits inside the viewport
+- **AND** the container is in stick-to-bottom state
+- **WHEN** the first render commits with an unloaded previous page
+- **THEN** the renderer MAY request the previous page and show its loading sentinel, because the gap is visible from the tail position.
+
+### Requirement: Incremental renders keep scroll bookkeeping in sync
+
+After an incremental transcript effect restores the viewport anchor or the preserved scroll position, the renderer SHALL write the resulting `scrollTop` to the last-scroll-top marker, matching the full render path. Scroll bookkeeping SHALL NOT leave a stale marker that a later scroll event can misread as an upward user scroll.
+
+#### Scenario: Anchor restore after a tail patch
+
+- **GIVEN** a virtual transcript is anchored away from the bottom
+- **WHEN** an incremental effect restores the viewport
+- **THEN** the last-scroll-top marker SHALL equal the restored `scrollTop`
+- **AND** the tail-follow state SHALL NOT be cleared unless a real user scroll moves upward.

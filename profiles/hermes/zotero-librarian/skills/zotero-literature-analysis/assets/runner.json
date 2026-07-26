@@ -1,0 +1,19 @@
+{
+  "id": "zotero-literature-analysis",
+  "name": "zotero-literature-analysis",
+  "description": "Analyze bounded Zotero literature and attachments with traceable source evidence. Use when a user needs a paper digest, comparison, extraction, or structured interpretation from current library material.",
+  "execution_modes": [
+    "auto",
+    "interactive"
+  ],
+  "schemas": {
+    "output": "assets/output.schema.json"
+  },
+  "entrypoint": {
+    "result_json_filename": "zotero-literature-analysis.result.json",
+    "prompts": {
+      "common": "Treat SKILL.md as the authoritative procedure and use the bundled zotero-bridge-cli Skill for exact commands. A pending Runner response uses __SKILL_DONE__: false only while a concrete user decision is required. A final Runner response uses __SKILL_DONE__: true as transport metadata and carries one business payload matching assets/output.schema.json. The Runner removes the marker before Schema validation: __SKILL_DONE__ is not a business-result field and must not appear in a result file. Emit no Markdown fence, preface, suffix, or second JSON object."
+    }
+  },
+  "version": "0.4.1"
+}

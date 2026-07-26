@@ -1,7 +1,14 @@
 import { getAssistantExecutionDisplayMode } from "./assistantExecutionDisplayPolicy";
+import {
+  ASSISTANT_INTERACTION_FILE_MAX_BYTES,
+  ASSISTANT_INTERACTION_TOTAL_MAX_BYTES,
+  ASSISTANT_PENDING_INTERACTION_FILE_LIMIT,
+  projectAssistantPendingInteractionFromHints,
+} from "../shared/assistantInteractionContract";
 import { snapshotAcpMessageCounts } from "./acpExecutionProgress";
 import {
   canEditAcpSkillRunModelConfiguration,
+  ensureAcpSkillRunWorkspaceSelection,
   getAcpSkillRunWorkspaceReadModel,
   getAcpSkillRunWorkspaceDetailsReadModel,
   getSelectedAcpSkillRunRequestId,
@@ -18,6 +25,7 @@ import type {
 } from "./assistantWorkspacePublication";
 import {
   createAcpSkillsWorkspaceOwner,
+  projectAssistantWorkspaceOptionGroup,
   projectAssistantWorkspacePermissionRequest,
 } from "./assistantWorkspacePublication";
 import {
@@ -25,6 +33,9 @@ import {
   type AssistantWorkspacePublicationAdapter,
   type AssistantWorkspacePublicationRuntimePayloadByKind,
 } from "./assistantWorkspacePublicationRuntime";
+import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
+import { listBackendInstancesSync } from "../backends/registry";
+import { resolveBackendDisplayName } from "../backends/displayName";
 
 export const ACP_SKILL_RUN_CHANGE_PUBLICATION_MAPPING = {
   run: [
@@ -105,7 +116,7 @@ function acpSkillRunHint(
   if (interactionState.waitingForUser) {
     return {
       kind: "waiting_user" as const,
-      message: record.pendingInteraction?.message || null,
+      message: null,
     };
   }
   const recoverableDisconnected =
@@ -136,6 +147,23 @@ function acpSkillRunHint(
     return { kind: "error" as const, message: null };
   }
   return { kind: "hidden" as const, message: null };
+}
+
+function projectAcpSkillRunPendingInteraction(
+  record: AcpSkillRunWorkspaceRecord,
+) {
+  const pending = record.pendingInteraction;
+  if (!pending) return null;
+  return projectAssistantPendingInteractionFromHints({
+    pendingKind: pending.uiHints.kind,
+    uiHints: pending.uiHints,
+    fileReply: {
+      supported: String(pending.uiHints.kind || "").trim() === "upload_files",
+      maxFiles: ASSISTANT_PENDING_INTERACTION_FILE_LIMIT,
+      maxFileBytes: ASSISTANT_INTERACTION_FILE_MAX_BYTES,
+      maxTotalBytes: ASSISTANT_INTERACTION_TOTAL_MAX_BYTES,
+    },
+  });
 }
 
 function acpSkillRunSecondaryLabel(value: {
@@ -196,6 +224,9 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
     const options = record.runtimeOptions;
     const modelConfigurationEditable =
       canEditAcpSkillRunModelConfiguration(record);
+    const selectedModeId = record.acpModeId || "";
+    const selectedModelId = record.acpModelId || record.acpRawModelId || "";
+    const selectedReasoningEffort = record.acpReasoningEffort || "";
     const modelOptions = options?.displayModelOptions?.length
       ? options.displayModelOptions
       : options?.modelOptions;
@@ -214,21 +245,21 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
                 : "disabled",
       },
       runtimeOptions: {
-        mode: optionGroup(
-          connected ? options?.modeOptions : [],
-          options?.currentMode?.id,
+        mode: projectAssistantWorkspaceOptionGroup(
+          connected ? options?.modeOptions || [] : [],
+          selectedModeId,
           connected && Boolean(options?.modeOptions.length),
         ),
-        model: optionGroup(
-          connected ? modelOptions : [],
-          options?.currentDisplayModel?.id || options?.currentModel?.id,
+        model: projectAssistantWorkspaceOptionGroup(
+          connected ? modelOptions || [] : [],
+          selectedModelId,
           connected &&
             modelConfigurationEditable &&
             Boolean(modelOptions?.length),
         ),
-        reasoningEffort: optionGroup(
-          connected ? options?.reasoningEffortOptions : [],
-          options?.currentReasoningEffort?.id,
+        reasoningEffort: projectAssistantWorkspaceOptionGroup(
+          connected ? options?.reasoningEffortOptions || [] : [],
+          selectedReasoningEffort,
           connected &&
             modelConfigurationEditable &&
             Boolean(options?.reasoningEffortOptions.length),
@@ -383,6 +414,9 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
         record.replyState === "submitted" ||
         record.replyState === "accepted",
       hint: acpSkillRunHint(record, connected, interactionState),
+      interaction: interactionState.waitingForUser
+        ? projectAcpSkillRunPendingInteraction(record)
+        : null,
       connection: {
         status: String(
           record.connectionActionState ||
@@ -420,7 +454,7 @@ export async function readAcpSkillRunWorkspaceRegions(args: {
 }
 
 function prepareAcpSkillsOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
-  const selectedRequestId = getSelectedAcpSkillRunRequestId();
+  const selectedRequestId = ensureAcpSkillRunWorkspaceSelection();
   const summaries = listAcpSkillRunSummaries({ includeArchived: false });
   const selectedOwner = selectedRequestId
     ? createAcpSkillsWorkspaceOwner(selectedRequestId)
@@ -429,6 +463,9 @@ function prepareAcpSkillsOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
     string,
     { groupId: string; label: string; status: string }
   >();
+  const backendById = new Map(
+    listBackendInstancesSync().map((backend) => [backend.id, backend]),
+  );
   for (const summary of summaries) {
     const groupId = String(summary.backendId || "").trim() || "default";
     if (!groups.has(groupId)) {
@@ -439,6 +476,31 @@ function prepareAcpSkillsOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
       });
     }
   }
+  const queuedEntries = workflowSubmissionQueue
+    .listQueued()
+    .filter((entry) => entry.backendType === "acp")
+    .map((entry) => {
+      const backend = backendById.get(entry.backendId);
+      const groupLabel =
+        resolveBackendDisplayName(entry.backendId, backend?.displayName) ||
+        entry.backendId;
+      if (!groups.has(entry.backendId)) {
+        groups.set(entry.backendId, {
+          groupId: entry.backendId,
+          label: groupLabel,
+          status: "queued",
+        });
+      }
+      return {
+        queueId: entry.queueId,
+        groupId: entry.backendId,
+        label: entry.taskName || entry.workflowLabel || entry.workflowId,
+        subtitle: entry.workflowLabel || null,
+        groupLabel,
+        updatedAt: entry.createdAt || null,
+        canCancel: entry.canCancel,
+      };
+    });
   const selectedSummary = summaries.find(
     (summary) => summary.requestId === selectedRequestId,
   );
@@ -469,6 +531,7 @@ function prepareAcpSkillsOwnerNavigation(): AssistantWorkspaceOwnerNavigation {
       updatedAt: String(summary.updatedAt || "").trim() || null,
       messageCount: Math.max(0, Number(summary.transcriptItemCount) || 0),
     })),
+    queuedEntries,
     canCreateOwner: false,
   };
 }
@@ -489,7 +552,7 @@ export const ACP_SKILLS_WORKSPACE_ADAPTER =
       "owner-details",
     ],
     selectedOwner() {
-      const requestId = getSelectedAcpSkillRunRequestId();
+      const requestId = ensureAcpSkillRunWorkspaceSelection();
       return requestId ? createAcpSkillsWorkspaceOwner(requestId) : null;
     },
     async readOwnerNavigation() {
@@ -536,21 +599,3 @@ export const ACP_SKILLS_WORKSPACE_ADAPTER =
     undefined,
     AcpSkillRunTranscriptPageRequest
   >);
-
-function optionGroup(
-  options:
-    | Array<{ id: string; label: string; description?: string }>
-    | undefined,
-  selectedOptionId: string | undefined,
-  enabled: boolean,
-) {
-  return {
-    selectedOptionId: selectedOptionId || null,
-    options: (options || []).map((option) => ({
-      optionId: option.id,
-      label: option.label,
-      description: option.description || null,
-    })),
-    enabled,
-  };
-}

@@ -1,8 +1,8 @@
 {
   "id": "literature-search-ingest",
   "name": "🔎 Literature Search Ingest",
-  "description": "Interactive literature search and Zotero ingest through ACP.",
-  "version": "0.2.0",
+  "description": "Guided literature discovery, user-approved single-paper research delegation, metadata and public-PDF curation, and serial Zotero ingest through zotero-bridge.",
+  "version": "0.5.0",
   "execution_modes": [
     "interactive"
   ],
@@ -11,9 +11,17 @@
     "parameter": "assets/parameter.schema.json",
     "output": "assets/output.schema.json"
   },
+  "runtime": {
+    "language": "python",
+    "version": "3.11",
+    "dependencies": [],
+    "default_options": {
+      "hard_timeout_seconds": 3600
+    }
+  },
   "entrypoint": {
     "prompts": {
-      "common": "执行 literature-search-ingest 技能。输入 query={{ parameter.query }}，searchMode={{ parameter.searchMode }}，targetCollection={{ parameter.targetCollection }}。本任务为 interactive。必须先阅读 SKILL.md，并以它作为唯一业务流程、交互边界、工具调用、安全约束和最终 JSON 契约来源执行。"
+      "common": "执行 literature-search-ingest。输入：query={{ parameter.query }}，searchMode={{ parameter.searchMode }}，targetCollection={{ parameter.targetCollection }}。从 runtime/input.json 读取完整参数，遵循 SKILL.md 及其 references 中的阶段完成条件；完成或取消时，只返回 SKILL.md 和 assets/output.schema.json 定义的最终 JSON。"
     }
   }
 }

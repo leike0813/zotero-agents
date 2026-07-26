@@ -3,7 +3,9 @@ import { readFile } from "node:fs/promises";
 import {
   buildWorkflowSettingsDialogDraft,
   buildWorkflowSettingsDialogRenderModel,
+  buildWorkflowHostOptionsDraft,
   collectSchemaValues,
+  resolveWorkflowSettingsDialogLayout,
   resolveProviderSchemaEntries,
 } from "../../src/modules/workflowSettingsDialogModel";
 import {
@@ -40,6 +42,156 @@ function makeContainer(controls: FakeControl[]): HTMLElement {
     querySelectorAll: () => controls as unknown as NodeListOf<Element>,
   } as unknown as HTMLElement;
 }
+
+describe("workflow Host settings dialog model", function () {
+  it("validates maximum concurrency without treating invalid text as blank", function () {
+    assert.deepEqual(buildWorkflowHostOptionsDraft(""), {
+      status: "valid",
+      hostOptions: {},
+    });
+    assert.deepEqual(buildWorkflowHostOptionsDraft("0"), {
+      status: "valid",
+      hostOptions: {},
+    });
+    assert.deepEqual(buildWorkflowHostOptionsDraft("3"), {
+      status: "valid",
+      hostOptions: { queue: { maxConcurrency: 3 } },
+    });
+    assert.deepEqual(buildWorkflowHostOptionsDraft("-1"), {
+      status: "invalid",
+      reasonCode: "invalid_host_queue_max_concurrency",
+    });
+    assert.deepEqual(buildWorkflowHostOptionsDraft("1.5"), {
+      status: "invalid",
+      reasonCode: "invalid_host_queue_max_concurrency",
+    });
+    assert.deepEqual(buildWorkflowHostOptionsDraft("not-a-number"), {
+      status: "invalid",
+      reasonCode: "invalid_host_queue_max_concurrency",
+    });
+    assert.deepEqual(
+      buildWorkflowHostOptionsDraft(String(Number.MAX_SAFE_INTEGER + 1)),
+      {
+        status: "invalid",
+        reasonCode: "invalid_host_queue_max_concurrency",
+      },
+    );
+  });
+
+  it("keeps Host options separate in persistent and run-once drafts", function () {
+    const emptyFields = makeContainer([]);
+    const draft = buildWorkflowSettingsDialogDraft({
+      persistedProfile: "skillrunner-default",
+      onceProfile: "skillrunner-default",
+      persistedWorkflowFields: emptyFields,
+      persistedProviderFields: emptyFields,
+      onceWorkflowFields: emptyFields,
+      onceProviderFields: emptyFields,
+      persistedHostMaxConcurrency: "4",
+      onceHostMaxConcurrency: "",
+    });
+
+    assert.deepEqual(draft.persistent.hostOptions, {
+      queue: { maxConcurrency: 4 },
+    });
+    assert.deepEqual(draft.runOnce.hostOptions, {});
+    assert.notProperty(draft.persistent.workflowParams, "hostOptions");
+    assert.notProperty(draft.persistent.providerOptions, "hostOptions");
+  });
+
+  it("retains one fixed declarative preview object in the render model", function () {
+    const preview = Object.freeze({
+      status: "success" as const,
+      units: Object.freeze([
+        Object.freeze({
+          unitId: "unit-1",
+          taskName: "First",
+          inputUnitIdentity: "parent-id:1",
+          memberCount: 1,
+        }),
+        Object.freeze({
+          unitId: "unit-2",
+          taskName: "Second",
+          inputUnitIdentity: "parent-id:2",
+          memberCount: 1,
+        }),
+      ]),
+    });
+    const model = buildWorkflowSettingsDialogRenderModel({
+      providerId: "skillrunner",
+      profileItems: [],
+      initialState: {
+        selectedProfile: "skillrunner-default",
+        persistedWorkflowParams: {},
+        persistedProviderOptions: {},
+        persistedHostOptions: { queue: { maxConcurrency: 2 } },
+        runOnceWorkflowParams: {},
+        runOnceProviderOptions: {},
+        runOnceRunOptions: {},
+        runOnceHostOptions: { queue: { maxConcurrency: 2 } },
+      },
+      hostQueueSupported: true,
+      executionUnitPreview: preview,
+    });
+
+    assert.strictEqual(model.executionUnitPreview, preview);
+    assert.deepEqual(model.hostOptions, {
+      queueSupported: true,
+      maxConcurrency: 2,
+    });
+  });
+
+  it("shows the preview and Host maximum only as one supported multi-unit region", function () {
+    const twoUnits = Object.freeze({
+      status: "success" as const,
+      units: Object.freeze([
+        Object.freeze({ unitId: "unit-1", taskName: "First", memberCount: 1 }),
+        Object.freeze({ unitId: "unit-2", taskName: "Second", memberCount: 1 }),
+      ]),
+    });
+    const oneUnit = Object.freeze({
+      status: "success" as const,
+      units: Object.freeze([
+        Object.freeze({ unitId: "unit-1", taskName: "Only", memberCount: 3 }),
+      ]),
+    });
+
+    assert.deepEqual(
+      resolveWorkflowSettingsDialogLayout({
+        hostQueueSupported: true,
+        executionUnitPreview: twoUnits,
+      }),
+      {
+        mode: "multi-unit",
+        showExecutionUnitPreview: true,
+        showHostMaximumConcurrency: true,
+      },
+    );
+    for (const args of [
+      {
+        hostQueueSupported: true,
+        executionUnitPreview: oneUnit,
+      },
+      {
+        hostQueueSupported: true,
+        executionUnitPreview: {
+          status: "failure" as const,
+          reasonCode: "preview-unavailable",
+        },
+      },
+      {
+        hostQueueSupported: false,
+        executionUnitPreview: twoUnits,
+      },
+    ]) {
+      assert.deepEqual(resolveWorkflowSettingsDialogLayout(args), {
+        mode: "single-region",
+        showExecutionUnitPreview: false,
+        showHostMaximumConcurrency: false,
+      });
+    }
+  });
+});
 
 describe("workflow settings dialog model", function () {
   const cachePrefKey = `${config.prefsPrefix}.skillRunnerModelCacheJson`;
@@ -586,7 +738,7 @@ describe("workflow settings dialog model", function () {
     );
     assert.include(
       workflowDialogHtml,
-      "workflow-settings-dialog.js?ui=20260612-provider-split-v2",
+      "workflow-settings-dialog.js?ui=20260723-native-queue-v4",
     );
     assert.notInclude(dashboardApp, "tail-preserve-select");
     assert.notInclude(workflowDialogJs, "tail-preserve-select");
@@ -598,8 +750,54 @@ describe("workflow settings dialog model", function () {
       "Array.isArray(form.runSchemaEntries) && form.runSchemaEntries.length",
     );
     assert.include(workflowDialogJs, 'classList.add("settings-card-fill")');
+    assert.include(workflowDialogJs, "createExecutionUnitPreview");
+    assert.include(workflowDialogJs, "createHostQueueOptionsCard");
+    assert.include(
+      workflowDialogJs,
+      'input.className = "field-control numeric"',
+    );
+    assert.include(
+      workflowDialogJs,
+      'controlWrap.className = "field-input-col"',
+    );
+    assert.include(workflowDialogJs, "controlWrap.appendChild(input)");
+    assert.include(workflowDialogJs, "controlWrap.appendChild(error)");
+    assert.include(workflowDialogJs, "Number.isSafeInteger");
+    assert.include(workflowDialogJs, "buildExecutionOptionsPayload()");
+    assert.notInclude(
+      pluginDialogSource,
+      "zs-workflow-settings-host-max-concurrency",
+    );
+    assert.notInclude(
+      pluginDialogSource,
+      "zs-workflow-settings-once-host-max-concurrency",
+    );
+    assert.notInclude(dashboardApp, "workflowSettingsHostMaxConcurrencyLabel");
+    assert.include(workflowDialogJs, "settings-content-layout");
+    assert.include(workflowDialogJs, "settings-multi-unit-column");
+    assert.include(workflowDialogJs, "settings-options-region");
+    assert.include(
+      workflowDialogJs,
+      "multiUnitColumn.appendChild(previewCard)",
+    );
+    assert.include(
+      workflowDialogJs,
+      "multiUnitColumn.appendChild(hostOptionsCard)",
+    );
+    assert.notInclude(workflowDialogJs, "shell.appendChild(previewCard)");
+    assert.notInclude(workflowDialogJs, "shell.appendChild(hostOptionsCard)");
     assert.include(workflowDialogCss, "align-items: stretch");
+    assert.include(workflowDialogCss, ".settings-content-layout");
+    assert.include(
+      workflowDialogCss,
+      ".settings-content-layout.has-multi-unit-region",
+    );
     assert.include(workflowDialogCss, ".settings-options-column");
+    assert.include(workflowDialogCss, ".workflow-host-options .field-row");
+    assert.include(
+      workflowDialogCss,
+      ".workflow-host-options .field-input-col",
+    );
     assert.include(workflowDialogCss, "flex-direction: column");
     assert.include(workflowDialogCss, ".settings-card-fill");
     assert.include(webDialogSource, "fitContent: false");
@@ -613,4 +811,31 @@ describe("workflow settings dialog model", function () {
       "workflow-settings-dialog.html?ui=20260612-provider-split-v2",
     );
   });
+
+  itNodeOnly(
+    "keeps the three submit columns equal-height only while they are side by side",
+    async function () {
+      const workflowDialogCss = await readFile(
+        "addon/content/dashboard/workflow-settings-dialog.css",
+        "utf8",
+      );
+
+      assert.match(
+        workflowDialogCss,
+        /\.settings-content-layout\.has-multi-unit-region\s*{[^}]*align-items:\s*stretch;/s,
+      );
+      assert.match(
+        workflowDialogCss,
+        /\.settings-content-layout\.has-multi-unit-region\s+\.settings-options-region,\s*\.settings-content-layout\.has-multi-unit-region\s+\.settings-grid\s*{[^}]*height:\s*100%;/s,
+      );
+      assert.match(
+        workflowDialogCss,
+        /\.settings-content-layout\.has-multi-unit-region\s+\.workflow-execution-unit-preview,\s*\.settings-content-layout\.has-multi-unit-region\s+\.settings-options-column\s*>\s*\.settings-card:first-child\s*{[^}]*flex:\s*1 1 auto;/s,
+      );
+      assert.match(
+        workflowDialogCss,
+        /@container form-container \(max-width: 540px\)[\s\S]*?\.settings-content-layout\.has-multi-unit-region\s+\.settings-options-region,[\s\S]*?\.settings-content-layout\.has-multi-unit-region\s+\.settings-grid\s*{[^}]*height:\s*auto;/s,
+      );
+    },
+  );
 });

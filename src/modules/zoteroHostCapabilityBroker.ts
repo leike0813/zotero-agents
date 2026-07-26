@@ -283,6 +283,7 @@ export type ZoteroHostNoteDetailChunkDto = {
   hasMore: boolean;
   totalChars: number;
   truncated: boolean;
+  maxChars: number;
   parent?: {
     id: number;
     key: string;
@@ -299,7 +300,9 @@ export type ZoteroHostNotePayloadSummaryDto = Omit<
 export type ZoteroHostNotePayloadDetailDto = Omit<
   ZoteroNotePayloadDetail,
   "encodedValue" | "decodedText"
->;
+> & {
+  maxChars: number;
+};
 
 export type ZoteroHostNotePayloadDetailArgs = {
   payloadType?: string;
@@ -554,8 +557,8 @@ const PAYLOAD_IMAGE_FALLBACK_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 const SEARCH_LIMIT_DEFAULT = 20;
 const SEARCH_LIMIT_MAX = 50;
-const LIBRARY_LIST_LIMIT_DEFAULT = 100;
-const LIBRARY_LIST_LIMIT_MAX = 200;
+const LIBRARY_LIST_LIMIT_DEFAULT = 25;
+const LIBRARY_LIST_LIMIT_MAX = 100;
 const LIBRARY_READINESS_CHECKS: ZoteroHostLibraryReadinessCheck[] = [
   "pdf",
   "markdown",
@@ -1188,6 +1191,7 @@ function serializeNoteDetailChunk(
     hasMore: nextOffset < fullContent.length,
     totalChars: fullContent.length,
     truncated: nextOffset < fullContent.length,
+    maxChars,
     parent,
     warnings: warnings.length ? warnings : undefined,
   };
@@ -1280,6 +1284,13 @@ async function serializeNotePayloadDetail(
     hasMore: detail.hasMore,
     totalChars: detail.totalChars,
     truncated: detail.truncated,
+    maxChars: Math.min(
+      NOTE_DETAIL_CHUNK_MAX,
+      Math.max(
+        1,
+        parsePositiveInteger(args.maxChars) || NOTE_DETAIL_CHUNK_DEFAULT,
+      ),
+    ),
   };
 }
 
@@ -1831,18 +1842,8 @@ function validateFieldPatch(item: Zotero.Item, fields: unknown) {
   return normalized;
 }
 
-function assertValidFieldForItem(item: Zotero.Item, field: string) {
+function isValidFieldForItemType(fieldID: number, itemTypeID: number) {
   const zotero = resolveZotero();
-  if (!zotero.ItemFields?.getID) {
-    return;
-  }
-  const fieldID = zotero.ItemFields.getID(field);
-  if (!fieldID) {
-    throw new Error(`Invalid field: ${field}`);
-  }
-  const itemTypeID =
-    (item as unknown as { itemTypeID?: number }).itemTypeID ||
-    zotero.ItemTypes?.getID?.(item.itemType);
   let isValid = zotero.ItemFields.isValidForType(fieldID, itemTypeID);
   if (!isValid) {
     const baseFieldID = zotero.ItemFields.getBaseIDFromTypeAndField(
@@ -1857,6 +1858,35 @@ function assertValidFieldForItem(item: Zotero.Item, field: string) {
       isValid = Boolean(mappedFieldID);
     }
   }
+  return isValid;
+}
+
+function itemTypeSupportsField(itemType: string, field: string) {
+  const zotero = resolveZotero();
+  const fieldID = zotero.ItemFields?.getID?.(field);
+  const itemTypeID = zotero.ItemTypes?.getID?.(itemType);
+  return Boolean(
+    fieldID &&
+    itemTypeID &&
+    isValidFieldForItemType(Number(fieldID), Number(itemTypeID)),
+  );
+}
+
+function assertValidFieldForItem(item: Zotero.Item, field: string) {
+  const zotero = resolveZotero();
+  if (!zotero.ItemFields?.getID) {
+    return;
+  }
+  const fieldID = zotero.ItemFields.getID(field);
+  if (!fieldID) {
+    throw new Error(`Invalid field: ${field}`);
+  }
+  const itemTypeID =
+    (item as unknown as { itemTypeID?: number }).itemTypeID ||
+    zotero.ItemTypes?.getID?.(item.itemType);
+  const isValid =
+    Boolean(itemTypeID) &&
+    isValidFieldForItemType(Number(fieldID), Number(itemTypeID));
   if (!isValid) {
     throw new Error(`Invalid field for item type: ${field}`);
   }
@@ -2186,30 +2216,62 @@ function normalizeIngestPaper(request: ZoteroHostMutationRequest) {
   ) {
     throw new Error("paper.identifiers must be an object");
   }
-  const doi = normalizeIdentifier(input.identifiers.doi || fields.DOI);
+  const identifierDoi = normalizeIdentifier(input.identifiers.doi);
+  const fieldDoi = normalizeIdentifier(fields.DOI);
+  if (
+    identifierDoi &&
+    fieldDoi &&
+    normalizedComparable(identifierDoi) !== normalizedComparable(fieldDoi)
+  ) {
+    throw new Error("paper DOI representations conflict");
+  }
+  const doi = identifierDoi || fieldDoi;
   const arxiv = normalizeIdentifier(input.identifiers.arxiv);
   const pmid = normalizeIdentifier(input.identifiers.pmid);
   const isbn = normalizeIdentifier(input.identifiers.isbn || fields.ISBN);
+  const supportsNativeDoi = Boolean(
+    doi && itemTypeSupportsField(itemType, "DOI"),
+  );
+  if (supportsNativeDoi) {
+    fields.DOI = doi;
+  } else {
+    delete fields.DOI;
+  }
   const title = normalizePaperText(fields.title, 500);
   if (!title && !doi && !arxiv && !pmid && !isbn) {
     throw new Error("paper requires title or identifier");
   }
   const landingUrl = normalizePaperText(input.landingUrl, 1000);
+  const existingExtra = normalizePaperText(fields.extra, 4000);
+  const existingLines = existingExtra
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const doiExtraPattern = /^DOI:\s*(.+)$/i;
+  if (doi) {
+    for (const line of existingLines) {
+      const extraDoi = line.match(doiExtraPattern)?.[1];
+      if (
+        extraDoi &&
+        normalizedComparable(extraDoi) !== normalizedComparable(doi)
+      ) {
+        throw new Error("paper DOI representations conflict");
+      }
+    }
+  }
+  const retainedExtraLines = doi
+    ? existingLines.filter((line) => !doiExtraPattern.test(line))
+    : existingLines;
   const extraIdentifiers = [
-    doi && !fields.DOI ? `DOI: ${doi}` : "",
+    doi && !supportsNativeDoi ? `DOI: ${doi}` : "",
     isbn && !fields.ISBN ? `ISBN: ${isbn}` : "",
     arxiv ? `arXiv: ${arxiv}` : "",
     pmid ? `PMID: ${pmid}` : "",
   ].filter(Boolean);
-  if (extraIdentifiers.length > 0) {
-    const existingExtra = normalizePaperText(fields.extra, 4000);
-    const existingLines = existingExtra
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-    const seen = new Set(existingLines.map((line) => line.toLowerCase()));
+  if (doi || extraIdentifiers.length > 0) {
+    const seen = new Set(retainedExtraLines.map((line) => line.toLowerCase()));
     fields.extra = [
-      ...existingLines,
+      ...retainedExtraLines,
       ...extraIdentifiers.filter((line) => {
         const key = line.toLowerCase();
         if (seen.has(key)) {
@@ -2219,6 +2281,9 @@ function normalizeIngestPaper(request: ZoteroHostMutationRequest) {
         return true;
       }),
     ].join("\n");
+    if (!fields.extra) {
+      delete fields.extra;
+    }
   }
   return {
     itemType,

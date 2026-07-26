@@ -33,6 +33,8 @@ export type BackendInstance = {
       | "hermes"
       | "qwen-code"
       | "kilo"
+      | "codebuddy"
+      | "kimi-code"
       | "unknown";
     skillRoots?: string[];
     connectionTest?: {
@@ -59,6 +61,7 @@ export type BackendInstance = {
         description?: string;
       }>;
       currentReasoningEffortId?: string;
+      reasoningSource?: "explicit" | "model-derived" | "none";
     };
   };
 };

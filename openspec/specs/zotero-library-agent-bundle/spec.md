@@ -1,7 +1,7 @@
 # zotero-library-agent-bundle Specification
 
 ## Purpose
-TBD - created by syncing change add-zotero-library-agent-bundle. Update Purpose after archive.
+Defines the bounded Generic Zotero research surface, including its coordinator, task Skills, shared result contract, optional deep references, built-in workflow catalog, Minimum inheritance, and standalone publication identity.
 
 ## Requirements
 
@@ -35,31 +35,6 @@ The CLI wrapper, general library agent bundle, and Zotero Librarian profile SHAL
 
 - **WHEN** the Zotero Librarian profile changes indexing, scheduling, inbox, monitoring, or maintenance behavior
 - **THEN** the general library agent Skill SHALL NOT inherit that policy unless its own bounded task contract is deliberately changed.
-
-### Requirement: Bundle SHALL expose an agent-neutral evidence contract
-The bundle SHALL provide a JSON Schema for `zotero-library-agent.evidence-bundle.v1` that records portable evidence and artifact provenance without owning a downstream workflow system.
-
-#### Scenario: Evidence bundle is valid
-- **WHEN** an agent records a completed library or plugin operation
-- **THEN** the evidence bundle SHALL identify producer and CLI versions, operation kind, stable subjects, sanitized command provenance, artifacts with SHA-256 digests, optional typed workflow handles, and writeback state
-- **AND** it SHALL be consumable without ResearchSpec-specific fields.
-
-#### Scenario: Evidence includes sensitive or private state
-- **WHEN** an evidence candidate contains an authentication token, full transcript, agent-private state, or an artifact whose declared digest does not match its file
-- **THEN** validation SHALL fail with a structured error.
-
-### Requirement: Bundle helpers SHALL be stateless and deterministic
-The bundle SHALL provide Python standard-library helpers for building and validating evidence bundles and inspecting or validating agent-run request/result bundles.
-
-#### Scenario: Helper completes an operation
-- **WHEN** a helper command receives explicit input and output paths
-- **THEN** it SHALL perform one bounded operation and exit with structured JSON output
-- **AND** it SHALL NOT invoke Host Bridge, create a database, register a run, schedule work, or create an implicit state directory.
-
-#### Scenario: Workflow bundle is validated
-- **WHEN** the helper validates an agent-run result
-- **THEN** it SHALL use the request bundle's declared schema and file rules
-- **AND** it SHALL NOT invent or rewrite semantic result content.
 
 ### Requirement: Bundle version SHALL track the CLI release line independently
 The bundle version SHALL use the recorded Host Bridge CLI major and minor components with a bundle-owned patch component.
@@ -106,14 +81,6 @@ The Zotero Library Agent bundle SHALL generate domain-oriented intent-to-command
 - **THEN** the generated bundle SHALL be rebuilt through the canonical renderer
 - **AND** no generated command table SHALL require independent manual maintenance.
 
-### Requirement: Library Agent SHALL preserve evidence across control boundaries
-
-Task recipes SHALL distinguish current Host facts, local files, returned typed handles, approval state, and apply-back receipts.
-
-#### Scenario: Task crosses a workflow or mutation boundary
-- **WHEN** an agent submits, monitors, interacts with, applies, or mutates Host state
-- **THEN** the recipe SHALL identify the required handle, review or approval boundary, observable completion evidence, and safe recovery command.
-
 ### Requirement: Library Agent repository README SHALL select the bounded surface
 
 The Library Agent release repository README SHALL explain when to choose the bounded on-demand surface, how to verify the bundled CLI identity, where to enter common task journeys, and when resident Librarian behavior is the appropriate alternative.
@@ -123,10 +90,111 @@ The Library Agent release repository README SHALL explain when to choose the bou
 - **THEN** it SHALL identify the bundle as the bounded task surface
 - **AND** SHALL route connection details to the CLI wrapper and resident indexing, scheduling, and maintenance to the Librarian Profile.
 
-### Requirement: Library Agent references SHALL provide executable bounded journeys
+### Requirement: Library Agent SHALL separate workflow and provider preparation
+Library Agent guidance SHALL validate workflow input and backend provider profiles independently and SHALL combine them only when invoking workflow submit.
 
-The bundle SHALL provide detailed input-to-command-to-evidence-to-recovery playbooks for current context, library and note reads, readiness, synthesis research context, Host-owned workflows, agent-owned handoff and apply-back, concrete writeback, and Product/file delivery.
+#### Scenario: Agent prepares a host-owned workflow
+- **WHEN** an agent selects a workflow and backend
+- **THEN** it reads and validates the workflow contract separately from the backend profile contract
+- **AND** reuses a validated profile only when the workflow provider requirements are compatible.
 
-#### Scenario: Agent executes a bounded journey
-- **WHEN** the agent receives only the materialized Library Agent bundle
-- **THEN** it SHALL be able to choose the correct command plane, construct inputs, preserve typed handles, identify approval boundaries, and prove completion without repository source access.
+### Requirement: Generic bundle SHALL contain one coordinator and five task Skills
+The bundle SHALL publish `zotero-library-agent` as the routing and composition Skill plus `zotero-library-query`, `zotero-literature-acquisition`, `zotero-literature-analysis`, `zotero-research-synthesis`, and `zotero-library-curation` as bounded task Skills.
+
+#### Scenario: Single task is routed once
+- **WHEN** a request has one bounded research goal
+- **THEN** the coordinator selects the matching task Skill without reproducing its complete playbook
+
+#### Scenario: Multi-stage request is composed
+- **WHEN** a request spans multiple task domains
+- **THEN** the coordinator orders the task Skills, carries verified evidence between stages, and returns one final result
+
+### Requirement: Generic task references SHALL use progressive disclosure
+The coordinator and each bounded task Skill SHALL contain a complete executable primary contract in `SKILL.md`. Direct references SHALL expand named complex scenarios and SHALL NOT be a mandatory first workflow step.
+
+#### Scenario: Task has no complex branch
+- **WHEN** a request can be completed by the task Skill's primary workflow
+- **THEN** the agent completes it without loading the task playbook
+
+#### Scenario: Complex branch is encountered
+- **WHEN** the request requires a detailed object model, decision matrix, worked path, or recovery analysis
+- **THEN** `SKILL.md` identifies the directly linked comprehensive reference and the applicable section
+
+### Requirement: Generic Skills SHALL share one inline-evidence result contract
+All six Generic Skills SHALL use `zotero-library-task.result.v1` with required `schema`, `status`, and `summary`; status SHALL be `completed`, `canceled`, or `failed`; and evidence, artifacts, and diagnostics SHALL be represented in optional structured arrays in the same result.
+
+#### Scenario: Completed result carries evidence inline
+- **WHEN** a task completes with source support
+- **THEN** its runner result contains structured evidence entries and does not require a second evidence bundle
+
+### Requirement: Generic SHALL include Minimum without duplicating mechanism policy
+The materialized Generic surface SHALL contain the complete Minimum component byte-identically. Generic guidance SHALL delegate exact argv, approvals, handles, and recovery details to Minimum.
+
+#### Scenario: CLI contract changes propagate by composition
+- **WHEN** Minimum is rebuilt
+- **THEN** Generic receives the exact rebuilt Minimum component without regenerating Generic task prose into the CLI descriptor
+
+### Requirement: Generic SHALL own bounded workflow execution policy
+The coordinator reference SHALL define Zotero-managed workflow selection and monitoring, self-owned agent handoff execution and apply-receipt recovery, Product/file/artifact evidence, and multi-stage research recovery. Task Skills SHALL apply that cross-task policy without duplicating exact CLI mechanics.
+
+#### Scenario: Hermes delegates a self-owned handoff
+- **WHEN** a hosted task selects a workflow whose self-owned mode is supported
+- **THEN** the inherited Generic coordinator supplies request inspection, result validation, apply-back, and durable receipt semantics
+
+### Requirement: Generic coordinator SHALL expose official built-in workflows
+The coordinator SHALL own one generated catalog of the official non-debug built-in workflows and one separate cross-task research model. The catalog SHALL own inventory and declared invocation inputs; the research model SHALL own cross-task execution, authority, evidence, and recovery policy.
+
+#### Scenario: Catalog and policy remain non-duplicative
+- **WHEN** a workflow entry is rendered
+- **THEN** its manifest facts appear in the catalog
+- **AND** cross-task execution policy remains in the coordinator contract and research model
+
+### Requirement: Generic Skills SHALL translate natural-language research requests
+Each Generic Skill SHALL independently define the user utterances it handles, the information it must clarify or may default, the bounded execution path, authority stops, live evidence requirements, and the user-facing completion or recovery response.
+
+#### Scenario: User gives an underspecified research request
+- **WHEN** a request omits scope, freshness, evidence depth, deliverable, or requested state change
+- **THEN** the selected Skill asks only material questions, discloses safe defaults, and does not cross a write or submission boundary without explicit authority
+
+#### Scenario: User gives a multi-stage request
+- **WHEN** one request combines acquisition, analysis, synthesis, or curation
+- **THEN** the coordinator presents ordered stages with each stage's owner, input evidence, output evidence, and new authority boundary
+
+### Requirement: Generic references SHALL demonstrate complete task decisions
+Each Generic task reference SHALL provide coherent decision guidance and representative end-to-end traces without becoming a prerequisite for the ordinary path or repeating the normative Skill contract.
+
+#### Scenario: Agent encounters a complex branch
+- **WHEN** a task has ambiguity, asymmetric evidence, partial completion, or a recoverable failure
+- **THEN** the optional playbook shows the path from user utterance through clarification, routing, validation, authority, evidence, result, and user response
+
+### Requirement: Generic results SHALL use one discoverable Runner-validated Schema
+All six Generic Skills SHALL return a business payload conforming to `zotero-library-task.result.v1`, SHALL expose the shared Schema in their assets, and SHALL explain its required fields, status meanings, nested evidence, artifact, and diagnostic shapes in the executable Skill contract.
+
+#### Scenario: Agent completes a Generic task
+- **WHEN** the Agent emits its final business result
+- **THEN** the Runner strips its transport marker and validates the remaining payload against the materialized `assets/output.schema.json`
+
+#### Scenario: Agent needs to construct a result without project context
+- **WHEN** an Agent reads only the selected `SKILL.md`
+- **THEN** it can construct a minimal valid completed, canceled, or failed result and can discover the full Schema and task-specific examples
+
+#### Scenario: Agent mixes transport and business fields
+- **WHEN** the business payload contains `__SKILL_DONE__`, Markdown framing, or unknown fields
+- **THEN** the instructions prohibit that shape and runtime Schema validation rejects the invalid business object
+
+### Requirement: Generic SHALL hand confirmed workflow intent to Host-native admission
+Generic workflow policy SHALL turn one bounded Zotero-managed objective into one explicit raw-selection submission and SHALL use Host submission state to follow admission before switching to concrete task/run handles.
+
+#### Scenario: Bounded task chooses a Zotero-managed workflow
+- **WHEN** live workflow facts, input planning contracts, provider requirements, options, result contract, and authority are confirmed
+- **THEN** Generic SHALL submit the reviewed raw selection once with an explicit Host concurrency choice
+- **AND** it SHALL retain the returned `submissionId`
+
+#### Scenario: Submission contains pending work
+- **WHEN** active submission inspection reports pending units
+- **THEN** Generic MAY request interactive pending cancellation when user intent requires it
+- **AND** it SHALL NOT claim ownership of FIFO, queue persistence, resident supervision, or CLI mechanism facts
+
+#### Scenario: Concrete tasks appear
+- **WHEN** submission inspection or task filtering returns run handles
+- **THEN** Generic SHALL use those handles for bounded completion/evidence work or hand continuous supervision to the hosted facet

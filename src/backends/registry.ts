@@ -1,7 +1,6 @@
 import {
   ACP_BACKEND_TYPE,
   BACKEND_TYPES,
-  GENERIC_HTTP_BACKEND_TYPE,
   PASS_THROUGH_BACKEND_TYPE,
 } from "../config/defaults";
 import { getPref, setPref } from "../utils/prefs";
@@ -13,6 +12,7 @@ import {
 import { normalizeBackendDisplayName } from "./identity";
 import type { BackendInstance, LoadedBackends } from "./types";
 import { markAcpBackendConnectionState } from "../modules/acpBackendProbe";
+import { compatibleBackendTypesForManifest } from "../workflows/manifestContract";
 
 type BackendsDocument = {
   defaultBackendId?: unknown;
@@ -183,6 +183,18 @@ function normalizeAcpOptionArray(value: unknown) {
       description: String(entry.description || "").trim() || undefined,
     }))
     .filter((entry) => entry.id && entry.label);
+}
+
+function normalizeAcpReasoningSource(
+  value: unknown,
+): NonNullable<
+  NonNullable<
+    NonNullable<BackendInstance["acp"]>["runtimeOptionsCache"]
+  >["reasoningSource"]
+> | null {
+  return value === "explicit" || value === "model-derived" || value === "none"
+    ? value
+    : null;
 }
 
 function normalizeBackendsSchemaVersion(value: unknown) {
@@ -609,6 +621,10 @@ function normalizeBackendEntry(
           currentReasoningEffortId: String(
             runtimeOptionsCacheRaw.currentReasoningEffortId || "",
           ).trim(),
+          reasoningSource:
+            normalizeAcpReasoningSource(
+              runtimeOptionsCacheRaw.reasoningSource,
+            ) || undefined,
         }
       : undefined;
     acp = {
@@ -769,27 +785,7 @@ export async function listBackendInstances() {
 }
 
 function resolveCompatibleBackendTypesForWorkflow(workflow: LoadedWorkflow) {
-  const providerType = String(workflow.manifest.provider || "").trim();
-  const requestKind = String(workflow.manifest.request?.kind || "").trim();
-  if (!providerType) {
-    return [];
-  }
-  if (providerType === ACP_BACKEND_TYPE) {
-    if (requestKind === "skillrunner.sequence.v1") {
-      return [ACP_BACKEND_TYPE, "skillrunner"];
-    }
-    return [ACP_BACKEND_TYPE];
-  }
-  if (providerType === "skillrunner") {
-    return ["skillrunner", ACP_BACKEND_TYPE];
-  }
-  if (providerType === GENERIC_HTTP_BACKEND_TYPE) {
-    return [GENERIC_HTTP_BACKEND_TYPE];
-  }
-  if (providerType === PASS_THROUGH_BACKEND_TYPE) {
-    return [PASS_THROUGH_BACKEND_TYPE];
-  }
-  return [providerType];
+  return compatibleBackendTypesForManifest(workflow.manifest);
 }
 
 function sortBackendsByCompatibilityPriority(

@@ -28,11 +28,25 @@ fn command_entries(descriptor: &Value) -> Result<&Vec<Value>, CliError> {
         })
 }
 
+pub fn cli_schema() -> Result<String, CliError> {
+    descriptor()?
+        .get("cliSchema")
+        .and_then(Value::as_str)
+        .filter(|value| *value == "zotero-bridge.cli.v4")
+        .map(str::to_string)
+        .ok_or_else(|| {
+            CliError::internal(
+                "invalid_embedded_agent_surface",
+                "Embedded agent surface is missing the current CLI schema",
+            )
+        })
+}
+
 fn identity(descriptor: &Value) -> Value {
     json!({
-        "schema": "host-bridge.surface-identity.v2",
-        "protocol": descriptor.get("protocol").and_then(Value::as_str).unwrap_or("host-bridge.v1"),
-        "cliSchema": descriptor.get("cliSchema").and_then(Value::as_str).unwrap_or("zotero-bridge.cli.v2"),
+        "schema": "host-bridge.surface-identity.v5",
+        "protocol": descriptor.get("protocol").and_then(Value::as_str).unwrap_or(""),
+        "cliSchema": descriptor.get("cliSchema").and_then(Value::as_str).unwrap_or(""),
         "version": env!("CARGO_PKG_VERSION"),
         "buildFingerprint": option_env!("ZOTERO_BRIDGE_BUILD_FINGERPRINT").unwrap_or("development"),
         "commandCatalogChecksum": descriptor.get("commandCatalogChecksum").and_then(Value::as_str).unwrap_or(""),
@@ -69,7 +83,7 @@ fn search(descriptor: &Value, args: SurfaceSearchArgs) -> Result<Value, CliError
         ));
     }
     let tokens: Vec<&str> = intent
-        .split(|character: char| !character.is_ascii_alphanumeric())
+        .split(|character: char| !character.is_alphanumeric())
         .filter(|token| !token.is_empty())
         .collect();
     let mut matches: Vec<(usize, Vec<String>, Value)> = command_entries(descriptor)?
@@ -85,8 +99,7 @@ fn search(descriptor: &Value, args: SurfaceSearchArgs) -> Result<Value, CliError
             let fields = [
                 entry.get("command"),
                 entry.get("summary"),
-                entry.get("intents"),
-                entry.get("guidance").and_then(|value| value.get("useWhen")),
+                entry.get("operationalAliases"),
             ];
             let haystack = fields
                 .iter()
@@ -129,7 +142,10 @@ fn search(descriptor: &Value, args: SurfaceSearchArgs) -> Result<Value, CliError
             .into_iter()
             .take(args.limit as usize)
             .map(|(_, match_reasons, command)| json!({
-                "command": command,
+                "command": command.get("command").cloned().unwrap_or(Value::Null),
+                "summary": command.get("summary").cloned().unwrap_or(Value::Null),
+                "category": command.get("category").cloned().unwrap_or(Value::Null),
+                "danger": command.get("danger").cloned().unwrap_or(Value::Null),
                 "matchReasons": match_reasons,
             }))
             .collect::<Vec<_>>()
@@ -142,5 +158,37 @@ pub fn run(args: SurfaceArgs) -> Result<Value, CliError> {
         SurfaceCommand::Identity(_) => Ok(identity(&descriptor)),
         SurfaceCommand::Describe(args) => describe(&descriptor, args),
         SurfaceCommand::Search(args) => search(&descriptor, args),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{descriptor, identity, search};
+    use crate::args::SurfaceSearchArgs;
+
+    #[test]
+    fn identity_uses_embedded_v5_contract() {
+        let value = identity(&descriptor().unwrap());
+        assert_eq!(value["schema"], "host-bridge.surface-identity.v5");
+        assert_eq!(value["cliSchema"], "zotero-bridge.cli.v4");
+    }
+
+    #[test]
+    fn search_matches_operational_terms() {
+        let value = search(
+            &descriptor().unwrap(),
+            SurfaceSearchArgs {
+                intent: "workflow submit".to_string(),
+                limit: 10,
+                include_debug: false,
+                json: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(value["matches"][0]["command"], "workflow submit");
+        assert_eq!(
+            value["matches"][0]["matchReasons"][0],
+            "phrase:workflow submit"
+        );
     }
 }

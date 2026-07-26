@@ -1,6 +1,9 @@
 {
+  "schemaVersion": 2,
   "id": "manuscript-literature-framing",
   "label": "Manuscript Literature Framing",
+  "description": "Generate manuscript introduction and related-work framing from selected synthesis topics and library evidence.",
+  "executionModes": ["auto"],
   "provider": "skillrunner",
   "version": "0.2.0",
   "display": {
@@ -12,7 +15,12 @@
     "requiresSelection": false
   },
   "inputs": {
-    "unit": "workflow"
+    "member": {
+      "kind": "selection"
+    },
+    "grouping": {
+      "mode": "all"
+    }
   },
   "parameters": {
     "paperTitle": {
@@ -44,6 +52,12 @@
       "description": "Optional writing preference, such as concise, IEEE-like, Nature-like, or Chinese draft.",
       "default": ""
     }
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "selection"
+    },
+    "filters": []
   },
   "request": {
     "kind": "skillrunner.job.v1",

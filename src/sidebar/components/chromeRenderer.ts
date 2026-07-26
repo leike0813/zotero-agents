@@ -230,6 +230,7 @@ export function renderTranscriptRegion(options: {
   state: "idle" | "loading" | "failed" | "ready";
   message: string;
   mode: "plain" | "bubble";
+  ownerKey: string;
   onResetVirtualState: (container: HTMLElement) => void;
 }) {
   render(h(TranscriptRegion, options), options.container);

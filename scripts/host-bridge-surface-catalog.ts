@@ -47,7 +47,15 @@ export type HostBridgeCliInventoryArgument = {
   takesValue: boolean;
   global: boolean;
   help: string | null;
+  longHelp: string | null;
+  env: string | null;
+  aliases: string[];
+  defaultValues: string[];
   valueNames: string[];
+  possibleValues: string[];
+  conflictsWith: string[];
+  repeatable: boolean;
+  numArgs: string | null;
 };
 
 export type HostBridgeCliInventoryEntry = {
@@ -55,10 +63,16 @@ export type HostBridgeCliInventoryEntry = {
   argv: string[];
   about: string;
   arguments: HostBridgeCliInventoryArgument[];
+  argumentGroups: Array<{
+    id: string;
+    arguments: string[];
+    required: boolean;
+  }>;
 };
 
 export type HostBridgeSurfaceCatalog = {
   capabilities: HostBridgeCapabilityCatalogEntry[];
+  globalArguments: HostBridgeCliInventoryArgument[];
   commandInventory: HostBridgeCliInventoryEntry[];
   cliMappings: HostBridgeCliMapping[];
   endpointMappings: HostBridgeCliMapping[];
@@ -88,17 +102,22 @@ const NO_APPROVAL_CAPABILITIES = new Set([
   "workflow_products.export",
   "mutation.preview",
   "diagnostic.get_status",
+  "synthesis.operation.get",
 ]);
 
 const DANGEROUS_CAPABILITIES = new Set([
   "debug.synthesis.cleanInstallReset",
   "debug.zotero.eval",
   "citation_graph.refresh_metrics",
+  "citation_graph.update",
+  "reference_sidecar.refresh",
 ]);
 
 const ALLOWED_DANGEROUS_SEMANTIC_CLI = new Set([
   "debug.synthesis.cleanInstallReset",
   "citation_graph.refresh_metrics",
+  "citation_graph.update",
+  "reference_sidecar.refresh",
 ]);
 
 const CACHE_VIEW_CAPABILITIES = new Set([
@@ -365,9 +384,10 @@ function debugCliMappings(): HostBridgeCliMapping[] {
   }));
 }
 
-export function loadHostBridgeCliInventory(
-  root = process.cwd(),
-): HostBridgeCliInventoryEntry[] {
+export function loadHostBridgeCliInventory(root = process.cwd()): {
+  globalArguments: HostBridgeCliInventoryArgument[];
+  commands: HostBridgeCliInventoryEntry[];
+} {
   const output = execFileSync(
     "cargo",
     [
@@ -382,12 +402,16 @@ export function loadHostBridgeCliInventory(
   );
   const parsed = JSON.parse(output) as {
     schema: string;
+    globalArguments: HostBridgeCliInventoryArgument[];
     commands: HostBridgeCliInventoryEntry[];
   };
   if (parsed.schema !== "zotero-bridge.command-inventory.v1") {
     throw new Error(`unexpected CLI inventory schema: ${parsed.schema}`);
   }
-  return parsed.commands;
+  return {
+    globalArguments: parsed.globalArguments || [],
+    commands: parsed.commands,
+  };
 }
 
 function coreCliMappings(): HostBridgeCliMapping[] {
@@ -457,6 +481,9 @@ function synthesisCliMappings(): HostBridgeCliMapping[] {
       "citation_graph.rank_library_papers",
     ],
     ["synthesis graph refresh-metrics", "citation_graph.refresh_metrics"],
+    ["synthesis graph update", "citation_graph.update"],
+    ["synthesis cache refresh-reference-sidecar", "reference_sidecar.refresh"],
+    ["synthesis cache status", "synthesis.operation.get"],
     ["synthesis index library get", "library_index.get"],
     ["synthesis index reference get", "reference_index.get"],
     ["synthesis resolver resolve", "resolvers.resolve"],
@@ -487,6 +514,7 @@ function endpointMappings(): HostBridgeCliMapping[] {
   > = [
     ["bridge status", "GET /bridge/v1/health"],
     ["bridge manifest", "GET /bridge/v1/manifest"],
+    ["operation get", "GET /bridge/v1/operations/{operationId}"],
     ["bridge profile inspect", "GET /bridge/v1/diagnostics/profile"],
     ["bridge profile diagnose", "GET /bridge/v1/diagnostics/profile/diagnose"],
     ["bridge backend list", "GET /bridge/v1/diagnostics/backends"],
@@ -509,6 +537,15 @@ function endpointMappings(): HostBridgeCliMapping[] {
       "POST /bridge/v1/workflows/submit",
       "zotero-ui-required",
     ],
+    ["workflow queue list", "GET /bridge/v1/workflows/queue"],
+    [
+      "workflow queue cancel",
+      "POST /bridge/v1/workflows/queue/{queueId}/cancel",
+    ],
+    [
+      "workflow submission get",
+      "GET /bridge/v1/workflows/submissions/{submissionId}",
+    ],
     ["workflow agent-run", "POST /bridge/v1/workflows/agent-run"],
     [
       "workflow agent-apply",
@@ -517,6 +554,14 @@ function endpointMappings(): HostBridgeCliMapping[] {
     [
       "workflow agent-apply-status",
       "GET /bridge/v1/workflows/agent-runs/{agentRunId}/apply",
+    ],
+    [
+      "workflow agent-renew",
+      "POST /bridge/v1/workflows/agent-runs/{agentRunId}/renew",
+    ],
+    [
+      "workflow agent-abandon",
+      "POST /bridge/v1/workflows/agent-runs/{agentRunId}/abandon",
     ],
     ["run get", "GET /bridge/v1/workflows/runs/{workflowRunId}"],
     [
@@ -538,6 +583,15 @@ function endpointMappings(): HostBridgeCliMapping[] {
     ["run notification list", "GET /bridge/v1/notifications"],
     ["run notification wait", "GET /bridge/v1/notifications"],
     ["run notification ack", "POST /bridge/v1/notifications/ack"],
+    ["workflow profile list", "GET /bridge/v1/workflows/provider-profiles"],
+    [
+      "workflow profile describe",
+      "POST /bridge/v1/workflows/provider-profiles/describe",
+    ],
+    [
+      "workflow profile validate",
+      "POST /bridge/v1/workflows/provider-profiles/validate",
+    ],
     ["synthesis cache status", "GET /bridge/v1/synthesis/cache/status"],
     [
       "synthesis cache invalidate",
@@ -597,9 +651,11 @@ export function buildHostBridgeSurfaceCatalog(
     };
   });
 
+  const cliInventory = loadHostBridgeCliInventory(root);
   return {
     capabilities,
-    commandInventory: loadHostBridgeCliInventory(root),
+    globalArguments: cliInventory.globalArguments,
+    commandInventory: cliInventory.commands,
     cliMappings,
     endpointMappings: endpointMappings(),
   };

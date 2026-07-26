@@ -1,0 +1,845 @@
+{
+  "schema": "zotero-bridge.output-boundaries.v1",
+  "commands": {
+    "bridge backend list": {
+      "strategy": "limit",
+      "section": "items",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "truncatedField": "truncated"
+    },
+    "bridge backend status": {
+      "strategy": "fixed"
+    },
+    "bridge manifest": {
+      "strategy": "cursor",
+      "section": "capabilities",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+    },
+    "bridge profile diagnose": {
+      "strategy": "fixed"
+    },
+    "bridge profile inspect": {
+      "strategy": "fixed"
+    },
+    "bridge status": {
+      "strategy": "fixed"
+    },
+    "call": {
+      "strategy": "raw"
+    },
+    "context collection open": {
+      "strategy": "fixed"
+    },
+    "context current": {
+      "strategy": "cursor",
+      "section": "data.selectedItems",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.nextCursor",
+        "data.hasMore",
+        "data.returned",
+        "data.total",
+        "data.limit"
+      ]
+    },
+    "context item open": {
+      "strategy": "fixed"
+    },
+    "context note open": {
+      "strategy": "fixed"
+    },
+    "context selection get": {
+      "strategy": "cursor",
+      "section": "data.items",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.nextCursor",
+        "data.hasMore",
+        "data.returned",
+        "data.total",
+        "data.limit"
+      ]
+    },
+    "context selection open": {
+      "strategy": "cursor",
+      "section": "target.items",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "pagination.items.nextCursor",
+        "pagination.items.hasMore",
+        "pagination.items.returned",
+        "pagination.items.total",
+        "pagination.items.limit"
+      ]
+    },
+    "debug acp-skill-run reapply-result": {
+      "strategy": "fixed"
+    },
+    "debug persistence": {
+      "strategy": "fixed"
+    },
+    "debug status": {
+      "strategy": "limit",
+      "section": "data.tasks.recent",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "truncatedField": "data.truncated"
+    },
+    "debug synthesis cache": {
+      "strategy": "limit",
+      "section": "data.rows",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "truncatedField": "data.truncated"
+    },
+    "debug synthesis clean-install-reset": {
+      "strategy": "fixed"
+    },
+    "debug synthesis diff": {
+      "strategy": "limit",
+      "section": "data.issues",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "truncatedField": "data.truncated"
+    },
+    "debug synthesis inspect-paper": {
+      "strategy": "limit",
+      "section": "data.repository.artifactSidecars",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "truncatedField": "data.truncated",
+      "fileField": "data.delivery.bundle"
+    },
+    "debug synthesis inspect-topic": {
+      "strategy": "limit",
+      "section": "data.discoveryHints",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "truncatedField": "data.truncated",
+      "fileField": "data.delivery.bundle"
+    },
+    "debug synthesis operations": {
+      "strategy": "limit",
+      "section": "data.rows",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "truncatedField": "data.truncated"
+    },
+    "debug synthesis profiler": {
+      "strategy": "limit",
+      "section": "data.runs",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "truncatedField": "data.truncated",
+      "fileField": "data.delivery.bundle"
+    },
+    "debug synthesis snapshot": {
+      "strategy": "limit",
+      "section": "data.cacheBasis",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "truncatedField": "data.truncated",
+      "fileField": "data.delivery.bundle"
+    },
+    "debug tasks": {
+      "strategy": "limit",
+      "section": "data.tasks",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "truncatedField": "data.truncated"
+    },
+    "file download": {
+      "strategy": "fixed"
+    },
+    "file upload": {
+      "strategy": "fixed"
+    },
+    "library annotation export": {
+      "strategy": "file",
+      "fileField": "data.delivery.file"
+    },
+    "library annotation list": {
+      "strategy": "cursor",
+      "section": "data.annotations",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.nextCursor",
+        "data.hasMore",
+        "data.returned",
+        "data.total",
+        "data.limit"
+      ]
+    },
+    "library item attachments": {
+      "strategy": "cursor",
+      "section": "data.attachments",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.nextCursor",
+        "data.hasMore",
+        "data.returned",
+        "data.total",
+        "data.limit"
+      ]
+    },
+    "library item get": {
+      "strategy": "fixed"
+    },
+    "library item notes": {
+      "strategy": "cursor",
+      "section": "data.items",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.nextCursor",
+        "data.hasMore",
+        "data.returned",
+        "data.total",
+        "data.limit"
+      ]
+    },
+    "library item search": {
+      "strategy": "limit",
+      "section": "data.items",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "truncatedField": "data.truncated"
+    },
+    "library items list": {
+      "strategy": "cursor",
+      "section": "data.items",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.nextCursor",
+        "data.hasMore",
+        "data.returned",
+        "data.total",
+        "data.limit"
+      ]
+    },
+    "library note get": {
+      "strategy": "offset",
+      "section": "data.content",
+      "defaultLimit": 8000,
+      "maxLimit": 16000,
+      "cursorInput": "offset",
+      "continuation": [
+        "data.nextOffset",
+        "data.hasMore",
+        "data.totalChars",
+        "data.truncated",
+        "data.maxChars"
+      ]
+    },
+    "library note payload": {
+      "strategy": "offset",
+      "section": "data.content",
+      "defaultLimit": 8000,
+      "maxLimit": 16000,
+      "cursorInput": "offset",
+      "continuation": [
+        "data.nextOffset",
+        "data.hasMore",
+        "data.totalChars",
+        "data.truncated",
+        "data.maxChars"
+      ]
+    },
+    "library note payloads": {
+      "strategy": "cursor",
+      "section": "data.payloads",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.nextCursor",
+        "data.hasMore",
+        "data.returned",
+        "data.total",
+        "data.limit"
+      ]
+    },
+    "library readiness audit": {
+      "strategy": "cursor",
+      "section": "data.items",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.nextCursor",
+        "data.hasMore",
+        "data.returned",
+        "data.total",
+        "data.limit"
+      ]
+    },
+    "library readiness missing-analysis": {
+      "strategy": "cursor",
+      "section": "data.items",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.nextCursor",
+        "data.hasMore",
+        "data.returned",
+        "data.total",
+        "data.limit"
+      ]
+    },
+    "library readiness missing-markdown": {
+      "strategy": "cursor",
+      "section": "data.items",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.nextCursor",
+        "data.hasMore",
+        "data.returned",
+        "data.total",
+        "data.limit"
+      ]
+    },
+    "library readiness missing-pdf": {
+      "strategy": "cursor",
+      "section": "data.items",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.nextCursor",
+        "data.hasMore",
+        "data.returned",
+        "data.total",
+        "data.limit"
+      ]
+    },
+    "library snapshot": {
+      "strategy": "cursor",
+      "section": "data.items",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.nextCursor",
+        "data.hasMore",
+        "data.returned",
+        "data.total",
+        "data.limit"
+      ]
+    },
+    "mutation apply": {
+      "strategy": "fixed"
+    },
+    "mutation collection add-items": {
+      "strategy": "fixed"
+    },
+    "mutation collection create": {
+      "strategy": "fixed"
+    },
+    "mutation collection remove-items": {
+      "strategy": "fixed"
+    },
+    "mutation item attach-file": {
+      "strategy": "fixed"
+    },
+    "mutation item update": {
+      "strategy": "fixed"
+    },
+    "mutation literature-ingest": {
+      "strategy": "fixed"
+    },
+    "mutation note create": {
+      "strategy": "fixed"
+    },
+    "mutation note update": {
+      "strategy": "fixed"
+    },
+    "mutation note upsert-payload": {
+      "strategy": "fixed"
+    },
+    "mutation preview": {
+      "strategy": "fixed"
+    },
+    "mutation tag add": {
+      "strategy": "fixed"
+    },
+    "mutation tag remove": {
+      "strategy": "fixed"
+    },
+    "operation get": {
+      "strategy": "fixed"
+    },
+    "product download": {
+      "strategy": "fixed"
+    },
+    "product get": {
+      "strategy": "cursor",
+      "section": "data.product.assets",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.pagination.assets.nextCursor",
+        "data.pagination.assets.hasMore",
+        "data.pagination.assets.returned",
+        "data.pagination.assets.total",
+        "data.pagination.assets.limit"
+      ]
+    },
+    "product list": {
+      "strategy": "cursor",
+      "section": "data.products",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.nextCursor",
+        "data.hasMore",
+        "data.returned",
+        "data.total",
+        "data.limit"
+      ]
+    },
+    "product remove": {
+      "strategy": "fixed"
+    },
+    "run active": {
+      "strategy": "cursor",
+      "section": "tasks",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+    },
+    "run cancel": {
+      "strategy": "fixed"
+    },
+    "run get": {
+      "strategy": "cursor",
+      "section": "skillRuns",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "pagination.skillRuns.nextCursor",
+        "pagination.skillRuns.hasMore",
+        "pagination.skillRuns.returned",
+        "pagination.skillRuns.total",
+        "pagination.skillRuns.limit"
+      ]
+    },
+    "run list": {
+      "strategy": "cursor",
+      "section": "items",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+    },
+    "run notification ack": {
+      "strategy": "fixed"
+    },
+    "run notification list": {
+      "strategy": "cursor",
+      "section": "notifications",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "since_event_id",
+      "continuation": ["nextSinceEventId", "hasMore", "returned"]
+    },
+    "run notification wait": {
+      "strategy": "cursor",
+      "section": "notifications",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "since_event_id",
+      "continuation": ["nextSinceEventId", "hasMore", "returned"]
+    },
+    "run permission get": {
+      "strategy": "fixed"
+    },
+    "run permission pending": {
+      "strategy": "cursor",
+      "section": "permissions",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+    },
+    "run recent": {
+      "strategy": "cursor",
+      "section": "items",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+    },
+    "run skill connect": {
+      "strategy": "fixed"
+    },
+    "run skill events": {
+      "strategy": "cursor",
+      "section": "events",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+    },
+    "run skill get": {
+      "strategy": "fixed"
+    },
+    "run skill recent": {
+      "strategy": "cursor",
+      "section": "skillRuns",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+    },
+    "run skill reply": {
+      "strategy": "fixed"
+    },
+    "run workflow recent": {
+      "strategy": "cursor",
+      "section": "runs",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+    },
+    "surface describe": {
+      "strategy": "fixed"
+    },
+    "surface identity": {
+      "strategy": "fixed"
+    },
+    "surface search": {
+      "strategy": "limit",
+      "section": "items",
+      "defaultLimit": 10,
+      "maxLimit": 20,
+      "truncatedField": "truncated"
+    },
+    "synthesis artifact export-filtered": {
+      "strategy": "file",
+      "fileField": "data.delivery.bundle"
+    },
+    "synthesis artifact manifest": {
+      "strategy": "cursor",
+      "section": "data.papers",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.nextCursor",
+        "data.hasMore",
+        "data.returned",
+        "data.total",
+        "data.limit"
+      ]
+    },
+    "synthesis artifact read": {
+      "strategy": "file",
+      "fileField": "data.delivery.file"
+    },
+    "synthesis artifact resolve-topic-digest": {
+      "strategy": "offset",
+      "section": "data.text",
+      "defaultLimit": 8000,
+      "maxLimit": 16000,
+      "cursorInput": "offset",
+      "continuation": [
+        "data.nextOffset",
+        "data.hasMore",
+        "data.totalChars",
+        "data.truncated",
+        "data.maxChars"
+      ]
+    },
+    "synthesis cache invalidate": {
+      "strategy": "fixed"
+    },
+    "synthesis cache refresh-reference-sidecar": {
+      "strategy": "fixed"
+    },
+    "synthesis cache status": {
+      "strategy": "fixed"
+    },
+    "synthesis concept query": {
+      "strategy": "limit",
+      "section": "data.matches",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "truncatedField": "data.truncated"
+    },
+    "synthesis graph get-layout": {
+      "strategy": "limit",
+      "section": "data.nodes",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "truncatedField": "data.diagnostics.truncated"
+    },
+    "synthesis graph get-metrics": {
+      "strategy": "cursor",
+      "section": "data.metrics",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.nextCursor",
+        "data.hasMore",
+        "data.returned",
+        "data.total",
+        "data.limit"
+      ]
+    },
+    "synthesis graph get-slice": {
+      "strategy": "limit",
+      "section": "data.nodes",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "truncatedField": "data.diagnostics.truncated"
+    },
+    "synthesis graph overview": {
+      "strategy": "cursor",
+      "section": "data.nodes",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.pagination.nodes.nextCursor",
+        "data.pagination.nodes.hasMore",
+        "data.pagination.nodes.returned",
+        "data.pagination.nodes.total",
+        "data.pagination.nodes.limit"
+      ]
+    },
+    "synthesis graph query-cluster": {
+      "strategy": "limit",
+      "section": "data.nodes",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "truncatedField": "data.diagnostics.truncated"
+    },
+    "synthesis graph rank-external-references": {
+      "strategy": "cursor",
+      "section": "data.references",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.nextCursor",
+        "data.hasMore",
+        "data.returned",
+        "data.total",
+        "data.limit"
+      ]
+    },
+    "synthesis graph rank-library-papers": {
+      "strategy": "cursor",
+      "section": "data.papers",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.nextCursor",
+        "data.hasMore",
+        "data.returned",
+        "data.total",
+        "data.limit"
+      ]
+    },
+    "synthesis graph refresh-metrics": {
+      "strategy": "fixed"
+    },
+    "synthesis graph update": {
+      "strategy": "fixed"
+    },
+    "synthesis index library get": {
+      "strategy": "cursor",
+      "section": "data.papers",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.pagination.papers.nextCursor",
+        "data.pagination.papers.hasMore",
+        "data.pagination.papers.returned",
+        "data.pagination.papers.total",
+        "data.pagination.papers.limit"
+      ]
+    },
+    "synthesis index reference get": {
+      "strategy": "cursor",
+      "section": "data.entries",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.nextCursor",
+        "data.hasMore",
+        "data.returned",
+        "data.total",
+        "data.limit"
+      ]
+    },
+    "synthesis index status": {
+      "strategy": "fixed"
+    },
+    "synthesis insight attention-queue": {
+      "strategy": "limit",
+      "section": "data.items",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "truncatedField": "data.truncated"
+    },
+    "synthesis resolver resolve": {
+      "strategy": "cursor",
+      "section": "data.candidates",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.nextCursor",
+        "data.hasMore",
+        "data.returned",
+        "data.total",
+        "data.limit"
+      ]
+    },
+    "synthesis schema get": {
+      "strategy": "fixed"
+    },
+    "synthesis topic find-by-paper-ref": {
+      "strategy": "fixed"
+    },
+    "synthesis topic get-context": {
+      "strategy": "fixed"
+    },
+    "synthesis topic get-report": {
+      "strategy": "offset",
+      "section": "data.text",
+      "defaultLimit": 8000,
+      "maxLimit": 16000,
+      "cursorInput": "offset",
+      "continuation": [
+        "data.nextOffset",
+        "data.hasMore",
+        "data.totalChars",
+        "data.truncated",
+        "data.maxChars"
+      ]
+    },
+    "synthesis topic get-review-input": {
+      "strategy": "file",
+      "fileField": "data.delivery.file"
+    },
+    "synthesis topic list": {
+      "strategy": "cursor",
+      "section": "data.topics",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": [
+        "data.nextCursor",
+        "data.hasMore",
+        "data.returned",
+        "data.total",
+        "data.limit"
+      ]
+    },
+    "workflow agent-abandon": {
+      "strategy": "fixed"
+    },
+    "workflow agent-apply": {
+      "strategy": "fixed"
+    },
+    "workflow agent-apply-status": {
+      "strategy": "cursor",
+      "section": "results",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+    },
+    "workflow agent-bundle inspect": {
+      "strategy": "cursor",
+      "section": "contracts",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+    },
+    "workflow agent-renew": {
+      "strategy": "fixed"
+    },
+    "workflow agent-result validate": {
+      "strategy": "fixed"
+    },
+    "workflow agent-run": {
+      "strategy": "fixed"
+    },
+    "workflow describe": {
+      "strategy": "fixed"
+    },
+    "workflow list": {
+      "strategy": "fixed"
+    },
+    "workflow profile describe": {
+      "strategy": "fixed"
+    },
+    "workflow profile list": {
+      "strategy": "fixed"
+    },
+    "workflow profile validate": {
+      "strategy": "fixed"
+    },
+    "workflow queue cancel": {
+      "strategy": "fixed"
+    },
+    "workflow queue list": {
+      "strategy": "cursor",
+      "section": "units",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+    },
+    "workflow requirements": {
+      "strategy": "fixed"
+    },
+    "workflow submission get": {
+      "strategy": "cursor",
+      "section": "units",
+      "defaultLimit": 25,
+      "maxLimit": 100,
+      "cursorInput": "cursor",
+      "continuation": ["nextCursor", "hasMore", "returned", "total", "limit"]
+    },
+    "workflow submit": {
+      "strategy": "fixed"
+    },
+    "workflow validate": {
+      "strategy": "fixed"
+    }
+  }
+}

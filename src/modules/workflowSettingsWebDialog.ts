@@ -3,8 +3,19 @@ import { config } from "../../package.json";
 import { getString } from "../utils/locale";
 import { resolveAddonRef } from "../utils/runtimeBridge";
 import type { LoadedWorkflow } from "../workflows/types";
-import type { WorkflowExecutionOptions } from "./workflowSettingsDomain";
-import { buildWorkflowSettingsUiDescriptor } from "./workflowSettings";
+import {
+  parseExecutionOptionsPatch,
+  type WorkflowExecutionOptions,
+} from "./workflowSettingsDomain";
+import {
+  resolveWorkflowSettingsDialogLayout,
+  type WorkflowExecutionUnitPreviewState,
+  type WorkflowSettingsDialogLayout,
+} from "./workflowSettingsDialogModel";
+import {
+  buildWorkflowSettingsUiDescriptor,
+  rebaseWorkflowProviderOptionsForBackendChange,
+} from "./workflowSettings";
 import type { BackendInstance } from "../backends/types";
 import { ACP_BACKEND_TYPE, DEFAULT_BACKEND_TYPE } from "../config/defaults";
 import { loadBackendsRegistry } from "../backends/registry";
@@ -44,6 +55,12 @@ type WorkflowSettingsDialogSnapshot = {
     workflowSettingsNumberInvalid: string;
     workflowSettingsPositiveIntegerRequired: string;
     workflowSettingsParameterRequired: string;
+    workflowExecutionUnitsTitle: string;
+    workflowExecutionUnitsUnavailable: string;
+    workflowHostOptionsTitle: string;
+    workflowMaximumConcurrencyLabel: string;
+    workflowMaximumConcurrencyUnlimited: string;
+    workflowMaximumConcurrencyInvalid: string;
     refreshAcpRuntimeCache: string;
     refreshAcpRuntimeCacheRunning: string;
     refreshSkillRunnerModelCache: string;
@@ -119,6 +136,13 @@ type WorkflowSettingsDialogSnapshot = {
     workflowParams: Record<string, unknown>;
     providerOptions: Record<string, unknown>;
     runOptions: Record<string, unknown>;
+    hostOptions: {
+      queueSupported: boolean;
+      maxConcurrency?: number;
+      validationReasonCode?: string;
+    };
+    executionUnitPreview: WorkflowExecutionUnitPreviewState;
+    layout: WorkflowSettingsDialogLayout;
     hasConfigurableSettings: boolean;
     canRefreshAcpRuntimeCache?: boolean;
     canRefreshSkillRunnerModelCache?: boolean;
@@ -203,7 +227,7 @@ function normalizeExecutionOptions(raw: unknown): WorkflowExecutionOptions {
   if (!isObject(raw)) {
     return {};
   }
-  return {
+  return parseExecutionOptionsPatch({
     backendId:
       typeof raw.backendId === "string"
         ? raw.backendId.trim() || undefined
@@ -215,7 +239,10 @@ function normalizeExecutionOptions(raw: unknown): WorkflowExecutionOptions {
       ? { ...raw.providerOptions }
       : {},
     runOptions: normalizeWorkflowRunOptions(raw.runOptions),
-  };
+    ...(Object.prototype.hasOwnProperty.call(raw, "hostOptions")
+      ? { hostOptions: raw.hostOptions }
+      : {}),
+  });
 }
 
 function toRunOptionsFormValues(
@@ -233,7 +260,8 @@ function normalizeDraftChangedSection(raw: unknown) {
     section === "backend" ||
     section === "workflowParams" ||
     section === "providerOptions" ||
-    section === "runOptions"
+    section === "runOptions" ||
+    section === "hostOptions"
   ) {
     return section;
   }
@@ -373,11 +401,23 @@ export async function openWorkflowSettingsWebDialog(args: {
   ownerWindow?: _ZoteroTypes.MainWindow;
   initialDraft?: WorkflowExecutionOptions;
   candidateBackends?: BackendInstance[];
+  executionUnitPreview?: WorkflowExecutionUnitPreviewState;
 }): Promise<WorkflowSettingsDialogResult> {
+  const executionUnitPreview =
+    args.executionUnitPreview ||
+    Object.freeze({
+      status: "empty" as const,
+      units: Object.freeze([]),
+    });
+  let candidateBackends: BackendInstance[] = Array.isArray(
+    args.candidateBackends,
+  )
+    ? args.candidateBackends
+    : (await loadBackendsRegistry()).backends;
   let descriptor = await buildWorkflowSettingsUiDescriptor({
     workflow: args.workflow,
     draft: args.initialDraft,
-    candidateBackends: args.candidateBackends,
+    candidateBackends,
     autoSelectFallbackProfile: true,
   });
   if (descriptor.blockedReason) {
@@ -392,8 +432,11 @@ export async function openWorkflowSettingsWebDialog(args: {
     workflowParams: { ...descriptor.workflowParams },
     providerOptions: { ...descriptor.providerOptions },
     runOptions: normalizeWorkflowRunOptions(descriptor.runOptions),
+    hostOptions: descriptor.hostOptions?.queue
+      ? { queue: { ...descriptor.hostOptions.queue } }
+      : {},
   };
-  let candidateBackends = args.candidateBackends;
+  let hostValidationReasonCode = "";
   let persistChecked = true;
   let result: WorkflowSettingsDialogResult = { status: "canceled" };
   let dialog: DialogHelper | undefined;
@@ -532,6 +575,30 @@ export async function openWorkflowSettingsWebDialog(args: {
           "workflow-settings-parameter-required",
           "This field is required.",
         ),
+        workflowExecutionUnitsTitle: localize(
+          "workflow-settings-execution-units-title",
+          "Execution units",
+        ),
+        workflowExecutionUnitsUnavailable: localize(
+          "workflow-settings-execution-units-unavailable",
+          "Execution units could not be previewed.",
+        ),
+        workflowHostOptionsTitle: localize(
+          "workflow-queue-section-title",
+          "Host queue",
+        ),
+        workflowMaximumConcurrencyLabel: localize(
+          "workflow-settings-host-max-concurrency-label",
+          "Maximum concurrency",
+        ),
+        workflowMaximumConcurrencyUnlimited: localize(
+          "workflow-settings-host-max-concurrency-unlimited",
+          "Unlimited",
+        ),
+        workflowMaximumConcurrencyInvalid: localize(
+          "workflow-settings-host-max-concurrency-invalid",
+          "Enter 0 or a positive whole number.",
+        ),
         refreshAcpRuntimeCache: localize(
           "workflow-settings-refresh-acp-runtime-cache",
           "Refresh ACP Config Cache",
@@ -566,6 +633,18 @@ export async function openWorkflowSettingsWebDialog(args: {
         workflowParams: { ...(draft.workflowParams || {}) },
         providerOptions: { ...(draft.providerOptions || {}) },
         runOptions: toRunOptionsFormValues(draft.runOptions),
+        hostOptions: {
+          queueSupported: descriptor.hostQueueSupported,
+          maxConcurrency: draft.hostOptions?.queue?.maxConcurrency,
+          ...(hostValidationReasonCode
+            ? { validationReasonCode: hostValidationReasonCode }
+            : {}),
+        },
+        executionUnitPreview,
+        layout: resolveWorkflowSettingsDialogLayout({
+          hostQueueSupported: descriptor.hostQueueSupported,
+          executionUnitPreview,
+        }),
         hasConfigurableSettings: descriptor.hasConfigurableSettings,
         canRefreshAcpRuntimeCache:
           resolveSelectedBackendForSnapshot()?.type === ACP_BACKEND_TYPE,
@@ -632,11 +711,28 @@ export async function openWorkflowSettingsWebDialog(args: {
       }
       if (action === "update-draft") {
         const payload = envelope.payload || {};
-        draft = normalizeExecutionOptions(payload.executionOptions);
         const changedSection = normalizeDraftChangedSection(
           payload.changedSection,
         );
         const changedKey = normalizeDraftChangedKey(payload.changedKey);
+        const previousBackendId = String(
+          draft.backendId || descriptor.selectedProfile || "",
+        ).trim();
+        const nextDraft = normalizeExecutionOptions(payload.executionOptions);
+        const nextBackendId = String(nextDraft.backendId || "").trim();
+        draft =
+          changedSection === "backend" && changedKey === "backendId"
+            ? {
+                ...nextDraft,
+                providerOptions: rebaseWorkflowProviderOptionsForBackendChange({
+                  workflow: args.workflow,
+                  previousBackendId,
+                  nextBackendId,
+                  options: nextDraft.providerOptions,
+                  candidateBackends,
+                }),
+              }
+            : nextDraft;
         if (
           isStructuralDraftChange({
             changedSection,
@@ -743,19 +839,27 @@ export async function openWorkflowSettingsWebDialog(args: {
           pushSnapshot("workflow-settings-dialog:snapshot");
           return;
         }
-        const payloadExecutionOptions = normalizeExecutionOptions(
-          isObject(envelope.payload)
-            ? (envelope.payload.executionOptions as unknown)
-            : undefined,
-        );
-        const finalExecutionOptions =
-          isObject(envelope.payload) &&
-          Object.prototype.hasOwnProperty.call(
-            envelope.payload,
-            "executionOptions",
-          )
-            ? payloadExecutionOptions
-            : normalizeExecutionOptions(draft);
+        let finalExecutionOptions: WorkflowExecutionOptions;
+        try {
+          const payloadExecutionOptions = normalizeExecutionOptions(
+            isObject(envelope.payload)
+              ? (envelope.payload.executionOptions as unknown)
+              : undefined,
+          );
+          finalExecutionOptions =
+            isObject(envelope.payload) &&
+            Object.prototype.hasOwnProperty.call(
+              envelope.payload,
+              "executionOptions",
+            )
+              ? payloadExecutionOptions
+              : normalizeExecutionOptions(draft);
+          hostValidationReasonCode = "";
+        } catch {
+          hostValidationReasonCode = "invalid_host_queue_max_concurrency";
+          pushSnapshot("workflow-settings-dialog:snapshot");
+          return;
+        }
         result = {
           status: "confirmed",
           executionOptions: finalExecutionOptions,

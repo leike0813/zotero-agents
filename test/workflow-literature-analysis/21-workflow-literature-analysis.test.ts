@@ -2494,12 +2494,18 @@ describe("workflow: literature-analysis", function () {
         workflow: workflow!,
         selectionContext: context,
       })) as unknown as Array<unknown> & {
-        __stats?: { skippedUnits?: number; totalUnits?: number };
+        __stats?: {
+          skippedUnits?: number;
+          totalUnits?: number;
+          candidateStats?: { total?: number; skipped?: number };
+        };
       };
 
       assert.lengthOf(requests, 1);
-      assert.equal(requests.__stats?.totalUnits, 2);
-      assert.equal(requests.__stats?.skippedUnits, 1);
+      assert.equal(requests.__stats?.totalUnits, 1);
+      assert.equal(requests.__stats?.skippedUnits, 0);
+      assert.equal(requests.__stats?.candidateStats?.total, 2);
+      assert.equal(requests.__stats?.candidateStats?.skipped, 1);
     },
   );
 

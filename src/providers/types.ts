@@ -83,6 +83,7 @@ export type ProviderRuntimeOptionType = "string" | "number" | "boolean";
 
 export type ProviderRuntimeOptionSchemaEntry = {
   type: ProviderRuntimeOptionType;
+  retention?: "workflow" | "backend";
   title?: string;
   description?: string;
   placeholder?: string;

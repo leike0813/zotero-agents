@@ -1,6 +1,9 @@
 {
+  "schemaVersion": 2,
   "id": "tag-bootstrapper",
   "label": "Tag Bootstrapper",
+  "description": "Bootstrap the controlled tag vocabulary from current library evidence and reviewable suggestions.",
+  "executionModes": ["auto"],
   "provider": "skillrunner",
   "version": "0.1.0",
   "display": {
@@ -11,7 +14,18 @@
     "requiresSelection": false
   },
   "inputs": {
-    "unit": "workflow"
+    "member": {
+      "kind": "selection"
+    },
+    "grouping": {
+      "mode": "all"
+    }
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "selection"
+    },
+    "filters": []
   },
   "request": {
     "kind": "skillrunner.job.v1",

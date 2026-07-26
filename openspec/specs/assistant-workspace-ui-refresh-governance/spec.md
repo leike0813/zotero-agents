@@ -9,13 +9,21 @@ Assistant Workspace panels SHALL classify runtime refreshes as `critical`,
 `boundary`, `live`, or `background` and SHALL apply the global `live`,
 `boundary`, or `silent` execution display mode before publishing.
 
-Critical events SHALL publish immediately and background events SHALL not publish. In `live`, text/thought live events SHALL publish naturally and metadata live events SHALL use the shared cadence. In `boundary`, live text SHALL remain unpublished until a complete semantic message or other existing boundary. In `silent`, ordinary live and boundary events SHALL not publish transcript content; only a semantic-message count change or critical interaction/terminal state SHALL publish.
+Scheduling urgency and transcript eligibility SHALL be additive. A critical event SHALL publish immediately, but in live mode it SHALL NOT suppress changed UI-visible transcript content or cancel a queued live transcript without publishing equivalent content. Background events SHALL not publish. In `live`, text/thought live events SHALL publish naturally and metadata live events SHALL use the shared cadence. In `boundary`, live text SHALL remain unpublished until a complete semantic message or other existing boundary. In `silent`, ordinary live and boundary events SHALL not publish transcript content; only a semantic-message count change or critical interaction/terminal state SHALL publish.
 
 #### Scenario: live text advances naturally
 
 - **GIVEN** execution display mode is `live`
 - **WHEN** a panel receives text or thought chunks
 - **THEN** the UI-visible transcript advances without waiting for metadata cadence.
+
+#### Scenario: critical refresh retains concurrent live transcript
+
+- **GIVEN** execution display mode is `live`
+- **AND** a selected owner's UI-visible transcript changed
+- **WHEN** a critical lifecycle or metadata refresh publishes before a queued live refresh
+- **THEN** the critical snapshot SHALL include the changed transcript
+- **AND** the transcript revision SHALL advance exactly once for that published mirror state.
 
 #### Scenario: boundary mode preserves message publication
 
@@ -357,6 +365,22 @@ Transcript loading indicators SHALL be scoped by the selected transcript owner, 
 - **WHEN** only run `B` transcript revision, event sequence, item count, or preview changes
 - **THEN** the Assistant Workspace host snapshot signature SHALL remain unchanged for the selected loading snapshot
 - **AND** the child panel SHALL NOT receive a repost that can rebuild owner `A` loading DOM.
+
+### Requirement: Waiting-user regions are independently signature-guarded
+
+Toolbar, banner, plan, hint, reply, context drawer, details drawer, permission drawer, and file-interaction regions SHALL each use stable signatures limited to their visible content and open/collapsed state. Transcript revisions, pages, chunks, counts, loading state, prompting tails, and log tails SHALL NOT enter those signatures.
+
+#### Scenario: Transcript-only snapshot arrives during waiting-user state
+
+- **WHEN** the selected owner's transcript changes but waiting-user content does not
+- **THEN** only the transcript region SHALL render
+- **AND** all non-transcript managed-region DOM identities SHALL be preserved
+
+#### Scenario: Interaction hint changes
+
+- **WHEN** only a visible interaction hint changes
+- **THEN** only the hint region SHALL update
+- **AND** reply and transcript DOM identities SHALL be preserved
 
 ### Requirement: Message counter preserves managed-region identity
 
@@ -706,3 +730,52 @@ while preserving the mount node.
 - **THEN** counter item nodes SHALL be preserved by identity
 - **AND** every other managed region's subtree SHALL be element-wise
   identical.
+
+### Requirement: Queue-only updates SHALL be isolated to task-drawer managed regions
+
+ACP Skills and SkillRunner queue subscription events MUST update only the task
+drawer region whose visible queue projection changed. Queue revisions, queue
+counts, FIFO positions, or cancellation state MUST NOT enter transcript,
+toolbar, banner, plan, hint, reply, context drawer, details drawer, permission
+drawer, or whole-runner render signatures.
+
+#### Scenario: Background queued unit is added
+
+- **WHEN** a Host-queued unit is added for a backend represented in the task drawer
+- **THEN** the affected drawer section SHALL update
+- **AND** existing transcript and non-drawer managed-region DOM identities SHALL remain unchanged
+
+#### Scenario: Queued unit is canceled
+
+- **WHEN** a queued row disappears after cancellation
+- **THEN** only the affected queued backend group and necessary parent drawer signatures SHALL change
+- **AND** the selected run owner and transcript window SHALL remain unchanged
+
+#### Scenario: Queue changes for an unchanged drawer group
+
+- **WHEN** a queue notification does not alter a rendered drawer group's visible content
+- **THEN** that group's signature guard SHALL suppress DOM clear or rebuild
+
+### Requirement: Task-section collapse state SHALL have a drawer-owned signature
+
+The Running, Queued, and Completed sections and their backend groups MUST
+preserve collapse state through unrelated transcript, run-status, and queue
+updates. Their signatures MUST contain only the user-visible rows and
+drawer-owned open/collapsed state.
+
+#### Scenario: Transcript streams while queued section is collapsed
+
+- **WHEN** transcript-only updates arrive while the user has collapsed a queued section or backend group
+- **THEN** the collapse state and drawer DOM identity SHALL remain stable
+
+#### Scenario: User collapses a running or completed section
+
+- **WHEN** the user toggles the Running or Completed section header
+- **THEN** only that section's drawer-owned collapse state SHALL change
+- **AND** transcript and non-drawer managed-region DOM identities SHALL remain stable
+
+#### Scenario: A row is added to an expanded backend group
+
+- **WHEN** a queued row is added to an expanded backend group
+- **THEN** the group SHALL remain expanded
+- **AND** unrelated backend groups SHALL retain their DOM identity

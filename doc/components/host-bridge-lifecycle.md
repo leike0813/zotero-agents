@@ -6,6 +6,14 @@ Host Bridge is the plugin's embedded HTTP server. It provides a local HTTP API
 for the `zotero-bridge` CLI and ACP agents to interact with Zotero: inspecting
 the library, submitting workflows, downloading files, and calling capabilities.
 
+This document covers the embedded server's lifecycle and authorization
+boundary. It is not the design source for agent-facing task policy or resident
+automation. The three-layer composition and its public Skill contracts are
+defined in [Host Bridge Agent-facing Surfaces](host-bridge-agent-surfaces.md).
+The Hermes resident service is a separate one-pass CLI client of Host Bridge:
+it owns its local `state.sqlite` cache/journal and cron routing, while this
+server remains the authoritative HTTP control plane and approval boundary.
+
 By default the server listens on `127.0.0.1` with a random port in the
 `26570–26869` range. It supports pinned ports, LAN mode (`0.0.0.0`), and
 automatic supervised recovery.

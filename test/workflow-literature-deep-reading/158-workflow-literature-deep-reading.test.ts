@@ -665,13 +665,19 @@ describe("workflow: literature-deep-reading", function () {
       workflow,
       selectionContext: await buildSelectionContext([keepParent, skipParent]),
     })) as Array<{ sourceAttachmentPaths?: string[] }> & {
-      __stats?: { totalUnits?: number; skippedUnits?: number };
+      __stats?: {
+        totalUnits?: number;
+        skippedUnits?: number;
+        candidateStats?: { total?: number; skipped?: number };
+      };
     };
 
     assert.lengthOf(requests, 1);
     assert.equal(requests[0].sourceAttachmentPaths?.[0], keepPath);
-    assert.equal(requests.__stats?.totalUnits, 2);
-    assert.equal(requests.__stats?.skippedUnits, 1);
+    assert.equal(requests.__stats?.totalUnits, 1);
+    assert.equal(requests.__stats?.skippedUnits, 0);
+    assert.equal(requests.__stats?.candidateStats?.total, 2);
+    assert.equal(requests.__stats?.candidateStats?.skipped, 1);
   });
 
   it("does not filter when only a non-target sidecar directory exists", async function () {

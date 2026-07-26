@@ -224,6 +224,7 @@ function withDefaultPanel(source) {
         submitLabel: labelOf(input, "actions.send", "Send"),
         sending: false,
         action: "reply",
+        payload: {},
         tone: "primary",
         controls: [],
         showUsageGauge: false,
@@ -1022,6 +1023,7 @@ function renderAssistantHint(container, snapshot, options) {
   container.classList.toggle("hidden", kind === "hidden");
   clear(target);
   if (kind === "hidden") return;
+  const pending = interaction.pendingInteraction || {};
   const row = el("div", "assistant-panel-hint-row");
   const ledTone =
     kind === "running" || kind === "repairing"
@@ -1034,11 +1036,12 @@ function renderAssistantHint(container, snapshot, options) {
             ? "is-success"
             : "is-muted";
   row.appendChild(el("span", "asst-led " + ledTone));
-  row.appendChild(
-    el(
-      "span",
-      "",
-      safeText(interaction.title || interaction.message || interaction.label) ||
+  const interactionMessage =
+    kind === "waiting_user" && safeText(pending.prompt)
+      ? safeText(pending.prompt)
+      : safeText(
+          interaction.title || interaction.message || interaction.label,
+        ) ||
         (kind === "running"
           ? labelOf(
               panel,
@@ -1081,21 +1084,14 @@ function renderAssistantHint(container, snapshot, options) {
                           "interaction.authenticationRequiredMessage",
                           "Authentication required.",
                         )
-                      : kind),
-    ),
-  );
-  const pending = interaction.pendingInteraction || {};
-  if (kind === "waiting_user") {
-    const prompt =
-      safeText(pending.uiHints && pending.uiHints.prompt) ||
-      labelOf(
-        panel,
-        "interaction.waitingReply",
-        "Agent is waiting for your reply.",
-      );
-    row.lastChild.textContent = prompt;
-  }
+                      : kind);
+  row.appendChild(el("span", "", interactionMessage));
   target.appendChild(row);
+  if (kind === "waiting_user" && safeText(pending.hint)) {
+    target.appendChild(
+      el("div", "assistant-panel-interaction-hint", safeText(pending.hint)),
+    );
+  }
   if (kind === "permission" || kind === "auth") {
     const permission = interaction.permission || {};
     const review =
@@ -1322,33 +1318,97 @@ function renderAssistantHint(container, snapshot, options) {
       target.appendChild(importBox);
     }
   }
-  const optionsList =
-    pending.uiHints && Array.isArray(pending.uiHints.options)
-      ? pending.uiHints.options
-      : [];
+  const optionsList = Array.isArray(pending.options) ? pending.options : [];
   if (kind === "waiting_user" && optionsList.length > 0) {
     const optionBox = el("div", "assistant-panel-hint-options");
     optionsList.forEach(function (entry) {
-      const value =
-        typeof entry === "string"
-          ? entry
-          : safeText(entry && (entry.value || entry.label || entry.text));
       const label =
         typeof entry === "string"
           ? entry
-          : safeText(entry && (entry.label || entry.value || entry.text));
+          : safeText(entry && (entry.label || entry.text));
       const button = el(
         "button",
         "asst-button-compact assistant-panel-hint-option",
-        label || value,
+        label,
       );
       button.type = "button";
+      button.disabled = !safeText(entry && entry.action);
       button.addEventListener("click", function () {
-        emit(options, "reply", { message: value || label });
+        emit(
+          options,
+          safeText(entry && entry.action),
+          entry && entry.payload && typeof entry.payload === "object"
+            ? entry.payload
+            : {},
+        );
       });
       optionBox.appendChild(button);
     });
     target.appendChild(optionBox);
+  }
+  const fileSlots = Array.isArray(pending.files) ? pending.files : [];
+  if (kind === "waiting_user" && fileSlots.length > 0) {
+    const fileBox = el("div", "assistant-panel-interaction-files");
+    fileSlots.forEach(function (file, index) {
+      const row = el("div", "assistant-panel-interaction-file");
+      const required = file && file.required === true;
+      row.appendChild(
+        el(
+          "span",
+          "assistant-panel-interaction-file-label",
+          safeText(file && file.name) || `File ${index + 1}`,
+        ),
+      );
+      row.appendChild(
+        el(
+          "small",
+          "assistant-panel-interaction-file-state",
+          required
+            ? labelOf(panel, "interaction.fileRequired", "Required")
+            : labelOf(panel, "interaction.fileOptional", "Optional"),
+        ),
+      );
+      if (safeText(file && file.hint)) {
+        row.appendChild(
+          el(
+            "small",
+            "assistant-panel-interaction-file-hint",
+            safeText(file.hint),
+          ),
+        );
+      }
+      fileBox.appendChild(row);
+    });
+    if (pending.fileReply && pending.fileReply.supported === true) {
+      const submit = el(
+        "button",
+        "asst-button-compact assistant-panel-interaction-file-submit",
+        labelOf(panel, "interaction.chooseFiles", "Choose files"),
+      );
+      submit.type = "button";
+      submit.disabled = !pending.fileAction;
+      submit.addEventListener("click", function () {
+        emit(
+          options,
+          safeText(pending.fileAction && pending.fileAction.action),
+          pending.fileAction && pending.fileAction.payload,
+        );
+      });
+      fileBox.appendChild(submit);
+    } else {
+      fileBox.appendChild(
+        el(
+          "div",
+          "assistant-panel-interaction-file-unavailable",
+          labelOf(
+            panel,
+            "interaction.fileReplyUnavailable",
+            "File replies are unavailable for this backend.",
+          ),
+        ),
+      );
+    }
+    target.appendChild(fileBox);
   }
 }
 
@@ -1429,7 +1489,13 @@ function renderAssistantReply(container, snapshot, options) {
     event.preventDefault();
     event.stopPropagation();
     if (!interruptAction) rememberReplyHistory(historyKey, input.value);
-    emit(options, replyAction || "reply", { message: safeText(input.value) });
+    emit(
+      options,
+      replyAction || "reply",
+      Object.assign({}, panel.reply.payload || {}, {
+        message: safeText(input.value),
+      }),
+    );
     resetReplyHistoryNavigation(historyKey);
     if (panel.reply.clearOnSend !== false && !interruptAction) input.value = "";
   });
@@ -1604,6 +1670,7 @@ function renderAssistantWorkspaceTaskAction(action, options) {
     "button",
     "assistant-workspace-drawer-task-action" +
       (safeText(item.icon) === "archive" ? " is-archive" : "") +
+      (safeText(item.icon) === "cancel" ? " is-cancel" : "") +
       (safeText(item.tone) ? " is-" + safeText(item.tone) : ""),
     "",
   );
@@ -1614,6 +1681,8 @@ function renderAssistantWorkspaceTaskAction(action, options) {
   button.setAttribute("aria-label", label);
   if (safeText(item.icon) === "archive") {
     button.appendChild(el("span", "zs-icon zs-icon-sm zs-icon-archive", ""));
+  } else if (safeText(item.icon) === "cancel") {
+    button.appendChild(el("span", "zs-icon zs-icon-sm zs-icon-close", ""));
   }
   button.addEventListener("click", function (event) {
     event.preventDefault();
@@ -1838,6 +1907,8 @@ function workspaceTaskSignature(task) {
         return [
           safeText(action && action.action),
           safeText(action && action.label),
+          safeText(action && action.icon),
+          safeText(action && action.tone),
           action && action.enabled === false ? "disabled" : "enabled",
         ].join(":");
       })
@@ -1854,6 +1925,9 @@ function workspaceDrawerStableSignature(sections, noticeText) {
       return [
         safeText(section && section.id),
         safeText(section && section.title),
+        section && section.hideTitle === true
+          ? "hidden-title"
+          : "visible-title",
         section && section.collapsed === true ? "collapsed" : "expanded",
         groups
           .map(function (group) {
@@ -1864,10 +1938,8 @@ function workspaceDrawerStableSignature(sections, noticeText) {
               ? group.finishedTasks
               : [];
             return [
-              safeText(
-                group &&
-                  (group.backendId || group.backendDisplayName || group.title),
-              ),
+              safeText(group && group.backendId),
+              safeText(group && (group.backendDisplayName || group.title)),
               group && group.disabled === true ? "disabled" : "enabled",
               group && group.collapsed === true ? "collapsed" : "expanded",
               active.map(workspaceTaskSignature).join(";"),
@@ -2306,15 +2378,15 @@ function renderAssistantWorkspaceTaskDrawer(target, panel, options) {
     const sectionId = safeText(section.id);
     const sectionTitle = safeText(section.title || sectionId || "Tasks");
     const sectionCollapsed =
-      sectionId === "completed" && section.collapsed === true;
+      section.collapsible === true && section.collapsed === true;
+    const sectionTone = ["running", "queued", "completed"].includes(sectionId)
+      ? sectionId
+      : "neutral";
     const sectionBox = el(
       "section",
       "assistant-workspace-drawer-section skillrunner-workspace-section" +
-        (sectionId === "completed"
-          ? " is-completed"
-          : sectionId === "running"
-            ? " is-running"
-            : " is-neutral") +
+        " is-" +
+        sectionTone +
         (sectionCollapsed ? " is-collapsed" : " is-expanded"),
     );
     sectionBox.setAttribute("data-assistant-section-id", sectionId);
@@ -2331,7 +2403,7 @@ function renderAssistantWorkspaceTaskDrawer(target, panel, options) {
       "div",
       "assistant-workspace-drawer-section-body skillrunner-workspace-section-body",
     );
-    if (sectionId === "completed") {
+    if (section.collapsible === true) {
       const toggle = el(
         "button",
         "assistant-workspace-drawer-section-toggle skillrunner-workspace-section-toggle",
@@ -2342,7 +2414,7 @@ function renderAssistantWorkspaceTaskDrawer(target, panel, options) {
       toggle.addEventListener("click", function (event) {
         event.preventDefault();
         event.stopPropagation();
-        emit(options, "toggle-drawer-section", { sectionId: "completed" });
+        emit(options, "toggle-drawer-section", { sectionId });
       });
       sectionBox.appendChild(toggle);
     } else if (section.hideTitle !== true) {
@@ -2776,6 +2848,14 @@ function replyRegionSignature(panel) {
   };
 }
 
+function hintRegionSignature(panel) {
+  const interaction =
+    panel && panel.interaction && typeof panel.interaction === "object"
+      ? panel.interaction
+      : {};
+  return interaction;
+}
+
 function permissionDrawerSignature(panel) {
   const drawers = panel && panel.drawers ? panel.drawers : {};
   const request =
@@ -2877,7 +2957,7 @@ function renderAssistantPanelSnapshot(snapshot, options) {
     renderManagedRegionIfChanged(
       opts.regions && opts.regions.hint,
       "hint",
-      panel.interaction,
+      hintRegionSignature(panel),
       function () {
         renderAssistantHint(
           opts.regions && opts.regions.hint,
@@ -2888,16 +2968,13 @@ function renderAssistantPanelSnapshot(snapshot, options) {
     );
   }
   if (shouldManageRegion(opts, "reply")) {
+    const replyRegion = opts.regions && opts.regions.reply;
     renderManagedRegionIfChanged(
-      opts.regions && opts.regions.reply,
+      replyRegion,
       "reply",
       replyRegionSignature(panel),
       function () {
-        renderAssistantReply(
-          opts.regions && opts.regions.reply,
-          managedSnapshot,
-          opts,
-        );
+        renderAssistantReply(replyRegion, managedSnapshot, opts);
       },
     );
   }

@@ -14,7 +14,7 @@ function normalize(value: unknown) {
     .toLowerCase();
 }
 
-function isKiloNoneInvalidParametersFallback(args: {
+function isKiloEffortInvalidParametersFallback(args: {
   backend: BackendInstance | undefined;
   category: AcpSessionConfigCategory;
   value: string;
@@ -29,9 +29,9 @@ function isKiloNoneInvalidParametersFallback(args: {
     !!args.backend &&
     resolveAcpAgentFamily(args.backend) === "kilo" &&
     normalize(args.category) === "thought_level" &&
-    normalize(args.value) === "none" &&
     args.error instanceof RequestError &&
-    args.error.code === -32602
+    args.error.code === -32602 &&
+    /effort/i.test(String(args.error.message || ""))
   );
 }
 
@@ -56,7 +56,7 @@ export async function applyAcpReasoningEffortWithFallback(args: {
       value: args.effortId,
       error,
     };
-    if (isKiloNoneInvalidParametersFallback(fallbackArgs)) {
+    if (isKiloEffortInvalidParametersFallback(fallbackArgs)) {
       return { kind: "fallback", error: fallbackArgs.error };
     }
     throw error;

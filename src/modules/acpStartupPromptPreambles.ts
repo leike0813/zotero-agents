@@ -49,8 +49,10 @@ export async function buildAcpStartupPromptPreamble(
     replacements: {
       HOST_BRIDGE_SKILL_ID: HOST_BRIDGE_CLI_SKILL_ID,
       INSTRUCTION_FILE:
-        normalizeString(context.instructionFile) ||
-        resolveAcpStartupInstructionFile(),
+        context.surface === "acp-chat"
+          ? "AGENTS.md"
+          : normalizeString(context.instructionFile) ||
+            resolveAcpStartupInstructionFile(),
       SURFACE: displaySurface(context.surface),
       WORKSPACE_DIR: normalizeString(context.workspaceDir) || "(unknown)",
     },

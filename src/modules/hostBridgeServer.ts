@@ -25,7 +25,11 @@ import {
   getHostBridgeSkillRun,
   getHostBridgeWorkflowRunStatus,
   applyHostBridgeWorkflowAgentRun,
+  abandonHostBridgeWorkflowAgentRun,
   getHostBridgeWorkflowAgentRunApplyReceipt,
+  describeHostBridgeProviderProfile,
+  listHostBridgeProviderProfiles,
+  validateHostBridgeProviderProfile,
   listHostBridgeActiveTasks,
   listHostBridgeNotifications,
   listHostBridgeRecentSkillRuns,
@@ -33,13 +37,20 @@ import {
   listHostBridgeSkillRunEvents,
   listHostBridgeTasks,
   listHostBridgeWorkflowRuns,
+  listHostBridgeWorkflowQueue,
+  getHostBridgeWorkflowSubmission,
+  cancelHostBridgeWorkflowQueueUnit,
   listHostBridgeWorkflows,
   replyHostBridgeSkillRun,
+  renewHostBridgeWorkflowAgentRun,
   submitHostBridgeWorkflow,
   type HostBridgeTaskFilters,
   type HostBridgeWorkflowAgentApplyRequest,
   type HostBridgeWorkflowAgentRunRequest,
   type HostBridgeWorkflowDescribeRequest,
+  type HostBridgeWorkflowValidateRequest,
+  type HostBridgeProviderProfileDescribeRequest,
+  type HostBridgeProviderProfileValidateRequest,
   type HostBridgeWorkflowSubmitRequest,
 } from "./hostBridgeWorkflowControl";
 import {
@@ -61,6 +72,17 @@ import {
   type PreparedMemoryHttpResponse,
   type RuntimeMemoryResponseTransfer,
 } from "./runtimeHttpResponse";
+import { createSha256Accumulator } from "../utils/sha256";
+import {
+  completeHostBridgeOperation,
+  getHostBridgeOperation,
+  markHostBridgeOperationOutcomeUnknown,
+  recoverHostBridgeOperationStoreAfterRestart,
+  reserveHostBridgeOperation,
+  resetHostBridgeOperationStoreForTests,
+  type HostBridgeOperationResponse,
+} from "./hostBridgeOperationStore";
+import { recoverHostBridgeAgentRunStoreAfterRestart } from "./hostBridgeWorkflowAgentRunStore";
 import {
   HostBridgePermissionError,
   getHostBridgePermissionProjection,
@@ -90,9 +112,14 @@ import {
   ZoteroNoteNotFoundError,
 } from "./zoteroHostCapabilityBroker";
 import { ZoteroLibraryCursorError } from "./zoteroLibraryPageQuery";
+import {
+  HostBridgeCursorError,
+  paginateHostBridgeRows,
+} from "./hostBridgePagination";
 import { resetHostBridgeAgentRunStoreForTests } from "./hostBridgeWorkflowAgentRunStore";
 import { registerBackgroundRefreshTimer } from "./backgroundRefreshGovernance";
 import {
+  HOST_BRIDGE_CLI_SCHEMA,
   HOST_BRIDGE_PROTOCOL_VERSION,
   hostBridgeError,
   hostBridgeOk,
@@ -111,7 +138,10 @@ import {
 import { writeHostBridgeWellKnownProfile } from "./hostBridgeProfileStore";
 import { loadBackendsRegistry } from "../backends/registry";
 import type { BackendInstance } from "../backends/types";
-import { invalidateDefaultSynthesisService } from "./synthesis/service";
+import {
+  invalidateDefaultSynthesisService,
+  SynthesisMaintenanceError,
+} from "./synthesis/service";
 import { getPref, setPref } from "../utils/prefs";
 import {
   beginHostHttpRequestRead,
@@ -177,6 +207,17 @@ type HttpRequest = {
   parseError?: string;
 };
 
+type HostBridgeTransportContext = {
+  peerHost: string;
+  peerPort: number;
+  peerLocality: "local" | "remote" | "unknown";
+};
+
+const trustedTransportContexts = new WeakMap<
+  HttpRequest,
+  HostBridgeTransportContext
+>();
+
 type HttpResponseArgs = {
   status: number;
   reason: string;
@@ -196,6 +237,7 @@ type RawHttpResponse =
 type AcceptedHostConnection = {
   generation: number;
   transport: any;
+  transportContext: HostBridgeTransportContext;
   outputStream: any;
   requestRead: ProfiledHostBridgeRequestReadOperation;
   responseTransfer?:
@@ -631,6 +673,114 @@ function parseJsonBody(body: string): unknown {
   return JSON.parse(trimmed);
 }
 
+async function hostBridgeOperationRequestDigest(
+  request: HttpRequest,
+  transportContext: HostBridgeTransportContext,
+) {
+  const query = Object.fromEntries(
+    Object.entries(request.query).sort(([left], [right]) =>
+      left.localeCompare(right),
+    ),
+  );
+  const prefix = new TextEncoder().encode(
+    JSON.stringify({
+      method: request.method,
+      path: request.path,
+      query,
+      connectionMode: parseConnectionModeHeader(request, transportContext),
+      contentType: String(request.headers["content-type"] || "").trim(),
+      displayName: String(
+        request.headers["x-zotero-bridge-display-name"] || "",
+      ).trim(),
+    }),
+  );
+  const accumulator = await createSha256Accumulator();
+  if (!accumulator) return undefined;
+  accumulator.update(prefix);
+  accumulator.update(Uint8Array.of(0));
+  accumulator.update(request.bodyBytes);
+  return `sha256:${accumulator.digestHex()}`;
+}
+
+function operationIdFromRequest(request: HttpRequest) {
+  return String(request.headers["x-zotero-bridge-operation-id"] || "").trim();
+}
+
+function isOperationReceiptPath(path: string) {
+  return path.startsWith("/bridge/v1/operations/");
+}
+
+function isStateChangingHostBridgeRequest(request: HttpRequest) {
+  if (request.method === "GET" || isOperationReceiptPath(request.path)) {
+    return false;
+  }
+  if (request.path === "/bridge/v1/call") {
+    try {
+      const payload = parseJsonBody(request.body) as HostBridgeCallRequest;
+      return (
+        getHostBridgeCapability(String(payload.capability || "").trim())
+          ?.requestEffect === "state-change"
+      );
+    } catch {
+      return false;
+    }
+  }
+  const exact = new Set([
+    "/bridge/v1/context/selection/open",
+    "/bridge/v1/context/items/open",
+    "/bridge/v1/context/collections/open",
+    "/bridge/v1/context/notes/open",
+    "/bridge/v1/workflows/submit",
+    "/bridge/v1/workflows/agent-run",
+    "/bridge/v1/notifications/ack",
+    "/bridge/v1/synthesis/cache/invalidate",
+    "/bridge/v1/files/upload",
+  ]);
+  if (exact.has(request.path)) return true;
+  return (
+    /^\/bridge\/v1\/workflows\/agent-runs\/[^/]+\/(apply|renew|abandon)$/.test(
+      request.path,
+    ) ||
+    /^\/bridge\/v1\/workflows\/runs\/[^/]+\/cancel$/.test(request.path) ||
+    /^\/bridge\/v1\/workflows\/queue\/[^/]+\/cancel$/.test(request.path) ||
+    /^\/bridge\/v1\/skill-runs\/[^/]+\/(reply|connect)$/.test(request.path)
+  );
+}
+
+function operationResponseFromRaw(
+  raw: RawHttpResponse,
+): HostBridgeOperationResponse | null {
+  if (raw.kind !== "memory") return null;
+  const statusLine = String(raw.headers.split("\r\n", 1)[0] || "");
+  const match = /^HTTP\/1\.1\s+(\d+)\s+(.*)$/.exec(statusLine);
+  if (!match) return null;
+  const text = new TextDecoder().decode(raw.bodyBytes);
+  let body: unknown = null;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    body = text;
+  }
+  return {
+    status: Number(match[1]),
+    reason: match[2] || "OK",
+    body,
+  };
+}
+
+function operationReplayResponse(
+  record: NonNullable<ReturnType<typeof getHostBridgeOperation>>,
+) {
+  if (record.state === "completed" && record.response) {
+    return buildHttpResponse(record.response);
+  }
+  return buildHttpResponse({
+    status: 202,
+    reason: "Accepted",
+    body: hostBridgeOk(record),
+  });
+}
+
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error || "");
 }
@@ -641,8 +791,18 @@ function workflowValidationErrorCode(
 ): HostBridgeErrorCode {
   const code = (error as { code?: string })?.code;
   return code === "invalid_workflow_describe_request" ||
+    code === "invalid_workflow_validate_request" ||
     code === "invalid_workflow_agent_run_request" ||
     code === "invalid_workflow_submit_request" ||
+    code === "invalid_provider_profile_request" ||
+    code === "invalid_provider_profile" ||
+    code === "provider_profile_backend_not_found" ||
+    code === "provider_profile_backend_unready" ||
+    code === "provider_profile_provider_unavailable" ||
+    code === "provider_profile_option_unknown" ||
+    code === "provider_profile_option_invalid" ||
+    code === "provider_profile_option_unavailable" ||
+    code === "workflow_provider_incompatible" ||
     code === "missing_required_workflow_parameter"
     ? code
     : fallback;
@@ -666,7 +826,14 @@ function parsePermissionScopeHeader(request: HttpRequest) {
     return null;
   }
   try {
-    return parseHostBridgePermissionScope(JSON.parse(raw));
+    const scope = parseHostBridgePermissionScope(JSON.parse(raw));
+    const transportContext = trustedTransportContexts.get(request);
+    return scope && transportContext
+      ? {
+          ...scope,
+          connectionMode: parseConnectionModeHeader(request, transportContext),
+        }
+      : scope;
   } catch {
     return null;
   }
@@ -697,11 +864,48 @@ function hostOperationClass(
 
 function parseConnectionModeHeader(
   request: HttpRequest,
+  transportContext: HostBridgeTransportContext,
 ): HostBridgeConnectionMode {
   const value = String(request.headers["x-zotero-bridge-connection-mode"] || "")
     .trim()
     .toLowerCase();
-  return value === "remote" ? "remote" : "local";
+  return transportContext.peerLocality === "local" && value !== "remote"
+    ? "local"
+    : "remote";
+}
+
+function isLoopbackPeerHost(hostRaw: unknown) {
+  const host = String(hostRaw || "")
+    .trim()
+    .replace(/^\[|\]$/g, "")
+    .toLowerCase();
+  if (host === "::1") return true;
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(host)?.[1];
+  const ipv4 = mapped || host;
+  const first = Number(ipv4.split(".")[0]);
+  return /^\d+\.\d+\.\d+\.\d+$/.test(ipv4) && first === 127;
+}
+
+function transportContextFromAcceptedTransport(
+  transport: any,
+): HostBridgeTransportContext {
+  let peerHost = "";
+  let peerPort = 0;
+  try {
+    peerHost = String(transport?.host || "").trim();
+    peerPort = Number(transport?.port || 0);
+  } catch {
+    return { peerHost: "", peerPort: 0, peerLocality: "unknown" };
+  }
+  return {
+    peerHost,
+    peerPort: Number.isInteger(peerPort) && peerPort > 0 ? peerPort : 0,
+    peerLocality: peerHost
+      ? isLoopbackPeerHost(peerHost)
+        ? "local"
+        : "remote"
+      : "unknown",
+  };
 }
 
 function permissionErrorResponse(error: HostBridgePermissionError) {
@@ -1023,6 +1227,39 @@ function buildCapabilityApprovalPrompt(
         "Managed asset files are retained for persistence cleanup and are not deleted immediately.",
     };
   }
+  if (
+    capability.name === "reference_sidecar.refresh" ||
+    capability.name === "citation_graph.update"
+  ) {
+    const object = isRecord(input) ? input : {};
+    const paperRefs = Array.isArray(object.paper_refs || object.paperRefs)
+      ? ((object.paper_refs || object.paperRefs) as unknown[])
+          .map((entry) => String(entry || "").trim())
+          .filter(Boolean)
+      : [];
+    const scope = String(
+      object.scope || (paperRefs.length ? "papers" : "library"),
+    ).trim();
+    const sidecar = capability.name === "reference_sidecar.refresh";
+    return {
+      title: sidecar
+        ? "Refresh the references sidecar?"
+        : "Update the citation graph?",
+      summary: sidecar
+        ? `Refresh reference facts for ${scope === "papers" ? `${paperRefs.length} paper(s)` : "the current library"}.`
+        : `Update the citation graph for ${scope === "papers" ? `${paperRefs.length} paper closure(s)` : "the current library"}.`,
+      detail: [
+        `Capability: ${capability.name}.`,
+        `Scope: ${scope}.`,
+        paperRefs.length
+          ? `Paper refs: ${paperRefs.slice(0, 10).join(", ")}${paperRefs.length > 10 ? ` and ${paperRefs.length - 10} more` : ""}.`
+          : "Paper refs: full library scope.",
+        sidecar
+          ? "This approval does not update the citation graph."
+          : "This approval does not refresh reference-sidecar facts.",
+      ].join("\n"),
+    };
+  }
   return {
     title: "Approve Host Bridge action?",
     summary: `Run "${capability.name}" from zotero-bridge.`,
@@ -1184,8 +1421,19 @@ function health(): HostBridgeHealth {
   };
 }
 
-function manifest(): HostBridgeManifest {
+function manifest(request?: HttpRequest) {
   const masterToken = getHostBridgeMasterTokenStatus();
+  const capabilities = listHostBridgeCapabilities();
+  const capabilityPage = request
+    ? paginateRequestRows(request, "bridge manifest", capabilities)
+    : {
+        page: capabilities,
+        nextCursor: "",
+        hasMore: false,
+        returned: capabilities.length,
+        total: capabilities.length,
+        limit: capabilities.length,
+      };
   return {
     protocol: HOST_BRIDGE_PROTOCOL_VERSION,
     endpoint: {
@@ -1201,7 +1449,12 @@ function manifest(): HostBridgeManifest {
       masterTokenConfigured: masterToken.configured,
       masterTokenMasked: masterToken.tokenMasked,
     },
-    capabilities: listHostBridgeCapabilities(),
+    capabilities: capabilityPage.page,
+    nextCursor: capabilityPage.nextCursor,
+    hasMore: capabilityPage.hasMore,
+    returned: capabilityPage.returned,
+    total: capabilityPage.total,
+    limit: capabilityPage.limit,
     workflowControl: getHostBridgeWorkflowControlManifest(),
     contextControl: {
       supported: true,
@@ -1229,7 +1482,7 @@ function manifest(): HostBridgeManifest {
     ...hostAccessRoutes(),
     cli: {
       supported: true,
-      schema: "zotero-bridge.cli.v1",
+      schema: HOST_BRIDGE_CLI_SCHEMA,
     },
   };
 }
@@ -1243,7 +1496,10 @@ function methodNotAllowed(message: string, allow: string) {
   );
 }
 
-async function callCapability(request: HttpRequest) {
+async function callCapability(
+  request: HttpRequest,
+  transportContext: HostBridgeTransportContext,
+) {
   if (request.method !== "POST") {
     return methodNotAllowed(
       "Capability call endpoint only supports POST",
@@ -1315,7 +1571,7 @@ async function callCapability(request: HttpRequest) {
     }
     const data = await capability.handler(payload.input, {
       getStatus: getHostBridgeServerStatus,
-      connectionMode: parseConnectionModeHeader(request),
+      connectionMode: parseConnectionModeHeader(request, transportContext),
       ...(synthesisServiceResolverForTests
         ? { resolveSynthesisService: synthesisServiceResolverForTests }
         : {}),
@@ -1353,6 +1609,29 @@ async function callCapability(request: HttpRequest) {
         error.code,
       );
     }
+    if (error instanceof HostBridgeCursorError) {
+      return paginationErrorResponse(error);
+    }
+    if (error instanceof SynthesisMaintenanceError) {
+      const conflict = error.code === "maintenance_idempotency_conflict";
+      const code = conflict
+        ? "synthesis_maintenance_idempotency_conflict"
+        : "invalid_capability_input";
+      return response(
+        conflict ? 409 : 400,
+        conflict ? "Conflict" : "Bad Request",
+        hostBridgeError(
+          code,
+          "Invalid Synthesis maintenance request",
+          "validation",
+          {
+            capability: capability.name,
+            reasonCode: error.code,
+          },
+        ),
+        code,
+      );
+    }
     return response(
       500,
       "Internal Server Error",
@@ -1377,6 +1656,7 @@ function parseWorkflowTaskFilters(query: Record<string, string>) {
     "backendId",
     "backendType",
     "requestId",
+    "submissionId",
     "runId",
     "state",
   ] as const) {
@@ -1460,6 +1740,65 @@ function parsePositiveLimit(query: Record<string, string>, fallback = 20) {
     return Math.max(1, Math.min(200, Math.floor(value)));
   }
   return fallback;
+}
+
+function paginationCriteria(query: Record<string, string>) {
+  return Object.fromEntries(
+    Object.entries(query)
+      .filter(([key]) => key !== "cursor" && key !== "limit")
+      .sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+function paginationRowKey(value: unknown) {
+  const object =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  for (const key of [
+    "queueId",
+    "submissionUnitId",
+    "permissionRequestId",
+    "eventId",
+    "skillRunId",
+    "workflowRunId",
+    "runId",
+    "requestId",
+    "id",
+    "key",
+  ]) {
+    const entry = String(object[key] || "").trim();
+    if (entry) return `${key}:${entry}`;
+  }
+  return stableTextFingerprint(value);
+}
+
+function paginateRequestRows<T>(
+  request: HttpRequest,
+  scope: string,
+  rows: readonly T[],
+  extraCriteria: Record<string, unknown> = {},
+) {
+  return paginateHostBridgeRows({
+    scope,
+    criteria: { ...paginationCriteria(request.query), ...extraCriteria },
+    rows,
+    key: paginationRowKey,
+    cursor: request.query.cursor,
+    limit: request.query.limit,
+  });
+}
+
+function paginationErrorResponse(error: HostBridgeCursorError) {
+  return response(
+    400,
+    "Bad Request",
+    hostBridgeError("invalid_host_bridge_cursor", error.message, "validation", {
+      reason: error.reason,
+      ...error.details,
+    }),
+    "invalid_host_bridge_cursor",
+  );
 }
 
 function stableTextFingerprint(value: unknown) {
@@ -1658,7 +1997,10 @@ async function listWorkflows(request: HttpRequest) {
   );
 }
 
-async function inspectProfile(request: HttpRequest) {
+async function inspectProfile(
+  request: HttpRequest,
+  transportContext: HostBridgeTransportContext,
+) {
   if (request.method !== "GET") {
     return methodNotAllowed(
       "Profile inspect endpoint only supports GET",
@@ -1680,7 +2022,7 @@ async function inspectProfile(request: HttpRequest) {
       generatedAt: nowIso(),
       protocol: currentManifest.protocol,
       endpoint: currentManifest.endpoint,
-      connectionMode: parseConnectionModeHeader(request),
+      connectionMode: parseConnectionModeHeader(request, transportContext),
       capabilities: {
         count: capabilities.length,
         fingerprint: stableTextFingerprint(capabilities),
@@ -1833,19 +2175,19 @@ async function validateWorkflow(request: HttpRequest) {
       "POST",
     );
   }
-  let payload: HostBridgeWorkflowSubmitRequest;
+  let payload: HostBridgeWorkflowValidateRequest;
   try {
-    payload = parseJsonBody(request.body) as HostBridgeWorkflowSubmitRequest;
+    payload = parseJsonBody(request.body) as HostBridgeWorkflowValidateRequest;
   } catch {
     return response(
       400,
       "Bad Request",
       hostBridgeError(
-        "invalid_workflow_submit_request",
+        "invalid_workflow_validate_request",
         "Workflow validate request body must be valid JSON",
         "validation",
       ),
-      "invalid_workflow_submit_request",
+      "invalid_workflow_validate_request",
     );
   }
   try {
@@ -1873,7 +2215,7 @@ async function validateWorkflow(request: HttpRequest) {
     }
     const validationCode = workflowValidationErrorCode(
       error,
-      "invalid_workflow_submit_request",
+      "invalid_workflow_validate_request",
     );
     return response(
       400,
@@ -1885,6 +2227,130 @@ async function validateWorkflow(request: HttpRequest) {
         workflowValidationErrorDetails(error),
       ),
       validationCode,
+    );
+  }
+}
+
+async function listProviderProfiles(request: HttpRequest) {
+  if (request.method !== "GET") {
+    return methodNotAllowed(
+      "Provider profile list endpoint only supports GET",
+      "GET",
+    );
+  }
+  try {
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(await listHostBridgeProviderProfiles()),
+    );
+  } catch (error) {
+    const code = workflowValidationErrorCode(
+      error,
+      "invalid_provider_profile_request",
+    );
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(code, errorMessage(error), "validation"),
+      code,
+    );
+  }
+}
+
+async function describeProviderProfile(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Provider profile describe endpoint only supports POST",
+      "POST",
+    );
+  }
+  let payload: HostBridgeProviderProfileDescribeRequest;
+  try {
+    payload = parseJsonBody(
+      request.body,
+    ) as HostBridgeProviderProfileDescribeRequest;
+  } catch {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "invalid_provider_profile_request",
+        "Provider profile describe request body must be valid JSON",
+        "validation",
+      ),
+      "invalid_provider_profile_request",
+    );
+  }
+  try {
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(await describeHostBridgeProviderProfile(payload)),
+    );
+  } catch (error) {
+    const code = workflowValidationErrorCode(
+      error,
+      "invalid_provider_profile_request",
+    );
+    const status = code === "provider_profile_backend_not_found" ? 404 : 400;
+    return response(
+      status,
+      status === 404 ? "Not Found" : "Bad Request",
+      hostBridgeError(
+        code,
+        errorMessage(error),
+        "validation",
+        (error as { details?: Record<string, unknown> }).details,
+      ),
+      code,
+    );
+  }
+}
+
+async function validateProviderProfile(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Provider profile validate endpoint only supports POST",
+      "POST",
+    );
+  }
+  let payload: HostBridgeProviderProfileValidateRequest;
+  try {
+    payload = parseJsonBody(
+      request.body,
+    ) as HostBridgeProviderProfileValidateRequest;
+  } catch {
+    return response(
+      400,
+      "Bad Request",
+      hostBridgeError(
+        "invalid_provider_profile",
+        "Provider profile validate request body must be valid JSON",
+        "validation",
+      ),
+      "invalid_provider_profile",
+    );
+  }
+  try {
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(await validateHostBridgeProviderProfile(payload)),
+    );
+  } catch (error) {
+    const code = workflowValidationErrorCode(error, "invalid_provider_profile");
+    const status = code === "provider_profile_backend_not_found" ? 404 : 400;
+    return response(
+      status,
+      status === 404 ? "Not Found" : "Bad Request",
+      hostBridgeError(
+        code,
+        errorMessage(error),
+        "validation",
+        (error as { details?: Record<string, unknown> }).details,
+      ),
+      code,
     );
   }
 }
@@ -1979,7 +2445,24 @@ async function submitWorkflow(request: HttpRequest) {
       payload,
       scope: parsePermissionScopeHeader(request),
     });
-    return response(200, "OK", hostBridgeOk(result));
+    const boundedResult =
+      result.admission === "direct"
+        ? {
+            workflowId: result.workflowId,
+            workflowLabel: result.workflowLabel,
+            admission: result.admission,
+            workflowRunId: result.workflowRunId,
+            totalJobs: result.totalJobs,
+            permission: result.permission,
+            runUrl: `/bridge/v1/workflows/runs/${encodeURIComponent(result.workflowRunId)}`,
+            tasksUrl: `/bridge/v1/tasks?runId=${encodeURIComponent(result.workflowRunId)}`,
+          }
+        : result;
+    return response(
+      result.admission === "host-queue" ? 202 : 200,
+      result.admission === "host-queue" ? "Accepted" : "OK",
+      hostBridgeOk(boundedResult),
+    );
   } catch (error) {
     if (error instanceof HostBridgePermissionError) {
       return permissionErrorResponse(error);
@@ -2052,7 +2535,16 @@ async function agentRunWorkflow(request: HttpRequest) {
   }
   try {
     const result = await buildHostBridgeWorkflowAgentRun({ payload });
-    return response(200, "OK", hostBridgeOk(result));
+    const { requests, ...boundedResult } = result;
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        ...boundedResult,
+        requestCount: requests.length,
+        bundleInspectCommand: `zotero-bridge workflow agent-bundle inspect --bundle ${result.bundle.file.displayName}`,
+      }),
+    );
   } catch (error) {
     const code = (error as { code?: string }).code;
     if (code === "workflow_not_found") {
@@ -2108,7 +2600,32 @@ async function applyAgentRunWorkflow(request: HttpRequest) {
         "agent_run_not_found",
       );
     }
-    return response(200, "OK", hostBridgeOk(receipt));
+    try {
+      const page = paginateRequestRows(
+        request,
+        "workflow agent-apply-status",
+        receipt.results,
+        { agentRunId },
+      );
+      return response(
+        200,
+        "OK",
+        hostBridgeOk({
+          ...receipt,
+          results: page.page,
+          nextCursor: page.nextCursor,
+          hasMore: page.hasMore,
+          returned: page.returned,
+          total: page.total,
+          limit: page.limit,
+        }),
+      );
+    } catch (error) {
+      if (error instanceof HostBridgeCursorError) {
+        return paginationErrorResponse(error);
+      }
+      throw error;
+    }
   }
   if (request.method !== "POST") {
     return methodNotAllowed(
@@ -2139,11 +2656,44 @@ async function applyAgentRunWorkflow(request: HttpRequest) {
       payload,
       scope: parsePermissionScopeHeader(request),
     });
-    return response(200, "OK", hostBridgeOk(result));
+    const { results: _results, warnings: _warnings, ...boundedResult } = result;
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        ...boundedResult,
+        receiptUrl: `/bridge/v1/workflows/agent-runs/${encodeURIComponent(agentRunId)}/apply`,
+      }),
+    );
   } catch (error) {
     if (error instanceof HostBridgePermissionError) {
       return permissionErrorResponse(error);
     }
+    return agentRunApplyErrorResponse(error);
+  }
+}
+
+async function changeAgentRunWorkflowLifecycle(
+  request: HttpRequest,
+  action: "renew" | "abandon",
+) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      `Workflow agent-run ${action} endpoint only supports POST`,
+      "POST",
+    );
+  }
+  const prefix = "/bridge/v1/workflows/agent-runs/";
+  const suffix = `/${action}`;
+  const encoded = request.path.slice(prefix.length, -suffix.length);
+  const agentRunId = safeDecodeURIComponent(encoded) || "";
+  try {
+    const result =
+      action === "renew"
+        ? renewHostBridgeWorkflowAgentRun(agentRunId)
+        : abandonHostBridgeWorkflowAgentRun(agentRunId);
+    return response(200, "OK", hostBridgeOk(result));
+  } catch (error) {
     return agentRunApplyErrorResponse(error);
   }
 }
@@ -2168,7 +2718,36 @@ async function getWorkflowRun(request: HttpRequest) {
       "workflow_run_not_found",
     );
   }
-  return response(200, "OK", hostBridgeOk(status));
+  try {
+    const page = paginateRequestRows(
+      request,
+      "run get",
+      status.skillRuns || [],
+      { runId },
+    );
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        ...status,
+        skillRuns: page.page,
+        pagination: {
+          skillRuns: {
+            nextCursor: page.nextCursor,
+            hasMore: page.hasMore,
+            returned: page.returned,
+            total: page.total,
+            limit: page.limit,
+          },
+        },
+      }),
+    );
+  } catch (error) {
+    if (error instanceof HostBridgeCursorError) {
+      return paginationErrorResponse(error);
+    }
+    return controlPlaneErrorResponse(error);
+  }
 }
 
 function controlPlaneErrorResponse(error: unknown) {
@@ -2176,6 +2755,32 @@ function controlPlaneErrorResponse(error: unknown) {
   const details =
     (error as { details?: Record<string, unknown> | undefined })?.details ||
     undefined;
+  if (code === "workflow_submission_not_found") {
+    return response(
+      404,
+      "Not Found",
+      hostBridgeError(
+        "workflow_submission_not_found" as HostBridgeErrorCode,
+        errorMessage(error),
+        "workflow",
+        details,
+      ),
+      "workflow_submission_not_found" as HostBridgeErrorCode,
+    );
+  }
+  if (code === "queue_unit_not_pending") {
+    return response(
+      409,
+      "Conflict",
+      hostBridgeError(
+        "queue_unit_not_pending" as HostBridgeErrorCode,
+        errorMessage(error),
+        "workflow",
+        details,
+      ),
+      "queue_unit_not_pending" as HostBridgeErrorCode,
+    );
+  }
   if (code === "workflow_run_not_found") {
     return response(
       404,
@@ -2273,6 +2878,7 @@ function agentRunApplyErrorResponse(error: unknown) {
     workflow_not_found: 404,
     agent_run_expired: 410,
     agent_run_already_consumed: 409,
+    agent_run_lifecycle_conflict: 409,
     unknown_request: 400,
     invalid_bundle: 422,
     apply_not_allowed: 409,
@@ -2337,30 +2943,198 @@ async function cancelWorkflowRun(request: HttpRequest) {
   }
 }
 
+async function listWorkflowQueue(request: HttpRequest) {
+  if (request.method !== "GET") {
+    return methodNotAllowed("Workflow queue endpoint only supports GET", "GET");
+  }
+  const backendType = String(request.query.backendType || "").trim();
+  const backendId = String(request.query.backendId || "").trim();
+  const scope =
+    (backendType === "acp" || backendType === "skillrunner") && backendId
+      ? {
+          backendType: backendType as "acp" | "skillrunner",
+          backendId,
+        }
+      : undefined;
+  try {
+    const result = listHostBridgeWorkflowQueue(scope);
+    const page = paginateRequestRows(
+      request,
+      "workflow queue list",
+      result.units,
+    );
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        ...result,
+        units: page.page,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        returned: page.returned,
+        total: page.total,
+        limit: page.limit,
+      }),
+    );
+  } catch (error) {
+    if (error instanceof HostBridgeCursorError) {
+      return paginationErrorResponse(error);
+    }
+    throw error;
+  }
+}
+
+async function getWorkflowSubmission(request: HttpRequest) {
+  if (request.method !== "GET") {
+    return methodNotAllowed(
+      "Workflow submission endpoint only supports GET",
+      "GET",
+    );
+  }
+  const prefix = "/bridge/v1/workflows/submissions/";
+  const submissionId =
+    safeDecodeURIComponent(request.path.slice(prefix.length)) || "";
+  try {
+    const result = getHostBridgeWorkflowSubmission(submissionId);
+    const page = paginateRequestRows(
+      request,
+      "workflow submission get",
+      result.units,
+    );
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        ...result,
+        units: page.page,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        returned: page.returned,
+        limit: page.limit,
+      }),
+    );
+  } catch (error) {
+    if (error instanceof HostBridgeCursorError) {
+      return paginationErrorResponse(error);
+    }
+    return controlPlaneErrorResponse(error);
+  }
+}
+
+async function cancelWorkflowQueueUnit(request: HttpRequest) {
+  if (request.method !== "POST") {
+    return methodNotAllowed(
+      "Workflow queue cancel endpoint only supports POST",
+      "POST",
+    );
+  }
+  const prefix = "/bridge/v1/workflows/queue/";
+  const suffix = "/cancel";
+  const queueId =
+    safeDecodeURIComponent(request.path.slice(prefix.length, -suffix.length)) ||
+    "";
+  try {
+    return response(
+      200,
+      "OK",
+      hostBridgeOk(cancelHostBridgeWorkflowQueueUnit(queueId)),
+    );
+  } catch (error) {
+    return controlPlaneErrorResponse(error);
+  }
+}
+
 async function listTasks(request: HttpRequest) {
   if (request.method !== "GET") {
     return methodNotAllowed("Task list endpoint only supports GET", "GET");
   }
-  const tasks = listHostBridgeTasks(parseWorkflowTaskFilters(request.query));
-  return response(200, "OK", hostBridgeOk({ tasks }));
+  try {
+    const page = paginateRequestRows(
+      request,
+      "run list",
+      listHostBridgeTasks(parseWorkflowTaskFilters(request.query)),
+    );
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        items: page.page,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        returned: page.returned,
+        total: page.total,
+        limit: page.limit,
+      }),
+    );
+  } catch (error) {
+    return error instanceof HostBridgeCursorError
+      ? paginationErrorResponse(error)
+      : controlPlaneErrorResponse(error);
+  }
 }
 
 async function listRecentTasks(request: HttpRequest) {
   if (request.method !== "GET") {
     return methodNotAllowed("Recent task endpoint only supports GET", "GET");
   }
-  const filters = parseWorkflowTaskFilters(request.query);
-  filters.limit = parsePositiveLimit(request.query);
-  return response(200, "OK", hostBridgeOk(listHostBridgeRecentTasks(filters)));
+  try {
+    const page = paginateRequestRows(
+      request,
+      "run recent",
+      listHostBridgeTasks({
+        ...parseWorkflowTaskFilters(request.query),
+        includeHistory: true,
+      }),
+    );
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        items: page.page,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        returned: page.returned,
+        total: page.total,
+        limit: page.limit,
+      }),
+    );
+  } catch (error) {
+    return error instanceof HostBridgeCursorError
+      ? paginationErrorResponse(error)
+      : controlPlaneErrorResponse(error);
+  }
 }
 
 async function listWorkflowRuns(request: HttpRequest) {
   if (request.method !== "GET") {
     return methodNotAllowed("Workflow runs endpoint only supports GET", "GET");
   }
-  const filters = parseWorkflowTaskFilters(request.query);
-  filters.limit = parsePositiveLimit(request.query);
-  return response(200, "OK", hostBridgeOk(listHostBridgeWorkflowRuns(filters)));
+  try {
+    const result = listHostBridgeWorkflowRuns(
+      parseWorkflowTaskFilters(request.query),
+    );
+    const page = paginateRequestRows(
+      request,
+      "run workflow recent",
+      result.runs,
+    );
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        runs: page.page,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        returned: page.returned,
+        total: page.total,
+        limit: page.limit,
+      }),
+    );
+  } catch (error) {
+    return error instanceof HostBridgeCursorError
+      ? paginationErrorResponse(error)
+      : controlPlaneErrorResponse(error);
+  }
 }
 
 async function listRecentSkillRuns(request: HttpRequest) {
@@ -2370,24 +3144,61 @@ async function listRecentSkillRuns(request: HttpRequest) {
       "GET",
     );
   }
-  const filters = parseWorkflowTaskFilters(request.query);
-  filters.limit = parsePositiveLimit(request.query);
-  return response(
-    200,
-    "OK",
-    hostBridgeOk(listHostBridgeRecentSkillRuns(filters)),
-  );
+  try {
+    const result = listHostBridgeRecentSkillRuns(
+      parseWorkflowTaskFilters(request.query),
+    );
+    const page = paginateRequestRows(
+      request,
+      "run skill recent",
+      result.skillRuns,
+    );
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        skillRuns: page.page,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        returned: page.returned,
+        total: page.total,
+        limit: page.limit,
+      }),
+    );
+  } catch (error) {
+    return error instanceof HostBridgeCursorError
+      ? paginationErrorResponse(error)
+      : controlPlaneErrorResponse(error);
+  }
 }
 
 async function listActiveTasks(request: HttpRequest) {
   if (request.method !== "GET") {
     return methodNotAllowed("Active task endpoint only supports GET", "GET");
   }
-  return response(
-    200,
-    "OK",
-    hostBridgeOk({ tasks: listHostBridgeActiveTasks() }),
-  );
+  try {
+    const page = paginateRequestRows(
+      request,
+      "run active",
+      listHostBridgeActiveTasks(),
+    );
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        tasks: page.page,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        returned: page.returned,
+        total: page.total,
+        limit: page.limit,
+      }),
+    );
+  } catch (error) {
+    return error instanceof HostBridgeCursorError
+      ? paginationErrorResponse(error)
+      : controlPlaneErrorResponse(error);
+  }
 }
 
 async function listPendingPermissions(request: HttpRequest) {
@@ -2397,11 +3208,29 @@ async function listPendingPermissions(request: HttpRequest) {
       "GET",
     );
   }
-  return response(
-    200,
-    "OK",
-    hostBridgeOk({ permissions: listHostBridgePendingPermissions() }),
-  );
+  try {
+    const page = paginateRequestRows(
+      request,
+      "run permission pending",
+      listHostBridgePendingPermissions(),
+    );
+    return response(
+      200,
+      "OK",
+      hostBridgeOk({
+        permissions: page.page,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        returned: page.returned,
+        total: page.total,
+        limit: page.limit,
+      }),
+    );
+  } catch (error) {
+    return error instanceof HostBridgeCursorError
+      ? paginationErrorResponse(error)
+      : controlPlaneErrorResponse(error);
+  }
 }
 
 async function getPermission(request: HttpRequest) {
@@ -2436,14 +3265,30 @@ async function getCurrentContext(request: HttpRequest) {
     );
   }
   try {
+    const currentView =
+      createZoteroHostCapabilityBrokerApis().context.getCurrentView();
+    const page = paginateRequestRows(
+      request,
+      "context current",
+      currentView.selectedItems || [],
+    );
     return response(
       200,
       "OK",
-      hostBridgeOk(
-        createZoteroHostCapabilityBrokerApis().context.getCurrentView(),
-      ),
+      hostBridgeOk({
+        ...currentView,
+        selectedItems: page.page,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        returned: page.returned,
+        total: page.total,
+        limit: page.limit,
+      }),
     );
   } catch (error) {
+    if (error instanceof HostBridgeCursorError) {
+      return paginationErrorResponse(error);
+    }
     return navigationErrorResponse(error);
   }
 }
@@ -2456,15 +3301,27 @@ async function getCurrentSelection(request: HttpRequest) {
     );
   }
   try {
+    const page = paginateRequestRows(
+      request,
+      "context selection get",
+      createZoteroHostCapabilityBrokerApis().context.getSelectedItems(),
+    );
     return response(
       200,
       "OK",
       hostBridgeOk({
-        items:
-          createZoteroHostCapabilityBrokerApis().context.getSelectedItems(),
+        items: page.page,
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
+        returned: page.returned,
+        total: page.total,
+        limit: page.limit,
       }),
     );
   } catch (error) {
+    if (error instanceof HostBridgeCursorError) {
+      return paginationErrorResponse(error);
+    }
     return navigationErrorResponse(error);
   }
 }
@@ -2494,6 +3351,9 @@ async function openContextItem(request: HttpRequest) {
       ),
     );
   } catch (error) {
+    if (error instanceof HostBridgeCursorError) {
+      return paginationErrorResponse(error);
+    }
     return navigationErrorResponse(error);
   }
 }
@@ -2523,6 +3383,9 @@ async function openContextNote(request: HttpRequest) {
       ),
     );
   } catch (error) {
+    if (error instanceof HostBridgeCursorError) {
+      return paginationErrorResponse(error);
+    }
     return navigationErrorResponse(error);
   }
 }
@@ -2581,16 +3444,44 @@ async function openContextSelection(request: HttpRequest) {
       : Array.isArray(payload)
         ? payload
         : [];
+    const result =
+      await createZoteroHostCapabilityBrokerApis().context.openSelection({
+        items: items as never[],
+      });
+    const target = asRequestObject(result.target);
+    const targetItems = Array.isArray(target.items) ? target.items : [];
+    const page = paginateRequestRows(
+      request,
+      "context selection open",
+      targetItems,
+      { items },
+    );
+    const currentView = asRequestObject(result.currentView);
     return response(
       200,
       "OK",
-      hostBridgeOk(
-        await createZoteroHostCapabilityBrokerApis().context.openSelection({
-          items: items as never[],
-        }),
-      ),
+      hostBridgeOk({
+        ...result,
+        target: { ...target, items: page.page },
+        currentView: {
+          ...currentView,
+          selectedItems: page.page,
+        },
+        pagination: {
+          items: {
+            nextCursor: page.nextCursor,
+            hasMore: page.hasMore,
+            returned: page.returned,
+            total: page.total,
+            limit: page.limit,
+          },
+        },
+      }),
     );
   } catch (error) {
+    if (error instanceof HostBridgeCursorError) {
+      return paginationErrorResponse(error);
+    }
     return navigationErrorResponse(error);
   }
 }
@@ -2743,15 +3634,29 @@ async function handleSkillRun(request: HttpRequest) {
           "GET",
         );
       }
+      const filters = parseSkillRunEventFilters(request.query);
+      const result = listHostBridgeSkillRunEvents(skillRunId, {
+        ...filters,
+        limit: 1000,
+      });
+      const page = paginateRequestRows(
+        request,
+        "run skill events",
+        result.events,
+        { skillRunId, sinceUpdatedAt: filters.sinceUpdatedAt },
+      );
       return response(
         200,
         "OK",
-        hostBridgeOk(
-          listHostBridgeSkillRunEvents(
-            skillRunId,
-            parseSkillRunEventFilters(request.query),
-          ),
-        ),
+        hostBridgeOk({
+          ...result,
+          events: page.page,
+          nextCursor: page.nextCursor,
+          hasMore: page.hasMore,
+          returned: page.returned,
+          total: page.total,
+          limit: page.limit,
+        }),
       );
     }
     return response(
@@ -2765,6 +3670,9 @@ async function handleSkillRun(request: HttpRequest) {
       "not_found",
     );
   } catch (error) {
+    if (error instanceof HostBridgeCursorError) {
+      return paginationErrorResponse(error);
+    }
     return controlPlaneErrorResponse(error);
   }
 }
@@ -2895,12 +3803,44 @@ function synthesisMaintenanceStatus(kind: "cache" | "index") {
   };
 }
 
-async function getSynthesisCacheStatus(request: HttpRequest) {
+async function getSynthesisCacheStatus(
+  request: HttpRequest,
+  transportContext: HostBridgeTransportContext,
+) {
   if (request.method !== "GET") {
     return methodNotAllowed(
       "Synthesis cache status endpoint only supports GET",
       "GET",
     );
+  }
+  const operationId = String(
+    request.query.operationId || request.query.operation_id || "",
+  ).trim();
+  if (operationId) {
+    const capability = getHostBridgeCapability("synthesis.operation.get");
+    if (!capability) {
+      return response(
+        503,
+        "Service Unavailable",
+        hostBridgeError(
+          "capability_not_found",
+          "Synthesis maintenance operation status is unavailable",
+          "capability",
+        ),
+        "capability_not_found",
+      );
+    }
+    const data = await capability.handler(
+      { operation_id: operationId },
+      {
+        getStatus: getHostBridgeServerStatus,
+        connectionMode: parseConnectionModeHeader(request, transportContext),
+        ...(synthesisServiceResolverForTests
+          ? { resolveSynthesisService: synthesisServiceResolverForTests }
+          : {}),
+      },
+    );
+    return response(200, "OK", hostBridgeOk(data));
   }
   return response(200, "OK", hostBridgeOk(synthesisMaintenanceStatus("cache")));
 }
@@ -2996,7 +3936,10 @@ async function invalidateSynthesisCache(request: HttpRequest) {
   }
 }
 
-async function handleHttpRequestImpl(request: HttpRequest) {
+async function handleHttpRequestImpl(
+  request: HttpRequest,
+  transportContext: HostBridgeTransportContext,
+) {
   updateState({
     requestCount: state.requestCount + 1,
     lastRequestMethod: `${request.method} ${request.path}`,
@@ -3077,178 +4020,347 @@ async function handleHttpRequestImpl(request: HttpRequest) {
     );
   }
 
-  if (request.path === "/bridge/v1/manifest") {
+  if (isOperationReceiptPath(request.path)) {
     if (request.method !== "GET") {
-      return response(
-        405,
-        "Method Not Allowed",
-        hostBridgeError(
-          "method_not_allowed",
-          "Manifest endpoint only supports GET",
-          "routing",
-          { allow: "GET" },
-        ),
-        "method_not_allowed",
+      return methodNotAllowed(
+        "Operation receipt endpoint only supports GET",
+        "GET",
       );
     }
-    return response(200, "OK", hostBridgeOk(manifest()));
+    const prefix = "/bridge/v1/operations/";
+    const operationId =
+      safeDecodeURIComponent(request.path.slice(prefix.length)) || "";
+    const record = getHostBridgeOperation(operationId);
+    if (!record) {
+      return response(
+        404,
+        "Not Found",
+        hostBridgeError(
+          "operation_not_found",
+          "Host Bridge operation not found",
+          "not_found",
+          { operationId },
+        ),
+        "operation_not_found",
+      );
+    }
+    return response(200, "OK", hostBridgeOk(record));
   }
 
-  if (request.path === "/bridge/v1/diagnostics/profile") {
-    return inspectProfile(request);
+  const operationId = operationIdFromRequest(request);
+  let operationReserved = false;
+  const stateChangingRequest = isStateChangingHostBridgeRequest(request);
+  if (stateChangingRequest && !operationId) {
+    return response(
+      428,
+      "Precondition Required",
+      hostBridgeError(
+        "operation_id_required",
+        "State-changing Host Bridge requests require X-Zotero-Bridge-Operation-Id",
+        "validation",
+      ),
+      "operation_id_required",
+    );
+  }
+  if (stateChangingRequest || operationId) {
+    if (operationId.length > 200 || !/^[A-Za-z0-9._:-]+$/.test(operationId)) {
+      return response(
+        400,
+        "Bad Request",
+        hostBridgeError(
+          "invalid_operation_id",
+          "Host Bridge operation id must be an opaque value of at most 200 characters",
+          "validation",
+        ),
+        "invalid_operation_id",
+      );
+    }
+    const requestDigest = await hostBridgeOperationRequestDigest(
+      request,
+      transportContext,
+    );
+    if (!requestDigest) {
+      return response(
+        500,
+        "Internal Server Error",
+        hostBridgeError(
+          "internal_error",
+          "Host Bridge could not calculate the operation request digest",
+          "internal",
+        ),
+        "internal_error",
+      );
+    }
+    const reservation = reserveHostBridgeOperation({
+      operationId,
+      requestDigest,
+      method: request.method,
+      path: request.path,
+    });
+    if (reservation.kind === "conflict") {
+      return response(
+        409,
+        "Conflict",
+        hostBridgeError(
+          "idempotency_conflict",
+          "Host Bridge operation id was already used for different input",
+          "validation",
+          { operationId },
+        ),
+        "idempotency_conflict",
+      );
+    }
+    if (reservation.kind === "replay") {
+      return operationReplayResponse(reservation.record);
+    }
+    operationReserved = true;
   }
 
-  if (request.path === "/bridge/v1/diagnostics/profile/diagnose") {
-    return diagnoseProfile(request);
-  }
+  const dispatchAuthorizedRequest = async (): Promise<RawHttpResponse> => {
+    if (request.path === "/bridge/v1/manifest") {
+      if (request.method !== "GET") {
+        return response(
+          405,
+          "Method Not Allowed",
+          hostBridgeError(
+            "method_not_allowed",
+            "Manifest endpoint only supports GET",
+            "routing",
+            { allow: "GET" },
+          ),
+          "method_not_allowed",
+        );
+      }
+      try {
+        return response(200, "OK", hostBridgeOk(manifest(request)));
+      } catch (error) {
+        if (error instanceof HostBridgeCursorError) {
+          return paginationErrorResponse(error);
+        }
+        throw error;
+      }
+    }
 
-  if (request.path === "/bridge/v1/diagnostics/backends") {
-    return listBackends(request);
-  }
+    if (request.path === "/bridge/v1/diagnostics/profile") {
+      return inspectProfile(request, transportContext);
+    }
 
-  if (request.path.startsWith("/bridge/v1/diagnostics/backends/")) {
-    return getBackendStatus(request);
-  }
+    if (request.path === "/bridge/v1/diagnostics/profile/diagnose") {
+      return diagnoseProfile(request);
+    }
 
-  if (request.path === "/bridge/v1/call") {
-    return callCapability(request);
-  }
+    if (request.path === "/bridge/v1/diagnostics/backends") {
+      return listBackends(request);
+    }
 
-  if (request.path === "/bridge/v1/context/current") {
-    return getCurrentContext(request);
-  }
+    if (request.path.startsWith("/bridge/v1/diagnostics/backends/")) {
+      return getBackendStatus(request);
+    }
 
-  if (request.path === "/bridge/v1/context/selection") {
-    return getCurrentSelection(request);
-  }
+    if (request.path === "/bridge/v1/call") {
+      return callCapability(request, transportContext);
+    }
 
-  if (request.path === "/bridge/v1/context/selection/open") {
-    return openContextSelection(request);
-  }
+    if (request.path === "/bridge/v1/context/current") {
+      return getCurrentContext(request);
+    }
 
-  if (request.path === "/bridge/v1/context/items/open") {
-    return openContextItem(request);
-  }
+    if (request.path === "/bridge/v1/context/selection") {
+      return getCurrentSelection(request);
+    }
 
-  if (request.path === "/bridge/v1/context/collections/open") {
-    return openContextCollection(request);
-  }
+    if (request.path === "/bridge/v1/context/selection/open") {
+      return openContextSelection(request);
+    }
 
-  if (request.path === "/bridge/v1/context/notes/open") {
-    return openContextNote(request);
-  }
+    if (request.path === "/bridge/v1/context/items/open") {
+      return openContextItem(request);
+    }
 
-  if (request.path === "/bridge/v1/workflows") {
-    return listWorkflows(request);
-  }
+    if (request.path === "/bridge/v1/context/collections/open") {
+      return openContextCollection(request);
+    }
 
-  if (request.path === "/bridge/v1/workflows/describe") {
-    return describeWorkflow(request);
-  }
+    if (request.path === "/bridge/v1/context/notes/open") {
+      return openContextNote(request);
+    }
 
-  if (request.path === "/bridge/v1/workflows/validate") {
-    return validateWorkflow(request);
-  }
+    if (request.path === "/bridge/v1/workflows") {
+      return listWorkflows(request);
+    }
 
-  if (request.path === "/bridge/v1/workflows/requirements") {
-    return workflowRequirements(request);
-  }
+    if (request.path === "/bridge/v1/workflows/describe") {
+      return describeWorkflow(request);
+    }
 
-  if (request.path === "/bridge/v1/workflows/submit") {
-    return submitWorkflow(request);
-  }
+    if (request.path === "/bridge/v1/workflows/provider-profiles") {
+      return listProviderProfiles(request);
+    }
 
-  if (request.path === "/bridge/v1/workflows/agent-run") {
-    return agentRunWorkflow(request);
-  }
+    if (request.path === "/bridge/v1/workflows/provider-profiles/describe") {
+      return describeProviderProfile(request);
+    }
 
-  if (
-    request.path.startsWith("/bridge/v1/workflows/agent-runs/") &&
-    request.path.endsWith("/apply")
-  ) {
-    return applyAgentRunWorkflow(request);
-  }
+    if (request.path === "/bridge/v1/workflows/provider-profiles/validate") {
+      return validateProviderProfile(request);
+    }
 
-  if (
-    request.path.startsWith("/bridge/v1/workflows/runs/") &&
-    request.path.endsWith("/cancel")
-  ) {
-    return cancelWorkflowRun(request);
-  }
+    if (request.path === "/bridge/v1/workflows/validate") {
+      return validateWorkflow(request);
+    }
 
-  if (request.path === "/bridge/v1/workflows/runs") {
-    return listWorkflowRuns(request);
-  }
+    if (request.path === "/bridge/v1/workflows/requirements") {
+      return workflowRequirements(request);
+    }
 
-  if (request.path.startsWith("/bridge/v1/workflows/runs/")) {
-    return getWorkflowRun(request);
-  }
+    if (request.path === "/bridge/v1/workflows/submit") {
+      return submitWorkflow(request);
+    }
 
-  if (request.path === "/bridge/v1/tasks/active") {
-    return listActiveTasks(request);
-  }
+    if (request.path === "/bridge/v1/workflows/queue") {
+      return listWorkflowQueue(request);
+    }
 
-  if (request.path === "/bridge/v1/tasks/recent") {
-    return listRecentTasks(request);
-  }
+    if (
+      request.path.startsWith("/bridge/v1/workflows/queue/") &&
+      request.path.endsWith("/cancel")
+    ) {
+      return cancelWorkflowQueueUnit(request);
+    }
 
-  if (request.path === "/bridge/v1/tasks") {
-    return listTasks(request);
-  }
+    if (request.path.startsWith("/bridge/v1/workflows/submissions/")) {
+      return getWorkflowSubmission(request);
+    }
 
-  if (request.path === "/bridge/v1/permissions/pending") {
-    return listPendingPermissions(request);
-  }
+    if (request.path === "/bridge/v1/workflows/agent-run") {
+      return agentRunWorkflow(request);
+    }
 
-  if (request.path.startsWith("/bridge/v1/permissions/")) {
-    return getPermission(request);
-  }
+    if (
+      request.path.startsWith("/bridge/v1/workflows/agent-runs/") &&
+      request.path.endsWith("/apply")
+    ) {
+      return applyAgentRunWorkflow(request);
+    }
 
-  if (request.path === "/bridge/v1/notifications") {
-    return listNotifications(request);
-  }
+    if (
+      request.path.startsWith("/bridge/v1/workflows/agent-runs/") &&
+      request.path.endsWith("/renew")
+    ) {
+      return changeAgentRunWorkflowLifecycle(request, "renew");
+    }
 
-  if (request.path === "/bridge/v1/notifications/ack") {
-    return ackNotifications(request);
-  }
+    if (
+      request.path.startsWith("/bridge/v1/workflows/agent-runs/") &&
+      request.path.endsWith("/abandon")
+    ) {
+      return changeAgentRunWorkflowLifecycle(request, "abandon");
+    }
 
-  if (request.path === "/bridge/v1/skill-runs/recent") {
-    return listRecentSkillRuns(request);
-  }
+    if (
+      request.path.startsWith("/bridge/v1/workflows/runs/") &&
+      request.path.endsWith("/cancel")
+    ) {
+      return cancelWorkflowRun(request);
+    }
 
-  if (request.path.startsWith("/bridge/v1/skill-runs/")) {
-    return handleSkillRun(request);
-  }
+    if (request.path === "/bridge/v1/workflows/runs") {
+      return listWorkflowRuns(request);
+    }
 
-  if (request.path === "/bridge/v1/synthesis/cache/status") {
-    return getSynthesisCacheStatus(request);
-  }
+    if (request.path.startsWith("/bridge/v1/workflows/runs/")) {
+      return getWorkflowRun(request);
+    }
 
-  if (request.path === "/bridge/v1/synthesis/cache/invalidate") {
-    return invalidateSynthesisCache(request);
-  }
+    if (request.path === "/bridge/v1/tasks/active") {
+      return listActiveTasks(request);
+    }
 
-  if (request.path === "/bridge/v1/synthesis/index/status") {
-    return getSynthesisIndexStatus(request);
-  }
+    if (request.path === "/bridge/v1/tasks/recent") {
+      return listRecentTasks(request);
+    }
 
-  if (request.path === "/bridge/v1/files/upload") {
-    return uploadFile(request);
-  }
+    if (request.path === "/bridge/v1/tasks") {
+      return listTasks(request);
+    }
 
-  if (request.path.startsWith("/bridge/v1/files/")) {
-    return downloadFile(request);
-  }
+    if (request.path === "/bridge/v1/permissions/pending") {
+      return listPendingPermissions(request);
+    }
 
-  return response(
-    404,
-    "Not Found",
-    hostBridgeError("not_found", "Host Bridge route not found", "not_found"),
-    "not_found",
-  );
+    if (request.path.startsWith("/bridge/v1/permissions/")) {
+      return getPermission(request);
+    }
+
+    if (request.path === "/bridge/v1/notifications") {
+      return listNotifications(request);
+    }
+
+    if (request.path === "/bridge/v1/notifications/ack") {
+      return ackNotifications(request);
+    }
+
+    if (request.path === "/bridge/v1/skill-runs/recent") {
+      return listRecentSkillRuns(request);
+    }
+
+    if (request.path.startsWith("/bridge/v1/skill-runs/")) {
+      return handleSkillRun(request);
+    }
+
+    if (request.path === "/bridge/v1/synthesis/cache/status") {
+      return getSynthesisCacheStatus(request, transportContext);
+    }
+
+    if (request.path === "/bridge/v1/synthesis/cache/invalidate") {
+      return invalidateSynthesisCache(request);
+    }
+
+    if (request.path === "/bridge/v1/synthesis/index/status") {
+      return getSynthesisIndexStatus(request);
+    }
+
+    if (request.path === "/bridge/v1/files/upload") {
+      return uploadFile(request);
+    }
+
+    if (request.path.startsWith("/bridge/v1/files/")) {
+      return downloadFile(request);
+    }
+
+    return response(
+      404,
+      "Not Found",
+      hostBridgeError("not_found", "Host Bridge route not found", "not_found"),
+      "not_found",
+    );
+  };
+
+  let result: RawHttpResponse;
+  try {
+    result = await dispatchAuthorizedRequest();
+  } catch (error) {
+    if (operationReserved) {
+      markHostBridgeOperationOutcomeUnknown(operationId);
+    }
+    throw error;
+  }
+  if (operationReserved) {
+    const completed = operationResponseFromRaw(result);
+    if (completed) {
+      completeHostBridgeOperation({ operationId, response: completed });
+    } else {
+      markHostBridgeOperationOutcomeUnknown(operationId);
+    }
+  }
+  return result;
 }
 
-async function handleHttpRequest(request: HttpRequest) {
+async function handleHttpRequest(
+  request: HttpRequest,
+  transportContext: HostBridgeTransportContext,
+) {
+  trustedTransportContexts.set(request, transportContext);
   if (
     __acp_runtime_performance_profiler_enabled__ &&
     (typeof __debug_mode__ === "undefined"
@@ -3265,7 +4377,7 @@ async function handleHttpRequest(request: HttpRequest) {
       1,
     );
     try {
-      const result = await handleHttpRequestImpl(request);
+      const result = await handleHttpRequestImpl(request, transportContext);
       const responseBytes =
         result.kind === "memory"
           ? result.wireByteLength
@@ -3292,7 +4404,7 @@ async function handleHttpRequest(request: HttpRequest) {
       );
     }
   }
-  return handleHttpRequestImpl(request);
+  return handleHttpRequestImpl(request, transportContext);
 }
 
 function recordHostInputMetrics(
@@ -3471,7 +4583,10 @@ async function processAcceptedConnection(connection: AcceptedHostConnection) {
     if (connection.generation !== serverGeneration) {
       return;
     }
-    const rawResponse = await handleHttpRequest(request);
+    const rawResponse = await handleHttpRequest(
+      request,
+      connection.transportContext,
+    );
     if (connection.generation !== serverGeneration) {
       return;
     }
@@ -3546,6 +4661,7 @@ function listen(serverSocket: any, generation: number) {
         const connection: AcceptedHostConnection = {
           generation,
           transport,
+          transportContext: transportContextFromAcceptedTransport(transport),
           outputStream,
           requestRead,
           outputClosed: false,
@@ -3624,6 +4740,8 @@ async function publishWellKnownProfileAfterListen(args: {
 }
 
 async function startServer() {
+  recoverHostBridgeOperationStoreAfterRestart();
+  recoverHostBridgeAgentRunStoreAfterRestart();
   const config = resolveHostBridgeStartConfig();
   updateState({
     status: "starting",
@@ -3906,6 +5024,8 @@ export function resetHostBridgeServerForTests() {
   acceptedConnections.clear();
   resetHostBridgeWriteAutoApprovalScopesForTests();
   resetHostBridgeAgentRunStoreForTests();
+  resetHostBridgeOperationStoreForTests();
+  hostBridgeTestOperationSequence = 0;
 }
 
 export function configureHostBridgeServerForTests(
@@ -3976,17 +5096,41 @@ function normalizeTestHeaders(headers?: Record<string, unknown>) {
   return normalized;
 }
 
+let hostBridgeTestOperationSequence = 0;
+
+function ensureTestOperationId(request: HttpRequest, disabled: boolean) {
+  if (
+    !disabled &&
+    request.method !== "GET" &&
+    !request.headers["x-zotero-bridge-operation-id"]
+  ) {
+    hostBridgeTestOperationSequence += 1;
+    request.headers["x-zotero-bridge-operation-id"] =
+      `test-operation-${hostBridgeTestOperationSequence}`;
+  }
+  return request;
+}
+
 export async function handleHostBridgeHttpRequestForTests(args: {
   method: string;
   path: string;
   headers?: Record<string, unknown>;
   body?: string;
   rawRequestBytes?: Uint8Array;
+  peerHost?: string;
+  peerPort?: number;
+  disableAutomaticOperationId?: boolean;
 }) {
+  const transportContext = transportContextFromAcceptedTransport({
+    host: args.peerHost === undefined ? "127.0.0.1" : args.peerHost,
+    port: args.peerPort === undefined ? 1 : args.peerPort,
+  });
   if (args.rawRequestBytes) {
-    const raw = await handleHttpRequest(
+    const request = ensureTestOperationId(
       parseHttpRequestBytes(args.rawRequestBytes),
+      args.disableAutomaticOperationId === true,
     );
+    const raw = await handleHttpRequest(request, transportContext);
     if (raw.kind === "memory") {
       return `${raw.headers}${new TextDecoder().decode(raw.bodyBytes)}`;
     }
@@ -4005,7 +5149,10 @@ export async function handleHostBridgeHttpRequestForTests(args: {
     bodyByteLength: utf8ByteLength(body),
     parseError: parsedPath.parseError,
   };
-  const raw = await handleHttpRequest(request);
+  const raw = await handleHttpRequest(
+    ensureTestOperationId(request, args.disableAutomaticOperationId === true),
+    transportContext,
+  );
   if (raw.kind === "memory") {
     return `${raw.headers}${new TextDecoder().decode(raw.bodyBytes)}`;
   }

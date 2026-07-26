@@ -30,6 +30,7 @@ import {
 import {
   upsertAcpSkillRun,
   recordAcpSkillRunSessionUpdate,
+  projectAcpSkillRunOutputEnvelopeToTranscript,
   resetAcpSkillRunsForTests,
   selectAcpSkillRun,
   readAcpSkillRunTranscriptRegionFromMemoryForTests,
@@ -198,6 +199,76 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
       ASSISTANT_WORKSPACE_REGION_REGISTRY.composer.managedRegions,
       "hint",
     );
+  });
+
+  it("preserves nullable ACP Skills status facts in owner navigation", function () {
+    const entry = skillsNavigation.entries.find(
+      (candidate) => candidate.owner.ownerKey === skillsOwner.ownerKey,
+    );
+    assert.isOk(entry);
+    assert.deepInclude(entry, {
+      status: "running",
+      backendStatus: null,
+      applyState: null,
+    });
+
+    const publication = assistantWorkspaceTestPublication({
+      owner: createAssistantWorkspaceUnownedScope("acp-skills"),
+      kind: "owner-navigation",
+      payload: skillsNavigation,
+    });
+    assert.doesNotThrow(() => assertAssistantWorkspacePublication(publication));
+    const publishedEntry = (
+      publication.payload as AssistantWorkspaceOwnerNavigation
+    ).entries.find(
+      (candidate) => candidate.owner.ownerKey === skillsOwner.ownerKey,
+    );
+    assert.deepInclude(publishedEntry, {
+      status: "running",
+      backendStatus: null,
+      applyState: null,
+    });
+  });
+
+  it("publishes ACP ui_hints without duplicating the pending message", async function () {
+    projectAcpSkillRunOutputEnvelopeToTranscript({
+      requestId: "request-1",
+      kind: "pending",
+      message: "Transcript-only pending message",
+      candidateText: '{"__SKILL_DONE__":false}',
+      repairRound: 0,
+    });
+    upsertAcpSkillRun({
+      requestId: "request-1",
+      status: "waiting_user",
+      activePrompt: false,
+      pendingInteraction: {
+        message: "Transcript-only pending message",
+        uiHints: {
+          kind: "choose_one",
+          prompt: "Choose a typed value",
+          hint: "Any value is accepted",
+          options: [
+            { label: "Approve", value: true },
+            { label: "Configure", value: { mode: "deep" } },
+          ],
+        },
+      },
+    });
+
+    const regions = await readAcpSkillRunWorkspaceRegions({
+      requestId: "request-1",
+      kinds: ["owner-control"],
+    });
+    const control = regions["owner-control"]!;
+
+    assert.equal(control.hint.kind, "waiting_user");
+    assert.isNull(control.hint.message);
+    assert.notProperty(control.interaction || {}, "interactionToken");
+    assert.equal(control.interaction?.inputKind, "choose_one");
+    assert.equal(control.interaction?.prompt, "Choose a typed value");
+    assert.strictEqual(control.interaction?.options[0].value, true);
+    assert.deepEqual(control.interaction?.options[1].value, { mode: "deep" });
   });
 
   it("accepts only the exact v1 envelope and rejects removed versions and aliases", function () {
@@ -1129,6 +1200,239 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
     });
     assert.equal(rebases, 1);
   });
+
+  for (const source of ["acp-chat", "acp-skills"] as const) {
+    it(`keeps the ${source} live-tail mutation base across out-of-order historical page responses`, function () {
+      const selectedOwner = source === "acp-chat" ? chatOwner : skillsOwner;
+      const posts: AssistantWorkspacePublication[] = [];
+      const coordinator = new AssistantWorkspacePublicationCoordinator({
+        scopeKey: `page-cache-${source}`,
+        getActiveOwner: () => selectedOwner,
+        post: (publication) => {
+          posts.push(publication);
+          return true;
+        },
+      });
+      const message = (itemId: string, text: string) => ({
+        itemId,
+        itemKind: "message" as const,
+        role: "assistant" as const,
+        text,
+        status: "streaming" as const,
+        createdAt: "2026-07-16T00:00:00.000Z",
+        updatedAt: null,
+        revision: null,
+      });
+      const tail: AssistantWorkspaceTranscriptRegion = {
+        owner: selectedOwner,
+        status: "ready",
+        error: null,
+        transcriptRevision: 7,
+        page: {
+          pageKey: `${selectedOwner.ownerKey}\ntail:2`,
+          startCursor: 4,
+          limit: 2,
+          totalVisibleItemCount: 6,
+          previousCursor: 2,
+          nextCursor: null,
+          sourceEventSeq: 7,
+          items: [message("tail-4", "four"), message("tail-5", "five")],
+        },
+      };
+      const publishAndAck = (
+        region: AssistantWorkspaceTranscriptRegion,
+        cause: "activation" | "page-request",
+      ) => {
+        const publication = coordinator.publishTranscriptSnapshot({
+          owner: selectedOwner,
+          cause,
+          region,
+        });
+        assert.isDefined(publication);
+        coordinator.acknowledge({
+          publicationId: publication!.publicationId,
+          stage: "render-complete",
+          outcome: "accepted",
+          reason: null,
+          failure: null,
+        });
+        return publication!;
+      };
+
+      publishAndAck(tail, "activation");
+      for (const startCursor of [2, 0]) {
+        publishAndAck(
+          {
+            ...tail,
+            page: {
+              ...tail.page!,
+              pageKey: `${selectedOwner.ownerKey}\npage:${startCursor}:2`,
+              startCursor,
+              previousCursor: startCursor > 0 ? startCursor - 2 : null,
+              nextCursor: startCursor + 2,
+              items: [
+                message(`history-${startCursor}`, `${startCursor}`),
+                message(`history-${startCursor + 1}`, `${startCursor + 1}`),
+              ],
+            },
+          },
+          "page-request",
+        );
+      }
+
+      const delta = coordinator.publishTranscriptMutations({
+        owner: selectedOwner,
+        sourceEventSeq: 8,
+        visibility: "live",
+        events: [
+          {
+            boundary: "hard-boundary",
+            cardinality: "retain",
+            mutation: {
+              op: "patch_item",
+              itemId: "tail-5",
+              patch: { status: "complete", text: "terminal" },
+            },
+          },
+        ],
+      });
+      assert.isDefined(delta);
+      assert.equal(delta?.publicationForm, "delta");
+      if (delta?.publicationKind !== "transcript") {
+        throw new Error("expected transcript delta");
+      }
+      assert.equal(delta.payload.page.pageKey, tail.page?.pageKey);
+      assert.equal(delta.payload.baseTranscriptRevision, 7);
+      assert.deepEqual(delta.payload.mutations, [
+        {
+          op: "patch_item",
+          itemId: "tail-5",
+          patch: { status: "complete", text: "terminal" },
+        },
+      ]);
+      assert.equal(
+        posts.filter(
+          (publication) => publication.publicationCause === "page-request",
+        ).length,
+        2,
+      );
+    });
+
+    it(`projects ${source} historical snapshots as cache pages without replacing the selected tail`, function () {
+      const selectedOwner = source === "acp-chat" ? chatOwner : skillsOwner;
+      const message = (itemId: string, text: string, status = "complete") => ({
+        itemId,
+        itemKind: "message" as const,
+        role: "assistant" as const,
+        text,
+        status,
+        createdAt: "2026-07-16T00:00:00.000Z",
+        updatedAt: null,
+        revision: null,
+      });
+      const tail: AssistantWorkspaceTranscriptRegion = {
+        owner: selectedOwner,
+        status: "ready",
+        error: null,
+        transcriptRevision: 1,
+        page: {
+          pageKey: `${selectedOwner.ownerKey}\ntail:2`,
+          startCursor: 2,
+          limit: 2,
+          totalVisibleItemCount: 3,
+          previousCursor: 0,
+          nextCursor: null,
+          sourceEventSeq: 1,
+          items: [message("tail-item", "streaming", "streaming")],
+        },
+      };
+      const historical: AssistantWorkspaceTranscriptRegion = {
+        ...tail,
+        page: {
+          ...tail.page!,
+          pageKey: `${selectedOwner.ownerKey}\npage:0:2`,
+          startCursor: 0,
+          previousCursor: null,
+          nextCursor: 2,
+          items: [message("history-0", "zero"), message("history-1", "one")],
+        },
+      };
+      const publication = (
+        publicationId: string,
+        deliverySequence: number,
+        regionRevision: number,
+        cause: "activation" | "page-request",
+        payload: unknown,
+        form: "snapshot" | "delta" = "snapshot",
+      ) =>
+        ({
+          schema: ASSISTANT_WORKSPACE_PUBLICATION_SCHEMA,
+          publicationId,
+          owner: selectedOwner,
+          publicationKind: "transcript",
+          publicationForm: form,
+          publicationCause: cause,
+          regionRevision,
+          deliverySequence,
+          payload,
+        }) as AssistantWorkspacePublication;
+      const receiver = AssistantWorkspaceAcpChild.createReceiver({ source });
+      const initialized = receiver.apply(
+        {},
+        publication("tail", 1, 1, "activation", tail),
+        "",
+      );
+      assert.isTrue(initialized.accepted);
+      const pageResult = receiver.apply(
+        initialized.snapshot,
+        publication("history", 2, 2, "page-request", historical),
+        selectedOwner.ownerKey,
+      );
+      assert.isTrue(pageResult.accepted);
+      assert.equal(pageResult.effect.kind, "cache-page");
+      assert.equal(
+        pageResult.effect.region.page.pageKey,
+        historical.page?.pageKey,
+      );
+      assert.equal(
+        pageResult.snapshot.selection.transcript.page.pageKey,
+        tail.page?.pageKey,
+      );
+
+      const terminal = receiver.apply(
+        pageResult.snapshot,
+        publication(
+          "terminal",
+          3,
+          3,
+          "activation",
+          {
+            page: {
+              ...tail.page!,
+              sourceEventSeq: 2,
+            },
+            baseTranscriptRevision: 1,
+            transcriptRevision: 2,
+            mutations: [
+              {
+                op: "patch_item",
+                itemId: "tail-item",
+                patch: { status: "complete", text: "terminal" },
+              },
+            ],
+          },
+          "delta",
+        ),
+        selectedOwner.ownerKey,
+      );
+      assert.isTrue(terminal.accepted);
+      assert.isTrue(terminal.effect.onSelectedPage);
+      assert.equal(
+        terminal.snapshot.selection.transcript.page.items[0].text,
+        "terminal",
+      );
+    });
+  }
 
   it("keeps page requests owner-enveloped without duplicated source IDs", function () {
     const owner = chatOwner;

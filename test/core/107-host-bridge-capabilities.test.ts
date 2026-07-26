@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -9,9 +10,15 @@ import {
 } from "../../src/modules/hostBridgeServer";
 import {
   configureHostBridgeGlobalApprovalHandlerForTests,
+  getHostBridgePermissionProjection,
   resetHostBridgePermissionManagerForTests,
 } from "../../src/modules/hostBridgePermissionManager";
-import { resetHostBridgeWriteAutoApprovalScopesForTests } from "../../src/modules/hostBridgeWriteAutoApprovalRegistry";
+import {
+  issueHostBridgeWriteAutoApprovalGrant,
+  isHostBridgeWriteAutoApprovalScope,
+  revokeHostBridgeWriteAutoApprovalGrant,
+  resetHostBridgeWriteAutoApprovalScopesForTests,
+} from "../../src/modules/hostBridgeWriteAutoApprovalRegistry";
 import {
   setDebugModeOverrideForTests,
   setSkillRunnerConnectionAuditSourceOverrideForTests,
@@ -77,6 +84,7 @@ async function callBridgeCapability(args: {
   input?: unknown;
   scope?: unknown;
   connectionMode?: "local" | "remote";
+  peerHost?: string;
 }) {
   const headers: Record<string, string> = {};
   if (args.token) {
@@ -97,6 +105,7 @@ async function callBridgeCapability(args: {
         capability: args.capability,
         input: args.input,
       }),
+      peerHost: args.peerHost,
     }),
   );
 }
@@ -413,7 +422,7 @@ describe("host bridge capability calls", function () {
     assert.notInclude(JSON.stringify(item), "D:\\Private");
   });
 
-  it("passes connection mode headers into synthesis capability context", async function () {
+  it("derives connection mode from the socket peer and only permits conservative header downgrade", async function () {
     const token = configureHostBridgeServerForTests({
       token: "mode-token",
       resolveSynthesisService: () => ({
@@ -425,15 +434,139 @@ describe("host bridge capability calls", function () {
       }),
     });
 
-    const parsed = await callBridgeCapability({
+    const remote = await callBridgeCapability({
+      token,
+      capability: "topics.get_context",
+      input: { topicId: "object-detection" },
+      connectionMode: "local",
+      peerHost: "192.0.2.10",
+    });
+    const downgraded = await callBridgeCapability({
       token,
       capability: "topics.get_context",
       input: { topicId: "object-detection" },
       connectionMode: "remote",
+      peerHost: "127.0.0.1",
+    });
+    const local = await callBridgeCapability({
+      token,
+      capability: "topics.get_context",
+      input: { topicId: "object-detection" },
+      connectionMode: "local",
+      peerHost: "::1",
+    });
+    const unknown = await callBridgeCapability({
+      token,
+      capability: "topics.get_context",
+      input: { topicId: "object-detection" },
+      connectionMode: "local",
+      peerHost: "",
     });
 
-    assert.strictEqual(parsed.status, 200);
-    assert.strictEqual(parsed.json.result.data.connectionMode, "remote");
+    assert.strictEqual(remote.json.result.data.connectionMode, "remote");
+    assert.strictEqual(downgraded.json.result.data.connectionMode, "remote");
+    assert.strictEqual(local.json.result.data.connectionMode, "local");
+    assert.strictEqual(unknown.json.result.data.connectionMode, "remote");
+  });
+
+  it("rotates, binds, revokes, and redacts auto-approval grants", function () {
+    upsertAcpSkillRun({
+      requestId: "grant-run",
+      runId: "grant-run",
+      hostBridgeCli: {
+        available: true,
+        pathInjected: true,
+        autoApproveWrites: true,
+      },
+    });
+    const first = issueHostBridgeWriteAutoApprovalGrant({
+      requestId: "grant-run",
+      runId: "grant-run",
+    });
+    const second = issueHostBridgeWriteAutoApprovalGrant({
+      requestId: "grant-run",
+      runId: "grant-run",
+    });
+    const scope = {
+      kind: "acp-skill-run",
+      requestId: "grant-run",
+      runId: "grant-run",
+      autoApproveWrites: true,
+      connectionMode: "local" as const,
+    };
+    assert.isFalse(
+      isHostBridgeWriteAutoApprovalScope({ ...scope, grantId: first }),
+    );
+    assert.isTrue(
+      isHostBridgeWriteAutoApprovalScope({ ...scope, grantId: second }),
+    );
+    assert.isFalse(
+      isHostBridgeWriteAutoApprovalScope({
+        ...scope,
+        grantId: second,
+        connectionMode: "remote",
+      }),
+    );
+    revokeHostBridgeWriteAutoApprovalGrant(second);
+    assert.isFalse(
+      isHostBridgeWriteAutoApprovalScope({ ...scope, grantId: second }),
+    );
+  });
+
+  it("keeps sidecar refresh and graph update as separate approved operations", async function () {
+    const calls: string[] = [];
+    const token = configureHostBridgeServerForTests({
+      token: "maintenance-operation-token",
+      resolveSynthesisService: () => ({
+        startReferenceSidecarRefresh(input) {
+          calls.push("sidecar");
+          return { operation_id: "sidecar-op", status: "pending", input };
+        },
+        startCitationGraphUpdate(input) {
+          calls.push("graph");
+          return { operation_id: "graph-op", status: "pending", input };
+        },
+        getPublicMaintenanceOperation(input) {
+          calls.push("status");
+          return { operation_id: input.operation_id, status: "completed" };
+        },
+      }),
+    });
+    let approvalCount = 0;
+    configureHostBridgeGlobalApprovalHandlerForTests((request) => {
+      approvalCount += 1;
+      return {
+        outcome: "approved",
+        requestId: request.requestId,
+        channel: "global",
+      };
+    });
+
+    const sidecar = await callBridgeCapability({
+      token,
+      capability: "reference_sidecar.refresh",
+      input: { scope: "papers", paper_refs: ["1:ABCD1234"] },
+    });
+    const graph = await callBridgeCapability({
+      token,
+      capability: "citation_graph.update",
+      input: {
+        scope: "papers",
+        paper_refs: ["1:ABCD1234"],
+        expected_reference_basis_hash: "sha256:basis",
+      },
+    });
+    const status = await callBridgeCapability({
+      token,
+      capability: "synthesis.operation.get",
+      input: { operation_id: "sidecar-op" },
+    });
+
+    assert.strictEqual(sidecar.json.result.data.operation_id, "sidecar-op");
+    assert.strictEqual(graph.json.result.data.operation_id, "graph-op");
+    assert.strictEqual(status.json.result.data.status, "completed");
+    assert.strictEqual(approvalCount, 2);
+    assert.deepEqual(calls, ["sidecar", "graph", "status"]);
   });
 
   it("decodes UTF-8 byte-counted capability bodies without mojibake", async function () {
@@ -497,7 +630,7 @@ describe("host bridge capability calls", function () {
     const manifest = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/manifest",
+        path: "/bridge/v1/manifest?limit=100",
         headers: { authorization: `Bearer ${token}` },
       }),
     );
@@ -514,14 +647,96 @@ describe("host bridge capability calls", function () {
     const graphLayout = manifest.json.result.capabilities.find(
       (entry: { name?: string }) => entry.name === "citation_graph.get_layout",
     );
+    const sidecarRefresh = manifest.json.result.capabilities.find(
+      (entry: { name?: string }) => entry.name === "reference_sidecar.refresh",
+    );
+    const graphUpdate = manifest.json.result.capabilities.find(
+      (entry: { name?: string }) => entry.name === "citation_graph.update",
+    );
+    const maintenanceStatus = manifest.json.result.capabilities.find(
+      (entry: { name?: string }) => entry.name === "synthesis.operation.get",
+    );
     assert.isOk(metricsRefresh);
     assert.isOk(topicReport);
     assert.isOk(topicsByPaperRef);
     assert.isOk(graphLayout);
+    assert.isOk(sidecarRefresh);
+    assert.isOk(graphUpdate);
+    assert.isOk(maintenanceStatus);
     assert.strictEqual(metricsRefresh.approval, "zotero-ui-required");
     assert.strictEqual(topicReport.approval, "none");
     assert.strictEqual(topicsByPaperRef.approval, "none");
     assert.strictEqual(graphLayout.approval, "none");
+    assert.strictEqual(sidecarRefresh.approval, "zotero-ui-required");
+    assert.strictEqual(graphUpdate.approval, "zotero-ui-required");
+    assert.strictEqual(maintenanceStatus.approval, "none");
+  });
+
+  it("uses the same paged and file-delivery DTOs for Synthesis capability calls", async function () {
+    const token = configureHostBridgeServerForTests({
+      token: "synthesis-boundary-token",
+      resolveSynthesisService: () => ({
+        getPaperArtifactManifest() {
+          return {
+            papers: [
+              { paper_ref: "1:A", artifacts: [] },
+              { paper_ref: "1:B", artifacts: [] },
+              { paper_ref: "1:C", artifacts: [] },
+            ],
+          };
+        },
+        getReviewInput() {
+          return {
+            topic: { topic_id: "topic-a", title: "Topic A" },
+            registry_rows: [{ paper_ref: "1:A" }],
+            citation_graph_slice: { nodes: [{ id: "A" }], edges: [] },
+            diagnostics: { bounded: true },
+          };
+        },
+      }),
+    });
+
+    const first = await callBridgeCapability({
+      token,
+      capability: "paper_artifacts.get_manifest",
+      input: { limit: 2 },
+    });
+    assert.lengthOf(first.json.result.data.papers, 2);
+    assert.isTrue(first.json.result.data.hasMore);
+    assert.isString(first.json.result.data.nextCursor);
+    const second = await callBridgeCapability({
+      token,
+      capability: "paper_artifacts.get_manifest",
+      input: { limit: 2, cursor: first.json.result.data.nextCursor },
+    });
+    assert.deepEqual(
+      [...first.json.result.data.papers, ...second.json.result.data.papers].map(
+        (paper: { paper_ref: string }) => paper.paper_ref,
+      ),
+      ["1:A", "1:B", "1:C"],
+    );
+
+    const review = await callBridgeCapability({
+      token,
+      capability: "topics.get_review_input",
+      input: { topicId: "topic-a" },
+    });
+    const file = review.json.result.data.delivery.file;
+    assert.match(file.fileId, /^file-/);
+    assert.notProperty(file, "localPath");
+    const downloaded = await handleHostBridgeHttpRequestForTests({
+      method: "GET",
+      path: `/bridge/v1/files/${file.fileId}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const body = downloaded.slice(downloaded.indexOf("\r\n\r\n") + 4);
+    const bytes = Buffer.from(body, "utf8");
+    assert.include(body, '"topic_id": "topic-a"');
+    assert.strictEqual(bytes.byteLength, file.size);
+    assert.strictEqual(
+      `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
+      file.sha256,
+    );
   });
 
   it("reports canonical resolve-resolver input contract errors", async function () {
@@ -572,7 +787,7 @@ describe("host bridge capability calls", function () {
     const manifest = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/manifest",
+        path: "/bridge/v1/manifest?limit=100",
         headers: {
           authorization: `Bearer ${token}`,
         },
@@ -635,7 +850,7 @@ describe("host bridge capability calls", function () {
     const manifest = parseRawHttpResponse(
       await handleHostBridgeHttpRequestForTests({
         method: "GET",
-        path: "/bridge/v1/manifest",
+        path: "/bridge/v1/manifest?limit=100",
         headers: {
           authorization: `Bearer ${token}`,
         },
@@ -698,6 +913,16 @@ describe("host bridge capability calls", function () {
     assert.isArray(snapshot.json.result.data.cacheBasis);
     assert.isObject(snapshot.json.result.data.maintenance);
     assert.isObject(snapshot.json.result.data.tableCounts);
+
+    const fullSnapshot = await callBridgeCapability({
+      token,
+      capability: "debug.synthesis.snapshot",
+      input: { limit: 5, includeUiSnapshot: true },
+    });
+    assert.strictEqual(fullSnapshot.status, 200);
+    assert.isObject(fullSnapshot.json.result.data.delivery.bundle);
+    assert.isString(fullSnapshot.json.result.data.delivery.bundle.fileId);
+    assert.notProperty(fullSnapshot.json.result.data, "uiSnapshot");
 
     const profiler = await callBridgeCapability({
       token,
@@ -1074,12 +1299,6 @@ describe("host bridge capability calls", function () {
   it("auto-approves mutation execute only for registered ACP run write scopes", async function () {
     const token = configureHostBridgeServerForTests({ token: "execute-token" });
     const item = await createParentItem("Bridge Auto Approve Before");
-    const scope = {
-      kind: "acp-skill-run",
-      requestId: "auto-approve-run",
-      runId: "auto-approve-run",
-      autoApproveWrites: true,
-    };
     upsertAcpSkillRun({
       requestId: "auto-approve-run",
       runId: "auto-approve-run",
@@ -1089,6 +1308,16 @@ describe("host bridge capability calls", function () {
         autoApproveWrites: true,
       },
     });
+    const scope = {
+      kind: "acp-skill-run",
+      requestId: "auto-approve-run",
+      runId: "auto-approve-run",
+      autoApproveWrites: true,
+      grantId: issueHostBridgeWriteAutoApprovalGrant({
+        requestId: "auto-approve-run",
+        runId: "auto-approve-run",
+      }),
+    };
     let approvalRequest: any = null;
     configureHostBridgeGlobalApprovalHandlerForTests((request) => {
       approvalRequest = request;
@@ -1138,6 +1367,7 @@ describe("host bridge capability calls", function () {
         requestId: "forged-run",
         runId: "forged-run",
         autoApproveWrites: true,
+        grantId: "forged-secret-grant",
       },
       capability: "mutation.execute",
       input: {
@@ -1152,6 +1382,12 @@ describe("host bridge capability calls", function () {
     assert.strictEqual(parsed.status, 200);
     assert.strictEqual(parsed.json.result.approval, "zotero-ui-required");
     assert.isOk(approvalRequest);
+    assert.notInclude(
+      JSON.stringify(
+        getHostBridgePermissionProjection(approvalRequest.requestId),
+      ),
+      "forged-secret-grant",
+    );
     assert.strictEqual(item.getField("title"), "Bridge Forged Scope After");
   });
 
@@ -1347,8 +1583,30 @@ describe("host bridge capability calls", function () {
       input: { ref: item.id, format: "markdown" },
     });
     assert.strictEqual(annotations.status, 200);
-    assert.include(annotations.json.result.data.markdown, "quoted text");
-    assert.include(annotations.json.result.data.markdown, "agent note");
+    assert.strictEqual(
+      annotations.json.result.data.delivery.mode,
+      "bridge-download",
+    );
+    assert.match(annotations.json.result.data.delivery.file.fileId, /^file-/);
+    assert.strictEqual(annotations.json.result.data.count, 1);
+    assert.notProperty(annotations.json.result.data, "markdown");
+    assert.notProperty(annotations.json.result.data, "annotations");
+    assert.notProperty(annotations.json.result.data.delivery.file, "localPath");
+    const file = annotations.json.result.data.delivery.file;
+    const downloaded = await handleHostBridgeHttpRequestForTests({
+      method: "GET",
+      path: `/bridge/v1/files/${file.fileId}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const separator = downloaded.indexOf("\r\n\r\n");
+    const body = downloaded.slice(separator + 4);
+    const bytes = Buffer.from(body, "utf8");
+    assert.include(body, "quoted text");
+    assert.strictEqual(bytes.byteLength, file.size);
+    assert.strictEqual(
+      `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
+      file.sha256,
+    );
   });
 
   it("attaches uploaded Host Bridge files by opaque handle only once", async function () {

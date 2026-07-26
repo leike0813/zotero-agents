@@ -1,23 +1,41 @@
 {
-  "schema": "host-bridge.release-receipt.v1",
+  "schema": "host-bridge.release-receipt.v2",
   "status": "complete",
-  "releaseSetId": "hbrs-3d834c0f075f3122ac566e9a",
-  "sourceCommit": "033e97e04610e9f4390f646cd5598367a930427a",
-  "workflowRun": "https://github.com/leike0813/zotero-agents/actions/runs/29702461833",
-  "pipelineRevision": "cb56dc52b35f6c141801c88e83875cce8c08bb8e",
+  "releaseSetId": "hbrs-f9f28ddce98be3008e13bbdb",
+  "sourceCommit": "de4bcf12a3589776f79c985d13a8500b1eea59ce",
+  "workflowRun": "https://github.com/leike0813/zotero-agents/actions/runs/30183842529",
+  "pipelineRevision": "c9254d988b314726801e526d2905ea92947f0bad",
+  "updatedAt": "2026-07-26T02:04:42.206Z",
+  "payloadDigest": "sha256:f9f28ddce98be3008e13bbdb41ce77cca015c4082be798f1aa293390497bd015",
   "prebuild": {
     "branch": "host-bridge-cli-prebuilds",
-    "commit": "b5b210722e940a7b5a05a5615666031acee91ae1"
+    "commit": "04196e37c16b750fcdcff404d917ac11f290cc14",
+    "verified": true
+  },
+  "steps": {
+    "plan": "complete",
+    "prebuild": "complete",
+    "materialize": "complete",
+    "publish": "complete",
+    "verify": "complete",
+    "mutablePointers": "complete",
+    "finalize": "complete"
   },
   "surfaces": {
     "cliBundle": {
-      "commit": "732c532a18580ef01c028ea7e2ef65fc743291f7"
+      "status": "verified",
+      "commit": "f78e9ff4299cebf25e790a179579242bf2e1d3fc",
+      "contentDigest": "89eb1c1eacda3df449a71bcedc1f6140f457fdb22d389ad8b07734075870e00d"
     },
     "libraryAgent": {
-      "commit": "01f4c670881d510f6f29e4df7c75ec547257b300"
+      "status": "verified",
+      "commit": "cec8fcddd8a3ef134bf6bdd80fcb2324c15707de",
+      "contentDigest": "a0816a753429a68bafe9bf3cefda6637f22987b326948928cdeda6f269204454"
     },
     "librarianProfile": {
-      "commit": "d3f2a91ae33f8ae0693a59130ff8c8d251fe53fe"
+      "status": "verified",
+      "commit": "d69f78d3c6bf6df12dcd1c557064c6a9d33cadfc",
+      "contentDigest": "c7e8592c82d46a24ea43c1f22f3e4fb5d60a68be8cd46152210dd84de23d8d67"
     }
   }
 }

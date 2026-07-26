@@ -18,6 +18,22 @@ pub enum ErrorCategory {
     Internal,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StateChange {
+    Unchanged,
+    Changed,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HandleConsumption {
+    Unconsumed,
+    Consumed,
+    Unknown,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ErrorPayload {
@@ -27,8 +43,8 @@ pub struct ErrorPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<Value>,
     pub retryable: bool,
-    pub state_changed: bool,
-    pub handle_consumed: bool,
+    pub state_change: StateChange,
+    pub handle_consumption: HandleConsumption,
     pub safe_next_actions: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_command: Option<String>,
@@ -42,8 +58,8 @@ pub struct CliError {
     pub details: Option<Value>,
     pub next_command: Option<String>,
     pub retryable: Option<bool>,
-    pub state_changed: Option<bool>,
-    pub handle_consumed: Option<bool>,
+    pub state_change: Option<StateChange>,
+    pub handle_consumption: Option<HandleConsumption>,
     pub safe_next_actions: Option<Vec<String>>,
 }
 
@@ -60,8 +76,8 @@ impl CliError {
             details: None,
             next_command: None,
             retryable: None,
-            state_changed: None,
-            handle_consumed: None,
+            state_change: None,
+            handle_consumption: None,
             safe_next_actions: None,
         }
     }
@@ -84,9 +100,35 @@ impl CliError {
         safe_next_actions: Option<Vec<String>>,
     ) -> Self {
         self.retryable = retryable;
-        self.state_changed = state_changed;
-        self.handle_consumed = handle_consumed;
+        self.state_change = state_changed.map(|changed| {
+            if changed {
+                StateChange::Changed
+            } else {
+                StateChange::Unchanged
+            }
+        });
+        self.handle_consumption = handle_consumed.map(|consumed| {
+            if consumed {
+                HandleConsumption::Consumed
+            } else {
+                HandleConsumption::Unconsumed
+            }
+        });
         self.safe_next_actions = safe_next_actions;
+        self
+    }
+
+    pub fn with_outcome(
+        mut self,
+        retryable: bool,
+        state_change: StateChange,
+        handle_consumption: HandleConsumption,
+        safe_next_actions: Vec<String>,
+    ) -> Self {
+        self.retryable = Some(retryable);
+        self.state_change = Some(state_change);
+        self.handle_consumption = Some(handle_consumption);
+        self.safe_next_actions = Some(safe_next_actions);
         self
     }
 
@@ -150,8 +192,10 @@ impl CliError {
             message: self.message.clone(),
             details: self.details.clone(),
             retryable,
-            state_changed: self.state_changed.unwrap_or(false),
-            handle_consumed: self.handle_consumed.unwrap_or(false),
+            state_change: self.state_change.unwrap_or(StateChange::Unchanged),
+            handle_consumption: self
+                .handle_consumption
+                .unwrap_or(HandleConsumption::Unconsumed),
             safe_next_actions,
             next_command: self.next_command.clone(),
         }

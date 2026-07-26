@@ -869,6 +869,15 @@ tr.clickable {
   align-items: center;
 }
 
+.host-queued-workflow-row {
+  background: var(--accent-soft);
+}
+
+.host-queued-workflow-row .icon-btn {
+  min-width: 30px;
+  padding: 5px;
+}
+
 .bound-task {
   display: flex;
   flex-wrap: wrap;

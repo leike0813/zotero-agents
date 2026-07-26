@@ -35,7 +35,7 @@ Record the prepared `releaseSetId`; preparation and local verification do not
 satisfy this gate. Explicitly dispatch or resume that exact release set with
 `npm run release:host-bridge:dispatch -- --release-set-id hbrs-... --watch`,
 then verify its
-`host-bridge.release-receipt.v1` has `status: complete` before rerunning:
+`host-bridge.release-receipt.v2` has `status: complete` before rerunning:
 
 ```powershell
 npm exec -- tsx scripts/release-coordinator-gate.ts --target vX.Y.Z --host-bridge-done

@@ -199,7 +199,7 @@ describe("Synthesis MCP tools", function () {
     );
     assert.isTrue(resolveResponse.result.structuredContent.result.ok);
     assert.equal(
-      resolveResponse.result.structuredContent.result.papers[0].paper_ref,
+      resolveResponse.result.structuredContent.result.candidates[0].paper_ref,
       "1:ABCD1234",
     );
   });
@@ -965,11 +965,11 @@ describe("Synthesis MCP tools", function () {
     );
     const result = response.result.structuredContent.result;
 
-    assert.lengthOf(result.rows, 1);
-    assert.equal(result.rows[0].paper_ref, "1:CCCC3333");
+    assert.lengthOf(result.entries, 1);
+    assert.equal(result.entries[0].paper_ref, "1:CCCC3333");
     assert.equal(result.cursor, "1");
-    assert.equal(result.next_cursor, "");
-    assert.isFalse(result.has_more);
+    assert.equal(result.nextCursor, "");
+    assert.isFalse(result.hasMore);
     assert.equal(result.returned, 1);
     assert.equal(result.total, 2);
     assert.deepEqual(result.diagnostics.recommended_commands, []);
@@ -1034,10 +1034,10 @@ describe("Synthesis MCP tools", function () {
     const result = response.result.structuredContent.result;
 
     assert.isTrue(result.ok);
-    assert.lengthOf(result.papers, 1);
+    assert.lengthOf(result.candidates, 1);
     assert.equal(result.cursor, "1");
-    assert.equal(result.next_cursor, "2");
-    assert.isTrue(result.has_more);
+    assert.equal(result.nextCursor, "2");
+    assert.isTrue(result.hasMore);
     assert.equal(result.returned, 1);
     assert.equal(result.total, 3);
   });

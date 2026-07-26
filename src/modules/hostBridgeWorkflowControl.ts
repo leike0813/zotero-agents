@@ -26,9 +26,8 @@ import {
   type HostBridgePermissionScope,
 } from "./hostBridgePermissionManager";
 import { runWorkflowPreparationSeam } from "./workflowExecution/preparationSeam";
-import { runWorkflowDuplicateGuardSeam } from "./workflowExecution/duplicateGuardSeam";
-import { runWorkflowExecutionSeam } from "./workflowExecution/runSeam";
-import { runWorkflowApplySeam } from "./workflowExecution/applySeam";
+import { runWorkflowUnitDuplicateGuardSeam } from "./workflowExecution/duplicateGuardSeam";
+import { submitPreparedWorkflowUnits } from "./workflowExecution/submissionSeam";
 import {
   getSequenceRunState,
   listSequenceRunStates,
@@ -39,9 +38,15 @@ import { createLocalizedMessageFormatter } from "./workflowExecution/messageForm
 import { buildWorkflowSettingsUiDescriptor } from "./workflowSettings";
 import {
   assertRequiredWorkflowParameters,
-  listMissingRequiredWorkflowParameters,
+  mergeExecutionOptions,
   type WorkflowExecutionOptions,
 } from "./workflowSettingsDomain";
+import { workflowSubmissionQueue } from "../jobQueue/workflowSubmissionQueue";
+import type {
+  WorkflowQueueBackendScope,
+  WorkflowQueueEntryId,
+  WorkflowSubmissionId,
+} from "../jobQueue/workflowSubmissionQueueContracts";
 import { buildSelectionContext } from "./selectionContext";
 import {
   buildHostBridgeWorkflowAgentRunHandoff,
@@ -49,21 +54,26 @@ import {
   type HostBridgeWorkflowAgentRunResult,
 } from "./hostBridgeWorkflowAgentRun";
 import {
+  acquireHostBridgeAgentRunApplyLease,
+  abandonHostBridgeAgentRunRecord,
   createHostBridgeAgentRunRecord,
   finishHostBridgeAgentRunRecord,
   getExpiredHostBridgeAgentRunRecord,
   getHostBridgeAgentRunApplyReceipt,
   getHostBridgeAgentRunRecord,
   recordHostBridgeAgentRunApplyReceipt,
+  releaseHostBridgeAgentRunApplyLease,
+  renewHostBridgeAgentRunRecord,
   sealHostBridgeAgentRunRecord,
   type HostBridgeAgentRunPreparedRequest,
 } from "./hostBridgeWorkflowAgentRunStore";
 import type { SelectionContext } from "./selectionContext";
 import type { LoadedWorkflow } from "../workflows/types";
 import { localizeWorkflowLabel } from "../workflows/localization";
-import { evaluateWorkflowSelection } from "../workflows/workflowSelectionValidation";
+import { evaluateWorkflowSelection } from "../workflows/workflowInputPlanning";
 import { executeApplyResult, executeBuildRequests } from "../workflows/runtime";
 import { ZipBundleReader } from "../workflows/zipBundleReader";
+import { projectWorkflowManifestContract } from "../workflows/manifestContract";
 import {
   createDirectoryBundleReader,
   type BundleReader,
@@ -74,6 +84,12 @@ import {
   resolveTaskNameFromRequest,
 } from "./workflowExecution/requestMeta";
 import { collectSkillRunFeedbackSidecar } from "./skillRunFeedback";
+import {
+  describeProviderProfile,
+  listProviderProfileBackends,
+  validateProviderProfile,
+  type ProviderProfileDescriptor,
+} from "../providers/profile";
 import {
   acknowledgeHostBridgeNotificationEvents,
   listHostBridgeNotificationEvents,
@@ -97,19 +113,23 @@ export type HostBridgeWorkflowControlManifest = {
 export type HostBridgeWorkflowSummary = {
   id: string;
   label: string;
+  description: string;
+  executionModes: Array<"auto" | "interactive">;
   provider: string;
   version?: string;
   sourceKind: "official" | "dev-local" | "user" | "";
   packageId?: string;
   configurable: boolean;
   acceptsNoSelection: boolean;
-  inputUnit?: string;
-  selectionValidation?: {
-    policy?: string;
-    excludes?: string[];
-    derives?: string[];
-  };
+  inputs: LoadedWorkflow["manifest"]["inputs"];
+  validateSelection: LoadedWorkflow["manifest"]["validateSelection"];
   parameters: string[];
+  resultEvidence: {
+    fetchType?: "bundle" | "result";
+    resultJson?: string;
+    artifacts: string[];
+    applyBack: boolean;
+  };
 };
 
 export type HostBridgeWorkflowSelection =
@@ -140,6 +160,7 @@ export type HostBridgeWorkflowSubmitRequest = {
   selection?: unknown;
   workflowOptions?: unknown;
   providerProfile?: unknown;
+  hostOptions?: unknown;
   input?: unknown;
 };
 
@@ -185,6 +206,20 @@ export type HostBridgeWorkflowAgentApplyResult = {
     error?: string;
   }>;
   warnings: string[];
+  stateChange: "unchanged" | "changed";
+  handleConsumption: "consumed";
+};
+
+export type HostBridgeWorkflowAgentRunLifecycleResult = {
+  agentRunId: string;
+  workflowId: string;
+  state: string;
+  leaseExpiresAt: string;
+  retentionExpiresAt: string;
+  renewable: boolean;
+  abandonable: boolean;
+  renewedAt?: string;
+  abandonedAt?: string;
 };
 
 export type HostBridgeWorkflowSubmitPlan = {
@@ -203,41 +238,54 @@ export type HostBridgeWorkflowAgentRunPlan = {
   selection: HostBridgeWorkflowSelection;
 };
 
-export type HostBridgeWorkflowSubmitResult = {
-  workflowId: string;
-  workflowLabel: string;
-  runId: string;
-  jobIds: string[];
-  totalJobs: number;
-  tasks: HostBridgeWorkflowTaskDto[];
-  permission: HostBridgePermissionDecision;
-};
+export type HostBridgeWorkflowSubmitResult =
+  | {
+      workflowId: string;
+      workflowLabel: string;
+      admission: "direct";
+      workflowRunId: string;
+      jobIds: string[];
+      totalJobs: number;
+      tasks: HostBridgeWorkflowTaskDto[];
+      permission: HostBridgePermissionDecision;
+    }
+  | {
+      workflowId: string;
+      workflowLabel: string;
+      admission: "host-queue";
+      submissionId: WorkflowSubmissionId;
+      totalUnits: number;
+      queuedUnits: number;
+      skippedUnits: number;
+      submissionUrl: string;
+      queueUrl: string;
+      permission: HostBridgePermissionDecision;
+    };
 
 export type HostBridgeWorkflowDescribeRequest = {
   workflowId?: unknown;
   workflowOptions?: unknown;
-  providerProfile?: unknown;
 };
 
 export type HostBridgeWorkflowDescribeResult = {
   workflowId: string;
   workflowLabel: string;
-  providerId: string;
+  description: string;
+  declaredExecutionModes: Array<"auto" | "interactive">;
+  resultEvidence: HostBridgeWorkflowSummary["resultEvidence"];
   selection: {
     acceptsNoSelection: boolean;
-    inputUnit?: string;
-    selectionValidation?: HostBridgeWorkflowSummary["selectionValidation"];
+    inputs: HostBridgeWorkflowSummary["inputs"];
+    validateSelection: HostBridgeWorkflowSummary["validateSelection"];
   };
   workflowOptions: {
     schema: unknown[];
     normalized: Record<string, unknown>;
   };
-  providerProfile: {
-    requiresBackendProfile: boolean;
-    profiles: Array<{ id: string; label: string }>;
-    selectedBackendId: string;
-    providerOptionsSchema: unknown[];
-    normalizedProviderOptions: Record<string, unknown>;
+  providerRequirements: {
+    requestKind: string;
+    acceptedProviderTypes: string[];
+    requiredCapabilities: string[];
   };
   executionModes: {
     hostOwned: {
@@ -261,7 +309,13 @@ export type HostBridgeWorkflowDescribeResult = {
   blockedReason?: string;
 };
 
-export type HostBridgeWorkflowValidateRequest = HostBridgeWorkflowSubmitRequest;
+export type HostBridgeWorkflowValidateRequest = {
+  workflowId?: unknown;
+  selection?: unknown;
+  workflowOptions?: unknown;
+  providerProfile?: unknown;
+  input?: unknown;
+};
 
 export type HostBridgeWorkflowValidateResult = {
   workflowId: string;
@@ -269,11 +323,28 @@ export type HostBridgeWorkflowValidateResult = {
   ready: boolean;
   selection: HostBridgeWorkflowSubmitPlan["selection"];
   workflowOptions: Record<string, unknown>;
-  providerProfile: {
-    backendId?: string;
+  diagnostics: Array<{ code: string; message: string }>;
+};
+
+export type HostBridgeProviderProfileDescribeRequest = {
+  backendId?: unknown;
+  workflowId?: unknown;
+};
+
+export type HostBridgeProviderProfileValidateRequest = {
+  providerProfile?: unknown;
+  workflowId?: unknown;
+};
+
+export type HostBridgeProviderProfileValidateResult = {
+  valid: true;
+  normalizedProfile: {
+    schema: string;
+    backendId: string;
     providerOptions: Record<string, unknown>;
   };
-  diagnostics: Array<{ code: string; message: string }>;
+  descriptor: ProviderProfileDescriptor;
+  diagnostics: [];
 };
 
 export type HostBridgeTaskFilters = {
@@ -281,6 +352,7 @@ export type HostBridgeTaskFilters = {
   backendId?: string;
   backendType?: string;
   requestId?: string;
+  submissionId?: string;
   runId?: string;
   state?: string;
   includeHistory?: boolean;
@@ -292,6 +364,8 @@ export type HostBridgeWorkflowTaskDto = {
   id: string;
   runId: string;
   workflowRunId: string;
+  submissionId?: string;
+  submissionUnitId?: string;
   jobId: string;
   skillRunId?: string;
   runKey?: string;
@@ -461,6 +535,9 @@ export function getHostBridgeWorkflowControlManifest(): HostBridgeWorkflowContro
       "POST /bridge/v1/workflows/describe",
       "POST /bridge/v1/workflows/validate",
       "POST /bridge/v1/workflows/requirements",
+      "GET /bridge/v1/workflows/provider-profiles",
+      "POST /bridge/v1/workflows/provider-profiles/describe",
+      "POST /bridge/v1/workflows/provider-profiles/validate",
       "POST /bridge/v1/workflows/submit",
       "POST /bridge/v1/workflows/agent-run",
       "POST /bridge/v1/workflows/agent-runs/{agentRunId}/apply",
@@ -488,27 +565,23 @@ export function getHostBridgeWorkflowControlManifest(): HostBridgeWorkflowContro
 export function listHostBridgeWorkflows(): HostBridgeWorkflowSummary[] {
   return getVisibleLoadedWorkflowEntries().map((entry) => {
     const manifest = entry.manifest;
+    const manifestContract = projectWorkflowManifestContract(manifest);
     return {
       id: manifest.id,
       label: localizeWorkflowLabel(entry),
+      description: normalizeString(manifest.description),
+      executionModes: manifestContract.executionModes,
       provider: manifest.provider,
       version: manifest.version,
       sourceKind:
         entry.workflowSourceKind || getLoadedWorkflowSourceById(manifest.id),
       packageId: entry.packageId,
       configurable: Object.keys(manifest.parameters || {}).length > 0,
-      acceptsNoSelection: canWorkflowRunWithoutSelection(manifest),
-      inputUnit: manifest.inputs?.unit,
-      selectionValidation: manifest.validateSelection
-        ? {
-            policy: manifest.validateSelection.select?.policy,
-            excludes: (manifest.validateSelection.exclude || []).map(
-              (entry) => entry.kind,
-            ),
-            derives: manifest.validateSelection.derive || [],
-          }
-        : undefined,
+      acceptsNoSelection: manifestContract.selection.acceptsNoSelection,
+      inputs: manifestContract.selection.inputs,
+      validateSelection: manifestContract.selection.validation,
       parameters: Object.keys(manifest.parameters || {}),
+      resultEvidence: manifestContract.resultEvidence,
     };
   });
 }
@@ -710,18 +783,31 @@ function parseWorkflowSelection(
 function buildWorkflowExecutionOptions(args: {
   workflowOptions: Record<string, unknown>;
   providerProfile: HostBridgeWorkflowSubmitPlan["providerProfile"];
+  hostOptions?: unknown;
 }): WorkflowExecutionOptions {
-  return {
-    ...(args.providerProfile.backendId
-      ? { backendId: args.providerProfile.backendId }
-      : {}),
-    workflowParams: { ...args.workflowOptions },
-    providerOptions: { ...args.providerProfile.providerOptions },
-  };
+  return mergeExecutionOptions(
+    {},
+    {
+      ...(args.providerProfile.backendId
+        ? { backendId: args.providerProfile.backendId }
+        : {}),
+      workflowParams: { ...args.workflowOptions },
+      providerOptions: { ...args.providerProfile.providerOptions },
+      ...(typeof args.hostOptions === "undefined"
+        ? {}
+        : {
+            hostOptions:
+              args.hostOptions as WorkflowExecutionOptions["hostOptions"],
+          }),
+    },
+  );
 }
 
 function parseHostBridgeWorkflowRequestBase(
-  payload: HostBridgeWorkflowSubmitRequest | HostBridgeWorkflowDescribeRequest,
+  payload:
+    | HostBridgeWorkflowSubmitRequest
+    | HostBridgeWorkflowDescribeRequest
+    | HostBridgeWorkflowValidateRequest,
   errorCode: string,
 ) {
   const workflowId = normalizeString(payload?.workflowId);
@@ -729,10 +815,8 @@ function parseHostBridgeWorkflowRequestBase(
     throw codedWorkflowValidationError(errorCode, "workflowId is required");
   }
   let workflowOptions: Record<string, unknown>;
-  let providerProfile: ReturnType<typeof parseProviderProfile>;
   try {
     workflowOptions = parseWorkflowOptions(payload.workflowOptions);
-    providerProfile = parseProviderProfile(payload.providerProfile);
   } catch (error) {
     if (error && typeof error === "object") {
       (error as { code?: string }).code = errorCode;
@@ -742,11 +826,6 @@ function parseHostBridgeWorkflowRequestBase(
   return {
     workflowId,
     workflowOptions,
-    providerProfile,
-    executionOptions: buildWorkflowExecutionOptions({
-      workflowOptions,
-      providerProfile,
-    }),
   };
 }
 
@@ -763,11 +842,32 @@ export function parseHostBridgeWorkflowSubmitRequest(
     payload,
     "invalid_workflow_submit_request",
   );
+  const providerProfile = parseProviderProfile(payload.providerProfile);
   const selection = parseWorkflowSelection(payload.selection);
   return {
     ...base,
+    providerProfile,
+    executionOptions: buildWorkflowExecutionOptions({
+      workflowOptions: base.workflowOptions,
+      providerProfile,
+      hostOptions: payload.hostOptions,
+    }),
     selection,
   };
+}
+
+function assertWorkflowOnlyRequest(
+  payload:
+    | HostBridgeWorkflowDescribeRequest
+    | HostBridgeWorkflowValidateRequest,
+  errorCode: string,
+) {
+  if (Object.prototype.hasOwnProperty.call(payload || {}, "providerProfile")) {
+    throw codedWorkflowValidationError(
+      errorCode,
+      "providerProfile is only accepted by workflow submit; use workflow provider-profile endpoints for discovery and validation",
+    );
+  }
 }
 
 export function parseHostBridgeWorkflowAgentRunRequest(
@@ -813,20 +913,10 @@ export function parseHostBridgeWorkflowAgentRunRequest(
   };
 }
 
-function workflowSelectionValidationSummary(workflow: LoadedWorkflow) {
-  const validateSelection = workflow.manifest.validateSelection;
-  return validateSelection
-    ? {
-        policy: validateSelection.select?.policy,
-        excludes: (validateSelection.exclude || []).map((entry) => entry.kind),
-        derives: validateSelection.derive || [],
-      }
-    : undefined;
-}
-
 export async function describeHostBridgeWorkflow(
   payload: HostBridgeWorkflowDescribeRequest,
 ): Promise<HostBridgeWorkflowDescribeResult> {
+  assertWorkflowOnlyRequest(payload, "invalid_workflow_describe_request");
   const base = parseHostBridgeWorkflowRequestBase(
     payload,
     "invalid_workflow_describe_request",
@@ -839,33 +929,33 @@ export async function describeHostBridgeWorkflow(
   }
   const descriptor = await buildWorkflowSettingsUiDescriptor({
     workflow,
-    draft: base.executionOptions,
+    draft: { workflowParams: base.workflowOptions },
+    candidateBackends: [],
     autoSelectFallbackProfile: false,
     ignoreSavedSettings: true,
   });
-  const agentRequiredParameters = listMissingRequiredWorkflowParameters(
-    workflow.manifest,
-    {},
-  );
+  const manifestContract = projectWorkflowManifestContract(workflow.manifest);
+  const agentRequiredParameters = manifestContract.requiredWorkflowOptions;
   return {
     workflowId: workflow.manifest.id,
     workflowLabel: localizeWorkflowLabel(workflow),
-    providerId: descriptor.providerId,
+    description: normalizeString(workflow.manifest.description),
+    declaredExecutionModes: manifestContract.executionModes,
+    resultEvidence: manifestContract.resultEvidence,
     selection: {
-      acceptsNoSelection: canWorkflowRunWithoutSelection(workflow.manifest),
-      inputUnit: workflow.manifest.inputs?.unit,
-      selectionValidation: workflowSelectionValidationSummary(workflow),
+      acceptsNoSelection: manifestContract.selection.acceptsNoSelection,
+      inputs: manifestContract.selection.inputs,
+      validateSelection: manifestContract.selection.validation,
     },
     workflowOptions: {
       schema: descriptor.workflowSchemaEntries,
       normalized: descriptor.workflowParams,
     },
-    providerProfile: {
-      requiresBackendProfile: descriptor.requiresBackendProfile,
-      profiles: descriptor.profiles,
-      selectedBackendId: descriptor.selectedProfile,
-      providerOptionsSchema: descriptor.providerSchemaEntries,
-      normalizedProviderOptions: descriptor.providerOptions,
+    providerRequirements: {
+      ...manifestContract.providerRequirements,
+      requiredCapabilities: manifestContract.providerRequirements.requestKind
+        ? [manifestContract.providerRequirements.requestKind]
+        : [],
     },
     executionModes: {
       hostOwned: {
@@ -900,19 +990,53 @@ export async function describeHostBridgeWorkflow(
 export async function validateHostBridgeWorkflow(
   payload: HostBridgeWorkflowValidateRequest,
 ): Promise<HostBridgeWorkflowValidateResult> {
-  const { plan, workflow } = await prepareHostBridgeWorkflowSubmit(payload);
+  assertWorkflowOnlyRequest(payload, "invalid_workflow_validate_request");
+  if (typeof payload?.input !== "undefined") {
+    throw codedWorkflowValidationError(
+      "invalid_workflow_validate_request",
+      "workflow validate uses selection and workflowOptions; input is not supported",
+    );
+  }
+  const base = parseHostBridgeWorkflowRequestBase(
+    payload,
+    "invalid_workflow_validate_request",
+  );
+  const selection = parseWorkflowSelection(
+    payload.selection,
+    "invalid_workflow_validate_request",
+  );
+  const workflow = getWorkflowById(base.workflowId);
+  if (!workflow) {
+    const error = new Error("workflow not found");
+    (error as { code?: string }).code = "workflow_not_found";
+    throw error;
+  }
+  if (
+    selection.kind === "none" &&
+    !canWorkflowRunWithoutSelection(workflow.manifest)
+  ) {
+    throw codedWorkflowValidationError(
+      "invalid_workflow_validate_request",
+      "selection.kind=none is only valid for no-selection workflows",
+    );
+  }
+  const descriptor = await buildWorkflowSettingsUiDescriptor({
+    workflow,
+    draft: { workflowParams: base.workflowOptions },
+    candidateBackends: [],
+    ignoreSavedSettings: true,
+    resolveDynamicOptions: false,
+  });
+  assertRequiredWorkflowParameters(
+    workflow.manifest,
+    descriptor.workflowParams,
+  );
   return {
     workflowId: workflow.manifest.id,
     workflowLabel: localizeWorkflowLabel(workflow),
     ready: true,
-    selection: plan.selection,
-    workflowOptions: { ...(plan.executionOptions.workflowParams || {}) },
-    providerProfile: {
-      ...(plan.providerProfile.backendId
-        ? { backendId: plan.providerProfile.backendId }
-        : {}),
-      providerOptions: { ...plan.providerProfile.providerOptions },
-    },
+    selection,
+    workflowOptions: { ...descriptor.workflowParams },
     diagnostics: [],
   };
 }
@@ -921,6 +1045,43 @@ export async function requirementsForHostBridgeWorkflow(
   payload: HostBridgeWorkflowDescribeRequest,
 ): Promise<HostBridgeWorkflowDescribeResult> {
   return describeHostBridgeWorkflow(payload);
+}
+
+export async function listHostBridgeProviderProfiles() {
+  return {
+    schema: "zotero-bridge.provider-profile-list.v1",
+    profiles: await listProviderProfileBackends(),
+  };
+}
+
+export async function describeHostBridgeProviderProfile(
+  payload: HostBridgeProviderProfileDescribeRequest,
+) {
+  if (Object.prototype.hasOwnProperty.call(payload || {}, "workflowId")) {
+    throw codedWorkflowValidationError(
+      "invalid_provider_profile_request",
+      "provider profile describe does not accept workflowId",
+    );
+  }
+  return describeProviderProfile(payload?.backendId);
+}
+
+export async function validateHostBridgeProviderProfile(
+  payload: HostBridgeProviderProfileValidateRequest,
+): Promise<HostBridgeProviderProfileValidateResult> {
+  if (Object.prototype.hasOwnProperty.call(payload || {}, "workflowId")) {
+    throw codedWorkflowValidationError(
+      "invalid_provider_profile_request",
+      "provider profile validate does not accept workflowId",
+    );
+  }
+  const result = await validateProviderProfile(payload?.providerProfile);
+  return {
+    valid: true,
+    normalizedProfile: result.normalizedProfile,
+    descriptor: result.descriptor,
+    diagnostics: [],
+  };
 }
 
 function resolveZoteroItemRef(ref: HostBridgeWorkflowItemRef) {
@@ -979,7 +1140,7 @@ function resolveSelectedItemsForPlan(plan: HostBridgeWorkflowSubmitPlan) {
 export async function prepareHostBridgeWorkflowSubmit(
   payload: HostBridgeWorkflowSubmitRequest,
 ): Promise<{ plan: HostBridgeWorkflowSubmitPlan; workflow: LoadedWorkflow }> {
-  const plan = parseHostBridgeWorkflowSubmitRequest(payload);
+  let plan = parseHostBridgeWorkflowSubmitRequest(payload);
   const workflow = getWorkflowById(plan.workflowId);
   if (!workflow) {
     const error = new Error("workflow not found");
@@ -1008,7 +1169,7 @@ export async function prepareHostBridgeWorkflowSubmit(
   const explicitBackendId = normalizeString(plan.providerProfile.backendId);
   if (explicitBackendId && descriptor.selectedProfile !== explicitBackendId) {
     throw codedWorkflowValidationError(
-      "invalid_workflow_submit_request",
+      "workflow_provider_incompatible",
       "providerProfile.backendId is not compatible with this workflow",
     );
   }
@@ -1017,6 +1178,27 @@ export async function prepareHostBridgeWorkflowSubmit(
       "invalid_workflow_submit_request",
       "providerProfile.backendId is required for this workflow",
     );
+  }
+  if (explicitBackendId) {
+    const validated = await validateProviderProfile({
+      schema: "zotero-bridge.provider-profile.v1",
+      backendId: explicitBackendId,
+      providerOptions: plan.providerProfile.providerOptions,
+    });
+    plan = {
+      ...plan,
+      providerProfile: {
+        backendId: validated.normalizedProfile.backendId,
+        providerOptions: validated.normalizedProfile.providerOptions,
+      },
+      executionOptions: buildWorkflowExecutionOptions({
+        workflowOptions: plan.workflowOptions,
+        providerProfile: {
+          backendId: validated.normalizedProfile.backendId,
+          providerOptions: validated.normalizedProfile.providerOptions,
+        },
+      }),
+    };
   }
   return { plan, workflow };
 }
@@ -1143,16 +1325,6 @@ export async function buildHostBridgeWorkflowAgentRun(args: {
   );
   const selectedItems = resolveSelectedItemsForSelection(plan.selection);
   const selectionContext = await buildSelectionContext(selectedItems);
-  const inputCompatibility = evaluateAgentRunInputCompatibility({
-    workflow,
-    selectionContext,
-  });
-  if (!inputCompatibility.compatible) {
-    throw codedWorkflowValidationError(
-      "invalid_workflow_agent_run_request",
-      inputCompatibility.message,
-    );
-  }
   const applyStatus = await evaluateAgentRunApplyStatus({
     workflow,
     selectionContext,
@@ -1372,20 +1544,14 @@ export async function applyHostBridgeWorkflowAgentRun(args: {
     }
   }
 
-  const selectedItems = resolveSelectedItemsForSelection(record.selection);
-  const selectionContext = await buildSelectionContext(selectedItems);
-  const applyStatus = await evaluateAgentRunApplyStatus({
-    workflow,
-    selectionContext,
-  });
-  if (!applyStatus.allowed) {
+  const lease = acquireHostBridgeAgentRunApplyLease(agentRunId);
+  if (!lease) {
     throw codedAgentApplyError(
-      "apply_not_allowed",
-      applyStatus.message ||
-        "workflow agent-run apply is not currently allowed",
-      {
-        reasonCode: applyStatus.reasonCode,
-      },
+      record.state === "applying" || record.sealedAt
+        ? "agent_run_already_consumed"
+        : "agent_run_lifecycle_conflict",
+      "agent-run is not available for apply",
+      { agentRunId, state: record.state },
     );
   }
 
@@ -1394,34 +1560,60 @@ export async function applyHostBridgeWorkflowAgentRun(args: {
     prepared: HostBridgeAgentRunPreparedRequest;
     bundleReader: BundleReader;
   }>;
-  for (const result of results) {
-    const prepared = preparedById.get(result.agentRequestId)!;
-    const bundleReader = createAgentApplyBundleReader(result.bundle.path);
-    await validateAgentApplyBundle({ bundleReader, prepared });
-    preflight.push({ result, prepared, bundleReader });
+  let permission: HostBridgePermissionDecision;
+  try {
+    const selectedItems = resolveSelectedItemsForSelection(record.selection);
+    const selectionContext = await buildSelectionContext(selectedItems);
+    const applyStatus = await evaluateAgentRunApplyStatus({
+      workflow,
+      selectionContext,
+    });
+    if (!applyStatus.allowed) {
+      throw codedAgentApplyError(
+        "apply_not_allowed",
+        applyStatus.message ||
+          "workflow agent-run apply is not currently allowed",
+        { reasonCode: applyStatus.reasonCode },
+      );
+    }
+    for (const result of results) {
+      const prepared = preparedById.get(result.agentRequestId)!;
+      const bundleReader = createAgentApplyBundleReader(result.bundle.path);
+      await validateAgentApplyBundle({ bundleReader, prepared });
+      preflight.push({ result, prepared, bundleReader });
+    }
+    recordHostBridgeAgentRunApplyReceipt(agentRunId, {
+      agentRunId,
+      workflowId: record.workflowId,
+      status: "preflight",
+      stateChange: "unchanged",
+      handleConsumption: "unconsumed",
+      recoverable: true,
+      results: [],
+    });
+    permission = await requestAgentRunApplyPermission({
+      workflow,
+      resultCount: results.length,
+      scope: args.scope,
+    });
+  } catch (error) {
+    releaseHostBridgeAgentRunApplyLease(agentRunId);
+    throw error;
+  }
+  if (!sealHostBridgeAgentRunRecord(agentRunId)) {
+    releaseHostBridgeAgentRunApplyLease(agentRunId);
+    throw codedAgentApplyError(
+      "agent_run_already_consumed",
+      "agent-run apply lease was lost before write-back",
+      { agentRunId },
+    );
   }
   recordHostBridgeAgentRunApplyReceipt(agentRunId, {
     agentRunId,
     workflowId: record.workflowId,
-    status: "preflight",
-    stateChanged: false,
-    handleConsumed: false,
-    recoverable: true,
-    results: [],
-  });
-
-  const permission = await requestAgentRunApplyPermission({
-    workflow,
-    resultCount: results.length,
-    scope: args.scope,
-  });
-  sealHostBridgeAgentRunRecord(agentRunId);
-  recordHostBridgeAgentRunApplyReceipt(agentRunId, {
-    agentRunId,
-    workflowId: record.workflowId,
     status: "applying",
-    stateChanged: false,
-    handleConsumed: true,
+    stateChange: "unchanged",
+    handleConsumption: "consumed",
     recoverable: false,
     results: [],
   });
@@ -1510,20 +1702,26 @@ export async function applyHostBridgeWorkflowAgentRun(args: {
     failed === 0 ? "succeeded" : succeeded > 0 ? "partial" : "failed";
   finishHostBridgeAgentRunRecord({
     agentRunId,
-    outcome: failed === 0 ? "succeeded" : "failed",
+    outcome: receiptStatus,
     ...(failed > 0 ? { error: `${failed} apply-back request(s) failed` } : {}),
   });
   recordHostBridgeAgentRunApplyReceipt(agentRunId, {
     agentRunId,
     workflowId: record.workflowId,
     status: receiptStatus,
-    stateChanged: succeeded > 0,
-    handleConsumed: true,
+    stateChange: succeeded > 0 ? "changed" : "unchanged",
+    handleConsumption: "consumed",
     recoverable: false,
     results: perRequest.map((entry) => ({
       agentRequestId: entry.agentRequestId,
-      succeeded: entry.succeeded,
+      status: entry.succeeded ? "succeeded" : "failed",
       ...(entry.error ? { error: entry.error } : {}),
+      ...(!entry.succeeded
+        ? {
+            safeNextAction:
+              "Inspect this receipt before preparing a new agent run.",
+          }
+        : {}),
     })),
   });
 
@@ -1539,6 +1737,8 @@ export async function applyHostBridgeWorkflowAgentRun(args: {
     },
     results: perRequest,
     warnings,
+    stateChange: succeeded > 0 ? "changed" : "unchanged",
+    handleConsumption: "consumed",
   };
 }
 
@@ -1546,178 +1746,56 @@ export function getHostBridgeWorkflowAgentRunApplyReceipt(agentRunId: string) {
   return getHostBridgeAgentRunApplyReceipt(normalizeString(agentRunId));
 }
 
-function selectionArray(
-  selectionContext: SelectionContext,
-  key: keyof SelectionContext["items"],
-) {
-  const value = selectionContext.items?.[key];
-  return Array.isArray(value) ? value : [];
-}
-
-type AgentRunAttachment = Record<string, unknown> & {
-  item?: Record<string, unknown> & {
-    id?: unknown;
-    parentItemID?: unknown;
-    data?: Record<string, unknown>;
-  };
-  parent?: Record<string, unknown> & { id?: unknown };
-  filePath?: unknown;
-  mimeType?: unknown;
-};
-
-function attachmentParentId(entry: AgentRunAttachment) {
-  const candidates = [entry.parent?.id, entry.item?.parentItemID];
-  for (const candidate of candidates) {
-    const value = Number(candidate);
-    if (Number.isInteger(value) && value > 0) {
-      return value;
-    }
-  }
-  return 0;
-}
-
-function attachmentMime(entry: AgentRunAttachment) {
-  return String(entry.mimeType || entry.item?.data?.contentType || "").trim();
-}
-
-function attachmentFilePath(entry: AgentRunAttachment) {
-  return String(entry.filePath || entry.item?.data?.path || "").toLowerCase();
-}
-
-function attachmentMatchesMime(entry: AgentRunAttachment, mimes?: string[]) {
-  if (!mimes?.length) {
-    return true;
-  }
-  const mime = attachmentMime(entry);
-  if (mime && mimes.includes(mime)) {
-    return true;
-  }
-  const filePath = attachmentFilePath(entry);
-  if (
-    filePath.endsWith(".md") &&
-    (mimes.includes("text/markdown") ||
-      mimes.includes("text/x-markdown") ||
-      mimes.includes("text/plain"))
-  ) {
-    return true;
-  }
-  return filePath.endsWith(".pdf") && mimes.includes("application/pdf");
-}
-
-function collectAgentRunAttachmentCandidates(
-  selectionContext: SelectionContext,
-) {
-  const direct = selectionArray(selectionContext, "attachments");
-  const source =
-    direct.length > 0
-      ? direct
-      : [
-          ...selectionArray(selectionContext, "parents").flatMap((entry) =>
-            Array.isArray(entry.attachments) ? entry.attachments : [],
-          ),
-          ...selectionArray(selectionContext, "children").flatMap((entry) =>
-            Array.isArray(entry.attachments) ? entry.attachments : [],
-          ),
-        ];
-  const seen = new Set<string>();
-  const output: AgentRunAttachment[] = [];
-  for (const raw of source) {
-    if (!raw || typeof raw !== "object") {
-      continue;
-    }
-    const entry = raw as AgentRunAttachment;
-    const id = typeof entry.item?.id === "number" ? `id:${entry.item.id}` : "";
-    const key =
-      id ||
-      `file:${String(entry.filePath || entry.item?.data?.path || "")}|parent:${attachmentParentId(entry)}`;
-    if (!key || seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    output.push(entry);
-  }
-  return output;
-}
-
-function countValidAgentRunAttachments(args: {
-  workflow: LoadedWorkflow;
-  selectionContext: SelectionContext;
-}) {
-  const inputs = args.workflow.manifest.inputs;
-  const candidates = collectAgentRunAttachmentCandidates(args.selectionContext);
-  const mimeMatched = candidates.filter((entry) =>
-    attachmentMatchesMime(entry, inputs?.accepts?.mime),
-  );
-  const perParentMin = Math.max(0, inputs?.per_parent?.min ?? 0);
-  const rawMax = inputs?.per_parent?.max ?? Number.POSITIVE_INFINITY;
-  const perParentMax = Math.max(perParentMin, rawMax);
-  const byParent = new Map<number, number>();
-  for (const entry of mimeMatched) {
-    const parentId = attachmentParentId(entry);
-    if (!parentId) {
-      continue;
-    }
-    byParent.set(parentId, (byParent.get(parentId) || 0) + 1);
-  }
-  let valid = 0;
-  for (const count of byParent.values()) {
-    if (count >= perParentMin && count <= perParentMax) {
-      valid += count;
-    }
-  }
+function projectAgentRunLifecycle(
+  record: NonNullable<ReturnType<typeof getHostBridgeAgentRunRecord>>,
+): HostBridgeWorkflowAgentRunLifecycleResult {
+  const mutable = record.state === "prepared" || record.state === "expired";
   return {
-    candidates: candidates.length,
-    mimeMatched: mimeMatched.length,
-    valid,
+    agentRunId: record.agentRunId,
+    workflowId: record.workflowId,
+    state: record.state,
+    leaseExpiresAt: record.expiresAt,
+    retentionExpiresAt: record.retentionExpiresAt,
+    renewable: mutable,
+    abandonable: mutable,
+    ...(record.renewedAt ? { renewedAt: record.renewedAt } : {}),
+    ...(record.abandonedAt ? { abandonedAt: record.abandonedAt } : {}),
   };
 }
 
-function evaluateAgentRunInputCompatibility(args: {
-  workflow: LoadedWorkflow;
-  selectionContext: SelectionContext;
-}) {
-  const unit = args.workflow.manifest.inputs?.unit || "attachment";
-  if (unit === "workflow") {
-    return {
-      compatible: true,
-      message: "workflow input is compatible",
-    };
+function changeHostBridgeWorkflowAgentRunLifecycle(
+  agentRunIdInput: string,
+  action: "renew" | "abandon",
+) {
+  const agentRunId = normalizeString(agentRunIdInput);
+  const existing =
+    getHostBridgeAgentRunRecord(agentRunId) ||
+    getExpiredHostBridgeAgentRunRecord(agentRunId);
+  if (!existing) {
+    throw codedAgentApplyError("agent_run_not_found", "agent-run not found", {
+      agentRunId,
+    });
   }
-  if (unit === "parent") {
-    const count = selectionArray(args.selectionContext, "parents").length;
-    return {
-      compatible: count > 0,
-      message:
-        count > 0
-          ? "parent input is compatible"
-          : "workflow agent-run requires at least one parent input",
-    };
+  const updated =
+    action === "renew"
+      ? renewHostBridgeAgentRunRecord(agentRunId)
+      : abandonHostBridgeAgentRunRecord(agentRunId);
+  if (!updated) {
+    throw codedAgentApplyError(
+      "agent_run_lifecycle_conflict",
+      `agent-run cannot be ${action === "renew" ? "renewed" : "abandoned"} from its current state`,
+      { agentRunId, state: existing.state },
+    );
   }
-  if (unit === "note") {
-    const count = selectionArray(args.selectionContext, "notes").length;
-    return {
-      compatible: count > 0,
-      message:
-        count > 0
-          ? "note input is compatible"
-          : "workflow agent-run requires at least one note input",
-    };
-  }
-  const counts = countValidAgentRunAttachments(args);
-  let message = "attachment input is compatible";
-  if (counts.candidates === 0) {
-    message = "workflow agent-run requires at least one attachment input";
-  } else if (counts.mimeMatched === 0) {
-    message =
-      "workflow agent-run attachment inputs do not match inputs.accepts.mime";
-  } else if (counts.valid === 0) {
-    message =
-      "workflow agent-run attachment inputs do not satisfy inputs.per_parent";
-  }
-  return {
-    compatible: counts.valid > 0,
-    message,
-  };
+  return projectAgentRunLifecycle(updated);
+}
+
+export function renewHostBridgeWorkflowAgentRun(agentRunId: string) {
+  return changeHostBridgeWorkflowAgentRunLifecycle(agentRunId, "renew");
+}
+
+export function abandonHostBridgeWorkflowAgentRun(agentRunId: string) {
+  return changeHostBridgeWorkflowAgentRunLifecycle(agentRunId, "abandon");
 }
 
 async function evaluateAgentRunApplyStatus(args: {
@@ -1823,53 +1901,94 @@ export async function submitHostBridgeWorkflow(args: {
     throw new Error("workflow preparation halted");
   }
 
-  const duplicateGuard = await runWorkflowDuplicateGuardSeam(
+  const duplicateGuard = await runWorkflowUnitDuplicateGuardSeam(
     {
       win,
       workflowId: workflow.manifest.id,
       workflowLabel: localizeWorkflowLabel(workflow),
-      requests: preparation.prepared.requests,
+      units: preparation.prepared.plan.units,
     },
     {
       confirmDuplicateSubmission: () => true,
     },
   );
-  const shortCircuitApplyCount =
-    preparation.prepared.preflight?.shortCircuitApplies.length || 0;
-  if (
-    duplicateGuard.allowedRequests.length === 0 &&
-    shortCircuitApplyCount === 0
-  ) {
+  if (duplicateGuard.allowedUnits.length === 0) {
     throw new Error("workflow submission produced no allowed requests");
   }
 
-  const runState = runWorkflowExecutionSeam({
-    prepared: {
-      ...preparation.prepared,
-      requests: duplicateGuard.allowedRequests,
-    },
+  const workflowLabel = localizeWorkflowLabel(workflow);
+  const submission = await submitPreparedWorkflowUnits({
+    prepared: preparation.prepared,
+    units: duplicateGuard.allowedUnits,
+    workflowLabel,
+    skippedByGuard: duplicateGuard.skippedByDuplicate,
+    messageFormatter,
   });
-  void runState.idlePromise
-    .then(() =>
-      runWorkflowApplySeam({
-        runState,
-        messageFormatter,
-      }),
-    )
-    .catch(() => undefined);
+  if (submission.admission === "host-queue") {
+    return {
+      workflowId: workflow.manifest.id,
+      workflowLabel,
+      admission: "host-queue",
+      submissionId: submission.submissionId!,
+      totalUnits: submission.total,
+      queuedUnits: submission.queued,
+      skippedUnits: submission.skipped,
+      submissionUrl: `/bridge/v1/workflows/submissions/${submission.submissionId}`,
+      queueUrl: "/bridge/v1/workflows/queue",
+      permission,
+    };
+  }
 
+  await submission.completion;
+  const runStates = [...submission.executionResults.values()]
+    .map((entry) => entry.runState)
+    .filter((entry): entry is NonNullable<typeof entry> => !!entry);
+  const workflowRunId = runStates[0]?.runId || "";
   return {
     workflowId: workflow.manifest.id,
-    workflowLabel: localizeWorkflowLabel(workflow),
-    runId: runState.runId,
-    jobIds: runState.jobIds,
-    totalJobs: runState.totalJobs,
-    tasks: listHostBridgeTasks({
-      runId: runState.runId,
-      includeHistory: false,
-    }),
+    workflowLabel,
+    admission: "direct",
+    workflowRunId,
+    jobIds: runStates.flatMap((entry) => entry.jobIds),
+    totalJobs: runStates.reduce((total, entry) => total + entry.totalJobs, 0),
+    tasks: runStates.flatMap((entry) =>
+      listHostBridgeTasks({
+        runId: entry.runId,
+        includeHistory: false,
+      }),
+    ),
     permission,
   };
+}
+
+export function listHostBridgeWorkflowQueue(scope?: WorkflowQueueBackendScope) {
+  return {
+    units: workflowSubmissionQueue.listQueued(scope),
+  };
+}
+
+export function getHostBridgeWorkflowSubmission(submissionId: string) {
+  const submission = workflowSubmissionQueue.getActiveSubmission(
+    submissionId as WorkflowSubmissionId,
+  );
+  if (!submission) {
+    const error = new Error("workflow submission not found or already settled");
+    (error as { code?: string }).code = "workflow_submission_not_found";
+    throw error;
+  }
+  return submission;
+}
+
+export function cancelHostBridgeWorkflowQueueUnit(queueId: string) {
+  const result = workflowSubmissionQueue.cancel(
+    queueId as WorkflowQueueEntryId,
+  );
+  if (result.status !== "canceled") {
+    const error = new Error("workflow queue unit is not pending");
+    (error as { code?: string }).code = "queue_unit_not_pending";
+    throw error;
+  }
+  return result;
 }
 
 function resolveSkillRunIdFromTask(task: Partial<WorkflowTaskRecord>) {
@@ -2098,6 +2217,8 @@ function taskToDto(
   };
   assignIfString(dto, "runKey", workflowTask.runKey);
   assignIfString(dto, "requestId", task.requestId);
+  assignIfString(dto, "submissionId", workflowTask.submissionId);
+  assignIfString(dto, "submissionUnitId", workflowTask.submissionUnitId);
   assignIfString(dto, "sequenceStepId", workflowTask.sequenceStepId);
   if (typeof workflowTask.sequenceStepIndex === "number") {
     dto.sequenceStepIndex = workflowTask.sequenceStepIndex;
@@ -2208,6 +2329,9 @@ function matchesFilters(
   if (filters.requestId && task.requestId !== filters.requestId) {
     return false;
   }
+  if (filters.submissionId && task.submissionId !== filters.submissionId) {
+    return false;
+  }
   if (!matchesRunIdFilter(task.runId, filters.runId)) {
     return false;
   }
@@ -2226,6 +2350,7 @@ export function listHostBridgeTasks(
     ? listActiveWorkflowTaskSummaries({
         backendId: filters.backendId,
         requestId: filters.requestId,
+        submissionId: filters.submissionId,
       })
     : listWorkflowTasks();
   for (const task of workflowTasks) {
@@ -2699,13 +2824,11 @@ export function listHostBridgeWorkflowRuns(
     runs.push(getHostBridgeWorkflowRunStatus(runId));
   }
   return {
-    runs: runs
-      .sort((left, right) =>
-        normalizeString(right.updatedAt).localeCompare(
-          normalizeString(left.updatedAt),
-        ),
-      )
-      .slice(0, historyLimit(filters.limit)),
+    runs: runs.sort((left, right) =>
+      normalizeString(right.updatedAt).localeCompare(
+        normalizeString(left.updatedAt),
+      ),
+    ),
   };
 }
 
@@ -2800,9 +2923,9 @@ export function listHostBridgeRecentSkillRuns(
     byId.set(skillRun.skillRunId, skillRun);
   }
   return {
-    skillRuns: Array.from(byId.values())
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-      .slice(0, historyLimit(filters.limit)),
+    skillRuns: Array.from(byId.values()).sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt),
+    ),
   };
 }
 
@@ -2843,9 +2966,6 @@ export function getHostBridgeSkillRun(
       skillId: acp.skillId,
       executionMode: acp.executionMode,
       workspaceDir: acp.workspaceDir,
-      acpModeId: acp.acpModeId,
-      acpModelId: acp.acpModelId,
-      acpReasoningEffort: acp.acpReasoningEffort,
       agentFamily: acp.agentFamily,
       conversationState: acp.conversationState,
       conversationRecoveryState: acp.conversationRecoveryState,

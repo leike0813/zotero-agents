@@ -1,17 +1,18 @@
 import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import {
+  type CommandRunner,
+  createGithubWorkflowRequestId,
+  dispatchAndResolveGithubWorkflowRun,
+  selectGithubWorkflowRun,
+  watchGithubWorkflowRun,
+} from "./github-workflow-run";
 
 const execFileAsync = promisify(execFile);
 const WORKFLOW = "release-host-bridge.yml";
 const DEFAULT_REPO = "leike0813/zotero-agents";
-
-type CommandRunner = (
-  command: string,
-  args: string[],
-) => Promise<{ stdout: string; stderr: string }>;
 
 function argValue(name: string) {
   const inline = process.argv.find((entry) => entry.startsWith(`${name}=`));
@@ -27,8 +28,12 @@ async function runCommand(command: string, args: string[]) {
   return { stdout: result.stdout || "", stderr: result.stderr || "" };
 }
 
-function delay(milliseconds: number) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+export function resolveHostBridgePublicationRef(ref?: string) {
+  const resolved = String(ref || "main").trim();
+  if (resolved !== "main") {
+    throw new Error("Formal Host Bridge publication must use ref main");
+  }
+  return resolved;
 }
 
 export function selectDispatchedHostBridgeRun(
@@ -41,9 +46,10 @@ export function selectDispatchedHostBridgeRun(
   args: { releaseSetId: string; requestId: string; workflowSha: string },
 ) {
   const title = `Host Bridge ${args.releaseSetId} (${args.requestId})`;
-  return runs.find(
-    (run) => run.displayTitle === title && run.headSha === args.workflowSha,
-  );
+  return selectGithubWorkflowRun(runs, {
+    displayTitle: title,
+    headSha: args.workflowSha,
+  });
 }
 
 export function readImmutablePublicationSource(
@@ -184,6 +190,7 @@ export async function dispatchHostBridgeRelease(args: {
   runLocalChecks?: boolean;
 }) {
   const commandRunner = args.commandRunner || runCommand;
+  const ref = resolveHostBridgePublicationRef(args.ref);
   const releaseSet = JSON.parse(
     await readFile("host-bridge/release-set.json", "utf8"),
   );
@@ -215,59 +222,26 @@ export async function dispatchHostBridgeRelease(args: {
     );
   }
   const repo = args.repo || DEFAULT_REPO;
-  const ref = args.ref || "main";
-  const requestId = args.requestId || `hbr-${randomUUID()}`;
-  await commandRunner("gh", [
-    "workflow",
-    "run",
-    WORKFLOW,
-    "--repo",
+  const requestId = args.requestId || createGithubWorkflowRequestId("hbr");
+  const selected = await dispatchAndResolveGithubWorkflowRun({
+    workflow: WORKFLOW,
     repo,
-    "--ref",
     ref,
-    "-f",
-    `release_set_id=${args.releaseSetId}`,
-    "-f",
-    `source_sha=${publicationSourceSha}`,
-    "-f",
-    `request_id=${requestId}`,
-  ]);
-
-  let selected: ReturnType<typeof selectDispatchedHostBridgeRun> = undefined;
-  for (let attempt = 0; attempt < 15 && !selected; attempt += 1) {
-    const runs = await commandRunner("gh", [
-      "run",
-      "list",
-      "--repo",
-      repo,
-      "--workflow",
-      WORKFLOW,
-      "--event",
-      "workflow_dispatch",
-      "--limit",
-      "30",
-      "--json",
-      "databaseId,displayTitle,headSha,url",
-    ]);
-    selected = selectDispatchedHostBridgeRun(JSON.parse(runs.stdout), {
-      releaseSetId: args.releaseSetId,
-      requestId,
-      workflowSha,
-    });
-    if (!selected && attempt < 14) await delay(2_000);
-  }
-  if (!selected) {
-    throw new Error(`Unable to resolve workflow run for request ${requestId}`);
-  }
+    inputs: {
+      release_set_id: args.releaseSetId,
+      source_sha: publicationSourceSha,
+      request_id: requestId,
+    },
+    expectedDisplayTitle: `Host Bridge ${args.releaseSetId} (${requestId})`,
+    expectedHeadSha: workflowSha,
+    commandRunner,
+  });
   if (args.watch) {
-    await commandRunner("gh", [
-      "run",
-      "watch",
-      String(selected.databaseId),
-      "--repo",
+    await watchGithubWorkflowRun({
       repo,
-      "--exit-status",
-    ]);
+      runId: selected.databaseId,
+      commandRunner,
+    });
     await commandRunner("git", ["fetch", "origin", "main"]);
     await commandRunner("git", ["merge", "--ff-only", "origin/main"]);
   }

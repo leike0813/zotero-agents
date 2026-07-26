@@ -5,7 +5,6 @@ TBD - created by archiving change add-acp-skillrunner-compatible-runner. Update 
 ## Requirements
 ### Requirement: ACP backend SHALL execute SkillRunner-compatible workflow jobs
 
-
 The system SHALL allow `skillrunner.job.v1` workflow requests to execute through
 an ACP backend without changing the workflow-facing request contract, when the
 workflow's provider-derived backend compatibility allows an ACP backend.
@@ -48,7 +47,6 @@ backend launch commands.
 
 ### Requirement: ACP runner SHALL materialize skills into agent-specific roots
 
-
 The ACP runner SHALL materialize plugin-side skills into run-local skill roots
 selected by ACP agent family, except for ACP families that use catalog-based
 instruction discovery.
@@ -62,23 +60,42 @@ instruction discovery.
   roots
 - **AND** it SHALL keep the requested skill's catalog root available for
   execution and validation.
-### Requirement: ACP runner SHALL recognize Kilo as a project-skill-root agent family
 
-ACP agent family resolution SHALL treat Kilo as a known project-skill-root family. Kilo's default project skill root SHALL be `.kilo/skills`.
+### Requirement: ACP runner SHALL resolve current project-skill-root agent families
 
-#### Scenario: Kilo backend resolves to Kilo family
+Every non-Hermes family SHALL include `.agents/skills`. Known families SHALL
+also include their dedicated project root: Codex `.codex/skills`, Claude Code
+`.claude/skills`, OpenCode `.opencode/skills`, Gemini CLI `.gemini/skills`,
+Qwen Code `.qwen/skills`, Kilo `.kilo/skills`, CodeBuddy
+`.codebuddy/skills`, and Kimi Code `.kimi-code/skills`. Hermes SHALL use no
+project skill root.
 
-- **GIVEN** an ACP backend is explicitly configured as `kilo` or is inferred from Kilo command metadata
+#### Scenario: CodeBuddy and Kimi are inferred from command metadata
+
+- **GIVEN** an ACP backend command contains the complete token `codebuddy`, `cbc`, or `kimi`
 - **WHEN** ACP agent family resolution runs
-- **THEN** the resolved family SHALL be `kilo`
-- **AND** the default skill roots SHALL include `.kilo/skills`.
+- **THEN** CodeBuddy metadata SHALL resolve to `codebuddy`
+- **AND** Kimi metadata SHALL resolve to `kimi-code`
+- **AND** substrings inside unrelated command tokens SHALL NOT trigger those families.
+
+#### Scenario: OpenCode uses its dedicated root
+
+- **GIVEN** an ACP backend resolves to `opencode`
+- **WHEN** its default skill roots are built
+- **THEN** the roots SHALL be `.agents/skills` and `.opencode/skills`
+- **AND** `.claude/skills` SHALL NOT be included.
 
 #### Scenario: Kilo preset uses Kilo family
 
 - **WHEN** the Kilo ACP preset is converted into a backend profile
 - **THEN** the backend profile SHALL set `acp.agentFamily` to `kilo`.
-### Requirement: ACP runner SHALL wrap workflow launches with uv when needed
 
+#### Scenario: CodeBuddy preset uses CodeBuddy family
+
+- **WHEN** the CodeBuddy ACP preset is converted into a backend profile
+- **THEN** the backend profile SHALL set `acp.agentFamily` to `codebuddy`.
+
+### Requirement: ACP runner SHALL wrap workflow launches with uv when needed
 
 The ACP runner SHALL use `uv run --with` only for workflow-run ACP launches when
 the materialized skill declares runtime Python dependencies and startup command
@@ -143,8 +160,8 @@ command unchanged because Hermes owns its own Python runtime.
 - **WHEN** the workflow runner resolves runtime dependencies
 - **THEN** the run SHALL fail with readiness
   `runtime_dependency_strategy_unavailable`.
-### Requirement: ACP runner SHALL validate structured output and repair failures
 
+### Requirement: ACP runner SHALL validate structured output and repair failures
 
 The ACP runner SHALL validate assistant turn output and issue bounded repair
 prompts when validation fails.
@@ -160,8 +177,8 @@ prompts when validation fails.
   and catalog skill root
 - **AND** the first prompt SHALL include compact catalog context rather than
   proxy skill roots.
-### Requirement: ACP Skills Busy Composer SHALL Interrupt Current Turn Without Canceling Run
 
+### Requirement: ACP Skills Busy Composer SHALL Interrupt Current Turn Without Canceling Run
 
 ACP Skills MUST distinguish interrupting the current agent turn from canceling the whole skill run.
 
@@ -178,8 +195,8 @@ ACP Skills MUST distinguish interrupting the current agent turn from canceling t
 - **THEN** the run SHALL remain available in the run list
 - **AND** the run status SHALL NOT be changed to `canceled`
 - **AND** the session SHALL NOT be disconnected by that action.
-### Requirement: ACP Skills Panel SHALL Preserve Per-Run Composer State
 
+### Requirement: ACP Skills Panel SHALL Preserve Per-Run Composer State
 
 ACP Skills frontend state MUST be isolated per selected run.
 
@@ -193,8 +210,8 @@ ACP Skills frontend state MUST be isolated per selected run.
 - **WHEN** a completed run has an active follow-up prompt or reply in progress
 - **THEN** the hint area SHALL show the active turn state
 - **AND** it SHALL NOT remain stuck on `Run completed`.
-### Requirement: ACP Skills Task Drawer SHALL Surface Waiting Tasks
 
+### Requirement: ACP Skills Task Drawer SHALL Surface Waiting Tasks
 
 ACP Skills task drawer rows MUST indicate tasks requiring user action.
 
@@ -208,6 +225,7 @@ ACP Skills task drawer rows MUST indicate tasks requiring user action.
 - **WHEN** a run first enters `waiting_user` or permission-required state
 - **THEN** the UI SHALL emit one toast for that transition
 - **AND** repeated snapshots SHALL NOT emit duplicate toasts.
+
 ### Requirement: ACP SkillRunner-compatible runs SHALL use the ACP Skills run-status state machine as SSOT
 
 ACP SkillRunner-compatible runs SHALL use `queued`, `running`, `waiting_user`,
@@ -334,7 +352,6 @@ boundary instead of being silently projected into later UI or recovery state.
 
 ### Requirement: ACP skill runner MUST execute ACP skill run requests
 
-
 ACP skill execution SHALL use `acp.skill.run.v1` as its provider-facing request
 contract. The runner MUST reject `skillrunner.job.v1` at its public dispatch
 boundary. The runner MUST synthesize effective runtime options from the skill
@@ -440,14 +457,12 @@ and MUST NOT mark the run as `failed` or `canceled`.
 
 #### Scenario: Recovered session reapplies timeout monitoring
 
-
 - **GIVEN** an ACP skill run is reconnected through session recovery
 - **WHEN** a recovered agent turn starts
 - **THEN** the runner SHALL recompute effective runtime options
 - **AND** it SHALL apply hard timeout monitoring to that recovered turn.
 
 #### Scenario: Recoverable disconnect preserves the current main status
-
 
 - **GIVEN** an ACP skill run is `running`, `waiting_user`, `repairing`, or
   `failed_retriable`
@@ -456,8 +471,8 @@ and MUST NOT mark the run as `failed` or `canceled`.
 - **THEN** the ACP Skills run status SHALL remain in the same main state
 - **AND** the conversation/recovery axes SHALL express whether reconnect or user
   reply is required.
-### Requirement: ACP Skills transcript signal governance
 
+### Requirement: ACP Skills transcript signal governance
 
 ACP Skills SHALL project only high-signal runtime events into the conversation transcript.
 
@@ -472,8 +487,8 @@ ACP Skills SHALL project only high-signal runtime events into the conversation t
 - **WHEN** the store projects transcript items
 - **THEN** those events SHALL remain in logs only
 - **AND** they SHALL NOT appear as transcript status items.
-### Requirement: ACP Skills selected composer is isolated from other run updates
 
+### Requirement: ACP Skills selected composer is isolated from other run updates
 
 ACP Skills SHALL preserve the selected run's active composer while unrelated
 runs stream, reconnect, or refresh.
@@ -491,8 +506,8 @@ runs stream, reconnect, or refresh.
   conversation reply path
 - **THEN** reconnect or snapshot refresh SHALL NOT force the composer into a
   disabled completed-only state.
-### Requirement: ACP Skills refresh hardening preserves prompt semantics
 
+### Requirement: ACP Skills refresh hardening preserves prompt semantics
 
 ACP Skills SHALL preserve existing prompt interaction semantics while hardening
 refresh behavior.
@@ -503,8 +518,8 @@ refresh behavior.
 - **THEN** the corresponding buttons SHALL remain operable after snapshot
   refresh
 - **AND** text input SHALL NOT become the only available reply path.
-### Requirement: ACP skill replies SHALL recover from failed prompt chains
 
+### Requirement: ACP skill replies SHALL recover from failed prompt chains
 
 ACP skill run replies SHALL NOT reuse a previously rejected prompt-chain promise
 as the starting point for a later user reply.
@@ -523,8 +538,8 @@ as the starting point for a later user reply.
 - **WHEN** the runner records the failure
 - **THEN** it SHALL retain diagnostics for the failed turn
 - **AND** it SHALL clear or replace the mutable prompt-chain state before accepting another reply.
-### Requirement: ACP runner SHALL resolve Skill Runner schema assets consistently
 
+### Requirement: ACP runner SHALL resolve Skill Runner schema assets consistently
 
 The ACP runner SHALL resolve `input`, `parameter`, and `output` schema assets using Skill Runner-compatible rules: declared `runner.schemas.<key>` first, then `assets/<key>.schema.json` fallback.
 
@@ -545,8 +560,8 @@ The ACP runner SHALL resolve `input`, `parameter`, and `output` schema assets us
 - **WHEN** ACP needs to validate output
 - **AND** neither the declared output schema nor `assets/output.schema.json` can be resolved
 - **THEN** output validation SHALL fail with a schema diagnostic instead of silently passing.
-### Requirement: ACP runner SHALL validate request input and parameter schemas
 
+### Requirement: ACP runner SHALL validate request input and parameter schemas
 
 The ACP runner SHALL validate request `input` and `parameter` payloads before sending the first ACP prompt.
 
@@ -565,8 +580,8 @@ The ACP runner SHALL validate request `input` and `parameter` payloads before se
 
 - **WHEN** input keys marked `x-input-source=inline` or parameter keys are present
 - **THEN** ACP SHALL validate them against their corresponding JSON schemas.
-### Requirement: ACP runner SHALL render Skill Runner entrypoint prompts
 
+### Requirement: ACP runner SHALL render Skill Runner entrypoint prompts
 
 The ACP runner SHALL render `runner.entrypoint.prompts.<engine>` when available, fall back to `common`, and only use the generic ACP prompt when no runner prompt is defined.
 
@@ -580,8 +595,8 @@ The ACP runner SHALL render `runner.entrypoint.prompts.<engine>` when available,
 - **WHEN** no engine-specific prompt exists
 - **AND** `runner.entrypoint.prompts.common` exists
 - **THEN** ACP SHALL render the common prompt with resolved `input`, `parameter`, `skill`, `run_dir`, and `engine_id` variables.
-### Requirement: ACP runner SHALL recover valid package result files
 
+### Requirement: ACP runner SHALL recover valid package result files
 
 The ACP runner SHALL attempt package result-file fallback when assistant output is invalid before exhausting repair/failure handling.
 
@@ -600,8 +615,8 @@ The ACP runner SHALL attempt package result-file fallback when assistant output 
 
 - **WHEN** a fallback result file is missing, invalid JSON, non-object, or schema invalid
 - **THEN** ACP SHALL continue normal invalid-output repair or failure handling.
-### Requirement: ACP runner SHALL preserve declared compatibility divergences
 
+### Requirement: ACP runner SHALL preserve declared compatibility divergences
 
 ACP Skills SHALL preserve its documented runtime divergences from Skill Runner.
 
@@ -615,8 +630,8 @@ ACP Skills SHALL preserve its documented runtime divergences from Skill Runner.
 
 - **WHEN** final output contains schema fields annotated with `x-type=artifact` or `x-type=file`
 - **THEN** ACP SHALL NOT rewrite those fields to bundle-relative paths.
-### Requirement: ACP Skill runs SHALL optionally auto-approve ACP tool permissions
 
+### Requirement: ACP Skill runs SHALL optionally auto-approve ACP tool permissions
 
 ACP Skill runs SHALL automatically resolve ACP backend tool-call permission
 requests only when the run's frozen ACP provider options enable permission
@@ -665,8 +680,8 @@ state.
 - **GIVEN** an ACP Skill run has `autoApproveAcpPermissions: true`
 - **WHEN** a permission request source is not `acp-tool-call`
 - **THEN** the run SHALL NOT auto-approve that request.
-### Requirement: ACP Skills controls distinguish turn, connection, and task cancellation
 
+### Requirement: ACP Skills controls distinguish turn, connection, and task cancellation
 
 ACP Skills SHALL treat current-turn cancel, connection disconnect, and task
 cancel as separate user actions with separate state transitions.
@@ -973,7 +988,6 @@ as detached recoverable runs, not as active prompt turns.
 
 ### Requirement: Run-local feedback patch
 
-
 ACP/SkillRunner-compatible materialization SHALL inject a run-local feedback patch when `runtime_options.collect_skill_run_feedback` is true.
 
 #### Scenario: Feedback collection disabled
@@ -988,7 +1002,6 @@ ACP/SkillRunner-compatible materialization SHALL inject a run-local feedback pat
 - **AND** the source skill package remains unchanged
 
 ### Requirement: Feedback sidecar convention
-
 
 ACP and SkillRunner-compatible runs SHALL treat `result/<skillId>.<n>/_skill_run_feedback.md` as a default sidecar convention.
 
@@ -1507,28 +1520,29 @@ ACP Skills SHALL begin a new current message-count execution only for a user-ori
 ### Requirement: Kilo ACP Skill runs SHALL safely omit rejected none reasoning overrides
 
 Before an ACP Skill prompt starts, the runner SHALL omit a Kilo
-`thought_level=none` override when the config request returns JSON-RPC invalid
-parameters (`-32602`). It SHALL retain the same session and selected model,
+`thought_level` override when the config request returns JSON-RPC invalid
+parameters (`-32602`) and the error message indicates an effort-related
+rejection. It SHALL retain the same session and selected model,
 continue with the backend-default reasoning behavior, and record the fallback
-as a structured run event. The persisted effective runtime options SHALL not
-restore the rejected override.
+as a structured diagnostic event. The persisted effective runtime options SHALL
+not restore the rejected override.
 
 #### Scenario: Initial prompt continues after Kilo none rejection
 
-- **WHEN** a new Kilo ACP session rejects `thought_level=none` with code `-32602`
+- **WHEN** a new Kilo ACP session rejects a `thought_level` value with code `-32602` and error message indicating an effort-related rejection
 - **THEN** the runner SHALL submit the prompt once in that same session without a thought-level override
-- **AND** the run SHALL record the fallback without marking the task failed.
+- **AND** the run SHALL record the fallback as a diagnostic event without marking the task failed.
 
 #### Scenario: Recovered session does not resend rejected none
 
-- **GIVEN** a prior Kilo run recorded the none fallback
+- **GIVEN** a prior Kilo run recorded an effort fallback
 - **WHEN** the session is recovered
-- **THEN** runtime-option restoration SHALL not submit `thought_level=none`
+- **THEN** runtime-option restoration SHALL not submit the rejected `thought_level` value
 - **AND** the recovered prompt SHALL retain the selected model and normal recovery behavior.
 
 #### Scenario: Other configuration failures are preserved
 
-- **WHEN** a non-Kilo backend, a value other than `none`, or a non-`-32602` error occurs
+- **WHEN** a non-Kilo backend, a non-`-32602` error, or a `-32602` error whose message does not indicate an effort-related rejection occurs
 - **THEN** the runner SHALL preserve the configuration failure
 - **AND** it SHALL not start a fallback prompt.
 
@@ -1598,3 +1612,34 @@ object per event.
 - **WHEN** the worker errors, times out, or is stopped during pending reads
 - **THEN** every request owned by that generation SHALL settle with a structured failure
 - **AND** a later request MAY lazily create a fresh generation unless controlled shutdown has begun.
+
+### Requirement: Tail-follow renders the tail window without speculative history requests
+
+When the virtual transcript renderer follows the tail (stick-to-bottom intent), it SHALL compute the render window from the tail of the virtual layout rather than the container's pre-stick `scrollTop`, and the loading-gap evaluation SHALL use the same tail position. A tail-follow render SHALL NOT emit page requests or loading sentinels for gaps the tail window cannot reveal. Non-stick renders SHALL continue to compute the window from the live `scrollTop`.
+
+#### Scenario: First stick-to-bottom render of a long transcript
+
+- **GIVEN** a virtual transcript whose cached tail page has an unloaded previous page
+- **AND** the container is in stick-to-bottom state
+- **WHEN** the first render for an owner commits
+- **THEN** the window SHALL cover the tail rows of the cached page
+- **AND** no previous-page request or loading sentinel SHALL be emitted for the offscreen gap
+- **AND** the transcript SHALL NOT flash a top-spacer frame before sticking to the bottom.
+
+#### Scenario: Short transcript still prefetches the visible gap
+
+- **GIVEN** a virtual transcript whose full layout fits inside the viewport
+- **AND** the container is in stick-to-bottom state
+- **WHEN** the first render commits with an unloaded previous page
+- **THEN** the renderer MAY request the previous page and show its loading sentinel, because the gap is visible from the tail position.
+
+### Requirement: Incremental renders keep scroll bookkeeping in sync
+
+After an incremental transcript effect restores the viewport anchor or the preserved scroll position, the renderer SHALL write the resulting `scrollTop` to the last-scroll-top marker, matching the full render path. Scroll bookkeeping SHALL NOT leave a stale marker that a later scroll event can misread as an upward user scroll.
+
+#### Scenario: Anchor restore after a tail patch
+
+- **GIVEN** a virtual transcript is anchored away from the bottom
+- **WHEN** an incremental effect restores the viewport
+- **THEN** the last-scroll-top marker SHALL equal the restored `scrollTop`
+- **AND** the tail-follow state SHALL NOT be cleared unless a real user scroll moves upward.

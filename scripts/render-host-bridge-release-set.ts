@@ -4,21 +4,12 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildHostBridgeAgentSurfaceDescriptor } from "./host-bridge-agent-surface";
 import { buildHostBridgeSurfaceCatalog } from "./host-bridge-surface-catalog";
-import {
-  buildHostBridgeReleaseSet,
-  contentDigest,
-  HOST_BRIDGE_PUBLIC_CONTENT,
-} from "./host-bridge-release-set";
+import { buildHostBridgeReleaseSet } from "./host-bridge-release-set";
+import { stagedHostBridgePayloadDigests } from "./materialize-host-bridge-surfaces";
 import { readZoteroBridgeCliRelease } from "./zotero-bridge-cli-release";
-import { inspectZoteroLibraryAgentBundleVersion } from "./zotero-library-agent-bundle-version";
-import { inspectZoteroLibrarianProfileVersion } from "./zotero-librarian-profile-version";
+import { inspectHostBridgeSurfaceVersion } from "./host-bridge-surface-model";
 
-const TARGETS = [
-  "host-bridge/release-set.json",
-  "skills_builtin/zotero-bridge-cli/assets/release-set.json",
-  "skills_builtin/zotero-library-agent/assets/release-set.json",
-  "profiles/hermes/zotero-librarian/assets/release-set.json",
-];
+const TARGETS = ["host-bridge/release-set.json"];
 
 function sourceCommit(root: string) {
   const explicitArg = process.argv.find((entry) =>
@@ -45,12 +36,8 @@ export function renderHostBridgeReleaseSet(options: {
   const descriptor = buildHostBridgeAgentSurfaceDescriptor(
     buildHostBridgeSurfaceCatalog(root),
   );
-  const runner = JSON.parse(
-    readFileSync(
-      join(root, "skills_src/zotero-bridge-cli/runner.json"),
-      "utf8",
-    ),
-  );
+  const definitionsPath = join(root, "host-bridge/surfaces.json");
+  const payloadDigests = stagedHostBridgePayloadDigests(root);
   return `${JSON.stringify(
     buildHostBridgeReleaseSet({
       sourceCommit,
@@ -66,27 +53,29 @@ export function renderHostBridgeReleaseSet(options: {
       },
       surfaces: {
         cliBundle: {
-          version: String(runner.version),
-          contentDigest: contentDigest(root, [
-            ...HOST_BRIDGE_PUBLIC_CONTENT.cliBundle,
-          ]),
+          version: inspectHostBridgeSurfaceVersion({
+            definitionsPath,
+            surfaceId: "zotero-bridge-cli",
+          }).version,
+          contentDigest: payloadDigests.cliBundle,
           repository: "leike0813/zotero-agents",
           mutableRef: "host-bridge/zotero-bridge-cli-bundle",
         },
         libraryAgent: {
-          version:
-            inspectZoteroLibraryAgentBundleVersion(root).resolved.version,
-          contentDigest: contentDigest(root, [
-            ...HOST_BRIDGE_PUBLIC_CONTENT.libraryAgent,
-          ]),
+          version: inspectHostBridgeSurfaceVersion({
+            definitionsPath,
+            surfaceId: "zotero-library-agent",
+          }).version,
+          contentDigest: payloadDigests.libraryAgent,
           repository: "leike0813/zotero-library-agent-bundle",
           mutableRef: "main",
         },
         librarianProfile: {
-          version: inspectZoteroLibrarianProfileVersion(root).resolved.version,
-          contentDigest: contentDigest(root, [
-            ...HOST_BRIDGE_PUBLIC_CONTENT.librarianProfile,
-          ]),
+          version: inspectHostBridgeSurfaceVersion({
+            definitionsPath,
+            surfaceId: "zotero-librarian",
+          }).version,
+          contentDigest: payloadDigests.librarianProfile,
           repository: "leike0813/zotero-librarian-profile",
           mutableRef: "main",
         },

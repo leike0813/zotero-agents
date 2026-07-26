@@ -1,6 +1,9 @@
 {
+  "schemaVersion": 2,
   "id": "update-topic-synthesis",
   "label": "Update Topic Synthesis",
+  "description": "Update an existing topic synthesis from its current resolver scope, evidence, and change state.",
+  "executionModes": ["auto"],
   "provider": "skillrunner",
   "version": "0.2.0",
   "display": {
@@ -12,7 +15,12 @@
     "requiresSelection": false
   },
   "inputs": {
-    "unit": "workflow"
+    "member": {
+      "kind": "selection"
+    },
+    "grouping": {
+      "mode": "all"
+    }
   },
   "parameters": {
     "topicId": {
@@ -27,6 +35,12 @@
         "filter": "updatable"
       }
     }
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "selection"
+    },
+    "filters": []
   },
   "request": {
     "kind": "skillrunner.sequence.v1",

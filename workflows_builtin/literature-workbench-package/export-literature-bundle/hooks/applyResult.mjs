@@ -5,6 +5,7 @@ async function applyResultImpl({ runResult, runtime }) {
   return exportLiteratureBundle({
     host: requireHostApi(runtime),
     selectionContext: runResult?.resultJson?.selectionContext,
+    sourceOnly: runResult?.resultJson?.parameter?.sourceOnly === true,
   });
 }
 

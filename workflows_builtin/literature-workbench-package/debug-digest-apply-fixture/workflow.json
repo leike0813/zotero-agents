@@ -1,11 +1,29 @@
 {
+  "schemaVersion": 2,
   "id": "debug-digest-apply-fixture",
   "label": "Debug: Digest Apply Fixture",
+  "description": "Run the Debug: Digest Apply Fixture diagnostic workflow to verify its named workflow-engine behavior.",
+  "executionModes": ["auto"],
   "version": "0.1.0",
   "provider": "pass-through",
   "debug_only": true,
+  "trigger": {
+    "requiresSelection": true
+  },
   "inputs": {
-    "unit": "parent"
+    "member": {
+      "kind": "parent"
+    },
+    "grouping": {
+      "mode": "each"
+    }
+  },
+  "validateSelection": {
+    "select": {
+      "policy": "input-member",
+      "source": "selected"
+    },
+    "filters": []
   },
   "execution": {
     "feedback": {

@@ -146,5 +146,8 @@ export const SKILLRUNNER_SSOT_FACTS = {
     terminalApplyPendingVisible: true,
     terminalApplyRunningVisible: true,
     terminalApplyFailedVisible: true,
+    hostQueuedRowsSourceLevel: true,
+    hostQueuedRowsSelectable: false,
+    hostQueuedCancelIdentity: "queueId",
   },
 } as const;

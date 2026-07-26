@@ -2,8 +2,8 @@ import { decodeBase64Utf8, encodeBase64Utf8 } from "./notePayloadCodec";
 import { resolveRuntimeZotero } from "../utils/runtimeBridge";
 import { sha256Hex } from "../utils/sha256";
 
-const DEFAULT_LIMIT = 100;
-const MAX_LIMIT = 200;
+const DEFAULT_LIMIT = 25;
+const MAX_LIMIT = 100;
 const QUERY_TEXT_LIMIT = 4000;
 const CURSOR_VERSION = 1;
 

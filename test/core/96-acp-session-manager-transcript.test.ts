@@ -921,6 +921,12 @@ describe("acp session manager", function () {
         skillId: "zotero-bridge-cli",
         body: "# Stale Claude Copy\n\nOLD CLAUDE COPY",
       });
+      await fs.mkdir(chatWorkspaceDir, { recursive: true });
+      await fs.writeFile(
+        path.join(chatWorkspaceDir, "AGENTS.md"),
+        "# User workspace notes\n\nKeep this user-authored instruction.",
+        "utf8",
+      );
 
       await sendAcpConversationPrompt({
         message: "Hello ACP",
@@ -1030,17 +1036,14 @@ describe("acp session manager", function () {
         harness.lastAdapter?.prompts[0] || "",
         "zotero-bridge-cli",
       );
+      assert.include(harness.lastAdapter?.prompts[0] || "", "AGENTS.md");
       assert.notInclude(
         harness.lastAdapter?.prompts[0] || "",
         "[Zotero Host Bridge CLI]",
       );
       const expectedSkillRootSuffixes = [
         [".agents", "skills"],
-        [".codex", "skills"],
-        [".claude", "skills"],
-        [".gemini", "skills"],
-        [".qwen", "skills"],
-        [".kilo", "skills"],
+        [".opencode", "skills"],
       ];
       for (const rootSuffix of expectedSkillRootSuffixes) {
         const root = joinPath(
@@ -1064,6 +1067,62 @@ describe("acp session manager", function () {
         );
         assert.include(literatureMetadataSearchSkill, "USER LMS OVERRIDE");
       }
+      assert.isFalse(
+        await fs
+          .stat(
+            joinPath(
+              expectedStoragePaths.agentWorkspaceDir,
+              ".claude",
+              "skills",
+              "zotero-bridge-cli",
+            ),
+          )
+          .then(
+            () => true,
+            () => false,
+          ),
+      );
+      const chatWorkspaceInstructions = await fs.readFile(
+        joinPath(expectedStoragePaths.agentWorkspaceDir, "AGENTS.md"),
+        "utf8",
+      );
+      assert.include(
+        chatWorkspaceInstructions,
+        "<!-- zotero-agents:acp-chat-workspace:start -->",
+      );
+      assert.include(chatWorkspaceInstructions, "shared ACP Chat workspace");
+      assert.include(chatWorkspaceInstructions, "outside this workspace");
+      assert.include(
+        chatWorkspaceInstructions,
+        "Keep this user-authored instruction.",
+      );
+      const injectedSkillsManifest = JSON.parse(
+        await fs.readFile(
+          path.join(
+            expectedStoragePaths.agentWorkspaceDir,
+            "..",
+            "injected-skills-manifest.json",
+          ),
+          "utf8",
+        ),
+      ) as {
+        schema?: string;
+        targets?: Array<{ relativeRoot?: string; skillId?: string }>;
+      };
+      assert.equal(
+        injectedSkillsManifest.schema,
+        "zotero-agents.acp-chat-injected-skills.v1",
+      );
+      assert.sameMembers(
+        Array.from(
+          new Set(
+            (injectedSkillsManifest.targets || []).map(
+              (entry) => entry.relativeRoot,
+            ),
+          ),
+        ),
+        [".agents/skills", ".opencode/skills"],
+      );
       assert.isOk(
         snapshot.diagnostics.find(
           (entry) => entry.kind === "acp_chat_injected_skills_ready",
@@ -1142,6 +1201,60 @@ describe("acp session manager", function () {
       }
       await fs.rm(dataDirectory, { recursive: true, force: true });
       await fs.rm(userSkillRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("refreshes only the managed ACP Chat AGENTS block and skips malformed markers", async function () {
+    const dataDirectory = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-acp-agents-"),
+    );
+    (
+      Zotero as typeof Zotero & { DataDirectory?: { dir?: string } }
+    ).DataDirectory = {
+      dir: dataDirectory,
+    };
+    try {
+      const workspaceDir = resolveAcpChatRuntimePaths(
+        ACP_OPENCODE_BACKEND_ID,
+      ).agentWorkspaceDir;
+      await fs.mkdir(workspaceDir, { recursive: true });
+      const agentsPath = path.join(workspaceDir, "AGENTS.md");
+      await fs.writeFile(
+        agentsPath,
+        [
+          "<!-- zotero-agents:acp-chat-workspace:start -->",
+          "OLD MANAGED POLICY",
+          "<!-- zotero-agents:acp-chat-workspace:end -->",
+          "",
+          "Keep this user tail.",
+        ].join("\n"),
+        "utf8",
+      );
+
+      await connectAcpConversation();
+      const refreshed = await fs.readFile(agentsPath, "utf8");
+      assert.notInclude(refreshed, "OLD MANAGED POLICY");
+      assert.include(refreshed, "shared ACP Chat workspace");
+      assert.include(refreshed, "Keep this user tail.");
+
+      await disconnectAcpConversation();
+      const malformed = [
+        "<!-- zotero-agents:acp-chat-workspace:start -->",
+        "Do not overwrite this malformed file.",
+      ].join("\n");
+      await fs.writeFile(agentsPath, malformed, "utf8");
+      await connectAcpConversation();
+
+      assert.equal(await fs.readFile(agentsPath, "utf8"), malformed);
+      assert.isOk(
+        getAcpConversationSnapshot().diagnostics.find(
+          (entry) =>
+            entry.kind === "acp_chat_workspace_instructions_unavailable",
+        ),
+      );
+      assert.equal(getAcpConversationSnapshot().status, "connected");
+    } finally {
+      await fs.rm(dataDirectory, { recursive: true, force: true });
     }
   });
 
@@ -2034,6 +2147,15 @@ describe("acp session manager", function () {
       }),
       ["owner-control", "composer"],
     );
+    assert.deepEqual(
+      resolveAcpChatWorkspacePublicationKinds(base, {
+        backendId: "backend-a",
+        conversationId: "conversation-a",
+        active: true,
+        kinds: ["permission"],
+      }),
+      ["permission", "owner-control"],
+    );
     for (const kind of [
       "transcript-append",
       "permission",
@@ -2089,11 +2211,13 @@ describe("acp session manager", function () {
       "status",
       "busy",
       "hint",
+      "interaction",
       "connection",
       "execution",
       "authentication",
       "permissionPolicy",
     ]);
+    assert.isNull(baseline?.interaction);
     assert.hasAllKeys(baseline?.connection, [
       "status",
       "sessionAvailable",
@@ -2141,6 +2265,55 @@ describe("acp session manager", function () {
     );
     assert.isTrue(
       transcriptEvents.some((event) => event.boundary === "hard-boundary"),
+    );
+  });
+
+  it("keeps terminal transcript semantics when a live composer change is pending", async function () {
+    useScriptedPrompt(async (adapter, args) => {
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "**terminal markdown**" },
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 220));
+      await adapter.emitSessionUpdate({
+        sessionId: args.sessionId,
+        update: { sessionUpdate: "usage_update", used: 1, size: 10 },
+      });
+      return { stopReason: "end_turn" };
+    });
+    setAssistantExecutionDisplayMode("live");
+    const changes: AcpChatPanelSnapshotChange[] = [];
+    const unsubscribe = subscribeAcpChatPanelSnapshots((change) => {
+      changes.push(change);
+    });
+
+    try {
+      await sendAcpConversationPrompt({ message: "terminal publication" });
+    } finally {
+      unsubscribe();
+    }
+
+    const assistant = (await readActiveTranscriptItems()).find(
+      (item) => item.kind === "message" && item.role === "assistant",
+    );
+    assert.equal(assistant?.state, "complete");
+    const terminalChange = changes.find(
+      (change) =>
+        change.kinds.includes("composer") &&
+        change.kinds.includes("transcript-boundary") &&
+        change.kinds.includes("status"),
+    );
+    assert.isOk(terminalChange);
+    assert.isTrue(
+      (terminalChange?.transcriptEvents || []).some(
+        (event) =>
+          event.boundary === "hard-boundary" &&
+          event.mutation.op === "patch_item" &&
+          event.mutation.patch.status === "complete",
+      ),
     );
   });
 

@@ -9,7 +9,7 @@ import { buildSelectionContext } from "../../src/modules/selectionContext";
 import { loadWorkflowManifests } from "../../src/workflows/loader";
 import { executeBuildRequests } from "../../src/workflows/runtime";
 import { resetWorkflowHostApiForTests } from "../../src/workflows/hostApi";
-import { evaluateWorkflowSelection } from "../../src/workflows/workflowSelectionValidation";
+import { evaluateWorkflowSelection } from "../../src/workflows/workflowInputPlanning";
 import {
   joinPath,
   mkTempDir,
@@ -251,6 +251,15 @@ function assertSchemaValid(
   assert.isTrue(validate(payload), ajv.errorsText(validate.errors));
 }
 
+function assertSchemaInvalid(
+  schema: Record<string, unknown>,
+  payload: Record<string, unknown>,
+) {
+  const ajv = new Ajv({ allErrors: true, strict: false });
+  const validate = ajv.compile(schema);
+  assert.isFalse(validate(payload));
+}
+
 describe("workflow: literature-metadata-curator", function () {
   afterEach(function () {
     resetWorkflowHostApiForTests();
@@ -397,6 +406,26 @@ describe("workflow: literature-metadata-curator", function () {
     assertSchemaValid(outputSchema, succeeded);
     assertSchemaValid(outputSchema, {
       ...succeeded,
+      metadata: {
+        ...succeeded.metadata,
+        fields: {
+          ...succeeded.metadata.fields,
+          abstractNote: "A schema-supported abstract.",
+        },
+      },
+    });
+    assertSchemaInvalid(outputSchema, {
+      ...succeeded,
+      metadata: {
+        ...succeeded.metadata,
+        fields: {
+          ...succeeded.metadata.fields,
+          abstract: "An unsupported abstract field.",
+        },
+      },
+    });
+    assertSchemaValid(outputSchema, {
+      ...succeeded,
       status: "verified_no_change",
       metadata: { fields: {}, creators: [] },
       evidence: [],
@@ -430,7 +459,8 @@ describe("workflow: literature-metadata-curator", function () {
   it("loads workflow manifest with preflight, buildRequest, and applyResult hooks", async function () {
     const workflow = await getWorkflow();
     assert.equal(workflow.manifest.provider, "skillrunner");
-    assert.equal(workflow.manifest.inputs?.unit, "parent");
+    assert.equal(workflow.manifest.inputs.member.kind, "parent");
+    assert.equal(workflow.manifest.inputs.grouping.mode, "each");
     assert.equal(
       workflow.manifest.parameters?.skip_identifier_fast_path?.type,
       "boolean",
@@ -439,8 +469,8 @@ describe("workflow: literature-metadata-curator", function () {
       workflow.manifest.parameters?.skip_identifier_fast_path?.default,
     );
     assert.equal(
-      workflow.manifest.validateSelection?.select?.policy,
-      "literature-parent",
+      workflow.manifest.validateSelection.select.policy,
+      "input-member",
     );
     assert.equal(workflow.manifest.request?.kind, "skillrunner.job.v1");
     assert.equal(

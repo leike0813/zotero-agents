@@ -1,96 +1,214 @@
 ---
 name: zotero-librarian
-description: Use when coordinating Zotero library inspection, synthesis context, workflow execution, and library maintenance through Host Bridge.
-license: AGPL-3.0-or-later
+description: Supervise a resident Zotero library. Use when Hermes performs ongoing monitoring, maintenance, or library questions.
 ---
 
 # Zotero Librarian
 
-Use this skill to operate the Zotero library through Host Bridge with a librarian posture: inspect first, keep evidence traceable, and apply changes only through reviewed mutation or workflow channels.
+## Goal
 
-## First Steps
+Maintain a trustworthy resident view of a Zotero library, supervise one-pass scheduled and interactive operations, surface actionable changes, and answer library questions. Delegate finite research judgment to the bundled Generic Skills and exact Zotero operations to the bundled CLI Skill.
 
-1. Read `references/control-invariants.md` before using handles, approvals, files, workflows, or writeback.
-2. Read `references/operating-principles.md` for profile-level command choice and resident maintenance posture.
-3. Read `references/terminology.md` when the request uses shorthand such as graph, 三件套, digest, references, citation analysis, run handles, or writeback.
-4. Read `references/workflow-execution-policy.md` before preparing or submitting workflows.
-5. Use `references/common-tasks.md` for common literature, readiness, synthesis, and writeback task routing.
-6. Load exactly one matching generated command manual under `references/commands/`; use `references/workflows.md` for the generated workflow catalog and `references/host-bridge.md` only for exhaustive target inspection.
-7. Read the resident references below before index, schedule, monitoring, maintenance, or helper-script work.
-8. Check `zotero-bridge bridge status` when Host Bridge availability is uncertain.
-9. Compare `zotero-bridge --version` with the expected CLI version rendered in `references/host-bridge.md` when the loaded profile path, command help, or CLI error suggests a surface mismatch. A version difference is advisory: use `zotero-bridge <command> --help` before executing that command.
-10. Run `zotero-bridge surface identity --json` and compare the CLI schema, build fingerprint, and command catalog checksum with the profile release envelope. Use offline `surface search` or `surface describe` when command availability, argv, approval, handles, effects, or recovery remain uncertain.
-11. Use `zotero-bridge bridge profile inspect`, `zotero-bridge bridge profile diagnose`, and `zotero-bridge bridge backend ...` before retrying backend or profile-sensitive operations.
+## Inputs
 
-## Decision Rules
+- A user request, shipped cron invocation, or explicit operator instruction.
+- A matching `zotero-bridge` executable, embedded contract, and working connection profile.
+- Optional `ZOTERO_LIBRARIAN_STATE_DIR`; otherwise state is `$HERMES_HOME/zotero-librarian/state.sqlite`.
+- For workflow submission, the live workflow and selection contract, reviewed workflow options, an independently validated provider profile when required, an explicitly bounded concurrency choice, and current operator authority.
 
-- For direct library facts, use `library`.
-- For missing PDF, source Markdown, or literature-analysis artifact discovery, use `library readiness`.
-- For the active Zotero pane, current selection, or UI navigation to known Zotero handles, use `context`.
-- For topic, graph, index, resolver, artifact, or insight context, use `synthesis`.
-- For reusable multi-step behavior, inspect the workflow with `workflow describe`.
-- For scope-driven curation of an existing collection from literature already in the same library, submit the Host-owned `collection-collector` workflow with explicit workflow options rather than issuing inferred item-by-item collection mutations or using an optionless agent-run handoff.
-- For draft workflow inputs, use `workflow requirements` or `workflow validate` before execution when readiness is uncertain.
-- For Host-owned execution, submit the workflow and monitor the returned `workflowRunId` with `run`.
-- For agent-owned handoffs, use `$zotero-workflow-agent-runner`; treat `agentRunId` as the apply-back session handle, complete the returned requests, and apply them with `workflow agent-apply`.
-- For writes, use preview/apply, mutation-backed semantic commands, or workflow apply-back. Keep the preview, applied result, uploaded `fileId`, or result bundle path in the task record.
-- For exact command distinctions, load the directly linked command manual below; load `references/output-and-recovery.md` after any failure or uncertain state change.
+## Natural-language intake
 
-## Resident references
+Assume the user understands their library and research goal but not the resident service, cron layout, native workflow queue, or CLI handles. Translate the request into one bounded pass before selecting an operation.
 
-- `references/resident-index.md`: read before local-index discovery, refresh, freshness decisions, or live confirmation.
-- `references/scheduled-jobs.md`: read before running or changing any cron-owned task.
-- `references/monitoring-and-notifications.md`: read before notification sync, run registration, or run-watch.
-- `references/workflows.md`: generated workflow catalog facts; refresh locally, then confirm live execution modes before execution.
-- `references/workflow-execution-policy.md`: read before Host-owned submit or agent-owned handoff.
-- `references/maintenance-and-recovery.md`: read before cache invalidation, graph metric refresh, index repair, or recovery from partial state.
-- `references/profile-script-contracts.md`: read before calling any profile helper script.
-- `references/library-maintenance.md`: resident triage, hygiene, and attention-queue policy.
+Capture:
 
-## Command manuals
+| Slot | Meaning |
+| --- | --- |
+| Outcome | Answer, current health report, changed-since-last-pass report, run supervision, maintenance proposal, or workflow launch |
+| Scope | Whole library, collection, selected items, workflow, run, notification set, Synthesis queue, or named maintenance domain |
+| Time | Current one-pass read, comparison with resident cache, or an already configured recurring schedule |
+| Reporting threshold | Every observation, only changes, only attention, or only failures |
+| Interaction | Whether the pass may ask the user, acknowledge an event, or only report |
+| State change | Local cache only, workflow submission, Zotero mutation, maintenance, or apply-back |
 
-- `references/commands/connectivity-context.md`: identity, bridge/profile/backend checks, context, and navigation.
-- `references/commands/library-items.md`: library search, deterministic paging, item detail, notes, and attachments.
-- `references/commands/library-notes-attachments-readiness.md`: note payloads, annotations, readiness, and snapshot pages.
-- `references/commands/workflows-and-runs.md`: workflow modes, submit/handoff/apply, run monitoring, permissions, and interaction.
-- `references/commands/mutations-files-products.md`: concrete writes, registered files, and Dashboard Products.
-- `references/commands/synthesis-topics-artifacts.md`: topics, artifacts, concepts, and schemas.
-- `references/commands/synthesis-graph.md`: graph view and maintenance distinctions.
-- `references/commands/synthesis-index-resolver-insights.md`: derived indexes, resolvers, attention queue, and cache state.
-- `references/commands/diagnostics.md`: debug-only escalation after normal diagnostics.
+Route common wording:
 
-## Context Handling
+| User wording | Route | Required boundary |
+| --- | --- | --- |
+| “What papers do I have about X?” | Generic Query, optionally using resident index for discovery | Live evidence supports the answer |
+| “What changed in my library?” | `index refresh` plus projection comparison | State the previous/current refresh boundary |
+| “Check whether workflows are healthy” | `run watch` and `maintenance workflow-status` | One pass; no waiting loop |
+| “What needs my attention?” | Notification/maintenance/Synthesis attention reads | Attention is a proposal, not remediation |
+| “Run workflow X on these papers” | Interactive Generic/CLI validation then separately authorized submit | Live selection/options contract, provider compatibility, bounded concurrency, and typed admission result |
+| “Monitor this run” | `run register` when necessary, then one `run watch` pass | Require a real `workflowRunId` |
+| “Every hour, check my workflows” | Explain schedule boundary | The Skill cannot create or modify cron |
+| “Fix duplicates automatically” | Maintenance proposal then Generic Curation | Never remediate from the scheduled pass |
 
-Use `context current` or `context selection get` before acting on phrases like "this paper", "the selected notes", "the current collection", or "take me to that item". Use `context item open`, `context note open`, `context collection open`, or `context selection open` only with handles returned by Zotero or Host Bridge.
+Ask when scope, reporting threshold, run/workflow identity, schedule assumption, interaction, or state-change authority would materially change the pass. Do not ask for project-internal terminology.
 
-Context navigation changes what Zotero displays or selects. It is not a mutation channel and does not authorize metadata, note, tag, or file changes.
+Safe defaults:
 
-## Writeback Handling
+- perform one pass and exit;
+- keep Zotero read-only;
+- allow the service to update its local projection or journal;
+- report attention without remediation;
+- use live Zotero evidence for user-facing current facts;
+- leave existing external schedules unchanged.
 
-For tag, collection, item field, note, payload, and attachment changes, inspect the target first and then use `mutation` commands. Upload local artifacts with `file upload` before attaching them with `mutation item attach-file`. Use `library annotation ...` commands for annotation reads and exports; annotation writes are not part of this surface.
+There is no safe default for workflow submission, event acknowledgement, mutation, maintenance, apply-back, destructive change, or creating/changing a schedule.
 
-## Run Handling
+### Schedule boundary
 
-Use `run active` for a lightweight view of currently running, waiting, or recoverable failed Host-owned tasks. Use `run notification list` when you need callback-style lifecycle events. Use profile notification sync scripts for scheduled monitoring. Use `run get <workflowRunId>` when you need the skill-run breakdown of a specific workflow run.
+The service is one-pass. The profile contains shipped static cron definitions, but this Skill has no command that creates, edits, enables, disables, or reschedules cron.
 
-Use `run recent`, `run workflow recent`, `run skill recent`, and `run skill events` for lightweight history and lifecycle/progress facts. These commands are not transcript access and do not imply an interaction target.
+When the user asks for recurring behavior:
 
-Use `run permission pending` and `run permission get` to inspect approval state. The CLI does not approve or reject permission requests.
+1. Determine whether they want a one-time check now or are referring to an already configured schedule.
+2. Perform the one-time pass when requested.
+3. Report which resident operation and reporting threshold an external scheduler would invoke.
+4. Do not claim a cadence was installed or changed.
+5. If schedule configuration is required, return that as an external profile/operator action.
 
-Interactive actions require `skillRunId`:
+## Workflow
 
-```powershell
-zotero-bridge run skill reply <skillRunId> --message "..."
-zotero-bridge run skill connect <skillRunId>
-zotero-bridge run notification ack --event <eventId>
+1. Classify the request as a finite research task or a resident operation: index, workflow catalog, watched run, notification, maintenance analysis, Synthesis attention, or scheduled pass. Interactive workflow submission is a finite task routed through Generic and CLI even when resident discovery evidence helps select it.
+2. For finite query, acquisition, analysis, synthesis, curation, or self-owned workflow execution, invoke the matching bundled Generic Skill. Add resident freshness evidence only; do not restate its task policy.
+3. For resident work, read the matching comprehensive reference and run one subcommand of `scripts/zotero_librarian_service.py`. Each invocation performs one bounded pass and exits.
+4. Interpret `state.sqlite` only as a cache and journal. Before an externally visible answer, workflow decision, interaction, or proposed write, confirm the relevant Zotero object, workflow, run, permission, notification, Product, or operation through the live CLI contract.
+5. For an interactive Zotero-managed workflow, use Generic and CLI to inspect the live workflow contract, resolve and validate the exact selection, keep workflow options separate from provider-profile validation, and present the reviewed submission scope plus its bounded concurrency before requesting current operator authorization.
+6. Submit once through the CLI join point and branch on the returned admission contract. For direct admission, preserve the real `workflowRunId`. For host-queue admission, preserve `submissionId`, inspect its immutable unit projection, use `workflow queue list` only for active queue observation, use `workflow queue cancel <queueId>` only for a pending unit, and correlate admitted tasks with `run list --submission`.
+7. Return `zotero-librarian.operation-receipt.v1` plus the live evidence needed to support the user-facing conclusion. Follow failed-receipt recovery without replaying submissions or writes.
+
+## Resident routing
+
+Use the service domains as follows:
+
+- `index refresh|search|item|stats` maintains and queries the local library projection;
+- `workflow catalog-refresh|show` maintains the local workflow discovery cache;
+- `run register|watch` journals known workflow runs and performs one status check per non-terminal run;
+- `notification sync|inbox|summary|ack` maintains and acts on the lightweight lifecycle inbox;
+- `maintenance workflow-status|library-hygiene` reports review candidates without remediation;
+- `synthesis attention-queue` reports ranked research attention without modifying Synthesis state.
+
+Use Generic Skills for source selection, literature assessment, analysis, synthesis interpretation, curation proposals, provider-profile decisions, and self-owned agent handoffs. Use the CLI Skill for exact command schemas, handles, approvals, file delivery, and recovery.
+
+For an interactive Zotero-managed workflow, use the bundled CLI contract to describe and validate the live request:
+
+```sh
+zotero-bridge workflow describe --workflow <workflow-id>
+zotero-bridge workflow validate \
+  --workflow <workflow-id> --selection '<reviewed-selection>' \
+  --workflow-options '<reviewed-options>'
 ```
 
-## Output Discipline
+Inspect the returned selection refs, separate `inputs` and `validateSelection` contracts, normalized workflow options, provider requirements, candidate grouping, and expected unit/result identities. Validate any provider profile through its own workflow-profile commands. Only after the operator explicitly authorizes that reviewed submission scope, submit it once with the selected bounded concurrency:
 
-When reporting results, include the Zotero item keys, topic IDs, workflow IDs, run handles, artifact paths, or file-handle downloads that support the answer. If a command fails, report the structured error code and the next safe action.
+```sh
+zotero-bridge workflow submit \
+  --workflow <workflow-id> \
+  --selection '<reviewed-selection>' \
+  --workflow-options '<reviewed-options>' \
+  --max-concurrency <bounded-count>
+```
 
-## Maintenance Handling
+The live Host planner remains responsible for candidate production, filtering, and immutable unit grouping. `--max-concurrency` bounds native admission for this authorized submission; it does not create resident workers, authorize later submissions, or prove provider capacity. A host-queue response returns `submissionId` and per-unit queue projections instead of fictional run handles. Inspect the submission until admitted units expose real task or run identities, then use the ordinary run plane for execution interaction, cancellation, and terminal evidence.
 
-Use `synthesis cache status` and `synthesis index status` for read-only maintenance diagnostics. Use `synthesis cache invalidate` only for supported scopes and only when an approval-gated cache maintenance action is appropriate. Keep citation graph metric repair on `synthesis graph refresh-metrics`.
+Zotero's native queue is the sole owner of pending units. A pending unit may be canceled through its `queueId`; once admitted, cancellation must use its real run handle and normal run semantics. The native slot remains occupied through terminal execution and apply-back, so aggregate queue completion is not evidence that the requested Products, artifacts, or Zotero changes exist. Required workflow options, provider-profile selection, no-selection execution, and self-owned mode use the inherited Generic workflow contract.
 
-Use `scripts/zotero_librarian_notification_service.py sync` for non-blocking notification inbox refresh. Do not run long-polling waits from cron or from the agent loop.
+## Hard constraints
+
+- Never read or change Zotero database or storage files directly.
+- The service executes one bounded pass and never uses a notification wait or polling loop.
+- Cron jobs are read-only and never call any workflow submission command.
+- Workflow submission requires a current explicit operator instruction for the reviewed selection, options, provider profile, and bounded concurrency; valid CLI arguments do not replace Zotero-side approval.
+- Local `state.sqlite` is the only resident database. It is not authority for current Zotero state.
+- Do not turn a prior approval, cached result, or scheduled proposal into a new write.
+- Preserve item keys, workflow run IDs, notification IDs, operation IDs, and artifact references in the final report.
+- Do not acknowledge a notification until its associated action has been handled; event text is not permission to reply, connect, approve, submit, or mutate.
+- Do not monitor a self-owned `agentRunId` through watched runs; delegate its request execution, validation, apply-back, and receipt recovery to Generic.
+- Do not infer a Product, artifact, item change, or successful maintenance outcome from terminal workflow state.
+- Do not automatically remediate duplicate, hygiene, readiness, workflow-status, or attention candidates.
+- Do not modify `state.sqlite` with ad-hoc SQL or another helper, and do not replace usable state with an incomplete refresh.
+- Do not persist or hand-edit workflow submission payloads, create a resident pending-unit queue, reserve native units, or maintain a replay journal. Live workflow validation and the native submission projection are the workflow-control facts.
+- A reviewed selection/options/provider/concurrency scope is input evidence, not a stored approval token. Every submit invocation requires current authority.
+- A queued submission or admitted unit with an uncertain response may already have changed remote state. Inspect the original `submissionId` and submission-filtered tasks before another submission.
+- Do not exchange `submissionId`, `queueId`, and `workflowRunId`. Queue cancellation is valid only for a pending queue unit; admitted work belongs to the run-control plane.
+- Do not claim the service created or changed a cron schedule.
+
+## Receipt contract
+
+Every service invocation returns one `zotero-librarian.operation-receipt.v1` JSON object:
+
+- `operation`: the bounded service action.
+- `status`: `ok`, `unchanged`, `changed`, `attention`, or `failed`.
+- `generatedAt`: receipt time.
+- `summary`: optional human-readable boundary.
+- `data`: operation-specific structured result.
+- `error`: present on `failed`, with `code`, `message`, and optional `details`.
+
+Interpret status:
+
+- `ok`: a read-only request returned successfully; it does not mean Zotero changed.
+- `unchanged`: a projection, watch, or synchronization pass found no reportable delta.
+- `changed`: local resident state changed or an explicitly authorized remote operation was launched.
+- `attention`: review is required, including an uncertain remote effect; it is not remediation.
+- `failed`: the pass could not complete and no success should be inferred.
+
+`[SILENT]` is valid only when `--quiet` suppresses an `unchanged` cron result. It is not JSON and must not be used for interactive answers.
+
+For a user-facing conclusion, add live evidence appropriate to the claim. A cache receipt alone cannot prove current library, workflow, run, Product, operation, or write state.
+
+## Completion
+
+The resident task is complete when exactly one bounded pass has returned a valid receipt, current facts have the required live confirmation, attention has a clear next safe check, and no unauthorized or unsafe replay occurred.
+
+For workflow submission, completion of the interactive admission pass means the CLI result identifies direct admission or preserves the native `submissionId`, unit counts, and queue links. Completion of supervision means every requested unit has a terminal native projection and every admitted run has its expected result or failure inspected. Neither aggregate submission state nor terminal run state alone means the requested research output is complete.
+
+For a library answer, completion means the inherited Generic Skill returned its business result and resident cache evidence was used only for discovery or change comparison.
+
+## Resident report checklist
+
+Before reporting a pass, confirm:
+
+- the operation name and receipt status are preserved;
+- cache time is stated when local discovery affected the route;
+- every current library, workflow, run, notification, Product, or operation claim has live evidence;
+- `ok`, `unchanged`, `changed`, `attention`, and `failed` are interpreted according to the receipt contract;
+- attention candidates are not described as confirmed defects or completed remediation;
+- launched runs are not described as completed research outputs;
+- queued, pending, admitted, failed, and canceled units remain distinct in the report;
+- an uncertain native submission is not described as failed or safe to retry before its original `submissionId` and correlated tasks are inspected;
+- local file and database paths are not exposed beyond the operator-facing need;
+- tokens and connection secrets are absent;
+- the next safe live check is named when review remains.
+
+For an interactive answer, state:
+
+1. What one-pass operation ran.
+2. What local projection or journal state changed.
+3. What live Zotero evidence was checked.
+4. What requires attention.
+5. What was deliberately not submitted, acknowledged, mutated, maintained, or scheduled.
+6. Whether another pass requires a new instruction.
+
+For cron-owned output, emit only the service result. `[SILENT]` is complete for `unchanged`; do not replace it with an explanatory message that defeats quiet operation.
+
+For a handoff to Generic, include stable refs, freshness, resident receipt, and the bounded research objective. Do not copy resident automation policy into the downstream task or treat local cache rows as its source evidence.
+
+## Failure handling
+
+On failure, preserve the operation name, receipt error, current submission/queue/run/event handles, and last usable local state. Re-query the affected live resource before retrying any service-backed action. Rebuild a damaged cache through the service, never by partial SQL repair. For an uncertain direct workflow submission, inspect current/recent workflow runs before another call. For an uncertain native queued submission, inspect the original `submissionId`, its immutable units, and submission-filtered tasks before any new submission. A local state failure never authorizes a Zotero mutation.
+
+If workflow selection or options validation fails, do not repair normalized payloads by assumption; re-read current live context and validate again. If the workflow contract changes, stop and return to Generic with the changed requirements. If a native unit becomes uncertain, preserve its `submissionId`, `queueId`, ordinal, source refs, and exposed task identity, then reconcile the submission and live run state before any new work.
+
+If unexpected resident state prevents safe supervision, preserve the state database and continue read-only operations where safe. Resident state is never a prerequisite for native queue admission and must not be deleted or rewritten to force a submit path open.
+
+## LLM and script responsibilities
+
+The agent classifies work, delegates finite research tasks, judges live evidence, decides when current human confirmation is required, and interprets receipts. The service owns SQLite schema creation, bounded CLI invocation for resident reads, atomic local projection/journal updates, and receipt output. The Zotero plugin owns native workflow queue admission and pending-unit state. The bundled Generic and CLI Skills own research, interactive submission, and exact mechanism contracts. Do not reproduce service state changes in ad-hoc shell, SQL, or Python code.
+
+## References
+
+- Read [resident operations](references/resident-operations.md) before index, workflow catalog, run, notification, library-question, or scheduled work.
+- Read [automation policy](references/automation-policy.md) before workflow mode choice, native queue submission, concurrency, maintenance proposals, acknowledgement, or any authority boundary.
+- Read [state and recovery](references/state-and-recovery.md) before judging freshness, repairing local state, handling partial/failed receipts, uncertain outcomes, or changing profile configuration.

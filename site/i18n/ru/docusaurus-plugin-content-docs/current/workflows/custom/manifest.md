@@ -6,6 +6,7 @@
 
 ```json
 {
+  "schemaVersion": 2,
   "id": "my-workflow",
   "label": "My Workflow",
   "version": "1.0.0",
@@ -14,7 +15,15 @@
     "core": false,
     "emoji": "🔧"
   },
-  "inputs": { "unit": "parent" },
+  "trigger": { "requiresSelection": true },
+  "inputs": {
+    "member": { "kind": "parent" },
+    "grouping": { "mode": "each" }
+  },
+  "validateSelection": {
+    "select": { "policy": "input-member", "source": "selected" },
+    "filters": []
+  },
   "parameters": {},
   "execution": {},
   "request": { "kind": "pass-through.run.v1" },
@@ -67,135 +76,92 @@
 | `taskNameTemplate` | string | Шаблон имени задачи, использующий заполнители `{имя параметра}`, заменяемые фактическими значениями во время выполнения |
 | `debug_only` | boolean | Когда `true`, отображается только в режиме отладки |
 
-### Определение входных данных
+### Input Planning Contracts
+
+`inputs` and `validateSelection` have separate, non-interchangeable roles.
+`inputs` is the consumer contract for prepared execution members and grouping;
+`validateSelection` is the producer contract for raw-selection validation,
+candidate selection, ordered filtering, and candidate cardinality.
+
+#### `inputs` — Execution Input Contract
 
 ```json
 {
   "inputs": {
-    "unit": "attachment",
-    "accepts": {
-      "mime": ["text/markdown", "text/x-markdown", "application/pdf"]
+    "member": {
+      "kind": "attachment",
+      "accepts": {
+        "mime": ["text/markdown", "text/x-markdown", "application/pdf"]
+      }
     },
-    "per_parent": {
-      "min": 1,
-      "max": 1
-    }
+    "grouping": { "mode": "parent" }
   }
 }
 ```
 
-| Поле | Описание |
-|------|----------|
-| `unit` | **Тип единицы входных данных**. `"attachment"` (вложение), `"parent"` (родительский элемент), `"note"` (заметка), `"workflow"` (выбор элементов не требуется, запускается непосредственно из Dashboard) |
-| `accepts.mime` | Принимаемые MIME-типы (применимо только когда `unit: "attachment"`). Если не указано, принимаются все типы |
-| `per_parent.min` | Минимальное количество вложений на родительский элемент |
-| `per_parent.max` | Максимальное количество вложений на родительский элемент |
+- `member.kind`: `selection`, `parent`, `child`, `attachment`,
+  `note`, `generated-note`, or `digest-image-target`.
+- `member.accepts.mime` applies only to attachment execution members.
+- `grouping.mode: "each"` creates one unit per candidate.
+- `grouping.mode: "all"` creates one unit containing all candidates.
+- `grouping.mode: "parent"` creates stable parent groups. Candidates without
+  parent identity are skipped as `missing-parent`.
 
-Когда `unit: "workflow"`, для запуска не требуются выбранные пользователем элементы (например, "Создать синтез по теме").
-
-### validateSelection — Проверка выделения {#selection-validation}
-
-`validateSelection` — это декларативная проверка выделения. Она покрывает распространённые сценарии, такие как "пропуск элементов, которые уже имеют результаты" или "приём только выделений определённых типов" — без написания JavaScript.
+#### `validateSelection` — Candidate Production Contract {#selection-validation}
 
 ```json
 {
   "validateSelection": {
-    "select": {
-      "policy": "literature-source"
-    },
     "require": {
-      "counts": {
-        "parents": 1
+      "selection": {
+        "counts": {
+          "parents": { "min": 1 },
+          "total": { "min": 1 }
+        },
+        "allowMixed": false
       },
-      "allowMixed": false
+      "candidates": { "min": 1 }
     },
-    "exclude": [
+    "select": {
+      "policy": "input-member",
+      "source": "related"
+    },
+    "filters": [
       {
-        "kind": "generated-notes-all",
-        "noteKinds": ["digest", "references", "citation-analysis"]
+        "kind": "source-file-exists",
+        "phase": "availability"
       }
     ]
   }
 }
 ```
 
-### `select` — Политика выделения
+`require.selection` checks the raw SelectionContext exactly once.
+`select` then produces ordered atomic candidates. MIME compatibility and
+`filters` run before `require.candidates`. Count rules use either
+`{ "exact": n }` or non-negative `min`/`max` values.
 
-| Поле | Тип | Описание |
-|------|-----|----------|
-| `select.policy` | string | Политика выделения. Поддерживаемые значения ниже |
-| `select.unit` | string | Переопределить единицу ввода для проверки выделения. `"attachment"` / `"parent"` / `"note"` / `"workflow"` |
+Supported selectors are `input-member` (`source: selected|related`),
+`selection`, `literature-source`, `generated-note-candidates`, and
+`digest-representative-image`. Supported filters are
+`source-file-exists`, `candidates-per-parent`,
+`generated-note-kinds-absent`, and `artifact-absent`. Parameter-dependent
+artifact checks require `phase: "execute"`; availability filters run during
+preview and are reapplied during confirmed planning.
 
-**Поддерживаемые значения `select.policy`:**
-
-| Политика | Описание |
-|----------|----------|
-| `input-unit` | Принимать элементы, соответствующие единице ввода |
-| `literature-source` | Принимать источники литературы (вложения или родительские элементы с расширяемыми вложениями) |
-| `pdf-attachment` | Принимать только PDF-вложения |
-| `selected-parent` | Принимать родительские элементы из выделения |
-| `generated-note-candidates` | Принимать элементы-кандидаты для генерации заметок |
-| `digest-representative-image` | Целевые элементы для извлечения репрезентативного изображения |
-
-### `require` — Требования к выделению
-
-| Поле | Тип | Описание |
-|------|-----|----------|
-| `require.counts.parents` | number | Минимальное требуемое количество родительских элементов |
-| `require.counts.attachments` | number | Минимальное требуемое количество элементов-вложений |
-| `require.counts.notes` | number | Минимальное требуемое количество элементов-заметок |
-| `require.counts.children` | number | Минимальное требуемое количество дочерних элементов |
-| `require.counts.total` | number | Минимальное общее требуемое количество элементов |
-| `require.allowMixed` | boolean | Разрешено ли смешивание разных типов элементов в выделении |
-
-### `exclude` — Правила исключения
-
-| Поле | Тип | Описание |
-|------|-----|----------|
-| `exclude[]` | array | Список правил исключения. Если какое-либо правило совпадает, текущий элемент пропускается |
-
-**Поддерживаемые значения `exclude.kind`:**
-
-| kind | Описание | Дополнительные параметры |
-|------|----------|--------------------------|
-| `generated-notes-all` | Элемент уже имеет сгенерированные заметки указанного типа | `noteKinds`: список типов заметок, например, `["digest", "references", "citation-analysis"]` |
-| `artifact-exists` | Элемент уже имеет указанный артефакт (чтобы избежать избыточного выполнения) | `target`: `"deep-reading-html"` / `"translator-markdown"` / `"mineru-markdown"`; `parameter`: необязательный параметр языка для сопоставления артефактов |
-
-### `derive` — Производные выделения
-
-| Поле | Тип | Описание |
-|------|-----|----------|
-| `derive[]` | array | Операции производного выделения. `"exportCandidates"` — вывести кандидатов для экспорта заметок; `"digestRepresentativeImageTarget"` — вывести цели репрезентативного изображения из заметок дайджеста |
-
-**Пример:**
-
-```json
-{
-  "validateSelection": {
-    "select": { "policy": "literature-source" },
-    "exclude": [
-      { "kind": "artifact-exists", "target": "deep-reading-html" }
-    ]
-  }
-}
-```
-
-> В этом примере элементы, которые уже имеют HTML-артефакт глубокого чтения, автоматически пропускаются, не требуя ручной фильтрации пользователем.
-
-### Управление запуском
+#### `trigger` — Empty-selection Gate
 
 ```json
 {
   "trigger": {
-    "requiresSelection": false
+    "requiresSelection": true
   }
 }
 ```
 
-| Поле | Описание |
-|------|----------|
-| `requiresSelection` | Требуются ли выбранные пользователем элементы для запуска. По умолчанию `true`. Когда установлено в `false`, workflow может быть запущен из Dashboard без выбора каких-либо элементов. Обычно устанавливается в `false`, когда `inputs.unit: "workflow"` |
-
+`trigger.requiresSelection` is required in schema v2. It controls only whether
+an empty selection may enter planning; it does not replace
+`require.selection`.
 ### Управление выполнением
 
 ```json
@@ -330,15 +296,31 @@
 
 ```json
 {
+  "schemaVersion": 2,
   "id": "my-literature-analysis",
   "label": "My Literature Analysis",
   "version": "1.0.0",
   "provider": "skillrunner",
   "display": { "emoji": "📄" },
+  "trigger": { "requiresSelection": true },
   "inputs": {
-    "unit": "attachment",
-    "accepts": { "mime": ["application/pdf"] },
-    "per_parent": { "min": 1, "max": 1 }
+    "member": {
+      "kind": "attachment",
+      "accepts": { "mime": ["application/pdf"] }
+    },
+    "grouping": { "mode": "each" }
+  },
+  "validateSelection": {
+    "require": {
+      "selection": {
+        "counts": { "attachments": { "min": 1 } },
+        "allowMixed": false
+      }
+    },
+    "select": { "policy": "input-member", "source": "selected" },
+    "filters": [
+      { "kind": "source-file-exists", "phase": "availability" }
+    ]
   },
   "parameters": {
     "language": {

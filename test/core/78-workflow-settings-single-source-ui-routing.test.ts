@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { runInNewContext } from "node:vm";
 import {
   getProjectRoot,
   joinPath,
@@ -11,6 +12,100 @@ async function readProjectFile(relativePath: string) {
 }
 
 describe("workflow settings single-source routing", function () {
+  it("keeps a strict custom select on its canonical fallback across away-and-back changes", async function () {
+    class FakeElement {
+      className = "";
+      textContent = "";
+      title = "";
+      tabIndex = -1;
+      style: Record<string, string> = {};
+      children: FakeElement[] = [];
+      listeners = new Map<string, Array<(event: any) => void>>();
+      classList = {
+        add: (...names: string[]) => {
+          const values = new Set(this.className.split(/\s+/).filter(Boolean));
+          names.forEach((name) => values.add(name));
+          this.className = [...values].join(" ");
+        },
+        remove: (...names: string[]) => {
+          const removed = new Set(names);
+          this.className = this.className
+            .split(/\s+/)
+            .filter((name) => name && !removed.has(name))
+            .join(" ");
+        },
+      };
+
+      appendChild(child: FakeElement) {
+        this.children.push(child);
+        return child;
+      }
+
+      addEventListener(type: string, listener: (event: any) => void) {
+        const listeners = this.listeners.get(type) || [];
+        listeners.push(listener);
+        this.listeners.set(type, listeners);
+      }
+
+      click() {
+        for (const listener of this.listeners.get("click") || []) {
+          listener({ stopPropagation() {} });
+        }
+      }
+
+      querySelector(selector: string): FakeElement | null {
+        return this.querySelectorAll(selector)[0] || null;
+      }
+
+      querySelectorAll(selector: string): FakeElement[] {
+        const className = selector.startsWith(".") ? selector.slice(1) : "";
+        const matches: FakeElement[] = [];
+        const visit = (element: FakeElement) => {
+          if (element.className.split(/\s+/).includes(className)) {
+            matches.push(element);
+          }
+          element.children.forEach(visit);
+        };
+        this.children.forEach(visit);
+        return matches;
+      }
+
+      getBoundingClientRect() {
+        return { top: 0, bottom: 0 };
+      }
+    }
+
+    const documentStub = {
+      createElement: () => new FakeElement(),
+      querySelectorAll: () => [] as FakeElement[],
+      addEventListener: () => undefined,
+    };
+    const windowStub: Record<string, any> = { innerHeight: 1000 };
+    const source = await readProjectFile(
+      "addon/content/components/custom-select.js",
+    );
+    runInNewContext(source, { window: windowStub, document: documentStub });
+
+    const changes: string[] = [];
+    const select = windowStub.createCustomSelect(
+      [
+        { value: "build", label: "Build" },
+        { value: "code", label: "Code" },
+      ],
+      "stale-mode",
+      (value: string) => changes.push(value),
+    );
+    const menu = select.element.children[1];
+
+    assert.equal(select.getValue(), "build");
+    assert.equal(menu.querySelectorAll(".selected").length, 1);
+    menu.children[1].click();
+    menu.children[0].click();
+    assert.deepEqual(changes, ["code", "build"]);
+    assert.equal(select.getValue(), "build");
+    assert.equal(menu.querySelectorAll(".selected").length, 1);
+  });
+
   it("routes prefs openWorkflowSettings to dashboard workflow-options tab", async function () {
     const ts = await readProjectFile("src/hooks.ts");
     assert.include(ts, 'case "openWorkflowSettings"');

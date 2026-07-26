@@ -5,7 +5,6 @@ TBD - created by archiving change split-acp-model-reasoning-effort-selector. Upd
 ## Requirements
 ### Requirement: Model variants SHALL be folded into display model and effort selectors
 
-
 When raw ACP model options contain multiple recognized effort variants for the same base model, the ACP chat frontend SHALL show one display model option and a separate reasoning effort selector.
 
 #### Scenario: Recognized suffix variants are folded
@@ -21,14 +20,16 @@ When raw ACP model options contain multiple recognized effort variants for the s
 - **WHEN** the ACP snapshot is projected for the sidebar
 - **THEN** the display model selector SHALL show the raw models
 - **AND** the reasoning selector SHALL be hidden or unavailable
+
 ### Requirement: Frontend selections SHALL map back to raw ACP model IDs
 
 Changing display model or reasoning effort SHALL apply the matching ACP model or
 configuration value through the control mechanism advertised by the active ACP
 session.
 
-When a Kilo ACP session rejects `thought_level=none` with JSON-RPC invalid
-parameters (`-32602`), the frontend SHALL retain its last confirmed reasoning
+When a Kilo ACP session rejects a `thought_level` config option value with
+JSON-RPC invalid parameters (`-32602`) and the error message indicates an
+effort-related rejection, the frontend SHALL retain its last confirmed reasoning
 selection and leave the session's model-default reasoning configuration in
 effect. All other configuration failures SHALL remain visible errors.
 
@@ -41,9 +42,9 @@ effect. All other configuration failures SHALL remain visible errors.
 
 #### Scenario: Kilo none falls back to the model default
 
-- **GIVEN** the active Kilo ACP session rejects `thought_level=none` with code `-32602`
-- **WHEN** the user selects `none`
-- **THEN** the frontend SHALL not apply `none` to its current selection
+- **GIVEN** the active Kilo ACP session rejects a `thought_level` value with code `-32602` and error message indicating an effort-related rejection
+- **WHEN** the user selects a reasoning effort value that triggers the rejection
+- **THEN** the frontend SHALL not apply the rejected value to its current selection
 - **AND** the current session continues with the model-default reasoning setting.
 
 #### Scenario: Legacy model variant mapping remains available
@@ -53,3 +54,4 @@ effect. All other configuration failures SHALL remain visible errors.
 - **WHEN** the user changes display model or reasoning effort
 - **THEN** the frontend SHALL map the selection to a raw ACP model id and use
   the existing model control path.
+

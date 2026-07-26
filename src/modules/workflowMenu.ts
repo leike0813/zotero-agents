@@ -18,7 +18,7 @@ import {
   isCoreWorkflow,
   localizeWorkflowLabel,
 } from "../workflows/localization";
-import { evaluateWorkflowSelection } from "../workflows/workflowSelectionValidation";
+import { evaluateWorkflowSelection } from "../workflows/workflowInputPlanning";
 
 const ROOT_MENU_ID = `${config.addonRef}-workflows-menu`;
 const ROOT_POPUP_ID = `${config.addonRef}-workflows-popup`;

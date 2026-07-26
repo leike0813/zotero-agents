@@ -1,3 +1,8 @@
+import {
+  parseAssistantPendingInteraction,
+  projectAssistantPendingInteractionFromHints,
+} from "../shared/assistantInteractionContract.js";
+
 const PANEL_KINDS = ["acp-chat", "acp-skills", "skillrunner"];
 const TERMINAL_STATES = new Set([
   "succeeded",
@@ -270,7 +275,10 @@ function statusLabel(source, status) {
     return labelFrom(source, "status.starting", "Starting");
   if (token === "recovering")
     return labelFrom(source, "status.recovering", "Recovering");
-  if (token === "pending" || token === "queued") {
+  if (token === "queued") {
+    return labelFrom(source, "status.queued", "Queued");
+  }
+  if (token === "pending") {
     return labelFrom(source, "status.pending", "Pending");
   }
   if (token === "unavailable") {
@@ -877,7 +885,7 @@ function normalizeSkillRunnerOptionList(raw) {
         typeof option === "boolean"
       ) {
         const text = safeText(option);
-        return text ? { label: text, value: text } : null;
+        return text ? { label: text, value: option, description: null } : null;
       }
       if (!option || typeof option !== "object") return null;
       const label =
@@ -885,43 +893,43 @@ function normalizeSkillRunnerOptionList(raw) {
         safeText(option.name) ||
         safeText(option.title) ||
         safeText(option.value);
-      const value =
-        safeText(option.value) ||
-        safeText(option.reply) ||
-        safeText(option.message) ||
-        label;
-      return label && value ? { label, value } : null;
+      const value = Object.prototype.hasOwnProperty.call(option, "value")
+        ? option.value
+        : Object.prototype.hasOwnProperty.call(option, "reply")
+          ? option.reply
+          : Object.prototype.hasOwnProperty.call(option, "message")
+            ? option.message
+            : label;
+      return label
+        ? {
+            label,
+            value,
+            description: safeText(option.description) || null,
+          }
+        : null;
     })
     .filter(Boolean);
 }
 
 function buildSkillRunnerPendingInteraction(session, status, source) {
   const normalized = normalizeStatusToken(status);
-  const askUser =
-    session &&
-    session.pendingAskUser &&
-    typeof session.pendingAskUser === "object"
-      ? session.pendingAskUser
-      : null;
-  const uiHints =
-    session &&
-    session.pendingUiHints &&
-    typeof session.pendingUiHints === "object"
-      ? session.pendingUiHints
-      : askUser && askUser.ui_hints && typeof askUser.ui_hints === "object"
-        ? askUser.ui_hints
-        : {};
   if (normalized === "waiting-user") {
-    return {
-      kind: "waiting_user",
-      title: labelFrom(
-        source,
-        "interaction.userInputRequired",
-        "User input required",
-      ),
-      pendingInteraction: {
-        interactionId: Number((session && session.pendingInteractionId) || 0),
-        kind: safeText(
+    let projected = parseAssistantPendingInteraction(
+      session.pendingInteraction,
+    );
+    if (!projected) {
+      const askUser =
+        session.pendingAskUser && typeof session.pendingAskUser === "object"
+          ? session.pendingAskUser
+          : null;
+      const uiHints =
+        session.pendingUiHints && typeof session.pendingUiHints === "object"
+          ? session.pendingUiHints
+          : askUser && askUser.ui_hints && typeof askUser.ui_hints === "object"
+            ? askUser.ui_hints
+            : {};
+      projected = projectAssistantPendingInteractionFromHints({
+        pendingKind: safeText(
           (askUser && askUser.kind) || session.pendingKind || "open_text",
         ),
         uiHints: Object.assign({}, uiHints, {
@@ -933,15 +941,48 @@ function buildSkillRunnerPendingInteraction(session, status, source) {
               "interaction.waitingReply",
               "The agent is waiting for your reply.",
             ),
-          hint: safeText(uiHints.hint || (askUser && askUser.hint)),
-          options: normalizeSkillRunnerOptionList(
-            askUser && Array.isArray(askUser.options)
-              ? askUser.options
-              : session.pendingOptions,
-          ),
-          files: uiHints.files || session.pendingRequiredFields || [],
         }),
-      },
+        options:
+          askUser && Array.isArray(askUser.options)
+            ? askUser.options
+            : session.pendingOptions,
+        files: session.pendingRequiredFields,
+        fileReply: {
+          supported: false,
+          maxFiles: 8,
+          maxFileBytes: 32 * 1024 * 1024,
+          maxTotalBytes: 64 * 1024 * 1024,
+        },
+      });
+    }
+    return {
+      kind: "waiting_user",
+      title: labelFrom(
+        source,
+        "interaction.userInputRequired",
+        "User input required",
+      ),
+      pendingInteraction: projected
+        ? Object.assign({}, projected, {
+            options: projected.options.map(function (option) {
+              return Object.assign({}, option, {
+                action: "reply-run",
+                responseValue: option.value,
+                payload: {
+                  responseValue: option.value,
+                  responseLabel: option.label,
+                  message: option.label,
+                },
+              });
+            }),
+            fileAction: projected.fileReply.supported
+              ? {
+                  action: "submit-interaction-files",
+                  payload: {},
+                }
+              : null,
+          })
+        : null,
     };
   }
   if (normalized === "waiting-auth") {
@@ -1215,6 +1256,7 @@ function findSkillRunnerPanelTask(envelope) {
 function decorateSkillRunnerWorkspaceTask(task, source) {
   if (!task || typeof task !== "object") return task;
   const taskKey = safeText(task.key || task.taskKey || task.id);
+  const queueId = safeText(task.queueId);
   const canArchiveLocalRun = task.canArchiveLocalRun !== false;
   const terminal =
     task.terminal === true ||
@@ -1236,8 +1278,21 @@ function decorateSkillRunnerWorkspaceTask(task, source) {
     applyState,
     applyStateLabel: applyLabel,
     applyTone: applyStateTone(applyState),
-    itemActions:
-      terminal && canArchiveLocalRun
+    itemActions: queueId
+      ? [
+          {
+            action: "cancel-queued-workflow-unit",
+            label: labelFrom(
+              source,
+              "actions.cancelQueuedWorkflowUnit",
+              "Cancel queued workflow unit",
+            ),
+            icon: "cancel",
+            enabled: true,
+            payload: { queueId },
+          },
+        ]
+      : terminal && canArchiveLocalRun
         ? [archiveItemAction("archive-run", "归档", { runKey: taskKey }, true)]
         : [],
   });
@@ -1821,6 +1876,7 @@ function projectSkillRunnerPanelSnapshot(snapshot) {
             : labelFrom(envelope, "actions.send", "Send"),
       sending: skillRunnerAuthActionPending,
       action: skillRunnerBusy ? "cancel-run" : "reply-run",
+      payload: {},
       tone: skillRunnerBusy ? "danger" : "primary",
       clearOnSend: !skillRunnerBusy,
       hint: labelFrom(
@@ -2123,7 +2179,8 @@ function exactWorkspaceTask(entry, selectedOwner, labelSource) {
       ? entry.owner
       : null;
   const key = safeText(owner && owner.ownerKey);
-  const status = safeText(entry && entry.status) || "idle";
+  const statusFields = taskStatusFields(entry, labelSource);
+  const status = statusFields.mainStatus;
   const terminal = isTerminalStatus(status);
   const archiveEligible =
     owner && owner.source === "acp-chat"
@@ -2142,22 +2199,10 @@ function exactWorkspaceTask(entry, selectedOwner, labelSource) {
         entry && (entry.subtitle || entry.groupLabel || entry.groupId),
       ) || "-",
     status,
-    stateLabel: statusLabel(labelSource, status),
-    mainStatus: status,
-    mainStatusLabel: statusLabel(labelSource, status),
-    mainStatusTone: statusTone(status),
-    backendStatus: safeText(entry && entry.backendStatus),
-    backendStatusLabel: safeText(entry && entry.backendStatus)
-      ? statusLabel(labelSource, entry.backendStatus)
-      : "",
-    backendStatusTone: statusTone(entry && entry.backendStatus),
-    showBackendStatusBadge: Boolean(safeText(entry && entry.backendStatus)),
-    applyStatus: safeText(entry && entry.applyState),
-    applyStatusLabel: safeText(entry && entry.applyState)
-      ? statusLabel(labelSource, entry.applyState)
-      : "",
-    applyStatusTone: statusTone(entry && entry.applyState),
-    showApplyStatusBadge: Boolean(safeText(entry && entry.applyState)),
+    stateLabel: statusFields.mainStatusLabel,
+    ...statusFields,
+    showBackendStatusBadge: true,
+    showApplyStatusBadge: !owner || owner.source !== "acp-chat",
     updatedAt: safeText(entry && entry.updatedAt),
     backendId: safeText(entry && entry.groupId),
     backendDisplayName: safeText(entry && (entry.groupLabel || entry.groupId)),
@@ -2186,72 +2231,167 @@ function exactWorkspaceTask(entry, selectedOwner, labelSource) {
   };
 }
 
+function exactWorkspaceQueuedTask(entry, labelSource) {
+  const queueId = safeText(entry && entry.queueId);
+  return {
+    key: queueId ? "host-queue:" + queueId : "",
+    action: "",
+    payload: {},
+    title: safeText(entry && entry.label) || queueId,
+    workflowLabel:
+      safeText(
+        entry && (entry.subtitle || entry.groupLabel || entry.groupId),
+      ) || "-",
+    status: "queued",
+    stateLabel: labelFrom(labelSource, "drawer.queued", "Queued"),
+    mainStatus: "queued",
+    mainStatusLabel: labelFrom(labelSource, "drawer.queued", "Queued"),
+    mainStatusTone: "muted",
+    showBackendStatusBadge: false,
+    showApplyStatusBadge: false,
+    updatedAt: safeText(entry && entry.updatedAt),
+    backendId: safeText(entry && entry.groupId),
+    backendDisplayName: safeText(entry && (entry.groupLabel || entry.groupId)),
+    selectable: false,
+    terminal: false,
+    active: false,
+    attention: "",
+    attentionLabel: "",
+    itemActions:
+      queueId && entry && entry.canCancel !== false
+        ? [
+            {
+              action: "cancel-queued-workflow-unit",
+              label: labelFrom(
+                labelSource,
+                "actions.cancelQueuedWorkflowUnit",
+                "Cancel queued workflow unit",
+              ),
+              icon: "cancel",
+              enabled: true,
+              payload: { queueId },
+            },
+          ]
+        : [],
+  };
+}
+
 function exactWorkspaceDrawerSections(
   navigation,
   selectedOwner,
   uiState,
   labelSource,
+  source,
 ) {
-  const groups = new Map();
+  const catalog = new Map();
   (Array.isArray(navigation && navigation.groups)
     ? navigation.groups
     : []
   ).forEach(function (group) {
-    groups.set(safeText(group.groupId), {
-      groupKey: safeText(group.groupId),
+    catalog.set(safeText(group.groupId), {
       backendId: safeText(group.groupId),
       backendDisplayName: safeText(group.label),
+    });
+  });
+  function createGroupBucket(sectionId, groupKey, entry) {
+    const known = catalog.get(groupKey) || {};
+    const collapseKey = safeText(sectionId) + "\n" + groupKey;
+    return {
+      groupKey,
+      backendId: safeText(known.backendId) || groupKey,
+      backendDisplayName:
+        safeText(known.backendDisplayName) ||
+        safeText(entry && entry.groupLabel) ||
+        groupKey,
       disabled: false,
       collapsed:
         uiState &&
         uiState.drawerGroupCollapsed &&
-        uiState.drawerGroupCollapsed.get(safeText(group.groupId)) === true,
+        uiState.drawerGroupCollapsed.get(collapseKey) === true,
       activeTasks: [],
       finishedTasks: [],
-    });
-  });
-  (Array.isArray(navigation && navigation.entries)
+    };
+  }
+  function appendTask(sectionId, buckets, entry, target, projectedTask) {
+    const groupKey = safeText(entry && entry.groupId) || "default";
+    if (!buckets.has(groupKey)) {
+      buckets.set(groupKey, createGroupBucket(sectionId, groupKey, entry));
+    }
+    const group = buckets.get(groupKey);
+    group[target].push(
+      projectedTask || exactWorkspaceTask(entry, selectedOwner, labelSource),
+    );
+  }
+  const entries = Array.isArray(navigation && navigation.entries)
     ? navigation.entries
+    : [];
+  if (source === "acp-chat") {
+    const sessionGroups = new Map();
+    entries.forEach(function (entry) {
+      appendTask("sessions", sessionGroups, entry, "activeTasks");
+    });
+    return [
+      {
+        id: "sessions",
+        title: labelFrom(labelSource, "actions.sessions", "Sessions"),
+        hideTitle: true,
+        collapsed: false,
+        groups: Array.from(sessionGroups.values()),
+      },
+    ];
+  }
+
+  const activeGroups = new Map();
+  const completedGroups = new Map();
+  entries.forEach(function (entry) {
+    const task = exactWorkspaceTask(entry, selectedOwner, labelSource);
+    appendTask(
+      task.terminal ? "completed" : "running",
+      task.terminal ? completedGroups : activeGroups,
+      entry,
+      task.terminal ? "finishedTasks" : "activeTasks",
+      task,
+    );
+  });
+  const queuedGroups = new Map();
+  (Array.isArray(navigation && navigation.queuedEntries)
+    ? navigation.queuedEntries
     : []
   ).forEach(function (entry) {
-    const groupKey = safeText(entry && entry.groupId) || "default";
-    if (!groups.has(groupKey)) {
-      groups.set(groupKey, {
-        groupKey,
-        backendId: groupKey,
-        backendDisplayName: safeText(entry && entry.groupLabel) || groupKey,
-        disabled: false,
-        collapsed:
-          uiState &&
-          uiState.drawerGroupCollapsed &&
-          uiState.drawerGroupCollapsed.get(groupKey) === true,
-        activeTasks: [],
-        finishedTasks: [],
-      });
-    }
-    const task = exactWorkspaceTask(entry, selectedOwner, labelSource);
-    const target = task.terminal ? "finishedTasks" : "activeTasks";
-    groups.get(groupKey)[target].push(task);
+    appendTask(
+      "queued",
+      queuedGroups,
+      entry,
+      "activeTasks",
+      exactWorkspaceQueuedTask(entry, labelSource),
+    );
   });
-  const values = Array.from(groups.values());
-  return [
+  const sections = [
     {
-      id: "active",
+      id: "running",
       title: labelFrom(labelSource, "drawer.running", "Running"),
-      collapsed: false,
-      groups: values.map(function (group) {
-        return Object.assign({}, group, { finishedTasks: [] });
-      }),
-    },
-    {
-      id: "completed",
-      title: labelFrom(labelSource, "drawer.completed", "Completed"),
-      collapsed: uiState && uiState.completedCollapsed === true,
-      groups: values.map(function (group) {
-        return Object.assign({}, group, { activeTasks: [] });
-      }),
+      collapsible: true,
+      collapsed: uiState && uiState.runningCollapsed === true,
+      groups: Array.from(activeGroups.values()),
     },
   ];
+  if (queuedGroups.size > 0) {
+    sections.push({
+      id: "queued",
+      title: labelFrom(labelSource, "drawer.queued", "Queued"),
+      collapsible: true,
+      collapsed: !uiState || uiState.queuedCollapsed !== false,
+      groups: Array.from(queuedGroups.values()),
+    });
+  }
+  sections.push({
+    id: "completed",
+    title: labelFrom(labelSource, "drawer.completed", "Completed"),
+    collapsible: true,
+    collapsed: !uiState || uiState.completedCollapsed !== false,
+    groups: Array.from(completedGroups.values()),
+  });
+  return sections;
 }
 
 function exactWorkspaceEmptyChrome(source, sourceLabels, labelSource) {
@@ -2702,6 +2842,10 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
         ? control.hint
         : { kind: "hidden", message: null };
     const kind = safeText(hint.kind) || "hidden";
+    const sharedPending =
+      control.interaction && typeof control.interaction === "object"
+        ? control.interaction
+        : null;
     let message = safeText(hint.message);
     if (!message) {
       if (kind === "auth") {
@@ -2754,6 +2898,35 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
         );
       }
     }
+    if (kind === "waiting_user" && sharedPending) {
+      return {
+        kind,
+        message: "",
+        pendingInteraction: Object.assign({}, sharedPending, {
+          options: (Array.isArray(sharedPending.options)
+            ? sharedPending.options
+            : []
+          ).map(function (option) {
+            return Object.assign({}, option, {
+              action: "select-interaction-option",
+              responseValue: option.value,
+              payload: {
+                responseValue: option.value,
+                responseLabel: safeText(option.label),
+              },
+            });
+          }),
+          fileAction:
+            sharedPending.fileReply &&
+            sharedPending.fileReply.supported === true
+              ? {
+                  action: "submit-interaction-files",
+                  payload: {},
+                }
+              : null,
+        }),
+      };
+    }
     return kind === "hidden" || (kind === "notice" && !message)
       ? { kind: "hidden" }
       : { kind, message };
@@ -2788,6 +2961,7 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
     owner,
     local,
     labelSource,
+    source.source,
   );
   return {
     exact: true,
@@ -2882,6 +3056,7 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
         : source.source === "acp-chat"
           ? "send-prompt"
           : "reply-run",
+      payload: {},
       tone: replyBusy ? "danger" : "primary",
       controls: [
         exactWorkspaceOptionGroup(
@@ -2928,6 +3103,7 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
       contexts: [],
       sections: drawerSections,
       selectedTaskKey: safeText(owner && owner.ownerKey),
+      labels: assistantDrawerLabels(labelSource),
       details,
       detailsLoading: local.detailsDrawerOpen === true && !detailsState,
       permissionRequest: request

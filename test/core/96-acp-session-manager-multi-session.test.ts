@@ -71,6 +71,88 @@ import {
 describe("acp session manager", function () {
   const harness = installAcpSessionManagerTestHooks();
 
+  it("atomically selects one reusable local placeholder for an empty backend", async function () {
+    Zotero.Prefs.set(
+      `${config.prefsPrefix}.backendsConfigJson`,
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: [
+          {
+            id: "acp-one",
+            displayName: "ACP One",
+            type: "acp",
+            command: "node",
+            args: ["one.js"],
+          },
+          {
+            id: "acp-empty",
+            displayName: "ACP Empty",
+            type: "acp",
+            command: "node",
+            args: ["empty.js"],
+          },
+        ],
+      }),
+      true,
+    );
+    const factoryArgs: AcpConnectionAdapterFactoryArgs[] = [];
+    setAcpConnectionAdapterFactoryForTests(async (args) => {
+      factoryArgs.push(args);
+      return new FakeAcpConnectionAdapter();
+    });
+
+    await setActiveAcpBackend({ backendId: "acp-one" });
+    const publications: AcpChatPanelSnapshotChange[] = [];
+    const unsubscribe = subscribeAcpChatPanelSnapshots((change) => {
+      publications.push(change);
+    });
+    try {
+      await setActiveAcpBackend({ backendId: "acp-empty" });
+      const first = getAcpConversationSnapshot();
+      assert.equal(first.backendId, "acp-empty");
+      assert.match(first.conversationId, /^acp-conversation-/);
+      assert.equal(first.status, "idle");
+      assert.equal(first.sessionId, "");
+      assert.lengthOf(listAcpChatSessions("acp-empty"), 1);
+      assert.deepEqual(factoryArgs, []);
+      assert.isTrue(
+        publications
+          .filter((change) => change.kinds.includes("active-scope"))
+          .every(
+            (change) =>
+              change.backendId === "acp-empty" &&
+              Boolean(change.conversationId) &&
+              change.active === true,
+          ),
+      );
+
+      await setActiveAcpBackend({ backendId: "acp-one" });
+      await setActiveAcpBackend({ backendId: "acp-empty" });
+      assert.equal(
+        getAcpConversationSnapshot().conversationId,
+        first.conversationId,
+      );
+      assert.lengthOf(listAcpChatSessions("acp-empty"), 1);
+      assert.deepEqual(factoryArgs, []);
+
+      const preservedOwner = getAcpConversationSnapshot();
+      try {
+        await setActiveAcpBackend({ backendId: "missing-backend" });
+        assert.fail("expected invalid backend selection to fail");
+      } catch (error) {
+        assert.include(
+          error instanceof Error ? error.message : String(error),
+          "missing-backend",
+        );
+      }
+      const afterInvalid = getAcpConversationSnapshot();
+      assert.equal(afterInvalid.backendId, preservedOwner.backendId);
+      assert.equal(afterInvalid.conversationId, preservedOwner.conversationId);
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it("keeps parallel ACP backend sessions isolated and routes actions to the active backend", async function () {
     Zotero.Prefs.set(
       `${config.prefsPrefix}.backendsConfigJson`,

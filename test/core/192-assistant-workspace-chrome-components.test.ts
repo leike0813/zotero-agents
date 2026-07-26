@@ -1674,6 +1674,7 @@ describe("Assistant Workspace chrome components", function () {
         state: "idle" | "loading" | "failed" | "ready";
         message?: string;
         mode?: "plain" | "bubble";
+        ownerKey?: string;
       },
       onResetVirtualState: (target: Element) => void = () => {},
     ) {
@@ -1683,6 +1684,7 @@ describe("Assistant Workspace chrome components", function () {
           state: props.state,
           message: props.message || "",
           mode: props.mode || "plain",
+          ownerKey: props.ownerKey || "",
           onResetVirtualState,
         } as never),
         container as never,
@@ -1724,6 +1726,30 @@ describe("Assistant Workspace chrome components", function () {
       after.forEach((node, index) => {
         assert.strictEqual(node, before[index], `node #${index} rebuilt`);
       });
+    });
+
+    it("rebuilds the placeholder when the owner changes with identical state", function () {
+      const container = environment.document.createElement("section");
+      const resets: Element[] = [];
+      const onReset = (target: Element) => resets.push(target);
+      renderTranscriptRegion(
+        container,
+        { state: "loading", ownerKey: "owner-a" },
+        onReset,
+      );
+      const before = container.querySelector(
+        '[data-assistant-transcript-state="loading"]',
+      )!;
+      renderTranscriptRegion(
+        container,
+        { state: "loading", ownerKey: "owner-b" },
+        onReset,
+      );
+      const after = container.querySelector(
+        '[data-assistant-transcript-state="loading"]',
+      )!;
+      assert.notStrictEqual(after, before);
+      assert.deepEqual(resets, [container, container]);
     });
 
     it("renders failed and empty states with messages and clears them when ready", function () {

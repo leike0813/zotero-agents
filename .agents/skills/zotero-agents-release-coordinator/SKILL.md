@@ -69,7 +69,7 @@ Before `ready_to_release`, require:
 - `npm run lint:check`
 - content package release verification when the gate reports content package
   candidate changes
-- a `host-bridge.release-receipt.v1` with `status: complete` for the prepared
+- a `host-bridge.release-receipt.v2` with `status: complete` for the prepared
   `releaseSetId` when the gate reports Host Bridge candidate changes
 
 Do not treat CI `test:gate:release` as a replacement for local

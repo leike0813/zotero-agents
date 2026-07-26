@@ -4,6 +4,11 @@ import {
   DEFAULT_BACKEND_TYPE,
   SKILLRUNNER_SEQUENCE_REQUEST_KIND,
 } from "../config/defaults";
+import {
+  ASSISTANT_INTERACTION_FILE_MAX_BYTES,
+  ASSISTANT_INTERACTION_TOTAL_MAX_BYTES,
+  ASSISTANT_PENDING_INTERACTION_FILE_LIMIT,
+} from "../shared/assistantInteractionContract";
 
 export const SKILLRUNNER_HANDSHAKE_REQUEST_SCHEMA =
   "zotero-agents.skillrunner-handshake.request.v1";
@@ -16,9 +21,13 @@ export const SKILLRUNNER_JOB_PROTOCOL =
 
 export const SKILLRUNNER_SEQUENCE_PROTOCOL = SKILLRUNNER_SEQUENCE_REQUEST_KIND;
 
+export const SKILLRUNNER_INTERACTION_FILES_PROTOCOL =
+  "skillrunner.interaction-files.v1";
+
 export const SKILLRUNNER_HANDSHAKE_REQUESTED_PROTOCOLS = [
   SKILLRUNNER_JOB_PROTOCOL,
   SKILLRUNNER_SEQUENCE_PROTOCOL,
+  SKILLRUNNER_INTERACTION_FILES_PROTOCOL,
 ] as const;
 
 export type SkillRunnerProtocolId =
@@ -36,6 +45,9 @@ export type SkillRunnerHandshakeRequest = {
 
 export type SkillRunnerHandshakeProtocolSupport = {
   supported: boolean;
+  max_files?: number;
+  max_file_bytes?: number;
+  max_total_bytes?: number;
 };
 
 export type SkillRunnerHandshakeResponse = {
@@ -114,6 +126,18 @@ export function normalizeSkillRunnerHandshakeResponse(
     }
     protocols[normalizedProtocolId] = {
       supported: value.supported === true,
+      ...(Number.isFinite(Number(value.max_files)) &&
+      Number(value.max_files) > 0
+        ? { max_files: Math.floor(Number(value.max_files)) }
+        : {}),
+      ...(Number.isFinite(Number(value.max_file_bytes)) &&
+      Number(value.max_file_bytes) > 0
+        ? { max_file_bytes: Math.floor(Number(value.max_file_bytes)) }
+        : {}),
+      ...(Number.isFinite(Number(value.max_total_bytes)) &&
+      Number(value.max_total_bytes) > 0
+        ? { max_total_bytes: Math.floor(Number(value.max_total_bytes)) }
+        : {}),
     };
   }
   return {
@@ -136,7 +160,42 @@ export function createLegacySkillRunnerCapabilities(): SkillRunnerBackendCapabil
       [SKILLRUNNER_SEQUENCE_PROTOCOL]: {
         supported: false,
       },
+      [SKILLRUNNER_INTERACTION_FILES_PROTOCOL]: {
+        supported: false,
+      },
     },
+  };
+}
+
+export function resolveSkillRunnerInteractionFileCapability(
+  capabilities: SkillRunnerBackendCapabilities,
+) {
+  const support =
+    capabilities.protocols[SKILLRUNNER_INTERACTION_FILES_PROTOCOL];
+  const lowerPositiveLimit = (value: unknown, ceiling: number) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric > 0
+      ? Math.min(ceiling, Math.floor(numeric))
+      : ceiling;
+  };
+  const maxTotalBytes = lowerPositiveLimit(
+    support?.max_total_bytes,
+    ASSISTANT_INTERACTION_TOTAL_MAX_BYTES,
+  );
+  return {
+    supported: support?.supported === true,
+    maxFiles: lowerPositiveLimit(
+      support?.max_files,
+      ASSISTANT_PENDING_INTERACTION_FILE_LIMIT,
+    ),
+    maxFileBytes: Math.min(
+      maxTotalBytes,
+      lowerPositiveLimit(
+        support?.max_file_bytes,
+        ASSISTANT_INTERACTION_FILE_MAX_BYTES,
+      ),
+    ),
+    maxTotalBytes,
   };
 }
 

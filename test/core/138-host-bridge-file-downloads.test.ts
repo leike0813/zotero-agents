@@ -369,12 +369,20 @@ describe("host bridge file downloads", function () {
       });
 
       assert.strictEqual(parsed.status, 200);
-      const attachment = parsed.json.result.data[0];
+      const attachmentPage = parsed.json.result.data;
+      const attachment = attachmentPage.attachments[0];
       assert.strictEqual(attachment.access.mode, "bridge-download");
       assert.match(attachment.access.file.fileId, /^file-/);
       assert.strictEqual(attachment.access.file.displayName, "attachment.txt");
       assert.notProperty(attachment, "path");
       assert.notInclude(parsed.body, filePath);
+      assert.deepInclude(attachmentPage, {
+        nextCursor: "",
+        hasMore: false,
+        returned: 1,
+        total: 1,
+        limit: 25,
+      });
     } finally {
       (Zotero.Items as any).get = previousGet;
       await parent.eraseTx();

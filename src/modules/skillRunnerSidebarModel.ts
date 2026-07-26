@@ -8,6 +8,7 @@ export type SkillRunnerSidebarRelationState = "focused" | "related" | "default";
 
 export type SkillRunnerSidebarTaskItem = {
   key: string;
+  queueId?: string;
   backendId: string;
   backendDisplayName: string;
   requestId?: string;
@@ -58,8 +59,9 @@ export type SkillRunnerSidebarGroup<
 export type SkillRunnerSidebarSection<
   TTask extends SkillRunnerSidebarTaskItem = SkillRunnerSidebarTaskItem,
 > = {
-  id: "running" | "completed";
+  id: "running" | "queued" | "completed";
   title: string;
+  collapsible?: boolean;
   collapsed: boolean;
   groups: Array<SkillRunnerSidebarGroup<TTask>>;
 };
@@ -204,11 +206,26 @@ export function buildSkillRunnerSidebarSections<
   groups: Array<SkillRunnerSidebarGroup<TTask>>;
   context?: SkillRunnerSidebarContext | null;
   selectedTaskKey?: string;
+  runningCollapsed?: boolean;
   completedCollapsed?: boolean;
+  queuedCollapsed?: boolean;
+  queuedEntries?: ReadonlyArray<{
+    queueId: string;
+    backendId: string;
+    workflowId: string;
+    workflowLabel: string;
+    taskName: string;
+    createdAt: string;
+    canCancel: boolean;
+  }>;
 }) {
   const selectedTaskKey = String(args.selectedTaskKey || "").trim();
   const runningGroups: Array<SkillRunnerSidebarGroup<TTask>> = [];
   const completedGroups: Array<SkillRunnerSidebarGroup<TTask>> = [];
+  const queuedGroupsByBackend = new Map<
+    string,
+    SkillRunnerSidebarGroup<TTask>
+  >();
 
   for (const group of args.groups) {
     if (group.disabled) {
@@ -261,20 +278,73 @@ export function buildSkillRunnerSidebarSections<
     }
   }
 
-  return [
+  for (const entry of args.queuedEntries || []) {
+    const backendId = String(entry.backendId || "").trim();
+    if (!backendId) {
+      continue;
+    }
+    const catalogGroup = args.groups.find(
+      (group) => group.backendId === backendId,
+    );
+    let group = queuedGroupsByBackend.get(backendId);
+    if (!group) {
+      group = {
+        backendId,
+        backendDisplayName: catalogGroup?.backendDisplayName || backendId,
+        disabled: false,
+        collapsed: false,
+        finishedCollapsed: false,
+        activeTasks: [],
+        finishedTasks: [],
+        latestUpdatedAt: entry.createdAt,
+      };
+      queuedGroupsByBackend.set(backendId, group);
+    }
+    group.latestUpdatedAt =
+      group.latestUpdatedAt > entry.createdAt
+        ? group.latestUpdatedAt
+        : entry.createdAt;
+    group.activeTasks.push({
+      key: `host-queue:${entry.queueId}`,
+      queueId: entry.queueId,
+      backendId,
+      backendDisplayName: group.backendDisplayName,
+      workflowLabel: entry.workflowLabel || entry.workflowId,
+      status: "queued",
+      stateLabel: "Queued",
+      updatedAt: entry.createdAt,
+      title: entry.taskName || entry.workflowLabel || entry.workflowId,
+      selectable: false,
+      terminal: false,
+    } as TTask);
+  }
+
+  const sections: Array<SkillRunnerSidebarSection<TTask>> = [
     {
       id: "running",
       title: "Running",
-      collapsed: false,
+      collapsible: true,
+      collapsed: args.runningCollapsed === true,
       groups: runningGroups,
     },
-    {
-      id: "completed",
-      title: "Completed",
-      collapsed: args.completedCollapsed !== false,
-      groups: completedGroups,
-    },
-  ] satisfies Array<SkillRunnerSidebarSection<TTask>>;
+  ];
+  if (queuedGroupsByBackend.size > 0) {
+    sections.push({
+      id: "queued",
+      title: "Queued",
+      collapsible: true,
+      collapsed: args.queuedCollapsed !== false,
+      groups: [...queuedGroupsByBackend.values()],
+    });
+  }
+  sections.push({
+    id: "completed",
+    title: "Completed",
+    collapsible: true,
+    collapsed: args.completedCollapsed !== false,
+    groups: completedGroups,
+  });
+  return sections;
 }
 
 export function countWaitingSkillRunnerTasks<
