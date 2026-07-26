@@ -9,6 +9,8 @@ import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION as CONTRACT_SCHEMA_VERSI
 import { rebuildSynthesisSidecarCallRequest } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION as REPOSITORY_SCHEMA_VERSION } from "../../packages/synthesis-repository/src/index";
 import { checkSynthesisCrossLanguageContracts } from "../../scripts/check-synthesis-cross-language-contracts";
+import { checkSynthesisDurableFoundationParity } from "../../scripts/check-synthesis-durable-foundation-parity";
+import { checkSynthesisRustLicenseInventory } from "../../scripts/check-synthesis-rust-license-inventory";
 import { findSynthesisContractBoundaryViolations } from "../../scripts/check-synthesis-service-boundary";
 
 function canonicalErrorCode(action: () => unknown) {
@@ -120,5 +122,44 @@ describe("Synthesis cross-language sidecar contract", function () {
   it("owns the repository schema version without a reverse dependency", function () {
     assert.equal(CONTRACT_SCHEMA_VERSION, REPOSITORY_SCHEMA_VERSION);
     assert.deepEqual(findSynthesisContractBoundaryViolations(), []);
+  });
+
+  it("shares the complete durable foundation corpus with the Node oracle and Rust candidate", function () {
+    const result = checkSynthesisDurableFoundationParity();
+
+    assert.deepEqual(result.errors, []);
+    assert.isTrue(result.ok);
+    assert.equal(result.corpus, "synthesis-durable-foundation-corpus.v1");
+    assert.equal(result.nodeOracleFiles, 15);
+    assert.equal(result.tables, 51);
+    assert.equal(result.indexes, 40);
+    assert.equal(result.faultPoints, 7);
+    assert.equal(result.applications, 13);
+    assert.equal(result.canaries, 2);
+    assert.equal(result.implementations.node.role, "oracle");
+    assert.match(
+      result.implementations.node.sourceFingerprint,
+      /^sha256:[a-f0-9]{64}$/,
+    );
+    assert.equal(result.implementations.rust.role, "candidate");
+    assert.match(
+      result.implementations.rust.sourceFingerprint,
+      /^sha256:[a-f0-9]{64}$/,
+    );
+    assert.notEqual(
+      result.implementations.node.sourceFingerprint,
+      result.implementations.rust.sourceFingerprint,
+    );
+  });
+
+  it("accounts for every locked Rust and bundled SQLite license", function () {
+    const result = checkSynthesisRustLicenseInventory();
+
+    assert.deepEqual(result.errors, []);
+    assert.isTrue(result.ok);
+    assert.equal(result.cargoPackages, 70);
+    assert.equal(result.licensedPackages, 70);
+    assert.equal(result.bundledComponents, 1);
+    assert.equal(result.bundledSqlite, "3.53.2");
   });
 });

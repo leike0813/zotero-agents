@@ -17,6 +17,7 @@ import {
   getSynthesisSidecarRuntimeInstallPaths,
 } from "../../src/modules/synthesisSidecarRuntimeInstaller";
 import {
+  computeSynthesisRustSidecarSourceFingerprint,
   computeSynthesisSidecarRuntimeBuildFingerprint,
   runtimeArchiveName,
   SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES,
@@ -555,6 +556,7 @@ describe("Synthesis sidecar runtime packaging", function () {
   it("pins the five-platform signed prebuild and release freshness pipeline", async function () {
     const first = await computeSynthesisSidecarRuntimeBuildFingerprint(ROOT);
     const second = await computeSynthesisSidecarRuntimeBuildFingerprint(ROOT);
+    const native = await computeSynthesisRustSidecarSourceFingerprint(ROOT);
     assert.equal(first.fingerprint, second.fingerprint);
     assert.include(first.inputs, "apps/synthesis-service/src/entrypoint.ts");
     assert.notInclude(
@@ -781,6 +783,22 @@ describe("Synthesis sidecar runtime packaging", function () {
       first.inputs,
       ".github/workflows/build-synthesis-rust-sidecar.yml",
     );
+    for (const input of [
+      ".github/workflows/build-synthesis-rust-sidecar.yml",
+      "packages/synthesis-contracts/contract-set/synthesis-durable-foundation-v1/corpus.json",
+      "scripts/check-synthesis-cross-language-contracts.ts",
+      "scripts/check-synthesis-durable-foundation-parity.ts",
+      "scripts/check-synthesis-rust-license-inventory.ts",
+      "scripts/smoke-synthesis-rust-durable-candidate.ts",
+      "scripts/smoke-synthesis-rust-sidecar-worker.ts",
+      "scripts/synthesis-sidecar-runtime-release-governance.ts",
+      "native/synthesis-sidecar/Cargo.lock",
+      "native/synthesis-sidecar/crates/synthesis-application/src/lib.rs",
+      "native/synthesis-sidecar/crates/synthesis-canonical-store/src/lib.rs",
+      "native/synthesis-sidecar/crates/synthesis-repository/src/lib.rs",
+    ]) {
+      assert.include(native.inputs, input);
+    }
     assert.deepEqual(SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES, []);
     for (const packageName of SYNTHESIS_SIDECAR_COMPUTE_RUNTIME_PACKAGES) {
       assert.include(first.inputs, `node_modules/${packageName}/package.json`);

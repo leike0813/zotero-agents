@@ -1,9 +1,15 @@
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
+use std::thread;
+use std::time::Duration;
+use synthesis_application::{Application, DisabledCompute, DisabledRemoteEffects};
+use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
 use synthesis_protocol::{
     DeterministicAckFrame, DeterministicPageFrame, DeterministicRawPageFrame,
     DeterministicRunBegin, DeterministicTaskFrame, METRICS_OPERATION, MetricsRequest,
@@ -11,12 +17,16 @@ use synthesis_protocol::{
     canonical_json, count_json_nodes, count_json_nodes_raw, deterministic_operation,
     page_descriptor, raw_page_descriptor_with_node_count, split_paged_result,
 };
+use synthesis_repository::{Repository, RepositoryIdentity};
 
 const BUILD_FINGERPRINT: &str = match option_env!("SYNTHESIS_RUST_BUILD_FINGERPRINT") {
     Some(value) => value,
     None => "development",
 };
 const MAX_WORKER_FRAME_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_READ_BODY_BYTES: usize = 1024 * 1024;
+const MAX_READ_RESPONSE_BYTES: usize = 1024 * 1024;
+const SERVICE_INSTANCE_ID: &str = "rust-durable-candidate";
 
 enum WorkerCommand {
     Run(String, String, Option<String>, Value),
@@ -809,7 +819,7 @@ fn worker() -> Result<(), String> {
     Ok(())
 }
 
-fn read_http(stream: &mut TcpStream) -> Result<(String, String, Vec<u8>), String> {
+fn read_http(stream: &mut TcpStream) -> Result<(String, String, String, Vec<u8>), String> {
     let mut reader = BufReader::new(stream.try_clone().map_err(|error| error.to_string())?);
     let mut first = String::new();
     reader
@@ -849,7 +859,12 @@ fn read_http(stream: &mut TcpStream) -> Result<(String, String, Vec<u8>), String
     reader
         .read_exact(&mut body)
         .map_err(|error| error.to_string())?;
-    Ok((parts[1].to_owned(), token, body))
+    Ok((
+        parts[0].to_ascii_uppercase(),
+        parts[1].to_owned(),
+        token,
+        body,
+    ))
 }
 
 fn response(stream: &mut TcpStream, status: u16, value: Value) -> Result<(), String> {
@@ -903,93 +918,346 @@ fn worker_call(request: MetricsRequest) -> Result<Value, String> {
     }
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CandidateConfig {
+    port: u16,
+    profile_id: String,
+    client_token: String,
+    #[serde(default)]
+    profile_runtime_root: Option<PathBuf>,
+    #[serde(default)]
+    data_root_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CallEnvelope {
+    protocol: String,
+    request_id: String,
+    profile_id: String,
+    capability: String,
+    payload: Value,
+}
+
+struct ServeState {
+    token: String,
+    profile: String,
+    application: Application,
+    stopping: AtomicBool,
+    compute_busy: AtomicBool,
+}
+
+struct ComputeAdmission<'a>(&'a AtomicBool);
+
+impl Drop for ComputeAdmission<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
+fn valid_bounded_text(value: &str, max: usize) -> bool {
+    !value.is_empty() && value.len() <= max && !value.chars().any(char::is_control)
+}
+
+fn json_within_bounds(value: &Value, depth: usize, nodes: &mut usize) -> bool {
+    if depth > 32 || *nodes >= 50_000 {
+        return false;
+    }
+    *nodes += 1;
+    match value {
+        Value::String(value) => value.len() <= 64 * 1024,
+        Value::Array(values) => values
+            .iter()
+            .all(|value| json_within_bounds(value, depth + 1, nodes)),
+        Value::Object(object) => object.iter().all(|(key, value)| {
+            key.len() <= 64 * 1024 && json_within_bounds(value, depth + 1, nodes)
+        }),
+        _ => true,
+    }
+}
+
+fn exact_payload(value: &Value, required: &[&str]) -> bool {
+    value.as_object().is_some_and(|object| {
+        object.len() == required.len() && required.iter().all(|field| object.contains_key(*field))
+    })
+}
+
+fn call_response(request_id: &str, data: Value) -> Value {
+    json!({
+        "ok":true,
+        "requestId":request_id,
+        "serviceInstanceId":SERVICE_INSTANCE_ID,
+        "data":data,
+    })
+}
+
+fn error_response(code: &str) -> Value {
+    json!({"ok":false,"error":{"code":code}})
+}
+
+fn bounded_response(
+    stream: &mut TcpStream,
+    status: u16,
+    value: Value,
+    max_bytes: usize,
+) -> Result<(), String> {
+    if serde_json::to_vec(&value)
+        .map_err(|error| error.to_string())?
+        .len()
+        > max_bytes
+    {
+        return response(stream, 503, error_response("response_too_large"));
+    }
+    response(stream, status, value)
+}
+
+fn handle_connection(mut stream: TcpStream, state: Arc<ServeState>) -> Result<(), String> {
+    let (method, path, bearer, body) = match read_http(&mut stream) {
+        Ok(request) => request,
+        Err(_) => {
+            return response(&mut stream, 400, error_response("invalid_request"));
+        }
+    };
+    if path == "/health" {
+        if method != "GET" || !body.is_empty() {
+            return response(&mut stream, 400, error_response("invalid_request"));
+        }
+        let repository = state
+            .application
+            .repository()
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .pragma_snapshot()?;
+        let canonical = state
+            .application
+            .canonical()
+            .lock()
+            .map_err(|_| "canonical_store_unavailable".to_owned())?
+            .store_id()
+            .to_owned();
+        return response(
+            &mut stream,
+            200,
+            json!({
+                "ok":true,
+                "implementation":"rust-native-candidate",
+                "lifecycleState":if state.stopping.load(Ordering::Acquire) {"stopping"} else {"ready"},
+                "computePool":{"state":if state.compute_busy.load(Ordering::Acquire) {"busy"} else {"idle"}},
+                "repository":{"mode":"isolated_shadow","schemaVersion":synthesis_repository::SCHEMA_VERSION,"pragmas":repository},
+                "canonicalStore":{"state":"ready","schemaVersion":"synthesis-topic-canonical-store.v1","storeId":canonical},
+            }),
+        );
+    }
+    if method != "POST" || path != "/call" {
+        return response(&mut stream, 404, error_response("not_found"));
+    }
+    if bearer != state.token {
+        return response(&mut stream, 401, error_response("unauthorized"));
+    }
+    let call: CallEnvelope = match serde_json::from_slice(&body) {
+        Ok(call) => call,
+        Err(_) => return response(&mut stream, 400, error_response("invalid_request")),
+    };
+    let mut nodes = 0;
+    if call.protocol != "synthesis-sidecar.v1"
+        || !valid_bounded_text(&call.request_id, 512)
+        || !valid_bounded_text(&call.profile_id, 512)
+        || !valid_bounded_text(&call.capability, 128)
+        || !json_within_bounds(&call.payload, 0, &mut nodes)
+    {
+        return response(&mut stream, 400, error_response("invalid_request"));
+    }
+    if call.profile_id != state.profile {
+        return response(&mut stream, 409, error_response("profile_mismatch"));
+    }
+    if call.capability != "compute.citation_graph_metrics" && body.len() > MAX_READ_BODY_BYTES {
+        return response(&mut stream, 413, error_response("request_too_large"));
+    }
+    match call.capability.as_str() {
+        "compute.citation_graph_metrics" => {
+            if state
+                .compute_busy
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+            {
+                return response(&mut stream, 503, error_response("worker_busy"));
+            }
+            let _admission = ComputeAdmission(&state.compute_busy);
+            let request: MetricsRequest = match serde_json::from_value(call.payload) {
+                Ok(request) => request,
+                Err(_) => {
+                    return response(&mut stream, 400, error_response("invalid_request"));
+                }
+            };
+            if let Ok(delay) = std::env::var("SYNTHESIS_R7_FAULT_COMPUTE_HOLD_MS")
+                && let Ok(delay) = delay.parse::<u64>()
+            {
+                thread::sleep(Duration::from_millis(delay.min(2_000)));
+            }
+            match worker_call(request) {
+                Ok(data) => response(&mut stream, 200, call_response(&call.request_id, data)),
+                Err(code) => response(&mut stream, 503, error_response(&code)),
+            }
+        }
+        "system.handshake" => {
+            if !exact_payload(&call.payload, &[]) {
+                return response(&mut stream, 400, error_response("invalid_request"));
+            }
+            bounded_response(
+                &mut stream,
+                200,
+                call_response(
+                    &call.request_id,
+                    json!({
+                        "protocol":"synthesis-sidecar.v1",
+                        "serviceInstanceId":SERVICE_INSTANCE_ID,
+                        "capabilities":[
+                            "system.handshake",
+                            "system.shutdown",
+                            "compute.citation_graph_metrics",
+                            "workbench.chrome.read",
+                            "topics.canonical.inspect"
+                        ],
+                        "mutationEnabled":false,
+                        "lifecycleState":"ready",
+                        "implementation":"rust-native-candidate",
+                    }),
+                ),
+                MAX_READ_RESPONSE_BYTES,
+            )
+        }
+        "workbench.chrome.read" => {
+            if !exact_payload(&call.payload, &["state"]) || !call.payload["state"].is_object() {
+                return response(&mut stream, 400, error_response("invalid_request"));
+            }
+            let data = state.application.workbench_chrome_read()?;
+            bounded_response(
+                &mut stream,
+                200,
+                call_response(&call.request_id, data),
+                MAX_READ_RESPONSE_BYTES,
+            )
+        }
+        "topics.canonical.inspect" => {
+            if !exact_payload(&call.payload, &["topicId"]) {
+                return response(&mut stream, 400, error_response("invalid_request"));
+            }
+            let Some(topic_id) = call.payload["topicId"].as_str() else {
+                return response(&mut stream, 400, error_response("invalid_request"));
+            };
+            let data = state.application.canonical_inspect(topic_id)?;
+            bounded_response(
+                &mut stream,
+                200,
+                call_response(&call.request_id, data),
+                MAX_READ_RESPONSE_BYTES,
+            )
+        }
+        "system.shutdown" => {
+            if !exact_payload(&call.payload, &[]) {
+                return response(&mut stream, 400, error_response("invalid_request"));
+            }
+            state.stopping.store(true, Ordering::Release);
+            response(
+                &mut stream,
+                200,
+                call_response(&call.request_id, json!({"stopping":true})),
+            )
+        }
+        _ => response(&mut stream, 404, error_response("capability_not_found")),
+    }
+}
+
+fn fallback_runtime_root(config_path: &str) -> PathBuf {
+    Path::new(config_path)
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("rust-shadow-profile")
+}
+
 fn serve(config_path: &str) -> Result<(), String> {
-    let config: Value = serde_json::from_str(
+    let config: CandidateConfig = serde_json::from_str(
         &std::fs::read_to_string(config_path).map_err(|error| error.to_string())?,
     )
-    .map_err(|error| error.to_string())?;
-    let token = config["clientToken"]
-        .as_str()
-        .ok_or("invalid_config")?
-        .to_owned();
-    let profile = config["profileId"]
-        .as_str()
-        .ok_or("invalid_config")?
-        .to_owned();
-    let listener = TcpListener::bind(("127.0.0.1", config["port"].as_u64().unwrap_or(0) as u16))
+    .map_err(|_| "invalid_config".to_owned())?;
+    if !valid_bounded_text(&config.profile_id, 512)
+        || !valid_bounded_text(&config.client_token, 4096)
+    {
+        return Err("invalid_config".into());
+    }
+    let profile_runtime_root = config
+        .profile_runtime_root
+        .unwrap_or_else(|| fallback_runtime_root(config_path));
+    if !profile_runtime_root.is_absolute() {
+        return Err("invalid_config".into());
+    }
+    let data_root_id = config
+        .data_root_id
+        .unwrap_or_else(|| config.profile_id.clone());
+    let repository = Repository::open(
+        &profile_runtime_root,
+        RepositoryIdentity {
+            profile_id: config.profile_id.clone(),
+            data_root_id: data_root_id.clone(),
+        },
+    )?;
+    let canonical = CanonicalStore::open(
+        &profile_runtime_root,
+        CanonicalIdentity {
+            profile_id: config.profile_id.clone(),
+            data_root_id,
+        },
+    )?;
+    let application = Application::new(
+        Arc::new(Mutex::new(repository)),
+        Arc::new(Mutex::new(canonical)),
+        Arc::new(DisabledCompute),
+        Arc::new(DisabledRemoteEffects),
+    );
+    let state = Arc::new(ServeState {
+        token: config.client_token,
+        profile: config.profile_id,
+        application,
+        stopping: AtomicBool::new(false),
+        compute_busy: AtomicBool::new(false),
+    });
+    let listener =
+        TcpListener::bind(("127.0.0.1", config.port)).map_err(|error| error.to_string())?;
+    listener
+        .set_nonblocking(true)
         .map_err(|error| error.to_string())?;
     println!(
         "{}",
         json!({"type":"listening","port":listener.local_addr().map_err(|error| error.to_string())?.port(),"buildFingerprint":BUILD_FINGERPRINT})
     );
-    for incoming in listener.incoming() {
-        let mut stream = incoming.map_err(|error| error.to_string())?;
-        let Ok((path, bearer, body)) = read_http(&mut stream) else {
-            let _ = response(
-                &mut stream,
-                400,
-                json!({"ok":false,"error":{"code":"invalid_request"}}),
-            );
-            continue;
-        };
-        if path == "/health" {
-            response(
-                &mut stream,
-                200,
-                json!({"ok":true,"implementation":"rust-native-candidate","lifecycleState":"ready"}),
-            )?;
-            continue;
-        }
-        if bearer != token {
-            response(
-                &mut stream,
-                401,
-                json!({"ok":false,"error":{"code":"unauthorized"}}),
-            )?;
-            continue;
-        }
-        let call: Value = serde_json::from_slice(&body).map_err(|_| "invalid_request")?;
-        if call["profileId"] != profile {
-            response(
-                &mut stream,
-                409,
-                json!({"ok":false,"error":{"code":"profile_mismatch"}}),
-            )?;
-            continue;
-        }
-        if call["capability"] == "compute.citation_graph_metrics" {
-            let request: MetricsRequest =
-                serde_json::from_value(call["payload"].clone()).map_err(|_| "invalid_request")?;
-            match worker_call(request) {
-                Ok(data) => response(
-                    &mut stream,
-                    200,
-                    json!({"ok":true,"requestId":call["requestId"],"serviceInstanceId":"rust-metrics-candidate","data":data}),
-                )?,
-                Err(code) => response(&mut stream, 503, json!({"ok":false,"error":{"code":code}}))?,
+    let mut handlers = Vec::new();
+    while !state.stopping.load(Ordering::Acquire) {
+        match listener.accept() {
+            Ok((stream, _)) => {
+                let state = Arc::clone(&state);
+                handlers.push(thread::spawn(move || {
+                    let _ = handle_connection(stream, state);
+                }));
             }
-        } else if call["capability"] == "system.handshake" {
-            response(
-                &mut stream,
-                200,
-                json!({"ok":true,"requestId":call["requestId"],"serviceInstanceId":"rust-metrics-candidate","data":{"protocol":"synthesis-sidecar.v1","serviceInstanceId":"rust-metrics-candidate","capabilities":["system.handshake","system.shutdown","compute.citation_graph_metrics"],"mutationEnabled":false,"lifecycleState":"ready","implementation":"rust-native-candidate"}}),
-            )?;
-        } else if call["capability"] == "system.shutdown" {
-            response(
-                &mut stream,
-                200,
-                json!({"ok":true,"requestId":call["requestId"],"serviceInstanceId":"rust-metrics-candidate","data":{"stopping":true}}),
-            )?;
-            break;
-        } else {
-            response(
-                &mut stream,
-                404,
-                json!({"ok":false,"error":{"code":"capability_not_found"}}),
-            )?;
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(5));
+            }
+            Err(error) => return Err(error.to_string()),
         }
     }
-    Ok(())
+    drop(listener);
+    for handler in handlers {
+        let _ = handler.join();
+    }
+    let state = Arc::try_unwrap(state).map_err(|_| "shutdown_incomplete".to_owned())?;
+    let repository = state.application.repository();
+    drop(state);
+    Arc::try_unwrap(repository)
+        .map_err(|_| "shutdown_incomplete".to_owned())?
+        .into_inner()
+        .map_err(|_| "shutdown_incomplete".to_owned())?
+        .close()
 }
 
 fn main() {

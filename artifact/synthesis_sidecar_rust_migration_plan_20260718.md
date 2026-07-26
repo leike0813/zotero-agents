@@ -291,7 +291,7 @@ HTTP runtime、SQLite binding、压缩/归档、签名或跨平台辅助 crate �
 
 **决策**：radial/components 尽量保留稳定语义；force 明确升级到 `layoutVersion: 2`，制定 Rust-owned algorithm、质量阈值、性能阈值与新 gold results。v1 layout cache 视为可重建数据，不改写 canonical source。
 
-**状态（2026-07-26）**：change `introduce-synthesis-citation-layout-v2` 已完成本地实现并可进入 verify。生产 layout 已收敛到统一 Rust child，Node layout worker、TypeScript layout kernels 与 D3 runtime inventory 已删除；三次同目标确定性、代表图质量、5,000 节点/20,000 边 deadline/RSS、15-operation candidate smoke、打包与 Stage-1 回归门禁均已通过。五平台 workflow 合约和包体积门禁已静态验证，实际跨平台 candidate 构建留待后续受控 workflow；R7–R9 尚未开始。
+**状态（2026-07-26）**：change `introduce-synthesis-citation-layout-v2` 已完成本地实现并可进入 verify。生产 layout 已收敛到统一 Rust child，Node layout worker、TypeScript layout kernels 与 D3 runtime inventory 已删除；三次同目标确定性、代表图质量、5,000 节点/20,000 边 deadline/RSS、15-operation candidate smoke、打包与 Stage-1 回归门禁均已通过。五平台 workflow 合约和包体积门禁已静态验证，实际跨平台 candidate 构建留待后续受控 workflow。R7 已进入本地实现与验证，R8–R9 尚未开始。
 
 **退出条件**：所有 consumer 能识别 v2；旧 cache 有清晰 invalidation/rebuild；D3 runtime 及其 XPI inventory gate 可删除；不存在隐式 v1/v2 混读。
 
@@ -302,6 +302,8 @@ HTTP runtime、SQLite binding、压缩/归档、签名或跨平台辅助 crate �
 **SQLite 必须保持**：schema identity、WAL、`synchronous=NORMAL`、foreign keys、busy timeout 250 ms、`BEGIN IMMEDIATE`、savepoint、safe integer 与 row normalization。
 
 **canonical store 必须保持**：CAS、exclusive staging、file/directory fsync、atomic promotion、journal phase、backup/forward recovery、durable import receipt。
+
+**状态（2026-07-26）**：active change `migrate-synthesis-durable-foundation-to-rust` 已实现独立 Rust repository、canonical-store 和 application crates，并把 Core 203–217 的稳定 inventory/DTO/canonical 事实收敛到共享 corpus。候选 `serve` 仅新增 `workbench.chrome.read` 与 `topics.canonical.inspect` 两个 authenticated、bounded、mutation-disabled read canary；生产客户端、数据库、canonical owner 和 runtime manifest 未改变。本地 workspace tests、Node/Rust corpus checker、许可证、15-operation/native smoke 和单目标 15 MiB 门禁已建立；五平台 workflow 已接入同一套 locking、recovery、parity、smoke 与 15/75 MiB 门禁，远端执行证据留待受控 workflow。
 
 **退出条件**：
 

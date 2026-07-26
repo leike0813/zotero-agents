@@ -223,12 +223,18 @@ describe("Synthesis Citation Graph metrics production sidecar route", function (
             payload: {},
           }),
         })
-      ).json()) as { ok: boolean; data: { capabilities: string[] } };
+      ).json()) as {
+        ok: boolean;
+        data: { capabilities: string[]; mutationEnabled: boolean };
+      };
       assert.equal(handshake.ok, true);
+      assert.equal(handshake.data.mutationEnabled, false);
       assert.include(
         handshake.data.capabilities,
         "compute.citation_graph_metrics",
       );
+      assert.include(handshake.data.capabilities, "workbench.chrome.read");
+      assert.include(handshake.data.capabilities, "topics.canonical.inspect");
       const input = metricsRequest();
       const response = await fetch(`${endpoint}/call`, {
         method: "POST",
@@ -452,5 +458,7 @@ describe("Synthesis Citation Graph metrics production sidecar route", function (
       source,
       "createInProcessSynthesisCitationGraphMetricsEngine",
     );
+    assert.notInclude(source, "workbench.chrome.read");
+    assert.notInclude(source, "topics.canonical.inspect");
   });
 });

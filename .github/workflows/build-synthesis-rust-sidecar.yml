@@ -8,8 +8,15 @@ on:
     paths:
       - "native/synthesis-sidecar/**"
       - "apps/synthesis-service/src/**"
+      - "packages/synthesis-application/**"
       - "packages/synthesis-contracts/contract-set/synthesis-cross-language-v1/**"
+      - "packages/synthesis-contracts/contract-set/synthesis-durable-foundation-v1/**"
       - "packages/synthesis-engine/src/**"
+      - "packages/synthesis-repository/**"
+      - "scripts/check-synthesis-cross-language-contracts.ts"
+      - "scripts/check-synthesis-durable-foundation-parity.ts"
+      - "scripts/check-synthesis-rust-license-inventory.ts"
+      - "scripts/smoke-synthesis-rust-durable-candidate.ts"
       - "scripts/smoke-synthesis-rust-sidecar-worker.ts"
       - "scripts/synthesis-sidecar-runtime-release-governance.ts"
       - ".github/workflows/build-synthesis-rust-sidecar.yml"
@@ -46,6 +53,16 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@nightly-2026-07-25
 
+      - name: Verify durable foundation parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo +nightly-2026-07-25 test --workspace --locked \
+            --manifest-path native/synthesis-sidecar/Cargo.toml
+          npx tsx scripts/check-synthesis-cross-language-contracts.ts
+          npx tsx scripts/check-synthesis-durable-foundation-parity.ts
+          npx tsx scripts/check-synthesis-rust-license-inventory.ts
+
       - name: Build candidate
         shell: bash
         run: |
@@ -62,6 +79,11 @@ jobs:
             ".scaffold/rust-candidate/${{ matrix.target }}/licenses.json"
           node - "${RUST_FINGERPRINT}" "${{ matrix.target }}" <<'NODE'
           const fs = require("fs");
+          const crypto = require("crypto");
+          const cargoLockSha256 = crypto
+            .createHash("sha256")
+            .update(fs.readFileSync("native/synthesis-sidecar/Cargo.lock"))
+            .digest("hex");
           fs.writeFileSync(
             `.scaffold/rust-candidate/${process.argv[3]}/provenance.json`,
             `${JSON.stringify({
@@ -69,6 +91,15 @@ jobs:
               target: process.argv[3],
               sourceFingerprint: process.argv[2],
               toolchain: "nightly-2026-07-25",
+              durableFoundation: {
+                rusqliteVersion: "0.40.1",
+                defaultFeatures: false,
+                features: ["backup", "bundled"],
+                sqliteVersion: "3.53.2",
+                sqliteLinkage: "bundled",
+                cargoLockSha256,
+                licenseInventory: "licenses.json",
+              },
             }, null, 2)}\n`,
           );
           NODE
@@ -81,6 +112,7 @@ jobs:
           npx tsx scripts/smoke-synthesis-rust-sidecar-worker.ts \
             "${BINARY}" \
             ".scaffold/rust-candidate/${{ matrix.target }}/provenance.json"
+          npx tsx scripts/smoke-synthesis-rust-durable-candidate.ts "${BINARY}"
           tar -czf ".scaffold/synthesis-rust-sidecar-${{ matrix.target }}.tar.gz" \
             -C .scaffold/rust-candidate "${{ matrix.target }}"
           node - ".scaffold/synthesis-rust-sidecar-${{ matrix.target }}.tar.gz" <<'NODE'

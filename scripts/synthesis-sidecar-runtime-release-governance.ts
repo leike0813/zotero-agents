@@ -35,16 +35,30 @@ const FINGERPRINT_STATIC_INPUTS = [
   "packages/synthesis-repository/tsconfig.json",
   "packages/synthesis-application/package.json",
   "packages/synthesis-application/tsconfig.json",
+  "packages/synthesis-contracts/contract-set/synthesis-durable-foundation-v1/corpus.json",
   "packages/synthesis-contracts/src/sidecarRuntimeBundle.ts",
   "packages/synthesis-contracts/src/sidecarLifecycle.ts",
   "packages/synthesis-contracts/src/sidecarSystem.ts",
+  "scripts/check-synthesis-durable-foundation-parity.ts",
+  "scripts/check-synthesis-rust-license-inventory.ts",
   "scripts/check-synthesis-sidecar-runtime-freshness.ts",
   "scripts/package-synthesis-sidecar-runtime.ts",
+  "scripts/smoke-synthesis-rust-durable-candidate.ts",
   "scripts/smoke-synthesis-rust-sidecar-worker.ts",
   "scripts/synthesis-sidecar-runtime-release-governance.ts",
 ] as const;
 
 const SYNTHESIS_RUST_SIDECAR_ROOT = "native/synthesis-sidecar";
+const SYNTHESIS_RUST_FINGERPRINT_STATIC_INPUTS = [
+  ".github/workflows/build-synthesis-rust-sidecar.yml",
+  "packages/synthesis-contracts/contract-set/synthesis-durable-foundation-v1/corpus.json",
+  "scripts/check-synthesis-cross-language-contracts.ts",
+  "scripts/check-synthesis-durable-foundation-parity.ts",
+  "scripts/check-synthesis-rust-license-inventory.ts",
+  "scripts/smoke-synthesis-rust-durable-candidate.ts",
+  "scripts/smoke-synthesis-rust-sidecar-worker.ts",
+  "scripts/synthesis-sidecar-runtime-release-governance.ts",
+] as const;
 
 async function collectFiles(root: string, relativeDir: string) {
   const absoluteDir = path.join(root, relativeDir);
@@ -118,9 +132,14 @@ export async function synthesisSidecarRuntimeFingerprintInputs(
 export async function computeSynthesisRustSidecarSourceFingerprint(
   root = process.cwd(),
 ) {
-  const inputs = (await collectFiles(root, SYNTHESIS_RUST_SIDECAR_ROOT)).filter(
-    (file) => !file.includes("/target/"),
-  );
+  const inputs = Array.from(
+    new Set([
+      ...SYNTHESIS_RUST_FINGERPRINT_STATIC_INPUTS,
+      ...(await collectFiles(root, SYNTHESIS_RUST_SIDECAR_ROOT)).filter(
+        (file) => !file.includes("/target/"),
+      ),
+    ]),
+  ).sort();
   const hash = createHash("sha256");
   hash.update("synthesis-rust-sidecar\n");
   for (const relativePath of inputs) {

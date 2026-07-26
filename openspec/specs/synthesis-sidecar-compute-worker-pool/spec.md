@@ -141,20 +141,6 @@ response-size failures SHALL not be classified as worker runtime faults.
 - **WHEN** a rebuilt worker result cannot fit the 8 MiB response envelope
 - **THEN** the call fails without replacing the worker, incrementing runtime failure counters, or degrading the pool
 
-### Requirement: Citation Graph layout is the only production worker kernel
-
-The bounded compute pool SHALL serve Citation Graph layout as its sole production
-kernel without changing its one-active, two-queued, deadline, cancellation,
-resource, fault, degradation, or shutdown bounds.
-
-#### Scenario: Production layout uses a healthy pool
-- **WHEN** the plugin submits an authenticated production layout request
-- **THEN** it is scheduled as `citation_graph_layout.v1` under the existing pool bounds
-
-#### Scenario: Production pool is busy or degraded
-- **WHEN** the pool returns `worker_busy` or `worker_unavailable`
-- **THEN** production routing fails the layout operation without local fallback
-
 ### Requirement: Pool supports a closed metrics operation
 
 The sidecar compute pool SHALL support `citation_graph_metrics.v1` in addition to
@@ -219,3 +205,22 @@ Matcher, Topic, and monolithic graph operations SHALL use a five-second hard dea
 
 - **WHEN** `citation_graph_build_transfer.v1` remains active for thirty seconds
 - **THEN** it SHALL fail with `worker_timeout` and the child SHALL be replaced without fallback.
+
+### Requirement: Fifteen production operations SHALL share one Rust child authority
+
+The fourteen migrated operations and `citation_graph_layout.v2` SHALL share one lazily spawned Rust child beneath the existing one-active/two-queued admission, deadlines, cancellation grace, replacement accounting, shutdown, and three-runtime-failure degraded fuse.
+
+#### Scenario: Layout follows another Rust operation
+
+- **WHEN** an admitted layout task follows any other operation
+- **THEN** the same child backend and pool state SHALL execute it without backend switching or a second worker authority.
+
+#### Scenario: Mixed queue is full
+
+- **WHEN** one of the fifteen operations is active and two operations are queued
+- **THEN** another supported request SHALL fail immediately with `worker_busy`.
+
+#### Scenario: Layout times out or crashes
+
+- **WHEN** active layout exceeds five seconds or terminates the child
+- **THEN** only that task SHALL fail, the child SHALL be replaced under existing rules, and fault/fuse accounting SHALL remain shared.

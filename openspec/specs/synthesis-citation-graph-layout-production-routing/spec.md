@@ -35,10 +35,10 @@ layout promotion, failure diagnostics, and previous-layout retention.
 - **THEN** the plugin discards the result as `citation_graph_layout_basis_superseded`
 - **AND** the stale result is not promoted
 
-#### Scenario: Sidecar computation fails
+#### Scenario: Rust computation fails
 - **WHEN** readiness, transport, identity, cancellation, deadline, worker, or result validation fails
-- **THEN** the operation reports `citation_graph_layout_failed`
-- **AND** the previous layout remains available
+- **THEN** the operation SHALL report `citation_graph_layout_failed`
+- **AND** the previous layout SHALL remain available without local fallback.
 
 ### Requirement: Production routing validates runtime identity and lifecycle
 
