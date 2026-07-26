@@ -93,9 +93,13 @@ import {
   detachSkillRunnerSidebarHost,
   dispatchRunWorkspaceAction,
   focusSkillRunnerWorkspace,
+  getSkillRunnerWorkspaceSelectedOwner,
   refreshSkillRunnerSidebarHostSnapshot,
+  subscribeSkillRunnerWorkspaceChanges,
   type RunWorkspaceSnapshot,
+  type SkillRunnerWorkspaceChange,
 } from "./skillRunnerRunDialog";
+import { SKILLRUNNER_WORKSPACE_ADAPTER } from "./skillRunnerWorkspaceSurface";
 import {
   buildSkillRunnerSidebarSections,
   countWaitingSkillRunnerTasks,
@@ -195,6 +199,7 @@ type AssistantWorkspaceHostRuntime = {
   removeMessageListener?: () => void;
   removeAcpChatPanelSubscription?: () => void;
   removeAcpSkillRunSubscription?: () => void;
+  removeSkillRunnerWorkspaceSubscription?: () => void;
   removeTaskSubscription?: () => void;
   removeWorkflowQueueSubscription?: () => void;
   removeStreamingRenderPreferenceSubscription?: () => void;
@@ -510,6 +515,22 @@ function scheduleAcpSkillRunPublications(
   if (!change) return;
   host.publicationRuntime?.schedule({
     adapter: ACP_SKILLS_WORKSPACE_ADAPTER,
+    change,
+    context: undefined,
+  });
+}
+
+// Stage 2 (dark landing): the SkillRunner surface adapter mirrors store
+// changes into the publication plane while the legacy snapshot path keeps
+// serving the tab. Both receive the same changes; neither disturbs the
+// other.
+function scheduleSkillRunnerPublications(
+  host: AssistantWorkspaceHostRuntime,
+  change?: SkillRunnerWorkspaceChange,
+) {
+  if (!change) return;
+  host.publicationRuntime?.schedule({
+    adapter: SKILLRUNNER_WORKSPACE_ADAPTER,
     change,
     context: undefined,
   });
@@ -2458,7 +2479,9 @@ async function handleChildAction(
   payload: AssistantWorkspaceChildActionEnvelope,
 ) {
   const source =
-    payload.source === "acp-chat" || payload.source === "acp-skills"
+    payload.source === "acp-chat" ||
+    payload.source === "acp-skills" ||
+    payload.source === "skillrunner"
       ? payload.source
       : null;
   if (
@@ -2570,7 +2593,7 @@ async function handleChildAction(
     }
     return;
   }
-  if (tab === "skillrunner") {
+  if (tab === "skillrunner" && !source) {
     if (action === "set-execution-display-mode") {
       setAssistantWorkspaceExecutionDisplayMode(host, childPayload.mode);
       scheduleSkillRunnerSidebarRefresh(host, target, {
@@ -2639,7 +2662,11 @@ async function handleChildAction(
     const selectedOwnerKey =
       owner.source === "acp-chat"
         ? getActiveAcpChatOwnerKey()
-        : getSelectedAcpSkillRunRequestId();
+        : owner.source === "skillrunner"
+          ? getSkillRunnerWorkspaceSelectedOwner()?.requestId ||
+            getSkillRunnerWorkspaceSelectedOwner()?.runKey ||
+            ""
+          : getSelectedAcpSkillRunRequestId();
     if (owner.ownerKey !== selectedOwnerKey) return;
   }
   if (action === "load-transcript-page") {
@@ -2680,6 +2707,29 @@ async function handleChildAction(
       });
       return;
     }
+    if (pageRequest.owner.source === "skillrunner") {
+      const selected = getSkillRunnerWorkspaceSelectedOwner();
+      if (!selected || selected.runKey !== pageRequest.owner.runKey) {
+        logAssistantWorkspaceDebug(
+          host,
+          "transcript-page-request-drop-owner-mismatch",
+          "Assistant Workspace transcript page request ignored because its owner is not selected.",
+          { tab, ownerKey: pageRequest.owner.ownerKey },
+        );
+        return;
+      }
+      await host.publicationRuntime?.requestTranscriptPage({
+        adapter: SKILLRUNNER_WORKSPACE_ADAPTER,
+        owner: pageRequest.owner,
+        context: undefined,
+        request: {
+          cursor: pageRequest.request.cursor ?? undefined,
+          limit: pageRequest.request.limit,
+        },
+        cause: "page-request",
+      });
+      return;
+    }
     if (pageRequest.owner.ownerKey !== getActiveAcpChatOwnerKey()) {
       logAssistantWorkspaceDebug(
         host,
@@ -2710,9 +2760,15 @@ async function handleChildAction(
       });
       return;
     }
+    if (owner.source === "skillrunner") {
+      await host.publicationRuntime?.requestOwnerDetails({
+        adapter: SKILLRUNNER_WORKSPACE_ADAPTER,
+        owner,
+        context: undefined,
+      });
+      return;
+    }
     if (owner.source !== "acp-chat") {
-      // The skillrunner surface adapter lands in Stage 2; no details reader
-      // is wired for it yet.
       return;
     }
     await host.publicationRuntime?.requestOwnerDetails({
@@ -3739,10 +3795,14 @@ export function installAssistantWorkspaceSidebarShell(
           ? createAcpChatWorkspaceOwner(active.backendId, active.conversationId)
           : null;
       }
-      if (source !== "acp-skills") {
-        // The skillrunner read model and surface adapter land in Stage 2;
-        // until then the skillrunner tab has no publication owner.
-        return null;
+      if (source === "skillrunner") {
+        const selected = getSkillRunnerWorkspaceSelectedOwner();
+        return selected
+          ? createSkillRunnerWorkspaceOwner({
+              requestId: selected.requestId || undefined,
+              runKey: selected.runKey,
+            })
+          : null;
       }
       const requestId = getSelectedAcpSkillRunRequestId();
       return requestId ? createAcpSkillsWorkspaceOwner(requestId) : null;
@@ -3783,9 +3843,23 @@ export function installAssistantWorkspaceSidebarShell(
         });
         return;
       }
+      if (owner.source === "skillrunner") {
+        const selected = getSkillRunnerWorkspaceSelectedOwner();
+        if (!selected || selected.runKey !== owner.runKey) return;
+        void host.publicationRuntime?.requestTranscriptPage({
+          adapter: SKILLRUNNER_WORKSPACE_ADAPTER,
+          owner,
+          context: undefined,
+          request: {
+            cursor: request.cursor,
+            limit: request.limit,
+          },
+          cause: "rebase",
+          force: true,
+        });
+        return;
+      }
       if (owner.source !== "acp-skills") {
-        // The skillrunner surface adapter lands in Stage 2; rebases have no
-        // page reader to route to yet.
         return;
       }
       if (getSelectedAcpSkillRunRequestId() !== owner.requestId) return;
@@ -3913,6 +3987,10 @@ export function installAssistantWorkspaceSidebarShell(
       scheduleAcpSkillRunPublications(host, change);
     },
   );
+  host.removeSkillRunnerWorkspaceSubscription =
+    subscribeSkillRunnerWorkspaceChanges((change) => {
+      scheduleSkillRunnerPublications(host, change);
+    });
   host.removeTaskSubscription = subscribeWorkflowTaskChanges(() => {
     updateAssistantAttentionIndicator(host);
   });
@@ -3922,7 +4000,13 @@ export function installAssistantWorkspaceSidebarShell(
         return;
       }
       if (host.activeTab === "skillrunner") {
+        // Keep the legacy chrome snapshot and additionally mirror the queue
+        // change into the publication plane as a skillrunner global change.
         publishLatestSkillRunnerChromeSnapshot(host);
+        scheduleSkillRunnerPublications(host, {
+          global: true,
+          kinds: ["global"],
+        });
         return;
       }
       if (host.activeTab === "acp-skills") {
@@ -4001,6 +4085,7 @@ export function removeAssistantWorkspaceSidebarShell(
   host.removeMessageListener?.();
   host.removeAcpChatPanelSubscription?.();
   host.removeAcpSkillRunSubscription?.();
+  host.removeSkillRunnerWorkspaceSubscription?.();
   host.removeTaskSubscription?.();
   host.removeWorkflowQueueSubscription?.();
   host.removeStreamingRenderPreferenceSubscription?.();

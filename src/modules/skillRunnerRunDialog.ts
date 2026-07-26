@@ -108,6 +108,17 @@ import {
   type AssistantInteractionFileReply,
   type AssistantPendingInteraction,
 } from "../shared/assistantInteractionContract";
+import {
+  createAssistantWorkspaceTranscriptPage,
+  type AssistantWorkspaceTranscriptItem,
+  type AssistantWorkspaceTranscriptRegion,
+} from "./assistantWorkspaceTranscriptPublication";
+import {
+  createFailedTranscriptRegion,
+  createReadyTranscriptRegion,
+  projectAssistantWorkspacePermissionRequest,
+  type AssistantWorkspaceOwner,
+} from "./assistantWorkspacePublication";
 import { resolveSkillRunnerBackendCapabilities } from "./skillRunnerHandshake";
 import { resolveSkillRunnerInteractionFileCapability } from "./skillRunnerHandshakeProtocol";
 import { pickAssistantInteractionFiles } from "./acpSkillRunInteractionFiles";
@@ -3092,6 +3103,7 @@ function pushSnapshot(
     // `as unknown` keeps the assert signature from narrowing the typed local.
     assertSkillRunnerWorkspaceSnapshot(snapshot as unknown);
   }
+  notifySkillRunnerWorkspacePublicationChange();
   if (runWorkspaceState.publishSnapshot) {
     runWorkspaceState.publishSnapshot(messageType, snapshot);
     return;
@@ -3315,6 +3327,7 @@ function resetRunWorkspaceTranscriptPublicationState() {
 function clearRunWorkspaceRuntimeState() {
   clearRunWorkspaceHostState();
   resetRunWorkspaceTranscriptPublicationState();
+  skillRunnerPublicationNotice = null;
 }
 
 function ensureRunWorkspaceSubscriptions() {
@@ -5770,4 +5783,607 @@ export function getSkillRunnerRunDialogRuntimeForTests() {
     waitingAuthTimerCount: runDialogProbeState.waitingAuthTimerCount,
     sessionStateSubscriptionCount: 0,
   };
+}
+
+// ---------------------------------------------------------------------------
+// SkillRunner workspace read model (Assistant Workspace publication plane)
+//
+// Read-only API consumed by the SkillRunner surface adapter
+// (skillRunnerWorkspaceSurface.ts). It never changes run tracking, observers,
+// or persistence: every projection below reads the same module state the
+// legacy snapshot pipeline maintains, and the change subscription reuses the
+// existing flush funnel (pushSnapshot) instead of introducing new scheduling.
+//
+// Change granularity (SkillRunnerWorkspaceChangeKind):
+// - "run": the selected run's non-transcript session state changed (status,
+//   pending interaction/auth/permission, apply state, badges, message counts).
+// - "transcript": the mode-aware transcript publication clock
+//   (runWorkspaceState.transcriptRevision, driven by
+//   resolveRunWorkspaceTranscriptMessages and skillRunnerTranscriptSignature)
+//   advanced. SkillRunner has no incremental channel, so transcript changes
+//   are always re-read as full snapshots by the adapter (design Decision 2 of
+//   openspec/changes/2026-07-21-assistant-workspace-skillrunner-convergence).
+// - "selection": the selected task (and therefore the workspace owner)
+//   changed.
+// - "navigation": workspace groups/tasks changed (backend availability,
+//   running/completed membership, task card axes).
+// - "global": workspace-wide changes that only affect navigation (e.g. the
+//   native workflow queue); emitted by the sidebar, never by this module.
+//
+// The publication clock deliberately survives host detach/reattach (design
+// Decision 8): the notice baseline below is reset only by
+// clearRunWorkspaceRuntimeState (full runtime shutdown), never by
+// clearRunWorkspaceHostState, so a reattached host republishes only genuine
+// changes and transcriptRevision never regresses.
+// ---------------------------------------------------------------------------
+
+export type SkillRunnerWorkspaceChangeKind =
+  | "run"
+  | "transcript"
+  | "selection"
+  | "navigation"
+  | "global";
+
+export type SkillRunnerWorkspaceChange = Readonly<{
+  kinds: readonly SkillRunnerWorkspaceChangeKind[];
+  runKey?: string;
+  requestId?: string;
+  global?: boolean;
+}>;
+
+export type SkillRunnerWorkspaceChangeListener = (
+  change: SkillRunnerWorkspaceChange,
+) => void;
+
+export type SkillRunnerWorkspaceOwnerRef = Readonly<{
+  runKey: string;
+  requestId: string | null;
+}>;
+
+export type SkillRunnerWorkspaceReadModel = Readonly<{
+  runKey: string;
+  /** Assigned request id, or "" while the run is still local-only. */
+  requestId: string;
+  title: string;
+  backendId: string;
+  backendDisplayName: string;
+  status: string;
+  terminal: boolean;
+  waiting: boolean;
+  error: string | null;
+  loading: boolean;
+  historyLoading: boolean;
+  updatedAt: string | null;
+  engine: string | null;
+  model: string | null;
+  pendingOwner: string | null;
+  /** Pending interaction (or auth chat input) via the shared DTO. */
+  pendingInteraction: AssistantPendingInteraction | null;
+  pendingPermission: AcpPendingPermissionRequest | null;
+  authRequired: boolean;
+  canReply: boolean;
+  canCancel: boolean;
+  submitPhase: string | null;
+  submitError: string | null;
+  applyState: string | null;
+  applyAttempt: number | null;
+  applyMaxAttempt: number | null;
+  applyError: string | null;
+  applyUpdatedAt: string | null;
+  autoReplyEnabled: boolean;
+  autoReplyObserverActive: boolean;
+  messageCounts: AssistantMessageCountsSnapshot | null;
+  transcriptRevision: number;
+}>;
+
+const skillRunnerWorkspaceChangeListeners =
+  new Set<SkillRunnerWorkspaceChangeListener>();
+
+let skillRunnerPublicationNotice: {
+  selectedKey: string;
+  navigationSignature: string;
+  runSignature: string;
+  transcriptRevision: number;
+} | null = null;
+
+export function subscribeSkillRunnerWorkspaceChanges(
+  listener: SkillRunnerWorkspaceChangeListener,
+) {
+  skillRunnerWorkspaceChangeListeners.add(listener);
+  return () => {
+    skillRunnerWorkspaceChangeListeners.delete(listener);
+  };
+}
+
+function emitSkillRunnerWorkspaceChange(change: SkillRunnerWorkspaceChange) {
+  if (!change.kinds.length) {
+    return;
+  }
+  for (const listener of [...skillRunnerWorkspaceChangeListeners]) {
+    try {
+      listener(change);
+    } catch (error) {
+      appendRuntimeLog({
+        level: "warn",
+        scope: "system",
+        component: "skillrunner-workspace",
+        stage: "workspace-change-listener-failed",
+        message: "SkillRunner workspace change listener failed.",
+        error,
+      });
+    }
+  }
+}
+
+function skillRunnerWorkspaceTaskSignature(task: RunWorkspaceTaskItem) {
+  return [
+    task.key,
+    task.requestId || "",
+    task.status,
+    task.backendStatus || "",
+    task.applyState || "",
+    task.applyError || "",
+    task.updatedAt,
+    task.attention || "",
+    task.submitPhase || "",
+    task.submitError || "",
+    task.autoReplyObserverActive === true,
+  ];
+}
+
+function skillRunnerWorkspaceNavigationSignature() {
+  return JSON.stringify(
+    runWorkspaceState.groups.map((group) => [
+      group.backendId,
+      group.disabled,
+      group.activeTasks.map(skillRunnerWorkspaceTaskSignature),
+      group.finishedTasks.map(skillRunnerWorkspaceTaskSignature),
+    ]),
+  );
+}
+
+function skillRunnerWorkspaceRunSignature(
+  entry: RunDialogEntry,
+  task: RunWorkspaceTaskItem | undefined,
+) {
+  const session = entry.session;
+  return JSON.stringify([
+    entry.requestId,
+    session.status,
+    session.error || "",
+    session.loading,
+    session.historyLoading === true,
+    session.pendingOwner || "",
+    session.pendingInteraction?.interactionId || 0,
+    session.pendingAuth
+      ? [
+          session.pendingAuth.phase || "",
+          session.pendingAuth.authSessionId || "",
+          session.pendingAuth.lastError || "",
+          session.pendingAuth.userCode || "",
+        ]
+      : "",
+    session.authControlPending === true,
+    session.authControlAction || "",
+    session.authControlError || "",
+    session.pendingPermission?.requestId || "",
+    entry.messageCounts.revision,
+    session.engine || "",
+    session.model || "",
+    task?.applyState || "",
+    task?.submitPhase || "",
+    task?.submitError || "",
+  ]);
+}
+
+/**
+ * Diff-based change notification driven from pushSnapshot, the single funnel
+ * where the legacy pipeline flushes coherent state. No additional
+ * scheduleSnapshotFlush triggers are introduced: kinds are derived by
+ * comparing cheap scalar signatures against the last emitted baseline.
+ */
+function notifySkillRunnerWorkspacePublicationChange() {
+  if (skillRunnerWorkspaceChangeListeners.size === 0) {
+    return;
+  }
+  const entry = runWorkspaceState.currentEntry;
+  const selectedKey = String(runWorkspaceState.selectedTaskKey || "").trim();
+  const navigationSignature = skillRunnerWorkspaceNavigationSignature();
+  const runSignature = entry
+    ? skillRunnerWorkspaceRunSignature(entry, getCurrentRunWorkspaceTask())
+    : "";
+  const transcriptRevision = runWorkspaceState.transcriptRevision;
+  const previous = skillRunnerPublicationNotice;
+  skillRunnerPublicationNotice = {
+    selectedKey,
+    navigationSignature,
+    runSignature,
+    transcriptRevision,
+  };
+  const kinds = new Set<SkillRunnerWorkspaceChangeKind>();
+  if (!previous) {
+    kinds.add("navigation");
+    if (selectedKey) {
+      kinds.add("selection");
+    }
+    if (entry) {
+      kinds.add("run");
+      if (transcriptRevision > 0) {
+        kinds.add("transcript");
+      }
+    }
+  } else {
+    if (previous.navigationSignature !== navigationSignature) {
+      kinds.add("navigation");
+    }
+    if (previous.selectedKey !== selectedKey) {
+      kinds.add("selection");
+    }
+    if (entry && previous.runSignature !== runSignature) {
+      kinds.add("run");
+    }
+    if (previous.transcriptRevision !== transcriptRevision) {
+      kinds.add("transcript");
+    }
+  }
+  if (!kinds.size) {
+    return;
+  }
+  emitSkillRunnerWorkspaceChange({
+    kinds: [...kinds],
+    runKey: entry?.key || undefined,
+    requestId: String(entry?.requestId || "").trim() || undefined,
+  });
+}
+
+export function getSkillRunnerWorkspaceSelectedOwner(): SkillRunnerWorkspaceOwnerRef | null {
+  const entry = runWorkspaceState.currentEntry;
+  const runKey = String(
+    entry?.key || runWorkspaceState.selectedTaskKey || "",
+  ).trim();
+  if (!runKey) {
+    return null;
+  }
+  const requestId = String(
+    entry?.requestId ||
+      runWorkspaceState.taskIndex.get(runKey)?.item.requestId ||
+      "",
+  ).trim();
+  return { runKey, requestId: requestId || null };
+}
+
+export function listSkillRunnerWorkspaceTaskGroups(): Readonly<{
+  selectedTaskKey: string;
+  groups: readonly RunWorkspaceGroup[];
+}> {
+  return {
+    selectedTaskKey: String(runWorkspaceState.selectedTaskKey || "").trim(),
+    groups: runWorkspaceState.groups,
+  };
+}
+
+export function getSkillRunnerWorkspaceReadModel(): SkillRunnerWorkspaceReadModel | null {
+  const entry = runWorkspaceState.currentEntry;
+  if (!entry) {
+    return null;
+  }
+  const task = getCurrentRunWorkspaceTask();
+  const requestId = String(entry.requestId || "").trim();
+  const pending = entry.session.pendingInteraction;
+  const pendingAuth = entry.session.pendingAuth;
+  const pendingPermission = requestId
+    ? getSkillRunnerHostBridgePermissionRequest(requestId)
+    : null;
+  const rawStatus = String(entry.session.status || "").trim();
+  const normalized = normalizeStatus(rawStatus || "running", "running");
+  const waiting = isWaiting(normalized);
+  const terminal = isTerminal(normalized);
+  const backendInteractive =
+    typeof task?.backendInteractive === "boolean"
+      ? task.backendInteractive
+      : !!requestId;
+  const pendingInteraction = pending?.interactionId
+    ? projectAssistantPendingInteractionFromHints({
+        pendingKind: pending.kind,
+        uiHints: pending.uiHints,
+        options: pending.options,
+        files: pending.requiredFields,
+        fileReply: entry.session.interactionFileCapability,
+      })
+    : normalized === "waiting_auth" &&
+        pendingAuth &&
+        pendingAuth.acceptsChatInput !== false
+      ? projectAssistantPendingInteractionFromHints({
+          pendingKind: pendingAuth.inputKind,
+          uiHints: pendingAuth.uiHints,
+          fileReply: entry.session.interactionFileCapability,
+        })
+      : null;
+  const autoReplyObserverState = requestId
+    ? getSkillRunnerAutoReplyObserverState({
+        backendId: entry.backend.id,
+        requestId,
+      })
+    : null;
+  const record = getSkillRunnerRunRecord(entry.key);
+  return {
+    runKey: entry.key,
+    requestId,
+    title:
+      String(task?.title || "").trim() ||
+      String(record?.taskName || "").trim() ||
+      resolveRunWorkspaceTitle(),
+    backendId: entry.backend.id,
+    backendDisplayName: resolveBackendDisplayName(
+      entry.backend.id,
+      entry.backend.displayName,
+    ),
+    status: rawStatus || normalized,
+    terminal,
+    waiting,
+    error: String(entry.session.error || "").trim() || null,
+    loading: entry.session.loading,
+    historyLoading:
+      entry.session.historyLoading === true || entry.historyHydrating === true,
+    updatedAt: String(entry.session.updatedAt || "").trim() || null,
+    engine: String(entry.session.engine || "").trim() || null,
+    model: String(entry.session.model || "").trim() || null,
+    pendingOwner: String(entry.session.pendingOwner || "").trim() || null,
+    pendingInteraction,
+    pendingPermission,
+    authRequired: normalized === "waiting_auth",
+    canReply:
+      typeof task?.canReply === "boolean"
+        ? task.canReply
+        : backendInteractive && waiting,
+    canCancel:
+      typeof task?.canCancelBackendRun === "boolean"
+        ? task.canCancelBackendRun
+        : backendInteractive && !terminal,
+    submitPhase: String(task?.submitPhase || "").trim() || null,
+    submitError:
+      String(task?.submitError || "").trim() ||
+      (rawStatus === "failed" ? String(entry.session.error || "") : "") ||
+      null,
+    applyState:
+      String(record?.apply.state || task?.applyState || "").trim() || null,
+    applyAttempt: record?.apply.attempt ?? task?.applyAttempt ?? null,
+    applyMaxAttempt: record?.apply.maxAttempt ?? task?.applyMaxAttempt ?? null,
+    applyError:
+      String(record?.apply.error || task?.applyError || "").trim() || null,
+    applyUpdatedAt:
+      String(record?.apply.updatedAt || task?.applyUpdatedAt || "").trim() ||
+      null,
+    autoReplyEnabled:
+      autoReplyObserverState?.enabled || task?.autoReplyEnabled === true,
+    autoReplyObserverActive:
+      autoReplyObserverState?.active || task?.autoReplyObserverActive === true,
+    messageCounts: entry.messageCounts || null,
+    transcriptRevision: runWorkspaceState.transcriptRevision,
+  };
+}
+
+/**
+ * Canonical transcript item projection for SkillRunner conversation entries
+ * (design Decision 2): the single producer-side SSOT that replaces the
+ * child-side normalization in runDialog.js/chatThinkingCore.js (deleted in
+ * Stage 4). Items are display-mode neutral; plain/bubble folding stays a
+ * child concern.
+ *
+ * Mapping:
+ * - assistant_process with process type tool_call/command_execution (entry
+ *   field or correlation.process_type) -> tool-call;
+ * - other assistant_process entries -> thought;
+ * - assistant_message / assistant_final / user / system entries -> message;
+ * - an assistant_final replaces same-chain intermediate messages (via
+ *   buildRunDialogDisplayMessages) and duplicate finals of the same chain and
+ *   attempt are dropped;
+ * - assistant_revision entries pair by message id into the matching final's
+ *   revision metadata {count, status, repairRound}; unpaired revisions are
+ *   dropped (legacy behavior);
+ * - a pending permission request appends a synthetic permission item.
+ */
+export function projectSkillRunnerConversationEntriesToTranscriptItems(
+  entries: readonly SkillRunnerConversationEntry[],
+  options?: { pendingPermission?: unknown },
+): AssistantWorkspaceTranscriptItem[] {
+  const displayEntries = buildRunDialogDisplayMessages([...entries]);
+  const revisionsByMessageId = new Map<string, SkillRunnerConversationEntry>();
+  for (const entry of displayEntries) {
+    if (entry.role !== "assistant" || entry.kind !== "assistant_revision") {
+      continue;
+    }
+    const messageId = entryMessageId(entry);
+    if (messageId && !revisionsByMessageId.has(messageId)) {
+      revisionsByMessageId.set(messageId, entry);
+    }
+  }
+  const items: AssistantWorkspaceTranscriptItem[] = [];
+  const seenFinalChains = new Set<string>();
+  displayEntries.forEach((entry, index) => {
+    if (entry.kind === "assistant_revision") {
+      return;
+    }
+    const itemId = `skillrunner-${
+      entry.seq > 0 ? `seq-${entry.seq}` : `local-${index}`
+    }`;
+    const createdAt = String(entry.ts || "");
+    if (isAssistantProcessEntry(entry)) {
+      const correlation = entryCorrelation(entry);
+      const processType = normalizeDisplayText(
+        entry.processType || correlation.process_type,
+      ).toLowerCase();
+      if (isSkillRunnerToolProcessType(processType)) {
+        items.push({
+          itemId,
+          itemKind: "tool-call",
+          createdAt,
+          updatedAt: null,
+          toolCallId:
+            normalizeDisplayText(correlation.tool_call_id) ||
+            normalizeDisplayText(correlation.tool_id) ||
+            entryMessageId(entry) ||
+            itemId,
+          title:
+            processType === "command_execution"
+              ? localize(
+                  "task-dashboard-run-process-command-execution",
+                  "Command Execution",
+                )
+              : localize("task-dashboard-run-process-tool-call", "Tool Call"),
+          toolKind: processType || null,
+          toolName:
+            normalizeDisplayText(
+              correlation.tool_name || correlation.toolName,
+            ) || null,
+          inputSummary:
+            normalizeDisplayText(
+              correlation.input_summary || correlation.inputSummary,
+            ) || null,
+          resultSummary: null,
+          summary: entryVisibleText(entry) || null,
+          status: "completed",
+        });
+        return;
+      }
+      items.push({
+        itemId,
+        itemKind: "thought",
+        createdAt,
+        updatedAt: null,
+        text:
+          entryVisibleText(entry) || normalizeDisplayText(correlation.summary),
+        status: "complete",
+      });
+      return;
+    }
+    if (isAssistantFinalEntry(entry)) {
+      const chainKey = [
+        entryAttempt(entry),
+        entryMessageFamilyId(entry) ||
+          entryMessageId(entry) ||
+          entryVisibleText(entry),
+      ].join("\n");
+      if (seenFinalChains.has(chainKey)) {
+        return;
+      }
+      seenFinalChains.add(chainKey);
+    }
+    const role =
+      entry.role === "user"
+        ? ("user" as const)
+        : entry.role === "system"
+          ? ("system" as const)
+          : ("assistant" as const);
+    let revision: {
+      count: number;
+      status: string;
+      repairRound: number;
+    } | null = null;
+    if (isAssistantFinalEntry(entry)) {
+      const messageId = entryMessageId(entry);
+      const revisionEntry = messageId
+        ? revisionsByMessageId.get(messageId)
+        : undefined;
+      if (revisionEntry) {
+        revision = {
+          count: 1,
+          status: "replaced",
+          repairRound: entryAttempt(revisionEntry),
+        };
+      }
+    }
+    items.push({
+      itemId,
+      itemKind: "message",
+      createdAt,
+      updatedAt: null,
+      role,
+      text: entryVisibleText(entry),
+      status: "complete",
+      revision,
+    });
+  });
+  const permission = projectAssistantWorkspacePermissionRequest(
+    options?.pendingPermission,
+  );
+  if (permission) {
+    items.push({
+      itemId: `skillrunner-pending-permission-${permission.requestId}`,
+      itemKind: "permission",
+      createdAt: permission.review.requestedAt || "",
+      updatedAt: null,
+      permissionRequestId: permission.requestId,
+      title: permission.title,
+      summary: permission.summary,
+      source: permission.approvalKind,
+      status: "pending",
+    });
+  }
+  return items;
+}
+
+/**
+ * Page-first transcript read over the bounded in-memory session mirror
+ * (design Decision 2): the first paint comes from messages already in memory;
+ * background history hydration produces a later snapshot through the
+ * publication clock. Reads are selected-owner scoped — the publication clock
+ * and the mode-aware published message set are maintained for the selected
+ * run only.
+ */
+export function readSkillRunnerTranscriptRegion(args: {
+  owner: Extract<AssistantWorkspaceOwner, { source: "skillrunner" }>;
+  request?: { cursor?: number | null; limit?: number };
+}): AssistantWorkspaceTranscriptRegion {
+  const owner = args.owner;
+  const entry = runWorkspaceState.currentEntry;
+  const ownerKey = entry
+    ? String(entry.requestId || "").trim() || entry.key
+    : "";
+  if (!entry || owner.ownerKey !== ownerKey) {
+    return createFailedTranscriptRegion(owner, {
+      code: "skillrunner-run-not-selected",
+      message: "The requested SkillRunner run is not the selected run.",
+    });
+  }
+  const messages =
+    runWorkspaceState.publishedTranscriptEntryKey === entry.key
+      ? runWorkspaceState.publishedTranscriptMessages
+      : entry.session.messages;
+  const pendingPermission =
+    entry.session.pendingPermission ||
+    (String(entry.requestId || "").trim()
+      ? getSkillRunnerHostBridgePermissionRequest(
+          String(entry.requestId || "").trim(),
+        )
+      : null);
+  const items = projectSkillRunnerConversationEntriesToTranscriptItems(
+    messages,
+    { pendingPermission },
+  );
+  const total = items.length;
+  const limit = Math.max(1, Math.floor(Number(args.request?.limit) || 80));
+  const cursor = args.request?.cursor;
+  const tail = cursor === undefined || cursor === null;
+  const startCursor = tail
+    ? Math.max(0, total - limit)
+    : Math.max(0, Math.floor(Number(cursor)));
+  const pageItems = items.slice(startCursor, startCursor + limit);
+  const page = createAssistantWorkspaceTranscriptPage({
+    owner,
+    anchor: tail ? "tail" : "cursor",
+    cursor: startCursor,
+    limit,
+    totalVisibleItemCount: total,
+    previousCursor: startCursor > 0 ? Math.max(0, startCursor - limit) : null,
+    nextCursor:
+      !tail && startCursor + limit < total ? startCursor + limit : null,
+    sourceEventSeq: Math.max(0, entry.session.lastSeq),
+    items: pageItems as unknown as Array<Record<string, unknown>>,
+  });
+  return createReadyTranscriptRegion(
+    owner,
+    page,
+    runWorkspaceState.transcriptRevision,
+  );
 }

@@ -112,6 +112,24 @@ export type SkillRunnerWorkspaceSnapshotHarness = {
     requestId: string,
     status: MockRunChannel["status"],
   ) => void;
+  /**
+   * Registers a mock run channel after seeding, for runs whose request id is
+   * assigned late (local-only run graduating to a backend request).
+   */
+  registerRunChannel: (
+    requestId: string,
+    channel?: Partial<
+      Pick<
+        MockRunChannel,
+        | "status"
+        | "pending"
+        | "pendingAuth"
+        | "pendingAuthMethodSelection"
+        | "authSession"
+        | "chatEvents"
+      >
+    >,
+  ) => void;
   setPendingInteraction: (
     requestId: string,
     pending: Record<string, unknown>,
@@ -484,6 +502,27 @@ export async function startSkillRunnerWorkspaceSnapshotHarness(): Promise<SkillR
         throw new Error(`unknown SkillRunner harness request: ${requestId}`);
       }
       channel.status = status;
+    },
+    registerRunChannel(requestId, channel = {}) {
+      const key = String(requestId || "").trim();
+      if (!key) {
+        throw new Error("registerRunChannel requires a request id");
+      }
+      if (runs.has(key)) {
+        throw new Error(`duplicate SkillRunner harness request: ${key}`);
+      }
+      runs.set(key, {
+        requestId: key,
+        status: String(channel.status || "running"),
+        pending: channel.pending,
+        pendingAuth: channel.pendingAuth,
+        pendingAuthMethodSelection: channel.pendingAuthMethodSelection,
+        authSession: channel.authSession,
+        chatEvents: Array.isArray(channel.chatEvents) ? channel.chatEvents : [],
+        chatStreams: new Set(),
+        chatStreamRequestCount: 0,
+        chatStreamCursors: [],
+      });
     },
     setPendingInteraction(requestId, pending) {
       const channel = runs.get(String(requestId || "").trim());

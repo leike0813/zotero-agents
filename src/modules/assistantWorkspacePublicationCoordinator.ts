@@ -73,10 +73,7 @@ export class AssistantWorkspacePublicationCoordinator {
         force: change.force,
       });
     }
-    if (
-      change.transcript.form === "snapshot" &&
-      change.cause !== "steady-state"
-    ) {
+    if (change.transcript.form === "snapshot") {
       return this.publishTranscriptSnapshot({
         owner: change.owner,
         cause: change.cause,
@@ -126,7 +123,7 @@ export class AssistantWorkspacePublicationCoordinator {
 
   publishTranscriptSnapshot(args: {
     owner: AssistantWorkspacePublicationOwner;
-    cause: Exclude<AssistantWorkspacePublicationCause, "steady-state">;
+    cause: AssistantWorkspacePublicationCause;
     region: AssistantWorkspaceTranscriptRegion;
     force?: boolean;
   }) {

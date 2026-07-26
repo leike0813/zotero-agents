@@ -989,7 +989,7 @@ export type AssistantWorkspaceDomainChange =
   | {
       owner: AssistantWorkspaceOwner;
       kind: "transcript";
-      cause: Exclude<AssistantWorkspacePublicationCause, "steady-state">;
+      cause: AssistantWorkspacePublicationCause;
       transcript: {
         form: "snapshot";
         region: AssistantWorkspaceTranscriptRegion;
