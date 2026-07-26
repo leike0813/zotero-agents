@@ -825,4 +825,40 @@ describe("Synthesis sidecar knowledge checkpoint application foundation", functi
     await application.shutdown();
     repository.close();
   });
+
+  it("keeps the Rust Knowledge Checkpoint owner typed and represented in the parity corpus", function () {
+    const projectRoot = path.resolve(process.cwd());
+    const source = fs.readFileSync(
+      path.join(
+        projectRoot,
+        "native/synthesis-sidecar/crates/synthesis-application/src/knowledge_checkpoint.rs",
+      ),
+      "utf8",
+    );
+    const repository = fs.readFileSync(
+      path.join(
+        projectRoot,
+        "native/synthesis-sidecar/crates/synthesis-repository/src/checkpoint_bundle_webdav_debug.rs",
+      ),
+      "utf8",
+    );
+    const corpus = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          projectRoot,
+          "packages/synthesis-contracts/contract-set/synthesis-checkpoint-bundle-webdav-debug-application-parity-v1/corpus.json",
+        ),
+        "utf8",
+      ),
+    );
+    assert.include(source, "pub struct KnowledgeCheckpointApplication");
+    assert.include(source, "pub fn preview_import");
+    assert.include(source, "pub fn apply_import");
+    assert.include(repository, "pub struct KnowledgeCheckpointCapture");
+    assert.include(repository, "pub struct KnowledgeCheckpointReplacement");
+    assert.include(
+      corpus.coverage.knowledgeCheckpoint,
+      "atomic_rollback_reopen",
+    );
+  });
 });

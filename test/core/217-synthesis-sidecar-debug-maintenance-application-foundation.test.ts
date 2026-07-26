@@ -234,4 +234,39 @@ describe("Synthesis sidecar debug/maintenance application foundation", function 
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("keeps the Rust Debug/Maintenance owner typed and read-only", function () {
+    const projectRoot = path.resolve(process.cwd());
+    const source = fs.readFileSync(
+      path.join(
+        projectRoot,
+        "native/synthesis-sidecar/crates/synthesis-application/src/debug_maintenance.rs",
+      ),
+      "utf8",
+    );
+    const repository = fs.readFileSync(
+      path.join(
+        projectRoot,
+        "native/synthesis-sidecar/crates/synthesis-repository/src/checkpoint_bundle_webdav_debug.rs",
+      ),
+      "utf8",
+    );
+    const corpus = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          projectRoot,
+          "packages/synthesis-contracts/contract-set/synthesis-checkpoint-bundle-webdav-debug-application-parity-v1/corpus.json",
+        ),
+        "utf8",
+      ),
+    );
+    assert.include(source, "pub struct DebugMaintenanceApplication");
+    assert.include(source, "pub fn snapshot");
+    assert.include(source, "pub fn run_maintenance");
+    assert.include(repository, "pub struct DebugProjection");
+    assert.include(
+      corpus.coverage.debugMaintenance,
+      "readonly_superseded_drain",
+    );
+  });
 });

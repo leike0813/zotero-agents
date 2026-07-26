@@ -303,7 +303,7 @@ HTTP runtime、SQLite binding、压缩/归档、签名或跨平台辅助 crate �
 
 **canonical store 必须保持**：CAS、exclusive staging、file/directory fsync、atomic promotion、journal phase、backup/forward recovery、durable import receipt。
 
-**状态（2026-07-26）**：repository 与 canonical-store durable parity 已通过独立 roots、51 表/40 索引、PRAGMA、transaction、journal、receipt 和 recovery corpus 验证。此前 Rust application crate 的十三类通用状态机只证明 inventory，不能证明 application parity，现已删除。change `establish-synthesis-rust-typed-application-parity-harness` 建立了第一份真实 typed differential：Workbench 与 Topic 分别通过 typed repository/canonical/Structured Artifact ports 执行 Node oracle 与 Rust candidate，并比较公开 DTO、稳定 code/warning、全部表、canonical bytes/hash/receipt 和 reopen 结果。change `establish-synthesis-rust-citation-reference-application-parity` 随后将 Citation Graph、Reference Refresh 与 Reference Matching/Review 作为第二个 typed cluster 纳入独立 corpus 和候选门禁。change `establish-synthesis-rust-tag-concept-topic-graph-application-parity` 又完成了 Tag Vocabulary、Concept KB 与 Topic Graph 第三个 typed cluster；三族通过 typed repository/CAS、显式 compute/Host ports 和独立 Node/Rust roots 比较公开 DTO、全部 51 表与 reopen 状态，并保持 canonical、下游应用和生产 Host 不变。候选 `serve` 仍只暴露 `workbench.chrome.read` 与 `topics.canonical.inspect` 两个 authenticated、bounded、mutation-disabled read canary。当前只剩 Checkpoint/Bundle/WebDAV/Debug 最后一个领域簇尚未获得同级 typed parity，因此 R7 application parity 仍未完成，R8 继续保持阻塞。
+**状态（2026-07-26）**：repository 与 canonical-store durable parity 已通过独立 roots、51 表/40 索引、PRAGMA、transaction、journal、receipt 和 recovery corpus 验证。此前 Rust application crate 的十三类通用状态机只证明 inventory，不能证明 application parity，现已删除。change `establish-synthesis-rust-typed-application-parity-harness` 建立了第一份真实 typed differential：Workbench 与 Topic 分别通过 typed repository/canonical/Structured Artifact ports 执行 Node oracle 与 Rust candidate，并比较公开 DTO、稳定 code/warning、全部表、canonical bytes/hash/receipt 和 reopen 结果。之后三个 change 依次覆盖 Citation Graph 与 Reference、Tag Vocabulary 与 Concept/Topic Graph，以及最后的 Knowledge Checkpoint、Durable Bundle、WebDAV Sync 与 Debug/Maintenance。各领域均通过 typed repository/CAS、显式 compute/Host ports 和物理隔离的 Node/Rust roots 比较公开 DTO、全部 51 表、远端或 canonical side effects 与 reopen 状态；生产 Host、HTTP capability、runtime manifest 和 `SynthesisClient` 所有权保持不变。候选 `serve` 仍只暴露 `workbench.chrome.read` 与 `topics.canonical.inspect` 两个 authenticated、bounded、mutation-disabled read canary。R7 typed application parity 已完成，R8 可以在新的独立 change 中启动。
 
 **退出条件**：
 
@@ -317,7 +317,7 @@ HTTP runtime、SQLite binding、压缩/归档、签名或跨平台辅助 crate �
 
 **目标**：让插件只认识 native executable，而不认识 Node runtime 结构。
 
-**当前门禁**：R8 保持阻塞。只有 R7 的全部 typed application parity slices 完成后，才能启动 `introduce-synthesis-native-runtime-manifest-v2`。
+**当前门禁**：R7 的全部 typed application parity slices 已完成。下一步可新建 `introduce-synthesis-native-runtime-manifest-v2`；本 change 不修改 runtime manifest、生产 launch/discovery 或 HTTP capability。
 
 **任务**：
 

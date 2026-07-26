@@ -540,4 +540,32 @@ describe("Synthesis sidecar WebDAV Sync application foundation", function () {
     assert.equal(canceledReads, 1);
     await canceled.shutdown();
   });
+
+  it("keeps the Rust WebDAV owner typed and represented in the parity corpus", function () {
+    const projectRoot = path.resolve(process.cwd());
+    const source = fs.readFileSync(
+      path.join(
+        projectRoot,
+        "native/synthesis-sidecar/crates/synthesis-application/src/webdav_sync.rs",
+      ),
+      "utf8",
+    );
+    const corpus = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          projectRoot,
+          "packages/synthesis-contracts/contract-set/synthesis-checkpoint-bundle-webdav-debug-application-parity-v1/corpus.json",
+        ),
+        "utf8",
+      ),
+    );
+    assert.include(source, "pub trait WebDavHostPort");
+    assert.include(source, "pub trait WebDavRetrySchedulerPort");
+    assert.include(source, "pub fn trigger_webdav_sync");
+    assert.include(source, "pub fn resolve_webdav_sync_conflict");
+    assert.include(
+      corpus.coverage.webDavSync,
+      "four_attempt_abort_drain_reopen",
+    );
+  });
 });

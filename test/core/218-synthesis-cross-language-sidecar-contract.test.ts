@@ -15,6 +15,7 @@ import { checkSynthesisDurableFoundationParity } from "../../scripts/check-synth
 import { checkSynthesisTypedApplicationParity } from "../../scripts/check-synthesis-typed-application-parity";
 import { checkSynthesisCitationReferenceApplicationParity } from "../../scripts/check-synthesis-citation-reference-application-parity";
 import { checkSynthesisTagConceptTopicGraphApplicationParity } from "../../scripts/check-synthesis-tag-concept-topic-graph-application-parity";
+import { checkSynthesisCheckpointBundleWebDavDebugApplicationParity } from "../../scripts/check-synthesis-checkpoint-bundle-webdav-debug-application-parity";
 import { checkSynthesisRustLicenseInventory } from "../../scripts/check-synthesis-rust-license-inventory";
 import { findSynthesisContractBoundaryViolations } from "../../scripts/check-synthesis-service-boundary";
 
@@ -209,7 +210,7 @@ describe("Synthesis cross-language sidecar contract", function () {
       "utf8",
     );
     const checkerIndex = workflow.indexOf(
-      "check-synthesis-tag-concept-topic-graph-application-parity.ts",
+      "check-synthesis-citation-reference-application-parity.ts",
     );
     const smokeIndex = workflow.indexOf(
       "smoke-synthesis-rust-sidecar-worker.ts",
@@ -236,6 +237,43 @@ describe("Synthesis cross-language sidecar contract", function () {
     assert.equal(result.applicationFamilies, 3);
     assert.equal(result.implementations.node.role, "oracle");
     assert.equal(result.implementations.rust.role, "candidate");
+  });
+
+  it("executes the independent Checkpoint/Bundle/WebDAV/Debug typed application differential", async function () {
+    const result =
+      await checkSynthesisCheckpointBundleWebDavDebugApplicationParity();
+
+    assert.deepEqual(result.errors, []);
+    assert.isTrue(result.ok);
+    assert.equal(
+      result.corpus,
+      "synthesis-checkpoint-bundle-webdav-debug-application-parity.v1",
+    );
+    assert.equal(
+      result.reportSchema,
+      "synthesis-checkpoint-bundle-webdav-debug-application-parity-report.v1",
+    );
+    assert.equal(result.tables, 51);
+    assert.equal(result.comparedTables, 51);
+    assert.equal(result.applicationFamilies, 4);
+    assert.equal(result.implementations.node.role, "oracle");
+    assert.equal(result.implementations.rust.role, "candidate");
+
+    const workflow = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        ".github/workflows/build-synthesis-rust-sidecar.yml",
+      ),
+      "utf8",
+    );
+    const checkerIndex = workflow.indexOf(
+      "check-synthesis-checkpoint-bundle-webdav-debug-application-parity.ts",
+    );
+    const smokeIndex = workflow.indexOf(
+      "smoke-synthesis-rust-sidecar-worker.ts",
+    );
+    assert.isAtLeast(checkerIndex, 0);
+    assert.isAbove(smokeIndex, checkerIndex);
   });
 
   it("accounts for every locked Rust and bundled SQLite license", function () {

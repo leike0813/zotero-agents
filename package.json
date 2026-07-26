@@ -124,6 +124,7 @@
     "check:synthesis-typed-application-parity": "tsx scripts/check-synthesis-typed-application-parity.ts",
     "check:synthesis-citation-reference-application-parity": "tsx scripts/check-synthesis-citation-reference-application-parity.ts",
     "check:synthesis-tag-concept-topic-graph-application-parity": "tsx scripts/check-synthesis-tag-concept-topic-graph-application-parity.ts",
+    "check:synthesis-checkpoint-bundle-webdav-debug-application-parity": "tsx scripts/check-synthesis-checkpoint-bundle-webdav-debug-application-parity.ts",
     "check:synthesis-rust-license-inventory": "tsx scripts/check-synthesis-rust-license-inventory.ts",
     "test:node:core": "tsx scripts/run-zotero-test-with-mock.ts test:node:raw:core lite core",
     "test:node:core:full": "tsx scripts/run-zotero-test-with-mock.ts test:node:raw:core full core",

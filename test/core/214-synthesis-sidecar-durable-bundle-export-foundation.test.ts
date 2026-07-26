@@ -407,4 +407,36 @@ describe("Synthesis sidecar durable bundle export foundation", function () {
     await shutdown;
     await expectRejected(application.buildExport());
   });
+
+  it("keeps the Rust Durable export owner typed and represented in the parity corpus", function () {
+    const projectRoot = path.resolve(process.cwd());
+    const source = fs.readFileSync(
+      path.join(
+        projectRoot,
+        "native/synthesis-sidecar/crates/synthesis-application/src/durable_bundle.rs",
+      ),
+      "utf8",
+    );
+    const repository = fs.readFileSync(
+      path.join(
+        projectRoot,
+        "native/synthesis-sidecar/crates/synthesis-repository/src/checkpoint_bundle_webdav_debug.rs",
+      ),
+      "utf8",
+    );
+    const corpus = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          projectRoot,
+          "packages/synthesis-contracts/contract-set/synthesis-checkpoint-bundle-webdav-debug-application-parity-v1/corpus.json",
+        ),
+        "utf8",
+      ),
+    );
+    assert.include(source, "pub trait DurableBundleSourcePort");
+    assert.include(source, "pub fn build_export");
+    assert.include(source, "pub fn read_and_verify");
+    assert.include(repository, "pub struct DurableBundleCapture");
+    assert.include(corpus.coverage.durableBundle, "v1_read_v2_manifest_last");
+  });
 });

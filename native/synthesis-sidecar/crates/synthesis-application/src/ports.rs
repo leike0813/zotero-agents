@@ -1,9 +1,18 @@
+use crate::debug_maintenance::{
+    DebugCanonicalPort, DebugMaintenanceRepositoryPort, DebugTopicInspection,
+};
 use crate::dto::PatchOutput;
+use crate::durable_bundle::{
+    DurableBundleRepositoryPort, DurableCanonicalCapture, DurableCanonicalImportPort,
+    DurableCanonicalPreparation, DurableCanonicalSourcePort, DurableEnvelope,
+};
+use crate::knowledge_checkpoint::KnowledgeCheckpointRepositoryPort;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use synthesis_canonical_store::{
-    CanonicalReceipt, CanonicalStore, CurrentTopic, Promotion, TopicSnapshot,
+    CanonicalBasis, CanonicalReceipt, CanonicalStore, CurrentTopic, Promotion, TopicSnapshot,
+    canonical_json_hash,
 };
 use synthesis_repository::{
     CacheBasisRecord, OperationQuery, OperationRecord, Repository,
@@ -22,6 +31,10 @@ use synthesis_repository::{
     ConceptApplicationStateRecord, ConceptKbReplacement, TagApplicationStateRecord, TagAuditRecord,
     TagEffectRecord, TagStagedSuggestionRecord, TagVocabularyEntryRecord, TagVocabularyPromotion,
     TagVocabularyReplacement, TopicGraphApplicationStateRecord, TopicGraphReplacement,
+};
+use synthesis_repository::{
+    DebugProjection, DurableBundleCapture, DurableImportApply, DurableImportCapture,
+    DurableTopicBasis, KnowledgeCheckpointCapture, KnowledgeCheckpointReplacement,
 };
 
 pub trait CitationGraphRepositoryPort: Send + Sync {
@@ -856,6 +869,61 @@ impl TopicRepositoryPort for RepositoryPort {
     }
 }
 
+impl KnowledgeCheckpointRepositoryPort for RepositoryPort {
+    fn capture(&self) -> Result<KnowledgeCheckpointCapture, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .capture_knowledge_checkpoint_state()
+    }
+
+    fn replace(&self, replacement: &KnowledgeCheckpointReplacement) -> Result<bool, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .replace_knowledge_checkpoint_state(replacement)
+    }
+}
+
+impl DurableBundleRepositoryPort for RepositoryPort {
+    fn capture_bundle(&self) -> Result<DurableBundleCapture, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .capture_durable_bundle_state()
+    }
+
+    fn capture_import(&self) -> Result<DurableImportCapture, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .capture_durable_import_state()
+    }
+
+    fn apply_import(&self, request: &DurableImportApply) -> Result<bool, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .apply_durable_import_state(request)
+    }
+
+    fn clear_import_commit(&self, receipt_id: &str) -> Result<bool, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .clear_durable_import_commit(receipt_id)
+    }
+}
+
+impl DebugMaintenanceRepositoryPort for RepositoryPort {
+    fn capture(&self) -> Result<DebugProjection, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .capture_debug_projection()
+    }
+}
+
 pub trait TopicCanonicalPort: Send + Sync {
     fn inspect(&self, topic_id: &str) -> Result<Value, String>;
     fn read_current(&self, topic_id: &str) -> Result<CurrentTopic, String>;
@@ -905,6 +973,352 @@ impl TopicCanonicalPort for CanonicalStorePort {
             .lock()
             .map_err(|_| "canonical_store_unavailable".to_owned())?
             .receipt(topic_id)
+    }
+}
+
+impl DurableCanonicalSourcePort for CanonicalStorePort {
+    fn read_current_assets(
+        &self,
+        topic: &DurableTopicBasis,
+    ) -> Result<DurableCanonicalCapture, String> {
+        let store = self
+            .store
+            .lock()
+            .map_err(|_| "canonical_store_unavailable".to_owned())?;
+        let inspected = store.inspect(&topic.topic_id)?;
+        assert_durable_topic_basis(topic, &inspected)?;
+        let CurrentTopic::Ready { snapshot, basis } = store.read_current(&topic.topic_id)? else {
+            return Err("durable_topic_current_invalid".into());
+        };
+        if snapshot.path_id != topic.path_id
+            || basis.manifest_hash != topic.manifest_hash
+            || basis.artifact_hash != topic.artifact_hash
+            || canonical_json_hash(&snapshot.metadata)? != topic.metadata_hash
+        {
+            return Err("durable_topic_current_basis_mismatch".into());
+        }
+        let mut drafts = Vec::new();
+        drafts.push(topic_asset(
+            topic,
+            "manifest.json",
+            json_text(&snapshot.manifest)?,
+        ));
+        drafts.push(topic_asset(
+            topic,
+            "artifact.json",
+            json_text(&snapshot.artifact)?,
+        ));
+        drafts.push(topic_asset(
+            topic,
+            "metadata.json",
+            json_text(&snapshot.metadata)?,
+        ));
+        for (name, value) in &snapshot.sections {
+            drafts.push(topic_asset(
+                topic,
+                &format!("sections/{}", section_file_name(name)?),
+                json_text(value)?,
+            ));
+        }
+        for (relative, content) in &snapshot.markdown {
+            drafts.push(topic_asset(topic, relative, content.clone()));
+        }
+        Ok(DurableCanonicalCapture {
+            basis: canonical_json_hash(
+                &serde_json::to_value(&snapshot)
+                    .map_err(|_| "durable_topic_current_invalid".to_owned())?,
+            )?,
+            drafts,
+        })
+    }
+
+    fn inspect_current(&self, topic: &DurableTopicBasis) -> Result<String, String> {
+        let store = self
+            .store
+            .lock()
+            .map_err(|_| "canonical_store_unavailable".to_owned())?;
+        let inspected = store.inspect(&topic.topic_id)?;
+        assert_durable_topic_basis(topic, &inspected)?;
+        let CurrentTopic::Ready { snapshot, .. } = store.read_current(&topic.topic_id)? else {
+            return Err("durable_topic_current_invalid".into());
+        };
+        canonical_json_hash(
+            &serde_json::to_value(snapshot)
+                .map_err(|_| "durable_topic_current_invalid".to_owned())?,
+        )
+    }
+}
+
+impl DurableCanonicalImportPort for CanonicalStorePort {
+    fn prepare(
+        &self,
+        entries: &[DurableEnvelope],
+        current_topics: &[DurableTopicBasis],
+    ) -> Result<DurableCanonicalPreparation, String> {
+        let mut groups = BTreeMap::<String, BTreeMap<String, String>>::new();
+        for entry in entries {
+            if entry.entity_kind != "topic_current_asset" {
+                continue;
+            }
+            let relative_path = entry
+                .data
+                .get("relative_path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "durable_import_topic_asset_invalid".to_owned())?;
+            let content = entry
+                .data
+                .get("content")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "durable_import_topic_asset_invalid".to_owned())?;
+            let parts = relative_path.split('/').collect::<Vec<_>>();
+            if parts.len() < 4 || parts[0] != "topics" || parts[2] != "current" {
+                return Err("durable_import_topic_asset_invalid".into());
+            }
+            groups
+                .entry(parts[1].to_owned())
+                .or_default()
+                .insert(parts[3..].join("/"), content.to_owned());
+        }
+        let current = current_topics
+            .iter()
+            .map(|topic| (topic.path_id.clone(), topic))
+            .collect::<BTreeMap<_, _>>();
+        let mut promotions = Vec::new();
+        let mut targets = Vec::new();
+        for (path_id, mut assets) in groups {
+            let manifest: Value = serde_json::from_str(
+                &assets
+                    .remove("manifest.json")
+                    .ok_or_else(|| "durable_import_topic_snapshot_invalid".to_owned())?,
+            )
+            .map_err(|_| "durable_import_topic_snapshot_invalid".to_owned())?;
+            let artifact: Value = serde_json::from_str(
+                &assets
+                    .remove("artifact.json")
+                    .ok_or_else(|| "durable_import_topic_snapshot_invalid".to_owned())?,
+            )
+            .map_err(|_| "durable_import_topic_snapshot_invalid".to_owned())?;
+            let metadata: Value = serde_json::from_str(
+                &assets
+                    .remove("metadata.json")
+                    .ok_or_else(|| "durable_import_topic_snapshot_invalid".to_owned())?,
+            )
+            .map_err(|_| "durable_import_topic_snapshot_invalid".to_owned())?;
+            let declared = manifest
+                .get("sections")
+                .and_then(Value::as_object)
+                .ok_or_else(|| "durable_import_topic_snapshot_invalid".to_owned())?;
+            let mut sections = BTreeMap::new();
+            for name in declared.keys() {
+                let relative = format!("sections/{}", section_file_name(name)?);
+                let value = assets
+                    .remove(&relative)
+                    .ok_or_else(|| "durable_import_topic_snapshot_invalid".to_owned())?;
+                sections.insert(
+                    name.clone(),
+                    serde_json::from_str(&value)
+                        .map_err(|_| "durable_import_topic_snapshot_invalid".to_owned())?,
+                );
+            }
+            let mut markdown = BTreeMap::new();
+            for (relative, content) in assets {
+                if !relative.ends_with(".md") {
+                    return Err("durable_import_topic_asset_invalid".into());
+                }
+                markdown.insert(relative, content);
+            }
+            let topic_id = metadata
+                .pointer("/data/topic_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "durable_import_topic_identity_invalid".to_owned())?
+                .to_owned();
+            let snapshot = TopicSnapshot {
+                topic_id: topic_id.clone(),
+                path_id: path_id.clone(),
+                manifest,
+                artifact,
+                metadata,
+                sections,
+                markdown,
+            };
+            let manifest_hash = canonical_json_hash(&snapshot.manifest)?;
+            let artifact_hash = canonical_json_hash(&snapshot.artifact)?;
+            let metadata_hash = canonical_json_hash(&snapshot.metadata)?;
+            let bundle_hash = canonical_json_hash(
+                &serde_json::to_value(&snapshot)
+                    .map_err(|_| "durable_import_topic_snapshot_invalid".to_owned())?,
+            )?;
+            let expected_basis = current.get(&path_id).map(|topic| CanonicalBasis {
+                manifest_hash: topic.manifest_hash.clone(),
+                artifact_hash: topic.artifact_hash.clone(),
+            });
+            promotions.push(Promotion {
+                transaction_id: format!("durable-import-{path_id}"),
+                expected_basis,
+                snapshot,
+            });
+            targets.push(DurableTopicBasis {
+                topic_id,
+                path_id,
+                manifest_hash,
+                artifact_hash,
+                metadata_hash,
+                bundle_hash,
+            });
+        }
+        Ok(DurableCanonicalPreparation {
+            promotions,
+            targets,
+        })
+    }
+
+    fn stage(
+        &self,
+        receipt_id: &str,
+        manifest_hash: &str,
+        promotions: Vec<Promotion>,
+    ) -> Result<(), String> {
+        self.store
+            .lock()
+            .map_err(|_| "canonical_store_unavailable".to_owned())?
+            .stage_import_batch(receipt_id.into(), manifest_hash.into(), promotions)
+    }
+
+    fn commit(&self, receipt_id: &str, manifest_hash: &str) -> Result<String, String> {
+        self.store
+            .lock()
+            .map_err(|_| "canonical_store_unavailable".to_owned())?
+            .commit_import_batch(receipt_id, manifest_hash)
+            .map(|_| "promoted".into())
+    }
+
+    fn discard(&self, receipt_id: &str) -> Result<bool, String> {
+        self.store
+            .lock()
+            .map_err(|_| "canonical_store_unavailable".to_owned())?
+            .discard_import_batch(receipt_id)
+    }
+
+    fn recover(
+        &self,
+        receipt: Option<&synthesis_repository::DurableImportCommitReceipt>,
+    ) -> Result<String, String> {
+        self.store
+            .lock()
+            .map_err(|_| "canonical_store_unavailable".to_owned())?
+            .recover_import_batch(receipt.map(|value| {
+                (
+                    value.receipt_id.as_str(),
+                    value
+                        .manifest_hash
+                        .strip_prefix("sha256:")
+                        .unwrap_or(&value.manifest_hash),
+                )
+            }))
+    }
+}
+
+impl DebugCanonicalPort for CanonicalStorePort {
+    fn inspect(&self, topic_id: &str) -> Result<DebugTopicInspection, String> {
+        let value = self
+            .store
+            .lock()
+            .map_err(|_| "canonical_store_unavailable".to_owned())?
+            .inspect(topic_id)?;
+        Ok(DebugTopicInspection {
+            topic_id: value
+                .get("topicId")
+                .and_then(Value::as_str)
+                .unwrap_or(topic_id)
+                .into(),
+            status: value
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("invalid")
+                .into(),
+            manifest_hash: value
+                .get("manifestHash")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            artifact_hash: value
+                .get("artifactHash")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            metadata_hash: value
+                .get("metadataHash")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            section_count: value
+                .get("sections")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len),
+            diagnostics: value
+                .get("diagnostics")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default(),
+        })
+    }
+}
+
+fn assert_durable_topic_basis(topic: &DurableTopicBasis, inspected: &Value) -> Result<(), String> {
+    if inspected.get("status").and_then(Value::as_str) != Some("ready")
+        || inspected.get("topicId").and_then(Value::as_str) != Some(&topic.topic_id)
+        || inspected.get("pathId").and_then(Value::as_str) != Some(&topic.path_id)
+        || inspected.get("manifestHash").and_then(Value::as_str) != Some(&topic.manifest_hash)
+        || inspected.get("artifactHash").and_then(Value::as_str) != Some(&topic.artifact_hash)
+        || inspected.get("metadataHash").and_then(Value::as_str) != Some(&topic.metadata_hash)
+    {
+        Err("durable_topic_current_basis_mismatch".into())
+    } else {
+        Ok(())
+    }
+}
+
+fn json_text(value: &Value) -> Result<String, String> {
+    serde_json::to_string_pretty(value)
+        .map(|text| format!("{text}\n"))
+        .map_err(|_| "durable_topic_current_invalid".into())
+}
+
+fn section_file_name(name: &str) -> Result<String, String> {
+    if name.is_empty()
+        || !name.chars().enumerate().all(|(index, character)| {
+            character.is_ascii_lowercase()
+                || character == '_'
+                || (index > 0 && character.is_ascii_digit())
+        })
+    {
+        return Err("durable_import_topic_snapshot_invalid".into());
+    }
+    Ok(format!("{}.json", name.replace('_', "-")))
+}
+
+fn topic_asset(
+    topic: &DurableTopicBasis,
+    relative: &str,
+    content: String,
+) -> synthesis_repository::DurableDraft {
+    let relative_path = format!("topics/{}/current/{relative}", topic.path_id);
+    synthesis_repository::DurableDraft {
+        entity_kind: "topic_current_asset".into(),
+        entity_id: format!(
+            "topic-asset:{}:{}/current/{relative}",
+            topic.path_id, topic.path_id
+        ),
+        schema_id: "synthesis.durable.topic_current_asset".into(),
+        data: serde_json::json!({
+            "topic_id":topic.path_id,
+            "relative_path":relative_path,
+            "content":content,
+        }),
+        updated_at: String::new(),
     }
 }
 

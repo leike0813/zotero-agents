@@ -688,7 +688,7 @@ impl CanonicalStore {
             repair_required: false,
         };
         store.recover_all(None)?;
-        store.recover_import_batch()?;
+        store.recover_import_batch_on_open()?;
         Ok(store)
     }
 
@@ -1150,6 +1150,32 @@ impl CanonicalStore {
             }
             let mut receipts = Vec::new();
             for promotion in batch.topics {
+                let desired_manifest_hash = hash_json(&promotion.snapshot.manifest)?;
+                let desired_artifact_hash = hash_json(&promotion.snapshot.artifact)?;
+                let current =
+                    self.inspect_path(&promotion.snapshot.topic_id, &promotion.snapshot.path_id)?;
+                if current.as_ref().is_some_and(|descriptor| {
+                    descriptor["manifestHash"] == desired_manifest_hash
+                        && descriptor["artifactHash"] == desired_artifact_hash
+                }) {
+                    let receipt_path = self
+                        .topic_root(&promotion.snapshot.path_id)?
+                        .join("receipt.json");
+                    let receipt: CanonicalReceipt = serde_json::from_slice(
+                        &fs::read(receipt_path)
+                            .map_err(|_| "canonical_import_recovery_incomplete".to_owned())?,
+                    )
+                    .map_err(|_| "canonical_import_recovery_incomplete".to_owned())?;
+                    if receipt.transaction_id != promotion.transaction_id
+                        || receipt.topic_id != promotion.snapshot.topic_id
+                        || receipt.manifest_hash != desired_manifest_hash
+                        || receipt.artifact_hash != desired_artifact_hash
+                    {
+                        return Err("canonical_import_recovery_incomplete".into());
+                    }
+                    receipts.push(receipt);
+                    continue;
+                }
                 receipts.push(self.promote_locked(promotion, None)?);
             }
             fs::remove_file(batch_path)
@@ -1164,7 +1190,71 @@ impl CanonicalStore {
         result
     }
 
-    fn recover_import_batch(&mut self) -> Result<(), String> {
+    pub fn discard_import_batch(&mut self, receipt_id: &str) -> Result<bool, String> {
+        if self.repair_required {
+            return Err("repair_required".into());
+        }
+        validate_identity_part(receipt_id)?;
+        let lease = self.acquire_writer()?;
+        let result = (|| {
+            let batch_path = self.root.join("import-batch.json");
+            if !batch_path.exists() {
+                return Ok(false);
+            }
+            let batch: ImportBatch = serde_json::from_slice(
+                &fs::read(&batch_path).map_err(|_| "canonical_import_missing".to_owned())?,
+            )
+            .map_err(|_| "canonical_import_invalid".to_owned())?;
+            if batch.schema != IMPORT_SCHEMA || batch.receipt_id != receipt_id {
+                return Err("canonical_import_receipt_mismatch".into());
+            }
+            fs::remove_file(batch_path)
+                .map_err(|error| format!("canonical_remove_failed:{error}"))?;
+            sync_directory(&self.root)?;
+            Ok(true)
+        })();
+        self.release_writer(lease);
+        result
+    }
+
+    pub fn recover_import_batch(
+        &mut self,
+        receipt: Option<(&str, &str)>,
+    ) -> Result<String, String> {
+        let path = self.root.join("import-batch.json");
+        if !path.exists() {
+            return Ok("none".into());
+        }
+        let batch: ImportBatch = match fs::read(&path)
+            .map_err(|error| format!("canonical_read_failed:{error}"))
+            .and_then(|bytes| {
+                serde_json::from_slice::<ImportBatch>(&bytes)
+                    .map_err(|_| "canonical_import_invalid".to_owned())
+            }) {
+            Ok(batch) if batch.schema == IMPORT_SCHEMA => batch,
+            _ => {
+                self.repair_required = true;
+                return Ok("repair_required".into());
+            }
+        };
+        let Some((receipt_id, manifest_hash)) = receipt else {
+            self.discard_import_batch(&batch.receipt_id)?;
+            return Ok("failed_recovered".into());
+        };
+        if receipt_id != batch.receipt_id || manifest_hash != batch.manifest_hash {
+            self.repair_required = true;
+            return Ok("repair_required".into());
+        }
+        match self.commit_import_batch(receipt_id, manifest_hash) {
+            Ok(_) => Ok("promoted".into()),
+            Err(_) => {
+                self.repair_required = true;
+                Ok("repair_required".into())
+            }
+        }
+    }
+
+    fn recover_import_batch_on_open(&mut self) -> Result<(), String> {
         let path = self.root.join("import-batch.json");
         if !path.exists() {
             return Ok(());
@@ -1177,6 +1267,8 @@ impl CanonicalStore {
             return Err("canonical_import_invalid".into());
         }
         let all_committed = batch.topics.iter().all(|topic| {
+            let desired_manifest_hash = hash_json(&topic.snapshot.manifest).ok();
+            let desired_artifact_hash = hash_json(&topic.snapshot.artifact).ok();
             self.topic_root(&topic.snapshot.path_id)
                 .ok()
                 .and_then(|root| fs::read(root.join("receipt.json")).ok())
@@ -1184,14 +1276,15 @@ impl CanonicalStore {
                 .is_some_and(|receipt| {
                     receipt.transaction_id == topic.transaction_id
                         && receipt.topic_id == topic.snapshot.topic_id
+                        && Some(receipt.manifest_hash) == desired_manifest_hash
+                        && Some(receipt.artifact_hash) == desired_artifact_hash
                 })
         });
         if all_committed {
             fs::remove_file(path).map_err(|error| format!("canonical_remove_failed:{error}"))?;
             sync_directory(&self.root)
         } else {
-            fs::remove_file(path).map_err(|error| format!("canonical_remove_failed:{error}"))?;
-            sync_directory(&self.root)
+            Ok(())
         }
     }
 }
@@ -1400,6 +1493,129 @@ mod tests {
             .commit_import_batch("receipt:r7", &"a".repeat(64))
             .expect("commit");
         assert_eq!(receipts.len(), 1);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn import_batch_can_be_explicitly_discarded_and_reopened() {
+        let root = root("import-discard");
+        let mut store = CanonicalStore::open(&root, identity()).expect("open");
+        store
+            .stage_import_batch(
+                "receipt:discard".into(),
+                "b".repeat(64),
+                vec![promotion(1, None)],
+            )
+            .expect("stage");
+        assert!(
+            store
+                .discard_import_batch("receipt:discard")
+                .expect("discard")
+        );
+        assert!(
+            !store
+                .discard_import_batch("receipt:discard")
+                .expect("already discarded")
+        );
+        drop(store);
+        let reopened = CanonicalStore::open(&root, identity()).expect("reopen");
+        assert!(!root.join("import-batch.json").exists());
+        drop(reopened);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn import_batch_recovery_uses_the_repository_receipt_after_reopen() {
+        let root = root("import-recovery");
+        let mut store = CanonicalStore::open(&root, identity()).expect("open");
+        store
+            .stage_import_batch(
+                "receipt:forward".into(),
+                "c".repeat(64),
+                vec![promotion(1, None)],
+            )
+            .expect("stage forward");
+        drop(store);
+
+        let mut reopened = CanonicalStore::open(&root, identity()).expect("reopen");
+        assert_eq!(
+            reopened
+                .recover_import_batch(Some(("receipt:forward", &"c".repeat(64))))
+                .expect("recover"),
+            "promoted"
+        );
+        assert_eq!(
+            reopened.inspect("topic:r7").expect("inspect")["status"],
+            "ready"
+        );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn import_batch_recovery_discards_without_a_repository_receipt() {
+        let root = root("import-recovery-discard");
+        let mut store = CanonicalStore::open(&root, identity()).expect("open");
+        store
+            .stage_import_batch(
+                "receipt:discard-recovery".into(),
+                "d".repeat(64),
+                vec![promotion(1, None)],
+            )
+            .expect("stage discard");
+        drop(store);
+
+        let mut reopened = CanonicalStore::open(&root, identity()).expect("reopen");
+        assert_eq!(
+            reopened
+                .recover_import_batch(None)
+                .expect("recover discard"),
+            "failed_recovered"
+        );
+        assert_eq!(
+            reopened.inspect("topic:r7").expect("inspect")["status"],
+            "absent"
+        );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn import_batch_recovery_skips_an_already_committed_prefix() {
+        let root = root("import-recovery-prefix");
+        let mut store = CanonicalStore::open(&root, identity()).expect("open");
+        let first = promotion(1, None);
+        let mut second = promotion(2, None);
+        second.transaction_id = "transaction:second".into();
+        second.snapshot.topic_id = "topic:second".into();
+        second.snapshot.path_id = "topic-second".into();
+        store
+            .stage_import_batch(
+                "receipt:prefix".into(),
+                "e".repeat(64),
+                vec![first.clone(), second],
+            )
+            .expect("stage");
+        let lease = store.acquire_writer().expect("writer");
+        store
+            .promote_locked(first, None)
+            .expect("commit first topic");
+        store.release_writer(lease);
+        drop(store);
+
+        let mut reopened = CanonicalStore::open(&root, identity()).expect("reopen");
+        assert_eq!(
+            reopened
+                .recover_import_batch(Some(("receipt:prefix", &"e".repeat(64))))
+                .expect("recover"),
+            "promoted"
+        );
+        assert_eq!(
+            reopened.inspect("topic:r7").expect("first")["status"],
+            "ready"
+        );
+        assert_eq!(
+            reopened.inspect("topic:second").expect("second")["status"],
+            "ready"
+        );
         fs::remove_dir_all(root).expect("cleanup");
     }
 

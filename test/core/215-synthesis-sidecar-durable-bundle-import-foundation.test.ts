@@ -1102,4 +1102,39 @@ describe("Synthesis sidecar durable bundle import foundation", function () {
     });
     assert.equal(applied.status, "committed");
   });
+
+  it("keeps the Rust Durable import owner typed and recoverable", function () {
+    const projectRoot = path.resolve(process.cwd());
+    const source = fs.readFileSync(
+      path.join(
+        projectRoot,
+        "native/synthesis-sidecar/crates/synthesis-application/src/durable_bundle.rs",
+      ),
+      "utf8",
+    );
+    const canonical = fs.readFileSync(
+      path.join(
+        projectRoot,
+        "native/synthesis-sidecar/crates/synthesis-canonical-store/src/lib.rs",
+      ),
+      "utf8",
+    );
+    const corpus = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          projectRoot,
+          "packages/synthesis-contracts/contract-set/synthesis-checkpoint-bundle-webdav-debug-application-parity-v1/corpus.json",
+        ),
+        "utf8",
+      ),
+    );
+    assert.include(source, "pub fn preview_import");
+    assert.include(source, "pub fn apply_import");
+    assert.include(source, "pub fn discard_import");
+    assert.include(canonical, "pub fn discard_import_batch");
+    assert.include(
+      corpus.coverage.durableBundle,
+      "cross_storage_recovery_reopen",
+    );
+  });
 });
