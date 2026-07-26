@@ -1,4 +1,0 @@
-interface:
-  display_name: "Zotero Library Agent"
-  short_description: "Route bounded Zotero research tasks"
-  default_prompt: "Use $zotero-library-agent to route this Zotero research request to the right bounded task skill."

@@ -1,8 +1,0 @@
-- [x] Add OpenSpec delta specs for the SkillRunner async lifecycle contract
-- [x] Refactor `skillRunnerSessionSyncManager` to generation invalidation plus stop-and-drain
-- [x] Align lifecycle naming and shutdown exports across session sync and reconciler
-- [x] Upgrade `skillRunnerRunDialog` observer teardown to async stop-and-drain
-- [x] Add centralized `shutdownSkillRunnerAsyncLifecycle()` and await it from `hooks.onShutdown()`
-- [x] Upgrade the Zotero test cleanup harness to await all async SkillRunner resets
-- [x] Add Node regression coverage for session sync and run dialog lifecycle drain semantics
-- [x] Update governance docs with the SSOT stop-and-drain contract

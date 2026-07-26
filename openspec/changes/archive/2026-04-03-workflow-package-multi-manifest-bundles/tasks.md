@@ -1,9 +1,0 @@
-- [x] Add package manifest schema, loader parsing, and `LoadedWorkflow` package metadata
-- [x] Keep single-workflow directory loading compatible while adding multi-workflow package loading
-- [x] Add loader tests for multi-workflow packages with shared helper imports
-- [x] Update builtin workflow sync manifest and runtime scanning for package directories
-- [x] Migrate `tag-manager` and `tag-regulator` into one builtin workflow package
-- [x] Migrate `literature-digest`, `reference-note-editor`, and `reference-matching` into one builtin workflow package
-- [x] Update governance constraints to allow same-package imports and block cross-package imports
-- [x] Update direct test imports and builtin regression tests to new package paths
-- [x] Run type-check and targeted workflow loader / builtin workflow regression tests

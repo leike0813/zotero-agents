@@ -1,7 +1,0 @@
-- [x] 1. Add ACP Chat OpenSpec deltas for session management and sidebar UI.
-- [x] 2. Add conversation-scoped `autoApproveAcpPermissions` snapshot state and persistence.
-- [x] 3. Reuse ACP allow-option selection for ACP Chat permission auto-approval.
-- [x] 4. Add ACP Chat banner toggle action and host action routing.
-- [x] 5. Add en-US and zh-CN labels.
-- [x] 6. Add session-manager and UI smoke coverage.
-- [x] 7. Run targeted validation.

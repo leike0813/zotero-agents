@@ -1,9 +1,0 @@
-- [x] Create the `zotero-test-performance-probe-digest` change artifacts and delta specs
-- [x] Add an opt-in performance probe digest orchestrator with phase snapshots, timing spans, and JSON flush
-- [x] Add a shared performance-probe bridge so runtime modules can emit test-only spans without importing test files
-- [x] Instrument selection context build, workflow build/apply, handlers object creation, and erase cleanup
-- [x] Attach the performance probe to the shared Zotero diagnostic lifecycle and install it in all domain setups
-- [x] Move default diagnostic outputs to `artifact/test-diagnostics`, including the existing leak probe
-- [x] Add Node regression coverage for no-op behavior, output paths, span aggregation, and head/tail summary
-- [x] Update governance docs to require performance probe escalation when leak probe is inconclusive
-- [x] Extend performance spans into `executeApplyResult` child phases for retained full workflows so tail degradation can be attributed to specific hook operations

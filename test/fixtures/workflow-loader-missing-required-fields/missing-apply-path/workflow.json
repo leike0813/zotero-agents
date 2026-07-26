@@ -1,6 +1,0 @@
-{
-  "id": "missing-apply-path",
-  "label": "Missing Apply Path",
-  "request": { "kind": "skillrunner.job.v1" },
-  "hooks": {}
-}

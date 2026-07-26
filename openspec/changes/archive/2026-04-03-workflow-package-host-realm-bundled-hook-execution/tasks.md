@@ -1,5 +1,0 @@
-- [x] Replace Zotero runtime package hook loading with package-host-bundle execution while keeping Node native module loading and legacy text-loader compatibility.
-- [x] Add a package graph bundler that resolves same-package relative imports, emits a host-realm temp hook, rejects unsupported syntax, and caches by dependency fingerprint.
-- [x] Remove package workflow token/bridge/globalThis capability carrier logic from the main runtime path and simplify package runtime accessors to host-runtime-first behavior.
-- [x] Update workflow diagnostics and debug probe output to report `executionMode` and `capabilitySource` instead of bridge/token metadata.
-- [x] Add and update loader, runtime, probe, and package-lib tests covering package-host-bundle execution, unsupported import diagnostics, cache behavior, and no-regression for existing package workflows.
