@@ -294,6 +294,14 @@ describe("suite governance constraints", function () {
       scripts["check:content-package-release"] || "",
       "--check-mirror",
     );
+    assert.notInclude(
+      scripts["check:content-package-release"] || "",
+      "--include-dev",
+    );
+    assert.match(
+      scripts["check:content-package-release:all"] || "",
+      /check-content-package-release\.ts\s+--include-dev/i,
+    );
     assert.match(
       scripts["check:content-package-mirror"] || "",
       /check-content-package-release\.ts\s+--check-mirror/i,

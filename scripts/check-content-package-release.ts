@@ -45,12 +45,58 @@ type FetchLike = (
   init?: RequestInit,
 ) => Promise<Pick<Response, "ok" | "status" | "arrayBuffer" | "json" | "text">>;
 
-const DEFAULT_CHANNELS: Channel[] = ["stable", "beta", "dev"];
+const DEFAULT_CHANNELS: Channel[] = ["stable", "beta"];
+const ALL_CHANNELS: Channel[] = ["stable", "beta", "dev"];
 const CONTENT_VERSION_FILE = "content-package.version.json";
 const CONTENT_REPO = "leike0813/zotero-agents-workflows";
 const CONTENT_BRANCH = "content-feed";
 const GITHUB_API_CONTENT_BASE = `https://api.github.com/repos/${CONTENT_REPO}/contents`;
 const GITEE_FEED_BASE = `https://gitee.com/${CONTENT_REPO}/raw/${CONTENT_BRANCH}`;
+
+const CHANNEL_SET = new Set<Channel>(ALL_CHANNELS);
+
+export function parseContentPackageCheckArgs(
+  argv: string[] = process.argv.slice(2),
+): {
+  checkMirror: boolean;
+  includeDev: boolean;
+  channels: Channel[];
+} {
+  const checkMirror = argv.includes("--check-mirror");
+  const includeDev = argv.includes("--include-dev");
+  const channelsFlagIndex = argv.findIndex((entry) => entry === "--channels");
+  let channels: Channel[] | undefined;
+  if (channelsFlagIndex >= 0) {
+    const raw = String(argv[channelsFlagIndex + 1] || "").trim();
+    if (!raw) {
+      throw new Error(
+        "--channels requires a comma-separated list such as stable,beta",
+      );
+    }
+    const parsed = raw
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean) as Channel[];
+    if (
+      parsed.length === 0 ||
+      parsed.some((channel) => !CHANNEL_SET.has(channel))
+    ) {
+      throw new Error("--channels must include only stable, beta, and/or dev");
+    }
+    channels = Array.from(new Set(parsed));
+  }
+  if (includeDev && channels) {
+    throw new Error("Use either --include-dev or --channels, not both");
+  }
+  if (includeDev) {
+    channels = [...ALL_CHANNELS];
+  }
+  return {
+    checkMirror,
+    includeDev,
+    channels: channels || [...DEFAULT_CHANNELS],
+  };
+}
 
 function normalizeSha256(value: string) {
   return String(value || "")
@@ -388,10 +434,14 @@ export async function verifyContentPackageRelease(args?: {
 }
 
 async function main() {
+  const args = parseContentPackageCheckArgs(process.argv.slice(2));
   await verifyContentPackageRelease({
-    checkMirror: process.argv.includes("--check-mirror"),
+    checkMirror: args.checkMirror,
+    channels: args.channels,
   });
-  console.log("[content-package] release verification passed");
+  console.log(
+    `[content-package] release verification passed (channels=${args.channels.join(",")})`,
+  );
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || "").href) {

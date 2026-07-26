@@ -44,6 +44,7 @@
     "check:zotero-librarian-profile": "tsx scripts/check-host-bridge-skill-packages.ts profiles/hermes/zotero-librarian/skills/zotero-librarian",
     "check:zotero-library-agent-bundle": "tsx scripts/check-host-bridge-skill-packages.ts skills_builtin/zotero-library-agent skills_builtin/zotero-library-query skills_builtin/zotero-literature-acquisition skills_builtin/zotero-literature-analysis skills_builtin/zotero-research-synthesis skills_builtin/zotero-library-curation",
     "check:content-package-release": "tsx scripts/check-content-package-release.ts",
+    "check:content-package-release:all": "tsx scripts/check-content-package-release.ts --include-dev",
     "check:content-package-mirror": "tsx scripts/check-content-package-release.ts --check-mirror",
     "build:content-feed": "tsx scripts/build-content-package-feed.ts",
     "bump:content-package": "tsx scripts/bump-content-package-version.ts",

@@ -15,7 +15,10 @@ import {
 } from "../../../scripts/build-content-package-feed";
 import { parseGithubContentPublicationArgs } from "../../../scripts/publish-content-package-github";
 import { parseGiteePublicationArgs } from "../../../scripts/sync-gitee-publication";
-import { verifyContentPackageRelease } from "../../../scripts/check-content-package-release";
+import {
+  parseContentPackageCheckArgs,
+  verifyContentPackageRelease,
+} from "../../../scripts/check-content-package-release";
 import {
   parseContentPackageReleaseArgs,
   prepareContentPackageRelease,
@@ -976,6 +979,31 @@ describe("content package release scripts", function () {
         buildContentFeeds: async () => {},
       }),
       /GitHub and Gitee feeds do not match/,
+    );
+  });
+
+  it("defaults content release verification to stable and beta only", function () {
+    assert.deepEqual(parseContentPackageCheckArgs([]).channels, [
+      "stable",
+      "beta",
+    ]);
+    assert.deepEqual(parseContentPackageCheckArgs(["--include-dev"]).channels, [
+      "stable",
+      "beta",
+      "dev",
+    ]);
+    assert.deepEqual(
+      parseContentPackageCheckArgs(["--channels", "stable"]).channels,
+      ["stable"],
+    );
+    assert.throws(
+      () =>
+        parseContentPackageCheckArgs(["--include-dev", "--channels", "dev"]),
+      /either --include-dev or --channels/i,
+    );
+    assert.throws(
+      () => parseContentPackageCheckArgs(["--channels", "nightly"]),
+      /stable, beta, and\/or dev/i,
     );
   });
 
