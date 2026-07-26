@@ -77,6 +77,7 @@ function WorkspaceTaskAction(props: {
       class={
         "assistant-workspace-drawer-task-action" +
         (icon === "archive" ? " is-archive" : "") +
+        (icon === "cancel" ? " is-cancel" : "") +
         (safeText(action.tone) ? " is-" + safeText(action.tone) : "")
       }
       disabled={disabled}
@@ -91,6 +92,8 @@ function WorkspaceTaskAction(props: {
     >
       {icon === "archive" ? (
         <span class="zs-icon zs-icon-sm zs-icon-archive" />
+      ) : icon === "cancel" ? (
+        <span class="zs-icon zs-icon-sm zs-icon-close" />
       ) : null}
     </button>
   );
@@ -350,15 +353,17 @@ function sectionTasks(section: Record<string, unknown>): number {
   const groups = Array.isArray(section.groups)
     ? (section.groups as Array<Record<string, unknown>>)
     : [];
-  return groups.reduce((count, group) => {
-    const active = Array.isArray(group && group.activeTasks)
-      ? (group.activeTasks as unknown[]).length
-      : 0;
-    const finished = Array.isArray(group && group.finishedTasks)
-      ? (group.finishedTasks as unknown[]).length
-      : 0;
-    return count + active + finished;
-  }, 0);
+  return groups.reduce((count, group) => count + groupTasks(group), 0);
+}
+
+function groupTasks(group: Record<string, unknown>): number {
+  const active = Array.isArray(group && group.activeTasks)
+    ? (group.activeTasks as unknown[]).length
+    : 0;
+  const finished = Array.isArray(group && group.finishedTasks)
+    ? (group.finishedTasks as unknown[]).length
+    : 0;
+  return active + finished;
 }
 
 export const ContextDrawerRegion = memo(
@@ -429,25 +434,32 @@ export const ContextDrawerRegion = memo(
               section.title || sectionId || "Tasks",
             );
             const sectionCollapsed =
-              sectionId === "completed" && section.collapsed === true;
-            const groups = Array.isArray(section.groups)
-              ? (section.groups as Array<Record<string, unknown>>)
-              : [];
+              section.collapsible === true && section.collapsed === true;
+            const sectionTone = ["running", "queued", "completed"].includes(
+              sectionId,
+            )
+              ? sectionId
+              : "neutral";
+            const groups = (
+              Array.isArray(section.groups)
+                ? (section.groups as Array<Record<string, unknown>>)
+                : []
+            ).filter(
+              (group) =>
+                group && typeof group === "object" && groupTasks(group) > 0,
+            );
             return (
               <section
                 key={sectionId}
                 class={
                   "assistant-workspace-drawer-section skillrunner-workspace-section" +
-                  (sectionId === "completed"
-                    ? " is-completed"
-                    : sectionId === "running"
-                      ? " is-running"
-                      : " is-neutral") +
+                  " is-" +
+                  sectionTone +
                   (sectionCollapsed ? " is-collapsed" : " is-expanded")
                 }
                 data-assistant-section-id={sectionId}
               >
-                {sectionId === "completed" ? (
+                {section.collapsible === true ? (
                   <button
                     type="button"
                     class="assistant-workspace-drawer-section-toggle skillrunner-workspace-section-toggle"
@@ -455,9 +467,7 @@ export const ContextDrawerRegion = memo(
                     onClick={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
-                      onAction("toggle-drawer-section", {
-                        sectionId: "completed",
-                      });
+                      onAction("toggle-drawer-section", { sectionId });
                     }}
                   >
                     {sectionTitle || "Completed"}

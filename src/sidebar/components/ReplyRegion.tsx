@@ -184,7 +184,16 @@ export const ReplyRegion = memo(
       const input = inputRef.current;
       if (!input) return;
       if (!interruptAction) rememberReplyHistory(historyKey, input.value);
-      onAction(replyAction || "reply", { message: safeText(input.value) });
+      onAction(
+        replyAction || "reply",
+        Object.assign(
+          {},
+          reply.payload && typeof reply.payload === "object"
+            ? (reply.payload as Record<string, unknown>)
+            : {},
+          { message: safeText(input.value) },
+        ),
+      );
       resetReplyHistoryNavigation(historyKey);
       if (reply.clearOnSend !== false && !interruptAction) input.value = "";
     };

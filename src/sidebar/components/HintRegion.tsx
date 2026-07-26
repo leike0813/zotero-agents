@@ -295,32 +295,39 @@ export const HintRegion = memo(
         ? (interaction.pendingInteraction as Record<string, unknown>)
         : {};
     const text =
-      kind === "waiting_user"
-        ? safeText(
-            pending.uiHints &&
-              typeof pending.uiHints === "object" &&
-              (pending.uiHints as Record<string, unknown>).prompt,
-          ) ||
-          labelOf(
-            "interaction.waitingReply",
-            "Agent is waiting for your reply.",
-          )
+      kind === "waiting_user" && safeText(pending.prompt)
+        ? safeText(pending.prompt)
         : hintText(interaction, kind, labelOf);
     const actions = Array.isArray(interaction.actions)
       ? (interaction.actions as Array<Record<string, unknown>>)
       : [];
-    const optionsList =
-      pending.uiHints &&
-      typeof pending.uiHints === "object" &&
-      Array.isArray((pending.uiHints as Record<string, unknown>).options)
-        ? ((pending.uiHints as Record<string, unknown>).options as unknown[])
-        : [];
+    const optionsList = Array.isArray(pending.options)
+      ? (pending.options as unknown[])
+      : [];
+    const fileSlots = (
+      Array.isArray(pending.files) ? (pending.files as unknown[]) : []
+    ).map((file) =>
+      file && typeof file === "object" ? (file as Record<string, unknown>) : {},
+    );
+    const fileReply =
+      pending.fileReply && typeof pending.fileReply === "object"
+        ? (pending.fileReply as Record<string, unknown>)
+        : null;
+    const fileAction =
+      pending.fileAction && typeof pending.fileAction === "object"
+        ? (pending.fileAction as Record<string, unknown>)
+        : null;
     return (
       <>
         <div class="assistant-panel-hint-row">
           <span class={"asst-led " + hintLedTone(kind)} />
           <span>{text}</span>
         </div>
+        {kind === "waiting_user" && safeText(pending.hint) ? (
+          <div class="assistant-panel-interaction-hint">
+            {safeText(pending.hint)}
+          </div>
+        ) : null}
         {kind === "permission" || kind === "auth" ? (
           <PermissionSummary
             interaction={interaction}
@@ -353,29 +360,75 @@ export const HintRegion = memo(
                 entry && typeof entry === "object"
                   ? (entry as Record<string, unknown>)
                   : null;
-              const value =
-                typeof entry === "string"
-                  ? entry
-                  : safeText(
-                      record && (record.value || record.label || record.text),
-                    );
               const label =
                 typeof entry === "string"
                   ? entry
-                  : safeText(
-                      record && (record.label || record.value || record.text),
-                    );
+                  : safeText(record && (record.label || record.text));
+              const actionId = safeText(record && record.action);
               return (
                 <button
                   type="button"
                   class="asst-button-compact assistant-panel-hint-option"
                   key={index}
-                  onClick={() => onAction("reply", { message: value || label })}
+                  disabled={!actionId}
+                  onClick={() =>
+                    onAction(
+                      actionId,
+                      record &&
+                        record.payload &&
+                        typeof record.payload === "object"
+                        ? record.payload
+                        : {},
+                    )
+                  }
                 >
-                  {label || value}
+                  {label}
                 </button>
               );
             })}
+          </div>
+        ) : null}
+        {kind === "waiting_user" && fileSlots.length > 0 ? (
+          <div class="assistant-panel-interaction-files">
+            {fileSlots.map((file, index) => (
+              <div class="assistant-panel-interaction-file" key={index}>
+                <span class="assistant-panel-interaction-file-label">
+                  {safeText(file.name) || `File ${index + 1}`}
+                </span>
+                <small class="assistant-panel-interaction-file-state">
+                  {file.required === true
+                    ? labelOf("interaction.fileRequired", "Required")
+                    : labelOf("interaction.fileOptional", "Optional")}
+                </small>
+                {safeText(file.hint) ? (
+                  <small class="assistant-panel-interaction-file-hint">
+                    {safeText(file.hint)}
+                  </small>
+                ) : null}
+              </div>
+            ))}
+            {fileReply && fileReply.supported === true ? (
+              <button
+                type="button"
+                class="asst-button-compact assistant-panel-interaction-file-submit"
+                disabled={!fileAction}
+                onClick={() =>
+                  onAction(
+                    safeText(fileAction && fileAction.action),
+                    fileAction && fileAction.payload,
+                  )
+                }
+              >
+                {labelOf("interaction.chooseFiles", "Choose files")}
+              </button>
+            ) : (
+              <div class="assistant-panel-interaction-file-unavailable">
+                {labelOf(
+                  "interaction.fileReplyUnavailable",
+                  "File replies are unavailable for this backend.",
+                )}
+              </div>
+            )}
           </div>
         ) : null}
       </>

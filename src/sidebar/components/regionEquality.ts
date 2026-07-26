@@ -99,7 +99,11 @@ export function messageCountsEqualityInput(
 // Reply region equality, ported from replyStructuralSignature and
 // replyRegionSignature in the imperative renderer. The two tiers mirror the
 // old two-attribute guard: structure changes rebuild the composer shell,
-// live changes only patch fields on the preserved textarea.
+// live changes only patch fields on the preserved textarea. The reply action
+// payload rides along in the live tier (beyond the imperative port) so a
+// payload-only change — e.g. a second consecutive waiting_user round —
+// re-renders and rebinds the submit closure instead of emitting the stale
+// payload captured by the previous render.
 
 type ReplyPanelLike = {
   kind?: unknown;
@@ -134,6 +138,7 @@ export function replyRegionEqualityInput(panel: ReplyPanelLike): unknown {
       hint: safeText(reply.hint),
       submitLabel: safeText(reply.submitLabel),
       sending: reply.sending === true,
+      payload: reply.payload ?? null,
       value: Object.prototype.hasOwnProperty.call(reply, "value")
         ? String(reply.value == null ? "" : reply.value)
         : null,

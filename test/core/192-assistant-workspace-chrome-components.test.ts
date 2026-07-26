@@ -828,7 +828,7 @@ describe("Assistant Workspace chrome components", function () {
       assert.deepEqual(emitted[1], { action: "auth-import-run", payload: {} });
     });
 
-    it("renders waiting_user prompt and option buttons", function () {
+    it("renders waiting_user prompt, hint, and option action descriptors", function () {
       const container = environment.document.createElement("div");
       const emitted: Array<{ action: string; payload: unknown }> = [];
       renderHintRegion(
@@ -837,25 +837,121 @@ describe("Assistant Workspace chrome components", function () {
           kind: "waiting_user",
           title: "ignored title",
           pendingInteraction: {
-            uiHints: {
-              prompt: "Which chapter next?",
-              options: ["Chapter 1", { value: "ch2", label: "Chapter 2" }],
-            },
+            inputKind: "choose_one",
+            prompt: "Which chapter next?",
+            hint: "Pick one to continue.",
+            options: [
+              {
+                label: "Chapter 2",
+                action: "select-interaction-option",
+                payload: { responseValue: "ch2", responseLabel: "Chapter 2" },
+              },
+              { label: "Unavailable option" },
+            ],
+            files: [],
+            fileReply: { supported: false },
           },
         },
         (action, payload) => emitted.push({ action, payload }),
       );
       const row = container.querySelector(".assistant-panel-hint-row")!;
       assert.equal(row.textContent, "Which chapter next?");
+      assert.equal(
+        container.querySelector(".assistant-panel-interaction-hint")!
+          .textContent,
+        "Pick one to continue.",
+      );
       const options = container.querySelectorAll<HTMLButtonElement>(
         ".assistant-panel-hint-option",
       );
       assert.lengthOf(options, 2);
-      assert.equal(options[1].textContent, "Chapter 2");
-      options[1].click();
+      assert.equal(options[0].textContent, "Chapter 2");
+      assert.isTrue(
+        options[1].disabled,
+        "option without an action descriptor is disabled",
+      );
+      options[0].click();
       assert.deepEqual(emitted, [
-        { action: "reply", payload: { message: "ch2" } },
+        {
+          action: "select-interaction-option",
+          payload: { responseValue: "ch2", responseLabel: "Chapter 2" },
+        },
       ]);
+    });
+
+    it("renders waiting_user file slots and emits the file action", function () {
+      const container = environment.document.createElement("div");
+      const emitted: Array<{ action: string; payload: unknown }> = [];
+      renderHintRegion(
+        container,
+        {
+          kind: "waiting_user",
+          pendingInteraction: {
+            inputKind: "upload_files",
+            prompt: "Upload the dataset.",
+            options: [],
+            files: [
+              { name: "data.csv", required: true, hint: "CSV export" },
+              { name: "notes.md", required: false },
+            ],
+            fileReply: { supported: true },
+            fileAction: { action: "submit-interaction-files", payload: {} },
+          },
+        },
+        (action, payload) => emitted.push({ action, payload }),
+      );
+      const rows = container.querySelectorAll(
+        ".assistant-panel-interaction-file",
+      );
+      assert.lengthOf(rows, 2);
+      assert.equal(
+        rows[0].querySelector(".assistant-panel-interaction-file-label")!
+          .textContent,
+        "data.csv",
+      );
+      assert.equal(
+        rows[0].querySelector(".assistant-panel-interaction-file-state")!
+          .textContent,
+        "Required",
+      );
+      assert.equal(
+        rows[1].querySelector(".assistant-panel-interaction-file-state")!
+          .textContent,
+        "Optional",
+      );
+      const submit = container.querySelector<HTMLButtonElement>(
+        ".assistant-panel-interaction-file-submit",
+      )!;
+      assert.isFalse(submit.disabled);
+      submit.click();
+      assert.deepEqual(emitted, [
+        { action: "submit-interaction-files", payload: {} },
+      ]);
+    });
+
+    it("keeps text reply available when file replies are unsupported", function () {
+      const container = environment.document.createElement("div");
+      renderHintRegion(container, {
+        kind: "waiting_user",
+        pendingInteraction: {
+          inputKind: "upload_files",
+          prompt: "Upload the dataset.",
+          options: [],
+          files: [{ name: "data.csv", required: true }],
+          fileReply: { supported: false },
+          fileAction: null,
+        },
+      });
+      assert.isNull(
+        container.querySelector(".assistant-panel-interaction-file-submit"),
+        "no file submit button without capability",
+      );
+      assert.isOk(
+        container.querySelector(
+          ".assistant-panel-interaction-file-unavailable",
+        ),
+        "unavailable notice replaces the submit button",
+      );
     });
 
     it("keeps the subtree identical for equal interaction input", function () {
@@ -1065,6 +1161,63 @@ describe("Assistant Workspace chrome components", function () {
       };
       renderReplyRegion(container, again);
       assert.equal(input.value, "server draft v2");
+    });
+
+    it("merges the reply action payload into the submitted payload", function () {
+      const container = environment.document.createElement("div");
+      const emitted: Array<{ action: string; payload: unknown }> = [];
+      const panel = replyPanel();
+      panel.reply = {
+        ...panel.reply,
+        action: "reply-run",
+        payload: { interactionId: "int-1" },
+      };
+      renderReplyRegion(container, panel, (action, payload) =>
+        emitted.push({ action, payload }),
+      );
+      replyInput(container).value = "continue";
+      container
+        .querySelector<HTMLButtonElement>(".assistant-panel-reply-submit")!
+        .click();
+      assert.deepEqual(emitted, [
+        {
+          action: "reply-run",
+          payload: { interactionId: "int-1", message: "continue" },
+        },
+      ]);
+    });
+
+    it("emits the latest payload after a payload-only update", function () {
+      const container = environment.document.createElement("div");
+      const emitted: Array<{ action: string; payload: unknown }> = [];
+      const first = replyPanel();
+      first.reply = {
+        ...first.reply,
+        action: "reply-run",
+        payload: { interactionId: "int-1" },
+      };
+      renderReplyRegion(container, first, (action, payload) =>
+        emitted.push({ action, payload }),
+      );
+      const second = replyPanel();
+      second.reply = {
+        ...second.reply,
+        action: "reply-run",
+        payload: { interactionId: "int-2" },
+      };
+      renderReplyRegion(container, second, (action, payload) =>
+        emitted.push({ action, payload }),
+      );
+      replyInput(container).value = "second round";
+      container
+        .querySelector<HTMLButtonElement>(".assistant-panel-reply-submit")!
+        .click();
+      assert.deepEqual(emitted, [
+        {
+          action: "reply-run",
+          payload: { interactionId: "int-2", message: "second round" },
+        },
+      ]);
     });
 
     it("replaces the value on structure change even while focused", function () {
@@ -1421,6 +1574,8 @@ describe("Assistant Workspace chrome components", function () {
           {
             id: "running",
             title: "Running",
+            collapsible: true,
+            collapsed: false,
             groups: [
               {
                 backendId: "claude",
@@ -1446,6 +1601,7 @@ describe("Assistant Workspace chrome components", function () {
           {
             id: "completed",
             title: "Completed",
+            collapsible: true,
             collapsed: true,
             groups: [
               {
@@ -1557,7 +1713,7 @@ describe("Assistant Workspace chrome components", function () {
       });
       (
         mount.querySelector(
-          ".assistant-workspace-drawer-section-toggle",
+          '[data-assistant-section-id="completed"] .assistant-workspace-drawer-section-toggle',
         ) as HTMLButtonElement
       ).click();
       assert.deepEqual(emitted[1], {
@@ -1664,6 +1820,135 @@ describe("Assistant Workspace chrome components", function () {
       after.forEach((node, index) => {
         assert.strictEqual(node, before[index], `node #${index} rebuilt`);
       });
+    });
+
+    it("renders the queued section collapsed by default with a cancel action", function () {
+      const mount = environment.document.createElement("div");
+      const emitted: Array<{ action: string; payload: unknown }> = [];
+      const queuedSection = (collapsed: boolean) => ({
+        id: "queued",
+        title: "Queued",
+        collapsible: true,
+        collapsed,
+        groups: [
+          {
+            backendId: "claude",
+            backendDisplayName: "Claude",
+            activeTasks: [
+              {
+                key: "host-queue:queue-1",
+                title: "Queued Paper",
+                mainStatus: "queued",
+                mainStatusLabel: "Queued",
+                showBackendStatusBadge: false,
+                showApplyStatusBadge: false,
+                selectable: false,
+                itemActions: [
+                  {
+                    action: "cancel-queued-workflow-unit",
+                    label: "Cancel queued workflow unit",
+                    icon: "cancel",
+                    enabled: true,
+                    payload: { queueId: "queue-1" },
+                  },
+                ],
+              },
+            ],
+            finishedTasks: [],
+          },
+        ],
+      });
+      const withQueued = (collapsed: boolean) =>
+        drawerSelection({
+          sections: [...drawerSelection().sections, queuedSection(collapsed)],
+        });
+      renderContextDrawer(mount, withQueued(true), (action, payload) =>
+        emitted.push({ action, payload }),
+      );
+      const queued = mount.querySelector(
+        '[data-assistant-section-id="queued"]',
+      )!;
+      assert.include(queued.className, "is-queued");
+      assert.include(queued.className, "is-collapsed");
+      assert.isNull(
+        queued.querySelector('[data-assistant-task-key="host-queue:queue-1"]'),
+        "collapsed queued section does not render its tasks",
+      );
+      (
+        queued.querySelector(
+          ".assistant-workspace-drawer-section-toggle",
+        ) as HTMLButtonElement
+      ).click();
+      assert.deepEqual(emitted[0], {
+        action: "toggle-drawer-section",
+        payload: { sectionId: "queued" },
+      });
+      renderContextDrawer(mount, withQueued(false), (action, payload) =>
+        emitted.push({ action, payload }),
+      );
+      const row = mount.querySelector(
+        '[data-assistant-task-key="host-queue:queue-1"]',
+      )!;
+      assert.isOk(row);
+      assert.lengthOf(
+        row.querySelectorAll(".assistant-workspace-drawer-task-status-axis"),
+        0,
+        "queued task hides both status axes",
+      );
+      const cancel = row.querySelector<HTMLButtonElement>(
+        ".assistant-workspace-drawer-task-action",
+      )!;
+      assert.include(cancel.className, "is-cancel");
+      assert.isOk(cancel.querySelector(".zs-icon-close"));
+      cancel.click();
+      assert.deepEqual(emitted[1], {
+        action: "cancel-queued-workflow-unit",
+        payload: { queueId: "queue-1" },
+      });
+    });
+
+    it("routes a collapse toggle for every collapsible section", function () {
+      const mount = environment.document.createElement("div");
+      const emitted: Array<{ action: string; payload: unknown }> = [];
+      renderContextDrawer(mount, drawerSelection(), (action, payload) =>
+        emitted.push({ action, payload }),
+      );
+      const toggles = Array.from(
+        mount.querySelectorAll<HTMLButtonElement>(
+          ".assistant-workspace-drawer-section-toggle",
+        ),
+      );
+      assert.lengthOf(toggles, 2);
+      toggles.forEach((toggle) => toggle.click());
+      assert.deepEqual(emitted, [
+        { action: "toggle-drawer-section", payload: { sectionId: "running" } },
+        {
+          action: "toggle-drawer-section",
+          payload: { sectionId: "completed" },
+        },
+      ]);
+    });
+
+    it("does not render backend groups without task cards", function () {
+      const mount = environment.document.createElement("div");
+      const selection = drawerSelection();
+      (selection.sections[0].groups as Array<Record<string, unknown>>).push({
+        backendId: "backend-empty",
+        backendDisplayName: "Backend Empty",
+        activeTasks: [],
+        finishedTasks: [],
+      });
+      renderContextDrawer(mount, selection);
+      const running = mount.querySelector(
+        '[data-assistant-section-id="running"]',
+      )!;
+      assert.lengthOf(
+        running.querySelectorAll(".assistant-workspace-drawer-group"),
+        1,
+      );
+      assert.isNull(
+        running.querySelector('[data-assistant-group-key="backend-empty"]'),
+      );
     });
   });
 
