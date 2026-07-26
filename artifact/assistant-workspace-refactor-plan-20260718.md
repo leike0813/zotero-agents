@@ -199,6 +199,12 @@ identity invariant tests green; no change to wire protocol.
   duplicated markdown-it initializations (consolidate on one shared renderer).
 - SkillRunner gains region isolation, owner-first switching, and the
   AGENTS.md transcript invariants it currently sits outside of.
+- Amended by the dev merge (2026-07-25, see notes below): the adapter must
+  inherit the transcript publication-clock semantics dev hardened on the
+  legacy path, and the acceptance baseline is the 2026-07-25 behavior
+  analysis artifact. The one sanctioned perceptible change is run switching
+  becoming owner-first (classified as an intended "smoother" improvement,
+  not a regression).
 
 Exit: one update paradigm for all three tabs; panel model/renderer slimmed
 by ~1/3.
@@ -263,3 +269,68 @@ Exit: mergeable duplication (2.5k–3.5k LOC) eliminated.
 - **Implementation-detail tests** (source-text regex in `test/core/71`;
   mount-granularity identity checks in `test/core/97`) must be migrated
   before the code they lock — sequenced in Phase 0.
+
+## Dev merge notes (2026-07-25)
+
+`dev` (~50 commits ahead of merge-base `a8908417`, up to v0.8.0) was merged
+into `dev-assistant-ui` after Phase 2 to reduce merge-back friction. Three
+textual conflicts (help-docs manifest timestamp — regenerated;
+`assistantWorkspaceAcpChild.js`; `test/core/97`), all resolved in favor of
+the Phase 2 structure with dev semantics re-landed. dev also landed two
+reference artifacts that now govern refactor acceptance:
+
+- `artifact/assistant-workspace-user-behavior-analysis-20260725.md` — the
+  user-visible behavior baseline; §6 and the §8.7 checklist are the
+  SkillRunner-tab acceptance contract for Phase 3.
+- `artifact/assistant-workspace-refactor-improvement-candidates-20260725.md`
+  — decision list; its column-E items (Chat writable while disconnected,
+  `TODO(contract)` ×5, …) stay parked and must not be piggybacked.
+
+### Classification of dev changes coupled to the refactor scope
+
+- **(C) Merges cleanly, no refactor interplay** (lands on code Phases 2–4
+  keep): ACP runtime-option resolution SSOT; atomic placeholder conversation
+  on backend switch; live-UI consistency fixes (scroll stickiness, terminal
+  Markdown, banner convergence); backend-scoped workflow settings; removal
+  of the interaction token; ACP Skills runtime-option SSOT + multi-page
+  transcript/scroll fixes (transcript renderer merges as-is); Kilo reasoning
+  fallback widening; recovery Host Bridge injection; the native workflow
+  queue core/wire/routing; SkillRunner observer lifecycle convergence (the
+  poll/reconcile model Phase 3 keeps).
+- **(B1) Overlaps Phase 2 — re-landed onto Preact ("Phase 2.5")**:
+  - owner-scoped transcript loading/empty placeholder → `TranscriptRegion`
+    gains an `ownerKey` dimension in memo comparison and reset effect
+    (AGENTS.md owner-scope isolation invariant);
+  - source-aware context drawer (Chat sessions-only section, empty backend
+    group filtering, section-scoped collapse keys), the Queued drawer
+    section with `cancel-queued-workflow-unit`, and the task-card
+    Backend/Apply status axis → `ContextDrawerRegion`;
+  - waiting_user interaction controls (open-text/option/confirm/file) →
+    `HintRegion`/`ReplyRegion`/`ActionControls`, driven by model-projected
+    action descriptors instead of the child's hand-made `reply` action;
+  - reply stale action/payload fix (the renderer's WeakMap mechanism has no
+    Preact equivalent; `ReplyRegion`'s memo equality must include the
+    action/payload or read them via ref).
+  No new OpenSpec change: these behaviors are already specified in
+  `openspec/specs/*` by the dev-side archived changes; Phase 2.5 brings the
+  refactored implementation back to spec.
+- **(B2) Lands on the legacy path Phase 3 deletes — semantics the
+  SkillRunner surface adapter must inherit** (recorded in the Phase 3
+  OpenSpec change):
+  - transcript publication clock: mode-aware transcript qualification, the
+    `isSkillRunnerDisabledLivePublishBoundary` classification SSOT (reused
+    as-is), the pending-boundary bit, and clock preservation across host
+    detach/reattach;
+  - capability-gated interaction file submission (`submit-interaction-files`);
+  - the Queued section in SkillRunner owner-navigation projection;
+  - test migrations (71, 65, 97 SkillRunner section, snapshot harness) must
+    carry dev's new assertions over to the publication boundary.
+
+### Phase 3 acceptance amendment
+
+Per the improvement-candidates artifact (column A/E, already decided): run
+switching on the SkillRunner tab changing from "full transcript rebuild +
+Loading conversation..." to owner-first spinner + page-first paint is the
+one sanctioned perceptible change; acceptance and release notes classify it
+as an intended improvement. Everything else in §6/§8.7 of the behavior
+analysis must hold byte-for-byte.
