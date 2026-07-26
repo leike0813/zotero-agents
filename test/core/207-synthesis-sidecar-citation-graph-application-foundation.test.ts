@@ -644,4 +644,36 @@ describe("Synthesis sidecar Citation Graph application foundation", function () 
     repository.close();
     await pool.shutdown();
   });
+
+  it("keeps the Rust Citation Graph owner typed and represented in the parity corpus", function () {
+    const projectRoot = path.resolve(process.cwd());
+    const source = fs.readFileSync(
+      path.join(
+        projectRoot,
+        "native/synthesis-sidecar/crates/synthesis-application/src/citation_graph.rs",
+      ),
+      "utf8",
+    );
+    const repository = fs.readFileSync(
+      path.join(
+        projectRoot,
+        "native/synthesis-sidecar/crates/synthesis-repository/src/citation_reference.rs",
+      ),
+      "utf8",
+    );
+    const corpus = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          projectRoot,
+          "packages/synthesis-contracts/contract-set/synthesis-citation-reference-application-parity-v1/corpus.json",
+        ),
+        "utf8",
+      ),
+    );
+    assert.include(source, "pub trait CitationGraphComputePort");
+    assert.include(source, "pub fn rebuild_full");
+    assert.include(repository, "pub struct CitationGraphReplacement");
+    assert.notInclude(repository, "list_citation_application_rows");
+    assert.include(corpus.coverage.citationGraph, "busy_cancel_drain_reopen");
+  });
 });

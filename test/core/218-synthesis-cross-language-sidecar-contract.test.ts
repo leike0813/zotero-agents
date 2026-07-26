@@ -11,6 +11,7 @@ import { SYNTHESIS_REPOSITORY_FOUNDATION_SCHEMA_VERSION as REPOSITORY_SCHEMA_VER
 import { checkSynthesisCrossLanguageContracts } from "../../scripts/check-synthesis-cross-language-contracts";
 import { checkSynthesisDurableFoundationParity } from "../../scripts/check-synthesis-durable-foundation-parity";
 import { checkSynthesisTypedApplicationParity } from "../../scripts/check-synthesis-typed-application-parity";
+import { checkSynthesisCitationReferenceApplicationParity } from "../../scripts/check-synthesis-citation-reference-application-parity";
 import { checkSynthesisRustLicenseInventory } from "../../scripts/check-synthesis-rust-license-inventory";
 import { findSynthesisContractBoundaryViolations } from "../../scripts/check-synthesis-service-boundary";
 
@@ -177,6 +178,26 @@ describe("Synthesis cross-language sidecar contract", function () {
       result.implementations.rust.sourceFingerprint,
       /^sha256:[a-f0-9]{64}$/,
     );
+  });
+
+  it("executes the independent Citation/Reference typed application differential", async function () {
+    const result = await checkSynthesisCitationReferenceApplicationParity();
+
+    assert.deepEqual(result.errors, []);
+    assert.isTrue(result.ok);
+    assert.equal(
+      result.corpus,
+      "synthesis-citation-reference-application-parity.v1",
+    );
+    assert.equal(
+      result.reportSchema,
+      "synthesis-citation-reference-application-parity-report.v1",
+    );
+    assert.equal(result.tables, 51);
+    assert.equal(result.comparedTables, 51);
+    assert.equal(result.applicationFamilies, 3);
+    assert.equal(result.implementations.node.role, "oracle");
+    assert.equal(result.implementations.rust.role, "candidate");
   });
 
   it("accounts for every locked Rust and bundled SQLite license", function () {

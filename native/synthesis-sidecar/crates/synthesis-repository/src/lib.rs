@@ -8,6 +8,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+mod citation_reference;
+pub use citation_reference::*;
+
 pub const SCHEMA_VERSION: &str = "synthesis-repository-foundation.v1";
 pub const BUSY_TIMEOUT_MILLIS: u64 = 250;
 pub const JS_SAFE_INTEGER_MAX: i64 = 9_007_199_254_740_991;

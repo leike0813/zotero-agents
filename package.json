@@ -122,6 +122,7 @@
     "check:synthesis-cross-language-contracts": "tsx scripts/check-synthesis-cross-language-contracts.ts",
     "check:synthesis-durable-foundation-parity": "tsx scripts/check-synthesis-durable-foundation-parity.ts",
     "check:synthesis-typed-application-parity": "tsx scripts/check-synthesis-typed-application-parity.ts",
+    "check:synthesis-citation-reference-application-parity": "tsx scripts/check-synthesis-citation-reference-application-parity.ts",
     "check:synthesis-rust-license-inventory": "tsx scripts/check-synthesis-rust-license-inventory.ts",
     "test:node:core": "tsx scripts/run-zotero-test-with-mock.ts test:node:raw:core lite core",
     "test:node:core:full": "tsx scripts/run-zotero-test-with-mock.ts test:node:raw:core full core",

@@ -677,4 +677,35 @@ describe("Synthesis sidecar Reference Matching/Review application foundation", f
     await failedApplication.shutdown();
     repository.close();
   });
+
+  it("keeps the Rust Matching/Review owner double-pass and represented in the parity corpus", function () {
+    const projectRoot = path.resolve(process.cwd());
+    const source = fs.readFileSync(
+      path.join(
+        projectRoot,
+        "native/synthesis-sidecar/crates/synthesis-application/src/reference_matching.rs",
+      ),
+      "utf8",
+    );
+    const repository = fs.readFileSync(
+      path.join(
+        projectRoot,
+        "native/synthesis-sidecar/crates/synthesis-repository/src/citation_reference.rs",
+      ),
+      "utf8",
+    );
+    const corpus = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          projectRoot,
+          "packages/synthesis-contracts/contract-set/synthesis-citation-reference-application-parity-v1/corpus.json",
+        ),
+        "utf8",
+      ),
+    );
+    assert.include(source, "ReferenceMatchPass::LibraryBinding");
+    assert.include(source, "ReferenceMatchPass::CanonicalRedirect");
+    assert.include(repository, "pub struct ReferenceReviewTransition");
+    assert.include(corpus.coverage.referenceMatching, "partial_batch");
+  });
 });

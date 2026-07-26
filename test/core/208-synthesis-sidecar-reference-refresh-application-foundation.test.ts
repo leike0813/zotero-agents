@@ -683,4 +683,36 @@ describe("Synthesis sidecar Reference Refresh application foundation", function 
     inspection.close();
     repository.close();
   });
+
+  it("keeps the Rust Reference Refresh owner scope-aware and represented in the parity corpus", function () {
+    const projectRoot = path.resolve(process.cwd());
+    const source = fs.readFileSync(
+      path.join(
+        projectRoot,
+        "native/synthesis-sidecar/crates/synthesis-application/src/reference_refresh.rs",
+      ),
+      "utf8",
+    );
+    const repository = fs.readFileSync(
+      path.join(
+        projectRoot,
+        "native/synthesis-sidecar/crates/synthesis-repository/src/citation_reference.rs",
+      ),
+      "utf8",
+    );
+    const corpus = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          projectRoot,
+          "packages/synthesis-contracts/contract-set/synthesis-citation-reference-application-parity-v1/corpus.json",
+        ),
+        "utf8",
+      ),
+    );
+    assert.include(source, "pub fn prepare_refresh");
+    assert.include(source, "pub fn discard_preparation");
+    assert.include(repository, "pub enum ReferenceProjectionScope");
+    assert.notInclude(repository, "list_reference_application_rows");
+    assert.include(corpus.coverage.referenceRefresh, "protected_decisions");
+  });
 });

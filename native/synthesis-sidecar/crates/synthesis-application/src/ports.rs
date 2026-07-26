@@ -9,6 +9,107 @@ use synthesis_repository::{
     CacheBasisRecord, OperationQuery, OperationRecord, Repository,
     TopicApplicationProjectionRecord, TopicApplicationStateRecord,
 };
+use synthesis_repository::{
+    CanonicalReferenceRecord, CitationComplexMetricsRecord, CitationEdgeRecord,
+    CitationGraphApplicationStateRecord, CitationGraphReplacement, CitationLayoutRecord,
+    CitationNodeRecord, RawReferenceRecord, ReferenceApplicationStateRecord,
+    ReferenceArtifactRecord, ReferenceBindingFactRecord, ReferenceMatchProposalRecord,
+    ReferenceMatchingPreparationRecord, ReferenceMatchingPromotion, ReferenceMatchingStateRecord,
+    ReferenceProjectionReplacement, ReferenceRedirectFactRecord, ReferenceReviewTransition,
+    ReferenceSourceRecord,
+};
+
+pub trait CitationGraphRepositoryPort: Send + Sync {
+    fn get_state(&self) -> Result<Option<CitationGraphApplicationStateRecord>, String>;
+    fn list_nodes(&self) -> Result<Vec<CitationNodeRecord>, String>;
+    fn list_edges(&self) -> Result<Vec<CitationEdgeRecord>, String>;
+    fn list_complex_metrics(&self) -> Result<Vec<CitationComplexMetricsRecord>, String>;
+    fn list_layouts(&self) -> Result<Vec<CitationLayoutRecord>, String>;
+    fn get_layout(&self, layout_key: &str) -> Result<Option<CitationLayoutRecord>, String>;
+    fn replace(
+        &self,
+        expected_graph_hash: Option<&str>,
+        replacement: &CitationGraphReplacement,
+    ) -> Result<bool, String>;
+    fn promote_metrics(
+        &self,
+        expected_graph_hash: &str,
+        metrics_hash: &str,
+        records: &[CitationComplexMetricsRecord],
+        now: &str,
+    ) -> Result<bool, String>;
+    fn promote_layout(
+        &self,
+        expected_graph_hash: &str,
+        record: &CitationLayoutRecord,
+    ) -> Result<bool, String>;
+    fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String>;
+    fn update_operation(
+        &self,
+        operation_id: &str,
+        status: &str,
+        phase: &str,
+        diagnostics: &[String],
+        now: &str,
+    ) -> Result<(), String>;
+}
+
+pub trait ReferenceRefreshRepositoryPort: Send + Sync {
+    fn get_state(&self) -> Result<Option<ReferenceApplicationStateRecord>, String>;
+    fn list_sources(&self) -> Result<Vec<ReferenceSourceRecord>, String>;
+    fn list_artifacts(
+        &self,
+        source_refs: &[String],
+    ) -> Result<Vec<ReferenceArtifactRecord>, String>;
+    fn list_raw_references(&self) -> Result<Vec<RawReferenceRecord>, String>;
+    fn list_canonicals(&self) -> Result<Vec<CanonicalReferenceRecord>, String>;
+    fn list_bindings(&self) -> Result<Vec<ReferenceBindingFactRecord>, String>;
+    fn replace(&self, replacement: &ReferenceProjectionReplacement) -> Result<bool, String>;
+    fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String>;
+    fn update_operation(
+        &self,
+        operation_id: &str,
+        status: &str,
+        phase: &str,
+        diagnostics: &[String],
+        now: &str,
+    ) -> Result<(), String>;
+}
+
+pub trait ReferenceMatchingRepositoryPort: Send + Sync {
+    fn get_reference_state(&self) -> Result<Option<ReferenceApplicationStateRecord>, String>;
+    fn get_matching_state(&self) -> Result<Option<ReferenceMatchingStateRecord>, String>;
+    fn list_raw_references(&self) -> Result<Vec<RawReferenceRecord>, String>;
+    fn list_canonicals(&self) -> Result<Vec<CanonicalReferenceRecord>, String>;
+    fn list_bindings(&self) -> Result<Vec<ReferenceBindingFactRecord>, String>;
+    fn list_redirects(&self) -> Result<Vec<ReferenceRedirectFactRecord>, String>;
+    fn get_preparation(
+        &self,
+        preparation_id: &str,
+    ) -> Result<Option<ReferenceMatchingPreparationRecord>, String>;
+    fn has_prepared_preparation(&self) -> Result<bool, String>;
+    fn upsert_preparation(&self, record: &ReferenceMatchingPreparationRecord)
+    -> Result<(), String>;
+    fn delete_preparation(&self, preparation_id: &str) -> Result<(), String>;
+    fn delete_prepared_preparations(&self) -> Result<(), String>;
+    fn get_proposal(
+        &self,
+        proposal_id: &str,
+    ) -> Result<Option<ReferenceMatchProposalRecord>, String>;
+    fn list_proposals(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<ReferenceMatchProposalRecord>, bool), String>;
+    fn was_rejected(&self, kind: &str, basis_hash: &str, source_hash: &str)
+    -> Result<bool, String>;
+    fn promote(
+        &self,
+        preparation_id: &str,
+        promotion: &ReferenceMatchingPromotion,
+    ) -> Result<bool, String>;
+    fn apply_review(&self, transition: &ReferenceReviewTransition) -> Result<bool, String>;
+}
 
 pub trait WorkbenchRepositoryPort: Send + Sync {
     fn get_cache_basis(&self, cache_key: &str) -> Result<Option<CacheBasisRecord>, String>;
@@ -67,6 +168,319 @@ impl WorkbenchRepositoryPort for RepositoryPort {
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
             .list_operations(query)
+    }
+}
+
+impl CitationGraphRepositoryPort for RepositoryPort {
+    fn get_state(&self) -> Result<Option<CitationGraphApplicationStateRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .get_citation_graph_application_state()
+    }
+
+    fn list_nodes(&self) -> Result<Vec<CitationNodeRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .list_citation_nodes()
+    }
+
+    fn list_edges(&self) -> Result<Vec<CitationEdgeRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .list_citation_edges()
+    }
+
+    fn list_complex_metrics(&self) -> Result<Vec<CitationComplexMetricsRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .list_citation_complex_metrics()
+    }
+
+    fn list_layouts(&self) -> Result<Vec<CitationLayoutRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .list_citation_layouts()
+    }
+
+    fn get_layout(&self, layout_key: &str) -> Result<Option<CitationLayoutRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .get_citation_layout(layout_key)
+    }
+
+    fn replace(
+        &self,
+        expected_graph_hash: Option<&str>,
+        replacement: &CitationGraphReplacement,
+    ) -> Result<bool, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .replace_citation_graph_application_state(expected_graph_hash, replacement)
+    }
+
+    fn promote_metrics(
+        &self,
+        expected_graph_hash: &str,
+        metrics_hash: &str,
+        records: &[CitationComplexMetricsRecord],
+        now: &str,
+    ) -> Result<bool, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .promote_citation_complex_metrics(expected_graph_hash, metrics_hash, records, now)
+    }
+
+    fn promote_layout(
+        &self,
+        expected_graph_hash: &str,
+        record: &CitationLayoutRecord,
+    ) -> Result<bool, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .promote_citation_layout(expected_graph_hash, record)
+    }
+
+    fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .upsert_operation(record)
+    }
+
+    fn update_operation(
+        &self,
+        operation_id: &str,
+        status: &str,
+        phase: &str,
+        diagnostics: &[String],
+        now: &str,
+    ) -> Result<(), String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .update_operation_status(operation_id, status, phase, diagnostics, now)?;
+        Ok(())
+    }
+}
+
+impl ReferenceRefreshRepositoryPort for RepositoryPort {
+    fn get_state(&self) -> Result<Option<ReferenceApplicationStateRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .get_reference_application_state()
+    }
+
+    fn list_sources(&self) -> Result<Vec<ReferenceSourceRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .list_reference_sources()
+    }
+
+    fn list_artifacts(
+        &self,
+        source_refs: &[String],
+    ) -> Result<Vec<ReferenceArtifactRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .list_reference_artifacts(source_refs)
+    }
+
+    fn list_raw_references(&self) -> Result<Vec<RawReferenceRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .list_raw_references()
+    }
+
+    fn list_canonicals(&self) -> Result<Vec<CanonicalReferenceRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .list_canonical_references()
+    }
+
+    fn list_bindings(&self) -> Result<Vec<ReferenceBindingFactRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .list_reference_bindings()
+    }
+
+    fn replace(&self, replacement: &ReferenceProjectionReplacement) -> Result<bool, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .replace_reference_projection(replacement)
+    }
+
+    fn upsert_operation(&self, record: &OperationRecord) -> Result<(), String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .upsert_operation(record)
+    }
+
+    fn update_operation(
+        &self,
+        operation_id: &str,
+        status: &str,
+        phase: &str,
+        diagnostics: &[String],
+        now: &str,
+    ) -> Result<(), String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .update_operation_status(operation_id, status, phase, diagnostics, now)?;
+        Ok(())
+    }
+}
+
+impl ReferenceMatchingRepositoryPort for RepositoryPort {
+    fn get_reference_state(&self) -> Result<Option<ReferenceApplicationStateRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .get_reference_application_state()
+    }
+
+    fn get_matching_state(&self) -> Result<Option<ReferenceMatchingStateRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .get_reference_matching_state()
+    }
+
+    fn list_raw_references(&self) -> Result<Vec<RawReferenceRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .list_raw_references()
+    }
+
+    fn list_canonicals(&self) -> Result<Vec<CanonicalReferenceRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .list_canonical_references()
+    }
+
+    fn list_bindings(&self) -> Result<Vec<ReferenceBindingFactRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .list_reference_bindings()
+    }
+
+    fn list_redirects(&self) -> Result<Vec<ReferenceRedirectFactRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .list_reference_redirects()
+    }
+
+    fn get_preparation(
+        &self,
+        preparation_id: &str,
+    ) -> Result<Option<ReferenceMatchingPreparationRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .get_reference_matching_preparation(preparation_id)
+    }
+
+    fn has_prepared_preparation(&self) -> Result<bool, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .has_prepared_reference_matching_preparation()
+    }
+
+    fn upsert_preparation(
+        &self,
+        record: &ReferenceMatchingPreparationRecord,
+    ) -> Result<(), String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .upsert_reference_matching_preparation(record)
+    }
+
+    fn delete_preparation(&self, preparation_id: &str) -> Result<(), String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .delete_reference_matching_preparation(preparation_id)
+    }
+
+    fn delete_prepared_preparations(&self) -> Result<(), String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .delete_prepared_reference_matching_preparations()
+    }
+
+    fn get_proposal(
+        &self,
+        proposal_id: &str,
+    ) -> Result<Option<ReferenceMatchProposalRecord>, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .get_reference_match_proposal(proposal_id)
+    }
+
+    fn list_proposals(
+        &self,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<ReferenceMatchProposalRecord>, bool), String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .list_reference_match_proposals(offset, limit)
+    }
+
+    fn was_rejected(
+        &self,
+        kind: &str,
+        basis_hash: &str,
+        source_hash: &str,
+    ) -> Result<bool, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .has_rejected_reference_match_proposal(kind, basis_hash, source_hash)
+    }
+
+    fn promote(
+        &self,
+        preparation_id: &str,
+        promotion: &ReferenceMatchingPromotion,
+    ) -> Result<bool, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .promote_reference_matching(preparation_id, promotion)
+    }
+
+    fn apply_review(&self, transition: &ReferenceReviewTransition) -> Result<bool, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .apply_reference_review_transition(transition)
     }
 }
 
