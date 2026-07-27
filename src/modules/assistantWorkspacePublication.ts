@@ -190,9 +190,9 @@ export const ASSISTANT_WORKSPACE_ACTION_REGISTRY = {
     payloadKeys: ["request"],
   },
   connect: {
-    scope: "selected-owner",
+    scope: "navigation-group",
     sources: ["acp-chat"],
-    payloadKeys: [],
+    payloadKeys: ["groupId"],
   },
   disconnect: {
     scope: "selected-owner",

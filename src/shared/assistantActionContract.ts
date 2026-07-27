@@ -71,7 +71,7 @@ export type AssistantWorkspaceActionPayloadMap = {
       limit: number;
     };
   };
-  connect: AssistantWorkspaceEmptyActionPayload;
+  connect: { groupId: string };
   disconnect: AssistantWorkspaceEmptyActionPayload;
   cancel: AssistantWorkspaceEmptyActionPayload;
   authenticate: { methodId: string };

@@ -2521,9 +2521,16 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
     selection.owner && selection.owner.source === source.source
       ? selection.owner
       : null;
-  const emptyChrome = owner
-    ? null
-    : exactWorkspaceEmptyChrome(source, sourceLabels, labelSource);
+  const hasAvailableAcpBackend =
+    source.source === "acp-chat" &&
+    Array.isArray(navigation.groups) &&
+    navigation.groups.some(function (group) {
+      return Boolean(safeText(group && group.groupId));
+    });
+  const emptyChrome =
+    owner || hasAvailableAcpBackend
+      ? null
+      : exactWorkspaceEmptyChrome(source, sourceLabels, labelSource);
   const control =
     selection.control && typeof selection.control === "object"
       ? selection.control
@@ -2658,7 +2665,7 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
     ownerOptions = bounded;
   }
   const selectors =
-    source.source === "acp-chat" && !owner
+    source.source === "acp-chat" && !hasAvailableAcpBackend
       ? [
           {
             id: "backend",
@@ -2718,17 +2725,32 @@ function projectAssistantWorkspacePanel(state, uiState, labels) {
       payload: { groupId: selectedGroupId },
     });
   }
-  if (owner && control.connection) {
-    const connectionStatus = safeText(control.connection.status);
+  const connectionStatus = safeText(
+    control.connection && control.connection.status,
+  );
+  if (source.source === "acp-chat" && hasAvailableAcpBackend) {
     contextActions.push({
-      action: source.source === "acp-chat" ? "connect" : "connect-run",
+      action: "connect",
       label:
         connectionStatus === "connecting"
           ? labelFrom(labelSource, "actions.connecting", "Connecting...")
           : labelFrom(labelSource, "actions.connect", "Connect"),
-      enabled: control.connection.canConnect === true,
-      payload: {},
+      enabled: owner ? control.connection.canConnect === true : true,
+      payload: { groupId: selectedGroupId },
     });
+  }
+  if (owner && control.connection) {
+    if (source.source !== "acp-chat") {
+      contextActions.push({
+        action: "connect-run",
+        label:
+          connectionStatus === "connecting"
+            ? labelFrom(labelSource, "actions.connecting", "Connecting...")
+            : labelFrom(labelSource, "actions.connect", "Connect"),
+        enabled: control.connection.canConnect === true,
+        payload: {},
+      });
+    }
     contextActions.push({
       action: source.source === "acp-chat" ? "disconnect" : "disconnect-run",
       label:

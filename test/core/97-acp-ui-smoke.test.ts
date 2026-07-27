@@ -511,6 +511,34 @@ function emptyWorkspaceState(source: "acp-chat" | "acp-skills") {
   return state;
 }
 
+function noBackendWorkspaceState(source: "acp-chat" | "acp-skills") {
+  const state = emptyWorkspaceState(source);
+  if (source === "acp-chat") {
+    state.navigation.groups = [];
+    state.navigation.entries = [];
+    state.navigation.queuedEntries = [];
+    state.navigation.selectedGroupId = null;
+    state.navigation.canCreateOwner = false;
+  }
+  return state;
+}
+
+function backendOnlyAcpChatWorkspaceState() {
+  const state = emptyWorkspaceState("acp-chat");
+  state.navigation.groups = [
+    {
+      groupId: "backend-a",
+      label: "Backend A",
+      status: "idle",
+    },
+  ];
+  state.navigation.entries = [];
+  state.navigation.queuedEntries = [];
+  state.navigation.selectedGroupId = "backend-a";
+  state.navigation.canCreateOwner = true;
+  return state;
+}
+
 function emptyPanelLabels(source: "acp-chat" | "acp-skills") {
   return {
     title: source === "acp-chat" ? "ACP Chat" : "ACP Skill Run",
@@ -648,11 +676,58 @@ describe("Assistant Workspace ACP UI v1", function () {
     );
   });
 
+  it("keeps ACP Chat backend actions available before a conversation exists", async function () {
+    const model = await loadPanelModel();
+    const panel = model.projectAssistantWorkspacePanel(
+      backendOnlyAcpChatWorkspaceState(),
+      { executionDisplayMode: "live" },
+      emptyPanelLabels("acp-chat"),
+    );
+
+    const backendSelector = panel.context.selectors.find(
+      (entry: any) => entry.id === "backend",
+    );
+    assert.deepInclude(backendSelector, {
+      value: "backend-a",
+      disabled: false,
+    });
+    assert.deepEqual(
+      backendSelector.options.map((entry: any) => [entry.value, entry.label]),
+      [["backend-a", "Backend A"]],
+    );
+
+    const ownerSelector = panel.context.selectors.find(
+      (entry: any) => entry.id === "owner",
+    );
+    assert.deepInclude(ownerSelector, {
+      value: "",
+      disabled: true,
+    });
+    assert.deepEqual(ownerSelector.options, []);
+
+    const newConversation = panel.context.actions.find(
+      (entry: any) => entry.action === "new-conversation",
+    );
+    assert.deepInclude(newConversation, {
+      enabled: true,
+      payload: { groupId: "backend-a" },
+    });
+    const connect = panel.context.actions.find(
+      (entry: any) => entry.action === "connect",
+    );
+    assert.deepInclude(connect, {
+      enabled: true,
+      payload: { groupId: "backend-a" },
+    });
+    assert.isFalse(panel.reply.enabled);
+    assert.isFalse(panel.reply.inputEnabled);
+  });
+
   for (const source of ["acp-chat", "acp-skills"] as const) {
     it(`keeps ${source} empty chrome resident and unavailable`, async function () {
       const model = await loadPanelModel();
       const panel = model.projectAssistantWorkspacePanel(
-        emptyWorkspaceState(source),
+        noBackendWorkspaceState(source),
         { executionDisplayMode: "live" },
         emptyPanelLabels(source),
       );
@@ -2325,6 +2400,12 @@ describe("Assistant Workspace ACP UI v1", function () {
       },
       {
         action: "new-conversation",
+        data: { groupId: "backend-a" },
+        selected: chatSelected,
+        expected: { owner: null, payload: { groupId: "backend-a" } },
+      },
+      {
+        action: "connect",
         data: { groupId: "backend-a" },
         selected: chatSelected,
         expected: { owner: null, payload: { groupId: "backend-a" } },

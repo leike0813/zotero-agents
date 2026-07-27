@@ -979,13 +979,26 @@ region.
 
 ### Requirement: Assistant panels preserve empty-state chrome
 
-ACP Chat、ACP Skills 与 SkillRunner 在没有选中 conversation、run 或 task 时 SHALL 保持与非空态相同的 banner、transcript、reply 和 toolbar managed regions。固定信息槽位 SHALL 保持可见并以渲染层 `-` 表示缺失值；owner-scoped badge、LED、selectors 和 actions SHALL 保持可见但显示 unavailable、muted 或 disabled。全局 Host Bridge 状态与 shell navigation SHALL 保持真实且可用。
+ACP Chat、ACP Skills 与 SkillRunner 在没有选中 conversation、run 或 task 时 SHALL 保持与非空态相同的 banner、transcript、reply 和 toolbar managed regions。固定信息槽位 SHALL 保持可见并以渲染层 `-` 表示缺失值；owner-scoped badge、LED、selectors 和 actions SHALL 根据 owner 可用性显示 unavailable、muted 或 disabled。全局 Host Bridge 状态与 shell navigation SHALL 保持真实且可用。ACP Chat SHALL 进一步区分无后端与已有后端但无 conversation 的状态。
 
-#### Scenario: ACP Chat has no selected conversation
+#### Scenario: ACP Chat has no configured backend
 
-- **WHEN** ACP Chat 没有 selected owner
-- **THEN** banner SHALL 显示"无会话"副标题、不可用 badge、backend/conversation/workspace 空槽位和 muted Connection LED
-- **AND** Chat banner selectors/actions 与 reply controls SHALL 保持可见且禁用
+- **WHEN** ACP Chat 没有 selected owner 且 backend navigation groups 为空
+- **THEN** banner SHALL 显示"无会话"副标题、不可用 badge、backend、
+  conversation 与 workspace 空槽位和 muted Connection LED
+- **AND** Chat backend/conversation selectors、actions 与 reply controls
+  SHALL 保持可见且禁用
+- **AND** Host Bridge 与 shell navigation SHALL 保持真实状态和可用性。
+
+#### Scenario: ACP Chat has a backend without a conversation
+
+- **WHEN** ACP Chat 没有 selected owner 但有 selected backend navigation
+  group
+- **THEN** backend selector SHALL 显示并允许选择 backend navigation groups
+- **AND** conversation selector SHALL 保持空且禁用
+- **AND** New Conversation 与 Connect SHALL 对 selected backend 可用
+- **AND** transcript、reply、runtime option、permission 与其他
+  owner-scoped controls SHALL 保持不可用
 - **AND** Host Bridge 与 shell navigation SHALL 保持真实状态和可用性。
 
 #### Scenario: ACP Skills has no selected run

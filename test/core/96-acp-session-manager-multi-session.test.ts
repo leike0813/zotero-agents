@@ -71,6 +71,25 @@ import {
 describe("acp session manager", function () {
   const harness = installAcpSessionManagerTestHooks();
 
+  function configureFirstUseBackend() {
+    Zotero.Prefs.set(
+      `${config.prefsPrefix}.backendsConfigJson`,
+      JSON.stringify({
+        schemaVersion: 2,
+        backends: [
+          {
+            id: "acp-first-use",
+            displayName: "ACP First Use",
+            type: "acp",
+            command: "node",
+            args: ["first-use.js"],
+          },
+        ],
+      }),
+      true,
+    );
+  }
+
   it("atomically selects one reusable local placeholder for an empty backend", async function () {
     Zotero.Prefs.set(
       `${config.prefsPrefix}.backendsConfigJson`,
@@ -151,6 +170,54 @@ describe("acp session manager", function () {
     } finally {
       unsubscribe();
     }
+  });
+
+  it("connects a backend through one reusable local conversation", async function () {
+    configureFirstUseBackend();
+    const factoryArgs: AcpConnectionAdapterFactoryArgs[] = [];
+    setAcpConnectionAdapterFactoryForTests(async (args) => {
+      factoryArgs.push(args);
+      return new FakeAcpConnectionAdapter();
+    });
+
+    await connectAcpConversation({ backendId: "acp-first-use" });
+    const first = getAcpConversationSnapshot();
+    assert.equal(first.backendId, "acp-first-use");
+    assert.match(first.conversationId, /^acp-conversation-/);
+    assert.equal(first.status, "connected");
+    assert.isNotEmpty(first.sessionId);
+    assert.lengthOf(listAcpChatSessions("acp-first-use"), 1);
+    assert.lengthOf(factoryArgs, 1);
+
+    await connectAcpConversation({ backendId: "acp-first-use" });
+    const second = getAcpConversationSnapshot();
+    assert.equal(second.conversationId, first.conversationId);
+    assert.lengthOf(listAcpChatSessions("acp-first-use"), 1);
+    assert.lengthOf(factoryArgs, 1);
+  });
+
+  it("retains the selected local conversation when backend connection fails", async function () {
+    configureFirstUseBackend();
+    setAcpConnectionAdapterFactoryForTests(async () => {
+      const adapter = new FakeAcpConnectionAdapter();
+      adapter.failInitialize = true;
+      return adapter;
+    });
+
+    let thrown: unknown;
+    try {
+      await connectAcpConversation({ backendId: "acp-first-use" });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.isOk(thrown);
+    const snapshot = getAcpConversationSnapshot();
+    assert.equal(snapshot.backendId, "acp-first-use");
+    assert.match(snapshot.conversationId, /^acp-conversation-/);
+    assert.equal(snapshot.status, "error");
+    assert.isString(snapshot.prerequisiteError);
+    assert.lengthOf(listAcpChatSessions("acp-first-use"), 1);
   });
 
   it("keeps parallel ACP backend sessions isolated and routes actions to the active backend", async function () {

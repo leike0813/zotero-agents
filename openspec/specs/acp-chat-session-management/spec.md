@@ -288,6 +288,34 @@ snapshot without reading transcript pages.
 - **AND** the snapshot does not include `selectedTranscriptPage`
 - **AND** the child panel does not emit `load-transcript-page`.
 
+#### Scenario: Newly configured backend is available without restart
+
+- **GIVEN** ACP Chat previously had no available backend
+- **WHEN** a valid ACP backend configuration is persisted and its typed backend
+  change is projected
+- **THEN** the snapshot has `backendAvailability: "selected"`
+- **AND** the new backend is present in `backendOptions`
+- **AND** ACP Chat does not require a plugin restart or a pre-existing
+  conversation to expose that backend.
+
+#### Scenario: Backend-level connect establishes a local conversation
+
+- **GIVEN** an ACP backend is selected without an ACP Chat conversation
+- **WHEN** the user invokes Connect for that backend
+- **THEN** ACP Chat SHALL reuse or create one local conversation for the backend
+- **AND** it SHALL select and persist that conversation before opening the ACP
+  connection
+- **AND** repeated Connect actions SHALL NOT create duplicate local
+  conversations.
+
+#### Scenario: Backend-level connection failure preserves retry state
+
+- **GIVEN** backend-level Connect has selected and persisted a local conversation
+- **WHEN** ACP connection initialization fails
+- **THEN** ACP Chat SHALL retain that selected local conversation
+- **AND** it SHALL expose the existing connection error diagnostics
+- **AND** the user SHALL be able to retry without restarting the plugin.
+
 #### Scenario: Backend without conversation allows backend-level actions
 
 - **GIVEN** an ACP backend is available
@@ -310,6 +338,22 @@ snapshot without reading transcript pages.
 - **AND** the snapshot has `conversationAvailability: "selected"`
 - **AND** the selected transcript page request is scoped to the selected backend
   and conversation.
+
+### Requirement: ACP Chat backend-level Connect SHALL use navigation-group scope
+
+ACP Chat Connect SHALL target the selected backend through the existing
+navigation-group action contract. The child SHALL send the selected `groupId`,
+and the host SHALL validate and map that group to the ACP `backendId` before
+connection.
+
+#### Scenario: Backend-level Connect is routed without an owner
+
+- **GIVEN** an ACP backend navigation group is selected
+- **AND** no ACP Chat conversation owner is selected
+- **WHEN** the user invokes Connect
+- **THEN** the child action payload SHALL contain the selected `groupId`
+- **AND** the action SHALL pass navigation-group validation
+- **AND** the host SHALL connect the mapped ACP backend.
 
 ### Requirement: ACP Chat local transport cleanup SHALL release plugin-managed process trees
 
