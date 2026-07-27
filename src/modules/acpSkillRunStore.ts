@@ -97,6 +97,7 @@ import {
   registerAcpSkillRunPermissionRequestHandler,
   type AcpSkillRunPermissionRequestWithResolver,
 } from "./acpSkillRunPermissionFacade";
+import { AcpPermissionQueue } from "./acpPermissionQueue";
 import {
   registerAcpSkillRunAutoApprovalResolver,
   revokeHostBridgeWriteAutoApprovalGrantsForRun,
@@ -633,13 +634,7 @@ const softRunPersistTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const softRunPersistRecords = new Map<string, AcpSkillRunRecord>();
 const lastPersistedEventIds = new Map<string, string>();
 const runtimeCatalogByRequestId = new Map<string, AcpSkillRunRuntimeCatalog>();
-const permissionResolvers = new Map<
-  string,
-  {
-    runRequestId: string;
-    resolve: (outcome: RequestPermissionOutcome) => void;
-  }
->();
+const permissionQueuesByRunRequestId = new Map<string, AcpPermissionQueue>();
 
 async function waitForAcpSkillRunShutdownTask(
   task: Promise<unknown>,
@@ -2434,6 +2429,12 @@ function parseRunRecord(raw: unknown): AcpSkillRunRecord | null {
           sessionId: normalizeString(raw.pendingPermission.sessionId),
           toolCallId: normalizeString(raw.pendingPermission.toolCallId),
           toolTitle: normalizeString(raw.pendingPermission.toolTitle),
+          approvalKind:
+            raw.pendingPermission.approvalKind === "zotero-write"
+              ? "zotero-write"
+              : raw.pendingPermission.approvalKind === "acp-tool"
+                ? "acp-tool"
+                : undefined,
           source: normalizeString(raw.pendingPermission.source) || undefined,
           summary: normalizeString(raw.pendingPermission.summary) || undefined,
           detail: normalizeString(raw.pendingPermission.detail) || undefined,
@@ -4580,11 +4581,10 @@ export function registerAcpSkillRunController(
   if (!controller) {
     controllers.delete(requestId);
     clearWaitingUserDetachTimer(requestId);
-    for (const [permissionRequestId, entry] of permissionResolvers.entries()) {
-      if (entry.runRequestId === requestId) {
-        permissionResolvers.delete(permissionRequestId);
-      }
-    }
+    cancelAcpSkillRunPermissionQueue(
+      requestId,
+      "controller_removed_with_pending_permission",
+    );
     return;
   }
   controllers.set(requestId, controller);
@@ -4680,6 +4680,7 @@ function normalizeAcpSkillRunPendingPermission(
     sessionId: normalizeString(request.sessionId),
     toolCallId: normalizeString(request.toolCallId),
     toolTitle: normalizeString(request.toolTitle),
+    approvalKind: request.approvalKind,
     source: normalizeString(request.source) || undefined,
     summary: normalizeString(request.summary) || undefined,
     detail: normalizeString(request.detail) || undefined,
@@ -4706,18 +4707,21 @@ export function setAcpSkillRunPermissionRequest(
   if (!runRequestId || !permissionRequestId) {
     return;
   }
-  permissionResolvers.set(permissionRequestId, {
-    runRequestId,
-    resolve: request.resolve,
-  });
+  const queue =
+    permissionQueuesByRunRequestId.get(runRequestId) ||
+    new AcpPermissionQueue();
+  permissionQueuesByRunRequestId.set(runRequestId, queue);
+  if (!queue.enqueue(request)) {
+    return;
+  }
+  const active = queue.active();
   upsertAcpSkillRun({
     requestId: runRequestId,
     status: "running",
     statusReason: "start",
-    pendingPermission: normalizeAcpSkillRunPendingPermission(
-      request,
-      permissionRequestId,
-    ),
+    pendingPermission: active
+      ? normalizeAcpSkillRunPendingPermission(active, active.requestId)
+      : null,
     event: {
       stage: "permission-requested",
       message: acpSkillRunPermissionRequestedMessage(
@@ -4734,6 +4738,67 @@ export function setAcpSkillRunPermissionRequest(
 }
 
 registerAcpSkillRunPermissionRequestHandler(setAcpSkillRunPermissionRequest);
+
+function cancelAcpSkillRunPermissionQueue(
+  runRequestIdRaw: string,
+  reason: string,
+) {
+  const runRequestId = normalizeString(runRequestIdRaw);
+  const queue = permissionQueuesByRunRequestId.get(runRequestId);
+  const record = runRecords.get(runRequestId);
+  if (!queue) {
+    if (record?.pendingPermission) {
+      upsertAcpSkillRun({
+        requestId: runRequestId,
+        pendingPermission: null,
+      });
+    }
+    return 0;
+  }
+  const cancelled = queue.cancelAll();
+  const cancelledCount = cancelled.length;
+  permissionQueuesByRunRequestId.delete(runRequestId);
+  if (record?.pendingPermission || cancelledCount > 0) {
+    const recoverableStatus =
+      record &&
+      new Set<AcpSkillRunStatus>(["running", "repairing"]).has(record.status)
+        ? "waiting_user"
+        : record?.status;
+    const cancelledRequests = cancelledCount > 0 ? cancelled : [null];
+    cancelledRequests.forEach((entry, index) => {
+      upsertAcpSkillRun({
+        requestId: runRequestId,
+        status: index === 0 ? recoverableStatus : undefined,
+        statusReason:
+          index === 0 && record && recoverableStatus !== record.status
+            ? "waiting_user"
+            : undefined,
+        activePrompt: index === 0 ? false : undefined,
+        pendingPermission: null,
+        replyState: index === 0 ? "idle" : undefined,
+        event: entry
+          ? {
+              stage: "permission-resolved",
+              message: "Permission request cancelled.",
+              level: "warn",
+              details: {
+                permissionRequestId: entry.requestId,
+                outcome: "cancelled",
+                reason,
+                toolCallId: normalizeString(entry.toolCallId),
+                toolTitle: normalizeString(entry.toolTitle),
+                source: normalizeString(entry.source) || undefined,
+                summary:
+                  normalizeString(entry.summary) ||
+                  normalizeString(entry.toolTitle),
+              },
+            }
+          : undefined,
+      });
+    });
+  }
+  return cancelledCount;
+}
 
 export function autoApproveAcpSkillRunPermissionRequest(args: {
   runRequestId: string;
@@ -4815,7 +4880,10 @@ function findStaleAcpSkillRunPermissionRequest(args: {
     if (permissionRequestId && pendingRequestId !== permissionRequestId) {
       continue;
     }
-    if (permissionResolvers.has(pendingRequestId)) {
+    if (
+      permissionQueuesByRunRequestId.get(record.requestId)?.active()
+        ?.requestId === pendingRequestId
+    ) {
       continue;
     }
     return {
@@ -4879,12 +4947,15 @@ export function resolveAcpSkillRunPermissionRequest(args: {
 }) {
   const runRequestId = normalizeString(args.runRequestId);
   const permissionRequestId = normalizeString(args.permissionRequestId);
-  const matched = permissionRequestId
-    ? permissionResolvers.get(permissionRequestId)
-    : Array.from(permissionResolvers.values()).find(
-        (entry) => entry.runRequestId === runRequestId,
-      );
-  if (!matched) {
+  const matchedRunRequestId =
+    runRequestId ||
+    Array.from(permissionQueuesByRunRequestId.entries()).find(
+      ([, queue]) => queue.active()?.requestId === permissionRequestId,
+    )?.[0] ||
+    "";
+  const queue = permissionQueuesByRunRequestId.get(matchedRunRequestId);
+  const active = queue?.active() || null;
+  if (!queue || !active) {
     if (
       clearStaleAcpSkillRunPermissionRequest({
         runRequestId,
@@ -4894,7 +4965,16 @@ export function resolveAcpSkillRunPermissionRequest(args: {
     ) {
       return;
     }
+    const record = runRequestId ? runRecords.get(runRequestId) : undefined;
+    if (record && !record.pendingPermission) {
+      return;
+    }
     throw new Error("No active ACP skill run permission request is available.");
+  }
+  if (permissionRequestId && active.requestId !== permissionRequestId) {
+    throw new Error(
+      "The requested ACP skill run permission is not the active request.",
+    );
   }
   const outcome =
     args.outcome === "selected" && normalizeString(args.optionId)
@@ -4903,17 +4983,21 @@ export function resolveAcpSkillRunPermissionRequest(args: {
           optionId: normalizeString(args.optionId),
         } as RequestPermissionOutcome)
       : ({ outcome: "cancelled" } as RequestPermissionOutcome);
-  matched.resolve(outcome);
-  let resolvedPermissionRequestId = permissionRequestId;
-  for (const [requestId, entry] of permissionResolvers.entries()) {
-    if (entry === matched) {
-      resolvedPermissionRequestId = requestId;
-      permissionResolvers.delete(requestId);
-    }
+  const resolved = queue.resolveActive(permissionRequestId, outcome);
+  if (!resolved) {
+    throw new Error(
+      "The requested ACP skill run permission is not the active request.",
+    );
+  }
+  const next = queue.active();
+  if (!next) {
+    permissionQueuesByRunRequestId.delete(matchedRunRequestId);
   }
   upsertAcpSkillRun({
-    requestId: matched.runRequestId,
-    pendingPermission: null,
+    requestId: matchedRunRequestId,
+    pendingPermission: next
+      ? normalizeAcpSkillRunPendingPermission(next, next.requestId)
+      : null,
     event: {
       stage: "permission-resolved",
       message:
@@ -4922,7 +5006,7 @@ export function resolveAcpSkillRunPermissionRequest(args: {
           : "Permission request cancelled.",
       level: outcome.outcome === "selected" ? "info" : "warn",
       details: {
-        permissionRequestId: resolvedPermissionRequestId,
+        permissionRequestId: resolved.requestId,
         outcome: outcome.outcome,
         optionId: outcome.outcome === "selected" ? outcome.optionId : undefined,
       },
@@ -4935,6 +5019,10 @@ export async function cancelAcpSkillRun(requestIdRaw: string) {
   if (!requestId) {
     throw new Error("requestId is required");
   }
+  cancelAcpSkillRunPermissionQueue(
+    requestId,
+    "run_cancelled_with_pending_permission",
+  );
   const controller = controllers.get(requestId);
   if (!controller) {
     const existing = getAcpSkillRunRecord(requestId);
@@ -6493,7 +6581,10 @@ export function resetAcpSkillRunsForTests() {
   controllers.clear();
   applyResultControllerDetachPromises.clear();
   runtimeCatalogByRequestId.clear();
-  permissionResolvers.clear();
+  for (const queue of permissionQueuesByRunRequestId.values()) {
+    queue.cancelAll();
+  }
+  permissionQueuesByRunRequestId.clear();
   workspaceListeners.clear();
   selectedRequestId = "";
   hydrated = false;
@@ -6502,6 +6593,10 @@ export function resetAcpSkillRunsForTests() {
 }
 
 registerAcpSkillRunsMemoryClearer(() => {
+  for (const queue of permissionQueuesByRunRequestId.values()) {
+    queue.cancelAll();
+  }
+  permissionQueuesByRunRequestId.clear();
   clearAcpSkillRunRecords();
   runtimeCatalogByRequestId.clear();
   selectedRequestId = "";

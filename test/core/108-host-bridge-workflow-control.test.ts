@@ -2365,6 +2365,10 @@ describe("host bridge workflow control", function () {
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
     assert.isNotEmpty(permissionRequestId);
+    const pendingPermission =
+      getAcpSkillRunRecord("acp-run-approval-1")?.pendingPermission;
+    assert.strictEqual(pendingPermission?.source, "host-bridge-cli");
+    assert.strictEqual(pendingPermission?.approvalKind, "zotero-write");
 
     resolveAcpSkillRunPermissionRequest({
       runRequestId: "acp-run-approval-1",

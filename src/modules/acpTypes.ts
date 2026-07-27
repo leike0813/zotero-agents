@@ -226,6 +226,7 @@ export type AcpPendingPermissionRequest = {
   sessionId: string;
   toolCallId: string;
   toolTitle: string;
+  approvalKind?: "acp-tool" | "zotero-write";
   source?: "acp-tool-call" | "zotero-mcp-write" | string;
   summary?: string;
   detail?: string;

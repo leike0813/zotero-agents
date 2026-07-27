@@ -2140,6 +2140,51 @@ describe("Assistant Workspace ACP UI v1", function () {
     );
   });
 
+  it("preserves unrelated managed regions across permission-only changes", async function () {
+    const document = new FakeDocument();
+    const model = await loadPanelModel();
+    const renderer = await loadPanelRenderer(document);
+    const { root, regions } = createPanelManagedRegions(document);
+    const state = canonicalState("acp-chat");
+    const render = () =>
+      renderer.renderAssistantPanelSnapshot(
+        model.projectAssistantWorkspacePanel(
+          state,
+          { permissionRequestOpen: false },
+          {},
+        ),
+        { managed: true, root, regions, onAction() {} },
+      );
+
+    render();
+    const stableRegions = Object.fromEntries(
+      Object.entries(regions).filter(([key]) => key !== "hint"),
+    );
+    const beforePermission = captureRegionSubtrees(stableRegions);
+    state.selection.permission = {
+      request: {
+        requestId: "permission-dom-1",
+        approvalKind: "zotero-write",
+        title: "Update Zotero item",
+        summary: "Change one field",
+        tool: { title: "Update Zotero item", callId: "call-dom-1" },
+        review: {
+          requestedAt: "2026-07-28T00:00:00.000Z",
+          command: null,
+          preview: "title: Revised",
+        },
+        options: [{ optionId: "allow", label: "Allow", description: null }],
+      },
+    };
+    render();
+    assertRegionSubtreesPreserved(stableRegions, beforePermission);
+
+    const withPermission = captureRegionSubtrees(stableRegions);
+    state.selection.permission = { request: null };
+    render();
+    assertRegionSubtreesPreserved(stableRegions, withPermission);
+  });
+
   it("projects Skills plan independently and details from owner-details", async function () {
     const model = await loadPanelModel();
     const state = canonicalState("acp-skills");

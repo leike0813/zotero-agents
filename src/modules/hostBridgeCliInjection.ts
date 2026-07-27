@@ -95,8 +95,7 @@ function buildCmdShim(binaryPath: string) {
   return `@echo off\r\n"${formatBatchPath(binaryPath)}" %*\r\n`;
 }
 
-function buildProfileJson(args: {
-  endpoint: string;
+function buildScopeJson(args: {
   requestId: string;
   scopeKind?: "acp-chat" | "acp-skill-run";
   autoApproveWrites?: boolean;
@@ -104,6 +103,22 @@ function buildProfileJson(args: {
 }) {
   const scopeKind =
     args.scopeKind === "acp-chat" ? "acp-chat" : "acp-skill-run";
+  return {
+    kind: scopeKind,
+    requestId: args.requestId,
+    runId: args.requestId,
+    ...(args.autoApproveWrites ? { autoApproveWrites: true } : {}),
+    ...(args.grantId ? { grantId: args.grantId } : {}),
+  };
+}
+
+function buildProfileJson(args: {
+  endpoint: string;
+  requestId: string;
+  scopeKind?: "acp-chat" | "acp-skill-run";
+  autoApproveWrites?: boolean;
+  grantId?: string;
+}) {
   return {
     schema: "zotero-bridge.profile.v1",
     protocol: HOST_BRIDGE_PROTOCOL_VERSION,
@@ -113,13 +128,11 @@ function buildProfileJson(args: {
       type: "bearer",
       tokenEnv: "ZOTERO_BRIDGE_TOKEN",
     },
-    scope: {
-      kind: scopeKind,
-      requestId: args.requestId,
-      runId: args.requestId,
-      ...(args.autoApproveWrites ? { autoApproveWrites: true } : {}),
-      ...(args.grantId ? { grantId: args.grantId } : {}),
-    },
+    ...(args.scopeKind === "acp-chat"
+      ? {}
+      : {
+          scope: buildScopeJson(args),
+        }),
   };
 }
 
@@ -242,6 +255,16 @@ export async function materializeHostBridgeCliRunInjection(
   const env: Record<string, string> = {
     ZOTERO_BRIDGE_PROFILE: profilePath,
   };
+  if (args.scopeKind === "acp-chat") {
+    env.ZOTERO_BRIDGE_SCOPE = JSON.stringify(
+      buildScopeJson({
+        requestId,
+        scopeKind: args.scopeKind,
+        autoApproveWrites,
+        grantId,
+      }),
+    );
+  }
   if (token) {
     env.ZOTERO_BRIDGE_TOKEN = token;
   }

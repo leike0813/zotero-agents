@@ -14,6 +14,7 @@ import {
   createAcpSkillsWorkspaceOwner,
   createAssistantWorkspaceUnownedScope,
   createLoadingTranscriptRegion,
+  projectAssistantWorkspacePermissionRequest,
   type AssistantWorkspaceOwner,
   type AssistantWorkspaceOwnerNavigation,
   type AssistantWorkspacePublication,
@@ -419,6 +420,32 @@ describe("Assistant Workspace ACP publication data plane v1", function () {
         ),
       );
     }
+  });
+
+  it("projects explicit Host Bridge write approval kind without rewriting its source", function () {
+    const projected = projectAssistantWorkspacePermissionRequest({
+      requestId: "host-bridge-permission-1",
+      sessionId: "session-1",
+      toolCallId: "mutation.execute",
+      toolTitle: "Approve Zotero write?",
+      source: "host-bridge-cli",
+      approvalKind: "zotero-write",
+      summary: "Update one Zotero item.",
+      detail: JSON.stringify({ preview: "title: Revised" }),
+      requestedAt: "2026-07-28T00:00:00.000Z",
+      options: [],
+    });
+
+    assert.equal(projected?.approvalKind, "zotero-write");
+    assert.equal(projected?.review.preview, "title: Revised");
+    assert.equal(
+      projectAssistantWorkspacePermissionRequest({
+        requestId: "legacy-host-bridge-permission",
+        source: "host-bridge-cli",
+        options: [],
+      })?.approvalKind,
+      "zotero-write",
+    );
   });
 
   it("accepts only bounded owner details sections and actions", function () {

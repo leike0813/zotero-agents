@@ -1464,6 +1464,10 @@ function renderAssistantReply(container, snapshot, options) {
     },
   );
   const secondary = el("div", "assistant-panel-reply-secondary");
+  secondary.setAttribute(
+    "data-assistant-reply-secondary-signature",
+    stablePanelSignature(replySecondarySignature(panel)),
+  );
   secondary.appendChild(
     el("span", "assistant-panel-reply-hint", panel.reply.hint || ""),
   );
@@ -1546,16 +1550,21 @@ function replyStructuralSignature(panel) {
   const reply =
     panel && panel.reply && typeof panel.reply === "object" ? panel.reply : {};
   return {
-    kind: safeText(panel && panel.kind),
-    contextId: safeText(panel && panel.context && panel.context.id),
-    replyState: safeText(
-      panel && panel.lifecycle && panel.lifecycle.replyState,
-    ),
     action: safeText(reply.action || "reply"),
     tone: safeText(reply.tone || "primary"),
     clearOnSend: reply.clearOnSend !== false,
     showUsageGauge: reply.showUsageGauge === true,
     controls: Array.isArray(reply.controls) ? reply.controls : [],
+  };
+}
+
+function replySecondarySignature(panel) {
+  const reply =
+    panel && panel.reply && typeof panel.reply === "object" ? panel.reply : {};
+  return {
+    hint: safeText(reply.hint),
+    showUsageGauge: reply.showUsageGauge === true,
+    usage: reply.showUsageGauge === true ? panel && panel.usage : null,
   };
 }
 
@@ -1592,7 +1601,20 @@ function updateAssistantReplyLiveFields(target, panel) {
   }
   const secondary = target.querySelector(".assistant-panel-reply-secondary");
   if (secondary) {
+    const secondarySignature = stablePanelSignature(
+      replySecondarySignature(panel),
+    );
+    if (
+      secondary.getAttribute("data-assistant-reply-secondary-signature") ===
+      secondarySignature
+    ) {
+      return;
+    }
     clear(secondary);
+    secondary.setAttribute(
+      "data-assistant-reply-secondary-signature",
+      secondarySignature,
+    );
     secondary.appendChild(
       el("span", "assistant-panel-reply-hint", reply.hint || ""),
     );

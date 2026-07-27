@@ -221,6 +221,12 @@ function parsePendingPermissionRequest(
     sessionId: normalizeString(value.sessionId),
     toolCallId: normalizeString(value.toolCallId),
     toolTitle: normalizeString(value.toolTitle),
+    approvalKind:
+      value.approvalKind === "zotero-write"
+        ? "zotero-write"
+        : value.approvalKind === "acp-tool"
+          ? "acp-tool"
+          : undefined,
     source: normalizeString(value.source) || undefined,
     summary: normalizeString(value.summary) || undefined,
     detail: normalizeString(value.detail) || undefined,

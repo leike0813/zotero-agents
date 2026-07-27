@@ -9,9 +9,9 @@ async function mkTempRoot() {
 }
 
 describe("Host Bridge CLI ACP Chat profile scope", function () {
-  it("materializes ACP Chat Host Bridge CLI profile with acp-chat approval scope", async function () {
+  it("keeps the shared profile owner-neutral and injects ACP Chat scope per adapter", async function () {
     const root = await mkTempRoot();
-    const injection = await materializeHostBridgeCliRunInjection({
+    const first = await materializeHostBridgeCliRunInjection({
       workspaceDir: root,
       requestId: "chat-conversation-1",
       scopeKind: "acp-chat",
@@ -28,14 +28,37 @@ describe("Host Bridge CLI ACP Chat profile scope", function () {
         message: "CLI missing",
       }),
     });
+    const second = await materializeHostBridgeCliRunInjection({
+      workspaceDir: root,
+      requestId: "chat-conversation-2",
+      scopeKind: "acp-chat",
+      ensureServer: async () =>
+        ({
+          status: "running",
+          protocol: "host-bridge.v1",
+          endpoint: "http://127.0.0.1:26570/bridge/v1",
+        }) as any,
+      getToken: () => "secret-token",
+      resolveCli: async () => ({
+        available: false,
+        code: "cli_binary_unavailable",
+        message: "CLI missing",
+      }),
+    });
 
-    const profile = JSON.parse(
-      await fs.readFile(injection.profilePath, "utf8"),
-    );
-
-    assert.strictEqual(profile.scope.kind, "acp-chat");
-    assert.strictEqual(profile.scope.requestId, "chat-conversation-1");
-    assert.strictEqual(profile.scope.runId, "chat-conversation-1");
+    const profile = JSON.parse(await fs.readFile(second.profilePath, "utf8"));
+    assert.strictEqual(first.profilePath, second.profilePath);
+    assert.notProperty(profile, "scope");
+    assert.deepEqual(JSON.parse(first.env.ZOTERO_BRIDGE_SCOPE), {
+      kind: "acp-chat",
+      requestId: "chat-conversation-1",
+      runId: "chat-conversation-1",
+    });
+    assert.deepEqual(JSON.parse(second.env.ZOTERO_BRIDGE_SCOPE), {
+      kind: "acp-chat",
+      requestId: "chat-conversation-2",
+      runId: "chat-conversation-2",
+    });
     assert.notInclude(JSON.stringify(profile), "secret-token");
   });
 });

@@ -3183,6 +3183,7 @@ async function handleAcpChatAction(
     }
     if (action === "resolve-permission") {
       await resolveAcpConversationPermission({
+        permissionRequestId: String(payload.requestId || "").trim(),
         outcome:
           String(payload.outcome || "").trim() === "selected"
             ? "selected"

@@ -1158,6 +1158,16 @@ describe("acp session manager", function () {
         harness.lastFactoryArgs?.backend.env?.ZOTERO_BRIDGE_PROFILE || "",
         ".zotero-bridge",
       );
+      assert.deepEqual(
+        JSON.parse(
+          harness.lastFactoryArgs?.backend.env?.ZOTERO_BRIDGE_SCOPE || "{}",
+        ),
+        {
+          kind: "acp-chat",
+          requestId: snapshot.conversationId,
+          runId: snapshot.conversationId,
+        },
+      );
       assert.equal(
         harness.lastFactoryArgs?.agentWorkspaceDir,
         expectedStoragePaths.agentWorkspaceDir,

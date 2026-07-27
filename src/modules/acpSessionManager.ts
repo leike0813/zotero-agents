@@ -166,6 +166,10 @@ import {
   registerAcpConversationHostBridgePermissionHandler,
   resetAcpConversationHostBridgePermissionHandlersForTests,
 } from "./acpConversationHostBridgePermissionRegistry";
+import {
+  AcpPermissionQueue,
+  type AcpQueuedPermissionRequest,
+} from "./acpPermissionQueue";
 import { resolveAutoApproveAcpPermissionOptionId } from "./acpPermissionOptions";
 import {
   buildAcpStartupPromptPreamble,
@@ -297,9 +301,7 @@ export type AcpChatSessionRuntime = {
   transcriptHydratePromise?: Promise<void>;
   transcriptMirrorReleasePromise?: Promise<void>;
   transcriptWrites: Set<Promise<unknown>>;
-  pendingPermissionResolver:
-    | ((outcome: RequestPermissionOutcome) => void)
-    | null;
+  permissionQueue: AcpPermissionQueue;
   suppressSessionLoadReplay: boolean;
   workspaceChangeTimer: ReturnType<typeof setTimeout> | null;
   persistTimer: ReturnType<typeof setTimeout> | null;
@@ -650,7 +652,7 @@ function resetSessionRuntimeTransientState(
   sessionRuntime.transcriptHydrateState = undefined;
   sessionRuntime.transcriptHydrateError = undefined;
   sessionRuntime.transcriptHydratePromise = undefined;
-  sessionRuntime.pendingPermissionResolver = null;
+  sessionRuntime.permissionQueue.cancelAll();
   sessionRuntime.suppressSessionLoadReplay = false;
 }
 
@@ -709,7 +711,7 @@ function getOrCreateSessionRuntime(
     transcriptToolItemIds: new Map(),
     transcriptMirrorLoaded: true,
     transcriptWrites: new Set(),
-    pendingPermissionResolver: null,
+    permissionQueue: new AcpPermissionQueue(),
     suppressSessionLoadReplay: false,
     workspaceChangeTimer: null,
     persistTimer: null,
@@ -772,27 +774,66 @@ async function enforceAcpChatLiveAdapterLimit(
   emitSessionRuntimeSnapshot(evicted);
 }
 
-function setSessionRuntimePendingPermissionRequest(
-  sessionRuntime: AcpChatSessionRuntime,
-  request: AcpPendingPermissionRequest & {
-    resolve: (outcome: RequestPermissionOutcome) => void;
-  },
-) {
-  sessionRuntime.pendingPermissionResolver = request.resolve;
-  sessionRuntime.snapshot.pendingPermissionRequest = {
+function projectSessionRuntimePermissionRequest(
+  request: AcpQueuedPermissionRequest,
+): AcpPendingPermissionRequest {
+  return {
     requestId: request.requestId,
     sessionId: request.sessionId,
     toolCallId: request.toolCallId,
     toolTitle: request.toolTitle,
+    approvalKind: request.approvalKind,
     source: request.source,
     summary: request.summary,
     detail: request.detail,
     requestedAt: request.requestedAt,
     options: request.options.map((entry) => ({ ...entry })),
   };
-  sessionRuntime.snapshot.status = "permission-required";
-  sessionRuntime.snapshot.busy = true;
-  emitSessionRuntimeSnapshot(sessionRuntime);
+}
+
+function syncSessionRuntimePermissionHead(
+  sessionRuntime: AcpChatSessionRuntime,
+) {
+  const active = sessionRuntime.permissionQueue.active();
+  sessionRuntime.snapshot.pendingPermissionRequest = active
+    ? projectSessionRuntimePermissionRequest(active)
+    : null;
+  if (active) {
+    sessionRuntime.snapshot.status = "permission-required";
+    sessionRuntime.snapshot.busy = true;
+  }
+}
+
+function setSessionRuntimePendingPermissionRequest(
+  sessionRuntime: AcpChatSessionRuntime,
+  request: AcpQueuedPermissionRequest,
+) {
+  const activeRequestId =
+    sessionRuntime.permissionQueue.active()?.requestId || "";
+  if (!sessionRuntime.permissionQueue.enqueue(request)) {
+    return;
+  }
+  if (activeRequestId) {
+    return;
+  }
+  syncSessionRuntimePermissionHead(sessionRuntime);
+  emitSessionRuntimeSnapshot(sessionRuntime, {
+    changeKinds: ["permission"],
+  });
+}
+
+function cancelSessionRuntimePermissionRequests(
+  sessionRuntime: AcpChatSessionRuntime,
+) {
+  const hadPending =
+    sessionRuntime.permissionQueue.size > 0 ||
+    !!sessionRuntime.snapshot.pendingPermissionRequest;
+  sessionRuntime.permissionQueue.cancelAll();
+  sessionRuntime.snapshot.pendingPermissionRequest = null;
+  if (hadPending) {
+    sessionRuntime.pendingWorkspaceChangeKinds.add("permission");
+  }
+  return hadPending;
 }
 
 function autoApproveSessionRuntimePermissionRequest(
@@ -1203,7 +1244,7 @@ function markSessionRuntimeConnectionIdle(
   sessionRuntime.snapshot.sessionId = "";
   sessionRuntime.snapshot.busy = false;
   sessionRuntime.snapshot.status = "idle";
-  sessionRuntime.snapshot.pendingPermissionRequest = null;
+  cancelSessionRuntimePermissionRequests(sessionRuntime);
   if (options.clearErrors) {
     sessionRuntime.snapshot.lastError = "";
     sessionRuntime.snapshot.prerequisiteError = "";
@@ -3014,7 +3055,7 @@ function bindAdapter(
       return;
     }
     sessionRuntime.adapter = null;
-    sessionRuntime.pendingPermissionResolver = null;
+    cancelSessionRuntimePermissionRequests(sessionRuntime);
     const closeMessage = String(event?.message || "").trim();
     const stderrText = String(event?.stderrText || "").trim();
     const naturalIdleClose =
@@ -3024,7 +3065,6 @@ function bindAdapter(
       !closeMessage &&
       !stderrText;
     sessionRuntime.snapshot.busy = false;
-    sessionRuntime.snapshot.pendingPermissionRequest = null;
     if (naturalIdleClose) {
       markSessionRuntimeConnectionIdle(sessionRuntime, {
         lifecycleEvent: "closed",
@@ -3084,7 +3124,7 @@ async function disconnectSessionRuntimeAdapter(
   sessionRuntime: AcpChatSessionRuntime,
 ) {
   sessionRuntime.silentTerminalAssistantCollector.discard();
-  sessionRuntime.pendingPermissionResolver = null;
+  cancelSessionRuntimePermissionRequests(sessionRuntime);
   const diagnosticOwner = acpChatDiagnosticOwnerForRuntime(sessionRuntime);
   if (!sessionRuntime.adapter) {
     await releaseAcpChatDiagnosticAudit(diagnosticOwner);
@@ -3694,7 +3734,7 @@ async function ensureAdapter(backendId?: string, conversationId?: string) {
   sessionRuntime.snapshot.lastError = "";
   sessionRuntime.snapshot.prerequisiteError = "";
   sessionRuntime.snapshot.stderrTail = "";
-  sessionRuntime.snapshot.pendingPermissionRequest = null;
+  cancelSessionRuntimePermissionRequests(sessionRuntime);
   sessionRuntime.snapshot.status = "checking-command";
   emitSessionRuntimeSnapshot(sessionRuntime);
   try {
@@ -4920,7 +4960,7 @@ export async function sendAcpConversationPrompt(args: {
   sessionRuntime.snapshot.lastError = "";
   sessionRuntime.snapshot.prerequisiteError = "";
   sessionRuntime.snapshot.lastStopReason = "";
-  sessionRuntime.snapshot.pendingPermissionRequest = null;
+  cancelSessionRuntimePermissionRequests(sessionRuntime);
   sessionRuntime.snapshot.lastHostContext = args.hostContext
     ? JSON.parse(JSON.stringify(args.hostContext))
     : null;
@@ -4977,8 +5017,11 @@ export async function sendAcpConversationPrompt(args: {
     }
     const activePrompt = sessionRuntime.activePrompt;
     clearActiveAcpChatPrompt(sessionRuntime);
-    sessionRuntime.snapshot.busy = false;
-    sessionRuntime.snapshot.status = "connected";
+    const pendingPermission = sessionRuntime.permissionQueue.active();
+    sessionRuntime.snapshot.busy = !!pendingPermission;
+    sessionRuntime.snapshot.status = pendingPermission
+      ? "permission-required"
+      : "connected";
     sessionRuntime.snapshot.lastStopReason = String(
       response.stopReason || "",
     ).trim();
@@ -5037,6 +5080,7 @@ export async function sendAcpConversationPrompt(args: {
       ) === "requested";
     const activePrompt = sessionRuntime.activePrompt;
     clearActiveAcpChatPrompt(sessionRuntime);
+    cancelSessionRuntimePermissionRequests(sessionRuntime);
     sessionRuntime.snapshot.busy = false;
     if (interruptionRequested) {
       sessionRuntime.snapshot.promptInterruptState = "unconfirmed";
@@ -5114,10 +5158,7 @@ export async function cancelAcpConversationPrompt(args?: {
   if (sessionRuntime.snapshot.promptInterruptState === "requested") {
     return;
   }
-  const pendingPermissionResolver = sessionRuntime.pendingPermissionResolver;
-  sessionRuntime.pendingPermissionResolver = null;
-  pendingPermissionResolver?.({ outcome: "cancelled" });
-  sessionRuntime.snapshot.pendingPermissionRequest = null;
+  cancelSessionRuntimePermissionRequests(sessionRuntime);
   sessionRuntime.snapshot.status = "prompting";
   sessionRuntime.snapshot.busy = true;
   sessionRuntime.snapshot.promptInterruptState = "requested";
@@ -5471,6 +5512,7 @@ export async function authenticateAcpConversation(args: {
 
 export async function resolveAcpConversationPermission(args: {
   outcome: "selected" | "cancelled";
+  permissionRequestId?: string;
   optionId?: string;
   backendId?: string;
   conversationId?: string;
@@ -5480,24 +5522,30 @@ export async function resolveAcpConversationPermission(args: {
     args.backendId || activeBackendId,
     args.conversationId,
   );
-  if (!sessionRuntime.pendingPermissionResolver) {
-    return;
+  const active = sessionRuntime.permissionQueue.active();
+  if (!active) {
+    return false;
   }
-  const resolver = sessionRuntime.pendingPermissionResolver;
-  sessionRuntime.pendingPermissionResolver = null;
   const optionId =
-    String(args.optionId || "").trim() ||
-    sessionRuntime.snapshot.pendingPermissionRequest?.options[0]?.optionId ||
-    "";
-  if (args.outcome === "selected" && optionId) {
-    resolver({ outcome: "selected", optionId });
-  } else {
-    resolver({ outcome: "cancelled" });
+    String(args.optionId || "").trim() || active.options[0]?.optionId || "";
+  const resolved = sessionRuntime.permissionQueue.resolveActive(
+    args.permissionRequestId,
+    args.outcome === "selected" && optionId
+      ? { outcome: "selected", optionId }
+      : { outcome: "cancelled" },
+  );
+  if (!resolved) {
+    return false;
   }
-  sessionRuntime.snapshot.pendingPermissionRequest = null;
-  sessionRuntime.snapshot.status = "prompting";
+  syncSessionRuntimePermissionHead(sessionRuntime);
+  if (!sessionRuntime.snapshot.pendingPermissionRequest) {
+    sessionRuntime.snapshot.status = "prompting";
+  }
   sessionRuntime.snapshot.busy = true;
-  emitSessionRuntimeSnapshot(sessionRuntime);
+  emitSessionRuntimeSnapshot(sessionRuntime, {
+    changeKinds: ["permission"],
+  });
+  return true;
 }
 
 export async function setAcpConversationMode(args: {
@@ -5908,7 +5956,7 @@ export function prepareSyntheticAcpChatReplay(args: {
   sessionRuntime.snapshot.sessionId = String(args.sessionId || "").trim();
   sessionRuntime.snapshot.status = "connected";
   sessionRuntime.snapshot.busy = false;
-  sessionRuntime.snapshot.pendingPermissionRequest = null;
+  cancelSessionRuntimePermissionRequests(sessionRuntime);
   touchLiveAcpChatSessionRuntime(sessionRuntime);
   return {
     backendId: args.backendId,
@@ -6136,6 +6184,7 @@ export function resetAcpSessionManagerForTests() {
   for (const sessionRuntime of sessionRuntimes.values()) {
     releaseAcpExecutionProgress(acpChatExecutionProgressScope(sessionRuntime));
     sessionRuntime.silentTerminalAssistantCollector.discard();
+    sessionRuntime.permissionQueue.cancelAll();
     if (sessionRuntime.workspaceChangeTimer) {
       clearTimeout(sessionRuntime.workspaceChangeTimer);
     }

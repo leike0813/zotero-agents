@@ -537,8 +537,11 @@ export function projectAssistantWorkspacePermissionRequest(
   const source = value as Record<string, unknown>;
   const requestId = boundedPermissionText(source.requestId, 512);
   if (!requestId) return null;
+  const sourceId = String(source.source || "").trim();
   const approvalKind =
-    String(source.source || "").trim() === "zotero-mcp-write"
+    source.approvalKind === "zotero-write" ||
+    (typeof source.approvalKind === "undefined" &&
+      ["zotero-mcp-write", "host-bridge-cli", "host-bridge"].includes(sourceId))
       ? ("zotero-write" as const)
       : ("acp-tool" as const);
   let command: string | null = null;

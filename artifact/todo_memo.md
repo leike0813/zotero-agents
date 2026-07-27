@@ -135,12 +135,13 @@
 - [x] ACP Chat 的 turn terminal 消息的markdown渲染不会在消息完整收到后立刻生效，也是得切换窗口才正常
 - [x] ACP Chat 在 prompting 状态不显示模式、模型（推理强度显示“默认”，应该也有问题）。这里应该和ACP Skills对齐，除断开状态外，任何时候都应该显示这些选项的值，然后在prompting状态禁用模型和推理强度的下拉菜单（当然后端也禁用切换）；模式应该可以随时切换
 - [x] **Agent-facing 的界面需要大幅优化**：1. 提交workflow时的provider profile格式需要按具体的backend来查询，因为每个backend的profile格式、允许的选项都不一样；2. provider profile应该有校验接口，并且支持环境变量指定默认的provider profile；3. 存在provider profile不生效的问题（在ACP Skills任务中复现，SkillRunner未知）；4. 所有的CLI接口都应该有自解释性，例如所有的选项的含义、所有的workflow的功能描述，否则agent只能靠猜
-- [ ] 解决ACP后端在windows下运行时powershell在提交json payload或输出json时频繁出现的编码问题（一般出现在中文论文中）
+- [ ] 彻底解决ACP后端在windows下运行时powershell在提交json payload或输出json时频繁出现的编码问题（一般出现在中文论文中）（目前仅用提示词来降低问题导致阻塞的概率）
 - [x] Dashboard/popover对于SkillRunner任务的显示有问题（运行中任务只显示一个，waiting状态任务不显示）
 - [x] ACP Skills任务提交后，到agent真正开始执行的这个时间窗口内，任务抽屉会被反复关闭
 - [x] 之前修复的错误推理强度问题，没完全修好，表现为M3按none提交会报错“low不存在”，但按其他强度提交依然会报错
 - [x] **literature-search-ingest需要升级**。现在存在以下问题：1. 跳过PDF探测的偷懒行为极其高发，需要升级为硬stage技能；2.文献元数据搜索极其偷懒； 3. 文献元数据录入不规范，DOI放到“其他”字段中，中文论文的录入不稳定，有时按英文标题录入、有时按英文作者录入、有时又录入双语标题；
 - [ ] ACP Skills状态机还是有点问题，已完成任务无法继续对话，和最初设计意图不一致。需要进行一次整体升级，合理设计自由对话和任务执行的关系。
+- [ ] **literature-analysis 中加入论文评分，增加配套接口、自定义列，并将评分用于其他 workflow**
 - [ ] **初次启动时的使用指导demo**
 - [ ] mock skillrunner 改为 mock acp backend，规避端口问题
 - [ ] **独立的 Rust 服务程序，卸载重计算到这个服务程序上，避免界面阻塞**

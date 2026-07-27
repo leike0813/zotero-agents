@@ -119,7 +119,10 @@ import {
 import { setDebugModeOverrideForTests } from "../../src/modules/debugMode";
 import { resolveProvider } from "../../src/providers/registry";
 import type { AcpConnectionAdapter } from "../../src/modules/acpConnectionAdapter";
-import { RequestError } from "../../src/modules/acpProtocol";
+import {
+  RequestError,
+  type RequestPermissionOutcome,
+} from "../../src/modules/acpProtocol";
 import { setAssistantExecutionDisplayMode } from "../../src/modules/assistantExecutionDisplayPolicy";
 import {
   ACP_SKILLS_WORKSPACE_ADAPTER,
@@ -5739,6 +5742,116 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
+  it("serializes overlapping ACP permission requests per run", function () {
+    upsertAcpSkillRun({
+      requestId: "run-permission-queue",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+    });
+    const outcomes: Record<string, unknown> = {};
+    const permissionRequest = (requestId: string) => ({
+      requestId,
+      sessionId: "session-queue",
+      toolCallId: `tool-${requestId}`,
+      toolTitle: `Permission ${requestId}`,
+      requestedAt: "2026-07-28T00:00:00.000Z",
+      options: [
+        {
+          optionId: "approve",
+          kind: "allow_once",
+          name: "Approve",
+        },
+      ],
+      resolve: (outcome: RequestPermissionOutcome) => {
+        outcomes[requestId] = outcome;
+      },
+    });
+    setAcpSkillRunPermissionRequest(
+      "run-permission-queue",
+      permissionRequest("permission-1"),
+    );
+    setAcpSkillRunPermissionRequest(
+      "run-permission-queue",
+      permissionRequest("permission-2"),
+    );
+
+    assert.equal(
+      getAcpSkillRunRecord("run-permission-queue")?.pendingPermission
+        ?.requestId,
+      "permission-1",
+    );
+    assert.throws(() =>
+      resolveAcpSkillRunPermissionRequest({
+        runRequestId: "run-permission-queue",
+        permissionRequestId: "permission-2",
+        outcome: "cancelled",
+      }),
+    );
+    assert.deepEqual(outcomes, {});
+
+    resolveAcpSkillRunPermissionRequest({
+      runRequestId: "run-permission-queue",
+      permissionRequestId: "permission-1",
+      outcome: "selected",
+      optionId: "approve",
+    });
+    assert.deepEqual(outcomes["permission-1"], {
+      outcome: "selected",
+      optionId: "approve",
+    });
+    assert.equal(
+      getAcpSkillRunRecord("run-permission-queue")?.pendingPermission
+        ?.requestId,
+      "permission-2",
+    );
+
+    resolveAcpSkillRunPermissionRequest({
+      runRequestId: "run-permission-queue",
+      permissionRequestId: "permission-2",
+      outcome: "cancelled",
+    });
+    assert.deepEqual(outcomes["permission-2"], { outcome: "cancelled" });
+    assert.isNull(
+      getAcpSkillRunRecord("run-permission-queue")?.pendingPermission || null,
+    );
+  });
+
+  it("cancels every queued permission when an ACP run controller is removed", function () {
+    upsertAcpSkillRun({
+      requestId: "run-permission-teardown",
+      status: "running",
+      backendId: "backend-acp",
+      backendType: "acp",
+    });
+    registerAcpSkillRunController("run-permission-teardown", {
+      cancel: async () => undefined,
+    });
+    const outcomes: unknown[] = [];
+    for (const requestId of ["permission-a", "permission-b"]) {
+      setAcpSkillRunPermissionRequest("run-permission-teardown", {
+        requestId,
+        sessionId: "session-teardown",
+        toolCallId: `tool-${requestId}`,
+        toolTitle: requestId,
+        requestedAt: "2026-07-28T00:00:00.000Z",
+        options: [],
+        resolve: (outcome) => outcomes.push(outcome),
+      });
+    }
+
+    registerAcpSkillRunController("run-permission-teardown", null);
+
+    assert.deepEqual(outcomes, [
+      { outcome: "cancelled" },
+      { outcome: "cancelled" },
+    ]);
+    assert.isNull(
+      getAcpSkillRunRecord("run-permission-teardown")?.pendingPermission ||
+        null,
+    );
+  });
+
   it("auto-approves ACP tool permission requests when the runtime option is enabled", async function () {
     const root = await mkTempRoot();
     const { entry } = await createSkill(root);
@@ -5951,9 +6064,9 @@ describe("ACP SkillRunner-compatible runner", function () {
     }
   });
 
-  it("clears restored ACP permission requests when their live resolver is gone", async function () {
+  it("cancels pending ACP permissions on controller removal and ignores stale actions", async function () {
     const root = await mkTempRoot();
-    let resolved = false;
+    let resolved: RequestPermissionOutcome | null = null;
     try {
       upsertAcpSkillRun({
         requestId: "run-stale-permission",
@@ -5979,8 +6092,8 @@ describe("ACP SkillRunner-compatible runner", function () {
             name: "Approve",
           },
         ],
-        resolve: () => {
-          resolved = true;
+        resolve: (outcome) => {
+          resolved = outcome;
         },
       });
       registerAcpSkillRunController("run-stale-permission", null);
@@ -5995,7 +6108,7 @@ describe("ACP SkillRunner-compatible runner", function () {
       );
 
       const record = getAcpSkillRunRecord("run-stale-permission");
-      assert.isFalse(resolved);
+      assert.deepEqual(resolved, { outcome: "cancelled" });
       assert.isNull(record?.pendingPermission);
       assert.equal(record?.status, "waiting_user");
       assert.isFalse(record?.activePrompt);
