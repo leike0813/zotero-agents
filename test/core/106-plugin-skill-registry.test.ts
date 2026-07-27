@@ -13,6 +13,7 @@ import { buildSkillRunnerSkillPackageBundle } from "../../src/providers/skillrun
 import {
   collectRuntimeFiles,
   copyRuntimeDirectory,
+  ensureRuntimeDirectory,
 } from "../../src/modules/runtimePersistence";
 import {
   compileSkillJsonSchema,
@@ -826,6 +827,74 @@ describe("plugin skill registry", function () {
       staleExists = false;
     }
     assert.isFalse(staleExists);
+  });
+
+  it("normalizes slash-form Windows drive paths before Zotero directory fallback", async function () {
+    const runtime = globalThis as typeof globalThis & {
+      IOUtils?: unknown;
+      Services?: { appinfo?: { OS?: string } };
+    };
+    const processDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "process",
+    );
+    const previousIOUtils = runtime.IOUtils;
+    const previousServices = runtime.Services;
+    const previousPathToFile = Zotero.File.pathToFile;
+    const observedPaths: string[] = [];
+    const assertNativeWindowsPath = (targetPath: string) => {
+      observedPaths.push(targetPath);
+      if (/^[A-Za-z]:\//.test(targetPath)) {
+        throw new Error(`Unexpected path value '${targetPath}'`);
+      }
+    };
+
+    Object.defineProperty(globalThis, "process", {
+      configurable: true,
+      writable: true,
+      value: undefined,
+    });
+    runtime.Services = {
+      ...previousServices,
+      appinfo: {
+        ...previousServices?.appinfo,
+        OS: "WINNT",
+      },
+    };
+    runtime.IOUtils = {
+      exists: async () => true,
+      makeDirectory: async (targetPath: string) => {
+        assertNativeWindowsPath(targetPath);
+      },
+    };
+    Zotero.File.pathToFile = ((targetPath: string) => {
+      assertNativeWindowsPath(targetPath);
+      return {
+        exists: () => true,
+      };
+    }) as typeof Zotero.File.pathToFile;
+
+    try {
+      await ensureRuntimeDirectory(
+        "C:/Users/leike/Zotero_Side/ZhengLeiJie/zotero-agents/runtime/acp/chat/workspace/.qwen/skills/zotero-research-synthesis.tmp-tree-1",
+      );
+    } finally {
+      if (processDescriptor) {
+        Object.defineProperty(globalThis, "process", processDescriptor);
+      }
+      runtime.IOUtils = previousIOUtils;
+      runtime.Services = previousServices;
+      Zotero.File.pathToFile = previousPathToFile;
+    }
+
+    assert.isNotEmpty(observedPaths);
+    assert.isTrue(
+      observedPaths.every((targetPath) =>
+        targetPath.startsWith(
+          "C:\\Users\\leike\\Zotero_Side\\ZhengLeiJie\\zotero-agents\\runtime\\acp\\chat\\workspace",
+        ),
+      ),
+    );
   });
 
   it("builds deterministic local skill package zip from effective registry entry", async function () {

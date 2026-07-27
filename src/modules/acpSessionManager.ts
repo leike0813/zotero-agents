@@ -3340,15 +3340,16 @@ function resolveManagedAcpChatInjectedSkillDir(args: {
   ) {
     return "";
   }
-  const workspaceDir = normalizeString(args.workspaceDir)
+  const workspaceDir = normalizeString(args.workspaceDir);
+  const targetDir = joinPath(args.workspaceDir, relativeRoot, args.skillId);
+  const comparableWorkspaceDir = workspaceDir
     .replace(/\\/g, "/")
     .replace(/\/+$/, "");
-  const targetDir = joinPath(
-    args.workspaceDir,
-    relativeRoot,
-    args.skillId,
-  ).replace(/\\/g, "/");
-  if (!workspaceDir || !targetDir.startsWith(`${workspaceDir}/`)) {
+  const comparableTargetDir = targetDir.replace(/\\/g, "/");
+  if (
+    !comparableWorkspaceDir ||
+    !comparableTargetDir.startsWith(`${comparableWorkspaceDir}/`)
+  ) {
     return "";
   }
   return targetDir;
@@ -3543,6 +3544,11 @@ async function materializeAcpChatInjectedSkills(args: {
   }
 
   const missingSkillIds: string[] = [];
+  const failedTargets: Array<{
+    relativeRoot: string;
+    skillId: string;
+    reason: string;
+  }> = [];
   const targetDirsBySkill: Record<string, string[]> = {};
   if (registry) {
     for (const skillId of ACP_CHAT_INJECTED_SKILL_IDS) {
@@ -3572,6 +3578,11 @@ async function materializeAcpChatInjectedSkills(args: {
           skillId,
         });
         if (!targetDir) {
+          failedTargets.push({
+            relativeRoot,
+            skillId,
+            reason: "invalid managed target",
+          });
           continue;
         }
         try {
@@ -3582,11 +3593,17 @@ async function materializeAcpChatInjectedSkills(args: {
           nextTargets.set(acpChatInjectedSkillTargetKey(target), target);
           targetDirs.push(targetDir);
         } catch (error) {
+          const reason = compactError(error);
+          failedTargets.push({
+            relativeRoot,
+            skillId,
+            reason,
+          });
           appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
             kind: "acp_chat_injected_skill_unavailable",
             level: "warn",
             message: "ACP Chat injected skill materialization failed.",
-            detail: `${skillId}: ${compactError(error)}`,
+            detail: `${skillId}: ${reason}`,
             raw: { relativeRoot, skillId },
           });
         }
@@ -3627,23 +3644,37 @@ async function materializeAcpChatInjectedSkills(args: {
     manifestPath,
     targets: Array.from(nextTargets.values()),
   });
+  const expectedTargetCount =
+    injectionPlan.relativeSkillRoots.length *
+    ACP_CHAT_INJECTED_SKILL_IDS.length;
+  const materializedTargetCount =
+    Object.values(targetDirsBySkill).flat().length;
+  const ready =
+    expectedTargetCount > 0 &&
+    registry !== null &&
+    missingSkillIds.length === 0 &&
+    failedTargets.length === 0 &&
+    materializedTargetCount === expectedTargetCount;
   appendAcpChatPreparationDiagnostic(args.sessionRuntime, {
-    kind:
-      injectionPlan.skillRoots.length > 0
-        ? "acp_chat_injected_skills_ready"
-        : "acp_chat_injected_skills_unavailable",
-    level: injectionPlan.skillRoots.length > 0 ? "info" : "warn",
-    message:
-      injectionPlan.skillRoots.length > 0
-        ? "ACP Chat injected skills materialized."
+    kind: ready
+      ? "acp_chat_injected_skills_ready"
+      : "acp_chat_injected_skills_unavailable",
+    level: ready ? "info" : "warn",
+    message: ready
+      ? "ACP Chat injected skills materialized."
+      : expectedTargetCount > 0
+        ? "ACP Chat injected skills were not fully materialized."
         : "ACP Chat injected skills were not materialized because no project skill roots were available.",
     detail: Object.values(targetDirsBySkill).flat().join(", "),
     raw: {
       skillIds: [...ACP_CHAT_INJECTED_SKILL_IDS],
       missingSkillIds,
+      failedTargets,
       families: injectionPlan.families,
       skillRoots: injectionPlan.skillRoots,
       targetDirsBySkill,
+      expectedTargetCount,
+      materializedTargetCount,
     },
   });
 }

@@ -79,6 +79,27 @@ import {
 import { saveAcpConversationState } from "../../src/modules/acpConversationStore";
 import { setAssistantExecutionDisplayMode } from "../../src/modules/assistantExecutionDisplayPolicy";
 
+const ACP_CHAT_INJECTED_SKILL_BODIES = new Map([
+  [
+    "zotero-bridge-cli",
+    "# User Zotero Bridge CLI\n\nUSER ZOTERO BRIDGE OVERRIDE",
+  ],
+  [
+    "literature-search-ingest",
+    "# User Literature Search Ingest\n\nUSER LSI OVERRIDE",
+  ],
+  [
+    "literature-metadata-search",
+    "# User Literature Metadata Search\n\nUSER LMS OVERRIDE",
+  ],
+  ["zotero-library-agent", "# User Zotero Library Agent"],
+  ["zotero-library-curation", "# User Zotero Library Curation"],
+  ["zotero-library-query", "# User Zotero Library Query"],
+  ["zotero-literature-acquisition", "# User Zotero Literature Acquisition"],
+  ["zotero-literature-analysis", "# User Zotero Literature Analysis"],
+  ["zotero-research-synthesis", "# User Zotero Research Synthesis"],
+]);
+
 describe("acp session manager", function () {
   const harness = installAcpSessionManagerTestHooks();
   const useScriptedPrompt = (
@@ -898,21 +919,13 @@ describe("acp session manager", function () {
     };
     try {
       Zotero.Prefs.set(`${config.prefsPrefix}.skillDir`, userSkillRoot, true);
-      await writeRegistrySkill({
-        root: userSkillRoot,
-        skillId: "zotero-bridge-cli",
-        body: "# User Zotero Bridge CLI\n\nUSER ZOTERO BRIDGE OVERRIDE",
-      });
-      await writeRegistrySkill({
-        root: userSkillRoot,
-        skillId: "literature-search-ingest",
-        body: "# User Literature Search Ingest\n\nUSER LSI OVERRIDE",
-      });
-      await writeRegistrySkill({
-        root: userSkillRoot,
-        skillId: "literature-metadata-search",
-        body: "# User Literature Metadata Search\n\nUSER LMS OVERRIDE",
-      });
+      for (const [skillId, body] of ACP_CHAT_INJECTED_SKILL_BODIES) {
+        await writeRegistrySkill({
+          root: userSkillRoot,
+          skillId,
+          body,
+        });
+      }
       const chatWorkspaceDir = resolveAcpChatRuntimePaths(
         ACP_OPENCODE_BACKEND_ID,
       ).agentWorkspaceDir;
@@ -1123,11 +1136,21 @@ describe("acp session manager", function () {
         ),
         [".agents/skills", ".opencode/skills"],
       );
-      assert.isOk(
-        snapshot.diagnostics.find(
-          (entry) => entry.kind === "acp_chat_injected_skills_ready",
-        ),
-      );
+      const injectedSkillsReady = snapshot.diagnostics.find(
+        (entry) => entry.kind === "acp_chat_injected_skills_ready",
+      ) as
+        | {
+            raw?: {
+              expectedTargetCount?: number;
+              materializedTargetCount?: number;
+              failedTargets?: unknown[];
+            };
+          }
+        | undefined;
+      assert.isOk(injectedSkillsReady);
+      assert.equal(injectedSkillsReady?.raw?.expectedTargetCount, 18);
+      assert.equal(injectedSkillsReady?.raw?.materializedTargetCount, 18);
+      assert.deepEqual(injectedSkillsReady?.raw?.failedTargets, []);
       assert.isString(
         harness.lastFactoryArgs?.backend.env?.ZOTERO_BRIDGE_PROFILE,
       );
@@ -1190,6 +1213,167 @@ describe("acp session manager", function () {
         "Echo: Hello ACP",
       );
     } finally {
+      if (typeof previousSkillDir === "undefined") {
+        Zotero.Prefs.clear(`${config.prefsPrefix}.skillDir`, true);
+      } else {
+        Zotero.Prefs.set(
+          `${config.prefsPrefix}.skillDir`,
+          previousSkillDir,
+          true,
+        );
+      }
+      await fs.rm(dataDirectory, { recursive: true, force: true });
+      await fs.rm(userSkillRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("does not report injected skills ready when the registry is incomplete", async function () {
+    const dataDirectory = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-acp-incomplete-skills-data-"),
+    );
+    const userSkillRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-acp-incomplete-skills-"),
+    );
+    const previousSkillDir = Zotero.Prefs.get(
+      `${config.prefsPrefix}.skillDir`,
+      true,
+    );
+    (
+      Zotero as typeof Zotero & { DataDirectory?: { dir?: string } }
+    ).DataDirectory = {
+      dir: dataDirectory,
+    };
+
+    try {
+      Zotero.Prefs.set(`${config.prefsPrefix}.skillDir`, userSkillRoot, true);
+      await writeRegistrySkill({
+        root: userSkillRoot,
+        skillId: "zotero-bridge-cli",
+        body: "# User Zotero Bridge CLI",
+      });
+
+      await connectAcpConversation();
+
+      const snapshot = getAcpConversationSnapshot();
+      const unavailable = snapshot.diagnostics.find(
+        (entry) => entry.kind === "acp_chat_injected_skills_unavailable",
+      ) as
+        | {
+            raw?: {
+              expectedTargetCount?: number;
+              materializedTargetCount?: number;
+              missingSkillIds?: string[];
+              failedTargets?: unknown[];
+            };
+          }
+        | undefined;
+      assert.isOk(unavailable);
+      assert.isUndefined(
+        snapshot.diagnostics.find(
+          (entry) => entry.kind === "acp_chat_injected_skills_ready",
+        ),
+      );
+      assert.equal(unavailable?.raw?.expectedTargetCount, 18);
+      assert.equal(unavailable?.raw?.materializedTargetCount, 2);
+      assert.lengthOf(unavailable?.raw?.missingSkillIds || [], 8);
+      assert.deepEqual(unavailable?.raw?.failedTargets, []);
+      assert.isOk(harness.lastAdapter);
+    } finally {
+      if (typeof previousSkillDir === "undefined") {
+        Zotero.Prefs.clear(`${config.prefsPrefix}.skillDir`, true);
+      } else {
+        Zotero.Prefs.set(
+          `${config.prefsPrefix}.skillDir`,
+          previousSkillDir,
+          true,
+        );
+      }
+      await fs.rm(dataDirectory, { recursive: true, force: true });
+      await fs.rm(userSkillRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("does not report injected skills ready when one target copy fails", async function () {
+    const dataDirectory = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-acp-failed-skill-copy-data-"),
+    );
+    const userSkillRoot = await fs.mkdtemp(
+      path.join(os.tmpdir(), "zs-acp-failed-skill-copy-"),
+    );
+    const previousSkillDir = Zotero.Prefs.get(
+      `${config.prefsPrefix}.skillDir`,
+      true,
+    );
+    const runtime = globalThis as typeof globalThis & {
+      IOUtils?: Record<string, unknown>;
+    };
+    const previousIOUtils = runtime.IOUtils;
+    (
+      Zotero as typeof Zotero & { DataDirectory?: { dir?: string } }
+    ).DataDirectory = {
+      dir: dataDirectory,
+    };
+
+    try {
+      Zotero.Prefs.set(`${config.prefsPrefix}.skillDir`, userSkillRoot, true);
+      for (const [skillId, body] of ACP_CHAT_INJECTED_SKILL_BODIES) {
+        await writeRegistrySkill({
+          root: userSkillRoot,
+          skillId,
+          body,
+        });
+      }
+      runtime.IOUtils = {
+        ...previousIOUtils,
+        copy: async (sourcePath: string, targetPath: string) => {
+          const portableTarget = targetPath.replace(/\\/g, "/");
+          if (
+            portableTarget.includes(
+              "/.opencode/skills/zotero-research-synthesis.tmp-tree-",
+            ) &&
+            portableTarget.endsWith("/SKILL.md")
+          ) {
+            throw new Error("simulated target copy failure");
+          }
+          await fs.copyFile(sourcePath, targetPath);
+        },
+      };
+
+      await connectAcpConversation();
+
+      const snapshot = getAcpConversationSnapshot();
+      const unavailable = snapshot.diagnostics.find(
+        (entry) => entry.kind === "acp_chat_injected_skills_unavailable",
+      ) as
+        | {
+            raw?: {
+              expectedTargetCount?: number;
+              materializedTargetCount?: number;
+              missingSkillIds?: string[];
+              failedTargets?: Array<{
+                relativeRoot?: string;
+                skillId?: string;
+              }>;
+            };
+          }
+        | undefined;
+      assert.isOk(unavailable);
+      assert.isUndefined(
+        snapshot.diagnostics.find(
+          (entry) => entry.kind === "acp_chat_injected_skills_ready",
+        ),
+      );
+      assert.equal(unavailable?.raw?.expectedTargetCount, 18);
+      assert.equal(unavailable?.raw?.materializedTargetCount, 17);
+      assert.deepEqual(unavailable?.raw?.missingSkillIds, []);
+      assert.deepInclude(unavailable?.raw?.failedTargets?.[0] || {}, {
+        relativeRoot: ".opencode/skills",
+        skillId: "zotero-research-synthesis",
+      });
+      assert.lengthOf(unavailable?.raw?.failedTargets || [], 1);
+      assert.isOk(harness.lastAdapter);
+    } finally {
+      runtime.IOUtils = previousIOUtils;
       if (typeof previousSkillDir === "undefined") {
         Zotero.Prefs.clear(`${config.prefsPrefix}.skillDir`, true);
       } else {

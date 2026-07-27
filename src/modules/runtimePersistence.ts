@@ -1,4 +1,4 @@
-import { joinPath } from "../utils/path";
+import { joinPath, normalizeNativeLocalPath } from "../utils/path";
 import { isNonNativeAbsolutePath } from "../platform/path";
 import { getTaskHistoryRetentionConfig } from "./taskRetentionPolicy";
 import {
@@ -805,6 +805,10 @@ async function tryNodeFs() {
   }
 }
 
+function normalizeRuntimeFsPath(pathRaw: string) {
+  return normalizeNativeLocalPath(normalizeString(pathRaw));
+}
+
 export async function runtimePathExists(pathRaw: string) {
   const path = normalizeString(pathRaw);
   if (!path) {
@@ -844,7 +848,7 @@ export async function runtimePathExists(pathRaw: string) {
 }
 
 export async function ensureRuntimeDirectory(pathRaw: string) {
-  const path = normalizeString(pathRaw);
+  const path = normalizeRuntimeFsPath(pathRaw);
   if (!path) {
     return;
   }
@@ -1889,7 +1893,7 @@ export async function copyRuntimeTree(args: {
   manifest: RuntimeTreeManifest;
   targetDir: string;
 }) {
-  const targetDir = normalizeString(args.targetDir);
+  const targetDir = normalizeRuntimeFsPath(args.targetDir);
   if (!targetDir) return args.manifest;
   if (args.manifest.issues.length) {
     throw new Error("Cannot copy an incomplete runtime tree manifest");
@@ -1950,8 +1954,8 @@ export async function copyRuntimeDirectory(args: {
   sourceDir: string;
   targetDir: string;
 }) {
-  const sourceDir = normalizeString(args.sourceDir);
-  const targetDir = normalizeString(args.targetDir);
+  const sourceDir = normalizeRuntimeFsPath(args.sourceDir);
+  const targetDir = normalizeRuntimeFsPath(args.targetDir);
   if (!sourceDir || !targetDir) {
     return;
   }

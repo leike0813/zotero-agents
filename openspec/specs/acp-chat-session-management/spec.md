@@ -80,52 +80,37 @@ project skill roots required by every configured ACP backend, including disabled
 profiles. Each backend SHALL contribute its family defaults and its additional
 `acp.skillRoots`. The injected skill source SHALL be the plugin skill registry
 effective entry for each skill id, preserving official, dev-local, and user
-source priority.
+source priority. Managed target resolution SHALL preserve native local filesystem
+syntax; portable path normalization SHALL be used only for validation and
+comparison. The managed ownership manifest SHALL bound writes and cleanup but
+SHALL NOT be treated as evidence that materialization succeeded.
 
-#### Scenario: Chat materializes whitelisted skills into configured family roots
+#### Scenario: Windows chat workspace materializes native Skill targets
 
-- **GIVEN** the configured ACP backends resolve to OpenCode and CodeBuddy
-- **WHEN** an ACP Chat session prepares its shared workspace
-- **THEN** the target roots SHALL be `.agents/skills`, `.opencode/skills`, and `.codebuddy/skills`
-- **AND** the injected whitelist SHALL be materialized into every target root
-- **AND** roots belonging only to unconfigured families SHALL NOT be materialized.
+- **GIVEN** the shared ACP Chat workspace is on a Windows drive
+- **WHEN** ACP Chat resolves and copies its whitelisted Skill targets
+- **THEN** paths passed to native runtime and Zotero file APIs SHALL use valid
+  Windows local-path syntax
+- **AND** portable containment comparison SHALL NOT alter the returned target
+  path.
 
-#### Scenario: Chat appends configured skill roots from every backend
+#### Scenario: Complete materialization reports ready
 
-- **GIVEN** one or more configured ACP backend profiles declare `acp.skillRoots`
-- **WHEN** the chat injected skill target roots are resolved
-- **THEN** every safe configured root SHALL be added to the family-root union
-- **AND** duplicate roots SHALL be materialized only once
-- **AND** an invalid or escaping root SHALL be ignored with a warning.
+- **GIVEN** every whitelisted Skill is available in the plugin Skill registry
+- **AND** every planned target can be copied
+- **WHEN** ACP Chat completes shared-workspace preparation
+- **THEN** it SHALL report `acp_chat_injected_skills_ready`
+- **AND** the diagnostic SHALL identify the complete planned and materialized
+  target counts.
 
-#### Scenario: Missing injected skill records a warning
+#### Scenario: Incomplete materialization does not report ready
 
-- **GIVEN** an ACP Chat injected skill id is not present in the plugin skill registry
-- **WHEN** ACP Chat prepares injected skills
-- **THEN** ACP Chat SHALL record a warning diagnostic for that missing skill
-- **AND** it SHALL continue preparing the chat adapter.
-
-#### Scenario: Current managed skill copy is replaced
-
-- **GIVEN** a shared ACP Chat workspace contains an older managed copy under a current target root
-- **WHEN** ACP Chat prepares injected skills
-- **THEN** the old skill copy SHALL be replaced by the current registry effective entry.
-
-#### Scenario: Stale managed root is reconciled
-
-- **GIVEN** the managed injection manifest contains a root no longer contributed by any configured ACP backend
-- **WHEN** ACP Chat next prepares an adapter
-- **THEN** only the manifest-owned whitelist directories under that root SHALL be removed
-- **AND** the root itself and non-managed content SHALL remain unchanged
-- **AND** a failed cleanup SHALL remain recorded for a later retry.
-
-#### Scenario: Target ownership cannot be committed
-
-- **GIVEN** ACP Chat cannot atomically commit the next managed target set
-- **WHEN** the shared workspace is prepared
-- **THEN** no Skill target SHALL be copied or removed during that reconcile
-- **AND** a warning SHALL be recorded
-- **AND** adapter initialization SHALL continue.
+- **GIVEN** a whitelisted Skill is missing or a planned target copy fails
+- **WHEN** ACP Chat completes shared-workspace preparation
+- **THEN** it SHALL report `acp_chat_injected_skills_unavailable`
+- **AND** it SHALL NOT report `acp_chat_injected_skills_ready`
+- **AND** the structured diagnostic SHALL identify missing Skill ids and failed
+  targets without treating manifest ownership as success.
 
 ### Requirement: ACP Chat SHALL inject shared-workspace instructions from a packaged template
 
