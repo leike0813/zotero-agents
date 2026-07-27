@@ -39,6 +39,8 @@
 |------|------|------|------|
 | `query` | string | 搜索主题、论文标识、种子；留空可启动引导规划。 | 空 |
 | `searchMode` | string | `auto`、`guided`、`topic_expansion`、`paper_seed_expansion`、`targeted_ingest`。 | `auto` |
+| `searchBreadth` | string | 选择广泛的多路检索、均衡覆盖或快速初步检索。 | `broad` |
+| `languageHints` | string[] | 可选的 BCP 47 语言提示，例如 `en`、`zh-CN`、`ja` 或 `de`；它们会扩展查询和来源，但不会过滤其他语言。 | `[]` |
 | `targetCollection` | string | 目标 Collection（可选）。 | 空 |
 
 ## 产出

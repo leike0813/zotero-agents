@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import fs from "fs/promises";
 import { adaptSkillRunnerJobToAcpSkillRun } from "../../src/modules/acpSkillRunRequestAdapter";
 import { ACP_SKILL_RUN_REQUEST_KIND } from "../../src/config/defaults";
 import { buildAcpSkillRunPrompt } from "../../src/modules/acpSkillRunPromptBuilder";
@@ -316,5 +317,52 @@ describe("ACP skill run request adapter", function () {
     );
     assert.notInclude(prompt, "{{ input.source_path }}");
     assert.notInclude(prompt, "inputs/source_path");
+  });
+
+  it("renders literature search breadth and language hints in the runner prompt", async function () {
+    const runnerJson = JSON.parse(
+      await fs.readFile(
+        "skills_builtin/literature-search-ingest/assets/runner.json",
+        "utf8",
+      ),
+    );
+    const prompt = await buildAcpSkillRunPrompt({
+      context: {
+        skillId: "literature-search-ingest",
+        workspace: {
+          requestId: "run-1",
+          workspaceDir: "D:/runtime/run-1",
+          runtimeDir: "D:/runtime/run-1/.acp",
+          resultDir: "D:/runtime/run-1/result",
+          resultJsonPath: "D:/runtime/run-1/result/result.json",
+          inputManifestPath: "D:/runtime/run-1/.acp/input_manifest.json",
+        },
+        backend: {
+          id: "acp-local",
+          type: "acp",
+          baseUrl: "local://acp",
+        },
+        agentFamily: "claude-code",
+        proxySkillRoots: ["D:/runtime/run-1/.claude/skills"],
+        requestedSkillProxyPath:
+          "D:/runtime/run-1/.claude/skills/literature-search-ingest",
+        sharedSkillCatalogPath: "D:/runtime/catalog",
+      },
+      request: {
+        kind: ACP_SKILL_RUN_REQUEST_KIND,
+        skill_id: "literature-search-ingest",
+        parameter: {
+          query: "retrieval augmented generation",
+          searchMode: "targeted_ingest",
+          searchBreadth: "balanced",
+          languageHints: ["en", "zh-CN"],
+          targetCollection: "RAG",
+        },
+      },
+      runnerJson,
+    });
+
+    assert.include(prompt, "searchBreadth=balanced");
+    assert.include(prompt, 'languageHints=["en","zh-CN"]');
   });
 });

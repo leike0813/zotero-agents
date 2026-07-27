@@ -39,6 +39,8 @@ AI を使用して学術文献を検索し、承認された結果を Zotero に
 |------|------|------|------|
 | `query` | string | 検索トピック、論文識別子、シード、またはガイド付き計画用の空値。 | 空 |
 | `searchMode` | string | `auto`、`guided`、`topic_expansion`、`paper_seed_expansion`、`targeted_ingest`。 | `auto` |
+| `searchBreadth` | string | 幅広い複数経路の探索、バランスの取れた網羅性、または迅速な初回検索を選択します。 | `broad` |
+| `languageHints` | string[] | `en`、`zh-CN`、`ja`、`de` などの任意の BCP 47 言語ヒント。クエリと情報源を広げますが、他の言語を除外しません。 | `[]` |
 | `targetCollection` | string | オプションのターゲットコレクション。 | 空 |
 
 ## 出力

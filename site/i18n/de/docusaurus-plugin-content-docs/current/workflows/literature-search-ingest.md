@@ -39,6 +39,8 @@ Akademische Literatur mit KI durchsuchen und genehmigte Ergebnisse direkt in Zot
 |------|------|------|------|
 | `query` | string | Suchthema, Artikelkennung, Seed oder ein leerer Wert für geführte Planung. | Leer |
 | `searchMode` | string | `auto`, `guided`, `topic_expansion`, `paper_seed_expansion` oder `targeted_ingest`. | `auto` |
+| `searchBreadth` | string | Wählen Sie eine breite mehrgleisige Recherche, ausgewogene Abdeckung oder einen schnellen ersten Durchlauf. | `broad` |
+| `languageHints` | string[] | Optionale BCP-47-Sprachhinweise wie `en`, `zh-CN`, `ja` oder `de`; sie erweitern Suchanfragen und Quellen, filtern aber keine anderen Sprachen. | `[]` |
 | `targetCollection` | string | Optionale Ziel-Collection. | Leer |
 
 ## Ausgaben

@@ -39,6 +39,8 @@ Search academic literature with AI and ingest approved results into Zotero. A bl
 |------|------|------|------|
 | `query` | string | Search topic, paper identifier, seed, or an empty value for guided planning. | Empty |
 | `searchMode` | string | `auto`, `guided`, `topic_expansion`, `paper_seed_expansion`, or `targeted_ingest`. | `auto` |
+| `searchBreadth` | string | Choose broad multi-lane discovery, balanced coverage, or a quick first pass. | `broad` |
+| `languageHints` | string[] | Optional BCP 47 language hints such as `en`, `zh-CN`, `ja`, or `de`. They expand queries and sources but never filter other languages. | `[]` |
 | `targetCollection` | string | Optional target Collection. | Empty |
 
 ## Outputs

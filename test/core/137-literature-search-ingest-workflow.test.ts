@@ -112,6 +112,45 @@ describe("Literature Search Ingest workflow contract", function () {
     );
   });
 
+  it("ships localized metadata for every literature-search-ingest parameter", async function () {
+    const loaded = await loadWorkflowManifests("workflows_builtin", {
+      workflowSourceKind: "builtin",
+    });
+    const workflow = loaded.workflows.find(
+      (entry) => entry.manifest.id === "literature-search-ingest",
+    );
+    assert.isOk(workflow);
+
+    const parameterKeys = Object.keys(workflow!.manifest.parameters || {});
+    const localeMessages = workflow!.localization?.packageMessages || {};
+    assert.sameMembers(Object.keys(localeMessages), [
+      "zh-CN",
+      "zh-TW",
+      "fr-FR",
+      "ja-JP",
+      "de",
+      "es-ES",
+      "pt-BR",
+      "ko-KR",
+      "it-IT",
+      "ru-RU",
+    ]);
+
+    for (const [locale, messages] of Object.entries(localeMessages)) {
+      for (const parameterKey of parameterKeys) {
+        const prefix = `workflows.literature-search-ingest.parameters.${parameterKey}`;
+        assert.isNotEmpty(
+          messages[`${prefix}.title`]?.trim(),
+          `${locale} ${parameterKey} title`,
+        );
+        assert.isNotEmpty(
+          messages[`${prefix}.description`]?.trim(),
+          `${locale} ${parameterKey} description`,
+        );
+      }
+    }
+  });
+
   it("resolves targetCollection options from Zotero collections without exposing keys as labels", async function () {
     const parent = await createCollection("Vision");
     const child = await createCollection("Object Detection", parent.id);

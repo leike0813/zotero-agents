@@ -39,6 +39,8 @@ AI로 학술 문헌을 검색하고 승인된 결과를 Zotero로 직접 수집�
 |------|------|------|------|
 | `query` | string | 검색 주제, 논문 식별자, 시드 또는 가이드 계획을 위한 빈 값. | 비어 있음 |
 | `searchMode` | string | `auto`, `guided`, `topic_expansion`, `paper_seed_expansion` 또는 `targeted_ingest`. | `auto` |
+| `searchBreadth` | string | 폭넓은 다중 경로 탐색, 균형 잡힌 범위 또는 빠른 1차 검색 중 선택하십시오. | `broad` |
+| `languageHints` | string[] | `en`, `zh-CN`, `ja`, `de` 등의 선택적 BCP 47 언어 힌트입니다. 쿼리와 출처를 확장하지만 다른 언어를 필터링하지는 않습니다. | `[]` |
 | `targetCollection` | string | 선택적 대상 컬렉션. | 비어 있음 |
 
 ## 출력

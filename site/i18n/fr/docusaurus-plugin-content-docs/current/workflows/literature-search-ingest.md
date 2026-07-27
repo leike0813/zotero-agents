@@ -39,6 +39,8 @@ Rechercher de la littérature académique avec l'IA et ingérer les résultats a
 |------|------|------|------|
 | `query` | string | Sujet de recherche, identifiant d'article, graine ou valeur vide pour la planification guidée. | Vide |
 | `searchMode` | string | `auto`, `guided`, `topic_expansion`, `paper_seed_expansion` ou `targeted_ingest`. | `auto` |
+| `searchBreadth` | string | Choisissez une découverte large sur plusieurs pistes, une couverture équilibrée ou un premier passage rapide. | `broad` |
+| `languageHints` | string[] | Indications facultatives de langue BCP 47, par exemple `en`, `zh-CN`, `ja` ou `de` ; elles élargissent les requêtes et les sources sans filtrer les autres langues. | `[]` |
 | `targetCollection` | string | Collection cible optionnelle. | Vide |
 
 ## Sorties
