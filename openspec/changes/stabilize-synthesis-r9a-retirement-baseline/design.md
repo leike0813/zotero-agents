@@ -18,6 +18,11 @@ Rust dispatcher/ready roster, and seven language-neutral surface corpora. The
 historical change matrix was useful for planning, but it must not remain a
 runtime or post-archive verification dependency.
 
+The Artifact/Library/Debug surface is established as the seventh durable
+corpus in `synthesis-artifact-library-debug-surface-v1/corpus.json`. Its 12
+operations, access classes, and boundary/reopen cases are now product
+contract, rather than an implicit residual of the historical ownership matrix.
+
 This change is the non-destructive prerequisite for both R9b deletion changes.
 It does not remove retained implementations and does not publish or dispatch a
 release workflow.
@@ -195,4 +200,3 @@ fail compatibility checks rather than reinterpret that receipt.
 
 None. The durable evidence sources, smoke categories, no-new-inventory rule,
 dependency order, and release exclusions are fixed.
-

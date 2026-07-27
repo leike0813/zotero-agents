@@ -10,6 +10,10 @@ import {
   SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { createSynthesisProductionSidecarControlClient } from "../../src/modules/synthesisSidecarControlClient";
+import {
+  SYNTHESIS_PRODUCTION_SMOKE_CHECK_IDS,
+  SYNTHESIS_PRODUCTION_SMOKE_ROSTER_VERSION,
+} from "../../src/modules/synthesisProductionSmoke";
 
 const PROFILE_ID = "1".repeat(64);
 
@@ -175,11 +179,18 @@ describe("Synthesis production sidecar control client", function () {
     );
     await client.activate(connection, {
       receiptId: "receipt-1",
+      profileId: PROFILE_ID,
       serviceInstanceId: runtime.serviceInstanceId,
+      supervisorInstanceId: runtime.supervisorInstanceId,
       capabilityFingerprint:
         SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
       readyClientCapabilities:
         SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+      smokeRosterVersion: SYNTHESIS_PRODUCTION_SMOKE_ROSTER_VERSION,
+      smokeCheckIds: [...SYNTHESIS_PRODUCTION_SMOKE_CHECK_IDS],
+      smokeCheckDigests: SYNTHESIS_PRODUCTION_SMOKE_CHECK_IDS.map(() =>
+        "7".repeat(64),
+      ),
       smokeEvidenceDigest: "8".repeat(64),
       issuedAtMs: Date.now(),
     });

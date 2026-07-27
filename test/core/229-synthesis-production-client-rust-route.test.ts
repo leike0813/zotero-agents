@@ -1,4 +1,5 @@
 import { assert } from "chai";
+import { createHash } from "node:crypto";
 import {
   execFile,
   spawn,
@@ -30,6 +31,10 @@ const EXECUTABLE = path.join(
 );
 const CLIENT_TOKEN = "client-token-0123456789abcdef0123456789abcdef";
 const LIFECYCLE_TOKEN = "lifecycle-token-0123456789abcdef0123456789abcdef";
+const SMOKE_CHECK_IDS = ["identity", "storage", "workbench", "topic-list", "topic-detail", "canonical-manifest", "reference-cache", "graph-read", "worker"];
+function smokeDigest(args: { profileId: string; receiptId: string; serviceInstanceId: string; supervisorInstanceId: string; capabilityFingerprint: string; checkDigests: string[] }) {
+  return createHash("sha256").update(JSON.stringify(["synthesis-production-critical-smoke.v1", ...SMOKE_CHECK_IDS, ...args.checkDigests, args.profileId, args.receiptId, args.serviceInstanceId, args.supervisorInstanceId, args.capabilityFingerprint])).digest("hex");
+}
 const execFileAsync = promisify(execFile);
 const TOPIC_WORKBENCH_OPERATIONS = [
   "client.applyLiteratureDigestSidecar",
@@ -856,16 +861,32 @@ describe("Synthesis Rust production client route", function () {
         );
       }
 
+      const partialActivation = await call(
+        port,
+        "system.production.activate",
+        {
+          receiptId: "receipt-1",
+          serviceInstanceId: topics.body.serviceInstanceId,
+        },
+        LIFECYCLE_TOKEN,
+      );
+      assert.equal(partialActivation.status, 400);
+
       const mismatchedActivation = await call(
         port,
         "system.production.activate",
         {
           receiptId: "receipt-1",
+          profileId: productionAdmission.profileId,
           serviceInstanceId: "another-service",
+          supervisorInstanceId: productionAdmission.supervisorInstanceId,
           capabilityFingerprint:
             SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
           readyClientCapabilities:
             SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+          smokeRosterVersion: "synthesis-production-critical-smoke.v1",
+          smokeCheckIds: SMOKE_CHECK_IDS,
+          smokeCheckDigests: Array.from({ length: 9 }, () => "b".repeat(64)),
           smokeEvidenceDigest: "a".repeat(64),
           issuedAtMs: Date.now(),
         },
@@ -882,11 +903,16 @@ describe("Synthesis Rust production client route", function () {
         "system.production.activate",
         {
           receiptId: "receipt-1",
+          profileId: productionAdmission.profileId,
           serviceInstanceId: topics.body.serviceInstanceId,
+          supervisorInstanceId: productionAdmission.supervisorInstanceId,
           capabilityFingerprint:
             SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
           readyClientCapabilities:
             SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+          smokeRosterVersion: "synthesis-production-critical-smoke.v1",
+          smokeCheckIds: ["identity", "storage", "workbench", "topic-list", "topic-detail", "canonical-manifest", "reference-cache", "graph-read", "worker"],
+          smokeCheckDigests: Array.from({ length: 9 }, () => "b".repeat(64)),
           smokeEvidenceDigest: "a".repeat(64),
           issuedAtMs: Date.now(),
         },
@@ -900,11 +926,16 @@ describe("Synthesis Rust production client route", function () {
         "system.production.activate",
         {
           receiptId: "receipt-1",
+          profileId: productionAdmission.profileId,
           serviceInstanceId: topics.body.serviceInstanceId,
+          supervisorInstanceId: productionAdmission.supervisorInstanceId,
           capabilityFingerprint:
             SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
           readyClientCapabilities:
             SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+          smokeRosterVersion: "synthesis-production-critical-smoke.v1",
+          smokeCheckIds: SMOKE_CHECK_IDS,
+          smokeCheckDigests: Array.from({ length: 9 }, () => "b".repeat(64)),
           smokeEvidenceDigest: "a".repeat(64),
           issuedAtMs: 0,
         },
@@ -918,12 +949,17 @@ describe("Synthesis Rust production client route", function () {
         "system.production.activate",
         {
           receiptId: "receipt-1",
+          profileId: productionAdmission.profileId,
           serviceInstanceId: topics.body.serviceInstanceId,
+          supervisorInstanceId: productionAdmission.supervisorInstanceId,
           capabilityFingerprint:
             SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
           readyClientCapabilities:
             SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
-          smokeEvidenceDigest: "a".repeat(64),
+          smokeRosterVersion: "synthesis-production-critical-smoke.v1",
+          smokeCheckIds: ["identity", "storage", "workbench", "topic-list", "topic-detail", "canonical-manifest", "reference-cache", "graph-read", "worker"],
+          smokeCheckDigests: Array.from({ length: 9 }, () => "b".repeat(64)),
+          smokeEvidenceDigest: smokeDigest({ profileId: productionAdmission.profileId, receiptId: "receipt-1", serviceInstanceId: topics.body.serviceInstanceId, supervisorInstanceId: productionAdmission.supervisorInstanceId, capabilityFingerprint: SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT, checkDigests: Array.from({ length: 9 }, () => "b".repeat(64)) }),
           issuedAtMs: Date.now(),
         },
         LIFECYCLE_TOKEN,
@@ -936,11 +972,16 @@ describe("Synthesis Rust production client route", function () {
         "system.production.activate",
         {
           receiptId: "receipt-1",
+          profileId: productionAdmission.profileId,
           serviceInstanceId: topics.body.serviceInstanceId,
+          supervisorInstanceId: productionAdmission.supervisorInstanceId,
           capabilityFingerprint:
             SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
           readyClientCapabilities:
             SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+          smokeRosterVersion: "synthesis-production-critical-smoke.v1",
+          smokeCheckIds: SMOKE_CHECK_IDS,
+          smokeCheckDigests: Array.from({ length: 9 }, () => "b".repeat(64)),
           smokeEvidenceDigest: "a".repeat(64),
           issuedAtMs: Date.now(),
         },

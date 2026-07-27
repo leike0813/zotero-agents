@@ -337,18 +337,25 @@ HTTP runtime、SQLite binding、压缩/归档、签名或跨平台辅助 crate �
 **目标**：一次完成 Rust production ownership 与 Node 删除，避免双栈长期存在。
 
 **实施状态（2026-07-27）**：R9a change
-`cut-over-synthesis-production-owner-to-rust` 已开始本地实现。已落地完整
+`stabilize-synthesis-r9a-retirement-baseline` 完成本地生产切换。完整
 production client 清单与跨语言 fingerprint、native client composition、
 十三项 reverse-Host 闭集及 loopback endpoint、cutover receipt/coordinator、
 DB/WAL/canonical 备份恢复、production-copy preflight、显式 production
-root adapter、mutation-disabled live owner lock、独立 production v3
-supervisor，以及首个真实 typed RPC `client.listTopics`。runtime 单独报告
-当前 ready 子集；其余已声明 operation 统一 fail closed，native default
-composition 在 95 项全部 ready 前拿不到连接。完整 Rust production RPC
-dispatch、mutation admission 和 default-client 切换尚未完成，因此
-production owner 仍是插件。R8 五平台远端、签名/XPI
-和实机证据按当前授权记为外部待验收项，不阻塞本地开发，也不得据此宣告
-R9 或 Stage 1 完成。
+root adapter、exclusive live owner lock、完整 Rust production RPC dispatch、
+critical-smoke evidence、mutation admission、production v3 supervisor 与
+default-client 路由已经组成一次 receipt-bound 原子交接。预 admission
+失败恢复已验证备份；admission 后失败进入 Rust-only repair，禁止回落到
+插件或 Node owner。Node、生成物和历史测试仅按
+`artifact/synthesis_r9a_retirement_baseline_20260727.md` 的保留清单作为
+差分 oracle/兼容工件存在，不能成为生产路径。R8 五平台远端、签名/XPI
+和 clean-machine 实机证据迁入依赖的 R9b 验收，不阻塞本地切换，也不得
+据此宣告发布完成。
+
+**后续边界**：R9b 只能按 `remove-synthesis-plugin-legacy-owner` 与
+`remove-synthesis-node-sidecar-stack` 两个依赖 change 的顺序处理物理删除。
+它们必须复用本 change 的 baseline、corpora、cutover 与 candidate 证据，且
+不得把本地切换、五平台 candidate、签名/XPI、upgrade/offline install、发布
+或 Gitee 同步混为同一项完成声明。
 
 **切换前硬门槛**：
 
@@ -375,8 +382,8 @@ R9 或 Stage 1 完成。
 | --- | --- | --- | --- | --- |
 | R0-R6 | 现有插件实现 | oracle | isolated candidate | 否 |
 | R7-R8 | 现有插件实现 | oracle | full isolated shadow | 否 |
-| R9 cutover | 原 owner，直到原子切换 | 待删除 | candidate | 否 |
-| R9 完成后 | Rust sidecar | 已删除 | active/previous native bundles | 不适用 |
+| R9a local cutover | Rust sidecar（receipt-bound activation 后） | frozen oracle / retained inventory | active/previous native bundles | 否 |
+| R9b acceptance 后 | Rust sidecar | 依批准保留或删除 | active/previous native bundles | 不适用 |
 
 允许的双执行仅存在于测试 harness，并使用相同只读 fixture 或独立复制的数据根。不得在用户请求路径上“Rust 失败则回 Node”，也不得让 Node/Rust 竞争同一个 writer lease。
 

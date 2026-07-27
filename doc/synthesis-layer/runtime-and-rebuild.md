@@ -9,22 +9,25 @@ surface, and runs bounded kernels through its internal worker mode. Node is a
 read-only differential oracle and is not a packaged runtime or production
 fallback.
 
-R7 typed application parity is complete. R8 establishes native bundle,
-installer, supervision and service identity while keeping the production
-database, canonical store, Host ports, registered mutation capabilities and
-`SynthesisClient` authority plugin-side. The two read canaries are unchanged.
-R9a is active but has not switched the default route. The current implementation
-freezes a 95-operation flat-port inventory for the 96-method grouped client,
-adds the native composition, reverse-Host endpoint and adapters, durable
-receipt/coordinator, verified backup/restore, explicit production-copy
-preflight, a mutation-disabled live owner lock, strict production v3
-supervision, and typed production routes for the completed
-Artifact/Library/Debug, Topic/Workbench, Citation Graph, and
-Reference/Canonical, and Tag surfaces. The runtime reports this 77-operation ready
-subset separately from the closed 95-operation fingerprint; unimplemented
-operations fail closed, and native default-client acquisition remains
-unavailable until the full set is ready. The remaining domain surfaces, final
-mutation admission, and default-client routing are still required.
+R7 typed application parity and R8 native packaging/supervision establish the
+native delivery base. R9a completes the local production handoff: its
+95-operation flat-port inventory for the 96-method grouped client, native
+composition, reverse-Host endpoint/adapters, durable receipt/coordinator,
+verified backup/restore, production-copy preflight, exclusive live-owner lock,
+strict production v3 supervision, complete typed production dispatch,
+critical-smoke evidence, mutation admission, and default-client routing form
+one receipt-bound transition. Every listed production surface is checked
+against its durable corpus before activation. A pre-admission failure restores
+the verified backup; an admitted native owner remains in Rust-only repair and
+never falls back to Node or the plugin owner. Cross-platform and clean-machine
+acceptance are tracked separately as R9b and do not weaken these local rules.
+
+The active production route is therefore the receipt-bound native
+`SynthesisClient` composition. The plugin retains only the Host adapters that
+cross the closed reverse-Host boundary; legacy in-process composition and its
+default-service cache are not permitted to own production data or service a
+normal request. The detailed capability descriptions below identify domain
+adapters and bounded Host effects, not a second production owner.
 
 The production Synthesis application and data authority remain inside the
 Zotero plugin, while two pure kernels now cross the supervised

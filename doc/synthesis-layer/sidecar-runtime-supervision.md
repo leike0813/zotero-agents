@@ -87,14 +87,16 @@ disabled. The production supervisor writes the private admission, accepts only
 v3 discovery plus matching health/handshake authority, and keeps its connection
 separate from the shadow supervisor.
 
-The production activation command requires the current receipt, service
-instance, capability fingerprint, exact 95-operation ready roster, a bounded
-smoke digest, and an evidence timestamp within one minute. Rust persists the
-activation receipt, fsyncs the production owner marker, refreshes discovery,
-health, and handshake state, then opens its in-memory mutation gate. The plugin
-confirms the refreshed health and handshake before it persists the final
-`mutation_enabled` receipt. A durable native activation without that final
-receipt enters Rust-only repair on restart; it never returns to a legacy owner.
+The production activation command requires the current receipt, profile,
+service and supervisor instance, capability fingerprint, exact 95-operation
+ready roster, the versioned nine-check critical-smoke roster with per-check and
+aggregate digests, and an evidence timestamp within one minute. Rust persists
+that evidence in the activation record, fsyncs the production owner marker,
+refreshes discovery, health, and handshake state, then opens its in-memory
+mutation gate. The plugin confirms the refreshed health and handshake before
+it persists the final `mutation_enabled` receipt. A durable native activation
+without that final receipt enters Rust-only repair on restart; it never returns
+to a legacy owner.
 
 Default-client, Workflow, Workbench, Host Bridge, and MCP acquire the same
 generation-scoped native composition only after this verified readiness. Before
@@ -168,11 +170,11 @@ and cancels only interrupted running operations.
 
 ## Migration Boundary
 
-R8 establishes the native lifecycle and verified service identity. Production
-database/canonical ownership and production `SynthesisClient` routing remain
-plugin-side. Node is used only as a differential oracle in tests.
+R9a makes receipt-bound Rust activation the local production-owner and default
+client route. The plugin retains only bounded reverse-Host adapters, and Node
+is used only as a differential oracle in tests. The owner transition contains
+no request-level fallback and never shares a live root.
 
-R9 must separately authorize production-owner cutover. A passing local native
-smoke or candidate workflow does not register mutation HTTP capabilities,
-change the production handshake, publish assets, synchronize prebuilds or
-authorize release.
+R9b separately governs five-platform and clean-machine acceptance. A passing
+local smoke or candidate workflow does not publish assets, synchronize
+prebuilds, or authorize release.

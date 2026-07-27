@@ -2,6 +2,7 @@ import { assert } from "chai";
 import fs from "node:fs";
 import path from "node:path";
 import { SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES } from "../../packages/synthesis-contracts/src/sidecarSystem";
+import { inspectSynthesisArtifactLibraryDebugSurfaceParity } from "../../scripts/check-synthesis-artifact-library-debug-surface-parity";
 import { createScopedSynthesisReverseHostHandlers } from "../../src/modules/synthesisReverseHostHandlers";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
@@ -21,6 +22,14 @@ const OWNED = [
 ] as const;
 
 describe("Synthesis native Artifact/Library/Debug surface", function () {
+  it("keeps its durable corpus complete, bounded, and ready", function () {
+    assert.deepEqual(inspectSynthesisArtifactLibraryDebugSurfaceParity(), {
+      ok: true,
+      operations: 12,
+      errors: [],
+    });
+  });
+
   it("uses one closed Rust compatibility surface for every owned operation", function () {
     const source = fs.readFileSync(
       path.join(

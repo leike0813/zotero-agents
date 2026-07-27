@@ -9,6 +9,35 @@ use synthesis_sidecar::runtime_contract::{
 
 const ACTIVATION_EVIDENCE_MAX_AGE_MS: u64 = 60_000;
 const ACTIVATION_EVIDENCE_MAX_FUTURE_SKEW_MS: u64 = 5_000;
+const PRODUCTION_SMOKE_ROSTER_VERSION: &str = "synthesis-production-critical-smoke.v1";
+const PRODUCTION_SMOKE_CHECK_IDS: &[&str] = &[
+    "identity",
+    "storage",
+    "workbench",
+    "topic-list",
+    "topic-detail",
+    "canonical-manifest",
+    "reference-cache",
+    "graph-read",
+    "worker",
+];
+
+fn smoke_aggregate_digest(evidence: &ProductionActivationEvidence) -> String {
+    let mut parts = vec![evidence.smoke_roster_version.as_str()];
+    parts.extend(evidence.smoke_check_ids.iter().map(String::as_str));
+    parts.extend(evidence.smoke_check_digests.iter().map(String::as_str));
+    parts.extend([
+        evidence.profile_id.as_str(),
+        evidence.receipt_id.as_str(),
+        evidence.service_instance_id.as_str(),
+        evidence.supervisor_instance_id.as_str(),
+        evidence.capability_fingerprint.as_str(),
+    ]);
+    synthesis_protocol::canonical_sha256(&parts)
+        .unwrap_or_default()
+        .trim_start_matches("sha256:")
+        .to_owned()
+}
 
 fn atomic_write_json(path: &Path, value: &Value) -> Result<(), String> {
     let parent = path
@@ -104,9 +133,14 @@ pub(crate) struct ProductionOwnership {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ProductionActivationEvidence {
     pub(crate) receipt_id: String,
+    pub(crate) profile_id: String,
     pub(crate) service_instance_id: String,
+    pub(crate) supervisor_instance_id: String,
     pub(crate) capability_fingerprint: String,
     pub(crate) ready_client_capabilities: Vec<String>,
+    pub(crate) smoke_roster_version: String,
+    pub(crate) smoke_check_ids: Vec<String>,
+    pub(crate) smoke_check_digests: Vec<String>,
     pub(crate) smoke_evidence_digest: String,
     pub(crate) issued_at_ms: u64,
 }
@@ -191,20 +225,36 @@ impl ProductionOwnership {
         if self.activation_path.exists() {
             return Err("production_activation_replayed".into());
         }
-        let valid_digest = evidence.smoke_evidence_digest.len() == 64
+        let valid_digest = |value: &str| {
+            value.len() == 64
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        };
+        let valid_roster = evidence.smoke_roster_version == PRODUCTION_SMOKE_ROSTER_VERSION
+            && evidence.smoke_check_ids
+                == PRODUCTION_SMOKE_CHECK_IDS
+                    .iter()
+                    .map(|value| (*value).to_owned())
+                    .collect::<Vec<_>>()
+            && evidence.smoke_check_digests.len() == PRODUCTION_SMOKE_CHECK_IDS.len()
             && evidence
-                .smoke_evidence_digest
-                .bytes()
-                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase());
+                .smoke_check_digests
+                .iter()
+                .all(|value| valid_digest(value));
         if evidence.receipt_id != admission.cutover_receipt_id
+            || evidence.profile_id != admission.profile_id
             || evidence.service_instance_id != self.service_instance_id
+            || evidence.supervisor_instance_id != admission.supervisor_instance_id
             || evidence.capability_fingerprint != admission.capability_fingerprint
             || evidence.ready_client_capabilities
                 != ready_client_capabilities
                     .iter()
                     .map(|value| (*value).to_owned())
                     .collect::<Vec<_>>()
-            || !valid_digest
+            || !valid_digest(&evidence.smoke_evidence_digest)
+            || !valid_roster
+            || evidence.smoke_evidence_digest != smoke_aggregate_digest(evidence)
         {
             return Err("production_activation_identity_mismatch".into());
         }
@@ -219,6 +269,9 @@ impl ProductionOwnership {
                 "cutoverReceiptId":admission.cutover_receipt_id,
                 "capabilityFingerprint":admission.capability_fingerprint,
                 "readyClientCapabilities":ready_client_capabilities,
+                "smokeRosterVersion":evidence.smoke_roster_version,
+                "smokeCheckIds":evidence.smoke_check_ids,
+                "smokeCheckDigests":evidence.smoke_check_digests,
                 "smokeEvidenceDigest":evidence.smoke_evidence_digest,
                 "mutationEnabled":true,
                 "activatedAtMs":activated_at_ms,
@@ -306,17 +359,30 @@ mod production_owner_tests {
     }
 
     fn activation_evidence() -> ProductionActivationEvidence {
-        ProductionActivationEvidence {
+        let mut evidence = ProductionActivationEvidence {
             receipt_id: "receipt-1".into(),
+            profile_id: "1".repeat(64),
             service_instance_id: "service-1".into(),
+            supervisor_instance_id: "supervisor-1".into(),
             capability_fingerprint: PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT.into(),
             ready_client_capabilities: READY_PRODUCTION_CLIENT_CAPABILITIES
                 .iter()
                 .map(|capability| (*capability).to_owned())
                 .collect(),
-            smoke_evidence_digest: "3".repeat(64),
+            smoke_evidence_digest: String::new(),
+            smoke_roster_version: PRODUCTION_SMOKE_ROSTER_VERSION.into(),
+            smoke_check_ids: PRODUCTION_SMOKE_CHECK_IDS
+                .iter()
+                .map(|value| (*value).into())
+                .collect(),
+            smoke_check_digests: PRODUCTION_SMOKE_CHECK_IDS
+                .iter()
+                .map(|_| "4".repeat(64))
+                .collect(),
             issued_at_ms: current_time_ms().unwrap(),
-        }
+        };
+        evidence.smoke_evidence_digest = smoke_aggregate_digest(&evidence);
+        evidence
     }
 
     #[test]
@@ -346,6 +412,18 @@ mod production_owner_tests {
                 ..activation_evidence()
             },
             ProductionActivationEvidence {
+                profile_id: "2".repeat(64),
+                ..activation_evidence()
+            },
+            ProductionActivationEvidence {
+                supervisor_instance_id: "supervisor-2".into(),
+                ..activation_evidence()
+            },
+            ProductionActivationEvidence {
+                smoke_roster_version: "synthesis-production-critical-smoke.v2".into(),
+                ..activation_evidence()
+            },
+            ProductionActivationEvidence {
                 service_instance_id: "service-2".into(),
                 ..activation_evidence()
             },
@@ -358,7 +436,33 @@ mod production_owner_tests {
                 ..activation_evidence()
             },
             ProductionActivationEvidence {
-                smoke_evidence_digest: "invalid".into(),
+                smoke_check_ids: vec!["identity".into()],
+                ..activation_evidence()
+            },
+            ProductionActivationEvidence {
+                smoke_check_ids: vec!["identity".into(); PRODUCTION_SMOKE_CHECK_IDS.len()],
+                ..activation_evidence()
+            },
+            ProductionActivationEvidence {
+                smoke_check_ids: PRODUCTION_SMOKE_CHECK_IDS
+                    .iter()
+                    .enumerate()
+                    .map(|(index, value)| {
+                        if index == 0 {
+                            "unknown".into()
+                        } else {
+                            (*value).into()
+                        }
+                    })
+                    .collect(),
+                ..activation_evidence()
+            },
+            ProductionActivationEvidence {
+                smoke_check_digests: vec!["4".repeat(64)],
+                ..activation_evidence()
+            },
+            ProductionActivationEvidence {
+                smoke_evidence_digest: "9".repeat(64),
                 ..activation_evidence()
             },
         ] {

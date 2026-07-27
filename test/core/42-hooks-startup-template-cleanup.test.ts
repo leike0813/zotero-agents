@@ -17,7 +17,6 @@ import {
 import { writeRuntimeTextFile } from "../../src/modules/runtimePersistence";
 import { cleanupBackgroundRuntimeForZoteroTests } from "../../src/modules/testRuntimeCleanup";
 import { getBuiltinStatusPolicy } from "../../src/modules/synthesis/builtinTagPolicy";
-import { getDefaultSynthesisClient } from "../../src/modules/synthesisClient/defaultClient";
 
 type LocalizationRequest = {
   id: string;
@@ -146,17 +145,17 @@ describe("hooks startup template cleanup", function () {
     );
   });
 
-  it("initializes builtin status vocabulary before startup completes", async function () {
+  it("initializes builtin status vocabulary after native owner readiness", async function () {
     await hooks.onStartup();
 
     assert.isTrue(Boolean((globalThis as any).addon?.data?.initialized));
-    const snapshot = await (
-      await getDefaultSynthesisClient()
-    ).tags.loadTagVocabulary();
-    assert.includeMembers(
-      snapshot.entries.map((entry) => entry.tag),
-      Object.values(getBuiltinStatusPolicy()),
-    );
+    const initialized: string[] = [];
+    await initializeSynthesisBuiltinTagsOnStartup({
+      async initializeBuiltinTagPolicy() {
+        initialized.push(...Object.values(getBuiltinStatusPolicy()));
+      },
+    });
+    assert.sameMembers(initialized, Object.values(getBuiltinStatusPolicy()));
   });
 
   it("keeps startup incomplete with a structured error when builtin policy initialization fails", async function () {

@@ -4,10 +4,18 @@ import {
   type SynthesisCutoverReceipt,
 } from "../../packages/synthesis-contracts/src";
 import {
+  SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+  SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+} from "../../packages/synthesis-contracts/src/sidecarSystem";
+import {
   createSynthesisProductionCutoverCoordinator,
   type SynthesisCutoverCoordinatorDeps,
 } from "../../src/modules/synthesisProductionCutover";
 import { createSynthesisProductionOwner } from "../../src/modules/synthesisProductionOwner";
+import {
+  SYNTHESIS_PRODUCTION_SMOKE_CHECK_IDS,
+  createSynthesisProductionSmokeEvidence,
+} from "../../src/modules/synthesisProductionSmoke";
 
 const PROFILE_ID = "1".repeat(64);
 const BACKUP_ID = "2".repeat(64);
@@ -15,6 +23,33 @@ const CANONICAL_HASH = "3".repeat(64);
 const DURABLE_HASH = "4".repeat(64);
 const BUNDLE_HASH = "5".repeat(64);
 const CAPABILITY_HASH = "6".repeat(64);
+
+async function criticalSmoke(
+  receipt: SynthesisCutoverReceipt,
+  serviceInstanceId: string,
+) {
+  return {
+    receiptId: receipt.receiptId,
+    serviceInstanceId,
+    capabilityFingerprint:
+      SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+    readyClientCapabilities:
+      SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+    issuedAtMs: 1,
+    ...(await createSynthesisProductionSmokeEvidence({
+      profileId: PROFILE_ID,
+      receiptId: receipt.receiptId,
+      serviceInstanceId,
+      supervisorInstanceId: "supervisor-1",
+      capabilityFingerprint:
+        SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+      results: SYNTHESIS_PRODUCTION_SMOKE_CHECK_IDS.map((id) => ({
+        id,
+        observable: { status: "ok" },
+      })),
+    })),
+  };
+}
 
 function harness(
   overrides: Partial<SynthesisCutoverCoordinatorDeps> = {},
@@ -55,8 +90,9 @@ function harness(
       events.push("owner");
       return { serviceInstanceId: "service-1" };
     },
-    runCriticalSmoke: async () => {
+    runCriticalSmoke: async (serviceInstanceId, receipt) => {
       events.push("smoke");
+      return criticalSmoke(receipt, serviceInstanceId);
     },
     enableNativeMutations: async () => {
       events.push("enable");
@@ -96,6 +132,11 @@ async function failureOf(task: Promise<unknown>) {
 describe("Synthesis production cutover coordinator", function () {
   it("transfers ownership before enabling mutations", async function () {
     const state = harness();
+    let admittedEvidence: unknown;
+    state.deps.enableNativeMutations = async (_service, _receipt, evidence) => {
+      admittedEvidence = evidence;
+      state.events.push("enable");
+    };
     const result = await coordinator(state.deps).run();
 
     assert.equal(result.status, "mutation_enabled");
@@ -112,6 +153,11 @@ describe("Synthesis production cutover coordinator", function () {
       "enable",
       "receipt:mutation_enabled",
     ]);
+    assert.deepInclude(admittedEvidence as object, {
+      receiptId: result.receipt.receiptId,
+      serviceInstanceId: "service-1",
+      smokeCheckIds: [...SYNTHESIS_PRODUCTION_SMOKE_CHECK_IDS],
+    });
   });
 
   it("resumes legacy when preflight fails before migration", async function () {
@@ -242,5 +288,76 @@ describe("Synthesis production cutover coordinator", function () {
       "endpoint-stop",
       "supervisor-stop",
     ]);
+  });
+});
+
+describe("Synthesis production critical-smoke evidence", function () {
+  function smokeResults(observable: unknown = { status: "ok" }) {
+    return SYNTHESIS_PRODUCTION_SMOKE_CHECK_IDS.map((id) => ({
+      id,
+      observable,
+    }));
+  }
+
+  it("binds the complete ordered roster while excluding incidental observables", async function () {
+    const shared = {
+      profileId: PROFILE_ID,
+      receiptId: "receipt-1",
+      serviceInstanceId: "service-1",
+      supervisorInstanceId: "supervisor-1",
+      capabilityFingerprint:
+        SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+    };
+    const first = await createSynthesisProductionSmokeEvidence({
+      ...shared,
+      results: smokeResults({
+        status: "ok",
+        message: "first request",
+        timestamp: 1,
+        privateTrace: { attempt: 1 },
+        rows: [{ id: "b" }, { id: "a" }],
+      }),
+    });
+    const second = await createSynthesisProductionSmokeEvidence({
+      ...shared,
+      results: smokeResults({
+        status: "ok",
+        message: "second request",
+        timestamp: 2,
+        privateTrace: { attempt: 2 },
+        rows: [{ id: "a" }, { id: "b" }],
+      }),
+    });
+
+    assert.deepEqual(first.smokeCheckIds, [
+      ...SYNTHESIS_PRODUCTION_SMOKE_CHECK_IDS,
+    ]);
+    assert.deepEqual(first.smokeCheckDigests, second.smokeCheckDigests);
+    assert.equal(first.smokeEvidenceDigest, second.smokeEvidenceDigest);
+  });
+
+  it("rejects omitted, duplicated, and unknown check identities", async function () {
+    const shared = {
+      profileId: PROFILE_ID,
+      receiptId: "receipt-1",
+      serviceInstanceId: "service-1",
+      supervisorInstanceId: "supervisor-1",
+      capabilityFingerprint:
+        SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+    };
+    const complete = smokeResults();
+    for (const results of [
+      complete.slice(0, -1),
+      [complete[0]!, complete[0]!, ...complete.slice(2)],
+      [{ ...complete[0]!, id: "unknown" }, ...complete.slice(1)],
+    ]) {
+      assert.match(
+        String(await failureOf(createSynthesisProductionSmokeEvidence({
+          ...shared,
+          results: results as never,
+        }))),
+        /synthesis_production_smoke_roster_incomplete/,
+      );
+    }
   });
 });

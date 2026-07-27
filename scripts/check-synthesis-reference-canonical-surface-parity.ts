@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import {
   SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
 } from "../packages/synthesis-contracts/src/sidecarSystem";
+import { readSynthesisProductionSurfaceCorpora } from "./synthesisProductionSurfaceCorpora";
 
 type Access = "read" | "mutation";
 
@@ -21,14 +22,6 @@ type Corpus = {
 };
 
 const root = path.resolve(import.meta.dirname, "..");
-const corpusPath = path.join(
-  root,
-  "packages/synthesis-contracts/contract-set/synthesis-reference-canonical-surface-v1/corpus.json",
-);
-const ownershipPath = path.join(
-  root,
-  "openspec/changes/cut-over-synthesis-production-owner-to-rust/operation-ownership.json",
-);
 const operationsPath = path.join(
   root,
   "packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json",
@@ -73,17 +66,12 @@ const dedicatedCanonicalOperations = new Set([
 ]);
 
 export function inspectSynthesisReferenceCanonicalSurfaceParity() {
-  const corpus = JSON.parse(fs.readFileSync(corpusPath, "utf8")) as Corpus;
-  const ownership = JSON.parse(fs.readFileSync(ownershipPath, "utf8")) as {
-    surfaceChanges: Record<string, string[]>;
-  };
+  const corpus = readSynthesisProductionSurfaceCorpora(root).find(
+    (surface) => surface.id === "reference-canonical",
+  )!.corpus as Corpus;
   const operationManifest = JSON.parse(
     fs.readFileSync(operationsPath, "utf8"),
   ) as { access: Record<string, Access> };
-  const owned =
-    ownership.surfaceChanges[
-      "complete-synthesis-native-reference-canonical-surface"
-    ] || [];
   const ids = corpus.operations.map((operation) => operation.id);
   const ready = SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES;
   const errors = [
@@ -101,8 +89,6 @@ export function inspectSynthesisReferenceCanonicalSurfaceParity() {
     ...(ids.length === 16 && new Set(ids).size === ids.length
       ? []
       : ["invalid operation count"]),
-    ...owned.filter((id) => !ids.includes(id)).map((id) => `missing corpus: ${id}`),
-    ...ids.filter((id) => !owned.includes(id)).map((id) => `unknown corpus: ${id}`),
     ...corpus.operations
       .filter((operation) => operationManifest.access[operation.id] !== operation.access)
       .map((operation) => `access mismatch: ${operation.id}`),

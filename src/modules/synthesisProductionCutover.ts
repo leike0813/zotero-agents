@@ -3,6 +3,7 @@ import {
   SynthesisClientError,
   rebuildSynthesisCutoverReceipt,
   type SynthesisCutoverReceipt,
+  type SynthesisProductionActivationEvidence,
 } from "../../packages/synthesis-contracts/src";
 
 export type SynthesisCutoverBackupBasis = {
@@ -34,10 +35,11 @@ export type SynthesisCutoverCoordinatorDeps<
   runCriticalSmoke: (
     serviceInstanceId: string,
     receipt: SynthesisCutoverReceipt,
-  ) => Promise<void>;
+  ) => Promise<SynthesisProductionActivationEvidence>;
   enableNativeMutations: (
     serviceInstanceId: string,
     receipt: SynthesisCutoverReceipt,
+    evidence: SynthesisProductionActivationEvidence,
   ) => Promise<void>;
   resumeLegacyBeforeMigration: (
     receipt: SynthesisCutoverReceipt | null,
@@ -202,13 +204,14 @@ export function createSynthesisProductionCutoverCoordinator<
       });
       await options.deps.writeReceipt(latest);
 
-      await options.deps.runCriticalSmoke(
+      const smokeEvidence = await options.deps.runCriticalSmoke(
         owner.serviceInstanceId,
         latest,
       );
       await options.deps.enableNativeMutations(
         owner.serviceInstanceId,
         latest,
+        smokeEvidence,
       );
       mutationAdmitted = true;
       latest = receipt(options, basis, {

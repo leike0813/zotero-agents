@@ -32,12 +32,15 @@ import { createSynthesisProductionCutoverCoordinator } from "./synthesisProducti
 import { createSynthesisReverseHostEndpoint } from "./synthesisReverseHostEndpoint";
 import { createDefaultSynthesisReverseHostHandlers } from "./synthesisReverseHostHandlers";
 import { createSynthesisSidecarRpcClient } from "./synthesisSidecarRpcClient";
+import { createSynthesisSidecarComputeClient } from "./synthesisSidecarComputeClient";
+import { createSynthesisProductionSidecarControlClient } from "./synthesisSidecarControlClient";
 import { createSynthesisSidecarRuntimeInstaller } from "./synthesisSidecarRuntimeInstaller";
 import {
   activateSynthesisProductionRuntime,
   startSynthesisProductionRuntimeSupervisor,
   stopSynthesisProductionRuntimeSupervisor,
 } from "./synthesisSidecarRuntimeSupervisor";
+import { createSynthesisProductionSmokeEvidence } from "./synthesisProductionSmoke";
 
 type ReverseHostEndpoint = {
   start():
@@ -268,8 +271,6 @@ async function createDefaultSynthesisProductionOwner() {
   let liveConnection:
     | Awaited<ReturnType<typeof waitForProductionConnection>>
     | null = null;
-  let smokeEvidenceDigest = "";
-
   const endpoint = createSynthesisReverseHostEndpoint({
     profileId,
     authorizationToken: reverseHostToken,
@@ -465,7 +466,7 @@ async function createDefaultSynthesisProductionOwner() {
                 liveConnection.discovery.serviceInstanceId,
             };
           },
-          async runCriticalSmoke(serviceInstanceId) {
+          async runCriticalSmoke(serviceInstanceId, receipt) {
             if (
               !liveConnection ||
               liveConnection.discovery.serviceInstanceId !==
@@ -480,45 +481,87 @@ async function createDefaultSynthesisProductionOwner() {
               clientToken: liveConnection.clientToken,
               serviceInstanceId,
             };
-            const evidence = [];
-            for (const [capability, args] of [
-              ["client.listTopics", []],
-              ["client.getSynthesisWorkbenchChromeInput", [{}]],
-              ["client.getSynthesisBackgroundJobRows", []],
-            ] as const) {
-              evidence.push(
-                await rpc.call({
+            const controlConnection = {
+              discovery: liveConnection.discovery,
+              clientToken: liveConnection.clientToken,
+              lifecycleToken: liveConnection.lifecycleToken,
+            };
+            const call = async (capability: string, args: unknown[]) =>
+              rpc.call({
                   connection,
-                  capability,
+                  capability: capability as never,
                   payload: toSynthesisJsonObject(
                     { args },
                     "$.productionSmoke",
                   ),
                   rebuildResult: (value) => value,
-                }),
-              );
-            }
-            smokeEvidenceDigest = await hashText(
-              JSON.stringify(evidence),
-            );
-          },
-          async enableNativeMutations(
-            serviceInstanceId,
-            receipt,
-          ) {
-            if (!smokeEvidenceDigest) {
-              throw new Error("synthesis_production_smoke_missing");
-            }
-            await activateSynthesisProductionRuntime({
+                });
+            const topics = await call("client.listTopics", []);
+            const topicRows = Array.isArray((topics as { topics?: unknown[] }).topics)
+              ? (topics as { topics: Array<{ topicId?: string }> }).topics
+              : [];
+            const topicDetail = topicRows[0]?.topicId
+              ? await call("client.readTopicDetail", [{ topicId: topicRows[0].topicId }])
+              : { status: "empty" };
+            const smokeEvidence = await createSynthesisProductionSmokeEvidence({
+              profileId,
+              receiptId: receipt.receiptId,
+              serviceInstanceId,
+              supervisorInstanceId,
+              capabilityFingerprint: SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+              results: [
+                {
+                  id: "identity",
+                  observable: await createSynthesisProductionSidecarControlClient()
+                    .handshake(controlConnection),
+                },
+                { id: "storage", observable: await call("client.getSynthesisWorkbenchSurfaceInput", ["maintenance", {}]) },
+                { id: "workbench", observable: await call("client.getSynthesisWorkbenchChromeInput", [{}]) },
+                { id: "topic-list", observable: topics },
+                { id: "topic-detail", observable: topicDetail },
+                { id: "canonical-manifest", observable: await call("client.getPaperArtifactManifest", [{}]) },
+                { id: "reference-cache", observable: await call("client.getReferenceSidecarIndex", [{}]) },
+                { id: "graph-read", observable: await call("client.queryCitationGraph", [{}]) },
+                {
+                  id: "worker",
+                  observable: await createSynthesisSidecarComputeClient()
+                    .computeCitationGraphMetrics(connection, {
+                      graphHash: `sha256:${"0".repeat(64)}`,
+                      nodes: [{ nodeId: "smoke-node", kind: "library_paper" }],
+                      edges: [],
+                    }),
+                },
+              ],
+            });
+            return {
               receiptId: receipt.receiptId,
               serviceInstanceId,
               capabilityFingerprint:
                 SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
               readyClientCapabilities:
                 SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
-              smokeEvidenceDigest,
               issuedAtMs: Date.now(),
-            });
+              ...smokeEvidence,
+            };
+          },
+          async enableNativeMutations(
+            serviceInstanceId,
+            receipt,
+            evidence,
+          ) {
+            if (
+              evidence.receiptId !== receipt.receiptId ||
+              evidence.profileId !== profileId ||
+              evidence.serviceInstanceId !== serviceInstanceId ||
+              evidence.supervisorInstanceId !== supervisorInstanceId ||
+              evidence.capabilityFingerprint !==
+                SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT ||
+              evidence.readyClientCapabilities !==
+                SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES
+            ) {
+              throw new Error("synthesis_production_smoke_missing");
+            }
+            await activateSynthesisProductionRuntime(evidence);
             if (liveConnection) {
               await createSynthesisSidecarRpcClient().call({
                 connection: {

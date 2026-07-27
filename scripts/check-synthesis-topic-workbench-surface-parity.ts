@@ -1,9 +1,9 @@
-import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
 } from "../packages/synthesis-contracts/src/sidecarSystem";
+import { readSynthesisProductionSurfaceCorpora } from "./synthesisProductionSurfaceCorpora";
 
 type Corpus = {
   schema: string;
@@ -14,22 +14,11 @@ type Corpus = {
 };
 
 const root = path.resolve(import.meta.dirname, "..");
-const corpusPath = path.join(
-  root,
-  "packages/synthesis-contracts/contract-set/synthesis-topic-workbench-surface-v1/corpus.json",
-);
-const ownershipPath = path.join(
-  root,
-  "openspec/changes/cut-over-synthesis-production-owner-to-rust/operation-ownership.json",
-);
 
 export function inspectSynthesisTopicWorkbenchSurfaceParity() {
-  const corpus = JSON.parse(fs.readFileSync(corpusPath, "utf8")) as Corpus;
-  const ownership = JSON.parse(fs.readFileSync(ownershipPath, "utf8")) as {
-    surfaceChanges: Record<string, string[]>;
-  };
-  const owned =
-    ownership.surfaceChanges["complete-synthesis-native-topic-workbench-surface"] || [];
+  const corpus = readSynthesisProductionSurfaceCorpora(root).find(
+    (surface) => surface.id === "topic-workbench",
+  )!.corpus as Corpus;
   const ids = corpus.operations.map((operation) => operation.id);
   const requiredCases = ["invalid_args", "oversized", "expired"];
   const errors = [
@@ -46,8 +35,6 @@ export function inspectSynthesisTopicWorkbenchSurfaceParity() {
     ...(ids.length === 18 && new Set(ids).size === ids.length
       ? []
       : ["invalid operation count"]),
-    ...owned.filter((id) => !ids.includes(id)).map((id) => `missing corpus: ${id}`),
-    ...ids.filter((id) => !owned.includes(id)).map((id) => `unknown corpus: ${id}`),
     ...corpus.operations
       .filter((operation) => requiredCases.some((name) => !operation.cases.includes(name)))
       .map((operation) => `missing boundary cases: ${operation.id}`),

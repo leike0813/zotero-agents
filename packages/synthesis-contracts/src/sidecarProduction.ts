@@ -120,9 +120,14 @@ export type SynthesisProductionAdmission = {
 
 export type SynthesisProductionActivationEvidence = {
   receiptId: string;
+  profileId: string;
   serviceInstanceId: string;
+  supervisorInstanceId: string;
   capabilityFingerprint: typeof SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT;
   readyClientCapabilities: typeof SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES;
+  smokeRosterVersion: string;
+  smokeCheckIds: string[];
+  smokeCheckDigests: string[];
   smokeEvidenceDigest: string;
   issuedAtMs: number;
 };

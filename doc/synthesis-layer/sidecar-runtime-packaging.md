@@ -127,11 +127,10 @@ Candidate workflow success alone does not authorize synchronization.
 
 ## Migration Boundary
 
-The Rust service, manifest v2, installer, supervisor and candidate workflow are
-R8 infrastructure. The production `SynthesisClient`, production database and
-canonical owners, registered HTTP mutation capabilities, and the existing read
-canaries are unchanged. Node remains a read-only differential oracle.
+R9a selects the manifest-v2 Rust executable as the local production owner
+through its receipt-bound cutover; Node remains a read-only differential
+oracle. The retained inventory is explicitly recorded in
+`artifact/synthesis_r9a_retirement_baseline_20260727.md`.
 
-R9 is the separate production-owner cutover. It requires five-platform remote
-evidence, reviewed signed assets where applicable, synchronized XPI bytes and
-explicit release authorization.
+R9b separately requires five-platform remote evidence, reviewed signed assets
+where applicable, synchronized XPI bytes, and explicit release authorization.

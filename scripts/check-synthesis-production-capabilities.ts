@@ -8,6 +8,11 @@ import {
   SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
   SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
 } from "../packages/synthesis-contracts/src/sidecarSystem";
+import {
+  SYNTHESIS_PRODUCTION_SURFACES,
+  readSynthesisProductionSurfaceCorpora,
+  synthesisProductionSurfaceOperationFingerprint,
+} from "./synthesisProductionSurfaceCorpora";
 
 type CapabilityManifest = {
   schema: string;
@@ -25,30 +30,6 @@ type OperationManifest = {
   deadlineMs: number;
   access: Record<string, string>;
 };
-
-type OwnershipMatrix = {
-  schema: string;
-  sourceInventory: string;
-  surfaceChanges: Record<string, string[]>;
-  finalGateChange: string;
-};
-
-const SURFACE_EVIDENCE = {
-  "complete-synthesis-native-topic-workbench-surface":
-    "test/core/229-synthesis-production-client-rust-route.test.ts",
-  "complete-synthesis-native-citation-graph-surface":
-    "test/core/231-synthesis-native-citation-graph-surface.test.ts",
-  "complete-synthesis-native-reference-canonical-surface":
-    "test/core/232-synthesis-native-reference-canonical-surface.test.ts",
-  "complete-synthesis-native-tag-surface":
-    "test/core/233-synthesis-native-tag-surface.test.ts",
-  "complete-synthesis-native-concept-topic-graph-surface":
-    "test/core/234-synthesis-native-concept-topic-graph-surface.test.ts",
-  "complete-synthesis-native-artifact-library-debug-surface":
-    "test/core/230-synthesis-native-artifact-library-debug-surface.test.ts",
-  "complete-synthesis-native-webdav-maintenance-surface":
-    "test/core/235-synthesis-native-webdav-maintenance-surface.test.ts",
-} as const;
 
 const ROOT = process.cwd();
 const MANIFEST_PATH = path.join(
@@ -75,11 +56,6 @@ const RUST_COMPAT_DISPATCH_PATH = path.join(
   ROOT,
   "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_production_compat.rs",
 );
-const OWNERSHIP_PATH = path.join(
-  ROOT,
-  "openspec/changes/cut-over-synthesis-production-owner-to-rust/operation-ownership.json",
-);
-
 function sorted(values: readonly string[]) {
   return [...values].sort();
 }
@@ -92,14 +68,6 @@ function difference(left: readonly string[], right: readonly string[]) {
 function duplicateValues(values: readonly string[]) {
   return [...new Set(values.filter((value, index) => values.indexOf(value) !== index))]
     .sort();
-}
-
-function taskFileIsComplete(change: string) {
-  const source = fs.readFileSync(
-    path.join(ROOT, "openspec/changes", change, "tasks.md"),
-    "utf8",
-  );
-  return !/^\s*- \[ \]/m.test(source) && /^\s*- \[x\]/m.test(source);
 }
 
 function extractPortCapabilities() {
@@ -129,7 +97,25 @@ function extractPortCapabilities() {
     .filter(Boolean);
 }
 
-export function inspectSynthesisProductionCapabilities() {
+function extractRustDispatcherCapabilities(source: string) {
+  const registrations = source.match(
+    /register_production_client_handlers!\((.*?)\n\);/s,
+  )?.[1] || "";
+  return [...registrations.matchAll(/\(\s*"(client\.[A-Za-z0-9_]+)"/g)].map(
+    (match) => match[1]!,
+  );
+}
+
+type ProductionCapabilityInspectionOptions = {
+  surfaceCorpora?: ReturnType<typeof readSynthesisProductionSurfaceCorpora>;
+  readyCapabilities?: string[];
+  rustReadyCapabilities?: string[];
+  rustDispatcherCapabilities?: string[];
+};
+
+export function inspectSynthesisProductionCapabilities(
+  options: ProductionCapabilityInspectionOptions = {},
+) {
   const manifest = JSON.parse(
     fs.readFileSync(MANIFEST_PATH, "utf8"),
   ) as CapabilityManifest;
@@ -152,30 +138,35 @@ export function inspectSynthesisProductionCapabilities() {
     RUST_COMPAT_DISPATCH_PATH,
     "utf8",
   );
-  const ownership = JSON.parse(
-    fs.readFileSync(OWNERSHIP_PATH, "utf8"),
-  ) as OwnershipMatrix;
+  const surfaceCorpora =
+    options.surfaceCorpora ?? readSynthesisProductionSurfaceCorpora(ROOT);
   const rustReadyBlock =
     rustSource.match(
       /READY_PRODUCTION_CLIENT_CAPABILITIES:\s*&\[&str\]\s*=\s*&\[(.*?)\];/s,
     )?.[1] || "";
-  const rustReadyCapabilities = [
+  const parsedRustReadyCapabilities = [
     ...rustReadyBlock.matchAll(/"(client\.[A-Za-z0-9_]+)"/g),
   ].map((match) => match[1]!);
-  const readyCapabilities = [
+  const rustReadyCapabilities =
+    options.rustReadyCapabilities ?? parsedRustReadyCapabilities;
+  const readyCapabilities = options.readyCapabilities ?? [
     ...SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
   ];
-  const ownedCapabilities = Object.values(ownership.surfaceChanges).flat();
-  const ownershipSurfaces = Object.keys(ownership.surfaceChanges);
-  const expectedSurfaces = Object.keys(SURFACE_EVIDENCE);
-  const evidenceGaps = Object.entries(SURFACE_EVIDENCE).flatMap(
-    ([surface, relativePath]) => {
-      const source = fs.readFileSync(path.join(ROOT, relativePath), "utf8");
-      return (ownership.surfaceChanges[surface] || []).filter(
+  const corpusCapabilities = surfaceCorpora.flatMap(({ corpus }) =>
+    corpus.operations.map((operation) => operation.id),
+  );
+  const evidenceGaps = surfaceCorpora.flatMap(
+    ({ corpus, evidencePath }) => {
+      const source = fs.readFileSync(path.join(ROOT, evidencePath), "utf8");
+      return corpus.operations.map((operation) => operation.id).filter(
         (capability) => !source.includes(`"${capability}"`),
       );
     },
   );
+  const rustDispatcherCapabilities =
+    options.rustDispatcherCapabilities ??
+    extractRustDispatcherCapabilities(rustCompatDispatchSource);
+  const dispatcherCapabilities = [...new Set(rustDispatcherCapabilities)];
 
   return {
     capabilityCount: manifestCapabilities.length,
@@ -204,6 +195,7 @@ export function inspectSynthesisProductionCapabilities() {
         typescriptCapabilities,
         manifestCapabilities,
       ),
+      typescriptDuplicates: duplicateValues(typescriptCapabilities),
       fingerprint:
         actualFingerprint === manifest.fingerprintSha256 &&
         actualFingerprint ===
@@ -227,6 +219,8 @@ export function inspectSynthesisProductionCapabilities() {
         ...difference(readyCapabilities, rustReadyCapabilities),
         ...difference(rustReadyCapabilities, readyCapabilities),
       ],
+      readyDuplicates: duplicateValues(readyCapabilities),
+      rustReadyDuplicates: duplicateValues(rustReadyCapabilities),
       readyDispatcherBinding:
         rustDispatchSource.includes(
           "production_client_operations\n        .get(capability)",
@@ -236,29 +230,55 @@ export function inspectSynthesisProductionCapabilities() {
         )
           ? []
           : ["Rust dispatcher is not bound to the closed operation registry"],
-      dispatcherCoverage: difference(
+      dispatcherMissing: difference(
         manifestCapabilities,
-        [...new Set(
-          [...rustCompatDispatchSource.matchAll(/"(client\.[A-Za-z0-9_]+)"/g)],
-        )].map((match) => match[1]!),
+        dispatcherCapabilities,
       ),
-      ownershipIdentity:
-        ownership.schema === "synthesis-r9a-operation-ownership.v1" &&
-        ownership.sourceInventory ===
-          "packages/synthesis-contracts/contract-set/synthesis-production-client-v1/operations.json" &&
-        ownership.finalGateChange ===
-          "complete-synthesis-native-production-activation"
+      dispatcherUnknown: difference(
+        dispatcherCapabilities,
+        manifestCapabilities,
+      ),
+      dispatcherDuplicates: duplicateValues(
+        rustDispatcherCapabilities,
+      ),
+      surfaceCorpusIdentity: surfaceCorpora.flatMap(({ id, schema, operations, operationFingerprint, corpus }) =>
+        corpus.schema === schema &&
+        corpus.operations.length === operations &&
+        synthesisProductionSurfaceOperationFingerprint(corpus.operations) ===
+          operationFingerprint
           ? []
-          : ["invalid ownership matrix identity"],
-      ownershipSurfaces: [
-        ...difference(expectedSurfaces, ownershipSurfaces),
-        ...difference(ownershipSurfaces, expectedSurfaces),
+          : [`invalid surface corpus: ${id}`],
+      ),
+      surfaceCorpusSet: [
+        ...difference(
+          SYNTHESIS_PRODUCTION_SURFACES.map((surface) => surface.id),
+          surfaceCorpora.map((surface) => surface.id),
+        ),
+        ...difference(
+          surfaceCorpora.map((surface) => surface.id),
+          SYNTHESIS_PRODUCTION_SURFACES.map((surface) => surface.id),
+        ),
       ],
-      ownershipDuplicates: duplicateValues(ownedCapabilities),
-      missingFromOwnership: difference(manifestCapabilities, ownedCapabilities),
-      unknownInOwnership: difference(ownedCapabilities, manifestCapabilities),
-      incompleteSurfaceChanges: expectedSurfaces.filter(
-        (surface) => !taskFileIsComplete(surface),
+      surfaceCorpusDuplicates: duplicateValues(corpusCapabilities),
+      missingFromSurfaceCorpora: difference(manifestCapabilities, corpusCapabilities),
+      unknownInSurfaceCorpora: difference(corpusCapabilities, manifestCapabilities),
+      missingBoundaryCases: surfaceCorpora.flatMap(({ corpus }) =>
+        corpus.operations
+          .filter((operation) =>
+            ["invalid_args", "oversized", "expired"].some(
+              (name) => !operation.cases.includes(name),
+            ),
+          )
+          .map((operation) => operation.id),
+      ),
+      missingMutationReopen: surfaceCorpora.flatMap(({ corpus }) =>
+        corpus.operations
+          .filter(
+            (operation) =>
+              operation.access === "mutation" &&
+              !operation.cases.includes("reopen"),
+          )
+          .map((operation) => operation.id),
       ),
       missingSurfaceEvidence: evidenceGaps,
       operationMetadata:
