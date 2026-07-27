@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
   SYNTHESIS_SIDECAR_RUNTIME_TARGETS,
+  SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES,
   isExpiredSynthesisSidecarRuntimeManifest,
   rebuildSynthesisSidecarRuntimeBundleManifest,
   type SynthesisSidecarRuntimeBundleManifest,
@@ -17,9 +19,84 @@ export const SYNTHESIS_SIDECAR_RUNTIME_BUILD_ROOT =
   ".scaffold/synthesis-sidecar-runtime";
 export const SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX =
   SYNTHESIS_SIDECAR_RUNTIME_TARGETS;
+export const SYNTHESIS_SIDECAR_RUNTIME_BUILD_RECIPE_PATH =
+  "native/synthesis-sidecar/build-recipe.json";
+
+export type SynthesisSidecarRuntimeBuildRecipe = Readonly<{
+  schema: "synthesis-sidecar.build-recipe.v1";
+  toolchain: Readonly<{
+    node: string;
+    rust: string;
+    zig: string;
+    cargoZigbuild: string;
+  }>;
+  targets: readonly Readonly<{
+    runner: string;
+    platform: SynthesisSidecarRuntimeTarget;
+    target: string;
+    binary: string;
+    useZig: boolean;
+    nativeSmoke: boolean;
+  }>[];
+}>;
+
+export function readSynthesisSidecarRuntimeBuildRecipe(
+  options: {
+    root?: string;
+  } = {},
+): SynthesisSidecarRuntimeBuildRecipe {
+  const root = path.resolve(options.root || process.cwd());
+  const recipe = JSON.parse(
+    readFileSync(
+      path.join(root, SYNTHESIS_SIDECAR_RUNTIME_BUILD_RECIPE_PATH),
+      "utf8",
+    ),
+  ) as SynthesisSidecarRuntimeBuildRecipe;
+  if (
+    recipe.schema !== "synthesis-sidecar.build-recipe.v1" ||
+    !recipe.toolchain ||
+    !Array.isArray(recipe.targets) ||
+    recipe.targets.length !== SYNTHESIS_SIDECAR_RUNTIME_TARGETS.length
+  ) {
+    throw new Error("Synthesis sidecar build recipe is invalid");
+  }
+  for (const field of ["node", "rust", "zig", "cargoZigbuild"] as const) {
+    if (!recipe.toolchain[field]?.trim()) {
+      throw new Error(
+        `Synthesis sidecar build recipe is missing toolchain.${field}`,
+      );
+    }
+  }
+  const platforms = new Set<SynthesisSidecarRuntimeTarget>();
+  for (const target of recipe.targets) {
+    if (
+      !SYNTHESIS_SIDECAR_RUNTIME_TARGETS.includes(target.platform) ||
+      platforms.has(target.platform) ||
+      target.target !==
+        SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES[target.platform] ||
+      !target.runner.trim() ||
+      !target.binary.trim() ||
+      typeof target.useZig !== "boolean" ||
+      typeof target.nativeSmoke !== "boolean" ||
+      target.useZig !== target.platform.startsWith("linux-")
+    ) {
+      throw new Error(
+        "Synthesis sidecar build recipe contains an invalid target",
+      );
+    }
+    platforms.add(target.platform);
+  }
+  for (const target of SYNTHESIS_SIDECAR_RUNTIME_TARGETS) {
+    if (!platforms.has(target)) {
+      throw new Error(`Synthesis sidecar build recipe is missing ${target}`);
+    }
+  }
+  return recipe;
+}
 
 const FINGERPRINT_STATIC_INPUTS = [
-  ".github/workflows/build-synthesis-sidecar-runtime.yml",
+  ".github/workflows/prebuild-synthesis-sidecar-runtime.yml",
+  SYNTHESIS_SIDECAR_RUNTIME_BUILD_RECIPE_PATH,
   "package.json",
   "package-lock.json",
   "native/synthesis-sidecar/rust-toolchain.toml",
@@ -43,7 +120,8 @@ const FINGERPRINT_STATIC_INPUTS = [
 
 const SYNTHESIS_RUST_SIDECAR_ROOT = "native/synthesis-sidecar";
 const SYNTHESIS_RUST_FINGERPRINT_STATIC_INPUTS = [
-  ".github/workflows/build-synthesis-sidecar-runtime.yml",
+  ".github/workflows/prebuild-synthesis-sidecar-runtime.yml",
+  SYNTHESIS_SIDECAR_RUNTIME_BUILD_RECIPE_PATH,
   "packages/synthesis-contracts/contract-set/synthesis-durable-foundation-v1/corpus.json",
   "packages/synthesis-contracts/contract-set/synthesis-native-runtime-v2/corpus.json",
   "packages/synthesis-contracts/contract-set/synthesis-native-worker-transfer-v1/corpus.json",

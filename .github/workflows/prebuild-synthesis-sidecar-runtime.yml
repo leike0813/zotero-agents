@@ -22,19 +22,49 @@ permissions:
   contents: write
 
 jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      build_matrix: ${{ steps.recipe.outputs.build_matrix }}
+      node_version: ${{ steps.recipe.outputs.node_version }}
+      rust_toolchain: ${{ steps.recipe.outputs.rust_toolchain }}
+      zig_version: ${{ steps.recipe.outputs.zig_version }}
+      cargo_zigbuild_version: ${{ steps.recipe.outputs.cargo_zigbuild_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+      - shell: bash
+        run: test "$(git rev-parse HEAD)" = "${{ inputs.source_sha }}"
+      - id: recipe
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -e '
+            .schema == "synthesis-sidecar.build-recipe.v1" and
+            (.targets | length == 7)
+          ' native/synthesis-sidecar/build-recipe.json > /dev/null
+          echo "build_matrix=$(jq -c .targets native/synthesis-sidecar/build-recipe.json)" >> "$GITHUB_OUTPUT"
+          echo "node_version=$(jq -r .toolchain.node native/synthesis-sidecar/build-recipe.json)" >> "$GITHUB_OUTPUT"
+          echo "rust_toolchain=$(jq -r .toolchain.rust native/synthesis-sidecar/build-recipe.json)" >> "$GITHUB_OUTPUT"
+          echo "zig_version=$(jq -r .toolchain.zig native/synthesis-sidecar/build-recipe.json)" >> "$GITHUB_OUTPUT"
+          echo "cargo_zigbuild_version=$(jq -r .toolchain.cargoZigbuild native/synthesis-sidecar/build-recipe.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.recipe.outputs.node_version }}
+          cache: npm
+      - run: npm ci
+      - name: Validate sidecar build recipe
+        run: npx tsx -e 'import { readSynthesisSidecarRuntimeBuildRecipe } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; readSynthesisSidecarRuntimeBuildRecipe()'
+
   prebuild:
+    needs: plan
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { target: win32-x64, os: windows-latest }
-          - { target: darwin-x64, os: macos-15-intel }
-          - { target: darwin-arm64, os: macos-15 }
-          - { target: linux-x86, os: ubuntu-latest, rust_target: i686-unknown-linux-gnu }
-          - { target: linux-x64, os: ubuntu-latest }
-          - { target: linux-arm, os: ubuntu-latest, rust_target: armv7-unknown-linux-gnueabihf }
-          - { target: linux-arm64, os: ubuntu-24.04-arm }
-    runs-on: ${{ matrix.os }}
+        include: ${{ fromJSON(needs.plan.outputs.build_matrix) }}
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,33 +74,49 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "${{ inputs.source_sha }}"
       - uses: actions/setup-node@v4
         with:
-          node-version: 24.18.0
+          node-version: ${{ needs.plan.outputs.node_version }}
           cache: npm
       - run: npm ci
       - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c
         with:
-          toolchain: nightly-2026-07-25
+          toolchain: ${{ needs.plan.outputs.rust_toolchain }}
           components: rustfmt, clippy
+          targets: ${{ matrix.target }}
+      - if: matrix.useZig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: ${{ needs.plan.outputs.zig_version }}
+      - if: matrix.useZig
+        run: cargo install cargo-zigbuild --locked --version "${{ needs.plan.outputs.cargo_zigbuild_version }}"
       - name: Verify and package exact candidate
         shell: bash
         run: |
           set -euo pipefail
-          cargo +nightly-2026-07-25 fmt --manifest-path native/synthesis-sidecar/Cargo.toml --all --check
-          cargo +nightly-2026-07-25 clippy --workspace --all-targets --locked --manifest-path native/synthesis-sidecar/Cargo.toml -- -D warnings
-          cargo +nightly-2026-07-25 test --workspace --locked --manifest-path native/synthesis-sidecar/Cargo.toml
+          cargo +${{ needs.plan.outputs.rust_toolchain }} fmt --manifest-path native/synthesis-sidecar/Cargo.toml --all --check
+          cargo +${{ needs.plan.outputs.rust_toolchain }} clippy --workspace --all-targets --locked --manifest-path native/synthesis-sidecar/Cargo.toml -- -D warnings
+          cargo +${{ needs.plan.outputs.rust_toolchain }} test --workspace --locked --manifest-path native/synthesis-sidecar/Cargo.toml
           npm run check:synthesis-cross-language-contracts
-          if [ -n "${{ matrix.rust_target }}" ]; then
-            rustup target add "${{ matrix.rust_target }}" --toolchain nightly-2026-07-25
-            sudo apt-get update && sudo apt-get install -y gcc-multilib gcc-arm-linux-gnueabihf
-            cargo +nightly-2026-07-25 build --release --locked --target "${{ matrix.rust_target }}" --manifest-path native/synthesis-sidecar/Cargo.toml --bin synthesis-sidecar
-            binary="native/synthesis-sidecar/target/${{ matrix.rust_target }}/release/synthesis-sidecar"
+          npx tsx scripts/check-synthesis-native-runtime-contract-parity.ts
+          npx tsx scripts/check-synthesis-durable-foundation-parity.ts
+          npx tsx scripts/check-synthesis-typed-application-parity.ts
+          npx tsx scripts/check-synthesis-citation-reference-application-parity.ts
+          npx tsx scripts/check-synthesis-tag-concept-topic-graph-application-parity.ts
+          npx tsx scripts/check-synthesis-checkpoint-bundle-webdav-debug-application-parity.ts
+          npx tsx scripts/check-synthesis-rust-license-inventory.ts
+          if [ "${{ matrix.useZig }}" = "true" ]; then
+            cargo +${{ needs.plan.outputs.rust_toolchain }} zigbuild --release --locked --target "${{ matrix.target }}" --manifest-path native/synthesis-sidecar/Cargo.toml --bin synthesis-sidecar
+            binary="native/synthesis-sidecar/target/${{ matrix.target }}/release/${{ matrix.binary }}"
           else
-            cargo +nightly-2026-07-25 build --release --locked --manifest-path native/synthesis-sidecar/Cargo.toml --bin synthesis-sidecar
-            binary="native/synthesis-sidecar/target/release/synthesis-sidecar"
-            if [ "${{ matrix.target }}" = "win32-x64" ]; then binary="$binary.exe"; fi
+            cargo +${{ needs.plan.outputs.rust_toolchain }} build --release --locked --manifest-path native/synthesis-sidecar/Cargo.toml --bin synthesis-sidecar
+            binary="native/synthesis-sidecar/target/release/${{ matrix.binary }}"
           fi
           created_at="$(git show -s --format=%cI HEAD)"
           npm run package:synthesis-sidecar-runtime -- --target="${{ matrix.target }}" --rust-sidecar="$binary" --created-at="$created_at" --output=".scaffold/synthesis-sidecar-runtime/${{ matrix.target }}"
+          if [ "${{ matrix.nativeSmoke }}" = "true" ]; then
+            npx tsx scripts/check-synthesis-native-worker-transfer-parity.ts --binary="$binary" --target="${{ matrix.target }}"
+            npx tsx scripts/smoke-synthesis-rust-sidecar-worker.ts "$binary" ".scaffold/synthesis-sidecar-runtime/${{ matrix.target }}/provenance.json"
+            npx tsx scripts/smoke-synthesis-rust-durable-candidate.ts "$binary" "${{ matrix.target }}"
+          fi
           tar -czf ".scaffold/synthesis-sidecar-runtime-${{ matrix.target }}.tar.gz" -C .scaffold/synthesis-sidecar-runtime "${{ matrix.target }}"
       - uses: actions/upload-artifact@v4
         with:
@@ -79,7 +125,7 @@ jobs:
           if-no-files-found: error
 
   publish-set:
-    needs: prebuild
+    needs: [plan, prebuild]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -88,7 +134,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: 24.18.0
+          node-version: ${{ needs.plan.outputs.node_version }}
           cache: npm
       - run: npm ci
       - uses: actions/download-artifact@v4

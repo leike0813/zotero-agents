@@ -42,20 +42,24 @@ same verified active version from restarting.
 
 ## Build and Provenance
 
-`.github/workflows/build-synthesis-sidecar-runtime.yml` is the sole candidate
-workflow. Each matrix job uses the exact nightly declared by
-`native/synthesis-sidecar/rust-toolchain.toml`, with the Rust setup Action
-pinned by full commit SHA. It runs Rust format, clippy and workspace tests; all
-cross-language and typed-application parity checkers; license inventory; worker
-and durable-service smoke; native release build; and package verification.
+`.github/workflows/prebuild-synthesis-sidecar-runtime.yml` is the sole
+seven-platform prebuild workflow. It accepts only an explicit `request_id` and
+full `source_sha`; it does not run on push. Its plan job validates and expands
+`native/synthesis-sidecar/build-recipe.json`, the single source for the seven
+target runners, Rust triples, smoke eligibility, and pinned Node/Rust/Zig/
+`cargo-zigbuild` versions. Linux candidates use the recipe-pinned Zig build
+path and do not install distribution cross-GCC packages. Each job runs Rust
+format, clippy and workspace tests; all cross-language and typed-application
+parity checkers; license inventory; worker and durable-service smoke where the
+candidate is runnable; native release build; and package verification.
 
-The workflow is read-only for pushes and manual dispatches. It uploads ordinary
-workflow artifacts for inspection but does not create a release, publish a
-prebuild, synchronize `addon/bin`, or advance a release pointer.
+The workflow creates one content-addressed prebuild set only after all seven
+candidate jobs succeed. It does not create a GitHub Release, synchronize local
+`addon/bin`, or advance a plugin release pointer.
 
 The runtime build fingerprint covers the Rust workspace, Cargo lock,
 toolchain, native runtime contracts and corpus, capability contracts, packaging
-policy, smoke programs and the candidate workflow. The binary provenance keeps
+policy, smoke programs and the explicit prebuild workflow. The binary provenance keeps
 a separate Rust source fingerprint. Node service sources remain available as a
 differential oracle and are not runtime files.
 

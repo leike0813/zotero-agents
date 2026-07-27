@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Runtime foundation SHALL be the native Rust application
 
@@ -18,13 +18,3 @@ malformed payload carrying a valid bearer token.
 - **WHEN** a durable candidate sends explicitly framed health, invalid-token,
   and malformed-payload requests to the loopback listener
 - **THEN** the listener SHALL return 200, 401, and 400 respectively
-
-## REMOVED Requirements
-
-### Requirement: Sidecar runtime foundation is an independent Node application
-**Reason**: Rust is now the installable service runtime.
-**Migration**: Keep Node modules only as development differential oracles and run service integration against the native executable.
-
-### Requirement: The isolated service has a packageable JavaScript artifact
-**Reason**: Manifest v2 forbids a JavaScript service entrypoint.
-**Migration**: Package and execute the Rust binary directly.

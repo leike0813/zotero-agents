@@ -54,10 +54,10 @@ export function checkSynthesisRustLicenseInventory() {
     path.join(SIDECAR_ROOT, "Cargo.toml"),
     "utf8",
   );
-  const candidateWorkflow = fs.readFileSync(
+  const prebuildWorkflow = fs.readFileSync(
     path.resolve(
       import.meta.dirname,
-      "../.github/workflows/build-synthesis-sidecar-runtime.yml",
+      "../.github/workflows/prebuild-synthesis-sidecar-runtime.yml",
     ),
     "utf8",
   );
@@ -120,12 +120,15 @@ export function checkSynthesisRustLicenseInventory() {
     }
   }
   if (
-    !candidateWorkflow.includes(
-      "npx tsx scripts/check-synthesis-rust-license-inventory.ts",
+    !(
+      prebuildWorkflow.includes(
+        "npx tsx scripts/check-synthesis-rust-license-inventory.ts",
+      ) ||
+      prebuildWorkflow.includes("npm run check:synthesis-rust-license-inventory")
     ) ||
-    !candidateWorkflow.includes("npm run package:synthesis-sidecar-runtime")
+    !prebuildWorkflow.includes("npm run package:synthesis-sidecar-runtime")
   ) {
-    errors.push("candidate_license_gate_missing");
+    errors.push("prebuild_license_gate_missing");
   }
 
   return {

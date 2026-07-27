@@ -21,6 +21,7 @@ import {
 import {
   SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX,
   computeSynthesisSidecarRuntimeBuildFingerprint,
+  readSynthesisSidecarRuntimeBuildRecipe,
 } from "../../scripts/synthesis-sidecar-runtime-release-governance";
 import { checkSynthesisSidecarRuntimeFreshness } from "../../scripts/check-synthesis-sidecar-runtime-freshness";
 import { stageSynthesisSidecarRuntimePrebuildSet } from "../../scripts/stage-synthesis-sidecar-runtime-prebuilds";
@@ -329,31 +330,82 @@ describe("Synthesis sidecar native runtime packaging", function () {
     );
 
     const workflowSource = fs.readFileSync(
-      path.join(ROOT, ".github/workflows/build-synthesis-sidecar-runtime.yml"),
+      path.join(
+        ROOT,
+        ".github/workflows/prebuild-synthesis-sidecar-runtime.yml",
+      ),
       "utf8",
     );
+    const recipe = readSynthesisSidecarRuntimeBuildRecipe({ root: ROOT });
+    assert.deepEqual(
+      recipe.targets.map((target) => target.platform),
+      SYNTHESIS_SIDECAR_RUNTIME_TARGETS,
+    );
+    assert.deepEqual(
+      recipe.targets.map((target) => target.target),
+      SYNTHESIS_SIDECAR_RUNTIME_TARGETS.map(
+        (target) => SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES[target],
+      ),
+    );
+    assert.deepEqual(
+      recipe.targets
+        .filter((target) => target.useZig)
+        .map((target) => target.platform),
+      ["linux-x86", "linux-x64", "linux-arm", "linux-arm64"],
+    );
+
+    const invalidRecipeRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "zs-native-recipe-"),
+    );
+    const invalidRecipePath = path.join(
+      invalidRecipeRoot,
+      "native/synthesis-sidecar/build-recipe.json",
+    );
+    fs.mkdirSync(path.dirname(invalidRecipePath), { recursive: true });
+    fs.writeFileSync(
+      invalidRecipePath,
+      JSON.stringify({
+        ...recipe,
+        targets: recipe.targets.map((target, index) =>
+          index === 0 ? { ...target, target: "invalid-target" } : target,
+        ),
+      }),
+    );
+    assert.throws(() =>
+      readSynthesisSidecarRuntimeBuildRecipe({ root: invalidRecipeRoot }),
+    );
+
     const workflow = parseYaml(workflowSource) as {
       permissions?: { contents?: string };
       jobs?: {
-        candidate?: { strategy?: { matrix?: { include?: unknown[] } } };
+        prebuild?: {
+          needs?: string;
+          strategy?: { matrix?: { include?: string } };
+        };
       };
     };
-    assert.equal(workflow.permissions?.contents, "read");
-    assert.lengthOf(
-      workflow.jobs?.candidate?.strategy?.matrix?.include || [],
-      7,
+    assert.equal(workflow.permissions?.contents, "write");
+    assert.equal(workflow.jobs?.prebuild?.needs, "plan");
+    assert.equal(
+      workflow.jobs?.prebuild?.strategy?.matrix?.include,
+      "${{ fromJSON(needs.plan.outputs.build_matrix) }}",
     );
     assert.include(
       workflowSource,
       "dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c",
     );
-    assert.include(workflowSource, "toolchain: nightly-2026-07-25");
+    assert.include(workflowSource, "goto-bus-stop/setup-zig@v2");
+    assert.include(workflowSource, "cargo install cargo-zigbuild --locked");
+    assert.notInclude(workflowSource, "gcc-multilib");
+    assert.notInclude(workflowSource, "gcc-arm-linux-gnueabihf");
     assert.include(workflowSource, "--all --check");
     assert.include(
       workflowSource,
       "check-synthesis-native-runtime-contract-parity.ts",
     );
-    assert.notInclude(workflowSource, "gh release");
+    assert.include(workflowSource, "request_id:");
+    assert.include(workflowSource, "source_sha:");
+    assert.notInclude(workflowSource, "push:");
     assert.notInclude(workflowSource, "node-v24");
     assert.notInclude(workflowSource, "SHASUMS256");
     assert.notInclude(workflowSource, "build-synthesis-rust-sidecar.yml");

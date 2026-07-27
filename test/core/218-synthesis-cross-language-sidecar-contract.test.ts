@@ -205,7 +205,7 @@ describe("Synthesis cross-language sidecar contract", function () {
     const workflow = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        ".github/workflows/build-synthesis-sidecar-runtime.yml",
+        ".github/workflows/prebuild-synthesis-sidecar-runtime.yml",
       ),
       "utf8",
     );
@@ -262,7 +262,7 @@ describe("Synthesis cross-language sidecar contract", function () {
     const workflow = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        ".github/workflows/build-synthesis-sidecar-runtime.yml",
+        ".github/workflows/prebuild-synthesis-sidecar-runtime.yml",
       ),
       "utf8",
     );

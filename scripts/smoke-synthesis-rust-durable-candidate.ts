@@ -1,8 +1,10 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
+import { URL } from "node:url";
 import {
   buildSynthesisCitationGraphBuildTransferManifest,
   buildSynthesisCitationGraphBuildTransferPage,
@@ -127,6 +129,62 @@ async function withDeadline<T>(
   }
 }
 
+type LoopbackHttpResponse = {
+  status: number;
+  body: string;
+};
+
+async function loopbackRequest(
+  endpoint: string,
+  options: {
+    method?: "GET" | "POST";
+    headers?: Record<string, string>;
+    body?: string;
+  } = {},
+): Promise<LoopbackHttpResponse> {
+  const url = new URL(endpoint);
+  const body = Buffer.from(options.body || "", "utf8");
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(
+      {
+        hostname: url.hostname,
+        port: url.port,
+        method: options.method || "GET",
+        path: `${url.pathname}${url.search}`,
+        headers: {
+          accept: "application/json",
+          connection: "close",
+          "content-length": String(body.byteLength),
+          ...options.headers,
+        },
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.once("error", reject);
+        response.once("end", () =>
+          resolve({
+            status: response.statusCode || 0,
+            body: Buffer.concat(chunks).toString("utf8"),
+          }),
+        );
+      },
+    );
+    request.once("error", reject);
+    request.end(body);
+  });
+}
+
+function responseJson(response: LoopbackHttpResponse, label: string) {
+  try {
+    return JSON.parse(response.body) as Record<string, unknown>;
+  } catch {
+    throw new Error(
+      `${label} returned non-JSON status ${response.status}: ${response.body.slice(0, 512)}`,
+    );
+  }
+}
+
 async function call(
   endpoint: string,
   capability: string,
@@ -134,7 +192,7 @@ async function call(
   requestId = `r7:${capability}`,
   token = CLIENT_TOKEN,
 ) {
-  const response = await fetch(`${endpoint}/synthesis/v1/call`, {
+  const response = await loopbackRequest(`${endpoint}/synthesis/v1/call`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${token}`,
@@ -150,7 +208,7 @@ async function call(
   });
   return {
     response,
-    body: (await response.json()) as Record<string, unknown>,
+    body: responseJson(response, `call ${capability}`),
   };
 }
 
@@ -302,13 +360,18 @@ async function main() {
       "listen",
     );
     const endpoint = `http://127.0.0.1:${listening.port}`;
-    const healthResponse = await fetch(`${endpoint}/synthesis/v1/health`);
+    const healthResponse = await loopbackRequest(
+      `${endpoint}/synthesis/v1/health`,
+    );
     if (healthResponse.status !== 200) {
       throw new Error(
         `Health route returned ${healthResponse.status} for ${target}`,
       );
     }
-    const health = (await healthResponse.json()) as Record<string, any>;
+    const health = responseJson(healthResponse, "health") as Record<
+      string,
+      any
+    >;
     if (
       health.implementation !== "rust-native" ||
       health.target !== target ||
@@ -327,36 +390,52 @@ async function main() {
       throw new Error(`Invalid durable health: ${JSON.stringify(health)}`);
     }
 
-    const unauthorized = await fetch(`${endpoint}/synthesis/v1/call`, {
-      method: "POST",
-      headers: { authorization: "Bearer wrong-token" },
-      body: "{}",
-    });
+    const unauthorized = await loopbackRequest(
+      `${endpoint}/synthesis/v1/call`,
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer wrong-token",
+          "content-type": "application/json",
+        },
+        body: "{}",
+      },
+    );
     if (unauthorized.status !== 401) {
-      throw new Error(`Expected unauthorized, received ${unauthorized.status}`);
+      throw new Error(
+        `Expected unauthorized, received ${unauthorized.status}: ${unauthorized.body}`,
+      );
     }
-    const malformed = await fetch(`${endpoint}/synthesis/v1/call`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${CLIENT_TOKEN}` },
-      body: "{",
-    });
-    if (malformed.status !== 400) {
-      throw new Error(`Expected malformed 400, received ${malformed.status}`);
-    }
-    const wrongProfile = await fetch(`${endpoint}/synthesis/v1/call`, {
+    const malformed = await loopbackRequest(`${endpoint}/synthesis/v1/call`, {
       method: "POST",
       headers: {
         authorization: `Bearer ${CLIENT_TOKEN}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({
-        protocol: "synthesis-sidecar.v1",
-        requestId: "r7:wrong-profile",
-        profileId: "3".repeat(64),
-        capability: "workbench.chrome.read",
-        payload: { state: {} },
-      }),
+      body: "{",
     });
+    if (malformed.status !== 400) {
+      throw new Error(
+        `Expected malformed 400, received ${malformed.status}: ${malformed.body}`,
+      );
+    }
+    const wrongProfile = await loopbackRequest(
+      `${endpoint}/synthesis/v1/call`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${CLIENT_TOKEN}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          protocol: "synthesis-sidecar.v1",
+          requestId: "r7:wrong-profile",
+          profileId: "3".repeat(64),
+          capability: "workbench.chrome.read",
+          payload: { state: {} },
+        }),
+      },
+    );
     if (wrongProfile.status !== 409) {
       throw new Error(
         `Expected profile mismatch 409, received ${wrongProfile.status}`,
@@ -547,9 +626,10 @@ async function main() {
     await withDeadline(
       (async () => {
         for (;;) {
-          const snapshot = (await (
-            await fetch(`${endpoint}/synthesis/v1/health`)
-          ).json()) as Record<string, any>;
+          const snapshot = responseJson(
+            await loopbackRequest(`${endpoint}/synthesis/v1/health`),
+            "health during compute",
+          ) as Record<string, any>;
           if (snapshot.computePool?.state === "busy") return;
           await new Promise((resolve) => setTimeout(resolve, 5));
         }
@@ -647,9 +727,10 @@ async function main() {
         "reopen_listen",
       );
       const reopenedEndpoint = `http://127.0.0.1:${reopenedListening.port}`;
-      const reopenedHealth = (await (
-        await fetch(`${reopenedEndpoint}/synthesis/v1/health`)
-      ).json()) as Record<string, any>;
+      const reopenedHealth = responseJson(
+        await loopbackRequest(`${reopenedEndpoint}/synthesis/v1/health`),
+        "reopened health",
+      ) as Record<string, any>;
       if (
         reopenedHealth.repository?.state !== "ready" ||
         reopenedHealth.canonicalStore?.state !== "ready" ||
