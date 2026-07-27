@@ -2,9 +2,7 @@
 
 ## Purpose
 TBD - created by syncing change migrate-synthesis-durable-foundation-to-rust. Update Purpose after archive.
-
 ## Requirements
-
 ### Requirement: Rust durable foundation SHALL match the frozen Node oracle
 
 The system SHALL implement the complete isolated Synthesis repository, Topic canonical store, and private application behavior in Rust and SHALL compare observable results with the frozen Node oracle from versioned language-neutral fixtures.
@@ -46,10 +44,16 @@ Linux x64, Linux arm64, macOS x64, macOS arm64, and Windows x64 candidate workfl
 - **WHEN** any target omits or fails a required repository, canonical, typed parity, fingerprint, or smoke check
 - **THEN** R7 candidate acceptance fails
 
-### Requirement: R7 SHALL remain shadow-only
+### Requirement: Durable parity SHALL be consumed only through receipted cutover
 
-Production `SynthesisClient`, production repository and canonical owners, public capability routing, and legacy composition SHALL remain unchanged. Rust SHALL expose no runtime fallback to Node and no mutation-enabled service surface.
+The R7 repository, canonical-store, and application implementation SHALL become production-authoritative only after backup verification, production-copy preflight, exclusive owner lock, forward recovery, and a completed cutover receipt.
 
-#### Scenario: Production ownership is audited
-- **WHEN** client imports, service capability inventory, and candidate handshake are inspected
-- **THEN** production routes do not reference the Rust canaries and the candidate reports `mutationEnabled: false`
+#### Scenario: Candidate lacks a receipt
+- **WHEN** a Rust instance has parity evidence but no valid production receipt
+- **THEN** it can access only derived isolated roots and remains mutation-disabled
+
+#### Scenario: Receipted owner restarts
+- **WHEN** a compatible Rust bundle restarts for a production receipt
+- **THEN** it reconciles repository and canonical journals before serving reads or mutations
+- **AND** it never opens a Node or plugin-owned fallback root
+

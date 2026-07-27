@@ -181,6 +181,7 @@ describe("Synthesis production sidecar control client", function () {
       readyClientCapabilities:
         SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
       smokeEvidenceDigest: "8".repeat(64),
+      issuedAtMs: Date.now(),
     });
     await client.shutdown(connection);
 

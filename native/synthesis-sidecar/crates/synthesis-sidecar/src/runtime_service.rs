@@ -6,6 +6,7 @@ use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
 use synthesis_repository::{Repository, RepositoryIdentity};
 use synthesis_sidecar::production_capabilities::{
     production_client_capabilities, production_client_operation_metadata,
+    production_ready_client_capabilities,
 };
 use synthesis_sidecar::runtime_contract::{
     current_time_ms, production_cutover_receipt_is_mutation_enabled, read_native_launch_config,
@@ -84,6 +85,7 @@ pub(crate) fn serve_production(config_path: &str, admission_path: &str) -> Resul
 
 fn serve_internal(config_path: &str, admission_path: Option<&str>) -> Result<(), String> {
     production_client_capabilities()?;
+    production_ready_client_capabilities()?;
     let production_client_operations = production_client_operation_metadata()?;
     let config = read_native_launch_config(Path::new(config_path))?;
     let admission = admission_path

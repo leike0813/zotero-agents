@@ -2,9 +2,7 @@
 
 ## Purpose
 Defines the Synthesis Workbench client consumer contract for synthesis host bridge operations, specifying how Workbench reads and reacts to client-side state changes.
-
 ## Requirements
-
 ### Requirement: Host Bridge uses domain-grouped Synthesis client capabilities
 
 Every normal and debug Host Bridge Synthesis capability SHALL resolve a `SynthesisClient` and invoke the matching Topic, Graph, Reference, Artifact, Concept, Maintenance, Library Index, Workflow Review, or Debug method. Host Bridge and MCP production code SHALL NOT resolve or import the complete Synthesis service.
@@ -42,18 +40,19 @@ Topic Context and filtered paper-artifact export SHALL accept `SynthesisDelivery
 
 ### Requirement: Host Bridge uses cached client composition
 
-Normal and debug Host Bridge calls SHALL use lazy cached default-client acquisition. They SHALL NOT use the Sync-specific fresh-client path or add service invalidation. Test injection SHALL resolve a client rather than a service.
+Normal and debug Host Bridge calls SHALL use lazy cached default-client acquisition. They SHALL NOT use the Sync-specific fresh-client path, add service invalidation, or resolve a legacy service. Test injection SHALL resolve a client rather than a service.
 
 #### Scenario: Default Host capability executes
 - **WHEN** no test client resolver is configured
-- **THEN** Host Bridge SHALL obtain the cached default client
-- **AND** the client port SHALL resolve the current default legacy service when invoked
+- **THEN** Host Bridge SHALL obtain the cached native production client
+- **AND** unavailable native state SHALL fail closed without a legacy fallback
 
 ### Requirement: Complete-service access is confined to legacy composition
 
-The public Synthesis service SHALL retain 128 methods. The only production direct consumer SHALL be the legacy client composition root. The retained library-index capability SHALL be classified as a client capability rather than scheduled for removal.
+The retained legacy service MAY remain directly accessible only inside isolated oracle tests until R9b deletion. No production source SHALL resolve or import the complete legacy service; Host Bridge and MCP SHALL continue to use the grouped native `SynthesisClient`.
 
 #### Scenario: Static boundary is inspected
-- **WHEN** the service-boundary checker runs
-- **THEN** it SHALL report exactly 128 public methods and one direct consumer
-- **AND** Host Bridge and MCP SHALL not appear in the direct-consumer list
+- **WHEN** the service-boundary checker runs after cutover
+- **THEN** the production direct-consumer count for the legacy service is zero
+- **AND** isolated oracle fixtures are the only allowed legacy direct consumers
+

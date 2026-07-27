@@ -7,6 +7,9 @@ use synthesis_sidecar::runtime_contract::{
     NativeLaunchConfig, ProductionAdmission, current_time_ms,
 };
 
+const ACTIVATION_EVIDENCE_MAX_AGE_MS: u64 = 60_000;
+const ACTIVATION_EVIDENCE_MAX_FUTURE_SKEW_MS: u64 = 5_000;
+
 fn atomic_write_json(path: &Path, value: &Value) -> Result<(), String> {
     let parent = path
         .parent()
@@ -105,6 +108,7 @@ pub(crate) struct ProductionActivationEvidence {
     pub(crate) capability_fingerprint: String,
     pub(crate) ready_client_capabilities: Vec<String>,
     pub(crate) smoke_evidence_digest: String,
+    pub(crate) issued_at_ms: u64,
 }
 
 impl ProductionOwnership {
@@ -178,6 +182,15 @@ impl ProductionOwnership {
         evidence: &ProductionActivationEvidence,
         ready_client_capabilities: &[&str],
     ) -> Result<(), String> {
+        let now = current_time_ms()?;
+        if evidence.issued_at_ms > now.saturating_add(ACTIVATION_EVIDENCE_MAX_FUTURE_SKEW_MS)
+            || now.saturating_sub(evidence.issued_at_ms) > ACTIVATION_EVIDENCE_MAX_AGE_MS
+        {
+            return Err("production_activation_expired".into());
+        }
+        if self.activation_path.exists() {
+            return Err("production_activation_replayed".into());
+        }
         let valid_digest = evidence.smoke_evidence_digest.len() == 64
             && evidence
                 .smoke_evidence_digest
@@ -252,14 +265,19 @@ impl Drop for ProductionOwnership {
 #[cfg(test)]
 mod production_owner_tests {
     use super::*;
-    use synthesis_sidecar::production_capabilities::PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use synthesis_sidecar::production_capabilities::{
+        PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT, READY_PRODUCTION_CLIENT_CAPABILITIES,
+    };
     use synthesis_sidecar::runtime_contract::{ProductionAdmission, ProductionReverseHost};
+
+    static TEST_ROOT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
     fn root() -> PathBuf {
         let root = std::env::temp_dir().join(format!(
             "synthesis-production-owner-{}-{}",
             std::process::id(),
-            current_time_ms().unwrap()
+            TEST_ROOT_SEQUENCE.fetch_add(1, Ordering::Relaxed),
         ));
         fs::create_dir_all(root.join("state")).unwrap();
         fs::create_dir_all(root.join("data/synthesis")).unwrap();
@@ -287,6 +305,20 @@ mod production_owner_tests {
         }
     }
 
+    fn activation_evidence() -> ProductionActivationEvidence {
+        ProductionActivationEvidence {
+            receipt_id: "receipt-1".into(),
+            service_instance_id: "service-1".into(),
+            capability_fingerprint: PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT.into(),
+            ready_client_capabilities: READY_PRODUCTION_CLIENT_CAPABILITIES
+                .iter()
+                .map(|capability| (*capability).to_owned())
+                .collect(),
+            smoke_evidence_digest: "3".repeat(64),
+            issued_at_ms: current_time_ms().unwrap(),
+        }
+    }
+
     #[test]
     fn production_owner_is_exclusive_and_released_by_its_instance() {
         let root = root();
@@ -298,6 +330,70 @@ mod production_owner_tests {
         );
         drop(owner);
         ProductionOwnership::acquire(&admission, "service-2", false).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn activation_requires_current_identity_and_rejects_replay() {
+        let root = root();
+        let admission = admission(&root);
+        let owner = ProductionOwnership::acquire(&admission, "service-1", false).unwrap();
+        let evidence = activation_evidence();
+
+        for invalid in [
+            ProductionActivationEvidence {
+                receipt_id: "receipt-2".into(),
+                ..activation_evidence()
+            },
+            ProductionActivationEvidence {
+                service_instance_id: "service-2".into(),
+                ..activation_evidence()
+            },
+            ProductionActivationEvidence {
+                capability_fingerprint: "4".repeat(64),
+                ..activation_evidence()
+            },
+            ProductionActivationEvidence {
+                ready_client_capabilities: vec!["client.listTopics".into()],
+                ..activation_evidence()
+            },
+            ProductionActivationEvidence {
+                smoke_evidence_digest: "invalid".into(),
+                ..activation_evidence()
+            },
+        ] {
+            assert_eq!(
+                owner
+                    .activate(&admission, &invalid, READY_PRODUCTION_CLIENT_CAPABILITIES)
+                    .unwrap_err(),
+                "production_activation_identity_mismatch"
+            );
+        }
+
+        assert_eq!(
+            owner
+                .activate(
+                    &admission,
+                    &ProductionActivationEvidence {
+                        issued_at_ms: 0,
+                        ..activation_evidence()
+                    },
+                    READY_PRODUCTION_CLIENT_CAPABILITIES,
+                )
+                .unwrap_err(),
+            "production_activation_expired"
+        );
+
+        owner
+            .activate(&admission, &evidence, READY_PRODUCTION_CLIENT_CAPABILITIES)
+            .unwrap();
+        assert_eq!(
+            owner
+                .activate(&admission, &evidence, READY_PRODUCTION_CLIENT_CAPABILITIES)
+                .unwrap_err(),
+            "production_activation_replayed"
+        );
+        drop(owner);
         fs::remove_dir_all(root).unwrap();
     }
 }

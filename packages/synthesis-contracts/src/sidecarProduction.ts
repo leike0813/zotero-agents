@@ -124,6 +124,7 @@ export type SynthesisProductionActivationEvidence = {
   capabilityFingerprint: typeof SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT;
   readyClientCapabilities: typeof SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES;
   smokeEvidenceDigest: string;
+  issuedAtMs: number;
 };
 
 export type SynthesisProductionRepositorySnapshot = {

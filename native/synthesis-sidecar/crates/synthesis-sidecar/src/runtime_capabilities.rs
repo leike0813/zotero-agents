@@ -469,10 +469,20 @@ pub(crate) fn handle_connection(
             if state.owner_mode != "production" {
                 return response(&mut stream, 404, error_response("capability_not_found"));
             }
-            if !synthesis_sidecar::production_capabilities::PRODUCTION_ACTIVATION_ENABLED
-                || synthesis_sidecar::production_capabilities::READY_PRODUCTION_CLIENT_CAPABILITIES
-                    .len()
-                    != state.production_client_operations.len()
+            let ready_capabilities = match synthesis_sidecar::production_capabilities::production_ready_client_capabilities() {
+                Ok(capabilities) => capabilities,
+                Err(_) => {
+                    return response(
+                        &mut stream,
+                        503,
+                        error_response("production_surface_incomplete"),
+                    );
+                }
+            };
+            if ready_capabilities.len() != state.production_client_operations.len()
+                || ready_capabilities
+                    .iter()
+                    .any(|capability| !state.production_client_operations.contains_key(capability))
             {
                 return response(
                     &mut stream,

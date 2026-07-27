@@ -61,6 +61,7 @@ pub(crate) fn production_client_error_status(code: &str) -> u16 {
     if code == "invalid_request" {
         400
     } else if code == "mutation_not_admitted"
+        || code == "production_activation_replayed"
         || code.ends_with("_conflict")
         || code.ends_with("_basis_mismatch")
     {
@@ -71,7 +72,7 @@ pub(crate) fn production_client_error_status(code: &str) -> u16 {
         429
     } else if code.ends_with("_too_large") || code.ends_with("_limit_exceeded") {
         413
-    } else if code.ends_with("_timeout") || code == "timeout" {
+    } else if code.ends_with("_timeout") || code.ends_with("_expired") || code == "timeout" {
         408
     } else {
         503

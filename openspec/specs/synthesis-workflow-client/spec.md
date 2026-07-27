@@ -2,9 +2,7 @@
 
 ## Purpose
 Defines the synthesis workflow client capability for the Synthesis plugin, specifying its service boundary, integration contracts, and runtime behavior.
-
 ## Requirements
-
 ### Requirement: Workflow Synthesis exposure is narrow
 
 `WorkflowHostApi.synthesis` SHALL expose only the twelve declared workflow methods and SHALL NOT expose the full `SynthesisService` or `SynthesisClient`.
@@ -54,15 +52,6 @@ The plugin SHALL resolve Topic apply run-workspace files before the client bound
 - **WHEN** a referenced asset is missing, a manifest is invalid, the count exceeds 256, one asset exceeds 5 MiB, or aggregate text exceeds 50 MiB
 - **THEN** the call SHALL fail with stable `invalid_request` details before the legacy mutation is invoked
 
-### Requirement: In-process adapter preserves current workflow behavior
-
-The migration-time adapter SHALL reconstruct read-only asset access and delegate to the current in-process implementation without changing DB, canonical file, mirror, or Zotero ownership.
-
-#### Scenario: Topic apply reaches the legacy implementation
-- **WHEN** a materialized Topic request is routed through the in-process client
-- **THEN** the legacy implementation SHALL read only the supplied controlled assets
-- **AND** current persisted, conflict, missing, duplicate, and validation results SHALL remain observable-compatible
-
 ### Requirement: Workflow contracts are environment-neutral
 
 Workflow client DTOs SHALL be package-owned, JSON-safe, bounded where collections or assets cross the boundary, and free of repository rows, absolute paths, host objects, functions, and legacy service-derived types.
@@ -73,8 +62,18 @@ Workflow client DTOs SHALL be package-owned, JSON-safe, bounded where collection
 
 ### Requirement: Active documentation describes the narrow current API
 
-Current workflow API documentation SHALL identify `WorkflowSynthesisApi`, list the supported methods, and state that the default implementation is still in-process.
+Current workflow API documentation SHALL identify `WorkflowSynthesisApi`, list the supported methods, and state that the default implementation uses the native production `SynthesisClient`.
 
 #### Scenario: Workflow API docs are generated
 - **WHEN** documentation consistency checks run
-- **THEN** active source and generated workflow host documentation SHALL no longer advertise `SynthesisService`
+- **THEN** active source and generated workflow host documentation SHALL no longer advertise `SynthesisService` or an in-process default
+
+### Requirement: Native workflow routing SHALL preserve controlled Host boundaries
+
+Workflow Topic assets SHALL still be materialized by the plugin before the client boundary, and native workflow applications SHALL use only declared reverse-Host ports for Zotero, delivery, or WebDAV effects.
+
+#### Scenario: Workflow mutation executes after cutover
+- **WHEN** a workflow invokes a grouped Synthesis mutation
+- **THEN** the request crosses the typed native client boundary
+- **AND** any Host effect returns through its preconditioned receipt contract
+

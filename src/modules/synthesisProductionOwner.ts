@@ -517,6 +517,7 @@ async function createDefaultSynthesisProductionOwner() {
               readyClientCapabilities:
                 SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
               smokeEvidenceDigest,
+              issuedAtMs: Date.now(),
             });
             if (liveConnection) {
               await createSynthesisSidecarRpcClient().call({

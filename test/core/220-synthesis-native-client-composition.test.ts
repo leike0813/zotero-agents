@@ -20,6 +20,12 @@ describe("Synthesis native client composition", function () {
       Object.values(report.errors).every((values) => values.length === 0),
       JSON.stringify(report.errors),
     );
+    assert.deepEqual(report.errors.ownershipDuplicates, []);
+    assert.deepEqual(report.errors.missingFromOwnership, []);
+    assert.deepEqual(report.errors.unknownInOwnership, []);
+    assert.deepEqual(report.errors.incompleteSurfaceChanges, []);
+    assert.deepEqual(report.errors.missingSurfaceEvidence, []);
+    assert.deepEqual(report.errors.dispatcherCoverage, []);
   });
 
   it("reuses the grouped client facade over closed native capabilities", async function () {

@@ -856,6 +856,63 @@ describe("Synthesis Rust production client route", function () {
         );
       }
 
+      const mismatchedActivation = await call(
+        port,
+        "system.production.activate",
+        {
+          receiptId: "receipt-1",
+          serviceInstanceId: "another-service",
+          capabilityFingerprint:
+            SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+          readyClientCapabilities:
+            SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+          smokeEvidenceDigest: "a".repeat(64),
+          issuedAtMs: Date.now(),
+        },
+        LIFECYCLE_TOKEN,
+      );
+      assert.equal(mismatchedActivation.status, 503);
+      assert.equal(
+        mismatchedActivation.body.error.code,
+        "production_activation_identity_mismatch",
+      );
+
+      const forbiddenActivation = await call(
+        port,
+        "system.production.activate",
+        {
+          receiptId: "receipt-1",
+          serviceInstanceId: topics.body.serviceInstanceId,
+          capabilityFingerprint:
+            SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+          readyClientCapabilities:
+            SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+          smokeEvidenceDigest: "a".repeat(64),
+          issuedAtMs: Date.now(),
+        },
+        CLIENT_TOKEN,
+      );
+      assert.equal(forbiddenActivation.status, 401);
+      assert.equal(forbiddenActivation.body.error.code, "lifecycle_forbidden");
+
+      const expiredActivation = await call(
+        port,
+        "system.production.activate",
+        {
+          receiptId: "receipt-1",
+          serviceInstanceId: topics.body.serviceInstanceId,
+          capabilityFingerprint:
+            SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+          readyClientCapabilities:
+            SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+          smokeEvidenceDigest: "a".repeat(64),
+          issuedAtMs: 0,
+        },
+        LIFECYCLE_TOKEN,
+      );
+      assert.equal(expiredActivation.status, 408);
+      assert.equal(expiredActivation.body.error.code, "production_activation_expired");
+
       const activation = await call(
         port,
         "system.production.activate",
@@ -867,22 +924,40 @@ describe("Synthesis Rust production client route", function () {
           readyClientCapabilities:
             SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
           smokeEvidenceDigest: "a".repeat(64),
+          issuedAtMs: Date.now(),
         },
         LIFECYCLE_TOKEN,
       );
-      assert.equal(activation.status, 503);
-      assert.equal(activation.body.error.code, "production_surface_incomplete");
+      assert.equal(activation.status, 200);
+      assert.isTrue(activation.body.data.mutationEnabled);
+
+      const replayedActivation = await call(
+        port,
+        "system.production.activate",
+        {
+          receiptId: "receipt-1",
+          serviceInstanceId: topics.body.serviceInstanceId,
+          capabilityFingerprint:
+            SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+          readyClientCapabilities:
+            SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+          smokeEvidenceDigest: "a".repeat(64),
+          issuedAtMs: Date.now(),
+        },
+        LIFECYCLE_TOKEN,
+      );
+      assert.equal(replayedActivation.status, 409);
+      assert.equal(
+        replayedActivation.body.error.code,
+        "production_activation_replayed",
+      );
 
       const mutationAfterAdmission = await call(
         port,
         "client.clearTagAuditRecord",
         { args: [{ libraryId: 1, itemKey: "AAAA1111" }] },
       );
-      assert.equal(mutationAfterAdmission.status, 409);
-      assert.equal(
-        mutationAfterAdmission.body.error.code,
-        "mutation_not_admitted",
-      );
+      assert.equal(mutationAfterAdmission.status, 200);
 
       const unknown = await call(port, "client.notDeclared", {
         args: [],

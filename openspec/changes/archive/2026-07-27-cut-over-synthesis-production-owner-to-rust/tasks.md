@@ -1,15 +1,15 @@
 ## 1. Contract and Test Baseline
 
 - [x] 1.1 Add language-neutral production owner, mutation admission, capability fingerprint, cutover receipt, and reverse-Host positive/negative corpus cases
-- [ ] 1.2 Complete the default-client, runtime, Workflow, Workbench, Host Bridge/MCP, and boundary evidence in `complete-synthesis-native-production-activation`
+- [x] 1.2 Complete the default-client, runtime, Workflow, Workbench, Host Bridge/MCP, and boundary evidence in `complete-synthesis-native-production-activation`
 - [x] 1.3 Add production-copy cutover integration fixtures for backup, owner conflict, preflight failure, recovery, and post-admission crash
 
 ## 2. Native Production RPC
 
 - [x] 2.1 Establish one closed grouped `SynthesisClient` operation inventory and TypeScript/Rust completeness fingerprint
-- [ ] 2.2 Complete strict public DTO semantics and typed dispatch through the seven operation-surface changes tracked in section 7
-  - Current ready subset: 77 operations backed by Rust repository/application or bounded reverse-Host ports.
-  - `operation-ownership.json` assigns all 95 operations exactly once; mutation activation and native default-client acquisition stay closed until every surface and final activation gate passes.
+- [x] 2.2 Complete strict public DTO semantics and typed dispatch through the seven operation-surface changes tracked in section 7
+  - The exact 95-operation ready roster is backed by Rust repository/application or bounded reverse-Host ports.
+  - `operation-ownership.json`, the operation manifest, Rust dispatcher, TypeScript capabilities, and ready roster form one verified partition; activation publishes the native default-client composition only after the lifecycle and mutation-health gates pass.
 - [x] 2.3 Extend health/handshake with owner mode, capability fingerprint, cutover receipt identity, and gated mutation admission
 
 ## 3. Reverse Host Boundary
@@ -34,7 +34,7 @@
 ## 6. Documentation and Verification
 
 - [x] 6.1 Update active Synthesis architecture, persistence, supervision, and migration documentation to the truthful R9a current state and R9b boundary
-- [ ] 6.2 Pass the release-quality verification suite owned by `complete-synthesis-native-production-activation`
+- [x] 6.2 Pass the release-quality verification suite owned by `complete-synthesis-native-production-activation`
 - [x] 6.3 Record R8 five-platform remote, signing/XPI, and real-machine evidence as pending external acceptance without claiming complete R9 or Stage 1
 
 ## 7. Decomposed R9a Delivery
@@ -43,7 +43,7 @@
 - [x] 7.2 Complete `complete-synthesis-native-citation-graph-surface`
 - [x] 7.3 Complete `complete-synthesis-native-reference-canonical-surface`
 - [x] 7.4 Complete `complete-synthesis-native-tag-surface`
-- [ ] 7.5 Complete `complete-synthesis-native-concept-topic-graph-surface`
+- [x] 7.5 Complete `complete-synthesis-native-concept-topic-graph-surface`
 - [x] 7.6 Complete `complete-synthesis-native-artifact-library-debug-surface`
-- [ ] 7.7 Complete `complete-synthesis-native-webdav-maintenance-surface`
-- [ ] 7.8 Complete `complete-synthesis-native-production-activation` after 7.1–7.7
+- [x] 7.7 Complete `complete-synthesis-native-webdav-maintenance-surface`
+- [x] 7.8 Complete `complete-synthesis-native-production-activation` after 7.1–7.7
