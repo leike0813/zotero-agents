@@ -1,4 +1,4 @@
-use crate::Repository;
+use crate::{OperationRecord, Repository};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -613,6 +613,19 @@ impl Repository {
         expected_manifest_hash: Option<&str>,
         replacement: &ConceptKbReplacement,
     ) -> Result<bool, String> {
+        self.replace_concept_kb_application_state_with_receipt(
+            expected_manifest_hash,
+            replacement,
+            None,
+        )
+    }
+
+    pub fn replace_concept_kb_application_state_with_receipt(
+        &mut self,
+        expected_manifest_hash: Option<&str>,
+        replacement: &ConceptKbReplacement,
+        receipt: Option<&OperationRecord>,
+    ) -> Result<bool, String> {
         self.transaction(|repository| {
             if repository
                 .get_concept_application_state()?
@@ -657,6 +670,9 @@ impl Repository {
                 .iter()
                 .try_for_each(|row| put_topic_concept_link(repository, row))?;
             put_concept_state(repository, &replacement.state)?;
+            if let Some(receipt) = receipt {
+                repository.upsert_operation(receipt)?;
+            }
             Ok(true)
         })
     }
@@ -667,6 +683,23 @@ impl Repository {
         index_hash: &str,
         index_json: &str,
         now: &str,
+    ) -> Result<bool, String> {
+        self.promote_concept_kb_index_with_receipt(
+            expected_manifest_hash,
+            index_hash,
+            index_json,
+            now,
+            None,
+        )
+    }
+
+    pub fn promote_concept_kb_index_with_receipt(
+        &mut self,
+        expected_manifest_hash: &str,
+        index_hash: &str,
+        index_json: &str,
+        now: &str,
+        receipt: Option<&OperationRecord>,
     ) -> Result<bool, String> {
         self.transaction(|repository| {
             let Some(mut state) = repository.get_concept_application_state()? else {
@@ -681,6 +714,9 @@ impl Repository {
             state.index_stale = 0;
             state.updated_at = now.to_owned();
             put_concept_state(repository, &state)?;
+            if let Some(receipt) = receipt {
+                repository.upsert_operation(receipt)?;
+            }
             Ok(true)
         })
     }
@@ -717,6 +753,19 @@ impl Repository {
         expected_manifest_hash: Option<&str>,
         replacement: &TopicGraphReplacement,
     ) -> Result<bool, String> {
+        self.replace_topic_graph_application_state_with_receipt(
+            expected_manifest_hash,
+            replacement,
+            None,
+        )
+    }
+
+    pub fn replace_topic_graph_application_state_with_receipt(
+        &mut self,
+        expected_manifest_hash: Option<&str>,
+        replacement: &TopicGraphReplacement,
+        receipt: Option<&OperationRecord>,
+    ) -> Result<bool, String> {
         self.transaction(|repository| {
             if repository
                 .get_topic_graph_application_state()?
@@ -746,6 +795,9 @@ impl Repository {
                 .iter()
                 .try_for_each(|row| put_topic_graph_review(repository, row))?;
             put_topic_graph_state(repository, &replacement.state)?;
+            if let Some(receipt) = receipt {
+                repository.upsert_operation(receipt)?;
+            }
             Ok(true)
         })
     }
@@ -756,6 +808,23 @@ impl Repository {
         index_hash: &str,
         index_json: &str,
         now: &str,
+    ) -> Result<bool, String> {
+        self.promote_topic_graph_index_with_receipt(
+            expected_manifest_hash,
+            index_hash,
+            index_json,
+            now,
+            None,
+        )
+    }
+
+    pub fn promote_topic_graph_index_with_receipt(
+        &mut self,
+        expected_manifest_hash: &str,
+        index_hash: &str,
+        index_json: &str,
+        now: &str,
+        receipt: Option<&OperationRecord>,
     ) -> Result<bool, String> {
         self.transaction(|repository| {
             let Some(mut state) = repository.get_topic_graph_application_state()? else {
@@ -770,6 +839,9 @@ impl Repository {
             state.index_stale = 0;
             state.updated_at = now.to_owned();
             put_topic_graph_state(repository, &state)?;
+            if let Some(receipt) = receipt {
+                repository.upsert_operation(receipt)?;
+            }
             Ok(true)
         })
     }

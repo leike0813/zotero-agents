@@ -212,6 +212,15 @@ export const SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.purgeDeletedTopicArtifacts",
   "client.rejectTopicDiscoveryHint",
   "client.restoreTopicDiscoveryHint",
+  "client.queryConceptKb",
+  "client.rebuildConceptKbIndex",
+  "client.updateConceptDisplayText",
+  "client.applyConceptReviewAction",
+  "client.deleteConceptEntries",
+  "client.rebuildTopicGraphIndex",
+  "client.acceptTopicGraphRelation",
+  "client.rejectTopicGraphRelation",
+  "client.applyTopicGraphReviewAction",
 ] as const satisfies readonly SynthesisSidecarProductionClientCapability[];
 export const SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES = [
   "compute.citation_graph_layout",

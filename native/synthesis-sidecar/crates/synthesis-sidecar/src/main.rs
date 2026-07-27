@@ -1,6 +1,7 @@
 mod runtime_artifact_library_debug;
 mod runtime_capabilities;
 mod runtime_cli;
+mod runtime_concept_topic_graph_surface;
 mod runtime_deadline;
 mod runtime_http;
 mod runtime_lifecycle;

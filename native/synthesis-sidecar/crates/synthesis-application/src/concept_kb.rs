@@ -636,11 +636,12 @@ impl ConceptKbApplication {
         if lease.canceled().load(Ordering::Relaxed) {
             return self.result(ConceptMutationStatus::Stopping, Vec::new(), Vec::new());
         }
-        match self.repository.promote_index(
+        match self.repository.promote_index_with_receipt(
             expected_manifest_hash,
             &output.index_hash,
             &output.index_json,
             &(self.now)(),
+            None,
         ) {
             Ok(true) => self.result(ConceptMutationStatus::Committed, Vec::new(), Vec::new()),
             Ok(false) => self.result(ConceptMutationStatus::BasisMismatch, Vec::new(), Vec::new()),
@@ -743,7 +744,7 @@ impl ConceptKbApplication {
             .collect::<Vec<_>>();
         match self
             .repository
-            .replace(expected_manifest_hash, &replacement)
+            .replace_with_receipt(expected_manifest_hash, &replacement, None)
         {
             Ok(true) => self.result(ConceptMutationStatus::Committed, changed, reviews),
             Ok(false) => self.result(ConceptMutationStatus::BasisMismatch, Vec::new(), Vec::new()),

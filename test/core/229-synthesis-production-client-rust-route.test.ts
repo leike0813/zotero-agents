@@ -18,6 +18,7 @@ import {
 import { createSynthesisProductionBackupService } from "../../src/modules/synthesisProductionBackup";
 import { inspectSynthesisReferenceCanonicalSurfaceParity } from "../../scripts/check-synthesis-reference-canonical-surface-parity";
 import { inspectSynthesisTagSurfaceParity } from "../../scripts/check-synthesis-tag-surface-parity";
+import { inspectSynthesisConceptTopicGraphSurfaceParity } from "../../scripts/check-synthesis-concept-topic-graph-surface-parity";
 import { inspectSynthesisTopicWorkbenchSurfaceParity } from "../../scripts/check-synthesis-topic-workbench-surface-parity";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
@@ -77,14 +78,40 @@ const REFERENCE_CANONICAL_MUTATIONS = REFERENCE_CANONICAL_OPERATIONS.filter(
     ].includes(capability),
 );
 const TAG_OPERATIONS = [
-  "client.applyTagVocabularyImport", "client.clearStagedTagSuggestions", "client.clearTagAuditRecord",
-  "client.deleteTagVocabularyEntry", "client.discardStagedTagSuggestions", "client.exportTagVocabularyForRegulator",
-  "client.initializeBuiltinTagPolicy", "client.isBuiltinTagPolicyInitialized", "client.listStagedTagSuggestions",
-  "client.loadTagVocabulary", "client.previewTagVocabularyImport", "client.promoteStagedTagSuggestions",
-  "client.rebuildTagVocabularyIndex", "client.replaceTagAuditRecords", "client.saveTagVocabulary",
-  "client.stageTagSuggestions", "client.updateStagedTagSuggestion", "client.updateTagVocabularyEntry",
+  "client.applyTagVocabularyImport",
+  "client.clearStagedTagSuggestions",
+  "client.clearTagAuditRecord",
+  "client.deleteTagVocabularyEntry",
+  "client.discardStagedTagSuggestions",
+  "client.exportTagVocabularyForRegulator",
+  "client.initializeBuiltinTagPolicy",
+  "client.isBuiltinTagPolicyInitialized",
+  "client.listStagedTagSuggestions",
+  "client.loadTagVocabulary",
+  "client.previewTagVocabularyImport",
+  "client.promoteStagedTagSuggestions",
+  "client.rebuildTagVocabularyIndex",
+  "client.replaceTagAuditRecords",
+  "client.saveTagVocabulary",
+  "client.stageTagSuggestions",
+  "client.updateStagedTagSuggestion",
+  "client.updateTagVocabularyEntry",
   "client.validateTagVocabulary",
 ] as const;
+const CONCEPT_TOPIC_GRAPH_OPERATIONS = [
+  "client.acceptTopicGraphRelation",
+  "client.applyConceptReviewAction",
+  "client.applyTopicGraphReviewAction",
+  "client.deleteConceptEntries",
+  "client.queryConceptKb",
+  "client.rebuildConceptKbIndex",
+  "client.rebuildTopicGraphIndex",
+  "client.rejectTopicGraphRelation",
+  "client.updateConceptDisplayText",
+] as const;
+const CONCEPT_TOPIC_GRAPH_MUTATIONS = CONCEPT_TOPIC_GRAPH_OPERATIONS.filter(
+  (capability) => capability !== "client.queryConceptKb",
+);
 
 function config(profileRuntimeRoot: string, supervisorInstanceId: string) {
   return {
@@ -245,9 +272,30 @@ describe("Synthesis Rust production client route", function () {
   });
 
   it("keeps every Tag public operation fixture-backed and ready", function () {
-    assert.deepEqual(inspectSynthesisTagSurfaceParity(), { ok: true, operations: 19, errors: [] });
+    assert.deepEqual(inspectSynthesisTagSurfaceParity(), {
+      ok: true,
+      operations: 19,
+      errors: [],
+    });
     for (const capability of TAG_OPERATIONS) {
-      assert.include(SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES, capability);
+      assert.include(
+        SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+        capability,
+      );
+    }
+  });
+
+  it("keeps every Concept KB and Topic Graph public operation fixture-backed and ready", function () {
+    assert.deepEqual(inspectSynthesisConceptTopicGraphSurfaceParity(), {
+      ok: true,
+      operations: 9,
+      errors: [],
+    });
+    for (const capability of CONCEPT_TOPIC_GRAPH_OPERATIONS) {
+      assert.include(
+        SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+        capability,
+      );
     }
   });
 
@@ -533,7 +581,9 @@ describe("Synthesis Rust production client route", function () {
       });
       assert.equal(resolver.status, 200);
       assert.deepEqual(resolver.body.data.papers, []);
-      assert.deepEqual(resolver.body.data.errors, ["resolver matched no papers"]);
+      assert.deepEqual(resolver.body.data.errors, [
+        "resolver matched no papers",
+      ]);
 
       const digest = await call(port, "client.resolveTopicPaperDigest", {
         args: [{ paperRef: "1:AAAA1111" }],
@@ -754,6 +804,21 @@ describe("Synthesis Rust production client route", function () {
         ).length,
         deliveryCallsBefore,
       );
+
+      const conceptQuery = await call(port, "client.queryConceptKb", {
+        args: [{ aliases: ["legacy alias"], limit: 100 }],
+      });
+      assert.equal(conceptQuery.status, 200);
+      assert.deepEqual(conceptQuery.body.data.labels, ["legacy alias"]);
+      for (const capability of CONCEPT_TOPIC_GRAPH_MUTATIONS) {
+        const mutation = await call(port, capability, { args: [] });
+        assert.equal(mutation.status, 409, capability);
+        assert.equal(
+          mutation.body.error.code,
+          "mutation_not_admitted",
+          capability,
+        );
+      }
 
       const activation = await call(
         port,

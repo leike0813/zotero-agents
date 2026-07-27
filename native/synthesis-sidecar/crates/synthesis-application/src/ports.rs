@@ -184,6 +184,14 @@ pub trait ConceptKbRepositoryPort: Send + Sync {
         expected_manifest_hash: Option<&str>,
         replacement: &ConceptKbReplacement,
     ) -> Result<bool, String>;
+    fn replace_with_receipt(
+        &self,
+        expected_manifest_hash: Option<&str>,
+        replacement: &ConceptKbReplacement,
+        _receipt: Option<&OperationRecord>,
+    ) -> Result<bool, String> {
+        self.replace(expected_manifest_hash, replacement)
+    }
     fn promote_index(
         &self,
         expected_manifest_hash: &str,
@@ -191,6 +199,16 @@ pub trait ConceptKbRepositoryPort: Send + Sync {
         index_json: &str,
         now: &str,
     ) -> Result<bool, String>;
+    fn promote_index_with_receipt(
+        &self,
+        expected_manifest_hash: &str,
+        index_hash: &str,
+        index_json: &str,
+        now: &str,
+        _receipt: Option<&OperationRecord>,
+    ) -> Result<bool, String> {
+        self.promote_index(expected_manifest_hash, index_hash, index_json, now)
+    }
 }
 
 pub trait TopicGraphRepositoryPort: Send + Sync {
@@ -201,6 +219,14 @@ pub trait TopicGraphRepositoryPort: Send + Sync {
         expected_manifest_hash: Option<&str>,
         replacement: &TopicGraphReplacement,
     ) -> Result<bool, String>;
+    fn replace_with_receipt(
+        &self,
+        expected_manifest_hash: Option<&str>,
+        replacement: &TopicGraphReplacement,
+        _receipt: Option<&OperationRecord>,
+    ) -> Result<bool, String> {
+        self.replace(expected_manifest_hash, replacement)
+    }
     fn promote_index(
         &self,
         expected_manifest_hash: &str,
@@ -208,6 +234,16 @@ pub trait TopicGraphRepositoryPort: Send + Sync {
         index_json: &str,
         now: &str,
     ) -> Result<bool, String>;
+    fn promote_index_with_receipt(
+        &self,
+        expected_manifest_hash: &str,
+        index_hash: &str,
+        index_json: &str,
+        now: &str,
+        _receipt: Option<&OperationRecord>,
+    ) -> Result<bool, String> {
+        self.promote_index(expected_manifest_hash, index_hash, index_json, now)
+    }
 }
 
 pub trait WorkbenchRepositoryPort: Send + Sync {
@@ -417,6 +453,22 @@ impl ConceptKbRepositoryPort for RepositoryPort {
             .replace_concept_kb_application_state(expected_manifest_hash, replacement)
     }
 
+    fn replace_with_receipt(
+        &self,
+        expected_manifest_hash: Option<&str>,
+        replacement: &ConceptKbReplacement,
+        receipt: Option<&OperationRecord>,
+    ) -> Result<bool, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .replace_concept_kb_application_state_with_receipt(
+                expected_manifest_hash,
+                replacement,
+                receipt,
+            )
+    }
+
     fn promote_index(
         &self,
         expected_manifest_hash: &str,
@@ -428,6 +480,26 @@ impl ConceptKbRepositoryPort for RepositoryPort {
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
             .promote_concept_kb_index(expected_manifest_hash, index_hash, index_json, now)
+    }
+
+    fn promote_index_with_receipt(
+        &self,
+        expected_manifest_hash: &str,
+        index_hash: &str,
+        index_json: &str,
+        now: &str,
+        receipt: Option<&OperationRecord>,
+    ) -> Result<bool, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .promote_concept_kb_index_with_receipt(
+                expected_manifest_hash,
+                index_hash,
+                index_json,
+                now,
+                receipt,
+            )
     }
 }
 
@@ -465,6 +537,22 @@ impl TopicGraphRepositoryPort for RepositoryPort {
             .replace_topic_graph_application_state(expected_manifest_hash, replacement)
     }
 
+    fn replace_with_receipt(
+        &self,
+        expected_manifest_hash: Option<&str>,
+        replacement: &TopicGraphReplacement,
+        receipt: Option<&OperationRecord>,
+    ) -> Result<bool, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .replace_topic_graph_application_state_with_receipt(
+                expected_manifest_hash,
+                replacement,
+                receipt,
+            )
+    }
+
     fn promote_index(
         &self,
         expected_manifest_hash: &str,
@@ -476,6 +564,26 @@ impl TopicGraphRepositoryPort for RepositoryPort {
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
             .promote_topic_graph_index(expected_manifest_hash, index_hash, index_json, now)
+    }
+
+    fn promote_index_with_receipt(
+        &self,
+        expected_manifest_hash: &str,
+        index_hash: &str,
+        index_json: &str,
+        now: &str,
+        receipt: Option<&OperationRecord>,
+    ) -> Result<bool, String> {
+        self.repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?
+            .promote_topic_graph_index_with_receipt(
+                expected_manifest_hash,
+                index_hash,
+                index_json,
+                now,
+                receipt,
+            )
     }
 }
 

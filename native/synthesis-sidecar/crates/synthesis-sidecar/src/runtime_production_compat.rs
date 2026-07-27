@@ -3,15 +3,9 @@ use serde_json::{Value, json};
 use synthesis_application::citation_graph::{
     CitationLayoutRequest, CitationMetricsPageRequest, CitationRebuildRequest, CitationSliceRequest,
 };
-use synthesis_application::concept_kb::{
-    ConceptDeleteRequest, ConceptDisplayUpdateRequest, ConceptReviewRequest,
-};
 use synthesis_application::debug_maintenance::DebugMaintenanceKind;
 use synthesis_application::reference_matching::{ReferenceReviewAction, ReferenceReviewDecision};
-use synthesis_application::topic_graph::{
-    TopicGraphMarkDeletedRequest, TopicGraphPurgeRequest, TopicGraphRelationDecisionRequest,
-    TopicGraphRelationStatus, TopicGraphReviewRequest,
-};
+use synthesis_application::topic_graph::{TopicGraphMarkDeletedRequest, TopicGraphPurgeRequest};
 use synthesis_application::{
     CitationGraphRepositoryPort, TopicDetailRequest, TopicDetailResult, TopicListRequest,
     TopicListResult, TopicRecord,
@@ -680,13 +674,6 @@ fn reference_review_decisions(args: &[Value]) -> Result<Vec<ReferenceReviewDecis
         .collect()
 }
 
-fn concept_manifest_hash(apps: &ProductionApplications) -> Result<String, String> {
-    apps.concepts
-        .inspect()?
-        .manifest_hash
-        .ok_or_else(|| "concept_kb_not_initialized".to_owned())
-}
-
 fn topic_graph_manifest_hash(apps: &ProductionApplications) -> Result<String, String> {
     apps.topic_graph
         .inspect()?
@@ -700,65 +687,6 @@ fn tag_vocabulary_hash(apps: &ProductionApplications) -> Result<String, String> 
         .inspect()?
         .vocabulary_hash
         .ok_or_else(|| "tag_vocabulary_not_initialized".to_owned())
-}
-
-fn with_field(mut value: Value, key: &str, field: Value) -> Result<Value, String> {
-    value
-        .as_object_mut()
-        .ok_or_else(|| "invalid_request".to_owned())?
-        .insert(key.to_owned(), field);
-    Ok(value)
-}
-
-fn public_concept_display_request(
-    apps: &ProductionApplications,
-    args: &[Value],
-) -> Result<ConceptDisplayUpdateRequest, String> {
-    let request = object_arg(args)?;
-    let concept_id = string_field(&request, &["conceptId"])?;
-    let fields = request
-        .get("fields")
-        .and_then(Value::as_object)
-        .ok_or_else(|| "invalid_request".to_owned())?;
-    let current = apps
-        .concepts
-        .load()?
-        .concepts
-        .into_iter()
-        .find(|concept| concept.concept_id == concept_id)
-        .ok_or_else(|| "not_found".to_owned())?;
-    Ok(ConceptDisplayUpdateRequest {
-        expected_manifest_hash: concept_manifest_hash(apps)?,
-        concept_id: concept_id.to_owned(),
-        label: fields
-            .get("label")
-            .and_then(Value::as_str)
-            .unwrap_or(&current.label)
-            .to_owned(),
-        short_definition: fields
-            .get("short_definition")
-            .or_else(|| fields.get("shortDefinition"))
-            .and_then(Value::as_str)
-            .unwrap_or(&current.short_definition)
-            .to_owned(),
-        definition: fields
-            .get("definition")
-            .and_then(Value::as_str)
-            .unwrap_or(&current.definition)
-            .to_owned(),
-        usage_note: fields
-            .get("usage_note")
-            .or_else(|| fields.get("usageNote"))
-            .and_then(Value::as_str)
-            .unwrap_or(&current.usage_note)
-            .to_owned(),
-        editorial_note: fields
-            .get("editorial_note")
-            .or_else(|| fields.get("editorialNote"))
-            .and_then(Value::as_str)
-            .unwrap_or(&current.editorial_note)
-            .to_owned(),
-    })
 }
 
 type ProductionClientHandler = fn(&ProductionApplications, &[Value]) -> Result<Value, String>;
@@ -1044,87 +972,62 @@ register_production_client_handlers!(
             .archive_canonical(one::<CanonicalArchiveRequest>(args)?)
     }),
     ("client.queryConceptKb", |apps, args| {
-        apps.concepts.query(&object_arg(args)?)
+        crate::runtime_concept_topic_graph_surface::dispatch(apps, "client.queryConceptKb", args)
     }),
     ("client.rebuildConceptKbIndex", |apps, args| {
-        no_args(args)?;
-        let hash = concept_manifest_hash(apps)?;
-        wire(apps.concepts.rebuild_index(&hash))
+        crate::runtime_concept_topic_graph_surface::dispatch(
+            apps,
+            "client.rebuildConceptKbIndex",
+            args,
+        )
     }),
     ("client.updateConceptDisplayText", |apps, args| {
-        wire(
-            apps.concepts
-                .update_display_text(&public_concept_display_request(apps, args)?),
+        crate::runtime_concept_topic_graph_surface::dispatch(
+            apps,
+            "client.updateConceptDisplayText",
+            args,
         )
     }),
     ("client.applyConceptReviewAction", |apps, args| {
-        let mut request = object_arg(args)?;
-        let action = match string_field(&request, &["action"])? {
-            "approve_create" => "approve",
-            "merge_into_existing" => "merge",
-            "reject" => "reject",
-            _ => return Err("invalid_request".into()),
-        };
-        request["action"] = Value::String(action.into());
-        let request = with_field(
-            request,
-            "expectedManifestHash",
-            Value::String(concept_manifest_hash(apps)?),
-        )?;
-        wire(
-            apps.concepts.review(
-                &serde_json::from_value::<ConceptReviewRequest>(request)
-                    .map_err(|_| "invalid_request".to_owned())?,
-            ),
+        crate::runtime_concept_topic_graph_surface::dispatch(
+            apps,
+            "client.applyConceptReviewAction",
+            args,
         )
     }),
     ("client.deleteConceptEntries", |apps, args| {
-        let request = with_field(
-            object_arg(args)?,
-            "expectedManifestHash",
-            Value::String(concept_manifest_hash(apps)?),
-        )?;
-        wire(
-            apps.concepts.delete_concepts(
-                &serde_json::from_value::<ConceptDeleteRequest>(request)
-                    .map_err(|_| "invalid_request".to_owned())?,
-            ),
+        crate::runtime_concept_topic_graph_surface::dispatch(
+            apps,
+            "client.deleteConceptEntries",
+            args,
         )
     }),
     ("client.rebuildTopicGraphIndex", |apps, args| {
-        no_args(args)?;
-        let hash = topic_graph_manifest_hash(apps)?;
-        wire(apps.topic_graph.rebuild_index(&hash))
+        crate::runtime_concept_topic_graph_surface::dispatch(
+            apps,
+            "client.rebuildTopicGraphIndex",
+            args,
+        )
     }),
     ("client.acceptTopicGraphRelation", |apps, args| {
-        let request = object_arg(args)?;
-        let request = TopicGraphRelationDecisionRequest {
-            expected_manifest_hash: topic_graph_manifest_hash(apps)?,
-            edge_id: string_field(&request, &["edgeId"])?.to_owned(),
-            status: TopicGraphRelationStatus::Confirmed,
-        };
-        wire(apps.topic_graph.decide_relation(&request))
+        crate::runtime_concept_topic_graph_surface::dispatch(
+            apps,
+            "client.acceptTopicGraphRelation",
+            args,
+        )
     }),
     ("client.rejectTopicGraphRelation", |apps, args| {
-        let request = object_arg(args)?;
-        let request = TopicGraphRelationDecisionRequest {
-            expected_manifest_hash: topic_graph_manifest_hash(apps)?,
-            edge_id: string_field(&request, &["edgeId"])?.to_owned(),
-            status: TopicGraphRelationStatus::Rejected,
-        };
-        wire(apps.topic_graph.decide_relation(&request))
+        crate::runtime_concept_topic_graph_surface::dispatch(
+            apps,
+            "client.rejectTopicGraphRelation",
+            args,
+        )
     }),
     ("client.applyTopicGraphReviewAction", |apps, args| {
-        let request = with_field(
-            object_arg(args)?,
-            "expectedManifestHash",
-            Value::String(topic_graph_manifest_hash(apps)?),
-        )?;
-        wire(
-            apps.topic_graph.review(
-                &serde_json::from_value::<TopicGraphReviewRequest>(request)
-                    .map_err(|_| "invalid_request".to_owned())?,
-            ),
+        crate::runtime_concept_topic_graph_surface::dispatch(
+            apps,
+            "client.applyTopicGraphReviewAction",
+            args,
         )
     }),
     ("client.saveTagVocabulary", |apps, args| {

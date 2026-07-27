@@ -81,6 +81,15 @@ pub const READY_PRODUCTION_CLIENT_CAPABILITIES: &[&str] = &[
     "client.purgeDeletedTopicArtifacts",
     "client.rejectTopicDiscoveryHint",
     "client.restoreTopicDiscoveryHint",
+    "client.queryConceptKb",
+    "client.rebuildConceptKbIndex",
+    "client.updateConceptDisplayText",
+    "client.applyConceptReviewAction",
+    "client.deleteConceptEntries",
+    "client.rebuildTopicGraphIndex",
+    "client.acceptTopicGraphRelation",
+    "client.rejectTopicGraphRelation",
+    "client.applyTopicGraphReviewAction",
 ];
 
 const PRODUCTION_CLIENT_CAPABILITY_MANIFEST: &str = include_str!(

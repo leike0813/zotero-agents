@@ -666,11 +666,12 @@ impl TopicGraphApplication {
                 Vec::new(),
             );
         }
-        match self.repository.promote_index(
+        match self.repository.promote_index_with_receipt(
             expected_manifest_hash,
             &output.index_hash,
             &output.index_json,
             &(self.now)(),
+            None,
         ) {
             Ok(true) => self.result(
                 TopicGraphMutationStatus::Committed,
@@ -791,7 +792,7 @@ impl TopicGraphApplication {
             .collect();
         match self
             .repository
-            .replace(expected_manifest_hash, &replacement)
+            .replace_with_receipt(expected_manifest_hash, &replacement, None)
         {
             Ok(true) => self.result(TopicGraphMutationStatus::Committed, nodes, edges, reviews),
             Ok(false) => self.result(
