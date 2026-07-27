@@ -20,6 +20,7 @@ import { inspectSynthesisReferenceCanonicalSurfaceParity } from "../../scripts/c
 import { inspectSynthesisTagSurfaceParity } from "../../scripts/check-synthesis-tag-surface-parity";
 import { inspectSynthesisConceptTopicGraphSurfaceParity } from "../../scripts/check-synthesis-concept-topic-graph-surface-parity";
 import { inspectSynthesisTopicWorkbenchSurfaceParity } from "../../scripts/check-synthesis-topic-workbench-surface-parity";
+import { inspectSynthesisWebDavMaintenanceSurfaceParity } from "../../scripts/check-synthesis-webdav-maintenance-surface-parity";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 const EXECUTABLE = path.join(
@@ -112,6 +113,16 @@ const CONCEPT_TOPIC_GRAPH_OPERATIONS = [
 const CONCEPT_TOPIC_GRAPH_MUTATIONS = CONCEPT_TOPIC_GRAPH_OPERATIONS.filter(
   (capability) => capability !== "client.queryConceptKb",
 );
+const WEBDAV_MAINTENANCE_MUTATIONS = [
+  "client.syncWebDavNow",
+  "client.pauseWebDavSync",
+  "client.resumeWebDavSync",
+  "client.retryWebDavSync",
+  "client.resolveWebDavSyncConflict",
+  "client.reconcileSynthesisRuntimeWorkStateOnStartup",
+  "client.resetSynthesisDatabase",
+  "client.debugSynthesisCleanInstallReset",
+] as const;
 
 function config(profileRuntimeRoot: string, supervisorInstanceId: string) {
   return {
@@ -297,6 +308,14 @@ describe("Synthesis Rust production client route", function () {
         capability,
       );
     }
+  });
+
+  it("keeps every WebDAV and Maintenance public operation fixture-backed and ready", function () {
+    assert.deepEqual(inspectSynthesisWebDavMaintenanceSurfaceParity(), {
+      ok: true,
+      operations: 9,
+      errors: [],
+    });
   });
 
   it("rehearses verified backup, preflight, owner conflict, native reads, and failed preflight recovery", async function () {
@@ -811,6 +830,23 @@ describe("Synthesis Rust production client route", function () {
       assert.equal(conceptQuery.status, 200);
       assert.deepEqual(conceptQuery.body.data.labels, ["legacy alias"]);
       for (const capability of CONCEPT_TOPIC_GRAPH_MUTATIONS) {
+        const mutation = await call(port, capability, { args: [] });
+        assert.equal(mutation.status, 409, capability);
+        assert.equal(
+          mutation.body.error.code,
+          "mutation_not_admitted",
+          capability,
+        );
+      }
+
+      const maintenance = await call(
+        port,
+        "client.getPublicMaintenanceOperation",
+        { args: [{}] },
+      );
+      assert.equal(maintenance.status, 200);
+      assert.isObject(maintenance.body.data);
+      for (const capability of WEBDAV_MAINTENANCE_MUTATIONS) {
         const mutation = await call(port, capability, { args: [] });
         assert.equal(mutation.status, 409, capability);
         assert.equal(

@@ -289,18 +289,18 @@ describe("suite governance constraints", function () {
       .map((entry) => `test/core/${entry.name}`);
     const suite = resolveSynthesisSidecarStage1Suite(files);
 
-    assert.equal(suite.files.length, 55);
+    assert.equal(suite.files.length, 61);
     assert.equal(
       suite.files[0],
       "test/core/175-synthesis-client-foundation.test.ts",
     );
     assert.equal(
       suite.files.at(-1),
-      "test/core/229-synthesis-production-client-rust-route.test.ts",
+      "test/core/235-synthesis-native-webdav-maintenance-surface.test.ts",
     );
     assert.deepEqual(
       suite.segments.map((segment) => segment.files.length),
-      [27, 1, 16, 11],
+      [27, 1, 16, 17],
     );
     assert.deepEqual(suite.segments[1].files, [
       "test/core/202-synthesis-citation-graph-build-streaming-worker.test.ts",

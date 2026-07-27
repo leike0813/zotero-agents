@@ -221,6 +221,15 @@ export const SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES = [
   "client.acceptTopicGraphRelation",
   "client.rejectTopicGraphRelation",
   "client.applyTopicGraphReviewAction",
+  "client.getPublicMaintenanceOperation",
+  "client.debugSynthesisCleanInstallReset",
+  "client.reconcileSynthesisRuntimeWorkStateOnStartup",
+  "client.resetSynthesisDatabase",
+  "client.syncWebDavNow",
+  "client.pauseWebDavSync",
+  "client.resumeWebDavSync",
+  "client.retryWebDavSync",
+  "client.resolveWebDavSyncConflict",
 ] as const satisfies readonly SynthesisSidecarProductionClientCapability[];
 export const SYNTHESIS_SIDECAR_COMPUTE_CAPABILITIES = [
   "compute.citation_graph_layout",

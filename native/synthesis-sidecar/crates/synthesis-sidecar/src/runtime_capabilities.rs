@@ -469,9 +469,10 @@ pub(crate) fn handle_connection(
             if state.owner_mode != "production" {
                 return response(&mut stream, 404, error_response("capability_not_found"));
             }
-            if synthesis_sidecar::production_capabilities::READY_PRODUCTION_CLIENT_CAPABILITIES
-                .len()
-                != state.production_client_operations.len()
+            if !synthesis_sidecar::production_capabilities::PRODUCTION_ACTIVATION_ENABLED
+                || synthesis_sidecar::production_capabilities::READY_PRODUCTION_CLIENT_CAPABILITIES
+                    .len()
+                    != state.production_client_operations.len()
             {
                 return response(
                     &mut stream,

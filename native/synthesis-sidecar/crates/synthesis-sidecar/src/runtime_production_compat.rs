@@ -3,7 +3,6 @@ use serde_json::{Value, json};
 use synthesis_application::citation_graph::{
     CitationLayoutRequest, CitationMetricsPageRequest, CitationRebuildRequest, CitationSliceRequest,
 };
-use synthesis_application::debug_maintenance::DebugMaintenanceKind;
 use synthesis_application::reference_matching::{ReferenceReviewAction, ReferenceReviewDecision};
 use synthesis_application::topic_graph::{TopicGraphMarkDeletedRequest, TopicGraphPurgeRequest};
 use synthesis_application::{
@@ -1073,8 +1072,11 @@ register_production_client_handlers!(
         crate::runtime_tag_surface::dispatch(apps, "client.initializeBuiltinTagPolicy", args)
     }),
     ("client.getPublicMaintenanceOperation", |apps, args| {
-        let _: Value = optional_one(args)?;
-        wire(apps.workbench.read()?.maintenance)
+        crate::runtime_webdav_maintenance_surface::dispatch(
+            apps,
+            "client.getPublicMaintenanceOperation",
+            args,
+        )
     }),
     ("client.getLibraryIndex", |apps, args| {
         runtime_artifact_library_debug::dispatch(apps, "client.getLibraryIndex", args)
@@ -1097,45 +1099,46 @@ register_production_client_handlers!(
         runtime_artifact_library_debug::dispatch(apps, "client.debugSynthesisDiff", args)
     }),
     ("client.debugSynthesisCleanInstallReset", |apps, args| {
-        wire(
-            apps.debug
-                .run_maintenance(DebugMaintenanceKind::Reset, &object_arg(args)?)?,
+        crate::runtime_webdav_maintenance_surface::dispatch(
+            apps,
+            "client.debugSynthesisCleanInstallReset",
+            args,
         )
     }),
     (
         "client.reconcileSynthesisRuntimeWorkStateOnStartup",
         |apps, args| {
-            no_args(args)?;
-            apps.workbench.read_json()
+            crate::runtime_webdav_maintenance_surface::dispatch(
+                apps,
+                "client.reconcileSynthesisRuntimeWorkStateOnStartup",
+                args,
+            )
         }
     ),
     ("client.resetSynthesisDatabase", |apps, args| {
-        wire(
-            apps.debug
-                .run_maintenance(DebugMaintenanceKind::Reset, &object_arg(args)?)?,
+        crate::runtime_webdav_maintenance_surface::dispatch(
+            apps,
+            "client.resetSynthesisDatabase",
+            args,
         )
     }),
     ("client.syncWebDavNow", |apps, args| {
-        no_args(args)?;
-        wire(apps.webdav.trigger_webdav_sync()?)
+        crate::runtime_webdav_maintenance_surface::dispatch(apps, "client.syncWebDavNow", args)
     }),
     ("client.pauseWebDavSync", |apps, args| {
-        no_args(args)?;
-        wire(apps.webdav.pause_webdav_sync()?)
+        crate::runtime_webdav_maintenance_surface::dispatch(apps, "client.pauseWebDavSync", args)
     }),
     ("client.resumeWebDavSync", |apps, args| {
-        no_args(args)?;
-        wire(apps.webdav.resume_webdav_sync()?)
+        crate::runtime_webdav_maintenance_surface::dispatch(apps, "client.resumeWebDavSync", args)
     }),
     ("client.retryWebDavSync", |apps, args| {
-        no_args(args)?;
-        wire(apps.webdav.retry_webdav_sync()?)
+        crate::runtime_webdav_maintenance_surface::dispatch(apps, "client.retryWebDavSync", args)
     }),
     ("client.resolveWebDavSyncConflict", |apps, args| {
-        let request = object_arg(args)?;
-        wire(
-            apps.webdav
-                .resolve_webdav_sync_conflict(string_field(&request, &["action"])?)?,
+        crate::runtime_webdav_maintenance_surface::dispatch(
+            apps,
+            "client.resolveWebDavSyncConflict",
+            args,
         )
     }),
 );

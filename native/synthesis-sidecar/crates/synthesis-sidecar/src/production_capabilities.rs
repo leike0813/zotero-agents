@@ -3,6 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub const PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT: &str =
     "0e8e1f406d382d24183a3ac078254d966aba7c1d2d15fe82cac347a192f1f372";
+/// The final production-activation change is the only authority that may
+/// enable mutation admission for the complete ready roster.
+pub const PRODUCTION_ACTIVATION_ENABLED: bool = false;
 pub const READY_PRODUCTION_CLIENT_CAPABILITIES: &[&str] = &[
     "client.listTopics",
     "client.findTopicsByPaperRef",
@@ -90,6 +93,15 @@ pub const READY_PRODUCTION_CLIENT_CAPABILITIES: &[&str] = &[
     "client.acceptTopicGraphRelation",
     "client.rejectTopicGraphRelation",
     "client.applyTopicGraphReviewAction",
+    "client.getPublicMaintenanceOperation",
+    "client.debugSynthesisCleanInstallReset",
+    "client.reconcileSynthesisRuntimeWorkStateOnStartup",
+    "client.resetSynthesisDatabase",
+    "client.syncWebDavNow",
+    "client.pauseWebDavSync",
+    "client.resumeWebDavSync",
+    "client.retryWebDavSync",
+    "client.resolveWebDavSyncConflict",
 ];
 
 const PRODUCTION_CLIENT_CAPABILITY_MANIFEST: &str = include_str!(
