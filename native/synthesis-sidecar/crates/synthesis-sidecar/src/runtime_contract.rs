@@ -88,7 +88,7 @@ pub struct NativeLaunchConfig {
     pub port: u16,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProductionReverseHost {
     pub host: String,
@@ -96,7 +96,7 @@ pub struct ProductionReverseHost {
     pub authorization_token: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProductionAdmission {
     pub schema: String,
@@ -617,16 +617,30 @@ pub fn validate_production_cutover_receipt(
             .map_err(|_| "production_cutover_receipt_unavailable".to_owned())?,
     )
     .map_err(|_| "production_cutover_receipt_invalid".to_owned())?;
-    let expected_phase = if admission.purpose == "preflight_copy" {
-        "backup_verified"
-    } else {
-        "preflight_verified"
+    let valid_phase = match admission.purpose.as_str() {
+        "preflight_copy" => {
+            receipt.phase == "backup_verified"
+                && receipt.service_instance_id.is_none()
+                && !receipt.mutation_enabled
+        }
+        "live_owner" => {
+            (receipt.phase == "preflight_verified"
+                && receipt.service_instance_id.is_none()
+                && !receipt.mutation_enabled)
+                || (receipt.phase == "mutation_enabled"
+                    && receipt
+                        .service_instance_id
+                        .as_ref()
+                        .is_some_and(|value| bounded_text(value, 128))
+                    && receipt.mutation_enabled)
+        }
+        _ => false,
     };
     if receipt.schema != "synthesis-production-cutover-receipt.v1"
         || receipt.receipt_id != admission.cutover_receipt_id
         || receipt.profile_id != admission.profile_id
         || receipt.profile_id != config.profile_id
-        || receipt.phase != expected_phase
+        || !valid_phase
         || receipt.source_owner != "legacy-plugin"
         || receipt.target_owner != "rust-native"
         || !sha256(&receipt.backup_id)
@@ -636,13 +650,22 @@ pub fn validate_production_cutover_receipt(
         || !sha256(&receipt.durable_summary_sha256)
         || receipt.bundle_fingerprint != config.build_fingerprint
         || receipt.capability_fingerprint != admission.capability_fingerprint
-        || receipt.service_instance_id.is_some()
-        || receipt.mutation_enabled
         || receipt.updated_at_ms == 0
     {
         return Err("production_cutover_receipt_invalid".into());
     }
     Ok(())
+}
+
+pub fn production_cutover_receipt_is_mutation_enabled(
+    admission: &ProductionAdmission,
+) -> Result<bool, String> {
+    let receipt: ProductionCutoverReceipt = serde_json::from_str(
+        &fs::read_to_string(&admission.cutover_receipt_path)
+            .map_err(|_| "production_cutover_receipt_unavailable".to_owned())?,
+    )
+    .map_err(|_| "production_cutover_receipt_invalid".to_owned())?;
+    Ok(receipt.phase == "mutation_enabled" && receipt.mutation_enabled)
 }
 
 pub fn current_time_ms() -> Result<u64, String> {

@@ -3,12 +3,12 @@ import {
   type SynthesisClient,
 } from "../../../packages/synthesis-contracts/src/index";
 import {
-  createDefaultLegacySynthesisClientComposition,
-  invalidateDefaultLegacySynthesisService,
-} from "./legacyComposition";
+  createNativeSynthesisClientComposition,
+  createReadyNativeSynthesisClientComposition,
+} from "./nativeComposition";
 
-type DefaultClientComposition = Awaited<
-  ReturnType<typeof createDefaultLegacySynthesisClientComposition>
+type DefaultClientComposition = ReturnType<
+  typeof createNativeSynthesisClientComposition
 >;
 
 type DefaultClientGeneration = {
@@ -23,6 +23,7 @@ let currentGeneration: DefaultClientGeneration | undefined;
 let shuttingDown = false;
 let shutdownTask: Promise<void> | undefined;
 const cleanupTasks = new Set<Promise<void>>();
+let compositionFactory = createReadyNativeSynthesisClientComposition;
 
 function unavailable(): never {
   throw new SynthesisClientError(
@@ -69,12 +70,12 @@ function createGeneration() {
   const record = {
     generation,
   } as DefaultClientGeneration;
-  record.initialization = createDefaultLegacySynthesisClientComposition().then(
-    (composition) => {
+  record.initialization = Promise.resolve(
+    compositionFactory(),
+  ).then((composition) => {
       record.composition = composition;
       return composition;
-    },
-  );
+    });
   currentGeneration = record;
   return record;
 }
@@ -126,15 +127,23 @@ export async function resetDefaultSynthesisClientForTests() {
   generation += 1;
 }
 
+export function setDefaultSynthesisClientCompositionFactoryForTests(
+  factory:
+    | (() => DefaultClientComposition)
+    | null,
+) {
+  invalidateDefaultSynthesisClient();
+  compositionFactory =
+    factory || createReadyNativeSynthesisClientComposition;
+}
+
 export function invalidateDefaultSynthesisClient() {
   generation += 1;
   const record = currentGeneration;
   currentGeneration = undefined;
   if (record) {
     void disposeGeneration(record);
-    return;
   }
-  trackCleanup(invalidateDefaultLegacySynthesisService());
 }
 
 export function shutdownDefaultSynthesisClient() {
@@ -147,8 +156,6 @@ export function shutdownDefaultSynthesisClient() {
   currentGeneration = undefined;
   if (record) {
     void disposeGeneration(record);
-  } else {
-    trackCleanup(invalidateDefaultLegacySynthesisService());
   }
   shutdownTask = drainCleanupTasks();
   return shutdownTask;

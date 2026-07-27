@@ -37,6 +37,8 @@ export const SYNTHESIS_PRODUCTION_ADMISSION_SCHEMA =
   "synthesis-production-admission.v1" as const;
 export const SYNTHESIS_PRODUCTION_DISCOVERY_SCHEMA =
   "synthesis-sidecar-discovery.v3" as const;
+export const SYNTHESIS_PRODUCTION_ACTIVATION_SCHEMA =
+  "synthesis-native-activation.v1" as const;
 
 export const SYNTHESIS_CUTOVER_PHASES = [
   "legacy",
@@ -116,6 +118,14 @@ export type SynthesisProductionAdmission = {
   mutationEnabled: false;
 };
 
+export type SynthesisProductionActivationEvidence = {
+  receiptId: string;
+  serviceInstanceId: string;
+  capabilityFingerprint: typeof SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT;
+  readyClientCapabilities: typeof SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES;
+  smokeEvidenceDigest: string;
+};
+
 export type SynthesisProductionRepositorySnapshot = {
   mode: "production";
   state: "ready" | "stopping";
@@ -125,7 +135,7 @@ export type SynthesisProductionRepositorySnapshot = {
 
 type SynthesisProductionAuthority = {
   ownerMode: "production";
-  mutationEnabled: false;
+  mutationEnabled: boolean;
   capabilityFingerprint: typeof SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT;
   cutoverReceiptId: string;
   readyClientCapabilities: typeof SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES;
@@ -285,7 +295,7 @@ function productionAuthority(
 ): SynthesisProductionAuthority {
   if (
     record.ownerMode !== "production" ||
-    record.mutationEnabled !== false ||
+    typeof record.mutationEnabled !== "boolean" ||
     record.capabilityFingerprint !==
       SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT
   ) {
@@ -293,7 +303,7 @@ function productionAuthority(
   }
   return {
     ownerMode: "production",
-    mutationEnabled: false,
+    mutationEnabled: record.mutationEnabled,
     capabilityFingerprint:
       SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
     cutoverReceiptId: boundedString(

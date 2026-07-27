@@ -6,20 +6,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use synthesis_application::{
-    CanonicalStorePort, DisabledStructuredArtifact, RepositoryPort, TopicApplication,
-    WorkbenchApplication,
-};
 use synthesis_canonical_store::{CanonicalIdentity, CanonicalStore};
 use synthesis_repository::{Repository, RepositoryIdentity};
-use synthesis_sidecar::production_capabilities::production_client_capabilities;
+use synthesis_sidecar::production_capabilities::{
+    production_client_capabilities, production_client_operation_metadata,
+};
 use synthesis_sidecar::runtime_contract::{
-    SIDECAR_CAPABILITIES, current_time_ms, read_native_launch_config, read_production_admission,
-    validate_host_lease, validate_production_cutover_receipt,
+    SIDECAR_CAPABILITIES, current_time_ms, production_cutover_receipt_is_mutation_enabled,
+    read_native_launch_config, read_production_admission, validate_host_lease,
+    validate_production_cutover_receipt,
 };
 
 use crate::runtime_capabilities::{ServeState, handle_connection};
 use crate::runtime_lifecycle::{ProductionOwnership, RuntimeOwnership};
+use crate::runtime_production_ports::build_production_applications;
 use crate::runtime_reverse_host::probe_reverse_host;
 use crate::runtime_transfer::NativeTransferOwner;
 use crate::runtime_worker_pool::NativeComputePool;
@@ -87,7 +87,8 @@ pub(crate) fn serve_production(config_path: &str, admission_path: &str) -> Resul
 }
 
 fn serve_internal(config_path: &str, admission_path: Option<&str>) -> Result<(), String> {
-    let production_client_capabilities = production_client_capabilities()?.into_iter().collect();
+    production_client_capabilities()?;
+    let production_client_operations = production_client_operation_metadata()?;
     let config = read_native_launch_config(Path::new(config_path))?;
     let admission = admission_path
         .map(|path| read_production_admission(Path::new(path)))
@@ -102,16 +103,31 @@ fn serve_internal(config_path: &str, admission_path: Option<&str>) -> Result<(),
     if let Some(admission) = admission.as_ref() {
         validate_production_cutover_receipt(admission, &config)?;
     }
+    let mutation_enabled = admission
+        .as_ref()
+        .map(production_cutover_receipt_is_mutation_enabled)
+        .transpose()?
+        .unwrap_or(false);
+    if let Some(admission) = admission.as_ref() {
+        ProductionOwnership::require_repair_for_partial_activation(admission, mutation_enabled)?;
+    }
     let lease_path = Path::new(config_path)
         .parent()
         .ok_or_else(|| "invalid_config".to_owned())?
         .join("lease.json");
     validate_host_lease(&lease_path, &config)?;
-    let ownership = RuntimeOwnership::acquire(&config)?;
+    let ownership = Arc::new(RuntimeOwnership::acquire(&config)?);
     let production_ownership = admission
         .as_ref()
-        .map(|admission| ProductionOwnership::acquire(admission, &ownership.service_instance_id))
-        .transpose()?;
+        .map(|admission| {
+            ProductionOwnership::acquire(
+                admission,
+                &ownership.service_instance_id,
+                mutation_enabled,
+            )
+        })
+        .transpose()?
+        .map(|ownership| Arc::new(Mutex::new(ownership)));
     let repository_identity = RepositoryIdentity {
         profile_id: config.profile_id.clone(),
         data_root_id: config.data_root_id.clone(),
@@ -137,16 +153,19 @@ fn serve_internal(config_path: &str, admission_path: Option<&str>) -> Result<(),
     let repository_id = repository.repository_id().to_owned();
     let repository = Arc::new(Mutex::new(repository));
     let canonical = Arc::new(Mutex::new(canonical));
-    let repository_port = Arc::new(RepositoryPort::new(Arc::clone(&repository)));
-    let canonical_port = Arc::new(CanonicalStorePort::new(Arc::clone(&canonical)));
-    let workbench = WorkbenchApplication::new(repository_port.clone());
-    let topics = TopicApplication::new(
-        repository_port,
-        canonical_port.clone(),
-        Arc::new(DisabledStructuredArtifact),
+    let compute_pool = Arc::new(NativeComputePool::new());
+    let admission = admission.map(Arc::new);
+    let applications = build_production_applications(
+        Arc::clone(&repository),
+        Arc::clone(&canonical),
+        Arc::clone(&compute_pool),
+        admission.clone(),
+        ownership.service_instance_id.clone(),
     );
+    let canonical_port = applications.canonical.as_ref().clone();
     let stopping = Arc::new(AtomicBool::new(false));
     let transfer = NativeTransferOwner::new(Path::new(&config.profile_runtime_root))?;
+    let discovery_document = Arc::new(Mutex::new(json!({})));
     let state = Arc::new(ServeState {
         service_instance_id: ownership.service_instance_id.clone(),
         owner_mode: if admission.is_some() {
@@ -161,12 +180,16 @@ fn serve_internal(config_path: &str, admission_path: Option<&str>) -> Result<(),
         config,
         repository_id,
         repository,
-        workbench,
-        topics,
-        production_client_capabilities,
-        canonical: canonical_port.as_ref().clone(),
+        applications,
+        production_client_operations,
+        mutation_enabled: AtomicBool::new(mutation_enabled),
+        production_admission: admission.clone(),
+        production_ownership: production_ownership.clone(),
+        runtime_ownership: Arc::clone(&ownership),
+        discovery: Arc::clone(&discovery_document),
+        canonical: canonical_port,
         stopping: Arc::clone(&stopping),
-        compute_pool: Arc::new(NativeComputePool::new()),
+        compute_pool,
         transfer: Mutex::new(transfer),
     });
     drop(canonical);
@@ -204,12 +227,15 @@ fn serve_internal(config_path: &str, admission_path: Option<&str>) -> Result<(),
     if let Some(admission) = admission.as_ref() {
         discovery["schema"] = json!("synthesis-sidecar-discovery.v3");
         discovery["ownerMode"] = json!("production");
-        discovery["mutationEnabled"] = json!(false);
+        discovery["mutationEnabled"] = json!(mutation_enabled);
         discovery["capabilityFingerprint"] = json!(admission.capability_fingerprint);
         discovery["cutoverReceiptId"] = json!(admission.cutover_receipt_id);
         discovery["readyClientCapabilities"] =
             json!(synthesis_sidecar::production_capabilities::READY_PRODUCTION_CLIENT_CAPABILITIES);
     }
+    *discovery_document
+        .lock()
+        .map_err(|_| "discovery_unavailable".to_owned())? = discovery.clone();
     ownership.publish_discovery(&discovery)?;
     println!(
         "{}",
@@ -294,8 +320,8 @@ fn serve_internal(config_path: &str, admission_path: Option<&str>) -> Result<(),
         }
         Err(_) => cleanup_errors.push("service_owner_leaked".to_owned()),
     }
-    drop(ownership);
     drop(production_ownership);
+    drop(ownership);
     if cleanup_errors.is_empty() {
         Ok(())
     } else {

@@ -93,7 +93,20 @@ function createNativePort(args: {
           throw unavailable("service_not_ready");
         }
         try {
-          const normalizedArgs = [...methodArgs];
+          const normalizedArgs =
+            property === "applyTopicSynthesisResult"
+              ? [
+                  {
+                    bundle: methodArgs[0],
+                    assets:
+                      (
+                        methodArgs[1] as
+                          | { controlledAssets?: unknown }
+                          | undefined
+                      )?.controlledAssets || [],
+                  },
+                ]
+              : [...methodArgs];
           while (
             normalizedArgs.length > 0 &&
             normalizedArgs[normalizedArgs.length - 1] === undefined
@@ -152,4 +165,11 @@ export function createNativeSynthesisClientComposition(options?: {
       active = false;
     },
   };
+}
+
+export function createReadyNativeSynthesisClientComposition() {
+  if (!getReadySynthesisProductionControlConnection()) {
+    throw unavailable("production_owner_not_ready");
+  }
+  return createNativeSynthesisClientComposition();
 }

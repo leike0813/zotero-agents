@@ -103,6 +103,19 @@ function walkTypeScriptFiles(root: string): string[] {
   return files;
 }
 
+function walkFiles(root: string, extension: string): string[] {
+  const files: string[] = [];
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const fullPath = path.join(root, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...walkFiles(fullPath, extension));
+    } else if (entry.isFile() && entry.name.endsWith(extension)) {
+      files.push(fullPath);
+    }
+  }
+  return files;
+}
+
 function readRawInventory(): RawBoundaryInventory {
   return parseYaml(
     fs.readFileSync(INVENTORY_PATH, "utf8"),
@@ -356,6 +369,109 @@ export function findSynthesisSidecarAppBoundaryViolations(): string[] {
   return violations.sort();
 }
 
+export function findSynthesisProductionBoundaryViolations(): string[] {
+  const violations: string[] = [];
+  const legacySourceAllowlist = new Set([
+    "src/modules/synthesisClient/legacyComposition.ts",
+    "src/modules/harness/synthesisReadonlyClient.ts",
+    "src/modules/synthesis/service.ts",
+  ]);
+  const productionBackupAllowlist = new Set([
+    "src/modules/synthesisProductionBackup.ts",
+    "src/modules/runtimePersistence.ts",
+    "src/modules/persistenceIntegrity.ts",
+    "src/modules/synthesisSidecarRuntimeSupervisor.ts",
+  ]);
+  for (const filePath of walkTypeScriptFiles(path.join(ROOT_DIR, "src"))) {
+    const relativePath = normalizedRepoPath(filePath);
+    const source = fs.readFileSync(filePath, "utf8");
+    if (
+      !legacySourceAllowlist.has(relativePath) &&
+      (/from\s+["'][^"']*legacyComposition["']/.test(source) ||
+        /\b(?:createDefaultLegacySynthesisClientComposition|createLegacyPort|createSynthesisService)\s*\(/.test(
+          source,
+        ))
+    ) {
+      violations.push(
+        `${relativePath}: production source reaches the legacy composition`,
+      );
+    }
+    if (
+      !relativePath.startsWith("src/modules/synthesis/") &&
+      !legacySourceAllowlist.has(relativePath) &&
+      !productionBackupAllowlist.has(relativePath) &&
+      /\b(?:synthesisDbPath|synthesisDataRoot)\b/.test(source) &&
+      /\b(?:open|copyRuntime|readRuntime|writeRuntime|moveRuntime|removeRuntime)/.test(
+        source,
+      )
+    ) {
+      violations.push(
+        `${relativePath}: production root access is not allowed`,
+      );
+    }
+  }
+
+  const rustRoot = path.join(
+    ROOT_DIR,
+    "native/synthesis-sidecar/crates",
+  );
+  for (const filePath of walkFiles(rustRoot, ".rs")) {
+    const relativePath = normalizedRepoPath(filePath);
+    const source = fs.readFileSync(filePath, "utf8");
+    const productionSource = source.split("#[cfg(test)]", 1)[0]!;
+    if (
+      /\b(?:Repository|CanonicalStore)::open_production\s*\(/.test(
+        productionSource,
+      ) &&
+      relativePath !==
+        "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_service.rs"
+    ) {
+      violations.push(
+        `${relativePath}: runtime_service.rs is the only production-root opener`,
+      );
+    }
+    if (
+      /\bTcpStream::connect(?:_timeout)?\s*\(/.test(source) &&
+      relativePath !==
+        "native/synthesis-sidecar/crates/synthesis-sidecar/src/runtime_reverse_host.rs"
+    ) {
+      violations.push(
+        `${relativePath}: runtime_reverse_host.rs is the only reverse-Host socket transport`,
+      );
+    }
+  }
+  const defaultClientSource = fs.readFileSync(
+    path.join(
+      ROOT_DIR,
+      "src/modules/synthesisClient/defaultClient.ts",
+    ),
+    "utf8",
+  );
+  const supervisorSource = fs.readFileSync(
+    path.join(
+      ROOT_DIR,
+      "src/modules/synthesisSidecarRuntimeSupervisor.ts",
+    ),
+    "utf8",
+  );
+  if (
+    !defaultClientSource.includes(
+      "createReadyNativeSynthesisClientComposition",
+    ) ||
+    !supervisorSource.includes(
+      "connection.discovery.mutationEnabled !== true",
+    ) ||
+    !supervisorSource.includes(
+      "readyCapabilities?.length !== requiredCapabilities.length",
+    )
+  ) {
+    violations.push(
+      "native default readiness must require the complete roster and mutation admission",
+    );
+  }
+  return violations.sort();
+}
+
 function duplicates(values: string[]): string[] {
   const seen = new Set<string>();
   const duplicateValues = new Set<string>();
@@ -375,6 +491,8 @@ export function inspectSynthesisServiceBoundary() {
   const directConsumers = findSynthesisDirectConsumers();
   const contractViolations = findSynthesisContractBoundaryViolations();
   const sidecarAppViolations = findSynthesisSidecarAppBoundaryViolations();
+  const productionBoundaryViolations =
+    findSynthesisProductionBoundaryViolations();
   const inventoryConsumers = inventory.direct_consumers
     .map((consumer) => consumer.path)
     .sort();
@@ -414,6 +532,7 @@ export function inspectSynthesisServiceBoundary() {
     ),
     contractViolations,
     sidecarAppViolations,
+    productionBoundaryViolations,
   };
 }
 
@@ -427,6 +546,8 @@ function runCli() {
     unknownConsumers: report.unknownConsumers,
     contractViolations: report.contractViolations,
     sidecarAppViolations: report.sidecarAppViolations,
+    productionBoundaryViolations:
+      report.productionBoundaryViolations,
   };
   const hasErrors = Object.values(errors).some((values) => values.length > 0);
   process.stdout.write(

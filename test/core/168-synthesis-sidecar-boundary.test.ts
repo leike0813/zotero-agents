@@ -36,6 +36,7 @@ describe("Synthesis sidecar migration boundary", function () {
 
     assert.deepEqual(report.missingMethods, []);
     assert.deepEqual(report.unknownMethods, []);
+    assert.deepEqual(report.productionBoundaryViolations, []);
     assert.lengthOf(report.publicMethods, 113);
     assert.equal(report.publicMethods.length, report.inventory.methods.length);
     assert.notInclude(report.publicMethods, "warmSynthesisWorkbenchSurfaces");

@@ -8,6 +8,7 @@ import {
   rebuildSynthesisSidecarDiscovery,
   rebuildSynthesisSidecarLaunchConfig,
   type SynthesisProductionAdmission,
+  type SynthesisProductionActivationEvidence,
   type SynthesisProductionDiscovery,
   type SynthesisSidecarDiscovery,
   type SynthesisSidecarLease,
@@ -949,6 +950,18 @@ function createSynthesisSidecarSupervisorCore<
         ? { ...session.connection }
         : null;
     },
+    replaceReadyDiscovery(discovery: TDiscovery) {
+      if (snapshot.status !== "ready" || !session?.connection) {
+        throw new Error("sidecar_not_ready");
+      }
+      mode.validateAuthority(discovery);
+      session.connection = mode.createConnection({
+        discovery,
+        clientToken: session.connection.clientToken,
+        lifecycleToken: session.connection.lifecycleToken,
+      });
+      return { ...session.connection };
+    },
   };
 }
 
@@ -1003,7 +1016,7 @@ export function createSynthesisProductionRuntimeSupervisor(
   const controlClient =
     options.controlClient ||
     createSynthesisProductionSidecarControlClient();
-  return createSynthesisSidecarSupervisorCore<
+  const supervisor = createSynthesisSidecarSupervisorCore<
     SynthesisProductionDiscovery,
     SynthesisProductionSidecarControlConnection
   >(options, {
@@ -1011,7 +1024,6 @@ export function createSynthesisProductionRuntimeSupervisor(
     validateAuthority(discovery) {
       if (
         discovery.ownerMode !== "production" ||
-        discovery.mutationEnabled !== false ||
         discovery.capabilityFingerprint !==
           admission.capabilityFingerprint ||
         discovery.cutoverReceiptId !== admission.cutoverReceiptId
@@ -1048,6 +1060,27 @@ export function createSynthesisProductionRuntimeSupervisor(
     },
     timerOwner: "synthesis-production-sidecar-supervisor",
   });
+  return {
+    ...supervisor,
+    async activate(
+      evidence: Parameters<typeof controlClient.activate>[1],
+    ) {
+      const connection = supervisor.getReadyConnection();
+      if (!connection) {
+        throw new Error("sidecar_not_ready");
+      }
+      await controlClient.activate(connection, evidence);
+      const activatedDiscovery = parseProductionDiscovery({
+        ...connection.discovery,
+        mutationEnabled: true,
+      });
+      const activatedConnection =
+        supervisor.replaceReadyDiscovery(activatedDiscovery);
+      await controlClient.health(activatedConnection);
+      await controlClient.handshake(activatedConnection);
+      return activatedConnection;
+    },
+  };
 }
 
 let defaultSupervisor: ReturnType<
@@ -1105,6 +1138,15 @@ export async function stopSynthesisProductionRuntimeSupervisor() {
   await current?.stop();
 }
 
+export function activateSynthesisProductionRuntime(
+  evidence: SynthesisProductionActivationEvidence,
+) {
+  if (!productionSupervisor) {
+    throw new Error("production_supervisor_not_configured");
+  }
+  return productionSupervisor.activate(evidence);
+}
+
 export function getReadySynthesisProductionControlConnection() {
   const connection = productionSupervisor?.getReadyConnection() ?? null;
   const readyCapabilities =
@@ -1115,6 +1157,7 @@ export function getReadySynthesisProductionControlConnection() {
     SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITIES as readonly string[];
   if (
     !connection ||
+    connection.discovery.mutationEnabled !== true ||
     readyCapabilities?.length !== requiredCapabilities.length ||
     !requiredCapabilities.every(
       (capability, index) =>

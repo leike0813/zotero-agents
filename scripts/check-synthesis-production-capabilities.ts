@@ -168,9 +168,15 @@ export function inspectSynthesisProductionCapabilities() {
         ...difference(readyCapabilities, rustReadyCapabilities),
         ...difference(rustReadyCapabilities, readyCapabilities),
       ],
-      readyDispatcherBinding: readyCapabilities.filter(
-        (capability) => !rustDispatchSource.includes(`"${capability}"`),
-      ),
+      readyDispatcherBinding:
+        rustDispatchSource.includes(
+          "production_client_operations\n        .get(capability)",
+        ) &&
+        rustDispatchSource.includes(
+          "dispatch_legacy_client(&state.applications, capability",
+        )
+          ? []
+          : ["Rust dispatcher is not bound to the closed operation registry"],
       operationMetadata:
         operations.schema ===
           "synthesis-production-client-operations.v1" &&

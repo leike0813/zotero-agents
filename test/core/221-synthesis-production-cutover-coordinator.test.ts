@@ -7,6 +7,7 @@ import {
   createSynthesisProductionCutoverCoordinator,
   type SynthesisCutoverCoordinatorDeps,
 } from "../../src/modules/synthesisProductionCutover";
+import { createSynthesisProductionOwner } from "../../src/modules/synthesisProductionOwner";
 
 const PROFILE_ID = "1".repeat(64);
 const BACKUP_ID = "2".repeat(64);
@@ -183,5 +184,49 @@ describe("Synthesis production cutover coordinator", function () {
       "runtime_mismatch",
     );
     assert.deepEqual(state.events, ["rust-repair"]);
+  });
+
+  it("starts one background cutover and shuts down in owner order", async function () {
+    const completedState = harness();
+    const completed = await coordinator(completedState.deps).run();
+    const events: string[] = [];
+    const owner = createSynthesisProductionOwner({
+      createReverseHostEndpoint() {
+        return {
+          async start() {
+            events.push("endpoint-start");
+          },
+          async stop() {
+            events.push("endpoint-stop");
+          },
+        };
+      },
+      createCutoverCoordinator() {
+        return {
+          async run() {
+            events.push("cutover");
+            return completed;
+          },
+        };
+      },
+      invalidateClient() {
+        events.push("invalidate-client");
+      },
+      async stopProductionSupervisor() {
+        events.push("supervisor-stop");
+      },
+    });
+
+    const first = owner.start();
+    assert.strictEqual(owner.start(), first);
+    assert.strictEqual((await owner.whenReady()).phase, "mutation_enabled");
+    await Promise.all([owner.shutdown(), owner.shutdown()]);
+    assert.deepEqual(events, [
+      "endpoint-start",
+      "cutover",
+      "invalidate-client",
+      "endpoint-stop",
+      "supervisor-stop",
+    ]);
   });
 });

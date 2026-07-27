@@ -1,23 +1,26 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use synthesis_application::{
-    CanonicalStorePort, TopicApplication, TopicCanonicalPort, WorkbenchApplication,
-};
+use synthesis_application::{CanonicalStorePort, TopicCanonicalPort};
 use synthesis_repository::Repository;
+use synthesis_sidecar::production_capabilities::ProductionClientOperationMetadata;
 use synthesis_sidecar::runtime_contract::{
-    NativeLaunchConfig, SIDECAR_CAPABILITIES, current_time_ms,
+    NativeLaunchConfig, ProductionAdmission, SIDECAR_CAPABILITIES, current_time_ms,
 };
 
 use crate::runtime_http::{read_http, response};
+use crate::runtime_lifecycle::{
+    ProductionActivationEvidence, ProductionOwnership, RuntimeOwnership,
+};
 use crate::runtime_production_client::{
     dispatch_production_client, production_client_error_status,
 };
+use crate::runtime_production_ports::ProductionApplications;
 use crate::runtime_transfer::{NativeTransferOwner, TransferDispatch};
 use crate::runtime_worker_pool::{NativeComputePool, WorkerOperation};
 
@@ -42,9 +45,13 @@ pub(crate) struct ServeState {
     pub(crate) profile: String,
     pub(crate) repository_id: String,
     pub(crate) repository: Arc<Mutex<Repository>>,
-    pub(crate) workbench: WorkbenchApplication,
-    pub(crate) topics: TopicApplication,
-    pub(crate) production_client_capabilities: BTreeSet<String>,
+    pub(crate) applications: ProductionApplications,
+    pub(crate) production_client_operations: BTreeMap<String, ProductionClientOperationMetadata>,
+    pub(crate) mutation_enabled: AtomicBool,
+    pub(crate) production_admission: Option<Arc<ProductionAdmission>>,
+    pub(crate) production_ownership: Option<Arc<Mutex<ProductionOwnership>>>,
+    pub(crate) runtime_ownership: Arc<RuntimeOwnership>,
+    pub(crate) discovery: Arc<Mutex<Value>>,
     pub(crate) canonical: CanonicalStorePort,
     pub(crate) stopping: Arc<AtomicBool>,
     pub(crate) compute_pool: Arc<NativeComputePool>,
@@ -185,7 +192,7 @@ pub(crate) fn handle_connection(
         });
         if state.owner_mode == "production" {
             health["ownerMode"] = json!("production");
-            health["mutationEnabled"] = json!(false);
+            health["mutationEnabled"] = json!(state.mutation_enabled.load(Ordering::Acquire));
             health["capabilityFingerprint"] = json!(
                 synthesis_sidecar::production_capabilities::PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT
             );
@@ -218,7 +225,11 @@ pub(crate) fn handle_connection(
     if call.profile_id != state.profile {
         return response(&mut stream, 409, error_response("profile_mismatch"));
     }
-    let expected_token = if call.capability == "system.shutdown" {
+    let lifecycle_control = matches!(
+        call.capability.as_str(),
+        "system.shutdown" | "system.production.activate"
+    );
+    let expected_token = if lifecycle_control {
         &state.config.lifecycle_token
     } else {
         &state.config.client_token
@@ -227,7 +238,7 @@ pub(crate) fn handle_connection(
         return response(
             &mut stream,
             401,
-            error_response(if call.capability == "system.shutdown" {
+            error_response(if lifecycle_control {
                 "lifecycle_forbidden"
             } else {
                 "unauthorized"
@@ -403,7 +414,7 @@ pub(crate) fn handle_connection(
                 "runtimeRootId":state.config.runtime_root_id,
                 "dataRootId":state.config.data_root_id,
                 "capabilities":SIDECAR_CAPABILITIES,
-                "mutationEnabled":false,
+                "mutationEnabled":state.mutation_enabled.load(Ordering::Acquire),
                 "lifecycleState":"ready",
                 "repository":repository_snapshot(&state),
                 "canonicalStore":canonical_snapshot(&state)?,
@@ -431,7 +442,7 @@ pub(crate) fn handle_connection(
             if !exact_payload(&call.payload, &["state"]) || !call.payload["state"].is_object() {
                 return response(&mut stream, 400, error_response("invalid_request"));
             }
-            let data = state.workbench.read_json()?;
+            let data = state.applications.workbench.read_json()?;
             bounded_response(
                 &mut stream,
                 200,
@@ -452,6 +463,80 @@ pub(crate) fn handle_connection(
                 200,
                 call_response(&call.request_id, &state.service_instance_id, data),
                 MAX_READ_RESPONSE_BYTES,
+            )
+        }
+        "system.production.activate" => {
+            if state.owner_mode != "production" {
+                return response(&mut stream, 404, error_response("capability_not_found"));
+            }
+            if synthesis_sidecar::production_capabilities::READY_PRODUCTION_CLIENT_CAPABILITIES
+                .len()
+                != state.production_client_operations.len()
+            {
+                return response(
+                    &mut stream,
+                    503,
+                    error_response("production_surface_incomplete"),
+                );
+            }
+            let evidence: ProductionActivationEvidence = match serde_json::from_value(call.payload)
+            {
+                Ok(evidence) => evidence,
+                Err(_) => {
+                    return response(&mut stream, 400, error_response("invalid_request"));
+                }
+            };
+            let Some(admission) = state.production_admission.as_deref() else {
+                return response(
+                    &mut stream,
+                    409,
+                    error_response("production_activation_identity_mismatch"),
+                );
+            };
+            let Some(owner) = state.production_ownership.as_ref() else {
+                return response(
+                    &mut stream,
+                    409,
+                    error_response("production_activation_identity_mismatch"),
+                );
+            };
+            let activation_result = owner
+                .lock()
+                .map_err(|_| "production_owner_unavailable".to_owned())?
+                .activate(
+                    admission,
+                    &evidence,
+                    synthesis_sidecar::production_capabilities::READY_PRODUCTION_CLIENT_CAPABILITIES,
+                );
+            if let Err(code) = activation_result {
+                return response(
+                    &mut stream,
+                    production_client_error_status(&code),
+                    error_response(&code),
+                );
+            }
+            {
+                let mut discovery = state
+                    .discovery
+                    .lock()
+                    .map_err(|_| "discovery_unavailable".to_owned())?;
+                discovery["mutationEnabled"] = json!(true);
+                state.runtime_ownership.publish_discovery(&discovery)?;
+            }
+            state.mutation_enabled.store(true, Ordering::Release);
+            response(
+                &mut stream,
+                200,
+                call_response(
+                    &call.request_id,
+                    &state.service_instance_id,
+                    json!({
+                        "activated":true,
+                        "mutationEnabled":true,
+                        "serviceInstanceId":state.service_instance_id,
+                        "cutoverReceiptId":state.cutover_receipt_id,
+                    }),
+                ),
             )
         }
         "system.shutdown" => {

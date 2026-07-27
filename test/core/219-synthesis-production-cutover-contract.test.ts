@@ -223,12 +223,18 @@ describe("Synthesis production cutover contract", function () {
       rebuildSynthesisProductionHandshakeResult(handshake),
       handshake,
     );
+    assert.isTrue(
+      rebuildSynthesisProductionDiscovery({
+        ...discovery,
+        mutationEnabled: true,
+      }).mutationEnabled,
+    );
     assert.throws(() => rebuildSynthesisSidecarDiscovery(discovery));
 
     for (const invalid of [
       { ...discovery, schema: "synthesis-sidecar-discovery.v2" },
       { ...discovery, ownerMode: "shadow" },
-      { ...discovery, mutationEnabled: true },
+      { ...discovery, mutationEnabled: "true" },
       { ...discovery, capabilityFingerprint: "8".repeat(64) },
       { ...discovery, cutoverReceiptId: "" },
       { ...discovery, unexpected: true },

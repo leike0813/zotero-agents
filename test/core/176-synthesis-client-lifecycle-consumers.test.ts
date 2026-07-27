@@ -8,18 +8,38 @@ import {
   getDefaultSynthesisClient,
   invalidateDefaultSynthesisClient,
   resetDefaultSynthesisClientForTests,
+  setDefaultSynthesisClientCompositionFactoryForTests,
   shutdownDefaultSynthesisClient,
 } from "../../src/modules/synthesisClient/defaultClient";
-import {
-  getDefaultLegacySynthesisServiceForTests,
-  invalidateDefaultLegacySynthesisService,
-} from "../../src/modules/synthesisClient/legacyComposition";
+import { createNativeSynthesisClientComposition } from "../../src/modules/synthesisClient/nativeComposition";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
 describe("Synthesis lifecycle client consumers", function () {
+  beforeEach(function () {
+    setDefaultSynthesisClientCompositionFactoryForTests(() =>
+      createNativeSynthesisClientComposition({
+        getReadyConnection: () => ({
+          discovery: {
+            host: "127.0.0.1",
+            port: 9134,
+            profileId: "1".repeat(64),
+            serviceInstanceId: "service-test",
+          },
+          clientToken: "client-token",
+        }),
+        rpcClient: {
+          async call(args) {
+            return args.rebuildResult({});
+          },
+        },
+      }),
+    );
+  });
+
   afterEach(async function () {
     await resetDefaultSynthesisClientForTests();
+    setDefaultSynthesisClientCompositionFactoryForTests(null);
   });
 
   it("adapts lifecycle and protected maintenance commands", async function () {
@@ -120,9 +140,8 @@ describe("Synthesis lifecycle client consumers", function () {
     assert.isObject(current);
   });
 
-  it("keeps invalidated clients from recreating the legacy service", async function () {
+  it("keeps invalidated clients from resolving another production owner", async function () {
     const client = await getDefaultSynthesisClient();
-    const service = await getDefaultLegacySynthesisServiceForTests();
     invalidateDefaultSynthesisClient();
 
     let failure: unknown;
@@ -134,8 +153,7 @@ describe("Synthesis lifecycle client consumers", function () {
 
     assert.instanceOf(failure, SynthesisClientError);
     assert.equal((failure as SynthesisClientError).code, "unavailable");
-    const replacement = await getDefaultLegacySynthesisServiceForTests();
-    assert.notStrictEqual(replacement, service);
+    assert.notStrictEqual(await getDefaultSynthesisClient(), client);
   });
 
   it("shuts down idempotently and reopens only through the test reset", async function () {
@@ -176,30 +194,38 @@ describe("Synthesis lifecycle client consumers", function () {
     assert.equal(shutdownResult.status, "fulfilled");
   });
 
-  it("fresh acquisition rebuilds a cached client and legacy service", async function () {
+  it("fresh acquisition rebuilds only the cached native client", async function () {
     invalidateDefaultSynthesisClient();
-    invalidateDefaultLegacySynthesisService();
-    const firstService = await getDefaultLegacySynthesisServiceForTests();
     const firstClient = await getDefaultSynthesisClient();
 
     const secondClient = await getFreshDefaultSynthesisClient();
-    const secondService = await getDefaultLegacySynthesisServiceForTests();
 
     assert.notStrictEqual(secondClient, firstClient);
-    assert.notStrictEqual(secondService, firstService);
     invalidateDefaultSynthesisClient();
   });
 
-  it("fresh acquisition rebuilds the legacy service without a cached client", async function () {
-    invalidateDefaultSynthesisClient();
-    invalidateDefaultLegacySynthesisService();
-    const firstService = await getDefaultLegacySynthesisServiceForTests();
+  it("keeps the default production factory native-only", function () {
+    const source = fs.readFileSync(
+      path.join(ROOT, "src/modules/synthesisClient/defaultClient.ts"),
+      "utf8",
+    );
+    assert.include(source, "createReadyNativeSynthesisClientComposition");
+    assert.notInclude(source, "legacyComposition");
+    assert.notInclude(source, "createDefaultLegacySynthesisClientComposition");
+  });
 
-    await getFreshDefaultSynthesisClient();
-    const secondService = await getDefaultLegacySynthesisServiceForTests();
-
-    assert.notStrictEqual(secondService, firstService);
-    invalidateDefaultSynthesisClient();
+  it("routes workflow, Workbench, Host Bridge, and MCP-facing capabilities through the default client", function () {
+    for (const relativePath of [
+      "src/modules/synthesisClient/workflowHostClient.ts",
+      "src/modules/synthesisWorkbenchTab.ts",
+      "src/modules/workflowParameterOptions.ts",
+      "src/modules/hostBridgeCapabilityRegistry.ts",
+    ]) {
+      const source = fs.readFileSync(path.join(ROOT, relativePath), "utf8");
+      assert.include(source, "getDefaultSynthesisClient");
+      assert.notInclude(source, "legacyComposition");
+      assert.notInclude(source, "createSynthesisService");
+    }
   });
 
   it("removes full-service access from lifecycle and notification consumers", function () {

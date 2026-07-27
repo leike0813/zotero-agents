@@ -13,6 +13,7 @@ import { promisify } from "node:util";
 import {
   SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
   SYNTHESIS_SIDECAR_PROTOCOL,
+  SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { createSynthesisProductionBackupService } from "../../src/modules/synthesisProductionBackup";
 
@@ -136,13 +137,14 @@ async function call(
   port: number,
   capability: string,
   payload: Record<string, unknown>,
+  token = CLIENT_TOKEN,
 ) {
   const response = await fetch(
     `http://127.0.0.1:${port}/synthesis/v1/call`,
     {
       method: "POST",
       headers: {
-        authorization: `Bearer ${CLIENT_TOKEN}`,
+        authorization: `Bearer ${token}`,
         "content-type": "application/json",
       },
       body: JSON.stringify({
@@ -431,8 +433,51 @@ describe("Synthesis Rust production client route", function () {
         "client.findTopicsByPaperRef",
         { args: [{}] },
       );
-      assert.equal(pending.status, 503);
-      assert.equal(pending.body.error.code, "service_not_ready");
+      assert.equal(pending.status, 200);
+      assert.deepEqual(pending.body.data.topics, []);
+
+      const mutationBeforeAdmission = await call(
+        port,
+        "client.clearTagAuditRecord",
+        { args: [{ libraryId: 1, itemKey: "AAAA1111" }] },
+      );
+      assert.equal(mutationBeforeAdmission.status, 409);
+      assert.equal(
+        mutationBeforeAdmission.body.error.code,
+        "mutation_not_admitted",
+      );
+
+      const activation = await call(
+        port,
+        "system.production.activate",
+        {
+          receiptId: "receipt-1",
+          serviceInstanceId:
+            topics.body.serviceInstanceId,
+          capabilityFingerprint:
+            SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+          readyClientCapabilities:
+            SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+          smokeEvidenceDigest: "a".repeat(64),
+        },
+        LIFECYCLE_TOKEN,
+      );
+      assert.equal(activation.status, 503);
+      assert.equal(
+        activation.body.error.code,
+        "production_surface_incomplete",
+      );
+
+      const mutationAfterAdmission = await call(
+        port,
+        "client.clearTagAuditRecord",
+        { args: [{ libraryId: 1, itemKey: "AAAA1111" }] },
+      );
+      assert.equal(mutationAfterAdmission.status, 409);
+      assert.equal(
+        mutationAfterAdmission.body.error.code,
+        "mutation_not_admitted",
+      );
 
       const unknown = await call(port, "client.notDeclared", {
         args: [],

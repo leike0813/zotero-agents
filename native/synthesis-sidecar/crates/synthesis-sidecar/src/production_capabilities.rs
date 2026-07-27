@@ -3,7 +3,34 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub const PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT: &str =
     "0e8e1f406d382d24183a3ac078254d966aba7c1d2d15fe82cac347a192f1f372";
-pub const READY_PRODUCTION_CLIENT_CAPABILITIES: &[&str] = &["client.listTopics"];
+pub const READY_PRODUCTION_CLIENT_CAPABILITIES: &[&str] = &[
+    "client.listTopics",
+    "client.findTopicsByPaperRef",
+    "client.queryCitationGraphCluster",
+    "client.queryCitationGraph",
+    "client.getCitationGraphLayout",
+    "client.getReferenceSidecarIndex",
+    "client.getPaperArtifactManifest",
+    "client.exportFilteredPaperArtifacts",
+    "client.getSchemas",
+    "client.debugSynthesisSnapshot",
+    "client.debugSynthesisCacheList",
+    "client.debugSynthesisOperationsList",
+    "client.debugSynthesisTopicInspect",
+    "client.listWorkflowTopicOptions",
+    "client.consumeRelatedItemsSyncEcho",
+    "client.applyTopicSynthesisResult",
+    "client.readPaperArtifacts",
+    "client.isBuiltinTagPolicyInitialized",
+    "client.loadTagVocabulary",
+    "client.exportTagVocabularyForRegulator",
+    "client.listStagedTagSuggestions",
+    "client.clearTagAuditRecord",
+    "client.getSynthesisWorkbenchChromeInput",
+    "client.getSynthesisWorkbenchSurfaceInput",
+    "client.getSynthesisBackgroundJobRows",
+    "client.readTopicDetail",
+];
 
 const PRODUCTION_CLIENT_CAPABILITY_MANIFEST: &str = include_str!(
     "../../../../../packages/synthesis-contracts/contract-set/synthesis-production-client-v1/capabilities.json"
@@ -40,6 +67,14 @@ struct ProductionClientOperationManifest {
     access: BTreeMap<String, ProductionClientAccess>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProductionClientOperationMetadata {
+    pub access: ProductionClientAccess,
+    pub request_bytes: usize,
+    pub response_bytes: usize,
+    pub deadline_ms: u64,
+}
+
 fn production_client_operation_manifest() -> Result<ProductionClientOperationManifest, String> {
     let manifest: ProductionClientOperationManifest =
         serde_json::from_str(PRODUCTION_CLIENT_OPERATION_MANIFEST)
@@ -56,6 +91,26 @@ fn production_client_operation_manifest() -> Result<ProductionClientOperationMan
         return Err("invalid_production_operation_manifest".into());
     }
     Ok(manifest)
+}
+
+pub fn production_client_operation_metadata()
+-> Result<BTreeMap<String, ProductionClientOperationMetadata>, String> {
+    let manifest = production_client_operation_manifest()?;
+    Ok(manifest
+        .access
+        .into_iter()
+        .map(|(capability, access)| {
+            (
+                capability,
+                ProductionClientOperationMetadata {
+                    access,
+                    request_bytes: manifest.request_bytes,
+                    response_bytes: manifest.response_bytes,
+                    deadline_ms: manifest.deadline_ms,
+                },
+            )
+        })
+        .collect())
 }
 
 pub fn production_client_capabilities() -> Result<Vec<String>, String> {

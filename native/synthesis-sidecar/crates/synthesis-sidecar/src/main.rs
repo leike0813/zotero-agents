@@ -3,6 +3,8 @@ mod runtime_cli;
 mod runtime_http;
 mod runtime_lifecycle;
 mod runtime_production_client;
+mod runtime_production_compat;
+mod runtime_production_ports;
 mod runtime_reverse_host;
 mod runtime_service;
 mod runtime_transfer;

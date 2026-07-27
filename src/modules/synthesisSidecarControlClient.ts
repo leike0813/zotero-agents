@@ -8,6 +8,7 @@ import {
   rebuildSynthesisSidecarHandshakeResult,
   rebuildSynthesisSidecarHealth,
   type SynthesisProductionDiscovery,
+  type SynthesisProductionActivationEvidence,
   type SynthesisProductionHandshakeResult,
   type SynthesisProductionHealth,
   type SynthesisSidecarDiscovery,
@@ -218,7 +219,10 @@ function validateProductionHandshake(
 async function callSystem(args: {
   connection: ControlConnection;
   token: string;
-  capability: "system.handshake" | "system.shutdown";
+  capability:
+    | "system.handshake"
+    | "system.shutdown"
+    | "system.production.activate";
   payload: Record<string, unknown>;
   timeoutMs: number;
   fetchImpl: FetchLike;
@@ -323,7 +327,7 @@ export function createSynthesisProductionSidecarControlClient(options?: {
   fetch?: FetchLike;
   timeoutMs?: number;
 }) {
-  return createControlClient<
+  const client = createControlClient<
     SynthesisProductionSidecarControlConnection,
     SynthesisProductionHealth,
     SynthesisProductionHandshakeResult
@@ -331,6 +335,27 @@ export function createSynthesisProductionSidecarControlClient(options?: {
     health: validateProductionHealth,
     handshake: validateProductionHandshake,
   });
+  const fetchImpl = options?.fetch || globalThis.fetch;
+  const timeoutMs = options?.timeoutMs ?? 2_000;
+  if (typeof fetchImpl !== "function") {
+    throw new Error("sidecar_control_fetch_unavailable");
+  }
+  return {
+    ...client,
+    async activate(
+      connection: SynthesisProductionSidecarControlConnection,
+      evidence: SynthesisProductionActivationEvidence,
+    ) {
+      return callSystem({
+        connection,
+        token: connection.lifecycleToken,
+        capability: "system.production.activate",
+        payload: evidence,
+        timeoutMs,
+        fetchImpl,
+      });
+    },
+  };
 }
 
 export const synthesisSidecarControlClientInternalsForTests = {

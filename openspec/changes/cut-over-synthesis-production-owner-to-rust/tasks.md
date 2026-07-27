@@ -8,7 +8,7 @@
 
 - [x] 2.1 Establish one closed grouped `SynthesisClient` operation inventory and TypeScript/Rust completeness fingerprint
 - [ ] 2.2 Implement strict native request/result envelopes, bounds, error mapping, and dispatch over existing typed Rust application ports
-  - Current ready subset: `client.listTopics`; the remaining declared operations return `service_not_ready`, and native default-client acquisition stays closed until the ready subset equals all 95 operations.
+  - Current ready subset: 26 operations backed by Rust repository/application or bounded reverse-Host ports; mutation activation and native default-client acquisition stay closed until the ready subset equals all 95 operations.
 - [x] 2.3 Extend health/handshake with owner mode, capability fingerprint, cutover receipt identity, and gated mutation admission
 
 ## 3. Reverse Host Boundary
@@ -27,8 +27,8 @@
 ## 5. Production Client Switch
 
 - [x] 5.1 Implement the native grouped client composition while preserving all public methods, DTOs, delivery context, and stable errors
-- [ ] 5.2 Switch default-client acquisition, invalidation, and shutdown to the native production composition
-- [ ] 5.3 Add static guards proving production consumers cannot construct legacy composition or directly open production DB/canonical roots
+- [x] 5.2 Switch default-client acquisition, invalidation, and shutdown to the native production composition
+- [x] 5.3 Add static guards proving production consumers cannot construct legacy composition or directly open production DB/canonical roots
 
 ## 6. Documentation and Verification
 

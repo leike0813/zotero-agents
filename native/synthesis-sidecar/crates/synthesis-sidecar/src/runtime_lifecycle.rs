@@ -1,3 +1,4 @@
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
@@ -17,8 +18,20 @@ fn atomic_write_json(path: &Path, value: &Value) -> Result<(), String> {
         current_time_ms()?
     ));
     let bytes = serde_json::to_vec(value).map_err(|error| error.to_string())?;
-    fs::write(&temporary, bytes).map_err(|error| error.to_string())?;
-    fs::rename(&temporary, path).map_err(|error| error.to_string())
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&temporary)
+        .map_err(|error| error.to_string())?;
+    file.write_all(&bytes).map_err(|error| error.to_string())?;
+    file.write_all(b"\n").map_err(|error| error.to_string())?;
+    file.sync_all().map_err(|error| error.to_string())?;
+    fs::rename(&temporary, path).map_err(|error| error.to_string())?;
+    OpenOptions::new()
+        .read(true)
+        .open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| error.to_string())
 }
 
 pub(crate) struct RuntimeOwnership {
@@ -80,13 +93,39 @@ impl Drop for RuntimeOwnership {
 #[derive(Debug)]
 pub(crate) struct ProductionOwnership {
     owner_path: PathBuf,
+    activation_path: PathBuf,
     service_instance_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ProductionActivationEvidence {
+    pub(crate) receipt_id: String,
+    pub(crate) service_instance_id: String,
+    pub(crate) capability_fingerprint: String,
+    pub(crate) ready_client_capabilities: Vec<String>,
+    pub(crate) smoke_evidence_digest: String,
+}
+
 impl ProductionOwnership {
+    pub(crate) fn require_repair_for_partial_activation(
+        admission: &ProductionAdmission,
+        receipt_mutation_enabled: bool,
+    ) -> Result<(), String> {
+        let state_root = admission
+            .repository_db_path
+            .parent()
+            .ok_or_else(|| "production_owner_path_invalid".to_owned())?;
+        if state_root.join("native-activation.json").exists() && !receipt_mutation_enabled {
+            return Err("rust_only_repair_required".into());
+        }
+        Ok(())
+    }
+
     pub(crate) fn acquire(
         admission: &ProductionAdmission,
         service_instance_id: &str,
+        mutation_enabled: bool,
     ) -> Result<Self, String> {
         if admission.purpose != "live_owner"
             || service_instance_id.is_empty()
@@ -108,7 +147,7 @@ impl ProductionOwnership {
             "capabilityFingerprint":admission.capability_fingerprint,
             "repositoryDbPath":admission.repository_db_path,
             "canonicalRoot":admission.canonical_root,
-            "mutationEnabled":false,
+            "mutationEnabled":mutation_enabled,
             "pid":std::process::id(),
             "createdAtMs":current_time_ms()?
         });
@@ -127,9 +166,67 @@ impl ProductionOwnership {
         file.write_all(b"\n").map_err(|error| error.to_string())?;
         file.sync_all().map_err(|error| error.to_string())?;
         Ok(Self {
+            activation_path: state_root.join("native-activation.json"),
             owner_path,
             service_instance_id: service_instance_id.to_owned(),
         })
+    }
+
+    pub(crate) fn activate(
+        &self,
+        admission: &ProductionAdmission,
+        evidence: &ProductionActivationEvidence,
+        ready_client_capabilities: &[&str],
+    ) -> Result<(), String> {
+        let valid_digest = evidence.smoke_evidence_digest.len() == 64
+            && evidence
+                .smoke_evidence_digest
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase());
+        if evidence.receipt_id != admission.cutover_receipt_id
+            || evidence.service_instance_id != self.service_instance_id
+            || evidence.capability_fingerprint != admission.capability_fingerprint
+            || evidence.ready_client_capabilities
+                != ready_client_capabilities
+                    .iter()
+                    .map(|value| (*value).to_owned())
+                    .collect::<Vec<_>>()
+            || !valid_digest
+        {
+            return Err("production_activation_identity_mismatch".into());
+        }
+        let activated_at_ms = current_time_ms()?;
+        atomic_write_json(
+            &self.activation_path,
+            &json!({
+                "schema":"synthesis-native-activation.v1",
+                "profileId":admission.profile_id,
+                "supervisorInstanceId":admission.supervisor_instance_id,
+                "serviceInstanceId":self.service_instance_id,
+                "cutoverReceiptId":admission.cutover_receipt_id,
+                "capabilityFingerprint":admission.capability_fingerprint,
+                "readyClientCapabilities":ready_client_capabilities,
+                "smokeEvidenceDigest":evidence.smoke_evidence_digest,
+                "mutationEnabled":true,
+                "activatedAtMs":activated_at_ms,
+            }),
+        )?;
+        atomic_write_json(
+            &self.owner_path,
+            &json!({
+                "schema":"synthesis-production-owner.v1",
+                "profileId":admission.profile_id,
+                "supervisorInstanceId":admission.supervisor_instance_id,
+                "serviceInstanceId":self.service_instance_id,
+                "cutoverReceiptId":admission.cutover_receipt_id,
+                "capabilityFingerprint":admission.capability_fingerprint,
+                "repositoryDbPath":admission.repository_db_path,
+                "canonicalRoot":admission.canonical_root,
+                "mutationEnabled":true,
+                "pid":std::process::id(),
+                "activatedAtMs":activated_at_ms,
+            }),
+        )
     }
 }
 
@@ -147,6 +244,7 @@ impl Drop for ProductionOwnership {
             .is_some_and(|service_instance_id| service_instance_id == self.service_instance_id);
         if owned {
             let _ = fs::remove_file(&self.owner_path);
+            let _ = fs::remove_file(&self.activation_path);
         }
     }
 }
@@ -193,13 +291,13 @@ mod production_owner_tests {
     fn production_owner_is_exclusive_and_released_by_its_instance() {
         let root = root();
         let admission = admission(&root);
-        let owner = ProductionOwnership::acquire(&admission, "service-1").unwrap();
+        let owner = ProductionOwnership::acquire(&admission, "service-1", false).unwrap();
         assert_eq!(
-            ProductionOwnership::acquire(&admission, "service-2").unwrap_err(),
+            ProductionOwnership::acquire(&admission, "service-2", false).unwrap_err(),
             "production_owner_conflict"
         );
         drop(owner);
-        ProductionOwnership::acquire(&admission, "service-2").unwrap();
+        ProductionOwnership::acquire(&admission, "service-2", false).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 }

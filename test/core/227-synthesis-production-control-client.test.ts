@@ -173,11 +173,20 @@ describe("Synthesis production sidecar control client", function () {
       (await client.handshake(connection)).cutoverReceiptId,
       "receipt-1",
     );
+    await client.activate(connection, {
+      receiptId: "receipt-1",
+      serviceInstanceId: runtime.serviceInstanceId,
+      capabilityFingerprint:
+        SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
+      readyClientCapabilities:
+        SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+      smokeEvidenceDigest: "8".repeat(64),
+    });
     await client.shutdown(connection);
 
     assert.deepEqual(
       requests.map((request) => request.init?.method),
-      ["GET", "POST", "POST"],
+      ["GET", "POST", "POST", "POST"],
     );
     assert.equal(
       (requests[1]!.init?.headers as Record<string, string>).authorization,
@@ -186,6 +195,14 @@ describe("Synthesis production sidecar control client", function () {
     assert.equal(
       (requests[2]!.init?.headers as Record<string, string>).authorization,
       "Bearer lifecycle-token",
+    );
+    assert.equal(
+      (requests[3]!.init?.headers as Record<string, string>).authorization,
+      "Bearer lifecycle-token",
+    );
+    assert.equal(
+      JSON.parse(String(requests[2]!.init?.body)).capability,
+      "system.production.activate",
     );
   });
 

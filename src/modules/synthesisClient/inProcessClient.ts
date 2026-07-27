@@ -129,6 +129,7 @@ export interface SynthesisClientPort {
     bundle: unknown,
     context?: {
       bundleReader: { readText(path: string): Promise<string> };
+      controlledAssets?: SynthesisTopicApplyRequest["assets"];
     },
   ): Promise<unknown>;
   getTopicReport?(request: SynthesisTopicReportRequest): Promise<unknown>;
@@ -1740,6 +1741,7 @@ export function createSynthesisClientFromPort(
                 return text;
               },
             },
+            controlledAssets: request.assets,
           });
           return normalizeLegacyObject(result) as SynthesisTopicApplyResult;
         });
