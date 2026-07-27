@@ -11,6 +11,7 @@ mod runtime_reference_canonical;
 mod runtime_reverse_host;
 mod runtime_server_loop;
 mod runtime_service;
+mod runtime_tag_surface;
 mod runtime_transfer;
 mod runtime_worker;
 mod runtime_worker_pool;

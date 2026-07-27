@@ -8,7 +8,7 @@
 
 - [x] 2.1 Establish one closed grouped `SynthesisClient` operation inventory and TypeScript/Rust completeness fingerprint
 - [ ] 2.2 Complete strict public DTO semantics and typed dispatch through the seven operation-surface changes tracked in section 7
-  - Current ready subset: 63 operations backed by Rust repository/application or bounded reverse-Host ports.
+  - Current ready subset: 77 operations backed by Rust repository/application or bounded reverse-Host ports.
   - `operation-ownership.json` assigns all 95 operations exactly once; mutation activation and native default-client acquisition stay closed until every surface and final activation gate passes.
 - [x] 2.3 Extend health/handshake with owner mode, capability fingerprint, cutover receipt identity, and gated mutation admission
 
@@ -42,7 +42,7 @@
 - [x] 7.1 Complete `complete-synthesis-native-topic-workbench-surface`
 - [x] 7.2 Complete `complete-synthesis-native-citation-graph-surface`
 - [x] 7.3 Complete `complete-synthesis-native-reference-canonical-surface`
-- [ ] 7.4 Complete `complete-synthesis-native-tag-surface`
+- [x] 7.4 Complete `complete-synthesis-native-tag-surface`
 - [ ] 7.5 Complete `complete-synthesis-native-concept-topic-graph-surface`
 - [x] 7.6 Complete `complete-synthesis-native-artifact-library-debug-surface`
 - [ ] 7.7 Complete `complete-synthesis-native-webdav-maintenance-surface`

@@ -20,7 +20,7 @@ receipt/coordinator, verified backup/restore, explicit production-copy
 preflight, a mutation-disabled live owner lock, strict production v3
 supervision, and typed production routes for the completed
 Artifact/Library/Debug, Topic/Workbench, Citation Graph, and
-Reference/Canonical surfaces. The runtime reports this 63-operation ready
+Reference/Canonical, and Tag surfaces. The runtime reports this 77-operation ready
 subset separately from the closed 95-operation fingerprint; unimplemented
 operations fail closed, and native default-client acquisition remains
 unavailable until the full set is ready. The remaining domain surfaces, final

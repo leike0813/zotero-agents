@@ -17,6 +17,7 @@ import {
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { createSynthesisProductionBackupService } from "../../src/modules/synthesisProductionBackup";
 import { inspectSynthesisReferenceCanonicalSurfaceParity } from "../../scripts/check-synthesis-reference-canonical-surface-parity";
+import { inspectSynthesisTagSurfaceParity } from "../../scripts/check-synthesis-tag-surface-parity";
 import { inspectSynthesisTopicWorkbenchSurfaceParity } from "../../scripts/check-synthesis-topic-workbench-surface-parity";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
@@ -75,6 +76,15 @@ const REFERENCE_CANONICAL_MUTATIONS = REFERENCE_CANONICAL_OPERATIONS.filter(
       "client.rankExternalReferences",
     ].includes(capability),
 );
+const TAG_OPERATIONS = [
+  "client.applyTagVocabularyImport", "client.clearStagedTagSuggestions", "client.clearTagAuditRecord",
+  "client.deleteTagVocabularyEntry", "client.discardStagedTagSuggestions", "client.exportTagVocabularyForRegulator",
+  "client.initializeBuiltinTagPolicy", "client.isBuiltinTagPolicyInitialized", "client.listStagedTagSuggestions",
+  "client.loadTagVocabulary", "client.previewTagVocabularyImport", "client.promoteStagedTagSuggestions",
+  "client.rebuildTagVocabularyIndex", "client.replaceTagAuditRecords", "client.saveTagVocabulary",
+  "client.stageTagSuggestions", "client.updateStagedTagSuggestion", "client.updateTagVocabularyEntry",
+  "client.validateTagVocabulary",
+] as const;
 
 function config(profileRuntimeRoot: string, supervisorInstanceId: string) {
   return {
@@ -231,6 +241,13 @@ describe("Synthesis Rust production client route", function () {
         SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
         capability,
       );
+    }
+  });
+
+  it("keeps every Tag public operation fixture-backed and ready", function () {
+    assert.deepEqual(inspectSynthesisTagSurfaceParity(), { ok: true, operations: 19, errors: [] });
+    for (const capability of TAG_OPERATIONS) {
+      assert.include(SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES, capability);
     }
   });
 

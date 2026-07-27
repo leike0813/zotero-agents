@@ -600,6 +600,51 @@ impl TagVocabularyApplication {
         }
     }
 
+    /// Replays only durable pending intents.  Effects use their stable
+    /// `effect_id`, so the Host's ensure-present contract turns an uncertain
+    /// post-effect response into an already-satisfied receipt rather than a
+    /// duplicate Zotero mutation.
+    pub fn reconcile_pending_effects(&self, limit: usize) -> Result<usize, String> {
+        if limit == 0 || limit > 100 {
+            return Err("invalid_request".into());
+        }
+        let effects = self
+            .repository
+            .list_effects()?
+            .into_iter()
+            .filter(|effect| effect.status == "pending")
+            .take(limit)
+            .collect::<Vec<_>>();
+        let now = (self.now)();
+        let mut reconciled = 0;
+        for effect in effects {
+            match self.host.apply(&effect) {
+                Ok(()) => {
+                    self.repository.update_effect(
+                        &effect.effect_id,
+                        "applied",
+                        "[]",
+                        &now,
+                        &now,
+                    )?;
+                    reconciled += 1;
+                }
+                Err(error) => {
+                    let diagnostics =
+                        serde_json::to_string(&vec![error]).unwrap_or_else(|_| "[]".into());
+                    self.repository.update_effect(
+                        &effect.effect_id,
+                        "pending",
+                        &diagnostics,
+                        "",
+                        &now,
+                    )?;
+                }
+            }
+        }
+        Ok(reconciled)
+    }
+
     pub fn stop_admission(&self) {
         self.admission.stop();
     }

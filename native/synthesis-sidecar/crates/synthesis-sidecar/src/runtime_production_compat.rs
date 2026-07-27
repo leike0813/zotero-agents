@@ -8,16 +8,15 @@ use synthesis_application::concept_kb::{
 };
 use synthesis_application::debug_maintenance::DebugMaintenanceKind;
 use synthesis_application::reference_matching::{ReferenceReviewAction, ReferenceReviewDecision};
-use synthesis_application::tag_vocabulary::TagPromoteRequest;
 use synthesis_application::topic_graph::{
     TopicGraphMarkDeletedRequest, TopicGraphPurgeRequest, TopicGraphRelationDecisionRequest,
     TopicGraphRelationStatus, TopicGraphReviewRequest,
 };
 use synthesis_application::{
-    CitationGraphRepositoryPort, TagVocabularyRepositoryPort, TopicDetailRequest,
-    TopicDetailResult, TopicListRequest, TopicListResult, TopicRecord,
+    CitationGraphRepositoryPort, TopicDetailRequest, TopicDetailResult, TopicListRequest,
+    TopicListResult, TopicRecord,
 };
-use synthesis_repository::{TagAuditRecord, TagStagedSuggestionRecord, TagVocabularyReplacement};
+use synthesis_repository::{TagStagedSuggestionRecord, TagVocabularyReplacement};
 
 use crate::runtime_artifact_library_debug;
 use crate::runtime_production_ports::ProductionApplications;
@@ -517,6 +516,7 @@ fn expected_hash_request(args: &[Value], names: &[&str]) -> Result<String, Strin
     }
 }
 
+#[allow(dead_code)]
 fn tag_candidate_request(
     args: &[Value],
 ) -> Result<(Option<String>, TagVocabularyReplacement), String> {
@@ -546,6 +546,7 @@ fn tag_candidate_request(
     }
 }
 
+#[allow(dead_code)]
 fn staged_request(args: &[Value]) -> Result<(i64, Vec<TagStagedSuggestionRecord>), String> {
     match args {
         [request] => {
@@ -693,6 +694,7 @@ fn topic_graph_manifest_hash(apps: &ProductionApplications) -> Result<String, St
         .ok_or_else(|| "topic_graph_not_initialized".to_owned())
 }
 
+#[allow(dead_code)]
 fn tag_vocabulary_hash(apps: &ProductionApplications) -> Result<String, String> {
     apps.tags
         .inspect()?
@@ -835,47 +837,19 @@ register_production_client_handlers!(
             .sidecar_index(&optional_one::<Value>(args)?)
     }),
     ("client.isBuiltinTagPolicyInitialized", |apps, args| {
-        no_args(args)?;
-        Ok(Value::Bool(
-            TagVocabularyRepositoryPort::get_state(apps.repository.as_ref())?.is_some(),
-        ))
+        crate::runtime_tag_surface::dispatch(apps, "client.isBuiltinTagPolicyInitialized", args)
     }),
     ("client.loadTagVocabulary", |apps, args| {
-        no_args(args)?;
-        Ok(json!({
-            "state":TagVocabularyRepositoryPort::get_state(apps.repository.as_ref())?,
-            "entries":TagVocabularyRepositoryPort::list_entries(apps.repository.as_ref())?,
-            "staged":TagVocabularyRepositoryPort::list_staged(apps.repository.as_ref())?,
-            "effects":TagVocabularyRepositoryPort::list_effects(apps.repository.as_ref())?,
-        }))
+        crate::runtime_tag_surface::dispatch(apps, "client.loadTagVocabulary", args)
     }),
     ("client.exportTagVocabularyForRegulator", |apps, args| {
-        no_args(args)?;
-        Ok(Value::Array(
-            TagVocabularyRepositoryPort::list_entries(apps.repository.as_ref())?
-                .into_iter()
-                .map(|entry| Value::String(entry.tag))
-                .collect(),
-        ))
+        crate::runtime_tag_surface::dispatch(apps, "client.exportTagVocabularyForRegulator", args)
     }),
     ("client.listStagedTagSuggestions", |apps, args| {
-        no_args(args)?;
-        wire(TagVocabularyRepositoryPort::list_staged(
-            apps.repository.as_ref(),
-        )?)
+        crate::runtime_tag_surface::dispatch(apps, "client.listStagedTagSuggestions", args)
     }),
     ("client.clearTagAuditRecord", |apps, args| {
-        let request = one::<Value>(args)?;
-        let library_id = request
-            .get("libraryId")
-            .and_then(Value::as_i64)
-            .ok_or_else(|| "invalid_request".to_owned())?;
-        let item_key = request
-            .get("itemKey")
-            .and_then(Value::as_str)
-            .ok_or_else(|| "invalid_request".to_owned())?;
-        TagVocabularyRepositoryPort::clear_audit(apps.repository.as_ref(), library_id, item_key)?;
-        Ok(json!({"ok":true}))
+        crate::runtime_tag_surface::dispatch(apps, "client.clearTagAuditRecord", args)
     }),
     ("client.debugSynthesisSnapshot", |apps, args| {
         runtime_artifact_library_debug::dispatch(apps, "client.debugSynthesisSnapshot", args)
@@ -1154,91 +1128,46 @@ register_production_client_handlers!(
         )
     }),
     ("client.saveTagVocabulary", |apps, args| {
-        let (expected, candidate) = tag_candidate_request(args)?;
-        wire(apps.tags.save(expected.as_deref(), &candidate))
+        crate::runtime_tag_surface::dispatch(apps, "client.saveTagVocabulary", args)
     }),
     ("client.validateTagVocabulary", |apps, args| {
-        wire(
-            apps.tags
-                .validate(&one::<TagVocabularyReplacement>(args)?)?,
-        )
+        crate::runtime_tag_surface::dispatch(apps, "client.validateTagVocabulary", args)
     }),
     ("client.rebuildTagVocabularyIndex", |apps, args| {
-        no_args(args)?;
-        let hash = tag_vocabulary_hash(apps)?;
-        wire(apps.tags.rebuild_index(&hash))
+        crate::runtime_tag_surface::dispatch(apps, "client.rebuildTagVocabularyIndex", args)
     }),
     ("client.stageTagSuggestions", |apps, args| {
-        let (revision, staged) = staged_request(args)?;
-        wire(apps.tags.stage(revision, &staged))
+        crate::runtime_tag_surface::dispatch(apps, "client.stageTagSuggestions", args)
     }),
     ("client.updateStagedTagSuggestion", |apps, args| {
-        let (revision, staged) = staged_request(args)?;
-        wire(apps.tags.update_staged(revision, &staged))
+        crate::runtime_tag_surface::dispatch(apps, "client.updateStagedTagSuggestion", args)
     }),
     ("client.updateTagVocabularyEntry", |apps, args| {
-        let (expected, candidate) = tag_candidate_request(args)?;
-        wire(apps.tags.update_entry(expected.as_deref(), &candidate))
+        crate::runtime_tag_surface::dispatch(apps, "client.updateTagVocabularyEntry", args)
     }),
     ("client.deleteTagVocabularyEntry", |apps, args| {
-        let (expected, candidate) = tag_candidate_request(args)?;
-        wire(apps.tags.delete_entry(expected.as_deref(), &candidate))
+        crate::runtime_tag_surface::dispatch(apps, "client.deleteTagVocabularyEntry", args)
     }),
     ("client.promoteStagedTagSuggestions", |apps, args| {
-        let request = object_arg(args)?;
-        let tags = request
-            .get("tags")
-            .cloned()
-            .ok_or_else(|| "invalid_request".to_owned())?;
-        wire(
-            apps.tags.promote(
-                &serde_json::from_value::<TagPromoteRequest>(json!({
-                    "expectedVocabularyHash":tag_vocabulary_hash(apps)?,
-                    "expectedStagedRevision":apps.tags.inspect()?.staged_revision,
-                    "tags":tags,
-                }))
-                .map_err(|_| "invalid_request".to_owned())?,
-            ),
-        )
+        crate::runtime_tag_surface::dispatch(apps, "client.promoteStagedTagSuggestions", args)
     }),
     ("client.discardStagedTagSuggestions", |apps, args| {
-        let (revision, retained) = staged_request(args)?;
-        wire(apps.tags.discard(revision, &retained))
+        crate::runtime_tag_surface::dispatch(apps, "client.discardStagedTagSuggestions", args)
     }),
     ("client.clearStagedTagSuggestions", |apps, args| {
-        no_args(args)?;
-        let revision = apps.tags.inspect()?.staged_revision;
-        wire(apps.tags.clear_staged(revision))
+        crate::runtime_tag_surface::dispatch(apps, "client.clearStagedTagSuggestions", args)
     }),
     ("client.previewTagVocabularyImport", |apps, args| {
-        wire(
-            apps.tags
-                .validate(&one::<TagVocabularyReplacement>(args)?)?,
-        )
+        crate::runtime_tag_surface::dispatch(apps, "client.previewTagVocabularyImport", args)
     }),
     ("client.applyTagVocabularyImport", |apps, args| {
-        let (expected, candidate) = tag_candidate_request(args)?;
-        wire(apps.tags.save(expected.as_deref(), &candidate))
+        crate::runtime_tag_surface::dispatch(apps, "client.applyTagVocabularyImport", args)
     }),
     ("client.replaceTagAuditRecords", |apps, args| {
-        let records = match args {
-            [Value::Array(records)] => records.clone(),
-            [record] => vec![record.clone()],
-            _ => return Err("invalid_request".into()),
-        };
-        records
-            .into_iter()
-            .map(|record| {
-                serde_json::from_value::<TagAuditRecord>(record)
-                    .map_err(|_| "invalid_request".to_owned())
-                    .and_then(|record| wire(apps.tags.replace_audit(&record)))
-            })
-            .collect::<Result<Vec<_>, String>>()
-            .map(Value::Array)
+        crate::runtime_tag_surface::dispatch(apps, "client.replaceTagAuditRecords", args)
     }),
     ("client.initializeBuiltinTagPolicy", |apps, args| {
-        no_args(args)?;
-        apps.initialize_builtin_tag_policy()
+        crate::runtime_tag_surface::dispatch(apps, "client.initializeBuiltinTagPolicy", args)
     }),
     ("client.getPublicMaintenanceOperation", |apps, args| {
         let _: Value = optional_one(args)?;
