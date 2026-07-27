@@ -1060,46 +1060,16 @@ fields with `x-type: "artifact-manifest"`.
 
 ### Requirement: ACP SkillRunner-compatible runs SHALL record bridge transport audit
 
-ACP SkillRunner-compatible runs using ACP transports SHALL write run-local
-ACP update, timeline, bridge, and transport audit files only when debug mode is
-enabled. The files SHALL live in the existing run-specific
-`.acp/<skillId>.<attempt>` namespace and bridge/transport events SHALL be
-correlated by spawn id.
+### Requirement: ACP Skills startup preamble SHALL guide Windows Unicode-path recovery
 
-#### Scenario: Debug ACP skill run writes detailed audit files
+The packaged ACP Skills startup preamble SHALL instruct the agent that a Windows path which appears mojibake or fails lookup is not by itself a reason to abandon the run. The instruction SHALL require a Unicode-capable listing of a known parent directory, use of the exact returned filename together with available metadata, one retry, and no filename guessing or transliteration.
 
-- **GIVEN** debug mode is enabled
-- **WHEN** an ACP SkillRunner-compatible run is prepared for skill
-  `literature-explainer`
-- **THEN** the run MAY write detailed audit files including
-  `.acp/literature-explainer.1/timeline.ndjson`
-- **AND** it MAY write
-  `.acp/literature-explainer.1/acp-updates.ndjson`
-- **AND** it MAY write
-  `.acp/literature-explainer.1/bridge.ndjson`
-- **AND** it MAY write
-  `.acp/literature-explainer.1/transport.ndjson`
-- **AND** `run.json` SHALL list the detailed audit file paths in its `files`
-  map.
+#### Scenario: ACP Skills starts with Windows recovery guidance
 
-#### Scenario: Normal ACP skill run skips high-volume audit files
+- **WHEN** ACP Skills builds its startup preamble
+- **THEN** the rendered preamble SHALL contain the Windows Unicode-path recovery guidance
+- **AND** it SHALL preserve the existing ACP Skills run-local contract and Host Bridge guidance.
 
-- **GIVEN** debug mode is disabled
-- **WHEN** an ACP SkillRunner-compatible run is prepared and executed
-- **THEN** it SHALL NOT write `timeline.ndjson`
-- **AND** it SHALL NOT write `acp-updates.ndjson`
-- **AND** it SHALL NOT pass `bridge.ndjson` as a bridge audit target
-- **AND** it SHALL NOT write `transport.ndjson`
-- **AND** low-volume run metadata and terminal state files MAY still be written.
-
-#### Scenario: Repeated skill runs isolate audit files
-
-- **GIVEN** debug mode is enabled
-- **AND** `.acp/core-skill.1` already exists for one run in the workspace
-- **WHEN** another ACP SkillRunner-compatible run for `core-skill` is prepared
-- **THEN** the new run SHALL write bridge and transport audit files under
-  `.acp/core-skill.2`
-- **AND** it SHALL NOT append to `.acp/core-skill.1` files.
 
 #### Scenario: Bridge and transport audits share spawn id
 
@@ -1643,3 +1613,13 @@ After an incremental transcript effect restores the viewport anchor or the prese
 - **WHEN** an incremental effect restores the viewport
 - **THEN** the last-scroll-top marker SHALL equal the restored `scrollTop`
 - **AND** the tail-follow state SHALL NOT be cleared unless a real user scroll moves upward.
+
+### Requirement: ACP Skills startup preamble SHALL guide PowerShell file arguments
+
+The packaged ACP Skills startup preamble SHALL instruct agents that, when Windows PowerShell invokes a command-line tool or script and that target supports an `@file` argument form, structured or path-containing values SHALL prefer that form over inline command-line values to reduce shell quoting and escaping errors.
+
+#### Scenario: ACP Skills starts with conditional file-argument guidance
+
+- **WHEN** ACP Skills builds its startup preamble
+- **THEN** the rendered preamble SHALL contain the conditional PowerShell `@file` guidance
+- **AND** it SHALL preserve existing ACP Skills run-local contract and Host Bridge guidance.

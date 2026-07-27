@@ -426,10 +426,22 @@ ACP Chat SHALL answer a pending ACP permission request with the cancelled outcom
 - **THEN** the pending permission request MUST be resolved as cancelled
 - **AND** prompt cancellation MUST continue through the same interruption lifecycle.
 
-### Requirement: ACP Chat process-tree cleanup SHALL preserve validated signal targets
-ACP Chat SHALL delegate local transport teardown to the shared controller whose POSIX signal actuation preserves the complete validated process-group target.
+### Requirement: ACP Chat startup preamble SHALL guide Windows Unicode-path recovery
 
-#### Scenario: Wrapper-backed Chat conversation closes
-- **WHEN** an ACP Chat conversation using a wrapper-prone local backend does not exit during EOF grace
-- **THEN** any TERM or KILL escalation SHALL use the shared controller's validated target
-- **AND** an actuation failure SHALL fall back only to the directly held child process
+The packaged ACP Chat startup preamble SHALL instruct the agent that a Windows path which appears mojibake or fails lookup is not by itself a reason to abandon the task. The instruction SHALL require a Unicode-capable listing of a known parent directory, use of the exact returned filename together with available metadata, one retry, and no filename guessing or transliteration.
+
+#### Scenario: ACP Chat starts with Windows recovery guidance
+
+- **WHEN** ACP Chat builds its startup preamble
+- **THEN** the rendered preamble SHALL contain the Windows Unicode-path recovery guidance
+- **AND** it SHALL preserve the existing ACP Chat startup placeholders and Host Bridge guidance.
+
+### Requirement: ACP Chat startup preamble SHALL guide PowerShell file arguments
+
+The packaged ACP Chat startup preamble SHALL instruct agents that, when Windows PowerShell invokes a command-line tool or script and that target supports an `@file` argument form, structured or path-containing values SHALL prefer that form over inline command-line values to reduce shell quoting and escaping errors.
+
+#### Scenario: ACP Chat starts with conditional file-argument guidance
+
+- **WHEN** ACP Chat builds its startup preamble
+- **THEN** the rendered preamble SHALL contain the conditional PowerShell `@file` guidance
+- **AND** it SHALL preserve existing ACP Chat startup placeholders and Host Bridge guidance.

@@ -3841,6 +3841,24 @@ describe("ACP SkillRunner-compatible runner", function () {
     });
     assert.include(chatStartupPrompt, "ACP Chat assistant");
     assert.include(chatStartupPrompt, "zotero-bridge-cli");
+    assert.include(
+      chatStartupPrompt,
+      "if a file path appears mojibake or a path lookup fails, do not stop",
+    );
+    assert.include(chatStartupPrompt, "Unicode-capable directory listing");
+    assert.include(
+      chatStartupPrompt,
+      "without guessing or transliterating the name",
+    );
+    assert.include(
+      chatStartupPrompt,
+      "When Windows PowerShell invokes a command-line tool or script",
+    );
+    assert.include(chatStartupPrompt, "supports an `@file` argument form");
+    assert.include(
+      chatStartupPrompt,
+      "instead of inline command-line values to reduce shell quoting and escaping errors",
+    );
     assert.notInclude(chatStartupPrompt, "Agent family");
     const familyIndependentChatStartup = await buildAcpStartupPromptPreamble({
       surface: "acp-chat",
@@ -3873,6 +3891,24 @@ describe("ACP SkillRunner-compatible runner", function () {
     });
     assert.include(skillsStartupPrompt, "ACP Skills run executor");
     assert.include(skillsStartupPrompt, "zotero-bridge-cli");
+    assert.include(
+      skillsStartupPrompt,
+      "if a file path appears mojibake or a path lookup fails, do not stop",
+    );
+    assert.include(skillsStartupPrompt, "Unicode-capable directory listing");
+    assert.include(
+      skillsStartupPrompt,
+      "without guessing or transliterating the name",
+    );
+    assert.include(
+      skillsStartupPrompt,
+      "When Windows PowerShell invokes a command-line tool or script",
+    );
+    assert.include(skillsStartupPrompt, "supports an `@file` argument form");
+    assert.include(
+      skillsStartupPrompt,
+      "instead of inline command-line values to reduce shell quoting and escaping errors",
+    );
     assert.notInclude(skillsStartupPrompt, "Agent family");
 
     const continuationPrompt = renderAcpRuntimePromptTemplate({
