@@ -16,6 +16,7 @@ import {
   SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { createSynthesisProductionBackupService } from "../../src/modules/synthesisProductionBackup";
+import { inspectSynthesisReferenceCanonicalSurfaceParity } from "../../scripts/check-synthesis-reference-canonical-surface-parity";
 import { inspectSynthesisTopicWorkbenchSurfaceParity } from "../../scripts/check-synthesis-topic-workbench-surface-parity";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
@@ -47,6 +48,33 @@ const TOPIC_WORKBENCH_OPERATIONS = [
   "client.resolveTopicPaperDigest",
   "client.restoreTopicDiscoveryHint",
 ] as const;
+const REFERENCE_CANONICAL_OPERATIONS = [
+  "client.applyCanonicalRevisionMergeRequests",
+  "client.applyCanonicalRevisionReviewAction",
+  "client.applyReferenceMatchProposalAction",
+  "client.applyReferenceMatchProposalActions",
+  "client.archiveCanonicalReference",
+  "client.getAttentionQueue",
+  "client.getReferenceSidecarIndex",
+  "client.getReviewInput",
+  "client.mergeEffectiveCanonicalReference",
+  "client.rankExternalReferences",
+  "client.refreshReferenceSidecarNow",
+  "client.retryAdvancedReferenceMatching",
+  "client.retryReferenceSidecarRefresh",
+  "client.runAdvancedReferenceMatchingNow",
+  "client.startReferenceSidecarRefresh",
+  "client.updateCanonicalReferenceMetadata",
+] as const;
+const REFERENCE_CANONICAL_MUTATIONS = REFERENCE_CANONICAL_OPERATIONS.filter(
+  (capability) =>
+    ![
+      "client.getAttentionQueue",
+      "client.getReferenceSidecarIndex",
+      "client.getReviewInput",
+      "client.rankExternalReferences",
+    ].includes(capability),
+);
 
 function config(profileRuntimeRoot: string, supervisorInstanceId: string) {
   return {
@@ -185,6 +213,20 @@ describe("Synthesis Rust production client route", function () {
       errors: [],
     });
     for (const capability of TOPIC_WORKBENCH_OPERATIONS) {
+      assert.include(
+        SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+        capability,
+      );
+    }
+  });
+
+  it("keeps every Reference and Canonical public operation fixture-backed and ready", function () {
+    assert.deepEqual(inspectSynthesisReferenceCanonicalSurfaceParity(), {
+      ok: true,
+      operations: 16,
+      errors: [],
+    });
+    for (const capability of REFERENCE_CANONICAL_OPERATIONS) {
       assert.include(
         SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
         capability,
@@ -510,6 +552,50 @@ describe("Synthesis Rust production client route", function () {
       assert.equal(backgroundJobs.status, 200);
       assert.deepEqual(backgroundJobs.body.data, []);
 
+      const referenceIndex = await call(
+        port,
+        "client.getReferenceSidecarIndex",
+        { args: [{}] },
+      );
+      assert.equal(referenceIndex.status, 200);
+      assert.deepInclude(referenceIndex.body.data, {
+        rows: [],
+        cursor: "0",
+        next_cursor: "",
+        has_more: false,
+        returned: 0,
+        total: 0,
+      });
+
+      const externalRanking = await call(
+        port,
+        "client.rankExternalReferences",
+        { args: [{}] },
+      );
+      assert.equal(externalRanking.status, 200);
+      assert.deepInclude(externalRanking.body.data, {
+        ok: true,
+        items: [],
+        cursor: "0",
+        nextCursor: "",
+        hasMore: false,
+      });
+
+      const attention = await call(port, "client.getAttentionQueue", {
+        args: [{}],
+      });
+      assert.equal(attention.status, 200);
+      assert.equal(attention.body.data.ok, true);
+      assert.isArray(attention.body.data.items);
+
+      const reviewInput = await call(port, "client.getReviewInput", {
+        args: [{}],
+      });
+      assert.equal(reviewInput.status, 200);
+      assert.isArray(reviewInput.body.data.reference.records);
+      assert.isArray(reviewInput.body.data.concept);
+      assert.isArray(reviewInput.body.data.topicGraph);
+
       const schemas = await call(port, "client.getSchemas", {
         args: [{}],
       });
@@ -614,6 +700,22 @@ describe("Synthesis Rust production client route", function () {
       assert.equal(
         mutationBeforeAdmission.body.error.code,
         "mutation_not_admitted",
+      );
+      const reverseHostCallCountBeforeReferenceMutations =
+        reverseHostCalls.length;
+      for (const capability of REFERENCE_CANONICAL_MUTATIONS) {
+        const mutation = await call(port, capability, { args: [] });
+        assert.equal(mutation.status, 409, capability);
+        assert.equal(
+          mutation.body.error.code,
+          "mutation_not_admitted",
+          capability,
+        );
+      }
+      assert.equal(
+        reverseHostCalls.length,
+        reverseHostCallCountBeforeReferenceMutations,
+        "admission must reject Reference/Canonical mutations before Host or worker effects",
       );
 
       const deliveryCallsBefore = reverseHostCalls.filter(

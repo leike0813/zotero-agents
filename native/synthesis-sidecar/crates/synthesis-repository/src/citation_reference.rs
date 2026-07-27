@@ -582,6 +582,45 @@ impl Repository {
         .collect()
     }
 
+    pub fn upsert_reference_revision_review_record(
+        &self,
+        record: &ReferenceRevisionReviewRecord,
+    ) -> Result<(), String> {
+        if record.review_id.is_empty()
+            || record.canonical_reference_id.is_empty()
+            || !matches!(
+                record.status.as_str(),
+                "open" | "approved" | "rejected" | "blocked_by_upstream_review"
+            )
+        {
+            return Err("reference_revision_review_invalid".into());
+        }
+        self.execute(
+            "INSERT INTO synt_reference_revision_review(
+             review_id,source_ref,canonical_reference_id,status,reason,payload_json,
+             created_at,updated_at
+             ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)
+             ON CONFLICT(review_id) DO UPDATE SET
+             source_ref=excluded.source_ref,
+             canonical_reference_id=excluded.canonical_reference_id,
+             status=excluded.status,
+             reason=excluded.reason,
+             payload_json=excluded.payload_json,
+             updated_at=excluded.updated_at",
+            &[
+                json!(record.review_id),
+                json!(record.source_ref),
+                json!(record.canonical_reference_id),
+                json!(record.status),
+                json!(record.reason),
+                json!(record.payload_json),
+                json!(record.created_at),
+                json!(record.updated_at),
+            ],
+        )
+        .map(|_| ())
+    }
+
     pub fn upsert_canonical_reference_record(
         &mut self,
         record: &CanonicalReferenceRecord,
@@ -1128,34 +1167,76 @@ impl Repository {
         &mut self,
         transition: &ReferenceReviewTransition,
     ) -> Result<bool, String> {
+        self.apply_reference_review_transitions(std::slice::from_ref(transition))
+    }
+
+    pub fn apply_reference_review_transitions(
+        &mut self,
+        transitions: &[ReferenceReviewTransition],
+    ) -> Result<bool, String> {
+        self.apply_reference_review_transitions_with_receipt(transitions, None)
+    }
+
+    pub fn apply_reference_review_transitions_with_receipt(
+        &mut self,
+        transitions: &[ReferenceReviewTransition],
+        receipt: Option<&crate::OperationRecord>,
+    ) -> Result<bool, String> {
+        if transitions.is_empty() {
+            return Err("reference_review_batch_invalid".into());
+        }
         self.transaction(|repository| {
-            if repository
-                .get_reference_match_proposal(&transition.proposal.proposal_id)?
-                .is_none()
+            let proposal_ids = transitions
+                .iter()
+                .map(|transition| transition.proposal.proposal_id.as_str())
+                .collect::<std::collections::BTreeSet<_>>();
+            if proposal_ids.len() != transitions.len()
+                || transitions
+                    .iter()
+                    .any(|transition| transition.proposal.proposal_id.is_empty())
             {
                 return Ok(false);
             }
-            if !transition.revoke_binding_id.is_empty() {
-                repository.execute(
-                    "DELETE FROM synt_reference_binding WHERE binding_id=?1",
-                    &[json!(transition.revoke_binding_id)],
-                )?;
+            for transition in transitions {
+                if repository
+                    .get_reference_match_proposal(&transition.proposal.proposal_id)?
+                    .is_none()
+                {
+                    return Ok(false);
+                }
             }
-            for source in &transition.revoke_redirect_source_ids {
-                repository.execute(
-                    "DELETE FROM synt_reference_redirect WHERE from_canonical_reference_id=?1",
-                    &[json!(source)],
-                )?;
-            }
-            if let Some(binding) = &transition.binding {
-                upsert_binding(repository, binding)?;
-            }
-            for redirect in &transition.redirects {
-                upsert_redirect(repository, redirect)?;
-            }
-            repository.upsert_reference_match_proposal(&transition.proposal)?;
-            for proposal in &transition.audit_proposals {
-                repository.upsert_reference_match_proposal(proposal)?;
+            let graph_facts_changed = transitions
+                .iter()
+                .any(|transition| transition.graph_facts_changed);
+            let updated_at = transitions
+                .iter()
+                .map(|transition| transition.updated_at.as_str())
+                .max()
+                .unwrap_or_default()
+                .to_owned();
+            for transition in transitions {
+                if !transition.revoke_binding_id.is_empty() {
+                    repository.execute(
+                        "DELETE FROM synt_reference_binding WHERE binding_id=?1",
+                        &[json!(transition.revoke_binding_id)],
+                    )?;
+                }
+                for source in &transition.revoke_redirect_source_ids {
+                    repository.execute(
+                        "DELETE FROM synt_reference_redirect WHERE from_canonical_reference_id=?1",
+                        &[json!(source)],
+                    )?;
+                }
+                if let Some(binding) = &transition.binding {
+                    upsert_binding(repository, binding)?;
+                }
+                for redirect in &transition.redirects {
+                    upsert_redirect(repository, redirect)?;
+                }
+                repository.upsert_reference_match_proposal(&transition.proposal)?;
+                for proposal in &transition.audit_proposals {
+                    repository.upsert_reference_match_proposal(proposal)?;
+                }
             }
             let counts = proposal_counts(repository)?;
             let mut state = repository
@@ -1163,12 +1244,15 @@ impl Repository {
                 .unwrap_or_default();
             state.proposal_count = counts.0;
             state.open_proposal_count = counts.1;
-            if transition.graph_facts_changed {
+            if graph_facts_changed {
                 state.graph_ready = false;
                 state.related_items_ready = false;
             }
-            state.updated_at = transition.updated_at.clone();
+            state.updated_at = updated_at;
             upsert_matching_state(repository, &state)?;
+            if let Some(receipt) = receipt {
+                repository.upsert_operation(receipt)?;
+            }
             Ok(true)
         })
     }

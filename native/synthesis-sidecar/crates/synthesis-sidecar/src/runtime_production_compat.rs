@@ -7,25 +7,24 @@ use synthesis_application::concept_kb::{
     ConceptDeleteRequest, ConceptDisplayUpdateRequest, ConceptReviewRequest,
 };
 use synthesis_application::debug_maintenance::DebugMaintenanceKind;
-use synthesis_application::reference_matching::{
-    ReferenceMatchingPrepareRequest, ReferenceReviewDecision,
-};
-use synthesis_application::reference_refresh::{
-    ReferenceRefreshApplyRequest, ReferenceRefreshPrepareRequest,
-};
+use synthesis_application::reference_matching::{ReferenceReviewAction, ReferenceReviewDecision};
 use synthesis_application::tag_vocabulary::TagPromoteRequest;
 use synthesis_application::topic_graph::{
     TopicGraphMarkDeletedRequest, TopicGraphPurgeRequest, TopicGraphRelationDecisionRequest,
     TopicGraphRelationStatus, TopicGraphReviewRequest,
 };
 use synthesis_application::{
-    CitationGraphRepositoryPort, ReferenceRefreshRepositoryPort, TagVocabularyRepositoryPort,
-    TopicDetailRequest, TopicDetailResult, TopicListRequest, TopicListResult, TopicRecord,
+    CitationGraphRepositoryPort, TagVocabularyRepositoryPort, TopicDetailRequest,
+    TopicDetailResult, TopicListRequest, TopicListResult, TopicRecord,
 };
 use synthesis_repository::{TagAuditRecord, TagStagedSuggestionRecord, TagVocabularyReplacement};
 
 use crate::runtime_artifact_library_debug;
 use crate::runtime_production_ports::ProductionApplications;
+use crate::runtime_reference_canonical::{
+    CanonicalArchiveRequest, CanonicalMergeBatchRequest, CanonicalMetadataUpdateRequest,
+    CanonicalRevisionReviewRequest, EffectiveCanonicalMergeRequest,
+};
 
 fn wire<T: serde::Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|_| "production_projection_invalid".into())
@@ -267,19 +266,6 @@ fn optional_string_field<'a>(value: &'a Value, names: &[&str]) -> Option<&'a str
         .iter()
         .find_map(|name| value.get(*name).and_then(Value::as_str))
         .filter(|value| !value.is_empty())
-}
-
-fn page_request(args: &[Value]) -> Result<(usize, usize), String> {
-    let request: Value = optional_one(args)?;
-    let cursor = request
-        .get("cursor")
-        .and_then(Value::as_u64)
-        .unwrap_or_default() as usize;
-    let limit = request.get("limit").and_then(Value::as_u64).unwrap_or(100) as usize;
-    if limit == 0 || limit > 100 {
-        return Err("invalid_request".into());
-    }
-    Ok((cursor, limit))
 }
 
 fn topic_detail_request(args: &[Value]) -> Result<String, String> {
@@ -591,14 +577,106 @@ fn staged_request(args: &[Value]) -> Result<(i64, Vec<TagStagedSuggestionRecord>
 }
 
 fn reference_review_decisions(args: &[Value]) -> Result<Vec<ReferenceReviewDecision>, String> {
-    match args {
-        [Value::Array(decisions)] => serde_json::from_value(Value::Array(decisions.clone()))
-            .map_err(|_| "invalid_request".into()),
-        [decision] => serde_json::from_value(decision.clone())
-            .map(|decision| vec![decision])
-            .map_err(|_| "invalid_request".into()),
-        _ => Err("invalid_request".into()),
+    let decisions = match args {
+        [Value::Array(decisions)] => decisions.clone(),
+        [Value::Object(request)] if request.contains_key("decisions") => request
+            .get("decisions")
+            .and_then(Value::as_array)
+            .cloned()
+            .ok_or_else(|| "invalid_request".to_owned())?,
+        [decision @ Value::Object(_)] => vec![decision.clone()],
+        _ => return Err("invalid_request".into()),
+    };
+    if decisions.is_empty() || decisions.len() > 100 {
+        return Err("invalid_request".into());
     }
+    decisions
+        .into_iter()
+        .map(|decision| {
+            let object = decision
+                .as_object()
+                .ok_or_else(|| "invalid_request".to_owned())?;
+            if object
+                .keys()
+                .any(|key| !matches!(key.as_str(), "proposalId" | "action" | "target"))
+            {
+                return Err("invalid_request".into());
+            }
+            let proposal_id = object
+                .get("proposalId")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| "invalid_request".to_owned())?
+                .trim()
+                .to_owned();
+            let action = object
+                .get("action")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "invalid_request".to_owned())?;
+            let mut result = ReferenceReviewDecision {
+                proposal_id,
+                action: match action {
+                    "accept" => ReferenceReviewAction::Accept,
+                    "reverse_accept" => ReferenceReviewAction::Reverse,
+                    "reject" => ReferenceReviewAction::Reject,
+                    "reopen" => ReferenceReviewAction::Reopen,
+                    "delete" => ReferenceReviewAction::Delete,
+                    "manual_target" => ReferenceReviewAction::Retarget,
+                    _ => return Err("invalid_request".into()),
+                },
+                target_canonical_reference_id: String::new(),
+                target_library_id: 0,
+                target_item_key: String::new(),
+            };
+            if action == "manual_target" {
+                let target = object
+                    .get("target")
+                    .and_then(Value::as_object)
+                    .ok_or_else(|| "invalid_request".to_owned())?;
+                match target.get("kind").and_then(Value::as_str) {
+                    Some("zotero_item") => {
+                        if target
+                            .keys()
+                            .any(|key| !matches!(key.as_str(), "kind" | "libraryId" | "itemKey"))
+                        {
+                            return Err("invalid_request".into());
+                        }
+                        result.target_library_id = target
+                            .get("libraryId")
+                            .and_then(Value::as_i64)
+                            .filter(|value| *value > 0)
+                            .ok_or_else(|| "invalid_request".to_owned())?;
+                        result.target_item_key = target
+                            .get("itemKey")
+                            .and_then(Value::as_str)
+                            .filter(|value| !value.trim().is_empty())
+                            .ok_or_else(|| "invalid_request".to_owned())?
+                            .trim()
+                            .to_owned();
+                    }
+                    Some("canonical_reference") => {
+                        if target
+                            .keys()
+                            .any(|key| !matches!(key.as_str(), "kind" | "canonicalReferenceId"))
+                        {
+                            return Err("invalid_request".into());
+                        }
+                        result.target_canonical_reference_id = target
+                            .get("canonicalReferenceId")
+                            .and_then(Value::as_str)
+                            .filter(|value| !value.trim().is_empty())
+                            .ok_or_else(|| "invalid_request".to_owned())?
+                            .trim()
+                            .to_owned();
+                    }
+                    _ => return Err("invalid_request".into()),
+                }
+            } else if object.contains_key("target") {
+                return Err("invalid_request".into());
+            }
+            Ok(result)
+        })
+        .collect()
 }
 
 fn concept_manifest_hash(apps: &ProductionApplications) -> Result<String, String> {
@@ -753,11 +831,8 @@ register_production_client_handlers!(
         }))
     }),
     ("client.getReferenceSidecarIndex", |apps, args| {
-        let _: Value = optional_one(args)?;
-        Ok(json!({
-            "sources":ReferenceRefreshRepositoryPort::list_sources(apps.repository.as_ref())?,
-            "references":ReferenceRefreshRepositoryPort::list_raw_references(apps.repository.as_ref())?,
-        }))
+        apps.reference_canonical
+            .sidecar_index(&optional_one::<Value>(args)?)
     }),
     ("client.isBuiltinTagPolicyInitialized", |apps, args| {
         no_args(args)?;
@@ -936,77 +1011,63 @@ register_production_client_handlers!(
         )
     }),
     ("client.rankExternalReferences", |apps, args| {
-        let (cursor, limit) = page_request(args)?;
-        let (records, next_cursor) = apps.reference_refresh.read_references(cursor, limit)?;
-        Ok(json!({"records":records,"nextCursor":next_cursor}))
+        apps.reference_canonical
+            .rank_external_references(&optional_one::<Value>(args)?)
     }),
     ("client.getAttentionQueue", |apps, args| {
-        let (cursor, limit) = page_request(args)?;
-        wire(apps.reference_matching.read_proposals(cursor, limit)?)
+        apps.reference_canonical
+            .attention_queue(&optional_one::<Value>(args)?)
     }),
     ("client.startReferenceSidecarRefresh", |apps, args| {
-        wire(
-            apps.reference_refresh
-                .prepare_refresh(one::<ReferenceRefreshPrepareRequest>(args)?),
-        )
+        apps.reference_canonical
+            .start_refresh(&optional_one::<Value>(args)?)
     }),
     ("client.refreshReferenceSidecarNow", |apps, args| {
-        wire(
-            apps.reference_refresh
-                .apply_refresh(one::<ReferenceRefreshApplyRequest>(args)?),
-        )
+        no_args(args)?;
+        apps.reference_canonical.refresh_now()
     }),
     ("client.retryReferenceSidecarRefresh", |apps, args| {
-        wire(
-            apps.reference_refresh
-                .prepare_refresh(one::<ReferenceRefreshPrepareRequest>(args)?),
-        )
+        no_args(args)?;
+        apps.reference_canonical.retry_refresh()
     }),
     ("client.runAdvancedReferenceMatchingNow", |apps, args| {
-        wire(
-            apps.reference_matching
-                .prepare(one::<ReferenceMatchingPrepareRequest>(args)?),
-        )
+        no_args(args)?;
+        apps.reference_canonical.run_advanced_matching()
     }),
     ("client.retryAdvancedReferenceMatching", |apps, args| {
-        let request = object_arg(args)?;
-        let preparation_id = string_field(&request, &["preparationId"])?;
-        let host_basis_hash = string_field(&request, &["hostBasisHash"])?;
-        wire(
-            apps.reference_matching
-                .apply(preparation_id, host_basis_hash),
-        )
+        no_args(args)?;
+        apps.reference_canonical.retry_advanced_matching()
     }),
     ("client.applyCanonicalRevisionReviewAction", |apps, args| {
-        wire(
-            apps.reference_matching
-                .review(&reference_review_decisions(args)?),
-        )
+        apps.reference_canonical
+            .apply_revision_review(one::<CanonicalRevisionReviewRequest>(args)?)
     }),
     ("client.applyReferenceMatchProposalAction", |apps, args| {
-        wire(
-            apps.reference_matching
-                .review(&reference_review_decisions(args)?),
-        )
+        apps.reference_canonical
+            .apply_proposal_actions(&reference_review_decisions(args)?)
     }),
     ("client.applyReferenceMatchProposalActions", |apps, args| {
-        wire(
-            apps.reference_matching
-                .review(&reference_review_decisions(args)?),
-        )
+        apps.reference_canonical
+            .apply_proposal_actions(&reference_review_decisions(args)?)
     }),
     ("client.mergeEffectiveCanonicalReference", |apps, args| {
-        apps.merge_canonical_reference(&object_arg(args)?)
+        apps.reference_canonical
+            .merge_canonical(one::<EffectiveCanonicalMergeRequest>(args)?)
     }),
     (
         "client.applyCanonicalRevisionMergeRequests",
-        |apps, args| { apps.apply_canonical_merge_requests(&object_arg(args)?) }
+        |apps, args| {
+            apps.reference_canonical
+                .merge_canonical_batch(one::<CanonicalMergeBatchRequest>(args)?)
+        }
     ),
     ("client.updateCanonicalReferenceMetadata", |apps, args| {
-        apps.update_canonical_reference_metadata(&object_arg(args)?)
+        apps.reference_canonical
+            .update_canonical_metadata(one::<CanonicalMetadataUpdateRequest>(args)?)
     }),
     ("client.archiveCanonicalReference", |apps, args| {
-        apps.archive_canonical_reference(&object_arg(args)?)
+        apps.reference_canonical
+            .archive_canonical(one::<CanonicalArchiveRequest>(args)?)
     }),
     ("client.queryConceptKb", |apps, args| {
         apps.concepts.query(&object_arg(args)?)
@@ -1187,9 +1248,9 @@ register_production_client_handlers!(
         runtime_artifact_library_debug::dispatch(apps, "client.getLibraryIndex", args)
     }),
     ("client.getReviewInput", |apps, args| {
-        let (cursor, limit) = page_request(args)?;
+        let request = optional_one::<Value>(args)?;
         Ok(json!({
-            "reference":apps.reference_matching.read_proposals(cursor,limit)?,
+            "reference":apps.reference_canonical.review_input(&request)?,
             "concept":apps.concepts.load()?.reviews,
             "topicGraph":apps.topic_graph.load()?.reviews,
         }))
@@ -1426,6 +1487,62 @@ mod tests {
         .expect("reject hint");
         assert_eq!(rejected["status"], "rejected");
         assert_eq!(rejected["hint"]["status"], "rejected");
+        drop(apps);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn reference_public_adapters_preserve_empty_reads_and_no_arg_jobs() {
+        let root = test_root();
+        let apps = test_applications(&root);
+        let index = dispatch_legacy_client(&apps, "client.getReferenceSidecarIndex", &[json!({})])
+            .expect("index");
+        assert_eq!(index["rows"], json!([]));
+        assert_eq!(index["cursor"], "0");
+        assert_eq!(index["next_cursor"], "");
+        assert_eq!(index["has_more"], false);
+
+        let ranked = dispatch_legacy_client(&apps, "client.rankExternalReferences", &[json!({})])
+            .expect("ranking");
+        assert_eq!(ranked["items"], json!([]));
+        assert_eq!(ranked["nextCursor"], "");
+        assert_eq!(ranked["hasMore"], false);
+
+        let attention = dispatch_legacy_client(&apps, "client.getAttentionQueue", &[json!({})])
+            .expect("attention");
+        assert_eq!(attention["ok"], true);
+        assert!(attention["items"].is_array());
+
+        let review = dispatch_legacy_client(&apps, "client.getReviewInput", &[json!({})])
+            .expect("review input");
+        assert!(review["reference"]["records"].is_array());
+        assert!(review["concept"].is_array());
+        assert!(review["topicGraph"].is_array());
+
+        for capability in [
+            "client.refreshReferenceSidecarNow",
+            "client.retryReferenceSidecarRefresh",
+            "client.runAdvancedReferenceMatchingNow",
+            "client.retryAdvancedReferenceMatching",
+        ] {
+            assert_eq!(
+                dispatch_legacy_client(&apps, capability, &[]),
+                Err("reverse_host_unavailable".into()),
+                "{capability} must accept the public no-argument boundary",
+            );
+        }
+        assert_eq!(
+            dispatch_legacy_client(
+                &apps,
+                "client.updateCanonicalReferenceMetadata",
+                &[json!({
+                    "canonicalReferenceId":"canonical",
+                    "patch":{"title":"Title"},
+                    "unexpected":true,
+                })],
+            ),
+            Err("invalid_request".into()),
+        );
         drop(apps);
         let _ = std::fs::remove_dir_all(root);
     }

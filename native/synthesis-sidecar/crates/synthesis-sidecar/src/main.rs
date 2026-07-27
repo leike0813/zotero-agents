@@ -7,6 +7,7 @@ mod runtime_lifecycle;
 mod runtime_production_client;
 mod runtime_production_compat;
 mod runtime_production_ports;
+mod runtime_reference_canonical;
 mod runtime_reverse_host;
 mod runtime_server_loop;
 mod runtime_service;

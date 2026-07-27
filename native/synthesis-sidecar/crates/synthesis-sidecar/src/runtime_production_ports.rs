@@ -30,12 +30,16 @@ use synthesis_canonical_store::{CanonicalStore, canonical_json_hash};
 use synthesis_repository::Repository;
 use synthesis_repository::{
     CitationComplexMetricsRecord, CitationGraphApplicationStateRecord, CitationGraphReplacement,
-    CitationLayoutRecord, OperationRecord, ReferenceRedirectFactRecord, TagEffectRecord,
-    TagProtocolRecord, TagStagedSuggestionRecord, TagVocabularyEntryRecord,
-    TagVocabularyReplacement, TopicGraphReplacement,
+    CitationLayoutRecord, OperationRecord, TagEffectRecord, TagProtocolRecord,
+    TagStagedSuggestionRecord, TagVocabularyEntryRecord, TagVocabularyReplacement,
+    TopicGraphReplacement,
 };
 use synthesis_sidecar::runtime_contract::ProductionAdmission;
 
+use crate::runtime_reference_canonical::{
+    ReferenceCanonicalApplication, ReferenceHostArtifactRead, ReferenceHostArtifactsPage,
+    ReferenceHostItemsPage, ReferenceHostPort,
+};
 use crate::runtime_reverse_host::call_reverse_host;
 use crate::runtime_worker_pool::NativeComputePool;
 
@@ -45,8 +49,7 @@ pub(crate) struct ProductionApplications {
     pub(crate) workbench: WorkbenchApplication,
     pub(crate) topics: TopicApplication,
     pub(crate) citations: CitationGraphApplication,
-    pub(crate) reference_refresh: ReferenceRefreshApplication,
-    pub(crate) reference_matching: ReferenceMatchingApplication,
+    pub(crate) reference_canonical: ReferenceCanonicalApplication,
     pub(crate) tags: TagVocabularyApplication,
     pub(crate) concepts: ConceptKbApplication,
     pub(crate) topic_graph: TopicGraphApplication,
@@ -321,311 +324,6 @@ impl ProductionApplications {
             }),
         })
     }
-
-    fn resolve_effective_canonical_id(
-        canonical_id: &str,
-        redirects: &[ReferenceRedirectFactRecord],
-    ) -> Result<String, String> {
-        if canonical_id.is_empty() {
-            return Err("invalid_request".into());
-        }
-        let mut current = canonical_id.to_owned();
-        let mut visited = std::collections::BTreeSet::new();
-        while let Some(redirect) = redirects
-            .iter()
-            .find(|redirect| redirect.from_canonical_reference_id == current)
-        {
-            if !visited.insert(current.clone()) {
-                return Err("canonical_redirect_cycle".into());
-            }
-            current = redirect.to_canonical_reference_id.clone();
-        }
-        Ok(current)
-    }
-
-    fn canonical_action_error(status: &str, code: &str, details: Value) -> Value {
-        serde_json::json!({
-            "ok":false,
-            "status":status,
-            "diagnostics":[{
-                "code":code,
-                "severity":"error",
-                "details":details,
-            }],
-        })
-    }
-
-    pub(crate) fn merge_canonical_reference(&self, request: &Value) -> Result<Value, String> {
-        let source_requested = request
-            .get("sourceEffectiveCanonicalId")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let target_requested = request
-            .get("targetEffectiveCanonicalId")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let owner = self.repository.owner();
-        let mut repository = owner
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?;
-        let redirects = repository.list_reference_redirects()?;
-        let source = Self::resolve_effective_canonical_id(source_requested, &redirects)?;
-        let target = Self::resolve_effective_canonical_id(target_requested, &redirects)?;
-        if source == target {
-            return Ok(Self::canonical_action_error(
-                "invalid_target",
-                "canonical_merge_invalid_target",
-                serde_json::json!({"source":source,"target":target}),
-            ));
-        }
-        let canonicals = repository.list_canonical_references()?;
-        if ![&source, &target].iter().all(|id| {
-            canonicals
-                .iter()
-                .any(|row| row.canonical_reference_id == **id && row.status == "active")
-        }) {
-            return Ok(Self::canonical_action_error(
-                "missing_canonical",
-                "canonical_merge_missing_canonical",
-                serde_json::json!({"source":source,"target":target}),
-            ));
-        }
-        let bindings = repository.list_reference_bindings()?;
-        let source_binding = bindings.iter().find(|binding| {
-            binding.canonical_reference_id == source && binding.status != "revoked"
-        });
-        let target_binding = bindings.iter().find(|binding| {
-            binding.canonical_reference_id == target && binding.status != "revoked"
-        });
-        if source_binding
-            .zip(target_binding)
-            .is_some_and(|(left, right)| {
-                left.library_id != right.library_id || left.item_key != right.item_key
-            })
-        {
-            return Ok(Self::canonical_action_error(
-                "conflicting_bindings",
-                "canonical_merge_conflicting_zotero_bindings",
-                serde_json::json!({"source":source,"target":target}),
-            ));
-        }
-        let incoming = redirects
-            .iter()
-            .filter(|redirect| {
-                Self::resolve_effective_canonical_id(
-                    &redirect.to_canonical_reference_id,
-                    &redirects,
-                )
-                .ok()
-                .as_deref()
-                    == Some(source.as_str())
-            })
-            .count();
-        if incoming > 0
-            && request.get("confirmRetargetGroup").and_then(Value::as_bool) != Some(true)
-        {
-            return Ok(Self::canonical_action_error(
-                "requires_confirmation",
-                "canonical_merge_retarget_group_requires_confirmation",
-                serde_json::json!({"source":source,"target":target,"incoming_redirect_count":incoming}),
-            ));
-        }
-        let now = now_iso_like();
-        repository.upsert_canonical_reference_redirect(&ReferenceRedirectFactRecord {
-            from_canonical_reference_id: source.clone(),
-            to_canonical_reference_id: target.clone(),
-            reason: "canonical_revision_manual_merge".into(),
-            diagnostics_json: "[]".into(),
-            created_at: now.clone(),
-            updated_at: now.clone(),
-        })?;
-        repository
-            .mark_reference_dependent_caches_stale("canonical_revision_manual_merge", &now)?;
-        Ok(serde_json::json!({
-            "ok":true,
-            "status":"merged",
-            "source_effective_canonical_id":source,
-            "target_effective_canonical_id":target,
-        }))
-    }
-
-    pub(crate) fn apply_canonical_merge_requests(&self, request: &Value) -> Result<Value, String> {
-        let requests = request
-            .get("requests")
-            .and_then(Value::as_array)
-            .ok_or_else(|| "invalid_request".to_owned())?;
-        let mut results = Vec::with_capacity(requests.len());
-        let mut applied = 0;
-        for request in requests {
-            let mut request = request.clone();
-            request
-                .as_object_mut()
-                .ok_or_else(|| "invalid_request".to_owned())?
-                .insert("confirmRetargetGroup".into(), Value::Bool(true));
-            let mut result = self.merge_canonical_reference(&request)?;
-            if result.get("ok").and_then(Value::as_bool) == Some(true) {
-                applied += 1;
-                if let Some(object) = result.as_object_mut() {
-                    object.insert("status".into(), Value::String("accepted".into()));
-                }
-            }
-            results.push(result);
-        }
-        let failed = results.len().saturating_sub(applied);
-        Ok(serde_json::json!({
-            "ok":failed == 0,
-            "applied_count":applied,
-            "failed_count":failed,
-            "results":results,
-        }))
-    }
-
-    pub(crate) fn update_canonical_reference_metadata(
-        &self,
-        request: &Value,
-    ) -> Result<Value, String> {
-        let canonical_id = request
-            .get("canonicalReferenceId")
-            .and_then(Value::as_str)
-            .ok_or_else(|| "invalid_request".to_owned())?;
-        let patch = request
-            .get("patch")
-            .and_then(Value::as_object)
-            .ok_or_else(|| "invalid_request".to_owned())?;
-        let owner = self.repository.owner();
-        let mut repository = owner
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?;
-        let Some(mut canonical) = repository
-            .list_canonical_references()?
-            .into_iter()
-            .find(|row| row.canonical_reference_id == canonical_id && row.status == "active")
-        else {
-            return Ok(Self::canonical_action_error(
-                "missing_canonical",
-                "canonical_metadata_missing_canonical",
-                serde_json::json!({"canonicalReferenceId":canonical_id}),
-            ));
-        };
-        if repository.list_reference_bindings()?.iter().any(|binding| {
-            binding.canonical_reference_id == canonical_id && binding.status != "revoked"
-        }) {
-            return Ok(Self::canonical_action_error(
-                "bound_to_zotero",
-                "canonical_metadata_bound_to_zotero",
-                serde_json::json!({"canonicalReferenceId":canonical_id}),
-            ));
-        }
-        if let Some(title) = patch
-            .get("title")
-            .and_then(Value::as_str)
-            .filter(|text| !text.is_empty())
-        {
-            canonical.title = title.into();
-            if !patch.contains_key("normalizedTitle") {
-                canonical.normalized_title = title
-                    .split_whitespace()
-                    .collect::<Vec<_>>()
-                    .join(" ")
-                    .to_lowercase();
-            }
-        }
-        if let Some(value) = patch
-            .get("normalizedTitle")
-            .and_then(Value::as_str)
-            .filter(|text| !text.is_empty())
-        {
-            canonical.normalized_title = value.into();
-        }
-        if let Some(value) = patch
-            .get("year")
-            .and_then(Value::as_str)
-            .filter(|text| !text.is_empty())
-        {
-            canonical.year = value.into();
-        }
-        if let Some(value) = patch.get("authors").and_then(Value::as_array) {
-            canonical.authors_json =
-                serde_json::to_string(value).map_err(|_| "invalid_request".to_owned())?;
-        }
-        if let Some(value) = patch.get("identifiers").and_then(Value::as_object) {
-            canonical.identifiers_json =
-                serde_json::to_string(value).map_err(|_| "invalid_request".to_owned())?;
-        }
-        canonical.metadata_hash = canonical_json_hash(&serde_json::json!({
-            "title":canonical.title,
-            "normalizedTitle":canonical.normalized_title,
-            "year":canonical.year,
-            "authors":canonical.authors_json,
-            "identifiers":canonical.identifiers_json,
-        }))?;
-        canonical.updated_at = now_iso_like();
-        repository.upsert_canonical_reference_record(&canonical)?;
-        repository.mark_reference_dependent_caches_stale(
-            "canonical_metadata_update",
-            &canonical.updated_at,
-        )?;
-        Ok(serde_json::json!({
-            "ok":true,
-            "status":"updated",
-            "canonical_reference_id":canonical_id,
-        }))
-    }
-
-    pub(crate) fn archive_canonical_reference(&self, request: &Value) -> Result<Value, String> {
-        let canonical_id = request
-            .get("canonicalReferenceId")
-            .and_then(Value::as_str)
-            .ok_or_else(|| "invalid_request".to_owned())?;
-        let owner = self.repository.owner();
-        let mut repository = owner
-            .lock()
-            .map_err(|_| "repository_unavailable".to_owned())?;
-        let redirects = repository.list_reference_redirects()?;
-        let effective = Self::resolve_effective_canonical_id(canonical_id, &redirects)?;
-        let blockers = repository.list_raw_references()?.iter().any(|raw| {
-            raw.status == "active"
-                && Self::resolve_effective_canonical_id(&raw.canonical_reference_id, &redirects)
-                    .ok()
-                    .as_deref()
-                    == Some(effective.as_str())
-        }) || repository.list_reference_bindings()?.iter().any(|binding| {
-            binding.status != "revoked"
-                && Self::resolve_effective_canonical_id(&binding.canonical_reference_id, &redirects)
-                    .ok()
-                    .as_deref()
-                    == Some(effective.as_str())
-        }) || redirects.iter().any(|redirect| {
-            redirect.from_canonical_reference_id == canonical_id
-                || redirect.to_canonical_reference_id == canonical_id
-        });
-        if blockers {
-            return Ok(Self::canonical_action_error(
-                "blocked",
-                "canonical_archive_blocked",
-                serde_json::json!({"canonicalReferenceId":canonical_id}),
-            ));
-        }
-        let Some(mut canonical) = repository
-            .list_canonical_references()?
-            .into_iter()
-            .find(|row| row.canonical_reference_id == canonical_id && row.status == "active")
-        else {
-            return Ok(Self::canonical_action_error(
-                "missing_canonical",
-                "canonical_archive_missing_canonical",
-                serde_json::json!({"canonicalReferenceId":canonical_id}),
-            ));
-        };
-        canonical.status = "archived".into();
-        canonical.updated_at = now_iso_like();
-        repository.upsert_canonical_reference_record(&canonical)?;
-        Ok(serde_json::json!({
-            "ok":true,
-            "status":"archived",
-            "canonical_reference_id":canonical_id,
-        }))
-    }
 }
 
 pub(crate) fn build_production_applications(
@@ -662,6 +360,12 @@ pub(crate) fn build_production_applications(
         Arc::new(NativeReferenceMatcherPort {
             compute: Arc::clone(&compute),
         }),
+    );
+    let reference_canonical = ReferenceCanonicalApplication::new(
+        repository.clone(),
+        reference_refresh,
+        reference_matching,
+        host.clone(),
     );
     let tags = TagVocabularyApplication::new(
         repository.clone(),
@@ -707,8 +411,7 @@ pub(crate) fn build_production_applications(
         workbench,
         topics,
         citations,
-        reference_refresh,
-        reference_matching,
+        reference_canonical,
         tags,
         concepts,
         topic_graph,
@@ -1045,7 +748,7 @@ impl ReferenceMatcherPort for NativeReferenceMatcherPort {
     }
 }
 
-struct ReverseHostApplicationPort {
+pub(crate) struct ReverseHostApplicationPort {
     admission: Option<Arc<ProductionAdmission>>,
     service_instance_id: String,
 }
@@ -1057,6 +760,44 @@ impl ReverseHostApplicationPort {
             .as_deref()
             .ok_or_else(|| "reverse_host_unavailable".to_owned())?;
         call_reverse_host(admission, &self.service_instance_id, capability, payload)
+    }
+}
+
+impl ReferenceHostPort for ReverseHostApplicationPort {
+    fn list_items_page(
+        &self,
+        cursor: &str,
+        limit: usize,
+    ) -> Result<ReferenceHostItemsPage, String> {
+        serde_json::from_value(self.call(
+            "library.items.list_page",
+            serde_json::json!({"cursor":cursor,"limit":limit}),
+        )?)
+        .map_err(|_| "reverse_host_result_invalid".into())
+    }
+
+    fn scan_artifacts_page(
+        &self,
+        cursor: &str,
+        limit: usize,
+    ) -> Result<ReferenceHostArtifactsPage, String> {
+        serde_json::from_value(self.call(
+            "library.artifacts.scan_page",
+            serde_json::json!({"cursor":cursor,"limit":limit}),
+        )?)
+        .map_err(|_| "reverse_host_result_invalid".into())
+    }
+
+    fn read_artifact(
+        &self,
+        locator: &str,
+        expected_hash: &str,
+    ) -> Result<ReferenceHostArtifactRead, String> {
+        serde_json::from_value(self.call(
+            "library.artifacts.read",
+            serde_json::json!({"locator":locator,"expectedHash":expected_hash}),
+        )?)
+        .map_err(|_| "reverse_host_result_invalid".into())
     }
 }
 

@@ -126,7 +126,11 @@ pub trait ReferenceMatchingRepositoryPort: Send + Sync {
         preparation_id: &str,
         promotion: &ReferenceMatchingPromotion,
     ) -> Result<bool, String>;
-    fn apply_review(&self, transition: &ReferenceReviewTransition) -> Result<bool, String>;
+    fn apply_reviews(
+        &self,
+        transitions: &[ReferenceReviewTransition],
+        receipt: Option<&OperationRecord>,
+    ) -> Result<bool, String>;
 }
 
 pub trait TagVocabularyRepositoryPort: Send + Sync {
@@ -796,11 +800,15 @@ impl ReferenceMatchingRepositoryPort for RepositoryPort {
             .promote_reference_matching(preparation_id, promotion)
     }
 
-    fn apply_review(&self, transition: &ReferenceReviewTransition) -> Result<bool, String> {
+    fn apply_reviews(
+        &self,
+        transitions: &[ReferenceReviewTransition],
+        receipt: Option<&OperationRecord>,
+    ) -> Result<bool, String> {
         self.repository
             .lock()
             .map_err(|_| "repository_unavailable".to_owned())?
-            .apply_reference_review_transition(transition)
+            .apply_reference_review_transitions_with_receipt(transitions, receipt)
     }
 }
 

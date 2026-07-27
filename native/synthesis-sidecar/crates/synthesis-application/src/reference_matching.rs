@@ -482,6 +482,14 @@ impl ReferenceMatchingApplication {
     }
 
     pub fn review(&self, decisions: &[ReferenceReviewDecision]) -> ReferenceReviewBatchResult {
+        self.review_with_receipt(decisions, None)
+    }
+
+    pub fn review_with_receipt(
+        &self,
+        decisions: &[ReferenceReviewDecision],
+        receipt: Option<&synthesis_repository::OperationRecord>,
+    ) -> ReferenceReviewBatchResult {
         if decisions.is_empty() {
             return ReferenceReviewBatchResult {
                 status: ReferenceMatchingStatus::InvalidRequest,
@@ -513,30 +521,60 @@ impl ReferenceMatchingApplication {
             }
         }
         let now = (self.now)();
-        let mut results = Vec::with_capacity(decisions.len());
-        let mut successes = 0;
-        for decision in decisions {
-            let status = match self.review_one(decision, &now) {
-                Ok(true) => {
-                    successes += 1;
-                    "applied"
-                }
-                Ok(false) => "not_found",
-                Err("not_found") => "not_found",
-                Err("invalid_request") => "invalid_request",
-                Err(_) => "failed",
+        let planned = decisions
+            .iter()
+            .map(|decision| self.plan_review(decision, &now))
+            .collect::<Vec<_>>();
+        if planned.iter().any(Result::is_err) {
+            let results = decisions
+                .iter()
+                .zip(planned)
+                .map(|(decision, transition)| ReferenceReviewItemResult {
+                    proposal_id: decision.proposal_id.clone(),
+                    status: match transition {
+                        Ok(_) => "not_applied",
+                        Err("not_found") => "not_found",
+                        Err("invalid_request") => "invalid_request",
+                        Err(_) => "failed",
+                    }
+                    .into(),
+                })
+                .collect();
+            return ReferenceReviewBatchResult {
+                status: ReferenceMatchingStatus::PartialSuccess,
+                results,
             };
-            results.push(ReferenceReviewItemResult {
-                proposal_id: decision.proposal_id.clone(),
-                status: status.into(),
-            });
         }
-        let status = if successes == decisions.len() {
-            ReferenceMatchingStatus::ReviewApplied
-        } else {
-            ReferenceMatchingStatus::PartialSuccess
-        };
-        ReferenceReviewBatchResult { status, results }
+        let transitions = planned
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .expect("validated review plans");
+        match self.repository.apply_reviews(&transitions, receipt) {
+            Ok(true) => ReferenceReviewBatchResult {
+                status: ReferenceMatchingStatus::ReviewApplied,
+                results: decisions
+                    .iter()
+                    .map(|decision| ReferenceReviewItemResult {
+                        proposal_id: decision.proposal_id.clone(),
+                        status: "applied".into(),
+                    })
+                    .collect(),
+            },
+            Ok(false) => ReferenceReviewBatchResult {
+                status: ReferenceMatchingStatus::PartialSuccess,
+                results: decisions
+                    .iter()
+                    .map(|decision| ReferenceReviewItemResult {
+                        proposal_id: decision.proposal_id.clone(),
+                        status: "not_applied".into(),
+                    })
+                    .collect(),
+            },
+            Err(_) => ReferenceReviewBatchResult {
+                status: ReferenceMatchingStatus::RepairRequired,
+                results: Vec::new(),
+            },
+        }
     }
 
     pub fn discard_preparation(&self, preparation_id: &str) -> ReferenceMatchingMutationResult {
@@ -694,11 +732,11 @@ impl ReferenceMatchingApplication {
         })
     }
 
-    fn review_one(
+    fn plan_review(
         &self,
         decision: &ReferenceReviewDecision,
         now: &str,
-    ) -> Result<bool, &'static str> {
+    ) -> Result<ReferenceReviewTransition, &'static str> {
         if decision.proposal_id.is_empty() {
             return Err("invalid_request");
         }
@@ -832,9 +870,7 @@ impl ReferenceMatchingApplication {
         transition.graph_facts_changed =
             revoke_facts || transition.binding.is_some() || !transition.redirects.is_empty();
         transition.proposal = proposal;
-        self.repository
-            .apply_review(&transition)
-            .map_err(|_| "failed")
+        Ok(transition)
     }
 }
 
@@ -1191,13 +1227,16 @@ mod tests {
             },
         ]);
         assert_eq!(partial.status, ReferenceMatchingStatus::PartialSuccess);
-        assert!(
+        assert_eq!(partial.results[0].status, "not_applied");
+        assert_eq!(partial.results[1].status, "not_found");
+        assert_eq!(
             owner
                 .lock()
                 .expect("repository")
                 .list_reference_bindings()
                 .expect("bindings")
-                .is_empty()
+                .len(),
+            1
         );
         assert!(application.shutdown(Duration::from_secs(1)));
         let _ = std::fs::remove_dir_all(root);

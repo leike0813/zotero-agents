@@ -88,9 +88,9 @@ export function inspectSynthesisCitationGraphSurfaceParity() {
     ...ids
       .filter((id) => !ready.includes(id as never))
       .map((id) => `not ready: ${id}`),
-    ...(ready.length === 48 && new Set(ready).size === ready.length
+    ...(new Set(ready).size === ready.length
       ? []
-      : ["invalid ready roster"]),
+      : ["duplicate ready capability"]),
   ];
   return { ok: errors.length === 0, operations: ids.length, errors };
 }
