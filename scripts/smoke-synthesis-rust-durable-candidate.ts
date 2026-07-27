@@ -458,6 +458,27 @@ async function main() {
         throw new Error(`Native transfer ${action} failed`);
       }
     }
+    await withDeadline(
+      (async () => {
+        for (;;) {
+          const snapshot = await call(
+            endpoint,
+            "compute.citation_graph_build_transfer",
+            { action: "status", sessionId },
+          );
+          const data = snapshot.body.data as Record<string, any>;
+          if (data?.state === "completed") return;
+          if (data?.execution?.lastFailure) {
+            throw new Error(
+              `Native transfer worker failed: ${JSON.stringify(data.execution.lastFailure)}`,
+            );
+          }
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+      })(),
+      30_000,
+      "native_transfer_complete",
+    );
     const outputManifest = await call(
       endpoint,
       "compute.citation_graph_build_transfer",
@@ -612,10 +633,26 @@ async function main() {
       if (
         reopenedHealth.repository?.state !== "ready" ||
         reopenedHealth.canonicalStore?.state !== "ready" ||
+        reopenedHealth.citationGraphTransfer?.sessions !== 0 ||
         reopenedHealth.target !== target
       ) {
         throw new Error(
           `Invalid reopened health: ${JSON.stringify(reopenedHealth)}`,
+        );
+      }
+      const staleSession = await call(
+        reopenedEndpoint,
+        "compute.citation_graph_build_transfer",
+        { action: "status", sessionId },
+        "r8:stale-transfer",
+      );
+      if (
+        staleSession.response.status !== 404 ||
+        (staleSession.body.error as Record<string, unknown>)?.code !==
+          "transfer_not_found"
+      ) {
+        throw new Error(
+          `Native transfer session survived restart: ${JSON.stringify(staleSession.body)}`,
         );
       }
       const reopenedShutdown = await call(

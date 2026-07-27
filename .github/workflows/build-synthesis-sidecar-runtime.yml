@@ -100,6 +100,9 @@ jobs:
             --created-at="${CREATED_AT}" \
             --platform-signature="${{ matrix.platform_signature }}" \
             --output=".scaffold/synthesis-sidecar-runtime/${{ matrix.target }}"
+          npx tsx scripts/check-synthesis-native-worker-transfer-parity.ts \
+            --binary="${BINARY}" \
+            --target="${{ matrix.target }}"
           npx tsx scripts/smoke-synthesis-rust-sidecar-worker.ts \
             "${BINARY}" \
             ".scaffold/synthesis-sidecar-runtime/${{ matrix.target }}/provenance.json"

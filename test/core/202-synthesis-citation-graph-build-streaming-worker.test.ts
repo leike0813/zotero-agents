@@ -286,4 +286,46 @@ describe("Synthesis Citation Graph Build streaming worker", function () {
     );
     assert.notInclude(composition, "createSynthesisSidecarTransferClient");
   });
+
+  it("keeps native worker, transfer, capability, and service authorities separate", function () {
+    const runtimeRoot = path.join(
+      ROOT,
+      "native/synthesis-sidecar/crates/synthesis-sidecar/src",
+    );
+    const worker = fs.readFileSync(
+      path.join(runtimeRoot, "runtime_worker.rs"),
+      "utf8",
+    );
+    const workerPool = fs.readFileSync(
+      path.join(runtimeRoot, "runtime_worker_pool.rs"),
+      "utf8",
+    );
+    const transfer = fs.readFileSync(
+      path.join(runtimeRoot, "runtime_transfer.rs"),
+      "utf8",
+    );
+    const capabilities = fs.readFileSync(
+      path.join(runtimeRoot, "runtime_capabilities.rs"),
+      "utf8",
+    );
+    const service = fs.readFileSync(
+      path.join(runtimeRoot, "runtime_service.rs"),
+      "utf8",
+    );
+
+    assert.notInclude(transfer, "synthesis_citation_graph_build");
+    for (const source of [worker, workerPool]) {
+      assert.notInclude(source, "synthesis_repository");
+      assert.notInclude(source, "synthesis_canonical_store");
+      assert.notInclude(source, "WorkbenchApplication");
+      assert.notInclude(source, "NativeLaunchConfig");
+    }
+    assert.include(workerPool, "enum WorkerOperation");
+    assert.include(workerPool, "trait PagedInputSource");
+    assert.include(workerPool, "trait PagedOutputSink");
+    assert.include(capabilities, "match call.capability.as_str()");
+    assert.notInclude(service, "enum WorkerCommand");
+    assert.notInclude(service, "match call.capability.as_str()");
+    assert.isBelow(service.split("\n").length, 300);
+  });
 });

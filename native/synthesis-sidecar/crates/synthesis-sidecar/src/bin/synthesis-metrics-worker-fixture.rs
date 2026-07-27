@@ -32,6 +32,31 @@ fn main() -> io::Result<()> {
             .and_then(|suffix| suffix.chars().next())
             .unwrap_or('0');
         match mode {
+            '0' => write_frame(&json!({
+                "protocol": PROTOCOL,
+                "type": "result",
+                "taskId": task_id,
+                "result": {
+                    "graphHash":graph_hash,
+                    "metricsVersion":2,
+                    "params":{
+                        "pagerankDamping":0.85,
+                        "pagerankIterations":50,
+                        "foundationFormula":"fixture",
+                        "frontierFormula":"fixture"
+                    },
+                    "graphYear":null,
+                    "libraryNodeMetrics":[],
+                    "diagnostics":{
+                        "libraryNodeCount":0,
+                        "externalReferenceCount":0,
+                        "unresolvedReferenceCount":0,
+                        "componentCount":0,
+                        "isolatedLibraryNodeCount":0,
+                        "missingYearCount":0
+                    }
+                }
+            }))?,
             'a' => loop {
                 std::hint::spin_loop();
             },
