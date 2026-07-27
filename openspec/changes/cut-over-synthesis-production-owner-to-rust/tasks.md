@@ -40,7 +40,7 @@
 ## 7. Decomposed R9a Delivery
 
 - [x] 7.1 Complete `complete-synthesis-native-topic-workbench-surface`
-- [ ] 7.2 Complete `complete-synthesis-native-citation-graph-surface`
+- [x] 7.2 Complete `complete-synthesis-native-citation-graph-surface`
 - [ ] 7.3 Complete `complete-synthesis-native-reference-canonical-surface`
 - [ ] 7.4 Complete `complete-synthesis-native-tag-surface`
 - [ ] 7.5 Complete `complete-synthesis-native-concept-topic-graph-surface`
