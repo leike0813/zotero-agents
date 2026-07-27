@@ -16,6 +16,7 @@ import {
   SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
 } from "../../packages/synthesis-contracts/src/sidecarSystem";
 import { createSynthesisProductionBackupService } from "../../src/modules/synthesisProductionBackup";
+import { inspectSynthesisTopicWorkbenchSurfaceParity } from "../../scripts/check-synthesis-topic-workbench-surface-parity";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 const EXECUTABLE = path.join(
@@ -26,6 +27,26 @@ const EXECUTABLE = path.join(
 const CLIENT_TOKEN = "client-token-0123456789abcdef0123456789abcdef";
 const LIFECYCLE_TOKEN = "lifecycle-token-0123456789abcdef0123456789abcdef";
 const execFileAsync = promisify(execFile);
+const TOPIC_WORKBENCH_OPERATIONS = [
+  "client.applyLiteratureDigestSidecar",
+  "client.applyTopicSynthesisResult",
+  "client.consumeRelatedItemsSyncEcho",
+  "client.deleteTopicArtifact",
+  "client.findTopicsByPaperRef",
+  "client.getSynthesisBackgroundJobRows",
+  "client.getSynthesisWorkbenchChromeInput",
+  "client.getSynthesisWorkbenchSurfaceInput",
+  "client.getTopicContext",
+  "client.getTopicReport",
+  "client.listTopics",
+  "client.listWorkflowTopicOptions",
+  "client.purgeDeletedTopicArtifacts",
+  "client.readTopicDetail",
+  "client.rejectTopicDiscoveryHint",
+  "client.resolveResolver",
+  "client.resolveTopicPaperDigest",
+  "client.restoreTopicDiscoveryHint",
+] as const;
 
 function config(profileRuntimeRoot: string, supervisorInstanceId: string) {
   return {
@@ -156,6 +177,20 @@ async function call(
 
 describe("Synthesis Rust production client route", function () {
   this.timeout(30_000);
+
+  it("keeps every Topic and Workbench public operation fixture-backed and ready", function () {
+    assert.deepEqual(inspectSynthesisTopicWorkbenchSurfaceParity(), {
+      ok: true,
+      operations: 18,
+      errors: [],
+    });
+    for (const capability of TOPIC_WORKBENCH_OPERATIONS) {
+      assert.include(
+        SYNTHESIS_SIDECAR_READY_PRODUCTION_CLIENT_CAPABILITIES,
+        capability,
+      );
+    }
+  });
 
   it("rehearses verified backup, preflight, owner conflict, native reads, and failed preflight recovery", async function () {
     assert.isTrue(fs.existsSync(EXECUTABLE), "Rust sidecar must be built");
@@ -414,6 +449,43 @@ describe("Synthesis Rust production client route", function () {
         diagnostics: [],
       });
 
+      const topicContext = await call(port, "client.getTopicContext", {
+        args: [{ topicId: "missing-topic" }],
+      });
+      assert.equal(topicContext.status, 200);
+      assert.deepInclude(topicContext.body.data, {
+        schema_id: "synthesis.topic_context",
+        status: "not_found",
+        topic_id: "missing-topic",
+      });
+
+      const topicReport = await call(port, "client.getTopicReport", {
+        args: [{ topicId: "missing-topic" }],
+      });
+      assert.equal(topicReport.status, 200);
+      assert.deepInclude(topicReport.body.data, {
+        ok: false,
+        status: "not_found",
+        topic_id: "missing-topic",
+      });
+
+      const resolver = await call(port, "client.resolveResolver", {
+        args: [{}],
+      });
+      assert.equal(resolver.status, 200);
+      assert.deepEqual(resolver.body.data.papers, []);
+      assert.deepEqual(resolver.body.data.errors, ["resolver matched no papers"]);
+
+      const digest = await call(port, "client.resolveTopicPaperDigest", {
+        args: [{ paperRef: "1:AAAA1111" }],
+      });
+      assert.equal(digest.status, 200);
+      assert.deepInclude(digest.body.data, {
+        ok: false,
+        status: "unavailable",
+        paper_ref: "1:AAAA1111",
+      });
+
       const workbenchChrome = await call(
         port,
         "client.getSynthesisWorkbenchChromeInput",
@@ -421,6 +493,14 @@ describe("Synthesis Rust production client route", function () {
       );
       assert.equal(workbenchChrome.status, 200);
       assert.hasAllKeys(workbenchChrome.body.data, ["maintenance"]);
+
+      const workbenchSurface = await call(
+        port,
+        "client.getSynthesisWorkbenchSurfaceInput",
+        { args: ["maintenance", {}] },
+      );
+      assert.equal(workbenchSurface.status, 200);
+      assert.hasAllKeys(workbenchSurface.body.data, ["maintenance"]);
 
       const backgroundJobs = await call(
         port,

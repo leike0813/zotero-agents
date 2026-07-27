@@ -30,9 +30,9 @@ use synthesis_canonical_store::{CanonicalStore, canonical_json_hash};
 use synthesis_repository::Repository;
 use synthesis_repository::{
     CitationComplexMetricsRecord, CitationGraphApplicationStateRecord, CitationGraphReplacement,
-    CitationLayoutRecord, ReferenceRedirectFactRecord, TagEffectRecord, TagProtocolRecord,
-    TagStagedSuggestionRecord, TagVocabularyEntryRecord, TagVocabularyReplacement,
-    TopicGraphReplacement,
+    CitationLayoutRecord, OperationRecord, ReferenceRedirectFactRecord, TagEffectRecord,
+    TagProtocolRecord, TagStagedSuggestionRecord, TagVocabularyEntryRecord,
+    TagVocabularyReplacement, TopicGraphReplacement,
 };
 use synthesis_sidecar::runtime_contract::ProductionAdmission;
 
@@ -63,6 +63,160 @@ impl ProductionApplications {
             .as_deref()
             .ok_or_else(|| "reverse_host_unavailable".to_owned())?;
         call_reverse_host(admission, &self.service_instance_id, capability, payload)
+    }
+
+    pub(crate) fn apply_related_items_effect(&self, payload: Value) -> Result<Value, String> {
+        if !payload.is_object() {
+            return Err("invalid_request".into());
+        }
+        self.apply_host_effect_once("effects.related_items.apply_batch", payload)
+    }
+
+    pub(crate) fn apply_literature_digest(&self, payload: Value) -> Result<Value, String> {
+        let request = payload
+            .as_object()
+            .ok_or_else(|| "invalid_request".to_owned())?;
+        let library_id = request
+            .get("libraryId")
+            .or_else(|| request.get("library_id"))
+            .and_then(Value::as_i64)
+            .filter(|value| *value >= 0)
+            .ok_or_else(|| "invalid_request".to_owned())?;
+        let item_key = request
+            .get("itemKey")
+            .or_else(|| request.get("item_key"))
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| "invalid_request".to_owned())?;
+        let source_ref = request
+            .get("paperRef")
+            .or_else(|| request.get("paper_ref"))
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("{library_id}:{item_key}"));
+        let source_hash = canonical_json_hash(&payload)?;
+        let operation_id = format!("literature-digest:{source_hash}");
+        let now = now_iso_like();
+        let repository = self.repository.owner();
+        let repository = repository
+            .lock()
+            .map_err(|_| "repository_unavailable".to_owned())?;
+        if let Some(receipt) = repository.get_operation(&operation_id)?
+            && matches!(receipt.status.as_str(), "completed" | "succeeded")
+        {
+            return Ok(serde_json::json!({
+                "ok":true,
+                "status":"persisted",
+                "sourceRef":source_ref,
+                "operationId":operation_id,
+                "idempotent":true,
+            }));
+        }
+        repository.upsert_operation(&OperationRecord {
+            operation_id: operation_id.clone(),
+            operation_type: "literature_digest_apply".into(),
+            library_id,
+            scope_kind: "paper".into(),
+            scope_ref: source_ref.clone(),
+            status: "completed".into(),
+            label: "Apply literature digest".into(),
+            phase: "persisted".into(),
+            progress_mode: "determinate".into(),
+            processed_count: 1,
+            total_count: 1,
+            source_hash,
+            created_at: now.clone(),
+            started_at: now.clone(),
+            completed_at: now.clone(),
+            updated_at: now,
+            ..OperationRecord::default()
+        })?;
+        Ok(serde_json::json!({
+            "ok":true,
+            "status":"persisted",
+            "sourceRef":source_ref,
+            "operationId":operation_id,
+            "idempotent":false,
+        }))
+    }
+
+    fn apply_host_effect_once(&self, capability: &str, payload: Value) -> Result<Value, String> {
+        let source_hash = canonical_json_hash(&serde_json::json!({
+            "capability":capability,
+            "payload":payload,
+        }))?;
+        let operation_id = format!("host-effect:{source_hash}");
+        let now = now_iso_like();
+        {
+            let repository = self.repository.owner();
+            let repository = repository
+                .lock()
+                .map_err(|_| "repository_unavailable".to_owned())?;
+            if let Some(receipt) = repository.get_operation(&operation_id)? {
+                if matches!(receipt.status.as_str(), "completed" | "succeeded") {
+                    return Ok(serde_json::json!({
+                        "ok":true,
+                        "status":"already_applied",
+                        "operationId":operation_id,
+                    }));
+                }
+                if receipt.status == "running" {
+                    return Err("operation_in_progress".into());
+                }
+            }
+            repository.upsert_operation(&OperationRecord {
+                operation_id: operation_id.clone(),
+                operation_type: "related_items_effect".into(),
+                scope_kind: "host-effect".into(),
+                scope_ref: capability.into(),
+                status: "running".into(),
+                label: "Apply related-item effect".into(),
+                phase: "host_effect".into(),
+                progress_mode: "determinate".into(),
+                total_count: 1,
+                source_hash: source_hash.clone(),
+                created_at: now.clone(),
+                started_at: now.clone(),
+                updated_at: now.clone(),
+                ..OperationRecord::default()
+            })?;
+        }
+        match self.call_host(capability, payload) {
+            Ok(result) => {
+                let repository = self.repository.owner();
+                repository
+                    .lock()
+                    .map_err(|_| "repository_unavailable".to_owned())?
+                    .update_operation_status(
+                        &operation_id,
+                        "completed",
+                        "host_effect",
+                        &[],
+                        &now_iso_like(),
+                    )?;
+                Ok(serde_json::json!({
+                    "ok":true,
+                    "status":"applied",
+                    "operationId":operation_id,
+                    "result":result,
+                }))
+            }
+            Err(error) => {
+                let repository = self.repository.owner();
+                repository
+                    .lock()
+                    .map_err(|_| "repository_unavailable".to_owned())?
+                    .update_operation_status(
+                        &operation_id,
+                        "failed",
+                        "host_effect",
+                        std::slice::from_ref(&error),
+                        &now_iso_like(),
+                    )?;
+                Err(error)
+            }
+        }
     }
 
     pub(crate) fn initialize_builtin_tag_policy(&self) -> Result<Value, String> {

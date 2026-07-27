@@ -34,6 +34,15 @@ pub const READY_PRODUCTION_CLIENT_CAPABILITIES: &[&str] = &[
     "client.getSynthesisWorkbenchSurfaceInput",
     "client.getSynthesisBackgroundJobRows",
     "client.readTopicDetail",
+    "client.getTopicContext",
+    "client.resolveResolver",
+    "client.getTopicReport",
+    "client.resolveTopicPaperDigest",
+    "client.applyLiteratureDigestSidecar",
+    "client.deleteTopicArtifact",
+    "client.purgeDeletedTopicArtifacts",
+    "client.rejectTopicDiscoveryHint",
+    "client.restoreTopicDiscoveryHint",
 ];
 
 const PRODUCTION_CLIENT_CAPABILITY_MANIFEST: &str = include_str!(

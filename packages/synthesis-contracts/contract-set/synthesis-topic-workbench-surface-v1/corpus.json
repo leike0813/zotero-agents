@@ -1,0 +1,30 @@
+{
+  "schema": "synthesis-topic-workbench-surface-parity.v1",
+  "requestCodec": "synthesis-client-args.v1",
+  "resultCodec": "synthesis-client-result.v1",
+  "bounds": {
+    "requestBytes": 1048576,
+    "responseBytes": 1048576,
+    "deadlineMs": 10000
+  },
+  "operations": [
+    { "id": "client.listTopics", "access": "read", "cases": ["empty", "page", "invalid_args", "oversized", "expired"] },
+    { "id": "client.findTopicsByPaperRef", "access": "read", "cases": ["empty", "match", "invalid_args", "oversized", "expired"] },
+    { "id": "client.getTopicContext", "access": "read", "cases": ["absent", "view", "invalid_args", "oversized", "expired"] },
+    { "id": "client.resolveResolver", "access": "read", "cases": ["empty", "page", "invalid_args", "oversized", "expired"] },
+    { "id": "client.getTopicReport", "access": "read", "cases": ["absent", "available", "invalid_args", "oversized", "expired"] },
+    { "id": "client.listWorkflowTopicOptions", "access": "read", "cases": ["empty", "filter", "invalid_args", "oversized", "expired"] },
+    { "id": "client.getSynthesisWorkbenchChromeInput", "access": "read", "cases": ["empty", "jobs", "invalid_args", "oversized", "expired"] },
+    { "id": "client.getSynthesisWorkbenchSurfaceInput", "access": "read", "cases": ["maintenance", "jobs", "invalid_args", "oversized", "expired"] },
+    { "id": "client.getSynthesisBackgroundJobRows", "access": "read", "cases": ["empty", "terminal", "invalid_args", "oversized", "expired"] },
+    { "id": "client.readTopicDetail", "access": "read", "cases": ["absent", "ready", "invalid_args", "oversized", "expired"] },
+    { "id": "client.resolveTopicPaperDigest", "access": "read", "cases": ["unavailable", "available", "invalid_args", "oversized", "expired"] },
+    { "id": "client.applyLiteratureDigestSidecar", "access": "mutation", "cases": ["valid", "basis_conflict", "host_failure", "receipt_idempotent", "reopen", "invalid_args", "oversized", "expired"] },
+    { "id": "client.applyTopicSynthesisResult", "access": "mutation", "cases": ["valid", "basis_conflict", "host_failure", "receipt_idempotent", "reopen", "invalid_args", "oversized", "expired"] },
+    { "id": "client.consumeRelatedItemsSyncEcho", "access": "mutation", "cases": ["valid", "host_failure", "receipt_idempotent", "reopen", "invalid_args", "oversized", "expired"] },
+    { "id": "client.deleteTopicArtifact", "access": "mutation", "cases": ["valid", "basis_conflict", "reopen", "invalid_args", "oversized", "expired"] },
+    { "id": "client.purgeDeletedTopicArtifacts", "access": "mutation", "cases": ["empty", "terminal", "reopen", "invalid_args", "oversized", "expired"] },
+    { "id": "client.rejectTopicDiscoveryHint", "access": "mutation", "cases": ["valid", "reopen", "invalid_args", "oversized", "expired"] },
+    { "id": "client.restoreTopicDiscoveryHint", "access": "mutation", "cases": ["valid", "reopen", "invalid_args", "oversized", "expired"] }
+  ]
+}

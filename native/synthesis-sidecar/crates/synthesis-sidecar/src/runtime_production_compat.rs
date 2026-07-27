@@ -15,12 +15,12 @@ use synthesis_application::reference_refresh::{
 };
 use synthesis_application::tag_vocabulary::TagPromoteRequest;
 use synthesis_application::topic_graph::{
-    TopicGraphPurgeRequest, TopicGraphRelationDecisionRequest, TopicGraphRelationStatus,
-    TopicGraphReviewRequest,
+    TopicGraphMarkDeletedRequest, TopicGraphPurgeRequest, TopicGraphRelationDecisionRequest,
+    TopicGraphRelationStatus, TopicGraphReviewRequest,
 };
 use synthesis_application::{
     CitationGraphRepositoryPort, ReferenceRefreshRepositoryPort, TagVocabularyRepositoryPort,
-    TopicDetailRequest, TopicListRequest, TopicListResult, TopicRecord,
+    TopicDetailRequest, TopicDetailResult, TopicListRequest, TopicListResult, TopicRecord,
 };
 use synthesis_repository::{TagAuditRecord, TagStagedSuggestionRecord, TagVocabularyReplacement};
 
@@ -282,15 +282,245 @@ fn page_request(args: &[Value]) -> Result<(usize, usize), String> {
     Ok((cursor, limit))
 }
 
-fn topic_detail_from_compat(
+fn topic_detail_request(args: &[Value]) -> Result<String, String> {
+    let request = object_arg(args)?;
+    Ok(string_field(&request, &["topicId", "topic_id"])?.to_owned())
+}
+
+fn topic_detail(
+    apps: &ProductionApplications,
+    topic_id: String,
+) -> Result<TopicDetailResult, String> {
+    apps.topics.detail(TopicDetailRequest { topic_id })
+}
+
+fn topic_context_from_compat(
     apps: &ProductionApplications,
     args: &[Value],
 ) -> Result<Value, String> {
     let request = object_arg(args)?;
     let topic_id = string_field(&request, &["topicId", "topic_id"])?;
-    wire(apps.topics.detail(TopicDetailRequest {
-        topic_id: topic_id.to_owned(),
-    })?)
+    let view = optional_string_field(&request, &["view"]);
+    match topic_detail(apps, topic_id.to_owned())? {
+        TopicDetailResult::Absent { diagnostics, .. } => Ok(json!({
+            "schema_id":"synthesis.topic_context",
+            "schema_version":"2.0.0",
+            "topic_id":topic_id,
+            "status":"not_found",
+            "diagnostics":diagnostics,
+        })),
+        TopicDetailResult::Invalid { diagnostics, .. } => Ok(json!({
+            "schema_id":"synthesis.topic_context",
+            "schema_version":"2.0.0",
+            "topic_id":topic_id,
+            "status":"invalid",
+            "diagnostics":diagnostics,
+        })),
+        TopicDetailResult::Ready {
+            topic, snapshot, ..
+        } => {
+            let digest = json!({
+                "topic_id":topic.topic_id,
+                "title":topic.title,
+                "definition":topic.definition,
+                "language":topic.language,
+                "markdown":snapshot.markdown,
+            });
+            let semantic = json!({
+                "topic_definition":topic.topic_definition,
+                "topic_resolver":topic.topic_resolver,
+                "resolved_paper_set":topic.resolved_paper_set,
+            });
+            let audit = json!({
+                "manifest":snapshot.manifest,
+                "metadata":snapshot.metadata,
+                "artifact":snapshot.artifact,
+                "projection":topic.projection,
+            });
+            let mut response = json!({
+                "schema_id":"synthesis.topic_context",
+                "schema_version":"2.0.0",
+                "topic_id":topic_id,
+            });
+            let response = response
+                .as_object_mut()
+                .ok_or_else(|| "production_projection_invalid".to_owned())?;
+            match view {
+                Some("digest") => {
+                    response.insert("digest".into(), digest);
+                    Ok(Value::Object(response.clone()))
+                }
+                Some("semantic") => {
+                    response.insert("semantic".into(), semantic);
+                    Ok(Value::Object(response.clone()))
+                }
+                Some("audit") => {
+                    response.insert("audit".into(), audit);
+                    Ok(Value::Object(response.clone()))
+                }
+                Some("full") | None => {
+                    response.insert("digest".into(), digest);
+                    response.insert("semantic".into(), semantic);
+                    response.insert("audit".into(), audit);
+                    Ok(Value::Object(response.clone()))
+                }
+                Some(_) => Err("invalid_request".into()),
+            }
+        }
+    }
+}
+
+fn topic_report_from_compat(
+    apps: &ProductionApplications,
+    args: &[Value],
+) -> Result<Value, String> {
+    let topic_id = topic_detail_request(args)?;
+    match topic_detail(apps, topic_id.clone())? {
+        TopicDetailResult::Absent { .. } | TopicDetailResult::Invalid { .. } => Ok(json!({
+            "ok":false,
+            "status":"not_found",
+            "topic_id":topic_id,
+            "format":"markdown",
+            "markdown":"",
+            "diagnostics":["topic_report_unavailable"],
+        })),
+        TopicDetailResult::Ready {
+            topic, snapshot, ..
+        } => {
+            let artifact = snapshot.artifact.as_object();
+            let report = artifact
+                .and_then(|value| {
+                    value
+                        .get("synthesis_report")
+                        .or_else(|| value.get("synthesisReport"))
+                })
+                .and_then(Value::as_object);
+            let markdown = report
+                .and_then(|value| value.get("body").or_else(|| value.get("markdown")))
+                .and_then(Value::as_str)
+                .or_else(|| snapshot.markdown.get("report").map(String::as_str))
+                .or_else(|| snapshot.markdown.values().next().map(String::as_str))
+                .unwrap_or_default();
+            Ok(json!({
+                "ok":!markdown.is_empty(),
+                "status":if markdown.is_empty() { "unavailable" } else { "available" },
+                "topic_id":topic.topic_id,
+                "title":report.and_then(|value| value.get("title")).and_then(Value::as_str).unwrap_or(&topic.title),
+                "format":"markdown",
+                "markdown":markdown,
+                "metadata":{
+                    "language":topic.language,
+                    "updated_at":topic.updated_at,
+                    "artifact_hash":topic.artifact_hash,
+                    "manifest_hash":topic.manifest_hash,
+                    "metadata_hash":topic.metadata_hash,
+                },
+                "diagnostics":if markdown.is_empty() { json!(["synthesis_report_body_unavailable"]) } else { json!([]) },
+            }))
+        }
+    }
+}
+
+fn resolver_from_compat(apps: &ProductionApplications, args: &[Value]) -> Result<Value, String> {
+    let request = object_arg(args)?;
+    let resolver = request
+        .get("resolver")
+        .cloned()
+        .or_else(|| {
+            optional_string_field(&request, &["topicId", "topic_id"]).and_then(|topic_id| {
+                match topic_detail(apps, topic_id.to_owned()).ok()? {
+                    TopicDetailResult::Ready { topic, .. } => Some(topic.topic_resolver),
+                    _ => None,
+                }
+            })
+        })
+        .unwrap_or_else(|| request.clone());
+    if !resolver.is_object() {
+        return Err("invalid_request".into());
+    }
+    let papers = request
+        .get("resolved_paper_set")
+        .or_else(|| request.get("resolvedPaperSet"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let total = papers.len();
+    Ok(json!({
+        "ok":total > 0,
+        "errors":if total == 0 { json!(["resolver matched no papers"]) } else { json!([]) },
+        "papers":papers,
+        "normalized_resolver":resolver,
+        "cursor":"",
+        "next_cursor":"",
+        "has_more":false,
+        "returned":total,
+        "total":total,
+        "limit":total.max(1),
+        "diagnostics":{"final_count":total,"total_candidates":total,"rejected":false},
+    }))
+}
+
+fn digest_resolution_from_compat(
+    apps: &ProductionApplications,
+    args: &[Value],
+) -> Result<Value, String> {
+    let request = object_arg(args)?;
+    let paper_ref = optional_string_field(&request, &["paper_ref", "paperRef"]).unwrap_or_default();
+    let Some(locator) = request.get("locator") else {
+        return Ok(json!({
+            "ok":false,
+            "status":"unavailable",
+            "paper_ref":paper_ref,
+            "digest_markdown":"",
+            "recorded_hash":"",
+            "current_hash":"",
+            "source_changed":false,
+            "diagnostics":["digest_unavailable"],
+        }));
+    };
+    let expected_hash = request
+        .get("expectedHash")
+        .or_else(|| request.get("expected_hash"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "invalid_request".to_owned())?;
+    let result = apps.call_host(
+        "library.artifacts.read",
+        json!({"locator":locator,"expectedHash":expected_hash}),
+    )?;
+    let markdown = result
+        .get("text")
+        .or_else(|| result.get("markdown"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    Ok(json!({
+        "ok":!markdown.is_empty(),
+        "status":if markdown.is_empty() { "unavailable" } else { "available" },
+        "paper_ref":paper_ref,
+        "digest_markdown":markdown,
+        "recorded_hash":"",
+        "current_hash":expected_hash,
+        "source_changed":false,
+        "diagnostics":result.get("diagnostics").cloned().unwrap_or_else(|| json!([])),
+    }))
+}
+
+fn workbench_surface_from_compat(
+    apps: &ProductionApplications,
+    args: &[Value],
+) -> Result<Value, String> {
+    let [surface, state] = args else {
+        return Err("invalid_request".into());
+    };
+    let surface = surface
+        .as_str()
+        .ok_or_else(|| "invalid_request".to_owned())?;
+    if !matches!(surface, "index" | "review" | "topic" | "maintenance") || !state.is_object() {
+        return Err("invalid_request".into());
+    }
+    // The native surface currently owns the coherent operational projection.
+    // Surface-specific data remains with the corresponding typed application.
+    apps.workbench.read_json()
 }
 
 fn expected_hash_request(args: &[Value], names: &[&str]) -> Result<String, String> {
@@ -487,10 +717,7 @@ register_production_client_handlers!(
         apps.workbench.read_json()
     }),
     ("client.getSynthesisWorkbenchSurfaceInput", |apps, args| {
-        if args.len() != 2 || !args[0].is_string() || !args[1].is_object() {
-            return Err("invalid_request".into());
-        }
-        apps.workbench.read_json()
+        workbench_surface_from_compat(apps, args)
     }),
     ("client.getSynthesisBackgroundJobRows", |apps, args| {
         no_args(args)?;
@@ -600,8 +827,7 @@ register_production_client_handlers!(
         wire(apps.topics.apply(request))
     }),
     ("client.consumeRelatedItemsSyncEcho", |apps, args| {
-        let request = one::<Value>(args)?;
-        apps.call_host("effects.related_items.apply_batch", request)
+        apps.apply_related_items_effect(one::<Value>(args)?)
     }),
     ("client.readPaperArtifacts", |apps, args| {
         runtime_artifact_library_debug::dispatch(apps, "client.readPaperArtifacts", args)
@@ -612,36 +838,39 @@ register_production_client_handlers!(
     ("client.exportFilteredPaperArtifacts", |apps, args| {
         runtime_artifact_library_debug::dispatch(apps, "client.exportFilteredPaperArtifacts", args)
     }),
-    ("client.getTopicContext", topic_detail_from_compat),
-    ("client.resolveResolver", topic_detail_from_compat),
-    ("client.getTopicReport", topic_detail_from_compat),
-    ("client.resolveTopicPaperDigest", |apps, args| {
-        let request = object_arg(args)?;
-        apps.call_host("library.artifacts.read", request)
-    }),
+    ("client.getTopicContext", topic_context_from_compat),
+    ("client.resolveResolver", resolver_from_compat),
+    ("client.getTopicReport", topic_report_from_compat),
+    (
+        "client.resolveTopicPaperDigest",
+        digest_resolution_from_compat
+    ),
     ("client.applyLiteratureDigestSidecar", |apps, args| {
-        let request = match args {
-            [request] => serde_json::from_value(request.clone()).unwrap_or_else(|_| {
-                synthesis_application::TopicApplyRequest {
-                    bundle: request.clone(),
-                    assets: Vec::new(),
-                }
-            }),
-            _ => return Err("invalid_request".into()),
-        };
-        wire(apps.topics.apply(request))
+        apps.apply_literature_digest(one::<Value>(args)?)
     }),
     ("client.deleteTopicArtifact", |apps, args| {
         let request = object_arg(args)?;
-        wire(apps.topic_graph.mark_topic_relations_deleted(
-            &serde_json::from_value(request).map_err(|_| "invalid_request".to_owned())?,
-        ))
+        let mutation = TopicGraphMarkDeletedRequest {
+            expected_manifest_hash: topic_graph_manifest_hash(apps)?,
+            topic_id: string_field(&request, &["topicId", "topic_id"])?.to_owned(),
+        };
+        wire(apps.topic_graph.mark_topic_relations_deleted(&mutation))
     }),
     ("client.purgeDeletedTopicArtifacts", |apps, args| {
-        wire(
-            apps.topic_graph
-                .purge_deleted(&one::<TopicGraphPurgeRequest>(args)?),
-        )
+        no_args(args)?;
+        let topic_ids = apps
+            .topic_graph
+            .load()?
+            .nodes
+            .into_iter()
+            .filter(|node| node.definition_status == "deleted")
+            .map(|node| node.topic_id)
+            .collect();
+        let mutation = TopicGraphPurgeRequest {
+            expected_manifest_hash: topic_graph_manifest_hash(apps)?,
+            topic_ids,
+        };
+        wire(apps.topic_graph.purge_deleted(&mutation))
     }),
     ("client.rejectTopicDiscoveryHint", |apps, args| {
         let request = object_arg(args)?;
@@ -1127,6 +1356,24 @@ mod tests {
             .map(str::to_owned)
             .collect::<BTreeSet<_>>();
         assert!(ready.is_subset(&registered));
+    }
+
+    #[test]
+    fn literature_digest_receipt_is_idempotent_after_reopen() {
+        let root = test_root();
+        let request = json!({"libraryId":1,"itemKey":"AAAA1111"});
+        let first = test_applications(&root)
+            .apply_literature_digest(request.clone())
+            .expect("first receipt");
+        assert_eq!(first["status"], "persisted");
+        assert_eq!(first["idempotent"], false);
+
+        let second = test_applications(&root)
+            .apply_literature_digest(request)
+            .expect("reopened receipt");
+        assert_eq!(second["status"], "persisted");
+        assert_eq!(second["idempotent"], true);
+        assert_eq!(first["operationId"], second["operationId"]);
     }
 
     #[test]
