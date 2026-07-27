@@ -4,10 +4,11 @@ R8 has produced a locally verified Rust native runtime, durable/application pari
 
 ## What Changes
 
-- Add a complete typed native RPC adapter for the existing grouped `SynthesisClient` surface while preserving its public methods and DTOs. The current code-owned inventory is 96 methods; stale planning references to 108 are corrected rather than filled with invented methods.
+- Add a complete typed native RPC adapter for the existing grouped `SynthesisClient` surface while preserving its 96 public methods and DTOs. The closed remotely dispatched production inventory contains 95 operations; stale 108-method planning references are corrected rather than filled with invented methods.
 - Add a plugin-owned, authenticated reverse-Host transport for the bounded Zotero reads, WebDAV/export delivery, and preconditioned Host effects required by native applications.
 - Add an upgrade-triggered cutover coordinator that drains legacy work, creates and verifies a production backup, dry-runs the native owner, transfers the owner lock, records a durable receipt, validates critical reads, and only then enables mutations.
 - Change the default production client from the legacy in-process composition to the verified native composition. Missing, incomplete, stale, or incompatible native state fails closed and never falls back per request.
+- Execute the 95-operation migration through seven domain-owned surface changes and one final activation change. `operation-ownership.json` is the unique planning source for operation assignment; the final activation change requires every domain gate.
 - Keep Node and legacy source as a differential/migration oracle for this change, but make it unreachable from the production import graph. Physical deletion remains R9b.
 - Treat missing R8 five-platform remote evidence as a recorded external acceptance debt. This change does not dispatch, publish, sign, synchronize, or claim complete R9/Stage 1 release acceptance.
 
@@ -30,6 +31,7 @@ R8 has produced a locally verified Rust native runtime, durable/application pari
 
 ## Impact
 
+- Acts as the R9a program change. Domain implementation and operation-level evidence are owned by the eight linked child changes, while this change retains the final cross-cutting production contract and completion state.
 - Affects language-neutral sidecar lifecycle/RPC/Host/cutover contracts, the Rust service/application composition, plugin runtime supervision and default-client composition, production persistence ownership, and existing Synthesis integration tests.
 - Does not change the public `SynthesisClient`, Host Bridge/MCP capability names, workflow-facing DTOs, Zotero ownership of library data/secrets, or runtime distribution policy.
 - Adds no Node fallback, backend/provider registration, arbitrary method dispatch, direct Rust access to Zotero DB, or R9b deletion.

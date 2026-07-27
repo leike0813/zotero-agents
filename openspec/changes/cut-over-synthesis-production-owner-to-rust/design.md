@@ -1,6 +1,6 @@
 ## Context
 
-The plugin currently starts a verified manifest-v2 Rust runtime, but the native service owns only derived shadow roots, advertises two read canaries, and hard-codes `mutationEnabled: false`. The default client still creates the legacy in-process composition, which owns production SQLite, Topic canonical files, Zotero adapters, delivery, WebDAV, and the code-owned 96-method grouped client.
+The plugin currently starts a verified manifest-v2 Rust runtime, but the native service owns only derived shadow roots, advertises two read canaries, and hard-codes `mutationEnabled: false`. The default client still creates the legacy in-process composition, which owns production SQLite, Topic canonical files, Zotero adapters, delivery, WebDAV, and the closed 95-operation production client.
 
 R7 already proved typed application and durable behavior against independent Node/Rust roots. R9a must consume that implementation without sharing live roots, exposing a remote god object, or introducing a production fallback. The plugin must remain the only Zotero/credential/UI authority, while Rust becomes the only Synthesis DB/canonical/application authority.
 
@@ -33,7 +33,7 @@ Alternative considered: tunnel the legacy service object or arbitrary method nam
 
 ### 2. Keep the public client stable and replace only its composition
 
-`SynthesisClient` remains the sole production facade. A native adapter maps each grouped method to the closed RPC registry and retains existing error normalization, delivery-context handling, generation invalidation, and shutdown behavior. The code-owned client currently exposes 96 methods; older 108-method planning text is treated as documentation drift. `getDefaultSynthesisClient()` initializes this native composition only; production code cannot construct legacy composition.
+`SynthesisClient` remains the sole production facade. A native adapter maps its remotely dispatched methods to the closed RPC registry and retains existing error normalization, delivery-context handling, generation invalidation, and shutdown behavior. The public interface remains at 96 methods, while the production RPC contract contains 95 closed operations; older 108-method planning text is treated as documentation drift. `getDefaultSynthesisClient()` initializes this native composition only; production code cannot construct legacy composition.
 
 Alternative considered: migrate callers in domain batches. Rejected because production would retain two owners and ambiguous fallback semantics.
 
@@ -84,6 +84,22 @@ Mirror/Host-effect failures after canonical commit remain warnings/attention and
 
 R9a changes production reachability, not physical source inventory. Boundary checks allow legacy imports only in isolated oracle/test code. R9b will delete Node runtime/service/worker, legacy application/repository/client composition, implementation-detail tests, dependencies, and release branches.
 
+### 9. Execute the public migration as domain-owned child changes
+
+This change is the R9a program-level contract. `operation-ownership.json` partitions the closed inventory exactly once among seven independently verifiable surface changes:
+
+1. `complete-synthesis-native-topic-workbench-surface`
+2. `complete-synthesis-native-citation-graph-surface`
+3. `complete-synthesis-native-reference-canonical-surface`
+4. `complete-synthesis-native-tag-surface`
+5. `complete-synthesis-native-concept-topic-graph-surface`
+6. `complete-synthesis-native-artifact-library-debug-surface`
+7. `complete-synthesis-native-webdav-maintenance-surface`
+
+`complete-synthesis-native-production-activation` depends on all seven. Surface changes own public DTO compatibility, typed orchestration, durable/Host semantics, differential fixtures, and operation-level ready-roster admission. The activation change owns exact-inventory comparison, lifecycle activation, mutation admission, shared consumer routing, crash repair, and the final verification suite; it must not repair domain semantics locally.
+
+Alternative considered: keep all 95 handlers, cutover, consumer routing, and verification under task 2.2. Rejected because registry completeness can pass while DTO and side-effect behavior remain incompatible, and because partial domain progress becomes invisible behind one production-wide readiness gate.
+
 ## Risks / Trade-offs
 
 - **Large RPC inventory can drift** → derive TypeScript/Rust dispatch and completeness checks from one versioned inventory and fail startup on fingerprint mismatch.
@@ -97,12 +113,11 @@ R9a changes production reachability, not physical source inventory. Boundary che
 
 1. Freeze and fingerprint the complete public client and required Host-port inventory.
 2. Add failing corpus/lifecycle/boundary tests for production owner, RPC completeness, reverse Host, receipt phases, and no fallback.
-3. Implement the native RPC/Host contracts and Rust dispatch over existing typed application ports.
-4. Implement the plugin native client composition and reverse-Host endpoint without changing the default route.
-5. Implement backup, production-copy preflight, owner lock, cutover receipt, and recovery in an isolated integration harness.
-6. Switch default acquisition to the generation-scoped automatic cutover/native composition.
-7. Run critical local smoke and static guards, then update active current-state documentation.
-8. Leave remote five-platform, signed-XPI, and real-machine evidence pending; do not archive or publish.
+3. Complete the seven domain surface changes, adding an operation to the ready roster only after its public differential and failure evidence passes.
+4. Keep mutation admission and default-client publication closed while any operation or domain gate remains incomplete.
+5. Run `complete-synthesis-native-production-activation` to prove the exact inventory, activate the owner, confirm mutation health, and publish the shared native composition.
+6. Run critical local smoke, consumer integration, static boundaries, and the full verification suite, then update active current-state documentation.
+7. Leave remote five-platform, signed-XPI, and real-machine evidence pending; do not archive or publish.
 
 Rollback before mutation admission uses the verified backup or an explicitly compatible reversal. After mutation admission, rollback means a compatible Rust bundle or explicit stopped-service restore, never Node.
 

@@ -6,7 +6,7 @@ use synthesis_application::citation_graph::{
 use synthesis_application::concept_kb::{
     ConceptDeleteRequest, ConceptDisplayUpdateRequest, ConceptReviewRequest,
 };
-use synthesis_application::debug_maintenance::{DebugMaintenanceKind, DebugSnapshot};
+use synthesis_application::debug_maintenance::DebugMaintenanceKind;
 use synthesis_application::reference_matching::{
     ReferenceMatchingPrepareRequest, ReferenceReviewDecision,
 };
@@ -24,6 +24,7 @@ use synthesis_application::{
 };
 use synthesis_repository::{TagAuditRecord, TagStagedSuggestionRecord, TagVocabularyReplacement};
 
+use crate::runtime_artifact_library_debug;
 use crate::runtime_production_ports::ProductionApplications;
 
 fn wire<T: serde::Serialize>(value: T) -> Result<Value, String> {
@@ -242,10 +243,6 @@ fn workflow_topic_options(apps: &ProductionApplications, args: &[Value]) -> Resu
         })
         .collect::<Vec<_>>();
     Ok(json!({"options":options,"diagnostics":[]}))
-}
-
-fn debug_snapshot(apps: &ProductionApplications) -> Result<Value, String> {
-    wire(apps.debug.snapshot()?)
 }
 
 fn object_arg(args: &[Value]) -> Result<Value, String> {
@@ -499,12 +496,8 @@ register_production_client_handlers!(
         no_args(args)?;
         wire(apps.workbench.read()?.maintenance.background_jobs)
     }),
-    ("client.getSchemas", |_, args| {
-        let _: Value = optional_one(args)?;
-        Ok(json!({
-            "repository":"synthesis-repository-foundation.v1",
-            "canonical":"synthesis-topic-canonical-store.v1",
-        }))
+    ("client.getSchemas", |apps, args| {
+        runtime_artifact_library_debug::dispatch(apps, "client.getSchemas", args)
     }),
     ("client.getCitationGraphLayout", |apps, args| {
         let request = one::<Value>(args)?;
@@ -583,31 +576,16 @@ register_production_client_handlers!(
         Ok(json!({"ok":true}))
     }),
     ("client.debugSynthesisSnapshot", |apps, args| {
-        let _: Value = optional_one(args)?;
-        debug_snapshot(apps)
+        runtime_artifact_library_debug::dispatch(apps, "client.debugSynthesisSnapshot", args)
     }),
     ("client.debugSynthesisCacheList", |apps, args| {
-        let _: Value = optional_one(args)?;
-        Ok(debug_snapshot(apps)?
-            .get("caches")
-            .cloned()
-            .unwrap_or_else(|| json!({"items":[]})))
+        runtime_artifact_library_debug::dispatch(apps, "client.debugSynthesisCacheList", args)
     }),
     ("client.debugSynthesisOperationsList", |apps, args| {
-        let _: Value = optional_one(args)?;
-        Ok(debug_snapshot(apps)?
-            .get("operations")
-            .cloned()
-            .unwrap_or_else(|| json!({"items":[]})))
+        runtime_artifact_library_debug::dispatch(apps, "client.debugSynthesisOperationsList", args)
     }),
     ("client.debugSynthesisTopicInspect", |apps, args| {
-        let request = one::<Value>(args)?;
-        let topic_id = request
-            .get("topicId")
-            .or_else(|| request.get("topic_id"))
-            .and_then(Value::as_str)
-            .ok_or_else(|| "invalid_request".to_owned())?;
-        wire(apps.debug.inspect_topic(topic_id)?)
+        runtime_artifact_library_debug::dispatch(apps, "client.debugSynthesisTopicInspect", args)
     }),
     ("client.applyTopicSynthesisResult", |apps, args| {
         let request = match args {
@@ -626,20 +604,13 @@ register_production_client_handlers!(
         apps.call_host("effects.related_items.apply_batch", request)
     }),
     ("client.readPaperArtifacts", |apps, args| {
-        let request = one::<Value>(args)?;
-        apps.call_host("library.artifacts.read", request)
+        runtime_artifact_library_debug::dispatch(apps, "client.readPaperArtifacts", args)
     }),
     ("client.getPaperArtifactManifest", |apps, args| {
-        let request: Value = optional_one(args)?;
-        apps.call_host("library.artifacts.scan_page", request)
+        runtime_artifact_library_debug::dispatch(apps, "client.getPaperArtifactManifest", args)
     }),
     ("client.exportFilteredPaperArtifacts", |apps, args| {
-        match args {
-            [request] | [request, _] => {
-                apps.call_host("delivery.export.publish_archive", request.clone())
-            }
-            _ => Err("invalid_request".into()),
-        }
+        runtime_artifact_library_debug::dispatch(apps, "client.exportFilteredPaperArtifacts", args)
     }),
     ("client.getTopicContext", topic_detail_from_compat),
     ("client.resolveResolver", topic_detail_from_compat),
@@ -984,8 +955,7 @@ register_production_client_handlers!(
         wire(apps.workbench.read()?.maintenance)
     }),
     ("client.getLibraryIndex", |apps, args| {
-        let request: Value = optional_one(args)?;
-        apps.call_host("library.items.list_page", request)
+        runtime_artifact_library_debug::dispatch(apps, "client.getLibraryIndex", args)
     }),
     ("client.getReviewInput", |apps, args| {
         let (cursor, limit) = page_request(args)?;
@@ -996,23 +966,13 @@ register_production_client_handlers!(
         }))
     }),
     ("client.debugSynthesisProfilerList", |apps, args| {
-        no_args(args)?;
-        wire(apps.debug.inspect_profiler()?)
+        runtime_artifact_library_debug::dispatch(apps, "client.debugSynthesisProfilerList", args)
     }),
     ("client.debugSynthesisPaperInspect", |apps, args| {
-        apps.call_host("library.artifacts.scan_page", object_arg(args)?)
+        runtime_artifact_library_debug::dispatch(apps, "client.debugSynthesisPaperInspect", args)
     }),
     ("client.debugSynthesisDiff", |apps, args| {
-        let (before, after) = match args {
-            [before, after] => (
-                serde_json::from_value::<DebugSnapshot>(before.clone())
-                    .map_err(|_| "invalid_request".to_owned())?,
-                serde_json::from_value::<DebugSnapshot>(after.clone())
-                    .map_err(|_| "invalid_request".to_owned())?,
-            ),
-            _ => return Err("invalid_request".into()),
-        };
-        wire(apps.debug.diff(&before, &after)?)
+        runtime_artifact_library_debug::dispatch(apps, "client.debugSynthesisDiff", args)
     }),
     ("client.debugSynthesisCleanInstallReset", |apps, args| {
         wire(

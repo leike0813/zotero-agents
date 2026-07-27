@@ -30,7 +30,10 @@ import {
   createZoteroSynthesisTagEffectPort,
 } from "./synthesis/tagEffectAdapter";
 import { createPrefsConfiguredSynthesisWebDavSyncPort } from "./synthesis/webDavSyncAdapter";
-import type { SynthesisReverseHostHandlers } from "./synthesisReverseHostBroker";
+import type {
+  SynthesisReverseHostHandler,
+  SynthesisReverseHostHandlers,
+} from "./synthesisReverseHostBroker";
 
 type Ports = {
   hostReadPort: SynthesisHostReadPort;
@@ -42,6 +45,9 @@ type Ports = {
   webDavPort: SynthesisHostWebDavSyncPort;
 };
 
+const HOST_SNAPSHOT_TTL_MS = 10_000;
+const HOST_SNAPSHOT_LIMIT_BYTES = 8 * 1024 * 1024;
+
 function exactPayload(
   payload: SynthesisJsonObject,
   required: readonly string[],
@@ -50,9 +56,7 @@ function exactPayload(
   const keys = Object.keys(payload);
   if (
     required.some((key) => !(key in payload)) ||
-    keys.some(
-      (key) => !required.includes(key) && !optional.includes(key),
-    )
+    keys.some((key) => !required.includes(key) && !optional.includes(key))
   ) {
     throw new SynthesisClientError(
       "invalid_request",
@@ -69,10 +73,11 @@ export function createSynthesisReverseHostHandlers(
   return {
     "library.items.list_page": async (payload) =>
       ports.hostReadPort.library.listItemsPage(
-        exactPayload(payload, ["libraryId"], [
-          "cursor",
-          "limit",
-        ]) as SynthesisHostPageRequest,
+        exactPayload(
+          payload,
+          ["libraryId"],
+          ["cursor", "limit"],
+        ) as SynthesisHostPageRequest,
       ),
     "library.items.get_by_ref": async (payload) =>
       ports.hostReadPort.library.getItemsByRef(
@@ -83,12 +88,11 @@ export function createSynthesisReverseHostHandlers(
       ),
     "library.artifacts.scan_page": async (payload) =>
       ports.hostReadPort.artifacts.scanPage(
-        exactPayload(payload, ["libraryId"], [
-          "cursor",
-          "limit",
-          "paperRefs",
-          "artifactTypes",
-        ]) as SynthesisHostArtifactScanPageRequest,
+        exactPayload(
+          payload,
+          ["libraryId"],
+          ["cursor", "limit", "paperRefs", "artifactTypes"],
+        ) as SynthesisHostArtifactScanPageRequest,
       ),
     "library.artifacts.read": async (payload) =>
       ports.hostReadPort.artifacts.read(
@@ -136,20 +140,135 @@ export function createSynthesisReverseHostHandlers(
   };
 }
 
+export function createScopedSynthesisReverseHostHandlers(
+  args: Ports & { libraryId: number },
+) {
+  const { libraryId, ...ports } = args;
+  const handlers = createSynthesisReverseHostHandlers(ports);
+  const snapshots = new Map<
+    string,
+    { kind: "items" | "artifacts"; sourceCursor: string; expiresAt: number }
+  >();
+  let snapshotCounter = 0;
+  const injectLibraryScope = <T extends SynthesisJsonObject>(
+    payload: T,
+  ): T & { libraryId: number } => {
+    if ("libraryId" in payload || "library_id" in payload) {
+      throw new SynthesisClientError(
+        "invalid_request",
+        "The reverse Host library scope is injected by the plugin",
+      );
+    }
+    return { ...payload, libraryId };
+  };
+  const expireSnapshots = () => {
+    const now = Date.now();
+    for (const [token, snapshot] of snapshots) {
+      if (snapshot.expiresAt <= now) snapshots.delete(token);
+    }
+  };
+  const nextSnapshot = (kind: "items" | "artifacts", sourceCursor: string) => {
+    expireSnapshots();
+    const token = `host-snapshot-${++snapshotCounter}-${Math.random()
+      .toString(36)
+      .slice(2)}`;
+    snapshots.set(token, {
+      kind,
+      sourceCursor,
+      expiresAt: Date.now() + HOST_SNAPSHOT_TTL_MS,
+    });
+    return token;
+  };
+  const resolveSnapshot = (
+    kind: "items" | "artifacts",
+    payload: SynthesisJsonObject,
+  ) => {
+    expireSnapshots();
+    const token = typeof payload.cursor === "string" ? payload.cursor : "";
+    if (!token) return "";
+    const snapshot = snapshots.get(token);
+    if (!snapshot || snapshot.kind !== kind) {
+      throw new SynthesisClientError(
+        "invalid_request",
+        "The reverse Host snapshot token is unavailable",
+      );
+    }
+    snapshots.delete(token);
+    return snapshot.sourceCursor;
+  };
+  const page = async <T extends { nextCursor: string; hasMore: boolean }>(
+    kind: "items" | "artifacts",
+    payload: SynthesisJsonObject,
+    read: (scoped: SynthesisJsonObject) => Promise<T>,
+  ) => {
+    const sourceCursor = resolveSnapshot(kind, payload);
+    const result = await read({
+      ...injectLibraryScope(payload),
+      cursor: sourceCursor,
+    });
+    const resultBytes = new TextEncoder().encode(
+      JSON.stringify(result),
+    ).byteLength;
+    if (resultBytes > HOST_SNAPSHOT_LIMIT_BYTES) {
+      throw new SynthesisClientError(
+        "invalid_request",
+        "The reverse Host snapshot page exceeds its byte limit",
+      );
+    }
+    const nextCursor = result.hasMore
+      ? nextSnapshot(kind, result.nextCursor)
+      : "";
+    return {
+      ...result,
+      cursor: typeof payload.cursor === "string" ? payload.cursor : "",
+      nextCursor,
+    };
+  };
+  return {
+    ...handlers,
+    "library.items.list_page": ((
+      payload: SynthesisJsonObject,
+      context: Parameters<SynthesisReverseHostHandler>[1],
+    ) =>
+      page(
+        "items",
+        payload,
+        async (scoped) =>
+          handlers["library.items.list_page"](scoped, context) as never,
+      )) as SynthesisReverseHostHandler,
+    "library.items.get_by_ref": ((
+      payload: SynthesisJsonObject,
+      context: Parameters<SynthesisReverseHostHandler>[1],
+    ) =>
+      handlers["library.items.get_by_ref"](
+        injectLibraryScope(payload),
+        context,
+      )) as SynthesisReverseHostHandler,
+    "library.artifacts.scan_page": ((
+      payload: SynthesisJsonObject,
+      context: Parameters<SynthesisReverseHostHandler>[1],
+    ) =>
+      page(
+        "artifacts",
+        payload,
+        async (scoped) =>
+          handlers["library.artifacts.scan_page"](scoped, context) as never,
+      )) as SynthesisReverseHostHandler,
+  };
+}
+
 export function createDefaultSynthesisReverseHostHandlers(args: {
   libraryId: number;
 }) {
-  return createSynthesisReverseHostHandlers({
+  return createScopedSynthesisReverseHostHandlers({
+    libraryId: args.libraryId,
     hostReadPort: createZoteroSynthesisHostReadPort({
       libraryId: args.libraryId,
     }),
     exportDeliveryPort: createSynthesisHostExportDeliveryPort(),
-    representativeImagePort:
-      createZoteroSynthesisRepresentativeImageReadPort(),
-    relatedItemsEffectPort:
-      createZoteroSynthesisRelatedItemsEffectPort(),
-    stagedTagBindingPort:
-      createZoteroSynthesisStagedTagBindingMigrationPort(),
+    representativeImagePort: createZoteroSynthesisRepresentativeImageReadPort(),
+    relatedItemsEffectPort: createZoteroSynthesisRelatedItemsEffectPort(),
+    stagedTagBindingPort: createZoteroSynthesisStagedTagBindingMigrationPort(),
     tagEffectPort: createZoteroSynthesisTagEffectPort(),
     webDavPort: createPrefsConfiguredSynthesisWebDavSyncPort(),
   });

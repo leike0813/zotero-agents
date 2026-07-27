@@ -2,7 +2,7 @@
 
 ### Requirement: Native RPC SHALL implement the complete grouped client surface
 
-The native production adapter SHALL expose every method in the code-derived grouped `SynthesisClient` inventory through versioned, typed request and result contracts. The current inventory contains 96 methods. It MUST NOT add a public client method, accept arbitrary method names, or expose repository, path, credential, or host-object internals.
+The native production adapter SHALL expose every operation in the closed grouped `SynthesisClient` production inventory through versioned, typed request and result contracts. The current inventory contains 95 operations. It MUST NOT add a public client method, accept arbitrary method names, or expose repository, path, credential, or host-object internals.
 
 #### Scenario: Production client inventory is compared
 - **WHEN** the native capability inventory is checked against `SynthesisClient`

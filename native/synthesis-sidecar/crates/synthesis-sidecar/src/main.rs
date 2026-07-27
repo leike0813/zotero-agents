@@ -1,3 +1,4 @@
+mod runtime_artifact_library_debug;
 mod runtime_capabilities;
 mod runtime_cli;
 mod runtime_deadline;

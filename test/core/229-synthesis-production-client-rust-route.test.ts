@@ -24,8 +24,7 @@ const EXECUTABLE = path.join(
   `synthesis-sidecar${process.platform === "win32" ? ".exe" : ""}`,
 );
 const CLIENT_TOKEN = "client-token-0123456789abcdef0123456789abcdef";
-const LIFECYCLE_TOKEN =
-  "lifecycle-token-0123456789abcdef0123456789abcdef";
+const LIFECYCLE_TOKEN = "lifecycle-token-0123456789abcdef0123456789abcdef";
 const execFileAsync = promisify(execFile);
 
 function config(profileRuntimeRoot: string, supervisorInstanceId: string) {
@@ -77,9 +76,7 @@ function writeLaunchFiles(
   return configPath;
 }
 
-function start(
-  args: string[],
-): {
+function start(args: string[]): {
   child: ChildProcessWithoutNullStreams;
   listening: Promise<{ port: number }>;
 } {
@@ -102,9 +99,7 @@ function start(
     child.once("error", reject);
     child.once("exit", (code) => {
       if (code !== 0) {
-        reject(
-          new Error(`sidecar exited with ${code}: ${stderr.trim()}`),
-        );
+        reject(new Error(`sidecar exited with ${code}: ${stderr.trim()}`));
       }
     });
   });
@@ -139,23 +134,20 @@ async function call(
   payload: Record<string, unknown>,
   token = CLIENT_TOKEN,
 ) {
-  const response = await fetch(
-    `http://127.0.0.1:${port}/synthesis/v1/call`,
-    {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${token}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        protocol: SYNTHESIS_SIDECAR_PROTOCOL,
-        requestId: `test:${capability}`,
-        profileId: "1".repeat(64),
-        capability,
-        payload,
-      }),
+  const response = await fetch(`http://127.0.0.1:${port}/synthesis/v1/call`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
     },
-  );
+    body: JSON.stringify({
+      protocol: SYNTHESIS_SIDECAR_PROTOCOL,
+      requestId: `test:${capability}`,
+      profileId: "1".repeat(64),
+      capability,
+      payload,
+    }),
+  });
   return {
     status: response.status,
     body: (await response.json()) as Record<string, any>,
@@ -173,10 +165,7 @@ describe("Synthesis Rust production client route", function () {
     const profileRuntimeRoot = path.join(root, "profile-runtime");
     const shadowSession = path.join(root, "shadow-session");
     const shadowConfig = config(profileRuntimeRoot, "shadow-supervisor");
-    const shadowConfigPath = writeLaunchFiles(
-      shadowSession,
-      shadowConfig,
-    );
+    const shadowConfigPath = writeLaunchFiles(shadowSession, shadowConfig);
     const shadow = start(["serve", "--config", shadowConfigPath]);
     const shadowReady = await shadow.listening;
     await stop(shadow.child, shadowReady.port);
@@ -204,13 +193,12 @@ describe("Synthesis Rust production client route", function () {
       { recursive: true },
     );
     fs.rmSync(path.join(canonicalRoot, "identity.json"));
-    const verifiedBackup =
-      await createSynthesisProductionBackupService({
-        persistenceRoot: root,
-      }).createVerifiedBackup({
-        sourceSchemaVersion: shadowConfig.schemaVersion,
-        targetSchemaVersion: shadowConfig.schemaVersion,
-      });
+    const verifiedBackup = await createSynthesisProductionBackupService({
+      persistenceRoot: root,
+    }).createVerifiedBackup({
+      sourceSchemaVersion: shadowConfig.schemaVersion,
+      targetSchemaVersion: shadowConfig.schemaVersion,
+    });
 
     const productionSession = path.join(root, "production-session");
     const productionConfig = config(
@@ -221,10 +209,7 @@ describe("Synthesis Rust production client route", function () {
       productionSession,
       productionConfig,
     );
-    const receiptPath = path.join(
-      root,
-      "state/synthesis-cutover/receipt.json",
-    );
+    const receiptPath = path.join(root, "state/synthesis-cutover/receipt.json");
     fs.mkdirSync(path.dirname(receiptPath), { recursive: true });
     const receipt = {
       schema: "synthesis-production-cutover-receipt.v1",
@@ -236,8 +221,7 @@ describe("Synthesis Rust production client route", function () {
       backupId: verifiedBackup.backupId,
       sourceSchemaVersion: productionConfig.schemaVersion,
       targetSchemaVersion: productionConfig.schemaVersion,
-      canonicalManifestSha256:
-        verifiedBackup.canonicalManifestSha256,
+      canonicalManifestSha256: verifiedBackup.canonicalManifestSha256,
       durableSummarySha256: verifiedBackup.durableSummarySha256,
       bundleFingerprint: productionConfig.buildFingerprint,
       capabilityFingerprint:
@@ -259,10 +243,43 @@ describe("Synthesis Rust production client route", function () {
         body += chunk;
       });
       request.on("end", () => {
-        reverseHostCalls.push(JSON.parse(body));
+        const call = JSON.parse(body) as { capability?: string };
+        reverseHostCalls.push(call);
+        const result = (() => {
+          switch (call.capability) {
+            case "library.items.list_page":
+              return {
+                items: [],
+                cursor: "",
+                nextCursor: "",
+                hasMore: false,
+                returned: 0,
+                limit: 100,
+              };
+            case "library.items.get_by_ref":
+              return { items: [], missingPaperRefs: ["1:AAAA1111"] };
+            case "library.artifacts.scan_page":
+              return {
+                artifacts: [],
+                cursor: "",
+                nextCursor: "",
+                hasMore: false,
+                returned: 0,
+                limit: 100,
+              };
+            case "delivery.export.publish_archive":
+              return {
+                status: "unavailable",
+                capability: "paper_artifacts.export_filtered",
+                diagnostics: ["host_export_delivery_failed"],
+              };
+            default:
+              return { configured: false };
+          }
+        })();
         const responseBody = JSON.stringify({
           ok: true,
-          result: { configured: false },
+          result,
         });
         response.writeHead(200, {
           "content-type": "application/json",
@@ -291,10 +308,7 @@ describe("Synthesis Rust production client route", function () {
         verifiedBackup.backupRoot,
         "state/synthesis.db",
       ),
-      canonicalRoot: path.join(
-        verifiedBackup.backupRoot,
-        "data/synthesis",
-      ),
+      canonicalRoot: path.join(verifiedBackup.backupRoot, "data/synthesis"),
       reverseHost: {
         host: "127.0.0.1",
         port: reverseHostAddress.port,
@@ -322,10 +336,7 @@ describe("Synthesis Rust production client route", function () {
       mutationEnabled: false,
     });
     assert.equal(reverseHostCalls.length, 1);
-    assert.equal(
-      reverseHostCalls[0]?.capability,
-      "webdav.describe",
-    );
+    assert.equal(reverseHostCalls[0]?.capability, "webdav.describe");
 
     fs.writeFileSync(
       receiptPath,
@@ -356,10 +367,7 @@ describe("Synthesis Rust production client route", function () {
         path.join(root, "contested-session"),
         {
           ...productionConfig,
-          profileRuntimeRoot: path.join(
-            root,
-            "contested-profile-runtime",
-          ),
+          profileRuntimeRoot: path.join(root, "contested-profile-runtime"),
         },
       );
       const contestedOwner = start([
@@ -422,17 +430,98 @@ describe("Synthesis Rust production client route", function () {
       assert.equal(backgroundJobs.status, 200);
       assert.deepEqual(backgroundJobs.body.data, []);
 
+      const schemas = await call(port, "client.getSchemas", {
+        args: [{}],
+      });
+      assert.equal(schemas.status, 200);
+      assert.equal(
+        schemas.body.data.schema,
+        "synthesis-artifact-library-debug-schemas.v1",
+      );
+
+      const libraryIndex = await call(port, "client.getLibraryIndex", {
+        args: [{}],
+      });
+      assert.equal(libraryIndex.status, 200);
+      assert.deepInclude(libraryIndex.body.data, {
+        papers: [],
+        total_papers: 0,
+      });
+
+      const artifactRead = await call(port, "client.readPaperArtifacts", {
+        args: [{}],
+      });
+      assert.equal(artifactRead.status, 200);
+      assert.deepEqual(artifactRead.body.data.artifacts, []);
+
+      const artifactManifest = await call(
+        port,
+        "client.getPaperArtifactManifest",
+        { args: [{}] },
+      );
+      assert.equal(artifactManifest.status, 200);
+      assert.deepInclude(artifactManifest.body.data, {
+        artifacts: [],
+        total: 0,
+      });
+
+      const snapshot = await call(port, "client.debugSynthesisSnapshot", {
+        args: [{}],
+      });
+      assert.equal(snapshot.status, 200);
+      assert.equal(snapshot.body.data.status, "ready");
+
+      const cache = await call(port, "client.debugSynthesisCacheList", {
+        args: [{}],
+      });
+      assert.equal(cache.status, 200);
+      assert.isArray(cache.body.data.rows);
+
+      const operations = await call(
+        port,
+        "client.debugSynthesisOperationsList",
+        { args: [{}] },
+      );
+      assert.equal(operations.status, 200);
+      assert.isArray(operations.body.data.rows);
+
+      const profiler = await call(port, "client.debugSynthesisProfilerList", {
+        args: [{}],
+      });
+      assert.equal(profiler.status, 200);
+      assert.equal(profiler.body.data.databasePath, "[redacted-path]");
+
+      const inspectedPaper = await call(
+        port,
+        "client.debugSynthesisPaperInspect",
+        { args: [{ paperRef: "1:AAAA1111" }] },
+      );
+      assert.equal(inspectedPaper.status, 200);
+      assert.equal(inspectedPaper.body.data.paperRef, "1:AAAA1111");
+
+      const inspectedTopic = await call(
+        port,
+        "client.debugSynthesisTopicInspect",
+        { args: [{ topicId: "missing-topic" }] },
+      );
+      assert.equal(inspectedTopic.status, 200);
+      assert.equal(inspectedTopic.body.data.status, "absent");
+
+      const diff = await call(port, "client.debugSynthesisDiff", {
+        args: [{}],
+      });
+      assert.equal(diff.status, 200);
+      assert.deepEqual(diff.body.data.issues, []);
+
       const malformedDetail = await call(port, "client.readTopicDetail", {
         args: [{ topicId: "missing-topic" }, {}],
       });
       assert.equal(malformedDetail.status, 400);
       assert.equal(malformedDetail.body.error.code, "invalid_request");
 
-      const pending = await call(
-        port,
-        "client.findTopicsByPaperRef",
-        { args: [{}] },
-      );
+      const pending = await call(port, "client.findTopicsByPaperRef", {
+        args: [{}],
+      });
       assert.equal(pending.status, 200);
       assert.deepEqual(pending.body.data.topics, []);
 
@@ -447,13 +536,32 @@ describe("Synthesis Rust production client route", function () {
         "mutation_not_admitted",
       );
 
+      const deliveryCallsBefore = reverseHostCalls.filter(
+        (entry) => entry.capability === "delivery.export.publish_archive",
+      ).length;
+      const exportBeforeAdmission = await call(
+        port,
+        "client.exportFilteredPaperArtifacts",
+        { args: [{ paperRefs: ["1:AAAA1111"] }] },
+      );
+      assert.equal(exportBeforeAdmission.status, 409);
+      assert.equal(
+        exportBeforeAdmission.body.error.code,
+        "mutation_not_admitted",
+      );
+      assert.equal(
+        reverseHostCalls.filter(
+          (entry) => entry.capability === "delivery.export.publish_archive",
+        ).length,
+        deliveryCallsBefore,
+      );
+
       const activation = await call(
         port,
         "system.production.activate",
         {
           receiptId: "receipt-1",
-          serviceInstanceId:
-            topics.body.serviceInstanceId,
+          serviceInstanceId: topics.body.serviceInstanceId,
           capabilityFingerprint:
             SYNTHESIS_SIDECAR_PRODUCTION_CLIENT_CAPABILITY_FINGERPRINT,
           readyClientCapabilities:
@@ -463,10 +571,7 @@ describe("Synthesis Rust production client route", function () {
         LIFECYCLE_TOKEN,
       );
       assert.equal(activation.status, 503);
-      assert.equal(
-        activation.body.error.code,
-        "production_surface_incomplete",
-      );
+      assert.equal(activation.body.error.code, "production_surface_incomplete");
 
       const mutationAfterAdmission = await call(
         port,
@@ -491,9 +596,7 @@ describe("Synthesis Rust production client route", function () {
         production.child.kill();
       }
       await new Promise<void>((resolve, reject) =>
-        reverseHost.close((error) =>
-          error ? reject(error) : resolve(),
-        ),
+        reverseHost.close((error) => (error ? reject(error) : resolve())),
       );
     }
 
@@ -511,10 +614,7 @@ describe("Synthesis Rust production client route", function () {
     } catch (error) {
       preflightFailure = error;
     }
-    assert.match(
-      String(preflightFailure),
-      /reverse_host_unavailable/,
-    );
+    assert.match(String(preflightFailure), /reverse_host_unavailable/);
     assert.isFalse(
       fs.existsSync(path.join(root, "state/synthesis.owner.json")),
       "failed preflight must not acquire the live owner",
