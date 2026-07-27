@@ -1,10 +1,17 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { SYNTHESIS_SIDECAR_RUNTIME_TARGETS } from "../packages/synthesis-contracts/src/sidecarRuntimeBundle";
+import {
+  SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_BRANCH,
+  assertSynthesisSidecarRuntimePrebuildResultIdentity,
+  rebuildSynthesisSidecarRuntimePrebuildResult,
+  rebuildSynthesisSidecarRuntimePrebuildSet,
+} from "../packages/synthesis-contracts/src/sidecarRuntimeRelease";
 import {
   SYNTHESIS_SIDECAR_RUNTIME_ADDON_ROOT,
-  SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_TAG,
-  SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX,
+  sha256File,
   verifySynthesisSidecarRuntimeBundleDirectory,
 } from "./synthesis-sidecar-runtime-release-governance";
 
@@ -15,95 +22,182 @@ function argument(name: string) {
     ?.slice(prefix.length);
 }
 
-function packageRepository() {
-  return fs.readFile("package.json", "utf8").then((source) => {
-    const pkg = JSON.parse(source) as {
-      repository?: string | { url?: string };
-    };
-    const raw = String(
-      typeof pkg.repository === "string"
-        ? pkg.repository
-        : pkg.repository?.url || "",
-    );
-    return raw.match(/github\.com[:/]([^/]+\/[^/.]+)(?:\.git)?$/)?.[1] || "";
-  });
+function required(name: string) {
+  const value = String(argument(name) || "").trim();
+  if (!value) throw new Error(`Missing required --${name}=...`);
+  return value;
 }
 
 function run(command: string, args: string[]) {
   const result = spawnSync(command, args, { stdio: "inherit" });
-  if (result.error || result.status !== 0) {
+  if (result.error || result.status !== 0)
     throw result.error || new Error(`${command} exited ${result.status}`);
+}
+
+function archiveEntries(archive: string) {
+  const result = spawnSync("tar", ["-tzf", archive], { encoding: "utf8" });
+  if (result.error || result.status !== 0) {
+    throw result.error || new Error(`Unable to inspect archive ${archive}`);
   }
+  return result.stdout.split(/\r?\n/).filter(Boolean);
+}
+
+async function remoteStore(args: { repo: string; branch: string }) {
+  const root = path.join(
+    ".scaffold",
+    `synthesis-sidecar-prebuilds-${process.pid}`,
+  );
+  await fs.rm(root, { recursive: true, force: true });
+  run("git", [
+    "clone",
+    "--depth=1",
+    "--branch",
+    args.branch,
+    `https://github.com/${args.repo}.git`,
+    root,
+  ]);
+  return root;
+}
+
+export async function syncSynthesisSidecarRuntimePrebuilds(args: {
+  aggregate: string;
+  storeRoot: string;
+  addonRoot?: string;
+  result?: unknown;
+  expected?: Record<string, unknown>;
+}) {
+  const addonRoot = args.addonRoot || SYNTHESIS_SIDECAR_RUNTIME_ADDON_ROOT;
+  const setRoot = path.join(args.storeRoot, "sets", args.aggregate);
+  const manifest = rebuildSynthesisSidecarRuntimePrebuildSet(
+    JSON.parse(await fs.readFile(path.join(setRoot, "manifest.json"), "utf8")),
+  );
+  if (manifest.aggregate !== args.aggregate)
+    throw new Error("Prebuild aggregate mismatch");
+  if (args.result) {
+    const result = rebuildSynthesisSidecarRuntimePrebuildResult(args.result);
+    assertSynthesisSidecarRuntimePrebuildResultIdentity(result, {
+      aggregate: args.aggregate,
+      prebuildBranch: SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_BRANCH,
+      ...(args.expected || {}),
+    });
+  }
+  const staging = `${addonRoot}.staging-${process.pid}`;
+  const backup = `${addonRoot}.backup-${process.pid}`;
+  await fs.rm(staging, { recursive: true, force: true });
+  await fs.mkdir(staging, { recursive: true });
+  try {
+    for (const archive of manifest.archives) {
+      const archivePath = path.join(setRoot, archive.file);
+      if ((await sha256File(archivePath)) !== archive.sha256) {
+        throw new Error(`Archive digest mismatch: ${archive.file}`);
+      }
+      const entries = archiveEntries(archivePath);
+      if (
+        entries.length === 0 ||
+        entries.some(
+          (entry) =>
+            (entry !== archive.target &&
+              !entry.startsWith(`${archive.target}/`)) ||
+            entry.includes("..") ||
+            entry.startsWith("/"),
+        )
+      ) {
+        throw new Error(
+          `Archive has unsafe or unexpected paths: ${archive.file}`,
+        );
+      }
+      run("tar", ["-xzf", archivePath, "-C", staging]);
+      const verification = await verifySynthesisSidecarRuntimeBundleDirectory({
+        root: path.join(staging, archive.target),
+        target: archive.target,
+        expectedBuildFingerprint: manifest.buildFingerprint,
+      });
+      if (!verification.ok)
+        throw new Error(
+          `Invalid archive ${archive.file}: ${JSON.stringify(verification.diagnostics)}`,
+        );
+    }
+    const entries = await fs.readdir(staging);
+    if (
+      entries.length !== SYNTHESIS_SIDECAR_RUNTIME_TARGETS.length ||
+      entries.some(
+        (entry) =>
+          !SYNTHESIS_SIDECAR_RUNTIME_TARGETS.includes(
+            entry as (typeof SYNTHESIS_SIDECAR_RUNTIME_TARGETS)[number],
+          ),
+      )
+    ) {
+      throw new Error(
+        "Prebuild set has missing or unexpected target directories",
+      );
+    }
+    await fs.rm(backup, { recursive: true, force: true });
+    const hadAddon = await fs
+      .stat(addonRoot)
+      .then(() => true)
+      .catch(() => false);
+    if (hadAddon) await fs.rename(addonRoot, backup);
+    try {
+      await fs.mkdir(path.dirname(addonRoot), { recursive: true });
+      await fs.rename(staging, addonRoot);
+      await fs.rm(backup, { recursive: true, force: true });
+    } catch (error) {
+      await fs.rm(addonRoot, { recursive: true, force: true });
+      if (hadAddon) await fs.rename(backup, addonRoot);
+      throw error;
+    }
+  } catch (error) {
+    await fs.rm(staging, { recursive: true, force: true });
+    throw error;
+  }
+  return {
+    ok: true,
+    aggregate: manifest.aggregate,
+    addonRoot,
+    targets: [...SYNTHESIS_SIDECAR_RUNTIME_TARGETS],
+  };
 }
 
 async function main() {
-  const repo =
-    argument("repo") ||
-    process.env.GITHUB_REPOSITORY ||
-    (await packageRepository());
-  if (!repo) {
-    throw new Error("Unable to resolve GitHub repository");
+  const aggregate = required("aggregate");
+  const resultPath = argument("result");
+  const storeRoot =
+    argument("store-root") ||
+    (await remoteStore({
+      repo: required("repo"),
+      branch: argument("branch") || SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_BRANCH,
+    }));
+  const expected: Record<string, unknown> = {};
+  for (const [argumentName, field] of [
+    ["request-id", "requestId"],
+    ["source-sha", "sourceSha"],
+    ["run-id", "runId"],
+    ["repo", "repository"],
+  ] as const) {
+    const value = argument(argumentName);
+    if (value)
+      expected[field] = argumentName === "run-id" ? Number(value) : value;
   }
-  const tag = argument("tag") || SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_TAG;
-  const downloadRoot = path.join(
-    ".scaffold",
-    "synthesis-sidecar-runtime-prebuilds-sync",
-  );
-  await fs.rm(downloadRoot, { recursive: true, force: true });
-  await fs.mkdir(downloadRoot, { recursive: true });
-  run("gh", [
-    "release",
-    "download",
-    tag,
-    "--repo",
-    repo,
-    "--pattern",
-    "synthesis-sidecar-runtime-*.tar.gz",
-    "--dir",
-    downloadRoot,
-  ]);
-  const extractedRoot = path.join(downloadRoot, "extracted");
-  await fs.mkdir(extractedRoot, { recursive: true });
-  for (const target of SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX) {
-    const archive = path.join(
-      downloadRoot,
-      `synthesis-sidecar-runtime-${target}.tar.gz`,
-    );
-    await fs.access(archive);
-    run("tar", ["-xzf", archive, "-C", extractedRoot]);
-    const verification = await verifySynthesisSidecarRuntimeBundleDirectory({
-      root: path.join(extractedRoot, target),
-      target,
-      policy: "production",
-    });
-    if (!verification.ok) {
-      throw new Error(
-        `Synthesis runtime prebuild ${target} is invalid: ${JSON.stringify(
-          verification.diagnostics,
-        )}`,
-      );
-    }
-  }
-  await fs.rm(SYNTHESIS_SIDECAR_RUNTIME_ADDON_ROOT, {
-    recursive: true,
-    force: true,
+  const result = await syncSynthesisSidecarRuntimePrebuilds({
+    aggregate,
+    storeRoot: path.resolve(storeRoot),
+    addonRoot: argument("addon-root")
+      ? path.resolve(argument("addon-root")!)
+      : undefined,
+    result: resultPath
+      ? JSON.parse(await fs.readFile(path.resolve(resultPath), "utf8"))
+      : undefined,
+    expected,
   });
-  await fs.mkdir(path.dirname(SYNTHESIS_SIDECAR_RUNTIME_ADDON_ROOT), {
-    recursive: true,
-  });
-  await fs.rename(extractedRoot, SYNTHESIS_SIDECAR_RUNTIME_ADDON_ROOT);
-  process.stdout.write(
-    `${JSON.stringify({
-      ok: true,
-      repo,
-      tag,
-      targets: [...SYNTHESIS_SIDECAR_RUNTIME_TARGET_MATRIX],
-      targetRoot: SYNTHESIS_SIDECAR_RUNTIME_ADDON_ROOT,
-    })}\n`,
-  );
+  process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}

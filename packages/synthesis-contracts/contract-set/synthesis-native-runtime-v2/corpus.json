@@ -2,7 +2,7 @@
   "schema": "synthesis-native-runtime-contract-corpus.v1",
   "absoluteRuntimeRootToken": "$ABSOLUTE_RUNTIME_ROOT",
   "manifest": {
-    "schema": "synthesis-sidecar-runtime-bundle.v2",
+    "schema": "synthesis-sidecar-runtime-bundle.v3",
     "bundleId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "implementation": "rust-native",
     "serviceVersion": "0.1.0",
@@ -28,11 +28,6 @@
       "toolchain": "nightly-2026-07-25",
       "cargoLockSha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
       "licenseInventory": "licenses.json"
-    },
-    "platformSignature": {
-      "scheme": "not-applicable",
-      "status": "not-applicable",
-      "signer": null
     },
     "files": [
       {
@@ -242,18 +237,6 @@
       "kind": "manifest",
       "mutation": { "path": "capabilities.0", "value": "system.shutdown" },
       "expected": { "node": "invalid_manifest", "rust": "invalid_manifest" }
-    },
-    {
-      "id": "manifest-signature-policy",
-      "kind": "manifest",
-      "mutation": {
-        "path": "platformSignature.status",
-        "value": "unsigned-candidate"
-      },
-      "expected": {
-        "node": "invalid_manifest",
-        "rust": "invalid_manifest"
-      }
     },
     {
       "id": "manifest-unknown-field",

@@ -12,7 +12,6 @@ permissions:
 
 env:
   HOST_BRIDGE_CLI_PREBUILD_BRANCH: host-bridge-cli-prebuilds
-  SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_TAG: synthesis-sidecar-runtime-prebuilds
 
 jobs:
   create-release:
@@ -66,8 +65,11 @@ jobs:
       - name: Check Host Bridge CLI prebuild freshness
         run: npm run check:host-bridge-cli-prebuild-freshness
 
-      - name: Download Synthesis sidecar runtime prebuilds
-        run: npm run sync:synthesis-sidecar-runtime-prebuilds -- --tag="${SYNTHESIS_SIDECAR_RUNTIME_PREBUILD_TAG}"
+      - name: Verify committed Synthesis sidecar release evidence
+        run: |
+          set -euo pipefail
+          npm run release:synthesis-sidecar:plan -- --output=.synthesis-sidecar-release-plan.json
+          jq -e '.completeReceipt == true' .synthesis-sidecar-release-plan.json
 
       - name: Check Synthesis sidecar runtime freshness
         run: npm run check:synthesis-sidecar-runtime-freshness

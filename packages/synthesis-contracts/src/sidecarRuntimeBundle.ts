@@ -5,7 +5,7 @@ import {
 } from "./sidecarSystem.js";
 
 export const SYNTHESIS_SIDECAR_RUNTIME_BUNDLE_SCHEMA =
-  "synthesis-sidecar-runtime-bundle.v2" as const;
+  "synthesis-sidecar-runtime-bundle.v3" as const;
 export const SYNTHESIS_SIDECAR_RUNTIME_POINTER_SCHEMA =
   "synthesis-sidecar-runtime-pointer.v2" as const;
 export const SYNTHESIS_SIDECAR_RUNTIME_IMPLEMENTATION = "rust-native" as const;
@@ -13,7 +13,9 @@ export const SYNTHESIS_SIDECAR_RUNTIME_TARGETS = [
   "win32-x64",
   "darwin-x64",
   "darwin-arm64",
+  "linux-x86",
   "linux-x64",
+  "linux-arm",
   "linux-arm64",
 ] as const;
 
@@ -24,7 +26,9 @@ export const SYNTHESIS_SIDECAR_RUNTIME_TARGET_TRIPLES = {
   "win32-x64": "x86_64-pc-windows-msvc",
   "darwin-x64": "x86_64-apple-darwin",
   "darwin-arm64": "aarch64-apple-darwin",
+  "linux-x86": "i686-unknown-linux-gnu",
   "linux-x64": "x86_64-unknown-linux-gnu",
+  "linux-arm": "armv7-unknown-linux-gnueabihf",
   "linux-arm64": "aarch64-unknown-linux-gnu",
 } as const satisfies Record<SynthesisSidecarRuntimeTarget, string>;
 
@@ -43,6 +47,27 @@ export type SynthesisSidecarRuntimePlatformSignature = Readonly<{
   status: "verified" | "unsigned-candidate" | "not-applicable";
   signer: string | null;
 }>;
+
+/** Runtime protocol metadata; it is not a v3 bundle admission proof. */
+export function synthesisSidecarRuntimePlatformIdentity(
+  target: SynthesisSidecarRuntimeTarget,
+): SynthesisSidecarRuntimePlatformSignature {
+  if (target.startsWith("linux")) {
+    return Object.freeze({
+      scheme: "not-applicable" as const,
+      status: "not-applicable" as const,
+      signer: null,
+    });
+  }
+  return Object.freeze({
+    scheme:
+      target === "win32-x64"
+        ? ("authenticode" as const)
+        : ("apple-code-signing" as const),
+    status: "unsigned-candidate" as const,
+    signer: null,
+  });
+}
 
 export type SynthesisSidecarRuntimeProvenance = Readonly<{
   sourceFingerprint: string;
@@ -65,7 +90,6 @@ export type SynthesisSidecarRuntimeBundleManifest = Readonly<{
   createdAt: string;
   expiresAt: string | null;
   provenance: SynthesisSidecarRuntimeProvenance;
-  platformSignature: SynthesisSidecarRuntimePlatformSignature;
   files: readonly SynthesisSidecarRuntimeBundleFile[];
 }>;
 
@@ -296,7 +320,6 @@ export function rebuildSynthesisSidecarRuntimeBundleManifest(
       "createdAt",
       "expiresAt",
       "provenance",
-      "platformSignature",
       "files",
     ],
     "manifest",
@@ -408,10 +431,6 @@ export function rebuildSynthesisSidecarRuntimeBundleManifest(
     createdAt,
     expiresAt,
     provenance,
-    platformSignature: rebuildSynthesisSidecarRuntimePlatformSignature(
-      record.platformSignature,
-      target,
-    ),
     files: Object.freeze(files),
   });
 }

@@ -1,7 +1,7 @@
 import type { SynthesisSidecarRuntimeTarget } from "../../packages/synthesis-contracts/src/sidecarRuntimeBundle";
 
 export type RuntimePlatform = "win32" | "darwin" | "linux" | "unknown";
-export type RuntimeArchitecture = "x64" | "arm64" | "unknown";
+export type RuntimeArchitecture = "x86" | "x64" | "arm" | "arm64" | "unknown";
 export type SynthesisSidecarRuntimeTargetDetection =
   | SynthesisSidecarRuntimeTarget
   | "unsupported";
@@ -64,6 +64,12 @@ export function detectRuntimeArchitecture(
   if (explicit === "x64" || explicit === "amd64" || explicit === "x86_64") {
     return "x64";
   }
+  if (explicit === "x86" || explicit === "ia32" || explicit === "i686") {
+    return "x86";
+  }
+  if (explicit === "arm" || explicit === "armv7" || explicit === "armv7l") {
+    return "arm";
+  }
   if (
     explicit === "arm64" ||
     explicit === "aarch64" ||
@@ -106,8 +112,13 @@ export function detectSynthesisSidecarRuntimeTarget(
     return "win32-x64";
   }
   if (
-    (platform === "darwin" || platform === "linux") &&
-    (architecture === "x64" || architecture === "arm64")
+    (platform === "darwin" &&
+      (architecture === "x64" || architecture === "arm64")) ||
+    (platform === "linux" &&
+      (architecture === "x86" ||
+        architecture === "x64" ||
+        architecture === "arm" ||
+        architecture === "arm64"))
   ) {
     return `${platform}-${architecture}` as SynthesisSidecarRuntimeTarget;
   }

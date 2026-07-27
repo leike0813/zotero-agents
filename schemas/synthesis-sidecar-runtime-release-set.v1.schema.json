@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Synthesis sidecar runtime release set v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "releaseSetId",
+    "sourceCommit",
+    "prebuild",
+    "materialized"
+  ],
+  "properties": {
+    "schema": { "const": "synthesis-sidecar-runtime-release-set.v1" },
+    "releaseSetId": { "type": "string" },
+    "sourceCommit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "prebuild": { "type": "object" },
+    "materialized": { "type": "object" }
+  }
+}

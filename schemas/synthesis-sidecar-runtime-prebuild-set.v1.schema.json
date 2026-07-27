@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Synthesis sidecar runtime prebuild set v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "aggregate",
+    "buildFingerprint",
+    "sourceFingerprint",
+    "archives"
+  ],
+  "properties": {
+    "schema": { "const": "synthesis-sidecar-runtime-prebuild-set.v1" },
+    "aggregate": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "buildFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "sourceFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "archives": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["target", "file", "sha256", "bytes"],
+        "properties": {
+          "target": {
+            "enum": [
+              "win32-x64",
+              "darwin-x64",
+              "darwin-arm64",
+              "linux-x86",
+              "linux-x64",
+              "linux-arm",
+              "linux-arm64"
+            ]
+          },
+          "file": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "bytes": { "type": "integer", "minimum": 1 }
+        }
+      }
+    }
+  }
+}

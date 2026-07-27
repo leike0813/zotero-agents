@@ -43,8 +43,24 @@ const TARGET_IDENTITIES = {
       signer: null,
     },
   },
+  "linux-x86": {
+    targetTriple: "i686-unknown-linux-gnu",
+    platformSignature: {
+      scheme: "not-applicable",
+      status: "not-applicable",
+      signer: null,
+    },
+  },
   "linux-x64": {
     targetTriple: "x86_64-unknown-linux-gnu",
+    platformSignature: {
+      scheme: "not-applicable",
+      status: "not-applicable",
+      signer: null,
+    },
+  },
+  "linux-arm": {
+    targetTriple: "armv7-unknown-linux-gnueabihf",
     platformSignature: {
       scheme: "not-applicable",
       status: "not-applicable",
@@ -286,9 +302,13 @@ async function main() {
       "listen",
     );
     const endpoint = `http://127.0.0.1:${listening.port}`;
-    const health = (await (
-      await fetch(`${endpoint}/synthesis/v1/health`)
-    ).json()) as Record<string, any>;
+    const healthResponse = await fetch(`${endpoint}/synthesis/v1/health`);
+    if (healthResponse.status !== 200) {
+      throw new Error(
+        `Health route returned ${healthResponse.status} for ${target}`,
+      );
+    }
+    const health = (await healthResponse.json()) as Record<string, any>;
     if (
       health.implementation !== "rust-native" ||
       health.target !== target ||

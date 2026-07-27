@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Formal runtime inventory SHALL be native-only
 
@@ -13,13 +13,3 @@ JavaScript service, and D3 runtime files.
 - **THEN** each supported target SHALL contain exactly the required native
   runtime files and match the committed complete sidecar release evidence
 - **AND** any Node or JavaScript runtime artifact SHALL fail the inventory gate
-
-## REMOVED Requirements
-
-### Requirement: Sidecar runtime bundles have one strict manifest
-**Reason**: The v1 manifest describes the transitional Node runtime and conflicts with native manifest v2.
-**Migration**: Use `synthesis-sidecar-runtime-bundle.v2`; v1 manifests are not installable or rollback-compatible.
-
-### Requirement: Installed runtime snapshots expose verified launch identity
-**Reason**: Node and entrypoint paths are replaced by one verified native executable.
-**Migration**: Consumers use implementation, fingerprints, platform signature, and `executablePath`.

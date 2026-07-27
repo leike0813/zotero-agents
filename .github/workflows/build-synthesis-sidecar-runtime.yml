@@ -31,19 +31,20 @@ jobs:
         include:
           - target: win32-x64
             os: windows-latest
-            platform_signature: unsigned-candidate
           - target: darwin-x64
             os: macos-15-intel
-            platform_signature: unsigned-candidate
           - target: darwin-arm64
             os: macos-15
-            platform_signature: unsigned-candidate
+          - target: linux-x86
+            os: ubuntu-latest
+            rust_target: i686-unknown-linux-gnu
           - target: linux-x64
             os: ubuntu-latest
-            platform_signature: not-applicable
+          - target: linux-arm
+            os: ubuntu-latest
+            rust_target: armv7-unknown-linux-gnueabihf
           - target: linux-arm64
             os: ubuntu-24.04-arm
-            platform_signature: not-applicable
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -88,27 +89,31 @@ jobs:
         run: |
           set -euo pipefail
           RUST_FINGERPRINT="$(npx tsx -e 'import { computeSynthesisRustSidecarSourceFingerprint } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisRustSidecarSourceFingerprint().then((value) => process.stdout.write(value.fingerprint))')"
-          SYNTHESIS_RUST_BUILD_FINGERPRINT="${RUST_FINGERPRINT}" \
-            cargo +nightly-2026-07-25 build --release --locked \
-              --manifest-path native/synthesis-sidecar/Cargo.toml \
-              --bin synthesis-sidecar
-          BINARY="native/synthesis-sidecar/target/release/synthesis-sidecar${{ startsWith(matrix.target, 'win32-') && '.exe' || '' }}"
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            rustup target add "${{ matrix.rust_target }}" --toolchain nightly-2026-07-25
+            sudo apt-get update && sudo apt-get install -y gcc-multilib gcc-arm-linux-gnueabihf
+            SYNTHESIS_RUST_BUILD_FINGERPRINT="${RUST_FINGERPRINT}" \
+              cargo +nightly-2026-07-25 build --release --locked \
+                --target "${{ matrix.rust_target }}" \
+                --manifest-path native/synthesis-sidecar/Cargo.toml --bin synthesis-sidecar
+            BINARY="native/synthesis-sidecar/target/${{ matrix.rust_target }}/release/synthesis-sidecar"
+          else
+            SYNTHESIS_RUST_BUILD_FINGERPRINT="${RUST_FINGERPRINT}" \
+              cargo +nightly-2026-07-25 build --release --locked \
+                --manifest-path native/synthesis-sidecar/Cargo.toml --bin synthesis-sidecar
+            BINARY="native/synthesis-sidecar/target/release/synthesis-sidecar${{ startsWith(matrix.target, 'win32-') && '.exe' || '' }}"
+          fi
           CREATED_AT="$(node -e 'const {execFileSync}=require("child_process"); const seconds=Number(execFileSync("git",["show","-s","--format=%ct"],{encoding:"utf8"}).trim()); process.stdout.write(new Date(seconds*1000).toISOString())')"
           npm run package:synthesis-sidecar-runtime -- \
             --target="${{ matrix.target }}" \
             --rust-sidecar="${BINARY}" \
             --created-at="${CREATED_AT}" \
-            --platform-signature="${{ matrix.platform_signature }}" \
             --output=".scaffold/synthesis-sidecar-runtime/${{ matrix.target }}"
-          npx tsx scripts/check-synthesis-native-worker-transfer-parity.ts \
-            --binary="${BINARY}" \
-            --target="${{ matrix.target }}"
-          npx tsx scripts/smoke-synthesis-rust-sidecar-worker.ts \
-            "${BINARY}" \
-            ".scaffold/synthesis-sidecar-runtime/${{ matrix.target }}/provenance.json"
-          npx tsx scripts/smoke-synthesis-rust-durable-candidate.ts \
-            "${BINARY}" \
-            "${{ matrix.target }}"
+          if [ -z "${{ matrix.rust_target }}" ]; then
+            npx tsx scripts/check-synthesis-native-worker-transfer-parity.ts --binary="${BINARY}" --target="${{ matrix.target }}"
+            npx tsx scripts/smoke-synthesis-rust-sidecar-worker.ts "${BINARY}" ".scaffold/synthesis-sidecar-runtime/${{ matrix.target }}/provenance.json"
+            npx tsx scripts/smoke-synthesis-rust-durable-candidate.ts "${BINARY}" "${{ matrix.target }}"
+          fi
           tar -czf \
             ".scaffold/synthesis-sidecar-runtime-${{ matrix.target }}.tar.gz" \
             -C .scaffold/synthesis-sidecar-runtime \
@@ -137,15 +142,15 @@ jobs:
           path: .scaffold/candidates
           merge-multiple: true
 
-      - name: Enforce five-target aggregate budget
+      - name: Enforce seven-target aggregate budget
         run: |
           node <<'NODE'
           const fs = require("fs");
           const path = require("path");
           const files = fs.readdirSync(".scaffold/candidates")
             .filter((name) => name.endsWith(".tar.gz"));
-          if (files.length !== 5) {
-            throw new Error(`Expected five candidates, found ${files.length}`);
+          if (files.length !== 7) {
+            throw new Error(`Expected seven candidates, found ${files.length}`);
           }
           const bytes = files.reduce(
             (total, name) =>

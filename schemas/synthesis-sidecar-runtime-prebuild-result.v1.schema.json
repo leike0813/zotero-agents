@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Synthesis sidecar runtime prebuild result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "repository",
+    "workflow",
+    "runId",
+    "requestId",
+    "sourceSha",
+    "buildFingerprint",
+    "aggregate",
+    "prebuildBranch",
+    "prebuildCommit",
+    "setPath"
+  ],
+  "properties": {
+    "schema": { "const": "synthesis-sidecar-runtime-prebuild-result.v1" },
+    "repository": { "type": "string" },
+    "workflow": { "const": "prebuild-synthesis-sidecar-runtime.yml" },
+    "runId": { "type": "integer", "minimum": 1 },
+    "requestId": { "type": "string" },
+    "sourceSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "buildFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "aggregate": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "prebuildBranch": { "const": "synthesis-sidecar-runtime-prebuilds" },
+    "prebuildCommit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "setPath": { "type": "string" }
+  }
+}

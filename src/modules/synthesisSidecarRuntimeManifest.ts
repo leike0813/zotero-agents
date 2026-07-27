@@ -1,6 +1,5 @@
 import {
   isExpiredSynthesisSidecarRuntimeManifest,
-  isProductionSynthesisSidecarRuntimeSignature,
   rebuildSynthesisSidecarRuntimeBundleManifest,
   type SynthesisSidecarRuntimeBundleManifest,
   type SynthesisSidecarRuntimeTarget,
@@ -60,12 +59,6 @@ export async function loadPackagedSynthesisSidecarRuntimeBundle(args: {
     isExpiredSynthesisSidecarRuntimeManifest(manifest, args.nowMs)
   ) {
     throw new Error("synthesis_sidecar_runtime_expired");
-  }
-  if (
-    (args.verificationPolicy ?? "production") === "production" &&
-    !isProductionSynthesisSidecarRuntimeSignature(manifest.platformSignature)
-  ) {
-    throw new Error("synthesis_sidecar_runtime_signature_unverified");
   }
   const files = new Map<string, Uint8Array>();
   for (const entry of manifest.files) {

@@ -23,6 +23,17 @@ import {
   computeSynthesisSidecarRuntimeBuildFingerprint,
 } from "../../scripts/synthesis-sidecar-runtime-release-governance";
 import { checkSynthesisSidecarRuntimeFreshness } from "../../scripts/check-synthesis-sidecar-runtime-freshness";
+import { stageSynthesisSidecarRuntimePrebuildSet } from "../../scripts/stage-synthesis-sidecar-runtime-prebuilds";
+import { syncSynthesisSidecarRuntimePrebuilds } from "../../scripts/sync-synthesis-sidecar-runtime-prebuilds";
+import {
+  assertSynthesisSidecarRuntimePrebuildResultIdentity,
+  rebuildSynthesisSidecarRuntimePrebuildSet,
+  rebuildSynthesisSidecarRuntimePrebuildResult,
+} from "../../packages/synthesis-contracts/src/sidecarRuntimeRelease";
+import {
+  advanceSynthesisSidecarRuntimeReleaseReceipt,
+  createSynthesisSidecarRuntimeReleaseReceipt,
+} from "../../scripts/synthesis-sidecar-runtime-release-controller";
 
 const ROOT = path.resolve(import.meta.dirname, "../..");
 
@@ -40,7 +51,6 @@ function createBundle(
     bundleId?: string;
     buildFingerprint?: string;
     expiresAt?: string | null;
-    unsigned?: boolean;
   } = {},
 ) {
   const executable =
@@ -60,7 +70,7 @@ function createBundle(
     ["LICENSE-AGPL-3.0.txt", bytes("AGPL-3.0-only\n")],
   ]);
   const manifest = rebuildSynthesisSidecarRuntimeBundleManifest({
-    schema: "synthesis-sidecar-runtime-bundle.v2",
+    schema: "synthesis-sidecar-runtime-bundle.v3",
     bundleId: options.bundleId || "a".repeat(64),
     implementation: "rust-native",
     serviceVersion: "0.1.0",
@@ -78,18 +88,6 @@ function createBundle(
       cargoLockSha256: "d".repeat(64),
       licenseInventory: "licenses.json",
     },
-    platformSignature: target.startsWith("linux")
-      ? {
-          scheme: "not-applicable",
-          status: "not-applicable",
-          signer: null,
-        }
-      : {
-          scheme:
-            target === "win32-x64" ? "authenticode" : "apple-code-signing",
-          status: options.unsigned ? "unsigned-candidate" : "verified",
-          signer: options.unsigned ? null : "test signer",
-        },
     files: Array.from(assets.entries())
       .map(([filePath, value]) => ({
         path: filePath,
@@ -135,7 +133,7 @@ function writeBundle(
 describe("Synthesis sidecar native runtime packaging", function () {
   this.timeout(30_000);
 
-  it("strictly rebuilds manifest v2 and pointer v2", function () {
+  it("strictly rebuilds manifest v3 and pointer v2", function () {
     const { manifest } = createBundle();
     assert.equal(manifest.implementation, "rust-native");
     assert.equal(manifest.targetTriple, "x86_64-unknown-linux-gnu");
@@ -159,6 +157,8 @@ describe("Synthesis sidecar native runtime packaging", function () {
       { ...manifest, capabilities: [...manifest.capabilities].reverse() },
       { ...manifest, executable: "../synthesis-sidecar" },
       { ...manifest, expiresAt: "2026-01-01T00:00:00.000Z" },
+      { ...manifest, platformSignature: { scheme: "authenticode" } },
+      { ...manifest, schema: "synthesis-sidecar-runtime-bundle.v2" },
     ]) {
       assert.throws(() =>
         rebuildSynthesisSidecarRuntimeBundleManifest(invalid),
@@ -208,7 +208,7 @@ describe("Synthesis sidecar native runtime packaging", function () {
     assert.notInclude(JSON.stringify(manifest), "entrypoint");
   });
 
-  it("installs, repairs through quarantine, and rolls back only v2 bundles", async function () {
+  it("installs, repairs through quarantine, and rolls back only v3 bundles", async function () {
     const runtimeRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "zs-native-runtime-install-"),
     );
@@ -247,7 +247,7 @@ describe("Synthesis sidecar native runtime packaging", function () {
     assert.equal(rolledBack.bundleId, "1".repeat(64));
   });
 
-  it("activates v2 over legacy pointers without making v1 rollback eligible", async function () {
+  it("activates v3 over legacy pointers without making v1 rollback eligible", async function () {
     const runtimeRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "zs-native-runtime-upgrade-"),
     );
@@ -273,7 +273,7 @@ describe("Synthesis sidecar native runtime packaging", function () {
     assert.equal((await installer.rollback()).state, "missing");
   });
 
-  it("rejects expired and unsigned formal packages while candidate policy is explicit", async function () {
+  it("rejects expired packages while production admission is integrity-only", async function () {
     const expired = createBundle("linux-x64", {
       expiresAt: "2026-07-28T00:00:00.000Z",
     });
@@ -296,23 +296,16 @@ describe("Synthesis sidecar native runtime packaging", function () {
     });
     assert.equal((await expiredInstaller.ensureInstalled()).state, "corrupt");
 
-    const unsigned = createBundle("darwin-arm64", { unsigned: true });
+    const mac = createBundle("darwin-arm64");
     const production = createSynthesisSidecarRuntimeInstaller({
-      runtimeRoot: fs.mkdtempSync(path.join(os.tmpdir(), "zs-unsigned-")),
+      runtimeRoot: fs.mkdtempSync(path.join(os.tmpdir(), "zs-integrity-")),
       target: "darwin-arm64",
-      readPackagedAsset: packagedReader("darwin-arm64", unsigned),
+      readPackagedAsset: packagedReader("darwin-arm64", mac),
     });
-    assert.equal((await production.ensureInstalled()).state, "corrupt");
-    const candidate = createSynthesisSidecarRuntimeInstaller({
-      runtimeRoot: fs.mkdtempSync(path.join(os.tmpdir(), "zs-candidate-")),
-      target: "darwin-arm64",
-      readPackagedAsset: packagedReader("darwin-arm64", unsigned),
-      verificationPolicy: "candidate",
-    });
-    assert.equal((await candidate.ensureInstalled()).state, "ready");
+    assert.equal((await production.ensureInstalled()).state, "ready");
   });
 
-  it("verifies all five current native prebuilds and build workflow governance", async function () {
+  it("verifies all seven native prebuilds and build workflow governance", async function () {
     const assetRoot = fs.mkdtempSync(
       path.join(os.tmpdir(), "zs-native-freshness-"),
     );
@@ -348,7 +341,7 @@ describe("Synthesis sidecar native runtime packaging", function () {
     assert.equal(workflow.permissions?.contents, "read");
     assert.lengthOf(
       workflow.jobs?.candidate?.strategy?.matrix?.include || [],
-      5,
+      7,
     );
     assert.include(
       workflowSource,
@@ -364,5 +357,110 @@ describe("Synthesis sidecar native runtime packaging", function () {
     assert.notInclude(workflowSource, "node-v24");
     assert.notInclude(workflowSource, "SHASUMS256");
     assert.notInclude(workflowSource, "build-synthesis-rust-sidecar.yml");
+  });
+
+  it("binds and synchronizes an exact content-addressed seven-target set transactionally", async function () {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zs-prebuild-set-"));
+    const input = path.join(root, "input");
+    const store = path.join(root, "store");
+    const addon = path.join(root, "addon", "synthesis-sidecar");
+    const build = await computeSynthesisSidecarRuntimeBuildFingerprint(ROOT);
+    for (const target of SYNTHESIS_SIDECAR_RUNTIME_TARGETS) {
+      writeBundle(
+        input,
+        target,
+        createBundle(target, { buildFingerprint: build.fingerprint }),
+      );
+    }
+    const staged = await stageSynthesisSidecarRuntimePrebuildSet({
+      inputRoot: input,
+      outputRoot: store,
+      buildFingerprint: build.fingerprint,
+      sourceFingerprint: "a".repeat(64),
+    });
+    const result = rebuildSynthesisSidecarRuntimePrebuildResult({
+      schema: "synthesis-sidecar-runtime-prebuild-result.v1",
+      repository: "example/zotero-agents",
+      workflow: "prebuild-synthesis-sidecar-runtime.yml",
+      runId: 42,
+      requestId: "sidecar-test-42",
+      sourceSha: "b".repeat(40),
+      buildFingerprint: build.fingerprint,
+      aggregate: staged.aggregate,
+      prebuildBranch: "synthesis-sidecar-runtime-prebuilds",
+      prebuildCommit: "c".repeat(40),
+      setPath: `sets/${staged.aggregate}`,
+    });
+    assertSynthesisSidecarRuntimePrebuildResultIdentity(result, {
+      aggregate: staged.aggregate,
+      requestId: "sidecar-test-42",
+    });
+    assert.throws(() =>
+      assertSynthesisSidecarRuntimePrebuildResultIdentity(result, {
+        sourceSha: "d".repeat(40),
+      }),
+    );
+    const setPath = path.join(store, "sets", staged.aggregate, "manifest.json");
+    const set = JSON.parse(fs.readFileSync(setPath, "utf8"));
+    assert.throws(() =>
+      rebuildSynthesisSidecarRuntimePrebuildSet({
+        ...set,
+        archives: set.archives.slice(0, -1),
+      }),
+    );
+    assert.throws(() =>
+      rebuildSynthesisSidecarRuntimePrebuildSet({
+        ...set,
+        archives: [
+          { ...set.archives[0] },
+          { ...set.archives[0] },
+          ...set.archives.slice(2),
+        ],
+      }),
+    );
+    const synced = await syncSynthesisSidecarRuntimePrebuilds({
+      aggregate: staged.aggregate,
+      storeRoot: store,
+      addonRoot: addon,
+      result,
+      expected: { sourceSha: "b".repeat(40), runId: 42 },
+    });
+    assert.isTrue(synced.ok);
+    assert.isTrue(
+      fs.existsSync(path.join(addon, "linux-arm", "synthesis-sidecar")),
+    );
+    fs.writeFileSync(
+      path.join(store, "sets", staged.aggregate, staged.archives[0]!.file),
+      "digest drift",
+    );
+    await syncSynthesisSidecarRuntimePrebuilds({
+      aggregate: staged.aggregate,
+      storeRoot: store,
+      addonRoot: addon,
+      result,
+    }).then(
+      () => assert.fail("expected digest drift to be rejected"),
+      () => undefined,
+    );
+    assert.isTrue(
+      fs.existsSync(path.join(addon, "linux-arm", "synthesis-sidecar")),
+    );
+    const initialReceipt = createSynthesisSidecarRuntimeReleaseReceipt({
+      releaseSet: {
+        schema: "synthesis-sidecar-runtime-release-set.v1",
+        releaseSetId: "ssrs-test",
+        sourceCommit: "b".repeat(40),
+        prebuild: { aggregate: staged.aggregate },
+      } as never,
+      workflowRun: "test",
+      pipelineRevision: "test",
+    });
+    assert.throws(() =>
+      advanceSynthesisSidecarRuntimeReleaseReceipt(
+        initialReceipt,
+        "finalize",
+        "complete",
+      ),
+    );
   });
 });

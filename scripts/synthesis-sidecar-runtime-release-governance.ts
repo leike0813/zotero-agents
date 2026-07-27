@@ -4,7 +4,6 @@ import path from "node:path";
 import {
   SYNTHESIS_SIDECAR_RUNTIME_TARGETS,
   isExpiredSynthesisSidecarRuntimeManifest,
-  isProductionSynthesisSidecarRuntimeSignature,
   rebuildSynthesisSidecarRuntimeBundleManifest,
   type SynthesisSidecarRuntimeBundleManifest,
   type SynthesisSidecarRuntimeTarget,
@@ -147,7 +146,7 @@ export async function computeSynthesisSidecarRuntimeBuildFingerprint(
 ) {
   const inputs = await synthesisSidecarRuntimeFingerprintInputs(root);
   const hash = createHash("sha256");
-  hash.update("synthesis-sidecar-runtime-v2\nimplementation=rust-native\n");
+  hash.update("synthesis-sidecar-runtime-v3\nimplementation=rust-native\n");
   for (const relativePath of inputs) {
     hash.update(`${relativePath}\0`);
     hash.update(await fs.readFile(path.join(root, relativePath)));
@@ -200,15 +199,9 @@ export async function verifySynthesisSidecarRuntimeBundleDirectory(args: {
       actual: manifest.buildFingerprint,
     });
   }
-  if (
-    isExpiredSynthesisSidecarRuntimeManifest(manifest, args.nowMs) ||
-    ((args.policy ?? "production") === "production" &&
-      !isProductionSynthesisSidecarRuntimeSignature(manifest.platformSignature))
-  ) {
+  if (isExpiredSynthesisSidecarRuntimeManifest(manifest, args.nowMs)) {
     diagnostics.push({
-      code: isExpiredSynthesisSidecarRuntimeManifest(manifest, args.nowMs)
-        ? "bundle_expired"
-        : "platform_signature_unverified",
+      code: "bundle_expired",
     });
   }
   for (const entry of manifest.files) {

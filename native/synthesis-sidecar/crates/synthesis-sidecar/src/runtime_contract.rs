@@ -59,7 +59,6 @@ struct RuntimeBundleManifest {
     created_at: String,
     expires_at: Option<String>,
     provenance: RuntimeProvenance,
-    platform_signature: RuntimeSignature,
     files: Vec<RuntimeFile>,
 }
 
@@ -160,7 +159,9 @@ fn target_matches(target: &str, triple: &str) -> bool {
         ("win32-x64", "x86_64-pc-windows-msvc")
             | ("darwin-x64", "x86_64-apple-darwin")
             | ("darwin-arm64", "aarch64-apple-darwin")
+            | ("linux-x86", "i686-unknown-linux-gnu")
             | ("linux-x64", "x86_64-unknown-linux-gnu")
+            | ("linux-arm", "armv7-unknown-linux-gnueabihf")
             | ("linux-arm64", "aarch64-unknown-linux-gnu")
     )
 }
@@ -199,7 +200,7 @@ fn timestamp(value: &str) -> bool {
 
 fn signature_valid(target: &str, signature: &RuntimeSignature) -> bool {
     match target {
-        "linux-x64" | "linux-arm64" => {
+        "linux-x86" | "linux-x64" | "linux-arm" | "linux-arm64" => {
             signature.scheme == "not-applicable"
                 && signature.status == "not-applicable"
                 && signature.signer.is_none()
@@ -235,7 +236,6 @@ pub fn rebuild_native_bundle_manifest(value: &str) -> Result<(), String> {
     let manifest: RuntimeBundleManifest =
         serde_json::from_str(value).map_err(|_| "invalid_manifest".to_owned())?;
     let executable = target_executable(&manifest.target);
-    let signature_valid = signature_valid(&manifest.target, &manifest.platform_signature);
     let capabilities_match = manifest.capabilities.len() == SIDECAR_CAPABILITIES.len()
         && manifest
             .capabilities
@@ -252,7 +252,7 @@ pub fn rebuild_native_bundle_manifest(value: &str) -> Result<(), String> {
                 && paths.insert(file.path.as_str())
                 && (!file.executable || file.path == executable)
         });
-    if manifest.schema != "synthesis-sidecar-runtime-bundle.v2"
+    if manifest.schema != "synthesis-sidecar-runtime-bundle.v3"
         || manifest.implementation != "rust-native"
         || manifest.protocol_version != "synthesis-sidecar.v1"
         || !bounded_text(&manifest.service_version, 128)
@@ -270,7 +270,6 @@ pub fn rebuild_native_bundle_manifest(value: &str) -> Result<(), String> {
         || !bounded_text(&manifest.provenance.toolchain, 128)
         || !sha256(&manifest.provenance.cargo_lock_sha256)
         || !safe_relative_path(&manifest.provenance.license_inventory)
-        || !signature_valid
         || !files_valid
         || executable_files != 1
     {

@@ -60,37 +60,6 @@ async function collectFiles(root: string) {
   return files;
 }
 
-function platformSignature(
-  target: SynthesisSidecarRuntimeTarget,
-  status: string,
-  signer: string | undefined,
-) {
-  if (target.startsWith("linux")) {
-    if (status !== "not-applicable" || signer) {
-      throw new Error("Linux platform signature must be not-applicable");
-    }
-    return {
-      scheme: "not-applicable" as const,
-      status: "not-applicable" as const,
-      signer: null,
-    };
-  }
-  if (status !== "verified" && status !== "unsigned-candidate") {
-    throw new Error(`Invalid platform signature status for ${target}`);
-  }
-  if ((status === "verified") !== Boolean(signer)) {
-    throw new Error("Verified signature requires signer; candidate forbids it");
-  }
-  return {
-    scheme:
-      target === "win32-x64"
-        ? ("authenticode" as const)
-        : ("apple-code-signing" as const),
-    status,
-    signer: signer || null,
-  };
-}
-
 async function main() {
   const root = process.cwd();
   const target = targetArgument();
@@ -193,11 +162,6 @@ async function main() {
       cargoLockSha256,
       licenseInventory: "licenses.json",
     },
-    platformSignature: platformSignature(
-      target,
-      requiredArgument("platform-signature"),
-      argument("platform-signer")?.trim() || undefined,
-    ),
     files,
   };
   const manifest = rebuildSynthesisSidecarRuntimeBundleManifest({

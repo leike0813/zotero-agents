@@ -1,0 +1,123 @@
+name: Prebuild Synthesis Sidecar Runtime
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact full source commit to build
+        required: true
+        type: string
+      request_id:
+        description: Caller-selected correlation identifier
+        required: true
+        type: string
+
+run-name: Synthesis sidecar prebuild ${{ inputs.request_id }}
+
+concurrency:
+  group: synthesis-sidecar-prebuild-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  prebuild:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: win32-x64, os: windows-latest }
+          - { target: darwin-x64, os: macos-15-intel }
+          - { target: darwin-arm64, os: macos-15 }
+          - { target: linux-x86, os: ubuntu-latest, rust_target: i686-unknown-linux-gnu }
+          - { target: linux-x64, os: ubuntu-latest }
+          - { target: linux-arm, os: ubuntu-latest, rust_target: armv7-unknown-linux-gnueabihf }
+          - { target: linux-arm64, os: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+      - shell: bash
+        run: test "$(git rev-parse HEAD)" = "${{ inputs.source_sha }}"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.18.0
+          cache: npm
+      - run: npm ci
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c
+        with:
+          toolchain: nightly-2026-07-25
+          components: rustfmt, clippy
+      - name: Verify and package exact candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo +nightly-2026-07-25 fmt --manifest-path native/synthesis-sidecar/Cargo.toml --all --check
+          cargo +nightly-2026-07-25 clippy --workspace --all-targets --locked --manifest-path native/synthesis-sidecar/Cargo.toml -- -D warnings
+          cargo +nightly-2026-07-25 test --workspace --locked --manifest-path native/synthesis-sidecar/Cargo.toml
+          npm run check:synthesis-cross-language-contracts
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            rustup target add "${{ matrix.rust_target }}" --toolchain nightly-2026-07-25
+            sudo apt-get update && sudo apt-get install -y gcc-multilib gcc-arm-linux-gnueabihf
+            cargo +nightly-2026-07-25 build --release --locked --target "${{ matrix.rust_target }}" --manifest-path native/synthesis-sidecar/Cargo.toml --bin synthesis-sidecar
+            binary="native/synthesis-sidecar/target/${{ matrix.rust_target }}/release/synthesis-sidecar"
+          else
+            cargo +nightly-2026-07-25 build --release --locked --manifest-path native/synthesis-sidecar/Cargo.toml --bin synthesis-sidecar
+            binary="native/synthesis-sidecar/target/release/synthesis-sidecar"
+            if [ "${{ matrix.target }}" = "win32-x64" ]; then binary="$binary.exe"; fi
+          fi
+          created_at="$(git show -s --format=%cI HEAD)"
+          npm run package:synthesis-sidecar-runtime -- --target="${{ matrix.target }}" --rust-sidecar="$binary" --created-at="$created_at" --output=".scaffold/synthesis-sidecar-runtime/${{ matrix.target }}"
+          tar -czf ".scaffold/synthesis-sidecar-runtime-${{ matrix.target }}.tar.gz" -C .scaffold/synthesis-sidecar-runtime "${{ matrix.target }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: synthesis-sidecar-runtime-${{ matrix.target }}
+          path: .scaffold/synthesis-sidecar-runtime-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+
+  publish-set:
+    needs: prebuild
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.18.0
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: synthesis-sidecar-runtime-*
+          path: .scaffold/prebuild
+          merge-multiple: true
+      - name: Assemble and publish immutable set
+        env:
+          REQUEST_ID: ${{ inputs.request_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir extracted
+          for archive in .scaffold/prebuild/*.tar.gz; do tar -xzf "$archive" -C extracted; done
+          fingerprint="$(npx tsx -e 'import { computeSynthesisSidecarRuntimeBuildFingerprint } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisSidecarRuntimeBuildFingerprint().then(x => process.stdout.write(x.fingerprint))')"
+          source_fingerprint="$(npx tsx -e 'import { computeSynthesisRustSidecarSourceFingerprint } from "./scripts/synthesis-sidecar-runtime-release-governance.ts"; computeSynthesisRustSidecarSourceFingerprint().then(x => process.stdout.write(x.fingerprint))')"
+          npm run prebuild:synthesis-sidecar-runtime -- --input-root=extracted --output-root=prebuild-store --build-fingerprint="$fingerprint" --source-fingerprint="$source_fingerprint"
+          aggregate="$(jq -r .aggregate prebuild-store/sets/*/manifest.json)"
+          git clone --depth=1 --branch synthesis-sidecar-runtime-prebuilds "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" store
+          mkdir -p "store/sets/$aggregate"
+          cp -a "prebuild-store/sets/$aggregate/." "store/sets/$aggregate/"
+          git -C store add "sets/$aggregate"
+          git -C store -c user.name=github-actions[bot] -c user.email=41898282+github-actions[bot] commit -m "Synthesis sidecar prebuild $aggregate" || true
+          git -C store push origin HEAD:synthesis-sidecar-runtime-prebuilds
+          commit="$(git -C store rev-parse HEAD)"
+          jq -n --arg repository "$GITHUB_REPOSITORY" --arg source_sha "${{ inputs.source_sha }}" --arg request_id "$REQUEST_ID" --arg fingerprint "$fingerprint" --arg aggregate "$aggregate" --arg commit "$commit" --arg run_id "$GITHUB_RUN_ID" '{schema:"synthesis-sidecar-runtime-prebuild-result.v1",repository:$repository,workflow:"prebuild-synthesis-sidecar-runtime.yml",runId:($run_id|tonumber),requestId:$request_id,sourceSha:$source_sha,buildFingerprint:$fingerprint,aggregate:$aggregate,prebuildBranch:"synthesis-sidecar-runtime-prebuilds",prebuildCommit:$commit,setPath:("sets/"+$aggregate)}' > prebuild-result.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: synthesis-sidecar-runtime-prebuild-result
+          path: prebuild-result.json
+          if-no-files-found: error

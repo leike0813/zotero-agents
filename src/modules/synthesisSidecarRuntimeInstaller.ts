@@ -1,7 +1,7 @@
 import {
   SYNTHESIS_SIDECAR_RUNTIME_POINTER_SCHEMA,
   isExpiredSynthesisSidecarRuntimeManifest,
-  isProductionSynthesisSidecarRuntimeSignature,
+  synthesisSidecarRuntimePlatformIdentity,
   rebuildSynthesisSidecarRuntimeBundleManifest,
   rebuildSynthesisSidecarRuntimePointer,
   type SynthesisSidecarRuntimeBundleManifest,
@@ -51,7 +51,9 @@ export type SynthesisSidecarRuntimeInstallSnapshot = {
   serviceVersion?: string;
   protocolVersion?: string;
   buildFingerprint?: string;
-  platformSignature?: SynthesisSidecarRuntimeBundleManifest["platformSignature"];
+  platformSignature?: ReturnType<
+    typeof synthesisSidecarRuntimePlatformIdentity
+  >;
   installRoot?: string;
   executablePath?: string;
   diagnostics: Array<{ code: string }>;
@@ -163,10 +165,8 @@ async function verifyInstalledRuntime(args: {
     );
   }
   if (
-    (!args.allowExpired &&
-      isExpiredSynthesisSidecarRuntimeManifest(manifest, args.nowMs)) ||
-    (args.verificationPolicy === "production" &&
-      !isProductionSynthesisSidecarRuntimeSignature(manifest.platformSignature))
+    !args.allowExpired &&
+    isExpiredSynthesisSidecarRuntimeManifest(manifest, args.nowMs)
   ) {
     return diagnosticSnapshot(
       "corrupt",
@@ -174,7 +174,7 @@ async function verifyInstalledRuntime(args: {
       !args.allowExpired &&
         isExpiredSynthesisSidecarRuntimeManifest(manifest, args.nowMs)
         ? "installed_manifest_expired"
-        : "installed_manifest_signature_unverified",
+        : "installed_manifest_integrity_invalid",
     );
   }
   for (const entry of manifest.files) {
@@ -215,7 +215,7 @@ async function verifyInstalledRuntime(args: {
     serviceVersion: manifest.serviceVersion,
     protocolVersion: manifest.protocolVersion,
     buildFingerprint: manifest.buildFingerprint,
-    platformSignature: manifest.platformSignature,
+    platformSignature: synthesisSidecarRuntimePlatformIdentity(args.target),
     installRoot: args.installRoot,
     executablePath: joinPath(args.installRoot, manifest.executable),
     diagnostics: [],

@@ -94,7 +94,8 @@ describe("runtime platform services", function () {
   it("detects supported Synthesis runtime targets without command discovery", function () {
     assert.equal(detectRuntimeArchitecture("x64"), "x64");
     assert.equal(detectRuntimeArchitecture("arm64"), "arm64");
-    assert.equal(detectRuntimeArchitecture("ia32"), "unknown");
+    assert.equal(detectRuntimeArchitecture("ia32"), "x86");
+    assert.equal(detectRuntimeArchitecture("armv7l"), "arm");
     assert.equal(
       detectSynthesisSidecarRuntimeTarget({
         platform: "win32",
@@ -108,6 +109,20 @@ describe("runtime platform services", function () {
         architecture: "arm64",
       }),
       "darwin-arm64",
+    );
+    assert.equal(
+      detectSynthesisSidecarRuntimeTarget({
+        platform: "linux",
+        architecture: "ia32",
+      }),
+      "linux-x86",
+    );
+    assert.equal(
+      detectSynthesisSidecarRuntimeTarget({
+        platform: "linux",
+        architecture: "armv7l",
+      }),
+      "linux-arm",
     );
     assert.equal(
       detectSynthesisSidecarRuntimeTarget({
