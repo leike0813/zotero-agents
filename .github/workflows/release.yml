@@ -24,7 +24,7 @@ jobs:
         uses: zotero-plugin-dev/workflows/setup-js@main
 
       - name: Initialize content submodules
-        run: git submodule update --init --recursive
+        run: git submodule update --init
 
       - name: Restore exact Host Bridge CLI prebuild set
         run: |
